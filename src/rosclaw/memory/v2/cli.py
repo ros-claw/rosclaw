@@ -39,6 +39,11 @@ from rosclaw.storage.factory import StoreFactory
 from rosclaw.storage.seekdb_native import SeekDBRetrievalStore
 from rosclaw.storage.vector import SQLiteVectorStore, TfidfEmbedder
 
+# ADR-0010 compat (PR-DF-01): keep the pre-rename module attribute
+SQLiteKnowledgeStore = SQLiteStructuredStore
+StorageFactory = StoreFactory
+SeekDBNativeStore = SeekDBRetrievalStore
+
 # Score-semantics disclosure: a vector score only has meaning relative to the
 # backend that produced it.  Never present a local TF-IDF cosine as a native
 # SeekDB vector score (or vice versa).

@@ -26,6 +26,9 @@ from rosclaw.practice.writers.jsonl_writer import JsonlWriter
 from rosclaw.runtime.bus import RuntimeBus
 from rosclaw.runtime.event import RuntimeEvent
 
+# ADR-0010 compat (PR-DF-01): keep the pre-rename module attribute
+SeekDBClient = StructuredStore
+
 logger = logging.getLogger("rosclaw.practice.coordinator")
 
 

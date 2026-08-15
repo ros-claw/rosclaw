@@ -16,7 +16,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -459,6 +459,17 @@ class PiToolDispatcher:
                 "hard_deadline_sec 需要显式权威来源（user/benchmark/admin_policy）"
                 "——Worker 有进度就让它继续；wall 时间只是观察指标",
             )
+        # 十四审 PR-14.1（§3.1）：cost_hard_limit 是唯一可暂停进程的预算
+        # 手段——同样需要显式 user/admin_policy 权威；模型自报的
+        # model_tokens 只是遥测，绝不控制进程。
+        if exec_policy.get("cost_hard_limit_tokens") and exec_policy.get(
+            "cost_hard_limit_source"
+        ) not in ("user", "admin_policy"):
+            raise ToolBridgeError(
+                "COST_LIMIT_AUTHORITY_REQUIRED",
+                "cost_hard_limit_tokens 需要显式权威来源（user/admin_policy）"
+                "——token soft target 只做提示，不改变进程状态",
+            )
         # 十二审 PR-12.4：WorkSpecV2——任务类型驱动验收（deliverables
         # 覆盖 profile 默认工件类型）。
         task_type = str(args.get("task_type") or (
@@ -537,7 +548,8 @@ class PiToolDispatcher:
         )
         if terminal is not None:
             return self._terminal_response(request, terminal)
-        deadline = datetime.now(UTC) + timedelta(seconds=scheduled.budgets.wall_time_sec)
+        # 十四审 PR-14.7：wall_time 只是 soft target（提醒阈值）——
+        # 不再向模型/用户展示 "Deadline"（概念误导→错误归因之源）。
         # 十审 §10.3：外部 harness 的模型/账号配置独立——UI 明示，不得
         # 假装继承 Native Agent。
         external_note = ""
@@ -555,9 +567,10 @@ class PiToolDispatcher:
                 "已启动后台 Worker（不阻塞本会话——你可以继续与用户交互）。\n"
                 f"WorkOrder: {scheduled.work_order_id}\n"
                 f"Worker: {scheduled.assigned_to}\n"
-                f"预算: wall_time {scheduled.budgets.wall_time_sec}s · "
+                f"预算（soft target 提醒阈值，不会强杀 Worker）: "
+                f"wall_time {scheduled.budgets.wall_time_sec}s · "
                 f"{scheduled.budgets.model_tokens} tokens\n"
-                f"Deadline: {deadline.isoformat()}\n"
+                "Worker 有进度就让它继续做；wall/token 到点只提醒不终止。\n"
                 f"查询进度：rosclaw_check_work(work_order_id=\"{scheduled.work_order_id}\")；"
                 f"取消：rosclaw_cancel_work(work_order_id=\"{scheduled.work_order_id}\")。"
                 "Worker 产出须经 ROSClaw 验证后才会被采纳。"
@@ -812,10 +825,10 @@ class PiToolDispatcher:
             )
 
     async def _retry_work(self, request: PiToolRequestV1) -> PiToolResultV1:
-        """十审 W4：终态单 retry——新 attempt 携带 steer 备注（拼入
-        instructions）+ parent/root lineage（可审计重试链）。"""
-        from rosclaw.contracts.common import new_id
-        from rosclaw.contracts.worker.order import WorkOrderV1
+        """十审 W4：终态单 retry。十四审 PR-14.2：RetryCoordinator 唯一
+        决策——已有自动 retry/活跃 attempt 时返回现有 attempt（幂等），
+        绝不创建第二个顶层任务。"""
+        from rosclaw.agentd.workers.retry import parse_cause
 
         work_order_id = str(request.arguments.get("work_order_id", "")).strip()
         if not work_order_id:
@@ -830,53 +843,48 @@ class PiToolDispatcher:
             raise ToolBridgeError(
                 "MISSION_MISMATCH", "work order belongs to a different mission"
             )
-        if order.status not in ("ACCEPTED", "FAILED", "EXPIRED", "CANCELLED"):
+        if order.status not in (
+            "ACCEPTED", "FAILED", "EXPIRED", "CANCELLED", "INTERRUPTED_RESUMABLE",
+        ):
             raise ToolBridgeError(
                 "NOT_TERMINAL",
                 f"work order is {order.status}——只能 retry 终态单（运行中请先 cancel）",
             )
-        notes = order.inputs.get("steer_notes") or []
-        instructions = str(order.inputs.get("instructions") or order.goal)
-        if notes:
-            instructions += "\n\n追加约束（来自 retry 前的 steer 备注）：" + "；".join(
-                str(n.get("note", "")) for n in notes
-            )
-        new_order = WorkOrderV1(
-            work_order_id=new_id("wo"),
-            mission_id=order.mission_id,
-            issued_by="rosclaw-agent:pi",
-            capability=order.capability,
-            goal=order.goal,
-            inputs={**dict(order.inputs), "instructions": instructions},
-            budgets=order.budgets,
-            expected_output=order.expected_output,
-            side_effect_policy=order.side_effect_policy,
-            delegation_depth=0,
-            max_delegation_depth=1,
-            parent_work_order_id=order.work_order_id,
-            root_work_order_id=order.root_work_order_id or order.work_order_id,
-        )
         self._check_worker_token_budget(request.mission_id)
-        worker_hint = order.assigned_to or "auto"
-        candidates = self._candidates_for(worker_hint, order.capability)
-        if not candidates:
+        # 终态原因来自账本/摘要（模型不得猜日志）——coordinator 幂等仲裁。
+        from rosclaw.agentd.workers.event_store import WorkerEventStore
+
+        state = WorkerEventStore(self._service._home).read_state(work_order_id) or {}
+        cause = str(state.get("termination_cause") or "") or parse_cause(
+            getattr(order, "summary", "") or ""
+        )
+        attempt, created, reason = await self._service._retry_coordinator.request_retry(
+            order, cause=cause, actor="native_agent"
+        )
+        if attempt is None:
             raise ToolBridgeError(
-                "WORKER_UNAVAILABLE", f"no worker matches {worker_hint!r}", retryable=True
+                "WORKER_UNAVAILABLE" if reason == "worker_unavailable" else "RETRY_REJECTED",
+                f"retry 未被接受：{reason}",
+                retryable=reason == "worker_unavailable",
             )
-        try:
-            scheduled = manager.hire(new_order, candidates)
-        except Exception as exc:  # noqa: BLE001
-            raise ToolBridgeError("SCHEDULING_FAILED", str(exc), retryable=True) from exc
-        self._service.spawn_worker_driver(scheduled)
+        if not created:
+            return PiToolResultV1(
+                request_id=request.request_id,
+                ok=True,
+                status="STARTED",
+                summary=(
+                    f"已有进行中的 attempt（同一任务，不重复创建）：{attempt.work_order_id}\n"
+                    "一个用户任务只有一张卡——retry/resume 是内部 attempt。"
+                ),
+            )
         return PiToolResultV1(
             request_id=request.request_id,
             ok=True,
             status="STARTED",
             summary=(
-                f"已 retry（新 attempt）：{scheduled.work_order_id}\n"
-                f"parent: {order.work_order_id} · root: {new_order.root_work_order_id}\n"
-                f"Worker: {scheduled.assigned_to}"
-                + (f" · 携带 {len(notes)} 条 steer 备注" if notes else "")
+                f"已 retry（新 attempt）：{attempt.work_order_id}\n"
+                f"parent: {order.work_order_id} · root: {attempt.root_work_order_id}\n"
+                f"Worker: {attempt.assigned_to}"
             ),
         )
 
@@ -884,8 +892,6 @@ class PiToolDispatcher:
         """十二审 PR-12.3：resume——新 attempt 恢复同一 Pi 会话（工具
         历史与上下文保留）；区别于 retry（新会话从零）。只接受终态单
         且有持久 session 文件。"""
-        from rosclaw.contracts.common import new_id
-        from rosclaw.contracts.worker.order import WorkOrderV1
 
         work_order_id = str(request.arguments.get("work_order_id", "")).strip()
         if not work_order_id:
@@ -900,7 +906,9 @@ class PiToolDispatcher:
             raise ToolBridgeError(
                 "MISSION_MISMATCH", "work order belongs to a different mission"
             )
-        if order.status not in ("FAILED", "CANCELLED", "EXPIRED", "ACCEPTED"):
+        if order.status not in (
+            "FAILED", "CANCELLED", "EXPIRED", "ACCEPTED", "INTERRUPTED_RESUMABLE",
+        ):
             raise ToolBridgeError(
                 "NOT_TERMINAL", f"work order is {order.status}——只能 resume 终态单"
             )
@@ -914,39 +922,38 @@ class PiToolDispatcher:
                 "该 WorkOrder 没有可恢复的会话检查点（session 未持久化）——"
                 "请用 rosclaw_retry_work 开新 attempt",
             )
-        new_order = WorkOrderV1(
-            work_order_id=new_id("wo"),
-            mission_id=order.mission_id,
-            issued_by=order.issued_by,
-            capability=order.capability,
-            goal=order.goal,
-            inputs={
-                **dict(order.inputs),
-                "_resume_session": session_file,
-            },
-            budgets=order.budgets,
-            expected_output=order.expected_output,
-            side_effect_policy=order.side_effect_policy,
-            delegation_depth=0,
-            max_delegation_depth=1,
-            parent_work_order_id=order.work_order_id,
-            root_work_order_id=order.root_work_order_id or order.work_order_id,
-        )
         self._check_worker_token_budget(request.mission_id)
-        candidates = self._candidates_for(order.assigned_to or "auto", order.capability)
-        if not candidates:
-            raise ToolBridgeError("WORKER_UNAVAILABLE", "no eligible worker", retryable=True)
-        try:
-            scheduled = manager.hire(new_order, candidates)
-        except Exception as exc:  # noqa: BLE001
-            raise ToolBridgeError("SCHEDULING_FAILED", str(exc), retryable=True) from exc
-        self._service.spawn_worker_driver(scheduled)
+        # 十四审 PR-14.2：resume 也走 RetryCoordinator——同一 root job 的
+        # 新 attempt（同一 Pi 会话恢复），活跃 attempt 去重同样生效。
+        cause = str(state.get("termination_cause") or "")
+        attempt, created, reason = await self._service._retry_coordinator.request_retry(
+            order,
+            cause=cause or None,
+            actor="native_agent",
+            note="resume 恢复同一 Pi 会话（上下文保留）",
+            resume_session=session_file,
+        )
+        if attempt is None:
+            raise ToolBridgeError(
+                "WORKER_UNAVAILABLE" if reason == "worker_unavailable" else "RESUME_REJECTED",
+                f"resume 未被接受：{reason}",
+                retryable=reason == "worker_unavailable",
+            )
+        if not created:
+            return PiToolResultV1(
+                request_id=request.request_id,
+                ok=True,
+                status="STARTED",
+                summary=(
+                    f"已有进行中的 attempt（同一任务，不重复创建）：{attempt.work_order_id}"
+                ),
+            )
         return PiToolResultV1(
             request_id=request.request_id,
             ok=True,
             status="STARTED",
             summary=(
-                f"已从持久会话恢复（新 attempt）：{scheduled.work_order_id}\n"
+                f"已从持久会话恢复（新 attempt）：{attempt.work_order_id}\n"
                 f"resume 自 {work_order_id}（同一 Pi 会话，上下文保留）"
             ),
         )
@@ -1106,21 +1113,71 @@ class PiToolDispatcher:
         )
 
     async def _read_work_transcript(self, request: PiToolRequestV1) -> PiToolResultV1:
-        from rosclaw.agentd.workers.event_store import WorkerEventStore
+        """十四审 PR-14.3：完整公开 transcript 分页（tseq 游标 + channel
+        过滤）——不再是尾部 4000 字节切片。"""
+        from rosclaw.agentd.workers.transcript_store import TranscriptStore
 
         order = self._order_for_read(request)
-        path = (
-            WorkerEventStore(self._service._home).dir_of(order.work_order_id)
-            / "transcript.jsonl"
+        args = request.arguments
+        before_raw = args.get("before_seq")
+        page = TranscriptStore(self._service._home).read_page(
+            order.work_order_id,
+            after_seq=int(args.get("after_seq") or 0) or None,
+            before_seq=int(before_raw) if before_raw is not None else None,
+            limit=min(int(args.get("limit") or 50), 200),
+            channel=str(args.get("channel") or "") or None,
         )
-        text = ""
-        if path.exists():
-            text = path.read_bytes()[-4000:].decode("utf-8", errors="replace")
+        lines = []
+        for record in page["records"]:
+            channel = record.get("channel", "?")
+            if channel == "conversation":
+                lines.append(
+                    f"[{record['tseq']}] {record.get('role', '?')}: "
+                    f"{str(record.get('text', ''))[:2000]}"
+                )
+            elif channel == "tools":
+                if record.get("phase") == "start":
+                    lines.append(
+                        f"[{record['tseq']}] ▶ {record.get('tool', '?')} "
+                        f"{str(record.get('args', ''))[:300]}"
+                    )
+                else:
+                    mark = "✗" if record.get("is_error") else "✓"
+                    lines.append(
+                        f"[{record['tseq']}] {mark} {record.get('tool', '?')} "
+                        f"{str(record.get('output', ''))[:800]}"
+                    )
+            elif channel == "files":
+                lines.append(
+                    f"[{record['tseq']}] 文件 {record.get('op', record.get('kind', '?'))}: "
+                    f"{record.get('path', '')}"
+                )
+            elif channel == "artifacts":
+                files = record.get("files") or []
+                lines.append(
+                    f"[{record['tseq']}] 产物: "
+                    + ", ".join(f"{f.get('name')}({f.get('bytes')}B)" for f in files)
+                )
+            elif channel == "usage":
+                lines.append(
+                    f"[{record['tseq']}] usage: in={record.get('input')} "
+                    f"out={record.get('output')} turns={record.get('turns')}"
+                )
+            elif channel == "control":
+                lines.append(
+                    f"[{record['tseq']}] 控制 ACK: {record.get('state', '?')}"
+                )
+        footer = (
+            f"—— total={page['total']} has_more={page['has_more']} "
+            f"next_cursor={page['next_cursor']}（after_seq 续读；"
+            f"channel=conversation|tools|files|artifacts|usage|control 过滤）"
+        )
+        text = "\n".join(lines) if lines else "（无 transcript——Worker 尚未产出公开消息）"
         return PiToolResultV1(
             request_id=request.request_id,
             ok=True,
             status=order.status,
-            summary=text or "（无 transcript——Worker 尚未产出公开消息）",
+            summary=f"{text}\n{footer}" if lines else text,
         )
 
     async def _list_work_artifacts(self, request: PiToolRequestV1) -> PiToolResultV1:
