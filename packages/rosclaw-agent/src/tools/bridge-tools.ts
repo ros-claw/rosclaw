@@ -24,7 +24,7 @@ export interface BridgeToolContext {
 
 let requestCounter = 0;
 
-async function executeVia(
+export async function executeVia(
 	ctx: BridgeToolContext,
 	toolName: string,
 	arguments_: Record<string, unknown>,

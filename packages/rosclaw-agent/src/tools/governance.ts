@@ -1,0 +1,99 @@
+/** 治理工具集（十五审 PR-RF-1，ADR-0011 无为而治）。
+ *
+ * 模型唯一的任务入口：task_submit 交目标合同（TaskSpec），其余都是
+ * 对同一 owning execution 的观察/steer/回答/暂停/恢复/取消。
+ * 没有 worker 选择器、没有 retry 工厂、没有 transcript 搬运。
+ */
+
+import { Type } from "@earendil-works/pi-ai";
+import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
+
+import { executeVia, type BridgeToolContext } from "./bridge-tools.js";
+
+export function buildGovernanceTools(ctx: BridgeToolContext): ToolDefinition[] {
+	return [
+		defineTool({
+			name: "rosclaw_task_submit",
+			label: "ROSClaw Task Submit",
+			description:
+				"Submit a task goal contract (TaskSpec) to the Task Control Plane. " +
+				"The ExecutionRouter picks the execution domain — you never choose a worker. " +
+				"One task = one owning execution: re-submitting the same goal attaches to it.",
+			parameters: Type.Object({
+				goal: Type.String({ description: "自包含目标（用户意图，非微步骤剧本）" }),
+				required_capabilities: Type.Optional(Type.Array(Type.String())),
+				effects: Type.Optional(Type.String({ description: "simulation_only | workspace_only | physical_*" })),
+				inputs: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+				deliverables: Type.Optional(Type.Array(Type.Record(Type.String(), Type.Unknown()))),
+				acceptance: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+			}),
+			async execute(_id, params, _signal, _onUpdate, _ctx) {
+				return await executeVia(ctx, "rosclaw_task_submit", params as Record<string, unknown>);
+			},
+		}),
+		defineTool({
+			name: "rosclaw_task_observe",
+			label: "ROSClaw Task Observe",
+			description:
+				"Authoritative execution state + summary + verifier verdict for a task " +
+				"(execution ledger — conversation history is stale). Never returns full transcripts.",
+			parameters: Type.Object({
+				execution_id: Type.String(),
+			}),
+			async execute(_id, params, _signal, _onUpdate, _ctx) {
+				return await executeVia(ctx, "rosclaw_task_observe", params as Record<string, unknown>);
+			},
+		}),
+		defineTool({
+			name: "rosclaw_task_steer",
+			label: "ROSClaw Task Steer",
+			description: "Send a steering note to the SAME running execution session.",
+			parameters: Type.Object({
+				execution_id: Type.String(),
+				message: Type.String(),
+			}),
+			async execute(_id, params, _signal, _onUpdate, _ctx) {
+				return await executeVia(ctx, "rosclaw_task_steer", params as Record<string, unknown>);
+			},
+		}),
+		defineTool({
+			name: "rosclaw_task_answer",
+			label: "ROSClaw Task Answer",
+			description: "Answer an execution's question (INPUT_REQUIRED) — same session continues.",
+			parameters: Type.Object({
+				execution_id: Type.String(),
+				answer: Type.String(),
+			}),
+			async execute(_id, params, _signal, _onUpdate, _ctx) {
+				return await executeVia(ctx, "rosclaw_task_answer", params as Record<string, unknown>);
+			},
+		}),
+		defineTool({
+			name: "rosclaw_task_pause",
+			label: "ROSClaw Task Pause",
+			description: "Pause a running execution (control ACK — session preserved).",
+			parameters: Type.Object({ execution_id: Type.String() }),
+			async execute(_id, params, _signal, _onUpdate, _ctx) {
+				return await executeVia(ctx, "rosclaw_task_pause", params as Record<string, unknown>);
+			},
+		}),
+		defineTool({
+			name: "rosclaw_task_resume",
+			label: "ROSClaw Task Resume",
+			description: "Resume a paused execution (same session).",
+			parameters: Type.Object({ execution_id: Type.String() }),
+			async execute(_id, params, _signal, _onUpdate, _ctx) {
+				return await executeVia(ctx, "rosclaw_task_resume", params as Record<string, unknown>);
+			},
+		}),
+		defineTool({
+			name: "rosclaw_task_cancel",
+			label: "ROSClaw Task Cancel",
+			description: "Cancel an execution (audited control cancel).",
+			parameters: Type.Object({ execution_id: Type.String() }),
+			async execute(_id, params, _signal, _onUpdate, _ctx) {
+				return await executeVia(ctx, "rosclaw_task_cancel", params as Record<string, unknown>);
+			},
+		}),
+	];
+}

@@ -18,6 +18,7 @@ import { migrateProviders } from "../credentials/migration.js";
 import { resourcePolicy } from "../extension/resource-policy.js";
 import { createSharedModelRuntime } from "./model-runtime.js";
 import { filterModelTools } from "../tools/surface.js";
+import { buildGovernanceTools } from "../tools/governance.js";
 import { ActiveSessionContext } from "../session/active-context.js";
 import { AgentSessionCoordinator } from "../session/coordinator.js";
 import { SessionLeaseManager } from "../session/lease-manager.js";
@@ -198,6 +199,13 @@ export async function createRosclawRuntime(
 			// resume/extend/check/list/update/read_work_*）从模型面移除，
 			// 裂变/横跳/猜因不再可能。plumbing 仍在 bridge/命令层可用。
 			const customTools = filterModelTools([
+				// 十五审 PR-RF-1：治理工具（task_submit/observe/steer/answer/
+				// pause/resume/cancel）——模型唯一的任务入口。
+				...buildGovernanceTools({
+					rosclawHome: options.rosclawHome,
+					active,
+					center,
+				}),
 				buildStatusTool(center),
 				// PR-SIX-3：当前 body 的可信能力面（模型不再猜 ID）。
 				buildCapabilitiesTool({
