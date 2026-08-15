@@ -33,10 +33,8 @@ class TestExecutionCards:
             if row["state"] in ("SUCCEEDED", "FAILED", "BLOCKED"):
                 break
             await asyncio.sleep(0.1)
-        from rosclaw.agentd.pi_bridge.server import PiBridgeServer  # noqa: F401
-
         # 经 socket handler 太重——直接验证投影函数级输出。
-        from rosclaw.agentd.pi_bridge import server as srv
+        from rosclaw.agentd.pi_bridge.server import PiBridgeServer  # noqa: F401
 
         cards = []
         for row in plane.executions_for(mission.mission_id):

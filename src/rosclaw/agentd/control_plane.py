@@ -105,9 +105,14 @@ class ExecutionRouter:
 
     @staticmethod
     def _preferred_harness() -> str:
-        """启动前健康选择：已安装的 ACP Harness 优先于内置 Pi。"""
+        """启动前健康选择（readiness preflight）：Codex app-server 原生
+        路径优先（需二进制+自有登录配置），其次 ACP Harness，否则
+        内置 Pi。"""
         import shutil
+        from pathlib import Path
 
+        if shutil.which("codex") and (Path.home() / ".codex").exists():
+            return "harness:codex-app-server"
         for binary, runtime in (
             ("claude-code-acp", "harness:acp:claude-local"),
             ("pi-acp", "harness:acp:pi-acp"),
@@ -350,12 +355,46 @@ class TaskControlPlane:
     async def _drive_harness(
         self, execution_id: str, mission_id: str, spec: dict, route: dict
     ) -> None:
-        """Harness 域：ACP runtime 走协议驱动（PR-RF-3）；pi-builtin 走
-        现有 worker manager（RF-9 前保留）。"""
+        """Harness 域：codex app-server 原生路径（RF-5）/ACP（RF-3）/
+        pi-builtin（RF-9 前保留）。"""
+        if route["runtime"] == "harness:codex-app-server":
+            await self._drive_codex(execution_id, spec)
+            return
         if route["runtime"].startswith("harness:acp:"):
             await self._drive_acp(execution_id, spec, route["runtime"])
             return
         await self._drive_pi_builtin(execution_id, mission_id, spec)
+
+    async def _drive_codex(self, execution_id: str, spec: dict) -> None:
+        """Codex app-server：单 thread 单 turn；sandbox（RF-4）+ 原生
+        thread/resume/compaction。事件落 EventStore。"""
+        from rosclaw.agentd.codex_driver import CodexAppServerDriver, codex_binary
+
+        if codex_binary() is None:
+            self._update_state(
+                execution_id, "BLOCKED",
+                summary="codex CLI 未安装——preflight 失败，未创建执行",
+            )
+            return
+        self._update_state(execution_id, "RUNNING")
+        from rosclaw.agentd.workers.event_store import WorkerEventStore
+
+        events = WorkerEventStore(self._service._home)
+
+        async def sink(kind: str, payload: dict) -> None:
+            events.append_event(execution_id, "", kind, payload)
+
+        driver = CodexAppServerDriver(
+            cwd=str(self._service._home),
+            event_sink=sink,
+            sandbox_home=self._service._home / "work" / execution_id,
+        )
+        result = await driver.run(str(spec.get("goal", "")))
+        self._update_state(
+            execution_id,
+            "SUCCEEDED" if result["ok"] else "FAILED",
+            summary=result["detail"][:500],
+        )
 
     async def _drive_acp(
         self, execution_id: str, spec: dict, runtime: str
