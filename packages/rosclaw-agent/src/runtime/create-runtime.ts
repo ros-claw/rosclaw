@@ -17,6 +17,7 @@ import {
 import { migrateProviders } from "../credentials/migration.js";
 import { resourcePolicy } from "../extension/resource-policy.js";
 import { createSharedModelRuntime } from "./model-runtime.js";
+import { filterModelTools } from "../tools/surface.js";
 import { ActiveSessionContext } from "../session/active-context.js";
 import { AgentSessionCoordinator } from "../session/coordinator.js";
 import { SessionLeaseManager } from "../session/lease-manager.js";
@@ -192,7 +193,11 @@ export async function createRosclawRuntime(
 			// 具身主 Agent 不需要 coding 工具；ROSClaw 工具走 customTools。
 			// 注意：noTools:"all" 会把 allowedToolNames 置空、连 customTools 一起
 			// 过滤掉（模型将看不到任何工具）——必须用显式 allowlist。
-			const customTools = [
+			// 十五审 PR-RF-1（ADR-0011 无为而治）：模型只见治理工具
+			// （task_*）+ 只读摘要——底层 Worker 操控工具（delegate/retry/
+			// resume/extend/check/list/update/read_work_*）从模型面移除，
+			// 裂变/横跳/猜因不再可能。plumbing 仍在 bridge/命令层可用。
+			const customTools = filterModelTools([
 				buildStatusTool(center),
 				// PR-SIX-3：当前 body 的可信能力面（模型不再猜 ID）。
 				buildCapabilitiesTool({
@@ -265,7 +270,7 @@ export async function createRosclawRuntime(
 					active,
 					center,
 				}),
-			];
+			]);
 			const result = await createAgentSessionFromServices({
 				services,
 				sessionManager,

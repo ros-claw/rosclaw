@@ -349,6 +349,11 @@ class AgentService:
             candidates_fn=_candidates,
             spawn_fn=self.spawn_worker_driver,
         )
+        # 十五审 PR-RF-2：Task Control Plane——一个任务一个 owning
+        # execution；Native Agent 只交 TaskSpec，router 决定执行域。
+        from rosclaw.agentd.control_plane import TaskControlPlane
+
+        self._task_control_plane = TaskControlPlane(self)
         # 内置 Pi Worker 的就绪性取决于 node+dist——不可用时诚实 DISABLED
         # （绝不"看起来装了就 ENABLED"）。
         if find_pi_agent_entry() is None:

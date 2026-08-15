@@ -60,6 +60,15 @@ _TOOL_TABLE: dict[str, str] = {
     "rosclaw_request_action": "physical_action",
     # 八审 P0-5：任务级入口——确定性编译器编排，模型只交 TaskSpec。
     "rosclaw_task": "task",
+    # 十五审 PR-RF-1/RF-2：治理工具（无为而治）——模型只交目标合同，
+    # 观察/steer/回答/暂停/恢复/取消都作用于同一 owning execution。
+    "rosclaw_task_submit": "delegate",
+    "rosclaw_task_observe": "read",
+    "rosclaw_task_steer": "delegate",
+    "rosclaw_task_answer": "delegate",
+    "rosclaw_task_pause": "delegate",
+    "rosclaw_task_resume": "delegate",
+    "rosclaw_task_cancel": "delegate",
 }
 #: 后续批次才开放；现在调用必须得到诚实的"未开放"拒绝。
 _DEFERRED_TOOLS = {
@@ -360,6 +369,20 @@ class PiToolDispatcher:
             return await self._request_action(request)
         if name == "rosclaw_task":
             return await self._task(request)
+        # 十五审 PR-RF-1/RF-2：治理工具——同一 owning execution 的
+        # 提交/观察/steer/回答/暂停/恢复/取消。
+        if name == "rosclaw_task_submit":
+            return await self._task_submit(request)
+        if name == "rosclaw_task_observe":
+            return await self._task_observe(request)
+        if name == "rosclaw_task_steer":
+            return await self._task_steer(request)
+        if name == "rosclaw_task_answer":
+            return await self._task_answer(request)
+        if name in (
+            "rosclaw_task_pause", "rosclaw_task_resume", "rosclaw_task_cancel",
+        ):
+            return await self._task_control(request, name)
         if name == "rosclaw_delegate":
             return await self._delegate(request)
         if name == "rosclaw_check_work":
@@ -412,6 +435,15 @@ class PiToolDispatcher:
         if not goal:
             raise ToolBridgeError("INVALID_ARGUMENTS", "goal required")
         worker_hint = str(args.get("worker_id", "auto"))
+        # 十五审 PR-RF-1（ADR-0011）：worker_id 自由选择已废弃——执行者
+        # 由 ExecutionRouter 按注册表+策略决定。桥接层为存量命令/测试
+        # 保留兼容，但必须显式提示废弃（模型面上 delegate 已不暴露）。
+        delegate_deprecation = ""
+        if worker_hint not in ("", "auto"):
+            delegate_deprecation = (
+                "注意：worker_id 自由选择已废弃——执行者应由 ExecutionRouter "
+                "路由决定（rosclaw_task_submit）。本次按兼容路径执行。\n"
+            )
         parent_id = str(args.get("parent_work_order_id", "") or "") or None
         # 递归上限（规格 §19.5）：直派 worker 单是叶子——沿用全系统约定
         # delegation_depth=0 + max_children=0（depth>0 的单子必须自带
@@ -547,7 +579,14 @@ class PiToolDispatcher:
             scheduled.work_order_id, timeout_sec=grace
         )
         if terminal is not None:
-            return self._terminal_response(request, terminal)
+            terminal_result = self._terminal_response(request, terminal)
+            if delegate_deprecation:
+                terminal_result = terminal_result.model_copy(
+                    update={
+                        "summary": delegate_deprecation + terminal_result.summary
+                    }
+                )
+            return terminal_result
         # 十四审 PR-14.7：wall_time 只是 soft target（提醒阈值）——
         # 不再向模型/用户展示 "Deadline"（概念误导→错误归因之源）。
         # 十审 §10.3：外部 harness 的模型/账号配置独立——UI 明示，不得
@@ -564,7 +603,8 @@ class PiToolDispatcher:
             ok=True,
             status="STARTED",
             summary=(
-                "已启动后台 Worker（不阻塞本会话——你可以继续与用户交互）。\n"
+                delegate_deprecation
+                + "已启动后台 Worker（不阻塞本会话——你可以继续与用户交互）。\n"
                 f"WorkOrder: {scheduled.work_order_id}\n"
                 f"Worker: {scheduled.assigned_to}\n"
                 f"预算（soft target 提醒阈值，不会强杀 Worker）: "
@@ -1302,6 +1342,168 @@ class PiToolDispatcher:
             status=final.status,
             summary=f"WorkOrder {work_order_id} 当前状态 {final.status}。",
             error_code=None if final.status == "CANCELLED" else "ALREADY_TERMINAL",
+        )
+
+    async def _task_submit(self, request: PiToolRequestV1) -> PiToolResultV1:
+        """十五审 PR-RF-1/RF-2：治理入口——模型只交 TaskSpec 目标合同；
+        ExecutionRouter 决定执行域；一个任务一个 owning execution。"""
+        plane = self._service._task_control_plane
+        spec = {
+            "goal": str(request.arguments.get("goal", "")),
+            "required_capabilities": request.arguments.get("required_capabilities") or [],
+            "effects": str(request.arguments.get("effects", "") or ""),
+            "inputs": request.arguments.get("inputs") or {},
+            "deliverables": request.arguments.get("deliverables") or [],
+            "acceptance": request.arguments.get("acceptance") or {},
+            "interaction": str(request.arguments.get("interaction", "continue_chat")),
+            "recovery": str(request.arguments.get("recovery", "resume_same_executor")),
+        }
+        try:
+            view = await plane.submit(
+                request.mission_id, spec, idem=request.idempotency_key
+            )
+        except ValueError as exc:
+            raise ToolBridgeError("INVALID_ARGUMENTS", str(exc)) from exc
+        return PiToolResultV1(
+            request_id=request.request_id,
+            ok=True,
+            status="STARTED" if not view.get("attached") else "RUNNING",
+            summary=(
+                f"任务已提交：{view['execution_id']}（{view['runtime']}）\n"
+                f"状态：{view['state']}"
+                + ("\n同一任务已在执行——attach 到既有执行（不裂变）。"
+                   if view.get("attached") else "")
+            ),
+        )
+
+    def _execution_for(self, request: PiToolRequestV1) -> dict:
+        plane = self._service._task_control_plane
+        execution_id = str(request.arguments.get("execution_id", "")).strip()
+        row = plane._get(execution_id) if execution_id else None
+        if row is None:
+            raise ToolBridgeError(
+                "EXECUTION_NOT_FOUND", f"unknown execution {execution_id!r}"
+            )
+        if row["mission_id"] != request.mission_id:
+            raise ToolBridgeError(
+                "MISSION_MISMATCH", "execution belongs to a different mission"
+            )
+        return row
+
+    async def _task_observe(self, request: PiToolRequestV1) -> PiToolResultV1:
+        """观察：状态+摘要+最近事件——不返回整本 transcript（无为）。"""
+        row = self._execution_for(request)
+        summary = row.get("summary") or ""
+        artifacts = row.get("artifacts_json") or ""
+        text = (
+            f"执行 {row['execution_id']}：{row['state']}（{row['runtime']}）"
+            + (f"\n{summary}" if summary else "")
+            + (f"\n产物：{artifacts[:600]}" if artifacts else "")
+        )
+        wo = row.get("work_order_id") or ""
+        if wo:
+            from rosclaw.agentd.workers.event_store import WorkerEventStore
+
+            recent = [
+                e for e in
+                WorkerEventStore(self._service._home).tail(wo, limit=200)
+                if e.get("kind") not in ("liveness", "usage")
+            ][-5:]
+            if recent:
+                text += "\n最近事件：" + "；".join(
+                    str(e.get("kind", "?")) for e in recent
+                )
+        return PiToolResultV1(
+            request_id=request.request_id,
+            ok=True,
+            status=str(row["state"]),
+            summary=text,
+        )
+
+    async def _task_steer(self, request: PiToolRequestV1) -> PiToolResultV1:
+        """steer：发给同一 execution（不新建 Worker）。"""
+        row = self._execution_for(request)
+        note = str(request.arguments.get("message", "")).strip()
+        if not note:
+            raise ToolBridgeError("INVALID_ARGUMENTS", "message required")
+        wo = row.get("work_order_id") or ""
+        if not wo:
+            raise ToolBridgeError(
+                "NOT_RUNNING",
+                f"execution is {row['state']}——无活跃会话可 steer",
+            )
+        adapter = self._service._worker_manager._adapters.get("pi_managed")
+        delivered = await adapter.steer(wo, note) if adapter else False
+        return PiToolResultV1(
+            request_id=request.request_id,
+            ok=delivered,
+            status=str(row["state"]),
+            summary=(
+                f"steer 已送达同一执行会话：{note[:120]}"
+                if delivered
+                else "steer 送达失败（会话已退出）——execution 状态如实可查"
+            ),
+            error_code=None if delivered else "DELIVERY_FAILED",
+        )
+
+    async def _task_answer(self, request: PiToolRequestV1) -> PiToolResultV1:
+        """回答执行者的提问（INPUT_REQUIRED → 同一 session 继续）。"""
+        row = self._execution_for(request)
+        text = str(request.arguments.get("answer", "")).strip()
+        if not text:
+            raise ToolBridgeError("INVALID_ARGUMENTS", "answer required")
+        wo = row.get("work_order_id") or ""
+        adapter = self._service._worker_manager._adapters.get("pi_managed")
+        delivered = bool(wo) and adapter is not None and await adapter.answer(wo, text)
+        return PiToolResultV1(
+            request_id=request.request_id,
+            ok=delivered,
+            status=str(row["state"]),
+            summary="回答已送达" if delivered else "无等待回答的执行会话",
+            error_code=None if delivered else "NOT_WAITING",
+        )
+
+    async def _task_control(
+        self, request: PiToolRequestV1, name: str
+    ) -> PiToolResultV1:
+        """pause/resume/cancel——控制协议 ACK 语义（十四审 PR-14.1）。"""
+        row = self._execution_for(request)
+        wo = row.get("work_order_id") or ""
+        if name == "rosclaw_task_cancel":
+            if wo:
+                await self._service._worker_manager.cancel_order(
+                    wo, reason="user_task_cancel"
+                )
+            self._service._task_control_plane._update_state(
+                row["execution_id"], "CANCELLED", summary="用户取消"
+            )
+            return PiToolResultV1(
+                request_id=request.request_id,
+                ok=True, status="CANCELLED", summary="已取消（控制取消，可审计）",
+            )
+        if not wo:
+            raise ToolBridgeError(
+                "NOT_RUNNING", f"execution is {row['state']}——无活跃会话"
+            )
+        from rosclaw.agentd.pi_bridge.server import worker_control
+
+        action = "pause" if name == "rosclaw_task_pause" else "resume"
+        result = await worker_control(self._service, wo, action)
+        if result["ok"]:
+            self._service._task_control_plane._update_state(
+                row["execution_id"],
+                "PAUSED" if action == "pause" else "RUNNING",
+            )
+        return PiToolResultV1(
+            request_id=request.request_id,
+            ok=bool(result["ok"]),
+            status=str(result.get("state", row["state"])),
+            summary=(
+                f"{'已暂停（ACK）' if action == 'pause' else '已恢复（ACK）'}"
+                if result["ok"]
+                else f"控制失败：{result.get('error', '未知')}"
+            ),
+            error_code=None if result["ok"] else str(result.get("code", "")),
         )
 
     async def _task(self, request: PiToolRequestV1) -> PiToolResultV1:
