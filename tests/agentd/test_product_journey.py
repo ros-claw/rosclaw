@@ -367,11 +367,13 @@ class _FakeModel:
             frames.append(_sse(_chunk("Worker 结果已综合给用户。")))
             frames.append(_sse(_chunk("", "stop")))
         elif "委派" in text:
+            # 十五审 PR-RF-1：模型面不再有 rosclaw_delegate——治理入口
+            # task_submit（TaskSpec 目标合同，router 决定执行域）。
             frames.extend(
                 _tool_call_frames(
                     "call_delegate",
-                    "rosclaw_delegate",
-                    json.dumps({"goal": "总结这段日志", "worker_id": "auto"}),
+                    "rosclaw_task_submit",
+                    json.dumps({"goal": "总结这段日志"}),
                 )
             )
         elif "画五角星" in text or "画一个五角星" in text:
