@@ -313,6 +313,15 @@ class TaskControlPlane:
             return
         card = registry.get("worker:rosclaw:pi")
         deliverables = spec.get("deliverables") or []
+        # profile 由任务性质决定（不是默认 developer）：code.* 能力 →
+        # developer（workspace+deliverable 校验）；其余 → scout（只读/
+        # 分析——纯文本交付不应触发 developer 的 diff 验收）。
+        capabilities = [str(c) for c in (spec.get("required_capabilities") or [])]
+        profile = str((spec.get("inputs") or {}).get("profile", "")) or (
+            "developer"
+            if any(c.startswith(("code.", "capability.")) for c in capabilities)
+            else "scout"
+        )
         order = WorkOrderV1(
             work_order_id=new_id("wo"),
             mission_id=mission_id,
@@ -321,7 +330,7 @@ class TaskControlPlane:
             goal=str(spec.get("goal", "")),
             inputs={
                 "instructions": str(spec.get("goal", "")),
-                "worker_profile": str((spec.get("inputs") or {}).get("profile", "developer")),
+                "worker_profile": profile,
                 "_execution_id": execution_id,
             },
             budgets=BudgetEnvelope(),
