@@ -244,6 +244,7 @@ class StoreFactory:
         """Deprecated alias for :meth:`create_structured_store` (ADR-0010)."""
         return StoreFactory.create_structured_store(**kwargs)
 
+    @staticmethod
     def capabilities(client: StructuredStore) -> dict[str, bool]:
         """Return capability flags for *client*."""
         from rosclaw.storage.seekdb_native import SeekDBRetrievalStore

@@ -36,6 +36,11 @@ from rosclaw.contracts.ui.commands import CommandRequestV1, CommandResultV1, Com
 from rosclaw.contracts.ui.interactions import InteractionRequestV1
 from rosclaw.contracts.ui.snapshots import MissionSnapshotV1
 from rosclaw.contracts.worker.card import WorkerCardV1
+from rosclaw.contracts.worker.control import (
+    ControlAckV1,
+    ControlRequestV1,
+    TerminationV1,
+)
 from rosclaw.contracts.worker.order import WorkOrderV1, WorkResultV1
 
 #: All top-level v1 contracts, keyed by schema stem.
@@ -72,6 +77,9 @@ ALL_CONTRACTS: dict[str, type[ContractModel]] = {
         ArtifactRefV1,
         EvidenceClaimV1,
         WorkOrderV2,
+        ControlRequestV1,
+        ControlAckV1,
+        TerminationV1,
     )
 }
 

@@ -191,11 +191,13 @@ class TestNonBlockingDelegate:
         orders = service._worker_manager.orders_for_mission(mission.mission_id)
         assert len(orders) == 1
         order = orders[0]
-        # 第一屏：精确 WorkOrder ID + worker + 预算 + deadline。
+        # 第一屏：精确 WorkOrder ID + worker + 预算（十四审 PR-14.7：
+        # wall 是 soft target 提醒阈值——不再显示误导性 "Deadline"）。
         assert order.work_order_id in result.summary
         assert "worker:stub:slow" in result.summary
         assert str(order.budgets.wall_time_sec) in result.summary
-        assert "deadline" in result.summary.lower() or "截止" in result.summary
+        assert "提醒阈值" in result.summary or "预计" in result.summary
+        assert "Deadline" not in result.summary
         await service.close()
 
     async def test_fast_worker_still_completes_within_grace(self, tmp_path: Path) -> None:
