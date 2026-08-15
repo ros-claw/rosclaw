@@ -23,6 +23,8 @@ export interface ViewerDeps {
 	onSteer: () => Promise<string | undefined>;
 	sendSteer: (text: string) => Promise<string>;
 	onCancel: () => Promise<string>;
+	/** 十四审 §1.5：r retry/resume（文件头承诺过但 handleInput 没有分支）。 */
+	onRetry?: () => Promise<string>;
 	notify: (text: string, kind: "info" | "warning" | "error") => void;
 	/** overlay 关闭回调（ctx.ui.custom 的 done）。 */
 	onClose: () => void;
@@ -31,7 +33,7 @@ export interface ViewerDeps {
 const POLL_MS = 1500;
 const VIEWPORT = 22;
 
-function fmtEvent(event: Record<string, unknown>): string | null {
+export function fmtEvent(event: Record<string, unknown>): string | null {
 	const kind = String(event.kind ?? "");
 	switch (kind) {
 		case "liveness":
@@ -83,6 +85,7 @@ export class JobViewerComponent implements Component {
 	private follow = true;
 	private scrollOffset = 0;
 	private status = "STARTING";
+	private confirmCancel = false;
 	private timer: ReturnType<typeof setInterval> | undefined;
 	private disposed = false;
 
@@ -117,6 +120,7 @@ export class JobViewerComponent implements Component {
 			this.deps.onClose();
 			return;
 		}
+		if (key !== "x") this.confirmCancel = false;
 		if (key === "f") {
 			this.follow = !this.follow;
 			return;
@@ -131,7 +135,18 @@ export class JobViewerComponent implements Component {
 			return;
 		}
 		if (key === "x") {
+			// 十四审 §1.5：取消必须二次确认（运行工具时解释影响）。
+			if (!this.confirmCancel) {
+				this.confirmCancel = true;
+				this.deps.notify("再按 x 确认取消（正在运行的工具会被中断；partial 成果保留）", "warning");
+				return;
+			}
+			this.confirmCancel = false;
 			void this.deps.onCancel().then((msg) => this.deps.notify(msg, "info"));
+			return;
+		}
+		if (key === "r" && this.deps.onRetry) {
+			void this.deps.onRetry().then((msg) => this.deps.notify(msg, "info"));
 			return;
 		}
 		// 滚动（暂停 follow 后查看历史）。
@@ -155,7 +170,7 @@ export class JobViewerComponent implements Component {
 			`├${border}┤`,
 			...body.map((l) => `│ ${l.slice(0, Math.min(width - 6, 72))}`),
 			`├${border}┤`,
-			"│ q 关闭 · f follow · s steer · x cancel · ↑↓ 滚动",
+			"│ q 关闭 · f follow · s steer · x 取消(二次) · r 恢复/重试 · ↑↓ 滚动",
 			`└${border}┘`,
 		];
 		return out;

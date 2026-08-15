@@ -1256,3 +1256,6 @@ def add_db_subparser(subparsers: Any) -> Any:
 # contextlib is imported lazily here to avoid a top-level dependency on
 # an unused module for the happy path.
 import contextlib  # noqa: E402
+
+# ADR-0010 compat (PR-DF-01): keep the pre-rename module attribute
+StorageFactory = StoreFactory

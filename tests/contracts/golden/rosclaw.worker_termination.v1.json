@@ -1,0 +1,55 @@
+{
+  "additionalProperties": true,
+  "description": "termination.json——worker 退出前原子落盘的权威终止原因。",
+  "properties": {
+    "schema_version": {
+      "const": "rosclaw.worker_termination.v1",
+      "default": "rosclaw.worker_termination.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "cause": {
+      "enum": [
+        "COMPLETED",
+        "USER_CANCELLED",
+        "USER_PAUSED",
+        "BUDGET_HARD_PAUSED",
+        "AGENTD_SHUTDOWN",
+        "PROVIDER_TRANSIENT",
+        "PROVIDER_FATAL",
+        "TOOL_FAILED",
+        "DELIVERABLE_REJECTED",
+        "WORKER_CRASH",
+        "SIGNAL_UNKNOWN"
+      ],
+      "title": "Cause",
+      "type": "string"
+    },
+    "detail": {
+      "default": "",
+      "title": "Detail",
+      "type": "string"
+    },
+    "exit_code": {
+      "default": 0,
+      "title": "Exit Code",
+      "type": "integer"
+    },
+    "session_file": {
+      "default": "",
+      "title": "Session File",
+      "type": "string"
+    },
+    "at": {
+      "default": "",
+      "title": "At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "cause"
+  ],
+  "title": "rosclaw.worker_termination.v1",
+  "type": "object",
+  "$id": "rosclaw://schemas/rosclaw.worker_termination.v1"
+}

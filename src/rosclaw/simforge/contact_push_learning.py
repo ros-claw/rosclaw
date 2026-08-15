@@ -36,6 +36,9 @@ from rosclaw.simforge.tasks.contact_push_v3 import (
     ContactPushStatus,
 )
 
+# ADR-0010 compat (PR-DF-01): keep the pre-rename module attribute
+InMemoryKnowledgeStore = InMemoryStructuredStore
+
 
 class ContactPushCandidateType(StrEnum):
     PARAMETER = "parameter"

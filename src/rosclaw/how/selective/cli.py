@@ -30,6 +30,11 @@ from rosclaw.storage.seekdb_native import SeekDBRetrievalStore
 from .metrics import SelectiveRiskLedger
 from .pipeline import SelectiveInterventionPipeline
 
+# ADR-0010 compat (PR-DF-01): keep the pre-rename module attribute
+SQLiteKnowledgeStore = SQLiteStructuredStore
+StorageFactory = StoreFactory
+SeekDBNativeStore = SeekDBRetrievalStore
+
 _DEFAULT_REGIME_CONFIG = "configs/regimes/rh56_rps_v1.yaml"
 _DEFAULT_CONTRACT = "configs/choreography/rh56_rps_v1.yaml"
 

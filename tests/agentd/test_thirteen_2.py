@@ -10,7 +10,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import stat
 from pathlib import Path
 
@@ -117,7 +116,9 @@ class TestNoDefaultWallKill:
 
 class TestBudgetPause:
     async def test_token_limit_pauses_not_fails(self, tmp_path: Path, monkeypatch) -> None:
-        """token 100% → BUDGET_PAUSED（保留会话，可 extend）。"""
+        """十四审 PR-14.1 语义迁移（总纲 §3.1）：token soft limit 只告警，
+        绝不暂停进程——worker 继续到完成。显式 user 权威的
+        cost_hard_limit 才会 BUDGET_PAUSED（见 test_fourteen_1.py）。"""
         from rosclaw.agentd.workers import pi_managed
 
         monkeypatch.setattr(pi_managed, "LIVENESS_TIMEOUT_SEC", 30.0)
@@ -128,27 +129,19 @@ class TestBudgetPause:
             "#!/bin/sh\n"
             'echo \'{"kind":"attempt_started"}\'\n'
             'echo \'{"kind":"usage","input_tokens":900,"output_tokens":200}\'\n'
-            "while true; do\n"
+            "i=0\nwhile [ $i -lt 4 ]; do\n"
             '  echo \'{"kind":"liveness","phase":"RUNNING_MODEL"}\'\n'
-            "  sleep 0.5\ndone\n",
+            "  sleep 0.5\n  i=$((i+1))\ndone\n"
+            'echo \'{"kind":"attempt_finished","report":"超 soft target 仍然完成"}\'\n',
         )
         scheduled = await _hire(
             service, mission, tmp_path, fake, monkeypatch,
             wall=300,
             policy={"token_soft_limit": 1000},
         )
-        driver = asyncio.create_task(
-            service._worker_manager.run_to_completion(scheduled)
-        )
-        for _ in range(200):
-            current = service._worker_manager.order(scheduled.work_order_id)
-            if current and current.status == "BUDGET_PAUSED":
-                break
-            await asyncio.sleep(0.05)
+        result, _report = await service._worker_manager.run_to_completion(scheduled)
+        # soft target 到 100% 不暂停、不失败——正常完成。
+        assert result.status == "COMPLETED", result.summary
         current = service._worker_manager.order(scheduled.work_order_id)
-        assert current is not None and current.status == "BUDGET_PAUSED", current.status
-        # extend 唤醒（fake 的 stdin 不消费——送达失败则诚实报错也行，
-        # 这里只验证 extend 的预算落账与状态翻转路径）。
-        await service._worker_manager.cancel_order(scheduled.work_order_id, reason="test")
-        await asyncio.wait_for(driver, 10)
+        assert current is not None and current.status != "BUDGET_PAUSED"
         await service.close()

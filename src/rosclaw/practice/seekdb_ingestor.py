@@ -19,6 +19,10 @@ from rosclaw.practice.distiller import DistillationResult, PracticeDistiller
 from rosclaw.practice.storage.catalog import PracticeCatalog
 from rosclaw.practice.storage.layout import PracticeLayout
 
+# ADR-0010 compat (PR-DF-01): keep the pre-rename module attribute
+SeekDBClient = StructuredStore
+InMemoryKnowledgeStore = InMemoryStructuredStore
+
 logger = logging.getLogger("rosclaw.practice.seekdb_ingestor")
 
 

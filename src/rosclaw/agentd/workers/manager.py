@@ -42,15 +42,26 @@ _RUN_TRANSITIONS: dict[str, frozenset[str]] = {
     "RUNNING": frozenset({
         "SUBMITTED", "FAILED", "EXPIRED", "CANCELLED", "BLOCKED",
         "UNREACHABLE", "INTERRUPTED_RESUMABLE", "BUDGET_PAUSED",
+        "PAUSE_REQUESTED", "PAUSED",
     }),
     "SUBMITTED": frozenset({"VERIFYING", "FAILED"}),
     "VERIFYING": frozenset({"ACCEPTED", "FAILED"}),
-    "BLOCKED": frozenset({"RUNNING", "CANCELLED", "FAILED"}),
+    "BLOCKED": frozenset(
+        {"RUNNING", "CANCELLED", "FAILED", "INTERRUPTED_RESUMABLE"}
+    ),
     "UNREACHABLE": frozenset(
         {"RUNNING", "INTERRUPTED_RESUMABLE", "FAILED", "CANCELLED"}
     ),
     "INTERRUPTED_RESUMABLE": frozenset({"RUNNING", "FAILED", "CANCELLED"}),
     "BUDGET_PAUSED": frozenset({"RUNNING", "CANCELLED", "FAILED"}),
+    # 十四审：PAUSE_REQUESTED 只在 ACK 前存在——ACK 后 PAUSED/BUDGET_PAUSED，
+    # ACK 失败回 RUNNING；用户取消任何时刻合法；agentd 重启可落
+    # INTERRUPTED_RESUMABLE（PR-14.5 降级方案）。
+    "PAUSE_REQUESTED": frozenset(
+        {"PAUSED", "BUDGET_PAUSED", "RUNNING", "CANCELLED", "FAILED",
+         "INTERRUPTED_RESUMABLE"}
+    ),
+    "PAUSED": frozenset({"RUNNING", "CANCELLED", "FAILED", "INTERRUPTED_RESUMABLE"}),
     "FAILED": frozenset(),
     "EXPIRED": frozenset(),
     "CANCELLED": frozenset(),
@@ -134,6 +145,8 @@ class WorkerManager:
         candidates: list[CandidateView],
         *,
         adapter_for: dict[str, str] | None = None,
+        attempt_actor: str | None = None,
+        attempt_fingerprint: str = "",
     ) -> WorkOrderV1:
         """Schedule + persist + mark OFFERED. Returns the scheduled order."""
         if order.side_effect_policy.idempotency_key:
@@ -161,11 +174,55 @@ class WorkerManager:
             }
         )
         self._insert(scheduled, scored)
+        # 十四审 PR-14.2：稳定 Job + Attempt 账本——一个用户任务一张卡，
+        # retry/resume 只是新 attempt（root = root_work_order_id）。
+        self._record_attempt(
+            scheduled,
+            actor=attempt_actor or str(
+                scheduled.inputs.get("_attempt_actor") or "native_agent"
+            ),
+            fingerprint=attempt_fingerprint,
+        )
         self._transition(scheduled.work_order_id, "CLAIMED", "adapter_claimed")
         self._transition(scheduled.work_order_id, "RUNNING", "adapter_started")
         current = self.order(scheduled.work_order_id)
         assert current is not None
         return current
+
+    def _record_attempt(
+        self, order: WorkOrderV1, *, actor: str, fingerprint: str
+    ) -> None:
+        root = order.root_work_order_id or order.work_order_id
+        self._conn.execute(
+            "INSERT OR IGNORE INTO worker_jobs "
+            "(root_job_id, mission_id, user_goal, created_at) VALUES (?, ?, ?, ?)",
+            (root, order.mission_id, order.goal, _utcnow()),
+        )
+        seq = self._conn.execute(
+            "SELECT COALESCE(MAX(attempt_seq), 0) + 1 AS s FROM worker_attempts "
+            "WHERE root_job_id = ?",
+            (root,),
+        ).fetchone()["s"]
+        self._conn.execute(
+            "INSERT INTO worker_attempts (attempt_id, root_job_id, attempt_seq, "
+            "actor, failure_fingerprint, state, created_at) "
+            "VALUES (?, ?, ?, ?, ?, 'ACTIVE', ?)",
+            (order.work_order_id, root, seq, actor, fingerprint, _utcnow()),
+        )
+
+    def job_view(self, root_job_id: str) -> dict | None:
+        """稳定 Job 视图（一张用户任务卡 + 全部 attempts）。"""
+        job = self._conn.execute(
+            "SELECT * FROM worker_jobs WHERE root_job_id = ?", (root_job_id,)
+        ).fetchone()
+        if job is None:
+            return None
+        attempts = self._conn.execute(
+            "SELECT * FROM worker_attempts WHERE root_job_id = ? "
+            "ORDER BY attempt_seq",
+            (root_job_id,),
+        ).fetchall()
+        return {"job": dict(job), "attempts": [dict(a) for a in attempts]}
 
     async def run_to_completion(
         self, order: WorkOrderV1, *, timeout_sec: float | None = None
@@ -554,6 +611,37 @@ class WorkerManager:
             "WHERE work_order_id = ?",
             (to_status, order.model_dump_json(), _utcnow(), work_order_id),
         )
+        # 十四审 PR-14.2：终态/中断即结算 attempt（ACTIVE→SETTLED——
+        # 活跃唯一约束随之释放，resume/retry 才能开新 attempt）。
+        if to_status in (
+            "ACCEPTED", "FAILED", "EXPIRED", "CANCELLED", "INTERRUPTED_RESUMABLE",
+        ):
+            # PR-14.5：legacy 单（14.2 前创建，无 attempts 行）先补账再
+            # 结算——重启对账的 INTERRUPTED_RESUMABLE 也有完整 Job 视图。
+            root = order.root_work_order_id or order.work_order_id
+            self._conn.execute(
+                "INSERT OR IGNORE INTO worker_jobs "
+                "(root_job_id, mission_id, user_goal, created_at) "
+                "VALUES (?, ?, ?, ?)",
+                (root, order.mission_id, order.goal, _utcnow()),
+            )
+            backfill_seq = self._conn.execute(
+                "SELECT COALESCE(MAX(attempt_seq), 0) + 1 AS s FROM worker_attempts "
+                "WHERE root_job_id = ?",
+                (root,),
+            ).fetchone()["s"]
+            self._conn.execute(
+                "INSERT OR IGNORE INTO worker_attempts (attempt_id, root_job_id, "
+                "attempt_seq, actor, state, created_at) "
+                "VALUES (?, ?, ?, 'native_agent', 'ACTIVE', ?)",
+                (work_order_id, root, backfill_seq, _utcnow()),
+            )
+            self._conn.execute(
+                "UPDATE worker_attempts SET state = 'SETTLED', "
+                "termination_cause = ?, settled_at = ? "
+                "WHERE attempt_id = ? AND state = 'ACTIVE'",
+                (reason, _utcnow(), work_order_id),
+            )
         verb = {
             "CLAIMED": "claimed",
             "RUNNING": "started",

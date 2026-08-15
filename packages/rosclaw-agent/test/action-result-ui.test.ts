@@ -29,6 +29,7 @@ async function collectHarness() {
 			handlers.set(name, list);
 		},
 		registerCommand() {},
+		registerShortcut() {},
 		registerEntryRenderer(customType: string, renderer: never) {
 			entryRenderers.set(customType, renderer);
 		},

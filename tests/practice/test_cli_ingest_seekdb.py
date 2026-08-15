@@ -164,16 +164,18 @@ def test_cli_practice_ingest_seekdb_connection_error_is_clear(capsys, monkeypatc
 
 
 def test_cli_practice_ingest_seekdb_url_backend(capsys, monkeypatch):
-    from rosclaw.memory.seekdb_client import InMemoryKnowledgeStore
+    from rosclaw.memory.seekdb_client import InMemoryStructuredStore
 
-    client = InMemoryKnowledgeStore()
+    client = InMemoryStructuredStore()
     captured_url = {}
 
-    def make_client(url: str):
+    def make_client(url: str, **_kwargs):
         captured_url["url"] = url
         return client
 
-    monkeypatch.setattr("rosclaw.memory.seekdb_client.SeekDBMySQLClient", make_client)
+    # PR-DF-01: canonical name; the CLI's function-level import re-reads
+    # the attribute at call time, so patching the definition module works.
+    monkeypatch.setattr("rosclaw.memory.seekdb_client.SeekDBSQLStore", make_client)
     with tempfile.TemporaryDirectory() as tmp:
         practice_id = _run_session(tmp)
         monkeypatch.setattr(

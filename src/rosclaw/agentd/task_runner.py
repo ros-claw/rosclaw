@@ -163,6 +163,149 @@ class TaskRunner:
             "outer_radius": radius,
         }
 
+    def _compile_simulate_trajectory(self, params: dict) -> dict:
+        """simulate_trajectory 编译（十四审 PR-14.6）：TaskSpec 必须含
+        验收（总纲 §5.1）——缺省验收显式给出，模型不得只交自然语言。"""
+        shape = str(params.get("shape", "star5"))
+        if shape not in ("star5", "circle"):
+            raise ValueError(
+                f"unsupported shape {shape!r} (supported: star5, circle)"
+            )
+        center = params.get("center_m") or [0.35, 0.25, 0.30]
+        if not isinstance(center, list) or len(center) != 3:
+            raise ValueError("center_m must be [x, y, z]")
+        radius = float(params.get("radius_m", params.get("scale_m", 0.10)))
+        if not (0.02 <= radius <= 0.35):
+            raise ValueError(f"radius_m {radius} outside [0.02, 0.35]")
+        acceptance_raw = params.get("acceptance") or {}
+        if not isinstance(acceptance_raw, dict):
+            raise ValueError("acceptance must be an object")
+        acceptance = {
+            "trace_nonempty": bool(acceptance_raw.get("trace_nonempty", True)),
+            "animation_min_frames": int(
+                acceptance_raw.get("animation_min_frames", 30)
+            ),
+            "max_tracking_error_m": float(
+                acceptance_raw.get("max_tracking_error_m", 0.05)
+            ),
+        }
+        if acceptance["animation_min_frames"] < 1:
+            raise ValueError("acceptance.animation_min_frames must be >= 1")
+        if acceptance["max_tracking_error_m"] <= 0:
+            raise ValueError("acceptance.max_tracking_error_m must be > 0")
+        return {
+            "shape": shape,
+            "center_m": [float(c) for c in center],
+            "scale_m": radius,
+            "plane": "xy",
+            "max_segment_m": float(params.get("max_segment_m", 0.03)),
+            "acceptance": acceptance,
+        }
+
+    async def _run_simulate_trajectory(
+        self, task_id: str, idem: str, compiled: dict
+    ) -> dict[str, Any]:
+        """SIM 动力学闭环（十四审 PR-14.6）：全部 COMPUTE 能力确定性
+        组合（总纲 §5.2 Compose 路）——无人工审批；验收不过诚实
+        FAILED，绝不报喜。"""
+        import asyncio
+
+        from rosclaw.agentd.sim_trajectory import SimTrajectoryService
+
+        sim = SimTrajectoryService(self._service._home)
+        acceptance = compiled["acceptance"]
+        try:
+            self._store.transition(task_id, "PLANNING")
+            plan = await asyncio.to_thread(
+                sim.generate_planar_path,
+                shape=compiled["shape"],
+                center_m=compiled["center_m"],
+                scale_m=compiled["scale_m"],
+                plane=compiled["plane"],
+                max_segment_m=compiled["max_segment_m"],
+            )
+            self._store.transition(task_id, "PLANNED", plan_id=plan["plan_id"])
+            self._store.transition(task_id, "EXECUTING")
+            result = await asyncio.to_thread(
+                sim.simulate_cartesian_trajectory, plan["plan_id"]
+            )
+            if not result.get("ok") or not result.get("physics_executed"):
+                self._store.transition(
+                    task_id, "FAILED",
+                    error=f"rollout 未执行物理: {result.get('violations')}"[:300],
+                )
+                return self._result(self._store.get_by_id(task_id))
+            trace_id = result["trace_id"]
+            render = await asyncio.to_thread(sim.render_trace, trace_id, format="gif")
+            self._store.transition(task_id, "VERIFYING")
+            verify = await asyncio.to_thread(
+                sim.verify_tracking,
+                trace_id,
+                max_tracking_error_m=acceptance["max_tracking_error_m"],
+            )
+        except Exception as exc:  # noqa: BLE001
+            self._store.transition(task_id, "FAILED", error=str(exc)[:300])
+            return self._result(self._store.get_by_id(task_id))
+        # 验收（TaskSpec acceptance 驱动——不是装饰）。
+        failures = []
+        if acceptance["trace_nonempty"] and result["point_count"] < 1:
+            failures.append("trace 为空")
+        if render["artifact"]["frames"] < acceptance["animation_min_frames"]:
+            failures.append(
+                f"动画帧数 {render['artifact']['frames']} < "
+                f"{acceptance['animation_min_frames']}"
+            )
+        if verify["verdict"] != "PASS":
+            failures.append(
+                f"跟踪误差 {verify['metrics']['max_error_m']}m 超阈值 "
+                f"{acceptance['max_tracking_error_m']}m"
+            )
+        if not result.get("is_safe"):
+            failures.append(f"rollout 不安全: {result.get('violations')}")
+        deliverables = [
+            render["artifact"]["path"],
+            result["artifacts"]["trace_json"],
+            result["artifacts"]["trace_csv"],
+            result["artifacts"]["metrics_json"],
+            result["artifacts"]["simulation_receipt"],
+        ]
+        verification = {
+            "verdict": "PASS" if not failures else "FAIL",
+            "failures": failures,
+            "metrics": verify["metrics"],
+            "frames": render["artifact"]["frames"],
+        }
+        self._store.transition(
+            task_id,
+            "VERIFIED" if not failures else "FAILED",
+            verification_json=json.dumps(verification, ensure_ascii=False),
+            error="；".join(failures)[:300] if failures else "",
+        )
+        record = self._store.get_by_id(task_id)
+        metrics = verify["metrics"]
+        base = self._result(record)
+        base.update({
+            "policy": "AUTO_SIM",
+            "evidence_level": "SIM_DYN_ROLLOUT",
+            "deliverables": deliverables,
+            "user_view": (
+                f"MuJoCo 动力学仿真完成：动画 {render['artifact']['path']} · "
+                f"轨迹 trace.json/csv · 最大误差 "
+                f"{metrics['max_error_m'] * 1000:.0f}mm · 验证 "
+                f"{verification['verdict']}"
+                if not failures
+                else f"动力学仿真验收未过：{'；'.join(failures)}"
+            ),
+            "summary": (
+                f"UR5e {compiled['shape']} 动力学仿真（SIM_DYN_ROLLOUT）："
+                f"{result['point_count']} 物理采样，最大跟踪误差 "
+                f"{metrics['max_error_m']}m"
+                if not failures
+                else f"仿真验收失败：{'；'.join(failures)}"
+            ),
+        })
+        return base
+
     async def run(
         self,
         *,
@@ -212,9 +355,11 @@ class TaskRunner:
                     result = self._result(candidate)
                     result["attached"] = True
                     return result
-        if goal != "draw_shape":
+        if goal not in ("draw_shape", "simulate_trajectory"):
             raise ToolBridgeError(
-                "TASK_UNKNOWN", f"unknown task goal {goal!r} (supported: draw_shape)"
+                "TASK_UNKNOWN",
+                f"unknown task goal {goal!r} (supported: draw_shape, "
+                "simulate_trajectory)",
             )
         task_id = new_id("task")
         # 九审 §7：caused_by_turn_id——任务必须可追溯到用户 turn
@@ -236,10 +381,17 @@ class TaskRunner:
             caused_by_turn_id=caused_by,
         )
         try:
-            compiled = self._compile_draw_shape(parameters)
+            if goal == "simulate_trajectory":
+                compiled = self._compile_simulate_trajectory(parameters)
+            else:
+                compiled = self._compile_draw_shape(parameters)
         except ValueError as exc:
             self._store.transition(task_id, "FAILED", error=str(exc))
             return self._result(self._store.get_by_idempotency(idem))
+        if goal == "simulate_trajectory":
+            # 十四审 PR-14.6：SIM 动力学闭环——全 COMPUTE 组合，无
+            # admission（总纲 §6.1：SIM 确定性能力自动执行）。
+            return await self._run_simulate_trajectory(task_id, idem, compiled)
 
         service = self._service
         await service._ensure_mcp_discovered()

@@ -22,6 +22,7 @@ import os
 import stat
 from datetime import UTC, datetime
 from pathlib import Path
+from uuid import uuid4
 
 from rosclaw.agentd.pi_entry import find_pi_agent_entry
 from rosclaw.agentd.workers.adapter import (
@@ -30,6 +31,7 @@ from rosclaw.agentd.workers.adapter import (
     WorkerProbeResult,
 )
 from rosclaw.agentd.workers.process import kill_process_tree
+from rosclaw.contracts.worker.control import ERROR_CODE_CAUSES
 from rosclaw.contracts.worker.order import (
     ResultArtifact,
     ResultClaim,
@@ -52,6 +54,11 @@ WRAPUP_GRACE_SEC = 60.0
 #: UNREACHABLE 宽限：全静默 + 零 CPU 进展持续超过该值才按"恢复失败"
 #: 终止并进 INTERRUPTED_RESUMABLE（working 永不杀）。
 UNREACHABLE_GRACE_SEC = 900.0
+#: 十四审 PR-14.1：控制请求 ACK 等待——supervisor 收到 control.ack
+#: 前只能显示 PAUSE_REQUESTED，不得乐观落 PAUSED（总纲 §3.2）。
+CONTROL_ACK_TIMEOUT_SEC = 30.0
+#: 控制取消的优雅退出宽限（ACK/termination.json 落盘）再升级 SIGKILL。
+CANCEL_GRACE_SEC = 5.0
 
 #: W3：写能力 profile（Developer Workbench）——workspace 隔离 + diff 工件。
 WORKBENCH_PROFILES = ("developer", "sim-builder")
@@ -104,6 +111,9 @@ class PiManagedAdapter:
         self._runs: dict[str, tuple[RunHandle, asyncio.Task]] = {}
         # W4：活动子进程（steer 通道 + pid 文件崩溃对账）。
         self._procs: dict[str, asyncio.subprocess.Process] = {}
+        # 十四审 PR-14.1：control.ack 收条（control_id → state）——
+        # request_pause/resume 只认 ACK，不认"stdin 已写"。
+        self._control_acks: dict[str, dict[str, str]] = {}
         # 十一审 PR-B：持久化事件账本（文件权威，重启/compact 可读）。
         from rosclaw.agentd.workers.event_store import WorkerEventStore
 
@@ -164,7 +174,25 @@ class PiManagedAdapter:
                 warnings=["adapter_error"],
             )
 
-    async def cancel(self, handle: RunHandle, reason: str) -> None:  # noqa: ARG002
+    async def cancel(self, handle: RunHandle, reason: str) -> None:
+        # 十四审 PR-14.1：先控制取消——worker 优雅 abort 并落
+        # termination.json(USER_CANCELLED)；宽限内未退出才取消驱动
+        # 任务（_teardown 杀树兜底）。只有用户取消产生 CANCELLED。
+        control_id = await self._send_control(handle.work_order_id, "cancel", reason)
+        if control_id is not None:
+            await self._wait_ack(
+                handle.work_order_id, control_id, "CANCELLED",
+                timeout=CANCEL_GRACE_SEC,
+            )
+            proc = self._procs.get(handle.work_order_id)
+            if proc is not None and proc.returncode is None:
+                # ACK 已回——给 termination.json/exit 一个落盘窗口。
+                with contextlib.suppress(Exception):
+                    await asyncio.wait_for(proc.wait(), timeout=2.0)
+            proc = self._procs.get(handle.work_order_id)
+            if proc is not None and proc.returncode is not None:
+                # 优雅退出——驱动任务自然收尾（post-exit 映射 CANCELLED）。
+                return
         entry = self._runs.pop(handle.work_order_id, None)
         if entry is not None:
             entry[1].cancel()
@@ -184,34 +212,84 @@ class PiManagedAdapter:
             return False
         return True
 
-    async def pause(self, work_order_id: str) -> bool:
-        """十三审：BUDGET_PAUSED——子进程 abort 当前 turn 并等待
-        （进程存活、liveness 继续、session 保留）。"""
-        proc = self._procs.get(work_order_id)
-        if proc is None or proc.returncode is not None or proc.stdin is None:
-            return False
+    def _read_termination(self, work_order_id: str) -> dict | None:
+        """termination.json（worker 退出前原子落盘的权威终止原因）。"""
+        path = self._home / "work" / work_order_id / "termination.json"
         try:
-            proc.stdin.write(b'{"type":"pause"}\n')
-            await proc.stdin.drain()
-        except (BrokenPipeError, ConnectionResetError):
-            return False
-        return True
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        return data if isinstance(data, dict) else None
 
-    async def extend(self, work_order_id: str, add_tokens: int) -> bool:
-        """十三审：/job extend——追加 token 预算并唤醒暂停的 Worker。"""
+    async def _send_control(self, work_order_id: str, action: str, reason: str = "") -> str | None:
+        """写 control.request（十四审 PR-14.1）——返回 control_id；
+        进程不在/stdin 已闭返回 None。"""
         proc = self._procs.get(work_order_id)
         if proc is None or proc.returncode is not None or proc.stdin is None:
-            return False
+            return None
+        control_id = f"ctl_{uuid4().hex[:12]}"
         try:
             proc.stdin.write(
                 (json.dumps(
-                    {"type": "extend", "add_tokens": add_tokens}, ensure_ascii=False
+                    {
+                        "type": "control.request",
+                        "control_id": control_id,
+                        "action": action,
+                        "mode": "safe",
+                        "reason": reason,
+                    },
+                    ensure_ascii=False,
                 ) + "\n").encode()
             )
             await proc.stdin.drain()
         except (BrokenPipeError, ConnectionResetError):
+            return None
+        return control_id
+
+    async def _wait_ack(
+        self, work_order_id: str, control_id: str, want: str,
+        timeout: float | None = None,
+    ) -> bool:
+        """等 control.ack（state==want）——ACK 是唯一"已生效"证据。
+        进程已退出时仍给事件读者 2s 排水窗口：worker 可能在 ACK 后
+        立即完成退出（resume→秒回→attempt_finished 的竞态）。"""
+        deadline = asyncio.get_running_loop().time() + (
+            timeout if timeout is not None else CONTROL_ACK_TIMEOUT_SEC
+        )
+        while asyncio.get_running_loop().time() < deadline:
+            acks = self._control_acks.get(work_order_id, {})
+            if acks.get(control_id) == want:
+                return True
+            proc = self._procs.get(work_order_id)
+            if proc is not None and proc.returncode is not None:
+                # 进程已死：ack 只能来自尚未排水的 stdout——收窄窗口。
+                deadline = min(deadline, asyncio.get_running_loop().time() + 2.0)
+            await asyncio.sleep(0.05)
+        return False
+
+    async def request_pause(self, work_order_id: str, *, reason: str = "user") -> bool:
+        """十四审 PR-14.1：控制暂停——发送 control.request pause 并等待
+        control.ack PAUSED（模型循环真实停止、进程存活）才返回 True。"""
+        control_id = await self._send_control(work_order_id, "pause", reason)
+        if control_id is None:
             return False
-        return True
+        return await self._wait_ack(work_order_id, control_id, "PAUSED")
+
+    async def request_resume(self, work_order_id: str) -> bool:
+        """控制恢复——ACK RUNNING 后同一会话继续。"""
+        control_id = await self._send_control(work_order_id, "resume")
+        if control_id is None:
+            return False
+        return await self._wait_ack(work_order_id, control_id, "RUNNING")
+
+    async def pause(self, work_order_id: str) -> bool:
+        """兼容旧调用点——语义即 request_pause（ACK 后才算暂停）。"""
+        return await self.request_pause(work_order_id, reason="budget_hard")
+
+    async def extend(self, work_order_id: str, add_tokens: int) -> bool:  # noqa: ARG002
+        """十三审：/job extend——追加预算并唤醒。十四审：唤醒 = 控制
+        resume（同一 Pi 会话继续）；预算记账由 dispatcher 落 order_json。"""
+        return await self.request_resume(work_order_id)
 
     def _on_waiting_input(self, work_order_id: str) -> None:
         manager = self._manager_ref
@@ -718,6 +796,12 @@ class PiManagedAdapter:
                         self._on_waiting_input(order.work_order_id)
                 elif kind == "session_persisted":
                     state["session_file"] = str(event.get("session_file", ""))
+                elif kind == "control.ack":
+                    # 十四审：ACK 收条——request_pause/resume/cancel 的
+                    # 唯一"已生效"证据。
+                    self._control_acks.setdefault(order.work_order_id, {})[
+                        str(event.get("control_id", ""))
+                    ] = str(event.get("state", ""))
                 elif kind == "answer_received":
                     import contextlib as _cl3
 
@@ -758,20 +842,25 @@ class PiManagedAdapter:
                         await asyncio.wait_for(readers, timeout=5)
                         if not events:
                             raise AdapterError(
-                                f"worker exited {proc.returncode} before attempt_started"
+                                f"worker attempt failed [WORKER_CRASH]: "
+                                f"exited {proc.returncode} before attempt_started"
                             )
                     break
                 if asyncio.get_running_loop().time() > startup_end:
-                    raise AdapterError("worker startup timeout (no attempt_started)")
+                    raise AdapterError(
+                        "worker attempt failed [WORKER_CRASH]: "
+                        "startup timeout (no attempt_started)"
+                    )
                 await asyncio.sleep(0.05)
-            # 主监控循环（十三审 HOTFIX-13.2——Worker 有证据在工作就
-            # 让它继续；时间只是观察指标）：
+            # 主监控循环（十四审 PR-14.1——Worker 有证据在工作就
+            # 让它继续；soft target 只是观察指标，绝不控制进程）：
             # - 默认无硬截止：hard_deadline 仅在显式权威来源下生效；
             # - 全静默 > LIVENESS_TIMEOUT → 多信号探测（pid/CPU）——
             #   活着 = UNREACHABLE（不杀），死了 = INTERRUPTED_RESUMABLE；
             # - 语义静默 > STALL_WARN → 只告警；
-            # - soft target 到期 → 一次性提醒事件（不干预）；
-            # - token 80% 提醒；100% → BUDGET_PAUSED（暂停待 /job extend）。
+            # - wall/token soft target 到期 → 提醒事件（不干预）；
+            # - 只有 user/admin_policy 权威的 cost_hard_limit 才控制暂停
+            #   （control.ack PAUSED 后才落 BUDGET_PAUSED）。
             policy = order.inputs.get("execution_policy") or {}
             hard_sec = None
             if policy.get("hard_deadline_sec") and policy.get(
@@ -781,9 +870,16 @@ class PiManagedAdapter:
             soft_target_sec = float(
                 policy.get("soft_target_sec") or order.budgets.wall_time_sec or 0
             )
+            # 十四审 §3.1：token soft target 只是遥测——模型自报的
+            # model_tokens 在多 turn 累计下必然误杀，绝不控制进程。
             token_limit = int(
                 policy.get("token_soft_limit") or order.budgets.model_tokens or 0
             )
+            cost_hard_limit = 0
+            if policy.get("cost_hard_limit_tokens") and policy.get(
+                "cost_hard_limit_source"
+            ) in ("user", "admin_policy"):
+                cost_hard_limit = int(policy["cost_hard_limit_tokens"])
             wall_end = (
                 asyncio.get_running_loop().time() + hard_sec if hard_sec else None
             )
@@ -878,7 +974,8 @@ class PiManagedAdapter:
                         order.work_order_id, "", "soft_target_exceeded",
                         {"soft_target_sec": soft_target_sec},
                     )
-                # token：80% 提醒；100% BUDGET_PAUSED（暂停待 extend）。
+                # token soft target：80%/100% 只告警（绝不暂停——总纲
+                # §3.1"预算提醒不是安全审批，不得中断正在做的 Worker"）。
                 usage_last = next(
                     (e for e in reversed(events) if e.get("kind") == "usage"), None
                 )
@@ -886,25 +983,52 @@ class PiManagedAdapter:
                     spent = int(usage_last.get("input_tokens") or 0) + int(
                         usage_last.get("output_tokens") or 0
                     )
-                    if spent >= token_limit and not state.get("budget_paused"):
-                        state["budget_paused"] = True
-                        await self.pause(order.work_order_id)
-                        with contextlib.suppress(Exception):
-                            self._manager_ref._transition(
-                                order.work_order_id, "BUDGET_PAUSED", "token_limit"
-                            )
-                        self._events.append_event(
-                            order.work_order_id, "", "budget_paused",
-                            {"spent": spent, "limit": token_limit},
-                        )
-                    elif (
-                        spent >= int(token_limit * 0.8)
-                        and not state.get("budget_notified")
-                    ):
+                    if spent >= token_limit and not state.get("budget_notified"):
                         state["budget_notified"] = True
                         self._events.append_event(
                             order.work_order_id, "", "budget_warning",
-                            {"spent": spent, "limit": token_limit},
+                            {"spent": spent, "limit": token_limit, "level": "soft"},
+                        )
+                    elif (
+                        spent >= int(token_limit * 0.8)
+                        and not state.get("budget_notified_80")
+                    ):
+                        state["budget_notified_80"] = True
+                        self._events.append_event(
+                            order.work_order_id, "", "budget_warning",
+                            {"spent": spent, "limit": token_limit, "level": "soft"},
+                        )
+                # hard cost limit（显式 user/admin_policy 权威）：到限 →
+                # 控制暂停——先 PAUSE_REQUESTED，ACK PAUSED 后才落
+                # BUDGET_PAUSED；ACK 失败诚实回报（不乐观）。
+                if usage_last and cost_hard_limit:
+                    spent = int(usage_last.get("input_tokens") or 0) + int(
+                        usage_last.get("output_tokens") or 0
+                    )
+                    if spent >= cost_hard_limit and not state.get("budget_paused"):
+                        state["budget_paused"] = True
+                        with contextlib.suppress(Exception):
+                            self._manager_ref._transition(
+                                order.work_order_id, "PAUSE_REQUESTED", "cost_hard_limit"
+                            )
+                        paused = await self.request_pause(
+                            order.work_order_id, reason="budget_hard"
+                        )
+                        with contextlib.suppress(Exception):
+                            if paused:
+                                self._manager_ref._transition(
+                                    order.work_order_id, "BUDGET_PAUSED",
+                                    "cost_hard_limit_ack",
+                                )
+                            else:
+                                self._manager_ref._transition(
+                                    order.work_order_id, "RUNNING",
+                                    "cost_pause_ack_failed",
+                                )
+                        self._events.append_event(
+                            order.work_order_id, "",
+                            "budget_paused" if paused else "budget_pause_failed",
+                            {"spent": spent, "limit": cost_hard_limit, "acked": paused},
                         )
         except asyncio.CancelledError:
             # 十二审 PR-12.5：先收集部分成果再终止（cancel 也要 partial）。
@@ -923,27 +1047,89 @@ class PiManagedAdapter:
             raise
         await readers
         self._procs.pop(order.work_order_id, None)
+        # 注意：_control_acks 不在此清理——post-exit 与 _wait_ack 有竞态
+        # （worker ACK 后秒退，pop 会抹掉等待者要读的收条）；每单几条
+        # 收条，驻留内存可忽略。
         pid_file.unlink(missing_ok=True)
+        # 十四审 PR-14.1（总纲 §3.4）：termination.json 是终态原因唯一
+        # 权威；exit code 只是 Unix 表象（130 可能是取消/暂停/信号/重启），
+        # 不得直接当 FAILED 或自动重试依据。进程来不及写 → SIGNAL_UNKNOWN。
+        termination = self._read_termination(order.work_order_id)
+        cause = str((termination or {}).get("cause") or "")
+        if not cause:
+            if failure is not None:
+                cause = ERROR_CODE_CAUSES.get(
+                    str(failure.get("error_code", "")), "WORKER_CRASH"
+                )
+            elif final_report or proc.returncode == 0:
+                cause = "COMPLETED"
+            else:
+                cause = "SIGNAL_UNKNOWN"
+        detail = str(
+            (termination or {}).get("detail")
+            or (failure or {}).get("message")
+            or ""
+        )
+        if termination and termination.get("session_file"):
+            state["session_file"] = str(termination["session_file"])
+        interrupted_causes = {
+            "SIGNAL_UNKNOWN", "AGENTD_SHUTDOWN", "USER_PAUSED", "BUDGET_HARD_PAUSED",
+        }
+        terminal_status = (
+            "COMPLETED" if cause == "COMPLETED"
+            else "CANCELLED" if cause == "USER_CANCELLED"
+            else "INTERRUPTED" if cause in interrupted_causes
+            else "FAILED"
+        )
         # PR-B：终态落 state.json（重启对账/tail 可读）。
         self._events.write_state(
             order.work_order_id,
             {
-                "status": "FAILED" if failure is not None else "COMPLETED",
+                "status": terminal_status,
                 "phase": "TERMINAL",
                 "last_seq": handle.progress_seq,
-                "error": failure,
+                "termination_cause": cause,
+                "error": detail or None,
                 # PR-12.3：resume 的恢复点（Pi 原生 session 文件）。
                 "session_file": state.get("session_file", ""),
             },
         )
         finished = datetime.now(UTC)
-        if failure is not None:
-            raise AdapterError(
-                f"worker attempt failed [{failure.get('error_code', '?')}]: "
-                f"{failure.get('message', '')}"
+        if cause in interrupted_causes:
+            # 中断可恢复——不是 FAILED：checkpoint + INTERRUPTED_RESUMABLE。
+            self._write_checkpoint(order, state, "INTERRUPTED", "")
+            with contextlib.suppress(Exception):
+                self._manager_ref._transition(
+                    order.work_order_id, "INTERRUPTED_RESUMABLE", cause.lower()
+                )
+            return WorkResultV1(
+                work_order_id=order.work_order_id,
+                worker_id=WORKER_ID,
+                lease_id=handle.lease_id,
+                status="INTERRUPTED",
+                summary=f"worker 中断（{cause}）——会话/工作区已保留，"
+                "可 /job resume 恢复",
+                warnings=["interrupted_resumable"],
             )
+        if cause == "USER_CANCELLED":
+            # 只有用户取消产生 CANCELLED（控制协议 cancel 动作）。
+            self._write_checkpoint(order, state, "CANCELLED", "")
+            return WorkResultV1(
+                work_order_id=order.work_order_id,
+                worker_id=WORKER_ID,
+                lease_id=handle.lease_id,
+                status="CANCELLED",
+                summary="worker 已被用户取消",
+                warnings=["cancelled"],
+            )
+        if cause != "COMPLETED":
+            # FAILED——摘要携带权威 cause（Native Agent 不得再猜日志归因）。
+            raise AdapterError(f"worker attempt failed [{cause}]: {detail}")
         if not final_report and proc.returncode != 0:
-            raise AdapterError(f"worker exited {proc.returncode} without a final report")
+            # 声称完成但无报告且非零退出——矛盾，按崩溃诚实归类。
+            raise AdapterError(
+                "worker attempt failed [WORKER_CRASH]: 无最终报告"
+            )
         usage_last = next((e for e in reversed(events) if e.get("kind") == "usage"), {})
         usage = WorkUsage(
             wall_time_ms=int((finished - started).total_seconds() * 1000),
