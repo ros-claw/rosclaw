@@ -140,7 +140,9 @@ class TestCrashReconciliation:
         reconciled = await service.reconcile_workers_on_start()
         assert scheduled.work_order_id in reconciled
         current = service._worker_manager.order(scheduled.work_order_id)
-        assert current is not None and current.status == "FAILED"
+        # 十四审 PR-14.5：RUNNING 重启不再 FAILED——INTERRUPTED_RESUMABLE
+        # （会话/工作区保留，可 resume；孤儿进程组仍必须杀）。
+        assert current is not None and current.status == "INTERRUPTED_RESUMABLE"
         # 孤儿进程组被杀。
         for _ in range(70):
             try:

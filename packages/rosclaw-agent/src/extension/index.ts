@@ -5,7 +5,7 @@
  * - 会话生命周期观察埋点（PNA-1 挂 SessionBinding）。
  */
 
-import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext, ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { readFileSync } from "node:fs";
 import { ActiveSessionContext } from "../session/active-context.js";
@@ -691,6 +691,15 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 								const rr = (r.result ?? {}) as { summary?: string };
 								return rr.summary ?? "已取消";
 							},
+							// 十四审 §1.5：r retry/resume——走 coordinator（幂等，
+							// 已有活跃 attempt 返回同一个，绝不裂变）。
+							onRetry: async () => {
+								const r = await center.call("pi.tools.execute", {
+									request: mkRequest("rosclaw_retry_work", woId),
+								});
+								const rr = (r.result ?? {}) as { summary?: string };
+								return rr.summary ?? "已请求";
+							},
 							notify: (text, kind) => ctx.ui.notify(text, kind),
 							onClose: () => done(true),
 						});
@@ -700,6 +709,115 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				}
 			},
 		});
+		// 十四审 PR-14.4：F2 Tasks Center——不用 /job <长 ID> 也能看、切、
+		// 控（registerShortcut 注册，不解析原始终端按键；Ctrl+J 是 Pi 输入
+		// 换行，绝不占用）。Alt+J 为可选第二绑定（冲突则不注册）。
+		// 结构化 ctx（command/shortcut 两种上下文的 ui 面一致——custom
+		// 直接复用 ExtensionContext 的签名）。
+		type CmdCtx = {
+			ui: {
+				notify(t: string, k: "info" | "warning" | "error"): void;
+				input(title: string, placeholder?: string): Promise<string | undefined>;
+				custom: ExtensionContext["ui"]["custom"];
+			};
+		};
+		const openTasksCenter = async (ctx: CmdCtx) => {
+			if (!options.active.current.missionId) {
+				ctx.ui.notify("未绑定 Mission——Tasks Center 不可用", "warning");
+				return;
+			}
+			const state = options.active.current;
+			const mkRequest = (tool: string, woId: string, extra: Record<string, unknown> = {}) => ({
+				schema_version: "rosclaw.pi_tool_request.v1",
+				request_id: `ptr_tc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+				pi_session_id: state.sessionId,
+				mission_id: state.missionId,
+				context_revision: state.contextRevision,
+				tool_name: tool,
+				arguments: { work_order_id: woId, ...extra },
+				requested_at: new Date().toISOString(),
+				idempotency_key: `idem_tc_${tool}_${woId}_${Date.now()}`,
+				actor: { engine: "pi-command" },
+			});
+			const { TasksCenterComponent } = await import("../workers/tasks-center.js");
+			await ctx.ui.custom<boolean>((_tui, _theme, _kb, done) => {
+				return new TasksCenterComponent({
+					fetchJobs: async () => {
+						const r = await center.call("pi.worker.jobs", {
+							mission_id: state.missionId,
+						});
+						return (r.jobs ?? []) as never;
+					},
+					fetchEvents: async (wo, afterSeq, limit) => {
+						const r = await center.call("pi.worker.events", {
+							work_order_id: wo,
+							after_seq: afterSeq,
+							limit,
+						});
+						return {
+							events: (r.events ?? []) as Array<Record<string, unknown>>,
+							status: String(r.status ?? ""),
+						};
+					},
+					fetchTranscript: async (wo, afterSeq, limit, channel) => {
+						const r = await center.call("pi.worker.transcript", {
+							work_order_id: wo,
+							after_seq: afterSeq,
+							limit,
+							channel,
+						});
+						return {
+							records: (r.records ?? []) as Array<Record<string, unknown>>,
+							has_more: Boolean(r.has_more),
+							next_cursor: Number(r.next_cursor ?? 0),
+							total: Number(r.total ?? 0),
+						};
+					},
+					onSteer: () => ctx.ui.input("Steer Worker（追加约束）", "例如：只看 src/ 目录"),
+					sendSteer: async (wo, text) => {
+						const r = await center.call("pi.tools.execute", {
+							request: mkRequest("rosclaw_update_work", wo, { note: text }),
+						});
+						return String((r.result as { summary?: string })?.summary ?? "已发送");
+					},
+					sendControl: async (wo, action) => {
+						const r = await center.call("pi.worker.control", {
+							work_order_id: wo,
+							action,
+						});
+						return {
+							ok: Boolean(r.ok),
+							state: r.state as string | undefined,
+							error: r.error as string | undefined,
+						};
+					},
+					sendRetry: async (wo) => {
+						const r = await center.call("pi.tools.execute", {
+							request: mkRequest("rosclaw_retry_work", wo),
+						});
+						return String((r.result as { summary?: string })?.summary ?? "已请求");
+					},
+					notify: (text, kind) => ctx.ui.notify(text, kind),
+					onClose: () => done(true),
+				});
+			}, { overlay: true });
+		};
+		pi.registerShortcut("f2", {
+			description: "打开/关闭 ROSClaw Tasks Center",
+			handler: async (ctx) => {
+				await openTasksCenter(ctx);
+			},
+		});
+		try {
+			pi.registerShortcut("alt+j", {
+				description: "Tasks Center（第二绑定）",
+				handler: async (ctx) => {
+					await openTasksCenter(ctx);
+				},
+			});
+		} catch {
+			// 键位冲突则不注册第二绑定（F2 仍可用）。
+		}
 		pi.registerCommand("delegate", {
 			description: "显式委派：/delegate <worker|auto> <自包含目标>（不经模型）",
 			handler: async (args, ctx) => {

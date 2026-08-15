@@ -92,6 +92,9 @@ def cmd_start(args: argparse.Namespace) -> int:
         )
         return 2
     lock = _acquire_lock(home)
+    # 十四审 PR-14.7（§1.9）：agentd serve 入口也要先装诊断路由——
+    # 十三审只覆盖了 chat 入口，干净安装路径仍漏启动告警。
+    _route_internal_diagnostics_to_log(home, debug=bool(getattr(args, "debug", False)))
     service = AgentService(config, home)
     app = create_app(service)
     try:
@@ -423,11 +426,13 @@ def _route_internal_diagnostics_to_log(home: Path, *, debug: bool) -> None:
     # 十二审 HOTFIX-12.1：pydantic_settings 对带 forward-ref 的第三方
     # settings 模型（如 uvicorn/fastapi 生态的 lifespan 字段）在
     # pydantic 2.13+ 发 IncompleteFieldDefinitionWarning——已知良性
-    # 第三方告警，定向屏蔽（其余 warning 仍进日志文件）。
+    # 第三方告警。十四审 PR-14.7：按 类别+消息 定向过滤（任何模块
+    # 来源——该告警的定义点随第三方版本漂移，按 module 匹配会漏）；
+    # 其余 warning 不受影响，仍进日志文件。
     _warnings.filterwarnings(
         "ignore",
         message=".*incomplete definition.*",
-        module=r"pydantic_settings(\..*)?",
+        category=UserWarning,
     )
     if debug or os.environ.get("ROSCLAW_DEBUG"):
         return

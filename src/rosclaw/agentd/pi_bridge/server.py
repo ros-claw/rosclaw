@@ -32,9 +32,154 @@ def default_pi_bridge_socket(home: Path | None = None) -> Path:
     return base / "run" / "pi-bridge.sock"
 
 
+# ----------------------------------------------------------------------
+# 十四审 PR-14.4：Tasks Center 服务端投影与控制面（模块级——单测与
+# socket handler 共用，一个用户任务一张卡）。
+# ----------------------------------------------------------------------
+
+_TERMINAL = ("ACCEPTED", "FAILED", "EXPIRED", "CANCELLED")
+
+
+def worker_jobs_projection(service: AgentService, mission_id: str) -> list[dict]:
+    """按 root job 聚合的任务卡（总纲 §4.3）：retry/resume 是内部
+    attempt，绝不在 UI 裂变成多张失败卡。legacy 单（无 attempts 行）
+    回退为单 attempt 卡。"""
+    manager = service._worker_manager
+    conn = service._store.connection
+    orders = manager.orders_for_mission(mission_id)
+    by_root: dict[str, list] = {}
+    for order in orders:
+        root = order.root_work_order_id or order.work_order_id
+        by_root.setdefault(root, []).append(order)
+    cards = []
+    for root, group in by_root.items():
+        attempt_meta = {
+            row["attempt_id"]: row
+            for row in conn.execute(
+                "SELECT * FROM worker_attempts WHERE root_job_id = ? ORDER BY attempt_seq",
+                (root,),
+            ).fetchall()
+        }
+
+        positions = {id(o): pos for pos, o in enumerate(group)}
+
+        def _seq(order, pos: int, meta_map=attempt_meta) -> int:
+            meta = meta_map.get(order.work_order_id)
+            return int(meta["attempt_seq"]) if meta else pos + 1
+
+        group.sort(key=lambda o: _seq(o, positions[id(o)]))
+        attempts = []
+        for pos, order in enumerate(group):
+            meta = attempt_meta.get(order.work_order_id)
+            attempts.append({
+                "work_order_id": order.work_order_id,
+                "seq": _seq(order, pos),
+                "actor": str(meta["actor"]) if meta else "native_agent",
+                "status": order.status,
+                "termination_cause": str(meta["termination_cause"] or "")
+                if meta else "",
+                **manager.order_times(order.work_order_id),
+            })
+        active = next(
+            (o for o in reversed(group) if o.status not in _TERMINAL), None
+        )
+        state = active.status if active else group[-1].status
+        cards.append({
+            "root_job_id": root,
+            "goal": group[0].goal[:120],
+            "state": state,
+            "attempts": attempts,
+        })
+    # 运行中的卡排前面；同组内按最新 attempt 创建时间倒序（稳定排序
+    # 两次：先时间倒序，再活跃优先）。
+    cards.sort(
+        key=lambda c: str(c["attempts"][-1].get("created_at") or ""),
+        reverse=True,
+    )
+    cards.sort(key=lambda c: 0 if c["state"] not in _TERMINAL else 1)
+    return cards
+
+
+async def worker_control(
+    service: AgentService, work_order_id: str, action: str
+) -> dict:
+    """pause/resume/cancel——控制请求必须 ACK（总纲 §3.2）；乐观直写
+    PAUSED 不允许。返回 {ok, state, code?, error?}。"""
+    manager = service._worker_manager
+    order = manager.order(work_order_id)
+    if order is None:
+        return {
+            "ok": False,
+            "code": "WORK_ORDER_NOT_FOUND",
+            "error": f"unknown work order {work_order_id!r}",
+        }
+    adapter = manager._adapters.get("pi_managed")
+    if action == "pause":
+        if order.status != "RUNNING":
+            return {
+                "ok": False,
+                "code": "NOT_RUNNING",
+                "error": f"当前 {order.status}——只有运行中可暂停",
+            }
+        with contextlib.suppress(Exception):
+            manager._transition(work_order_id, "PAUSE_REQUESTED", "user_pause")
+        paused = await adapter.request_pause(work_order_id, reason="user")
+        if paused:
+            manager._transition(work_order_id, "PAUSED", "user_pause_ack")
+            return {"ok": True, "state": "PAUSED"}
+        with contextlib.suppress(Exception):
+            manager._transition(work_order_id, "RUNNING", "pause_ack_failed")
+        return {
+            "ok": False,
+            "code": "ACK_TIMEOUT",
+            "error": "Worker 未确认暂停（ACK 超时）——进程仍在运行",
+        }
+    if action == "resume":
+        if order.status not in ("PAUSED", "BUDGET_PAUSED"):
+            return {
+                "ok": False,
+                "code": "NOT_PAUSED",
+                "error": f"当前 {order.status}——只有暂停中可恢复",
+            }
+        resumed = await adapter.request_resume(work_order_id)
+        if resumed:
+            manager._transition(work_order_id, "RUNNING", "user_resume_ack")
+            return {"ok": True, "state": "RUNNING"}
+        return {
+            "ok": False,
+            "code": "ACK_TIMEOUT",
+            "error": "Worker 未确认恢复（ACK 超时）",
+        }
+    if action == "cancel":
+        await manager.cancel_order(work_order_id, reason="user_cancel")
+        return {"ok": True, "state": "CANCELLED"}
+    return {"ok": False, "code": "INVALID_ACTION", "error": f"unknown action {action!r}"}
+
+
+def worker_transcript_page(
+    service: AgentService,
+    work_order_id: str,
+    *,
+    after_seq: int | None = None,
+    before_seq: int | None = None,
+    limit: int = 50,
+    channel: str | None = None,
+) -> dict:
+    """完整公开 transcript 分页（Tasks Center 的 Transcript/Files/
+    Artifacts/Metrics 页共用）。"""
+    from rosclaw.agentd.workers.transcript_store import TranscriptStore
+
+    return TranscriptStore(service._home).read_page(
+        work_order_id,
+        after_seq=after_seq,
+        before_seq=before_seq,
+        limit=limit,
+        channel=channel,
+    )
+
+
 class PiBridgeServer:
     """agentd 内的 Pi bridge：session 绑定 + 状态/上下文投影。"""
-
     def __init__(self, service: AgentService, socket_path: Path) -> None:
         self._service = service
         self._path = socket_path
@@ -1012,6 +1157,34 @@ class PiBridgeServer:
                 "artifacts": artifacts,
                 "has_session": bool(
                     (store.read_state(work_order_id) or {}).get("session_file")
+                ),
+            }
+        if method == "pi.worker.jobs":
+            # 十四审 PR-14.4：Tasks Center 的聚合任务卡（一个用户任务
+            # 一张卡，attempts 内部聚合）。
+            mission_id = str(params.get("mission_id", ""))
+            return {"ok": True, "jobs": worker_jobs_projection(service, mission_id)}
+        if method == "pi.worker.control":
+            # 十四审 PR-14.4：pause/resume/cancel——ACK 语义（不乐观）。
+            result = await worker_control(
+                service,
+                str(params.get("work_order_id", "")),
+                str(params.get("action", "")),
+            )
+            return result
+        if method == "pi.worker.transcript":
+            # 十四审 PR-14.4：完整公开 transcript 分页（tseq 游标 +
+            # channel 过滤）。
+            before_raw = params.get("before_seq")
+            return {
+                "ok": True,
+                **worker_transcript_page(
+                    service,
+                    str(params.get("work_order_id", "")),
+                    after_seq=int(params.get("after_seq", 0) or 0) or None,
+                    before_seq=int(before_raw) if before_raw is not None else None,
+                    limit=min(int(params.get("limit", 50) or 50), 200),
+                    channel=str(params.get("channel") or "") or None,
                 ),
             }
         if method == "pi.worker.events":

@@ -9,6 +9,7 @@ export const CATALOG_EN: Record<CatalogKey, string> = {
 	"chrome.kernel": "Kernel",
 	"chrome.context": "Context",
 	"chrome.operator": "Operator",
+	"chrome.sim_auto": "SIM auto",
 	"chrome.action": "Action",
 	"chrome.unbound": "No Mission bound · /help for commands",
 	"chrome.no_model": "No model selected",

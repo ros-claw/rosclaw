@@ -22,6 +22,9 @@ from rosclaw.memory.types import ArtifactRef, FailureMemory, PraxisEvent
 from rosclaw.runtime.component import RuntimeConsumer
 from rosclaw.runtime.event import RuntimeEvent
 
+# ADR-0010 compat (PR-DF-01): keep the pre-rename module attribute
+SeekDBClient = StructuredStore
+
 logger = logging.getLogger("rosclaw.memory.consumer")
 
 

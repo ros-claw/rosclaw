@@ -15,6 +15,7 @@ async function collectHandlers() {
 		registerCommand(name: string, options: { description?: string; handler: (args: string, ctx: unknown) => Promise<void> }) {
 			commands.set(name, options);
 		},
+		registerShortcut() {},
 		// P0-5F：内核结果卡/冲突条目的渲染器与落盘 API（mock 空实现）。
 		registerEntryRenderer() {},
 		appendEntry() {},

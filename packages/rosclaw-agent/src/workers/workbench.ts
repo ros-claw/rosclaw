@@ -36,6 +36,8 @@ export interface WorkbenchOptions {
 	bashLogPath: string;
 	/** 长命令保活：bash 运行期间周期性回调（喂 idle watchdog）。 */
 	emitProgress?: (message: string) => void;
+	/** 十四审 PR-14.3：结构化记录（file_change 等）→ files channel。 */
+	emitRecord?: (kind: string, payload: Record<string, unknown>) => void;
 	/** 单命令默认超时（ms）。 */
 	defaultTimeoutMs?: number;
 }
@@ -201,6 +203,11 @@ export function buildWorkbenchTools(options: WorkbenchOptions): ToolDefinition[]
 			mkdirSync(dirname(p), { recursive: true });
 			writeFileSync(p, String(params.content), "utf-8");
 			log(`write ${p} (${(params.content as string).length} bytes)`);
+			options.emitRecord?.("file_change", {
+				op: "write",
+				path: p.startsWith(root) ? p.slice(root.length + 1) : p,
+				bytes: (params.content as string).length,
+			});
 			return {
 				content: [{ type: "text" as const, text: `wrote ${p}` }],
 				details: { path: p },
@@ -243,6 +250,12 @@ export function buildWorkbenchTools(options: WorkbenchOptions): ToolDefinition[]
 			}
 			writeFileSync(p, text.replace(oldText, String(params.new_text)), "utf-8");
 			log(`edit ${p}`);
+			options.emitRecord?.("file_change", {
+				op: "edit",
+				path: p.startsWith(root) ? p.slice(root.length + 1) : p,
+				old_bytes: oldText.length,
+				new_bytes: String(params.new_text).length,
+			});
 			return {
 				content: [{ type: "text" as const, text: `edited ${p}` }],
 				details: { path: p, error: null as string | null },
