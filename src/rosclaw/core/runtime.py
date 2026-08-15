@@ -546,6 +546,21 @@ class Runtime(LifecycleMixin):
                 know_path = self.config.know_store_path or str(
                     workspace_home / "data" / "know" / "seekdb"
                 )
+                # PR-DF-09 (flywheel §28): Knowledge keeps its own logical
+                # store, but the federation coordinates are now actually
+                # passed — shared ID/lineage/evidence references resolve
+                # against the Runtime's data plane instead of env defaults.
+                federation: dict[str, Any] = {}
+                if self._data_plane is not None and self._data_plane.structured_store is not None:
+                    federation["memory_path"] = self.config.seekdb_path
+                    dsn = self.config.seekdb_url
+                    if dsn:
+                        from urllib.parse import urlparse
+
+                        db = urlparse(str(dsn)).path.lstrip("/")
+                        if db:
+                            federation["memory_database"] = db
+                federation["practice_path"] = str(workspace_home / "data" / "practice")
                 service_config = KnowledgeServiceConfig(
                     mode=v2_mode,
                     know_url=self.config.know_url,
@@ -555,14 +570,16 @@ class Runtime(LifecycleMixin):
                     timeout=self.config.knowledge_timeout,
                     know_store_mode=self.config.know_store_mode,
                     know_store_path=know_path,
+                    **federation,
                 )
                 self._knowledge_v2_manager = KnowledgeServiceManager(service_config)
                 self._knowledge_v2 = KnowledgeFacade(
                     self._knowledge_v2_manager, event_bus=self.event_bus
                 )
                 logger.info(
-                    "Knowledge v2 orchestration initialized (mode=%s, memory_store_shared=false)",
+                    "Knowledge v2 orchestration initialized (mode=%s, federation=%s)",
                     v2_mode,
+                    sorted(federation),
                 )
             except Exception as exc:  # noqa: BLE001 - optional integration
                 logger.warning("Knowledge v2 initialization degraded: %s", exc)

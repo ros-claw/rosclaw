@@ -1,4 +1,11 @@
-"""Compatibility facade for legacy ROSClaw Knowledge integrations.
+"""DEPRECATED package (PR-DF-09 / ADR-0010): legacy Knowledge runtime.
+
+Canonical package: ``rosclaw.knowledge``.  This package stays as the
+compatibility shim for at least one full minor release; import legacy
+symbols via ``rosclaw.knowledge.legacy`` so the eventual physical move is
+invisible to consumers.
+
+Compatibility facade for legacy ROSClaw Knowledge integrations.
 
 Authoritative v2 implementation lives in ``rosclaw-know``. This package is a
 rollback-compatible runtime adapter and must not grow new retrieval algorithms.
