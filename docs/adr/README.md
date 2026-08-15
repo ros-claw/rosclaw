@@ -15,5 +15,6 @@
 | [0008](0008-pi-dependency-boundary.md) | Pi 依赖边界（pi-tui/pi-ai 可 import，Pi Agent 生态禁止） | Accepted |
 | [0009](0009-data-plane.md) | Data Plane：Structured/Retrieval Store 分层与 SeekDB 定位 | Accepted |
 | [0010](0010-canonical-vocabulary.md) | Canonical Vocabulary（数据平面命名冻结） | Accepted |
+| [0011](0011-agent-runtime-fabric.md) | Agent Runtime Fabric——术语、状态与边界冻结（无为而治） | Accepted |
 
 依据文档：《ROSClaw Native Agent、Worker Fabric 与多机器人 Team Fabric 实施总纲 v1.0》（2026-08-01）。
