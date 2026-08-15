@@ -94,12 +94,27 @@ class ExecutionRouter:
                         "runtime": runtime,
                         "reason": f"capability {capability} → {runtime}",
                     }
-        # 3. 无匹配 capability 的开放任务 → 默认 Harness（编码/调研）。
+        # 3. 无匹配 capability 的开放任务 → Harness（readiness preflight：
+        # ACP Harness 就绪优先，否则内置 Pi——总纲 §7.2 prefer 只用于
+        # 启动前选择）。
         return {
             "domain": "agent_harness",
-            "runtime": "harness:pi-builtin",
-            "reason": "开放式任务默认内置 Pi Harness（共享 Native provider）",
+            "runtime": self._preferred_harness(),
+            "reason": "开放式任务 Harness 路由（readiness preflight 后选定）",
         }
+
+    @staticmethod
+    def _preferred_harness() -> str:
+        """启动前健康选择：已安装的 ACP Harness 优先于内置 Pi。"""
+        import shutil
+
+        for binary, runtime in (
+            ("claude-code-acp", "harness:acp:claude-local"),
+            ("pi-acp", "harness:acp:pi-acp"),
+        ):
+            if shutil.which(binary):
+                return runtime
+        return "harness:pi-builtin"
 
 
 class TaskControlPlane:
@@ -222,7 +237,7 @@ class TaskControlPlane:
                     "execution 只做提案，不直接执行",
                 )
             else:
-                await self._drive_harness(execution_id, mission_id, spec)
+                await self._drive_harness(execution_id, mission_id, spec, route)
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001 - 执行失败是数据
@@ -290,10 +305,50 @@ class TaskControlPlane:
         )
 
     async def _drive_harness(
+        self, execution_id: str, mission_id: str, spec: dict, route: dict
+    ) -> None:
+        """Harness 域：ACP runtime 走协议驱动（PR-RF-3）；pi-builtin 走
+        现有 worker manager（RF-9 前保留）。"""
+        if route["runtime"].startswith("harness:acp:"):
+            await self._drive_acp(execution_id, spec, route["runtime"])
+            return
+        await self._drive_pi_builtin(execution_id, mission_id, spec)
+
+    async def _drive_acp(
+        self, execution_id: str, spec: dict, runtime: str
+    ) -> None:
+        """ACP Harness：单 session 跑到底；事件落 EventStore。"""
+        from rosclaw.agentd.acp_driver import AcpHarnessDriver, acp_binary_for
+
+        if acp_binary_for(runtime) is None:
+            self._update_state(
+                execution_id, "BLOCKED",
+                summary=f"ACP Harness {runtime} 未安装——preflight 失败，"
+                "未创建执行（可安装后重试同一任务）",
+            )
+            return
+        self._update_state(execution_id, "RUNNING")
+        from rosclaw.agentd.workers.event_store import WorkerEventStore
+
+        events = WorkerEventStore(self._service._home)
+
+        async def sink(kind: str, payload: dict) -> None:
+            events.append_event(execution_id, "", kind, payload)
+
+        driver = AcpHarnessDriver(
+            runtime, cwd=str(self._service._home), event_sink=sink
+        )
+        result = await driver.run(str(spec.get("goal", "")))
+        self._update_state(
+            execution_id,
+            "SUCCEEDED" if result["ok"] else "FAILED",
+            summary=result["detail"][:500],
+        )
+
+    async def _drive_pi_builtin(
         self, execution_id: str, mission_id: str, spec: dict
     ) -> None:
-        """Harness 域：经现有 worker manager 起一个内置 Pi 执行会话
-        （RF-3 后改走 ACP——execution 语义不变）。"""
+        """内置 Pi Harness（RF-9 前的默认路径）。"""
         from rosclaw.agentd.workers.scheduler import CandidateView
         from rosclaw.contracts.worker.order import (
             BudgetEnvelope,
