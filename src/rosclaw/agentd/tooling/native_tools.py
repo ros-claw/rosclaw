@@ -100,6 +100,109 @@ def register_native_tools(
                 typical_latency_ms=4000,
             ),
         )
+        # 十四审 PR-14.6：SIM 动力学闭环四能力（COMPUTE——确定性仿真/
+        # 渲染/验证，无人工审批；SIMULATION 限定；证据 SIMULATED）。
+        from rosclaw.agentd.tools import (
+            TRAJ_PLAN_TOOL,
+            TRAJ_RENDER_TOOL,
+            TRAJ_SIMULATE_TOOL,
+            TRAJ_VERIFY_TOOL,
+        )
+
+        descriptors += [
+            ToolDescriptorV2(
+                tool_id=TRAJ_PLAN_TOOL,
+                source=NATIVE_SOURCE,
+                execution_class=ExecutionClass.COMPUTE,
+                description=(
+                    "Generate a parameterized planar Cartesian path "
+                    "(shape=star5|circle, center_m, scale_m) — sampled closed "
+                    "loop with safe-workspace validation. Returns plan_id handle."
+                ),
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "shape": {"type": "string", "enum": ["star5", "circle"]},
+                        "center_m": {"type": "array", "items": {"type": "number"}},
+                        "scale_m": {"type": "number"},
+                        "plane": {"type": "string", "enum": ["xy"]},
+                        "max_segment_m": {"type": "number"},
+                    },
+                    "required": ["shape"],
+                    "additionalProperties": False,
+                },
+                supported_modes=["SIMULATION"],
+                evidence_class=ToolEvidenceClass.SIMULATED,
+                reliability=0.99,
+                typical_latency_ms=50,
+            ),
+            ToolDescriptorV2(
+                tool_id=TRAJ_SIMULATE_TOOL,
+                source=NATIVE_SOURCE,
+                execution_class=ExecutionClass.COMPUTE,
+                description=(
+                    "Run a real MuJoCo dynamics rollout of a planned Cartesian "
+                    "trajectory with the SIMULATED UR5e (DLS-IK → joint "
+                    "trajectory → physics rollout → actual eef trace + tracking "
+                    "metrics). Evidence class: SIM_DYN_ROLLOUT (simulated)."
+                ),
+                input_schema={
+                    "type": "object",
+                    "properties": {"plan_id": {"type": "string"}},
+                    "required": ["plan_id"],
+                    "additionalProperties": False,
+                },
+                supported_modes=["SIMULATION"],
+                evidence_class=ToolEvidenceClass.SIMULATED,
+                verifier="physics-rollout+tracking-metrics",
+                reliability=0.95,
+                typical_latency_ms=15000,
+            ),
+            ToolDescriptorV2(
+                tool_id=TRAJ_RENDER_TOOL,
+                source=NATIVE_SOURCE,
+                execution_class=ExecutionClass.COMPUTE,
+                description=(
+                    "Render the ACTUAL eef trace of a dynamics rollout into a "
+                    "playable GIF artifact (>=30 frames)."
+                ),
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "trace_id": {"type": "string"},
+                        "format": {"type": "string", "enum": ["gif"]},
+                    },
+                    "required": ["trace_id"],
+                    "additionalProperties": False,
+                },
+                supported_modes=["SIMULATION"],
+                evidence_class=ToolEvidenceClass.SIMULATED,
+                reliability=0.99,
+                typical_latency_ms=3000,
+            ),
+            ToolDescriptorV2(
+                tool_id=TRAJ_VERIFY_TOOL,
+                source=NATIVE_SOURCE,
+                execution_class=ExecutionClass.COMPUTE,
+                description=(
+                    "Verify trajectory tracking against a threshold "
+                    "(max_tracking_error_m) — honest PASS/FAIL with metrics."
+                ),
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "trace_id": {"type": "string"},
+                        "max_tracking_error_m": {"type": "number"},
+                    },
+                    "required": ["trace_id", "max_tracking_error_m"],
+                    "additionalProperties": False,
+                },
+                supported_modes=["SIMULATION"],
+                evidence_class=ToolEvidenceClass.SIMULATED,
+                reliability=0.99,
+                typical_latency_ms=100,
+            ),
+        ]
     for descriptor in descriptors:
 
         async def _exec(arguments: dict[str, Any], _name: str = descriptor.tool_id) -> str:

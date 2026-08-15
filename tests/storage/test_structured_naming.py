@@ -105,4 +105,4 @@ def test_new_canonical_names_exported():
     ):
         assert hasattr(memory_pkg, name), name
     with pytest.raises(AttributeError):
-        memory_pkg.DoesNotExist  # sanity: hasattr isn't vacuous
+        _ = memory_pkg.DoesNotExist  # sanity: hasattr isn't vacuous

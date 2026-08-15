@@ -18,6 +18,11 @@ from rosclaw.contracts.common import ValidationError
 SIM_STATE_TOOL = "sim_get_state"
 SIM_BODY_TOOL = "sim_body_profile"
 SIM_REACH_TOOL = "sim_reach"
+# 十四审 PR-14.6：SIM 动力学闭环正式能力（COMPUTE，SIMULATION 限定）。
+TRAJ_PLAN_TOOL = "trajectory_generate_planar_path"
+TRAJ_SIMULATE_TOOL = "ur5e_simulate_cartesian_trajectory"
+TRAJ_RENDER_TOOL = "simulation_render_trace"
+TRAJ_VERIFY_TOOL = "simulation_verify_tracking"
 
 _TOOL_SCHEMAS: dict[str, StrictTool] = {
     SIM_STATE_TOOL: StrictTool(
@@ -68,9 +73,10 @@ _TOOL_SCHEMAS: dict[str, StrictTool] = {
 class BuiltinToolRegistry:
     """Allowlisted executor for the agentd's own P0 tools."""
 
-    def __init__(self, *, body_id: str, body_summary: str) -> None:
+    def __init__(self, *, body_id: str, body_summary: str, home=None) -> None:
         self._body_id = body_id
         self._body_summary = body_summary
+        self._home = home
 
     def strict_tools(self, names: list[str]) -> list[StrictTool]:
         return [_TOOL_SCHEMAS[n] for n in names if n in _TOOL_SCHEMAS]
@@ -92,6 +98,10 @@ class BuiltinToolRegistry:
             )
         if name == SIM_REACH_TOOL:
             return await asyncio.to_thread(self._execute_reach, arguments)
+        if name in (
+            TRAJ_PLAN_TOOL, TRAJ_SIMULATE_TOOL, TRAJ_RENDER_TOOL, TRAJ_VERIFY_TOOL,
+        ):
+            return await asyncio.to_thread(self._execute_trajectory_tool, name, arguments)
         return json.dumps(
             {
                 "evidence_class": "configured",
@@ -100,6 +110,46 @@ class BuiltinToolRegistry:
             },
             ensure_ascii=False,
         )
+
+    def _execute_trajectory_tool(self, name: str, arguments: dict[str, Any]) -> str:
+        """十四审 PR-14.6：SIM 动力学闭环四能力（COMPUTE——纯计算/
+        渲染/验证，无物理副作用；证据 SIM_DYN_ROLLOUT=simulated）。"""
+        from pathlib import Path as _Path
+
+        from rosclaw.agentd.sim_trajectory import SimTrajectoryService
+
+        if self._home is None:
+            raise ValidationError("sim trajectory tools require rosclaw home")
+        svc = SimTrajectoryService(_Path(self._home))
+        try:
+            if name == TRAJ_PLAN_TOOL:
+                result = svc.generate_planar_path(
+                    shape=str(arguments.get("shape", "star5")),
+                    center_m=arguments.get("center_m") or [0.35, 0.25, 0.30],
+                    scale_m=float(arguments.get("scale_m", arguments.get("radius_m", 0.10))),
+                    plane=str(arguments.get("plane", "xy")),
+                    max_segment_m=float(arguments.get("max_segment_m", 0.02)),
+                )
+                # 模型视图不带完整 points（载荷留文件——句柄+摘要）。
+                result = {k: v for k, v in result.items() if k != "points"}
+            elif name == TRAJ_SIMULATE_TOOL:
+                result = svc.simulate_cartesian_trajectory(
+                    str(arguments["plan_id"])
+                )
+            elif name == TRAJ_RENDER_TOOL:
+                result = svc.render_trace(
+                    str(arguments["trace_id"]),
+                    format=str(arguments.get("format", "gif")),
+                )
+            else:
+                result = svc.verify_tracking(
+                    str(arguments["trace_id"]),
+                    max_tracking_error_m=float(arguments["max_tracking_error_m"]),
+                )
+        except (ValueError, KeyError) as exc:
+            raise ValidationError(f"{name} 参数错误: {exc}") from exc
+        result["evidence_class"] = "simulated"
+        return json.dumps(result, ensure_ascii=False)
 
     def _execute_reach(self, arguments: dict[str, Any]) -> str:
         from rosclaw.product.demo import DemoConfigurationError, run_demo

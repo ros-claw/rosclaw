@@ -33,6 +33,10 @@ from typing import Any
 
 from rosclaw.memory.seekdb_client import StructuredStore
 
+# ADR-0010 compat (PR-DF-01): keep the pre-rename module attribute
+SeekDBClient = StructuredStore
+
+
 logger = logging.getLogger("rosclaw.storage.seekdb_native")
 
 _EMBEDDED_PATH_LOCK = Lock()

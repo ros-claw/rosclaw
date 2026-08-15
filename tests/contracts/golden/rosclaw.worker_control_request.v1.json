@@ -1,0 +1,52 @@
+{
+  "additionalProperties": true,
+  "description": "supervisor → worker（stdin JSONL）。control_id 用于 ACK 对账。",
+  "properties": {
+    "schema_version": {
+      "const": "rosclaw.worker_control_request.v1",
+      "default": "rosclaw.worker_control_request.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "type": {
+      "const": "control.request",
+      "default": "control.request",
+      "title": "Type",
+      "type": "string"
+    },
+    "control_id": {
+      "title": "Control Id",
+      "type": "string"
+    },
+    "action": {
+      "enum": [
+        "pause",
+        "resume",
+        "cancel"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "mode": {
+      "default": "safe",
+      "enum": [
+        "safe",
+        "immediate"
+      ],
+      "title": "Mode",
+      "type": "string"
+    },
+    "reason": {
+      "default": "",
+      "title": "Reason",
+      "type": "string"
+    }
+  },
+  "required": [
+    "control_id",
+    "action"
+  ],
+  "title": "rosclaw.worker_control_request.v1",
+  "type": "object",
+  "$id": "rosclaw://schemas/rosclaw.worker_control_request.v1"
+}
