@@ -1850,6 +1850,16 @@ class AgentService:
 
         with _cl.suppress(Exception):
             await self._worker_manager.shutdown()
+        # 十五审自审：control-plane 驱动任务也要取消（否则 close 后
+        # 仍在写已关闭的 DB/跑已杀的进程）。
+        plane = getattr(self, "_task_control_plane", None)
+        if plane is not None:
+            for driver in list(plane._drivers.values()):
+                driver.cancel()
+            if plane._drivers:
+                with _cl.suppress(Exception):
+                    await asyncio.gather(*plane._drivers.values(), return_exceptions=True)
+                plane._drivers.clear()
         for task in list(getattr(self, "_worker_bg_tasks", {}).values()):
             task.cancel()
         if getattr(self, "_worker_bg_tasks", None):

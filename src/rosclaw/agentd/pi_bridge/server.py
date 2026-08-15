@@ -1164,6 +1164,25 @@ class PiBridgeServer:
             # 一张卡，attempts 内部聚合）。
             mission_id = str(params.get("mission_id", ""))
             return {"ok": True, "jobs": worker_jobs_projection(service, mission_id)}
+        if method == "pi.task.executions":
+            # 十五审 PR-RF-8：execution 级任务卡（Task Control Plane 是
+            # 权威——一个任务一张卡，WorkOrder 折叠为内部细节）。
+            mission_id = str(params.get("mission_id", ""))
+            plane = service._task_control_plane
+            cards = []
+            for row in plane.executions_for(mission_id):
+                spec = json.loads(row["spec_json"])
+                cards.append({
+                    "execution_id": row["execution_id"],
+                    "goal": str(spec.get("goal", ""))[:120],
+                    "state": row["state"],
+                    "runtime": row["runtime"],
+                    "domain": row["domain"],
+                    "summary": (row.get("summary") or "")[:500],
+                    "work_order_id": row.get("work_order_id") or "",
+                    "created_at": row["created_at"],
+                })
+            return {"ok": True, "executions": cards}
         if method == "pi.worker.control":
             # 十四审 PR-14.4：pause/resume/cancel——ACK 语义（不乐观）。
             result = await worker_control(

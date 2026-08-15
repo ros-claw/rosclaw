@@ -21,7 +21,7 @@ interface JsonRpcRequest {
 interface PendingRequest {
 	resolve: (value: Record<string, unknown>) => void;
 	reject: (error: Error) => void;
-	timer: NodeJS.Timeout;
+	timer?: NodeJS.Timeout;
 }
 
 const REQUEST_TIMEOUT_MS = 30_000;
@@ -44,7 +44,7 @@ export class AcpClient {
 		proc.on("exit", (code) => {
 			// 进程退出：所有挂起请求诚实失败（绝不悬挂）。
 			for (const [, p] of this.pending) {
-				clearTimeout(p.timer);
+				if (p.timer) clearTimeout(p.timer);
 				p.reject(new Error(`harness exited (code ${code})`));
 			}
 			this.pending.clear();
@@ -67,7 +67,7 @@ export class AcpClient {
 				const p = this.pending.get(msg.id);
 				if (p) {
 					this.pending.delete(msg.id);
-					clearTimeout(p.timer);
+					if (p.timer) clearTimeout(p.timer);
 					if (msg.error !== undefined) {
 						const err = msg.error as { code?: number; message?: string };
 						p.reject(new Error(`ACP error ${err.code}: ${err.message ?? ""}`));
@@ -107,14 +107,23 @@ export class AcpClient {
 		this.proc.stdin!.write(`${JSON.stringify(msg)}\n`);
 	}
 
-	private request(method: string, params?: unknown): Promise<Record<string, unknown>> {
+	private request(
+		method: string,
+		params?: unknown,
+		timeoutMs: number | null = REQUEST_TIMEOUT_MS,
+	): Promise<Record<string, unknown>> {
 		const id = this.nextId++;
 		return new Promise((resolvePromise, rejectPromise) => {
-			const timer = setTimeout(() => {
-				this.pending.delete(id);
-				rejectPromise(new Error(`ACP ${method} timeout`));
-			}, REQUEST_TIMEOUT_MS);
-			this.pending.set(id, { resolve: resolvePromise, reject: rejectPromise, timer });
+			// timeoutMs=null：session/prompt 是长任务——绝不按固定墙钟
+			// 杀（ADR-0011：无默认 wall-clock kill）。
+			const pending: PendingRequest = { resolve: resolvePromise, reject: rejectPromise };
+			if (timeoutMs !== null) {
+				pending.timer = setTimeout(() => {
+					this.pending.delete(id);
+					rejectPromise(new Error(`ACP ${method} timeout`));
+				}, timeoutMs);
+			}
+			this.pending.set(id, pending);
 			this.sendRaw({ jsonrpc: "2.0", id, method, params });
 		});
 	}
@@ -142,7 +151,7 @@ export class AcpClient {
 		const result = await this.request("session/prompt", {
 			sessionId,
 			prompt: [{ type: "text", text }],
-		});
+		}, null);
 		return { stopReason: String(result.stopReason ?? "unknown") };
 	}
 
@@ -166,7 +175,7 @@ export class AcpClient {
 	dispose(): void {
 		this.proc.kill("SIGTERM");
 		for (const [, p] of this.pending) {
-			clearTimeout(p.timer);
+			if (p.timer) clearTimeout(p.timer);
 			p.reject(new Error("client disposed"));
 		}
 		this.pending.clear();

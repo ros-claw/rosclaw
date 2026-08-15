@@ -12,7 +12,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 import shutil
@@ -76,8 +75,13 @@ class TestHarnessSandbox:
         seen: list[dict] = []
 
         async def sink(kind: str, payload: dict) -> None:
+            # 驱动侧文本可能截断——解析失败不破坏 sink（事件读者健壮性
+            # 也是本测试的一部分）。
             if kind == "message_delta" and payload.get("text"):
-                seen.append(json.loads(payload["text"]))
+                import contextlib
+
+                with contextlib.suppress(json.JSONDecodeError):
+                    seen.append(json.loads(payload["text"]))
 
         import rosclaw.agentd.acp_driver as mod
 

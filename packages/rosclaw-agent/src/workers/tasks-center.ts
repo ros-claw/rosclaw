@@ -32,6 +32,8 @@ export interface JobCard {
 	goal: string;
 	state: string;
 	attempts: AttemptInfo[];
+	/** 十五审 PR-RF-8：execution 级卡片的执行主体（runtime/executor）。 */
+	runtime?: string;
 }
 
 export interface TasksCenterDeps {
@@ -75,7 +77,7 @@ const TERMINAL = new Set(["ACCEPTED", "FAILED", "EXPIRED", "CANCELLED"]);
 const RETRYABLE = new Set(["INTERRUPTED_RESUMABLE", "FAILED", "CANCELLED", "EXPIRED"]);
 
 function icon(state: string): string {
-	if (state === "ACCEPTED") return "✓";
+	if (state === "ACCEPTED" || state === "SUCCEEDED") return "✓";
 	if (TERMINAL.has(state)) return "✗";
 	if (state === "BLOCKED" || state === "PAUSED" || state === "BUDGET_PAUSED") return "⚠";
 	return "●";
@@ -311,8 +313,12 @@ export class TasksCenterComponent implements Component {
 			const mark = idx === this.selected ? ">" : " ";
 			const latest = this.targetAttempt(card);
 			const elapsed = fmtElapsedMs(latest?.duration_ms);
+			const who = card.runtime ? ` · ${card.runtime}` : "";
+			const attempts = card.attempts.length
+				? ` · attempt ${card.attempts.length}/${card.attempts.length}`
+				: "";
 			out.push(
-				`│ ${mark} ${icon(card.state)} ${card.goal.slice(0, 34)} · ${card.state}${elapsed ? ` · ${elapsed}` : ""} · attempt ${card.attempts.length}/${card.attempts.length}`,
+				`│ ${mark} ${icon(card.state)} ${card.goal.slice(0, 34)}${who} · ${card.state}${elapsed ? ` · ${elapsed}` : ""}${attempts}`,
 			);
 			if (this.expanded && idx === this.selected) {
 				for (const a of card.attempts) {

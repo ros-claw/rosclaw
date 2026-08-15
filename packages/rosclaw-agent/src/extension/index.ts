@@ -743,10 +743,40 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			await ctx.ui.custom<boolean>((_tui, _theme, _kb, done) => {
 				return new TasksCenterComponent({
 					fetchJobs: async () => {
-						const r = await center.call("pi.worker.jobs", {
-							mission_id: state.missionId,
-						});
-						return (r.jobs ?? []) as never;
+						// 十五审 PR-RF-8：execution 级卡为主（Task Control Plane
+						// 权威）；execution 关联的 WorkOrder 折叠进 attempts，
+						// 游离 worker 单（legacy/delegate 路径）仍单独成卡。
+						const [jobsRes, execRes] = await Promise.all([
+							center.call("pi.worker.jobs", { mission_id: state.missionId }),
+							center.call("pi.task.executions", { mission_id: state.missionId }),
+						]);
+						const jobs = (jobsRes.jobs ?? []) as Array<Record<string, unknown>>;
+						const execs = (execRes.executions ?? []) as Array<Record<string, unknown>>;
+						const linked = new Set(
+							execs.map((e) => String(e.work_order_id ?? "")).filter(Boolean),
+						);
+						const execCards = execs.map((e) => ({
+							root_job_id: String(e.execution_id),
+							goal: String(e.goal ?? ""),
+							state: String(e.state ?? ""),
+							runtime: String(e.runtime ?? ""),
+							attempts: e.work_order_id
+								? [{
+									work_order_id: String(e.work_order_id),
+									seq: 1,
+									actor: "control-plane",
+									status: String(e.state ?? ""),
+									termination_cause: "",
+								}]
+								: [],
+						}));
+						const orphanJobs = jobs.filter(
+							(j) => !linked.has(String(j.root_job_id ?? ""))
+								&& !(j.attempts as Array<{ work_order_id?: string }> ?? []).some(
+									(a) => linked.has(String(a.work_order_id ?? "")),
+								),
+						);
+						return [...execCards, ...orphanJobs] as never;
 					},
 					fetchEvents: async (wo, afterSeq, limit) => {
 						const r = await center.call("pi.worker.events", {
