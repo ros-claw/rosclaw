@@ -522,6 +522,72 @@ class DashboardWebServer:
         async def snapshot() -> dict[str, Any]:
             return self.server.get_snapshot()
 
+        @self.app.get("/api/data-flywheel")
+        async def api_data_flywheel() -> dict[str, Any]:
+            """Data Flywheel observability (PR-DF-15 §44): one aggregate view
+            of the data plane — storage backends, memory/evolution/receipt/
+            lineage counts, outbox, retrieval projection lag.  All probes are
+            best-effort; a down database reports an error field, never a 500.
+            """
+            import argparse
+
+            from rosclaw.storage.cli import _load_storage_config, _projection_status
+            from rosclaw.storage.factory import StoreFactory
+
+            cfg = _load_storage_config(argparse.Namespace(backend=None, url=None, path=None))
+            result: dict[str, Any] = {"backend": cfg["backend"]}
+            client = None
+            try:
+                client = StoreFactory.create_structured_store(
+                    backend=cfg["backend"],
+                    url=cfg["url"],
+                    path=cfg["path"],
+                    pool_size=cfg["pool_size"],
+                )
+                client.connect()
+                result["structured_store_connected"] = True
+
+                def _count(table: str) -> int | None:
+                    try:
+                        return client.count(table)
+                    except Exception:  # noqa: BLE001
+                        return None
+
+                result["memory"] = {
+                    "items": _count("memory_items"),
+                    "evidence": _count("memory_evidence"),
+                }
+                result["evolution_records"] = _count("evolution_records")
+                result["execution_receipts"] = _count("execution_receipts")
+                result["lineage_edges"] = _count("lineage_edges")
+                result["auto_proposals"] = _count("auto_proposals")
+                result["darwin_benchmarks"] = _count("darwin_benchmarks")
+                try:
+                    proj = _projection_status(cfg, client)
+                except Exception as proj_exc:  # noqa: BLE001
+                    proj = {"error": str(proj_exc)}
+                if proj is not None:
+                    result["retrieval_projection"] = proj
+            except Exception as exc:  # noqa: BLE001
+                result["structured_store_connected"] = False
+                result["error"] = str(exc)
+            finally:
+                if client is not None:
+                    import contextlib
+
+                    with contextlib.suppress(Exception):
+                        client.disconnect()
+            if cfg.get("outbox_enabled"):
+                try:
+                    from rosclaw.storage.outbox import OutboxStore
+
+                    outbox = OutboxStore(db_path=cfg["outbox_path"])
+                    outbox.connect()
+                    result["outbox"] = outbox.stats()
+                except Exception as exc:  # noqa: BLE001
+                    result["outbox"] = {"error": str(exc)}
+            return result
+
         @self.app.get("/evolution/evo-rps/{experiment_id}")
         async def evolution_evo_rps_page(experiment_id: str) -> Any:
             from rosclaw.evolution.hardware.dashboard_data import (

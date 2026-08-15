@@ -25,7 +25,7 @@ def test_know_package_still_importable():
 
 
 def _cfg(**over):
-    base = dict(
+    base = dict(  # noqa: C408 — kwargs spread pattern
         robot_id="sim_test",
         seekdb_backend="memory",
         enable_memory=False,
