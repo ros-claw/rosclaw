@@ -195,6 +195,12 @@ class RetryCoordinator:
                     "\n\n（上一次 attempt 因基础设施错误中断——workspace 里可能"
                     "已有部分成果：先检查现状，再继续，不要从零开始。）"
                 )
+            if actor == "repair":
+                # 建议-0816 P0-2：验收反馈修复复用同一 workspace（同一
+                # session + 同一工作区 = 真正"接着修"）。
+                reuse = str(order.inputs.get("workspace") or "")
+                if reuse:
+                    inputs["_reuse_workspace"] = reuse
             if resume_session:
                 inputs["_resume_session"] = resume_session
             new_order = _WorkOrderV1(

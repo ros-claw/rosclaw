@@ -28,7 +28,7 @@ class TestGovernanceToolSurface:
                 idem="idem_rf0_submit",
                 arguments={
                     "goal": "让 UR5e 在仿真中画五角星并交付动画和误差指标",
-                    "required_capabilities": ["simulation.ur5e", "trajectory"],
+                    "required_capabilities": ["simulation.planar_trajectory"],
                     "effects": "simulation_only",
                     "deliverables": [{"type": "image/gif"}],
                     "acceptance": {"max_tracking_error_m": 0.05},

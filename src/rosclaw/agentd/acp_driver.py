@@ -33,10 +33,11 @@ def acp_binary_for(runtime: str) -> str | None:
     return shutil.which(binary)
 
 
-#: 十五审 PR-RF-4（总纲 §9）：Harness Sandbox——隔离 workspace/HOME/
+#: 十五审 PR-RF-4（总纲 §9）：Harness 进程防护——隔离 workspace/HOME/
 #: TMP，凭据只给目标 harness，无 ROS/DDS/设备/rosclawd socket。
 #: 本机无 bwrap/unshare（Worker workbench 已实证），隔离在进程环境层
-#: 实现——不假装有 OS 容器。
+#: 实现——这是 GUARDED_PROCESS（建议-0816 P0-8 诚实命名），不是
+#: SANDBOXED：python/node 进程内仍可网络/越界读，红队 Gate P8 如实标注。
 _SANDBOX_ENV_KEEP = ("PATH", "LANG", "LC_ALL", "TERM", "TZ")
 #: 绝不泄漏给 harness 的变量前缀（rosclaw 私有面/物理面）。
 _SANDBOX_ENV_DENY_PREFIX = ("ROSCLAW_", "ROS_", "RMW_", "CYCLONEDDS", "FASTRTPS")

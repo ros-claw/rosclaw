@@ -73,7 +73,7 @@ const TAB_CHANNEL: Record<Tab, string> = {
 	Artifacts: "artifacts",
 	Metrics: "usage",
 };
-const TERMINAL = new Set(["ACCEPTED", "FAILED", "EXPIRED", "CANCELLED"]);
+const TERMINAL = new Set(["ACCEPTED", "FAILED", "EXPIRED", "CANCELLED", "SUCCEEDED", "BLOCKED"]);
 const RETRYABLE = new Set(["INTERRUPTED_RESUMABLE", "FAILED", "CANCELLED", "EXPIRED"]);
 
 function icon(state: string): string {

@@ -139,6 +139,18 @@ function argPathCheck(root: string, arg: string): void {
 	}
 }
 
+/** 建议-0816 P0-1：bash 默认无硬超时（长编译/仿真合法——stall 由
+ *  supervisor 显示，用户随时可 cancel）。只有显式 timeout_sec
+ *  （调用方/模型自选）或运营配置 defaultTimeoutMs 才装定时器；
+ *  否则返回 null（无 SIGKILL 定时器）。 */
+export function _bashTimeoutMs(
+	params: { timeout_sec?: number },
+	options: { defaultTimeoutMs?: number },
+): number | null {
+	if ((params.timeout_sec ?? 0) > 0) return Number(params.timeout_sec) * 1000;
+	return options.defaultTimeoutMs ?? null;
+}
+
 export function buildWorkbenchTools(options: WorkbenchOptions): ToolDefinition[] {
 	const root = resolve(options.root);
 	const log = (line: string) => {
@@ -424,9 +436,9 @@ export function buildWorkbenchTools(options: WorkbenchOptions): ToolDefinition[]
 					isError: true,
 				};
 			}
-			const timeoutMs = Math.min(
-				(params.timeout_sec ?? 0) > 0 ? Number(params.timeout_sec) * 1000 : (options.defaultTimeoutMs ?? 120_000),
-				600_000,
+			const timeoutMs = _bashTimeoutMs(
+				params as { timeout_sec?: number },
+				{ defaultTimeoutMs: options.defaultTimeoutMs },
 			);
 			log(`$ ${argv.join(" ")}`);
 			const result = await new Promise<{ code: number; output: string }>((resolvePromise) => {
@@ -455,18 +467,20 @@ export function buildWorkbenchTools(options: WorkbenchOptions): ToolDefinition[]
 				const heartbeat = setInterval(() => {
 					options.emitProgress?.(`bash 仍在运行：${argv.join(" ").slice(0, 80)}`);
 				}, 5000);
-				const timer = setTimeout(() => {
-					proc.kill("SIGKILL");
-				}, timeoutMs);
+				const timer = timeoutMs === null
+					? null
+					: setTimeout(() => {
+						proc.kill("SIGKILL");
+					}, timeoutMs);
 				signal?.addEventListener("abort", () => proc.kill("SIGKILL"), { once: true });
 				proc.on("close", (code) => {
-					clearTimeout(timer);
+					if (timer) clearTimeout(timer);
 					clearInterval(heartbeat);
 					if (truncated) output += "\n[output truncated]";
 					resolvePromise({ code: code ?? -1, output });
 				});
 				proc.on("error", (err) => {
-					clearTimeout(timer);
+					if (timer) clearTimeout(timer);
 					clearInterval(heartbeat);
 					resolvePromise({ code: -1, output: `spawn error: ${err.message}` });
 				});

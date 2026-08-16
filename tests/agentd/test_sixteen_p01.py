@@ -13,13 +13,14 @@
 from __future__ import annotations
 
 import asyncio
+import subprocess
 from pathlib import Path
 
 import pytest
 
 from tests.agentd.test_fourteen_1_live import (
-    _MockProvider,
     _hire_real,
+    _MockProvider,
     _runtime,
     _write_mock_agent_dir,
 )
@@ -66,8 +67,6 @@ class TestNoDefaultTurnKill:
 class TestBashNoDefaultTimeout:
     def test_no_default_timeout(self) -> None:
         """bash 无 timeout_sec 且无配置 → None（不装 SIGKILL 定时器）。"""
-        import subprocess
-
         proc = subprocess.run(
             [
                 "/tmp/node2219/bin/node",

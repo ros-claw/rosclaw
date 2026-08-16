@@ -21,6 +21,11 @@ export interface HarnessDescriptor {
 		resume: boolean;
 		steer: boolean;
 	};
+	/** 建议-0816 P0-8：隔离等级诚实命名——进程/环境层防护是
+	 *  guarded_process，不是 sandboxed/container（无 bwrap/unshare）。 */
+	isolation: {
+		level: "guarded_process" | "sandboxed" | "container";
+	};
 	readiness: {
 		runtime: "ready" | "not_installed";
 	};
@@ -38,6 +43,9 @@ export function probeHarness(input: HarnessDescriptorInput): HarnessDescriptor {
 		args: input.args ?? [],
 		capabilities: input.capabilities ?? [],
 		supports: { streaming: true, resume: true, steer: true },
+		// P0-8：当前只有进程/环境层防护（独立 HOME/TMP/env/白名单）
+		// ——guarded_process，绝不宣称 sandboxed。
+		isolation: { level: "guarded_process" },
 		readiness: { runtime: installed ? "ready" : "not_installed" },
 		ready: installed,
 	};

@@ -257,7 +257,6 @@ export async function runHeadlessWorker(argv: string[]): Promise<number> {
 		let phase = "STARTING";
 		let spanStartedAt = Date.now();
 		let semanticSeq = 0;
-		let providerTimedOut = false;
 		const semantic = (kind: string, payload: Record<string, unknown>) => {
 			semanticSeq += 1;
 			emit(wo, att, kind, payload);
@@ -271,11 +270,25 @@ export async function runHeadlessWorker(argv: string[]): Promise<number> {
 			});
 		}, 2000);
 		livenessTimer.unref();
-		// provider request timeout：单个模型 turn 超过阈值（默认 10 分钟）
-		// 才视为 provider 失败——高 thinking 长推理不再被 60s 误杀。
-		const providerTimeoutMs = Number(process.env.ROSCLAW_WORKER_TURN_TIMEOUT_MS ?? 600_000);
+		// 建议-0816 P0-1：模型 turn 默认无硬截止（长推理/编译合法）。
+		// 超阈值只发 provider_slow 告警（显示用）；只有显式
+		// ROSCLAW_WORKER_TURN_TIMEOUT_MS（操作员/benchmark 权威）才 abort。
+		let providerTimedOut = false;
+		const providerWarnMs = Number(process.env.ROSCLAW_WORKER_TURN_WARN_MS ?? 600_000);
+		const providerAbortMs = process.env.ROSCLAW_WORKER_TURN_TIMEOUT_MS
+			? Number(process.env.ROSCLAW_WORKER_TURN_TIMEOUT_MS)
+			: 0;
+		let providerWarned = false;
 		const providerTimer = setInterval(() => {
-			if (phase === "RUNNING_MODEL" && Date.now() - spanStartedAt > providerTimeoutMs) {
+			const ageMs = Date.now() - spanStartedAt;
+			if (phase === "RUNNING_MODEL" && ageMs > providerWarnMs && !providerWarned) {
+				providerWarned = true;
+				emit(wo, att, "provider_slow", {
+					span_age_ms: ageMs,
+					note: "单个模型 turn 超过提醒阈值——仍在运行（不杀）",
+				});
+			}
+			if (providerAbortMs > 0 && phase === "RUNNING_MODEL" && ageMs > providerAbortMs) {
 				providerTimedOut = true;
 				void session.abort().catch(() => undefined);
 			}
@@ -652,10 +665,10 @@ export async function runHeadlessWorker(argv: string[]): Promise<number> {
 			if (providerTimedOut) {
 				emit(wo, att, "attempt_failed", {
 					error_code: "PROVIDER_TIMEOUT",
-					message: `单个模型请求超过 ${Math.round(providerTimeoutMs / 1000)}s`,
+					message: `单个模型请求超过显式授权阈值 ${Math.round(providerAbortMs / 1000)}s`,
 					usage,
 				});
-				writeTermination("PROVIDER_TRANSIENT", "provider turn timeout", 1);
+				writeTermination("PROVIDER_TRANSIENT", "provider turn timeout (explicit limit)", 1);
 				exitCode = 1;
 				break;
 			}

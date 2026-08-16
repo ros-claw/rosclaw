@@ -21,7 +21,7 @@ class TestExecutionCards:
             mission.mission_id,
             {
                 "goal": "画五角星动力学仿真",
-                "required_capabilities": ["simulation.ur5e", "trajectory"],
+                "required_capabilities": ["simulation.planar_trajectory"],
                 "effects": "simulation_only",
                 "inputs": {"shape": "star5"},
                 "acceptance": {"max_tracking_error_m": 0.10},

@@ -16,6 +16,7 @@ import asyncio
 import hashlib
 import json
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from rosclaw.contracts.common import new_id
@@ -42,11 +43,16 @@ EXECUTION_TERMINAL = frozenset({"SUCCEEDED", "FAILED", "BLOCKED", "CANCELLED"})
 
 #: 路由策略（ADR-0011 §7.2）：先 effect 排除 → capability 匹配 →
 #: readiness preflight → 策略优先。prefer 只用于启动前选择。
+#: 建议-0816 P0-7：只有明确匹配的确定性工作流（planar trajectory）
+#: 才进 executor:simulation——其余 simulation.* 交 Pi Harness 开发/
+#: 调用合适能力，绝不误进五角星函数。
+_SIMULATION_WORKFLOWS = frozenset({
+    "simulation.planar_trajectory",
+    "trajectory",
+    "render.trace",
+})
 _ROUTING_RULES: list[tuple[str, str, str]] = [
     # (capability 前缀, domain, runtime)
-    ("simulation.", "executor", "executor:simulation"),
-    ("trajectory", "executor", "executor:simulation"),
-    ("render.", "executor", "executor:simulation"),
     ("robot.observe.", "executor", "executor:body-observer"),
     ("code.", "agent_harness", "harness:pi-builtin"),
     ("repo.", "agent_harness", "harness:pi-builtin"),
@@ -55,12 +61,19 @@ _ROUTING_RULES: list[tuple[str, str, str]] = [
 
 
 def _fingerprint(mission_id: str, spec: dict) -> str:
+    """任务指纹（建议-0816 P0-6）：覆盖完整规范化 TaskSpec——goal/
+    capabilities/effects/inputs/deliverables/acceptance/model_snapshot。
+    只排除时间戳等非语义字段；用户改参数绝不错挂旧任务。"""
     payload = json.dumps(
         {
             "mission": mission_id,
             "goal": str(spec.get("goal", "")),
             "capabilities": sorted(spec.get("required_capabilities") or []),
             "effects": str(spec.get("effects", "")),
+            "inputs": spec.get("inputs") or {},
+            "deliverables": spec.get("deliverables") or [],
+            "acceptance": spec.get("acceptance") or {},
+            "model": spec.get("model_snapshot") or {},
         },
         sort_keys=True,
         ensure_ascii=False,
@@ -85,16 +98,28 @@ class ExecutionRouter:
                 "runtime": "rosclawd",
                 "reason": "物理效果只能经 rosclawd 准入链（Worker 只能产出提案）",
             }
-        # 2. capability 精确匹配路由表。
+        # 2. 确定性仿真工作流精确匹配（P0-7：只有 planar trajectory
+        # 进五角星能力链；其余 simulation.* 落 Harness）。
+        for capability in capabilities:
+            if capability in _SIMULATION_WORKFLOWS:
+                return {
+                    "domain": "executor",
+                    "runtime": "executor:simulation",
+                    "reason": f"capability {capability} → executor:simulation",
+                }
+        # 3. capability 前缀匹配路由表（Harness 类规则走启动前健康
+        # 选择——不硬编码某个具体 runtime）。
         for capability in capabilities:
             for prefix, domain, runtime in _ROUTING_RULES:
                 if capability.startswith(prefix) or capability == prefix.rstrip("."):
+                    if domain == "agent_harness":
+                        runtime = self._preferred_harness()
                     return {
                         "domain": domain,
                         "runtime": runtime,
                         "reason": f"capability {capability} → {runtime}",
                     }
-        # 3. 无匹配 capability 的开放任务 → Harness（readiness preflight：
+        # 4. 无匹配 capability 的开放任务 → Harness（readiness preflight：
         # ACP Harness 就绪优先，否则内置 Pi——总纲 §7.2 prefer 只用于
         # 启动前选择）。
         return {
@@ -103,22 +128,26 @@ class ExecutionRouter:
             "reason": "开放式任务 Harness 路由（readiness preflight 后选定）",
         }
 
-    @staticmethod
-    def _preferred_harness() -> str:
-        """启动前健康选择（readiness preflight）：Codex app-server 原生
-        路径优先（需二进制+自有登录配置），其次 ACP Harness，否则
-        内置 Pi。"""
+    def _preferred_harness(self) -> str:
+        """启动前健康选择（readiness preflight）。建议-0816 P0-4：
+        默认冻结——auto_discovery=false 时永远 pi-builtin，不因机器
+        装了 Codex/Claude 偷换执行者；显式 enabled 才解锁。"""
         import shutil
         from pathlib import Path
 
-        if shutil.which("codex") and (Path.home() / ".codex").exists():
+        runtime_cfg = getattr(self._service._config, "agent_runtime", None)
+        enabled = list(getattr(runtime_cfg, "enabled", ["pi-sdk"]))
+        auto_discovery = bool(getattr(runtime_cfg, "auto_discovery", False))
+        if not auto_discovery:
+            return "harness:pi-builtin"
+        if "codex-app-server" in enabled and shutil.which("codex") and (
+            Path.home() / ".codex"
+        ).exists():
             return "harness:codex-app-server"
-        for binary, runtime in (
-            ("claude-code-acp", "harness:acp:claude-local"),
-            ("pi-acp", "harness:acp:pi-acp"),
-        ):
-            if shutil.which(binary):
-                return runtime
+        if "claude-acp" in enabled and shutil.which("claude-code-acp"):
+            return "harness:acp:claude-local"
+        if "pi-acp" in enabled and shutil.which("pi-acp"):
+            return "harness:acp:pi-acp"
         return "harness:pi-builtin"
 
 
@@ -450,23 +479,47 @@ class TaskControlPlane:
             return
         card = registry.get("worker:rosclaw:pi")
         deliverables = spec.get("deliverables") or []
+        # 建议-0816 P0-3：编译诚实——profile 决定 capability 与副作用
+        # 声明（developer 实际可写必须声明 sandbox_process；只读任务
+        # 才是 none——workspace_write 需幂等键，sandbox_process 是
+        # 既有写能力 profile 的既定类）。账本与实际工具面逐字一致。
+        _capabilities = [str(c) for c in (spec.get("required_capabilities") or [])]
+        _profile = str((spec.get("inputs") or {}).get("profile", "")) or (
+            "developer"
+            if any(
+                c.startswith(("code.", "capability.")) for c in _capabilities
+            )
+            else "scout"
+        )
+        compile_capability, compile_effect = {
+            "developer": ("code.develop", "sandbox_process"),
+            "sim-builder": ("simulation.build", "sandbox_process"),
+            "scout": ("code.repository_analysis", "none"),
+            "analyst": ("analysis.text", "none"),
+        }.get(_profile, ("analysis.text", "none"))
         order = WorkOrderV1(
             work_order_id=new_id("wo"),
             mission_id=mission_id,
             issued_by="task-control-plane",
-            capability="analysis.text",
+            capability=compile_capability,
             goal=str(spec.get("goal", "")),
             inputs={
                 "instructions": str(spec.get("goal", "")),
-                "worker_profile": str((spec.get("inputs") or {}).get("profile", "developer")),
+                # profile 由任务性质决定（不是默认 developer）：code.* 能力
+                # → developer（workspace+deliverable 校验）；其余 → scout
+                # （只读/分析——纯文本交付不应触发 developer 的 diff 验收）。
+                "worker_profile": _profile,
                 "_execution_id": execution_id,
+                # 建议-0816 P0-4：Native 当前模型快照继承（Worker 用同一
+                # provider/model/thinking——不是默认推断）。
+                "model_snapshot": dict(spec.get("model_snapshot") or {}),
             },
             budgets=BudgetEnvelope(),
             expected_output=ExpectedOutput(
                 artifacts=[str(d.get("type", "text/plain")) for d in deliverables]
                 or ["text/plain"]
             ),
-            side_effect_policy=SideEffectPolicy(**{"class": "none"}),
+            side_effect_policy=SideEffectPolicy(**{"class": compile_effect}),
         )
         scheduled = manager.hire(
             order,
@@ -477,9 +530,14 @@ class TaskControlPlane:
             execution_id, "RUNNING", work_order_id=scheduled.work_order_id
         )
         result, _report = await manager.run_to_completion(scheduled)
-        if result.status == "COMPLETED":
-            self._update_state(
-                execution_id, "SUCCEEDED", summary=result.summary[:500]
+        if result.status == "COMPLETED" or (
+            result.status == "FAILED" and "DELIVERABLE" in result.summary
+        ):
+            # 建议-0816 P0-2：COMPLETED ≠ SUCCEEDED——先 VERIFYING 跑
+            # acceptance；WorkOrder 层 deliverable 拒绝同样进 REPAIRING
+            # （验收失败反馈同一 session 修复，不新建 Worker）。
+            await self._verify_and_repair(
+                execution_id, spec, scheduled, result.summary
             )
         elif result.status == "INTERRUPTED":
             self._update_state(
@@ -499,3 +557,168 @@ class TaskControlPlane:
                 self._update_state(
                     execution_id, "FAILED", summary=result.summary[:500]
                 )
+
+    async def _verify_acceptance(
+        self, spec: dict, workspace: Path | None
+    ) -> dict:
+        """acceptance 真验收：required_files 存在性 + tests_command
+        实跑（有界 600s，workspace 内，最小 env）。"""
+        acceptance = spec.get("acceptance") or {}
+        failures: list[str] = []
+        checks = 0
+        for rel in acceptance.get("required_files") or []:
+            checks += 1
+            if workspace is None or not (workspace / str(rel)).exists():
+                failures.append(f"缺交付文件 {rel}")
+        tests_cmd = str(acceptance.get("tests_command") or "")
+        if tests_cmd and workspace is not None:
+            checks += 1
+            import os as _os
+
+            env = {
+                k: _os.environ[k]
+                for k in ("PATH", "HOME", "LANG", "LC_ALL", "TZ")
+                if k in _os.environ
+            }
+            proc = await asyncio.create_subprocess_shell(
+                tests_cmd,
+                cwd=str(workspace),
+                env=env,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+            try:
+                out, _ = await asyncio.wait_for(proc.communicate(), timeout=600)
+            except TimeoutError:
+                proc.kill()
+                failures.append(f"验收测试超时: {tests_cmd}")
+            else:
+                if proc.returncode != 0:
+                    tail = (out or b"").decode(errors="replace")[-300:]
+                    failures.append(f"验收测试失败(rc={proc.returncode}): {tail}")
+        return {"pass": not failures, "failures": failures, "checks": checks}
+
+    async def _verify_and_repair(
+        self,
+        execution_id: str,
+        spec: dict,
+        first_order,
+        first_summary: str,
+    ) -> None:
+        """VERIFYING →（失败）REPAIRING 同一 session（≤2 轮）→
+        SUCCEEDED/FAILED。artifacts/usage 回灌 task_executions。"""
+        from rosclaw.agentd.workers.event_store import WorkerEventStore
+
+        manager = self._service._worker_manager
+        current_order = first_order
+        summary = first_summary
+        verdict = {"pass": False, "failures": ["未验收"], "checks": 0}
+        max_rounds = 2
+        for round_no in range(max_rounds + 1):
+            self._update_state(execution_id, "VERIFYING")
+            # hire() 返回的对象没有 workspace 注解（pi_managed 运行时才
+            # 回写）——必须重读 DB 行，否则验收读不到工作区。
+            fresh = manager.order(current_order.work_order_id) or current_order
+            workspace_raw = str(fresh.inputs.get("workspace") or "")
+            verdict = await self._verify_acceptance(
+                spec, Path(workspace_raw) if workspace_raw else None
+            )
+            if verdict["pass"]:
+                break
+            if round_no >= max_rounds:
+                break
+            # REPAIRING：验收证据反馈同一 session（resume——不是新 Worker）。
+            self._update_state(
+                execution_id, "REPAIRING",
+                verifier_feedback="；".join(verdict["failures"])[:400],
+            )
+            state = (
+                WorkerEventStore(self._service._home).read_state(
+                    current_order.work_order_id
+                )
+                or {}
+            )
+            session_file = str(state.get("session_file") or "")
+            if not session_file:
+                break  # 无恢复点——诚实失败，不盲重试
+            retry_order, created, _reason = (
+                await self._service._retry_coordinator.request_retry(
+                    current_order,
+                    cause="DELIVERABLE_REJECTED",
+                    actor="repair",
+                    note="验收反馈（同一 session 修复，不要从零开始）："
+                    + "；".join(verdict["failures"])[:300],
+                    resume_session=session_file,
+                )
+            )
+            if not created or retry_order is None:
+                break
+            self._update_state(
+                execution_id, "RUNNING",
+                work_order_id=retry_order.work_order_id,
+            )
+            # coordinator 的 spawn_fn 驱动新 attempt——等终态（不双驱动）。
+            for _ in range(24000):
+                current = manager.order(retry_order.work_order_id)
+                if current and current.status in (
+                    "ACCEPTED", "FAILED", "CANCELLED", "EXPIRED",
+                ):
+                    break
+                await asyncio.sleep(0.05)
+            current = manager.order(retry_order.work_order_id)
+            if current is None or current.status != "ACCEPTED":
+                row = self._conn.execute(
+                    "SELECT result_json FROM work_results WHERE work_order_id = ?",
+                    (retry_order.work_order_id,),
+                ).fetchone()
+                if row is not None:
+                    summary = str(
+                        json.loads(row["result_json"]).get("summary", "")
+                    )[:500]
+                verdict = {
+                    "pass": False,
+                    "failures": [f"修复 attempt 终态 {current.status if current else '?'}"],
+                    "checks": verdict["checks"],
+                }
+                current_order = retry_order
+                continue
+            row = self._conn.execute(
+                "SELECT result_json FROM work_results WHERE work_order_id = ?",
+                (retry_order.work_order_id,),
+            ).fetchone()
+            if row is not None:
+                summary = str(json.loads(row["result_json"]).get("summary", ""))[:500]
+            current_order = retry_order
+        if verdict["pass"]:
+            # 回灌 artifacts/usage（不再是 500 字摘要了事）。
+            row = self._conn.execute(
+                "SELECT result_json FROM work_results WHERE work_order_id = ?",
+                (current_order.work_order_id,),
+            ).fetchone()
+            artifacts_json = ""
+            if row is not None:
+                payload = json.loads(row["result_json"])
+                artifacts_json = json.dumps(
+                    {
+                        "artifacts": payload.get("artifacts", []),
+                        "usage": payload.get("usage", {}),
+                        "verifier": {
+                            "checks": verdict["checks"],
+                            "verdict": "PASS",
+                        },
+                    },
+                    ensure_ascii=False,
+                )
+            self._update_state(
+                execution_id, "SUCCEEDED",
+                summary=f"{summary[:400]}（验收 PASS·{verdict['checks']} 项）",
+                artifacts_json=artifacts_json,
+            )
+        else:
+            self._update_state(
+                execution_id, "FAILED",
+                summary=(
+                    f"验收未过：{'；'.join(verdict['failures'])[:300]}"
+                    f"（修复 {max_rounds} 轮预算内未达标）"
+                ),
+            )

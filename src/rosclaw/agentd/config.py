@@ -18,6 +18,22 @@ DEFAULT_CONFIG_PATH = Path.home() / ".rosclaw" / "config.yaml"
 
 
 @dataclass
+class AgentRuntimeConfig:
+    """建议-0816 P0-4：Agent Harness 路由冻结——默认 Pi 唯一，
+    不因机器上装了别的 Harness 偷换执行者。
+
+    agent_runtime:
+      default: pi-sdk
+      enabled: [pi-sdk]        # 显式解锁才允许其它 runtime
+      auto_discovery: false    # 二进制探测不再影响路由
+    """
+
+    default: str = "pi-sdk"
+    enabled: list[str] = field(default_factory=lambda: ["pi-sdk"])
+    auto_discovery: bool = False
+
+
+@dataclass
 class AgentConfig:
     enabled: bool = True
     # 重构规格 §5/§31 + NA-FIX-9：pi（Pi-backed harness，Native Agent）
@@ -38,6 +54,7 @@ class AgentConfig:
     profiles: list[ModelProfile] = field(default_factory=list)
     model_backend: str = "legacy"  # legacy | modeld（批次 D）
     mcp_servers: list[dict[str, Any]] = field(default_factory=list)
+    agent_runtime: AgentRuntimeConfig = field(default_factory=AgentRuntimeConfig)
     raw: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -105,6 +122,13 @@ def load_agent_config(path: Path | None = None) -> AgentConfig:
         profiles=profiles,
         model_backend=str(models.get("backend", "legacy")),
         mcp_servers=[dict(s or {}) for s in (data.get("mcp_servers", []) or [])],
+        agent_runtime=AgentRuntimeConfig(
+            default=str(data.get("agent_runtime", {}).get("default", "pi-sdk")),
+            enabled=list(data.get("agent_runtime", {}).get("enabled", ["pi-sdk"])),
+            auto_discovery=bool(
+                data.get("agent_runtime", {}).get("auto_discovery", False)
+            ),
+        ),
         raw={
             "agent": agent,
             "models": models,

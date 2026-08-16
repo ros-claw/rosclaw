@@ -1357,6 +1357,13 @@ class PiToolDispatcher:
             "acceptance": request.arguments.get("acceptance") or {},
             "interaction": str(request.arguments.get("interaction", "continue_chat")),
             "recovery": str(request.arguments.get("recovery", "resume_same_executor")),
+            # 建议-0816 P0-4：模型快照（无 secret——provider/model/
+            # thinking 三字段；dispatcher 硬过滤凭据字段）。
+            "model_snapshot": {
+                k: v
+                for k, v in dict(request.arguments.get("model_snapshot") or {}).items()
+                if k in ("provider", "model", "thinking")
+            },
         }
         try:
             view = await plane.submit(

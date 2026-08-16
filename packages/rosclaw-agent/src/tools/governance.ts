@@ -27,8 +27,20 @@ export function buildGovernanceTools(ctx: BridgeToolContext): ToolDefinition[] {
 				deliverables: Type.Optional(Type.Array(Type.Record(Type.String(), Type.Unknown()))),
 				acceptance: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
 			}),
-			async execute(_id, params, _signal, _onUpdate, _ctx) {
-				return await executeVia(ctx, "rosclaw_task_submit", params as Record<string, unknown>);
+			async execute(_id, params, _signal, _onUpdate, toolCtx) {
+				// 建议-0816 P0-4：Native 当前模型快照注入（Worker 继承同一
+				// provider/model/thinking——无 secret，凭据不走 WorkOrder）。
+				const model = (toolCtx as { model?: { provider: string; id: string } } | undefined)?.model;
+				const thinking = (toolCtx as { thinkingLevel?: string } | undefined)?.thinkingLevel;
+				const args = { ...(params as Record<string, unknown>) };
+				if (model && !args.model_snapshot) {
+					args.model_snapshot = {
+						provider: model.provider,
+						model: model.id,
+						...(thinking ? { thinking } : {}),
+					};
+				}
+				return await executeVia(ctx, "rosclaw_task_submit", args);
 			},
 		}),
 		defineTool({

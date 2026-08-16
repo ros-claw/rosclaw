@@ -715,6 +715,11 @@ class PiManagedAdapter:
         for key in ("KIMI_API_KEY", "MOONSHOT_API_KEY", "ROSCLAW_KIMI_API_KEY"):
             if os.environ.get(key):
                 env[key] = os.environ[key]
+        # 建议-0816 P0-1：turn 告警/中止阈值是操作员权威配置——显式
+        # 设置才透传（默认无硬中止）。
+        for key in ("ROSCLAW_WORKER_TURN_WARN_MS", "ROSCLAW_WORKER_TURN_TIMEOUT_MS"):
+            if os.environ.get(key):
+                env[key] = os.environ[key]
         # 十五审 PR-RF-1 热修（旅程实证）：models.json 里 "$VAR" 形式的
         # provider apiKey 引用也要透传——Worker 只拿到变量名指向的 env
         # 值（引用透传，不是凭据落盘/入 envelope）。缺失时 worker 401

@@ -99,10 +99,30 @@ class TestCompilerHonesty:
         await service.close()
 
 
+class TestSimulationRoutingHonesty:
+    async def test_unknown_simulation_goes_to_harness(self, tmp_path: Path) -> None:
+        """P0-7：非 planar_trajectory 的仿真任务不误进五角星函数——
+        无确定性工作流时交 Pi Harness。"""
+        service, mission = await _setup(tmp_path)
+        from rosclaw.agentd.control_plane import ExecutionRouter
+
+        route = ExecutionRouter(service).route(
+            {"goal": "G1 双足行走仿真", "required_capabilities": ["simulation.g1_locomotion"],
+             "effects": "simulation_only"}
+        )
+        assert route["domain"] == "agent_harness", route
+        route2 = ExecutionRouter(service).route(
+            {"goal": "五角星", "required_capabilities": ["simulation.planar_trajectory"],
+             "effects": "simulation_only"}
+        )
+        assert route2["runtime"] == "executor:simulation", route2
+        await service.close()
+
+
 class TestFullFingerprint:
     def test_inputs_change_fingerprint(self) -> None:
         """同 goal 不同 inputs → 不同指纹（用户改五角星半径不得错挂）。"""
-        base = {"goal": "画五角星", "required_capabilities": ["simulation.ur5e"],
+        base = {"goal": "画五角星", "required_capabilities": ["simulation.planar_trajectory"],
                 "effects": "simulation_only",
                 "inputs": {"radius_m": 0.10}}
         changed = {**base, "inputs": {"radius_m": 0.20}}
@@ -124,7 +144,7 @@ class TestFullFingerprint:
         plane: TaskControlPlane = service._task_control_plane
         first = await plane.submit(
             mission.mission_id,
-            {"goal": "画五角星", "required_capabilities": ["simulation.ur5e"],
+            {"goal": "画五角星", "required_capabilities": ["simulation.planar_trajectory"],
              "effects": "simulation_only", "inputs": {"radius_m": 0.10}},
             idem="p06_a",
         )
@@ -136,7 +156,7 @@ class TestFullFingerprint:
             await asyncio.sleep(0.1)
         second = await plane.submit(
             mission.mission_id,
-            {"goal": "画五角星", "required_capabilities": ["simulation.ur5e"],
+            {"goal": "画五角星", "required_capabilities": ["simulation.planar_trajectory"],
              "effects": "simulation_only", "inputs": {"radius_m": 0.20}},
             idem="p06_b",
         )

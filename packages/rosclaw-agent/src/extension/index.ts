@@ -805,12 +805,58 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 					},
 					onSteer: () => ctx.ui.input("Steer Worker（追加约束）", "例如：只看 src/ 目录"),
 					sendSteer: async (wo, text) => {
+						// P0-5：execution 卡 steer 走 task_steer（同一执行会话）。
+						if (wo.startsWith("exec_")) {
+							const r = await center.call("pi.tools.execute", {
+								request: {
+									schema_version: "rosclaw.pi_tool_request.v1",
+									request_id: `ptr_tc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+									pi_session_id: state.sessionId,
+									mission_id: state.missionId,
+									context_revision: state.contextRevision,
+									tool_name: "rosclaw_task_steer",
+									arguments: { execution_id: wo, message: text },
+									requested_at: new Date().toISOString(),
+									idempotency_key: `idem_tc_steer_${wo}_${Date.now()}`,
+									actor: { engine: "pi-command" },
+								},
+							});
+							return String((r.result as { summary?: string })?.summary ?? "已发送");
+						}
 						const r = await center.call("pi.tools.execute", {
 							request: mkRequest("rosclaw_update_work", wo, { note: text }),
 						});
 						return String((r.result as { summary?: string })?.summary ?? "已发送");
 					},
 					sendControl: async (wo, action) => {
+						// 建议-0816 P0-5：execution 卡走 task_* 控制面
+						// （execution_id 权威）；legacy worker 卡兼容旧路径。
+						if (wo.startsWith("exec_")) {
+							const tool =
+								action === "pause" ? "rosclaw_task_pause"
+								: action === "resume" ? "rosclaw_task_resume"
+								: "rosclaw_task_cancel";
+							const r = await center.call("pi.tools.execute", {
+								request: {
+									schema_version: "rosclaw.pi_tool_request.v1",
+									request_id: `ptr_tc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+									pi_session_id: state.sessionId,
+									mission_id: state.missionId,
+									context_revision: state.contextRevision,
+									tool_name: tool,
+									arguments: { execution_id: wo },
+									requested_at: new Date().toISOString(),
+									idempotency_key: `idem_tc_${tool}_${wo}_${Date.now()}`,
+									actor: { engine: "pi-command" },
+								},
+							});
+							const result = (r.result ?? {}) as { ok?: boolean; status?: string; summary?: string };
+							return {
+								ok: Boolean(r.ok && result.ok),
+								state: result.status,
+								error: result.ok === false ? result.summary : undefined,
+							};
+						}
 						const r = await center.call("pi.worker.control", {
 							work_order_id: wo,
 							action,
@@ -822,6 +868,11 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 						};
 					},
 					sendRetry: async (wo) => {
+						// execution 卡：修复由控制面 REPAIRING 负责——不暴露
+						// 手工 retry（防裂变）；legacy 卡走旧 retry 工具。
+						if (wo.startsWith("exec_")) {
+							return "execution 的修复由控制面同会话 REPAIRING 负责——无需手工 retry";
+						}
 						const r = await center.call("pi.tools.execute", {
 							request: mkRequest("rosclaw_retry_work", wo),
 						});
