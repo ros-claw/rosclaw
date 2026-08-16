@@ -28,6 +28,10 @@ from tests.agentd.test_fourteen_1_live import (
 from tests.agentd.test_pi_tool_bridge import _setup
 
 _NODE = shutil.which("node")
+_WORKBENCH_JS = (
+    Path(__file__).resolve().parents[2]
+    / "packages" / "rosclaw-agent" / "dist" / "src" / "workers" / "workbench.js"
+)
 
 
 class _SlowTurnProvider(_MockProvider):
@@ -67,7 +71,10 @@ class TestNoDefaultTurnKill:
         await service.close()
 
 
-@pytest.mark.skipif(_NODE is None, reason="无 Node——诚实 skip")
+@pytest.mark.skipif(
+    _NODE is None or not _WORKBENCH_JS.exists(),
+    reason="无 Node/dist——诚实 skip",
+)
 class TestBashNoDefaultTimeout:
     def test_no_default_timeout(self) -> None:
         """bash 无 timeout_sec 且无配置 → None（不装 SIGKILL 定时器）。"""
@@ -76,8 +83,7 @@ class TestBashNoDefaultTimeout:
                 _NODE,
                 "--input-type=module",
                 "-e",
-                "import { _bashTimeoutMs } from "
-                "'./packages/rosclaw-agent/dist/src/workers/workbench.js';"
+                f"import {{ _bashTimeoutMs }} from '{_WORKBENCH_JS}';"
                 "console.log(JSON.stringify(_bashTimeoutMs({}, {})));",
             ],
             capture_output=True,
@@ -93,8 +99,7 @@ class TestBashNoDefaultTimeout:
                 _NODE,
                 "--input-type=module",
                 "-e",
-                "import { _bashTimeoutMs } from "
-                "'./packages/rosclaw-agent/dist/src/workers/workbench.js';"
+                f"import {{ _bashTimeoutMs }} from '{_WORKBENCH_JS}';"
                 "console.log(JSON.stringify(_bashTimeoutMs({timeout_sec: 5}, {})));",
             ],
             capture_output=True,
