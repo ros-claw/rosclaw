@@ -19,8 +19,6 @@ from pathlib import Path
 
 import pytest
 
-_NODE = shutil.which("node")
-
 from tests.agentd.test_fourteen_1_live import (
     _hire_real,
     _MockProvider,
@@ -28,6 +26,8 @@ from tests.agentd.test_fourteen_1_live import (
     _write_mock_agent_dir,
 )
 from tests.agentd.test_pi_tool_bridge import _setup
+
+_NODE = shutil.which("node")
 
 
 class _SlowTurnProvider(_MockProvider):
