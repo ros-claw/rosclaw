@@ -50,7 +50,7 @@ class TestCompilerHonesty:
         service, mission = await _setup(tmp_path)
         _enable_fake(service, tmp_path, monkeypatch)
         plane = service._task_control_plane
-        view = await plane.submit(
+        await plane.submit(
             mission.mission_id,
             {"goal": "修复测试", "required_capabilities": ["code.implement"],
              "effects": "workspace_only"},
