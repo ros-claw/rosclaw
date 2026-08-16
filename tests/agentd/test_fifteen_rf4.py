@@ -88,6 +88,8 @@ class TestHarnessSandbox:
         original = mod.acp_binary_for
         mod.acp_binary_for = lambda _runtime: str(shim)
         # 宿主环境放毒：如果这些变量泄漏给 harness 就是缺陷。
+        # 必须恢复——污染会经进程 env 泄漏到后续测试（CI 实证）。
+        _saved_home = os.environ.get("ROSCLAW_HOME")
         os.environ["ROSCLAW_HOME"] = str(tmp_path)
         try:
             driver = AcpHarnessDriver(
@@ -99,6 +101,10 @@ class TestHarnessSandbox:
             result = await driver.run("probe")
         finally:
             mod.acp_binary_for = original
+            if _saved_home is None:
+                os.environ.pop("ROSCLAW_HOME", None)
+            else:
+                os.environ["ROSCLAW_HOME"] = _saved_home
         assert result["ok"], result
         assert seen, "probe 未回传环境"
         report = seen[-1]
