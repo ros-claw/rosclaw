@@ -13,10 +13,13 @@
 from __future__ import annotations
 
 import asyncio
+import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
+
+_NODE = shutil.which("node")
 
 from tests.agentd.test_fourteen_1_live import (
     _hire_real,
@@ -64,12 +67,13 @@ class TestNoDefaultTurnKill:
         await service.close()
 
 
+@pytest.mark.skipif(_NODE is None, reason="无 Node——诚实 skip")
 class TestBashNoDefaultTimeout:
     def test_no_default_timeout(self) -> None:
         """bash 无 timeout_sec 且无配置 → None（不装 SIGKILL 定时器）。"""
         proc = subprocess.run(
             [
-                "/tmp/node2219/bin/node",
+                _NODE,
                 "--input-type=module",
                 "-e",
                 "import { _bashTimeoutMs } from "
@@ -86,7 +90,7 @@ class TestBashNoDefaultTimeout:
     def test_explicit_timeout_honored(self) -> None:
         proc = subprocess.run(
             [
-                "/tmp/node2219/bin/node",
+                _NODE,
                 "--input-type=module",
                 "-e",
                 "import { _bashTimeoutMs } from "

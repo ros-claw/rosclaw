@@ -37,6 +37,9 @@ class TestAutoDiscoveryFrozen:
                                                  monkeypatch) -> None:
         """显式 enabled: [codex-app-server] 才允许 codex 路径。"""
         monkeypatch.setattr(shutil, "which", lambda b: f"/usr/bin/{b}")
+        # codex 登录目录也要就位（CI 无 ~/.codex——readiness 是真实检查）。
+        (tmp_path / ".codex").mkdir(exist_ok=True)
+        monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
         service, mission = await _setup(tmp_path)
         # 写入配置启用 codex。
         service._config.agent_runtime.enabled = ["codex-app-server"]
