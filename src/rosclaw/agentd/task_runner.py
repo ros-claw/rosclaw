@@ -212,7 +212,10 @@ class TaskRunner:
 
         from rosclaw.agentd.sim_trajectory import SimTrajectoryService
 
-        sim = SimTrajectoryService(self._service._home)
+        sim = SimTrajectoryService(
+            self._service._home,
+            runtime_manager=getattr(self._service, "_runtime_manager", None),
+        )
         acceptance = compiled["acceptance"]
         try:
             self._store.transition(task_id, "PLANNING")
