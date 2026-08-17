@@ -503,6 +503,33 @@ ROSCLAW_STRUCTURED_SCHEMAS: dict[str, Any] = {
         },
         "indices": ["status", "rule_id", "created_at"],
     },
+    # Memory distillation ledger (PR-DF-16B, phase-II §5.8-5.9): one row per
+    # (practice_id, source_manifest_hash) answering "why did this session not
+    # become memory" instead of silently missing.
+    "memory_distillation_runs": {
+        "columns": {
+            "id": "TEXT PRIMARY KEY",
+            "practice_id": "TEXT",
+            "session_id": "TEXT",
+            "episode_id": "TEXT",
+            "source_manifest_hash": "TEXT",
+            "session_dir": "TEXT",
+            "status": "TEXT",
+            "attempt": "INTEGER",
+            "candidate_count": "INTEGER",
+            "stored_count": "INTEGER",
+            "merged_count": "INTEGER",
+            "updated_count": "INTEGER",
+            "ignored_count": "INTEGER",
+            "quarantined_count": "INTEGER",
+            "started_at": "REAL",
+            "finished_at": "REAL",
+            "last_error": "TEXT",
+            "created_at": "REAL",
+            "updated_at": "REAL",
+        },
+        "indices": ["practice_id", "status", "created_at"],
+    },
     # Execution receipts (PR-DF-14, flywheel §21): the data-plane projection
     # of kernel ExecutionReceipts.  rosclawd's own ledgers stay authoritative
     # — this table is an async index, never consulted for authorization.
