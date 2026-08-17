@@ -240,6 +240,7 @@ class Runtime(LifecycleMixin):
         self._darwin: Any | None = None  # PR-DF-13
         self._lineage: Any | None = None  # PR-DF-14
         self._receipt_projector: Any | None = None
+        self._memory_distillation: Any | None = None  # PR-DF-16B
         self._mcp_drivers: dict[str, Any] = {}
         self._emergency_stop_receipts: dict[str, Any] = {}
         self._emergency_stop_latched = False
@@ -439,6 +440,25 @@ class Runtime(LifecycleMixin):
                         self._memory_gate = MemoryWriteGate(self._memory_repository)
                 except Exception as gate_exc:  # noqa: BLE001
                     logger.info("Memory canonical write path unavailable: %s", gate_exc)
+                # PR-DF-16B (phase-II §5.12): normal session closes now
+                # distill into Memory 2.0 automatically (async, queued).
+                self._memory_distillation = None
+                if self._memory_repository is not None and self._memory_gate is not None:
+                    try:
+                        from rosclaw.memory.v2.distillation_service import (
+                            MemoryDistillationService,
+                        )
+
+                        self._memory_distillation = MemoryDistillationService(
+                            self.event_bus,
+                            self._memory_repository,
+                            self._memory_gate,
+                            lineage=self._lineage,
+                        )
+                        self._memory_distillation.subscribe()
+                        logger.info("Memory distillation service subscribed")
+                    except Exception as distill_exc:  # noqa: BLE001
+                        logger.info("Memory distillation unavailable: %s", distill_exc)
                 self._modules.append(self._memory)
                 if self._sense is not None:
                     self._memory.set_sense_runtime(self._sense)
@@ -1059,6 +1079,13 @@ class Runtime(LifecycleMixin):
         if self._event_sink is not None:
             self._event_sink.close()
             self._event_sink = None
+        # PR-DF-16B: drain + stop the distillation worker first.
+        if self._memory_distillation is not None:
+            try:
+                self._memory_distillation.unsubscribe()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Distillation unsubscribe failed (non-fatal): %s", exc)
+            self._memory_distillation = None
         # PR-DF-14: receipt projector off the bus.
         if self._receipt_projector is not None:
             try:

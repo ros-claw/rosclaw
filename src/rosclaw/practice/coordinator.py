@@ -234,6 +234,10 @@ class PracticeCoordinator(LifecycleMixin):
                     topic="practice.session_started",
                     payload={
                         "practice_id": practice_id,
+                        # PR-DF-16B: session/episode ids ride BOTH lifecycle
+                        # events so consumers key buffers consistently.
+                        "session_id": self._session.session_id if self._session else None,
+                        "episode_id": self._session.episode_id if self._session else None,
                         "robot_id": self.config.robot_id,
                         "task_id": self.config.task_id,
                         "task_name": self.config.task_name,
@@ -448,14 +452,7 @@ class PracticeCoordinator(LifecycleMixin):
                 self._event_bus.publish(
                     Event(
                         topic="practice.session_finished",
-                        payload={
-                            "practice_id": self._session.practice_id,
-                            "robot_id": self.config.robot_id,
-                            "outcome": outcome,
-                            "reward": reward,
-                            "duration_ms": duration_ms,
-                            "event_count": self._event_count,
-                        },
+                        payload=self._finished_payload(outcome, reward, duration_ms),
                         source="practice_coordinator",
                     )
                 )
@@ -483,14 +480,7 @@ class PracticeCoordinator(LifecycleMixin):
                 self._event_bus.publish(
                     Event(
                         topic="practice.session_finished",
-                        payload={
-                            "practice_id": self._session.practice_id,
-                            "robot_id": self.config.robot_id,
-                            "outcome": outcome,
-                            "reward": reward,
-                            "duration_ms": duration_ms,
-                            "event_count": self._event_count,
-                        },
+                        payload=self._finished_payload(outcome, reward, duration_ms),
                         source="practice_coordinator",
                     )
                 )
@@ -686,6 +676,44 @@ class PracticeCoordinator(LifecycleMixin):
         from rosclaw.storage.factory import StoreFactory
 
         return StoreFactory.create_structured_store(url=url)
+
+    def _finished_payload(self, outcome: str, reward: Any, duration_ms: Any) -> dict[str, Any]:
+        """PR-DF-16B (phase-II §5.4-5.5): the finished event carries everything
+        the learning chain needs — published only after events/episode/manifest/
+        artifact records are all final."""
+        import hashlib as _hashlib
+
+        session = self._session
+        if session is None:
+            return {
+                "practice_id": None,
+                "robot_id": self.config.robot_id,
+                "outcome": outcome,
+                "reward": reward,
+                "duration_ms": duration_ms,
+                "event_count": self._event_count,
+            }
+        session_dir = str(self.layout.session_dir(session.practice_id))
+        manifest_hash = None
+        manifest_path = self.layout.session_dir(session.practice_id) / "manifest.yaml"
+        if manifest_path.exists():
+            manifest_hash = _hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+        return {
+            "practice_id": session.practice_id,
+            "session_id": session.session_id,
+            "episode_id": session.episode_id,
+            "robot_id": self.config.robot_id,
+            "body_id": session.metadata.get("body_id"),
+            "task_id": self.config.task_id or self.config.task_name,
+            "skill_id": session.skill_id,
+            "session_dir": session_dir,
+            "outcome": outcome,
+            "reward": reward,
+            "duration_ms": duration_ms,
+            "event_count": self._event_count,
+            "fact_verify": getattr(self._summary, "fact_verify", None),
+            "manifest_hash": manifest_hash,
+        }
 
     def _verify_session_facts(self) -> Any:
         """Verify raw session data at close (PR-DF-04): idempotent, non-blocking,
