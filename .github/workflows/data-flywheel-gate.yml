@@ -1,0 +1,66 @@
+# Data Flywheel Gate (DF-16A) — full-data-flywheel CI profile.
+#
+# The main ci.yml jobs install only `.[dev]`; this workflow is the acceptance
+# profile that proves the whole data plane runs with its REAL dependencies:
+# seekdb (pyseekdb), embedding, knowledge (rosclaw-know / rosclaw-how).
+#
+# Gates:
+#   A. Import / contract — every data-plane package must import, no skips
+#   B. Focused — the data-plane test suites
+#   C. Full regression — 0 unexpected failures / collection errors
+#   D. Static — ruff, mypy, compileall, git diff --check
+name: Data Flywheel Gate
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install full data-flywheel extras
+        run: uv pip install -e ".[dev,seekdb,embedding,knowledge]" --system
+
+      - name: Gate A — import / contract
+        run: |
+          python - <<'PY'
+          import rosclaw
+          import rosclaw.storage
+          import rosclaw.memory.v2
+          import rosclaw.knowledge
+          import rosclaw.how
+          import rosclaw.evolution
+          import rosclaw.darwin
+          import rosclaw_know
+          import rosclaw_know.contracts
+          import rosclaw_how
+          import pyseekdb
+          print("Gate A OK")
+          PY
+
+      - name: Gate B — focused data-plane suites
+        run: |
+          pytest tests/storage tests/memory tests/practice tests/how \
+            tests/knowledge tests/darwin tests/evolution -q
+
+      - name: Gate C — full regression (no unexpected failures)
+        # Mirror ci.yml's regression selector: deployment tests drive
+        # scripts/build_release.sh, which requires a repo-local .venv that
+        # a --system CI install deliberately does not create.
+        run: pytest tests -q -m 'not slow and not integration and not deployment'
+
+      - name: Gate D — static
+        run: |
+          ruff check src tests
+          mypy src/rosclaw
+          python -m compileall -q src/rosclaw
+          git diff --check

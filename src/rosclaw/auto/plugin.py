@@ -33,6 +33,7 @@ class AutoPlugin(LifecycleMixin):
         seekdb_client: Any | None = None,
         skill_registry: Any | None = None,
         sense_runtime: Any | None = None,
+        lineage_repository: Any | None = None,
     ):
         super().__init__()
         self.config = AutoConfig.from_dict(config or {})
@@ -43,6 +44,7 @@ class AutoPlugin(LifecycleMixin):
         self._seekdb_client = seekdb_client
         self._skill_registry = skill_registry
         self._sense_runtime = sense_runtime
+        self._lineage_repository = lineage_repository
 
     def _do_initialize(self) -> None:
         """Initialize engine and connect to runtime context."""
@@ -52,6 +54,7 @@ class AutoPlugin(LifecycleMixin):
             seekdb_client=self._seekdb_client,
             skill_registry=self._skill_registry,
             sense_runtime=self._sense_runtime,
+            lineage_repository=self._lineage_repository,
         )
         self.publisher = AutoPublisher(event_bus=self._event_bus)
         self.subscriber = AutoSubscriber(engine=self.engine, event_bus=self._event_bus)
