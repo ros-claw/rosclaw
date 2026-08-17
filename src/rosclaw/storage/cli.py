@@ -1358,6 +1358,112 @@ def cmd_db_reconcile(args: argparse.Namespace) -> int:
     return 0 if all_passed else 1
 
 
+# ---------------------------------------------------------------------------
+# rosclaw data lineage (PR-DF-17 / phase-II §12)
+# ---------------------------------------------------------------------------
+
+
+def _render_lineage_tree(graph: dict[str, Any]) -> list[str]:
+    """Render the trace_graph DAG as an indented text tree (§12 text output).
+
+    Nodes revisited through a second path are annotated instead of expanded
+    again, so cycles render finitely.
+    """
+    root = graph.get("root", "")
+    children: dict[str, list[tuple[str, str]]] = {}
+    labels: dict[str, str] = {}
+    for node in graph.get("nodes", []):
+        labels[f"{node['type']}:{node['id']}"] = f"{node['type'].title()} {node['id']}"
+    for edge in graph.get("edges", []):
+        children.setdefault(edge["from"], []).append((edge["relation"], edge["to"]))
+
+    lines = [labels.get(root, root)]
+    seen = {root}
+
+    def _walk(node: str, prefix: str) -> None:
+        kids = children.get(node, [])
+        for idx, (relation, child) in enumerate(kids):
+            last = idx == len(kids) - 1
+            connector = "└─ " if last else "├─ "
+            label = labels.get(child, child)
+            if child in seen:
+                lines.append(f"{prefix}{connector}{relation} {label} (see above)")
+                continue
+            seen.add(child)
+            lines.append(f"{prefix}{connector}{relation} {label}")
+            _walk(child, prefix + ("   " if last else "│  "))
+
+    _walk(root, "")
+    if graph.get("truncated"):
+        lines.append("... (truncated: node cap reached)")
+    return lines
+
+
+@_with_stdout_flush
+def cmd_data_lineage(args: argparse.Namespace) -> int:
+    """Print the typed ancestry graph for an entity (``type:id``)."""
+    entity = getattr(args, "entity", "") or ""
+    if ":" not in entity:
+        print(
+            "[rosclaw data lineage] entity must be '<type>:<id>' (e.g. champion:champ_xxx)",
+            file=sys.stderr,
+        )
+        return 2
+    entity_type, entity_id = entity.split(":", 1)
+    if not entity_type or not entity_id:
+        print("[rosclaw data lineage] entity type and id must both be non-empty", file=sys.stderr)
+        return 2
+
+    cfg = _load_storage_config(args)
+    try:
+        client = _create_client(cfg)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[rosclaw data lineage] Failed to create backend: {exc}", file=sys.stderr)
+        return 1
+    try:
+        from rosclaw.storage.lineage import LineageRepository
+
+        repo = LineageRepository(client)
+        graph = repo.trace_graph(
+            entity_type,
+            entity_id,
+            max_depth=getattr(args, "max_depth", 16),
+            max_nodes=getattr(args, "max_nodes", 500),
+        )
+    except Exception as exc:  # noqa: BLE001
+        print(f"[rosclaw data lineage] trace failed: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        _close_client(client)
+
+    if args.json:
+        print(json.dumps(graph, indent=2))
+    else:
+        for line in _render_lineage_tree(graph):
+            print(line)
+    return 0
+
+
+def add_data_subparser(subparsers: Any) -> Any:
+    """Add ``rosclaw data`` subcommands (PR-DF-17)."""
+    data_parser = subparsers.add_parser("data", help="Data flywheel queries")
+    data_subparsers = data_parser.add_subparsers(dest="data_command")
+
+    lineage_parser = data_subparsers.add_parser(
+        "lineage", help="Trace the typed lineage graph for an entity"
+    )
+    lineage_parser.add_argument(
+        "entity", help="Entity reference '<type>:<id>' (e.g. champion:champ_xxx)"
+    )
+    lineage_parser.add_argument("--json", action="store_true", help="Output JSON")
+    lineage_parser.add_argument("--max-depth", type=int, default=16, help="Max ancestry depth")
+    lineage_parser.add_argument("--max-nodes", type=int, default=500, help="Max graph nodes")
+    lineage_parser.add_argument("--backend", default=None, help="Override backend")
+    lineage_parser.add_argument("--url", default=None, help="Override SQL URL")
+    lineage_parser.add_argument("--path", default=None, help="Override SQLite path")
+    return data_parser
+
+
 def add_db_subparser(subparsers: Any) -> Any:
     """Add ``rosclaw db`` subcommands."""
     db_parser = subparsers.add_parser("db", help="Storage backend diagnostics")

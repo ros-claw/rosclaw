@@ -6,6 +6,8 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
+from rosclaw.storage.lineage_types import LineageEntityType, LineageRelation
+
 from ..config import AutoConfig
 from ..core import (
     AutoTask,
@@ -39,12 +41,18 @@ class AutoEngine:
         seekdb_client: Any | None = None,
         skill_registry: Any | None = None,
         sense_runtime: Any | None = None,
+        lineage_repository: Any | None = None,
     ):
         self.config = config or AutoConfig()
         self._event_bus = event_bus
         self._seekdb = seekdb_client
         self._skill_registry = skill_registry
         self._sense_runtime = sense_runtime
+        # PR-DF-17 (phase-II §9): the typed lineage graph.  When injected,
+        # every create_* method records child/derived -> parent/source edges
+        # so "why is this champion v1.7?" is answerable from lineage_edges.
+        # None keeps the standalone behavior (no structured data plane).
+        self._lineage_repo = lineage_repository
         self._auto_context_adapter: Any | None = None
         if sense_runtime is not None:
             try:
@@ -85,6 +93,20 @@ class AutoEngine:
         self._promotion_authorizations: dict[str, dict[str, Any]] = {}
         # Event publishing
         self.publisher = AutoPublisher(event_bus=event_bus)
+
+    def _lineage_link(
+        self,
+        from_type: str,
+        from_id: str,
+        relation: str,
+        to_type: str,
+        to_id: str,
+    ) -> None:
+        """Best-effort lineage edge; never breaks the evolution flow."""
+        if self._lineage_repo is None or not from_id or not to_id:
+            return
+        with contextlib.suppress(Exception):
+            self._lineage_repo.link(str(from_type), from_id, str(relation), str(to_type), to_id)
 
     # ------------------------------------------------------------------
     # Task management
@@ -147,6 +169,25 @@ class AutoEngine:
             evidence=evidence,
         )
         self._save("failures", fc.id, fc.to_dict())
+        # §9.1: Failure --generated_from--> PraxisEvent (action), and
+        # Failure --derived_from--> MemoryInsight when the failure was
+        # raised from an insight rather than a live praxis event.
+        self._lineage_link(
+            LineageEntityType.FAILURE,
+            fc.id,
+            LineageRelation.GENERATED_FROM,
+            LineageEntityType.ACTION,
+            praxis_event_id,
+        )
+        insight_id = evidence.get("insight_id") or evidence.get("memory_insight_id") or ""
+        if insight_id:
+            self._lineage_link(
+                LineageEntityType.FAILURE,
+                fc.id,
+                LineageRelation.DERIVED_FROM,
+                LineageEntityType.MEMORY_INSIGHT,
+                insight_id,
+            )
         return fc
 
     def list_failures(self, task_id: str | None = None) -> list[FailureCase]:
@@ -175,6 +216,14 @@ class AutoEngine:
             recommended_search_space=search_space or {},
         )
         self._save("diagnoses", diag.id, diag.to_dict())
+        # §9.2: Diagnosis --diagnosed_from--> Failure
+        self._lineage_link(
+            LineageEntityType.DIAGNOSIS,
+            diag.id,
+            LineageRelation.DIAGNOSED_FROM,
+            LineageEntityType.FAILURE,
+            failure_id,
+        )
         return diag
 
     # ------------------------------------------------------------------
@@ -189,6 +238,7 @@ class AutoEngine:
         search_space: dict,
         patch_type: str = "skill_parameter_patch",
         source: str = "failure_guided",
+        source_refs: list[dict] | None = None,
     ) -> Proposal:
         prop = Proposal(
             id=f"prop_{uuid.uuid4().hex[:8]}",
@@ -201,6 +251,20 @@ class AutoEngine:
             required_gates=["sandbox_check", "multi_seed_eval", "regression_check"],
         )
         self._save("proposals", prop.id, prop.to_dict())
+        # §9.3: Proposal --proposed_from--> typed source refs (Failure,
+        # MemoryInsight, ...).  source_refs supersedes the bare source
+        # string; without refs we fall back to the failure case argument.
+        refs = source_refs or (
+            [{"type": str(LineageEntityType.FAILURE), "id": failure_case_id}]
+            if failure_case_id
+            else []
+        )
+        for ref in refs:
+            ref_type = ref.get("type", "") if isinstance(ref, dict) else getattr(ref, "type", "")
+            ref_id = ref.get("id", "") if isinstance(ref, dict) else getattr(ref, "id", "")
+            self._lineage_link(
+                LineageEntityType.PROPOSAL, prop.id, LineageRelation.PROPOSED_FROM, ref_type, ref_id
+            )
         if self.publisher:
             self.publisher.proposal_created(
                 proposal_id=prop.id,
@@ -252,6 +316,14 @@ class AutoEngine:
             human_approval_required=(patch_type == "code_patch"),
         )
         self._save("patches", patch.id, patch.to_dict())
+        # §9.4: Patch --patched_from--> Proposal
+        self._lineage_link(
+            LineageEntityType.PATCH,
+            patch.id,
+            LineageRelation.PATCHED_FROM,
+            LineageEntityType.PROPOSAL,
+            proposal_id,
+        )
         if self._seekdb is not None:
             with contextlib.suppress(Exception):
                 self._seekdb.insert(
@@ -297,6 +369,15 @@ class AutoEngine:
             promotion={"min_success_improvement": 0.05, "max_collision_increase": 0.0},
         )
         self._save("experiments", exp.id, exp.to_dict())
+        # §9.5: Experiment --derived_from--> Patch (graph kept minimal:
+        # the proposal is reachable through the patch's patched_from edge)
+        self._lineage_link(
+            LineageEntityType.EXPERIMENT,
+            exp.id,
+            LineageRelation.DERIVED_FROM,
+            LineageEntityType.PATCH,
+            patch_id,
+        )
         return exp
 
     def run_experiment(self, experiment: ExperimentSpec, runner: str = "local") -> dict:
@@ -397,6 +478,33 @@ class AutoEngine:
             decision=gate_result.decision,
         )
         self._save("evaluations", ev.id, ev.to_dict())
+        # §9.6: Evaluation --evaluated_from--> Experiment, plus
+        # --supported_by--> each simulation/darwin receipt that backs it.
+        self._lineage_link(
+            LineageEntityType.EVALUATION,
+            ev.id,
+            LineageRelation.EVALUATED_FROM,
+            LineageEntityType.EXPERIMENT,
+            experiment_id,
+        )
+        for receipt in simulation_receipts or []:
+            if not isinstance(receipt, dict):
+                continue
+            receipt_id = (
+                receipt.get("id") or receipt.get("receipt_id") or receipt.get("action_id") or ""
+            )
+            receipt_type = (
+                LineageEntityType.DARWIN_BENCHMARK
+                if receipt.get("benchmark_id") or receipt.get("darwin")
+                else LineageEntityType.RECEIPT
+            )
+            self._lineage_link(
+                LineageEntityType.EVALUATION,
+                ev.id,
+                LineageRelation.SUPPORTED_BY,
+                receipt_type,
+                receipt_id,
+            )
         if gate_result.passed and experiment is not None and task is not None:
             self._promotion_authorizations[ev.id] = {
                 "experiment_id": experiment.id,
@@ -481,6 +589,14 @@ class AutoEngine:
             result="champion",
             metrics=metrics,
         )
+        # §9.7: Champion --promoted_from--> Evaluation
+        self._lineage_link(
+            LineageEntityType.CHAMPION,
+            champ.id,
+            LineageRelation.PROMOTED_FROM,
+            LineageEntityType.EVALUATION,
+            evaluation_id,
+        )
         if self.publisher:
             self.publisher.champion_promoted(
                 champion_id=champ.id,
@@ -534,7 +650,13 @@ class AutoEngine:
         return self.champion_store.list_champions(task_id)
 
     def register_deadend(
-        self, task_id: str, direction: str, rejection_reason: str, evidence: list[str] | None = None
+        self,
+        task_id: str,
+        direction: str,
+        rejection_reason: str,
+        evidence: list[str] | None = None,
+        source_type: str = "",
+        source_id: str = "",
     ) -> DeadEnd:
         de = DeadEnd(
             id=f"de_{uuid.uuid4().hex[:8]}",
@@ -544,6 +666,16 @@ class AutoEngine:
             evidence=evidence or [],
         )
         self._save("deadends", de.id, de.to_dict())
+        # §9.8: DeadEnd --rejected_from--> its typed source (Evaluation,
+        # Experiment, ...), not just a free-text direction/reason.
+        if source_type and source_id:
+            self._lineage_link(
+                LineageEntityType.DEAD_END,
+                de.id,
+                LineageRelation.REJECTED_FROM,
+                source_type,
+                source_id,
+            )
         if self.publisher:
             self.publisher.deadend_registered(
                 deadend_id=de.id,
