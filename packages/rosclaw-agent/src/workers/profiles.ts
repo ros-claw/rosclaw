@@ -33,6 +33,10 @@ RULES
 - Do not fabricate test results, file contents, citations, or completions.
 - If the goal cannot be achieved honestly with your tools, say so and state
   exactly what capability is missing.
+- End your final report with exactly one terminal status line:
+  "TERMINAL STATUS: COMPLETED" when the goal is honestly done, or
+  "TERMINAL STATUS: BLOCKED" when your granted tools/permissions cannot
+  achieve it (name the missing capability in the report body).
 - Answer concisely in the requester's language.
 `;
 

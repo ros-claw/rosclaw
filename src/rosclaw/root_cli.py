@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 
 #: 产品级入口（root help 默认只显示这些）。
@@ -95,6 +96,12 @@ def _topics_help(topic: str) -> str:
 
 def dispatch_root_cli(argv: list[str]) -> int | None:
     """精简 root help / commands --json / topic help。未命中返回 None。"""
+    if argv[:2] == ["doctor", "simulation"]:
+        # 十六审 P0-C：托管仿真 runtime 探测（agentd doctor simulation
+        # 的根级快捷方式——无需模型凭据）。
+        from rosclaw.agentd.cli import cmd_doctor
+
+        return cmd_doctor(argparse.Namespace(topic="simulation", home=None))
     if not argv or argv == ["help"] or argv == ["-h"] or argv == ["--help"]:
         print(SLIM_HELP)
         return 0

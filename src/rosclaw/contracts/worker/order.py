@@ -176,7 +176,11 @@ class WorkResultV1(ContractModel):
     lease_id: str
     # 十三审 HOTFIX-13.2：INTERRUPTED = 进程确认死亡但可恢复（不
     # 等于 FAILED——checkpoint/session 可 resume）。
-    status: Literal["COMPLETED", "FAILED", "BLOCKED", "INTERRUPTED"] = "COMPLETED"
+    # 十六审 A1：CANCELLED 是合法终态（用户取消）——契约不接受它
+    # 会让取消路径崩成 FAILED（假失败 + 触发错误重试）。
+    status: Literal[
+        "COMPLETED", "FAILED", "BLOCKED", "INTERRUPTED", "CANCELLED"
+    ] = "COMPLETED"
     started_at: str | None = None
     finished_at: str | None = None
     summary: str = ""
