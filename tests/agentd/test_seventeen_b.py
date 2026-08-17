@@ -13,8 +13,6 @@
 
 from __future__ import annotations
 
-import asyncio
-import stat
 from pathlib import Path
 
 from tests.agentd.test_pi_tool_bridge import _setup

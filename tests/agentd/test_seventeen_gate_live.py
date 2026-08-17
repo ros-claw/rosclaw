@@ -127,7 +127,7 @@ def _wait_execution_terminal(home: Path, timeout: float = 900.0) -> list[dict]:
                 return [
                     dict(zip(
                         ("execution_id", "state", "runtime", "summary",
-                         "artifacts_json"), r,
+                         "artifacts_json"), r, strict=True,
                     ))
                     for r in rows
                 ]

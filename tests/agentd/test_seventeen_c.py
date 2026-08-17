@@ -5,7 +5,7 @@
    猜哪个 python、更不是改用户 conda/系统 Python）；
 2. ensure() 在 ~/.rosclaw/runtimes/<name>/<digest>/ 建 venv + 装包 +
    probe + READY 标记；幂等复用；
-3. probe 失败诚实 RuntimeNotReady（无 READY 标记，不假成功）；
+3. probe 失败诚实 RuntimeNotReadyError（无 READY 标记，不假成功）；
 4. sim render_trace 走托管 runtime（ImportError → 托管激活 → 重试；
    托管也缺 → 诚实 RUNTIME_NOT_READY，不是裸 ModuleNotFoundError）；
 5. runtime_requirements.python_packages 任务：控制面 PREFLIGHT 预置
@@ -55,11 +55,11 @@ class TestRuntimeManager:
     def test_ensure_probe_failure_honest(self, tmp_path: Path) -> None:
         from rosclaw.agentd.runtime_manager import (
             RuntimeManager,
-            RuntimeNotReady,
+            RuntimeNotReadyError,
         )
 
         manager = RuntimeManager(tmp_path)
-        with pytest.raises(RuntimeNotReady, match="probe"):
+        with pytest.raises(RuntimeNotReadyError, match="probe"):
             manager.ensure(
                 "test-bad",
                 {"python_packages": [],
@@ -88,18 +88,18 @@ class TestSimRenderRuntime:
     def test_render_trace_uses_managed_runtime(self, tmp_path: Path,
                                                monkeypatch) -> None:
         """render_trace 必须先 ensure 仿真 runtime（不是裸 import PIL
-        碰运气）。托管也缺 → RuntimeNotReady（诚实）。"""
+        碰运气）。托管也缺 → RuntimeNotReadyError（诚实）。"""
         import sys as _sys
 
         from rosclaw.agentd import sim_trajectory
-        from rosclaw.agentd.runtime_manager import RuntimeNotReady
+        from rosclaw.agentd.runtime_manager import RuntimeNotReadyError
 
         calls: list[str] = []
 
         class _SpyManager:
             def ensure(self, name, spec=None):
                 calls.append(name)
-                raise RuntimeNotReady("probe failed: PIL")
+                raise RuntimeNotReadyError("probe failed: PIL")
 
         # 强制宿主 PIL 缺失（sys.modules[name]=None → ImportError）——
         # 验证的是托管 fallback 路径，不是本机环境巧合。
@@ -107,7 +107,7 @@ class TestSimRenderRuntime:
         service = sim_trajectory.SimTrajectoryService(
             tmp_path, runtime_manager=_SpyManager()
         )
-        with pytest.raises(RuntimeNotReady):
+        with pytest.raises(RuntimeNotReadyError):
             service._import_pil()
         assert "rosclaw-simulation" in calls
 
@@ -137,13 +137,18 @@ class TestRuntimePreflightWiring:
         """runtime_requirements.python_packages → 控制面 PREFLIGHT 预置
         托管 runtime，WorkOrder 拿到 _runtime_bin（Worker PATH 前缀）。"""
         from tests.agentd.test_pi_tool_bridge import _setup
-        from tests.agentd.test_seventeen_a import _enable_fake, _wait_terminal
 
         service, mission = await _setup(tmp_path)
         # 直接驱动（无需 fake worker——preflight 在 hire 前完成）。
         from rosclaw.agentd.runtime_manager import RuntimeManager
 
         service._runtime_manager = RuntimeManager(tmp_path)
+        # CI 无 Node/dist——harness 就绪性不是本测试的对象；直接 ENABLED
+        # （只断言 preflight 注入 WorkOrder，不跑真实 worker）。
+        if service._registry.status_of("worker:rosclaw:pi") != "ENABLED":
+            service._registry.set_status(
+                "worker:rosclaw:pi", "ENABLED", actor_id="test", reason="ci"
+            )
         plane = service._task_control_plane
         view = await plane.submit(
             mission.mission_id,

@@ -228,7 +228,6 @@ class TestVerifierSecurity:
 
         monkeypatch.setenv("KIMI_API_KEY", "sk-should-not-leak")
         monkeypatch.setenv("MOONSHOT_API_KEY", "sk-should-not-leak")
-        out = tmp_path / "envdump"
         plane = TaskControlPlane.__new__(TaskControlPlane)
         verdict = asyncio.run(
             plane._verify_acceptance(

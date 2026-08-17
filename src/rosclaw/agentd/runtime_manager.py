@@ -8,7 +8,7 @@
 - 每个能力声明所需包 + readiness probe；digest 覆盖包清单+解释器
   版本+平台——换依赖即换目录（无半成品复用）；
 - ensure() 幂等：READY.json 标记 + probe 通过才算就绪；probe 失败
-  诚实 RuntimeNotReady（调用方映射 BLOCKED，不假成功）；
+  诚实 RuntimeNotReadyError（调用方映射 BLOCKED，不假成功）；
 - pip 安装是 ROSClaw 自有环境的确定性维护（SIM developer policy
   允许），不是 Worker 的自由网络动作。
 """
@@ -20,13 +20,12 @@ import json
 import platform
 import subprocess
 import sys
-import sysconfig
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 
-class RuntimeNotReady(RuntimeError):
+class RuntimeNotReadyError(RuntimeError):
     """托管 runtime 未就绪（诚实失败——调用方映射 BLOCKED）。"""
 
 
@@ -90,7 +89,7 @@ class RuntimeManager:
     def _site_packages(self, directory: Path) -> Path:
         candidates = sorted(directory.glob("lib/python*/site-packages"))
         if not candidates:
-            raise RuntimeNotReady(f"venv 缺 site-packages: {directory}")
+            raise RuntimeNotReadyError(f"venv 缺 site-packages: {directory}")
         return candidates[0]
 
     def _handle(self, name: str, spec: dict) -> RuntimeHandle:
@@ -118,15 +117,15 @@ class RuntimeManager:
         )
         if proc.returncode != 0:
             tail = proc.stderr.decode(errors="replace")[-300:]
-            raise RuntimeNotReady(
+            raise RuntimeNotReadyError(
                 f"probe failed: import {probe_module} — {tail}"
             )
 
     def ensure(self, name: str, spec: dict | None = None) -> RuntimeHandle:
-        """确保托管 runtime 就绪（幂等）。失败 → RuntimeNotReady。"""
+        """确保托管 runtime 就绪（幂等）。失败 → RuntimeNotReadyError。"""
         if spec is None:
             if name not in RUNTIME_SPECS:
-                raise RuntimeNotReady(f"未知 runtime {name!r}（无声明）")
+                raise RuntimeNotReadyError(f"未知 runtime {name!r}（无声明）")
             spec = RUNTIME_SPECS[name]
         packages = [str(p) for p in (spec.get("python_packages") or [])]
         probe_module = str(
@@ -150,7 +149,7 @@ class RuntimeManager:
             timeout=300,
         )
         if proc.returncode != 0:
-            raise RuntimeNotReady(
+            raise RuntimeNotReadyError(
                 "venv 创建失败（python3-venv 未安装？）："
                 + proc.stderr.decode(errors="replace")[-300:]
             )
@@ -162,7 +161,7 @@ class RuntimeManager:
                 timeout=600,
             )
             if proc.returncode != 0:
-                raise RuntimeNotReady(
+                raise RuntimeNotReadyError(
                     f"托管 runtime 装包失败（网络/索引不可达？）："
                     f"{proc.stderr.decode(errors='replace')[-300:]}"
                 )
@@ -203,7 +202,7 @@ def doctor_runtime(home: Path | str, topic: str) -> dict[str, Any]:
         try:
             manager._probe(handle, str(spec.get("probe_module") or "sys"))
             ready = True
-        except (RuntimeNotReady, subprocess.SubprocessError) as exc:
+        except (RuntimeNotReadyError, subprocess.SubprocessError) as exc:
             error = str(exc)[:300]
     return {
         "runtime": name,

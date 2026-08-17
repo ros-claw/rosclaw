@@ -138,7 +138,6 @@ class ExecutionRouter:
         默认冻结——auto_discovery=false 时永远 pi-builtin，不因机器
         装了 Codex/Claude 偷换执行者；显式 enabled 才解锁。"""
         import shutil
-        from pathlib import Path
 
         runtime_cfg = getattr(self._service._config, "agent_runtime", None)
         enabled = list(getattr(runtime_cfg, "enabled", ["pi-sdk"]))
@@ -327,14 +326,14 @@ class TaskControlPlane:
         runtime_bin = ""
         packages = plan.runtime_requirements.get("python_packages")
         if packages is not None and route["domain"] == "agent_harness":
-            from rosclaw.agentd.runtime_manager import RuntimeNotReady
+            from rosclaw.agentd.runtime_manager import RuntimeNotReadyError
 
             try:
                 handle = self._service._runtime_manager.ensure(
                     "rosclaw-task", {"python_packages": list(packages)}
                 )
                 runtime_bin = str(handle.bin_dir)
-            except RuntimeNotReady as exc:
+            except RuntimeNotReadyError as exc:
                 self._update_state(
                     execution_id, "BLOCKED",
                     summary=f"RUNTIME_NOT_READY：{exc}"[:400],
@@ -409,12 +408,12 @@ class TaskControlPlane:
         Agent Worker——总纲 §5.1）。十六审 P0-C：渲染依赖（Pillow）
         由托管 rosclaw-simulation runtime 预置——preflight 失败诚实
         BLOCKED，不是渲染时裸 ModuleNotFoundError。"""
-        from rosclaw.agentd.runtime_manager import RuntimeNotReady
+        from rosclaw.agentd.runtime_manager import RuntimeNotReadyError
         from rosclaw.agentd.sim_trajectory import SimTrajectoryService
 
         try:
             self._service._runtime_manager.ensure("rosclaw-simulation")
-        except RuntimeNotReady as exc:
+        except RuntimeNotReadyError as exc:
             self._update_state(
                 execution_id, "BLOCKED",
                 summary=f"RUNTIME_NOT_READY：{exc}"[:400],

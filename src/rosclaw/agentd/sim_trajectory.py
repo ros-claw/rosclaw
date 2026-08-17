@@ -142,7 +142,7 @@ class SimTrajectoryService:
 
     def _import_pil(self):
         """PIL 导入：宿主环境优先；缺失 → 托管 rosclaw-simulation
-        runtime ensure+activate 后重试；托管也不可用 → RuntimeNotReady
+        runtime ensure+activate 后重试；托管也不可用 → RuntimeNotReadyError
         （诚实——调用方映射 BLOCKED，不是裸 ModuleNotFoundError）。"""
         try:
             from PIL import Image, ImageDraw
@@ -401,7 +401,7 @@ class SimTrajectoryService:
             raise ValueError(f"unknown trace {trace_id!r}")
         trace = json.loads(trace_path.read_text(encoding="utf-8"))
         actual = trace["actual"]
-        Image, ImageDraw = self._import_pil()
+        image_mod, imagedraw_mod = self._import_pil()
 
         xs = [p["x"] for p in actual]
         ys = [p["y"] for p in actual]
@@ -420,8 +420,8 @@ class SimTrajectoryService:
         images = []
         for f in range(frames):
             upto = max(2, int(len(actual) * (f + 1) / frames))
-            img = Image.new("RGB", (size, size), "white")
-            draw = ImageDraw.Draw(img)
+            img = image_mod.new("RGB", (size, size), "white")
+            draw = imagedraw_mod.Draw(img)
             pts = [_px(pt) for pt in actual[:upto]]
             draw.line(pts, fill=(20, 20, 20), width=2)
             ex, ey = pts[-1]
