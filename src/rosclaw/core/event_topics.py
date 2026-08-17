@@ -68,6 +68,11 @@ class EventTopics:
     PRAXIS_FAILED = "rosclaw.praxis.failed"
     PRAXIS_RECORDED = "rosclaw.praxis.recorded"
     PRACTICE_EVENT_CREATED = "rosclaw.practice.event.created"
+    # PR-DF-16B (flywheel phase-II §5.3): session lifecycle for the learning
+    # trigger chain (close → verify → extract → ingest → distill).
+    PRACTICE_SESSION_STARTED = "rosclaw.practice.session.started"
+    PRACTICE_SESSION_FINISHED = "rosclaw.practice.session.finished"
+    PRACTICE_FACTS_INGESTED = "rosclaw.practice.facts.ingested"
 
     # ── Safety ──
     SAFETY_VIOLATION = "rosclaw.safety.violation"
@@ -135,6 +140,8 @@ _TOPIC_COMPAT: dict[str, str] = {
     "heuristic.recovery_suggested": EventTopics.HOW_RECOVERY_HINT_GENERATED,
     "heuristic.recovery_executed": EventTopics.HOW_RECOVERY_EXECUTED,
     "runtime.status": EventTopics.RUNTIME_STATUS,
+    "practice.session_started": EventTopics.PRACTICE_SESSION_STARTED,
+    "practice.session_finished": EventTopics.PRACTICE_SESSION_FINISHED,
 }
 
 
