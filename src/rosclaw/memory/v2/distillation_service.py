@@ -87,10 +87,16 @@ class MemoryDistillationService:
             self._worker = None
 
     def drain(self, timeout: float = 10.0) -> bool:
-        """Wait until the queue is empty (shutdown ordering, tests)."""
+        """Wait until every queued session has been fully processed.
+
+        ``queue.empty()`` is not enough: the worker dequeues a payload
+        *before* distilling it, so an empty queue can still mean a session
+        is mid-write (observed as a CI-only flake where drain returned
+        before memory_items were stored).
+        """
         deadline = time.time() + timeout
         while time.time() < deadline:
-            if self._queue.empty():
+            if self._queue.unfinished_tasks == 0:
                 return True
             time.sleep(0.05)
         return False
