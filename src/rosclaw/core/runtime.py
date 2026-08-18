@@ -650,10 +650,18 @@ class Runtime(LifecycleMixin):
                 # PR-DF-10 (flywheel §29-31): automatic ReferencePack → Advice
                 # → Receipt → Feedback loop; conservative verdicts only.
                 try:
+                    from rosclaw.knowledge.usage_ledger import KnowledgeUsageLedger
                     from rosclaw.knowledge.usage_tracker import KnowledgeUsageTracker
 
+                    # PR-DF-21 (§32): durable usage observation when a
+                    # structured store exists; None keeps DF-10 behavior.
+                    usage_ledger = (
+                        KnowledgeUsageLedger(data_plane.structured_store)
+                        if data_plane.structured_store is not None
+                        else None
+                    )
                     self._knowledge_usage_tracker = KnowledgeUsageTracker(
-                        self.event_bus, self._knowledge_v2
+                        self.event_bus, self._knowledge_v2, usage_ledger=usage_ledger
                     )
                     self._knowledge_usage_tracker.subscribe()
                 except Exception as track_exc:  # noqa: BLE001

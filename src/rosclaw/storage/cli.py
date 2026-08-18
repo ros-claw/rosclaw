@@ -1530,8 +1530,45 @@ def cmd_data_reconcile(args: argparse.Namespace) -> int:
     return 1 if failed else 0
 
 
+@_with_stdout_flush
+def cmd_data_usage(args: argparse.Namespace) -> int:
+    """Per-Knowledge-Unit usage aggregation (DF-21 §32.2 — observation only)."""
+    cfg = _load_storage_config(args)
+    try:
+        client = _create_client(cfg)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[rosclaw data usage] Failed to create backend: {exc}", file=sys.stderr)
+        return 1
+    try:
+        from rosclaw.knowledge.usage_ledger import KnowledgeUsageLedger
+
+        report = KnowledgeUsageLedger(client).aggregate(
+            getattr(args, "unit", None) or None
+        )
+    except Exception as exc:  # noqa: BLE001
+        print(f"[rosclaw data usage] aggregate failed: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        _close_client(client)
+
+    if getattr(args, "json", False):
+        print(json.dumps(report, indent=2))
+    else:
+        if not report:
+            print("no knowledge usage events recorded")
+        for unit, counts in sorted(report.items()):
+            print(
+                f"{unit}: presented={counts['presented_count']} used={counts['used_count']} "
+                f"useful={counts['useful_count']} unknown={counts['unknown_count']} "
+                f"stale={counts['stale_count']} incompatible={counts['incompatible_count']} "
+                f"misleading={counts['misleading_count']} "
+                f"verified+={counts['verified_success_count']} verified-={counts['verified_failure_count']}"
+            )
+    return 0
+
+
 def add_data_subparser(subparsers: Any) -> Any:
-    """Add ``rosclaw data`` subcommands (PR-DF-17/DF-19)."""
+    """Add ``rosclaw data`` subcommands (PR-DF-17/DF-19/DF-21)."""
     data_parser = subparsers.add_parser("data", help="Data flywheel queries")
     data_subparsers = data_parser.add_subparsers(dest="data_command")
 
@@ -1569,6 +1606,15 @@ def add_data_subparser(subparsers: Any) -> Any:
     reconcile_parser.add_argument("--backend", default=None, help="Override backend")
     reconcile_parser.add_argument("--url", default=None, help="Override SQL URL")
     reconcile_parser.add_argument("--path", default=None, help="Override SQLite path")
+
+    usage_parser = data_subparsers.add_parser(
+        "usage", help="Per-Knowledge-Unit usage aggregation (DF-21, observation only)"
+    )
+    usage_parser.add_argument("--unit", default=None, help="Filter to one knowledge_unit_id")
+    usage_parser.add_argument("--json", action="store_true", help="Output JSON")
+    usage_parser.add_argument("--backend", default=None, help="Override backend")
+    usage_parser.add_argument("--url", default=None, help="Override SQL URL")
+    usage_parser.add_argument("--path", default=None, help="Override SQLite path")
     return data_parser
 
 
