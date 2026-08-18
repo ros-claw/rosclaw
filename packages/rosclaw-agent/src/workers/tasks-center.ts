@@ -34,6 +34,9 @@ export interface JobCard {
 	attempts: AttemptInfo[];
 	/** 十五审 PR-RF-8：execution 级卡片的执行主体（runtime/executor）。 */
 	runtime?: string;
+	/** 十六审 P1：编译的授权信封（profile）与验收结果——卡片直读。 */
+	profile?: string;
+	verifier?: string;
 }
 
 export interface TasksCenterDeps {
@@ -314,12 +317,16 @@ export class TasksCenterComponent implements Component {
 			const latest = this.targetAttempt(card);
 			const elapsed = fmtElapsedMs(latest?.duration_ms);
 			const who = card.runtime ? ` · ${card.runtime}` : "";
+				const profile = card.profile ? ` · ${card.profile}` : "";
 			const attempts = card.attempts.length
 				? ` · attempt ${card.attempts.length}/${card.attempts.length}`
 				: "";
 			out.push(
-				`│ ${mark} ${icon(card.state)} ${card.goal.slice(0, 34)}${who} · ${card.state}${elapsed ? ` · ${elapsed}` : ""}${attempts}`,
+				`│ ${mark} ${icon(card.state)} ${card.goal.slice(0, 34)}${who}${profile} · ${card.state}${elapsed ? ` · ${elapsed}` : ""}${attempts}`,
 			);
+			if (card.verifier) {
+				out.push(`│     验收: ${card.verifier}`);
+			}
 			if (this.expanded && idx === this.selected) {
 				for (const a of card.attempts) {
 					out.push(

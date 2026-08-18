@@ -132,10 +132,30 @@ def _ik_waypoints(model, data, points: list[dict]) -> list[list[float]]:
 class SimTrajectoryService:
     """SIM 轨迹能力的确定性实现（文件落盘，重启可审计）。"""
 
-    def __init__(self, home: Path) -> None:
+    def __init__(self, home: Path, *, runtime_manager=None) -> None:
         self._home = Path(home)
         self._plans_dir = self._home / "sim" / "plans"
         self._traces_dir = self._home / "sim" / "traces"
+        # 十六审 P0-C：渲染依赖（Pillow）由托管 runtime 提供——不是
+        # agentd 环境碰运气，更不是 Worker 去装。
+        self._runtime_manager = runtime_manager
+
+    def _import_pil(self):
+        """PIL 导入：宿主环境优先；缺失 → 托管 rosclaw-simulation
+        runtime ensure+activate 后重试；托管也不可用 → RuntimeNotReadyError
+        （诚实——调用方映射 BLOCKED，不是裸 ModuleNotFoundError）。"""
+        try:
+            from PIL import Image, ImageDraw
+
+            return Image, ImageDraw
+        except ImportError:
+            if self._runtime_manager is None:
+                raise
+            handle = self._runtime_manager.ensure("rosclaw-simulation")
+            self._runtime_manager.activate(handle)
+            from PIL import Image, ImageDraw
+
+            return Image, ImageDraw
 
     # --------------------------------------------------------------
     # 1. trajectory.generate_planar_path
@@ -381,7 +401,7 @@ class SimTrajectoryService:
             raise ValueError(f"unknown trace {trace_id!r}")
         trace = json.loads(trace_path.read_text(encoding="utf-8"))
         actual = trace["actual"]
-        from PIL import Image, ImageDraw
+        image_mod, imagedraw_mod = self._import_pil()
 
         xs = [p["x"] for p in actual]
         ys = [p["y"] for p in actual]
@@ -400,8 +420,8 @@ class SimTrajectoryService:
         images = []
         for f in range(frames):
             upto = max(2, int(len(actual) * (f + 1) / frames))
-            img = Image.new("RGB", (size, size), "white")
-            draw = ImageDraw.Draw(img)
+            img = image_mod.new("RGB", (size, size), "white")
+            draw = imagedraw_mod.Draw(img)
             pts = [_px(pt) for pt in actual[:upto]]
             draw.line(pts, fill=(20, 20, 20), width=2)
             ex, ey = pts[-1]

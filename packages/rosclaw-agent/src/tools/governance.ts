@@ -18,14 +18,22 @@ export function buildGovernanceTools(ctx: BridgeToolContext): ToolDefinition[] {
 			description:
 				"Submit a task goal contract (TaskSpec) to the Task Control Plane. " +
 				"The ExecutionRouter picks the execution domain — you never choose a worker. " +
-				"One task = one owning execution: re-submitting the same goal attaches to it.",
+				"One task = one owning execution: re-submitting the same goal attaches to it. " +
+				"Declare effects honestly: tasks needing shell/file writes MUST set " +
+				"effects='workspace_only' (otherwise the task compiles read-only and " +
+				"BLOCKs). Declare runtime_requirements.python_packages for needed " +
+				"packages — ROSClaw's Runtime Manager provisions them deterministically; " +
+				"NEVER make 'install a package' a worker task, and NEVER hand the user " +
+				"manual shell commands to finish a task.",
 			parameters: Type.Object({
 				goal: Type.String({ description: "自包含目标（用户意图，非微步骤剧本）" }),
+				kind: Type.Optional(Type.String({ description: "任务类型提示（如 simulation.render）" })),
 				required_capabilities: Type.Optional(Type.Array(Type.String())),
-				effects: Type.Optional(Type.String({ description: "simulation_only | workspace_only | physical_*" })),
+				effects: Type.Optional(Type.String({ description: "none | workspace_only | simulation_only | physical_*（要写文件/跑脚本必须 workspace_only）" })),
 				inputs: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
-				deliverables: Type.Optional(Type.Array(Type.Record(Type.String(), Type.Unknown()))),
-				acceptance: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+				deliverables: Type.Optional(Type.Array(Type.Record(Type.String(), Type.Unknown()), { description: "交付物：{type: MIME, path: 相对路径}——path 自动成为验收检查" })),
+				acceptance: Type.Optional(Type.Record(Type.String(), Type.Unknown(), { description: "结构化验收：{required_files:[...]} 或 {run:{argv:[...]}}——禁止 shell 字符串" })),
+				runtime_requirements: Type.Optional(Type.Record(Type.String(), Type.Unknown(), { description: "运行依赖：{python_packages:['Pillow>=10']}——Runtime Manager 托管预置" })),
 			}),
 			async execute(_id, params, _signal, _onUpdate, toolCtx) {
 				// 建议-0816 P0-4：Native 当前模型快照注入（Worker 继承同一

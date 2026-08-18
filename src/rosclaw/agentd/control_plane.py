@@ -68,17 +68,36 @@ def _fingerprint(mission_id: str, spec: dict) -> str:
         {
             "mission": mission_id,
             "goal": str(spec.get("goal", "")),
+            "kind": str(spec.get("kind", "")),
             "capabilities": sorted(spec.get("required_capabilities") or []),
-            "effects": str(spec.get("effects", "")),
+            "effects": spec.get("effects") or "",
             "inputs": spec.get("inputs") or {},
             "deliverables": spec.get("deliverables") or [],
             "acceptance": spec.get("acceptance") or {},
+            "runtime_requirements": spec.get("runtime_requirements") or {},
             "model": spec.get("model_snapshot") or {},
         },
         sort_keys=True,
         ensure_ascii=False,
+        default=str,
     )
     return hashlib.sha256(payload.encode()).hexdigest()[:24]
+
+
+def _goal_similarity(a: str, b: str) -> float:
+    """目标相似度（十六审 P0-E 防裂变）：归一化（去空白/标点/大小写）
+    后的 SequenceMatcher 比率。只用于"同一 mission 内活跃执行"的
+    attach 判定——终态任务永不被 attach（新目标是新任务）。"""
+    import difflib
+    import re
+
+    def _norm(text: str) -> str:
+        return re.sub(r"[\s，。、,.;；:：'\"\"''（）()【】《》<>_-]+", "", text).lower()
+
+    na, nb = _norm(a), _norm(b)
+    if not na or not nb:
+        return 0.0
+    return difflib.SequenceMatcher(None, na, nb).ratio()
 
 
 class ExecutionRouter:
@@ -89,10 +108,12 @@ class ExecutionRouter:
 
     def route(self, spec: dict) -> dict:
         """返回 {domain, runtime, reason}；不可路由抛 ValueError。"""
-        effects = str(spec.get("effects", "") or "")
+        from rosclaw.agentd.task_compiler import normalize_effects
+
+        effects = normalize_effects(spec.get("effects"))
         capabilities = [str(c) for c in (spec.get("required_capabilities") or [])]
         # 1. effect/risk 排除：physical 效果不走 executor/harness。
-        if effects in ("physical_real", "physical_shadow"):
+        if effects & {"physical.shadow", "physical.real"}:
             return {
                 "domain": "physical",
                 "runtime": "rosclawd",
@@ -133,7 +154,6 @@ class ExecutionRouter:
         默认冻结——auto_discovery=false 时永远 pi-builtin，不因机器
         装了 Codex/Claude 偷换执行者；显式 enabled 才解锁。"""
         import shutil
-        from pathlib import Path
 
         runtime_cfg = getattr(self._service._config, "agent_runtime", None)
         enabled = list(getattr(runtime_cfg, "enabled", ["pi-sdk"]))
@@ -180,6 +200,21 @@ class TaskControlPlane:
 
     def _update_state(self, execution_id: str, state: str, **fields) -> None:
         assert state in EXECUTION_STATES, f"unknown execution state {state}"
+        # 十六审 A1/A3：终态权威——已终态的 execution 不得被后续驱动
+        # 收尾覆盖（取消在飞的任务完成后曾把 CANCELLED 涂改成 FAILED）。
+        current = self._conn.execute(
+            "SELECT state FROM task_executions WHERE execution_id = ?",
+            (execution_id,),
+        ).fetchone()
+        if current is not None and current["state"] in EXECUTION_TERMINAL:
+            if current["state"] != state:
+                import logging
+
+                logging.getLogger(__name__).warning(
+                    "execution %s 已终态 %s——拒绝覆盖为 %s",
+                    execution_id, current["state"], state,
+                )
+            return
         assignments = ", ".join(f"{k} = ?" for k in ("state", *fields, "updated_at"))
         self._conn.execute(
             f"UPDATE task_executions SET {assignments} WHERE execution_id = ?",  # noqa: S608
@@ -219,8 +254,24 @@ class TaskControlPlane:
         if active is not None:
             # Gate 3：一个任务一个 owning execution——重复提交只 attach。
             return self._view(dict(active), attached=True)
+        # 十六审 P0-E：模糊防裂变——模型换措辞重提同一目标（指纹不同）
+        # 也 attach 到活跃执行（归一化 + 相似度阈值，同 mission 内）。
+        goal = str(spec.get("goal", ""))
+        for cand in self._conn.execute(
+            "SELECT * FROM task_executions WHERE mission_id = ? "
+            "AND state NOT IN ('SUCCEEDED','FAILED','BLOCKED','CANCELLED') "
+            "ORDER BY created_at DESC",
+            (mission_id,),
+        ).fetchall():
+            try:
+                cand_goal = str(json.loads(cand["spec_json"]).get("goal", ""))
+            except (ValueError, TypeError):
+                continue
+            if _goal_similarity(goal, cand_goal) >= 0.80:
+                return self._view(dict(cand), attached=True)
         if not str(spec.get("goal", "")).strip():
             raise ValueError("TaskSpec.goal required")
+        self._validate_acceptance(spec.get("acceptance") or {})
         route = self._router.route(spec)
         execution_id = new_id("exec")
         self._insert_execution(
@@ -231,6 +282,28 @@ class TaskControlPlane:
             self._drive(execution_id, mission_id, spec, route)
         )
         return self._view(self._get(execution_id))
+
+    @staticmethod
+    def _validate_acceptance(acceptance: dict) -> None:
+        """验收契约 fail-fast（十六审 A2/安全）：模型提交的 shell 字符串
+        tests_command 是命令注入面——submit 即拒绝；只允许结构化形式
+        （required_files 列表 / run.argv 数组 / 仿真数值阈值）。"""
+        if not isinstance(acceptance, dict):
+            raise ValueError("TaskSpec.acceptance 必须是对象")
+        if "tests_command" in acceptance:
+            raise ValueError(
+                "acceptance.tests_command（shell 字符串）已禁止——命令注入面。"
+                "改用结构化形式：acceptance.run = {\"argv\": [...], "
+                "\"timeout_sec\": N}（argv 不走 shell，解释器白名单）"
+            )
+        run = acceptance.get("run")
+        if run is not None:
+            if not isinstance(run, dict) or not isinstance(run.get("argv"), list):
+                raise ValueError("acceptance.run 必须是 {\"argv\": [...]} 形式")
+            if not run["argv"] or not all(
+                isinstance(a, str) for a in run["argv"]
+            ):
+                raise ValueError("acceptance.run.argv 必须是非空字符串数组")
 
     def _view(self, row: dict | None, *, attached: bool = False) -> dict[str, Any]:
         assert row is not None
@@ -260,7 +333,43 @@ class TaskControlPlane:
         self, execution_id: str, mission_id: str, spec: dict, route: dict
     ) -> None:
         """执行驱动：executor 域走确定性 TaskRunner 组合；harness 域走
-        内置 Pi Worker（RF-3 后走 ACP）。任何异常 → FAILED（诚实）。"""
+        内置 Pi Worker（RF-3 后走 ACP）。任何异常 → FAILED（诚实）。
+
+        十六审 P0-B：编译期集合检查——授权不满足在启动前 BLOCKED
+        （零 Worker 预算燃烧），不抱侥幸启动只读 profile。"""
+        from rosclaw.agentd.task_compiler import compile_task
+
+        try:
+            plan = compile_task(spec)
+        except ValueError as exc:
+            self._update_state(
+                execution_id, "BLOCKED", summary=f"编译期拦截：{exc}"[:400]
+            )
+            return
+        if plan.blocked_reason:
+            self._update_state(
+                execution_id, "BLOCKED",
+                summary=f"编译期拦截：{plan.blocked_reason}"[:400],
+            )
+            return
+        # 十六审 P0-C：runtime_requirements 是 ROSClaw 的责任——
+        # PREFLIGHT 在托管 runtime 里确定性预置（Worker 不装环境）。
+        runtime_bin = ""
+        packages = plan.runtime_requirements.get("python_packages")
+        if packages is not None and route["domain"] == "agent_harness":
+            from rosclaw.agentd.runtime_manager import RuntimeNotReadyError
+
+            try:
+                handle = self._service._runtime_manager.ensure(
+                    "rosclaw-task", {"python_packages": list(packages)}
+                )
+                runtime_bin = str(handle.bin_dir)
+            except RuntimeNotReadyError as exc:
+                self._update_state(
+                    execution_id, "BLOCKED",
+                    summary=f"RUNTIME_NOT_READY：{exc}"[:400],
+                )
+                return
         try:
             if route["domain"] == "executor" and route["runtime"] == "executor:simulation":
                 await self._drive_simulation(execution_id, mission_id, spec)
@@ -275,7 +384,10 @@ class TaskControlPlane:
                     "execution 只做提案，不直接执行",
                 )
             else:
-                await self._drive_harness(execution_id, mission_id, spec, route)
+                await self._drive_harness(
+                    execution_id, mission_id, spec, route, plan,
+                    runtime_bin=runtime_bin,
+                )
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001 - 执行失败是数据
@@ -324,11 +436,25 @@ class TaskControlPlane:
         self, execution_id: str, mission_id: str, spec: dict
     ) -> None:
         """SIM 闭环：直接调 SimTrajectoryService 组合（确定性，零
-        Agent Worker——总纲 §5.1）。"""
+        Agent Worker——总纲 §5.1）。十六审 P0-C：渲染依赖（Pillow）
+        由托管 rosclaw-simulation runtime 预置——preflight 失败诚实
+        BLOCKED，不是渲染时裸 ModuleNotFoundError。"""
+        from rosclaw.agentd.runtime_manager import RuntimeNotReadyError
         from rosclaw.agentd.sim_trajectory import SimTrajectoryService
 
+        try:
+            self._service._runtime_manager.ensure("rosclaw-simulation")
+        except RuntimeNotReadyError as exc:
+            self._update_state(
+                execution_id, "BLOCKED",
+                summary=f"RUNTIME_NOT_READY：{exc}"[:400],
+            )
+            return
         self._update_state(execution_id, "RUNNING")
-        sim = SimTrajectoryService(self._service._home)
+        sim = SimTrajectoryService(
+            self._service._home,
+            runtime_manager=self._service._runtime_manager,
+        )
         inputs = spec.get("inputs") or {}
         acceptance = spec.get("acceptance") or {}
         plan = await asyncio.to_thread(
@@ -381,8 +507,31 @@ class TaskControlPlane:
             ),
         )
 
+    @property
+    def _pi_runner(self):
+        """十六审 P0-D：PiTaskRunner 是内置 Pi 的唯一执行层。"""
+        from rosclaw.agentd.pi_task_runner import PiTaskRunner
+
+        runner = getattr(self, "_pi_runner_cache", None)
+        if runner is None:
+            runner = PiTaskRunner(self)
+            self._pi_runner_cache = runner
+        return runner
+
+    async def _drive_pi_builtin(
+        self, execution_id: str, mission_id: str, spec: dict, plan,
+        *, runtime_bin: str = "",
+    ) -> None:
+        await self._pi_runner._drive_pi_builtin(
+            execution_id, mission_id, spec, plan, runtime_bin=runtime_bin
+        )
+
+    async def _verify_acceptance(self, spec: dict, workspace, *, report: str = "") -> dict:
+        return await self._pi_runner._verify_acceptance(spec, workspace, report=report)
+
     async def _drive_harness(
-        self, execution_id: str, mission_id: str, spec: dict, route: dict
+        self, execution_id: str, mission_id: str, spec: dict, route: dict,
+        plan, *, runtime_bin: str = "",
     ) -> None:
         """Harness 域：codex app-server 原生路径（RF-5）/ACP（RF-3）/
         pi-builtin（RF-9 前保留）。"""
@@ -392,7 +541,9 @@ class TaskControlPlane:
         if route["runtime"].startswith("harness:acp:"):
             await self._drive_acp(execution_id, spec, route["runtime"])
             return
-        await self._drive_pi_builtin(execution_id, mission_id, spec)
+        await self._drive_pi_builtin(
+            execution_id, mission_id, spec, plan, runtime_bin=runtime_bin
+        )
 
     async def _drive_codex(self, execution_id: str, spec: dict) -> None:
         """Codex app-server：单 thread 单 turn；sandbox（RF-4）+ 原生
@@ -456,269 +607,3 @@ class TaskControlPlane:
             summary=result["detail"][:500],
         )
 
-    async def _drive_pi_builtin(
-        self, execution_id: str, mission_id: str, spec: dict
-    ) -> None:
-        """内置 Pi Harness（RF-9 前的默认路径）。"""
-        from rosclaw.agentd.workers.scheduler import CandidateView
-        from rosclaw.contracts.worker.order import (
-            BudgetEnvelope,
-            ExpectedOutput,
-            SideEffectPolicy,
-            WorkOrderV1,
-        )
-
-        manager = self._service._worker_manager
-        registry = self._service._registry
-        if registry.status_of("worker:rosclaw:pi") != "ENABLED":
-            self._update_state(
-                execution_id, "BLOCKED",
-                summary="内置 Pi Harness 未就绪（Node/dist 不可用）——"
-                "preflight 失败，未创建执行",
-            )
-            return
-        card = registry.get("worker:rosclaw:pi")
-        deliverables = spec.get("deliverables") or []
-        # 建议-0816 P0-3：编译诚实——profile 决定 capability 与副作用
-        # 声明（developer 实际可写必须声明 sandbox_process；只读任务
-        # 才是 none——workspace_write 需幂等键，sandbox_process 是
-        # 既有写能力 profile 的既定类）。账本与实际工具面逐字一致。
-        _capabilities = [str(c) for c in (spec.get("required_capabilities") or [])]
-        _profile = str((spec.get("inputs") or {}).get("profile", "")) or (
-            "developer"
-            if any(
-                c.startswith(("code.", "capability.")) for c in _capabilities
-            )
-            else "scout"
-        )
-        compile_capability, compile_effect = {
-            "developer": ("code.develop", "sandbox_process"),
-            "sim-builder": ("simulation.build", "sandbox_process"),
-            "scout": ("code.repository_analysis", "none"),
-            "analyst": ("analysis.text", "none"),
-        }.get(_profile, ("analysis.text", "none"))
-        order = WorkOrderV1(
-            work_order_id=new_id("wo"),
-            mission_id=mission_id,
-            issued_by="task-control-plane",
-            capability=compile_capability,
-            goal=str(spec.get("goal", "")),
-            inputs={
-                "instructions": str(spec.get("goal", "")),
-                # profile 由任务性质决定（不是默认 developer）：code.* 能力
-                # → developer（workspace+deliverable 校验）；其余 → scout
-                # （只读/分析——纯文本交付不应触发 developer 的 diff 验收）。
-                "worker_profile": _profile,
-                "_execution_id": execution_id,
-                # 建议-0816 P0-4：Native 当前模型快照继承（Worker 用同一
-                # provider/model/thinking——不是默认推断）。
-                "model_snapshot": dict(spec.get("model_snapshot") or {}),
-            },
-            budgets=BudgetEnvelope(),
-            expected_output=ExpectedOutput(
-                artifacts=[str(d.get("type", "text/plain")) for d in deliverables]
-                or ["text/plain"]
-            ),
-            side_effect_policy=SideEffectPolicy(**{"class": compile_effect}),
-        )
-        scheduled = manager.hire(
-            order,
-            [CandidateView(card=card, registry_status="ENABLED",
-                           running_orders=0, circuit_open=False)],
-        )
-        self._update_state(
-            execution_id, "RUNNING", work_order_id=scheduled.work_order_id
-        )
-        result, _report = await manager.run_to_completion(scheduled)
-        if result.status == "COMPLETED" or (
-            result.status == "FAILED" and "DELIVERABLE" in result.summary
-        ):
-            # 建议-0816 P0-2：COMPLETED ≠ SUCCEEDED——先 VERIFYING 跑
-            # acceptance；WorkOrder 层 deliverable 拒绝同样进 REPAIRING
-            # （验收失败反馈同一 session 修复，不新建 Worker）。
-            await self._verify_and_repair(
-                execution_id, spec, scheduled, result.summary
-            )
-        elif result.status == "INTERRUPTED":
-            self._update_state(
-                execution_id, "INTERRUPTED",
-                summary=result.summary[:500],
-            )
-        elif result.status == "CANCELLED":
-            # 用户取消是 CANCELLED——绝不能落成 FAILED（自审修复：
-            # task_cancel 后 driver 收尾曾把 CANCELLED 覆盖成 FAILED）。
-            self._update_state(
-                execution_id, "CANCELLED",
-                summary=result.summary[:500] or "已取消",
-            )
-        else:
-            current = self._get(execution_id)
-            if current and current["state"] != "CANCELLED":
-                self._update_state(
-                    execution_id, "FAILED", summary=result.summary[:500]
-                )
-
-    async def _verify_acceptance(
-        self, spec: dict, workspace: Path | None
-    ) -> dict:
-        """acceptance 真验收：required_files 存在性 + tests_command
-        实跑（有界 600s，workspace 内，最小 env）。"""
-        acceptance = spec.get("acceptance") or {}
-        failures: list[str] = []
-        checks = 0
-        for rel in acceptance.get("required_files") or []:
-            checks += 1
-            if workspace is None or not (workspace / str(rel)).exists():
-                failures.append(f"缺交付文件 {rel}")
-        tests_cmd = str(acceptance.get("tests_command") or "")
-        if tests_cmd and workspace is not None:
-            checks += 1
-            import os as _os
-
-            env = {
-                k: _os.environ[k]
-                for k in ("PATH", "HOME", "LANG", "LC_ALL", "TZ")
-                if k in _os.environ
-            }
-            proc = await asyncio.create_subprocess_shell(
-                tests_cmd,
-                cwd=str(workspace),
-                env=env,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,
-            )
-            try:
-                out, _ = await asyncio.wait_for(proc.communicate(), timeout=600)
-            except TimeoutError:
-                proc.kill()
-                failures.append(f"验收测试超时: {tests_cmd}")
-            else:
-                if proc.returncode != 0:
-                    tail = (out or b"").decode(errors="replace")[-300:]
-                    failures.append(f"验收测试失败(rc={proc.returncode}): {tail}")
-        return {"pass": not failures, "failures": failures, "checks": checks}
-
-    async def _verify_and_repair(
-        self,
-        execution_id: str,
-        spec: dict,
-        first_order,
-        first_summary: str,
-    ) -> None:
-        """VERIFYING →（失败）REPAIRING 同一 session（≤2 轮）→
-        SUCCEEDED/FAILED。artifacts/usage 回灌 task_executions。"""
-        from rosclaw.agentd.workers.event_store import WorkerEventStore
-
-        manager = self._service._worker_manager
-        current_order = first_order
-        summary = first_summary
-        verdict = {"pass": False, "failures": ["未验收"], "checks": 0}
-        max_rounds = 2
-        for round_no in range(max_rounds + 1):
-            self._update_state(execution_id, "VERIFYING")
-            # hire() 返回的对象没有 workspace 注解（pi_managed 运行时才
-            # 回写）——必须重读 DB 行，否则验收读不到工作区。
-            fresh = manager.order(current_order.work_order_id) or current_order
-            workspace_raw = str(fresh.inputs.get("workspace") or "")
-            verdict = await self._verify_acceptance(
-                spec, Path(workspace_raw) if workspace_raw else None
-            )
-            if verdict["pass"]:
-                break
-            if round_no >= max_rounds:
-                break
-            # REPAIRING：验收证据反馈同一 session（resume——不是新 Worker）。
-            self._update_state(
-                execution_id, "REPAIRING",
-                verifier_feedback="；".join(verdict["failures"])[:400],
-            )
-            state = (
-                WorkerEventStore(self._service._home).read_state(
-                    current_order.work_order_id
-                )
-                or {}
-            )
-            session_file = str(state.get("session_file") or "")
-            if not session_file:
-                break  # 无恢复点——诚实失败，不盲重试
-            retry_order, created, _reason = (
-                await self._service._retry_coordinator.request_retry(
-                    current_order,
-                    cause="DELIVERABLE_REJECTED",
-                    actor="repair",
-                    note="验收反馈（同一 session 修复，不要从零开始）："
-                    + "；".join(verdict["failures"])[:300],
-                    resume_session=session_file,
-                )
-            )
-            if not created or retry_order is None:
-                break
-            self._update_state(
-                execution_id, "RUNNING",
-                work_order_id=retry_order.work_order_id,
-            )
-            # coordinator 的 spawn_fn 驱动新 attempt——等终态（不双驱动）。
-            for _ in range(24000):
-                current = manager.order(retry_order.work_order_id)
-                if current and current.status in (
-                    "ACCEPTED", "FAILED", "CANCELLED", "EXPIRED",
-                ):
-                    break
-                await asyncio.sleep(0.05)
-            current = manager.order(retry_order.work_order_id)
-            if current is None or current.status != "ACCEPTED":
-                row = self._conn.execute(
-                    "SELECT result_json FROM work_results WHERE work_order_id = ?",
-                    (retry_order.work_order_id,),
-                ).fetchone()
-                if row is not None:
-                    summary = str(
-                        json.loads(row["result_json"]).get("summary", "")
-                    )[:500]
-                verdict = {
-                    "pass": False,
-                    "failures": [f"修复 attempt 终态 {current.status if current else '?'}"],
-                    "checks": verdict["checks"],
-                }
-                current_order = retry_order
-                continue
-            row = self._conn.execute(
-                "SELECT result_json FROM work_results WHERE work_order_id = ?",
-                (retry_order.work_order_id,),
-            ).fetchone()
-            if row is not None:
-                summary = str(json.loads(row["result_json"]).get("summary", ""))[:500]
-            current_order = retry_order
-        if verdict["pass"]:
-            # 回灌 artifacts/usage（不再是 500 字摘要了事）。
-            row = self._conn.execute(
-                "SELECT result_json FROM work_results WHERE work_order_id = ?",
-                (current_order.work_order_id,),
-            ).fetchone()
-            artifacts_json = ""
-            if row is not None:
-                payload = json.loads(row["result_json"])
-                artifacts_json = json.dumps(
-                    {
-                        "artifacts": payload.get("artifacts", []),
-                        "usage": payload.get("usage", {}),
-                        "verifier": {
-                            "checks": verdict["checks"],
-                            "verdict": "PASS",
-                        },
-                    },
-                    ensure_ascii=False,
-                )
-            self._update_state(
-                execution_id, "SUCCEEDED",
-                summary=f"{summary[:400]}（验收 PASS·{verdict['checks']} 项）",
-                artifacts_json=artifacts_json,
-            )
-        else:
-            self._update_state(
-                execution_id, "FAILED",
-                summary=(
-                    f"验收未过：{'；'.join(verdict['failures'])[:300]}"
-                    f"（修复 {max_rounds} 轮预算内未达标）"
-                ),
-            )

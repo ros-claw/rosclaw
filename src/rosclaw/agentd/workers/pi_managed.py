@@ -709,6 +709,11 @@ class PiManagedAdapter:
             for k in ("PATH", "HOME", "LANG", "LC_ALL", "TZ", "ROSCLAW_HOME")
             if k in os.environ
         }
+        # 十六审 P0-C：托管 runtime bin 前缀（控制面 PREFLIGHT 预置的
+        # 依赖——Worker 的 bash/python 直接用托管解释器，不猜不改宿主）。
+        runtime_bin = str(order.inputs.get("_runtime_bin") or "")
+        if runtime_bin and Path(runtime_bin).is_dir():
+            env["PATH"] = runtime_bin + os.pathsep + env.get("PATH", "")
         # 十审 W1：与主 Agent 同一模型配置——provider env key 原样透传
         # （与 auth.json 文件凭据二选一，取决于用户配置方式；WorkOrder
         # 本身绝不携带凭据）。
@@ -1096,6 +1101,7 @@ class PiManagedAdapter:
         terminal_status = (
             "COMPLETED" if cause == "COMPLETED"
             else "CANCELLED" if cause == "USER_CANCELLED"
+            else "BLOCKED" if cause == "BLOCKED"
             else "INTERRUPTED" if cause in interrupted_causes
             else "FAILED"
         )
@@ -1140,6 +1146,20 @@ class PiManagedAdapter:
                 summary="worker 已被用户取消",
                 warnings=["cancelled"],
             )
+        if cause == "BLOCKED":
+            # 十六审 A3：Worker 结构化 BLOCKED（profile/能力不足以诚实
+            # 完成目标——termination.json 权威，不是摘要猜测）。这是
+            # 语义终态，不是基础设施失败：不自动重试、不进 REPAIRING。
+            self._write_checkpoint(order, state, "BLOCKED", "")
+            return WorkResultV1(
+                work_order_id=order.work_order_id,
+                worker_id=WORKER_ID,
+                lease_id=handle.lease_id,
+                status="BLOCKED",
+                summary=(final_report[:1500] or detail or
+                         "worker 报告无法在当前授权下诚实完成目标"),
+                warnings=["worker_blocked"],
+            )
         if cause != "COMPLETED":
             # FAILED——摘要携带权威 cause（Native Agent 不得再猜日志归因）。
             raise AdapterError(f"worker attempt failed [{cause}]: {detail}")
@@ -1182,7 +1202,9 @@ class PiManagedAdapter:
             # （deliverable 未通过不得宣布完成）。
             failures = await self._validate_deliverables(order, workspace)
             if failures:
-                raise AdapterError("DELIVERABLE_FAILED: " + "；".join(failures))
+                # 十六审 A3：结构化 cause 必须走 [CAUSE] 括号协议
+                # （retry.parse_cause）——控制面不得再做子串推断。
+                raise AdapterError("[DELIVERABLE_FAILED]: " + "；".join(failures))
         return WorkResultV1(
             work_order_id=order.work_order_id,
             worker_id=WORKER_ID,
@@ -1194,4 +1216,8 @@ class PiManagedAdapter:
             artifacts=artifacts,
             claims=claims,
             usage=usage,
+            # 十六审 A2：模型原始报告独立进 evidence——验收的报告非空
+            # 检查必须用纯报告，不能被 adapter 侧 [workbench] 注解稀释
+            # 成"有内容"（空报告+注解曾是假成功通道）。
+            evidence=[{"kind": "final_report", "text": final_report[:2000]}],
         )
