@@ -38,11 +38,17 @@ def test_shim_submodules_resolve_to_canonical_modules():
 
 
 def test_no_new_dependencies_on_shim_inside_src():
-    """In-repo code must import the canonical path, not the shim."""
+    """In-repo code must IMPORT the canonical path, not the shim.
+
+    Only import statements count — wire-protocol version strings
+    (``rosclaw.know.evidence_ref.v2`` etc.) are the DATA vocabulary and
+    must NOT change with the source layout (DF-16.3's warning: source
+    layout version ≠ protocol version).
+    """
     import subprocess
 
     out = subprocess.run(
-        ["grep", "-rn", "rosclaw\\.know\\.", "src/rosclaw", "--include=*.py"],
+        ["grep", "-rnE", "(from|import)\\s+rosclaw\\.know(\\.|\\s)", "src/rosclaw", "--include=*.py"],
         capture_output=True,
         text=True,
     ).stdout
@@ -52,6 +58,5 @@ def test_no_new_dependencies_on_shim_inside_src():
         if "knowledge/legacy" not in line
         and "src/rosclaw/know/" not in line
         and "rosclaw_know" not in line
-        and "getLogger" not in line
     ]
     assert not offenders, f"shim imports survived in src: {offenders}"
