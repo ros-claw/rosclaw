@@ -1221,7 +1221,7 @@ class MCPHub(LifecycleMixin):
         top_k = int(arguments.get("top_k_patterns", 5) or 5)
 
         try:
-            from rosclaw.know.task_pack_adapter import task_pack_for
+            from rosclaw.knowledge.legacy.task_pack_adapter import task_pack_for
         except ImportError as exc:
             return {
                 "status": "error",

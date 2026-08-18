@@ -9,7 +9,7 @@ import pytest
 from rosclaw.core import Runtime, RuntimeConfig
 from rosclaw.core.event_bus import Event, EventBus
 from rosclaw.how import HeuristicEngine
-from rosclaw.know import KnowledgeInterface
+from rosclaw.knowledge.legacy import KnowledgeInterface
 from rosclaw.memory.seekdb_client import InMemoryKnowledgeStore
 
 # ─────────────────────────────────────────────────────────────

@@ -90,7 +90,7 @@ class InProcessHowClient:
             "schema_version": "rosclaw.how.doctor.v1",
             "status": "ok",
             "know_reachable": True,
-            "reference_pack_protocol": "rosclaw.know.reference_pack.v2",
+            "reference_pack_protocol": "rosclaw.knowledge.legacy.reference_pack.v2",
             "advice_store": {"backend": "bounded_process_memory", "durable": False},
             "pack_cache": {},
             "stale_policy": {"stale": "requires_revalidation"},

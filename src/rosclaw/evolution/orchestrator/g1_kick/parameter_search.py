@@ -8,7 +8,7 @@ from dataclasses import asdict, dataclass, replace
 from typing import Protocol
 
 from rosclaw.how.g1_goalforge import GoalForgeHowIntervention
-from rosclaw.know.g1_goalforge import GoalForgeKnowledge
+from rosclaw.knowledge.legacy.g1_goalforge import GoalForgeKnowledge
 from rosclaw.memory.g1_goalforge import GoalForgeMemoryRecall
 from rosclaw.simforge.backends.unitree_mujoco_backend import GoalForgeEpisode
 from rosclaw.simforge.tasks.g1_goalforge.concepts import (

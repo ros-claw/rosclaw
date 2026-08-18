@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from rosclaw.how.engine import HeuristicEngine
-from rosclaw.know.interface import KnowledgeInterface
+from rosclaw.knowledge.legacy.interface import KnowledgeInterface
 from rosclaw.memory.interface import MemoryInterface
 from rosclaw.memory.seekdb_client import SQLiteKnowledgeStore
 

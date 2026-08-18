@@ -7,7 +7,7 @@ import pytest
 
 from rosclaw.core import Runtime, RuntimeConfig
 from rosclaw.how import HeuristicEngine
-from rosclaw.know import KnowledgeInterface
+from rosclaw.knowledge.legacy import KnowledgeInterface
 from rosclaw.memory.seekdb_client import InMemoryKnowledgeStore
 
 # ─────────────────────────────────────────────────────────────
@@ -20,7 +20,7 @@ class TestKnowModuleSmoke:
 
     def test_know_import(self):
         """KNOW module imports without errors."""
-        from rosclaw.know import KnowledgeInterface
+        from rosclaw.knowledge.legacy import KnowledgeInterface
 
         assert KnowledgeInterface is not None
 
