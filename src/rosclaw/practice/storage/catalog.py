@@ -30,6 +30,86 @@ def _is_transient_flush_error(exc: Exception) -> bool:
     return "locked" in message or "busy" in message
 
 
+# ---------------------------------------------------------------------------
+# DF-19 (phase-II §21): offline reconcile ledger helpers
+#
+# These are lightweight raw-sqlite updaters shared by the distillation
+# service, the fact ingestor, and the DataReconciler CLI.  They deliberately
+# do NOT instantiate PracticeCatalog (its batch writers are heavyweight for
+# a two-column flag update) and never raise: a ledger-marking failure must
+# not break the data path it annotates.
+# ---------------------------------------------------------------------------
+
+_RECONCILE_COLUMNS = {
+    "fact_ingested",
+    "memory_distilled",
+    "last_fact_ingest_at",
+    "last_memory_distill_at",
+    "fact_ingest_error",
+    "memory_distill_error",
+    "reconcile_required",
+}
+
+
+def reconcile_catalog_path(data_root: str | Path) -> Path:
+    """Catalog location used by PracticeLayout (indexes/ with legacy fallback)."""
+    root = Path(data_root)
+    indexes = root / "indexes" / "practice_catalog.sqlite"
+    legacy = root / "practice_catalog.sqlite"
+    return indexes if indexes.exists() or not legacy.exists() else legacy
+
+
+def update_reconcile_fields(
+    catalog_path: str | Path,
+    practice_id: str,
+    fields: dict[str, Any],
+) -> None:
+    """Best-effort reconcile-ledger update; swallows every error.
+
+    Recognizes the §21 columns plus the computed ``reconcile_required``
+    clear: pass ``reconcile_required="auto"`` to clear the flag only when
+    both fact ingest and memory distillation are done.
+    """
+    path = Path(catalog_path)
+    if not path.exists():
+        return
+    sets: list[str] = []
+    values: list[Any] = []
+    for key, value in fields.items():
+        if key not in _RECONCILE_COLUMNS:
+            continue
+        if key == "reconcile_required" and value == "auto":
+            # SET-clause expressions see the OLD row values in SQLite, so the
+            # just-updated fact/memory flags from THIS call must be folded in
+            # explicitly as parameters.
+            fact_now = 1 if fields.get("fact_ingested") == 1 else 0
+            memory_now = 1 if fields.get("memory_distilled") == 1 else 0
+            sets.append(
+                "reconcile_required = CASE WHEN "
+                "(COALESCE(fact_ingested, 0) = 1 OR COALESCE(seekdb_committed, 0) = 1 OR ?) "
+                "AND (COALESCE(memory_distilled, 0) = 1 OR ?) THEN 0 ELSE 1 END"
+            )
+            values.extend((fact_now, memory_now))
+            continue
+        sets.append(f"{key} = ?")
+        values.append(value)
+    if not sets:
+        return
+    try:
+        conn = sqlite3.connect(str(path), timeout=5.0)
+        try:
+            conn.execute("PRAGMA busy_timeout=5000")
+            conn.execute(
+                f"UPDATE practices SET {', '.join(sets)} WHERE practice_id = ?",
+                (*values, practice_id),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception as exc:  # noqa: BLE001
+        logger.info("reconcile ledger update failed for %s: %s", practice_id, exc)
+
+
 class _BatchWriter:
     """Threaded batch inserter for catalog tables.
 
@@ -281,7 +361,14 @@ class PracticeCatalog:
         events_jsonl_path TEXT,
         replay_path TEXT,
         failure_report_path TEXT,
-        seekdb_committed INTEGER
+        seekdb_committed INTEGER,
+        fact_ingested INTEGER DEFAULT 0,
+        memory_distilled INTEGER DEFAULT 0,
+        last_fact_ingest_at REAL,
+        last_memory_distill_at REAL,
+        fact_ingest_error TEXT,
+        memory_distill_error TEXT,
+        reconcile_required INTEGER DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS events (
@@ -412,6 +499,14 @@ class PracticeCatalog:
             "replay_path",
             "failure_report_path",
             "seekdb_committed",
+            # DF-19 (phase-II §21): offline reconcile ledger
+            "fact_ingested",
+            "memory_distilled",
+            "last_fact_ingest_at",
+            "last_memory_distill_at",
+            "fact_ingest_error",
+            "memory_distill_error",
+            "reconcile_required",
         ],
         "events": [
             "event_id",

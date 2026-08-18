@@ -43,7 +43,10 @@ def test_episode_recorder_finalizes_on_practice_session_finished():
 
     assert len(bridge.events) == 1
     event = bridge.events[0]
-    assert event.event_id == coord.summary.practice_id
+    # PR-DF-16B: lifecycle events now carry the session's episode_id, and the
+    # recorder keys buffers by episode (its longstanding extraction order) —
+    # practice_id still rides the payload for fact-pipeline joins.
+    assert event.event_id == coord._session.episode_id
     assert event.event_type == "success"
     assert event.robot_id == "test_bot"
     assert event.agent_instruction == "pick cup"

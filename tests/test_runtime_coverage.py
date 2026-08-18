@@ -2238,6 +2238,8 @@ class TestHowInitialization:
     def test_how_skipped_when_no_seekdb(self, fresh_runtime, caplog):
         import logging
 
+        from rosclaw.storage.context import DataPlaneContext
+
         rt = fresh_runtime
         cfg = RuntimeConfig(
             enable_firewall=False,
@@ -2250,8 +2252,15 @@ class TestHowInitialization:
             enable_provider=False,
         )
         rt = Runtime(config=cfg)
-        # Memory will initialize but we'll mock it to have no seekdb_client
-        with patch("rosclaw.memory.interface.MemoryInterface") as mock_mem_cls:
+        # Memory initializes but has no client, and the data plane has no
+        # structured store at all (PR-DF-18: modules resolve the store from
+        # the data plane first) -> no store anywhere, How must skip.
+        with (
+            patch("rosclaw.memory.interface.MemoryInterface") as mock_mem_cls,
+            patch.object(
+                Runtime, "_create_data_plane", return_value=DataPlaneContext()
+            ),
+        ):
             mock_mem = MagicMock()
             mock_mem.seekdb_client = None
             mock_mem_cls.return_value = mock_mem
@@ -2294,6 +2303,8 @@ class TestKnowledgeInitialization:
             mock_seed.assert_called_once()
 
     def test_knowledge_no_seekdb(self, fresh_runtime):
+        from rosclaw.storage.context import DataPlaneContext
+
         rt = fresh_runtime
         cfg = RuntimeConfig(
             enable_firewall=False,
@@ -2306,10 +2317,15 @@ class TestKnowledgeInitialization:
             enable_provider=False,
         )
         rt = Runtime(config=cfg)
+        # No store anywhere: Memory degraded + data plane without a
+        # structured store (PR-DF-18 resolution order) -> seed must not run.
         with (
             patch("rosclaw.memory.interface.MemoryInterface") as mock_mem_cls,
             patch("rosclaw.know.interface.KnowledgeInterface") as mock_know_cls,
             patch("rosclaw.know.storage.seed_knowledge_graph") as mock_seed,
+            patch.object(
+                Runtime, "_create_data_plane", return_value=DataPlaneContext()
+            ),
         ):
             mock_mem = MagicMock()
             mock_mem.seekdb_client = None

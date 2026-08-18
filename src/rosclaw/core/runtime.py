@@ -111,7 +111,7 @@ class RuntimeConfig:
     # PR-DF-13 (flywheel §39): Darwin evaluation pressure as a first-class
     # Runtime module.  Off by default — benchmarks are expensive.
     enable_darwin: bool = False
-    darwin: dict[str, Any] = field(default_factory=dict)  # seeds / episodes
+    darwin: Any = None  # rosclaw.config.DarwinConfig | dict | None (PR-DF-18)
     enable_provider: bool = True
     joint_dof: int = 6
     sampling_rate_hz: int = 1000
@@ -173,7 +173,14 @@ class RuntimeConfig:
     sandbox_artifact_root: str | None = None
     # Storage-layer tunables (Phase 1+).  Keys: pool_size, vector_enabled,
     # outbox_enabled, outbox_max_records, outbox_flush_interval_sec.
-    storage: dict[str, Any] = field(default_factory=dict)
+    # PR-DF-18 (phase-II §15): canonical form is the typed StorageConfig;
+    # a dict (or None) is folded once by __post_init__ via
+    # rosclaw.config.compat, together with the flat seekdb_* fields above.
+    storage: Any = None
+    # Typed canonical configs (PR-DF-18 §15.2).  ``None`` means "derive
+    # from the legacy flat fields"; an explicitly passed model always wins.
+    knowledge: Any = None  # rosclaw.config.KnowledgeConfig | dict | None
+    evolution: Any = None  # rosclaw.config.EvolutionConfig | dict | None
     # Persist all EventBus events to ~/.rosclaw/events/live.jsonl for dashboard tail
     enable_event_persistence: bool = True
     # Structured ROSClaw Trace. Model/tool I/O is redacted by default.
@@ -184,6 +191,37 @@ class RuntimeConfig:
     trace_queue_size: int = 4096
     trace_rotate_mb: float = 64.0
     trace_home: str | None = None
+
+    def __post_init__(self) -> None:
+        """Fold legacy shapes into the typed configs exactly once (PR-DF-18 §15.4).
+
+        After this runs, Runtime internals read ONLY the typed models
+        (``storage.structured.*``, ``knowledge.*``, ``evolution.*``,
+        ``darwin.*``).  The legacy flat fields are then mirrored FROM the
+        typed models so pre-DF-18 readers keep observing consistent values.
+        """
+        from rosclaw.config import (
+            normalize_darwin_config,
+            normalize_evolution_config,
+            normalize_knowledge_config,
+            normalize_storage_config,
+        )
+
+        self.storage = normalize_storage_config(self.storage, legacy=self)
+        self.knowledge = normalize_knowledge_config(self.knowledge, legacy=self)
+        self.evolution = normalize_evolution_config(self.evolution, legacy=self)
+        self.darwin = normalize_darwin_config(self.darwin, legacy=self)
+
+        # Mirror back onto the legacy flat fields (ADR-0010 compat).
+        self.seekdb_backend = self.storage.structured.backend
+        if self.storage.structured.path:
+            self.seekdb_path = self.storage.structured.path
+        self.seekdb_url = self.storage.structured.dsn
+        self.know_store_mode = self.knowledge.store_mode
+        self.know_store_path = self.knowledge.store_path
+        self.enable_knowledge = self.knowledge.enabled
+        self.enable_auto = self.evolution.enabled
+        self.enable_darwin = self.darwin.enabled
 
 
 class Runtime(LifecycleMixin):
@@ -240,6 +278,7 @@ class Runtime(LifecycleMixin):
         self._darwin: Any | None = None  # PR-DF-13
         self._lineage: Any | None = None  # PR-DF-14
         self._receipt_projector: Any | None = None
+        self._memory_distillation: Any | None = None  # PR-DF-16B
         self._mcp_drivers: dict[str, Any] = {}
         self._emergency_stop_receipts: dict[str, Any] = {}
         self._emergency_stop_latched = False
@@ -268,10 +307,13 @@ class Runtime(LifecycleMixin):
             else get_rosclaw_home().expanduser().resolve()
         )
         default_home = get_rosclaw_home().expanduser().resolve()
-        if Path(self.config.seekdb_path).expanduser().resolve() == (
+        structured_cfg = self.config.storage.structured
+        if Path(structured_cfg.path).expanduser().resolve() == (
             default_home / "data" / "memory" / "knowledge.sqlite"
         ):
-            self.config.seekdb_path = str(workspace_home / "data" / "memory" / "knowledge.sqlite")
+            structured_cfg.path = str(workspace_home / "data" / "memory" / "knowledge.sqlite")
+            # keep the legacy mirror consistent for pre-DF-18 readers
+            self.config.seekdb_path = structured_cfg.path
         if Path(self.config.seekdb_fallback_dir).expanduser().resolve() == (
             default_home / "data" / "practice" / "fallback"
         ):
@@ -439,6 +481,25 @@ class Runtime(LifecycleMixin):
                         self._memory_gate = MemoryWriteGate(self._memory_repository)
                 except Exception as gate_exc:  # noqa: BLE001
                     logger.info("Memory canonical write path unavailable: %s", gate_exc)
+                # PR-DF-16B (phase-II §5.12): normal session closes now
+                # distill into Memory 2.0 automatically (async, queued).
+                self._memory_distillation = None
+                if self._memory_repository is not None and self._memory_gate is not None:
+                    try:
+                        from rosclaw.memory.v2.distillation_service import (
+                            MemoryDistillationService,
+                        )
+
+                        self._memory_distillation = MemoryDistillationService(
+                            self.event_bus,
+                            self._memory_repository,
+                            self._memory_gate,
+                            lineage=self._lineage,
+                        )
+                        self._memory_distillation.subscribe()
+                        logger.info("Memory distillation service subscribed")
+                    except Exception as distill_exc:  # noqa: BLE001
+                        logger.info("Memory distillation unavailable: %s", distill_exc)
                 self._modules.append(self._memory)
                 if self._sense is not None:
                     self._memory.set_sense_runtime(self._sense)
@@ -540,11 +601,12 @@ class Runtime(LifecycleMixin):
             except ImportError as e:
                 logger.info(f"SkillManager module not available: {e}")
 
-        v2_mode = self.config.knowledge_v2_mode.casefold().strip()
+        knowledge_cfg = self.config.knowledge
+        v2_mode = str(knowledge_cfg.mode).casefold().strip()
         if v2_mode not in {"disabled", "service", "inprocess"}:
             logger.warning("Invalid knowledge_v2_mode=%r; disabling v2", v2_mode)
             v2_mode = "disabled"
-        if v2_mode != "disabled" and (self.config.enable_knowledge or self.config.enable_how):
+        if v2_mode != "disabled" and (knowledge_cfg.enabled or self.config.enable_how):
             try:
                 from rosclaw.knowledge import KnowledgeFacade
                 from rosclaw.knowledge.service_manager import (
@@ -552,7 +614,7 @@ class Runtime(LifecycleMixin):
                     KnowledgeServiceManager,
                 )
 
-                know_path = self.config.know_store_path or str(
+                know_path = knowledge_cfg.store_path or str(
                     workspace_home / "data" / "know" / "seekdb"
                 )
                 # PR-DF-09 (flywheel §28): Knowledge keeps its own logical
@@ -561,8 +623,8 @@ class Runtime(LifecycleMixin):
                 # against the Runtime's data plane instead of env defaults.
                 federation: dict[str, Any] = {}
                 if self._data_plane is not None and self._data_plane.structured_store is not None:
-                    federation["memory_path"] = self.config.seekdb_path
-                    dsn = self.config.seekdb_url
+                    federation["memory_path"] = structured_cfg.path
+                    dsn = structured_cfg.dsn
                     if dsn:
                         from urllib.parse import urlparse
 
@@ -572,12 +634,12 @@ class Runtime(LifecycleMixin):
                 federation["practice_path"] = str(workspace_home / "data" / "practice")
                 service_config = KnowledgeServiceConfig(
                     mode=v2_mode,
-                    know_url=self.config.know_url,
+                    know_url=knowledge_cfg.url,
                     how_url=self.config.how_url,
-                    know_api_key=self.config.know_api_key or "",
+                    know_api_key=knowledge_cfg.api_key or "",
                     how_api_key=self.config.how_api_key or "",
-                    timeout=self.config.knowledge_timeout,
-                    know_store_mode=self.config.know_store_mode,
+                    timeout=knowledge_cfg.timeout,
+                    know_store_mode=knowledge_cfg.store_mode,
                     know_store_path=know_path,
                     **federation,
                 )
@@ -605,26 +667,32 @@ class Runtime(LifecycleMixin):
                 logger.warning("Knowledge v2 initialization degraded: %s", exc)
 
         # Rollback-only local KnowledgeInterface. v2 never receives Memory's store.
-        if self.config.enable_knowledge and v2_mode == "disabled":
+        if knowledge_cfg.enabled and v2_mode == "disabled":
             try:
                 from rosclaw.know.interface import KnowledgeInterface
                 from rosclaw.know.storage import seed_knowledge_graph
 
-                # Reuse Memory's SeekDB client if available
-                if self._memory is not None:
-                    seekdb = getattr(self._memory, "seekdb_client", None)
+                # Modules take the data plane's structured store explicitly
+                # (PR-DF-18 §15.6 — no bare `seekdb` compat locals); the
+                # Memory-held client is the same object when a data plane
+                # exists, and stays the fallback when it does not.
+                structured_store = data_plane.structured_store or (
+                    getattr(self._memory, "seekdb_client", None)
+                    if self._memory is not None
+                    else None
+                )
                 self._knowledge = KnowledgeInterface(
                     robot_id=self.config.robot_id,
                     event_bus=self.event_bus,
-                    seekdb_client=seekdb,
-                    use_rosclaw_know_registry=self.config.know_curated_registry_enabled,
+                    seekdb_client=structured_store,
+                    use_rosclaw_know_registry=knowledge_cfg.curated_registry_enabled,
                     memory_interface=self._memory,
                 )
                 self._modules.append(self._knowledge)
                 logger.info("Knowledge Grounding (KnowledgeInterface) initialized")
                 # Seed knowledge_graph with baseline data
-                if seekdb is not None:
-                    seed_knowledge_graph(seekdb)
+                if structured_store is not None:
+                    seed_knowledge_graph(structured_store)
 
                 # Spawn KnowledgeBatchEngine + AssetsLoader.  Both
                 # are inert when rosclaw-know is not installed; failures
@@ -662,10 +730,12 @@ class Runtime(LifecycleMixin):
         # Rollback-only local How path. How v2 is advisory through KnowledgeFacade.
         if self.config.enable_how and v2_mode == "disabled":
             try:
-                # Reuse Memory's SeekDB client if available
-                if self._memory is not None:
-                    seekdb = getattr(self._memory, "seekdb_client", None)
-                self._how = self._create_how_engine(seekdb)
+                structured_store = data_plane.structured_store or (
+                    getattr(self._memory, "seekdb_client", None)
+                    if self._memory is not None
+                    else None
+                )
+                self._how = self._create_how_engine(structured_store)
                 if self._how is not None:
                     self._modules.append(self._how)
             except Exception as e:  # noqa: BLE001
@@ -679,16 +749,12 @@ class Runtime(LifecycleMixin):
             try:
                 from rosclaw.memory.insights import MemoryInsightService
 
-                _auto_cfg = getattr(self.config, "auto", None)
                 self._memory_insights = MemoryInsightService(
                     self.event_bus,
                     data_plane.structured_store,
                     robot_id=self.config.robot_id,
-                    failure_threshold=(
-                        int(_auto_cfg.get("trigger_failure_threshold", 3))
-                        if isinstance(_auto_cfg, dict)
-                        else 3
-                    ),
+                    failure_threshold=self.config.evolution.trigger_failure_threshold,
+                    lineage_repository=self._lineage,
                 )
                 self._memory_insights.subscribe()
             except Exception as exc:  # noqa: BLE001
@@ -716,31 +782,31 @@ class Runtime(LifecycleMixin):
                 logger.info("RecoveryLoop not available: %s", exc)
 
         # Initialize Auto Self-Evolution Control Plane
-        if self.config.enable_auto:
+        if self.config.evolution.enabled:
             try:
                 from rosclaw.auto.plugin import AutoPlugin
 
-                # Reuse Memory's SeekDB client if available
-                if self._memory is not None:
-                    seekdb = getattr(self._memory, "seekdb_client", None)
-                # PR-DF-12: with a data plane present, Evolution state goes
-                # to the structured store (LocalStore becomes its spool).
-                auto_storage = (
-                    "hybrid"
-                    if self._data_plane is not None and self._data_plane.structured_store is not None
-                    else "local"
+                # Evolution state goes to the data plane's structured store
+                # when one exists (LocalStore degrades to its spool, DF-12);
+                # the Memory-held client is the same object, or the fallback.
+                structured_store = data_plane.structured_store or (
+                    getattr(self._memory, "seekdb_client", None)
+                    if self._memory is not None
+                    else None
                 )
+                auto_storage = "hybrid" if structured_store is not None else "local"
                 self._auto = AutoPlugin(
                     config={
                         "local_store_path": str(workspace_home / "data" / "auto"),
                         "storage_backend": auto_storage,
                     },
                     event_bus=self.event_bus,
-                    seekdb_client=seekdb,
+                    seekdb_client=structured_store,
                     skill_registry=getattr(self._skill_manager, "registry", None)
                     if self._skill_manager
                     else None,
                     sense_runtime=self._sense,
+                    lineage_repository=self._lineage,
                 )
                 self._modules.append(self._auto)
                 logger.info("Self-Evolution Control Plane (Auto) initialized")
@@ -752,21 +818,15 @@ class Runtime(LifecycleMixin):
         # Evolution experiments land as darwin_benchmarks rows with full
         # provenance.  Off by default.
         self._darwin = None
-        if self.config.enable_darwin:
+        if self.config.darwin.enabled:
             try:
                 from rosclaw.darwin.plugin import DarwinPlugin
 
                 self._darwin = DarwinPlugin(
                     config={
-                        "default_seeds": self.config.darwin.get("seeds", [0, 1, 2])
-                        if isinstance(getattr(self.config, "darwin", None), dict)
-                        else [0, 1, 2],
-                        "default_episodes": self.config.darwin.get("episodes", 50)
-                        if isinstance(getattr(self.config, "darwin", None), dict)
-                        else 50,
-                    }
-                    if isinstance(getattr(self.config, "darwin", None), dict)
-                    else {},
+                        "default_seeds": self.config.darwin.seeds,
+                        "default_episodes": self.config.darwin.episodes,
+                    },
                     event_bus=self.event_bus,
                     seekdb_client=data_plane.structured_store,
                 )
@@ -868,21 +928,17 @@ class Runtime(LifecycleMixin):
             # best-effort: a missing pyseekdb or a dead native store leaves
             # the fields None and changes nothing else.
             try:
-                storage_cfg = self.config.storage or {}
-                retrieval_cfg = storage_cfg.get("retrieval", {})
-                retrieval_enabled = retrieval_cfg.get(
-                    "enabled", storage_cfg.get("vector_enabled", False)
-                )
+                retrieval_cfg = self.config.storage.retrieval
                 from rosclaw.memory.seekdb_client import SQLiteStructuredStore as _SQLite
 
-                if retrieval_enabled and isinstance(store, _SQLite):
+                if retrieval_cfg.enabled and isinstance(store, _SQLite):
                     from rosclaw.storage.seekdb_native import SeekDBEmbeddedRetrievalStore
                     from rosclaw.storage.seekdb_projection import (
                         MemoryRetrievalProjection,
                         MemoryRetrievalProjectionCommitter,
                     )
 
-                    native_path = retrieval_cfg.get("path") or str(
+                    native_path = retrieval_cfg.path or str(
                         workspace_home / "data" / "seekdb"
                     )
                     ctx.retrieval_store = SeekDBEmbeddedRetrievalStore(path=native_path)
@@ -899,12 +955,7 @@ class Runtime(LifecycleMixin):
                             MemoryRetrievalProjectionCommitter(ctx.retrieval_store),
                             target="seekdb_projection",
                             name="memory-projection-worker",
-                            interval_sec=float(
-                                storage_cfg.get("outbox", {}).get(
-                                    "flush_interval_sec",
-                                    storage_cfg.get("outbox_flush_interval_sec", 5.0),
-                                )
-                            ),
+                            interval_sec=float(self.config.storage.outbox.flush_interval_sec),
                         )
                         self._projection_worker.start()
                     ctx.memory_projection = MemoryRetrievalProjection(
@@ -937,15 +988,14 @@ class Runtime(LifecycleMixin):
                 from rosclaw.practice.seekdb_bridge import SeekDBBridge
                 from rosclaw.storage.outbox import OutboxStore
 
-                outbox_enabled = self.config.storage.get("outbox_enabled", False)
-                if outbox_enabled:
-                    outbox_path = self.config.storage.get(
-                        "outbox_path",
-                        str(workspace_home / "storage" / "outbox.sqlite"),
+                outbox_cfg = self.config.storage.outbox
+                if outbox_cfg.enabled:
+                    outbox_path = outbox_cfg.path or str(
+                        workspace_home / "storage" / "outbox.sqlite"
                     )
                     ctx.outbox = OutboxStore(
                         db_path=outbox_path,
-                        max_records=self.config.storage.get("outbox_max_records", 100_000),
+                        max_records=outbox_cfg.max_records,
                     )
                     ctx.outbox.connect()
                     ctx.practice_sink = SeekDBBridge(
@@ -980,12 +1030,13 @@ class Runtime(LifecycleMixin):
         """
         from rosclaw.storage.factory import StoreFactory
 
+        structured = self.config.storage.structured
         client = StoreFactory.create_structured_store(
-            backend=self.config.seekdb_backend,
-            url=self.config.seekdb_url,
-            path=self.config.seekdb_path,
-            pool_size=self.config.storage.get("pool_size", 4),
-            vector_enabled=self.config.storage.get("vector_enabled", False),
+            backend=structured.backend,
+            url=structured.dsn,
+            path=structured.path,
+            pool_size=structured.pool_size,
+            vector_enabled=self.config.storage.retrieval.enabled,
         )
         capabilities = StoreFactory.capabilities(client)
         logger.info(
@@ -1059,6 +1110,13 @@ class Runtime(LifecycleMixin):
         if self._event_sink is not None:
             self._event_sink.close()
             self._event_sink = None
+        # PR-DF-16B: drain + stop the distillation worker first.
+        if self._memory_distillation is not None:
+            try:
+                self._memory_distillation.unsubscribe()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Distillation unsubscribe failed (non-fatal): %s", exc)
+            self._memory_distillation = None
         # PR-DF-14: receipt projector off the bus.
         if self._receipt_projector is not None:
             try:

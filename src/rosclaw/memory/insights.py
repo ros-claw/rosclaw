@@ -46,12 +46,17 @@ class MemoryInsightService:
         robot_id: str,
         failure_threshold: int = 3,
         cooldown_s: float = _DEFAULT_COOLDOWN_S,
+        lineage_repository: Any = None,
     ) -> None:
         self._bus = event_bus
         self._store = structured_store
         self._robot_id = robot_id
         self._threshold = failure_threshold
         self._cooldown_s = cooldown_s
+        # PR-DF-17 (phase-II §10): MemoryInsight --derived_from--> Memory
+        # edges for every contributing memory; memory_refs stays the JSON
+        # attribute, lineage_edges is the traversable relation.
+        self._lineage = lineage_repository
         self._counts: dict[tuple[str, str], int] = {}
         self._last_emitted: dict[tuple[str, str, str], float] = {}
         self._subscribed = False
@@ -218,3 +223,31 @@ class MemoryInsightService:
             logger.info("memory insight published: %s (%s)", insight_type, dedup_key)
         except Exception as exc:  # noqa: BLE001
             logger.info("insight publish failed (non-fatal): %s", exc)
+        self._link_sources(insight["insight_id"], insight["memory_refs"])
+
+    def _link_sources(self, insight_id: str, memory_refs: list[str]) -> None:
+        """MemoryInsight --derived_from--> each contributing memory (§10)."""
+        if self._lineage is None:
+            return
+        from rosclaw.storage.lineage_types import LineageEntityType, LineageRelation
+
+        for ref in memory_refs:
+            ref = str(ref)
+            if not ref:
+                continue
+            if ref.startswith("heuristic_rules:"):
+                entity_type, entity_id = "heuristic_rule", ref.split(":", 1)[1]
+            else:
+                entity_type, entity_id = str(LineageEntityType.MEMORY), ref
+            if not entity_id:
+                continue
+            try:
+                self._lineage.link(
+                    str(LineageEntityType.MEMORY_INSIGHT),
+                    insight_id,
+                    str(LineageRelation.DERIVED_FROM),
+                    entity_type,
+                    entity_id,
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("insight lineage link failed (non-fatal): %s", exc)
