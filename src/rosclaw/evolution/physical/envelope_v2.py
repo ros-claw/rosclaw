@@ -24,7 +24,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from rosclaw.memory.v2.regime.envelope import ApplicabilityEnvelope, EnvelopeType, new_envelope_id
+from rosclaw.memory.regime.envelope import ApplicabilityEnvelope, EnvelopeType, new_envelope_id
 
 BUILDER_VERSION = "rosclaw.validated_envelope.v1"
 MIN_EXECUTION_SESSIONS = 2

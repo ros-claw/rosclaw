@@ -32,10 +32,10 @@ from evaluate import (  # noqa: E402  # noqa: E402
 )
 
 from rosclaw.memory.seekdb_client import SQLiteKnowledgeStore  # noqa: E402
-from rosclaw.memory.v2.index import EmbeddingIndexManager  # noqa: E402
-from rosclaw.memory.v2.models import MemoryItem  # noqa: E402
-from rosclaw.memory.v2.repository import MemoryRepository  # noqa: E402
-from rosclaw.memory.v2.retrieval import MemoryQuery, MemoryRetriever  # noqa: E402
+from rosclaw.memory.index import EmbeddingIndexManager  # noqa: E402
+from rosclaw.memory.models import MemoryItem  # noqa: E402
+from rosclaw.memory.repository import MemoryRepository  # noqa: E402
+from rosclaw.memory.retrieval import MemoryQuery, MemoryRetriever  # noqa: E402
 from rosclaw.storage.vector import SQLiteVectorStore, TfidfEmbedder  # noqa: E402
 
 

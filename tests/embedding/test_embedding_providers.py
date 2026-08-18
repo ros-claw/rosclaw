@@ -27,7 +27,7 @@ from rosclaw.embedding.profile import QWEN3_06B_512, QWEN3_06B_1024
 from rosclaw.embedding.protocol import EmbeddingProfile
 from rosclaw.embedding.registry import get_provider
 from rosclaw.embedding.reranker import RERANKER_INSTRUCTION, Qwen3RerankerProvider
-from rosclaw.memory.v2.cli import cmd_memory_v2_index_describe
+from rosclaw.memory.cli import cmd_memory_v2_index_describe
 
 
 class FakeProvider:

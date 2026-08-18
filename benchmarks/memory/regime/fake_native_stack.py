@@ -16,7 +16,7 @@ import time
 from typing import Any
 
 from rosclaw.embedding.protocol import EmbeddingProfile
-from rosclaw.memory.v2.runtime_retrieval import EmbeddingProviderResolver
+from rosclaw.memory.runtime_retrieval import EmbeddingProviderResolver
 
 BENCH_PROFILE = EmbeddingProfile(
     profile_id="bench_fake_8d_v1",

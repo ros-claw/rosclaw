@@ -1,15 +1,12 @@
-"""Task distillation adapters (数据库优化v3 §4).
-
-The generic extractors in ``distill.py`` understand generic
-``failure_event``/verified-gesture shapes.  Task adapters add the
-task-specific semantics the generic layer cannot know — e.g. the RH56
-RPS stress protocol where ``rps.stress.round.resolved result=invalid``
-IS a failure even when no explicit failure event exists, where episode
-quality is a verified-rate distribution rather than a flat SUCCESS, and
-where temperature rise is an OBSERVED correlation, never a limit.
+"""DEPRECATED package shim (PR-DF-24.3): ``rosclaw.memory.v2.adapters`` moved to
+``rosclaw.memory.adapters``.  The DATA schema name stays ``memory.v2`` — source
+layout version ≠ protocol version (DF-16.3).  Modules register into
+``sys.modules`` so both paths share ONE module object.
 """
 
-from .base import TaskDistillationAdapter
-from .registry import adapter_for, register_adapter
+import importlib as _importlib
+import sys as _sys
 
-__all__ = ["TaskDistillationAdapter", "adapter_for", "register_adapter"]
+base = _sys.modules[__name__ + ".base"] = _importlib.import_module("rosclaw.memory.adapters.base")
+registry = _sys.modules[__name__ + ".registry"] = _importlib.import_module("rosclaw.memory.adapters.registry")
+rh56_rps = _sys.modules[__name__ + ".rh56_rps"] = _importlib.import_module("rosclaw.memory.adapters.rh56_rps")

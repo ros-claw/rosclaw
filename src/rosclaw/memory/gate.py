@@ -16,7 +16,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from rosclaw.memory.v2.models import GateDecision, MemoryItem, MemoryType
+from rosclaw.memory.models import GateDecision, MemoryItem, MemoryType
 
 logger = logging.getLogger("rosclaw.memory.v2.gate")
 

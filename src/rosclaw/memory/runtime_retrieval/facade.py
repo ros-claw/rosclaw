@@ -16,8 +16,8 @@ import logging
 from typing import Any
 
 from rosclaw.embedding.errors import EmbeddingUnavailableError
-from rosclaw.memory.v2.repository import MemoryRepository
-from rosclaw.memory.v2.retrieval import MemoryQuery, MemoryRetriever
+from rosclaw.memory.repository import MemoryRepository
+from rosclaw.memory.retrieval import MemoryQuery, MemoryRetriever
 
 from .active_resolver import ActiveCollectionResolver, ActiveIndexUnavailableError
 from .fallback import (
@@ -239,7 +239,7 @@ class MemoryRetrievalFacade:
         # Exact-entity disclosure computed from the query, not assumed:
         # the lexical path validates entities the same way the native one
         # does (unknown stays unknown).
-        from rosclaw.memory.v2.document import extract_exact_terms
+        from rosclaw.memory.document import extract_exact_terms
 
         exact = extract_exact_terms(query.text or "")
         candidates: list[RetrievalCandidate] = []
@@ -249,7 +249,7 @@ class MemoryRetrievalFacade:
             exact_entity = False
             if exact:
                 record = item.to_record()
-                from rosclaw.memory.v2.runtime_retrieval.native_retriever import _entity_matches
+                from rosclaw.memory.runtime_retrieval.native_retriever import _entity_matches
 
                 matches = _entity_matches(record, exact)
                 body_match = matches["body_match"]

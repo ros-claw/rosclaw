@@ -1,63 +1,20 @@
-"""Operating regime modeling + applicability (数据库优化v4 §4–§6, PR-MEM-6).
-
-Regime-aware memory: memories only apply inside the working conditions they
-were observed/validated in — and are hard-blocked where they are
-contraindicated.
+"""DEPRECATED package shim (PR-DF-24.3): ``rosclaw.memory.v2.regime`` moved to
+``rosclaw.memory.regime``.  The DATA schema name stays ``memory.v2`` — source
+layout version ≠ protocol version (DF-16.3).  Modules register into
+``sys.modules`` so both paths share ONE module object.
 """
 
-from .builder import CurrentRegimeBuilder
-from .detector import RegimeChangeDetector, RegimeTransition
-from .envelope import (
-    APPLICABILITY_TABLE,
-    ApplicabilityEnvelope,
-    EnvelopeType,
-    envelope_from_regime,
-)
-from .explain import explain_match, explain_regime
-from .features import TelemetrySample, WindowStats, compute_window, compute_windows
-from .matcher import (
-    ApplicabilityResult,
-    MatcherConfig,
-    RegimeMatcher,
-    interval_distance,
-)
-from .models import (
-    OperatingRegime,
-    RegimeLabel,
-    RegimeThresholds,
-    empty_regime,
-    load_thresholds,
-)
-from .persistence import (
-    REGIME_HISTORY_TABLE,
-    ApplicabilityStore,
-    RegimeHistoryStore,
-)
+import importlib as _importlib
+import sys as _sys
 
-__all__ = [
-    "APPLICABILITY_TABLE",
-    "REGIME_HISTORY_TABLE",
-    "ApplicabilityEnvelope",
-    "ApplicabilityResult",
-    "ApplicabilityStore",
-    "CurrentRegimeBuilder",
-    "EnvelopeType",
-    "MatcherConfig",
-    "OperatingRegime",
-    "RegimeChangeDetector",
-    "RegimeHistoryStore",
-    "RegimeLabel",
-    "RegimeMatcher",
-    "RegimeThresholds",
-    "RegimeTransition",
-    "TelemetrySample",
-    "WindowStats",
-    "compute_window",
-    "compute_windows",
-    "empty_regime",
-    "envelope_from_regime",
-    "explain_match",
-    "explain_regime",
-    "interval_distance",
-    "load_thresholds",
-]
+builder = _sys.modules[__name__ + ".builder"] = _importlib.import_module("rosclaw.memory.regime.builder")
+cli = _sys.modules[__name__ + ".cli"] = _importlib.import_module("rosclaw.memory.regime.cli")
+detector = _sys.modules[__name__ + ".detector"] = _importlib.import_module("rosclaw.memory.regime.detector")
+envelope = _sys.modules[__name__ + ".envelope"] = _importlib.import_module("rosclaw.memory.regime.envelope")
+explain = _sys.modules[__name__ + ".explain"] = _importlib.import_module("rosclaw.memory.regime.explain")
+features = _sys.modules[__name__ + ".features"] = _importlib.import_module("rosclaw.memory.regime.features")
+matcher = _sys.modules[__name__ + ".matcher"] = _importlib.import_module("rosclaw.memory.regime.matcher")
+models = _sys.modules[__name__ + ".models"] = _importlib.import_module("rosclaw.memory.regime.models")
+persistence = _sys.modules[__name__ + ".persistence"] = _importlib.import_module("rosclaw.memory.regime.persistence")
+session_envelopes = _sys.modules[__name__ + ".session_envelopes"] = _importlib.import_module("rosclaw.memory.regime.session_envelopes")
+session_samples = _sys.modules[__name__ + ".session_samples"] = _importlib.import_module("rosclaw.memory.regime.session_samples")

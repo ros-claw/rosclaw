@@ -24,7 +24,7 @@ import time
 import uuid
 from typing import Any
 
-from rosclaw.memory.v2.models import MemoryItem
+from rosclaw.memory.models import MemoryItem
 
 logger = logging.getLogger("rosclaw.memory.v2.index")
 

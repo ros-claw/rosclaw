@@ -34,13 +34,13 @@ from fixture_corpus import REGIME_CONTEXTS, TEST_SESSIONS, corpus, queries
 
 from rosclaw.how.selective import SelectiveInterventionPipeline
 from rosclaw.memory.seekdb_client import InMemoryKnowledgeStore
-from rosclaw.memory.v2.regime import (
+from rosclaw.memory.regime import (
     ApplicabilityEnvelope,
     ApplicabilityStore,
     RegimeMatcher,
     empty_regime,
 )
-from rosclaw.memory.v2.runtime_retrieval import build_retrieval_facade
+from rosclaw.memory.runtime_retrieval import build_retrieval_facade
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -124,8 +124,8 @@ def run_queries(
     pipeline = SelectiveInterventionPipeline(
         facade, applicability_store, choreography_validator=choreography
     )
-    from rosclaw.memory.v2.retrieval import MemoryQuery
-    from rosclaw.memory.v2.runtime_retrieval import RetrievalPurpose
+    from rosclaw.memory.retrieval import MemoryQuery
+    from rosclaw.memory.runtime_retrieval import RetrievalPurpose
 
     records: list[dict[str, Any]] = []
     for row in query_rows:

@@ -7,7 +7,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from rosclaw.memory.v2.models import MemoryItem, MemoryStatus
+from rosclaw.memory.models import MemoryItem, MemoryStatus
 
 logger = logging.getLogger("rosclaw.memory.v2.consolidate")
 

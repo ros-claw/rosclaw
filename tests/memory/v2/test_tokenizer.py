@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from rosclaw.memory.v2.tokenizer import token_set, tokenize
+from rosclaw.memory.tokenizer import token_set, tokenize
 
 
 def test_chinese_segmentation() -> None:

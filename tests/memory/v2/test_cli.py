@@ -10,17 +10,17 @@ from pathlib import Path
 import pytest
 
 from rosclaw.memory.seekdb_client import SQLiteKnowledgeStore
-from rosclaw.memory.v2.cli import (
+from rosclaw.memory.cli import (
     _close,
     _open_stack,
     cmd_memory_v2_benchmark,
     cmd_memory_v2_explain,
     cmd_memory_v2_query,
 )
-from rosclaw.memory.v2.index import EmbeddingIndexManager
-from rosclaw.memory.v2.models import MemoryItem
-from rosclaw.memory.v2.repository import MemoryRepository
-from rosclaw.memory.v2.retrieval import MemoryQuery, MemoryRetriever
+from rosclaw.memory.index import EmbeddingIndexManager
+from rosclaw.memory.models import MemoryItem
+from rosclaw.memory.repository import MemoryRepository
+from rosclaw.memory.retrieval import MemoryQuery, MemoryRetriever
 from rosclaw.storage.vector import SQLiteVectorStore, TfidfEmbedder
 
 

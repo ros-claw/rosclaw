@@ -24,9 +24,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from rosclaw.memory.v2.gate import MemoryWriteGate
-from rosclaw.memory.v2.models import MemoryItem, MemoryType
-from rosclaw.memory.v2.repository import MemoryRepository
+from rosclaw.memory.gate import MemoryWriteGate
+from rosclaw.memory.models import MemoryItem, MemoryType
+from rosclaw.memory.repository import MemoryRepository
 
 logger = logging.getLogger("rosclaw.memory.v2.distill")
 
@@ -400,7 +400,7 @@ def build_candidates(context: SessionContext, events: list[dict[str, Any]]) -> l
     distribution (verified-rate, not a blanket SUCCESS).  Generic
     extractors still cover episode, intervention, and skill evidence.
     """
-    from rosclaw.memory.v2.adapters import adapter_for
+    from rosclaw.memory.adapters import adapter_for
 
     adapter = adapter_for(context, events)
     episode_items = extract_episode_memory(context, events)

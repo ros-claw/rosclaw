@@ -30,15 +30,15 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from rosclaw.memory.v2.document import extract_exact_terms
-from rosclaw.memory.v2.regime import (
+from rosclaw.memory.document import extract_exact_terms
+from rosclaw.memory.regime import (
     ApplicabilityStore,
     EnvelopeType,
     RegimeMatcher,
 )
-from rosclaw.memory.v2.regime.models import OperatingRegime
-from rosclaw.memory.v2.retrieval import MemoryQuery
-from rosclaw.memory.v2.runtime_retrieval import (
+from rosclaw.memory.regime.models import OperatingRegime
+from rosclaw.memory.retrieval import MemoryQuery
+from rosclaw.memory.runtime_retrieval import (
     MemoryRetrievalFacade,
     RetrievalPurpose,
 )

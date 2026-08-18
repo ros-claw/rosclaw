@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from rosclaw.memory.v2.regime import (
+from rosclaw.memory.regime import (
     CurrentRegimeBuilder,
     RegimeLabel,
     TelemetrySample,
@@ -130,7 +130,7 @@ def test_regime_communication_degraded() -> None:
 
 
 def test_thresholds_from_yaml() -> None:
-    from rosclaw.memory.v2.regime import load_thresholds
+    from rosclaw.memory.regime import load_thresholds
 
     thresholds = load_thresholds("configs/regimes/rh56_rps_v1.yaml")
     assert thresholds.temperature_warm_c == 52.0
@@ -148,7 +148,7 @@ def test_thresholds_from_yaml() -> None:
 def test_unknown_threshold_keys_rejected(tmp_path) -> None:
     bad = tmp_path / "bad.yaml"
     bad.write_text("regime_thresholds:\n  not_a_threshold: 1.0\n")
-    from rosclaw.memory.v2.regime import load_thresholds
+    from rosclaw.memory.regime import load_thresholds
 
     try:
         load_thresholds(str(bad))

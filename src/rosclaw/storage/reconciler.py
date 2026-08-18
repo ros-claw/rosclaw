@@ -184,9 +184,9 @@ class DataReconciler:
         self, practice_id: str, session_dir: Path, catalog_row: dict[str, Any]
     ) -> None:
         """Run the DF-16B distillation work path synchronously for one session."""
-        from rosclaw.memory.v2.distillation_service import MemoryDistillationService
-        from rosclaw.memory.v2.gate import MemoryWriteGate
-        from rosclaw.memory.v2.repository import MemoryRepository
+        from rosclaw.memory.distillation_service import MemoryDistillationService
+        from rosclaw.memory.gate import MemoryWriteGate
+        from rosclaw.memory.repository import MemoryRepository
 
         repository = MemoryRepository(self._store)
         gate = MemoryWriteGate(repository)
@@ -267,7 +267,7 @@ class DataReconciler:
     def reconcile_projection(self, *, dry_run: bool = False) -> dict[str, Any]:
         if self._retrieval_store is None:
             return {"skipped": "no retrieval store"}
-        from rosclaw.memory.v2.repository import MemoryRepository
+        from rosclaw.memory.repository import MemoryRepository
         from rosclaw.storage.seekdb_projection import MemoryRetrievalProjection
 
         repository = MemoryRepository(self._store)

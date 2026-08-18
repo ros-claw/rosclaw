@@ -34,12 +34,12 @@ import threading
 import time
 from typing import Any
 
-from rosclaw.memory.v2.runtime_retrieval.active_resolver import (
+from rosclaw.memory.runtime_retrieval.active_resolver import (
     ActiveCollectionResolver,
     ActiveIndexDescriptor,
     ActiveIndexUnavailableError,
 )
-from rosclaw.memory.v2.runtime_retrieval.provider_resolver import (
+from rosclaw.memory.runtime_retrieval.provider_resolver import (
     EmbeddingProviderResolver,
     ProviderUnavailableError,
 )

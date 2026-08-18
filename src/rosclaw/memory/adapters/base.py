@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Protocol
 
-from rosclaw.memory.v2.models import MemoryItem
+from rosclaw.memory.models import MemoryItem
 
 
 class TaskDistillationAdapter(Protocol):

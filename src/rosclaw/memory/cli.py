@@ -17,24 +17,24 @@ from typing import Any
 
 from rosclaw.firstboot.config import load_rosclaw_yaml
 from rosclaw.firstboot.workspace import resolve_home
-from rosclaw.memory.seekdb_client import SQLiteStructuredStore
-from rosclaw.memory.v2.consolidate import MemoryConsolidator
-from rosclaw.memory.v2.distill import distill_session_dir
-from rosclaw.memory.v2.gate import MemoryWriteGate
-from rosclaw.memory.v2.index import (
+from rosclaw.memory.consolidate import MemoryConsolidator
+from rosclaw.memory.distill import distill_session_dir
+from rosclaw.memory.gate import MemoryWriteGate
+from rosclaw.memory.index import (
     SQLITE_HARD_MAX_RECORDS,
     EmbeddingIndexManager,
     IndexModelMismatchError,
     memory_embedding_text,
 )
-from rosclaw.memory.v2.repository import MemoryRepository
-from rosclaw.memory.v2.retrieval import MemoryQuery, MemoryRetriever, SafetyRetrievalPolicy
-from rosclaw.memory.v2.runtime_retrieval import (
+from rosclaw.memory.repository import MemoryRepository
+from rosclaw.memory.retrieval import MemoryQuery, MemoryRetriever, SafetyRetrievalPolicy
+from rosclaw.memory.runtime_retrieval import (
     MemoryRetrievalFacade,
     RetrievalHealthProbe,
     RetrievalPurpose,
     build_retrieval_facade,
 )
+from rosclaw.memory.seekdb_client import SQLiteStructuredStore
 from rosclaw.storage.factory import StoreFactory
 from rosclaw.storage.seekdb_native import SeekDBRetrievalStore
 from rosclaw.storage.vector import SQLiteVectorStore, TfidfEmbedder
@@ -581,6 +581,7 @@ def cmd_memory_v2_benchmark(args: argparse.Namespace) -> int:
     module_path = Path(__file__).resolve()
     candidates = [
         module_path.parents[2] / "benchmarks" / "memory" / "run_benchmark.py",
+        module_path.parents[3] / "benchmarks" / "memory" / "run_benchmark.py",
         module_path.parents[4] / "benchmarks" / "memory" / "run_benchmark.py",
     ]
     script = next((candidate for candidate in candidates if candidate.is_file()), None)
@@ -613,7 +614,7 @@ def cmd_memory_v2_index_sync(args: argparse.Namespace) -> int:
             )
             return 2
         from rosclaw.embedding.registry import get_provider
-        from rosclaw.memory.v2.runtime_retrieval import (
+        from rosclaw.memory.runtime_retrieval import (
             ActiveCollectionResolver,
             ActiveIndexUnavailableError,
         )

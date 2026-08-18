@@ -596,7 +596,7 @@ def _native_seekdb_checks(
     mismatched = _versioned_dimension_faults(dimensions)
     active_dim_fault: str | None = None
     try:
-        from rosclaw.memory.v2.runtime_retrieval.active_resolver import (
+        from rosclaw.memory.runtime_retrieval.active_resolver import (
             ActiveCollectionResolver,
         )
 

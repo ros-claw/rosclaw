@@ -5048,7 +5048,7 @@ def cmd_memory_migrate(args: argparse.Namespace) -> int:
     idempotent by content-hash dedup — rerunning never duplicates.
     """
     from rosclaw.memory.seekdb_client import SQLiteStructuredStore
-    from rosclaw.memory.v2.repository import MemoryRepository
+    from rosclaw.memory.repository import MemoryRepository
 
     db_path = _memory_db_path()
     if not db_path.exists():
@@ -8229,12 +8229,12 @@ def main() -> int:
     memory_explain_parser = memory_subparsers.add_parser("explain", help="Explain last failure")
     memory_explain_parser.add_argument("--task-id", default=None, help="Filter by task ID")
 
-    from rosclaw.memory.v2.cli import extend_legacy_memory_parsers, register_memory_v2_commands
+    from rosclaw.memory.cli import extend_legacy_memory_parsers, register_memory_v2_commands
 
     register_memory_v2_commands(memory_subparsers)
     extend_legacy_memory_parsers(memory_status_parser, memory_query_parser, memory_explain_parser)
 
-    from rosclaw.memory.v2.regime.cli import register_regime_commands
+    from rosclaw.memory.regime.cli import register_regime_commands
 
     register_regime_commands(subparsers)
 

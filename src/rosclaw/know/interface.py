@@ -566,8 +566,8 @@ class KnowledgeInterface(LifecycleMixin):
         facade = getattr(self.memory_interface, "retrieval_facade", None)
         if facade is not None:
             try:
-                from rosclaw.memory.v2.retrieval import MemoryQuery
-                from rosclaw.memory.v2.runtime_retrieval import RetrievalPurpose
+                from rosclaw.memory.retrieval import MemoryQuery
+                from rosclaw.memory.runtime_retrieval import RetrievalPurpose
 
                 response = facade.retrieve(
                     MemoryQuery(

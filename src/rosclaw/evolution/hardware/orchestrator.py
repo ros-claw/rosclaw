@@ -236,7 +236,7 @@ class EvoRpsOrchestrator:
         """Build + activate the namespace's own versioned ACTIVE index
         (idempotent: an existing pointer is left untouched)."""
         from rosclaw.embedding.registry import get_provider
-        from rosclaw.memory.v2.runtime_retrieval.active_resolver import (
+        from rosclaw.memory.runtime_retrieval.active_resolver import (
             ActiveCollectionResolver,
         )
         from rosclaw.storage.versioned_collections import VersionedCollectionManager
@@ -438,8 +438,8 @@ class EvoRpsOrchestrator:
             self.namespace.practice_root / "sessions" / str(session.get("practice_id"))
         )
         try:
-            from rosclaw.memory.v2.regime import CurrentRegimeBuilder
-            from rosclaw.memory.v2.regime.session_samples import (
+            from rosclaw.memory.regime import CurrentRegimeBuilder
+            from rosclaw.memory.regime.session_samples import (
                 extract_samples,
                 load_session_events,
             )

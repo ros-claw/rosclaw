@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from rosclaw.memory.v2.regime import (
+from rosclaw.memory.regime import (
     CurrentRegimeBuilder,
     RegimeChangeDetector,
     RegimeThresholds,

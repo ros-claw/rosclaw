@@ -15,8 +15,8 @@ pyseekdb = pytest.importorskip(  # noqa: E402
 )
 pytestmark = pytest.mark.integration
 
-from rosclaw.memory.v2.models import MemoryItem
-from rosclaw.memory.v2.repository import MemoryRepository
+from rosclaw.memory.models import MemoryItem
+from rosclaw.memory.repository import MemoryRepository
 from rosclaw.storage.seekdb_native import SeekDBEmbeddedStore
 from rosclaw.storage.seekdb_projection import SeekDBProjection
 

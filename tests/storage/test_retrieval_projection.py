@@ -8,7 +8,7 @@ import pytest
 
 def test_projection_status_reports_lag():
     from rosclaw.memory.seekdb_client import InMemoryStructuredStore
-    from rosclaw.memory.v2.repository import MemoryRepository
+    from rosclaw.memory.repository import MemoryRepository
     from rosclaw.storage.seekdb_projection import MemoryRetrievalProjection
 
     source = InMemoryStructuredStore()
@@ -17,7 +17,7 @@ def test_projection_status_reports_lag():
     native.connect()
     repo = MemoryRepository(source)
 
-    from rosclaw.memory.v2.models import MemoryItem
+    from rosclaw.memory.models import MemoryItem
 
     for i in range(3):
         repo.store(

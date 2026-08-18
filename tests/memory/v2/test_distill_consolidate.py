@@ -8,17 +8,17 @@ from pathlib import Path
 import pytest
 
 from rosclaw.memory.seekdb_client import InMemoryKnowledgeStore
-from rosclaw.memory.v2.consolidate import MemoryConsolidator
-from rosclaw.memory.v2.distill import (
+from rosclaw.memory.consolidate import MemoryConsolidator
+from rosclaw.memory.distill import (
     SessionContext,
     build_candidates,
     distill_events,
     distill_session_dir,
     extract_intervention_memories,
 )
-from rosclaw.memory.v2.gate import MemoryWriteGate
-from rosclaw.memory.v2.models import MemoryStatus
-from rosclaw.memory.v2.repository import MemoryRepository
+from rosclaw.memory.gate import MemoryWriteGate
+from rosclaw.memory.models import MemoryStatus
+from rosclaw.memory.repository import MemoryRepository
 
 
 @pytest.fixture
@@ -185,7 +185,7 @@ def test_distill_real_7x24_session(repo: MemoryRepository, gate: MemoryWriteGate
 
 
 def test_consolidator_expires_ttl(repo: MemoryRepository) -> None:
-    from rosclaw.memory.v2.models import MemoryItem
+    from rosclaw.memory.models import MemoryItem
 
     old = MemoryItem(
         memory_type="episodic",
@@ -202,7 +202,7 @@ def test_consolidator_expires_ttl(repo: MemoryRepository) -> None:
 
 
 def test_consolidator_supersedes_duplicates(repo: MemoryRepository) -> None:
-    from rosclaw.memory.v2.models import MemoryItem
+    from rosclaw.memory.models import MemoryItem
 
     older = MemoryItem(
         memory_type="body",
@@ -230,7 +230,7 @@ def test_consolidator_supersedes_duplicates(repo: MemoryRepository) -> None:
 
 
 def test_consolidator_decay_skips_pinned(repo: MemoryRepository) -> None:
-    from rosclaw.memory.v2.models import MemoryItem
+    from rosclaw.memory.models import MemoryItem
 
     ancient = MemoryItem(
         memory_type="body",
@@ -250,7 +250,7 @@ def test_consolidator_decay_skips_pinned(repo: MemoryRepository) -> None:
 
 
 def test_consolidator_decays_unpinned(repo: MemoryRepository) -> None:
-    from rosclaw.memory.v2.models import MemoryItem
+    from rosclaw.memory.models import MemoryItem
 
     ancient = MemoryItem(
         memory_type="body",
@@ -268,7 +268,7 @@ def test_consolidator_decays_unpinned(repo: MemoryRepository) -> None:
 
 
 def test_consolidator_decay_is_not_compounded(repo: MemoryRepository) -> None:
-    from rosclaw.memory.v2.models import MemoryItem
+    from rosclaw.memory.models import MemoryItem
 
     ancient = MemoryItem(
         memory_type="body",

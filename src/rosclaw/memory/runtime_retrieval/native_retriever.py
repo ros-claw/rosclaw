@@ -26,9 +26,9 @@ import logging
 from typing import Any
 
 from rosclaw.embedding.protocol import EmbeddingProvider
-from rosclaw.memory.v2.document import extract_exact_terms
-from rosclaw.memory.v2.models import MemoryItem
-from rosclaw.memory.v2.retrieval import MemoryQuery
+from rosclaw.memory.document import extract_exact_terms
+from rosclaw.memory.models import MemoryItem
+from rosclaw.memory.retrieval import MemoryQuery
 from rosclaw.storage.versioned_collections import _exact_row_multiplier
 
 from .active_resolver import ActiveIndexDescriptor

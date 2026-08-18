@@ -28,10 +28,10 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from rosclaw.memory.v2.document import extract_exact_terms
-from rosclaw.memory.v2.models import MemoryItem
-from rosclaw.memory.v2.repository import MemoryRepository
-from rosclaw.memory.v2.tokenizer import token_set
+from rosclaw.memory.document import extract_exact_terms
+from rosclaw.memory.models import MemoryItem
+from rosclaw.memory.repository import MemoryRepository
+from rosclaw.memory.tokenizer import token_set
 
 logger = logging.getLogger("rosclaw.memory.v2.retrieval")
 

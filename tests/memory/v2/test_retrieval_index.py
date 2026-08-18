@@ -7,13 +7,13 @@ import time
 import pytest
 
 from rosclaw.memory.seekdb_client import InMemoryKnowledgeStore, SQLiteKnowledgeStore
-from rosclaw.memory.v2.index import (
+from rosclaw.memory.index import (
     EmbeddingIndexManager,
     IndexModelMismatchError,
 )
-from rosclaw.memory.v2.models import MemoryItem
-from rosclaw.memory.v2.repository import MemoryRepository
-from rosclaw.memory.v2.retrieval import MemoryQuery, MemoryRetriever
+from rosclaw.memory.models import MemoryItem
+from rosclaw.memory.repository import MemoryRepository
+from rosclaw.memory.retrieval import MemoryQuery, MemoryRetriever
 from rosclaw.storage.vector import SQLiteVectorStore, TfidfEmbedder
 
 
@@ -313,9 +313,9 @@ def test_retrieval_tie_break_prefers_more_specific_document() -> None:
     """MEM-02 acceptance regression: a saturated fusion cap must not rank the
     wrong joint first — the uncapped lexical score breaks same-batch ties."""
     from rosclaw.memory.seekdb_client import SQLiteKnowledgeStore
-    from rosclaw.memory.v2.models import MemoryItem
-    from rosclaw.memory.v2.repository import MemoryRepository
-    from rosclaw.memory.v2.retrieval import MemoryQuery, MemoryRetriever
+    from rosclaw.memory.models import MemoryItem
+    from rosclaw.memory.repository import MemoryRepository
+    from rosclaw.memory.retrieval import MemoryQuery, MemoryRetriever
 
     client = SQLiteKnowledgeStore(":memory:")
     client.connect()

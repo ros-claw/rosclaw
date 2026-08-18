@@ -10,15 +10,15 @@ import json
 
 import pytest
 
-from rosclaw.memory.v2.cli import _close, _open_stack, cmd_memory_v2_query
-from rosclaw.memory.v2.retrieval import MemoryQuery
-from rosclaw.memory.v2.runtime_retrieval import (
+from rosclaw.memory.cli import _close, _open_stack, cmd_memory_v2_query
+from rosclaw.memory.retrieval import MemoryQuery
+from rosclaw.memory.runtime_retrieval import (
     MODE_ACTIVE_BM25,
     EmbeddingProviderResolver,
     RetrievalPurpose,
     build_retrieval_facade,
 )
-from rosclaw.memory.v2.runtime_retrieval.fallback import hybrid_mode_for
+from rosclaw.memory.runtime_retrieval.fallback import hybrid_mode_for
 from rosclaw.storage.versioned_collections import VersionedCollectionManager
 from tests.embedding.test_embedding_providers import FAKE_PROFILE, FakeProvider
 

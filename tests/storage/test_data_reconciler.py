@@ -14,8 +14,8 @@ import json
 import time
 
 from rosclaw.memory.seekdb_client import InMemoryStructuredStore
-from rosclaw.memory.v2.gate import MemoryWriteGate
-from rosclaw.memory.v2.repository import MemoryRepository
+from rosclaw.memory.gate import MemoryWriteGate
+from rosclaw.memory.repository import MemoryRepository
 from rosclaw.practice.config import PracticeConfig, SourceConfig
 from rosclaw.practice.coordinator import PracticeCoordinator
 from rosclaw.storage.reconciler import DataReconciler
@@ -132,7 +132,7 @@ class _DeadStore:
 
 
 def test_case2_structured_down_marks_and_recovers(tmp_path):
-    from rosclaw.memory.v2.distillation_service import MemoryDistillationService
+    from rosclaw.memory.distillation_service import MemoryDistillationService
 
     inner = _store()
     dead = _DeadStore(inner)

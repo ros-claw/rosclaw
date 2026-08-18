@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from rosclaw.memory.seekdb_client import SQLiteStructuredStore
-from rosclaw.memory.v2.regime import (
+from rosclaw.memory.regime import (
     ApplicabilityStore,
     CurrentRegimeBuilder,
     MatcherConfig,
@@ -17,13 +17,13 @@ from rosclaw.memory.v2.regime import (
     empty_regime,
     load_thresholds,
 )
-from rosclaw.memory.v2.regime.cli import _DEFAULT_DATA_ROOT
-from rosclaw.memory.v2.regime.session_samples import (
+from rosclaw.memory.regime.cli import _DEFAULT_DATA_ROOT
+from rosclaw.memory.regime.session_samples import (
     extract_samples,
     latest_session_dir,
     load_session_events,
 )
-from rosclaw.memory.v2.runtime_retrieval import build_retrieval_facade
+from rosclaw.memory.runtime_retrieval import build_retrieval_facade
 from rosclaw.storage.factory import StoreFactory
 from rosclaw.storage.seekdb_native import SeekDBRetrievalStore
 

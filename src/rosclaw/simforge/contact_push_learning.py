@@ -13,9 +13,9 @@ import numpy as np
 
 from rosclaw.know.task_card import TaskCard
 from rosclaw.memory.seekdb_client import InMemoryStructuredStore
-from rosclaw.memory.v2.models import MemoryItem, MemoryStatus, MemoryType
-from rosclaw.memory.v2.repository import MemoryRepository
-from rosclaw.memory.v2.retrieval import MemoryQuery, MemoryRetriever
+from rosclaw.memory.models import MemoryItem, MemoryStatus, MemoryType
+from rosclaw.memory.repository import MemoryRepository
+from rosclaw.memory.retrieval import MemoryQuery, MemoryRetriever
 from rosclaw.simforge.candidates import (
     CandidateCompiler,
     CandidateGenerator,

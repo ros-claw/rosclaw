@@ -19,7 +19,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from rosclaw.memory.v2.regime.session_samples import (
+from rosclaw.memory.regime.session_samples import (
     _payload,
     load_session_events,
     resolve_session_dir,

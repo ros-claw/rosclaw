@@ -470,8 +470,8 @@ class Runtime(LifecycleMixin):
                 self._memory_repository = None
                 self._memory_gate = None
                 try:
-                    from rosclaw.memory.v2.gate import MemoryWriteGate
-                    from rosclaw.memory.v2.repository import MemoryRepository
+                    from rosclaw.memory.gate import MemoryWriteGate
+                    from rosclaw.memory.repository import MemoryRepository
 
                     if data_plane.structured_store is not None:
                         self._memory_repository = MemoryRepository(
@@ -486,7 +486,7 @@ class Runtime(LifecycleMixin):
                 self._memory_distillation = None
                 if self._memory_repository is not None and self._memory_gate is not None:
                     try:
-                        from rosclaw.memory.v2.distillation_service import (
+                        from rosclaw.memory.distillation_service import (
                             MemoryDistillationService,
                         )
 
@@ -917,7 +917,7 @@ class Runtime(LifecycleMixin):
                 # lexical fallback.  Construction never loads model weights
                 # and never fails memory init.
                 from rosclaw.memory.seekdb_client import SQLiteStructuredStore
-                from rosclaw.memory.v2.runtime_retrieval import build_retrieval_facade
+                from rosclaw.memory.runtime_retrieval import build_retrieval_facade
                 from rosclaw.storage.seekdb_native import SeekDBRetrievalStore
 
                 if isinstance(store, SeekDBRetrievalStore):
@@ -1453,7 +1453,7 @@ class Runtime(LifecycleMixin):
         if self._memory_gate is None or self._memory_repository is None:
             return None
         try:
-            from rosclaw.memory.v2.models import MemoryItem, MemoryType
+            from rosclaw.memory.models import MemoryItem, MemoryType
 
             failed = status != "SUCCESS"
             memory_type = MemoryType.FAILURE.value if failed else MemoryType.EPISODIC.value

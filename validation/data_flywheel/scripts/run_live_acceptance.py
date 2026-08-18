@@ -117,7 +117,7 @@ def run_loop(args: argparse.Namespace) -> dict[str, Any]:
             reconciler.reconcile_memory(limit=args.reconcile_every + 5)
             write_lat.append(time.perf_counter() - t0)
             if retrieval_store is not None:
-                from rosclaw.memory.v2.repository import MemoryRepository
+                from rosclaw.memory.repository import MemoryRepository
                 from rosclaw.storage.seekdb_projection import MemoryRetrievalProjection
 
                 status = MemoryRetrievalProjection(retrieval_store).status(
@@ -201,8 +201,8 @@ def run_loop(args: argparse.Namespace) -> dict[str, Any]:
 
     # -- retrieval sample ----------------------------------------------------
     if retrieval_store is not None:
-        from rosclaw.memory.v2.retrieval import MemoryQuery
-        from rosclaw.memory.v2.runtime_retrieval import (
+        from rosclaw.memory.retrieval import MemoryQuery
+        from rosclaw.memory.runtime_retrieval import (
             RetrievalPurpose,
             build_retrieval_facade,
         )
@@ -336,8 +336,8 @@ def run_hurt_gate(args: argparse.Namespace) -> dict[str, Any]:
     from run_regime_benchmark import REGIME_CONTEXTS, _regime_for, build_stack
 
     from rosclaw.how.selective.pipeline import SelectiveInterventionPipeline
-    from rosclaw.memory.v2.retrieval import MemoryQuery
-    from rosclaw.memory.v2.runtime_retrieval import RetrievalPurpose, build_retrieval_facade
+    from rosclaw.memory.retrieval import MemoryQuery
+    from rosclaw.memory.runtime_retrieval import RetrievalPurpose, build_retrieval_facade
 
     native, applicability_store, memories = build_stack()
     from fake_native_stack import PHYSICAL, bench_provider_resolver

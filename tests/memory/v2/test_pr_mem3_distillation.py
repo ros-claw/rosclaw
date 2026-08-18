@@ -14,18 +14,18 @@ from __future__ import annotations
 
 import json
 
-from rosclaw.memory.v2.adapters import adapter_for
-from rosclaw.memory.v2.adapters.rh56_rps import Rh56RpsAdapter
-from rosclaw.memory.v2.distill import (
+from rosclaw.memory.adapters import adapter_for
+from rosclaw.memory.adapters.rh56_rps import Rh56RpsAdapter
+from rosclaw.memory.distill import (
     SessionContext,
     build_candidates,
     extract_failure_memories,
 )
-from rosclaw.memory.v2.document import (
+from rosclaw.memory.document import (
     MultilingualMemoryDocumentBuilder,
     extract_exact_terms,
 )
-from rosclaw.memory.v2.models import MemoryItem
+from rosclaw.memory.models import MemoryItem
 
 
 def _ctx() -> SessionContext:

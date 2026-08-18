@@ -1,7 +1,7 @@
 """Result types for the unified runtime retrieval facade (数据库优化v4 §3.2/§3.5).
 
 Every retrieval that serves CLI, Runtime, KNOW, HOW, or AUTO goes through
-:class:`rosclaw.memory.v2.runtime_retrieval.facade.MemoryRetrievalFacade` and
+:class:`rosclaw.memory.runtime_retrieval.facade.MemoryRetrievalFacade` and
 returns a :class:`RetrievalResponse`.  The response always discloses which
 physical index answered (or which fallback ran, and why) so a BM25 fallback
 can never masquerade as a Qwen3 hybrid result.
@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
-from rosclaw.memory.v2.models import MemoryItem
+from rosclaw.memory.models import MemoryItem
 
 
 class RetrievalPurpose(StrEnum):

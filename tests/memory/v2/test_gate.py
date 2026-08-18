@@ -5,9 +5,9 @@ from __future__ import annotations
 import pytest
 
 from rosclaw.memory.seekdb_client import InMemoryKnowledgeStore
-from rosclaw.memory.v2.gate import MemoryWriteGate
-from rosclaw.memory.v2.models import GateDecision, MemoryItem
-from rosclaw.memory.v2.repository import MemoryRepository
+from rosclaw.memory.gate import MemoryWriteGate
+from rosclaw.memory.models import GateDecision, MemoryItem
+from rosclaw.memory.repository import MemoryRepository
 
 
 @pytest.fixture

@@ -6,7 +6,7 @@ import logging
 import time
 from typing import Any
 
-from rosclaw.memory.v2.models import (
+from rosclaw.memory.models import (
     MemoryEvidence,
     MemoryItem,
     MemoryStatus,
@@ -251,7 +251,7 @@ class MemoryRepository:
         duplicates.  Outcome mapping: failure → failure memory, everything
         else → episodic memory.
         """
-        from rosclaw.memory.v2.models import MemoryType
+        from rosclaw.memory.models import MemoryType
 
         rows = self._client.query("experience_graph", limit=limit)
         stats = {"scanned": len(rows), "migrated": 0, "deduplicated": 0, "skipped": 0}

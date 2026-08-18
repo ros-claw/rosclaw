@@ -7,7 +7,7 @@ import time
 import pytest
 
 from rosclaw.embedding.protocol import EmbeddingProfile
-from rosclaw.memory.v2.runtime_retrieval.active_resolver import (
+from rosclaw.memory.runtime_retrieval.active_resolver import (
     ACTIVE_COLLECTION_MISSING,
     ACTIVE_DESCRIPTOR_INCOMPLETE,
     ACTIVE_DIMENSION_MISMATCH,
@@ -15,7 +15,7 @@ from rosclaw.memory.v2.runtime_retrieval.active_resolver import (
     ActiveCollectionResolver,
     ActiveIndexUnavailableError,
 )
-from rosclaw.memory.v2.runtime_retrieval.provider_resolver import (
+from rosclaw.memory.runtime_retrieval.provider_resolver import (
     PROVIDER_IDENTITY_MISMATCH,
     PROVIDER_PROFILE_UNKNOWN,
     EmbeddingProviderResolver,
@@ -220,7 +220,7 @@ def test_incomplete_descriptor_raises() -> None:
 
 
 def _descriptor(**overrides):
-    from rosclaw.memory.v2.runtime_retrieval.active_resolver import ActiveIndexDescriptor
+    from rosclaw.memory.runtime_retrieval.active_resolver import ActiveIndexDescriptor
 
     base = {
         "logical_name": "memory_items",

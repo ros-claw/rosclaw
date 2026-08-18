@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from rosclaw.memory.seekdb_client import InMemoryKnowledgeStore
-from rosclaw.memory.v2.regime import (
+from rosclaw.memory.regime import (
     ApplicabilityEnvelope,
     ApplicabilityStore,
     EnvelopeType,

@@ -5,10 +5,10 @@ from __future__ import annotations
 import time
 
 from rosclaw.memory.seekdb_client import SQLiteKnowledgeStore
-from rosclaw.memory.v2.models import MemoryItem
-from rosclaw.memory.v2.repository import MemoryRepository
-from rosclaw.memory.v2.retrieval import MemoryQuery
-from rosclaw.memory.v2.runtime_retrieval import (
+from rosclaw.memory.models import MemoryItem
+from rosclaw.memory.repository import MemoryRepository
+from rosclaw.memory.retrieval import MemoryQuery
+from rosclaw.memory.runtime_retrieval import (
     MODE_ABSTAIN,
     MODE_ACTIVE_BM25,
     MODE_SQLITE_LEXICAL,
@@ -16,7 +16,7 @@ from rosclaw.memory.v2.runtime_retrieval import (
     RetrievalPurpose,
     build_retrieval_facade,
 )
-from rosclaw.memory.v2.runtime_retrieval.fallback import hybrid_mode_for
+from rosclaw.memory.runtime_retrieval.fallback import hybrid_mode_for
 from tests.embedding.test_embedding_providers import FAKE_PROFILE, FakeProvider
 from tests.memory.v2.runtime_retrieval.test_resolvers import (
     FakeNativeStore,
@@ -226,8 +226,8 @@ def test_reranker_required_disclosed_for_how_purpose() -> None:
 
 def _stub_facade_response(rows: list[dict], physical: str = PHYSICAL):
     """Build a facade-like response object from ACTIVE-shaped rows."""
-    from rosclaw.memory.v2.models import MemoryItem
-    from rosclaw.memory.v2.runtime_retrieval.result import (
+    from rosclaw.memory.models import MemoryItem
+    from rosclaw.memory.runtime_retrieval.result import (
         RetrievalCandidate,
         RetrievalResponse,
     )

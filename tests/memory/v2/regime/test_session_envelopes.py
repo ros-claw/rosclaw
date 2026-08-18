@@ -13,18 +13,18 @@ import json
 from pathlib import Path
 
 from rosclaw.memory.seekdb_client import InMemoryKnowledgeStore
-from rosclaw.memory.v2.regime import (
+from rosclaw.memory.regime import (
     ApplicabilityStore,
     OperatingRegime,
     RegimeMatcher,
     empty_regime,
 )
-from rosclaw.memory.v2.regime.session_envelopes import (
+from rosclaw.memory.regime.session_envelopes import (
     BUILDER_TAG,
     build_session_envelopes,
     features_from_samples,
 )
-from rosclaw.memory.v2.regime.session_samples import extract_samples
+from rosclaw.memory.regime.session_samples import extract_samples
 
 T0 = 1_785_300_000.0
 

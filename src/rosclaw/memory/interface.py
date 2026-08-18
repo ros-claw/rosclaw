@@ -152,7 +152,7 @@ class MemoryInterface(LifecycleMixin):
 
     @staticmethod
     def _facade_purpose(name: str) -> Any:
-        from rosclaw.memory.v2.runtime_retrieval import RetrievalPurpose
+        from rosclaw.memory.runtime_retrieval import RetrievalPurpose
 
         return RetrievalPurpose(name)
 
@@ -169,7 +169,7 @@ class MemoryInterface(LifecycleMixin):
         if facade is None:
             return None
         try:
-            from rosclaw.memory.v2.retrieval import MemoryQuery
+            from rosclaw.memory.retrieval import MemoryQuery
 
             return facade.retrieve(
                 MemoryQuery(

@@ -6,9 +6,9 @@ import time
 
 import pytest
 
-from rosclaw.memory.v2.models import MemoryItem
-from rosclaw.memory.v2.repository import MemoryRepository
-from rosclaw.memory.v2.runtime_retrieval import EmbeddingProviderResolver
+from rosclaw.memory.models import MemoryItem
+from rosclaw.memory.repository import MemoryRepository
+from rosclaw.memory.runtime_retrieval import EmbeddingProviderResolver
 from rosclaw.storage.versioned_collections import VersionedCollectionManager
 from rosclaw.storage.versioned_projection import (
     ACTIVE_PROJECTION_TARGET,

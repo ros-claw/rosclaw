@@ -101,7 +101,7 @@ class VersionedCollectionManager:
 
     ``provider`` is optional: registry-only operations (``active``,
     ``registry``, ``describe``) never touch it, so read paths such as
-    :class:`rosclaw.memory.v2.runtime_retrieval.ActiveCollectionResolver`
+    :class:`rosclaw.memory.runtime_retrieval.ActiveCollectionResolver`
     can inspect the canonical pointer without loading a model.  Build /
     verify / shadow_query / activate / rollback require a provider.
     """
@@ -439,7 +439,7 @@ class VersionedCollectionManager:
             raise RuntimeError("store is not connected")
         if not client.has_collection(name):
             raise RuntimeError(f"registered physical collection is missing: {name}")
-        from rosclaw.memory.v2.document import extract_exact_terms
+        from rosclaw.memory.document import extract_exact_terms
 
         exact = extract_exact_terms(query_text) if exact_boost else {}
         hands = (exact.get("hands") or []) if exact else []

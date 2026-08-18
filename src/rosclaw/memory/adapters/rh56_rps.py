@@ -22,8 +22,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from rosclaw.memory.v2.document import MultilingualMemoryDocumentBuilder
-from rosclaw.memory.v2.models import MemoryItem, MemoryType
+from rosclaw.memory.document import MultilingualMemoryDocumentBuilder
+from rosclaw.memory.models import MemoryItem, MemoryType
 
 from .base import TaskDistillationAdapter
 
