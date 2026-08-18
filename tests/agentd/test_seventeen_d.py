@@ -14,7 +14,6 @@ import stat
 from pathlib import Path
 
 from tests.agentd.test_pi_tool_bridge import _setup
-from tests.agentd.test_seventeen_a import _enable_fake
 
 
 async def _executions_cards(service, mission_id: str) -> list[dict]:
