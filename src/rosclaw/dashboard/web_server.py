@@ -588,6 +588,46 @@ class DashboardWebServer:
                     result["outbox"] = {"error": str(exc)}
             return result
 
+        @self.app.get("/api/lineage/{entity_type}/{entity_id}")
+        async def api_lineage(entity_type: str, entity_id: str) -> dict[str, Any]:
+            """Lineage DAG + per-node detail for the lineage viewer (DF-23).
+
+            trace_graph plus evidence/body/mode/artifact/score/why per node.
+            Best-effort like the rest of the dashboard: a down database
+            reports an error field, never a 500.
+            """
+            import argparse
+
+            from rosclaw.dashboard.lineage_view import build_lineage_payload
+            from rosclaw.storage.cli import _create_client, _load_storage_config
+
+            cfg = _load_storage_config(argparse.Namespace(backend=None, url=None, path=None))
+            client = None
+            try:
+                client = _create_client(cfg)
+                return build_lineage_payload(client, entity_type, entity_id)
+            except Exception as exc:  # noqa: BLE001
+                return {"root": f"{entity_type}:{entity_id}", "nodes": [], "edges": [],
+                        "details": {}, "error": str(exc)}
+            finally:
+                if client is not None:
+                    import contextlib
+
+                    with contextlib.suppress(Exception):
+                        disconnect = getattr(client, "disconnect", None) or getattr(
+                            client, "close", None
+                        )
+                        if disconnect:
+                            disconnect()
+
+        @self.app.get("/lineage")
+        async def lineage_page() -> Any:
+            from fastapi.responses import HTMLResponse
+
+            from rosclaw.dashboard.lineage_view import LINEAGE_PAGE_HTML
+
+            return HTMLResponse(LINEAGE_PAGE_HTML)
+
         @self.app.get("/evolution/evo-rps/{experiment_id}")
         async def evolution_evo_rps_page(experiment_id: str) -> Any:
             from rosclaw.evolution.hardware.dashboard_data import (
