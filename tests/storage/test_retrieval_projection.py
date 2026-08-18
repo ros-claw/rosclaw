@@ -7,8 +7,8 @@ import pytest
 
 
 def test_projection_status_reports_lag():
-    from rosclaw.memory.seekdb_client import InMemoryStructuredStore
     from rosclaw.memory.repository import MemoryRepository
+    from rosclaw.memory.seekdb_client import InMemoryStructuredStore
     from rosclaw.storage.seekdb_projection import MemoryRetrievalProjection
 
     source = InMemoryStructuredStore()

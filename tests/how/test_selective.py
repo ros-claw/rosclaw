@@ -18,7 +18,6 @@ from rosclaw.how.selective.decision import (
     REASON_SUGGEST_BAND,
     REASON_VALIDATED_MATCH,
 )
-from rosclaw.memory.seekdb_client import InMemoryKnowledgeStore
 from rosclaw.memory.models import MemoryItem
 from rosclaw.memory.regime import (
     ApplicabilityEnvelope,
@@ -33,6 +32,7 @@ from rosclaw.memory.runtime_retrieval.result import (
     RetrievalPurpose,
     RetrievalResponse,
 )
+from rosclaw.memory.seekdb_client import InMemoryKnowledgeStore
 
 T0 = 1_700_000_000.0
 

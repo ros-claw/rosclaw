@@ -5047,8 +5047,8 @@ def cmd_memory_migrate(args: argparse.Namespace) -> int:
     Delegates to :meth:`MemoryRepository.migrate_experience_graph`, which is
     idempotent by content-hash dedup — rerunning never duplicates.
     """
-    from rosclaw.memory.seekdb_client import SQLiteStructuredStore
     from rosclaw.memory.repository import MemoryRepository
+    from rosclaw.memory.seekdb_client import SQLiteStructuredStore
 
     db_path = _memory_db_path()
     if not db_path.exists():

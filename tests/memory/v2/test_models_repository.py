@@ -6,7 +6,6 @@ import time
 
 import pytest
 
-from rosclaw.memory.seekdb_client import InMemoryKnowledgeStore, SQLiteKnowledgeStore
 from rosclaw.memory.models import (
     SCHEMA_VERSION,
     MemoryEvidence,
@@ -15,6 +14,7 @@ from rosclaw.memory.models import (
     MemoryType,
 )
 from rosclaw.memory.repository import MemoryRepository
+from rosclaw.memory.seekdb_client import InMemoryKnowledgeStore, SQLiteKnowledgeStore
 
 
 @pytest.fixture

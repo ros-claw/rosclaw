@@ -12,7 +12,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from rosclaw.memory.seekdb_client import InMemoryKnowledgeStore
 from rosclaw.memory.regime import (
     ApplicabilityStore,
     OperatingRegime,
@@ -25,6 +24,7 @@ from rosclaw.memory.regime.session_envelopes import (
     features_from_samples,
 )
 from rosclaw.memory.regime.session_samples import extract_samples
+from rosclaw.memory.seekdb_client import InMemoryKnowledgeStore
 
 T0 = 1_785_300_000.0
 

@@ -13,9 +13,9 @@ from __future__ import annotations
 import json
 import time
 
-from rosclaw.memory.seekdb_client import InMemoryStructuredStore
 from rosclaw.memory.gate import MemoryWriteGate
 from rosclaw.memory.repository import MemoryRepository
+from rosclaw.memory.seekdb_client import InMemoryStructuredStore
 from rosclaw.practice.config import PracticeConfig, SourceConfig
 from rosclaw.practice.coordinator import PracticeCoordinator
 from rosclaw.storage.reconciler import DataReconciler

@@ -12,10 +12,10 @@ import time
 
 from rosclaw.core.event_bus import Event, EventBus
 from rosclaw.core.event_topics import EventTopics
-from rosclaw.memory.seekdb_client import InMemoryStructuredStore
 from rosclaw.memory.distillation_service import MemoryDistillationService
 from rosclaw.memory.gate import MemoryWriteGate
 from rosclaw.memory.repository import MemoryRepository
+from rosclaw.memory.seekdb_client import InMemoryStructuredStore
 from rosclaw.practice.config import PracticeConfig, SourceConfig
 from rosclaw.practice.coordinator import PracticeCoordinator
 from rosclaw.storage.lineage import LineageRepository

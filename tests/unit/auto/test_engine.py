@@ -4,11 +4,11 @@ import tempfile
 
 import pytest
 
+from rosclaw.core.event_bus import EventBus
 from rosclaw.evolution.orchestrator.config import AutoConfig
 from rosclaw.evolution.orchestrator.engine import AutoEngine
 from rosclaw.evolution.orchestrator.promotion.gate import GateResult
 from rosclaw.evolution.orchestrator.storage import LocalStore
-from rosclaw.core.event_bus import EventBus
 from rosclaw.sense.config import SenseConfig
 from rosclaw.sense.runtime import SenseRuntime
 

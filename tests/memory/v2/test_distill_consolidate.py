@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pytest
 
-from rosclaw.memory.seekdb_client import InMemoryKnowledgeStore
 from rosclaw.memory.consolidate import MemoryConsolidator
 from rosclaw.memory.distill import (
     SessionContext,
@@ -19,6 +18,7 @@ from rosclaw.memory.distill import (
 from rosclaw.memory.gate import MemoryWriteGate
 from rosclaw.memory.models import MemoryStatus
 from rosclaw.memory.repository import MemoryRepository
+from rosclaw.memory.seekdb_client import InMemoryKnowledgeStore
 
 
 @pytest.fixture

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from rosclaw.memory.seekdb_client import InMemoryKnowledgeStore
 from rosclaw.memory.regime import (
     ApplicabilityEnvelope,
     ApplicabilityStore,
@@ -15,6 +14,7 @@ from rosclaw.memory.regime import (
     envelope_from_regime,
     interval_distance,
 )
+from rosclaw.memory.seekdb_client import InMemoryKnowledgeStore
 
 T0 = 1_700_000_000.0
 

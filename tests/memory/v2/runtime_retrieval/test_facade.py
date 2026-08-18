@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import time
 
-from rosclaw.memory.seekdb_client import SQLiteKnowledgeStore
 from rosclaw.memory.models import MemoryItem
 from rosclaw.memory.repository import MemoryRepository
 from rosclaw.memory.retrieval import MemoryQuery
@@ -17,6 +16,7 @@ from rosclaw.memory.runtime_retrieval import (
     build_retrieval_facade,
 )
 from rosclaw.memory.runtime_retrieval.fallback import hybrid_mode_for
+from rosclaw.memory.seekdb_client import SQLiteKnowledgeStore
 from tests.embedding.test_embedding_providers import FAKE_PROFILE, FakeProvider
 from tests.memory.v2.runtime_retrieval.test_resolvers import (
     FakeNativeStore,

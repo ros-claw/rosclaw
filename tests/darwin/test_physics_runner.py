@@ -2,8 +2,8 @@
 
 import pytest
 
-from rosclaw.evolution.orchestrator.promotion.gate import PromotionGate
 from rosclaw.darwin.physics_runner import PairedTrajectoryCase, PhysicsDarwinRunner
+from rosclaw.evolution.orchestrator.promotion.gate import PromotionGate
 from rosclaw.sandbox.backends import ScenarioSpec
 
 HOME = [-1.5708, -1.5708, 1.5708, -1.5708, -1.5708, 0.0]

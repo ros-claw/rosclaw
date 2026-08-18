@@ -916,8 +916,8 @@ class Runtime(LifecycleMixin):
                 # backend is native SeekDB; the SQLite store is the declared
                 # lexical fallback.  Construction never loads model weights
                 # and never fails memory init.
-                from rosclaw.memory.seekdb_client import SQLiteStructuredStore
                 from rosclaw.memory.runtime_retrieval import build_retrieval_facade
+                from rosclaw.memory.seekdb_client import SQLiteStructuredStore
                 from rosclaw.storage.seekdb_native import SeekDBRetrievalStore
 
                 if isinstance(store, SeekDBRetrievalStore):

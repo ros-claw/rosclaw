@@ -8,7 +8,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from rosclaw.memory.seekdb_client import SQLiteStructuredStore
 from rosclaw.memory.regime import (
     ApplicabilityStore,
     CurrentRegimeBuilder,
@@ -24,6 +23,7 @@ from rosclaw.memory.regime.session_samples import (
     load_session_events,
 )
 from rosclaw.memory.runtime_retrieval import build_retrieval_facade
+from rosclaw.memory.seekdb_client import SQLiteStructuredStore
 from rosclaw.storage.factory import StoreFactory
 from rosclaw.storage.seekdb_native import SeekDBRetrievalStore
 
