@@ -1350,11 +1350,19 @@ class PiToolDispatcher:
         plane = self._service._task_control_plane
         spec = {
             "goal": str(request.arguments.get("goal", "")),
+            "kind": str(request.arguments.get("kind", "") or ""),
             "required_capabilities": request.arguments.get("required_capabilities") or [],
-            "effects": str(request.arguments.get("effects", "") or ""),
+            # 十六审 P0-B：effects 允许枚举字符串或细粒度列表（编译器
+            # 归一化，未知值 fail-closed）。
+            "effects": request.arguments.get("effects") or "",
             "inputs": request.arguments.get("inputs") or {},
             "deliverables": request.arguments.get("deliverables") or [],
             "acceptance": request.arguments.get("acceptance") or {},
+            # 十六审 P0-C：运行依赖声明（Runtime Manager 托管预置——
+            # 装包永不是 Worker 任务/用户手工活）。
+            "runtime_requirements": dict(
+                request.arguments.get("runtime_requirements") or {}
+            ),
             "interaction": str(request.arguments.get("interaction", "continue_chat")),
             "recovery": str(request.arguments.get("recovery", "resume_same_executor")),
             # 建议-0816 P0-4：模型快照（无 secret——provider/model/

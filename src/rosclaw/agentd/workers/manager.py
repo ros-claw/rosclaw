@@ -45,7 +45,7 @@ _RUN_TRANSITIONS: dict[str, frozenset[str]] = {
         "PAUSE_REQUESTED", "PAUSED",
     }),
     "SUBMITTED": frozenset({"VERIFYING", "FAILED"}),
-    "VERIFYING": frozenset({"ACCEPTED", "FAILED"}),
+    "VERIFYING": frozenset({"ACCEPTED", "FAILED", "BLOCKED"}),
     "BLOCKED": frozenset(
         {"RUNNING", "CANCELLED", "FAILED", "INTERRUPTED_RESUMABLE"}
     ),
@@ -386,6 +386,10 @@ class WorkerManager:
             )
         if report.accepted:
             self._transition(order.work_order_id, "ACCEPTED", "verification_passed")
+        elif result.status == "BLOCKED":
+            # 十六审 A3：Worker 诚实 BLOCKED（缺能力/缺输入）→ 订单
+            # BLOCKED，不是 FAILED（语义失败 ≠ 基础设施失败）。
+            self._transition(order.work_order_id, "BLOCKED", "worker_blocked")
         else:
             self._transition(order.work_order_id, "FAILED", "verification_failed")
         self._conn.execute(
@@ -615,6 +619,9 @@ class WorkerManager:
         # 活跃唯一约束随之释放，resume/retry 才能开新 attempt）。
         if to_status in (
             "ACCEPTED", "FAILED", "EXPIRED", "CANCELLED", "INTERRUPTED_RESUMABLE",
+            # 十六审 P0-B：BLOCKED 也是结算点——不结算会让 ACTIVE 唯一
+            # 索引挡住同 root 的能力升级 attempt（escalation 无法启动）。
+            "BLOCKED",
         ):
             # PR-14.5：legacy 单（14.2 前创建，无 attempts 行）先补账再
             # 结算——重启对账的 INTERRUPTED_RESUMABLE 也有完整 Job 视图。

@@ -354,6 +354,11 @@ class AgentService:
         from rosclaw.agentd.control_plane import TaskControlPlane
 
         self._task_control_plane = TaskControlPlane(self)
+        # 十六审 P0-C：Runtime/Dependency Manager——托管运行时
+        # （~/.rosclaw/runtimes/），仿真渲染等依赖的确定性预置。
+        from rosclaw.agentd.runtime_manager import RuntimeManager
+
+        self._runtime_manager = RuntimeManager(self._home)
         # 内置 Pi Worker 的就绪性取决于 node+dist——不可用时诚实 DISABLED
         # （绝不"看起来装了就 ENABLED"）。
         if find_pi_agent_entry() is None:

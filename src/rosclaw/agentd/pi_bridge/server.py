@@ -1167,19 +1167,75 @@ class PiBridgeServer:
         if method == "pi.task.executions":
             # 十五审 PR-RF-8：execution 级任务卡（Task Control Plane 是
             # 权威——一个任务一张卡，WorkOrder 折叠为内部细节）。
+            # 十六审 P1：卡上带阶段/profile/验收/全部 attempts 折叠
+            # （repair/escalate 的历史 attempt 不再以游离 Worker 卡出现）。
             mission_id = str(params.get("mission_id", ""))
             plane = service._task_control_plane
+            conn = service._store.connection
             cards = []
             for row in plane.executions_for(mission_id):
                 spec = json.loads(row["spec_json"])
+                # 折叠全部 attempts：当前 work_order 及其 root 链。
+                current_wo = row.get("work_order_id") or ""
+                attempts: list[dict] = []
+                linked_ids = {current_wo} if current_wo else set()
+                if current_wo:
+                    # root 从 attempts 账本取（work_orders 表无该列）。
+                    wo_row = conn.execute(
+                        "SELECT root_job_id FROM worker_attempts "
+                        "WHERE attempt_id = ?",
+                        (current_wo,),
+                    ).fetchone()
+                    root = (
+                        str(wo_row["root_job_id"]) if wo_row else current_wo
+                    )
+                    linked_ids.add(root)
+                    for a in conn.execute(
+                        "SELECT attempt_id, attempt_seq, actor, state, "
+                        "termination_cause FROM worker_attempts "
+                        "WHERE root_job_id = ? ORDER BY attempt_seq",
+                        (root,),
+                    ).fetchall():
+                        attempts.append({
+                            "work_order_id": str(a["attempt_id"]),
+                            "seq": int(a["attempt_seq"]),
+                            "actor": str(a["actor"]),
+                            "status": str(a["state"]),
+                            "termination_cause": str(
+                                a["termination_cause"] or ""
+                            ),
+                        })
+                        linked_ids.add(str(a["attempt_id"]))
+                # 编译的授权信封（profile/effects）——用户可见的诚实面。
+                plan_profile = ""
+                try:
+                    from rosclaw.agentd.task_compiler import compile_task
+
+                    plan_profile = compile_task(spec).profile
+                except (ValueError, KeyError):
+                    plan_profile = ""
+                verifier = {}
+                artifacts_raw = row.get("artifacts_json") or ""
+                if artifacts_raw:
+                    try:
+                        verifier = dict(
+                            json.loads(artifacts_raw).get("verifier") or {}
+                        )
+                    except (ValueError, TypeError):
+                        verifier = {}
                 cards.append({
                     "execution_id": row["execution_id"],
                     "goal": str(spec.get("goal", ""))[:120],
                     "state": row["state"],
                     "runtime": row["runtime"],
                     "domain": row["domain"],
+                    "profile": plan_profile,
                     "summary": (row.get("summary") or "")[:500],
-                    "work_order_id": row.get("work_order_id") or "",
+                    "verifier_feedback": (row.get("verifier_feedback") or "")[:300],
+                    "verifier": verifier,
+                    "work_order_id": current_wo,
+                    "attempts": attempts,
+                    "linked_ids": sorted(linked_ids),
                     "created_at": row["created_at"],
                 })
             return {"ok": True, "executions": cards}
