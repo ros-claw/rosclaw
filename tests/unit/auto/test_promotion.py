@@ -1,7 +1,12 @@
 """Tests for Sprint D: Champion/DeadEnd/Promotion Gate."""
 
 from rosclaw.evolution.orchestrator.core.champion import Champion
-from rosclaw.evolution.orchestrator.promotion import ChampionStore, LineageTracker, PromotionGate, RollbackManager
+from rosclaw.evolution.orchestrator.promotion import (
+    ChampionStore,
+    LineageTracker,
+    PromotionGate,
+    RollbackManager,
+)
 from rosclaw.evolution.orchestrator.storage.local_store import LocalStore
 from rosclaw.sandbox.backends import ReplayReport
 from rosclaw.sandbox.evidence import SimulationEvidenceVerification

@@ -3,8 +3,8 @@
 import json
 import time
 
-from rosclaw.evolution.orchestrator.promotion.gate import PromotionGate
 from rosclaw.core.runtime import Runtime, RuntimeConfig
+from rosclaw.evolution.orchestrator.promotion.gate import PromotionGate
 
 
 def test_failure_evolves_through_how_auto_darwin_and_skill_registry(
