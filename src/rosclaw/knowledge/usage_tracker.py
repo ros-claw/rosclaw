@@ -44,11 +44,15 @@ class KnowledgeUsageTracker:
         *,
         ttl_s: float = 3600.0,
         max_tracked: int = 1000,
+        usage_ledger: Any = None,
     ) -> None:
         self._bus = event_bus
         self._facade = facade
         self._ttl_s = ttl_s
         self._max_tracked = max_tracked
+        # PR-DF-21 (phase-II §32): durable usage observation.  None keeps
+        # the DF-10 in-memory-only behavior (no data plane present).
+        self._ledger = usage_ledger
         self._open: dict[str, dict[str, Any]] = {}
         self._subscribed = False
 
@@ -88,7 +92,24 @@ class KnowledgeUsageTracker:
             "knowledge_unit_ids": list(payload.get("knowledge_unit_ids") or []),
             "advice_id": None,
             "created_at": time.time(),
+            "trace_id": str(payload.get("trace_id") or getattr(event, "trace_id", "") or ""),
+            "robot_id": str(payload.get("robot_id") or ""),
+            "body_id": str(payload.get("body_id") or ""),
+            "task_id": str(payload.get("task_id") or ""),
+            "skill_id": str(payload.get("skill_id") or ""),
         }
+        if self._ledger is not None:
+            for unit_id in self._open[pack_id]["knowledge_unit_ids"] or ["unknown_unit"]:
+                self._ledger.record(
+                    "presented",
+                    reference_pack_id=pack_id,
+                    knowledge_unit_id=unit_id,
+                    trace_id=self._open[pack_id]["trace_id"],
+                    robot_id=self._open[pack_id]["robot_id"],
+                    body_id=self._open[pack_id]["body_id"],
+                    task_id=self._open[pack_id]["task_id"],
+                    skill_id=self._open[pack_id]["skill_id"],
+                )
 
     def _on_advice(self, event: Any) -> None:
         payload = getattr(event, "payload", None)
@@ -98,6 +119,20 @@ class KnowledgeUsageTracker:
         advice_id = payload.get("advice_id")
         if pack_id and pack_id in self._open and advice_id:
             self._open[pack_id]["advice_id"] = advice_id
+            usage = self._open[pack_id]
+            if self._ledger is not None:
+                for unit_id in usage["knowledge_unit_ids"] or ["unknown_unit"]:
+                    self._ledger.record(
+                        "used",
+                        reference_pack_id=pack_id,
+                        knowledge_unit_id=unit_id,
+                        advice_id=advice_id,
+                        trace_id=usage["trace_id"],
+                        robot_id=usage["robot_id"],
+                        body_id=usage["body_id"],
+                        task_id=usage["task_id"],
+                        skill_id=usage["skill_id"],
+                    )
 
     # -- feedback ---------------------------------------------------------
 
@@ -117,6 +152,20 @@ class KnowledgeUsageTracker:
             unit_ids = usage["knowledge_unit_ids"] or ["unknown_unit"]
             for unit_id in unit_ids:
                 self._submit(usage, unit_id, verdict, episode_id, practice_id)
+                if self._ledger is not None:
+                    self._ledger.record(
+                        verdict,
+                        reference_pack_id=pack_id,
+                        knowledge_unit_id=unit_id,
+                        advice_id=usage.get("advice_id"),
+                        trace_id=usage["trace_id"],
+                        practice_id=practice_id,
+                        episode_id=episode_id,
+                        robot_id=usage["robot_id"],
+                        body_id=usage["body_id"],
+                        task_id=usage["task_id"],
+                        skill_id=usage["skill_id"],
+                    )
             del self._open[pack_id]
 
     def _submit(
