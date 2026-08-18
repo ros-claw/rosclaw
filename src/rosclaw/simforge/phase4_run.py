@@ -9,11 +9,11 @@ from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any
 
-from rosclaw.auto.g1_kick.parameter_search import (
+from rosclaw.evolution.orchestrator.g1_kick.parameter_search import (
     GoalForgeParameterSearch,
     ParameterSearchOutcome,
 )
-from rosclaw.auto.g1_kick.shot_adapter_train import (
+from rosclaw.evolution.orchestrator.g1_kick.shot_adapter_train import (
     G1ShotAdapter,
     ShotAdapterChampion,
     ShotAdapterRegistry,

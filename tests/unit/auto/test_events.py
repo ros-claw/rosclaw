@@ -2,15 +2,15 @@
 
 import pytest
 
-from rosclaw.auto.config import AutoConfig
-from rosclaw.auto.engine.auto_engine import AutoEngine
-from rosclaw.auto.events.publishers import AutoPublisher
-from rosclaw.auto.events.schemas import (
+from rosclaw.evolution.orchestrator.config import AutoConfig
+from rosclaw.evolution.orchestrator.engine.auto_engine import AutoEngine
+from rosclaw.evolution.orchestrator.events.publishers import AutoPublisher
+from rosclaw.evolution.orchestrator.events.schemas import (
     BenchmarkCompletedEvent,
     EventEnvelope,
     PraxisFailedEvent,
 )
-from rosclaw.auto.events.subscribers import AutoSubscriber
+from rosclaw.evolution.orchestrator.events.subscribers import AutoSubscriber
 
 
 class FakeEventBus:
@@ -165,8 +165,8 @@ def test_praxis_failed_event_idempotent():
     """AUTO-EVENT-002: Duplicate PraxisFailedEvent should not create duplicate FailureCases."""
     import shutil
 
-    from rosclaw.auto.config import AutoConfig
-    from rosclaw.auto.engine.auto_engine import AutoEngine
+    from rosclaw.evolution.orchestrator.config import AutoConfig
+    from rosclaw.evolution.orchestrator.engine.auto_engine import AutoEngine
 
     store_path = "./.rosclaw_auto_test_idempotent"
     shutil.rmtree(store_path, ignore_errors=True)
@@ -190,7 +190,7 @@ def test_praxis_failed_event_idempotent():
 
 def test_sandbox_rejected_prevents_promotion():
     """AUTO-EVENT-003: SandboxRejectedEvent must not allow promotion."""
-    from rosclaw.auto.promotion.gate import PromotionGate
+    from rosclaw.evolution.orchestrator.promotion.gate import PromotionGate
 
     gate = PromotionGate()
     # Simulate sandbox rejection (high risk score)
@@ -205,9 +205,9 @@ def test_event_out_of_order_does_not_crash():
     """AUTO-EVENT-004: Out-of-order events should not crash the system."""
     import shutil
 
-    from rosclaw.auto.config import AutoConfig
-    from rosclaw.auto.engine.auto_engine import AutoEngine
-    from rosclaw.auto.events.subscribers import AutoSubscriber
+    from rosclaw.evolution.orchestrator.config import AutoConfig
+    from rosclaw.evolution.orchestrator.engine.auto_engine import AutoEngine
+    from rosclaw.evolution.orchestrator.events.subscribers import AutoSubscriber
 
     store_path = "./.rosclaw_auto_test_outoforder"
     shutil.rmtree(store_path, ignore_errors=True)

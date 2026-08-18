@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import time
 
-from rosclaw.auto.config import AutoConfig
-from rosclaw.auto.engine.auto_engine import AutoEngine
-from rosclaw.auto.events.subscribers import AutoSubscriber
+from rosclaw.evolution.orchestrator.config import AutoConfig
+from rosclaw.evolution.orchestrator.engine.auto_engine import AutoEngine
+from rosclaw.evolution.orchestrator.events.subscribers import AutoSubscriber
 from rosclaw.core.event_bus import Event, EventBus
 from rosclaw.core.event_topics import EventTopics
 from rosclaw.memory.insights import MemoryInsightService

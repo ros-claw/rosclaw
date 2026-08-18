@@ -102,7 +102,7 @@ class EventTopics:
     # ── Auto / Research loop ──
     AUTO_PROPOSAL_CREATED = "rosclaw.auto.proposal.created"
     AUTO_CHAMPION_PROMOTED = "rosclaw.auto.champion.promoted"
-    AUTO_EXPERIMENT_COMPLETED = "rosclaw.auto.experiment.completed"
+    AUTO_EXPERIMENT_COMPLETED = "rosclaw.evolution.orchestrator.experiment.completed"
     AUTO_DEADEND_REGISTERED = "rosclaw.auto.deadend.registered"
 
     # ── How evidence ──

@@ -4165,8 +4165,8 @@ def cmd_skill_rollback(args: argparse.Namespace) -> int:
 
 
 def cmd_auto_init(args: argparse.Namespace) -> int:
-    """Initialize an auto task (proxy to rosclaw.auto.cli)."""
-    from rosclaw.auto.cli import main as auto_main
+    """Initialize an auto task (proxy to rosclaw.evolution.orchestrator.cli)."""
+    from rosclaw.evolution.orchestrator.cli import main as auto_main
 
     argv = ["init"]
     if getattr(args, "task", None):
@@ -4181,8 +4181,8 @@ def cmd_auto_init(args: argparse.Namespace) -> int:
 
 
 def cmd_auto_run(args: argparse.Namespace) -> int:
-    """Run auto evolution (proxy to rosclaw.auto.cli)."""
-    from rosclaw.auto.cli import main as auto_main
+    """Run auto evolution (proxy to rosclaw.evolution.orchestrator.cli)."""
+    from rosclaw.evolution.orchestrator.cli import main as auto_main
 
     argv = ["run"]
     if getattr(args, "task", None):
@@ -4200,8 +4200,8 @@ def cmd_auto_run(args: argparse.Namespace) -> int:
 
 
 def cmd_auto_status(args: argparse.Namespace) -> int:
-    """Show auto status (proxy to rosclaw.auto.cli)."""
-    from rosclaw.auto.cli import main as auto_main
+    """Show auto status (proxy to rosclaw.evolution.orchestrator.cli)."""
+    from rosclaw.evolution.orchestrator.cli import main as auto_main
 
     argv = ["status"]
     if getattr(args, "task", None):
@@ -4210,16 +4210,16 @@ def cmd_auto_status(args: argparse.Namespace) -> int:
 
 
 def cmd_auto_champion(args: argparse.Namespace) -> int:
-    """Show current champion (proxy to rosclaw.auto.cli)."""
-    from rosclaw.auto.cli import main as auto_main
+    """Show current champion (proxy to rosclaw.evolution.orchestrator.cli)."""
+    from rosclaw.evolution.orchestrator.cli import main as auto_main
 
     argv = ["champion", "--task", args.task]
     return auto_main(argv)
 
 
 def cmd_auto_deadends(args: argparse.Namespace) -> int:
-    """List dead ends (proxy to rosclaw.auto.cli)."""
-    from rosclaw.auto.cli import main as auto_main
+    """List dead ends (proxy to rosclaw.evolution.orchestrator.cli)."""
+    from rosclaw.evolution.orchestrator.cli import main as auto_main
 
     argv = ["deadends"]
     if getattr(args, "task", None):
@@ -4228,8 +4228,8 @@ def cmd_auto_deadends(args: argparse.Namespace) -> int:
 
 
 def cmd_auto_report(args: argparse.Namespace) -> int:
-    """Generate evolution report (proxy to rosclaw.auto.cli)."""
-    from rosclaw.auto.cli import main as auto_main
+    """Generate evolution report (proxy to rosclaw.evolution.orchestrator.cli)."""
+    from rosclaw.evolution.orchestrator.cli import main as auto_main
 
     argv = ["report", "--task", args.task]
     if getattr(args, "output", None):

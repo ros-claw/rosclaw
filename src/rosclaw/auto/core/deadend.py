@@ -1,44 +1,9 @@
-"""DeadEnd — 死胡同/无效方向记录."""
+"""DEPRECATED import shim (PR-DF-24.2): moved to ``rosclaw.evolution.orchestrator.core.deadend``."""
 
-from dataclasses import dataclass, field
-from datetime import UTC, datetime
+import importlib as _importlib
+import sys as _sys
 
+from rosclaw.evolution import orchestrator as _orch  # noqa: F401
+from rosclaw.evolution.orchestrator.core.deadend import *  # noqa: F401,F403
 
-@dataclass
-class DeadEnd:
-    id: str
-    task_id: str
-    direction: str = ""
-    tested_patches: list[str] = field(default_factory=list)
-    observed_effect: dict = field(default_factory=dict)
-    rejection_reason: str = ""
-    avoid_conditions: dict = field(default_factory=dict)
-    evidence: list[str] = field(default_factory=list)
-    created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
-
-    def to_dict(self) -> dict:
-        return {
-            "id": self.id,
-            "task_id": self.task_id,
-            "direction": self.direction,
-            "tested_patches": self.tested_patches,
-            "observed_effect": self.observed_effect,
-            "rejection_reason": self.rejection_reason,
-            "avoid_conditions": self.avoid_conditions,
-            "evidence": self.evidence,
-            "created_at": self.created_at,
-        }
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "DeadEnd":
-        return cls(
-            id=d["id"],
-            task_id=d["task_id"],
-            direction=d.get("direction", ""),
-            tested_patches=d.get("tested_patches", []),
-            observed_effect=d.get("observed_effect", {}),
-            rejection_reason=d.get("rejection_reason", ""),
-            avoid_conditions=d.get("avoid_conditions", {}),
-            evidence=d.get("evidence", []),
-            created_at=d.get("created_at", ""),
-        )
+_sys.modules[__name__] = _importlib.import_module("rosclaw.evolution.orchestrator.core.deadend")

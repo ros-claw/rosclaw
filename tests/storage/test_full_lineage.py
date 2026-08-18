@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import argparse
 
-from rosclaw.auto.config import AutoConfig
-from rosclaw.auto.engine.auto_engine import AutoEngine
+from rosclaw.evolution.orchestrator.config import AutoConfig
+from rosclaw.evolution.orchestrator.engine.auto_engine import AutoEngine
 from rosclaw.core.event_bus import EventBus
 from rosclaw.core.event_topics import EventTopics
 from rosclaw.memory.insights import MemoryInsightService

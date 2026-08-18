@@ -1,6 +1,6 @@
 """L3: Runtime Plugin tests."""
 
-from rosclaw.auto.plugin import AutoPlugin
+from rosclaw.evolution.orchestrator.plugin import AutoPlugin
 
 
 class FakeRuntimeContext:

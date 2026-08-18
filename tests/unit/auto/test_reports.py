@@ -2,9 +2,9 @@
 
 import shutil
 
-from rosclaw.auto.config import AutoConfig
-from rosclaw.auto.engine.auto_engine import AutoEngine
-from rosclaw.auto.reports import ReportGenerator
+from rosclaw.evolution.orchestrator.config import AutoConfig
+from rosclaw.evolution.orchestrator.engine.auto_engine import AutoEngine
+from rosclaw.evolution.orchestrator.reports import ReportGenerator
 
 
 class TestReportGenerator:

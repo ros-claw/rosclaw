@@ -9,7 +9,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from rosclaw.auto.g1_kick.parameter_search import build_parameter_candidates
+from rosclaw.evolution.orchestrator.g1_kick.parameter_search import build_parameter_candidates
 from rosclaw.simforge.backends.unitree_mujoco_backend import (
     G1MuJoCoBackend,
     qualify_g1_assets,

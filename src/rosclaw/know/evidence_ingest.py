@@ -33,7 +33,7 @@ class EvidenceIngestor:
         self._load_pattern_metrics()
         if self._bus is not None:
             self._bus.subscribe("rosclaw.how.evidence.generated", self._on_how_evidence)
-            self._bus.subscribe("rosclaw.auto.experiment.completed", self._on_auto_experiment)
+            self._bus.subscribe("rosclaw.evolution.orchestrator.experiment.completed", self._on_auto_experiment)
 
     def _load_pattern_metrics(self) -> None:
         if self._pattern_metrics_path.exists():
@@ -58,7 +58,7 @@ class EvidenceIngestor:
         self.ingest(trace)
 
     def _on_auto_experiment(self, event: Any) -> None:
-        """Handle rosclaw.auto.experiment.completed event."""
+        """Handle rosclaw.evolution.orchestrator.experiment.completed event."""
         payload = event.payload if isinstance(event.payload, dict) else {}
         # Convert auto experiment result into EvidenceTrace shape
         trace = EvidenceTrace(

@@ -70,7 +70,7 @@ class DashboardMetrics:
         # Legacy aliases and topics not yet in EventTopics
         "rosclaw.auto.proposal.created",
         "rosclaw.auto.champion.promoted",
-        "rosclaw.auto.experiment.completed",
+        "rosclaw.evolution.orchestrator.experiment.completed",
         "rosclaw.auto.deadend.registered",
         "rosclaw.how.evidence.generated",
     }

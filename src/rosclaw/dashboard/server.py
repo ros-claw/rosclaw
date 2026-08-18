@@ -96,7 +96,7 @@ class DashboardServer:
             EventTopics.MEMORY_WRITE_COMPLETED,
             "rosclaw.auto.proposal.created",
             "rosclaw.auto.champion.promoted",
-            "rosclaw.auto.experiment.completed",
+            "rosclaw.evolution.orchestrator.experiment.completed",
             "rosclaw.auto.deadend.registered",
             "rosclaw.how.evidence.generated",
             EventTopics.SENSE_STATE_UPDATED,

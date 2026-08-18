@@ -1,8 +1,8 @@
 """L10: Safety policy tests with AST analysis."""
 
-from rosclaw.auto.core.patch import Patch
-from rosclaw.auto.patchers.patch_validator import PatchValidator
-from rosclaw.auto.promotion.gate import PromotionGate
+from rosclaw.evolution.orchestrator.core.patch import Patch
+from rosclaw.evolution.orchestrator.patchers.patch_validator import PatchValidator
+from rosclaw.evolution.orchestrator.promotion.gate import PromotionGate
 
 
 class TestSafetyPolicy:

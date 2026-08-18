@@ -1,28 +1,20 @@
-"""rosclaw-auto core data models."""
+"""DEPRECATED package shim (PR-DF-24.2): ``rosclaw.auto.core`` moved to
+``rosclaw.evolution.orchestrator.core``.  Kept for at least one full minor release; the CLI
+(``rosclaw auto``) is unchanged.  Modules register into ``sys.modules``
+so shim and canonical paths share ONE module object.
+"""
 
-from .artifact import ChampionCard, EvolutionReport
-from .champion import Champion
-from .deadend import DeadEnd
-from .diagnosis import Diagnosis
-from .evaluation import EvaluationResult
-from .experiment import ExperimentSpec
-from .failure import FailureCase
-from .hypothesis import Hypothesis
-from .patch import Patch
-from .proposal import Proposal
-from .task import AutoTask
+import importlib as _importlib
+import sys as _sys
 
-__all__ = [
-    "AutoTask",
-    "FailureCase",
-    "Diagnosis",
-    "Hypothesis",
-    "Proposal",
-    "Patch",
-    "ExperimentSpec",
-    "EvaluationResult",
-    "Champion",
-    "DeadEnd",
-    "EvolutionReport",
-    "ChampionCard",
-]
+artifact = _sys.modules[__name__ + ".artifact"] = _importlib.import_module("rosclaw.evolution.orchestrator.core.artifact")
+champion = _sys.modules[__name__ + ".champion"] = _importlib.import_module("rosclaw.evolution.orchestrator.core.champion")
+deadend = _sys.modules[__name__ + ".deadend"] = _importlib.import_module("rosclaw.evolution.orchestrator.core.deadend")
+diagnosis = _sys.modules[__name__ + ".diagnosis"] = _importlib.import_module("rosclaw.evolution.orchestrator.core.diagnosis")
+evaluation = _sys.modules[__name__ + ".evaluation"] = _importlib.import_module("rosclaw.evolution.orchestrator.core.evaluation")
+experiment = _sys.modules[__name__ + ".experiment"] = _importlib.import_module("rosclaw.evolution.orchestrator.core.experiment")
+failure = _sys.modules[__name__ + ".failure"] = _importlib.import_module("rosclaw.evolution.orchestrator.core.failure")
+hypothesis = _sys.modules[__name__ + ".hypothesis"] = _importlib.import_module("rosclaw.evolution.orchestrator.core.hypothesis")
+patch = _sys.modules[__name__ + ".patch"] = _importlib.import_module("rosclaw.evolution.orchestrator.core.patch")
+proposal = _sys.modules[__name__ + ".proposal"] = _importlib.import_module("rosclaw.evolution.orchestrator.core.proposal")
+task = _sys.modules[__name__ + ".task"] = _importlib.import_module("rosclaw.evolution.orchestrator.core.task")

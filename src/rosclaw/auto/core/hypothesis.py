@@ -1,44 +1,9 @@
-"""Hypothesis — 改进假设."""
+"""DEPRECATED import shim (PR-DF-24.2): moved to ``rosclaw.evolution.orchestrator.core.hypothesis``."""
 
-from dataclasses import dataclass, field
-from datetime import UTC, datetime
+import importlib as _importlib
+import sys as _sys
 
+from rosclaw.evolution import orchestrator as _orch  # noqa: F401
+from rosclaw.evolution.orchestrator.core.hypothesis import *  # noqa: F401,F403
 
-@dataclass
-class Hypothesis:
-    id: str
-    failure_case_id: str
-    statement: str = ""
-    mechanism: str = ""
-    confidence: float = 0.0
-    supporting_evidence: list[str] = field(default_factory=list)
-    contradicting_evidence: list[str] = field(default_factory=list)
-    testable: bool = True
-    created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
-
-    def to_dict(self) -> dict:
-        return {
-            "id": self.id,
-            "failure_case_id": self.failure_case_id,
-            "statement": self.statement,
-            "mechanism": self.mechanism,
-            "confidence": self.confidence,
-            "supporting_evidence": self.supporting_evidence,
-            "contradicting_evidence": self.contradicting_evidence,
-            "testable": self.testable,
-            "created_at": self.created_at,
-        }
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "Hypothesis":
-        return cls(
-            id=d["id"],
-            failure_case_id=d["failure_case_id"],
-            statement=d.get("statement", ""),
-            mechanism=d.get("mechanism", ""),
-            confidence=d.get("confidence", 0.0),
-            supporting_evidence=d.get("supporting_evidence", []),
-            contradicting_evidence=d.get("contradicting_evidence", []),
-            testable=d.get("testable", True),
-            created_at=d.get("created_at", ""),
-        )
+_sys.modules[__name__] = _importlib.import_module("rosclaw.evolution.orchestrator.core.hypothesis")

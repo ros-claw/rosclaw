@@ -6,11 +6,11 @@ from pathlib import Path
 
 import pytest
 
-from rosclaw.auto.g1_kick.continual_runner import (
+from rosclaw.evolution.orchestrator.g1_kick.continual_runner import (
     run_goalforge_continual_screening,
 )
-from rosclaw.auto.g1_kick.parameter_search import build_parameter_candidates
-from rosclaw.auto.g1_kick.shot_adapter_train import (
+from rosclaw.evolution.orchestrator.g1_kick.parameter_search import build_parameter_candidates
+from rosclaw.evolution.orchestrator.g1_kick.shot_adapter_train import (
     G1ShotAdapter,
     ShotAdapterRegistry,
     ShotAdapterTeacherSample,

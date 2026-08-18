@@ -1,7 +1,7 @@
 """Tests for PatchValidator with AST and path normalization."""
 
-from rosclaw.auto.core.patch import Patch
-from rosclaw.auto.patchers.patch_validator import PatchValidator
+from rosclaw.evolution.orchestrator.core.patch import Patch
+from rosclaw.evolution.orchestrator.patchers.patch_validator import PatchValidator
 
 
 class TestPatchValidator:

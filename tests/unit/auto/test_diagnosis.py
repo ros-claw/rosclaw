@@ -1,7 +1,7 @@
 """L6: Diagnosis / Proposal / Patch tests."""
 
-from rosclaw.auto.core.failure import FailureCase
-from rosclaw.auto.diagnosis.rule_diagnoser import RuleDiagnoser
+from rosclaw.evolution.orchestrator.core.failure import FailureCase
+from rosclaw.evolution.orchestrator.diagnosis.rule_diagnoser import RuleDiagnoser
 
 
 class TestRuleDiagnoser:

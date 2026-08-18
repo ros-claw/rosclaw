@@ -248,7 +248,7 @@ def test_projection_skipped_without_retrieval_store(tmp_path):
 
 
 def test_evolution_spool_reconcile_upserts_and_marks_synced(tmp_path):
-    from rosclaw.auto.storage.local_store import LocalStore
+    from rosclaw.evolution.orchestrator.storage.local_store import LocalStore
 
     store = _store()
     cache = LocalStore(str(tmp_path / "auto"))

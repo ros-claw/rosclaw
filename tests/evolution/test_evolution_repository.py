@@ -2,7 +2,7 @@
 
 import json
 
-from rosclaw.auto.storage.local_store import LocalStore
+from rosclaw.evolution.orchestrator.storage.local_store import LocalStore
 from rosclaw.evolution.repository import EvolutionRepository
 from rosclaw.memory.seekdb_client import InMemoryStructuredStore, SQLiteStructuredStore
 
@@ -74,8 +74,8 @@ def test_namespaces_isolated_by_composite_id(tmp_path):
 
 
 def test_auto_engine_uses_repository_when_store_injected(tmp_path):
-    from rosclaw.auto.config import AutoConfig
-    from rosclaw.auto.engine.auto_engine import AutoEngine
+    from rosclaw.evolution.orchestrator.config import AutoConfig
+    from rosclaw.evolution.orchestrator.engine.auto_engine import AutoEngine
 
     store = InMemoryStructuredStore()
     store.connect()
@@ -87,8 +87,8 @@ def test_auto_engine_uses_repository_when_store_injected(tmp_path):
 
 
 def test_auto_engine_local_default_unchanged(tmp_path):
-    from rosclaw.auto.config import AutoConfig
-    from rosclaw.auto.engine.auto_engine import AutoEngine
+    from rosclaw.evolution.orchestrator.config import AutoConfig
+    from rosclaw.evolution.orchestrator.engine.auto_engine import AutoEngine
 
     store = InMemoryStructuredStore()
     store.connect()

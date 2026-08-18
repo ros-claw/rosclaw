@@ -2,7 +2,7 @@
 
 import pytest
 
-from rosclaw.auto.promotion.gate import PromotionGate
+from rosclaw.evolution.orchestrator.promotion.gate import PromotionGate
 from rosclaw.darwin.physics_runner import PairedTrajectoryCase, PhysicsDarwinRunner
 from rosclaw.sandbox.backends import ScenarioSpec
 

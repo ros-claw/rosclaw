@@ -6,13 +6,13 @@ import shutil
 import time
 from unittest.mock import patch
 
-from rosclaw.auto.config import AutoConfig
-from rosclaw.auto.core.experiment import ExperimentSpec
-from rosclaw.auto.engine.auto_engine import AutoEngine
-from rosclaw.auto.events.publishers import AutoPublisher
-from rosclaw.auto.events.subscribers import AutoSubscriber
-from rosclaw.auto.runners.local_runner import LocalRunner
-from rosclaw.auto.storage.local_store import LocalStore
+from rosclaw.evolution.orchestrator.config import AutoConfig
+from rosclaw.evolution.orchestrator.core.experiment import ExperimentSpec
+from rosclaw.evolution.orchestrator.engine.auto_engine import AutoEngine
+from rosclaw.evolution.orchestrator.events.publishers import AutoPublisher
+from rosclaw.evolution.orchestrator.events.subscribers import AutoSubscriber
+from rosclaw.evolution.orchestrator.runners.local_runner import LocalRunner
+from rosclaw.evolution.orchestrator.storage.local_store import LocalStore
 
 
 class TestChaosFaultInjection:

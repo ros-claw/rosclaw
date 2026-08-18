@@ -1,5 +1,10 @@
-"""rosclaw.auto.patchers — Patch validation and safety checks."""
+"""DEPRECATED package shim (PR-DF-24.2): ``rosclaw.auto.patchers`` moved to
+``rosclaw.evolution.orchestrator.patchers``.  Kept for at least one full minor release; the CLI
+(``rosclaw auto``) is unchanged.  Modules register into ``sys.modules``
+so shim and canonical paths share ONE module object.
+"""
 
-from .patch_validator import PatchValidator
+import importlib as _importlib
+import sys as _sys
 
-__all__ = ["PatchValidator"]
+patch_validator = _sys.modules[__name__ + ".patch_validator"] = _importlib.import_module("rosclaw.evolution.orchestrator.patchers.patch_validator")

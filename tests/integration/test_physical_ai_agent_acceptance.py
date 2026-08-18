@@ -3,7 +3,7 @@
 import json
 import time
 
-from rosclaw.auto.promotion.gate import PromotionGate
+from rosclaw.evolution.orchestrator.promotion.gate import PromotionGate
 from rosclaw.core.runtime import Runtime, RuntimeConfig
 
 
@@ -102,8 +102,8 @@ def test_failure_evolves_through_how_auto_darwin_and_skill_registry(
 
         # Explicit fixtures may exercise orchestration but remain ineligible
         # for physics-backed promotion.
-        from rosclaw.auto.runners.darwin_runner import DarwinRunner
-        from rosclaw.auto.runners.sandbox_runner import SandboxRunner
+        from rosclaw.evolution.orchestrator.runners.darwin_runner import DarwinRunner
+        from rosclaw.evolution.orchestrator.runners.sandbox_runner import SandboxRunner
 
         engine.sandbox_runner = SandboxRunner({"backend": "mock"})
         engine.darwin_runner = DarwinRunner({"backend": "mock"})

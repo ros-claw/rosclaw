@@ -1467,7 +1467,7 @@ def cmd_data_reconcile(args: argparse.Namespace) -> int:
     evolution_cache = None
     spool_path = getattr(args, "spool_path", None)
     try:  # default spool always considered; empty dirs are a noop
-        from rosclaw.auto.storage.local_store import LocalStore
+        from rosclaw.evolution.orchestrator.storage.local_store import LocalStore
 
         evolution_cache = LocalStore(spool_path or str(cfg["home"] / "data" / "auto"))
     except Exception as exc:  # noqa: BLE001

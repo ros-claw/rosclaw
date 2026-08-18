@@ -792,7 +792,7 @@ class Runtime(LifecycleMixin):
         # Initialize Auto Self-Evolution Control Plane
         if self.config.evolution.enabled:
             try:
-                from rosclaw.auto.plugin import AutoPlugin
+                from rosclaw.evolution.orchestrator.plugin import AutoPlugin
 
                 # Evolution state goes to the data plane's structured store
                 # when one exists (LocalStore degrades to its spool, DF-12);

@@ -2,9 +2,9 @@
 
 import shutil
 
-from rosclaw.auto.config import AutoConfig
-from rosclaw.auto.dashboard import DashboardExporter
-from rosclaw.auto.engine.auto_engine import AutoEngine
+from rosclaw.evolution.orchestrator.config import AutoConfig
+from rosclaw.evolution.orchestrator.dashboard import DashboardExporter
+from rosclaw.evolution.orchestrator.engine.auto_engine import AutoEngine
 
 
 class TestDashboardExporter:

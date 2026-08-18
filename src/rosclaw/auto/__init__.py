@@ -1,11 +1,14 @@
-"""rosclaw.auto — ROSClaw Self-Evolution Control Plane."""
+"""DEPRECATED package shim (PR-DF-24.2): ``rosclaw.auto`` moved to
+``rosclaw.evolution.orchestrator``.  Kept for at least one full minor release; the CLI
+(``rosclaw auto``) is unchanged.  Modules register into ``sys.modules``
+so shim and canonical paths share ONE module object.
+"""
 
-from .config import AutoConfig
-from .engine.auto_engine import AutoEngine
-from .plugin import AutoPlugin
+import importlib as _importlib
+import sys as _sys
 
-__version__ = "1.0.0"
-__all__ = ["AutoConfig", "AutoEngine", "AutoPlugin", "DashboardExporter", "ReportGenerator"]
-
-from .dashboard import DashboardExporter
-from .reports import ReportGenerator
+cli = _sys.modules[__name__ + ".cli"] = _importlib.import_module("rosclaw.evolution.orchestrator.cli")
+config = _sys.modules[__name__ + ".config"] = _importlib.import_module("rosclaw.evolution.orchestrator.config")
+plugin = _sys.modules[__name__ + ".plugin"] = _importlib.import_module("rosclaw.evolution.orchestrator.plugin")
+reports = _sys.modules[__name__ + ".reports"] = _importlib.import_module("rosclaw.evolution.orchestrator.reports")
+from rosclaw.evolution.orchestrator import *  # noqa: F401,F403,E402

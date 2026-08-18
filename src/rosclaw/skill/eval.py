@@ -7,7 +7,7 @@ import math
 from pathlib import Path
 from typing import Any
 
-from rosclaw.auto.promotion.gate import PromotionGate
+from rosclaw.evolution.orchestrator.promotion.gate import PromotionGate
 from rosclaw.body.resolver import BodyResolver
 from rosclaw.sandbox.evidence import artifacts_within, verify_promotion_receipt
 from rosclaw.skill.evidence import write_eval_report

@@ -1,6 +1,6 @@
 """Unit tests for rosclaw-auto core data models."""
 
-from rosclaw.auto.core import (
+from rosclaw.evolution.orchestrator.core import (
     AutoTask,
     Champion,
     ChampionCard,
@@ -86,7 +86,7 @@ def test_experiment():
 
 
 def test_evaluation_decision_promote():
-    from rosclaw.auto.engine import AutoEngine
+    from rosclaw.evolution.orchestrator.engine import AutoEngine
 
     engine = AutoEngine()
     ev = engine.create_evaluation("e1", {"success_rate": 0.4}, {"success_rate": 0.6})
@@ -94,7 +94,7 @@ def test_evaluation_decision_promote():
 
 
 def test_evaluation_decision_reject():
-    from rosclaw.auto.engine import AutoEngine
+    from rosclaw.evolution.orchestrator.engine import AutoEngine
 
     engine = AutoEngine()
     ev = engine.create_evaluation("e1", {"success_rate": 0.6}, {"success_rate": 0.3})

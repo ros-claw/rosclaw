@@ -2,11 +2,11 @@
 
 import shutil
 
-from rosclaw.auto.config import AutoConfig
-from rosclaw.auto.engine.auto_engine import AutoEngine
-from rosclaw.auto.events.publishers import AutoPublisher
-from rosclaw.auto.events.schemas import PraxisFailedEvent
-from rosclaw.auto.events.subscribers import AutoSubscriber
+from rosclaw.evolution.orchestrator.config import AutoConfig
+from rosclaw.evolution.orchestrator.engine.auto_engine import AutoEngine
+from rosclaw.evolution.orchestrator.events.publishers import AutoPublisher
+from rosclaw.evolution.orchestrator.events.schemas import PraxisFailedEvent
+from rosclaw.evolution.orchestrator.events.subscribers import AutoSubscriber
 
 
 class FakeBus:

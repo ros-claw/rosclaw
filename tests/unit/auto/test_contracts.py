@@ -1,6 +1,6 @@
 """L2: Schema / Contract tests."""
 
-from rosclaw.auto.core import (
+from rosclaw.evolution.orchestrator.core import (
     AutoTask,
     Champion,
     DeadEnd,
@@ -9,7 +9,7 @@ from rosclaw.auto.core import (
     Patch,
     Proposal,
 )
-from rosclaw.auto.events.schemas import (
+from rosclaw.evolution.orchestrator.events.schemas import (
     AutoProposalCreatedEvent,
     BenchmarkCompletedEvent,
     ChampionPromotedEvent,

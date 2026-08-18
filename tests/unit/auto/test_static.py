@@ -51,7 +51,7 @@ def test_all_core_models_have_to_dict():
     """AUTO-CORE-000: All core models must implement to_dict/from_dict."""
     import importlib
 
-    core = importlib.import_module("rosclaw.auto.core")
+    core = importlib.import_module("rosclaw.evolution.orchestrator.core")
     for name in dir(core):
         obj = getattr(core, name)
         if isinstance(obj, type) and hasattr(obj, "__dataclass_fields__"):
@@ -61,7 +61,7 @@ def test_all_core_models_have_to_dict():
 
 def test_dataclass_fields_not_empty():
     """AUTO-CORE-000b: Core models must have required fields."""
-    from rosclaw.auto.core import AutoTask, FailureCase
+    from rosclaw.evolution.orchestrator.core import AutoTask, FailureCase
 
     task = AutoTask(
         id="t1",

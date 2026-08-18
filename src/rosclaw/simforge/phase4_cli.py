@@ -7,7 +7,7 @@ import json
 import os
 from pathlib import Path
 
-from rosclaw.auto.g1_kick.continual_runner import (
+from rosclaw.evolution.orchestrator.g1_kick.continual_runner import (
     run_goalforge_continual_screening,
 )
 from rosclaw.robot_pack.g1.chaos import run_g1_executor_chaos

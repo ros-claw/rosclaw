@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from rosclaw.auto.core import Champion
+from rosclaw.evolution.orchestrator.core import Champion
 
 
 def _subprocess_env() -> dict[str, str]:
@@ -31,7 +31,7 @@ def run_auto_cli(
 
     def run(
         *args: str,
-        module: str = "rosclaw.auto.cli",
+        module: str = "rosclaw.evolution.orchestrator.cli",
     ) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             [sys.executable, "-m", module, *args],
