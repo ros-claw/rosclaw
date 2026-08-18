@@ -219,13 +219,15 @@ def test_skill_regression_and_improvement():
 
 
 def _seed_proven_rule(store):
+    # Real heuristic_rules columns (PR-DF-20 discovery, fixed in DF-25):
+    # failure_signature / action_template — not the DF-11 draft names.
     store.insert(
         "heuristic_rules",
         {
             "id": "rule_1",
-            "failure_type": "force overshoot",
+            "failure_signature": "force overshoot",
             "success_count": 5,
-            "parameter_patch": {"force": 250},
+            "action_template": '{"force": 250}',
         },
     )
 

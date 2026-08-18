@@ -77,6 +77,10 @@ def run_loop(args: argparse.Namespace) -> dict[str, Any]:
             retrieval_store = SeekDBEmbeddedRetrievalStore(path=str(work / "retrieval"))
             retrieval_store.connect()
         except Exception as exc:  # noqa: BLE001
+            # e.g. pylibseekdb's one-embedded-target-per-process limit when
+            # another suite claimed it first — the store object is unusable
+            # (connect failed), so drop it, don't leave a landmine.
+            retrieval_store = None
             retrieval_skipped = f"{type(exc).__name__}: {exc}"
 
     metrics: dict[str, Any] = {"episodes_target": args.episodes}

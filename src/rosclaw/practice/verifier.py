@@ -52,6 +52,7 @@ class PracticeVerifier:
         self._data_root = Path(data_root)
         self._layout = PracticeLayout(self._data_root)
         self._artifact_store = ArtifactStore(self._data_root, layout=self._layout)
+        self._expect_manifest = True
 
     def verify(
         self,
@@ -59,8 +60,17 @@ class PracticeVerifier:
         *,
         strict: bool = False,
         required_event_types: list[str] | None = None,
+        expect_manifest: bool = True,
     ) -> VerificationReport:
-        """Verify a practice session by id."""
+        """Verify a practice session by id.
+
+        ``expect_manifest=False`` is for the coordinator's close-time pass:
+        the manifest is written *after* verification precisely so it can
+        embed this report, so requiring it there would be a guaranteed
+        false-positive error.  Post-hoc verification (CLI, reconciler,
+        doctor) keeps the default strictness.
+        """
+        self._expect_manifest = expect_manifest
         report = VerificationReport(practice_id=practice_id, passed=False, strict=strict)
 
         catalog_path = self._layout.catalog_db_path
@@ -92,7 +102,9 @@ class PracticeVerifier:
             return
 
         manifest_path = Path(practice.get("manifest_path", ""))
-        if not manifest_path.exists():
+        if not self._expect_manifest:
+            report.checked.append("manifest_deferred")
+        elif not manifest_path.exists():
             report.add("error", "manifest", f"manifest missing: {manifest_path}")
         else:
             report.checked.append("manifest_exists")

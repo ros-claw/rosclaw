@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import threading
@@ -723,7 +724,14 @@ class PracticeCoordinator(LifecycleMixin):
         try:
             from rosclaw.practice.verifier import PracticeVerifier
 
-            report = PracticeVerifier(self.config.data_root).verify(self._session.practice_id)
+            # The coordinator's catalog batches event writes (DF phase-0);
+            # flush before verifying or the close-time pass deterministically
+            # reports "catalog event count != jsonl line count".
+            with contextlib.suppress(Exception):
+                self.catalog.flush()
+            report = PracticeVerifier(self.config.data_root).verify(
+                self._session.practice_id, expect_manifest=False
+            )
             errors = sum(1 for i in report.issues if i.level == "error")
             warnings = sum(1 for i in report.issues if i.level == "warning")
             if self._summary is not None:

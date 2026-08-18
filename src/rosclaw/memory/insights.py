@@ -215,7 +215,14 @@ class MemoryInsightService:
                 evidence_refs=evidence_refs + fix["evidence_refs"],
                 extra={
                     "search_space": fix["search_space"],
-                    "memory_refs": fix["memory_refs"],
+                    # The insight derives from the fix, the failures behind
+                    # the recurrence, AND the successful intervention memory
+                    # that proves the fix (§43 lineage tree).
+                    "memory_refs": fix["memory_refs"]
+                    + self._recent_failure_memories(skill_id, failure_type)
+                    + self._related_memories(
+                        skill_id, failure_type, "intervention", "success", 2
+                    ),
                 },
             )
 
@@ -334,7 +341,10 @@ class MemoryInsightService:
         if self._store is None:
             return None
         try:
-            rules = self._store.query("heuristic_rules", {"failure_type": failure_type})
+            # Real table columns are failure_signature / action_template
+            # (PR-DF-20 found the DF-11 draft queried failure_type /
+            # parameter_patch, which exist only in the InMemory fake).
+            rules = self._store.query("heuristic_rules", {"failure_signature": failure_type})
             proven = [
                 r
                 for r in rules
@@ -342,7 +352,7 @@ class MemoryInsightService:
             ]
             if proven:
                 best = max(proven, key=lambda r: r["success_count"])
-                search_space = best.get("parameter_patch") or {}
+                search_space = best.get("action_template") or {}
                 if isinstance(search_space, str):
                     import json
 
@@ -359,9 +369,18 @@ class MemoryInsightService:
             logger.debug("rule lookup failed: %s", exc)
         try:
             interventions = self._store.query(
-                "memory_items", {"memory_type": "intervention", "failure_type": failure_type}
+                "memory_items", {"memory_type": "intervention"}
             )
-            successful = [m for m in interventions if m.get("outcome") == "SUCCESS"]
+            # outcome is stored lowercase by the distiller; match loosely and
+            # require the failure type to appear in the document so an
+            # unrelated intervention never counts as a proven fix.
+            successful = [
+                m
+                for m in interventions
+                if str(m.get("outcome", "")).lower() == "success"
+                and failure_type
+                and failure_type in f"{m.get('title', '')} {m.get('document', '')}"
+            ]
             if successful:
                 mem = successful[0]
                 return {
@@ -372,6 +391,41 @@ class MemoryInsightService:
         except Exception as exc:  # noqa: BLE001
             logger.debug("intervention memory lookup failed: %s", exc)
         return None
+
+    def _recent_failure_memories(
+        self, skill_id: str, failure_type: str, limit: int = 3
+    ) -> list[str]:
+        """Failure memory ids behind this recurrence — so the emitted insight
+        carries lineage refs to BOTH the failures and the fix (§43 tree)."""
+        return self._related_memories(skill_id, failure_type, "failure", "failure", limit)
+
+    def _related_memories(
+        self, skill_id: str, failure_type: str, memory_type: str, outcome: str, limit: int
+    ) -> list[str]:
+        if self._store is None:
+            return []
+        try:
+            rows = self._store.query("memory_items", {"memory_type": memory_type})
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("%s memory lookup failed: %s", memory_type, exc)
+            return []
+        # Failure vocabulary varies between layers ("grasp_slip" in critic
+        # payloads, "grasp slip" in distilled documents) — match both.
+        needles = {failure_type, failure_type.replace("_", " "), failure_type.replace(" ", "_")}
+        needles.discard("")
+        matched = [
+            m
+            for m in rows
+            if str(m.get("outcome", "")).lower() == outcome
+            and (
+                not needles
+                or any(
+                    n in f"{m.get('title', '')} {m.get('document', '')}" for n in needles
+                )
+            )
+        ]
+        matched.sort(key=lambda m: float(m.get("event_time") or 0.0), reverse=True)
+        return [str(m.get("id", "")) for m in matched[:limit] if m.get("id")]
 
     def _maybe_emit(
         self,

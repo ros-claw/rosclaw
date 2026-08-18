@@ -74,3 +74,12 @@ jobs:
 
       - name: Gate E — harness unit tests
         run: pytest validation/data_flywheel/tests -q
+
+      - name: Gate F — Golden Flywheel (§42-§44 final acceptance)
+        # Separate process from Gate E: pylibseekdb allows one embedded
+        # target per process.  Needs mujoco (already in the profile for
+        # the simforge suites).
+        run: |
+          python validation/golden_flywheel/scripts/run_golden_flywheel.py \
+            --workdir /tmp/golden_flywheel_live
+          pytest validation/golden_flywheel/tests -q

@@ -52,9 +52,9 @@ def test_similar_failure_with_patch_when_rule_proven():
         "heuristic_rules",
         {
             "id": "rule_1",
-            "failure_type": "slip",
+            "failure_signature": "slip",
             "success_count": 4,
-            "parameter_patch": {"force_set": [300, 500]},
+            "action_template": '{"force_set": [300, 500]}',
         },
     )
     svc = MemoryInsightService(bus, store, robot_id="sim", failure_threshold=2)
@@ -78,7 +78,7 @@ def test_no_patch_insight_without_proven_fix():
     store.connect()
     store.insert(
         "heuristic_rules",
-        {"id": "rule_weak", "failure_type": "slip", "success_count": 0},
+        {"id": "rule_weak", "failure_signature": "slip", "success_count": 0},
     )
     svc = MemoryInsightService(bus, store, robot_id="sim", failure_threshold=2)
     svc.subscribe()

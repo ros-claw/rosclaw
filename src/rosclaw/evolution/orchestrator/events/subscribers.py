@@ -210,6 +210,14 @@ class AutoSubscriber:
             return
         task_id = p.get("task_id", "")
         skill_id = p.get("skill_id", "")
+        # DF-25 (§9.3 completeness): the auto-created proposal must carry its
+        # MemoryInsight provenance as a typed source ref — otherwise the
+        # golden lineage chain Proposal --proposed_from--> MemoryInsight
+        # silently degrades to the (episode-id-bearing) failure fallback.
+        insight_id = p.get("insight_id", "")
+        source_refs = (
+            [{"type": "memory_insight", "id": insight_id}] if insight_id else None
+        )
         self.engine.create_proposal(
             failure_case_id=p.get("failure_id", ""),
             task=task_id,
@@ -217,5 +225,6 @@ class AutoSubscriber:
             hypothesis_statement=p.get("insight_summary", "Memory-guided repair proposal"),
             search_space=p.get("search_space", {}),
             source="memory_guided",
+            source_refs=source_refs,
         )
         logger.info("AutoSubscriber: created memory-guided Proposal for task %s", task_id)
