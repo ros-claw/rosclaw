@@ -55,6 +55,15 @@ class AutoPublisher:
             task_id=task_id,
             target_skill_id=target_skill_id,
             hypothesis_statement=hypothesis_statement,
+            # The base EventEnvelope.to_dict() serializes only envelope
+            # fields — subclass fields must ALSO go into the payload dict
+            # or they are silently lost on the bus (DF-22 found this).
+            payload={
+                "proposal_id": proposal_id,
+                "task_id": task_id,
+                "target_skill_id": target_skill_id,
+                "hypothesis_statement": hypothesis_statement,
+            },
         )
         self._publish(event)
 
@@ -68,6 +77,13 @@ class AutoPublisher:
             task_id=task_id,
             level=level,
             metrics=metrics,
+            payload={
+                "champion_id": champion_id,
+                "skill_id": skill_id,
+                "task_id": task_id,
+                "level": level,
+                "metrics": metrics,
+            },
         )
         self._publish(event)
 
@@ -80,5 +96,11 @@ class AutoPublisher:
             task_id=task_id,
             direction=direction,
             rejection_reason=rejection_reason,
+            payload={
+                "deadend_id": deadend_id,
+                "task_id": task_id,
+                "direction": direction,
+                "rejection_reason": rejection_reason,
+            },
         )
         self._publish(event)
