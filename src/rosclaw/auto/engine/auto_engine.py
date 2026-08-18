@@ -2,6 +2,7 @@
 
 import contextlib
 import copy
+import logging
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -25,6 +26,8 @@ from ..events.publishers import AutoPublisher
 from ..promotion import ChampionStore, LineageTracker, PromotionGate, RollbackManager
 from ..runners import DarwinRunner, LocalRunner, SandboxRunner
 from ..storage import LocalStore
+
+logger = logging.getLogger("rosclaw.auto.engine")
 
 
 class AutoEngine:
@@ -294,6 +297,44 @@ class AutoEngine:
         if task:
             return [p for p in all_p if p.task == task]
         return all_p
+
+    def apply_dead_end_guard(self, proposal_id: str, insight: dict) -> bool:
+        """DF-22 (§33): react to known_dead_end_revisited.
+
+        skip → reject the proposal; narrow_search → gate it for a narrowed
+        review; anything else → require stronger evidence.  The guard is
+        recorded on the proposal so the evaluation path can see WHY.
+        """
+        data = self._load("proposals", proposal_id)
+        if not data:
+            return False
+        action = insight.get("recommended_action") or "stronger_evidence"
+        data["dead_end_guard"] = {
+            "insight_id": insight.get("insight_id", ""),
+            "action": action,
+            "dead_end_refs": insight.get("dead_end_refs", []),
+            "similarity": insight.get("similarity"),
+        }
+        if action == "skip":
+            data["status"] = "rejected"
+        else:
+            gate = (
+                "dead_end_narrow_review"
+                if action == "narrow_search"
+                else "dead_end_stronger_evidence"
+            )
+            gates = list(data.get("required_gates", []))
+            if gate not in gates:
+                gates.append(gate)
+            data["required_gates"] = gates
+        self._save("proposals", proposal_id, data)
+        logger.info(
+            "dead-end guard applied to proposal %s: %s (refs=%s)",
+            proposal_id,
+            action,
+            insight.get("dead_end_refs"),
+        )
+        return True
 
     # ------------------------------------------------------------------
     # Patch

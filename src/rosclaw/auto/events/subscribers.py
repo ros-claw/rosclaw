@@ -196,6 +196,16 @@ class AutoSubscriber:
     def _on_memory_insight(self, event: Any) -> None:
         p = self._extract_payload(event)
         insight_type = p.get("insight_type", "")
+        if insight_type == "known_dead_end_revisited":
+            # DF-22: the proposal this insight points at gets guarded, not
+            # another proposal — skip / narrow / stronger evidence (§33).
+            applied = self.engine.apply_dead_end_guard(p.get("failure_id", ""), p)
+            logger.info(
+                "AutoSubscriber: dead-end guard on proposal %s applied=%s",
+                p.get("failure_id", ""),
+                applied,
+            )
+            return
         if insight_type != "similar_failure_with_patch":
             return
         task_id = p.get("task_id", "")
