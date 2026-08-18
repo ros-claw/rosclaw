@@ -101,7 +101,7 @@ class TestRuntimeKnowledgeWiring:
             captured["kwargs"] = kwargs
             return MagicMock()
 
-        monkeypatch.setattr("rosclaw.know.interface.KnowledgeInterface", fake_ki)
+        monkeypatch.setattr("rosclaw.knowledge.legacy.interface.KnowledgeInterface", fake_ki)
         rt = Runtime(config)
         rt.initialize()
         assert captured["kwargs"].get("use_rosclaw_know_registry") is True

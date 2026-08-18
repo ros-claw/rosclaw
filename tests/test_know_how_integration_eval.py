@@ -13,7 +13,7 @@ The eval exercises the full Runtime-facing path:
 
 and the knowledge path:
 
-    rosclaw.know.interface.KnowledgeInterface(use_rosclaw_know_registry=True)
+    rosclaw.knowledge.legacy.interface.KnowledgeInterface(use_rosclaw_know_registry=True)
         -> rosclaw_know curated registry + baseline patterns
         -> symptom match
 
@@ -29,7 +29,7 @@ from typing import Any
 import pytest
 
 from rosclaw.how.client import HowClient
-from rosclaw.know.interface import KnowledgeInterface
+from rosclaw.knowledge.legacy.interface import KnowledgeInterface
 
 DEFAULT_HOW_URL = os.environ.get("ROSCLAW_HOW_ENDPOINT", "http://127.0.0.1:47820")
 

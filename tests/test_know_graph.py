@@ -1,6 +1,6 @@
 """Tests for know/graph.py helpers."""
 
-from rosclaw.know.graph import (
+from rosclaw.knowledge.legacy.graph import (
     count_knowledge_facts,
     get_related_robots,
     get_robot_capabilities,

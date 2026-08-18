@@ -17,7 +17,7 @@ from rosclaw.auto.g1_kick.shot_adapter_train import (
     build_shot_adapter_context,
 )
 from rosclaw.how.g1_goalforge import GoalForgeHow
-from rosclaw.know.g1_goalforge import GoalForgeKnowledge
+from rosclaw.knowledge.legacy.g1_goalforge import GoalForgeKnowledge
 from rosclaw.memory.g1_goalforge import (
     GoalForgeMemory,
     GoalForgeMemoryEntry,

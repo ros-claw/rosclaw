@@ -46,9 +46,9 @@ class ResearchConstraintsV2(StrictWireModel):
 
 
 class ResearchRequestV2(StrictWireModel):
-    SCHEMA_VERSION: ClassVar[str] = "rosclaw.know.research_request.v2"
+    SCHEMA_VERSION: ClassVar[str] = "rosclaw.knowledge.legacy.research_request.v2"
 
-    schema_version: Literal["rosclaw.know.research_request.v2"] = SCHEMA_VERSION
+    schema_version: Literal["rosclaw.knowledge.legacy.research_request.v2"] = SCHEMA_VERSION
     request_id: str = Field(min_length=1, max_length=200)
     topic: str = Field(min_length=1, max_length=2000)
     goal: str = Field(min_length=1, max_length=4000)
@@ -71,9 +71,9 @@ class ResearchRequestV2(StrictWireModel):
 
 
 class EvidenceRefV2(StrictWireModel):
-    SCHEMA_VERSION: ClassVar[str] = "rosclaw.know.evidence_ref.v2"
+    SCHEMA_VERSION: ClassVar[str] = "rosclaw.knowledge.legacy.evidence_ref.v2"
 
-    schema_version: Literal["rosclaw.know.evidence_ref.v2"] = SCHEMA_VERSION
+    schema_version: Literal["rosclaw.knowledge.legacy.evidence_ref.v2"] = SCHEMA_VERSION
     evidence_id: str = Field(min_length=1, max_length=240)
     source_id: str = Field(min_length=1, max_length=200)
     snapshot_id: str = Field(min_length=1, max_length=240)
@@ -133,9 +133,9 @@ class ReferenceComparisonV2(StrictWireModel):
 
 
 class ReferencePackV2(StrictWireModel):
-    SCHEMA_VERSION: ClassVar[str] = "rosclaw.know.reference_pack.v2"
+    SCHEMA_VERSION: ClassVar[str] = "rosclaw.knowledge.legacy.reference_pack.v2"
 
-    schema_version: Literal["rosclaw.know.reference_pack.v2"] = SCHEMA_VERSION
+    schema_version: Literal["rosclaw.knowledge.legacy.reference_pack.v2"] = SCHEMA_VERSION
     reference_pack_id: str = Field(min_length=1)
     query: str = Field(min_length=1)
     context: ReferenceContextV2

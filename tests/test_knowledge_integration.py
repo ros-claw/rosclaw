@@ -11,9 +11,9 @@ Tests cover:
 
 import pytest
 
-from rosclaw.know.graph import count_knowledge_facts
-from rosclaw.know.interface import KnowledgeInterface
-from rosclaw.know.storage import seed_knowledge_graph
+from rosclaw.knowledge.legacy.graph import count_knowledge_facts
+from rosclaw.knowledge.legacy.interface import KnowledgeInterface
+from rosclaw.knowledge.legacy.storage import seed_knowledge_graph
 from rosclaw.memory.seekdb_client import InMemoryKnowledgeStore
 
 # Isolation: these tests pin the curated-baseline contract, so they
@@ -876,7 +876,7 @@ class TestKnowIntegration:
     """Tests for KnowIntegration (Runtime-facing bridge)."""
 
     def test_query_before_decision_returns_full_result(self):
-        from rosclaw.know.integration import KnowIntegration
+        from rosclaw.knowledge.legacy.integration import KnowIntegration
 
         ki = KnowIntegration(robot_id="ur5e")
         result = ki.query_before_decision("ur5e", "pick and place")
@@ -888,7 +888,7 @@ class TestKnowIntegration:
 
     def test_query_before_decision_publishes_event(self):
         from rosclaw.core.event_bus import EventBus
-        from rosclaw.know.integration import KnowIntegration
+        from rosclaw.knowledge.legacy.integration import KnowIntegration
 
         bus = EventBus()
         ki = KnowIntegration(robot_id="ur5e", event_bus=bus)
@@ -899,7 +899,7 @@ class TestKnowIntegration:
 
     def test_record_usage_publishes_ingest_event(self):
         from rosclaw.core.event_bus import EventBus
-        from rosclaw.know.integration import KnowIntegration
+        from rosclaw.knowledge.legacy.integration import KnowIntegration
 
         bus = EventBus()
         ki = KnowIntegration(robot_id="ur5e", event_bus=bus)
