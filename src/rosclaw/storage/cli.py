@@ -1444,8 +1444,94 @@ def cmd_data_lineage(args: argparse.Namespace) -> int:
     return 0
 
 
+@_with_stdout_flush
+def cmd_data_reconcile(args: argparse.Namespace) -> int:
+    """Catch up everything the store is owed after an outage (DF-19)."""
+    cfg = _load_storage_config(args)
+    data_root = getattr(args, "data_root", None) or cfg["practice_data_root"]
+    try:
+        client = _create_client(cfg)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[rosclaw data reconcile] Failed to create backend: {exc}", file=sys.stderr)
+        return 1
+
+    retrieval_store = None
+    if cfg.get("retrieval_enabled") and Path(str(cfg.get("retrieval_path") or "")).exists():
+        try:
+            from rosclaw.storage.seekdb_native import SeekDBEmbeddedRetrievalStore
+
+            retrieval_store = SeekDBEmbeddedRetrievalStore(path=cfg["retrieval_path"])
+        except Exception as exc:  # noqa: BLE001
+            print(f"[rosclaw data reconcile] retrieval store unavailable: {exc}", file=sys.stderr)
+
+    evolution_cache = None
+    spool_path = getattr(args, "spool_path", None)
+    try:  # default spool always considered; empty dirs are a noop
+        from rosclaw.auto.storage.local_store import LocalStore
+
+        evolution_cache = LocalStore(spool_path or str(cfg["home"] / "data" / "auto"))
+    except Exception as exc:  # noqa: BLE001
+        print(f"[rosclaw data reconcile] evolution spool unavailable: {exc}", file=sys.stderr)
+
+    try:
+        from rosclaw.storage.reconciler import DataReconciler
+
+        reconciler = DataReconciler(
+            structured_store=client,
+            data_root=data_root,
+            retrieval_store=retrieval_store,
+            evolution_cache=evolution_cache,
+        )
+        report = reconciler.reconcile_all(
+            practice_id=getattr(args, "practice", None),
+            dry_run=getattr(args, "dry_run", False),
+        )
+    except Exception as exc:  # noqa: BLE001
+        print(f"[rosclaw data reconcile] reconcile failed: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        _close_client(client)
+
+    if getattr(args, "json", False):
+        print(json.dumps(report, indent=2, default=str))
+    else:
+        memory = report.get("memory", {})
+        if "practices" in memory:
+            print(
+                f"memory: pending={memory.get('pending_before')} "
+                f"processed={memory.get('processed')} "
+                f"still_required={memory.get('still_required')}"
+            )
+        else:
+            print(f"memory: practice {memory.get('practice_id')} processed={memory.get('processed')}")
+            for name, step in (memory.get("steps") or {}).items():
+                print(f"  {name}: {step}")
+        proj = report.get("projection", {})
+        if proj.get("skipped"):
+            print(f"projection: skipped ({proj['skipped']})")
+        else:
+            print(
+                f"projection: lag {proj.get('lag_before')} -> {proj.get('lag_after', proj.get('action'))}"
+            )
+        spool = report.get("evolution_spool", {})
+        if spool.get("skipped"):
+            print(f"evolution spool: skipped ({spool['skipped']})")
+        else:
+            print(
+                f"evolution spool: upserted={spool.get('upserted')} "
+                f"current={spool.get('skipped_current')} errors={spool.get('errors')}"
+            )
+        if report.get("dry_run"):
+            print("(dry-run: no writes performed)")
+    failed = bool(
+        (report.get("memory", {}).get("still_required") or 0) > 0
+        or (report.get("evolution_spool", {}).get("errors") or 0) > 0
+    )
+    return 1 if failed else 0
+
+
 def add_data_subparser(subparsers: Any) -> Any:
-    """Add ``rosclaw data`` subcommands (PR-DF-17)."""
+    """Add ``rosclaw data`` subcommands (PR-DF-17/DF-19)."""
     data_parser = subparsers.add_parser("data", help="Data flywheel queries")
     data_subparsers = data_parser.add_subparsers(dest="data_command")
 
@@ -1461,6 +1547,28 @@ def add_data_subparser(subparsers: Any) -> Any:
     lineage_parser.add_argument("--backend", default=None, help="Override backend")
     lineage_parser.add_argument("--url", default=None, help="Override SQL URL")
     lineage_parser.add_argument("--path", default=None, help="Override SQLite path")
+
+    reconcile_parser = data_subparsers.add_parser(
+        "reconcile",
+        help="Catch up fact ingest / memory distillation / projection / evolution spool after an outage (DF-19)",
+    )
+    reconcile_parser.add_argument("--practice", default=None, help="Reconcile one practice id")
+    reconcile_parser.add_argument(
+        "--all",
+        action="store_true",
+        help="Reconcile every pending practice (default when --practice is omitted)",
+    )
+    reconcile_parser.add_argument(
+        "--dry-run", action="store_true", help="Report what would be reconciled without writes"
+    )
+    reconcile_parser.add_argument("--json", action="store_true", help="Output JSON")
+    reconcile_parser.add_argument("--data-root", default=None, help="Practice data root")
+    reconcile_parser.add_argument(
+        "--spool-path", default=None, help="Evolution LocalStore spool (default: ~/.rosclaw/data/auto)"
+    )
+    reconcile_parser.add_argument("--backend", default=None, help="Override backend")
+    reconcile_parser.add_argument("--url", default=None, help="Override SQL URL")
+    reconcile_parser.add_argument("--path", default=None, help="Override SQLite path")
     return data_parser
 
 

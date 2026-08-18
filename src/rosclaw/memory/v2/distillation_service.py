@@ -26,6 +26,7 @@ import logging
 import queue
 import threading
 import time
+from pathlib import Path
 from typing import Any
 
 from rosclaw.core.event_topics import EventTopics
@@ -200,6 +201,7 @@ class MemoryDistillationService:
                 len(result["merged"]),
                 result["quarantined"],
             )
+            self._mark_catalog(session_dir, practice_id, ok=True)
         except Exception as exc:  # noqa: BLE001 — T8: corrupt session -> ledger error, never crash
             logger.warning("distillation failed for %s: %s", practice_id, exc)
             self._ledger_write(
@@ -211,6 +213,45 @@ class MemoryDistillationService:
                     "last_error": str(exc)[:500],
                 },
             )
+            self._mark_catalog(session_dir, practice_id, ok=False, error=str(exc)[:500])
+
+    @staticmethod
+    def _mark_catalog(
+        session_dir: str, practice_id: str, *, ok: bool, error: str | None = None
+    ) -> None:
+        """DF-19 (§20-21): annotate the offline reconcile ledger in the catalog.
+
+        On failure the practice is flagged ``reconcile_required`` so
+        ``rosclaw data reconcile`` can find it after the store recovers;
+        on success the flag clears only when fact ingest is also done.
+        """
+        try:
+            from rosclaw.practice.storage.catalog import (
+                reconcile_catalog_path,
+                update_reconcile_fields,
+            )
+
+            data_root = Path(session_dir).parent.parent
+            catalog_path = reconcile_catalog_path(data_root)
+            if ok:
+                update_reconcile_fields(
+                    catalog_path,
+                    practice_id,
+                    {
+                        "memory_distilled": 1,
+                        "last_memory_distill_at": time.time(),
+                        "memory_distill_error": None,
+                        "reconcile_required": "auto",
+                    },
+                )
+            else:
+                update_reconcile_fields(
+                    catalog_path,
+                    practice_id,
+                    {"reconcile_required": 1, "memory_distill_error": error or "failed"},
+                )
+        except Exception:  # noqa: BLE001 — ledger marking never breaks the data path
+            pass
 
     # -- quality policy (§5.10) ------------------------------------------
 

@@ -213,12 +213,26 @@ class PracticeFactIngestor:
                 except Exception as exc:
                     logger.warning("Failed to update candidate status: %s", exc)
 
-            # Mark catalog as committed
+            # Mark catalog as committed + reconcile-ledger fact side (DF-19 §21)
             try:
-                catalog.update_practice(practice_id, {"seekdb_committed": 1})
+                catalog.update_practice(
+                    practice_id,
+                    {
+                        "seekdb_committed": 1,
+                        "fact_ingested": 1,
+                        "last_fact_ingest_at": time.time(),
+                        "fact_ingest_error": None,
+                    },
+                )
             except Exception as exc:
                 logger.warning("Failed to update catalog seekdb_committed: %s", exc)
                 report.errors.append(f"catalog_commit: {exc}")
+            # Clear reconcile_required only when the memory side is also done.
+            from rosclaw.practice.storage.catalog import update_reconcile_fields
+
+            update_reconcile_fields(
+                catalog._db_path, practice_id, {"reconcile_required": "auto"}
+            )
 
             if report.errors:
                 report.success = any(

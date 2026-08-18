@@ -83,6 +83,7 @@ from rosclaw.storage.cli import (
     add_data_subparser,
     add_db_subparser,
     cmd_data_lineage,
+    cmd_data_reconcile,
     cmd_db_doctor,
     cmd_db_reconcile,
     cmd_db_status,
@@ -9310,6 +9311,8 @@ def main() -> int:
         elif args.command == "data":
             if args.data_command == "lineage":
                 return cmd_data_lineage(args)
+            elif args.data_command == "reconcile":
+                return cmd_data_reconcile(args)
             else:
                 data_parser.print_help()
                 return 1
