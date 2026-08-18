@@ -1,0 +1,20 @@
+# DF-20 Mode A (edge) — the CI-required deployment shape (phase-II §27.1)
+structured_store:
+  backend: sqlite
+  path: ${WORKDIR}/structured.sqlite
+retrieval_store:
+  backend: seekdb_native
+  mode: embedded
+  path: ${WORKDIR}/retrieval
+practice:
+  mock: true
+  session_seconds: 0.1
+loop:
+  episodes: 50            # CI small loop (§28)
+  reconcile_every: 10
+hurt_gate:
+  enabled: true
+  memory_hurt_rate_max: 0.05   # P0 gate (§31)
+soak:                      # not CI — real machines only (§29)
+  episodes_tiers: [1000, 10000]
+  duration_tiers: ["7x24h"]

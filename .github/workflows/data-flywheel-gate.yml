@@ -64,3 +64,13 @@ jobs:
           mypy src/rosclaw
           python -m compileall -q src/rosclaw
           git diff --check
+
+      - name: Gate E — live acceptance (embedded, 50 episodes + hurt gate)
+        run: |
+          python validation/data_flywheel/scripts/run_live_acceptance.py \
+            --episodes 50 --hurt-gate \
+            --workdir /tmp/data_flywheel_live \
+            --report validation/data_flywheel/reports/live_acceptance.json
+
+      - name: Gate E — harness unit tests
+        run: pytest validation/data_flywheel/tests -q
