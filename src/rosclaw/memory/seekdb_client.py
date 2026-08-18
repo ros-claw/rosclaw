@@ -530,6 +530,30 @@ ROSCLAW_STRUCTURED_SCHEMAS: dict[str, Any] = {
         },
         "indices": ["practice_id", "status", "created_at"],
     },
+    # Knowledge usage ledger (PR-DF-21, phase-II §32.1): durable observation
+    # of ReferencePack/Advice usage and conservative verdicts.  Observation
+    # only — NO ranking formula consumes this yet (§32.3).
+    "knowledge_usage_events": {
+        "columns": {
+            "id": "TEXT PRIMARY KEY",
+            "usage_id": "TEXT",
+            "reference_pack_id": "TEXT",
+            "knowledge_unit_id": "TEXT",
+            "advice_id": "TEXT",
+            "trace_id": "TEXT",
+            "practice_id": "TEXT",
+            "episode_id": "TEXT",
+            "receipt_id": "TEXT",
+            "robot_id": "TEXT",
+            "body_id": "TEXT",
+            "task_id": "TEXT",
+            "skill_id": "TEXT",
+            "verdict": "TEXT",
+            "confidence": "REAL",
+            "created_at": "REAL",
+        },
+        "indices": ["knowledge_unit_id", "reference_pack_id", "verdict", "created_at"],
+    },
     # Execution receipts (PR-DF-14, flywheel §21): the data-plane projection
     # of kernel ExecutionReceipts.  rosclawd's own ledgers stay authoritative
     # — this table is an async index, never consulted for authorization.
