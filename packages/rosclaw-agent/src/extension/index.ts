@@ -753,24 +753,34 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 						const jobs = (jobsRes.jobs ?? []) as Array<Record<string, unknown>>;
 						const execs = (execRes.executions ?? []) as Array<Record<string, unknown>>;
 						const linked = new Set(
-							execs.map((e) => String(e.work_order_id ?? "")).filter(Boolean),
-						);
-						const execCards = execs.map((e) => ({
-							root_job_id: String(e.execution_id),
-							goal: String(e.goal ?? ""),
-							state: String(e.state ?? ""),
-							runtime: String(e.runtime ?? ""),
-							attempts: e.work_order_id
-								? [{
-									work_order_id: String(e.work_order_id),
-									seq: 1,
-									actor: "control-plane",
-									status: String(e.state ?? ""),
-									termination_cause: "",
-								}]
-								: [],
-						}));
-						const orphanJobs = jobs.filter(
+								execs.flatMap((e) => [
+									String(e.work_order_id ?? ""),
+									...((e.linked_ids as string[] | undefined) ?? []),
+								]).filter(Boolean),
+							);
+							const execCards = execs.map((e) => {
+								const verifier = (e.verifier as Record<string, unknown> | undefined) ?? {};
+								const checks = Number(verifier.checks ?? 0);
+								const verdict = String(verifier.verdict ?? "");
+								return {
+									root_job_id: String(e.execution_id),
+									goal: String(e.goal ?? ""),
+									state: String(e.state ?? ""),
+									runtime: String(e.runtime ?? ""),
+									profile: String(e.profile ?? "") || undefined,
+									verifier: verdict
+										? `${verdict}·${checks} 项`
+										: (String(e.verifier_feedback ?? "") || undefined),
+									attempts: ((e.attempts as Array<Record<string, unknown>> | undefined) ?? []).map((a) => ({
+										work_order_id: String(a.work_order_id ?? ""),
+										seq: Number(a.seq ?? 0),
+										actor: String(a.actor ?? ""),
+										status: String(a.status ?? ""),
+										termination_cause: String(a.termination_cause ?? ""),
+									})),
+								};
+							});
+const orphanJobs = jobs.filter(
 							(j) => !linked.has(String(j.root_job_id ?? ""))
 								&& !(j.attempts as Array<{ work_order_id?: string }> ?? []).some(
 									(a) => linked.has(String(a.work_order_id ?? "")),

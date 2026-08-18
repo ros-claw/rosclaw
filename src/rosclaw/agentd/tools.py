@@ -120,7 +120,13 @@ class BuiltinToolRegistry:
 
         if self._home is None:
             raise ValidationError("sim trajectory tools require rosclaw home")
-        svc = SimTrajectoryService(_Path(self._home))
+        # 十六审 P0-C：渲染依赖走托管 runtime（Pillow 缺失自动预置，
+        # 不再甩给 Worker/用户装包）。
+        from rosclaw.agentd.runtime_manager import RuntimeManager
+
+        svc = SimTrajectoryService(
+            _Path(self._home), runtime_manager=RuntimeManager(self._home)
+        )
         try:
             if name == TRAJ_PLAN_TOOL:
                 result = svc.generate_planar_path(

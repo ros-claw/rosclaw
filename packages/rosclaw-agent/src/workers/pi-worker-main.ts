@@ -16,7 +16,7 @@ import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } fr
 import { writeSync } from "node:fs";
 
 import { buildSystemPrompt, profileFor } from "./profiles.js";
-import { finalTextOfMessages, normalizeAssistantContent } from "./content-normalize.js";
+import { finalTextOfMessages, normalizeAssistantContent, terminalStatusFromReport } from "./content-normalize.js";
 import { createSharedModelRuntime } from "../runtime/model-runtime.js";
 
 export interface WorkerEnvelope {
@@ -711,12 +711,17 @@ export async function runHeadlessWorker(argv: string[]): Promise<number> {
 				exitCode = 1;
 				break;
 			}
+			const finalReport = finalTextOf(messages);
+			// 十六审 A3：终态协议解析——模型报告末尾的
+			// `TERMINAL STATUS: BLOCKED` 是 harness 协议标记，转成
+			// termination.json 的结构化 cause（ROSClaw 侧不做文本推断）。
+			const terminalStatus = terminalStatusFromReport(finalReport);
 			emit(wo, att, "attempt_finished", {
-				report: finalTextOf(messages),
+				report: finalReport,
+				status: terminalStatus,
 				usage,
 				model: snapshot ? `${snapshot.provider}/${snapshot.model}` : undefined,
-			});
-			// 十四审 PR-14.3：artifacts channel——产物清单带 sha256（部分
+			});			// 十四审 PR-14.3：artifacts channel——产物清单带 sha256（部分
 			// 成果产品化的账本证据：trace/CSV/帧/日志都可审计）。
 			try {
 				const { createHash } = await import("node:crypto");
@@ -742,7 +747,13 @@ export async function runHeadlessWorker(argv: string[]): Promise<number> {
 			} catch {
 				// artifacts 清点失败不阻塞完成
 			}
-			writeTermination("COMPLETED", "", 0);
+			if (terminalStatus === "BLOCKED") {
+				// Worker 诚实报告缺能力/缺输入——结构化 BLOCKED 终态
+				// （退出码 0：进程正常结束，状态由 termination.json 携带）。
+				writeTermination("BLOCKED", finalReport.slice(-300), 0);
+			} else {
+				writeTermination("COMPLETED", "", 0);
+			}
 			exitCode = 0;
 		}
 		unsubscribe();

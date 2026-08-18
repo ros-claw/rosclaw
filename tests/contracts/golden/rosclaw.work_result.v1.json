@@ -125,7 +125,8 @@
         "COMPLETED",
         "FAILED",
         "BLOCKED",
-        "INTERRUPTED"
+        "INTERRUPTED",
+        "CANCELLED"
       ],
       "title": "Status",
       "type": "string"

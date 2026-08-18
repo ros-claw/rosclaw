@@ -334,6 +334,15 @@ def cmd_learning_promote(args: argparse.Namespace) -> int:
 
 def cmd_doctor(args: argparse.Namespace) -> int:
     home = _home(args)
+    topic = str(getattr(args, "topic", "") or "")
+    if topic:
+        # 十六审 P0-C：托管 runtime 探测（simulation 等）——不需要
+        # 模型凭据；报告托管解释器的真实 probe 结果。
+        from rosclaw.agentd.runtime_manager import doctor_runtime
+
+        report = doctor_runtime(home, topic)
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        return 0 if report.get("ready") else 1
     if not _load_stored_credentials(home):
         return 2
     report = doctor(home)
@@ -991,6 +1000,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_status.set_defaults(func=cmd_status)
 
     p_doctor = sub.add_parser("doctor", help="model/agent readiness probe")
+    p_doctor.add_argument(
+        "topic", nargs="?", default="",
+        help="主题探测：simulation = 托管仿真 runtime（无需模型凭据）",
+    )
     p_doctor.set_defaults(func=cmd_doctor)
 
     p_init = sub.add_parser("init", help="configure model provider + probe")
@@ -1075,6 +1088,11 @@ def add_agent_subparsers(subparsers) -> None:
             p.add_argument("--base-url", default=None)
             p.add_argument("--model", default=None)
             p.add_argument("--api-key-ref", default=None)
+        if name == "doctor":
+            p.add_argument(
+                "topic", nargs="?", default="",
+                help="主题探测：simulation = 托管仿真 runtime（无需模型凭据）",
+            )
         p.set_defaults(func=fn)
 
     add_credential_subcommands(agent_sub)

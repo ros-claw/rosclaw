@@ -92,3 +92,15 @@ export function finalTextOfMessages(messages: Array<Record<string, unknown>>): s
 	}
 	return "";
 }
+
+/** 十六审 A3：worker 终态协议——harness 教模型在报告末尾写一行
+ * `TERMINAL STATUS: COMPLETED|BLOCKED`，harness 侧解析这个协议标记
+ * 写 termination.json（结构化 cause）。这是 harness 自有协议的确定性
+ * 解析，不是 ROSClaw 对自由文本摘要的状态推断；缺标记按 COMPLETED
+ * （有最终报告即完成）。取最后一个匹配行（模型中途引用该字符串不误判）。
+ */
+export function terminalStatusFromReport(report: string): "COMPLETED" | "BLOCKED" {
+	const matches = report.match(/^TERMINAL STATUS:\s*(COMPLETED|BLOCKED)\b/gim);
+	if (!matches || matches.length === 0) return "COMPLETED";
+	return /BLOCKED/i.test(matches[matches.length - 1]) ? "BLOCKED" : "COMPLETED";
+}
