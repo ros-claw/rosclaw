@@ -7,7 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from rosclaw.cli import cmd_know_compile
-from rosclaw.know.interface import KnowledgeInterface
+from rosclaw.knowledge.legacy.interface import KnowledgeInterface
 
 
 def _make_episode_for_know(data_root: Path, episode_id: str) -> Path:

@@ -1,6 +1,6 @@
 """Tests for know/storage.py seed and ingest helpers."""
 
-from rosclaw.know.storage import ingest_e_urdf_capabilities, seed_knowledge_graph
+from rosclaw.knowledge.legacy.storage import ingest_e_urdf_capabilities, seed_knowledge_graph
 
 
 class FakeSeekDB:

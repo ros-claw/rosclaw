@@ -1,4 +1,4 @@
-"""Tests for optional rosclaw_know integration inside rosclaw.know.interface.
+"""Tests for optional rosclaw_know integration inside rosclaw.knowledge.legacy.interface.
 
 These tests mock the private ``rosclaw_know`` loader so they do not depend on
 the compiled assets in ``rosclaw-know/data/``.
@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from unittest.mock import MagicMock
 
-from rosclaw.know.interface import KnowledgeInterface
+from rosclaw.knowledge.legacy.interface import KnowledgeInterface
 
 
 @dataclass(frozen=True)
@@ -46,7 +46,7 @@ class TestKnowledgeInterfaceRosclawKnowBridge:
             failed_attempt="Increase Ki indefinitely",
         )
 
-        import rosclaw.know.interface as ki_mod
+        import rosclaw.knowledge.legacy.interface as ki_mod
 
         monkeypatch.setattr(ki_mod, "_load_rosclaw_know_patterns", lambda: [fake])
 
@@ -67,7 +67,7 @@ class TestKnowledgeInterfaceRosclawKnowBridge:
         ki._do_stop()
 
     def test_no_registry_calls_by_default(self, monkeypatch, tmp_path):
-        import rosclaw.know.interface as ki_mod
+        import rosclaw.knowledge.legacy.interface as ki_mod
 
         calls = []
         monkeypatch.setattr(
@@ -83,7 +83,7 @@ class TestKnowledgeInterfaceRosclawKnowBridge:
         ki._do_stop()
 
     def test_bridge_validation_logs_warnings(self, monkeypatch, tmp_path):
-        import rosclaw.know.interface as ki_mod
+        import rosclaw.knowledge.legacy.interface as ki_mod
 
         report = {"ok": False, "errors": ["missing schema_version"], "warnings": []}
         validator = MagicMock(return_value=report)
@@ -100,7 +100,7 @@ class TestKnowledgeInterfaceRosclawKnowBridge:
         ki._do_stop()
 
     def test_bridge_validation_swallowed_when_package_missing(self, monkeypatch, tmp_path):
-        import rosclaw.know.interface as ki_mod
+        import rosclaw.knowledge.legacy.interface as ki_mod
 
         # Simulate rosclaw_know not installed by making the validator raise ImportError.
         monkeypatch.setattr(
@@ -124,7 +124,7 @@ class TestKnowledgeInterfaceRosclawKnowBridge:
             fix_pattern="Clip gradients",
         )
 
-        import rosclaw.know.interface as ki_mod
+        import rosclaw.knowledge.legacy.interface as ki_mod
 
         monkeypatch.setattr(ki_mod, "_load_rosclaw_know_patterns", lambda: [fake])
 

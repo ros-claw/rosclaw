@@ -5081,7 +5081,7 @@ def cmd_memory_migrate(args: argparse.Namespace) -> int:
 
 def cmd_know_search(args: argparse.Namespace) -> int:
     """Search KNOW knowledge base for symptoms, patterns, or analogies."""
-    from rosclaw.know.interface import KnowledgeInterface
+    from rosclaw.knowledge.legacy.interface import KnowledgeInterface
 
     know = KnowledgeInterface(robot_id=args.robot_id or "rosclaw_default")
     know._do_initialize()
@@ -5138,7 +5138,7 @@ def cmd_know_search(args: argparse.Namespace) -> int:
 
 def cmd_know_robot(args: argparse.Namespace) -> int:
     """Show robot safety limits and simulation profile from KNOW."""
-    from rosclaw.know.interface import KnowledgeInterface
+    from rosclaw.knowledge.legacy.interface import KnowledgeInterface
 
     robot_id = args.robot_id
     know = KnowledgeInterface(robot_id=robot_id)
@@ -5183,7 +5183,7 @@ def cmd_know_robot(args: argparse.Namespace) -> int:
 
 def cmd_know_recommend(args: argparse.Namespace) -> int:
     """Recommend robots for a given task."""
-    from rosclaw.know.interface import KnowledgeInterface
+    from rosclaw.knowledge.legacy.interface import KnowledgeInterface
     from rosclaw.runtime import RobotRegistry
 
     task = args.task
@@ -5222,7 +5222,7 @@ def cmd_know_recommend(args: argparse.Namespace) -> int:
 
 def cmd_know_compile(args: argparse.Namespace) -> int:
     """Compile a task card grounded in a practice episode."""
-    from rosclaw.know.interface import KnowledgeInterface
+    from rosclaw.knowledge.legacy.interface import KnowledgeInterface
 
     task = args.task
     episode_id = args.episode_id

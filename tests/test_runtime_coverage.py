@@ -2291,8 +2291,8 @@ class TestKnowledgeInitialization:
         rt = Runtime(config=cfg)
         with (
             patch("rosclaw.memory.interface.MemoryInterface") as mock_mem_cls,
-            patch("rosclaw.know.interface.KnowledgeInterface") as mock_know_cls,
-            patch("rosclaw.know.storage.seed_knowledge_graph") as mock_seed,
+            patch("rosclaw.knowledge.legacy.interface.KnowledgeInterface") as mock_know_cls,
+            patch("rosclaw.knowledge.legacy.storage.seed_knowledge_graph") as mock_seed,
         ):
             mock_mem = MagicMock()
             mock_mem.seekdb_client = MagicMock()
@@ -2321,8 +2321,8 @@ class TestKnowledgeInitialization:
         # structured store (PR-DF-18 resolution order) -> seed must not run.
         with (
             patch("rosclaw.memory.interface.MemoryInterface") as mock_mem_cls,
-            patch("rosclaw.know.interface.KnowledgeInterface") as mock_know_cls,
-            patch("rosclaw.know.storage.seed_knowledge_graph") as mock_seed,
+            patch("rosclaw.knowledge.legacy.interface.KnowledgeInterface") as mock_know_cls,
+            patch("rosclaw.knowledge.legacy.storage.seed_knowledge_graph") as mock_seed,
             patch.object(
                 Runtime, "_create_data_plane", return_value=DataPlaneContext()
             ),

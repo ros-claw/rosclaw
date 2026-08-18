@@ -297,7 +297,7 @@ def test_memory_interface_find_analogy_uses_active_collection() -> None:
 def test_know_match_symptom_uses_active_collection() -> None:
     import json
 
-    from rosclaw.know.interface import KnowledgeInterface
+    from rosclaw.knowledge.legacy.interface import KnowledgeInterface
     from rosclaw.memory.interface import MemoryInterface
 
     row = _failure_row("mem_left_hint", "rh56_left_01", "middle")

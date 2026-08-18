@@ -47,8 +47,11 @@ def test_shim_deep_paths():
 def test_no_shim_imports_inside_src():
     import subprocess
 
+    # Import statements only (DF-24.1 precedent): event-topic strings like
+    # "rosclaw.auto.proposal.created" are wire protocol, not source layout,
+    # and must survive the physical move untouched.
     out = subprocess.run(
-        ["grep", "-rn", "rosclaw\\.auto\\.", "src/rosclaw", "--include=*.py"],
+        ["grep", "-rnE", "(from|import)\\s+rosclaw\\.auto(\\.|\\s|$)", "src/rosclaw", "--include=*.py"],
         capture_output=True,
         text=True,
     ).stdout
@@ -58,6 +61,5 @@ def test_no_shim_imports_inside_src():
         if "src/rosclaw/auto/" not in line
         and "evolution/orchestrator" not in line
         and "getLogger" not in line
-        and '"rosclaw.auto.' not in line  # event topic strings are not imports
     ]
     assert not offenders, f"shim imports survived in src: {offenders}"

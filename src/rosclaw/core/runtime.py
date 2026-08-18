@@ -677,8 +677,8 @@ class Runtime(LifecycleMixin):
         # Rollback-only local KnowledgeInterface. v2 never receives Memory's store.
         if knowledge_cfg.enabled and v2_mode == "disabled":
             try:
-                from rosclaw.know.interface import KnowledgeInterface
-                from rosclaw.know.storage import seed_knowledge_graph
+                from rosclaw.knowledge.legacy.interface import KnowledgeInterface
+                from rosclaw.knowledge.legacy.storage import seed_knowledge_graph
 
                 # Modules take the data plane's structured store explicitly
                 # (PR-DF-18 §15.6 — no bare `seekdb` compat locals); the
@@ -707,7 +707,7 @@ class Runtime(LifecycleMixin):
                 # here MUST NOT kill the runtime — the query side keeps
                 # working with its hard-coded fallback patterns.
                 try:
-                    from rosclaw.know.batch_engine import KnowledgeBatchEngine
+                    from rosclaw.knowledge.legacy.batch_engine import KnowledgeBatchEngine
 
                     self._knowledge_batch = KnowledgeBatchEngine(
                         runtime=self,
@@ -722,7 +722,7 @@ class Runtime(LifecycleMixin):
                     logger.info(f"KnowledgeBatchEngine not initialized: {e}")
 
                 try:
-                    from rosclaw.know.assets_loader import AssetsLoader
+                    from rosclaw.knowledge.legacy.assets_loader import AssetsLoader
 
                     self._knowledge_assets = AssetsLoader(
                         runtime=self,

@@ -21,7 +21,7 @@ def test_legacy_import_surface():
 def test_know_package_still_importable():
     import rosclaw.know  # noqa: F401 — compat shim must keep working
 
-    assert "DEPRECATED" in rosclaw.know.__doc__
+    assert "DEPRECATED" in rosclaw.knowledge.legacy.__doc__
 
 
 def _cfg(**over):

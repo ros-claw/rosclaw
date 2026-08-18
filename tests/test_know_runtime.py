@@ -3,9 +3,9 @@
 These tests cover the runtime-side modules that wrap the
 :mod:`rosclaw_know` compiler:
 
-  - ``rosclaw.know.batch_engine.KnowledgeBatchEngine``
-  - ``rosclaw.know.assets_loader.AssetsLoader``
-  - ``rosclaw.know.task_pack_adapter.task_pack_for``
+  - ``rosclaw.knowledge.legacy.batch_engine.KnowledgeBatchEngine``
+  - ``rosclaw.knowledge.legacy.assets_loader.AssetsLoader``
+  - ``rosclaw.knowledge.legacy.task_pack_adapter.task_pack_for``
 
 Each test runs without pulling in the full runtime stack, so they
 exercise the rosclaw-know boundary in isolation.
@@ -26,7 +26,7 @@ _rosclaw_know = pytest.importorskip("rosclaw_know", reason="rosclaw-know not ins
 
 
 from rosclaw.core.event_bus import Event, EventBus  # noqa: E402
-from rosclaw.know.batch_engine import (  # noqa: E402
+from rosclaw.knowledge.legacy.batch_engine import (  # noqa: E402
     KnowledgeBatchEngine,
     _infer_event_type,
     _payload_to_robot_events,
@@ -214,7 +214,7 @@ class TestEventTriggersReweight:
 )
 class TestTaskPackAdapter:
     def test_known_task_returns_non_empty_pack(self):
-        from rosclaw.know.task_pack_adapter import reload_assets, task_pack_for
+        from rosclaw.knowledge.legacy.task_pack_adapter import reload_assets, task_pack_for
 
         reload_assets()  # clear cache from any prior test
         # Pick any TaskCard from the catalog as a probe.
@@ -230,7 +230,7 @@ class TestTaskPackAdapter:
         # the catalog is sparse for this particular id.
 
     def test_unknown_task_returns_warning_pack(self):
-        from rosclaw.know.task_pack_adapter import reload_assets, task_pack_for
+        from rosclaw.knowledge.legacy.task_pack_adapter import reload_assets, task_pack_for
 
         reload_assets()
         pack = task_pack_for(
@@ -240,7 +240,7 @@ class TestTaskPackAdapter:
         assert pack["warnings"], "should warn on unknown task_id"
 
     def test_missing_assets_dir_returns_empty_pack(self, tmp_path: Path):
-        from rosclaw.know.task_pack_adapter import reload_assets, task_pack_for
+        from rosclaw.knowledge.legacy.task_pack_adapter import reload_assets, task_pack_for
 
         reload_assets()
         pack = task_pack_for("anything", assets_dir=tmp_path / "missing")
@@ -252,7 +252,7 @@ class TestTaskPackAdapter:
 
 class TestAssetsLoader:
     def test_reload_on_event(self, tmp_path: Path):
-        from rosclaw.know.assets_loader import AssetsLoader
+        from rosclaw.knowledge.legacy.assets_loader import AssetsLoader
 
         # Minimal bridge_index.json (rebuilt below per test).
         (tmp_path / "bridge_index.json").write_text(json.dumps({"version": "v2", "clusters": []}))
@@ -302,7 +302,7 @@ class TestMCPKnowledgeTools:
 
             runtime = _RT()
             if with_runtime_knowledge:
-                from rosclaw.know.interface import KnowledgeInterface
+                from rosclaw.knowledge.legacy.interface import KnowledgeInterface
 
                 ki = KnowledgeInterface(
                     robot_id="mcp_test",
