@@ -14,6 +14,7 @@ import stat
 from pathlib import Path
 
 from tests.agentd.test_pi_tool_bridge import _setup
+from tests.agentd.test_seventeen_a import _enable_fake
 
 
 async def _executions_cards(service, mission_id: str) -> list[dict]:
@@ -124,4 +125,53 @@ class TestExecutionCardFolding:
             f"内置仿真链不得出现 Worker 卡: {cards[0]['attempts']}"
         )
         assert cards[0]["state"] == "SUCCEEDED", cards[0]["summary"]
+        await service.close()
+
+
+class TestFuzzyAttach:
+    def test_goal_similarity(self) -> None:
+        from rosclaw.agentd.control_plane import _goal_similarity
+
+        assert _goal_similarity(
+            "编写一个 Python 脚本计算斐波那契数列前 10 项",
+            "编写一个名为 fib.py 的 Python 脚本，计算斐波那契数列前 10 项",
+        ) >= 0.80
+        assert _goal_similarity("画五角星仿真", "写一个贪吃蛇游戏") < 0.80
+
+    async def test_reworded_same_goal_attaches(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """同一目标换措辞重提 → attach（不裂变）；不同目标 → 新任务。
+        驱动打桩立即返回（execution 停留 PREFLIGHT 活跃态）——测的是
+        submit 的 attach 判定，不烧 Worker。"""
+        service, mission = await _setup(tmp_path)
+        plane = service._task_control_plane
+
+        async def _noop_drive(*args, **kwargs):
+            return None
+
+        monkeypatch.setattr(plane, "_drive", _noop_drive)
+        first = await plane.submit(
+            mission.mission_id,
+            {"goal": "编写一个 Python 脚本计算斐波那契数列前 10 项并保存",
+             "effects": "workspace_only", "acceptance": {}},
+            idem="17d_fuzzy1",
+        )
+        second = await plane.submit(
+            mission.mission_id,
+            {"goal": "编写一个名为 fib.py 的 Python 脚本，计算斐波那契前 10 项并保存",
+             "effects": "workspace_only", "acceptance": {}},
+            idem="17d_fuzzy2",
+        )
+        assert second.get("attached"), "换措辞重提同目标必须 attach（防裂变）"
+        assert second["execution_id"] == first["execution_id"]
+        third = await plane.submit(
+            mission.mission_id,
+            {"goal": "写一个完全不同的贪吃蛇游戏",
+             "effects": "workspace_only", "acceptance": {}},
+            idem="17d_fuzzy3",
+        )
+        assert not third.get("attached"), "不同目标不得 attach"
+        assert third["execution_id"] != first["execution_id"]
+        assert len(plane.executions_for(mission.mission_id)) == 2
         await service.close()

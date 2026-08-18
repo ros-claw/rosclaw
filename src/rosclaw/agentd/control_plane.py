@@ -84,6 +84,22 @@ def _fingerprint(mission_id: str, spec: dict) -> str:
     return hashlib.sha256(payload.encode()).hexdigest()[:24]
 
 
+def _goal_similarity(a: str, b: str) -> float:
+    """目标相似度（十六审 P0-E 防裂变）：归一化（去空白/标点/大小写）
+    后的 SequenceMatcher 比率。只用于"同一 mission 内活跃执行"的
+    attach 判定——终态任务永不被 attach（新目标是新任务）。"""
+    import difflib
+    import re
+
+    def _norm(text: str) -> str:
+        return re.sub(r"[\s，。、,.;；:：'\"\"''（）()【】《》<>_-]+", "", text).lower()
+
+    na, nb = _norm(a), _norm(b)
+    if not na or not nb:
+        return 0.0
+    return difflib.SequenceMatcher(None, na, nb).ratio()
+
+
 class ExecutionRouter:
     """确定性执行域选择——Native Agent 永不直接挑 Worker。"""
 
@@ -238,6 +254,21 @@ class TaskControlPlane:
         if active is not None:
             # Gate 3：一个任务一个 owning execution——重复提交只 attach。
             return self._view(dict(active), attached=True)
+        # 十六审 P0-E：模糊防裂变——模型换措辞重提同一目标（指纹不同）
+        # 也 attach 到活跃执行（归一化 + 相似度阈值，同 mission 内）。
+        goal = str(spec.get("goal", ""))
+        for cand in self._conn.execute(
+            "SELECT * FROM task_executions WHERE mission_id = ? "
+            "AND state NOT IN ('SUCCEEDED','FAILED','BLOCKED','CANCELLED') "
+            "ORDER BY created_at DESC",
+            (mission_id,),
+        ).fetchall():
+            try:
+                cand_goal = str(json.loads(cand["spec_json"]).get("goal", ""))
+            except (ValueError, TypeError):
+                continue
+            if _goal_similarity(goal, cand_goal) >= 0.80:
+                return self._view(dict(cand), attached=True)
         if not str(spec.get("goal", "")).strip():
             raise ValueError("TaskSpec.goal required")
         self._validate_acceptance(spec.get("acceptance") or {})

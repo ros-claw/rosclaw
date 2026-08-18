@@ -497,6 +497,15 @@ class PiTaskRunner:
                     },
                     ensure_ascii=False,
                 )
+            # 十六审：SUCCEEDED 摘要必须是干净结论——失败 attempt 的
+            # AdapterError 文本不得出现在成功摘要里（验收在文件落盘后
+            # 才过，摘要却挂着 429 错误 = 用户无法理解的假矛盾）。
+            if "AdapterError" in summary or "worker attempt failed" in summary:
+                summary = (
+                    pure_report.strip()[:400]
+                    if pure_report.strip()
+                    else "验收通过——交付物已确认"
+                )
             self._plane._update_state(
                 execution_id, "SUCCEEDED",
                 summary=f"{summary[:400]}（验收 PASS·{verdict['checks']} 项）",
