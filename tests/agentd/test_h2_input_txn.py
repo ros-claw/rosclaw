@@ -21,6 +21,15 @@ from tests.agentd.test_product_journey import PtySession
 
 REPO = Path(__file__).resolve().parents[2]
 
+import pytest  # noqa: E402
+
+from rosclaw.agentd.pi_entry import find_pi_agent_entry  # noqa: E402
+
+pytestmark = pytest.mark.skipif(
+    not find_pi_agent_entry(),
+    reason="无 Node/dist（CI 全回归 job 未构建）——诚实 skip",
+)
+
 
 class TestInputRootTaskGate:
     def test_input_binds_single_root_task(self, tmp_path: Path) -> None:

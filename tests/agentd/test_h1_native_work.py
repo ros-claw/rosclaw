@@ -28,6 +28,15 @@ from tests.agentd.test_product_journey import (
 
 REPO = Path(__file__).resolve().parents[2]
 
+import pytest  # noqa: E402
+
+from rosclaw.agentd.pi_entry import find_pi_agent_entry  # noqa: E402
+
+pytestmark = pytest.mark.skipif(
+    not find_pi_agent_entry(),
+    reason="无 Node/dist（CI 全回归 job 未构建）——诚实 skip",
+)
+
 
 class _DirectWorkFake:
     """编排主会话直接干活的假模型：write → bash → 最终回答。"""
