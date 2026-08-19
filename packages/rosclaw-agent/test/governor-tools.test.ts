@@ -1,24 +1,16 @@
-/** 十五审 PR-RF-0/RF-1：Native Agent 治理工具面（无为而治）。
- *  模型可见工具只能是治理集 + 只读摘要——不再有 delegate/retry/
- *  check_work 这类底层 Worker 操控入口。 */
+/** PR-H1（ADR-0012）：Native Agent 工具面——主会话工作工具 + 具身集。
+ *  模型自己干活（Workspace Pack），task_submit/delegate/work_* 全系
+ *  退出模型面（root task 权威在 InputController——PR-H2）。 */
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
 import { MODEL_TOOL_NAMES } from "../src/tools/surface.js";
 
-describe("Native Governor 工具面（PR-RF-1）", () => {
-	it("模型可见工具 = 治理集 + 只读集", () => {
-		const governance = [
-			"rosclaw_task_submit",
-			"rosclaw_task_observe",
-			"rosclaw_task_steer",
-			"rosclaw_task_answer",
-			"rosclaw_task_pause",
-			"rosclaw_task_resume",
-			"rosclaw_task_cancel",
-		];
-		const readOnly = [
+describe("Native Agent 工具面（PR-H1）", () => {
+	it("模型可见工具 = Workspace Pack + Embodiment Pack", () => {
+		const workspace = ["read", "grep", "find", "ls", "edit", "write", "bash"];
+		const embodiment = [
 			"rosclaw_status",
 			"rosclaw_capabilities",
 			"rosclaw_observe",
@@ -27,14 +19,22 @@ describe("Native Governor 工具面（PR-RF-1）", () => {
 			"rosclaw_memory_query",
 			"rosclaw_fail_safe",
 			"rosclaw_task",
+			"rosclaw_request_action",
 		];
-		for (const name of [...governance, ...readOnly]) {
-			assert.ok(MODEL_TOOL_NAMES.includes(name), `缺治理工具 ${name}`);
+		for (const name of [...workspace, ...embodiment]) {
+			assert.ok(MODEL_TOOL_NAMES.includes(name), `缺工具 ${name}`);
 		}
 	});
 
-	it("底层 Worker 操控工具不再暴露给模型", () => {
+	it("task 治理/Worker 操控工具不再暴露给模型", () => {
 		const banned = [
+			"rosclaw_task_submit",
+			"rosclaw_task_observe",
+			"rosclaw_task_steer",
+			"rosclaw_task_answer",
+			"rosclaw_task_pause",
+			"rosclaw_task_resume",
+			"rosclaw_task_cancel",
 			"rosclaw_delegate",
 			"rosclaw_retry_work",
 			"rosclaw_resume_work",

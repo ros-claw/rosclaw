@@ -1,14 +1,49 @@
-/** Native Agent 模型可见工具面（十五审 PR-RF-1，ADR-0011）。
+/** Native Agent 模型可见工具面（PR-H1 重写，ADR-0012）。
  *
- * 无为而治：模型只见治理工具（task_*）+ 只读摘要工具。底层 Worker
- * 操控（delegate/retry/resume/extend/check/list/update/cancel/
- * read_work_*）从模型面移除——它们仍是 bridge/命令层的 plumbing，
- * 但不再交给模型自由组合（裂变/横跳/猜因的根源）。
+ * 总纲 v2：Native Agent 自己干活——主会话直接拥有策略包装的工作
+ * 工具（Workspace Pack）+ 具身能力（Embodiment Pack）。普通任务
+ * 不再委派第二个 Pi Session。
+ *
+ * 从模型面删除（§10.3）：
+ * - rosclaw_task_submit 等 task_* 治理工具——root task 由
+ *   InputController 创建（PR-H2），pause/resume/cancel 是产品控制，
+ *   不消耗模型回合；
+ * - delegate/work_* 全系——Worker 退出默认链（worker.enabled=false）。
  */
+
+/** Workspace Pack：普通工作的基础能力（PR-H1 主会话直开）。 */
+export const WORKSPACE_PACK: readonly string[] = [
+	"read",
+	"grep",
+	"find",
+	"ls",
+	"edit",
+	"write",
+	"bash",
+];
+
+/** Embodiment Pack：具身/安全链（rosclawd 权威不变）。 */
+export const EMBODIMENT_PACK: readonly string[] = [
+	"rosclaw_status",
+	"rosclaw_capabilities",
+	"rosclaw_observe",
+	"rosclaw_compute",
+	"rosclaw_task",
+	"rosclaw_verify",
+	"rosclaw_request_action",
+	"rosclaw_memory_query",
+	"rosclaw_fail_safe",
+];
 
 /** 模型可见工具（唯一真相源）。 */
 export const MODEL_TOOL_NAMES: readonly string[] = [
-	// 治理：提交/观察/steer/回答/暂停/恢复/取消（同一 owning execution）
+	...WORKSPACE_PACK,
+	...EMBODIMENT_PACK,
+];
+
+/** 从模型面移除的工具（§10.3——plumbing 保留在 bridge/命令层）。 */
+export const REMOVED_FROM_MODEL: readonly string[] = [
+	// root task 创建/操控是 InputController/产品层的权威
 	"rosclaw_task_submit",
 	"rosclaw_task_observe",
 	"rosclaw_task_steer",
@@ -16,22 +51,7 @@ export const MODEL_TOOL_NAMES: readonly string[] = [
 	"rosclaw_task_pause",
 	"rosclaw_task_resume",
 	"rosclaw_task_cancel",
-	// 任务级确定性入口（八审保留）
-	"rosclaw_task",
-	// 物理动作提案（rosclawd 唯一准入——治理面的一部分）
-	"rosclaw_request_action",
-	// 只读摘要
-	"rosclaw_status",
-	"rosclaw_capabilities",
-	"rosclaw_observe",
-	"rosclaw_compute",
-	"rosclaw_verify",
-	"rosclaw_memory_query",
-	"rosclaw_fail_safe",
-];
-
-/** 从模型面移除的底层 Worker 操控工具（plumbing 保留，不暴露）。 */
-export const REMOVED_FROM_MODEL: readonly string[] = [
+	// Worker 操控全系
 	"rosclaw_delegate",
 	"rosclaw_retry_work",
 	"rosclaw_resume_work",

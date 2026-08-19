@@ -17,8 +17,8 @@ import {
 import { migrateProviders } from "../credentials/migration.js";
 import { resourcePolicy } from "../extension/resource-policy.js";
 import { createSharedModelRuntime } from "./model-runtime.js";
-import { filterModelTools } from "../tools/surface.js";
-import { buildGovernanceTools } from "../tools/governance.js";
+import { filterModelTools, MODEL_TOOL_NAMES } from "../tools/surface.js";
+import { buildWorkspacePackTools } from "../tools/workspace-pack.js";
 import { ActiveSessionContext } from "../session/active-context.js";
 import { AgentSessionCoordinator } from "../session/coordinator.js";
 import { SessionLeaseManager } from "../session/lease-manager.js";
@@ -31,15 +31,6 @@ import { fileURLToPath } from "node:url";
 
 import { createRosclawExtension } from "../extension/index.js";
 import { buildBridgeTools } from "../tools/bridge-tools.js";
-import {
-	buildDelegateTool,
-	buildCheckWorkTool,
-	buildCancelWorkTool,
-	buildListWorkTool,
-	buildUpdateWorkTool,
-	buildRetryWorkTool,
-	buildWorkDiagnosticTools,
-} from "../tools/delegate.js";
 import { buildRequestActionTool } from "../tools/request-action.js";
 import { buildCapabilitiesTool } from "../tools/capabilities.js";
 import { buildComputeTool } from "../tools/compute.js";
@@ -191,20 +182,17 @@ export async function createRosclawRuntime(
 				},
 			});
 			active.patch({ sessionId: sessionManager.getSessionId() });
-			// 具身主 Agent 不需要 coding 工具；ROSClaw 工具走 customTools。
-			// 注意：noTools:"all" 会把 allowedToolNames 置空、连 customTools 一起
-			// 过滤掉（模型将看不到任何工具）——必须用显式 allowlist。
-			// 十五审 PR-RF-1（ADR-0011 无为而治）：模型只见治理工具
-			// （task_*）+ 只读摘要——底层 Worker 操控工具（delegate/retry/
-			// resume/extend/check/list/update/read_work_*）从模型面移除，
-			// 裂变/横跳/猜因不再可能。plumbing 仍在 bridge/命令层可用。
+			// PR-H1（ADR-0012，总纲 v2）：Native Agent 自己干活——主会话
+			// 直接拥有策略包装的工作工具（Workspace Pack：read/grep/find/ls
+			// 内建 + bash/write/edit 同名策略覆盖）+ Embodiment Pack。
+			// 普通任务不再委派第二个 Pi Session；task_submit/delegate/
+			// work_* 退出模型面（root task 权威在 InputController——H2）。
 			const customTools = filterModelTools([
-				// 十五审 PR-RF-1：治理工具（task_submit/observe/steer/answer/
-				// pause/resume/cancel）——模型唯一的任务入口。
-				...buildGovernanceTools({
-					rosclawHome: options.rosclawHome,
-					active,
-					center,
+				// 策略包装的工作工具（GUARDED_MAIN_SESSION——第一层过滤，
+				// 强隔离在 PR-H6）。
+				...buildWorkspacePackTools({
+					root: cwd,
+					bashLogPath: `${options.rosclawHome}/logs/main-bash.log`,
 				}),
 				buildStatusTool(center),
 				// PR-SIX-3：当前 body 的可信能力面（模型不再猜 ID）。
@@ -232,46 +220,6 @@ export async function createRosclawRuntime(
 					active,
 					center,
 				}),
-				buildDelegateTool({
-					rosclawHome: options.rosclawHome,
-					active,
-					center,
-					workspace: () => options.workspaceStore?.current ?? null,
-				}),
-				// 十审 W0：异步 WorkOrder 协议（按精确 ID 查询/取消）。
-				buildCheckWorkTool({
-					rosclawHome: options.rosclawHome,
-					active,
-					center,
-				}),
-				buildCancelWorkTool({
-					rosclawHome: options.rosclawHome,
-					active,
-					center,
-				}),
-				// 十审 W2：list/update 补齐五工具协议。
-				buildListWorkTool({
-					rosclawHome: options.rosclawHome,
-					active,
-					center,
-				}),
-				buildUpdateWorkTool({
-					rosclawHome: options.rosclawHome,
-					active,
-					center,
-				}),
-				// 十审 W4：终态单 retry（lineage 保留）。
-				buildRetryWorkTool({
-					rosclawHome: options.rosclawHome,
-					active,
-					center,
-				}),
-				// 十三审 PR-13.5：只读 Worker 诊断（模型可自查失败原因）。
-				...buildWorkDiagnosticTools({
-					rosclawHome: options.rosclawHome,
-					active,
-					center,
-				}),
 				// NA-FIX-4：request_action 必须真实注册（P0-4）。
 				buildRequestActionTool({
 					rosclawHome: options.rosclawHome,
@@ -283,7 +231,9 @@ export async function createRosclawRuntime(
 				services,
 				sessionManager,
 				sessionStartEvent,
-				tools: customTools.map((tool) => tool.name),
+				// allowlist = 模型面唯一真相源（内建 read/grep/find/ls +
+				// 策略覆盖的 bash/write/edit + ROSClaw custom tools）。
+				tools: [...MODEL_TOOL_NAMES],
 				customTools,
 			});
 			return {

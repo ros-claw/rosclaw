@@ -1,6 +1,9 @@
 # ADR-0011: Agent Runtime Fabric——术语、状态与边界冻结
 
-- 状态：Accepted（十五审 PR-RF-0）
+- 状态：Superseded（部分）by ADR-0012（2026-08-19）——"Native Agent 只做治理、
+  工作经 Worker 链执行"的执行模型被废除（Native Agent 自己干活，Worker 退出
+  默认链）；术语冻结表仍然有效。
+- 原状态：Accepted（十五审 PR-RF-0）
 - 日期：2026-08-15
 - 依据：《ROSClaw_NativeAgent无为而治与AgentRuntimeFabric重建方案_2026-08-15.md》
 

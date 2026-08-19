@@ -311,6 +311,13 @@ class _FakeModel:
                 frames.append(_sse(_chunk("", "stop")))
                 frames.append(b"data: [DONE]\n\n")
                 return b"".join(frames)
+            if tool_call_id == "call_direct":
+                # PR-H1：主会话直接工作的最终回答（无 Worker）。
+                answer = "已直接完成日志总结（同一 session，未委派 Worker）。"
+                frames.append(_sse(_chunk(answer)))
+                frames.append(_sse(_chunk("", "stop")))
+                frames.append(b"data: [DONE]\n\n")
+                return b"".join(frames)
             if "receipt" in tool_content or "grant" in tool_content or "已批准" in tool_content:
                 answer = "动作已执行，结构化回执已确认。"
             else:
@@ -367,13 +374,13 @@ class _FakeModel:
             frames.append(_sse(_chunk("Worker 结果已综合给用户。")))
             frames.append(_sse(_chunk("", "stop")))
         elif "委派" in text:
-            # 十五审 PR-RF-1：模型面不再有 rosclaw_delegate——治理入口
-            # task_submit（TaskSpec 目标合同，router 决定执行域）。
+            # PR-H1（ADR-0012）：模型面不再有 task_submit/delegate——
+            # Native Agent 用自己的工作工具在同一 session 直接完成。
             frames.extend(
                 _tool_call_frames(
-                    "call_delegate",
-                    "rosclaw_task_submit",
-                    json.dumps({"goal": "总结这段日志"}),
+                    "call_direct",
+                    "bash",
+                    json.dumps({"command": "echo 日志要点已归纳"}),
                 )
             )
         elif "画五角星" in text or "画一个五角星" in text:
@@ -601,7 +608,8 @@ def _strip_ansi(data: bytes) -> bytes:
 class PtySession:
     """最小 PTY 驱动：expect/send。"""
 
-    def __init__(self, argv: list[str], env: dict[str, str], log_path: Path | None = None) -> None:
+    def __init__(self, argv: list[str], env: dict[str, str], log_path: Path | None = None,
+                 cwd: Path | None = None) -> None:
         import pty as _pty
 
         self.master, slave = _pty.openpty()
@@ -618,6 +626,7 @@ class PtySession:
         self.proc = subprocess.Popen(
             argv, stdin=slave, stdout=slave, stderr=slave, env=env, close_fds=True,
             preexec_fn=_make_controlling_tty,
+            cwd=str(cwd) if cwd else None,
         )
         os.close(slave)
         self.output = b""
@@ -1465,7 +1474,8 @@ class TestProductJourney:
             time.sleep(2.0)
             # 5. delegate worker。
             session.send("请委派 worker 总结这段日志\r")
-            session.expect("Worker 结果已收到并验证".encode(), timeout=180)
+            # PR-H1：Native 直接完成（不委派）——同一 session 的工具执行。
+            session.expect("已直接完成日志总结".encode(), timeout=180)
             # P0-4G（TranscriptPolicy）：SECRET_PROBE 回合后，任何后续
             # provider 请求都不得携带 raw reasoning marker——live replay、
             # session 持久化、resume 回放全链路零命中（四审核心反证点）。
@@ -1495,31 +1505,21 @@ class TestProductJourney:
             assert not any("UNREACHABLE" in r for r in status_tool_results), (
                 "UDS 可用时 rosclaw_status 误报 UNREACHABLE"
             )
-            # 5d. 十审 W2：Worker 完成推送——delegate 的单到终态后
-            #     （≤watcher 轮询周期）custom message 注入 + 自动综合回合。
-            #     必须等它落地再往后走（否则推送回合与 /compact 竞争）。
-            session.expect("后台 Worker 已完成并通过验证".encode(), timeout=90)
-            session.expect("Worker 结果已综合给用户".encode(), timeout=90)
-            time.sleep(2.0)
-            # 推送不冒充用户输入：session JSONL 里是 custom message，
-            # 不是 user 消息（审计 §7.5/§13.3.7）。
-            import json as _json2
+            # 5d. PR-H1（ADR-0012）：直接工作零 Worker——work_orders
+            #     写入为 0，且不存在任何 Worker 完成推送。
+            import sqlite3 as _sq3
 
-            _sessions = list((home / "agent" / "sessions").glob("*.jsonl"))
-            assert _sessions, "session JSONL 不存在"
-            _blob = _sessions[0].read_text(encoding="utf-8", errors="replace")
-            assert "rosclaw.worker.result" in _blob, (
-                "完成推送未写入 session（custom message 缺失）"
+            _db3 = _sq3.connect(home / "agentd" / "missions.db")
+            _orders = _db3.execute("SELECT COUNT(*) FROM work_orders").fetchone()[0]
+            _execs = _db3.execute("SELECT COUNT(*) FROM task_executions").fetchone()[0]
+            _db3.close()
+            assert _orders == 0, f"默认旅程不得创建 WorkOrder: {_orders}"
+            assert _execs == 0, f"直接工作不得创建 execution: {_execs}"
+            time.sleep(3.0)
+            assert "后台 Worker 已完成".encode() not in session.clean, (
+                "零 Worker 旅程竟出现 Worker 完成推送"
             )
-            for _line in _blob.splitlines():
-                if "后台 Worker 已完成" not in _line:
-                    continue
-                _entry = _json2.loads(_line)
-                _s = json.dumps(_entry, ensure_ascii=False)
-                assert '"role": "user"' not in _s and '"role":"user"' not in _s, (
-                    "完成推送冒充了 user 消息"
-                )
-            self._journey_verdicts["worker_completion_pushed_not_user"] = True
+            self._journey_verdicts["direct_work_zero_workers"] = True
             # 5c. 动作准入前置（六审 §3.4）：动作发起前 Header 必须是真实
             #     READY——此前显式 mission 路径 leaseState 不写回，
             #     "Action LOCKED" 假锁与成功执行同时存在。
