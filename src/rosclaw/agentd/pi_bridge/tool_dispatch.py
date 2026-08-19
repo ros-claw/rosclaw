@@ -68,6 +68,10 @@ _TOOL_TABLE: dict[str, str] = {
     "rosclaw_process_status": "read",
     "rosclaw_process_output": "read",
     "rosclaw_process_stop": "delegate",
+    # PR-H4：Product Pack——交付登记/收尾/阻塞（验收决定终态）。
+    "rosclaw_artifact_register": "delegate",
+    "rosclaw_task_finish": "task",
+    "rosclaw_task_blocked": "delegate",
     "rosclaw_task_submit": "delegate",
     "rosclaw_task_observe": "read",
     "rosclaw_task_steer": "delegate",
@@ -377,6 +381,13 @@ class PiToolDispatcher:
             return await self._task(request)
         # PR-H3：process 工具——长进程 = Operation（立即返回，事件流
         # 可查，终态 followUp 一次）。
+        # PR-H4：Product Pack。
+        if name == "rosclaw_artifact_register":
+            return await self._artifact_register(request)
+        if name == "rosclaw_task_finish":
+            return await self._task_finish(request)
+        if name == "rosclaw_task_blocked":
+            return await self._task_blocked(request)
         if name == "rosclaw_process_start":
             return await self._process_start(request)
         if name == "rosclaw_process_status":
@@ -1535,6 +1546,90 @@ class PiToolDispatcher:
                 else f"控制失败：{result.get('error', '未知')}"
             ),
             error_code=None if result["ok"] else str(result.get("code", "")),
+        )
+
+    async def _artifact_register(
+        self, request: PiToolRequestV1
+    ) -> PiToolResultV1:
+        """PR-H4：交付物登记（实读文件算 hash——口头提到不算）。"""
+        kernel = self._service._task_kernel
+        task = kernel.active_task_for(request.mission_id, request.pi_session_id)
+        if task is None:
+            raise ToolBridgeError("NO_ACTIVE_TASK", "无活跃任务")
+        path = str(request.arguments.get("path", ""))
+        if not path:
+            raise ToolBridgeError("INVALID_ARGUMENTS", "path required")
+        # 相对路径解析：会话 cwd（模型实际干活的目录）优先，任务
+        # 工作区兜底（§10.1 workspace 固定，但主会话 cwd=用户项目根
+        # 时写入发生在那里——登记必须找到真实文件）。
+        from pathlib import Path as _P
+
+        session_cwd = str(request.arguments.get("cwd", "") or "")
+        if _P(path).is_absolute():
+            resolved = path
+        elif session_cwd and (_P(session_cwd) / path).exists():
+            resolved = str(_P(session_cwd) / path)
+        else:
+            resolved = str(_P(task["workspace_path"]) / path)
+        try:
+            artifact = kernel.register_artifact(
+                task_id=task["task_id"], path=resolved,
+                media_type=str(request.arguments.get("media_type", "application/octet-stream")),
+            )
+        except ValueError as exc:
+            raise ToolBridgeError("ARTIFACT_MISSING", str(exc)) from exc
+        return PiToolResultV1(
+            request_id=request.request_id,
+            ok=True, status="REGISTERED",
+            summary=f"交付物已登记：{Path(resolved).name}（{artifact['size_bytes']}B）artifact_id={artifact['artifact_id']}",
+        )
+
+    async def _task_finish(self, request: PiToolRequestV1) -> PiToolResultV1:
+        """PR-H4：FinishRequest——验收真跑决定终态（模型自述不算数）。
+        REPAIR_REQUIRED 回同一 session（task 保持活跃）。"""
+        kernel = self._service._task_kernel
+        task = kernel.active_task_for(request.mission_id, request.pi_session_id)
+        if task is None:
+            raise ToolBridgeError("NO_ACTIVE_TASK", "无活跃任务")
+        result = kernel.finish_task(
+            task_id=task["task_id"],
+            summary=str(request.arguments.get("summary", "")),
+            artifact_ids=[
+                str(a) for a in (request.arguments.get("artifact_ids") or [])
+            ],
+            acceptance=dict(request.arguments.get("acceptance") or {}),
+        )
+        if result["status"] == "SUCCEEDED":
+            return PiToolResultV1(
+                request_id=request.request_id, ok=True, status="SUCCEEDED",
+                summary=f"验收通过——任务完成（{result['verification_id']}）",
+            )
+        failures = "；".join(result.get("failures", []))[:300]
+        return PiToolResultV1(
+            request_id=request.request_id, ok=False, status="REPAIR_REQUIRED",
+            summary=f"验收未过，同一任务内修复后重试：{failures}",
+            error_code="VERIFICATION_FAILED", retryable=True,
+        )
+
+    async def _task_blocked(self, request: PiToolRequestV1) -> PiToolResultV1:
+        """PR-H4：诚实阻塞（稳定原因码 + 恢复动作）。"""
+        kernel = self._service._task_kernel
+        task = kernel.active_task_for(request.mission_id, request.pi_session_id)
+        if task is None:
+            raise ToolBridgeError("NO_ACTIVE_TASK", "无活跃任务")
+        reason_code = str(request.arguments.get("reason_code", "")).strip()
+        if not reason_code:
+            raise ToolBridgeError("INVALID_ARGUMENTS", "reason_code required")
+        kernel.block_task(
+            task_id=task["task_id"], reason_code=reason_code,
+            detail=str(request.arguments.get("detail", "")),
+            recovery=[
+                str(r) for r in (request.arguments.get("recovery") or [])
+            ],
+        )
+        return PiToolResultV1(
+            request_id=request.request_id, ok=True, status="BLOCKED",
+            summary=f"任务已标记阻塞：{reason_code}",
         )
 
     async def _process_start(self, request: PiToolRequestV1) -> PiToolResultV1:

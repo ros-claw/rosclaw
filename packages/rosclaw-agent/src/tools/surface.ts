@@ -27,6 +27,13 @@ export const WORKSPACE_PACK: readonly string[] = [
 	"process_stop",
 ];
 
+/** Product Pack（PR-H4）：交付登记/收尾/阻塞——终态由 Verifier 决定。 */
+export const PRODUCT_PACK: readonly string[] = [
+	"rosclaw_artifact_register",
+	"rosclaw_task_finish",
+	"rosclaw_task_blocked",
+];
+
 /** Embodiment Pack：具身/安全链（rosclawd 权威不变）。 */
 export const EMBODIMENT_PACK: readonly string[] = [
 	"rosclaw_status",
@@ -44,6 +51,7 @@ export const EMBODIMENT_PACK: readonly string[] = [
 export const MODEL_TOOL_NAMES: readonly string[] = [
 	...WORKSPACE_PACK,
 	...EMBODIMENT_PACK,
+	...PRODUCT_PACK,
 ];
 
 /** 从模型面移除的工具（§10.3——plumbing 保留在 bridge/命令层）。 */

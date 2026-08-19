@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 from datetime import UTC, datetime
@@ -255,4 +256,112 @@ class TaskKernel:
             (task_id, session_ref or None, event_type,
              json.dumps(payload, ensure_ascii=False),
              datetime.now(UTC).isoformat()),
+        )
+
+    # --------------------------------------------------------------
+    # Artifact 登记 + 验收（PR-H4，§12：终态由 Verifier 决定）
+    # --------------------------------------------------------------
+    def register_artifact(
+        self, *, task_id: str, path: str, media_type: str,
+        producer_operation_id: str = "",
+    ) -> dict[str, Any]:
+        """登记交付物：实读文件算 sha256/size（不存在的文件拒绝登记）。
+        登记才进交付列表——模型口头提到不算。"""
+        file = Path(path)
+        if not file.exists():
+            raise ValueError(f"artifact 不存在: {path}")
+        content = file.read_bytes()
+        artifact_id = new_id("art")
+        now = datetime.now(UTC).isoformat()
+        record = {
+            "artifact_id": artifact_id,
+            "task_id": task_id,
+            "path": str(file),
+            "media_type": media_type,
+            "sha256": hashlib.sha256(content).hexdigest(),
+            "size_bytes": len(content),
+        }
+        self._conn.execute(
+            "INSERT INTO artifacts (artifact_id, task_id, path, media_type, "
+            "sha256, size_bytes, producer_operation_id, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (artifact_id, task_id, str(file), media_type, record["sha256"],
+             len(content), producer_operation_id or None, now),
+        )
+        self._emit(task_id, "artifact.created",
+                   {"artifact_id": artifact_id, "path": str(file),
+                    "bytes": len(content)})
+        return record
+
+    def finish_task(
+        self, *, task_id: str, summary: str, artifact_ids: list[str],
+        acceptance: dict | None = None,
+    ) -> dict[str, Any]:
+        """FinishRequest（§12.1）：验收真跑 → SUCCEEDED / REPAIR_REQUIRED。
+        终态幂等（重放不重复验证、不覆盖）。"""
+        task = self.get_task(task_id)
+        if task is None:
+            raise ValueError(f"unknown task {task_id!r}")
+        if task["state"] in TASK_TERMINAL:
+            # 幂等：SUCCEEDED 重放返回既有终态。
+            return {
+                "status": task["state"],
+                "already_terminal": True,
+                "verification_id": "",
+            }
+        artifacts = [
+            dict(r)
+            for r in self._conn.execute(
+                "SELECT * FROM artifacts WHERE task_id = ? AND "
+                f"artifact_id IN ({','.join('?' * max(len(artifact_ids), 1))})",
+                (task_id, *artifact_ids),
+            ).fetchall()
+        ] if artifact_ids else []
+        from rosclaw.task_kernel.verifier import verdict_for
+
+        verdict = verdict_for(
+            artifacts=artifacts,
+            acceptance=acceptance or {},
+            workspace=Path(task["workspace_path"]),
+            summary=summary,
+        )
+        now = datetime.now(UTC).isoformat()
+        if verdict["status"] == "PASS":
+            verification_id = new_id("vrf")
+            self._conn.execute(
+                "INSERT INTO verifications (verification_id, task_id, "
+                "revision, status, checks_json, evidence_json, created_at) "
+                "VALUES (?, ?, ?, 'PASS', ?, ?, ?)",
+                (verification_id, task_id, int(task["active_revision"]),
+                 json.dumps({"checks": verdict["checks"]},
+                            ensure_ascii=False),
+                 json.dumps({"artifact_ids": artifact_ids},
+                            ensure_ascii=False),
+                 now),
+            )
+            self._emit(task_id, "verification.completed",
+                       {"verification_id": verification_id, "status": "PASS",
+                        "checks": verdict["checks"]})
+            self.transition(task_id, "SUCCEEDED", reason="verification_passed")
+            return {"status": "SUCCEEDED", "verification_id": verification_id}
+        # REPAIR_REQUIRED：回同一 session（task 保持活跃——修复不新建）。
+        self._emit(task_id, "verification.completed",
+                   {"status": "FAIL", "failures": verdict["failures"]})
+        return {
+            "status": "REPAIR_REQUIRED",
+            "failures": verdict["failures"],
+            "checks": verdict["checks"],
+        }
+
+    def block_task(
+        self, *, task_id: str, reason_code: str, detail: str,
+        recovery: list[str] | None = None,
+    ) -> None:
+        """task_blocked（§12.1）：稳定原因码 + 恢复动作。"""
+        self._emit(task_id, "task.state_changed",
+                   {"state": "BLOCKED", "reason_code": reason_code,
+                    "recovery": recovery or []})
+        self.transition(
+            task_id, "BLOCKED",
+            reason=f"{reason_code}: {detail}"[:300],
         )

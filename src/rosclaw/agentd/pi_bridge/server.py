@@ -1210,6 +1210,13 @@ class PiBridgeServer:
             ]
             return {"ok": True, "task": task, "revisions": revisions,
                     "events": events}
+        if method == "pi.kernel.active":
+            # PR-H4：TurnGuard 用——当前 session 的活跃 task（无则 null）。
+            task = service._task_kernel.active_task_for(
+                str(params.get("mission_id", "")),
+                str(params.get("session_ref", "")),
+            )
+            return {"ok": True, "task": task}
         if method == "pi.kernel.transition":
             kernel = service._task_kernel
             kernel.transition(

@@ -29,6 +29,7 @@ import {
 import type { ProductStateCenter } from "../session/state-center.js";
 import { InputController } from "../native/input-controller.js";
 import { OperationWatcher } from "../native/operation-watcher.js";
+import { TurnGuard } from "../native/turn-guard.js";
 import type { LocaleManager } from "../i18n/locale.js";
 import { t as i18nT } from "../i18n/index.js";
 import { EventMirror } from "./event-mirror.js";
@@ -128,6 +129,18 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 								: undefined,
 						}
 					: undefined,
+		});
+		// PR-H4：TurnGuard——工作回合未验收收尾 → 注入一次结构化提醒
+		// （同一 task/revision 只一次；终态由 Verifier 决定）。
+		const turnGuard = new TurnGuard({
+			call: (method, params) => center.call(method, params),
+			missionId: () => options.active.current.missionId ?? "",
+			sessionRef: () => options.active.current.sessionId ?? "",
+			sink: () =>
+				latestCtx
+					? { api: pi, isIdle: latestCtx.isIdle() }
+					: undefined,
+			notify: (text) => latestCtx?.ui.notify(text, "info"),
 		});
 		// 十一审 PR-D：Workspace——header 快照 + /workspace 命令（命令层
 		// 直接处理，不进模型）。
@@ -1228,6 +1241,7 @@ const orphanJobs = jobs.filter(
 		// 每个 outcome 只校验紧随其后的第一段助手叙述；turn 结束清除。
 		let lastOutcome: (ActionResultData & { narrativeSeen?: boolean; conflictClaim?: string }) | null = null;
 		pi.on("tool_execution_end", async (event, _ctx) => {
+			turnGuard.noteTool(String(event.toolName ?? ""));
 			if (event.toolName === "process_start") {
 				// PR-H3：登记模型启动的 operation（终态后 followUp 一次）。
 				const text = JSON.stringify(event.result?.details ?? {}) + JSON.stringify(event.result?.content ?? []);
@@ -1276,6 +1290,7 @@ const orphanJobs = jobs.filter(
 			return undefined;
 		});
 		pi.on("turn_end", async () => {
+			await turnGuard.onTurnEnd();
 			if (lastOutcome?.conflictClaim) {
 				pi.appendEntry("rosclaw.action_conflict", {
 					claim: lastOutcome.conflictClaim,
