@@ -17,8 +17,6 @@ import sqlite3
 import sys
 from pathlib import Path
 
-import pytest
-
 
 def _kernel(tmp_path: Path):
     from rosclaw.storage.migrations import MigrationRunner

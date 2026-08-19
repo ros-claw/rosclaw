@@ -97,8 +97,8 @@ class _OpFakeServer(_FakeServer):
     def __init__(self) -> None:
         self.fake = _OperationFake()
         handler = type("H", (_Handler,), {"fake": self.fake})
-        from http.server import ThreadingHTTPServer
         import threading as _threading
+        from http.server import ThreadingHTTPServer
 
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
         self.port = self.server.server_address[1]
