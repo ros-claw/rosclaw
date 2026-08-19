@@ -1562,15 +1562,15 @@ class PiToolDispatcher:
         # 相对路径解析：会话 cwd（模型实际干活的目录）优先，任务
         # 工作区兜底（§10.1 workspace 固定，但主会话 cwd=用户项目根
         # 时写入发生在那里——登记必须找到真实文件）。
-        from pathlib import Path as _P
+        from pathlib import Path as _Path
 
         session_cwd = str(request.arguments.get("cwd", "") or "")
-        if _P(path).is_absolute():
+        if _Path(path).is_absolute():
             resolved = path
-        elif session_cwd and (_P(session_cwd) / path).exists():
-            resolved = str(_P(session_cwd) / path)
+        elif session_cwd and (_Path(session_cwd) / path).exists():
+            resolved = str(_Path(session_cwd) / path)
         else:
-            resolved = str(_P(task["workspace_path"]) / path)
+            resolved = str(_Path(task["workspace_path"]) / path)
         try:
             artifact = kernel.register_artifact(
                 task_id=task["task_id"], path=resolved,
