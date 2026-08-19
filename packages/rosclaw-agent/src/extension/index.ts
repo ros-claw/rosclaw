@@ -27,6 +27,7 @@ import {
 	renderHeader,
 } from "../ui/product-state.js";
 import type { ProductStateCenter } from "../session/state-center.js";
+import { InputController } from "../native/input-controller.js";
 import type { LocaleManager } from "../i18n/locale.js";
 import { t as i18nT } from "../i18n/index.js";
 import { EventMirror } from "./event-mirror.js";
@@ -365,6 +366,10 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			} catch {
 				// 落账失败不阻塞输入。
 			}
+			// PR-H2（ADR-0012 §9.3）：root task 输入事务——先绑定再
+			// 投递；绑定失败不投递（handled + 通知重发=无幽灵执行）。
+			const bound = await inputController.bind(text);
+			if (!bound) return { action: "handled" as const };
 			return { action: "continue" as const };
 		});
 
@@ -450,6 +455,98 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 		)) {
 			pi.registerCommand(name, spec);
 		}
+
+		// -- PR-H2：Task 命令（/new /done /tasks /task）+ InputController ----
+		const inputController = new InputController({
+			call: (method, params) => center.call(method, params),
+			missionId: () => options.active.current.missionId ?? "",
+			sessionRef: () => options.active.current.sessionId ?? "",
+			backendNativeId: () => options.active.current.sessionId ?? "",
+			cwd: () => process.cwd(),
+			notify: (text, kind) => {
+				latestCtx?.ui.notify(text, kind);
+			},
+		});
+		pi.registerCommand("newtask", {
+			description: "开始新任务（当前任务保持可恢复）——/new 是 Pi 会话内建，冲突实测后取 /newtask",
+			handler: async (_args, ctx) => {
+				inputController.forceNewNext = true;
+				ctx.ui.notify("下一条消息将开始新任务", "info");
+			},
+		});
+		pi.registerCommand("done", {
+			description: "接受当前任务（用户验收——之后的新目标是新任务）",
+			handler: async (_args, ctx) => {
+				if (!inputController.currentTaskId) {
+					ctx.ui.notify("当前没有活跃任务", "warning");
+					return;
+				}
+				try {
+					await center.call("pi.kernel.transition", {
+						task_id: inputController.currentTaskId,
+						state: "SUCCEEDED",
+						reason: "user_accepted",
+					});
+					ctx.ui.notify(
+						`任务已接受（${inputController.currentTaskId.slice(0, 14)}…）`,
+						"info",
+					);
+				} catch (err) {
+					ctx.ui.notify(`操作失败：${(err as Error).message}`, "error");
+				}
+			},
+		});
+		pi.registerCommand("tasks", {
+			description: "列出当前 Mission 的任务",
+			handler: async (_args, ctx) => {
+				try {
+					const result = await center.call("pi.kernel.list", {
+						mission_id: options.active.current.missionId ?? "",
+					});
+					const tasks = (result.tasks ?? []) as Array<Record<string, unknown>>;
+					if (!tasks.length) {
+						ctx.ui.notify("当前没有任务", "info");
+						return;
+					}
+					ctx.ui.notify(
+						tasks
+							.map(
+								(t) =>
+									`${String(t.state)}  r${String(t.active_revision)}  ${String(t.root_goal).slice(0, 40)}  [${String(t.task_id).slice(0, 14)}…]`,
+							)
+							.join("\n"),
+						"info",
+					);
+				} catch (err) {
+					ctx.ui.notify(`查询失败：${(err as Error).message}`, "error");
+				}
+			},
+		});
+		pi.registerCommand("taskinfo", {
+			description: "当前任务详情（root task/revision/workspace/状态）",
+			handler: async (_args, ctx) => {
+				if (!inputController.currentTaskId) {
+					ctx.ui.notify("当前没有绑定任务", "warning");
+					return;
+				}
+				try {
+					const result = await center.call("pi.kernel.get", {
+						task_id: inputController.currentTaskId,
+					});
+					const task = (result.task ?? {}) as Record<string, unknown>;
+					ctx.ui.notify(
+						`任务 ${String(task.task_id).slice(0, 14)}…\n` +
+							`状态: ${String(task.state)}\n` +
+							`revision: ${String(task.active_revision)}\n` +
+							`工作区: ${String(task.workspace_path)}\n` +
+							`目标: ${String(task.root_goal).slice(0, 120)}`,
+						"info",
+					);
+				} catch (err) {
+					ctx.ui.notify(`查询失败：${(err as Error).message}`, "error");
+				}
+			},
+		});
 
 		// -- Worker 命令（PNA-4，规格 §19）：/workers /delegate ------------------
 		pi.registerCommand("workers", {

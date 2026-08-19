@@ -1164,6 +1164,60 @@ class PiBridgeServer:
             # 一张卡，attempts 内部聚合）。
             mission_id = str(params.get("mission_id", ""))
             return {"ok": True, "jobs": worker_jobs_projection(service, mission_id)}
+        if method == "pi.task.bind":
+            # PR-H2（ADR-0012）：输入事务——用户消息先落账+绑定 root
+            # task，再投递 Harness（幽灵执行防线的权威端）。
+            kernel = service._task_kernel
+            result = kernel.bind_message(
+                mission_id=str(params.get("mission_id", "")),
+                session_ref=str(params.get("session_ref", "")),
+                backend_native_id=str(params.get("backend_native_id", "")),
+                message_id=str(params.get("message_id", "")),
+                text=str(params.get("text", "")),
+                cwd=str(params.get("cwd", "")),
+                mode=str(params.get("mode", "SIMULATION")),
+                body_id=str(params.get("body_id", "")),
+                force_new=bool(params.get("force_new", False)),
+            )
+            return {"ok": True, **result}
+        if method == "pi.kernel.list":
+            kernel = service._task_kernel
+            return {
+                "ok": True,
+                "tasks": kernel.list_tasks(str(params.get("mission_id", ""))),
+            }
+        if method == "pi.kernel.get":
+            kernel = service._task_kernel
+            task = kernel.get_task(str(params.get("task_id", "")))
+            if task is None:
+                return {"ok": False, "error": "unknown task"}
+            conn = service._store.connection
+            revisions = [
+                dict(r)
+                for r in conn.execute(
+                    "SELECT revision, goal_delta, created_at FROM "
+                    "task_revisions WHERE task_id = ? ORDER BY revision",
+                    (task["task_id"],),
+                ).fetchall()
+            ]
+            events = [
+                dict(r)
+                for r in conn.execute(
+                    "SELECT seq, event_type, payload_json, created_at FROM "
+                    "task_events WHERE task_id = ? ORDER BY seq DESC LIMIT 20",
+                    (task["task_id"],),
+                ).fetchall()
+            ]
+            return {"ok": True, "task": task, "revisions": revisions,
+                    "events": events}
+        if method == "pi.kernel.transition":
+            kernel = service._task_kernel
+            kernel.transition(
+                str(params.get("task_id", "")),
+                str(params.get("state", "")),
+                reason=str(params.get("reason", "")),
+            )
+            return {"ok": True}
         if method == "pi.task.executions":
             # 十五审 PR-RF-8：execution 级任务卡（Task Control Plane 是
             # 权威——一个任务一张卡，WorkOrder 折叠为内部细节）。

@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import sqlite3
 import time
 from pathlib import Path
@@ -263,48 +262,33 @@ class TestGate2RealProductLoop:
             )
             _wait_turn_settled(session, home, timeout=900)
             db = _db(home)
-            executions = [
-                dict(zip(("execution_id", "state", "runtime", "summary",
-                          "artifacts_json"), r, strict=True))
-                for r in db.execute(
-                    "SELECT execution_id, state, runtime, summary, "
-                    "artifacts_json FROM task_executions"
+            # PR-H1 后：模型面没有 task_submit——编码任务由主会话直接
+            # 完成；零 execution、零 WorkOrder 是架构不变量（PR-H2：
+            # root task 由输入事务创建）。
+            orders = db.execute("SELECT COUNT(*) FROM work_orders").fetchone()[0]
+            execs = db.execute(
+                "SELECT COUNT(*) FROM task_executions"
+            ).fetchone()[0]
+            try:
+                tasks = db.execute(
+                    "SELECT task_id, state, active_revision FROM tasks"
                 ).fetchall()
-            ]
+            except sqlite3.OperationalError:
+                tasks = []
             db.close()
             session.expect_with_resend(b"rosclaw continue", "/quit\r",
                                        timeout=120)
             session.proc.wait(timeout=30)
             output = session.clean
             _assert_no_manual_fallback(output)
-            assert len(executions) == 1, f"裂变: {executions}"
-            execution = executions[0]
-            assert execution["state"] == "SUCCEEDED", (
-                f"{execution['state']}: {execution['summary']}"
-            )
-            # 正确 profile：开发任务必须 developer（不是只读 scout）。
-            db = _db(home)
-            rows = db.execute(
-                "SELECT order_json FROM work_orders"
-            ).fetchall()
-            db.close()
-            assert len(rows) >= 1, "开发任务应有一个内部执行单"
-            profiles = {
-                json.loads(r[0]).get("inputs", {}).get("worker_profile")
-                for r in rows
-            }
-            assert profiles <= {"developer", "sim-builder"}, (
-                f"profile 错编译: {profiles}"
-            )
-            # 真实交付：answer.txt 存在于某个执行 workspace。
-            found = list(home.glob("work/*/workspace/answer.txt"))
+            assert orders == 0, f"直接工作不得创建 WorkOrder: {orders}"
+            assert execs == 0, f"直接工作不得创建 execution: {execs}"
+            assert len(tasks) == 1, f"一个目标一个 root task: {tasks}"
+            # 真实交付：answer.txt 真实落盘（主会话工作区=chat cwd 或
+            # task workspace）。
+            found = list(tmp_path.rglob("answer.txt"))
             assert found, "answer.txt 未真实落盘"
             content = found[0].read_text().strip().splitlines()
-            assert "55" in content[-1] or "34" in content, content[:5]
-            # verifier 非零检查（验收 PASS·N 项，N≥1）。
-            assert re.search(r"PASS·[1-9]", execution["summary"] or "") or (
-                json.loads(execution["artifacts_json"] or "{}")
-                .get("verifier", {}).get("checks", 0) >= 1
-            ), f"验收零检查: {execution['summary']}"
+            assert "34" in content[-1] or "34" in content, content[:5]
         finally:
             session.stop()

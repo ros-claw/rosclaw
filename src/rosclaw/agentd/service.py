@@ -359,6 +359,11 @@ class AgentService:
         from rosclaw.agentd.runtime_manager import RuntimeManager
 
         self._runtime_manager = RuntimeManager(self._home)
+        # PR-H2（ADR-0012）：Task Kernel——root task/revision/binding
+        # 的事务权威（一个目标一个 task 一个 workspace 一个主会话）。
+        from rosclaw.task_kernel.service import TaskKernel
+
+        self._task_kernel = TaskKernel(self._store.connection, self._home)
         # 内置 Pi Worker 的就绪性取决于 node+dist——不可用时诚实 DISABLED
         # （绝不"看起来装了就 ENABLED"）。
         if find_pi_agent_entry() is None:
