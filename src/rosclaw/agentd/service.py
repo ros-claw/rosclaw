@@ -364,6 +364,13 @@ class AgentService:
         from rosclaw.task_kernel.service import TaskKernel
 
         self._task_kernel = TaskKernel(self._store.connection, self._home)
+        # PR-H3：OperationManager——长进程/仿真/渲染的统一运营层
+        # （Operation ≠ Worker：无模型、事件流、即时返回）。
+        from rosclaw.task_kernel.operation_manager import OperationManager
+
+        self._operation_manager = OperationManager(
+            self._task_kernel, self._store.connection
+        )
         # 内置 Pi Worker 的就绪性取决于 node+dist——不可用时诚实 DISABLED
         # （绝不"看起来装了就 ENABLED"）。
         if find_pi_agent_entry() is None:

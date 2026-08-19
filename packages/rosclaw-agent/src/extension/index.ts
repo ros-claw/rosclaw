@@ -28,6 +28,7 @@ import {
 } from "../ui/product-state.js";
 import type { ProductStateCenter } from "../session/state-center.js";
 import { InputController } from "../native/input-controller.js";
+import { OperationWatcher } from "../native/operation-watcher.js";
 import type { LocaleManager } from "../i18n/locale.js";
 import { t as i18nT } from "../i18n/index.js";
 import { EventMirror } from "./event-mirror.js";
@@ -113,6 +114,21 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				else latestCtx.ui.setWidget("rosclaw-jobs", lines);
 			},
 		});
+		// PR-H3：OperationWatcher——operation 终态一次性 followUp（同一
+		// session；progress/heartbeat 绝不进模型上下文）。
+		const operationWatcher = new OperationWatcher({
+			call: (method, params) => center.call(method, params),
+			sink: () =>
+				latestCtx
+					? {
+							api: pi,
+							isIdle: latestCtx.isIdle(),
+							notify: latestCtx.hasUI
+								? (text: string) => latestCtx?.ui.notify(text, "info")
+								: undefined,
+						}
+					: undefined,
+		});
 		// 十一审 PR-D：Workspace——header 快照 + /workspace 命令（命令层
 		// 直接处理，不进模型）。
 		const workspaceStore = options.workspaceStore ?? new WorkspaceStore(options.rosclawHome);
@@ -159,6 +175,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			latestCtx = ctx;
 			watcher.start();
 			jobsWidget.start();
+			operationWatcher.start();
 			if (options.workspaceAutoBound && workspaceStore.current) {
 				ctx.ui.notify(`已自动绑定 Project：${workspaceStore.current}（/workspace show 查看）`, "info");
 			}
@@ -166,6 +183,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 		pi.on("session_shutdown", async () => {
 			watcher.stop();
 			jobsWidget.stop();
+			operationWatcher.stop();
 		});
 		pi.on("session_start", async (_event, ctx) => {
 			if (!ctx.hasUI) return;
@@ -1210,6 +1228,13 @@ const orphanJobs = jobs.filter(
 		// 每个 outcome 只校验紧随其后的第一段助手叙述；turn 结束清除。
 		let lastOutcome: (ActionResultData & { narrativeSeen?: boolean; conflictClaim?: string }) | null = null;
 		pi.on("tool_execution_end", async (event, _ctx) => {
+			if (event.toolName === "process_start") {
+				// PR-H3：登记模型启动的 operation（终态后 followUp 一次）。
+				const text = JSON.stringify(event.result?.details ?? {}) + JSON.stringify(event.result?.content ?? []);
+				const match = text.match(/op_[a-f0-9]+/);
+				if (match) operationWatcher.track(match[0]);
+				return;
+			}
 			if (event.toolName !== "rosclaw_request_action") return;
 			const details = ((event.result?.details ?? {}) as Record<string, unknown>);
 			const data: ActionResultData = {

@@ -20,6 +20,11 @@ export const WORKSPACE_PACK: readonly string[] = [
 	"edit",
 	"write",
 	"bash",
+	// PR-H3：长进程 = Operation（立即返回/事件流/终态通知）
+	"process_start",
+	"process_status",
+	"process_output",
+	"process_stop",
 ];
 
 /** Embodiment Pack：具身/安全链（rosclawd 权威不变）。 */

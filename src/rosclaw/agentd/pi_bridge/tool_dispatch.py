@@ -62,6 +62,12 @@ _TOOL_TABLE: dict[str, str] = {
     "rosclaw_task": "task",
     # 十五审 PR-RF-1/RF-2：治理工具（无为而治）——模型只交目标合同，
     # 观察/steer/回答/暂停/恢复/取消都作用于同一 owning execution。
+    # PR-H3：process 工具（长进程 Operation——立即返回/事件流/终态
+    # followUp）。
+    "rosclaw_process_start": "delegate",
+    "rosclaw_process_status": "read",
+    "rosclaw_process_output": "read",
+    "rosclaw_process_stop": "delegate",
     "rosclaw_task_submit": "delegate",
     "rosclaw_task_observe": "read",
     "rosclaw_task_steer": "delegate",
@@ -369,6 +375,16 @@ class PiToolDispatcher:
             return await self._request_action(request)
         if name == "rosclaw_task":
             return await self._task(request)
+        # PR-H3：process 工具——长进程 = Operation（立即返回，事件流
+        # 可查，终态 followUp 一次）。
+        if name == "rosclaw_process_start":
+            return await self._process_start(request)
+        if name == "rosclaw_process_status":
+            return await self._process_status(request)
+        if name == "rosclaw_process_output":
+            return await self._process_output(request)
+        if name == "rosclaw_process_stop":
+            return await self._process_stop(request)
         # 十五审 PR-RF-1/RF-2：治理工具——同一 owning execution 的
         # 提交/观察/steer/回答/暂停/恢复/取消。
         if name == "rosclaw_task_submit":
@@ -1519,6 +1535,87 @@ class PiToolDispatcher:
                 else f"控制失败：{result.get('error', '未知')}"
             ),
             error_code=None if result["ok"] else str(result.get("code", "")),
+        )
+
+    async def _process_start(self, request: PiToolRequestV1) -> PiToolResultV1:
+        """PR-H3：长进程 → Operation（立即返回 operation_id）。"""
+        command = str(request.arguments.get("command", "")).strip()
+        if not command:
+            raise ToolBridgeError("INVALID_ARGUMENTS", "command required")
+        kernel = self._service._task_kernel
+        task = kernel.active_task_for(request.mission_id, request.pi_session_id)
+        if task is None:
+            raise ToolBridgeError(
+                "NO_ACTIVE_TASK", "无活跃任务——先发送任务消息（输入事务绑定）"
+            )
+        op = await self._service._operation_manager.start(
+            task_id=task["task_id"],
+            attempt_id="main",
+            kind="process",
+            argv=["sh", "-c", command],
+            cwd=task["workspace_path"],
+        )
+        return PiToolResultV1(
+            request_id=request.request_id,
+            ok=True,
+            status="STARTED",
+            summary=(
+                f"Operation 已启动：{op['operation_id']}（后台运行——"
+                "progress/输出经 process_output 查看；完成时会收到一次"
+                "通知，不要在回合里死等）"
+            ),
+        )
+
+    async def _process_status(self, request: PiToolRequestV1) -> PiToolResultV1:
+        op = self._service._operation_manager.get(
+            str(request.arguments.get("operation_id", ""))
+        )
+        if not op:
+            raise ToolBridgeError("NOT_FOUND", "unknown operation")
+        return PiToolResultV1(
+            request_id=request.request_id,
+            ok=True,
+            status=str(op["state"]),
+            summary=(
+                f"operation {op['operation_id']}: {op['state']}"
+                + (f"（{op['failure_code']}）" if op.get("failure_code") else "")
+            ),
+        )
+
+    async def _process_output(self, request: PiToolRequestV1) -> PiToolResultV1:
+        operation_id = str(request.arguments.get("operation_id", ""))
+        tail = min(int(request.arguments.get("tail", 50) or 50), 200)
+        op = self._service._operation_manager.get(operation_id)
+        if not op:
+            raise ToolBridgeError("NOT_FOUND", "unknown operation")
+        events = self._service._operation_manager.events_since(
+            op["task_id"], 0
+        )
+        lines = [
+            str(e["payload"].get("text", ""))
+            for e in events
+            if e["event_type"] == "operation.output"
+            and e.get("operation_id") == operation_id
+        ]
+        return PiToolResultV1(
+            request_id=request.request_id,
+            ok=True,
+            status=str(op["state"]),
+            summary="".join(lines[-tail:])[-3000:] or "（暂无输出）",
+        )
+
+    async def _process_stop(self, request: PiToolRequestV1) -> PiToolResultV1:
+        operation_id = str(request.arguments.get("operation_id", ""))
+        op = self._service._operation_manager.get(operation_id)
+        if not op:
+            raise ToolBridgeError("NOT_FOUND", "unknown operation")
+        await self._service._operation_manager.cancel(
+            operation_id, reason="model_request"
+        )
+        return PiToolResultV1(
+            request_id=request.request_id,
+            ok=True, status="CANCELLED",
+            summary=f"operation {operation_id} 已取消（账本先行）",
         )
 
     async def _task(self, request: PiToolRequestV1) -> PiToolResultV1:

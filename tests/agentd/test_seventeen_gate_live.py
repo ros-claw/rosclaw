@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import sys
 import time
 from pathlib import Path
 
@@ -135,11 +136,14 @@ def _wait_execution_terminal(home: Path, timeout: float = 900.0) -> list[dict]:
 
 
 def _wait_turn_settled(session, home: Path, timeout: float = 900.0) -> None:
-    """等模型回合真正收束：DB 出现终态记录 + TUI 输出停止增长
-    ≥15s（Working 转动期间输出持续增长；停止=回合结束）。
-    第一个终态记录不等于回合结束——模型可能继续调参重试。"""
+    """等模型回合真正收束：TUI 输出停止增长 ≥15s（Working 转动期间
+    输出持续增长——包括长 bash/网络等待；停止=回合结束）。
+
+    账本条件二选一：旧链终态记录（task_records/task_executions）或
+    新链 root task 行（tasks——H2 输入事务）。只等输出静止不够——
+    模型可能还没开始干活。"""
     deadline = time.monotonic() + timeout
-    saw_terminal = False
+    saw_ledger = False
     last_len = -1
     last_growth = time.monotonic()
     while time.monotonic() < deadline:
@@ -155,17 +159,18 @@ def _wait_turn_settled(session, home: Path, timeout: float = 900.0) -> None:
                     "SELECT COUNT(*) FROM task_executions "
                     "WHERE state IN ('SUCCEEDED','FAILED','BLOCKED','CANCELLED')"
                 ).fetchone()[0]
+                tasks = db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0]
             except sqlite3.OperationalError:
-                rec, exe = 0, 0
+                rec, exe, tasks = 0, 0, 0
             db.close()
-            if rec or exe:
-                saw_terminal = True
+            if rec or exe or tasks:
+                saw_ledger = True
         with session._lock:
             current = len(session.output)
         if current != last_len:
             last_len = current
             last_growth = time.monotonic()
-        if saw_terminal and time.monotonic() - last_growth > 15:
+        if saw_ledger and time.monotonic() - last_growth > 15:
             return
         time.sleep(1)
     raise AssertionError("回合未在时限内收束（见 PTY 日志）")
@@ -192,10 +197,12 @@ class TestGate2RealProductLoop:
         都是内置确定性链，共同断言：零 Worker 雇佣 + 真实 GIF +
         验收 PASS。"""
         home, env = _prepare_home(tmp_path)
-        python = REPO / ".venv" / "bin" / "python"
+        python = sys.executable
+        (tmp_path / "ws").mkdir()
         session = PtySession(
             [str(python), "-m", "rosclaw.entrypoint", "chat"],
             env, log_path=tmp_path / "pty-sim.log",
+            cwd=tmp_path / "ws",
         )
         try:
             session.expect(b"ROSClaw Native Agent", timeout=120)
@@ -249,10 +256,12 @@ class TestGate2RealProductLoop:
         """开发闭环：PTY 输入写脚本任务——一个 execution、developer
         profile（不是 scout）、真实交付文件、验收非零、终态一致。"""
         home, env = _prepare_home(tmp_path)
-        python = REPO / ".venv" / "bin" / "python"
+        python = sys.executable
+        workspace = tmp_path / "ws"
+        workspace.mkdir()
         session = PtySession(
             [str(python), "-m", "rosclaw.entrypoint", "chat"],
-            env, log_path=tmp_path / "pty-coding.log",
+            env, log_path=tmp_path / "pty-coding.log", cwd=workspace,
         )
         try:
             session.expect(b"ROSClaw Native Agent", timeout=120)

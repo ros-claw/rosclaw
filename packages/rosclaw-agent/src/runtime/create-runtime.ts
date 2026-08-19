@@ -19,6 +19,7 @@ import { resourcePolicy } from "../extension/resource-policy.js";
 import { createSharedModelRuntime } from "./model-runtime.js";
 import { filterModelTools, MODEL_TOOL_NAMES } from "../tools/surface.js";
 import { buildWorkspacePackTools } from "../tools/workspace-pack.js";
+import { buildProcessTools } from "../tools/process-tools.js";
 import { ActiveSessionContext } from "../session/active-context.js";
 import { AgentSessionCoordinator } from "../session/coordinator.js";
 import { SessionLeaseManager } from "../session/lease-manager.js";
@@ -193,6 +194,12 @@ export async function createRosclawRuntime(
 				...buildWorkspacePackTools({
 					root: cwd,
 					bashLogPath: `${options.rosclawHome}/logs/main-bash.log`,
+				}),
+				// PR-H3：process 工具（长 Operation——立即返回 operation_id）。
+				...buildProcessTools({
+					rosclawHome: options.rosclawHome,
+					active,
+					center,
 				}),
 				buildStatusTool(center),
 				// PR-SIX-3：当前 body 的可信能力面（模型不再猜 ID）。

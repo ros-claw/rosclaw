@@ -1218,6 +1218,36 @@ class PiBridgeServer:
                 reason=str(params.get("reason", "")),
             )
             return {"ok": True}
+        if method == "pi.op.start":
+            # PR-H3（§11.4）：长 operation 立即返回 operation_id——
+            # 进度/输出经 task_events 流，终态经 followUp 注入一次。
+            ops = service._operation_manager
+            argv = [str(a) for a in (params.get("argv") or [])]
+            if not argv:
+                return {"ok": False, "error": "argv required"}
+            op = await ops.start(
+                task_id=str(params.get("task_id", "")),
+                attempt_id=str(params.get("attempt_id", "") or "main"),
+                kind=str(params.get("kind", "process")),
+                argv=argv,
+                cwd=str(params.get("cwd", "") or "") or None,
+            )
+            return {"ok": True, "operation": op}
+        if method == "pi.op.get":
+            op = service._operation_manager.get(str(params.get("operation_id", "")))
+            return {"ok": bool(op), "operation": op}
+        if method == "pi.op.cancel":
+            await service._operation_manager.cancel(
+                str(params.get("operation_id", ""))
+            )
+            return {"ok": True}
+        if method == "pi.kernel.events":
+            # seq 重放（断线从 last_seq+1——不重不漏）。
+            events = service._operation_manager.events_since(
+                str(params.get("task_id", "")),
+                int(params.get("after_seq", 0) or 0),
+            )
+            return {"ok": True, "events": events}
         if method == "pi.task.executions":
             # 十五审 PR-RF-8：execution 级任务卡（Task Control Plane 是
             # 权威——一个任务一张卡，WorkOrder 折叠为内部细节）。
