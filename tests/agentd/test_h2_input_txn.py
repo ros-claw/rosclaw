@@ -9,8 +9,8 @@ PTY `rosclaw chat` 真实输入：
 
 from __future__ import annotations
 
-import json
 import sqlite3
+import sys
 from pathlib import Path
 
 from tests.agentd.test_h1_native_work import (
@@ -28,9 +28,8 @@ class TestInputRootTaskGate:
         home, env = _prepare_home(tmp_path, fake.base_url)
         workspace = tmp_path / "ws"
         workspace.mkdir()
-        python = REPO / ".venv" / "bin" / "python"
         session = PtySession(
-            [str(python), "-m", "rosclaw.entrypoint", "chat"],
+            [sys.executable, "-m", "rosclaw.entrypoint", "chat"],
             env, log_path=tmp_path / "pty-h2.log", cwd=workspace,
         )
         try:

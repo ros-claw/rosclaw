@@ -16,5 +16,6 @@
 | [0009](0009-data-plane.md) | Data Plane：Structured/Retrieval Store 分层与 SeekDB 定位 | Accepted |
 | [0010](0010-canonical-vocabulary.md) | Canonical Vocabulary（数据平面命名冻结） | Accepted |
 | [0011](0011-agent-runtime-fabric.md) | Agent Runtime Fabric——术语、状态与边界冻结（无为而治） | Accepted |
+| [0012](0012-native-harness-backend.md) | ROSClaw owns Native Runtime; Pi is default Harness Backend（Native 直干，Worker 退出默认链） | Accepted |
 
 依据文档：《ROSClaw Native Agent、Worker Fabric 与多机器人 Team Fabric 实施总纲 v1.0》（2026-08-01）。

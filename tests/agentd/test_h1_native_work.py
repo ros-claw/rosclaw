@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -168,9 +169,8 @@ class TestNativeWorksDirectly:
         home, env = _prepare_home(tmp_path, fake.base_url)
         workspace = tmp_path / "ws"
         workspace.mkdir()
-        python = REPO / ".venv" / "bin" / "python"
         session = PtySession(
-            [str(python), "-m", "rosclaw.entrypoint", "chat"],
+            [sys.executable, "-m", "rosclaw.entrypoint", "chat"],
             env, log_path=tmp_path / "pty-h1.log", cwd=workspace,
         )
         try:
