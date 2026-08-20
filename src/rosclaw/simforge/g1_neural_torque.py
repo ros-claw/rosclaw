@@ -36,6 +36,12 @@ G1_NEURAL_TORQUE_OBSERVATIONS = (
     "projected_gravity/x",
     "projected_gravity/y",
     "projected_gravity/z",
+    "base_linear_velocity/x",
+    "base_linear_velocity/y",
+    "base_linear_velocity/z",
+    "base_angular_velocity/x",
+    "base_angular_velocity/y",
+    "base_angular_velocity/z",
     "ball_relative/x",
     "ball_relative/y",
     "ball_relative/z",
@@ -98,6 +104,39 @@ class G1TorqueSafetyConfig:
 
 
 @dataclass(frozen=True)
+class G1TorqueExplorationConfig:
+    """Bounded temporally correlated exploration for simulator collection only."""
+
+    noise_std_ratio: float = 0.006
+    noise_clip_ratio: float = 0.015
+    temporal_correlation: float = 0.98
+    minimum_recovery_phase: float = 0.55
+    minimum_pelvis_height_m: float = 0.72
+    maximum_projected_gravity_z: float = -0.90
+    require_foot_contact: bool = True
+    seed: int = 0
+    activation_ceiling: str = "SIM_ONLY"
+
+    def __post_init__(self) -> None:
+        if not 0.0 < self.noise_std_ratio <= 0.03:
+            raise ValueError("exploration noise standard ratio must be in (0, 0.03]")
+        if not self.noise_std_ratio <= self.noise_clip_ratio <= 0.05:
+            raise ValueError("exploration noise clip ratio must be in [std, 0.05]")
+        if not 0.0 <= self.temporal_correlation < 1.0:
+            raise ValueError("exploration temporal correlation must be in [0, 1)")
+        if not 0.02 <= self.minimum_recovery_phase <= 1.0:
+            raise ValueError("exploration recovery phase must be in [0.02, 1]")
+        if not 0.55 <= self.minimum_pelvis_height_m <= 0.95:
+            raise ValueError("exploration pelvis-height gate must be in [0.55, 0.95] m")
+        if not -0.999 <= self.maximum_projected_gravity_z <= -0.75:
+            raise ValueError("exploration gravity gate must be in [-0.999, -0.75]")
+        if not 0 <= self.seed < 2**63:
+            raise ValueError("exploration seed must be a non-negative signed 64-bit integer")
+        if self.activation_ceiling != "SIM_ONLY":
+            raise ValueError("direct-torque exploration is restricted to SIM_ONLY")
+
+
+@dataclass(frozen=True)
 class G1TorqueControlFrame:
     """One simulator state used to construct the end-to-end policy input."""
 
@@ -107,6 +146,8 @@ class G1TorqueControlFrame:
     joint_upper_limits: np.ndarray
     torso_quaternion_wxyz: np.ndarray
     pelvis_position: np.ndarray
+    base_linear_velocity: np.ndarray
+    base_angular_velocity: np.ndarray
     ball_position: np.ndarray
     ball_velocity: np.ndarray
     target_y_m: float
@@ -114,6 +155,7 @@ class G1TorqueControlFrame:
     policy_phase: float
     left_contact: bool
     right_contact: bool
+    ball_contact_observed: bool = False
 
 
 @dataclass(frozen=True)
@@ -146,7 +188,13 @@ class G1TorquePolicyReceipt:
     activation_ceiling: str
     hardware_authorized: bool = False
     dds_opened: bool = False
-    schema_version: str = "rosclaw.simforge.g1_neural_torque_receipt.v1"
+    exploration_config_hash: str | None = None
+    exploration_attempt_count: int = 0
+    exploration_applied_count: int = 0
+    exploration_rejection_count: int = 0
+    exploration_noise_rms_ratio: float = 0.0
+    exploration_noise_peak_ratio: float = 0.0
+    schema_version: str = "rosclaw.simforge.g1_neural_torque_receipt.v2"
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -164,6 +212,19 @@ class G1TorquePolicy(Protocol):
     ) -> np.ndarray: ...
 
     def note_applied(self, torque: np.ndarray) -> None: ...
+
+
+class G1TorqueObserver(Protocol):
+    """Read-only physics-rate observer for collecting torque demonstrations.
+
+    Unlike :class:`G1TorquePolicy`, this surface cannot return a command and
+    therefore cannot acquire control authority.  It exists so target-space
+    controllers can be distilled without composing two actuator writers.
+    """
+
+    def reset(self) -> None: ...
+
+    def observe(self, frame: G1TorqueControlFrame, applied_torque: np.ndarray) -> None: ...
 
 
 @dataclass(frozen=True)
@@ -259,6 +320,35 @@ class G1TeacherTorqueCollector:
             observations=np.asarray(self._observations, dtype=np.float32),
             actions=np.asarray(self._actions, dtype=np.float32),
             parent_actions=np.asarray(self._parents, dtype=np.float32),
+        )
+
+
+class G1TeacherTorqueObserver:
+    """Observe final simulator torque without participating in control."""
+
+    def __init__(self) -> None:
+        self.reset()
+
+    def reset(self) -> None:
+        self._observations: list[np.ndarray] = []
+        self._actions: list[np.ndarray] = []
+        self._previous: np.ndarray = np.zeros(len(G1_DDS_JOINT_NAMES), dtype=np.float64)
+
+    def observe(self, frame: G1TorqueControlFrame, applied_torque: np.ndarray) -> None:
+        action = _vector(applied_torque, label="observed teacher torque")
+        observation = build_g1_neural_torque_observation(frame, self._previous)
+        self._observations.append(observation)
+        self._actions.append(np.asarray(action, dtype=np.float32))
+        self._previous = action.copy()
+
+    def episode(self) -> G1TeacherTorqueEpisode:
+        if not self._observations:
+            raise ValueError("observed teacher torque episode is empty")
+        actions = np.asarray(self._actions, dtype=np.float32)
+        return G1TeacherTorqueEpisode(
+            observations=np.asarray(self._observations, dtype=np.float32),
+            actions=actions,
+            parent_actions=actions.copy(),
         )
 
 
@@ -399,12 +489,14 @@ class G1NeuralTorquePolicy:
         *,
         expected_body_hash: str,
         expected_parent_policy_hash: str,
+        exploration: G1TorqueExplorationConfig | None = None,
     ) -> None:
         if artifact.body_hash != expected_body_hash:
             raise ValueError("neural torque artifact body hash mismatch")
         if artifact.parent_policy_hash != expected_parent_policy_hash:
             raise ValueError("neural torque artifact parent policy hash mismatch")
         self.artifact = artifact
+        self.exploration = exploration
         self.projector = G1TorqueSafetyProjector(artifact.safety)
         self._hidden: np.ndarray = np.zeros(artifact.hidden_dim, dtype=np.float32)
         self._previous: np.ndarray = np.zeros(len(G1_DDS_JOINT_NAMES), dtype=np.float64)
@@ -417,6 +509,15 @@ class G1NeuralTorquePolicy:
         self._maximum_limit_ratio = 0.0
         self._peak_power = 0.0
         self._recovery_cooldown = 0
+        self._exploration_rng = np.random.default_rng(
+            exploration.seed if exploration is not None else 0
+        )
+        self._exploration_state: np.ndarray = np.zeros(len(G1_DDS_JOINT_NAMES), dtype=np.float64)
+        self._exploration_attempt_count = 0
+        self._exploration_applied_count = 0
+        self._exploration_rejection_count = 0
+        self._exploration_noise_square_sum = 0.0
+        self._exploration_noise_peak_ratio = 0.0
 
     def reset(self) -> None:
         self._hidden.fill(0.0)
@@ -430,6 +531,15 @@ class G1NeuralTorquePolicy:
         self._maximum_limit_ratio = 0.0
         self._peak_power = 0.0
         self._recovery_cooldown = 0
+        self._exploration_rng = np.random.default_rng(
+            self.exploration.seed if self.exploration is not None else 0
+        )
+        self._exploration_state.fill(0.0)
+        self._exploration_attempt_count = 0
+        self._exploration_applied_count = 0
+        self._exploration_rejection_count = 0
+        self._exploration_noise_square_sum = 0.0
+        self._exploration_noise_peak_ratio = 0.0
 
     @property
     def pending_projection(self) -> G1TorqueProjection:
@@ -443,6 +553,8 @@ class G1NeuralTorquePolicy:
         self,
         frame: G1TorqueControlFrame,
         parent_torque: np.ndarray,
+        *,
+        allow_exploration: bool = True,
     ) -> np.ndarray:
         if self._pending is not None:
             raise RuntimeError("neural torque policy did not receive note_applied")
@@ -458,8 +570,7 @@ class G1NeuralTorquePolicy:
                 )
                 self._advance_hidden(normalized)
             elif (
-                float(frame.pelvis_position[2])
-                < self.artifact.safety.minimum_pelvis_height_m
+                float(frame.pelvis_position[2]) < self.artifact.safety.minimum_pelvis_height_m
                 or float(raw[60]) > self.artifact.safety.minimum_upright_gravity_z
             ):
                 self._recovery_cooldown = self.artifact.safety.recovery_cooldown_steps
@@ -486,11 +597,19 @@ class G1NeuralTorquePolicy:
                 self._hidden.fill(0.0)
             else:
                 proposed = self._infer_normalized(normalized)
-                projection = self.projector.project(
+                baseline = self.projector.project(
                     proposed,
                     parent=parent,
                     previous=self._previous,
                     frame=frame,
+                )
+                projection = self._explore(
+                    baseline,
+                    proposed=proposed,
+                    parent=parent,
+                    frame=frame,
+                    raw_observation=raw,
+                    allowed=allow_exploration,
                 )
         except (ValueError, FloatingPointError) as exc:
             projection = self.projector.project(
@@ -567,6 +686,17 @@ class G1NeuralTorquePolicy:
             peak_mechanical_power_w=self._peak_power,
             direct_torque_output=True,
             activation_ceiling=self.artifact.safety.activation_ceiling,
+            exploration_config_hash=(
+                _exploration_config_hash(self.exploration) if self.exploration is not None else None
+            ),
+            exploration_attempt_count=self._exploration_attempt_count,
+            exploration_applied_count=self._exploration_applied_count,
+            exploration_rejection_count=self._exploration_rejection_count,
+            exploration_noise_rms_ratio=math.sqrt(
+                self._exploration_noise_square_sum
+                / max(1, self._exploration_applied_count * len(G1_DDS_JOINT_NAMES))
+            ),
+            exploration_noise_peak_ratio=self._exploration_noise_peak_ratio,
         )
 
     def episode(self) -> G1TeacherTorqueEpisode:
@@ -611,6 +741,58 @@ class G1NeuralTorquePolicy:
             raise FloatingPointError("neural torque actor produced non-finite output")
         return proposed.astype(np.float64)
 
+    def _explore(
+        self,
+        baseline: G1TorqueProjection,
+        *,
+        proposed: np.ndarray,
+        parent: np.ndarray,
+        frame: G1TorqueControlFrame,
+        raw_observation: np.ndarray,
+        allowed: bool,
+    ) -> G1TorqueProjection:
+        config = self.exploration
+        if (
+            config is None
+            or not allowed
+            or baseline.used_parent
+            or float(frame.policy_phase) < config.minimum_recovery_phase
+            or float(frame.pelvis_position[2]) < config.minimum_pelvis_height_m
+            or float(raw_observation[60]) > config.maximum_projected_gravity_z
+            or (config.require_foot_contact and not (frame.left_contact or frame.right_contact))
+        ):
+            return baseline
+        innovation_scale = math.sqrt(1.0 - config.temporal_correlation**2)
+        innovation = self._exploration_rng.standard_normal(len(G1_DDS_JOINT_NAMES))
+        self._exploration_state = (
+            config.temporal_correlation * self._exploration_state + innovation_scale * innovation
+        )
+        noise_ratio = np.clip(
+            config.noise_std_ratio * self._exploration_state,
+            -config.noise_clip_ratio,
+            config.noise_clip_ratio,
+        )
+        hard = np.asarray(G1_HARD_TORQUE_LIMITS, dtype=np.float64)
+        self._exploration_attempt_count += 1
+        explored = self.projector.project(
+            proposed + noise_ratio * hard,
+            parent=parent,
+            previous=self._previous,
+            frame=frame,
+        )
+        if explored.used_parent:
+            self._exploration_rejection_count += 1
+            return explored
+        applied_ratio = (explored.torque - baseline.torque) / hard
+        if np.any(np.abs(applied_ratio) > 1e-12):
+            self._exploration_applied_count += 1
+            self._exploration_noise_square_sum += float(np.sum(np.square(applied_ratio)))
+            self._exploration_noise_peak_ratio = max(
+                self._exploration_noise_peak_ratio,
+                float(np.max(np.abs(applied_ratio))),
+            )
+        return explored
+
 
 def build_g1_neural_torque_observation(
     frame: G1TorqueControlFrame,
@@ -623,12 +805,22 @@ def build_g1_neural_torque_observation(
     previous = _vector(previous_torque, label="previous torque")
     quaternion = np.asarray(frame.torso_quaternion_wxyz, dtype=np.float64)
     pelvis = np.asarray(frame.pelvis_position, dtype=np.float64)
+    base_linear_velocity = np.asarray(frame.base_linear_velocity, dtype=np.float64)
+    base_angular_velocity = np.asarray(frame.base_angular_velocity, dtype=np.float64)
     ball = np.asarray(frame.ball_position, dtype=np.float64)
     ball_velocity = np.asarray(frame.ball_velocity, dtype=np.float64)
     if quaternion.shape != (4,) or pelvis.shape != (3,) or ball.shape != (3,):
         raise ValueError("neural torque body pose fields have the wrong shape")
-    if ball_velocity.shape != (3,):
-        raise ValueError("neural torque ball velocity has the wrong shape")
+    if (
+        base_linear_velocity.shape != (3,)
+        or base_angular_velocity.shape != (3,)
+        or ball_velocity.shape != (3,)
+    ):
+        raise ValueError("neural torque velocity fields have the wrong shape")
+    if not np.all(np.isfinite(base_linear_velocity)) or not np.all(
+        np.isfinite(base_angular_velocity)
+    ):
+        raise ValueError("neural torque base velocity is non-finite")
     scalars = (frame.target_y_m, frame.target_z_m, frame.policy_phase)
     if not all(math.isfinite(float(value)) for value in scalars):
         raise ValueError("neural torque task context must be finite")
@@ -644,6 +836,8 @@ def build_g1_neural_torque_observation(
             position,
             velocity,
             gravity,
+            base_linear_velocity,
+            base_angular_velocity,
             ball - pelvis,
             ball_velocity,
             np.asarray((frame.target_y_m, frame.target_z_m)),
@@ -655,6 +849,11 @@ def build_g1_neural_torque_observation(
     if value.shape != (len(G1_NEURAL_TORQUE_OBSERVATIONS),) or not np.all(np.isfinite(value)):
         raise ValueError("neural torque observation is malformed or non-finite")
     return value
+
+
+def _exploration_config_hash(config: G1TorqueExplorationConfig) -> str:
+    payload = json.dumps(asdict(config), sort_keys=True, separators=(",", ":")).encode()
+    return "sha256:" + hashlib.sha256(payload).hexdigest()
 
 
 def load_g1_neural_torque_artifact(
@@ -968,7 +1167,10 @@ __all__ = [
     "G1NeuralTorquePolicy",
     "G1TeacherTorqueCollector",
     "G1TeacherTorqueEpisode",
+    "G1TeacherTorqueObserver",
     "G1TorqueControlFrame",
+    "G1TorqueExplorationConfig",
+    "G1TorqueObserver",
     "G1TorquePolicy",
     "G1TorquePolicyReceipt",
     "G1TorqueProjection",

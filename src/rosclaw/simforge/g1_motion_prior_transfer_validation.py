@@ -45,6 +45,7 @@ class G1MotionPriorTransferReport:
     teacher_dataset_hash: str
     motion_prior_artifact_hash: str
     motion_prior_pack_hash: str
+    teacher_rollout_audit: tuple[dict[str, Any], ...]
     training_runs: tuple[dict[str, Any], ...]
     trust_region_runs: tuple[dict[str, Any], ...]
     proposal_initialization_fraction: float
@@ -57,7 +58,7 @@ class G1MotionPriorTransferReport:
     evidence_domain: str = "SIM_ONLY"
     hardware_authorized: bool = False
     promotion_evidence_eligible: bool = False
-    schema_version: str = "rosclaw.simforge.g1_motion_prior_transfer.v2"
+    schema_version: str = "rosclaw.simforge.g1_motion_prior_transfer.v4"
 
     def to_dict(self) -> dict[str, Any]:
         value = asdict(self)
@@ -72,6 +73,7 @@ class G1MotionPriorTransferReport:
             "motion_prior_initializes_actor_gru": True,
             "direct_torque_actor_physics_executed": bool(self.transfer_rollouts),
             "online_rl_executed": False,
+            "unsafe_teacher_rollouts_used_for_behavior_cloning": False,
             "candidate_promoted": False,
             "real_robot_evidence": False,
         }
@@ -99,9 +101,26 @@ def run_g1_motion_prior_transfer_validation(
         raise ValueError("motion-prior artifact does not match the qualified G1 body")
     training_scenarios, development_scenarios, validation_scenarios = _pilot_scenarios()
     parameters = ShotParameters()
-    training = tuple(
-        _collect_teacher(backend, scenario, parameters)[1] for scenario in training_scenarios
+    collected_training = tuple(
+        (scenario, *_collect_teacher(backend, scenario, parameters))
+        for scenario in training_scenarios
     )
+    teacher_rollout_audit = tuple(
+        {
+            "scenario_id": scenario.scenario_id,
+            "status": episode.result.status.value,
+            "eligible_for_behavior_cloning": not _teacher_bc_rejection_reasons(episode.result),
+            "rejection_reasons": list(_teacher_bc_rejection_reasons(episode.result)),
+        }
+        for scenario, episode, _teacher in collected_training
+    )
+    training = tuple(
+        teacher
+        for _scenario, episode, teacher in collected_training
+        if not _teacher_bc_rejection_reasons(episode.result)
+    )
+    if len(training) < 2:
+        raise ValueError("motion-prior transfer requires at least two safe teacher episodes")
     validation = tuple(
         _collect_teacher(backend, scenario, parameters)[1] for scenario in development_scenarios
     )
@@ -288,7 +307,7 @@ def run_g1_motion_prior_transfer_validation(
     selected_fraction = float(selected_trust["trust_fraction"])
     # Development chose the transfer fraction.  The following disjoint
     # validation scenarios check physics retention but are not promotion data.
-    physics_scenarios = validation_scenarios[:4]
+    physics_scenarios = validation_scenarios
     baseline_rollouts = tuple(
         _evaluate_candidate_with_replay(
             backend,
@@ -304,7 +323,7 @@ def run_g1_motion_prior_transfer_validation(
             backend,
             scenario,
             parameters,
-        Path(str(selected_trust["artifact_path"])),
+            Path(str(selected_trust["artifact_path"])),
             stage="motion_prior_transfer_validation",
         )
         for scenario in physics_scenarios
@@ -346,6 +365,7 @@ def run_g1_motion_prior_transfer_validation(
             transfer_aggregate["learned_output_fraction"]
             >= baseline_aggregate["learned_output_fraction"] - 0.05
         ),
+        **_absolute_physics_checks(transfer_aggregate),
         "sim_only_boundary_preserved": all(
             item.activation_ceiling == "SIM_ONLY" and not item.hardware_authorized
             for item in transfer_rollouts
@@ -359,6 +379,7 @@ def run_g1_motion_prior_transfer_validation(
         teacher_dataset_hash=teacher_hash,
         motion_prior_artifact_hash=prior.artifact_hash,
         motion_prior_pack_hash=prior.pack_hash,
+        teacher_rollout_audit=teacher_rollout_audit,
         training_runs=tuple(runs),
         trust_region_runs=tuple(trust_runs),
         proposal_initialization_fraction=proposal_fraction,
@@ -371,6 +392,28 @@ def run_g1_motion_prior_transfer_validation(
     )
     _atomic_json(root / "g1-motion-prior-transfer-report.json", report.to_dict())
     return report
+
+
+def _absolute_physics_checks(aggregate: dict[str, float]) -> dict[str, bool]:
+    """Reject relative improvements that remain absolutely unsafe or ineffective."""
+    return {
+        "zero_transfer_critical_failures": aggregate["critical_failure_rate"] == 0.0,
+        "minimum_transfer_success_rate_50pct": aggregate["success_rate"] >= 0.50,
+    }
+
+
+def _teacher_bc_rejection_reasons(result: Any) -> tuple[str, ...]:
+    """Keep unsafe demonstrations as negative experience, never BC targets."""
+    reasons: list[str] = []
+    if not bool(result.finite_state):
+        reasons.append("nonfinite_state")
+    if bool(result.post_kick_fall):
+        reasons.append("post_kick_fall")
+    if bool(result.joint_limit_violation):
+        reasons.append("joint_limit_violation")
+    if bool(result.torque_limit_violation):
+        reasons.append("torque_limit_violation")
+    return tuple(reasons)
 
 
 def _write_interpolated_artifact(

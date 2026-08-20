@@ -299,10 +299,9 @@ def _unrecoverable_stop_checks(
         backend.run(
             replace(
                 unreachable,
-                scenario_id="goalforge-incompatible-stop",
-                reachable=True,
+                scenario_id="goalforge-unreachable-stop-alternate",
             ),
-            ShotParameters(kick_foot="left"),
+            ShotParameters(),
         ),
     )
     values = []

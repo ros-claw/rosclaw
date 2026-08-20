@@ -30,7 +30,10 @@ dependencies = [
     # NumPy 2.5 type stubs require Python 3.12 syntax, while ROSClaw and its
     # CI still support Python 3.11 and run mypy with python_version=3.11.
     "numpy>=1.24.0,<2.5",
-    "mujoco>=3.0.0",
+    # MuJoCo 3.11 changes the validated G1 coupled-football dynamics enough to
+    # make two strict-replay champion cases fall.  Keep the supported runtime
+    # below that boundary until a dedicated cross-version requalification.
+    "mujoco>=3.0.0,<3.11",
     # OpenAI-compatible provider runtime + agentd model gateway use aiohttp
     # for chat completions / SSE streaming (previously optional; required
     # since the Native Agent model path became a first-class feature).
@@ -82,7 +85,10 @@ knowledge = [
     "rosclaw-how>=1.3.0,<2",
 ]
 lerobot = [
-    "lerobot>=0.6,<0.7",
+    # Dataset export is part of ROSClaw's core LeRobot capability contract.
+    # The upstream dataset extra supplies datasets/pyarrow and must therefore
+    # be present anywhere this optional dependency is requested.
+    "lerobot[dataset]>=0.6,<0.7",
 ]
 rl = [
     # Phase 7 continual residual learning is optional and never imported by

@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 from dataclasses import asdict, dataclass
 
+from rosclaw.simforge.g1_moving_ball_balance import G1MovingBallBalanceArtifact
 from rosclaw.simforge.tasks.g1_goalforge.concepts import ShotParameters
 from rosclaw.simforge.tasks.g1_goalforge.scenario import GoalForgeScenario
 
@@ -35,6 +36,32 @@ class MovingBallInterceptAdapter:
     maximum_contact_position_error_m = 0.16
     maximum_ball_speed_mps = 0.20
 
+    def __init__(
+        self,
+        balance_artifact: G1MovingBallBalanceArtifact | None = None,
+        *,
+        expected_body_hash: str | None = None,
+        expected_motion_hash: str | None = None,
+        expected_recovery_config_hash: str | None = None,
+    ) -> None:
+        expected = (
+            expected_body_hash,
+            expected_motion_hash,
+            expected_recovery_config_hash,
+        )
+        if balance_artifact is None:
+            if any(item is not None for item in expected):
+                raise ValueError("moving-ball balance compatibility requires an artifact")
+        else:
+            if any(item is None for item in expected):
+                raise ValueError("moving-ball balance artifact requires exact compatibility hashes")
+            balance_artifact.require_compatible(
+                body_hash=str(expected_body_hash),
+                motion_hash=str(expected_motion_hash),
+                recovery_config_hash=str(expected_recovery_config_hash),
+            )
+        self.balance_artifact = balance_artifact
+
     def plan(self, scenario: GoalForgeScenario) -> MovingBallPlan:
         moving_duration = max(0.0, self.nominal_contact_time_sec - scenario.ball_launch_delay_sec)
         predicted_x = scenario.ball_x_m + scenario.ball_velocity_x_mps * moving_duration
@@ -51,12 +78,25 @@ class MovingBallInterceptAdapter:
         if error > self.maximum_contact_position_error_m:
             reasons.append("predicted_intercept_outside_kick_envelope")
         eligible = not reasons
+        com_shift_y = (
+            self.balance_artifact.com_shift_for(
+                predicted_ball_y_m=predicted_y,
+                predicted_ball_speed_mps=speed,
+            )
+            if self.balance_artifact is not None
+            else 0.015
+        )
         parameters = ShotParameters(
             pelvis_yaw_offset=0.1925,
-            com_shift_y=0.015,
+            com_shift_y=com_shift_y,
             foot_yaw_offset=0.03025,
             recovery_step_length=0.055,
             policy_type="parameter",
+            dataset_snapshot_hash=(
+                self.balance_artifact.artifact_hash
+                if self.balance_artifact is not None
+                else None
+            ),
         )
         return MovingBallPlan(
             launch_time_sec=scenario.ball_launch_delay_sec,

@@ -29,13 +29,26 @@ import numpy as np
 import torch  # type: ignore[import-not-found]
 from torch import nn  # type: ignore[import-not-found]
 
-from rosclaw.collective.sources.motiondecode.audit import load_g1_joint_contract
+from rosclaw.collective.sources.motiondecode.audit import (
+    MotionDecodeAuditThresholds,
+    load_g1_joint_contract,
+)
 from rosclaw.collective.sources.motiondecode.manifest import (
+    MotionDecodeFileRecord,
     MotionDecodeRegistration,
     verify_registered_files,
 )
-from rosclaw.collective.sources.motiondecode.parser import parse_motion_csv
-from rosclaw.collective.sources.motiondecode.repair import clean_motiondecode_spans
+from rosclaw.collective.sources.motiondecode.parser import (
+    CanonicalMotionEpisode,
+    parse_motion_csv,
+)
+from rosclaw.collective.sources.motiondecode.repair import (
+    MotionDecodeRepairResult,
+    MotionRepairDisposition,
+    clean_motiondecode_spans,
+    repair_motiondecode_snapshot,
+    replay_segmentation_repair,
+)
 from rosclaw.collective.sources.motiondecode.taxonomy import MotionFamily
 from rosclaw.feedback.contracts import canonical_hash
 from rosclaw.simforge.g1_neural_torque import G1_NEURAL_TORQUE_OBSERVATIONS
@@ -51,6 +64,7 @@ _PACK_SCHEMA = "rosclaw.collective.motiondecode_motion_prior_pack.v1"
 _ARTIFACT_SCHEMA = "rosclaw.collective.g1_motion_prior.v1"
 _INGEST_ARTIFACT_SCHEMA = "rosclaw.collective.motiondecode_ingest_artifact.v1"
 _INGEST_REPORT_SCHEMA = "rosclaw.collective.motiondecode_ingest_report.v1"
+_REPAIR_ARTIFACT_SCHEMA = "rosclaw.collective.motiondecode_repair_artifact.v1"
 _MAX_REPORT_BYTES = 128 * 1024 * 1024
 _MAX_PACK_BYTES = 2 * 1024 * 1024 * 1024
 _MAX_ARTIFACT_BYTES = 128 * 1024 * 1024
@@ -108,8 +122,10 @@ def build_motion_prior_pack(
     *,
     registration: MotionDecodeRegistration,
     ingest_report_path: Path,
+    repair_report_path: Path | None = None,
     dataset_root: Path,
     model_path: Path,
+    transfer_asset_root: Path | None = None,
     output_path: Path,
     sequence_length: int = 32,
     maximum_windows: int = 12_000,
@@ -148,6 +164,54 @@ def build_motion_prior_pack(
         raise ValueError("MotionDecode ingest target body hash does not match the requested model")
     if report.get("target_model_file_hash") != model_file_hash:
         raise ValueError("MotionDecode ingest target model file does not match the requested model")
+    actor_body_hash = target_body_hash
+    transfer_qualification: dict[str, Any] | None = None
+    if transfer_asset_root is not None:
+        from rosclaw.simforge.backends.unitree_mujoco_backend import qualify_g1_assets
+
+        qualification = qualify_g1_assets(transfer_asset_root)
+        qualification.require_eligible()
+        if qualification.joint_names != G1_DDS_JOINT_NAMES:
+            raise ValueError("motion-prior transfer body joint contract is incompatible")
+        actor_body_hash = qualification.body_hash
+        transfer_qualification = qualification.to_dict()
+    repair_by_path: dict[str, Any] = {}
+    repair_report_hash: str | None = None
+    if repair_report_path is not None:
+        repair_artifact = _bounded_json(
+            repair_report_path.expanduser().resolve(), _MAX_REPORT_BYTES
+        )
+        if repair_artifact.get("schema_version") != _REPAIR_ARTIFACT_SCHEMA:
+            raise ValueError("motion-prior pack requires a MotionDecode repair artifact")
+        repair_value = repair_artifact.get("report")
+        if not isinstance(repair_value, dict):
+            raise ValueError("MotionDecode repair artifact lacks a report object")
+        repair_report_hash = str(repair_artifact.get("report_hash", ""))
+        if repair_report_hash != canonical_hash(repair_value):
+            raise ValueError("MotionDecode repair report hash does not replay")
+        if (
+            repair_value.get("hardware_authorized") is not False
+            or repair_value.get("activation_authorized") is not False
+            or repair_value.get("training_eligible") is not False
+        ):
+            raise ValueError("MotionDecode repair evidence contains unsafe authorization claims")
+        thresholds_value = report.get("thresholds")
+        if not isinstance(thresholds_value, dict):
+            raise ValueError("MotionDecode ingest report lacks audit thresholds")
+        expected_threshold_fields = set(MotionDecodeAuditThresholds().to_dict())
+        if set(thresholds_value) != expected_threshold_fields:
+            raise ValueError("MotionDecode ingest audit thresholds are invalid")
+        thresholds = MotionDecodeAuditThresholds(**thresholds_value)
+        replayed_repair = repair_motiondecode_snapshot(
+            registration,
+            dataset_root,
+            target_model_path=model_path,
+            expected_ingest_report_hash=str(artifact["report_hash"]),
+            thresholds=thresholds,
+        )
+        if replayed_repair.report_hash != repair_report_hash:
+            raise ValueError("MotionDecode repair evidence does not replay from immutable input")
+        repair_by_path = {result.relative_path: result for result in replayed_repair.results}
     clips = report.get("clips")
     if not isinstance(clips, list):
         raise ValueError("MotionDecode ingest report clips are missing")
@@ -178,14 +242,22 @@ def build_motion_prior_pack(
         if not isinstance(clip, dict):
             raise ValueError("MotionDecode ingest report contains an invalid clip")
         relative = str(clip.get("relative_path", ""))
-        if clip.get("kinematic_valid") is not True or not isinstance(
-            clip.get("episode_summary"), dict
-        ):
+        repair_result = repair_by_path.get(relative)
+        repaired_q1 = bool(
+            repair_result is not None
+            and repair_result.disposition is MotionRepairDisposition.REPAIRED_Q1
+        )
+        source_q1 = bool(
+            clip.get("kinematic_valid") is True and isinstance(clip.get("episode_summary"), dict)
+        )
+        if not source_q1 and not repaired_q1:
             skipped_clips.append(
                 {
                     "relative_path": relative,
                     "qualification": str(clip.get("qualification", "")),
-                    "reason": "not_kinematic_valid",
+                    "reason": (
+                        "repair_not_q1" if repair_report_path is not None else "not_kinematic_valid"
+                    ),
                 }
             )
             continue
@@ -198,34 +270,42 @@ def build_motion_prior_pack(
         stratum = record.family.value
         if allowed and stratum not in allowed:
             continue
-        episode = parse_motion_csv(
-            verified[relative],
-            source_manifest_hash=registration.manifest.manifest_hash,
-            expected_file_hash=record.content_hash,
+        episode = _load_motion_prior_episode(
+            registration=registration,
+            dataset_root=dataset_root,
+            model_path=model_path,
+            verified_path=verified[relative],
+            record=record,
             target_body_hash=target_body_hash,
-            sample_rate_hz=registration.manifest.sample_rate_hz,
+            repair_result=repair_result,
+            repair_thresholds=(
+                replayed_repair.thresholds if repair_report_path is not None else None
+            ),
         )
-        episode_hashes[relative] = expected_hash
+        episode_hashes[relative] = (
+            str(episode.derivation_manifest_hash) if repaired_q1 else expected_hash
+        )
         spans = clean_motiondecode_spans(
             episode,
             joint_lower=joint_lower,
             joint_upper=joint_upper,
             minimum_frames=sequence_length + 1,
         )
-        episode_split_hash = hashlib.sha256(f"{expected_hash}:{relative}".encode()).hexdigest()
-        audited.append((relative, expected_hash, spans, episode_split_hash))
+        derivation_hash = episode_hashes[relative]
+        episode_split_hash = hashlib.sha256(f"{derivation_hash}:{relative}".encode()).hexdigest()
+        audited.append((relative, derivation_hash, spans, episode_split_hash))
     if len(audited) < 2:
         raise ValueError("motion-prior pack requires at least two source episodes")
     validation_episode_count = max(1, round(len(audited) * 0.2))
     validation_paths = {
         item[0] for item in sorted(audited, key=lambda item: item[3])[:validation_episode_count]
     }
-    for relative, expected_hash, spans, _ in audited:
+    for relative, derivation_hash, spans, _ in audited:
         split = "validation" if relative in validation_paths else "training"
         for span_start, span_stop in spans:
             for start in range(span_start, span_stop - sequence_length, 16):
                 score = hashlib.sha256(
-                    f"{seed}:{expected_hash}:{relative}:{start}".encode()
+                    f"{seed}:{derivation_hash}:{relative}:{start}".encode()
                 ).hexdigest()
                 candidates.append((score, relative, start, split))
     if not candidates:
@@ -248,12 +328,17 @@ def build_motion_prior_pack(
     selection_commitment: list[dict[str, Any]] = []
     for relative, starts in sorted(by_path.items()):
         record = records[relative]
-        episode = parse_motion_csv(
-            verified[relative],
-            source_manifest_hash=registration.manifest.manifest_hash,
-            expected_file_hash=record.content_hash,
+        episode = _load_motion_prior_episode(
+            registration=registration,
+            dataset_root=dataset_root,
+            model_path=model_path,
+            verified_path=verified[relative],
+            record=record,
             target_body_hash=target_body_hash,
-            sample_rate_hz=registration.manifest.sample_rate_hz,
+            repair_result=repair_by_path.get(relative),
+            repair_thresholds=(
+                replayed_repair.thresholds if repair_report_path is not None else None
+            ),
         )
         for start, split, score in starts:
             positions = episode.joint_position[start : start + sequence_length + 1]
@@ -268,14 +353,17 @@ def build_motion_prior_pack(
                 raise ValueError("motion-prior feature window is non-finite")
             values[split].append(feature)
             selection_commitment.append(
-                {"episode_hash": episode_hashes[relative], "start": start, "split": split, "score": score}
+                {
+                    "episode_hash": episode_hashes[relative],
+                    "start": start,
+                    "split": split,
+                    "score": score,
+                }
             )
     training = np.asarray(values["training"], dtype=np.float32)
     validation = np.asarray(values["validation"], dtype=np.float32)
     mean = training.reshape(-1, training.shape[-1]).mean(axis=0).astype(np.float32)
-    std = np.maximum(
-        training.reshape(-1, training.shape[-1]).std(axis=0), 1e-3
-    ).astype(np.float32)
+    std = np.maximum(training.reshape(-1, training.shape[-1]).std(axis=0), 1e-3).astype(np.float32)
     training = np.clip((training - mean) / std, -10.0, 10.0).astype(np.float32)
     validation = np.clip((validation - mean) / std, -10.0, 10.0).astype(np.float32)
     output = output_path.expanduser().resolve()
@@ -295,16 +383,28 @@ def build_motion_prior_pack(
         "pack_hash": pack_hash,
         "pilot_report_hash": hash_bytes(report_path.read_bytes()),
         "ingest_report_hash": str(artifact["report_hash"]),
+        "repair_report_hash": repair_report_hash,
         "registration_hash": registration.registration_hash,
         "source_manifest_hash": registration.manifest.manifest_hash,
-        "body_hash": target_body_hash,
+        "body_hash": actor_body_hash,
         "kinematic_body_hash": target_body_hash,
         "target_model_file_hash": model_file_hash,
+        "transfer_body_qualification": transfer_qualification,
+        "transfer_contract": (
+            "exact_29_joint_feature_semantics_only_no_dynamics_transfer"
+            if transfer_qualification is not None
+            else "kinematic_body_only"
+        ),
         "feature_names": list(G1_MOTION_PRIOR_FEATURES),
         "sequence_length": sequence_length,
         "training_windows": len(training),
         "validation_windows": len(validation),
         "source_episode_count": len(by_path),
+        "repaired_source_episode_count": sum(
+            result.disposition is MotionRepairDisposition.REPAIRED_Q1
+            and result.relative_path in by_path
+            for result in repair_by_path.values()
+        ),
         "allowed_strata": sorted(allowed) if allowed else ["all"],
         "skipped_clips": skipped_clips,
         "selection_commitment": hash_json(selection_commitment),
@@ -316,6 +416,40 @@ def build_motion_prior_pack(
     }
     _atomic_json(output.with_suffix(".json"), metadata)
     return metadata
+
+
+def _load_motion_prior_episode(
+    *,
+    registration: MotionDecodeRegistration,
+    dataset_root: Path,
+    model_path: Path,
+    verified_path: Path,
+    record: MotionDecodeFileRecord,
+    target_body_hash: str,
+    repair_result: MotionDecodeRepairResult | None,
+    repair_thresholds: MotionDecodeAuditThresholds | None,
+) -> CanonicalMotionEpisode:
+    if (
+        repair_result is not None
+        and repair_result.disposition is MotionRepairDisposition.REPAIRED_Q1
+    ):
+        manifest = repair_result.repair_manifest
+        if manifest is None or repair_thresholds is None:
+            raise ValueError("repaired MotionDecode Q1 clip lacks replay inputs")
+        return replay_segmentation_repair(
+            registration,
+            dataset_root,
+            target_model_path=model_path,
+            manifest=manifest,
+            thresholds=repair_thresholds,
+        )
+    return parse_motion_csv(
+        verified_path,
+        source_manifest_hash=registration.manifest.manifest_hash,
+        expected_file_hash=record.content_hash,
+        target_body_hash=target_body_hash,
+        sample_rate_hz=registration.manifest.sample_rate_hz,
+    )
 
 
 def train_motion_prior_worker(
@@ -465,12 +599,12 @@ def run_four_gpu_motion_prior(
     for physical_gpu, seed, worker_root, process in processes:
         stdout, stderr = process.communicate()
         if process.returncode != 0:
-            failures.append(f"gpu={physical_gpu},returncode={process.returncode},stderr={stderr[-1000:]}")
+            failures.append(
+                f"gpu={physical_gpu},returncode={process.returncode},stderr={stderr[-1000:]}"
+            )
             continue
         try:
-            artifact = _bounded_json(
-                worker_root / "motion-prior-artifact.json", _MAX_REPORT_BYTES
-            )
+            artifact = _bounded_json(worker_root / "motion-prior-artifact.json", _MAX_REPORT_BYTES)
             metrics = artifact.get("metrics")
             if (
                 artifact.get("schema_version") != _ARTIFACT_SCHEMA
@@ -484,8 +618,7 @@ def run_four_gpu_motion_prior(
             persistence_loss = float(final["persistence_baseline_loss"])
             improvement = float(final["validation_improvement_fraction"])
             if not all(
-                math.isfinite(value)
-                for value in (validation_loss, persistence_loss, improvement)
+                math.isfinite(value) for value in (validation_loss, persistence_loss, improvement)
             ):
                 raise ValueError("worker metrics are non-finite")
         except (KeyError, OSError, TypeError, ValueError) as exc:
@@ -623,9 +756,9 @@ def _load_pack(path: Path) -> tuple[dict[str, np.ndarray], dict[str, Any]]:
             G1_MOTION_PRIOR_FEATURE_DIM,
         ):
             raise ValueError(f"motion-prior {split} tensor shape is invalid")
-    if values["observation_mean"].shape != (
-        G1_MOTION_PRIOR_FEATURE_DIM,
-    ) or values["observation_std"].shape != (G1_MOTION_PRIOR_FEATURE_DIM,):
+    if values["observation_mean"].shape != (G1_MOTION_PRIOR_FEATURE_DIM,) or values[
+        "observation_std"
+    ].shape != (G1_MOTION_PRIOR_FEATURE_DIM,):
         raise ValueError("motion-prior normalization shape is invalid")
     if any(not np.all(np.isfinite(value)) for value in values.values()):
         raise ValueError("motion-prior pack contains non-finite values")

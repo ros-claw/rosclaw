@@ -125,6 +125,153 @@ class G1NaturalnessComparison:
         return value
 
 
+@dataclass(frozen=True)
+class G1AbsoluteRecoveryThresholds:
+    """Frozen absolute gates for one declared recovery evaluation profile."""
+
+    maximum_backward_reversal_m: float = 0.25
+    maximum_pelvis_path_m: float = 0.70
+    maximum_settling_time_sec: float = 1.50
+    minimum_terminal_stable_duration_sec: float = 0.50
+    minimum_ball_speed_mps: float = 9.50
+    maximum_target_error_m: float = 0.25
+    maximum_support_foot_slip_m: float = 0.04
+    schema_version: str = "rosclaw.g1_goalforge.absolute_recovery_thresholds.v1"
+
+    def __post_init__(self) -> None:
+        values = (
+            self.maximum_backward_reversal_m,
+            self.maximum_pelvis_path_m,
+            self.maximum_settling_time_sec,
+            self.minimum_terminal_stable_duration_sec,
+            self.minimum_ball_speed_mps,
+            self.maximum_target_error_m,
+            self.maximum_support_foot_slip_m,
+        )
+        if not all(math.isfinite(value) and value >= 0.0 for value in values):
+            raise ValueError("absolute recovery thresholds must be finite and non-negative")
+        if self.maximum_settling_time_sec <= 0.0 or self.minimum_ball_speed_mps <= 0.0:
+            raise ValueError("settling-time and ball-speed thresholds must be positive")
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class G1AbsoluteRecoveryGate:
+    """Fail-closed absolute gate; relative improvement alone is insufficient."""
+
+    passed: bool
+    goal_quality_passed: bool
+    physical_recovery_passed: bool
+    safety_passed: bool
+    strict_replay_passed: bool
+    reasons: tuple[str, ...]
+    thresholds: G1AbsoluteRecoveryThresholds
+    schema_version: str = "rosclaw.g1_goalforge.absolute_recovery_gate.v1"
+
+    def to_dict(self) -> dict[str, Any]:
+        value = asdict(self)
+        value["reasons"] = list(self.reasons)
+        value["evidence_domain"] = "SIM_ONLY"
+        value["hardware_authorized"] = False
+        return value
+
+
+def evaluate_g1_absolute_recovery_gate(
+    *,
+    quality: G1RecoveryQuality,
+    result: Mapping[str, Any],
+    strict_replay: bool,
+    thresholds: G1AbsoluteRecoveryThresholds | None = None,
+) -> G1AbsoluteRecoveryGate:
+    """Require natural recovery in addition to a successful strong shot.
+
+    Missing result fields, a missing settling time, and any non-finite metric
+    fail closed.  This prevents a relative A/B improvement from promoting a
+    candidate that remains objectively unstable.
+    """
+
+    thresholds = thresholds or G1AbsoluteRecoveryThresholds()
+    if not isinstance(quality, G1RecoveryQuality):
+        raise ValueError("quality must be a G1RecoveryQuality")
+    if not isinstance(thresholds, G1AbsoluteRecoveryThresholds):
+        raise ValueError("thresholds must be G1AbsoluteRecoveryThresholds")
+
+    ball_speed = _finite_result_metric(result, "ball_speed_mps")
+    target_error = _finite_result_metric(result, "target_error_m")
+    support_slip = _finite_result_metric(result, "support_foot_slip_m")
+    recovery_metrics_finite = all(
+        math.isfinite(value)
+        for value in (
+            quality.post_contact_backward_reversal_m,
+            quality.post_contact_pelvis_path_length_m,
+            quality.terminal_stable_duration_sec,
+        )
+    ) and (quality.settling_time_sec is None or math.isfinite(quality.settling_time_sec))
+    goal_quality = bool(
+        result.get("success") is True
+        and result.get("goal_crossed") is True
+        and result.get("target_zone_hit") is True
+        and ball_speed is not None
+        and ball_speed >= thresholds.minimum_ball_speed_mps - 1e-9
+        and target_error is not None
+        and target_error <= thresholds.maximum_target_error_m + 1e-9
+    )
+    physical_recovery = bool(
+        recovery_metrics_finite
+        and quality.post_contact_backward_reversal_m
+        <= thresholds.maximum_backward_reversal_m + 1e-9
+        and quality.post_contact_pelvis_path_length_m <= thresholds.maximum_pelvis_path_m + 1e-9
+        and quality.settling_time_sec is not None
+        and quality.settling_time_sec <= thresholds.maximum_settling_time_sec + 1e-9
+        and quality.terminal_stable_duration_sec
+        >= thresholds.minimum_terminal_stable_duration_sec - 1e-9
+        and quality.terminal_bilateral_support
+    )
+    safety = bool(
+        result.get("post_kick_fall") is False
+        and result.get("joint_limit_violation") is False
+        and result.get("torque_limit_violation") is False
+        and result.get("actuator_saturation") is False
+        and support_slip is not None
+        and support_slip <= thresholds.maximum_support_foot_slip_m + 1e-9
+    )
+    reasons: list[str] = []
+    if not goal_quality:
+        reasons.append("goal_quality_below_absolute_gate")
+    if not recovery_metrics_finite:
+        reasons.append("recovery_metric_non_finite")
+    if quality.post_contact_backward_reversal_m > thresholds.maximum_backward_reversal_m + 1e-9:
+        reasons.append("backward_reversal_above_absolute_gate")
+    if quality.post_contact_pelvis_path_length_m > thresholds.maximum_pelvis_path_m + 1e-9:
+        reasons.append("pelvis_path_above_absolute_gate")
+    if quality.settling_time_sec is None:
+        reasons.append("settling_time_missing")
+    elif quality.settling_time_sec > thresholds.maximum_settling_time_sec + 1e-9:
+        reasons.append("settling_time_above_absolute_gate")
+    if (
+        quality.terminal_stable_duration_sec
+        < thresholds.minimum_terminal_stable_duration_sec - 1e-9
+    ):
+        reasons.append("terminal_stable_duration_below_gate")
+    if not quality.terminal_bilateral_support:
+        reasons.append("terminal_bilateral_support_missing")
+    if not safety:
+        reasons.append("safety_below_absolute_gate")
+    if not strict_replay:
+        reasons.append("strict_replay_missing")
+    return G1AbsoluteRecoveryGate(
+        passed=not reasons,
+        goal_quality_passed=goal_quality,
+        physical_recovery_passed=physical_recovery,
+        safety_passed=safety,
+        strict_replay_passed=bool(strict_replay),
+        reasons=tuple(reasons),
+        thresholds=thresholds,
+    )
+
+
 def measure_g1_recovery_quality(
     trajectory: Mapping[str, np.ndarray],
     *,
@@ -724,6 +871,14 @@ def _rms(value: np.ndarray) -> float:
     return float(np.sqrt(np.mean(np.square(value))))
 
 
+def _finite_result_metric(result: Mapping[str, Any], key: str) -> float | None:
+    try:
+        value = float(result[key])
+    except (KeyError, TypeError, ValueError):
+        return None
+    return value if math.isfinite(value) else None
+
+
 def _reduction(baseline: float, candidate: float) -> float:
     if baseline <= 1e-12:
         return 0.0 if candidate <= baseline + 1e-12 else -math.inf
@@ -751,6 +906,8 @@ def _optional_time_regression(baseline: float | None, candidate: float | None) -
 
 
 __all__ = [
+    "G1AbsoluteRecoveryGate",
+    "G1AbsoluteRecoveryThresholds",
     "G1RecoveryComparison",
     "G1RecoveryQuality",
     "G1MomentumUnloadingComparison",
@@ -758,5 +915,6 @@ __all__ = [
     "compare_g1_momentum_unloading",
     "compare_g1_naturalness",
     "compare_g1_recovery",
+    "evaluate_g1_absolute_recovery_gate",
     "measure_g1_recovery_quality",
 ]

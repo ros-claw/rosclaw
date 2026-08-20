@@ -1,5 +1,9 @@
 # ROSClaw Phase 8：MotionDecode 小脑先验与恢复在线学习闭环
 
+> 历史快照（2026-08-01）：本文记录 MotionDecode 尚未完成足球类别传输时的首轮实验。
+> 完整足球数据、repair-manifest 重放、力矩迁移绝对门和最新结论见
+> `ROSCLAW_PHASE8_FULL_FOOTBALL_GROWTH_LOOP.md`；不要再用本文“本地足球为 0”的旧结论描述当前状态。
+
 ## 结论先行
 
 本轮不是只把 MotionDecode “接进来”，而是完成了一个可审计、可拒绝、可回滚的闭环：

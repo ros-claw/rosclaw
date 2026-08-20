@@ -64,6 +64,11 @@ def test_build_release_bundle_structure(tmp_path: Path) -> None:
 
 
 class TestInstallRollbackSemantics:
+    def test_tool_binary_release_triples_match_upstream_assets(self) -> None:
+        script = BUILD.read_text(encoding="utf-8")
+        assert 'RG_ARCH="x86_64-unknown-linux-musl"' in script
+        assert 'RG_ARCH="aarch64-unknown-linux-gnu"' in script
+
     def test_scripts_syntax_and_guards(self) -> None:
         for script in (BUILD, INSTALL, ROLLBACK):
             result = subprocess.run(["bash", "-n", str(script)], capture_output=True)
