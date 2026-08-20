@@ -49,8 +49,26 @@ def verify(evidence: dict) -> list[str]:
     leases = evidence.get("context_leases", [])
     event_chain = evidence.get("event_chain", [])
 
-    if not txns:
-        failures.append("action_txns 为空——旅程必须至少完成一次动作")
+    task_journey = not txns
+    if task_journey:
+        # PR-H9：任务旅程（rosclaw_task 确定性 SIM 闭环）无 admission
+        # 链——kernel 任务 + 产物账本是证据面。
+        kernel_tasks = evidence.get("kernel_tasks", [])
+        kernel_artifacts = evidence.get("kernel_artifacts", [])
+        if not kernel_tasks:
+            failures.append(
+                "action_txns 与 kernel_tasks 均为空——旅程必须至少完成一次动作/任务"
+            )
+        if not kernel_artifacts:
+            failures.append("kernel_artifacts 为空——任务旅程必须有登记产物")
+        for art in kernel_artifacts:
+            aid = art.get("artifact_id", "?")
+            if not art.get("sha256"):
+                failures.append(f"artifact {aid}: 缺 sha256")
+            if not art.get("size_bytes"):
+                failures.append(f"artifact {aid}: size_bytes 为 0（非空校验失败）")
+            if not art.get("task_id"):
+                failures.append(f"artifact {aid}: 缺 task_id 归属")
     for txn in txns:
         tid = txn.get("txn_id", "?")
         # 七审 PR-SEVEN-7（Journey B deny 腿）：DECLINED txn 是诚实的
@@ -114,19 +132,21 @@ def verify(evidence: dict) -> list[str]:
                 f"lease {lease.get('context_lease_id', '?')}: context_hash 为空"
             )
 
-    # 事件链有序子序列。
-    expected = [
+    # 事件链有序子序列（仅 admission 旅程——任务旅程的授权事件
+    # 不存在，kernel 产物即证据）。
+    if not task_journey:
+        expected = [
         "approval.requested", "approval.decided",
         "grant.consumed", "receipt.received",
     ]
-    cursor = 0
-    for event_type in event_chain:
-        if cursor < len(expected) and event_type == expected[cursor]:
-            cursor += 1
-    if cursor < len(expected):
-        failures.append(
-            f"事件链缺环/乱序: 匹配到 {cursor}/{len(expected)}（{event_chain}）"
-        )
+        cursor = 0
+        for event_type in event_chain:
+            if cursor < len(expected) and event_type == expected[cursor]:
+                cursor += 1
+        if cursor < len(expected):
+            failures.append(
+                f"事件链缺环/乱序: 匹配到 {cursor}/{len(expected)}（{event_chain}）"
+            )
 
     for marker, count in evidence.get("reasoning_forbidden_field_counts", {}).items():
         if count != 0:

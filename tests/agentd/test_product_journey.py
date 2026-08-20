@@ -1166,6 +1166,25 @@ class TestProductJourney:
                 dict(zip(("grant_id", "request_id", "consumed", "revoked"), g, strict=True))
                 for g in grants
             ]
+            kernel_tasks = db.execute(
+                "SELECT task_id, state, active_revision FROM tasks ORDER BY rowid"
+            ).fetchall()
+            evidence["kernel_tasks"] = [
+                dict(zip(("task_id", "state", "active_revision"), r, strict=True))
+                for r in kernel_tasks
+            ]
+            kernel_artifacts = db.execute(
+                "SELECT artifact_id, task_id, path, media_type, sha256, size_bytes "
+                "FROM artifacts ORDER BY rowid"
+            ).fetchall()
+            evidence["kernel_artifacts"] = [
+                dict(zip(
+                    ("artifact_id", "task_id", "path", "media_type",
+                     "sha256", "size_bytes"),
+                    r, strict=True,
+                ))
+                for r in kernel_artifacts
+            ]
             approvals = db.execute(
                 "SELECT request_id, status, decided_by, request_json FROM operator_requests"
             ).fetchall()

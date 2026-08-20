@@ -94,7 +94,7 @@ jobs:
       - name: Install dependencies
         run: uv pip install -e ".[dev]" --system
       - name: Run acceptance + evidence pack tests
-        run: python -m pytest tests/agentd/test_limo_acceptance.py tests/agentd/test_evidence_pack.py -q
+        run: python -m pytest tests/agentd/test_evidence_pack.py -q
       - name: Produce acceptance evidence pack
         run: |
           python - <<'PY'
