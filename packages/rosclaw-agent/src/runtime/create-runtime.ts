@@ -14,7 +14,6 @@ import {
 	SettingsManager,
 	type AgentSessionRuntime,
 } from "@earendil-works/pi-coding-agent";
-import { migrateProviders } from "../credentials/migration.js";
 import { resourcePolicy } from "../extension/resource-policy.js";
 import { createSharedModelRuntime } from "./model-runtime.js";
 import { filterModelTools, MODEL_TOOL_NAMES } from "../tools/surface.js";
@@ -120,9 +119,6 @@ export async function createRosclawRuntime(
 	// PR-SIX-5：UI/回答语言策略（持久化；launcher 可经 ROSCLAW_UI_LOCALE
 	// 覆盖）。
 	const locale = new LocaleManager(agentDir);
-	// PNA-7（规格 §22.3）：legacy config.yaml → Pi settings 一次性迁移
-	// （已有 defaultProvider/defaultModel 则不触碰）。
-	migrateProviders(options.rosclawHome);
 	const settingsManager = SettingsManager.create(options.cwd, agentDir);
 	// P1-1：raw reasoning 默认不显示（live + resumed history 同策；
 	// debug 可在 /settings 手动打开）。

@@ -74,17 +74,3 @@ test("session lifecycle hooks registered (fork veto point)", async () => {
 	assert.ok(handlers.get("session_start"), "session_start");
 	assert.ok(handlers.get("session_before_fork"), "session_before_fork");
 });
-
-test("worker commands registered (/workers /delegate)", async () => {
-	const { commands } = await collectHandlers();
-	assert.ok(commands.get("workers"), "/workers");
-	assert.ok(commands.get("delegate"), "/delegate");
-});
-
-test("/delegate without mission binding refuses honestly", async () => {
-	const { commands } = await collectHandlers();
-	const notifications: Array<{ message: string; type?: string }> = [];
-	const ctx = { ui: { notify: (message: string, type?: string) => notifications.push({ message, type }) } };
-	await commands.get("delegate")!.handler("auto 做点事", ctx);
-	assert.ok(notifications.some((n) => n.message.includes("未绑定 Mission")));
-});

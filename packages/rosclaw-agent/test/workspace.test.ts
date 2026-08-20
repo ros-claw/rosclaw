@@ -3,7 +3,6 @@
  * 1. gitRootOf：repo 内子目录归一到 root；非 git 返回 null；
  * 2. WorkspaceStore：bind/recent/persist/reload；
  * 3. resolveStartupWorkspace：显式 > cwd git 自动 > 既有绑定；
- * 4. delegate 未指定 workspace 时默认注入绑定值；
  * 5. header 显示 Project 名（无绑定显示 —）。
  */
 
@@ -71,39 +70,6 @@ test("resolveStartupWorkspace：显式 > cwd git 自动 > 既有", async () => {
 	const store4 = await makeStore();
 	const none = resolveStartupWorkspace(store4, undefined, plain);
 	assert.equal(none.bound, null);
-});
-
-test("delegate 默认注入绑定 workspace", async () => {
-	const { ActiveSessionContext } = await import("../src/session/active-context.js");
-	const { buildDelegateTool } = await import("../src/tools/delegate.js");
-	const calls: Array<Record<string, unknown>> = [];
-	const active = new ActiveSessionContext({
-		sessionId: "pi_test",
-		missionId: "mis_1",
-		contextRevision: 1,
-		mode: "SIMULATION",
-		profile: "developer",
-		contextState: "FRESH",
-		leaseState: "ACTIVE",
-		actionsAllowed: true,
-	});
-	const center = {
-		call: async (_method: string, params?: unknown) => {
-			calls.push((params as { request?: { arguments?: Record<string, unknown> } })?.request?.arguments ?? {});
-			return { ok: true, result: { ok: true, status: "STARTED", summary: "WorkOrder: wo_x" } };
-		},
-	};
-	const tool = buildDelegateTool({
-		rosclawHome: "/tmp/rh",
-		active,
-		center,
-		workspace: () => "/home/user/myrepo",
-	} as never);
-	await tool.execute("t1", { goal: "改代码" }, undefined, undefined, {} as never);
-	assert.equal(calls[0].workspace, "/home/user/myrepo");
-	// 模型显式指定时不覆盖。
-	await tool.execute("t2", { goal: "x", workspace: "/other" }, undefined, undefined, {} as never);
-	assert.equal(calls[1].workspace, "/other");
 });
 
 test("header 显示 Project 名（无绑定显示 —）", async () => {

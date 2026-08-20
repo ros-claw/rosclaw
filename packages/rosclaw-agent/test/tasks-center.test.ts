@@ -1,145 +1,90 @@
-/** 十四审 PR-14.4：F2 Tasks Center 组件测试（总纲 §4.2 键位表）。 */
+/** PR-H9：F2 Task Panel 组件测试（kernel 背板重写版）。
+ *
+ * 面板只读：↑↓ 选卡、Tab 切 Activity/Artifacts、r 刷新、Esc 关闭；
+ * 渲染复用 task-activity（与 /activity /artifacts 同一映射）。
+ */
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { TasksCenterComponent, type TasksCenterDeps, type JobCard } from "../src/workers/tasks-center.js";
+import {
+	TasksCenterComponent,
+	taskCardLine,
+	type TasksCenterDeps,
+} from "../src/workers/tasks-center.js";
 
-function makeDeps(jobs: JobCard[]): TasksCenterDeps & {
-	controlCalls: Array<{ wo: string; action: string }>;
-	cancelConfirms: string[];
-	steerCalls: string[];
-	retryCalls: string[];
+function makeDeps(tasks: Array<Record<string, unknown>>): TasksCenterDeps & {
+	closed: boolean;
+	eventCalls: string[];
 } {
-	const calls = {
-		controlCalls: [] as Array<{ wo: string; action: string }>,
-		cancelConfirms: [] as string[],
-		steerCalls: [] as string[],
-		retryCalls: [] as string[],
-	};
+	const state = { closed: false, eventCalls: [] as string[] };
 	return {
-		...calls,
-		fetchJobs: async () => jobs,
-		fetchEvents: async () => ({ events: [], status: "RUNNING" }),
-		fetchTranscript: async () => ({ records: [], has_more: false, next_cursor: 0, total: 0 }),
-		onSteer: async () => undefined,
-		sendSteer: async (wo: string, text: string) => {
-			calls.steerCalls.push(`${wo}:${text}`);
-			return "已送达";
+		get closed() { return state.closed; },
+		eventCalls: state.eventCalls,
+		fetchTasks: async () => tasks,
+		fetchEvents: async (taskId: string) => {
+			state.eventCalls.push(taskId);
+			return [
+				{ seq: 1, event_type: "task.started", payload: { goal: "画五角星" } },
+				{ seq: 2, event_type: "task.terminal", payload: { state: "SUCCEEDED" } },
+			];
 		},
-		sendControl: async (wo: string, action: string) => {
-			calls.controlCalls.push({ wo, action });
-			return { ok: true, state: action === "pause" ? "PAUSED" : "RUNNING" };
-		},
-		sendRetry: async (wo: string) => {
-			calls.retryCalls.push(wo);
-			return "已 retry";
-		},
+		fetchArtifacts: async () => [
+			{ artifact_id: "art_1", path: "/ws/star.gif", media_type: "image/gif", sha256: "deadbeefcafe", size_bytes: 2048 },
+		],
 		notify: () => undefined,
-		onClose: () => undefined,
+		onClose: () => { state.closed = true; },
 	};
 }
 
-const job = (over: Partial<JobCard> = {}): JobCard => ({
-	root_job_id: "wo_root1",
-	goal: "UR5e 五角星动力学仿真",
-	state: "RUNNING",
-	attempts: [
-		{ work_order_id: "wo_root1", seq: 1, actor: "native_agent", status: "FAILED", termination_cause: "PROVIDER_TRANSIENT" },
-		{ work_order_id: "wo_att2", seq: 2, actor: "auto", status: "RUNNING", termination_cause: "" },
-	],
-	...over,
-});
+const TASKS = [
+	{ task_id: "task_aaa", root_goal: "画五角星", state: "SUCCEEDED", active_revision: 1 },
+	{ task_id: "task_bbb", root_goal: "写报告", state: "ACTIVE", active_revision: 2 },
+];
 
-describe("TasksCenterComponent", () => {
-	it("一个用户任务一张卡（attempts 聚合，不显示三张失败卡）", async () => {
-		const deps = makeDeps([job()]);
-		const c = new TasksCenterComponent(deps);
-		await new Promise((r) => setTimeout(r, 20));
-		const out = c.render(80).join("\n");
-		assert.match(out, /UR5e 五角星动力学仿真/);
-		assert.match(out, /attempt 2\/2/);
-		// 只有一张卡：root 出现一次（列表行），wo_att2 不作为独立卡。
-		assert.equal((out.match(/●|✓|✗|⚠/g) ?? []).length <= 2, true);
-		c.dispose();
+describe("H9 Task Panel（kernel 背板）", () => {
+	it("taskCardLine 渲染状态图标与 revision", () => {
+		assert.match(taskCardLine(TASKS[0], ">"), /> ✓ 画五角星 · SUCCEEDED/);
+		assert.match(taskCardLine(TASKS[1]), /● 写报告 · ACTIVE · r2/);
 	});
 
-	it("↑↓ 选择任务（无需复制 ID）", async () => {
-		const deps = makeDeps([
-			job(),
-			job({ root_job_id: "wo_b", goal: "代码审计", state: "ACCEPTED", attempts: [{ work_order_id: "wo_b", seq: 1, actor: "native_agent", status: "ACCEPTED", termination_cause: "" }] }),
-		]);
-		const c = new TasksCenterComponent(deps);
-		await new Promise((r) => setTimeout(r, 20));
-		assert.match(c.render(80).join("\n"), /> ● UR5e/);
-		c.handleInput("\x1b[B");
-		assert.match(c.render(80).join("\n"), /> ✓ 代码审计/);
-		c.dispose();
+	it("渲染卡列表 + Activity 内容（kernel 事件）", async () => {
+		const deps = makeDeps(TASKS);
+		const panel = new TasksCenterComponent(deps);
+		await new Promise((r) => setTimeout(r, 30));
+		const out = panel.render(80).join("\n");
+		assert.match(out, /画五角星/);
+		assert.match(out, /写报告/);
+		assert.match(out, /任务开始/);
+		assert.match(out, /终态：SUCCEEDED/);
+		panel.dispose();
 	});
 
-	it("p：RUNNING→pause；PAUSED→resume（走控制 ACK，不乐观）", async () => {
-		const deps = makeDeps([job()]);
-		const c = new TasksCenterComponent(deps);
-		await new Promise((r) => setTimeout(r, 20));
-		c.handleInput("p");
-		await new Promise((r) => setTimeout(r, 20));
-		assert.deepEqual(deps.controlCalls, [{ wo: "wo_att2", action: "pause" }]);
-		c.dispose();
+	it("Tab 切到 Artifacts 显示产物账本", async () => {
+		const deps = makeDeps(TASKS);
+		const panel = new TasksCenterComponent(deps);
+		await new Promise((r) => setTimeout(r, 30));
+		panel.handleInput("\t");
+		await new Promise((r) => setTimeout(r, 30));
+		const out = panel.render(80).join("\n");
+		assert.match(out, /\[Artifacts\]/);
+		assert.match(out, /star\.gif/);
+		panel.dispose();
 	});
 
-	it("x：必须二次确认才取消", async () => {
-		const deps = makeDeps([job()]);
-		const c = new TasksCenterComponent(deps);
+	it("Esc 关闭并停止轮询", async () => {
+		const deps = makeDeps(TASKS);
+		const panel = new TasksCenterComponent(deps);
 		await new Promise((r) => setTimeout(r, 20));
-		c.handleInput("x");
-		await new Promise((r) => setTimeout(r, 20));
-		assert.equal(deps.controlCalls.length, 0); // 第一次只是确认态
-		assert.match(c.render(80).join("\n"), /再按 x 确认取消/);
-		c.handleInput("x");
-		await new Promise((r) => setTimeout(r, 20));
-		assert.deepEqual(deps.controlCalls, [{ wo: "wo_att2", action: "cancel" }]);
-		c.dispose();
+		panel.handleInput("\x1b");
+		assert.equal(deps.closed, true);
 	});
 
-	it("r：运行态禁用；可恢复终态才请求 retry/resume", async () => {
-		const deps = makeDeps([job()]);
-		const c = new TasksCenterComponent(deps);
-		await new Promise((r) => setTimeout(r, 20));
-		c.handleInput("r");
-		await new Promise((r) => setTimeout(r, 20));
-		assert.equal(deps.retryCalls.length, 0); // RUNNING 禁用
-		c.dispose();
-
-		const deps2 = makeDeps([
-			job({ state: "INTERRUPTED_RESUMABLE", attempts: [{ work_order_id: "wo_dead", seq: 1, actor: "native_agent", status: "INTERRUPTED_RESUMABLE", termination_cause: "SIGNAL_UNKNOWN" }] }),
-		]);
-		const c2 = new TasksCenterComponent(deps2);
-		await new Promise((r) => setTimeout(r, 20));
-		c2.handleInput("r");
-		await new Promise((r) => setTimeout(r, 20));
-		assert.deepEqual(deps2.retryCalls, ["wo_dead"]);
-		c2.dispose();
-	});
-
-	it("Tab 切页（Live/Transcript/Files/Artifacts/Metrics）", async () => {
-		const deps = makeDeps([job()]);
-		const c = new TasksCenterComponent(deps);
-		await new Promise((r) => setTimeout(r, 20));
-		assert.match(c.render(80).join("\n"), /Live/);
-		c.handleInput("\t");
-		assert.match(c.render(80).join("\n"), /\[Transcript\]/);
-		c.handleInput("\t");
-		assert.match(c.render(80).join("\n"), /\[Files\]/);
-		c.dispose();
-	});
-
-	it("Esc 关闭（onClose 回调）", async () => {
-		let closed = false;
-		const deps = { ...makeDeps([job()]), onClose: () => { closed = true; } };
-		const c = new TasksCenterComponent(deps);
-		await new Promise((r) => setTimeout(r, 20));
-		c.handleInput("\x1b");
-		assert.equal(closed, true);
-		c.dispose();
+	it("空任务诚实空态", async () => {
+		const deps = makeDeps([]);
+		const panel = new TasksCenterComponent(deps);
+		await new Promise((r) => setTimeout(r, 30));
+		assert.match(panel.render(80).join("\n"), /无任务/);
+		panel.dispose();
 	});
 });

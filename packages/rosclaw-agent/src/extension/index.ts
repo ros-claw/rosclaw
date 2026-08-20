@@ -40,9 +40,6 @@ import {
 import type { LocaleManager } from "../i18n/locale.js";
 import { t as i18nT } from "../i18n/index.js";
 import { EventMirror } from "./event-mirror.js";
-import { WorkerCompletionWatcher } from "../workers/completion-watch.js";
-import { JobsWidget, renderJobLog } from "../workers/job-widget.js";
-import { JobViewerComponent } from "../workers/job-viewer.js";
 import { WorkspaceStore } from "../session/workspace.js";
 import { buildCommandHandlers } from "./commands.js";
 import { guardInput } from "./input-guard.js";
@@ -96,32 +93,6 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			};
 		};
 		let latestCtx: LatestCtx | undefined;
-		const watcher = new WorkerCompletionWatcher({
-			rosclawHome: options.rosclawHome,
-			active: options.active,
-			center,
-			sink: () =>
-				latestCtx
-					? {
-							api: pi,
-							isIdle: latestCtx.isIdle(),
-							notify: latestCtx.hasUI
-								? (text: string) => latestCtx?.ui.notify(text, "info")
-								: undefined,
-						}
-					: undefined,
-		});
-		// 十一审 PR-C：实时 Job 卡（widget 与 /job log 同一事件源；
-		// 仅 UI 有 ctx 时渲染；内容不变不重绘——idle CPU 红线）。
-		const jobsWidget = new JobsWidget({
-			active: options.active,
-			center,
-			setWidget: (lines) => {
-				if (!latestCtx?.hasUI) return;
-				if (lines === undefined) latestCtx.ui.setWidget("rosclaw-jobs", undefined);
-				else latestCtx.ui.setWidget("rosclaw-jobs", lines);
-			},
-		});
 		// PR-H3：OperationWatcher——operation 终态一次性 followUp（同一
 		// session；progress/heartbeat 绝不进模型上下文）。
 		const operationWatcher = new OperationWatcher({
@@ -193,16 +164,12 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 		});
 		pi.on("session_start", async (_event, ctx) => {
 			latestCtx = ctx;
-			watcher.start();
-			jobsWidget.start();
 			operationWatcher.start();
 			if (options.workspaceAutoBound && workspaceStore.current) {
 				ctx.ui.notify(`已自动绑定 Project：${workspaceStore.current}（/workspace show 查看）`, "info");
 			}
 		});
 		pi.on("session_shutdown", async () => {
-			watcher.stop();
-			jobsWidget.stop();
 			operationWatcher.stop();
 		});
 		pi.on("session_start", async (_event, ctx) => {
@@ -672,442 +639,36 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			},
 		});
 
-		// -- Worker 命令（PNA-4，规格 §19）：/workers /delegate ------------------
-		pi.registerCommand("workers", {
-			description: "列出 Worker 与当前 Mission 的 WorkOrder 状态",
-			handler: async (_args, ctx) => {
-				if (!options.active.current.missionId) {
-					ctx.ui.notify("未绑定 Mission——/workers 不可用", "warning");
-					return;
-				}
-				try {
-					const status = await center.call("pi.worker.status", {
-						mission_id: options.active.current.missionId,
-					});
-					const orders = (status.orders ?? []) as Array<Record<string, unknown>>;
-					if (orders.length === 0) {
-						ctx.ui.notify("当前 Mission 没有 WorkOrder", "info");
-						return;
-					}
-					ctx.ui.notify(
-						orders
-							.map(
-								(o) =>
-									`${String(o.work_order_id)}  ${String(o.assigned_to ?? "?")}  ${String(o.status)}  ${String(o.goal ?? "")}`,
-							)
-							.join("\n"),
-						"info",
-					);
-				} catch (err) {
-					ctx.ui.notify(`查询失败：${(err as Error).message}`, "error");
-				}
-			},
-		});
-		// -- 十审 W2：/jobs /job <id>（命令层直接处理，不进模型、不耗 token） --
-		pi.registerCommand("jobs", {
-			description: "当前 Mission 的后台 WorkOrder 列表（/job <id> 看详情）",
-			handler: async (_args, ctx) => {
-				if (!options.active.current.missionId) {
-					ctx.ui.notify("未绑定 Mission——/jobs 不可用", "warning");
-					return;
-				}
-				try {
-					const status = await center.call("pi.worker.status", {
-						mission_id: options.active.current.missionId,
-					});
-					const orders = (status.orders ?? []) as Array<Record<string, unknown>>;
-					if (orders.length === 0) {
-						ctx.ui.notify("当前 Mission 没有 WorkOrder", "info");
-						return;
-					}
-					ctx.ui.notify(
-						orders
-							.map(
-								(o) =>
-									`${String(o.work_order_id)}  ${String(o.assigned_to ?? "?")}  ${String(o.status)}  ${String(o.goal ?? "")}`,
-							)
-							.join("\n"),
-						"info",
-					);
-				} catch (err) {
-					ctx.ui.notify(`查询失败：${(err as Error).message}`, "error");
-				}
-			},
-		});
-		pi.registerCommand("job", {
-			description: "WorkOrder 详情：/job <wo_id>（/job cancel <wo_id> 取消）",
-			handler: async (args, ctx) => {
-				if (!options.active.current.missionId) {
-					ctx.ui.notify("未绑定 Mission——/job 不可用", "warning");
-					return;
-				}
-				const trimmed = args.trim();
-				const cancelMatch = trimmed.match(/^cancel\s+(\S+)$/);
-				const retryMatch = trimmed.match(/^retry\s+(\S+)$/);
-				const logMatch = trimmed.match(/^log\s+(\S+)$/);
-				const answerMatch = trimmed.match(/^answer\s+(\S+)\s+([\s\S]+)$/);
-				const steerMatch = trimmed.match(/^steer\s+(\S+)\s+([\s\S]+)$/);
-				const resumeMatch = trimmed.match(/^resume\s+(\S+)$/);
-				const extendMatch = trimmed.match(/^extend\s+(\S+)(?:\s+--tokens\s+(\S+))?/);
-				const viewMatch = trimmed.match(/^(artifacts|diff|tests|transcript)\s+(\S+)$/);
-				const idMatch = trimmed.match(/^(\S+)$/);
-				if (!idMatch && !cancelMatch && !retryMatch && !logMatch && !answerMatch && !resumeMatch && !viewMatch && !extendMatch && !steerMatch) {
-					ctx.ui.notify("用法：/job <wo_id>（查看器）| /job log|transcript|artifacts|diff|tests <wo_id> | /job answer|cancel|retry|resume|extend <wo_id>", "warning");
-					return;
-				}
-				const state = options.active.current;
-				const mkRequest = (tool: string, woId: string, extra: Record<string, unknown> = {}) => ({
-					schema_version: "rosclaw.pi_tool_request.v1",
-					request_id: `ptr_job_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-					pi_session_id: state.sessionId,
-					mission_id: state.missionId,
-					context_revision: state.contextRevision,
-					tool_name: tool,
-					arguments: { work_order_id: woId, ...extra },
-					requested_at: new Date().toISOString(),
-					idempotency_key: `idem_job_${tool}_${woId}_${Date.now()}`,
-					actor: { engine: "pi-command" },
-				});
-				try {
-					if (steerMatch) {
-						const response = await center.call("pi.tools.execute", {
-							request: mkRequest("rosclaw_update_work", steerMatch[1], { note: steerMatch[2] }),
-						});
-						const result = (response.result ?? {}) as { summary?: string };
-						ctx.ui.notify(
-							response.ok ? (result.summary ?? "已送达") : `steer 失败：${result.summary ?? response.error ?? ""}`,
-							response.ok ? "info" : "error",
-						);
-						return;
-					}
-					if (extendMatch) {
-						// 十三审：预算暂停的追加（--tokens 50000）。
-						const addTokens = extendMatch[2] ? Number(extendMatch[2].replace(/k$/i, "000")) : 50_000;
-						const response = await center.call("pi.tools.execute", {
-							request: mkRequest("rosclaw_extend_work", extendMatch[1], { add_tokens: addTokens }),
-						});
-						const result = (response.result ?? {}) as { summary?: string };
-						ctx.ui.notify(
-							response.ok ? (result.summary ?? "已追加") : `extend 失败：${result.summary ?? response.error ?? ""}`,
-							response.ok ? "info" : "error",
-						);
-						return;
-					}
-					if (resumeMatch) {
-						// 十二审 PR-12.3：真 resume（同一 Pi 会话）。
-						const response = await center.call("pi.tools.execute", {
-							request: mkRequest("rosclaw_resume_work", resumeMatch[1]),
-						});
-						const result = (response.result ?? {}) as { summary?: string };
-						ctx.ui.notify(
-							response.ok ? (result.summary ?? "已恢复") : `resume 失败：${result.summary ?? response.error ?? ""}`,
-							response.ok ? "info" : "error",
-						);
-						return;
-					}
-					if (viewMatch) {
-						// 十二审 PR-12.3：transcript/artifacts/diff/tests 视图
-						// （pi.worker.detail——文件权威，不经模型）。
-						const response = await center.call("pi.worker.detail", {
-							work_order_id: viewMatch[2],
-						});
-						if (!response.ok) {
-							ctx.ui.notify(`查询失败：${String(response.error ?? "")}`, "error");
-							return;
-						}
-						const section = viewMatch[1];
-						let text = "";
-						if (section === "transcript") text = String(response.transcript_tail ?? "") || "（无 transcript）";
-						else if (section === "diff") text = String(response.patch_tail ?? "") || "（无 patch）";
-						else if (section === "tests") text = String(response.bash_log_tail ?? "") || "（无 bash 日志）";
-						else {
-							const arts = (response.artifacts ?? []) as Array<{ name: string; bytes: number; sha256: string }>;
-							text = arts.length
-								? arts.map((a) => `${a.name} · ${a.bytes}B · sha256:${a.sha256}`).join("\n")
-								: "（无产物）";
-						}
-						ctx.ui.notify(text.slice(0, 4000), "info");
-						return;
-					}
-					if (answerMatch) {
-						// 十一审 PR-E：回答 WAITING_INPUT（不耗 token）。
-						const response = await center.call("pi.tools.execute", {
-							request: mkRequest("rosclaw_answer_work", answerMatch[1], { text: answerMatch[2] }),
-						});
-						const result = (response.result ?? {}) as { summary?: string };
-						ctx.ui.notify(
-							response.ok ? (result.summary ?? "已送达") : `回答失败：${result.summary ?? response.error ?? ""}`,
-							response.ok ? "info" : "error",
-						);
-						return;
-					}
-					if (logMatch) {
-						// 十一审 PR-C：事件日志（EventStore tail——不经模型、
-						// 不耗 token；与 widget 同一事件源）。
-						const response = await center.call("pi.worker.events", {
-							work_order_id: logMatch[1],
-							limit: 80,
-						});
-						if (!response.ok) {
-							ctx.ui.notify(`查询失败：${String(response.error ?? "")}`, "error");
-							return;
-						}
-						ctx.ui.notify(renderJobLog(
-							(response.events ?? []) as never,
-							logMatch[1],
-						), "info");
-						return;
-					}
-					if (retryMatch) {
-						const response = await center.call("pi.tools.execute", {
-							request: mkRequest("rosclaw_retry_work", retryMatch[1]),
-						});
-						const result = (response.result ?? {}) as { summary?: string };
-						ctx.ui.notify(
-							response.ok ? (result.summary ?? "已 retry") : `retry 失败：${result.summary ?? response.error ?? ""}`,
-							response.ok ? "info" : "error",
-						);
-						return;
-					}
-					if (cancelMatch) {
-						const response = await center.call("pi.tools.execute", {
-							request: mkRequest("rosclaw_cancel_work", cancelMatch[1], { reason: "user_command" }),
-						});
-						const result = (response.result ?? {}) as { summary?: string };
-						ctx.ui.notify(
-							response.ok ? (result.summary ?? "已取消") : `取消失败：${result.summary ?? response.error ?? ""}`,
-							response.ok ? "info" : "error",
-						);
-						return;
-					}
-					// 十三审 PR-13.4：/job <id> = 持续订阅 overlay 查看器
-					// （不再是一次性 notify 快照）。
-					const woId = (idMatch as RegExpMatchArray)[1];
-					await ctx.ui.custom<boolean>((_tui, _theme, _kb, done) => {
-						return new JobViewerComponent({
-							workOrderId: woId,
-							fetchEvents: async (afterSeq, limit) => {
-								const r = await center.call("pi.worker.events", {
-									work_order_id: woId,
-									after_seq: afterSeq,
-									limit,
-								});
-								return {
-									events: (r.events ?? []) as Array<Record<string, unknown>>,
-									status: String(r.status ?? ""),
-								};
-							},
-							onSteer: () => ctx.ui.input("Steer Worker（追加约束）", "例如：只看 src/ 目录"),
-							sendSteer: async (text) => {
-								const r = await center.call("pi.tools.execute", {
-									request: mkRequest("rosclaw_update_work", woId, { note: text }),
-								});
-								const rr = (r.result ?? {}) as { summary?: string };
-								return rr.summary ?? "已发送";
-							},
-							onCancel: async () => {
-								const r = await center.call("pi.tools.execute", {
-									request: mkRequest("rosclaw_cancel_work", woId, { reason: "viewer" }),
-								});
-								const rr = (r.result ?? {}) as { summary?: string };
-								return rr.summary ?? "已取消";
-							},
-							// 十四审 §1.5：r retry/resume——走 coordinator（幂等，
-							// 已有活跃 attempt 返回同一个，绝不裂变）。
-							onRetry: async () => {
-								const r = await center.call("pi.tools.execute", {
-									request: mkRequest("rosclaw_retry_work", woId),
-								});
-								const rr = (r.result ?? {}) as { summary?: string };
-								return rr.summary ?? "已请求";
-							},
-							notify: (text, kind) => ctx.ui.notify(text, kind),
-							onClose: () => done(true),
-						});
-					}, { overlay: true });
-				} catch (err) {
-					ctx.ui.notify(`操作失败：${(err as Error).message}`, "error");
-				}
-			},
-		});
-		// 十四审 PR-14.4：F2 Tasks Center——不用 /job <长 ID> 也能看、切、
-		// 控（registerShortcut 注册，不解析原始终端按键；Ctrl+J 是 Pi 输入
-		// 换行，绝不占用）。Alt+J 为可选第二绑定（冲突则不注册）。
-		// 结构化 ctx（command/shortcut 两种上下文的 ui 面一致——custom
-		// 直接复用 ExtensionContext 的签名）。
+		// -- PR-H9：F2 Task Panel（kernel 背板——WorkOrder 旧链已删） ----
+		// 任务由对话驱动：面板只读（修复/取消走对话与 /done，不做第二控
+		// 制面）。数据全部来自 TaskKernel（pi.kernel.list/events/
+		// artifacts——与 /activity /artifacts 同一渲染器）。
 		type CmdCtx = {
 			ui: {
 				notify(t: string, k: "info" | "warning" | "error"): void;
-				input(title: string, placeholder?: string): Promise<string | undefined>;
 				custom: ExtensionContext["ui"]["custom"];
 			};
 		};
 		const openTasksCenter = async (ctx: CmdCtx) => {
 			if (!options.active.current.missionId) {
-				ctx.ui.notify("未绑定 Mission——Tasks Center 不可用", "warning");
+				ctx.ui.notify("未绑定 Mission——Task Panel 不可用", "warning");
 				return;
 			}
-			const state = options.active.current;
-			const mkRequest = (tool: string, woId: string, extra: Record<string, unknown> = {}) => ({
-				schema_version: "rosclaw.pi_tool_request.v1",
-				request_id: `ptr_tc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-				pi_session_id: state.sessionId,
-				mission_id: state.missionId,
-				context_revision: state.contextRevision,
-				tool_name: tool,
-				arguments: { work_order_id: woId, ...extra },
-				requested_at: new Date().toISOString(),
-				idempotency_key: `idem_tc_${tool}_${woId}_${Date.now()}`,
-				actor: { engine: "pi-command" },
-			});
+			const missionId = options.active.current.missionId;
 			const { TasksCenterComponent } = await import("../workers/tasks-center.js");
 			await ctx.ui.custom<boolean>((_tui, _theme, _kb, done) => {
 				return new TasksCenterComponent({
-					fetchJobs: async () => {
-						// 十五审 PR-RF-8：execution 级卡为主（Task Control Plane
-						// 权威）；execution 关联的 WorkOrder 折叠进 attempts，
-						// 游离 worker 单（legacy/delegate 路径）仍单独成卡。
-						const [jobsRes, execRes] = await Promise.all([
-							center.call("pi.worker.jobs", { mission_id: state.missionId }),
-							center.call("pi.task.executions", { mission_id: state.missionId }),
-						]);
-						const jobs = (jobsRes.jobs ?? []) as Array<Record<string, unknown>>;
-						const execs = (execRes.executions ?? []) as Array<Record<string, unknown>>;
-						const linked = new Set(
-								execs.flatMap((e) => [
-									String(e.work_order_id ?? ""),
-									...((e.linked_ids as string[] | undefined) ?? []),
-								]).filter(Boolean),
-							);
-							const execCards = execs.map((e) => {
-								const verifier = (e.verifier as Record<string, unknown> | undefined) ?? {};
-								const checks = Number(verifier.checks ?? 0);
-								const verdict = String(verifier.verdict ?? "");
-								return {
-									root_job_id: String(e.execution_id),
-									goal: String(e.goal ?? ""),
-									state: String(e.state ?? ""),
-									runtime: String(e.runtime ?? ""),
-									profile: String(e.profile ?? "") || undefined,
-									verifier: verdict
-										? `${verdict}·${checks} 项`
-										: (String(e.verifier_feedback ?? "") || undefined),
-									attempts: ((e.attempts as Array<Record<string, unknown>> | undefined) ?? []).map((a) => ({
-										work_order_id: String(a.work_order_id ?? ""),
-										seq: Number(a.seq ?? 0),
-										actor: String(a.actor ?? ""),
-										status: String(a.status ?? ""),
-										termination_cause: String(a.termination_cause ?? ""),
-									})),
-								};
-							});
-const orphanJobs = jobs.filter(
-							(j) => !linked.has(String(j.root_job_id ?? ""))
-								&& !(j.attempts as Array<{ work_order_id?: string }> ?? []).some(
-									(a) => linked.has(String(a.work_order_id ?? "")),
-								),
-						);
-						return [...execCards, ...orphanJobs] as never;
+					fetchTasks: async () => {
+						const r = await center.call("pi.kernel.list", { mission_id: missionId });
+						return (r.tasks ?? []) as Array<Record<string, unknown>>;
 					},
-					fetchEvents: async (wo, afterSeq, limit) => {
-						const r = await center.call("pi.worker.events", {
-							work_order_id: wo,
-							after_seq: afterSeq,
-							limit,
-						});
-						return {
-							events: (r.events ?? []) as Array<Record<string, unknown>>,
-							status: String(r.status ?? ""),
-						};
+					fetchEvents: async (taskId) => {
+						const r = await center.call("pi.kernel.events", { task_id: taskId, after_seq: 0 });
+						return (r.events ?? []) as KernelEvent[];
 					},
-					fetchTranscript: async (wo, afterSeq, limit, channel) => {
-						const r = await center.call("pi.worker.transcript", {
-							work_order_id: wo,
-							after_seq: afterSeq,
-							limit,
-							channel,
-						});
-						return {
-							records: (r.records ?? []) as Array<Record<string, unknown>>,
-							has_more: Boolean(r.has_more),
-							next_cursor: Number(r.next_cursor ?? 0),
-							total: Number(r.total ?? 0),
-						};
-					},
-					onSteer: () => ctx.ui.input("Steer Worker（追加约束）", "例如：只看 src/ 目录"),
-					sendSteer: async (wo, text) => {
-						// P0-5：execution 卡 steer 走 task_steer（同一执行会话）。
-						if (wo.startsWith("exec_")) {
-							const r = await center.call("pi.tools.execute", {
-								request: {
-									schema_version: "rosclaw.pi_tool_request.v1",
-									request_id: `ptr_tc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-									pi_session_id: state.sessionId,
-									mission_id: state.missionId,
-									context_revision: state.contextRevision,
-									tool_name: "rosclaw_task_steer",
-									arguments: { execution_id: wo, message: text },
-									requested_at: new Date().toISOString(),
-									idempotency_key: `idem_tc_steer_${wo}_${Date.now()}`,
-									actor: { engine: "pi-command" },
-								},
-							});
-							return String((r.result as { summary?: string })?.summary ?? "已发送");
-						}
-						const r = await center.call("pi.tools.execute", {
-							request: mkRequest("rosclaw_update_work", wo, { note: text }),
-						});
-						return String((r.result as { summary?: string })?.summary ?? "已发送");
-					},
-					sendControl: async (wo, action) => {
-						// 建议-0816 P0-5：execution 卡走 task_* 控制面
-						// （execution_id 权威）；legacy worker 卡兼容旧路径。
-						if (wo.startsWith("exec_")) {
-							const tool =
-								action === "pause" ? "rosclaw_task_pause"
-								: action === "resume" ? "rosclaw_task_resume"
-								: "rosclaw_task_cancel";
-							const r = await center.call("pi.tools.execute", {
-								request: {
-									schema_version: "rosclaw.pi_tool_request.v1",
-									request_id: `ptr_tc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-									pi_session_id: state.sessionId,
-									mission_id: state.missionId,
-									context_revision: state.contextRevision,
-									tool_name: tool,
-									arguments: { execution_id: wo },
-									requested_at: new Date().toISOString(),
-									idempotency_key: `idem_tc_${tool}_${wo}_${Date.now()}`,
-									actor: { engine: "pi-command" },
-								},
-							});
-							const result = (r.result ?? {}) as { ok?: boolean; status?: string; summary?: string };
-							return {
-								ok: Boolean(r.ok && result.ok),
-								state: result.status,
-								error: result.ok === false ? result.summary : undefined,
-							};
-						}
-						const r = await center.call("pi.worker.control", {
-							work_order_id: wo,
-							action,
-						});
-						return {
-							ok: Boolean(r.ok),
-							state: r.state as string | undefined,
-							error: r.error as string | undefined,
-						};
-					},
-					sendRetry: async (wo) => {
-						// execution 卡：修复由控制面 REPAIRING 负责——不暴露
-						// 手工 retry（防裂变）；legacy 卡走旧 retry 工具。
-						if (wo.startsWith("exec_")) {
-							return "execution 的修复由控制面同会话 REPAIRING 负责——无需手工 retry";
-						}
-						const r = await center.call("pi.tools.execute", {
-							request: mkRequest("rosclaw_retry_work", wo),
-						});
-						return String((r.result as { summary?: string })?.summary ?? "已请求");
+					fetchArtifacts: async (taskId) => {
+						const r = await center.call("pi.kernel.artifacts", { task_id: taskId });
+						return (r.artifacts ?? []) as Array<Record<string, unknown>>;
 					},
 					notify: (text, kind) => ctx.ui.notify(text, kind),
 					onClose: () => done(true),
@@ -1115,14 +676,14 @@ const orphanJobs = jobs.filter(
 			}, { overlay: true });
 		};
 		pi.registerShortcut("f2", {
-			description: "打开/关闭 ROSClaw Tasks Center",
+			description: "打开/关闭任务面板",
 			handler: async (ctx) => {
 				await openTasksCenter(ctx);
 			},
 		});
 		try {
 			pi.registerShortcut("alt+j", {
-				description: "Tasks Center（第二绑定）",
+				description: "任务面板（第二绑定）",
 				handler: async (ctx) => {
 					await openTasksCenter(ctx);
 				},
@@ -1130,56 +691,6 @@ const orphanJobs = jobs.filter(
 		} catch {
 			// 键位冲突则不注册第二绑定（F2 仍可用）。
 		}
-		pi.registerCommand("delegate", {
-			description: "显式委派：/delegate <worker|auto> <自包含目标>（不经模型）",
-			handler: async (args, ctx) => {
-				if (!options.active.current.missionId) {
-					ctx.ui.notify("未绑定 Mission——/delegate 不可用", "warning");
-					return;
-				}
-				const match = args.trim().match(/^(\S+)\s+([\s\S]+)$/);
-				if (!match) {
-					ctx.ui.notify("用法：/delegate <worker|auto> <goal>", "warning");
-					return;
-				}
-				const [, workerId, goal] = match;
-				ctx.ui.notify(`委派中（${workerId}）：${goal.slice(0, 60)}…`, "info");
-				try {
-					const response = await center.call("pi.tools.execute", {
-						request: {
-							schema_version: "rosclaw.pi_tool_request.v1",
-							request_id: `ptr_cmd_${Date.now()}`,
-							pi_session_id: options.active.current.sessionId,
-							mission_id: options.active.current.missionId,
-							context_revision: options.active.current.contextRevision,
-							tool_name: "rosclaw_delegate",
-							arguments: { goal, worker_id: workerId },
-							requested_at: new Date().toISOString(),
-							idempotency_key: `idem_cmd_${Date.now()}`,
-							actor: { engine: "pi-command" },
-						},
-					});
-					const result = (response.result ?? {}) as {
-						summary?: string;
-						error_code?: string;
-						status?: string;
-					};
-					if (response.ok) {
-						// 十审 W0：STARTED 不是"完成"——summary 自带精确 ID/
-						// worker/预算/deadline，原样展示，不伪造完成。
-						const headline = result.status === "STARTED" ? "Worker 已启动" : "Worker 完成（已验证）";
-						ctx.ui.notify(`${headline}：${(result.summary ?? "").slice(0, 400)}`, "info");
-					} else {
-						ctx.ui.notify(
-							`委派失败 [${result.error_code ?? response.code ?? "?"}]：${result.summary ?? response.error ?? ""}`,
-							"error",
-						);
-					}
-				} catch (err) {
-					ctx.ui.notify(`委派失败：${(err as Error).message}`, "error");
-				}
-			},
-		});
 
 		// -- Approval 卡片（NA-FIX-5，P0-5 修复）：tool 返回精确 approval_id
 		//    后才展卡——绝不取 pending 列表第一个。
