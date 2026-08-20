@@ -196,6 +196,9 @@ export async function createRosclawRuntime(
 				...buildWorkspacePackTools({
 					root: cwd,
 					bashLogPath: `${options.rosclawHome}/logs/main-bash.log`,
+					// PR-H6：REAL/SHADOW 模式 bash 必须 bwrap 强隔离
+					// （无 bwrap fail closed）。
+					mode: () => active.current.mode,
 				}),
 				// PR-H3：process 工具（长 Operation——立即返回 operation_id）。
 				...buildProcessTools({

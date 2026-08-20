@@ -15,7 +15,7 @@
  * 隔离（bwrap/容器）在 PR-H6。模型可读的 prompt 必须与此面一致。
  */
 
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
@@ -70,6 +70,11 @@ function scrubEnv(source: NodeJS.ProcessEnv): Record<string, string> {
 export interface WorkspacePackOptions {
 	/** 项目根（write/edit 的作用域；bash 的 cwd）。 */
 	root: string;
+	/** 当前模式（PR-H6：REAL/SHADOW → bash 必须 bwrap 强隔离；
+	 *  无 bwrap fail closed）。 */
+	mode?: () => string;
+	/** bwrap 路径探测（测试可注入）。 */
+	bwrapPath?: () => string | null;
 	/** bash 审计日志（可选）。 */
 	bashLogPath?: string;
 	/** 显式默认超时（运营配置；默认无定时器）。 */
@@ -115,8 +120,36 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 				{ defaultTimeoutMs: options.defaultBashTimeoutMs },
 			);
 			const started = Date.now();
+			// PR-H6（§14.5）：REAL/SHADOW 模式的 shell 必须强隔离
+			// （bwrap：宿主只读、workspace 可写、无网络、无 /dev 写、
+			// env 已剥离）——无 bwrap fail closed，绝不裸跑。
+			const mode = options.mode?.() ?? "SIMULATION";
+			const sandboxed = mode === "REAL" || mode === "SHADOW";
+			// options.bwrapPath 存在即以它为准（测试注入 null =
+			// 强制不可用）；未注入才真实探测。
+			const bwrap = options.bwrapPath
+				? options.bwrapPath()
+				: (_bwrapAvailable() ? "/usr/bin/bwrap" : null);
+			if (sandboxed && !bwrap) {
+				return denied(
+					`${mode} 模式 shell 需要 bwrap 强隔离——本机无 bwrap，fail closed（不裸跑）`,
+				);
+			}
 			const output = await new Promise<string>((resolvePromise) => {
-				const child = spawn("sh", ["-c", command], {
+				let spawnCmd = "sh";
+				let spawnArgs = ["-c", command];
+				if (sandboxed && bwrap) {
+					spawnCmd = bwrap;
+					spawnArgs = [
+						"--ro-bind", "/", "/",
+						"--bind", root, root, // workspace 可写（其余宿主只读）
+						"--unshare-net",
+						"--dev", "/dev", // 全新 devtmpfs——真设备不可见
+						"--chdir", root,
+						"sh", "-c", command,
+					];
+				}
+				const child = spawn(spawnCmd, spawnArgs, {
 					cwd: root,
 					env: scrubbedEnv,
 					signal: signal ?? undefined,
@@ -217,4 +250,16 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 	});
 
 	return [bashTool, writeTool, editTool];
+}
+
+/** bwrap 可用性（PR-H6 fail-closed 判定的真实探测）。 */
+export function _bwrapAvailable(): boolean {
+	try {
+		// 真实探测（不是 --version）：userns 被禁的内核上
+		// --version 正常但运行即失败（uid map Permission denied）。
+		execFileSync("/usr/bin/bwrap", ["--ro-bind", "/", "/", "true"], { stdio: "ignore" });
+		return true;
+	} catch {
+		return false;
+	}
 }
