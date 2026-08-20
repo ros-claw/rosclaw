@@ -21,6 +21,10 @@ export function bridgeToken(rosclawHome: string): string {
 	}
 }
 
+/** pi.tools.execute 是长任务工具路径（确定性 SIM 闭环/仿真渲染可达
+ *  分钟级）——不能用状态 ping 的 5s 超时。 */
+const TOOL_EXECUTE_TIMEOUT_MS = 900_000;
+
 export async function bridgeCall(
 	rosclawHome: string,
 	method: string,
@@ -28,13 +32,14 @@ export async function bridgeCall(
 ): Promise<Record<string, unknown>> {
 	const socketPath = `${rosclawHome}/run/pi-bridge.sock`;
 	const token = bridgeToken(rosclawHome);
+	const timeoutMs = method === "pi.tools.execute" ? TOOL_EXECUTE_TIMEOUT_MS : 5000;
 	return await new Promise((resolve, reject) => {
 		const conn = connect(socketPath);
 		let buffer = "";
 		const timeout = setTimeout(() => {
 			conn.destroy();
 			reject(new BridgeError("bridge call timeout", "TIMEOUT"));
-		}, 5000);
+		}, timeoutMs);
 		conn.on("connect", () => {
 			conn.write(JSON.stringify({ method, params: { token, ...params } }) + "\n");
 		});

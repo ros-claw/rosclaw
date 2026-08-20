@@ -11,8 +11,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 from rosclaw.agentd.config import load_agent_config
 from rosclaw.agentd.models.gateway import MockModelGateway
 from rosclaw.agentd.models.profiles import mock_profile

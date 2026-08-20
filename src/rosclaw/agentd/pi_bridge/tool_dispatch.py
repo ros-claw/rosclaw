@@ -696,6 +696,13 @@ class PiToolDispatcher:
                 "evidence_level": "SIM_DYN_ROLLOUT",
             },
             "failures": failures,
+            "verification": {
+                "verdict": "PASS" if not failures else "FAIL",
+                "max_error_m": metrics["max_error_m"],
+                "threshold_m": threshold,
+                "frames": render["artifact"]["frames"],
+                "min_frames": min_frames,
+            },
             # WP06：证据等级与局限必须显式——动力学 rollout 自洽，
             # 不能证明真机执行。
             "user_view": (

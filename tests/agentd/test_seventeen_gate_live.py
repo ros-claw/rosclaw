@@ -139,9 +139,8 @@ def _wait_turn_settled(session, home: Path, timeout: float = 900.0) -> None:
     """等模型回合真正收束：TUI 输出停止增长 ≥15s（Working 转动期间
     输出持续增长——包括长 bash/网络等待；停止=回合结束）。
 
-    账本条件二选一：旧链终态记录（task_records/task_executions）或
-    新链 root task 行（tasks——H2 输入事务）。只等输出静止不够——
-    模型可能还没开始干活。"""
+    账本条件：kernel root task 行或产物行（PR-H9：task_records/
+    task_executions 已删）。只等输出静止不够——模型可能还没开始干活。"""
     deadline = time.monotonic() + timeout
     saw_ledger = False
     last_len = -1
@@ -151,19 +150,12 @@ def _wait_turn_settled(session, home: Path, timeout: float = 900.0) -> None:
         if db_path.exists():
             db = _db(home)
             try:
-                rec = db.execute(
-                    "SELECT COUNT(*) FROM task_records "
-                    "WHERE state IN ('VERIFIED','FAILED')"
-                ).fetchone()[0]
-                exe = db.execute(
-                    "SELECT COUNT(*) FROM task_executions "
-                    "WHERE state IN ('SUCCEEDED','FAILED','BLOCKED','CANCELLED')"
-                ).fetchone()[0]
+                rec = db.execute("SELECT COUNT(*) FROM artifacts").fetchone()[0]
                 tasks = db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0]
             except sqlite3.OperationalError:
-                rec, exe, tasks = 0, 0, 0
+                rec, tasks = 0, 0
             db.close()
-            if rec or exe or tasks:
+            if rec or tasks:
                 saw_ledger = True
         with session._lock:
             current = len(session.output)
@@ -192,10 +184,10 @@ class TestGate2RealProductLoop:
         """仿真闭环：PTY 输入"画五角星仿真出 GIF"——内置确定性链路
         （零 Worker），真实 GIF + 非零验收，终态一致。
 
-        正确路由是 rosclaw_task → Task Runner（task_records）或
-        task_submit → executor:simulation（task_executions）——两条
-        都是内置确定性链，共同断言：零 Worker 雇佣 + 真实 GIF +
-        验收 PASS。"""
+        正确路由是 rosclaw_task → SimTrajectoryService 确定性闭环
+        （PR-H9 重接：task_records/task_executions 已删——kernel
+        tasks + artifacts 账本是权威）——共同断言：零 Worker 雇佣 +
+        真实 GIF + 产物登记。"""
         home, env = _prepare_home(tmp_path)
         python = sys.executable
         (tmp_path / "ws").mkdir()
@@ -211,24 +203,22 @@ class TestGate2RealProductLoop:
             )
             _wait_turn_settled(session, home, timeout=900)
             db = _db(home)
-            records = [
-                dict(zip(("task_id", "goal", "state", "verification_json",
-                          "error"), r, strict=True))
+            kernel_tasks = [
+                dict(zip(("task_id", "state", "root_goal"), r, strict=True))
                 for r in db.execute(
-                    "SELECT task_id, goal, state, verification_json, error "
-                    "FROM task_records"
+                    "SELECT task_id, state, root_goal FROM tasks"
                 ).fetchall()
             ]
-            executions = [
-                dict(zip(("execution_id", "state", "runtime", "summary",
-                          "artifacts_json"), r, strict=True))
+            artifacts = [
+                dict(zip(("artifact_id", "path", "media_type", "sha256",
+                          "size_bytes"), r, strict=True))
                 for r in db.execute(
-                    "SELECT execution_id, state, runtime, summary, "
-                    "artifacts_json FROM task_executions"
+                    "SELECT artifact_id, path, media_type, sha256, "
+                    "size_bytes FROM artifacts"
                 ).fetchall()
             ]
             db.close()
-            assert records or executions, "两条确定性链都无记录（见 PTY 日志）"
+            assert kernel_tasks, "kernel 无任务记录（见 PTY 日志）"
             session.expect_with_resend(b"rosclaw continue", "/quit\r",
                                        timeout=120)
             session.proc.wait(timeout=30)
@@ -239,11 +229,16 @@ class TestGate2RealProductLoop:
             orders = db.execute("SELECT COUNT(*) FROM work_orders").fetchone()[0]
             db.close()
             assert orders == 0, f"内置仿真链不得雇佣 Worker: {orders}"
-            # 验收 PASS（task_records VERIFIED 或 execution SUCCEEDED）。
-            verified = any(r["state"] == "VERIFIED" for r in records) or any(
-                e["state"] == "SUCCEEDED" for e in executions
+            # 产物账本：GIF 登记（rosclaw_task 的 SimTrajectoryService
+            # 闭环把 gif/trace 登记进 kernel——登记才算交付）。
+            gif_artifacts = [
+                a for a in artifacts
+                if str(a["path"]).endswith(".gif") and a["size_bytes"] > 1000
+            ]
+            assert gif_artifacts, (
+                f"GIF 未登记进产物账本: tasks={kernel_tasks} "
+                f"artifacts={artifacts}"
             )
-            assert verified, f"无一条验收通过: {records} {executions}"
             # 真实 GIF artifact（帧数/尺寸有效）。
             gifs = list(home.glob("sim/**/*.gif"))
             assert gifs, "仿真 GIF 未真实落盘"

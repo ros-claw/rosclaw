@@ -191,6 +191,16 @@ class _FakeModel:
                 frames.append(_sse(_chunk("", "stop")))
                 frames.append(b"data: [DONE]\n\n")
                 return b"".join(frames)
+            if tool_call_id == "call_star_action":
+                # Journey B 批准腿：admission COMPLETED → 完成回答。
+                if "COMPLETED" in tool_content:
+                    answer = "五角星已绘制完成，几何验证通过。"
+                else:
+                    answer = f"动作未完成（{tool_content[:80]}）。"
+                frames.append(_sse(_chunk(answer)))
+                frames.append(_sse(_chunk("", "stop")))
+                frames.append(b"data: [DONE]\n\n")
+                return b"".join(frames)
             if tool_call_id == "call_task":
                 # 八审 P0-5：任务结果即最终回答依据（state VERIFIED +
                 # verification PASS 才说完成）。tool 内容可能是包装
@@ -384,24 +394,45 @@ class _FakeModel:
                 )
             )
         elif "画五角星" in text or "画一个五角星" in text:
-            # 八审 P0-5：任务级入口——一次 rosclaw_task 调用（确定性
-            # 编译器完成规划/策略/执行/验证），不再手工拼工具链。
-            frames.extend(
-                _tool_call_frames(
-                    "call_task",
-                    "rosclaw_task",
-                    json.dumps(
-                        {
-                            "goal": "draw_shape",
-                            "parameters": {
-                                "shape": "star5",
-                                "center_m": [0.35, 0.25, 0.30],
-                                "radius_m": 0.10,
-                            },
-                        }
-                    ),
+            if getattr(self, "_ask_policy", False):
+                # 七审 Journey B（PR-H9）：ask 策略的人工卡走唯一授权面
+                # rosclaw_request_action（admission）——rosclaw_task 是
+                # 免卡确定性 SIM 闭环，不产生人工卡。
+                frames.extend(
+                    _tool_call_frames(
+                        "call_star_action",
+                        "rosclaw_request_action",
+                        json.dumps(
+                            {
+                                "capability_id": "ur5e.move_to_pose",
+                                "arguments": {
+                                    "x": 0.35, "y": 0.25, "z": 0.40,
+                                },
+                                "expected_effect": "机械臂画五角星",
+                                "risk_tier": "LOW",
+                            }
+                        ),
+                    )
                 )
-            )
+            else:
+                # 八审 P0-5：任务级入口——一次 rosclaw_task 调用（确定性
+                # 编译器完成规划/策略/执行/验证），不再手工拼工具链。
+                frames.extend(
+                    _tool_call_frames(
+                        "call_task",
+                        "rosclaw_task",
+                        json.dumps(
+                            {
+                                "goal": "draw_shape",
+                                "parameters": {
+                                    "shape": "star5",
+                                    "center_m": [0.35, 0.25, 0.30],
+                                    "radius_m": 0.10,
+                                },
+                            }
+                        ),
+                    )
+                )
         elif "回到零点" in text:
             # 七审 PR-SEVEN-7 Journey B：单独动作（deny 腿）——一次
             # 人工拒绝必须 fail closed（无 txn、无 grant、诚实回答）。
@@ -851,6 +882,7 @@ class TestProductJourney:
     def _run_journey_b(
         self, rosclaw: Path, env: dict[str, str], home: Path, fake: FakeModelServer
     ) -> None:
+        fake.fake._ask_policy = True
         self._journey_verdicts = {}
         session = PtySession(
             [str(rosclaw), "chat"], env, log_path=home.parent / "pty-main.log"
@@ -893,7 +925,22 @@ class TestProductJourney:
             assert cards == 1, f"整条轨迹应只有一张人工卡: {cards}"
             db.close()
             self._journey_verdicts["single_card_covers_whole_trajectory"] = True
-            self._assert_star_verified(home)
+            # PR-H9：批准腿的 admission 证据——txn COMPLETED + receipt
+            # 事件（task_records 已删；卡/txn/事件是权威链）。
+            import sqlite3 as _sq2
+
+            _db2 = _sq2.connect(home / "agentd" / "missions.db")
+            _txn = _db2.execute(
+                "SELECT state FROM action_txns ORDER BY rowid DESC LIMIT 1"
+            ).fetchone()
+            _rcpt = _db2.execute(
+                "SELECT COUNT(*) FROM agent_events "
+                "WHERE type = 'receipt.received'"
+            ).fetchone()[0]
+            _db2.close()
+            assert _txn and _txn[0] == "COMPLETED", f"txn 未完成: {_txn}"
+            assert _rcpt >= 1, "缺 receipt.received 事件"
+            self._journey_verdicts["star_trajectory_verified"] = True
             # -- deny 腿：人工拒绝 fail closed ----------------------------
             deny_start = len(session.clean)
             session.send("让机械臂回到零点\r")
@@ -1233,38 +1280,26 @@ class TestProductJourney:
         raise AssertionError("/compact 后 session 无 compaction 条目——compact 未真完成")
 
     def _assert_star_verified(self, home: Path) -> None:
-        """七审 PR-SEVEN-4.6-8 + 八审 P0-5：五角星任务级证据——
-        - task_records 权威状态 VERIFIED + verification PASS（端点/
-          RMSE/闭合误差数字在案）；
-        - 整条轨迹一个 ActionTxn（ur5e.execute_plan）；
-        - plan/txn 引用齐全；
-        - 模型上下文无完整插值点数组（句柄视图）。"""
+        """PR-H9：五角星任务级证据——kernel 任务 + 产物账本（gif/
+        trace 带 sha256 + 非空）+ 模型上下文无完整插值点数组。
+        （task_records/ActionTxn 已删——确定性链的验收证据归
+        SimTrajectoryService 产物 + kernel 账本。）"""
         import sqlite3
 
         db = sqlite3.connect(home / "agentd" / "missions.db")
-        task = db.execute(
-            "SELECT state, plan_id, plan_digest, verification_json, txn_id "
-            "FROM task_records ORDER BY rowid DESC LIMIT 1"
-        ).fetchone()
-        rows = db.execute(
-            "SELECT capability_id FROM action_txns"
+        tasks = db.execute("SELECT task_id, state FROM tasks").fetchall()
+        artifacts = db.execute(
+            "SELECT path, media_type, sha256, size_bytes FROM artifacts"
         ).fetchall()
         db.close()
-        assert task, "缺 task_records——任务未走 Task Runner"
-        state, plan_id, plan_digest, verification_json, txn_id = task
-        assert state == "VERIFIED", f"任务未 VERIFIED: {state}"
-        verification = json.loads(verification_json)
-        assert verification.get("verdict") == "PASS", f"几何验证未过: {verification}"
-        assert verification.get("rmse_m") is not None and verification["rmse_m"] < 0.005
-        assert (
-            verification.get("closure_error_m") is not None
-            and verification["closure_error_m"] < 0.005
+        assert tasks, "kernel 无任务——仿真未走 rosclaw_task 闭环"
+        gif = [a for a in artifacts if str(a[0]).endswith(".gif")]
+        trace = [a for a in artifacts if str(a[0]).endswith("trace.json")]
+        assert gif and gif[0][2] and gif[0][3] > 1000, (
+            f"GIF 产物未登记（带 sha+非空）: {artifacts}"
         )
-        assert plan_id and plan_digest, "task 缺 plan 引用"
-        assert txn_id, "task 缺 txn 引用"
-        # 整条轨迹一个 txn（execute_plan）。
-        assert len(rows) == 1 and rows[0][0] == "ur5e.execute_plan", (
-            f"轨迹应单 txn 单动作: {rows}"
+        assert trace and trace[0][2] and trace[0][3] > 0, (
+            f"trace 产物未登记: {artifacts}"
         )
         self._journey_verdicts["star_trajectory_verified"] = True
         # 八审 P0-3 验收：模型上下文（session JSONL）不得出现完整
@@ -1276,6 +1311,23 @@ class TestProductJourney:
                 "模型上下文泄漏完整插值点数组（plan 必须是句柄视图）"
             )
         self._journey_verdicts["no_payload_in_model_context"] = True
+
+    def _assert_sim_task_evidence(self, home: Path) -> None:
+        """PR-H9：SIM 自动执行的证据面——kernel 任务存在、GIF 产物
+        登记、零 Operator 卡（确定性任务链无需政策/人工卡）。"""
+        import sqlite3
+
+        db = sqlite3.connect(home / "agentd" / "missions.db")
+        tasks = db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0]
+        gifs = db.execute(
+            "SELECT COUNT(*) FROM artifacts WHERE path LIKE '%.gif'"
+        ).fetchone()[0]
+        cards = db.execute("SELECT COUNT(*) FROM operator_requests").fetchone()[0]
+        db.close()
+        assert tasks >= 1, "kernel 无任务记录"
+        assert gifs >= 1, "GIF 未登记进产物账本"
+        assert cards == 0, f"默认安全 SIM 竟产生审批卡: {cards}"
+
 
     def _assert_cross_body_rejected(self, session: PtySession, home: Path) -> None:
         """六审 §6.3.10 + 七审 kit 化：LIMO 动作不属于 UR5e 机器人——
@@ -1535,28 +1587,18 @@ class TestProductJourney:
             #    卡、不按 Y）→ 执行 → 后置观测验证。
             action_start = len(session.clean)
             session.send("我想跑一个机械臂仿真，让机械臂画五角星\r")
-            # 九审 §1.5：Intent Router 直跑已移除（input 落账优先于
-            # 零模型快路）——模型经 rosclaw_task 完成任务；政策自动
-            # 授权可见（POLICY_AUTO），无人工卡。
-            session.expect(b"POLICY_AUTO", timeout=180)
+            # 九审 §1.5 + PR-H9：rosclaw_task → SimTrajectoryService
+            # 确定性闭环（SIM 动力学直跑——无 Operator 卡、无 POLICY_AUTO
+            # 卡——默认安全 SIM 自动是产品语义）。
             # 最终回答必须基于 verifier（不是模型自称画完）。
-            session.expect("五角星已绘制完成，几何验证通过".encode(), timeout=120)
+            session.expect("五角星已绘制完成，几何验证通过".encode(), timeout=180)
             action_segment = session.clean[action_start:]
             assert "ROSCLAW 授权请求".encode() not in action_segment, (
                 "默认安全 SIM 竟弹人工审批卡"
             )
-            self._assert_grant_consumed(home)
-            # POLICY_AUTO 的审计链：decided_by 记录政策权威。
-            import sqlite3 as _sq
-
-            _db = _sq.connect(home / "agentd" / "missions.db")
-            _row = _db.execute(
-                "SELECT decided_by FROM operator_requests ORDER BY rowid DESC LIMIT 1"
-            ).fetchone()
-            _db.close()
-            assert _row and "POLICY_AUTO" in str(_row[0]), (
-                f"自动执行缺政策审计记录: {_row}"
-            )
+            # PR-H9：SIM 自动的证据面——kernel 任务 + GIF 产物登记 +
+            # 零 Operator 卡（任务级确定性链不需要人工/政策卡）。
+            self._assert_sim_task_evidence(home)
             self._journey_verdicts["safe_sim_auto_executed_with_audit"] = True
             # 七审 §6 PR-SEVEN-4：轨迹级证据——verify PASS（端点/RMSE/
             # 闭合误差全过）+ 单 ExactAction 覆盖整条轨迹。
@@ -1583,9 +1625,9 @@ class TestProductJourney:
             time.sleep(1.0)
             session.send("你好\r")
             session.expect("你好，我是 ROSClaw".encode(), timeout=90)
-            # receipt 链在 compact 后仍可核验（DB 是权威——compaction
-            # 是认知层摘要，不动授权/执行记录）。
-            self._assert_grant_consumed(home)
+            # 产物账本在 compact 后仍可核验（DB 是权威——compaction
+            # 是认知层摘要，不动 kernel/产物记录）。
+            self._assert_sim_task_evidence(home)
             self._journey_verdicts["compaction_completed_context_retained"] = True
             # Gate Evidence V2：全链脱敏证据落盘（artifact 上传，第三方
             # 可独立复核，无需相信 pytest 文本）。

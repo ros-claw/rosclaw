@@ -126,8 +126,8 @@ def _component_report() -> dict:
             node_version = node_version or out
         except Exception:  # noqa: BLE001
             continue
-    from rosclaw.agentd.pi_entry import find_tui_runtime as _find_tui_runtime
     from rosclaw.agentd.models.modeld_gateway import _find_modeld_runtime
+    from rosclaw.agentd.pi_entry import find_tui_runtime as _find_tui_runtime
 
     return {
         "node": {"version": node_version, "ok": node_ok, "required": ">=22.19.0"},

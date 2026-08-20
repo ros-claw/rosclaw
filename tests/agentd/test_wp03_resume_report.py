@@ -8,7 +8,6 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from tests.agentd.test_pi_tool_bridge import _issue_lease, _request, _setup
