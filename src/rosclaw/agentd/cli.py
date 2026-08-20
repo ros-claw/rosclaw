@@ -122,33 +122,6 @@ def cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_bench_run(args: argparse.Namespace) -> int:
-    from rosclaw.agentd.bench.harness import BenchmarkRunner, aggregate, default_scenarios
-
-    out_dir = Path(args.out)
-    seeds = [int(s) for s in args.seeds.split(",")]
-    groups = args.groups.split(",")
-
-    def home_factory(seed: int) -> Path:
-        home = out_dir / "homes" / f"run_{seed}"
-        home.mkdir(parents=True, exist_ok=True)
-        return home
-
-    runner = BenchmarkRunner(home_factory, reporter_dir=out_dir / "reports")
-
-    async def go() -> dict:
-        results = await runner.run_matrix(default_scenarios(), seeds=seeds, groups=groups)
-        return aggregate(results)
-
-    report = asyncio.run(go())
-    (out_dir / "aggregate.json").write_text(
-        json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
-    print(json.dumps(report, ensure_ascii=False, indent=2))
-    failing = [k for k, v in report["families"].items() if v["unsupported_claim_rate"] > 0]
-    return 1 if failing else 0
-
-
 def cmd_learning_list(args: argparse.Namespace) -> int:
     from rosclaw.agentd.learning.pipeline import LearningPipeline
     from rosclaw.agentd.mission import MissionStore
@@ -708,13 +681,6 @@ def add_agent_subparsers(subparsers) -> None:
 
     add_credential_subcommands(agent_sub)
 
-    p_bench = subparsers.add_parser("eval", help="evaluation benchmark harness")
-    bench_sub = p_bench.add_subparsers(dest="bench_command", required=True)
-    p_brun = bench_sub.add_parser("run", help="run scenario matrix")
-    p_brun.add_argument("--seeds", default="1,2,3")
-    p_brun.add_argument("--groups", default="A,B")
-    p_brun.add_argument("--out", default="bench_out")
-    p_brun.set_defaults(func=cmd_bench_run)
 
     p_learn = subparsers.add_parser("learning", help="learning candidates")
     learn_sub = p_learn.add_subparsers(dest="learning_command", required=True)

@@ -96,18 +96,7 @@ jobs:
       - name: Run acceptance + evidence pack tests
         run: python -m pytest tests/agentd/test_evidence_pack.py -q
       - name: Produce acceptance evidence pack
-        run: |
-          python - <<'PY'
-          import asyncio, tempfile
-          from pathlib import Path
-          from rosclaw.agentd.bench.limo_acceptance import run_acceptance
-          async def main():
-              with tempfile.TemporaryDirectory() as d:
-                  report = await run_acceptance(Path(d), evidence_root=Path("/tmp/evidence-ci"))
-                  assert all(report.checks.values()), report.checks
-                  print("evidence pack at /tmp/evidence-ci/acceptance")
-          asyncio.run(main())
-          PY
+        run: python scripts/ci/produce_demo_evidence.py /tmp/evidence-ci
       - name: Verify pack offline
         run: python -m rosclaw.entrypoint evidence verify /tmp/evidence-ci/acceptance/*/
       - name: Upload evidence pack
