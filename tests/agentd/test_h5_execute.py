@@ -84,7 +84,6 @@ class TestExecuteRouting:
 
 class TestWaitStopOperation:
     async def test_wait_returns_terminal(self, tmp_path: Path) -> None:
-        import asyncio
 
         service, mission = await _setup(tmp_path)
         from rosclaw.agentd.pi_bridge.tool_dispatch import PiToolDispatcher
