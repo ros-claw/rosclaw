@@ -45,6 +45,10 @@ export const EMBODIMENT_PACK: readonly string[] = [
 	"rosclaw_request_action",
 	"rosclaw_memory_query",
 	"rosclaw_fail_safe",
+	// PR-H5：统一执行入口 + operation 等待/停止
+	"rosclaw_execute",
+	"rosclaw_wait_operation",
+	"rosclaw_stop_operation",
 ];
 
 /** 模型可见工具（唯一真相源）。 */

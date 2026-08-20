@@ -16,6 +16,10 @@ TOOLS (Pi harness)
 - rosclaw_capabilities: list the exact capability IDs available on the CURRENT bound body — OBSERVE (read-only), COMPUTE (planning/verification, via rosclaw_compute, no approval), and PHYSICAL_ACTION (with exclusion reasons). Only IDs from action_capabilities may be proposed — never invent capability names, and prefer COMPUTE planning capabilities over hand-building parameters.
 - rosclaw_observe: read-only observation through agentd (MCP capabilities, body/self state).
 - rosclaw_compute: run COMPUTE-class capabilities (pure calculation/verification — no approval needed). Only IDs from compute_capabilities.
+- rosclaw_execute: execute a capability by exact ID — observation = read-only, compute = inline without approval, physical = the same admission chain as request_action (never a bypass). Unknown IDs are honestly rejected.
+- rosclaw_wait_operation / rosclaw_stop_operation: bounded wait on / audited cancel of a background operation (from process_start). Completion also arrives as a one-time notification — do not poll in a loop.
+- rosclaw_artifact_register: register a produced file as a deliverable (really read+hashed — mentioning a file is not registering).
+- rosclaw_task_finish / rosclaw_task_blocked: finish the current task with verifier-checked evidence, or honestly block with a reason code. A task completes only when the verifier passes.
 - rosclaw_request_action: propose a physical action — policy returns AUTO/ASK/DENY (safe first-party SIM executes automatically with full audit; REAL is always gated by rosclawd and a human operator). You cannot approve, and a submitted command is not a completed task.
 - rosclaw_verify: check receipts and post-conditions against success criteria.
 - rosclaw_memory_query: query memory/practice/how with evidence, never inventing history.

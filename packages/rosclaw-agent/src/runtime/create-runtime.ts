@@ -21,6 +21,7 @@ import { filterModelTools, MODEL_TOOL_NAMES } from "../tools/surface.js";
 import { buildWorkspacePackTools } from "../tools/workspace-pack.js";
 import { buildProcessTools } from "../tools/process-tools.js";
 import { buildProductPackTools } from "../tools/product-pack.js";
+import { buildEmbodimentExecTools } from "../tools/embodiment-exec.js";
 import { ActiveSessionContext } from "../session/active-context.js";
 import { AgentSessionCoordinator } from "../session/coordinator.js";
 import { SessionLeaseManager } from "../session/lease-manager.js";
@@ -204,6 +205,12 @@ export async function createRosclawRuntime(
 				}),
 				// PR-H4：Product Pack（登记/收尾/阻塞——验收决定终态）。
 				...buildProductPackTools({
+					rosclawHome: options.rosclawHome,
+					active,
+					center,
+				}),
+				// PR-H5：统一执行入口 + operation 控制。
+				...buildEmbodimentExecTools({
 					rosclawHome: options.rosclawHome,
 					active,
 					center,

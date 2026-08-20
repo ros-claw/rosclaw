@@ -72,6 +72,10 @@ _TOOL_TABLE: dict[str, str] = {
     "rosclaw_artifact_register": "delegate",
     "rosclaw_task_finish": "task",
     "rosclaw_task_blocked": "delegate",
+    # PR-H5：统一执行入口 + operation 等待/停止。
+    "rosclaw_execute": "task",
+    "rosclaw_wait_operation": "read",
+    "rosclaw_stop_operation": "delegate",
     "rosclaw_task_submit": "delegate",
     "rosclaw_task_observe": "read",
     "rosclaw_task_steer": "delegate",
@@ -381,6 +385,13 @@ class PiToolDispatcher:
             return await self._task(request)
         # PR-H3：process 工具——长进程 = Operation（立即返回，事件流
         # 可查，终态 followUp 一次）。
+        # PR-H5：统一执行入口 + operation 控制。
+        if name == "rosclaw_execute":
+            return await self._execute(request)
+        if name == "rosclaw_wait_operation":
+            return await self._wait_operation(request)
+        if name == "rosclaw_stop_operation":
+            return await self._process_stop(request)
         # PR-H4：Product Pack。
         if name == "rosclaw_artifact_register":
             return await self._artifact_register(request)
@@ -1546,6 +1557,82 @@ class PiToolDispatcher:
                 else f"控制失败：{result.get('error', '未知')}"
             ),
             error_code=None if result["ok"] else str(result.get("code", "")),
+        )
+
+    async def _execute(self, request: PiToolRequestV1) -> PiToolResultV1:
+        """PR-H5（§10.2）：统一能力执行入口——按 execution_class 路由：
+        OBSERVE→观测 / COMPUTE→内联免审批 / PHYSICAL_ACTION→同一
+        admission 链（SIM 安全自动、REAL 永远 rosclawd+审批）。未知
+        ID 诚实拒绝（不猜不编）。"""
+        capability_id = str(request.arguments.get("capability_id", "")).strip()
+        if not capability_id:
+            raise ToolBridgeError("INVALID_ARGUMENTS", "capability_id required")
+        await self._service._ensure_mcp_discovered()
+        descriptor = None
+        for d in self._service._tool_catalog.list():
+            if d.tool_id == capability_id:
+                descriptor = d
+                break
+        if descriptor is None:
+            raise ToolBridgeError(
+                "UNKNOWN_CAPABILITY",
+                f"未知能力 {capability_id!r}——用 rosclaw_capabilities 查"
+                "当前 body 的精确 ID（不要编造）",
+            )
+        cls = descriptor.execution_class.value
+        if cls == "OBSERVE":
+            # 复用观测路径（同一分发器，克隆请求换工具名——幂等键加
+            # 后缀避免与外层 execute 互吞）。
+            return await self._execute_validated(
+                request.model_copy(update={
+                    "tool_name": "rosclaw_observe",
+                    "idempotency_key": request.idempotency_key + ":observe",
+                })
+            )
+        if cls == "COMPUTE":
+            return await self._execute_validated(
+                request.model_copy(update={
+                    "tool_name": "rosclaw_compute",
+                    "idempotency_key": request.idempotency_key + ":compute",
+                })
+            )
+        # PHYSICAL_ACTION：同一 admission 链（policy AUTO/ASK/DENY——
+        # REAL 永远 rosclawd+operator；execute 不是绕过的旁路）。
+        return await self._request_action(request)
+
+    async def _wait_operation(self, request: PiToolRequestV1) -> PiToolResultV1:
+        """等有界（模型主动等——默认上限 120s；终态返回末段输出）。"""
+        import asyncio as _aio
+
+        operation_id = str(request.arguments.get("operation_id", ""))
+        op = self._service._operation_manager.get(operation_id)
+        if not op:
+            raise ToolBridgeError("NOT_FOUND", f"unknown operation {operation_id!r}")
+        timeout = min(float(request.arguments.get("timeout_sec", 120) or 120), 120)
+        deadline = _aio.get_running_loop().time() + timeout
+        while _aio.get_running_loop().time() < deadline:
+            op = self._service._operation_manager.get(operation_id)
+            if op["state"] in ("SUCCEEDED", "FAILED", "CANCELLED"):
+                events = self._service._operation_manager.events_since(
+                    op["task_id"], 0
+                )
+                tail = "".join(
+                    str(e["payload"].get("text", ""))
+                    for e in events
+                    if e["event_type"] == "operation.output"
+                    and e.get("operation_id") == operation_id
+                )[-1500:]
+                return PiToolResultV1(
+                    request_id=request.request_id,
+                    ok=op["state"] == "SUCCEEDED",
+                    status=str(op["state"]),
+                    summary=f"operation 终态 {op['state']}\n{tail}",
+                )
+            await _aio.sleep(0.5)
+        return PiToolResultV1(
+            request_id=request.request_id, ok=True, status="RUNNING",
+            summary=f"operation 仍在运行（等待 {timeout}s 未见终态——"
+            "可以稍后 process_status 再查，或等完成通知）",
         )
 
     async def _artifact_register(
