@@ -1225,6 +1225,17 @@ class PiBridgeServer:
                 reason=str(params.get("reason", "")),
             )
             return {"ok": True}
+        if method == "pi.kernel.artifacts":
+            # PR-H8：/artifacts——产物账本（登记才算交付，模型口头提到
+            # 不算）。
+            conn = service._store.connection
+            rows = conn.execute(
+                "SELECT artifact_id, task_id, path, media_type, sha256, "
+                "size_bytes, created_at FROM artifacts WHERE task_id = ? "
+                "ORDER BY created_at",
+                (str(params.get("task_id", "")),),
+            ).fetchall()
+            return {"ok": True, "artifacts": [dict(r) for r in rows]}
         if method == "pi.op.start":
             # PR-H3（§11.4）：长 operation 立即返回 operation_id——
             # 进度/输出经 task_events 流，终态经 followUp 注入一次。

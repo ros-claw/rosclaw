@@ -31,6 +31,12 @@ import { InputController } from "../native/input-controller.js";
 import { OperationWatcher } from "../native/operation-watcher.js";
 import { TurnGuard } from "../native/turn-guard.js";
 import { classifyModelError } from "../native/model-errors.js";
+import {
+	renderArtifactList,
+	renderOperationLogs,
+	renderTaskActivity,
+	type KernelEvent,
+} from "../native/task-activity.js";
 import type { LocaleManager } from "../i18n/locale.js";
 import { t as i18nT } from "../i18n/index.js";
 import { EventMirror } from "./event-mirror.js";
@@ -500,7 +506,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			},
 		});
 		pi.registerCommand("newtask", {
-			description: "开始新任务（当前任务保持可恢复）——/new 是 Pi 会话内建，冲突实测后取 /newtask",
+			description: "开始新任务（当前任务保持可恢复）",
 			handler: async (_args, ctx) => {
 				inputController.forceNewNext = true;
 				ctx.ui.notify("下一条消息将开始新任务", "info");
@@ -577,6 +583,92 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				} catch (err) {
 					ctx.ui.notify(`查询失败：${(err as Error).message}`, "error");
 				}
+			},
+		});
+
+		// -- PR-H8：Task Activity/Logs/Artifacts（数据全部来自 TaskKernel
+		//    事件流/产物账本，不经 LLM——假进度不可能） --------------------
+		const fetchTaskEvents = async (): Promise<KernelEvent[]> => {
+			if (!inputController.currentTaskId) return [];
+			const result = await center.call("pi.kernel.events", {
+				task_id: inputController.currentTaskId,
+				after_seq: 0,
+			});
+			return (result.events ?? []) as KernelEvent[];
+		};
+		pi.registerCommand("activity", {
+			description: "当前任务活动（阶段时间线——来自任务账本，非模型总结）",
+			handler: async (_args, ctx) => {
+				if (!inputController.currentTaskId) {
+					ctx.ui.notify("当前没有绑定任务", "warning");
+					return;
+				}
+				try {
+					const events = await fetchTaskEvents();
+					ctx.ui.notify(renderTaskActivity(events).join("\n"), "info");
+				} catch (err) {
+					ctx.ui.notify(`查询失败：${(err as Error).message}`, "error");
+				}
+			},
+		});
+		pi.registerCommand("logs", {
+			description: "当前任务后台进程输出（operation 日志尾部）",
+			handler: async (_args, ctx) => {
+				if (!inputController.currentTaskId) {
+					ctx.ui.notify("当前没有绑定任务", "warning");
+					return;
+				}
+				try {
+					const events = await fetchTaskEvents();
+					ctx.ui.notify(renderOperationLogs(events).join("\n"), "info");
+				} catch (err) {
+					ctx.ui.notify(`查询失败：${(err as Error).message}`, "error");
+				}
+			},
+		});
+		pi.registerCommand("artifacts", {
+			description: "当前任务交付物列表（登记才算交付）",
+			handler: async (_args, ctx) => {
+				if (!inputController.currentTaskId) {
+					ctx.ui.notify("当前没有绑定任务", "warning");
+					return;
+				}
+				try {
+					const result = await center.call("pi.kernel.artifacts", {
+						task_id: inputController.currentTaskId,
+					});
+					const artifacts = (result.artifacts ?? []) as Array<Record<string, unknown>>;
+					ctx.ui.notify(renderArtifactList(artifacts).join("\n"), "info");
+				} catch (err) {
+					ctx.ui.notify(`查询失败：${(err as Error).message}`, "error");
+				}
+			},
+		});
+		// Ctrl+T：Task Activity 常驻 widget 开关（turn_end 自动刷新——
+		// 内容不变不重绘由 setWidget 侧保证）。
+		let activityWidgetOn = false;
+		const refreshActivityWidget = async (): Promise<void> => {
+			if (!activityWidgetOn || !latestCtx?.hasUI) return;
+			if (!inputController.currentTaskId) {
+				latestCtx.ui.setWidget("rosclaw-activity", ["（当前没有绑定任务）"]);
+				return;
+			}
+			try {
+				const events = await fetchTaskEvents();
+				latestCtx.ui.setWidget("rosclaw-activity", renderTaskActivity(events));
+			} catch {
+				// 桥暂不可用——保留旧内容，下回合再刷。
+			}
+		};
+		pi.registerShortcut("ctrl+t", {
+			description: "打开/关闭任务活动视图",
+			handler: async (ctx) => {
+				activityWidgetOn = !activityWidgetOn;
+				if (!activityWidgetOn) {
+					ctx.ui.setWidget("rosclaw-activity", undefined);
+					return;
+				}
+				await refreshActivityWidget();
 			},
 		});
 
@@ -1302,6 +1394,8 @@ const orphanJobs = jobs.filter(
 		});
 		pi.on("turn_end", async () => {
 			await turnGuard.onTurnEnd();
+			// PR-H8：Task Activity widget 回合后自动刷新（开启时）。
+			await refreshActivityWidget();
 			if (lastOutcome?.conflictClaim) {
 				pi.appendEntry("rosclaw.action_conflict", {
 					claim: lastOutcome.conflictClaim,
