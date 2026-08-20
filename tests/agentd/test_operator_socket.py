@@ -71,7 +71,33 @@ async def _service_with_pending(tmp_path: Path):
         config, tmp_path, gateway=MockModelGateway(mock_profile(), [_approval_turn] * 4)
     )
     mission = service.create_mission("operator 拆分测试")
-    await service.send_turn(mission.mission_id, "请求授权")
+    # PR-H9：pending 授权卡经 action_dispatch 直接创建（旧 loop turn
+    # 驱动已删）。
+    from rosclaw.agentd.action_dispatch import request_approval
+    from rosclaw.contracts.agent.decision import DecisionV1
+
+    decision = DecisionV1.model_validate_contract(
+        {
+            "schema_version": "rosclaw.decision.v1",
+            "decision_id": "dec_op_socket",
+            "mission_id": mission.mission_id,
+            "context_id": f"ctx_{mission.mission_id}",
+            "context_revision": 1,
+            "next_intent": "REQUEST_APPROVAL",
+            "summary": "请求授权",
+            "proposed_operation": {
+                "type": "approval_request",
+                "payload": {
+                    "capability_id": "sim.hold_position",
+                    "arguments": {},
+                    "risk_tier": "LOW",
+                },
+            },
+        }
+    )
+    await request_approval(
+        service, decision, mode="SIMULATION", principal="user:local:1000"
+    )
     pending = service.pending_approvals(mission.mission_id)
     assert len(pending) == 1
     return service, pending[0]

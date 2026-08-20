@@ -39,12 +39,42 @@ def _bridge(service, tmp_path: Path):
     return PiBridgeServer(service, tmp_path / "run" / "pi-bridge.sock")
 
 
+
+
+def _bind_and_finish(service, mission, *, idem: str) -> str:
+    """PR-H9：kernel 任务 + rosclaw_task 产物 + Verifier 收尾
+    （SUCCEEDED 的唯一合法路径）。"""
+    import asyncio as _asyncio  # noqa: F401
+
+    bound = service._task_kernel.bind_message(
+        mission_id=mission.mission_id, session_ref="pi_1",
+        backend_native_id="pi_1", message_id=f"msg_{idem}",
+        text="画五角星", cwd=str(service._home),
+    )
+    task_id = str(bound["task_id"])
+    return task_id
+
+
+def _finish_kernel(service, task_id: str) -> None:
+    artifacts = [
+        str(r["artifact_id"])
+        for r in service._store.connection.execute(
+            "SELECT artifact_id FROM artifacts WHERE task_id = ?", (task_id,)
+        ).fetchall()
+    ]
+    service._task_kernel.finish_task(
+        task_id=task_id, summary="五角星仿真完成", artifact_ids=artifacts
+    )
+
 class TestResumeReport:
     async def test_completed_task_session_report(self, tmp_path: Path) -> None:
-        """已完成任务：报告说明"已验证、不会重新执行"。"""
+        """已验收任务（kernel SUCCEEDED）：报告说明"已验收、不会重新
+        执行"。"""
         service, mission = await _setup(tmp_path)
+        task_id = _bind_and_finish(service, mission, idem="rr_1")
         result = await _run_task(service, mission, idem="idem_rr_1")
         assert result.ok
+        _finish_kernel(service, task_id)
         bridge = _bridge(service, tmp_path)
         report = await bridge._dispatch(
             "user:local:1000",
@@ -57,12 +87,10 @@ class TestResumeReport:
         assert r["verdict"] == "RESUMED"
         assert r["mode"] == "SIMULATION"
         assert r["body_id"]
-        # 任务行：VERIFIED + 不重放。
         task_line = next(
             (line for line in r["lines"] if "task_" in line), ""
         )
-        assert "不会重新执行" in task_line or "已验证" in task_line, r["lines"]
-        # 权限行：旧授权失效/当前策略说明。
+        assert "不会重新执行" in task_line or "已验收" in task_line, r["lines"]
         assert any("授权" in line or "策略" in line for line in r["lines"])
         await service.close()
 
@@ -85,16 +113,34 @@ class TestResumeReport:
         await service.close()
 
     async def test_waiting_approval_expired_flagged(self, tmp_path: Path) -> None:
-        """WAITING_APPROVAL + 卡已过期 → 报告标记需重新确认（不自动
-        恢复执行权）。"""
+        """过期 PENDING 授权卡（broker 侧）→ 报告 REAUTH_NEEDED，
+        不自动恢复执行权。"""
         service, mission = await _setup(tmp_path)
-        (tmp_path / "agent").mkdir(parents=True, exist_ok=True)
-        (tmp_path / "agent" / "safety.json").write_text(
-            json.dumps({"sim_policy": "ask"}), encoding="utf-8"
+        from rosclaw.agentd.action_dispatch import request_approval
+        from rosclaw.contracts.agent.decision import DecisionV1
+
+        decision = DecisionV1.model_validate_contract(
+            {
+                "schema_version": "rosclaw.decision.v1",
+                "decision_id": "dec_rr_expired",
+                "mission_id": mission.mission_id,
+                "context_id": f"ctx_{mission.mission_id}",
+                "context_revision": 1,
+                "next_intent": "REQUEST_APPROVAL",
+                "summary": "请求授权",
+                "proposed_operation": {
+                    "type": "approval_request",
+                    "payload": {
+                        "capability_id": "sim.hold_position",
+                        "arguments": {},
+                        "risk_tier": "LOW",
+                    },
+                },
+            }
         )
-        result = await _run_task(service, mission, idem="idem_rr_2")
-        payload = json.loads(result.summary)
-        assert payload["state"] == "WAITING_APPROVAL"
+        await request_approval(
+            service, decision, mode="SIMULATION", principal="user:local:1000"
+        )
         # 让卡过期。
         service._store.connection.execute(
             "UPDATE operator_requests SET request_json = "
@@ -108,7 +154,7 @@ class TestResumeReport:
             {"token": service.control_token, "pi_session_id": "pi_1"},
         )
         r = report["report"]
-        assert r["verdict"] in ("RESUMED", "REAUTH_NEEDED")
+        assert r["verdict"] == "REAUTH_NEEDED", r
         assert any(
             "过期" in line or "重新确认" in line for line in r["lines"]
         ), r["lines"]

@@ -60,8 +60,9 @@ def build_embodied_context(service: AgentService, mission_id: str) -> EmbodiedCo
             if e.type.value == "receipt.received"
         ][-3:],
         workers=[
-            {"work_order_id": o.work_order_id, "assigned_to": o.assigned_to, "status": o.status}
-            for o in service._worker_manager.orders_for_mission(mission_id)
+            {"work_order_id": task["task_id"], "assigned_to": "primary_session",
+             "status": task["state"]}
+            for task in service._task_kernel.list_tasks(mission_id)
         ][:10],
         pending_approvals=[
             {

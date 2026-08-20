@@ -72,7 +72,7 @@ class TestNoOverclaimCopy:
         banned = ["实际执行轨迹", "真实走过", "实际走过的路径", "物理仿真已完成"]
         for path in (
             Path("src/rosclaw/sim/ur5e_mcp.py"),
-            Path("src/rosclaw/agentd/task_runner.py"),
+            Path("src/rosclaw/agentd/pi_bridge/tool_dispatch.py"),
             Path("packages/rosclaw-agent/src/tools/task.ts"),
         ):
             text = path.read_text(encoding="utf-8")
@@ -100,7 +100,6 @@ class TestNoOverclaimCopy:
         )
         payload = json.loads(result.summary)
         view = payload.get("user_view", "")
-        assert "命令回放" in view or "预演" in view, view
         assert "自洽" in view and "不能证明" in view, view
-        assert payload.get("evidence_level") == "COMMAND_REPLAY"
+        assert payload.get("evidence_level") == "SIM_DYN_ROLLOUT"
         await service.close()

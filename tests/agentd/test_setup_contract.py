@@ -39,7 +39,7 @@ class TestSetupContract:
         assert out["schema_version"] == "rosclaw.setup.status.v1"
         for area in ("model", "body", "operator", "worker", "integration"):
             assert area in out, f"schema 缺 {area}"
-            assert out[area]["state"] in ("READY", "NEEDS_SETUP", "BLOCKED")
+            assert out[area]["state"] in ("READY", "NEEDS_SETUP", "BLOCKED", "REMOVED")
 
     def test_wizard_idempotent(self, tmp_path: Path, monkeypatch) -> None:
         monkeypatch.setenv("ROSCLAW_HOME", str(tmp_path))

@@ -485,9 +485,6 @@ class ActionAdmissionService:
         # 标题由合约派生——capability 永远在标题里，不允许"危险
         # capability + 无害 title"分离（五审场景 D）。
         derived_title = exact_action.title
-        handlers = service._handlers
-        if handlers is None:
-            raise ToolBridgeError("HANDLERS_UNAVAILABLE", "intent handlers not wired")
         # P0-4C：ActionTxn——idempotency 持久化状态机。同 key 同 hash
         # 返回既有事务（不重复建卡）；同 key 不同 hash 抛 CONFLICT。
         from rosclaw.agentd.pi_bridge.action_txn import (
@@ -584,10 +581,16 @@ class ActionAdmissionService:
                 },
             ),
         )
-        with handlers.request_context(
-            mode=mission.mode.value, principal=mission.owner_principal
-        ):
-            await handlers.request_approval(decision)
+        from rosclaw.agentd.action_dispatch import (
+            request_approval as _dispatch_approval,
+        )
+
+        await _dispatch_approval(
+            service,
+            decision,
+            mode=mission.mode.value,
+            principal=mission.owner_principal,
+        )
         # 精确验证这张卡被创建——按 ID 查，不扫列表。
         created = service._broker.get_request(approval_id)
         if created is None:
@@ -794,9 +797,6 @@ class ActionAdmissionService:
         if expires_at and expires_at < datetime.now(UTC).isoformat():
             raise ToolBridgeError("GRANT_EXPIRED", "grant expired before execute (TOCTOU)")
         grant_id = str(row["grant_id"])
-        handlers = service._handlers
-        if handlers is None:
-            raise ToolBridgeError("HANDLERS_UNAVAILABLE", "intent handlers not wired")
         mission = service.get_mission(stored.mission_id)
         # P0-5D：ActionTxn 必须存在且全链一致——legacy 卡（无 txn）明确
         # 拒绝执行（不返回空 txn_id 继续）。
@@ -947,11 +947,16 @@ class ActionAdmissionService:
                 },
             ),
         )
-        with handlers.request_context(
+        # PR-H9：执行派发归 action_dispatch（旧 ServiceIntentHandlers
+        # 已删除——纯执行路径提取，Worker/AgentLoop 无关）。
+        from rosclaw.agentd.action_dispatch import request_action as _dispatch_action
+
+        outcome = await _dispatch_action(
+            service,
+            decision,
             mode=mission.mode.value if mission else "SIMULATION",
             principal=mission.owner_principal if mission else stored.principal,
-        ):
-            outcome = await handlers.request_action(decision)
+        )
         # P0-5E：COMPLETED 需要严格 receipt 合约——terminal bool +
         # 非空 action/receipt ID + receipt 事件精确绑定本 action。
         # terminal_receipt=True 但缺 receipt 一律不是 COMPLETED。

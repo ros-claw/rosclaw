@@ -1,8 +1,9 @@
 """AgentService — the rosclaw-agentd application object (PR-NA-040).
 
-Assembles MissionStore + ContextCompiler + ModelGateway + AgentLoop from
-``AgentConfig``. Runs unprivileged; holds no hardware authority. Exposes a
-small local HTTP/WebSocket-free JSON API for the CLI and the console.
+装配 MissionStore + TaskKernel/OperationManager + 能力目录 + Operator
+Broker。无特权运行；不持硬件权威。PR-H9：旧认知内核（AgentLoop/
+ModelGateway 装配/WorkerManager/TaskRunner/ControlPlane）已删除——
+默认链是 Harness Backend 主会话 + TaskKernel（ADR-0012）。
 """
 
 from __future__ import annotations
@@ -16,25 +17,11 @@ from fastapi import Request as _Request
 from pydantic import BaseModel as _BaseModel
 
 from rosclaw.agentd.config import AgentConfig
-from rosclaw.agentd.context.compiler import ContextCompiler
-from rosclaw.agentd.context.prompt_registry import load_prompt
-from rosclaw.agentd.context.sources import SourceBundle
-from rosclaw.agentd.loop import AgentLoop, LoopTurnResult
 from rosclaw.agentd.mission import MissionStore
-from rosclaw.agentd.models.gateway import (
-    ModelGateway,
-    ModelGatewayError,
-    ModelProbeResult,
-    OpenAICompatGateway,
-)
 from rosclaw.agentd.runtime_sources import (
-    CatalogCapabilitySource,
     ConfigConsentSource,
-    DaemonSelfSource,
-    EmptyMemorySource,
     ResolverBodySource,
     SimBodySource,
-    SimSelfSource,
 )
 from rosclaw.agentd.tools import BuiltinToolRegistry
 from rosclaw.agentd.usage import UsageRecorder
@@ -46,25 +33,9 @@ from rosclaw.contracts.agent.mission import (
     MissionSessionV1,
 )
 from rosclaw.contracts.common import ValidationError
+from rosclaw.task_kernel.service import TASK_ACTIVE
 
 AGENTD_DIR = "agentd"
-
-
-class RegistryOrgSource:
-    """L6 organization layer backed by the WorkerRegistry."""
-
-    def __init__(self, registry) -> None:
-        self._registry = registry
-
-    def get_org(self):
-        from rosclaw.agentd.context.sources import OrgFacts
-
-        lines = []
-        for card in self._registry.list():
-            status = self._registry.status_of(card.worker_id) or "UNKNOWN"
-            caps = ", ".join(c.name for c in card.capabilities)
-            lines.append(f"- {card.worker_id} [{card.kind.value}/{status}] capabilities: {caps}")
-        return OrgFacts(workers_summary="Registered workers:\n" + "\n".join(lines) if lines else "")
 
 
 class BrokerConsentSource:
@@ -119,17 +90,16 @@ class AgentService:
         config: AgentConfig,
         rosclaw_home: Path,
         *,
-        gateway: ModelGateway | None = None,
+        gateway: object | None = None,  # noqa: ARG002 - H9 过渡 shim
     ) -> None:
+        # gateway 形参仅兼容既有调用方（bench/测试）——PR-H9 已删除
+        # ModelGateway 装配，传入值不被保存或使用；新代码不得再传。
+
         self._config = config
         self._home = rosclaw_home
         db_dir = rosclaw_home / AGENTD_DIR
         db_dir.mkdir(parents=True, exist_ok=True)
         self._store = MissionStore(db_dir / "missions.db")
-        # Worker registry first: the context compiler's org layer reads it.
-        from rosclaw.agentd.handlers import ServiceIntentHandlers
-        from rosclaw.agentd.workers import NativeWorkerAdapter, WorkerManager, WorkerRegistry
-
         self._body_id = config.active_body_id
         self._daemon_client = None
         daemon_socket = os.environ.get("ROSCLAW_DAEMON_SOCKET") or str(
@@ -139,18 +109,14 @@ class AgentService:
             from rosclaw.daemon.client import DaemonClient
 
             self._daemon_client = DaemonClient(socket_path=daemon_socket)
-        self._registry = WorkerRegistry(self._store.connection)
-        self._registry.register_builtins(actor_id=self.actor_id)
         self._simulation_body = self._body_id.startswith("sim/")
         if self._simulation_body:
             self._body_source = SimBodySource(self._body_id)
-            self_source = SimSelfSource()
         else:
             self._body_source = ResolverBodySource(
                 workspace=rosclaw_home,
                 body_id=self._body_id,
             )
-            self_source = DaemonSelfSource(self._daemon_client)
         body = self._body_source.get_body(self._body_id)
         self._tools = BuiltinToolRegistry(
             body_id=self._body_id,
@@ -246,46 +212,6 @@ class AgentService:
         self._broker = OperatorBroker(
             self._store.connection, policy_hash=consent_source.policy_hash
         )
-        self._compiler = ContextCompiler(
-            SourceBundle(
-                constitution_text=load_prompt("native_agent_v1.md").text,
-                body=self._body_source,
-                self_source=self_source,
-                capabilities=CatalogCapabilitySource(
-                    self._tool_catalog,
-                    home=rosclaw_home,
-                    body_id=self._body_id,
-                ),
-                memory=EmptyMemorySource(),
-                organization=RegistryOrgSource(self._registry),
-                consent=BrokerConsentSource(consent_source, self._store.connection),
-                runtime_status_summary=(
-                    "agentd local; simulated body; rosclawd optional"
-                    if self._simulation_body
-                    else "agentd bound to a real body through rosclawd; physical evidence is daemon-owned"
-                ),
-            ),
-            max_input_tokens=config.max_input_tokens,
-            dynamic_tool_limit=config.dynamic_tool_limit,
-        )
-        if gateway is not None:
-            self._gateway: ModelGateway = gateway
-        else:
-            from rosclaw.agentd.models.failover import FailoverGateway
-
-            policy = config.to_policy()
-            chain = policy.fallback_chain()
-            if config.model_backend == "modeld":
-                # 批次 D：AgentLoop 不再直接接触 OpenAI-compatible 协议细节。
-                from rosclaw.agentd.models.modeld_gateway import ModeldGateway
-
-                candidates = [(p, ModeldGateway(p, home=self._home)) for p in chain]
-            else:
-                candidates = [(p, OpenAICompatGateway(p)) for p in chain]
-            # 单 profile 也走 FailoverGateway：统一的 cooldown/RPM 语义。
-            self._gateway = FailoverGateway(candidates)
-        self._prompt = load_prompt("native_agent_v1.md")
-        self._loops: dict[str, AgentLoop] = {}
         self._lock = asyncio.Lock()
         self._usage = UsageRecorder(self._store.connection)
         # AgentEventV2 journal + live bus (PR-02).
@@ -293,67 +219,6 @@ class AgentService:
 
         self._events = AgentEventStore(self._store.connection)
         self._turn_tasks: dict[str, asyncio.Task] = {}
-        # 十审 W0：WorkOrder 后台驱动任务——delegate 立即返回后由它们
-        # 驱动 run_to_completion；close() 时统一取消（DB 终态权威不变：
-        # 未完成的单由 sweeper/重启对账处理，绝不永久假装 RUNNING 健康）。
-        self._worker_bg_tasks: dict[str, asyncio.Task] = {}
-        from rosclaw.agentd.runner import MissionRunner
-
-        self._runner = MissionRunner(self)
-        # External harness packs (PR-WF-054): register cards by probe result
-        # (missing binary → DISABLED with T0 note, never fake readiness).
-        # 同步探活（init 可能在 async 上下文中被构造，不能 run_until_complete）。
-        from rosclaw.agentd.pi_entry import find_pi_agent_entry
-        from rosclaw.agentd.workers.external import ExternalHarnessAdapter
-        from rosclaw.agentd.workers.packs import ALL_PACKS, card_for_pack
-        from rosclaw.agentd.workers.pi_managed import PiManagedAdapter
-
-        external_adapter = ExternalHarnessAdapter(cwd=rosclaw_home)
-        for pack in ALL_PACKS:
-            card = card_for_pack(pack)
-            self._registry.register(card, actor_id=self.actor_id)
-            ready, detail = self._probe_pack_sync(
-                pack.executable, pack.min_version, pack.install_hint
-            )
-            if not ready:
-                self._registry.set_status(
-                    pack.worker_id, "DISABLED", actor_id=self.actor_id, reason=detail
-                )
-        self._worker_manager = WorkerManager(
-            self._store.connection,
-            adapters={
-                "native_inproc": NativeWorkerAdapter(self._gateway),
-                "external_cli": external_adapter,
-                # 十审 W1：内置 Pi headless Worker（与主 Agent 同一模型配置）。
-                "pi_managed": PiManagedAdapter(
-                    rosclaw_home=rosclaw_home, conn=self._store.connection
-                ),
-            },
-            actor_id=self.actor_id,
-            event_recorder=self._record_worker_event,
-        )
-        # 十一审 PR-E：pi_managed 的 WAITING_INPUT 状态迁移需要 manager。
-        self._worker_manager._adapters["pi_managed"]._manager_ref = self._worker_manager
-        # 十四审 PR-14.2：RetryCoordinator 是唯一重试决策者——自动/手动
-        # retry 同一 CAS 仲裁，一个 root job 一张卡、一个活跃 attempt。
-        from rosclaw.agentd.workers.retry import RetryCoordinator
-
-        def _candidates(worker_hint: str, capability: str):
-            from rosclaw.agentd.pi_bridge.tool_dispatch import PiToolDispatcher
-
-            return PiToolDispatcher(self)._candidates_for(worker_hint, capability)
-
-        self._retry_coordinator = RetryCoordinator(
-            self._store.connection,
-            manager=self._worker_manager,
-            candidates_fn=_candidates,
-            spawn_fn=self.spawn_worker_driver,
-        )
-        # 十五审 PR-RF-2：Task Control Plane——一个任务一个 owning
-        # execution；Native Agent 只交 TaskSpec，router 决定执行域。
-        from rosclaw.agentd.control_plane import TaskControlPlane
-
-        self._task_control_plane = TaskControlPlane(self)
         # 十六审 P0-C：Runtime/Dependency Manager——托管运行时
         # （~/.rosclaw/runtimes/），仿真渲染等依赖的确定性预置。
         from rosclaw.agentd.runtime_manager import RuntimeManager
@@ -371,27 +236,6 @@ class AgentService:
         self._operation_manager = OperationManager(
             self._task_kernel, self._store.connection
         )
-        # 内置 Pi Worker 的就绪性取决于 node+dist——不可用时诚实 DISABLED
-        # （绝不"看起来装了就 ENABLED"）。
-        if find_pi_agent_entry() is None:
-            self._registry.set_status(
-                "worker:rosclaw:pi",
-                "DISABLED",
-                actor_id=self.actor_id,
-                reason="rosclaw-agent dist 或 Node ≥22.19 不可用",
-            )
-        self._handlers = ServiceIntentHandlers(
-            registry=self._registry,
-            manager=self._worker_manager,
-            actor_id=self.actor_id,
-            broker=self._broker,
-            body_id=self._body_id,
-            body_hash=body.effective_body_hash if body else "",
-            mode=config.default_mode,
-        )
-        # 批次 B/PR-12：handlers 的事件（grant.consumed、receipt.received 等）
-        # 接入 AgentEventV2 journal。
-        self._handlers.set_event_sink(self._event_sink_for)
         # Daemon action channel (K3) + consent channel (ADR-0007): only when
         # a rosclawd client is actually available — otherwise both degrade
         # honestly.
@@ -407,14 +251,12 @@ class AgentService:
                 body_id=self._body_id,
                 body_hash=body.effective_body_hash if body else "",
             )
-            self._handlers._action_channel = self._action_channel
             self._consent_channel = DaemonConsentChannel(
                 self._daemon_client,
                 actor_id=self.actor_id,
                 body_id=self._body_id,
                 body_hash=body.effective_body_hash if body else "",
             )
-            self._handlers._consent_channel = self._consent_channel
         # PR-12：SIM 物理权威（无 daemon 时）。mcp_servers[] 带
         # sim_executor: true 的 server 同时提供 SIM actuation。
         # 六审 §6.2.4：executor 按 (body, capability source) 路由——
@@ -443,7 +285,6 @@ class AgentService:
             for adapter in self._mcp_adapters:
                 if adapter.source == f"mcp:{server_name}":
                     adapter._client = shared_client
-        self._handlers._sim_executors = self._sim_executors
         # Team Fabric: enabled via config `team.enabled`. Local coordinator
         # in P0 (local_sim); ROS 2/Zenoh transports are later PRs.
         team_cfg = (config.raw.get("team") or {}) if config.raw else {}
@@ -456,37 +297,9 @@ class AgentService:
                 actor_id=self.actor_id,
                 policy_hash=consent_source.policy_hash,
             )
-            self._handlers._team_coordinator = self._team_coordinator
         else:
             self._team_coordinator = None
 
-    # ------------------------------------------------------------------
-    @staticmethod
-    def _probe_pack_sync(executable: str, min_version: str, install_hint: str) -> tuple[bool, str]:
-        """Synchronous pack probe (used at init; adapter.probe is the async path)."""
-        import shutil
-        import subprocess
-
-        from rosclaw.agentd.workers.packs import version_ok
-
-        exe = shutil.which(executable)
-        if exe is None:
-            return False, f"二进制 {executable!r} 未找到（T0 Discovered）。{install_hint}"
-        try:
-            out = subprocess.run(
-                [executable, "--version"],
-                capture_output=True,
-                timeout=15,
-                text=True,
-            )
-            version_text = (out.stdout or out.stderr).strip().split()[0]
-        except (OSError, subprocess.TimeoutExpired) as exc:
-            return False, f"version probe failed: {exc}"
-        if not version_ok(version_text, min_version):
-            return False, f"{version_text} < 最小兼容版本 {min_version}，请升级。"
-        return True, version_text
-
-    # ------------------------------------------------------------------
     @property
     def store(self) -> MissionStore:
         return self._store
@@ -495,26 +308,6 @@ class AgentService:
     def actor_id(self) -> str:
         safe = self._body_id.replace("/", "_")
         return f"agent:rosclaw-native:{safe}"
-
-    def _loop_for(self, mission_id: str) -> AgentLoop:
-        loop = self._loops.get(mission_id)
-        if loop is None:
-            loop = AgentLoop(
-                store=self._store,
-                compiler=self._compiler,
-                gateway=self._gateway,
-                prompt=self._prompt,
-                tools=self._tool_registry,
-                handlers=self._handlers,
-                actor_id=self.actor_id,
-                max_tool_rounds=self._config.max_tool_rounds,
-                usage_recorder=self._usage,
-                event_sink=self._event_sink_for(mission_id),
-                decision_protocol=self._config.decision_protocol,
-                legacy_fenced_json_fallback=self._config.legacy_fenced_json_fallback,
-            )
-            self._loops[mission_id] = loop
-        return loop
 
     def _event_sink_for(self, mission_id: str):
         """Per-mission event sink closure (PR-02)."""
@@ -534,10 +327,6 @@ class AgentService:
     # ------------------------------------------------------------------
     # /v2 event-streaming surface (PR-02): turn submit decoupled from SSE.
     # ------------------------------------------------------------------
-    async def submit_turn_v2(self, mission_id: str, text: str) -> str:
-        """202-style submit via MissionRunner (wake-tracked, PR-03)."""
-        return await self._runner.submit_turn(mission_id, text)
-
     def events_replay(self, mission_id: str, *, after_sequence: int = 0, limit: int = 1000):
         return self._events.replay(mission_id, after_sequence=after_sequence, limit=limit)
 
@@ -547,13 +336,6 @@ class AgentService:
     def events_unsubscribe(self, mission_id: str, queue: asyncio.Queue) -> None:
         self._events.bus.unsubscribe(mission_id, queue)
 
-    async def cancel_turn_v2(self, mission_id: str) -> None:
-        await self.cancel(mission_id)
-        task = self._turn_tasks.get(mission_id)
-        if task is not None and not task.done():
-            task.cancel()
-
-    # ------------------------------------------------------------------
     def create_mission(
         self,
         goal_text: str,
@@ -622,38 +404,6 @@ class AgentService:
 
     def get_mission(self, mission_id: str) -> MissionSessionV1 | None:
         return self._store.get_mission(mission_id)
-
-    async def send_turn(self, mission_id: str, text: str, on_text_delta=None) -> LoopTurnResult:
-        mission = self._store.get_mission(mission_id)
-        if mission is None:
-            raise ValidationError(f"unknown mission {mission_id!r}")
-        if self.mission_archived(mission_id):
-            raise ValidationError(
-                f"mission {mission_id!r} is archived (read-only); create a new mission"
-            )
-        await self._ensure_mcp_discovered()
-        async with self._runner.lock_for(mission_id):
-            if self._handlers is not None:
-                self._handlers._mode = mission.mode.value
-                self._handlers._principal = mission.owner_principal
-            loop = self._loop_for(mission_id)
-            # R4：同步路径也写用户可见事件——transcript projection 才能
-            # 覆盖用户消息与助手回复（与 v2 runner 同一事件词汇）。
-            from rosclaw.contracts.agent.agent_event import AgentEventType
-
-            await self._events.append(
-                mission_id, AgentEventType.TURN_ACCEPTED, {"text": text[:500]}
-            )
-            result = await loop.run_user_turn(
-                mission, text, now=datetime.now(UTC), on_text_delta=on_text_delta
-            )
-            reply = getattr(result, "reply", "") or ""
-            if reply:
-                await self._events.append(
-                    mission_id, AgentEventType.MODEL_TEXT_DELTA, {"text": reply}
-                )
-                await self._events.append(mission_id, AgentEventType.MESSAGE_ENDED, {})
-            return result
 
     def mission_usage(self, mission_id: str) -> dict:
         return self._usage.mission_totals(mission_id)
@@ -1024,6 +774,10 @@ class AgentService:
             "restart_required": True,
         }
 
+    def _current_body_hash(self) -> str:
+        body = self._body_source.get_body(self._body_id)
+        return body.effective_body_hash if body else ""
+
     def sim_executor_identity_for(self, source: str) -> str:
         """六审 §6.2.4：按 capability source 解析 SIM 执行通道身份。
         身份即路由目标（mcp:<server>/native:agentd）；通道缺失时由
@@ -1068,11 +822,7 @@ class AgentService:
 
         if _find_modeld_runtime() is None:
             return None
-        profile = (
-            self._config.to_policy().default
-            if self._config.profiles
-            else getattr(self._gateway, "profile", None)
-        )
+        profile = self._config.to_policy().default if self._config.profiles else None
         if profile is None:
             return None
         self._modeld_mgmt_instance = ModeldGateway(profile, home=self._home)
@@ -1111,7 +861,9 @@ class AgentService:
         return await mgmt.manage("POST", f"/v1/auth/{provider}/logout", {})
 
     def current_model_label(self) -> str:
-        profile = self._gateway.profile
+        if not self._config.profiles:
+            return "未配置模型"
+        profile = self._config.to_policy().default
         return f"{profile.provider}/{profile.model}（profile: {profile.name}）"
 
     def switch_model(self, provider: str, model: str) -> dict:
@@ -1149,29 +901,6 @@ class AgentService:
             ),
         }
 
-    def _record_worker_event(self, mission_id: str, to_status: str, payload: dict) -> None:
-        """Sync bridge: WorkerManager transitions → AgentEventV2 (批次 B)."""
-        import asyncio as _asyncio
-
-        from rosclaw.contracts.agent.agent_event import AgentEventType
-
-        event_type = {
-            "CLAIMED": AgentEventType.WORKER_CLAIMED,
-            "RUNNING": AgentEventType.WORKER_STARTED,
-            "SUBMITTED": AgentEventType.WORKER_SUBMITTED,
-            "VERIFYING": AgentEventType.WORKER_VERIFYING,
-            "ACCEPTED": AgentEventType.WORKER_ACCEPTED,
-            "FAILED": AgentEventType.WORKER_FAILED,
-            "EXPIRED": AgentEventType.WORKER_EXPIRED,
-        }.get(to_status)
-        if event_type is None:
-            return
-        try:
-            loop = _asyncio.get_running_loop()
-        except RuntimeError:
-            return  # no loop (e.g. sync CLI path) — worker_events table is the record
-        loop.create_task(self._events.append(mission_id, event_type, payload))
-
     @property
     def commands(self):
         return self._commands
@@ -1203,8 +932,8 @@ class AgentService:
     def reload_domains(self, domains: list[str]) -> dict:
         """/reload（§8.15）：分域原子重载；安全域永远拒绝。
 
-        可 reload：prompts（prompt registry）、workers（pack 重新探活注册）、
-        models（modeld provider catalog refresh 提示）。
+        可 reload：prompts（prompt registry）、models（modeld provider
+        catalog refresh 提示）。
         不可 reload：rosclawd Policy、Robot Pack 签名、Body 安全边界、
         Permit、设备权限、REAL 风险上限。
         """
@@ -1214,25 +943,13 @@ class AgentService:
                 from rosclaw.agentd.context.prompt_registry import load_prompt
 
                 try:
-                    self._prompt = load_prompt("native_agent_v1.md")
+                    prompt = load_prompt("native_agent_v2.md")
                     results[domain] = {
                         "ok": True,
-                        "detail": f"prompt v{self._prompt.version} hash={self._prompt.content_hash[:16]}（活跃 turn 不换 prompt，下一 turn 生效）",
+                        "detail": f"prompt v{prompt.version} hash={prompt.content_hash[:16]}（主会话系统提示词在 session 启动时装配——重启后生效）",
                     }
                 except Exception as exc:  # noqa: BLE001
                     results[domain] = {"ok": False, "detail": f"{exc}（保持旧配置）"}
-            elif domain == "workers":
-                from rosclaw.agentd.workers.packs import ALL_PACKS, card_for_pack
-
-                refreshed = []
-                for pack in ALL_PACKS:
-                    try:
-                        self._registry.register(card_for_pack(pack), actor_id=self.actor_id)
-                        refreshed.append(pack.worker_id)
-                    except Exception as exc:  # noqa: BLE001
-                        results.setdefault(domain, {"ok": False, "detail": str(exc)})
-                else:
-                    results[domain] = {"ok": True, "detail": f"re-registered {len(refreshed)} packs"}
             elif domain == "models":
                 results[domain] = {
                     "ok": True,
@@ -1251,23 +968,6 @@ class AgentService:
         return self._store.conversation(mission_id)
 
     # ------------------------------------------------------------------
-    async def compact(
-        self,
-        mission_id: str,
-        *,
-        instructions: str | None = None,
-        dry_run: bool = False,
-    ) -> dict:
-        """`/compact` 的服务端实现（PR-07）。"""
-        mission = self._store.get_mission(mission_id)
-        if mission is None:
-            raise ValidationError(f"unknown mission {mission_id!r}")
-        async with self._runner.lock_for(mission_id):
-            loop = self._loop_for(mission_id)
-            return await loop.compact_conversation(
-                mission, reason="manual", focus=instructions, dry_run=dry_run
-            )
-
     def compaction_status(self, mission_id: str) -> dict:
         from rosclaw.agentd.context.compaction import (
             CompactionStore,
@@ -1284,12 +984,20 @@ class AgentService:
         }
 
     async def cancel(self, mission_id: str) -> None:
+        """fail-safe/用户取消（PR-H9）：事件落账 + 取消该 Mission 全部
+        RUNNING operation（旧 AgentLoop 回合取消已随 H9 删除——回合
+        归 Harness 主会话，取消走 Harness 的 Esc/steer）。"""
         from rosclaw.contracts.agent.agent_event import AgentEventType
 
         await self._events.append(mission_id, AgentEventType.TURN_CANCEL_REQUESTED, {})
-        loop = self._loops.get(mission_id)
-        if loop is not None:
-            loop.request_cancel()
+        conn = self._store.connection
+        running = conn.execute(
+            "SELECT operation_id FROM operations WHERE state = 'RUNNING' AND "
+            "task_id IN (SELECT task_id FROM tasks WHERE mission_id = ?)",
+            (mission_id,),
+        ).fetchall()
+        for row in running:
+            await self._operation_manager.cancel(str(row["operation_id"]))
 
     # ------------------------------------------------------------------
     # 批次 B：UI 控制面（命令/快照/归档/重命名）
@@ -1341,8 +1049,12 @@ class AgentService:
             "body_id": self._body_id,
             "daemon_connected": self._daemon_client is not None,
             "mcp_servers": [a.source for a in self._mcp_adapters],
-            "model_profile": self._gateway.profile.name,
-            "model": self._gateway.profile.model,
+            "model_profile": (
+                self._config.to_policy().default.name if self._config.profiles else ""
+            ),
+            "model": (
+                self._config.to_policy().default.model if self._config.profiles else ""
+            ),
             "tools_registered": len(self._tool_catalog.list()),
         }
         if mission_id:
@@ -1380,12 +1092,12 @@ class AgentService:
         ]
         orders = [
             {
-                "work_order_id": o.work_order_id,
-                "status": o.status,
-                "assigned_to": o.assigned_to,
+                "work_order_id": task["task_id"],
+                "status": task["state"],
+                "assigned_to": "primary_session",
             }
-            for o in self._worker_manager.orders_for_mission(mission_id)
-            if o.status not in ("ACCEPTED", "REJECTED", "EXPIRED", "CANCELLED")
+            for task in self._task_kernel.list_tasks(mission_id)
+            if task["state"] in TASK_ACTIVE
         ]
         return MissionSnapshotV1(
             mission_id=mission_id,
@@ -1457,12 +1169,6 @@ class AgentService:
                     "approved": approve,
                     "grant_id": grant.grant_id if grant else None,
                 },
-            )
-            self._runner.notify_approval_decided(
-                approval_req.mission_id,
-                request_id,
-                approved=approve,
-                grant_id=grant.grant_id if grant else None,
             )
         # 审计 P0-01：agentd 不再裁决 daemon proposal（该路径已迁往
         # rosclaw-operatord）；daemon 卡的物理决定由 operatord 直接经
@@ -1698,14 +1404,38 @@ class AgentService:
             await self._events.append(mission_id, event_type, payload)
 
     # ------------------------------------------------------------------
-    async def probe(self) -> ModelProbeResult:
+    async def probe(self):
+        """模型探测（PR-H9：不再持有持久 gateway——临时构造、用完
+        即关；配置即真相）。"""
+        from rosclaw.agentd.models.gateway import (
+            ModelGatewayError,
+            ModelProbeResult,
+            OpenAICompatGateway,
+        )
+
+        if not self._config.profiles:
+            return ModelProbeResult(reachable=False, error="no_profiles")
+        gateway = OpenAICompatGateway(self._config.to_policy().default)
         try:
-            return await self._gateway.probe()
+            return await gateway.probe()
         except ModelGatewayError as exc:
             return ModelProbeResult(reachable=False, error=f"{exc.kind}: {exc}")
+        finally:
+            await gateway.close()
 
     def status(self) -> dict:
-        profile = self._gateway.profile
+        if not self._config.profiles:
+            return {
+                "agent_enabled": self._config.enabled,
+                "default_mode": self._config.default_mode,
+                "body_id": self._body_id,
+                "daemon_connected": self._daemon_client is not None,
+                "profile": "", "provider": "", "model": "", "base_url": "",
+                "api_key_ref": "",
+                "missions": len(self._store.list_missions()),
+                "maturity": "experimental",
+            }
+        profile = self._config.to_policy().default
         return {
             "agent_enabled": self._config.enabled,
             "default_mode": self._config.default_mode,
@@ -1759,130 +1489,8 @@ class AgentService:
         await self._pi_bridge.start()
         return path
 
-    async def reconcile_workers_on_start(self) -> list[str]:
-        """agentd 重启对账（十四审 PR-14.5，总纲 §1.7——降级方案）：
-
-        - RUNNING/PAUSED/UNREACHABLE 等活跃单 → INTERRUPTED_RESUMABLE
-          （**禁止 FAILED**——合并红线）：session/workspace 保留，
-          /job resume 从同一 Pi 会话恢复；
-        - 有 child.pid 的孤儿子进程：SIGTERM 宽限（worker 可落
-          termination.json）→ SIGKILL（不留孤儿继续计费）；
-        - OFFERED/CLAIMED → CANCELLED（从未启动，诚实取消）；
-        - INTERRUPTED_RESUMABLE 不再二次对账（幂等）。
-        """
-        import signal as _signal
-
-        reconciled: list[str] = []
-        conn = self._store.connection
-        rows = conn.execute(
-            "SELECT work_order_id, status FROM work_orders "
-            "WHERE status NOT IN ('ACCEPTED', 'FAILED', 'EXPIRED', 'CANCELLED', "
-            "'INTERRUPTED_RESUMABLE')"
-        ).fetchall()
-        for row in rows:
-            wo_id = row["work_order_id"]
-            pid_file = self._home / "work" / wo_id / "child.pid"
-            if pid_file.exists():
-                try:
-                    pid = int(pid_file.read_text().strip())
-                    import contextlib as _cl
-
-                    # SIGTERM 宽限 2s——worker 的信号处理会尽力 abort 并
-                    # 落 termination.json（SIGNAL_UNKNOWN/AGENTD_SHUTDOWN）；
-                    # 顽固进程 SIGKILL 收场。
-                    with _cl.suppress(ProcessLookupError, PermissionError):
-                        os.killpg(os.getpgid(pid), _signal.SIGTERM)
-                    deadline = asyncio.get_running_loop().time() + 2.0
-                    while asyncio.get_running_loop().time() < deadline:
-                        try:
-                            os.kill(pid, 0)
-                        except OSError:
-                            break
-                        await asyncio.sleep(0.1)
-                    with _cl.suppress(ProcessLookupError, PermissionError):
-                        os.killpg(os.getpgid(pid), _signal.SIGKILL)
-                except (ValueError, OSError):
-                    pass
-                pid_file.unlink(missing_ok=True)
-            try:
-                if row["status"] in (
-                    "RUNNING", "PAUSED", "BUDGET_PAUSED", "PAUSE_REQUESTED",
-                    "UNREACHABLE", "BLOCKED",
-                ):
-                    # 降级方案：中断可恢复（不是 FAILED——总纲 §1.7 禁止项）。
-                    self._worker_manager._transition(
-                        wo_id, "INTERRUPTED_RESUMABLE", "agentd_restart"
-                    )
-                else:
-                    self._worker_manager._transition(wo_id, "CANCELLED", "agentd_restart")
-                reconciled.append(wo_id)
-            except Exception:  # noqa: BLE001 - 对账继续
-                pass
-        return reconciled
-
-    async def _drive_worker(self, order) -> None:
-        """基础设施错误自动重试至多一次（复用 worktree/workspace，不从零
-        再花 token）。十四审 PR-14.2：重试只能有一个所有者——
-        RetryCoordinator（总纲 §3.5）：
-        - 只认结构化可重试 cause（PROVIDER_TRANSIENT/WORKER_CRASH/
-          EVENT_PIPE_BROKEN）；"worker exited" 进程表象永不是依据；
-        - 自动/手动 retry 同一 CAS——绝不裂变成三张任务卡；
-        - USER_CANCELLED/USER_PAUSED/语义失败不自动重试。"""
-        result, _report = await self._worker_manager.run_to_completion(order)
-        if result.status != "FAILED" or order.inputs.get("_auto_retried"):
-            return
-        from rosclaw.agentd.workers.retry import parse_cause
-
-        cause = parse_cause(result.summary)
-        if cause is None:
-            return
-        await self._retry_coordinator.request_retry(
-            order, cause=cause, actor="auto", note=result.summary[:120]
-        )
-
-    def spawn_worker_driver(self, order) -> None:
-        """十审 W0：WorkOrder 后台驱动——pi 工具请求栈立即返回后由本
-        任务驱动 run_to_completion 到终态；请求断开不影响权威状态。"""
-        task = asyncio.create_task(self._drive_worker(order))
-        self._worker_bg_tasks[order.work_order_id] = task
-
-        def _done(t: asyncio.Task, wo_id: str = order.work_order_id) -> None:
-            self._worker_bg_tasks.pop(wo_id, None)
-            if t.cancelled():
-                return
-            exc = t.exception()
-            if exc is not None:  # 防御：manager 已兜底——这里只记录。
-                import logging
-
-                logging.getLogger("rosclaw.agentd.workers").warning(
-                    "worker driver for %s raised: %s", wo_id, exc
-                )
-
-        task.add_done_callback(_done)
-
     async def close(self) -> None:
-        # 十审 W0：先杀活动 Worker 的底层进程树（adapter 级），再取消
-        # 后台驱动任务——顺序反过来会让驱动先死、进程泄漏。
-        import contextlib as _cl
 
-        with _cl.suppress(Exception):
-            await self._worker_manager.shutdown()
-        # 十五审自审：control-plane 驱动任务也要取消（否则 close 后
-        # 仍在写已关闭的 DB/跑已杀的进程）。
-        plane = getattr(self, "_task_control_plane", None)
-        if plane is not None:
-            for driver in list(plane._drivers.values()):
-                driver.cancel()
-            if plane._drivers:
-                with _cl.suppress(Exception):
-                    await asyncio.gather(*plane._drivers.values(), return_exceptions=True)
-                plane._drivers.clear()
-        for task in list(getattr(self, "_worker_bg_tasks", {}).values()):
-            task.cancel()
-        if getattr(self, "_worker_bg_tasks", None):
-            with _cl.suppress(Exception):
-                await asyncio.gather(*self._worker_bg_tasks.values(), return_exceptions=True)
-            self._worker_bg_tasks.clear()
         # 六审 §7：产品 supervisor 管理的 operatord 随 service 终止。
         managed = getattr(self, "_managed_operator", None)
         if managed is not None:
@@ -1897,7 +1505,6 @@ class AgentService:
         if getattr(self, "_pi_bridge", None) is not None:
             await self._pi_bridge.stop()
             self._pi_bridge = None
-        await self._gateway.close()
         self._store.close()
         # P1-4：control token 文件随服务关闭删除（不残留可重用的令牌）。
         token_path = self._home / "run" / "agentd-control.token"
@@ -2038,8 +1645,6 @@ def create_app(service: AgentService):
         # PR-11：operator.sock 随 HTTP 服务启动（同一事件循环）。
         # P1-3：HTTP 服务停止时必须关闭 service（子进程/socket/句柄）。
         # P1-4：ephemeral control token 落 0600 文件供同机 TUI/CLI。
-        # 十审 W4：先做 Worker 崩溃对账（孤儿进程清理 + 诚实终态）。
-        await service.reconcile_workers_on_start()
         await service.start_operator_socket()
         await service.start_pi_bridge()
         service.write_control_token_file()
@@ -2134,26 +1739,6 @@ def create_app(service: AgentService):
             raise HTTPException(status_code=404, detail="mission not found")
         return mission.model_dump(mode="json")
 
-    @app.post("/missions/{mission_id}/turns")
-    async def send_turn(mission_id: str, payload: TurnCreate) -> dict:
-        try:
-            result = await service.send_turn(mission_id, payload.text)
-        except ValidationError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-        return _turn_payload(result)
-
-    # ------------------------------------------------------------------
-    # /v2 (PR-02): submit decoupled from event stream; TUI may disconnect
-    # freely — the mission keeps running server-side.
-    # ------------------------------------------------------------------
-    @app.post("/v2/missions/{mission_id}/turns", status_code=202)
-    async def v2_submit_turn(mission_id: str, payload: TurnCreate) -> dict:
-        try:
-            turn_id = await service.submit_turn_v2(mission_id, payload.text)
-        except ValidationError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-        return {"turn_id": turn_id, "mission_id": mission_id, "accepted": True}
-
     @app.get("/v2/missions/{mission_id}/transcript")
     async def v2_transcript(
         mission_id: str,
@@ -2215,14 +1800,6 @@ def create_app(service: AgentService):
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
 
-    @app.post("/v2/missions/{mission_id}/cancel")
-    async def v2_cancel(mission_id: str) -> dict:
-        await service.cancel_turn_v2(mission_id)
-        return {"cancelled": True}
-
-    # ------------------------------------------------------------------
-    # 批次 B：capabilities / commands / snapshot / interactions
-    # ------------------------------------------------------------------
     @app.get("/v1/capabilities")
     async def v1_capabilities(mission_id: str | None = None) -> dict:
         """服务端命令注册表（含 disabled_reason）。"""
@@ -2274,41 +1851,6 @@ def create_app(service: AgentService):
             )
         except ValidationError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from None
-
-    @app.post("/missions/{mission_id}/turns/stream")
-    async def send_turn_stream(mission_id: str, payload: TurnCreate):
-        """SSE: text deltas as they arrive, then one final result event."""
-        import json as _json
-
-        from fastapi.responses import StreamingResponse
-
-        queue: asyncio.Queue[dict] = asyncio.Queue()
-
-        def on_delta(piece: str) -> None:
-            queue.put_nowait({"type": "delta", "text": piece})
-
-        async def run() -> None:
-            try:
-                result = await service.send_turn(mission_id, payload.text, on_delta)
-                queue.put_nowait({"type": "final", **_turn_payload(result)})
-            except Exception as exc:  # noqa: BLE001 - surfaced as SSE data
-                queue.put_nowait({"type": "error", "detail": str(exc)})
-            finally:
-                queue.put_nowait({"type": "eof"})
-
-        async def events():
-            task = asyncio.create_task(run())
-            try:
-                while True:
-                    event = await queue.get()
-                    if event["type"] == "eof":
-                        break
-                    yield f"data: {_json.dumps(event, ensure_ascii=False)}\n\n"
-            finally:
-                if not task.done():
-                    task.cancel()
-
-        return StreamingResponse(events(), media_type="text/event-stream")
 
     @app.get("/missions/{mission_id}/usage")
     async def mission_usage(mission_id: str) -> dict:

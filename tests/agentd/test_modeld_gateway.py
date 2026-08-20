@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 from rosclaw.agentd.config import load_agent_config
-from rosclaw.agentd.models.gateway import MockModelGateway, ModelGatewayError, ModelTurnRequest
+from rosclaw.agentd.models.gateway import ModelGatewayError, ModelTurnRequest
 from rosclaw.agentd.models.modeld_gateway import (
     _PROVIDER_MAP,
     ModeldGateway,
@@ -121,7 +121,10 @@ class TestProviderMapping:
 class TestModelCommands:
     def _service(self, tmp_path: Path) -> AgentService:
         config = load_agent_config(tmp_path / "config.yaml")
-        return AgentService(config, tmp_path, gateway=MockModelGateway(mock_profile(), []))
+        # PR-H9：modeld 管理面读 config profiles（无持久 gateway）。
+        config.profiles = [mock_profile()]
+        config.default_profile = "mock_default"
+        return AgentService(config, tmp_path)
 
     async def test_legacy_backend_rejects_hot_switch(self, tmp_path: Path) -> None:
         service = self._service(tmp_path)

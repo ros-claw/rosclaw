@@ -195,17 +195,22 @@ class TestReceiptContract:
 
         # 让 handler 返回 terminal_receipt=True 但 evidence_ref 为空
         # （模拟缺 receipt 的路径）。
-        original = service._handlers.request_action
+        import rosclaw.agentd.action_dispatch as _ad
 
-        async def _broken(decision):
-            outcome = await original(decision)
+        original = _ad.request_action
+
+        async def _broken(service, decision, *, mode, principal):
+            outcome = await original(service, decision, mode=mode, principal=principal)
             outcome.terminal_receipt = True
             outcome.evidence_ref = None  # 缺 receipt
             return outcome
 
-        service._handlers.request_action = _broken
-        await _approve(service, mission, sock, card["approval_id"])
-        outcome = await admission.execute(card["approval_id"], request=ctx, caller_pid=1, caller_uid=1000)
+        _ad.request_action = _broken
+        try:
+            await _approve(service, mission, sock, card["approval_id"])
+            outcome = await admission.execute(card["approval_id"], request=ctx, caller_pid=1, caller_uid=1000)
+        finally:
+            _ad.request_action = original
 
         assert outcome["status"] != "COMPLETED", (
             "terminal_receipt=True 但无 receipt 竟 COMPLETED"
@@ -229,7 +234,7 @@ class TestReceiptContract:
 
                 return json.dumps({"ok": False, "driver": "failed"})
 
-        service._handlers._sim_channel = SimActionChannel(
+        service._sim_executors["native:agentd"] = SimActionChannel(
             command="true", args=(), name="fail-sim", client=_DomainFailClient()
         )
         admission, ctx, card = await _propose(service, mission, idem="idem_domfail")

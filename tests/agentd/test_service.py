@@ -59,26 +59,17 @@ def service(tmp_path: Path) -> AgentService:
 
 
 class TestService:
-    async def test_create_and_turn(self, service: AgentService) -> None:
-        mission = service.create_mission("检查状态")
-        assert mission.mode.value == "SIMULATION"
-        result = await service.send_turn(mission.mission_id, "你好")
-        assert "你好" in result.reply
-        assert result.state.value == "IDLE"
-
     async def test_real_mode_refused_with_gaps(self, service: AgentService) -> None:
         with pytest.raises(Exception, match="prerequisites"):
             service.create_mission("搬箱子", mode="REAL")
 
-    async def test_unknown_mission_turn(self, service: AgentService) -> None:
-        with pytest.raises(Exception, match="unknown mission"):
-            await service.send_turn("mis_ghost", "hi")
-
     async def test_status_and_probe(self, service: AgentService) -> None:
+        # PR-H9：无持久 gateway——status/probe 读配置真相；fixture 无
+        # profiles 时诚实空面（不再从 mock gateway 拿 profile）。
         status = service.status()
-        assert status["profile"] == "mock_default"
+        assert status["profile"] == ""
         probe = await service.probe()
-        assert probe.reachable and probe.tool_call_ok
+        assert probe.reachable is False
 
     async def test_real_mission_binds_verified_live_body_and_daemon(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -153,7 +144,6 @@ class TestService:
         )
         try:
             assert live._consent_channel is not None
-            assert live._handlers._consent_channel is live._consent_channel
         finally:
             await live.close()
 
@@ -168,14 +158,6 @@ class TestHttpApi:
     def test_health_and_status(self, client) -> None:
         assert client.get("/health").json()["status"] == "ok"
         assert client.get("/status").json()["maturity"] == "experimental"
-
-    def test_mission_turn_over_http(self, client) -> None:
-        r = client.post("/missions", json={"goal": "测试目标"})
-        assert r.status_code == 201
-        mission_id = r.json()["mission_id"]
-        r2 = client.post(f"/missions/{mission_id}/turns", json={"text": "你好"})
-        assert r2.status_code == 200
-        assert "你好" in r2.json()["reply"]
 
     def test_real_mode_422_with_gaps(self, client) -> None:
         r = client.post("/missions", json={"goal": "搬箱子", "mode": "REAL"})

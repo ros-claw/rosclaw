@@ -171,8 +171,10 @@ class TestExecutionOutcomeChain:
             tmp_path
         )
         # 预置一个旧成功 receipt（干扰项）。
-        await service._handlers._emit(
-            "receipt.received", mission.mission_id,
+        from rosclaw.agentd.action_dispatch import _emit as _ad_emit
+
+        await _ad_emit(
+            service, "receipt.received", mission.mission_id,
             {"action_id": "act_old", "final_state": "COMPLETED",
              "trust_level": "SIMULATED", "verified": True},
         )
@@ -183,7 +185,7 @@ class TestExecutionOutcomeChain:
 
         from rosclaw.agentd.sim_executor import SimActionChannel
 
-        service._handlers._sim_channel = SimActionChannel(
+        service._sim_executors["native:agentd"] = SimActionChannel(
             command="true", args=(), name="broken-sim", client=_BrokenClient()
         )
         admission, ctx, card = await _propose(service, mission, idem="idem_old_receipt")

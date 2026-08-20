@@ -30,11 +30,6 @@ HandlerFn = Callable[[CommandRequestV1], Awaitable[CommandResultV1]]
 #: 全部内建命令的机器可读参数 schema（审计 P0-03）。type: string|enum|rest
 #: （rest 吃掉剩余全部文本）；interaction 指示 TUI 需要的交互形态。
 _ARGS_SCHEMAS: dict[str, dict] = {
-    "compact": {
-        "positional": [{"name": "focus", "type": "rest", "required": False}],
-        "flags": {"dry-run": {"type": "boolean"}},
-        "interaction": "none",
-    },
     "cancel": {"interaction": "none"},
     "rename": {
         "positional": [{"name": "name", "type": "rest", "required": True}],
@@ -56,20 +51,6 @@ _ARGS_SCHEMAS: dict[str, dict] = {
     "logout": {
         "positional": [{"name": "provider", "type": "string", "required": True}],
         "interaction": "confirm",
-    },
-    "workers": {"interaction": "none"},
-    "worker": {
-        "positional": [
-            {
-                "name": "subcommand",
-                "type": "enum",
-                "enum": ["inspect", "enable", "disable", "probe"],
-                "required": True,
-            },
-            {"name": "worker_id", "type": "string", "required": True},
-        ],
-        "interaction": "select",
-        "interaction_source": "workers",
     },
     "grants": {"interaction": "none"},
     "revoke": {
@@ -100,8 +81,6 @@ _ARGS_SCHEMAS: dict[str, dict] = {
         "positional": [{"name": "goal", "type": "rest", "required": True}],
         "interaction": "none",
     },
-    "retry": {"interaction": "none"},
-    "failover": {"interaction": "none"},
     "thinking": {
         "positional": [
             {"name": "effort", "type": "enum", "enum": ["low", "high", "max"], "required": False}
@@ -236,24 +215,6 @@ class CommandService:
 
     def _register_builtins(self) -> None:
         service = self._service
-
-        async def _compact(req: CommandRequestV1) -> CommandResultV1:
-            report = await service.compact(
-                req.mission_id or "",
-                instructions=req.arguments.get("focus"),
-                dry_run=bool(req.arguments.get("dry_run", False)),
-            )
-            return CommandResultV1(
-                request_id=req.request_id,
-                command_name=req.command_name,
-                ok=True,
-                message=(
-                    f"压缩完成：{report.get('tokens_before', 0)} → "
-                    f"{report.get('tokens_after', 0)} tokens"
-                    + ("（dry-run，未写入）" if report.get("dry_run") else "")
-                ),
-                data=report,
-            )
 
         async def _cancel(req: CommandRequestV1) -> CommandResultV1:
             await service.cancel(req.mission_id or "")
@@ -469,18 +430,6 @@ class CommandService:
 
         self._register(
             CommandSpecV1(
-                name="compact",
-                description="压缩会话历史（canonical journal 保留）",
-                argument_hint="[focus <文字> | dry-run]",
-                category=CommandCategory.MISSION,
-                owner=CommandOwner.MISSION_CONTROL,
-                mutability="PERSISTED",
-                handler="mission.compact",
-            ),
-            _compact,
-        )
-        self._register(
-            CommandSpecV1(
                 name="cancel",
                 description="请求停止当前 turn（不同于物理急停）",
                 category=CommandCategory.EXECUTION,
@@ -640,121 +589,6 @@ def _register_batch_f(service, register) -> None:
 
 def _register_batch_e(service, register) -> None:  # noqa: C901 - 命令集合体
     """注册批次 E 命令。register(spec, handler) 与 CommandService._register 同签名。"""
-
-    async def _workers(req: CommandRequestV1) -> CommandResultV1:
-        rows = []
-        for card in service._registry.list():
-            status = service._registry.status_of(card.worker_id) or "UNKNOWN"
-            rows.append(
-                {
-                    "worker_id": card.worker_id,
-                    "kind": card.kind.value,
-                    "status": status,
-                    "trust": card.trust.initial_level,
-                    "capabilities": [c.name for c in card.capabilities],
-                    "active_orders": len(
-                        service._worker_manager.active_orders_for_worker(card.worker_id)
-                    ),
-                }
-            )
-        return CommandResultV1(
-            request_id=req.request_id,
-            command_name=req.command_name,
-            ok=True,
-            message=f"{len(rows)} 个 worker",
-            data={"workers": rows},
-        )
-
-    async def _worker(req: CommandRequestV1) -> CommandResultV1:
-        sub = str(req.arguments.get("subcommand", "")).strip()
-        worker_id = str(req.arguments.get("worker_id", "")).strip()
-        if not worker_id:
-            return CommandResultV1(
-                request_id=req.request_id,
-                command_name=req.command_name,
-                ok=False,
-                error_code="invalid_arguments",
-                message="/worker 需要 worker_id（inspect|enable|disable|probe）",
-            )
-        card = service._registry.get(worker_id)
-        if card is None:
-            return CommandResultV1(
-                request_id=req.request_id,
-                command_name=req.command_name,
-                ok=False,
-                error_code="unknown_worker",
-                message=f"未知 worker {worker_id!r}",
-            )
-        if sub == "inspect":
-            data = card.model_dump(mode="json")
-            data["registry_status"] = service._registry.status_of(worker_id)
-            return CommandResultV1(
-                request_id=req.request_id,
-                command_name=req.command_name,
-                ok=True,
-                message=f"{worker_id}: {data['registry_status']}",
-                data=data,
-            )
-        if sub == "enable":
-            service._registry.set_status(
-                worker_id, "ENABLED", actor_id=service.actor_id, reason="operator /worker enable"
-            )
-            return CommandResultV1(
-                request_id=req.request_id,
-                command_name=req.command_name,
-                ok=True,
-                message=f"{worker_id} 已启用（写审计事件）",
-            )
-        if sub == "disable":
-            active = service._worker_manager.active_orders_for_worker(worker_id)
-            if active:
-                return CommandResultV1(
-                    request_id=req.request_id,
-                    command_name=req.command_name,
-                    ok=False,
-                    error_code="active_orders",
-                    message=(
-                        f"{worker_id} 有 {len(active)} 个未终态 WorkOrder；"
-                        "请先 /cancel 或等待 drain，不会被静默杀死。"
-                    ),
-                )
-            service._registry.set_status(
-                worker_id, "DISABLED", actor_id=service.actor_id, reason="operator /worker disable"
-            )
-            return CommandResultV1(
-                request_id=req.request_id,
-                command_name=req.command_name,
-                ok=True,
-                message=f"{worker_id} 已停用（写审计事件）",
-            )
-        if sub == "probe":
-            from rosclaw.agentd.workers.packs import ALL_PACKS
-
-            pack = next((p for p in ALL_PACKS if p.worker_id == worker_id), None)
-            if pack is None:
-                return CommandResultV1(
-                    request_id=req.request_id,
-                    command_name=req.command_name,
-                    ok=True,
-                    message=f"{worker_id} 是内置 worker，无需外部二进制探活。",
-                )
-            ready, detail = service._probe_pack_sync(
-                pack.executable, pack.min_version, pack.install_hint
-            )
-            return CommandResultV1(
-                request_id=req.request_id,
-                command_name=req.command_name,
-                ok=ready,
-                message=detail,
-                data={"ready": ready},
-            )
-        return CommandResultV1(
-            request_id=req.request_id,
-            command_name=req.command_name,
-            ok=False,
-            error_code="invalid_arguments",
-            message=f"未知子命令 {sub!r}（inspect|enable|disable|probe）",
-        )
 
     async def _grants(req: CommandRequestV1) -> CommandResultV1:
         grants = [
@@ -1019,82 +853,27 @@ def _register_batch_e(service, register) -> None:  # noqa: C901 - 命令集合�
             data={"mission_id": mission.mission_id, "mode": mission.mode.value},
         )
 
-    async def _retry(req: CommandRequestV1) -> CommandResultV1:
-        mission_id = req.mission_id or ""
-        open_orders = [
-            o for o in service._worker_manager.orders_for_mission(mission_id)
-            if o.status not in ("ACCEPTED", "REJECTED", "EXPIRED", "CANCELLED", "FAILED")
-        ]
-        if open_orders:
-            return CommandResultV1(
-                request_id=req.request_id,
-                command_name=req.command_name,
-                ok=False,
-                error_code="side_effects_pending",
-                message=(
-                    f"{len(open_orders)} 个 WorkOrder 未终态——/retry 不重放"
-                    "（§8.7：先 reconcile，不得简单重放）。"
-                ),
-            )
-        history = service.store.conversation(mission_id)
-        last_user = next(
-            (m for m in reversed(history)
-             if m.get("role") == "user" and not str(m.get("content", "")).startswith("[")),
-            None,
-        )
-        if last_user is None:
-            return CommandResultV1(
-                request_id=req.request_id,
-                command_name=req.command_name,
-                ok=False,
-                error_code="nothing_to_retry",
-                message="没有可重试的用户消息。",
-            )
-        turn_id = await service.submit_turn_v2(mission_id, str(last_user["content"]))
-        return CommandResultV1(
-            request_id=req.request_id,
-            command_name=req.command_name,
-            ok=True,
-            message=f"已重新提交最后一条用户消息（turn {turn_id}）",
-            data={"turn_id": turn_id},
-        )
-
-    async def _failover(req: CommandRequestV1) -> CommandResultV1:
-        status_fn = getattr(service._gateway, "failover_status", None)
-        if status_fn is None:
-            return CommandResultV1(
-                request_id=req.request_id,
-                command_name=req.command_name,
-                ok=True,
-                message="当前 gateway 无 failover 链（单网关直连）。",
-            )
-        data = status_fn()
-        lines = [f"active: {data['active']}"] + [
-            f"  {c}" + (
-                f"  [cooldown {cd['remaining_sec']}s failures={cd['failures']}]"
-                if (cd := data["cooldowns"].get(c)) and cd["in_cooldown"] else ""
-            )
-            for c in data["candidates"]
-        ]
-        return CommandResultV1(
-            request_id=req.request_id,
-            command_name=req.command_name,
-            ok=True,
-            message="\n".join(lines),
-            data=data,
-        )
-
     async def _thinking(req: CommandRequestV1) -> CommandResultV1:
         effort = str(req.arguments.get("effort", "")).strip()
+        if not service._config.profiles:
+            return CommandResultV1(
+                request_id=req.request_id,
+                command_name=req.command_name,
+                ok=False,
+                error_code="no_profiles",
+                message="未配置模型。",
+            )
         if effort not in ("low", "high", "max"):
-            current = service._gateway.profile.vendor_parameters.get("reasoning_effort", "?")
+            current = service._config.to_policy().default.vendor_parameters.get(
+                "reasoning_effort", "?"
+            )
             return CommandResultV1(
                 request_id=req.request_id,
                 command_name=req.command_name,
                 ok=True,
                 message=f"当前 reasoning effort: {current}（设置：/thinking low|high|max）",
             )
-        profile = service._gateway.profile
+        profile = service._config.to_policy().default
         params = dict(profile.vendor_parameters)
         params["reasoning_effort"] = effort
         object.__setattr__(profile, "vendor_parameters", params)
@@ -1121,29 +900,6 @@ def _register_batch_e(service, register) -> None:  # noqa: C901 - 命令集合�
             data={"scoped_models": sorted(scoped)},
         )
 
-    register(
-        CommandSpecV1(
-            name="workers",
-            description="Worker registry：状态/能力/trust/在途订单",
-            category=CommandCategory.EXECUTION,
-            owner=CommandOwner.AGENT_CONTROL,
-            during_turn=True,
-            handler="workers.list",
-        ),
-        _workers,
-    )
-    register(
-        CommandSpecV1(
-            name="worker",
-            description="Worker inspect/enable/disable/probe（写审计；disable 先 drain）",
-            argument_hint="<inspect|enable|disable|probe> <worker_id>",
-            category=CommandCategory.EXECUTION,
-            owner=CommandOwner.AGENT_CONTROL,
-            mutability="CONTROL_STATE",
-            handler="workers.manage",
-        ),
-        _worker,
-    )
     register(
         CommandSpecV1(
             name="grants",
@@ -1235,27 +991,6 @@ def _register_batch_e(service, register) -> None:  # noqa: C901 - 命令集合�
             handler="mission.new",
         ),
         _new,
-    )
-    register(
-        CommandSpecV1(
-            name="retry",
-            description="重试最后一条无副作用的用户消息（不盲重放）",
-            category=CommandCategory.MODEL,
-            owner=CommandOwner.AGENT_CONTROL,
-            handler="turn.retry",
-        ),
-        _retry,
-    )
-    register(
-        CommandSpecV1(
-            name="failover",
-            description="模型候选/冷却/上次错误总览",
-            category=CommandCategory.MODEL,
-            owner=CommandOwner.MODEL_CONTROL,
-            during_turn=True,
-            handler="model.failover",
-        ),
-        _failover,
     )
     register(
         CommandSpecV1(
@@ -1358,7 +1093,7 @@ def _register_batch_e2(service, register) -> None:
 
     async def _reload(req: CommandRequestV1) -> CommandResultV1:
         raw = str(req.arguments.get("domains", "")).strip()
-        domains = raw.split() if raw else ["prompts", "workers"]
+        domains = raw.split() if raw else ["prompts"]
         results = service.reload_domains(domains)
         lines = [f"{d}: {'ok' if r['ok'] else '拒绝'} — {r['detail']}" for d, r in results.items()]
         from rosclaw.contracts.agent.agent_event import AgentEventType
@@ -1465,7 +1200,7 @@ def _register_batch_e2(service, register) -> None:
     register(
         CommandSpecV1(
             name="reload",
-            description="分域原子重载（prompts/workers/models；安全域永远拒绝）",
+            description="分域原子重载（prompts/models；安全域永远拒绝）",
             argument_hint="[domain ...]",
             category=CommandCategory.EXECUTION,
             owner=CommandOwner.AGENT_CONTROL,

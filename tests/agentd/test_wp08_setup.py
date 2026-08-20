@@ -70,17 +70,12 @@ class TestSetupDemo:
         out = capsys.readouterr().out
         assert "VERIFIED" in out, out
         assert "PASS" in out
-        # 诚实证据等级（WP-P0-6）。
-        assert "回放" in out or "自洽" in out
-        # 真实产生了任务记录。
-        import sqlite3
-
-        db = sqlite3.connect(tmp_path / "agentd" / "missions.db")
-        task = db.execute(
-            "SELECT state FROM task_records ORDER BY rowid DESC LIMIT 1"
-        ).fetchone()
-        db.close()
-        assert task and task[0] == "VERIFIED"
+        # 诚实证据等级（WP-P0-6）：动力学 rollout，非真机证据。
+        assert "非真机证据" in out or "不能证明" in out
+        # 真实产生了 trace/动画产物（PR-H9：demo 直跑
+        # SimTrajectoryService——task_records 已删）。
+        assert "trace.json" in out
+        assert (tmp_path / "sim" / "traces").exists()
 
 
 class TestSetupStatusCoversAll:

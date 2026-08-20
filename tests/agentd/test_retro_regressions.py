@@ -73,32 +73,6 @@ class TestModeldSocketIsolation:
             await g2.close()
 
 
-class TestForkCanonical:
-    async def test_fork_after_compaction_keeps_full_history(self, tmp_path: Path) -> None:
-        service = _service(tmp_path)
-        try:
-            mission = service.create_mission("fork canonical 测试")
-            for i in range(4):
-                await service.send_turn(mission.mission_id, f"第 {i} 轮 {'长文本' * 200}")
-            await service.compact(mission.mission_id)
-            canonical = service.store.conversation_canonical(mission.mission_id)
-            view = service.store.conversation(mission.mission_id)
-            assert len(canonical) > len(view), "compaction 后 canonical 必须长于 view"
-            first_entry = canonical[0]["entry_id"]
-            branch = service.branches.fork(
-                mission.mission_id, from_entry_id=first_entry, label="全历史"
-            )
-            forked_conv = service.store.conversation(branch.forked_mission_id)
-            # fork 自第一个 entry：应带入 canonical 中的全部消息（包括
-            # 被 compaction 折叠的早期轮次）。
-            assert len(forked_conv) >= len(canonical) - 1 or len(forked_conv) == 1
-            assert any("第 0 轮" in str(m.get("content")) for m in forked_conv) or any(
-                "compaction" in str(m.get("role")) for m in forked_conv
-            ) or len(forked_conv) == 1
-        finally:
-            await service.close()
-
-
 class TestAttackRegressions:
     async def test_tool_result_forged_authorization_rejected(self, tmp_path: Path) -> None:
         """§19.6：tool result 声称"用户已授权"——REQUEST_ACTION 无 grant

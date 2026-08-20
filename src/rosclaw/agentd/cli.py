@@ -24,9 +24,6 @@ from rosclaw.agentd.onboarding import PROVIDER_CHOICES, configure_model, doctor
 from rosclaw.agentd.pi_entry import (
     find_pi_agent_entry as _find_pi_agent_entry,
 )
-from rosclaw.agentd.pi_entry import (
-    find_tui_runtime as _find_tui_runtime,
-)
 from rosclaw.agentd.service import AgentService, create_app
 
 LOCK_NAME = "agentd/agentd.lock"
@@ -122,126 +119,6 @@ def cmd_status(args: argparse.Namespace) -> int:
         "profiles": [p.name for p in config.profiles],
     }
     print(json.dumps(out, ensure_ascii=False, indent=2))
-    return 0
-
-
-def _worker_registry(home: Path):
-    from rosclaw.agentd.mission import MissionStore
-    from rosclaw.agentd.workers import WorkerRegistry
-
-    store = MissionStore(home / "agentd" / "missions.db")
-    registry = WorkerRegistry(store.connection)
-    # Idempotent: ensures built-in WorkerPacks are visible even before the
-    # first agentd service run on this home.
-    registry.register_builtins(actor_id="user:local:cli")
-    from rosclaw.agentd.workers.packs import ALL_PACKS, card_for_pack
-
-    for pack in ALL_PACKS:
-        registry.register(card_for_pack(pack), actor_id="user:local:cli")
-    return store, registry
-
-
-def cmd_worker_list(args: argparse.Namespace) -> int:
-    store, registry = _worker_registry(_home(args))
-    workers = []
-    for card in registry.list(status=getattr(args, "status", None)):
-        workers.append(
-            {
-                "worker_id": card.worker_id,
-                "kind": card.kind.value,
-                "status": registry.status_of(card.worker_id),
-                "trust": card.trust.initial_level,
-                "capabilities": [c.name for c in card.capabilities],
-                "adapter": card.adapter_type,
-            }
-        )
-    print(json.dumps(workers, ensure_ascii=False, indent=2))
-    store.close()
-    return 0
-
-
-def cmd_worker_catalog(args: argparse.Namespace) -> int:
-    store, registry = _worker_registry(_home(args))
-    catalog = [
-        {
-            "worker_id": c.worker_id,
-            "display_name": c.display_name,
-            "trust": c.trust.initial_level,
-            "installed": registry.status_of(c.worker_id) is not None,
-            "capabilities": [cap.name for cap in c.capabilities],
-        }
-        for c in registry.catalog()
-    ]
-    print(json.dumps(catalog, ensure_ascii=False, indent=2))
-    store.close()
-    return 0
-
-
-def cmd_worker_inspect(args: argparse.Namespace) -> int:
-    store, registry = _worker_registry(_home(args))
-    card = registry.get(args.worker_id)
-    if card is None:
-        print(f"worker {args.worker_id} 未注册", file=sys.stderr)
-        store.close()
-        return 1
-    out = card.model_dump(mode="json")
-    out["registry_status"] = registry.status_of(card.worker_id)
-    print(json.dumps(out, ensure_ascii=False, indent=2))
-    store.close()
-    return 0
-
-
-def cmd_worker_set_status(args: argparse.Namespace) -> int:
-    store, registry = _worker_registry(_home(args))
-    target = "ENABLED" if args.worker_command == "enable" else "DISABLED"
-    try:
-        registry.set_status(
-            args.worker_id, target, actor_id="user:local:cli", reason=args.reason or ""
-        )
-    except Exception as exc:  # noqa: BLE001
-        print(f"操作失败：{exc}", file=sys.stderr)
-        store.close()
-        return 1
-    print(f"{args.worker_id} -> {target}")
-    store.close()
-    return 0
-
-
-def cmd_worker_probe(args: argparse.Namespace) -> int:
-    """探活一个外部 pack（二进制存在性 + 最小版本）。"""
-    from rosclaw.agentd.service import AgentService
-    from rosclaw.agentd.workers.packs import ALL_PACKS
-
-    pack = next((p for p in ALL_PACKS if p.worker_id == args.worker_id), None)
-    if pack is None:
-        card = None
-        store, registry = _worker_registry(_home(args))
-        card = registry.get(args.worker_id)
-        store.close()
-        if card is None:
-            print(f"未知 worker {args.worker_id}（不在 packs 也不在 registry）", file=sys.stderr)
-            return 1
-        print("内置 worker，无需外部二进制探活。")
-        return 0
-    ready, detail = AgentService._probe_pack_sync(
-        pack.executable, pack.min_version, pack.install_hint
-    )
-    print(
-        json.dumps(
-            {"worker_id": pack.worker_id, "ready": ready, "detail": detail},
-            ensure_ascii=False,
-            indent=2,
-        )
-    )
-    if not ready:
-        store, registry = _worker_registry(_home(args))
-        registry.set_status(pack.worker_id, "DISABLED", actor_id="user:local:cli", reason=detail)
-        store.close()
-        return 1
-    store, registry = _worker_registry(_home(args))
-    if registry.status_of(pack.worker_id) == "DISABLED":
-        registry.set_status(pack.worker_id, "ENABLED", actor_id="user:local:cli", reason="probe ok")
-    store.close()
     return 0
 
 
@@ -392,20 +269,17 @@ def cmd_chat(args: argparse.Namespace) -> int:
     home = _home(args)
     if not _load_stored_credentials(home):
         return 2
-    # NA-FIX-9（规格 §5/§31，Gate A–E 已通过）：Native Agent（pi）是默认
-    # 引擎；legacy 仅作隐藏回退保留一个稳定版本。
-    # 优先级：--legacy > --engine > config.agent.engine > pi。
-    if getattr(args, "legacy", False):
-        engine = "legacy"
-    elif getattr(args, "engine", None):
-        engine = args.engine
-    else:
-        try:
-            engine = load_agent_config(home / "config.yaml").engine
-        except Exception:  # noqa: BLE001 - 配置问题由后续步骤诚实报出
-            engine = "pi"
-    # 两种引擎都需要模型配置——缺失时给出同一指引（pi 侧由
-    # ModelRuntime/auth 接续处理具体 provider 细节）。
+    # PR-H9：legacy 引擎（Python AgentLoop console）已删除——Native
+    # Agent（Harness Backend 主会话）是唯一引擎（ADR-0012）。
+    if getattr(args, "legacy", False) or (
+        getattr(args, "engine", None) not in (None, "pi")
+    ):
+        print(
+            "legacy 引擎已随 H9 删除（旧 Python AgentLoop console）——"
+            "rosclaw chat 即 Native Agent，无需 --engine/--legacy。",
+            file=sys.stderr,
+        )
+        return 2
     try:
         if not load_agent_config(home / "config.yaml").profiles:
             print("未配置模型。先运行 `rosclaw setup model`。", file=sys.stderr)
@@ -413,15 +287,7 @@ def cmd_chat(args: argparse.Namespace) -> int:
     except ValueError:
         print("未配置模型。先运行 `rosclaw setup model`。", file=sys.stderr)
         return 2
-    if engine == "pi":
-        return _chat_pi(home, args)
-    config = load_agent_config(home / "config.yaml")
-    # 诊断路由必须先于 AgentService 构造（启动 warning 就在那里出现）。
-    _route_internal_diagnostics_to_log(home, debug=bool(getattr(args, "debug", False)))
-    service = AgentService(config, home)
-    if getattr(args, "basic", False):
-        return asyncio.run(_chat_repl(service, args))
-    return _chat_tui(service, args)
+    return _chat_pi(home, args)
 
 
 def _route_internal_diagnostics_to_log(home: Path, *, debug: bool) -> None:
@@ -474,8 +340,7 @@ def _chat_pi(home: Path, args: argparse.Namespace) -> int:
     if runtime is None:
         print(
             "Native Agent 需要 Node ≥22.19 且已构建 packages/rosclaw-agent"
-            "（发布包自带；源码环境先 npm ci && npm run build）。"
-            "临时回退：rosclaw chat --legacy",
+            "（发布包自带；源码环境先 npm ci && npm run build）。",
             file=sys.stderr,
         )
         return 2
@@ -690,87 +555,6 @@ def _resume_target_mode(home: Path, args: argparse.Namespace) -> str | None:
         return None
 
 
-def _chat_tui(service: AgentService, args: argparse.Namespace) -> int:
-    """默认 chat：启动本地 AgentService HTTP + exec rosclaw-tui（批次 C）。
-
-    TUI 不可用（Node/资源缺失）时诚实降级到 --basic 并说明原因。
-    """
-    import subprocess as _sp
-    import threading
-
-    runtime = _find_tui_runtime()
-    if runtime is None:
-        if os.environ.get("ROSCLAW_REQUIRE_TUI") == "1":
-            # 审计 P0-05.6：验收环境不允许静默回退。
-            print(
-                "FAIL: rosclaw-tui 不可用且 ROSCLAW_REQUIRE_TUI=1——"
-                "完整验收失败（不允许静默回退 --basic）。",
-                file=sys.stderr,
-            )
-            return 2
-        print(
-            "rosclaw-tui 不可用（需要 Node >= 22.19 与已构建的 packages/rosclaw-tui；"
-            "见 rosclaw doctor）。回退到兼容模式 --basic（显式救援模式）。",
-            file=sys.stderr,
-        )
-        return asyncio.run(_chat_repl(service, args))
-    node, entry = runtime
-
-    mission = None
-    if args.mission:
-        mission = service.get_mission(args.mission)
-        if mission is None:
-            print(f"mission {args.mission} 不存在", file=sys.stderr)
-            return 2
-    else:
-        goal = args.goal or "ROSClaw chat session"
-        try:
-            mission = service.create_mission(goal, mode=args.mode)
-        except Exception as exc:  # noqa: BLE001
-            print(f"无法创建 mission：{exc}", file=sys.stderr)
-            return 2
-
-    import uvicorn
-
-    app = create_app(service)
-    config = uvicorn.Config(app, host="127.0.0.1", port=0, log_level="error")
-    server = uvicorn.Server(config)
-    thread = threading.Thread(target=server.run, daemon=True)
-    thread.start()
-    # 等待 socket 就绪（最多 5s），拿不到端口就诚实降级。
-    import time
-
-    deadline = time.time() + 5.0
-    port = None
-    while time.time() < deadline:
-        if server.started and server.servers:
-            for srv in server.servers:
-                for sock in srv.sockets:
-                    port = sock.getsockname()[1]
-                    break
-        if port:
-            break
-        time.sleep(0.05)
-    if port is None:
-        print("AgentService HTTP 启动失败，回退到 --basic。", file=sys.stderr)
-        server.should_exit = True
-        return asyncio.run(_chat_repl(service, args))
-    try:
-        return _sp.call(
-            [
-                node,
-                entry,
-                "--url",
-                f"http://127.0.0.1:{port}",
-                "--mission",
-                mission.mission_id,
-            ]
-        )
-    finally:
-        server.should_exit = True
-        thread.join(timeout=3.0)
-
-
 def cmd_credential(args: argparse.Namespace) -> int:
     env_name = CREDENTIAL_ENV_BY_PROVIDER[args.provider]
     try:
@@ -835,157 +619,6 @@ def cmd_backend(args: argparse.Namespace) -> int:
     return 0
 
 
-async def _chat_repl(service: AgentService, args: argparse.Namespace) -> int:
-    mission = None
-    if args.mission:
-        mission = service.get_mission(args.mission)
-        if mission is None:
-            print(f"mission {args.mission} 不存在", file=sys.stderr)
-            return 2
-    else:
-        goal = args.goal or "ROSClaw chat session"
-        try:
-            mission = service.create_mission(goal, mode=args.mode)
-        except Exception as exc:  # noqa: BLE001 - surface honest refusal
-            print(f"无法创建 mission：{exc}", file=sys.stderr)
-            return 2
-    # The basic REPL is an operator surface.  Expose its approval projection
-    # before accepting commands so the independently enrolled operatord can
-    # verify and decide the exact cards created by this service instance.
-    await service.start_operator_socket()
-    print(f"ROSClaw chat — mission {mission.mission_id} [{mission.mode.value}]")
-    print(
-        "输入消息开始对话；/state 查看状态；/approvals 待授权；"
-        "/approve|/deny <id> 经 operatord 决定授权；/compact [focus|--dry-run|--status]；"
-        "/cancel 取消当前回合；/quit 退出。"
-    )
-    try:
-        while True:
-            try:
-                text = input("\n你> ").strip()
-            except (EOFError, KeyboardInterrupt):
-                print()
-                break
-            if not text:
-                continue
-            if text == "/quit":
-                break
-            if text == "/state":
-                current = service.get_mission(mission.mission_id)
-                print(f"state={current.state.value} mode={current.mode.value}")
-                continue
-            if text == "/cancel":
-                await service.cancel(mission.mission_id)
-                print("已请求取消当前回合。")
-                continue
-            if text.startswith("/compact"):
-                arg = text[len("/compact") :].strip()
-                if arg == "--status":
-                    status = service.compaction_status(mission.mission_id)
-                    print(
-                        f"压缩次数={status['compactions']} view_tokens="
-                        f"{status['current_view_tokens']} journal_events={status['journal_events']}"
-                    )
-                    continue
-                dry = arg == "--dry-run"
-                focus = None if arg in ("", "--dry-run") else arg
-                report = await service.compact(mission.mission_id, instructions=focus, dry_run=dry)
-                if dry:
-                    print(
-                        f"[dry-run] tokens={report['tokens_before']} 切点={report['cut_index']}"
-                        f"/{report['messages_total']}，预计保留至 tokens≈{report['tokens_after']}"
-                    )
-                else:
-                    print(
-                        f"已压缩：{report['tokens_before']}→{report['tokens_after']} tokens，"
-                        f"保留 {report.get('kept_messages', '?')} 条（id={report.get('compaction_id', '—')}）"
-                    )
-                continue
-            if text == "/approvals":
-                from rosclaw.agentd.operator_socket import display_hash_for
-
-                pending = service.pending_approvals(mission.mission_id)
-                if not pending:
-                    print("没有待处理的授权请求。")
-                for req in pending:
-                    d = req.action_display
-                    print(
-                        f"  {req.request_id} [{d.risk_tier}] {d.title}: {d.summary} "
-                        f"(expires {req.expires_at}) hash={display_hash_for(req)}"
-                    )
-                continue
-            if text.startswith("/approve ") or text.startswith("/deny "):
-                approve = text.startswith("/approve ")
-                request_id = text.split(maxsplit=1)[1].strip()
-                # 审计 P0-01：REPL 不直接决定——决定经独立 rosclaw-operatord
-                # （enrollment proof + display hash 绑定），与 TUI 同一通道。
-                from rosclaw.agentd.operator_socket import display_hash_for, operator_call
-                from rosclaw.operatord.server import default_operatord_socket
-
-                target = next(
-                    (
-                        r
-                        for r in service.pending_approvals(mission.mission_id)
-                        if r.request_id == request_id
-                    ),
-                    None,
-                )
-                if target is None:
-                    print("没有找到该待批卡片（可能已过期或已被决定）。")
-                    continue
-                sock = default_operatord_socket(_home(args))
-                if not sock.exists():
-                    print(
-                        "授权决定已迁至独立 rosclaw-operatord（P0-01），本进程无权决定。\n"
-                        "请先运行：rosclaw operatord enroll && rosclaw operatord start"
-                    )
-                    continue
-                reply = await operator_call(
-                    sock,
-                    "approvals.decide",
-                    {
-                        "request_id": request_id,
-                        "display_hash": display_hash_for(target),
-                        "approve": approve,
-                    },
-                )
-                if not reply.get("ok"):
-                    print(f"授权操作失败：{reply.get('error', reply)}")
-                elif approve:
-                    print(
-                        f"已批准并签发 grant {reply.get('grant_id', '—')}"
-                        "（EXACT_ACTION 单次有效）。"
-                    )
-                else:
-                    print("已拒绝该授权请求。")
-                continue
-            streamed = False
-
-            def on_delta(piece: str) -> None:
-                nonlocal streamed
-                streamed = True
-                print(piece, end="", flush=True)
-
-            print("ROSClaw> ", end="", flush=True)
-            result = await service.send_turn(mission.mission_id, text, on_delta)
-            if not streamed:
-                print(result.reply, end="")
-            elif result.decisions and result.decisions[-1].next_intent.value != "ANSWER":
-                # Streamed prose is the model's proposal/explanation. The
-                # handler reply is the trusted system outcome (approval id,
-                # dispatch status, or receipt) and must not be hidden.
-                print(f"\nROSClaw system> {result.reply}", end="")
-            usage = service.mission_usage(mission.mission_id)
-            degraded = f"  [degraded: {result.degraded}]" if result.degraded else ""
-            print(
-                f"\n[{result.state.value}] 本轮 tokens={result.tokens_used}"
-                f" 累计 tokens={usage['total_tokens']} cost={usage['cost_microunits']}µ{degraded}"
-            )
-    finally:
-        await service.close()
-    return 0
-
-
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="rosclaw-agentd", description="ROSClaw Native Agent")
     parser.add_argument("--home", default=None, help="ROSClaw home (default ~/.rosclaw)")
@@ -1025,9 +658,6 @@ def build_parser() -> argparse.ArgumentParser:
     p_chat.add_argument("--goal", default=None)
     p_chat.set_defaults(func=cmd_chat)
 
-    p_worker = sub.add_parser("worker", help="Worker Fabric management")
-    worker_sub = p_worker.add_subparsers(dest="worker_command", required=True)
-    add_worker_subcommands(worker_sub)
     return parser
 
 
@@ -1038,25 +668,6 @@ def add_credential_subcommands(sub) -> None:
         parser = credential_sub.add_parser(name, help=f"{name} a persisted model credential")
         parser.add_argument("--provider", choices=tuple(CREDENTIAL_ENV_BY_PROVIDER), required=True)
         parser.set_defaults(func=cmd_credential)
-
-
-def add_worker_subcommands(sub) -> None:
-    p_wl = sub.add_parser("list", help="list registered workers")
-    p_wl.add_argument("--status", default=None, choices=["ENABLED", "DISABLED", "QUARANTINED"])
-    p_wl.set_defaults(func=cmd_worker_list)
-    p_wc = sub.add_parser("catalog", help="official WorkerPack catalog")
-    p_wc.set_defaults(func=cmd_worker_catalog)
-    p_wi = sub.add_parser("inspect", help="show a worker card")
-    p_wi.add_argument("worker_id")
-    p_wi.set_defaults(func=cmd_worker_inspect)
-    p_wp = sub.add_parser("probe", help="probe an external pack binary/version")
-    p_wp.add_argument("worker_id")
-    p_wp.set_defaults(func=cmd_worker_probe)
-    for name in ("enable", "disable"):
-        p_ws = sub.add_parser(name, help=f"{name} a worker")
-        p_ws.add_argument("worker_id")
-        p_ws.add_argument("--reason", default="")
-        p_ws.set_defaults(func=cmd_worker_set_status)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1096,10 +707,6 @@ def add_agent_subparsers(subparsers) -> None:
         p.set_defaults(func=fn)
 
     add_credential_subcommands(agent_sub)
-
-    p_worker = subparsers.add_parser("worker", help="Worker Fabric management")
-    worker_sub = p_worker.add_subparsers(dest="worker_command", required=True)
-    add_worker_subcommands(worker_sub)
 
     p_bench = subparsers.add_parser("eval", help="evaluation benchmark harness")
     bench_sub = p_bench.add_subparsers(dest="bench_command", required=True)

@@ -67,68 +67,6 @@ def _events(service: AgentService, mission_id: str):
     return service.events_replay(mission_id, after_sequence=0, limit=10_000)
 
 
-class TestAgentLifecycleEvents:
-    async def test_settled_emitted_on_success(self, tmp_path: Path) -> None:
-        service = _service(tmp_path, [_answer] * 5)
-        try:
-            mission = service.create_mission("生命周期")
-            turn_id = await service.submit_turn_v2(mission.mission_id, "你好")
-            await service._turn_tasks[mission.mission_id]
-            types = [e.type for e in _events(service, mission.mission_id)]
-            assert AgentEventType.TURN_ACCEPTED in types
-            assert AgentEventType.AGENT_STARTED in types
-            assert AgentEventType.TURN_ENDED in types
-            assert AgentEventType.AGENT_SETTLED in types
-            # settled 是最后一个 agent 生命周期事件。
-            lifecycle = [
-                e.type
-                for e in _events(service, mission.mission_id)
-                if e.type.value.startswith(("agent.", "turn."))
-            ]
-            assert lifecycle[-1] is AgentEventType.AGENT_SETTLED
-            # turn_id 贯穿。
-            settled = [e for e in _events(service, mission.mission_id)
-                       if e.type is AgentEventType.AGENT_SETTLED]
-            assert settled[0].turn_id == turn_id
-        finally:
-            await service.close()
-
-    async def test_settled_emitted_on_failure(self, tmp_path: Path) -> None:
-        service = _service(tmp_path, [_fail] * 5)
-        try:
-            mission = service.create_mission("失败路径")
-            await service.submit_turn_v2(mission.mission_id, "会失败")
-            await service._turn_tasks[mission.mission_id]
-            events = _events(service, mission.mission_id)
-            types = [e.type for e in events]
-            # 模型错误被 loop 吸收为 reply（不抛异常）→ 正常 settled；
-            # 但无论成败，settled 必须存在。
-            assert AgentEventType.AGENT_SETTLED in types
-        finally:
-            await service.close()
-
-    async def test_cancel_emits_event(self, tmp_path: Path) -> None:
-        service = _service(tmp_path, [_answer] * 5)
-        try:
-            mission = service.create_mission("取消事件")
-            await service.cancel(mission.mission_id)
-            types = [e.type for e in _events(service, mission.mission_id)]
-            assert AgentEventType.TURN_CANCEL_REQUESTED in types
-        finally:
-            await service.close()
-
-    async def test_sequence_has_no_gaps(self, tmp_path: Path) -> None:
-        service = _service(tmp_path, [_answer] * 5)
-        try:
-            mission = service.create_mission("sequence 连续")
-            await service.submit_turn_v2(mission.mission_id, "hi")
-            await service._turn_tasks[mission.mission_id]
-            seqs = [e.sequence for e in _events(service, mission.mission_id)]
-            assert seqs == list(range(1, len(seqs) + 1))
-        finally:
-            await service.close()
-
-
 class TestCommandRegistry:
     async def test_capabilities_and_unknown_command(self, tmp_path: Path) -> None:
         from fastapi.testclient import TestClient
@@ -139,7 +77,7 @@ class TestCommandRegistry:
             mission = service.create_mission("命令测试")
             caps = client.get(f"/v1/capabilities?mission_id={mission.mission_id}").json()
             names = {c["name"] for c in caps["commands"]}
-            assert {"compact", "cancel", "rename", "archive", "status", "tools"} <= names
+            assert {"cancel", "rename", "archive", "status", "tools"} <= names
             for spec in caps["commands"]:
                 assert spec["owner"] != "SAFETY_CONTROL", "/approve /estop 不在通用注册表"
             r = client.post(
@@ -199,10 +137,7 @@ class TestCommandRegistry:
                 },
             ).json()
             assert ra["ok"]
-            from rosclaw.contracts.common import ValidationError
-
-            with pytest.raises(ValidationError, match="archived"):
-                await service.send_turn(mission.mission_id, "归档后")
+            assert service.mission_archived(mission.mission_id)
         finally:
             await service.close()
 
@@ -237,13 +172,12 @@ class TestSnapshot:
         try:
             client = TestClient(create_app(service), headers={'x-rosclaw-token': service.control_token})
             mission = service.create_mission("快照测试")
-            await service.send_turn(mission.mission_id, "hi")
             snap = client.get(f"/v1/missions/{mission.mission_id}/snapshot").json()
             assert snap["schema_version"] == "rosclaw.ui.mission_snapshot.v1"
             assert snap["mission_id"] == mission.mission_id
             assert snap["state"] == "IDLE"
             assert snap["mode"] == "SIMULATION"
-            assert snap["last_event_sequence"] >= 1
+            assert snap["last_event_sequence"] >= 0  # H9：无 turn 即无事件
             assert not snap["turn_in_flight"]
             # secret scan：快照文本不得含任何 secret 形态。
             blob = json.dumps(snap, ensure_ascii=False).lower()
@@ -259,34 +193,6 @@ class TestSnapshot:
         try:
             client = TestClient(create_app(service), headers={'x-rosclaw-token': service.control_token})
             assert client.get("/v1/missions/mis_ghost/snapshot").status_code == 404
-        finally:
-            await service.close()
-
-
-class TestSseResume:
-    async def test_last_event_id_header_resumes(self, tmp_path: Path) -> None:
-        from fastapi.testclient import TestClient
-
-        service = _service(tmp_path, [_answer] * 5)
-        try:
-            client = TestClient(create_app(service), headers={'x-rosclaw-token': service.control_token})
-            mission = service.create_mission("断线恢复")
-            await service.send_turn(mission.mission_id, "hi")
-            events = _events(service, mission.mission_id)
-            assert len(events) >= 2
-            mid = events[len(events) // 2].sequence
-            with client.stream(
-                "GET",
-                f"/v2/missions/{mission.mission_id}/events?follow=false",
-                headers={"Last-Event-ID": str(mid)},
-            ) as response:
-                assert response.status_code == 200
-                frames = [line for line in response.iter_lines() if line.startswith("data: ")]
-            resumed = [json.loads(f[len("data: "):]) for f in frames]
-            assert resumed, "replay after Last-Event-ID must return later events"
-            assert all(e["sequence"] > mid for e in resumed)
-            expected = [e.sequence for e in events if e.sequence > mid]
-            assert [e["sequence"] for e in resumed] == expected
         finally:
             await service.close()
 
@@ -328,27 +234,5 @@ class TestInteractions:
             )
             with pytest.raises(ValidationError, match="not among"):
                 service.interactions.respond(req.interaction_id, value="z")
-        finally:
-            await service.close()
-
-
-class TestEventSecretScan:
-    async def test_no_secret_shapes_in_any_event(self, tmp_path: Path) -> None:
-        service = _service(tmp_path, [_answer] * 5)
-        try:
-            mission = service.create_mission("事件扫描")
-            await service.submit_turn_v2(mission.mission_id, "hi")
-            await service._turn_tasks[mission.mission_id]
-            for event in _events(service, mission.mission_id):
-                blob = json.dumps(event.model_dump(mode="json"), ensure_ascii=False).lower()
-                for pattern in (
-                    "sk-",
-                    "api_key",
-                    "password",
-                    "bearer ",
-                    "private_key",
-                    "permit_secret",
-                ):
-                    assert pattern not in blob, f"{event.type} leaks {pattern}"
         finally:
             await service.close()

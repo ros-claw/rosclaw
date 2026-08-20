@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from tests.agentd.test_pi_tool_bridge import _issue_lease, _request, _setup
+from tests.agentd.test_pi_tool_bridge import _setup
 
 
 async def _record_turn(service, tmp_path: Path, text: str, *, session: str = "pi_1"):
@@ -62,25 +62,24 @@ class TestUserTurnStore:
 
 class TestTaskCausedByTurn:
     async def test_task_has_caused_by_turn_id(self, tmp_path: Path) -> None:
+        """PR-H9：因果链归 TaskKernel——task_revisions.user_message_id
+        锚定触发消息（输入事务先持久化再投递），task_records/
+        caused_by_turn_id 已删。"""
         service, mission = await _setup(tmp_path)
         turn = await _record_turn(service, tmp_path, "画一个五角星")
-        turn_id = turn["turn"]["turn_id"]
-        from rosclaw.agentd.pi_bridge.tool_dispatch import PiToolDispatcher
-
-        result = await PiToolDispatcher(service).execute(
-            caller_pid=1, caller_uid=1000,
-            request=_request(
-                "rosclaw_task", mission=mission.mission_id, idem="idem_n2_1",
-                lease=await _issue_lease(service, mission),
-                arguments={
-                    "goal": "draw_shape",
-                    "parameters": {"shape": "star5", "center_m": [0.35, 0.25, 0.30], "radius_m": 0.10},
-                },
-            ),
+        # 输入事务：同一消息绑定 kernel 任务（与 InputController 同入口）。
+        bound = service._task_kernel.bind_message(
+            mission_id=mission.mission_id, session_ref="pi_1",
+            backend_native_id="pi_1",
+            message_id=turn["turn"]["turn_id"],
+            text="画一个五角星", cwd=str(service._home),
         )
-        assert result.ok
         row = service._store.connection.execute(
-            "SELECT caused_by_turn_id FROM task_records ORDER BY rowid DESC LIMIT 1"
+            "SELECT user_message_id FROM task_revisions "
+            "WHERE task_id = ? ORDER BY revision DESC LIMIT 1",
+            (bound["task_id"],),
         ).fetchone()
-        assert row and row[0] == turn_id, f"task 缺 caused_by_turn_id: {row}"
+        assert row and row[0] == turn["turn"]["turn_id"], (
+            f"task revision 缺 user_message_id 锚点: {row}"
+        )
         await service.close()

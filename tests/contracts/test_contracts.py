@@ -46,16 +46,6 @@ from rosclaw.contracts.common import (
 )
 from rosclaw.contracts.export import ALL_CONTRACTS
 from rosclaw.contracts.team.role import RoleLeaseV1
-from rosclaw.contracts.worker.card import (
-    CapabilityDecl,
-    WorkerCardV1,
-    WorkerImplementation,
-    WorkerKind,
-)
-from rosclaw.contracts.worker.order import (
-    SideEffectPolicy,
-    WorkOrderV1,
-)
 
 GOLDEN_DIR = Path(__file__).parent / "golden"
 
@@ -220,36 +210,6 @@ class TestDecision:
                 context_id="ctx_1",
                 context_revision=1,
                 next_intent="DO_WHATEVER",
-            )
-
-
-class TestWorkerContracts:
-    def test_card_minimal(self) -> None:
-        card = WorkerCardV1(
-            worker_id="worker:codex:local-default",
-            kind=WorkerKind.HARNESS,
-            implementation=WorkerImplementation(product="codex", version="0.1"),
-            capabilities=[CapabilityDecl(name="code.repository_edit")],
-        )
-        assert "direct_hardware" in card.security.forbidden_scopes
-
-    def test_side_effect_requires_idempotency(self) -> None:
-        with pytest.raises(PydanticValidationError):
-            SideEffectPolicy(**{"class": "workspace_write"})
-
-    def test_physical_side_effects_forbidden(self) -> None:
-        with pytest.raises(PydanticValidationError):
-            SideEffectPolicy(**{"class": "physical", "idempotency_key": "idem_1"})
-
-    def test_work_order_illegal_status(self) -> None:
-        with pytest.raises(PydanticValidationError):
-            WorkOrderV1(
-                work_order_id="wo_1",
-                mission_id="mis_x",
-                issued_by="agent:rosclaw-native:b1",
-                capability="code.repository_edit",
-                goal="x",
-                status="TELEPORT",
             )
 
 

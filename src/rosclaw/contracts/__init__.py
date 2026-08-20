@@ -6,7 +6,6 @@ carry no secrets — credentials are always references (``*_ref``).
 
 Subpackages:
 - ``rosclaw.contracts.agent``  — mission, task graph, context bundle, decision
-- ``rosclaw.contracts.worker`` — worker card, work order, work result
 - ``rosclaw.contracts.team``   — member card, role lease, world delta
 """
 

@@ -86,30 +86,13 @@ def _operator_status(home: Path) -> dict:
 
 
 def _worker_status() -> dict:
-    try:
-        from rosclaw.agentd.workers.packs import ALL_PACKS
-
-        packs = []
-        for pack in ALL_PACKS:
-            import shutil
-
-            found = shutil.which(pack.executable) is not None
-            packs.append(
-                {
-                    "worker_id": pack.worker_id,
-                    "state": "READY" if found else "NEEDS_SETUP",
-                    "detail": f"{pack.executable} {'found' if found else 'not found'}",
-                }
-            )
-        ready = sum(1 for p in packs if p["state"] == "READY")
-        return {
-            "state": "READY" if ready else "NEEDS_SETUP",
-            "packs": packs,
-            "detail": f"{ready}/{len(packs)} external packs available (native worker always available)",
-        }
-    except Exception as exc:  # noqa: BLE001
-        return {"state": "NEEDS_SETUP", "detail": str(exc)[:120]}
-
+    """PR-H9：Worker Fabric 默认链已删除（总纲 v2 §18）——Worker V2
+    （H10）落地前无 worker 面。setup 状态诚实报告 REMOVED。"""
+    return {
+        "state": "REMOVED",
+        "detail": "Worker 默认链已随 H9 删除（Worker V2 落地前无 worker 面）",
+        "packs": [],
+    }
 
 def _integration_status(home: Path) -> dict:
     config = home / "integrations" / "lerobot.yaml"
@@ -394,89 +377,54 @@ def _cmd_language(args: argparse.Namespace) -> int:
 
 
 def _cmd_demo(args: argparse.Namespace) -> int:
-    """setup demo——第一个可验证仿真任务（内核直跑 draw_shape，
-    无需模型）：验证安装能完成'规划→策略→执行→验证'全链。"""
+    """setup demo——第一个可验证仿真任务（PR-H9 重接：SimTrajectoryService
+    确定性闭环直跑 draw_shape，无需模型/无需旧内核）：验证安装能完成
+    '规划→ rollout → 渲染 → 跟踪验证'全链。"""
     import asyncio
 
     home = _home()
-    # 注意：import 必须在 asyncio.run 之前完成——在运行中的事件循环
-    # 里首次 import agentd/mcp 模块会触发 heisenbug（实测：discovery
-    # 静默失败 → catalog 空 → planning 失败；提前 import 则稳定）。
-    from rosclaw.agentd.config import load_agent_config
-    from rosclaw.agentd.models.gateway import MockModelGateway
-    from rosclaw.agentd.models.profiles import mock_profile
-    from rosclaw.agentd.pi_bridge.action_admission import ActionRequestContext
-    from rosclaw.agentd.pi_bridge.context import build_embodied_context
-    from rosclaw.agentd.pi_bridge.context_lease import (
-        ContextLeaseStore,
-        context_hash_of,
-    )
-    from rosclaw.agentd.pi_bridge.session_binding import SessionBindingStore
-    from rosclaw.agentd.service import AgentService
-    from rosclaw.agentd.task_runner import TaskRunner
+    from rosclaw.agentd.runtime_manager import RuntimeManager, RuntimeNotReadyError
+    from rosclaw.agentd.sim_trajectory import SimTrajectoryService
+
+    manager = RuntimeManager(home)
+    try:
+        manager.ensure("rosclaw-simulation")
+    except RuntimeNotReadyError as exc:
+        print(f"demo RUNTIME_NOT_READY：{exc}")
+        return 1
 
     async def _run() -> dict:
-        config = load_agent_config(home / "config.yaml")
-        # demo 验证的是内核管道（规划→策略→执行→验证），不是模型——
-        # 用 mock gateway 使无模型配置的全新安装也能跑通（诚实标注）。
-        service = AgentService(
-            config, home, gateway=MockModelGateway(mock_profile(), [])
+        sim = SimTrajectoryService(home, runtime_manager=manager)
+        plan = await asyncio.to_thread(
+            sim.generate_planar_path,
+            shape="star5", center_m=[0.35, 0.25, 0.30], scale_m=0.10,
         )
-        try:
-            mission = service.create_mission("setup demo: draw star")
-            await service._ensure_mcp_discovered()
-
-            bindings = SessionBindingStore(service._store.connection)
-            bindings.bind(
-                pi_session_id="setup_demo", pi_session_path="",
-                mission_id=mission.mission_id,
-                body_id=mission.body_binding.body_id,
-                execution_mode=mission.mode.value,
-                created_by="user:local:1000",
-            )
-            import os as _os
-
-            lease, _token = bindings.acquire_lease(
-                mission_id=mission.mission_id, pi_session_id="setup_demo",
-                owner_pid=_os.getpid(), owner_uid=_os.getuid(),
-            )
-            envelope = build_embodied_context(service, mission.mission_id)
-            lease_id = ContextLeaseStore(service._store.connection).issue(
-                pi_session_id="setup_demo", mission_id=mission.mission_id,
-                context_revision=envelope.context_revision,
-                context_hash=context_hash_of(envelope),
-                body_hash=mission.body_binding.effective_body_hash,
-                mode=mission.mode.value,
-                binding_id=bindings.binding_for_session("setup_demo").binding_id,
-                writer_lease_id=lease.lease_id,
-                caller_uid=_os.getuid(), caller_pid=_os.getpid(),
-            ).context_lease_id
-            snapshot = service.snapshot(mission.mission_id)
-            ctx = ActionRequestContext(
-                pi_session_id="setup_demo", mission_id=mission.mission_id,
-                context_revision=snapshot.context_revision,
-                body_hash=mission.body_binding.effective_body_hash,
-                mode=mission.mode.value,
-                idempotency_key="setup_demo_draw_shape",
-                context_lease_id=lease_id,
-            )
-            return await TaskRunner(service).run(
-                request_ctx=ctx, goal="draw_shape",
-                parameters={"shape": "star5", "center_m": [0.35, 0.25, 0.30],
-                            "radius_m": 0.10},
-                caller_pid=_os.getpid(), caller_uid=_os.getuid(),
-            )
-        finally:
-            await service.close()
+        result = await asyncio.to_thread(
+            sim.simulate_cartesian_trajectory, plan["plan_id"]
+        )
+        render = await asyncio.to_thread(
+            sim.render_trace, result["trace_id"], format="gif"
+        )
+        verify = await asyncio.to_thread(
+            sim.verify_tracking, result["trace_id"], max_tracking_error_m=0.05
+        )
+        return {
+            "gif": render["artifact"]["path"],
+            "frames": render["artifact"]["frames"],
+            "trace": result["artifacts"]["trace_json"],
+            "verdict": verify["verdict"],
+            "max_error_m": verify["metrics"]["max_error_m"],
+            "is_safe": result.get("is_safe"),
+        }
 
     result = asyncio.run(_run())
-    print(f"demo task {result['task_id']}: {result['state']}")
-    print(f"  证据等级：{result.get('evidence_level', '?')}——{result.get('user_view', '')}")
-    verification = result.get("verification") or {}
-    if verification:
-        print(f"  几何验证：{verification.get('verdict')} "
-              f"(rmse={verification.get('rmse_m')}, closure={verification.get('closure_error_m')})")
-    return 0 if result["state"] == "VERIFIED" else 1
+    ok = result["verdict"] == "PASS" and result["frames"] >= 30 and result["is_safe"]
+    print(f"demo draw_shape: {'VERIFIED' if ok else 'FAILED'}")
+    print(f"  动画：{result['gif']}（{result['frames']} 帧）")
+    print(f"  trace：{result['trace']}")
+    print(f"  跟踪验证：{result['verdict']}（最大误差 {result['max_error_m'] * 1000:.0f}mm）")
+    print("  证据等级：SIM_DYN_ROLLOUT（动力学 rollout，非真机证据）")
+    return 0 if ok else 1
 
 
 def dispatch_setup_argv(argv: list[str]) -> int | None:

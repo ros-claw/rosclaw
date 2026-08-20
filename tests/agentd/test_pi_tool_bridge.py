@@ -233,6 +233,6 @@ def _register_sim_action_capability(service) -> None:
                 ensure_ascii=False,
             )
 
-    service._handlers._sim_channel = SimActionChannel(
+    service._sim_executors["native:agentd"] = SimActionChannel(
         command="true", args=(), name="fake-sim", client=_FakeSimClient()
     )

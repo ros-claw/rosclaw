@@ -257,7 +257,7 @@ class TestExecuteCanonicalRevalidation:
             tmp_path
         )
         captured: list[dict] = []
-        original_channel = service._handlers._sim_channel
+        original_channel = service._sim_executors["native:agentd"]
         original_client = original_channel._client
 
         class _SpyClient:

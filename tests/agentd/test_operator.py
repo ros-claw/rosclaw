@@ -21,7 +21,7 @@ from rosclaw.agentd.config import load_agent_config
 from rosclaw.agentd.mission import MissionStore
 from rosclaw.agentd.models.gateway import MockModelGateway
 from rosclaw.agentd.models.profiles import mock_profile
-from rosclaw.agentd.service import AgentService, create_app
+from rosclaw.agentd.service import AgentService
 from rosclaw.contracts.agent.decision import DecisionV1
 from rosclaw.contracts.agent.model_turn import ModelTurnResultV1
 from rosclaw.contracts.operator.approval import ActionDisplayV1, ApprovalRequestV2
@@ -274,52 +274,6 @@ def _approval_then_action(request) -> ModelTurnResultV1:
 
 
 class TestApprovalLoop:
-    async def test_full_exact_action_flow(self, tmp_path: Path) -> None:
-        # 七审 PR-SEVEN-1：本用例验证"无执行通道时诚实不派发"——禁 kit。
-        (tmp_path / "config.yaml").write_text(
-            "agent:\n  enabled: true\nkits:\n  disabled: [rosclaw/ur5e-sim]\n",
-            encoding="utf-8",
-        )
-        config = load_agent_config(tmp_path / "config.yaml")
-        _approval_then_action.calls = 0
-        gateway = MockModelGateway(mock_profile(), [_approval_then_action] * 4)
-        service = AgentService(config, tmp_path, gateway=gateway)
-        try:
-            mission = service.create_mission("授权闭环")
-            r1 = await service.send_turn(mission.mission_id, "请请求授权移动机械臂")
-            assert "授权请求" in r1.reply
-            assert r1.state.value == "WAIT_APPROVAL"
-            pending = service.pending_approvals(mission.mission_id)
-            assert len(pending) == 1
-            grant = await service.decide_approval(
-                pending[0].request_id, principal=LOCAL_PRINCIPAL, approve=True
-            , _from_operatord=True)
-            assert grant is not None
-            consent = service._compiler._sources.consent.get_consent(mission.mission_id)
-            assert consent is not None
-            assert grant.grant_id in consent.public_scope_summary
-            assert grant.public_hash in consent.public_scope_summary
-            _approval_then_action.grant_id = grant.grant_id
-            r2 = await service.send_turn(mission.mission_id, "我已批准，继续执行")
-            assert "授权已验证" in r2.reply
-            assert "已消费" in r2.reply
-            # §5.6 新语义：本服务没有 daemon consent/action channel，
-            # 无 verified terminal receipt → 诚实停留 MONITOR（提交≠完成）。
-            assert r2.state.value == "MONITOR"
-            # EXACT_ACTION consumed: a third attempt must fail closed.
-            from rosclaw.operator import GrantDeniedError
-
-            with pytest.raises(GrantDeniedError, match="grant_consumed"):
-                service._broker.verify(
-                    grant.grant_id,
-                    principal=LOCAL_PRINCIPAL,
-                    body_hash=grant.effective_body_hash,
-                    mode="SIMULATION",
-                    risk_tier="LOW",
-                )
-        finally:
-            await service.close()
-
     async def test_real_approval_uses_daemon_ttl_and_exact_action_payload(
         self, tmp_path: Path
     ) -> None:
@@ -334,8 +288,7 @@ class TestApprovalLoop:
                 return {"request_id": "proposal_real", "action_id": "action_real"}
 
         fake = FakeConsent()
-        service._handlers._mode = "REAL"
-        service._handlers._consent_channel = fake
+        service._consent_channel = fake
         decision = DecisionV1.model_validate_contract(
             {
                 "schema_version": "rosclaw.decision.v1",
@@ -362,7 +315,11 @@ class TestApprovalLoop:
         )
 
         try:
-            reply = await service._handlers.request_approval(decision)
+            from rosclaw.agentd.action_dispatch import request_approval
+
+            reply = await request_approval(
+                service, decision, mode="REAL", principal="user:local:1000"
+            )
             assert "5 分钟有效" in reply.text
             assert fake.called["ttl_sec"] == 300.0
             assert fake.called["capability_id"] == "limo.play_tone"
@@ -377,7 +334,6 @@ class TestApprovalLoop:
     ) -> None:
         config = load_agent_config(tmp_path / "config.yaml")
         service = AgentService(config, tmp_path, gateway=MockModelGateway(mock_profile(), []))
-        service._handlers._mode = "REAL"
         decision = DecisionV1.model_validate_contract(
             {
                 "schema_version": "rosclaw.decision.v1",
@@ -395,56 +351,13 @@ class TestApprovalLoop:
         )
 
         try:
-            reply = await service._handlers.request_approval(decision)
+            from rosclaw.agentd.action_dispatch import request_approval
+
+            reply = await request_approval(
+                service, decision, mode="REAL", principal="user:local:1000"
+            )
             assert "缺少 capability_id 或 arguments" in reply.text
             assert service.pending_approvals("mis_real") == []
         finally:
             await service.close()
 
-    async def test_approvals_over_http(self, tmp_path: Path) -> None:
-        from fastapi.testclient import TestClient
-
-        config = load_agent_config(tmp_path / "config.yaml")
-        _approval_then_action.calls = 0
-        gateway = MockModelGateway(mock_profile(), [_approval_then_action] * 4)
-        service = AgentService(config, tmp_path, gateway=gateway)
-        client = TestClient(create_app(service), headers={'x-rosclaw-token': service.control_token})
-        try:
-            mission = service.create_mission("HTTP 授权")
-            await service.send_turn(mission.mission_id, "请求授权")
-            # 审计 P0-01/B3：全局 pending 枚举不再提供；必须指定 mission_id。
-            assert client.get("/approvals/pending").status_code == 400
-            pending = client.get(f"/approvals/pending?mission_id={mission.mission_id}").json()
-            assert len(pending) == 1
-            rid = pending[0]["request_id"]
-            # HTTP 决定旁路默认关闭（403）；DEV_SIM_ONLY 显式打开才可用。
-            assert client.post(f"/approvals/{rid}/decide", json={"approve": True}).status_code == 403
-            import os
-
-            os.environ["ROSCLAW_DEV_HTTP_DECIDE"] = "1"
-            try:
-                r = client.post(f"/approvals/{rid}/decide", json={"approve": True})
-            finally:
-                os.environ.pop("ROSCLAW_DEV_HTTP_DECIDE", None)
-            assert r.status_code == 200
-            assert r.json()["grant_id"]
-            assert r.json()["profile"] == "DEV_SIM_ONLY"
-            grants = client.get("/grants").json()
-            assert len(grants) == 1
-            assert grants[0]["tier"] == "EXACT_ACTION"
-            # revoke → HTTP 旁路 403；经 broker 直撤（测试即 operator）。
-            gid = grants[0]["grant_id"]
-            assert client.post(f"/grants/{gid}/revoke").status_code == 403
-            service.revoke_grant(gid, principal=LOCAL_PRINCIPAL)
-            from rosclaw.operator import GrantDeniedError
-
-            with pytest.raises(GrantDeniedError, match="grant_revoked"):
-                service._broker.verify(
-                    gid,
-                    principal=LOCAL_PRINCIPAL,
-                    body_hash=grants[0].get("effective_body_hash", ""),
-                    mode="SIMULATION",
-                    risk_tier="LOW",
-                )
-        finally:
-            await service.close()
