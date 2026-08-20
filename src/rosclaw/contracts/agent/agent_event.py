@@ -69,6 +69,12 @@ class AgentEventType(StrEnum):
     COMPACTION_COMPLETED = "compaction.completed"
     MISSION_COMPLETED = "mission.completed"
     MISSION_FAILED = "mission.failed"
+    # 思考摘要（Channel 设计 §24）：只承载安全的 reasoning summary /
+    # plan progress，绝不承载 raw hidden Chain-of-Thought。
+    REASONING_STARTED = "reasoning.started"
+    REASONING_SUMMARY_DELTA = "reasoning.summary.delta"
+    REASONING_SUMMARY_ENDED = "reasoning.summary.ended"
+    PLAN_UPDATED = "plan.updated"
     # 系统
     WARNING = "warning"
     CAPABILITIES_CHANGED = "capabilities.changed"

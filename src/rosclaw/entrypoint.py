@@ -43,6 +43,13 @@ def main() -> int:
     if result is not None:
         return result
 
+    # Channel 集成（OpenClaw/ACP）：`rosclaw channel doctor|setup`
+    from rosclaw.integrations.openclaw.cli import dispatch_channel_argv
+
+    result = dispatch_channel_argv(sys.argv[1:])
+    if result is not None:
+        return result
+
     from rosclaw.operatord.cli import dispatch_operatord_argv
 
     result = dispatch_operatord_argv(sys.argv[1:])

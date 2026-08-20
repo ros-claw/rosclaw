@@ -1,0 +1,18 @@
+# ROSClaw × OpenClaw Channel Integration — 已验证版本锁
+#
+# 本文件记录在本机完整 E2E（飞书 DM/群 → ACP → ROSClaw Mission）验证通过的
+# 组件版本。CI / 新机器部署以此为准；升级任一组件后必须重跑兼容性验证
+#（设计 §7：不要 latest）。
+#
+# 验证日期：2026-08-13
+# 验证环境：Linux aarch64 (Jetson), Python 3.11, 飞书自建应用 WebSocket 长连接
+
+# ---- OpenClaw 侧 ----
+OPENCLAW_VERSION=2026.7.1-2          # openclaw --version
+OPENCLAW_ACPX_VERSION=2026.7.1       # @openclaw/acpx 插件
+OPENCLAW_FEISHU_VERSION=2026.7.1     # @openclaw/feishu 插件（要求 OpenClaw ≥ 2026.5.29）
+NODE_VERSION=v24.19.0                # 支持窗口：>=22.22.3 <23 / >=24.15 <25 / >=25.9
+
+# ---- ROSClaw 侧 ----
+ACP_PYTHON_SDK=0.12.0                # agent-client-protocol（pyproject 锁 >=0.12,<0.13）
+ROSCLAW_VERSION=1.2.0                # 本仓库

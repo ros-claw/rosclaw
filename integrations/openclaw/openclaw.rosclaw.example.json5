@@ -1,0 +1,134 @@
+// ROSClaw × OpenClaw 单机器人推荐配置（Channel 设计 §33）。
+//
+// 使用方式：把本文件的相关段落合入 OpenClaw 配置（不要用本文件整体替换
+// 你已有的 OpenClaw 配置）。所有 command/args 必须是**绝对路径**。
+//
+// 注意：OpenClaw 配置 schema 仍在演进——合入后必须用目标安装版本的
+// `openclaw doctor` / `openclaw config` 验证，不允许跳过 schema
+// validation（设计 §33 注）。
+
+{
+  gateway: {
+    // 只监听 loopback；飞书走 outbound WebSocket，不需要公网 Gateway（§13）。
+    mode: "local",
+    bind: "loopback",
+    auth: {
+      // Token 经环境变量注入：export OPENCLAW_GATEWAY_TOKEN=$(openssl rand -hex 32)
+      // systemd: EnvironmentFile=/etc/rosclaw/openclaw.env（chmod 600）
+      mode: "token",
+    },
+  },
+
+  acp: {
+    enabled: true,
+    dispatch: { enabled: true },
+    backend: "acpx",
+
+    // 首版只允许 rosclaw 一个 harness——是否用 Codex/Claude/Pi 由
+    // ROSClaw Worker Fabric 决定，不是 Channel Gateway 的职责（§11）。
+    defaultAgent: "rosclaw",
+    allowedAgents: ["rosclaw"],
+
+    stream: { deliveryMode: "live" },
+  },
+
+  session: {
+    // DM 隔离：Feishu + User A → Mission A；User B → Mission B（§31）。
+    dmScope: "per-channel-peer",
+    threadBindings: {
+      enabled: true,
+      idleHours: 24,
+      maxAgeHours: 0,
+      spawnSessions: true,
+    },
+  },
+
+  plugins: {
+    entries: {
+      acpx: {
+        enabled: true,
+        config: {
+          agents: {
+            // harness id = rosclaw。command/args 必须绝对路径（§9）。
+            rosclaw: {
+              command: "/opt/rosclaw/.venv/bin/rosclaw",
+              args: ["acp", "serve", "--home", "/var/lib/rosclaw/default"],
+            },
+            // Multi-Robot（§34）：每台机器人独立 ROSCLAW_HOME + 独立 harness：
+            // "rosclaw-limo": {
+            //   command: "/opt/rosclaw/.venv/bin/rosclaw",
+            //   args: ["acp", "serve", "--home", "/var/lib/rosclaw/limo"],
+            // },
+            // "rosclaw-g1": {
+            //   command: "/opt/rosclaw/.venv/bin/rosclaw",
+            //   args: ["acp", "serve", "--home", "/var/lib/rosclaw/g1"],
+            // },
+          },
+
+          // 这是 ACP harness 自己的文件/shell 权限，不是 ROSClaw 物理权限；
+          // 即便如此也默认 deny-all（§10）。
+          permissionMode: "deny-all",
+          nonInteractivePermissions: "deny",
+
+          // ROSClaw 自带 Tool Catalog / MCP / Worker Fabric——不再注入
+          // 第二套 OpenClaw tool surface（§10）。
+          pluginToolsMcpBridge: false,
+          openClawToolsMcpBridge: false,
+
+          probeAgent: "rosclaw",
+        },
+      },
+    },
+  },
+
+  agents: {
+    entries: {
+      rosclaw: {
+        default: true,
+        runtime: {
+          type: "acp",
+          acp: {
+            agent: "rosclaw",
+            backend: "acpx",
+            mode: "persistent",
+            cwd: "/var/lib/rosclaw",
+          },
+        },
+      },
+    },
+  },
+
+  channels: {
+    feishu: {
+      enabled: true,
+      connectionMode: "websocket",
+
+      // 首版安全基线（§16）：不要 dmPolicy/groupPolicy = open。
+      dmPolicy: "pairing",
+      groupPolicy: "allowlist",
+      requireMention: true,
+      groupSessionScope: "group_topic_sender",
+      replyInThread: "enabled",
+
+      // 流式卡片（§30）：聚合 reasoning/worker/tool 更新，不按 token 发消息。
+      streaming: {
+        mode: "partial",
+        block: { enabled: true },
+      },
+
+      // OpenClaw Agent ≠ ROSClaw Mission；不创建第二套 Agent ownership（§32）。
+      dynamicAgentCreation: { enabled: false },
+
+      // Channel 只负责 transport——飞书 workspace 工具首版全关（§17）。
+      tools: {
+        doc: false,
+        chat: false,
+        wiki: false,
+        drive: false,
+        perm: false,
+        scopes: false,
+        bitable: false,
+      },
+    },
+  },
+}
