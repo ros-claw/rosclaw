@@ -18,7 +18,6 @@ API is unreachable the tests fail, they never fabricate success.
 
 from __future__ import annotations
 
-import json
 import os
 from pathlib import Path
 
