@@ -30,6 +30,7 @@ import type { ProductStateCenter } from "../session/state-center.js";
 import { InputController } from "../native/input-controller.js";
 import { OperationWatcher } from "../native/operation-watcher.js";
 import { TurnGuard } from "../native/turn-guard.js";
+import { classifyModelError } from "../native/model-errors.js";
 import type { LocaleManager } from "../i18n/locale.js";
 import { t as i18nT } from "../i18n/index.js";
 import { EventMirror } from "./event-mirror.js";
@@ -1272,6 +1273,16 @@ const orphanJobs = jobs.filter(
 		const COMPLETION_CLAIM =
 			/(已执行|已完成|已确认|执行完毕|成功执行|successfully executed|has been executed|action completed)/i;
 		pi.on("message_end", async (event) => {
+			// PR-H7（§8.4）：provider 错误分类——403 配额≠鉴权错误；
+			// 稳定错误码 + 用户可理解说明 + 恢复动作（task 可继续）。
+			const msg = event.message as { role?: string; stopReason?: string; errorMessage?: string };
+			if (msg.role === "assistant" && (msg.stopReason === "error" || msg.errorMessage)) {
+				const classified = classifyModelError(String(msg.errorMessage ?? ""));
+				latestCtx?.ui.notify(
+					`[${classified.code}] ${classified.explanation}——${classified.recovery}`,
+					"error",
+				);
+			}
 			if (!lastOutcome || lastOutcome.narrativeSeen) return undefined;
 			const message = event.message as { role?: string; content?: unknown };
 			if (message.role !== "assistant") return undefined;
