@@ -200,11 +200,11 @@ class TestTaskActivityJourney:
 
             # /logs：operation 输出（echo 的 marker）。
             session.send("/logs\r")
-            session.expect("h8-operation-marker".encode(), timeout=30)
+            session.expect(b"h8-operation-marker", timeout=30)
 
             # /artifacts：产物账本（report.txt + sha 短码）。
             session.send("/artifacts\r")
-            session.expect("report.txt".encode(), timeout=30)
+            session.expect(b"report.txt", timeout=30)
 
             # 账本侧对账：任务 SUCCEEDED + 产物行存在。
             db_path = home / "agentd" / "missions.db"
