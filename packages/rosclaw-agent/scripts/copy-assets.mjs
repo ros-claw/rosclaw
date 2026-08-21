@@ -24,3 +24,13 @@ if (existsSync(skillsSource)) {
 	cpSync(skillsSource, skillsTarget, { recursive: true });
 	console.log("copied skills");
 }
+
+// PR-N5C：生成的 effect 表进 dist（单一 Effect Contract——由 Python
+// Capability Registry 生成，见 effects.generated.json 头注）。
+const effectsSource = join(pkgRoot, "src", "tools", "effects.generated.json");
+const effectsTargetDir = join(pkgRoot, "dist", "src", "tools");
+if (existsSync(effectsSource)) {
+	mkdirSync(effectsTargetDir, { recursive: true });
+	copyFileSync(effectsSource, join(effectsTargetDir, "effects.generated.json"));
+	console.log("copied effects.generated.json");
+}

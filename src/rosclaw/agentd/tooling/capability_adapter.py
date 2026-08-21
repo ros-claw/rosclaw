@@ -52,9 +52,14 @@ def _effect_class_of(d: ToolDescriptorV2) -> EffectClassV1:
     return EffectClassV1.READ_ONLY
 
 
+#: legacy effect_domain → canonical 域名（N5C：域名也单一化）。
+_DOMAIN_ALIASES = {"simulation_state_only": "simulation_state"}
+
+
 def _effect_domain_of(d: ToolDescriptorV2, effect: EffectClassV1) -> str:
     if d.effect_domain:
-        return d.effect_domain.lower()
+        lowered = d.effect_domain.lower()
+        return _DOMAIN_ALIASES.get(lowered, lowered)
     if effect is EffectClassV1.SIMULATED_EFFECT:
         return "simulation_state"
     if effect is EffectClassV1.PHYSICAL_EFFECT:

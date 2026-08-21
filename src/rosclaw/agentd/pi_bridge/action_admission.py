@@ -659,9 +659,17 @@ class ActionAdmissionService:
             return False
         if descriptor is None:
             return False
-        if descriptor.effect_domain != "SIMULATION_STATE_ONLY":
-            return False
         service = self._service
+        # PR-N5C 单一 Effect Contract：读 canonical 能力 effect（N5A
+        # 适配链），不再信 legacy effect_domain 字符串——canonical
+        # 被改/缺失即不自动（fail closed）。判据 = 效应域
+        # simulation_state（sim-only 动作的 class 仍可是
+        # PHYSICAL_EFFECT——形状是物理的，效应只在仿真态）。
+        cap = service._tool_catalog.capability(descriptor.tool_id)
+        if cap is None:
+            return False
+        if cap.effect.domain != "simulation_state":
+            return False
         if service.authorization_profile() != "DEV_SIM_ONLY":
             return False
         # 第一方 kit 源（非第一方 MCP 即使声明 sim-only 也不自动——

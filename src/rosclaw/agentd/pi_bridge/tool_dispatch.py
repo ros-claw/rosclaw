@@ -223,6 +223,38 @@ class PiToolDispatcher:
             )
         if request.tool_name not in _TOOL_TABLE:
             raise ToolBridgeError("TOOL_UNKNOWN", f"unknown tool {request.tool_name!r}")
+        # 4.5 PR-N5C 单一 Effect Contract：rosclaw_* 工具在执行前解析
+        # 并冻结 effect（tool.effect_resolved 事件，含 capability/
+        # arguments digest）；不可解析 fail closed——审批/并发/Verifier
+        # 读冻结结果，不再有第二份手写分类。
+        if request.tool_name.startswith("rosclaw_"):
+            import contextlib
+
+            from rosclaw.agentd.tooling.effect_resolver import (
+                GENERIC_ENTRY_TOOLS,
+                EffectResolver,
+                EffectUnresolvableError,
+            )
+            from rosclaw.contracts.agent.agent_event import AgentEventType
+
+            # 通用入口的解析依赖完整注册表——先确保 MCP 发现完成
+            # （与 _execute 分支的发现顺序一致；幂等）。
+            if request.tool_name in GENERIC_ENTRY_TOOLS:
+                await service._ensure_mcp_discovered()
+            try:
+                frozen = EffectResolver(service._tool_catalog).resolve(
+                    request.tool_name, dict(request.arguments or {})
+                )
+            except EffectUnresolvableError as exc:
+                raise ToolBridgeError(
+                    "EFFECT_UNRESOLVABLE", str(exc)[:400]
+                ) from exc
+            with contextlib.suppress(Exception):
+                await service._events.append(
+                    request.mission_id,
+                    AgentEventType.TOOL_EFFECT_RESOLVED,
+                    frozen.to_event_payload(),
+                )
         # 5. 分发。
         return await self._dispatch(request)
 

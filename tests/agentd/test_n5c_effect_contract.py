@@ -29,7 +29,6 @@ from rosclaw.contracts.agent.tool import (
     ToolEvidenceClass,
     ToolSideEffectClass,
 )
-from rosclaw.contracts.common import ValidationError
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -133,7 +132,9 @@ class TestFrozenEffectEvent:
         携带冻结 digest。"""
         from rosclaw.agentd.pi_bridge.tool_dispatch import PiToolDispatcher
         from tests.agentd.test_pi_tool_bridge import (
-            _issue_lease, _request, _setup,
+            _issue_lease,
+            _request,
+            _setup,
         )
 
         service, mission = await _setup(tmp_path)
@@ -167,7 +168,9 @@ class TestFrozenEffectEvent:
     async def test_unresolvable_effect_rejects_call(self, tmp_path: Path) -> None:
         from rosclaw.agentd.pi_bridge.tool_dispatch import PiToolDispatcher
         from tests.agentd.test_pi_tool_bridge import (
-            _issue_lease, _request, _setup,
+            _issue_lease,
+            _request,
+            _setup,
         )
 
         service, mission = await _setup(tmp_path)
@@ -192,27 +195,31 @@ class TestAdmissionReadsCanonicalEffect:
     async def test_auto_requires_canonical_simulated_effect(
         self, tmp_path: Path
     ) -> None:
+        from rosclaw.agentd.pi_bridge.action_admission import (
+            ActionAdmissionService,
+        )
         from tests.agentd.test_pi_tool_bridge import _setup
 
         service, mission = await _setup(tmp_path)
-        admission = service._action_admission
-        # canonical SIMULATED_EFFECT 能力（sim_reach 在 _setup 注册）
-        descriptor = service._tool_catalog.get("sim_reach")
+        admission = ActionAdmissionService(service)
+        # POLICY_AUTO 的设计对象：kit sim-only 动作（SIMULATION_STATE_ONLY）。
+        await service._ensure_mcp_discovered()
+        descriptor = service._tool_catalog.get("ur5e.move_joints")
         assert descriptor is not None
+        assert descriptor.effect_domain == "SIMULATION_STATE_ONLY"
         auto = admission._policy_auto_applies(mission, descriptor)
-        assert auto is True  # 既有安全条件全满足（DEV_SIM_ONLY 等）
-        # 篡改 canonical effect（变异）：同一 legacy 视图声称
-        # SIMULATION_STATE_ONLY，但 canonical 不是 SIMULATED_EFFECT
-        # → 不得自动。
-        cap = service._tool_catalog.capability("sim_reach")
+        assert auto is True  # 既有安全条件全满足（DEV_SIM_ONLY + kit 源等）
+        # 变异：canonical 效应域被改（legacy 视图仍声称
+        # SIMULATION_STATE_ONLY）→ 不得自动——审批读 canonical。
+        cap = service._tool_catalog.capability("ur5e.move_joints")
         assert cap is not None
-        from rosclaw.contracts.agent.capability import EffectClassV1
+        assert cap.effect.domain == "simulation_state"
 
         tampered = cap.model_copy(deep=True)
-        tampered.effect.class_ = EffectClassV1.PURE_COMPUTE
-        service._tool_catalog._capabilities["sim_reach"] = tampered
+        tampered.effect.domain = "physical_body"
+        service._tool_catalog._capabilities["ur5e.move_joints"] = tampered
         auto = admission._policy_auto_applies(mission, descriptor)
-        assert auto is False, "canonical effect 被改后 POLICY_AUTO 仍放行"
+        assert auto is False, "canonical effect 域被改后 POLICY_AUTO 仍放行"
         await service.close()
 
 
@@ -228,14 +235,14 @@ class TestCapabilitiesEffectSurface:
             {"token": service.control_token, "mission_id": mission.mission_id},
         )
         assert result.get("ok"), result
-        for bucket in ("observation", "compute"):
+        for bucket in ("observation_capabilities", "compute_capabilities"):
             for entry in result.get(bucket) or []:
                 assert entry.get("effect_class"), (
                     f"{bucket} 条目缺 effect_class: {entry}"
                 )
         compute_effects = {
             e["capability_id"]: e["effect_class"]
-            for e in result.get("compute") or []
+            for e in result.get("compute_capabilities") or []
         }
         assert compute_effects.get("sim_reach") == "SIMULATED_EFFECT"
         await service.close()

@@ -41,6 +41,9 @@ class AgentEventType(StrEnum):
     MODEL_REQUEST_ENDED = "model.request.ended"
     MODEL_TOOL_CALL_PROPOSED = "model.tool_call.proposed"
     TOOL_PROPOSED = "tool.proposed"
+    # PR-N5C：effect 执行前冻结（单一 Effect Contract——审批/并发/
+    # Verifier 读冻结结果）。
+    TOOL_EFFECT_RESOLVED = "tool.effect_resolved"
     TOOL_STARTED = "tool.started"
     TOOL_PROGRESS = "tool.progress"
     TOOL_COMPLETED = "tool.completed"

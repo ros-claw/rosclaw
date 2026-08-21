@@ -165,7 +165,9 @@ class TestValidationChain:
     async def test_observe_rejects_action_class(self, tmp_path: Path) -> None:
         service, mission = await _setup(tmp_path)
         dispatcher = PiToolDispatcher(service)
-        # 未知 capability → CAPABILITY_UNKNOWN；动作类（若目录有）→ NOT_OBSERVABLE。
+        # 未知 capability → EFFECT_UNRESOLVABLE（N5C resolver 先行
+        # fail closed）或 CAPABILITY_UNKNOWN；动作类（若目录有）→
+        # NOT_OBSERVABLE。
         result = await dispatcher.execute(
             _request(
                 "rosclaw_observe",
@@ -175,7 +177,10 @@ class TestValidationChain:
             )
         )
         assert not result.ok
-        assert result.error_code in {"CAPABILITY_UNKNOWN", "NOT_OBSERVABLE", "CAPABILITY_QUARANTINED"}
+        assert result.error_code in {
+            "EFFECT_UNRESOLVABLE", "CAPABILITY_UNKNOWN", "NOT_OBSERVABLE",
+            "CAPABILITY_QUARANTINED",
+        }
         await service.close()
 
 

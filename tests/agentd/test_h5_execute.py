@@ -77,7 +77,9 @@ class TestExecuteRouting:
             )
         )
         assert not result.ok
-        assert result.error_code in ("UNKNOWN_CAPABILITY", "INVALID_ARGUMENTS",
+        # N5C：EffectResolver 先行 fail closed——未知能力在 effect
+        # 解析期即拒（EFFECT_UNRESOLVABLE），与原分支码并列有效。
+        assert result.error_code in ("EFFECT_UNRESOLVABLE", "UNKNOWN_CAPABILITY", "INVALID_ARGUMENTS",
                                      "NOT_FOUND")
         await service.close()
 

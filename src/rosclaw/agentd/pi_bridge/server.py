@@ -607,16 +607,22 @@ class PiBridgeServer:
                 cls = descriptor.execution_class.value
                 if cls == "OBSERVE":
                     if descriptor.model_callable:
+                        # PR-N5C：每条携带 canonical effect_class。
+                        cap = service._tool_catalog.capability(descriptor.tool_id)
                         observation.append(
                             {
                                 "capability_id": descriptor.tool_id,
                                 "version": descriptor.version,
                                 "source": descriptor.source,
                                 "description": descriptor.description[:120],
+                                "effect_class": (
+                                    cap.effect.class_.value if cap else ""
+                                ),
                             }
                         )
                     continue
                 if cls == "COMPUTE":
+                    cap = service._tool_catalog.capability(descriptor.tool_id)
                     compute.append(
                         {
                             "capability_id": descriptor.tool_id,
@@ -624,6 +630,10 @@ class PiBridgeServer:
                             "source": descriptor.source,
                             "description": descriptor.description[:120],
                             "effect_domain": "none",
+                            # PR-N5C：canonical effect_class（N5A 适配链）。
+                            "effect_class": (
+                                cap.effect.class_.value if cap else ""
+                            ),
                         }
                     )
                     continue
