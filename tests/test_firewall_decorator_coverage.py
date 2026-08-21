@@ -11,7 +11,7 @@ from rosclaw.firewall.decorator import (
     SafetyViolationError,
 )
 
-MODEL_PATH = Path(__file__).parent.parent / "src" / "rosclaw" / "specs" / "ur5e.xml"
+MODEL_PATH = Path(__file__).parent / "fixtures" / "ur5e_minimal_fixture.xml"
 
 
 class TestInputValidation:

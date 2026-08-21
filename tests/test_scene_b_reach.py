@@ -64,7 +64,7 @@ class TestSceneBReach:
         """Safe reach trajectory must be ALLOWED by Firewall."""
         from rosclaw.firewall import DigitalTwinFirewall, SafetyLevel
 
-        model_path = str(PROJECT_ROOT / "src" / "rosclaw" / "specs" / "ur5e.xml")
+        model_path = str(PROJECT_ROOT / "tests" / "fixtures" / "ur5e_minimal_fixture.xml")
         fw = DigitalTwinFirewall(model_path=model_path, sim_steps_per_check=10)
 
         # Safe reach trajectory: small joint movements
@@ -77,7 +77,7 @@ class TestSceneBReach:
         """Dangerous reach trajectory must be BLOCKED by Firewall."""
         from rosclaw.firewall import DigitalTwinFirewall, SafetyLevel
 
-        model_path = str(PROJECT_ROOT / "src" / "rosclaw" / "specs" / "ur5e.xml")
+        model_path = str(PROJECT_ROOT / "tests" / "fixtures" / "ur5e_minimal_fixture.xml")
         fw = DigitalTwinFirewall(model_path=model_path, sim_steps_per_check=10)
 
         # Dangerous: joint 0 exceeds limit (10 rad >> typical ~6.28)
