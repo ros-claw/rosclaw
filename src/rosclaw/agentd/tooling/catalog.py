@@ -54,6 +54,13 @@ class ToolCatalog:
         # 是过渡期的 legacy 派生视图（N11 删除）。
         self._capabilities: dict[str, CapabilityDescriptorV2] = {}
         self._projections: dict[str, ToolProjectionV1] = {}
+        # PR-N5D：registry 代际——任何可见变化（注册/替换/隔离）递增，
+        # snapshot.generation 由此来。
+        self._generation = 0
+
+    @property
+    def generation(self) -> int:
+        return self._generation
 
     def register(self, descriptor: ToolDescriptorV2, executor: ToolExecutor | None = None) -> None:
         if "__" in descriptor.tool_id:
@@ -66,6 +73,7 @@ class ToolCatalog:
         self._capabilities[descriptor.tool_id] = capability_from_tool_descriptor(descriptor)
         if executor is not None:
             self._executors[descriptor.tool_id] = executor
+        self._generation += 1
 
     def replace(self, descriptor: ToolDescriptorV2, executor: ToolExecutor | None = None) -> None:
         """Idempotent re-registration (e.g. MCP reconnect re-discovery)."""
@@ -73,6 +81,7 @@ class ToolCatalog:
         self._capabilities[descriptor.tool_id] = capability_from_tool_descriptor(descriptor)
         if executor is not None:
             self._executors[descriptor.tool_id] = executor
+        self._generation += 1
 
     # -- N5A capability/projection surface --------------------------------------
 
@@ -87,6 +96,7 @@ class ToolCatalog:
         self._descriptors[cid] = tool_descriptor_from_capability(capability)
         if executor is not None:
             self._executors[cid] = executor
+        self._generation += 1
 
     def capability(self, tool_id: str) -> CapabilityDescriptorV2 | None:
         """canonical 能力视图（审批/并发/Verifier 应读这里）。"""
@@ -133,6 +143,7 @@ class ToolCatalog:
 
     def quarantine_tool(self, tool_id: str, reason: str) -> None:
         self._quarantine[tool_id] = reason
+        self._generation += 1
 
     def quarantine_source(self, source: str, reason: str) -> int:
         count = 0
@@ -140,10 +151,14 @@ class ToolCatalog:
             if d.source == source:
                 self._quarantine[d.tool_id] = reason
                 count += 1
+        if count:
+            self._generation += 1
         return count
 
     def lift_quarantine(self, tool_id: str) -> None:
-        self._quarantine.pop(tool_id, None)
+        if tool_id in self._quarantine:
+            del self._quarantine[tool_id]
+            self._generation += 1
 
     def lift_source_quarantine(self, source: str) -> int:
         doomed = [tid for tid, d in self._descriptors.items() if d.source == source]
@@ -152,6 +167,8 @@ class ToolCatalog:
             if tid in self._quarantine:
                 del self._quarantine[tid]
                 count += 1
+        if count:
+            self._generation += 1
         return count
 
     def quarantine_reason(self, tool_id: str) -> str | None:

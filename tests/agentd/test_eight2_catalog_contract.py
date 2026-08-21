@@ -39,11 +39,21 @@ class TestCatalogContract:
         )
 
     def test_prompt_mentions_four_execution_classes(self) -> None:
-        """系统提示词必须同步 observe/compute/action/task 四类语义。"""
+        """系统提示词必须同步 observe/compute/action/task 四类语义；
+        N5D：指引物化精确工具，不得再指引通用 rosclaw_compute/
+        rosclaw_execute 调用。"""
         text = PROMPT.read_text(encoding="utf-8")
         for word in ("COMPUTE", "OBSERVE", "PHYSICAL_ACTION"):
             assert word in text, f"提示词缺 {word} 语义"
-        assert "rosclaw_compute" in text, "提示词未引 rosclaw_compute"
+        assert "Materialized capability tools" in text or "物化" in text, (
+            "提示词未指引物化精确工具（N5D）"
+        )
+        assert "rosclaw_compute" not in text, (
+            "提示词仍指引通用 rosclaw_compute（N5D 已退出模型面）"
+        )
+        assert "rosclaw_execute" not in text, (
+            "提示词仍指引通用 rosclaw_execute（N5D 已退出模型面）"
+        )
 
     def test_prompt_has_no_stale_human_decides_all(self) -> None:
         """删除"所有动作都由人工 operator 决定"的过时描述——默认 SIM

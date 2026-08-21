@@ -26,7 +26,7 @@ const SNAPSHOT = {
 		{
 			tool_name: "ur5e__plan_cartesian_path",
 			capability_id: "ur5e.plan_cartesian_path",
-			exposure: "direct",
+			exposure: "direct" as const,
 			effect_class: "PURE_COMPUTE",
 			description: "规划笛卡尔轨迹",
 			input_schema: {
@@ -40,7 +40,7 @@ const SNAPSHOT = {
 		{
 			tool_name: "propose_ur5e__move_joints",
 			capability_id: "ur5e.move_joints",
-			exposure: "propose_only",
+			exposure: "propose_only" as const,
 			effect_class: "PHYSICAL_EFFECT",
 			description: "移动关节",
 			input_schema: {

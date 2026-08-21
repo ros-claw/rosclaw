@@ -786,6 +786,17 @@ class AgentService:
         execute fail closed（EXECUTOR_FOR_BODY_UNAVAILABLE）。"""
         return source
 
+    def capability_snapshot(self, mission):
+        """PR-N5D：当前 registry → 该 mission 的 CapabilitySnapshotV1
+        （body/mode 过滤 + digest）。generation 来自 catalog 代际。"""
+        from rosclaw.agentd.tooling.snapshot import build_capability_snapshot
+
+        body_id = mission.body_binding.body_id if mission is not None else ""
+        mode = mission.mode.value if mission is not None else "SIMULATION"
+        return build_capability_snapshot(
+            self._tool_catalog, body_id=body_id, mode=mode
+        )
+
     async def _ensure_mcp_discovered(self) -> None:
         """Discover configured MCP servers once (PR-05); failures quarantine
         the source honestly and never block the turn.

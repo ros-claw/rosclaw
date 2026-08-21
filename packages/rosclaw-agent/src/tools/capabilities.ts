@@ -16,14 +16,13 @@ export function buildCapabilitiesTool(ctx: BridgeToolContext) {
 		label: "ROSClaw Capabilities",
 		description:
 			"List the capabilities available on the CURRENT bound body in three " +
-			"buckets: observation (read-only, via rosclaw_observe), compute " +
-			"(pure calculation/verification like planning — via rosclaw_compute, " +
-			"no approval), and action capabilities (exact IDs for " +
-			"rosclaw_request_action — policy returns AUTO/ASK/DENY; REAL is always " +
-			"gated by rosclawd/operator), plus excluded capabilities with machine " +
-			"reason codes. Prefer compute planning capabilities (e.g. " +
-			"plan_cartesian_path) over inventing parameters. Only IDs from " +
-			"action_capabilities are actionable — never invent capability names.",
+			"buckets (observation/compute/action) plus excluded capabilities with " +
+			"machine reason codes. PR-N5D: observation/compute capabilities are " +
+			"ALSO materialized as exact strongly-typed tools in your tool surface " +
+			"(e.g. ur5e__plan_cartesian_path) — call those directly instead of " +
+			"hand-building generic calls; physical capabilities appear as " +
+			"propose_<name> tools that enter the admission chain (REAL is always " +
+			"gated by rosclawd/operator). Never invent capability names.",
 		parameters: Type.Object({}),
 		async execute(_toolCallId, _params, _signal, _onUpdate, _ctx) {
 			const state = ctx.active.current;
@@ -66,7 +65,7 @@ export function buildCapabilitiesTool(ctx: BridgeToolContext) {
 					)
 					: ["  （当前 body 没有兼容的动作能力——不要编造动作名）"]),
 				"",
-				"compute_capabilities（规划/验证等纯计算——经 rosclaw_compute 调用，免审批）:",
+				"compute_capabilities（规划/验证等纯计算——已物化为精确工具，直接调用，免审批）:",
 				...(compute.length
 					? compute.map(
 						(c) => `  - ${String(c.capability_id)} ${String(c.description ?? "")}`,

@@ -1,0 +1,126 @@
+{
+  "$defs": {
+    "SnapshotActiveToolV1": {
+      "additionalProperties": true,
+      "description": "一个可物化的模型工具（由能力投影）。",
+      "properties": {
+        "tool_name": {
+          "minLength": 1,
+          "title": "Tool Name",
+          "type": "string"
+        },
+        "capability_id": {
+          "minLength": 1,
+          "title": "Capability Id",
+          "type": "string"
+        },
+        "exposure": {
+          "default": "direct",
+          "enum": [
+            "direct",
+            "propose_only",
+            "internal"
+          ],
+          "title": "Exposure",
+          "type": "string"
+        },
+        "effect_class": {
+          "default": "",
+          "title": "Effect Class",
+          "type": "string"
+        },
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "input_schema": {
+          "additionalProperties": true,
+          "title": "Input Schema",
+          "type": "object"
+        },
+        "output_schema": {
+          "additionalProperties": true,
+          "title": "Output Schema",
+          "type": "object"
+        }
+      },
+      "required": [
+        "tool_name",
+        "capability_id"
+      ],
+      "title": "SnapshotActiveToolV1",
+      "type": "object"
+    },
+    "SnapshotExcludedV1": {
+      "additionalProperties": true,
+      "properties": {
+        "capability_id": {
+          "minLength": 1,
+          "title": "Capability Id",
+          "type": "string"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "capability_id",
+        "reason"
+      ],
+      "title": "SnapshotExcludedV1",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": {
+      "const": "rosclaw.capability_snapshot.v1",
+      "default": "rosclaw.capability_snapshot.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "generation": {
+      "minimum": 0,
+      "title": "Generation",
+      "type": "integer"
+    },
+    "digest": {
+      "default": "",
+      "title": "Digest",
+      "type": "string"
+    },
+    "body_id": {
+      "default": "",
+      "title": "Body Id",
+      "type": "string"
+    },
+    "mode": {
+      "default": "SIMULATION",
+      "title": "Mode",
+      "type": "string"
+    },
+    "active": {
+      "items": {
+        "$ref": "#/$defs/SnapshotActiveToolV1"
+      },
+      "title": "Active",
+      "type": "array"
+    },
+    "excluded": {
+      "items": {
+        "$ref": "#/$defs/SnapshotExcludedV1"
+      },
+      "title": "Excluded",
+      "type": "array"
+    }
+  },
+  "required": [
+    "generation"
+  ],
+  "title": "rosclaw.capability_snapshot.v1",
+  "type": "object",
+  "$id": "rosclaw://schemas/rosclaw.capability_snapshot.v1"
+}

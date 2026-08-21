@@ -1,8 +1,7 @@
 /** Embodiment Pack 执行工具（PR-H5，总纲 v2 §10.2）。
  *
- * rosclaw_execute：统一能力执行入口——OBSERVE 只读 / COMPUTE 免审批
- * 内联 / PHYSICAL_ACTION 走同一 admission 链（SIM 安全自动、REAL
- * 永远 rosclawd+审批）。未知 ID 诚实拒绝。
+ * PR-N5D：rosclaw_execute 已退出模型面（能力物化为精确工具）；
+ * wire 验证链保留在 bridge。
  * rosclaw_wait_operation / rosclaw_stop_operation：长 operation 的
  * 有界等待与账本先行取消。
  */
@@ -14,25 +13,9 @@ import { executeVia, type BridgeToolContext } from "./bridge-tools.js";
 
 export function buildEmbodimentExecTools(ctx: BridgeToolContext): ToolDefinition[] {
 	return [
-		defineTool({
-			name: "rosclaw_execute",
-			label: "ROSClaw Execute",
-			description:
-				"Execute a capability by exact ID from rosclaw_capabilities. " +
-				"Routing: observation = read-only, compute = inline no-approval, " +
-				"physical = the same admission chain (SIM safe actions auto-execute " +
-				"with audit; REAL always requires rosclawd + operator). Unknown IDs " +
-				"are honestly rejected — never invent capability names.",
-			parameters: Type.Object({
-				capability_id: Type.String(),
-				arguments: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
-				expected_effect: Type.Optional(Type.String()),
-				risk_tier: Type.Optional(Type.String()),
-			}),
-			async execute(_id, params, _signal, _onUpdate, _toolCtx) {
-				return await executeVia(ctx, "rosclaw_execute", params as Record<string, unknown>);
-			},
-		}),
+		// PR-N5D：rosclaw_execute 退出模型面——能力经 snapshot 物化为
+		// 精确工具/direct+propose_（materialize.ts）；wire 入口保留在
+		// bridge（物化工具内部走它）。
 		defineTool({
 			name: "rosclaw_wait_operation",
 			label: "ROSClaw Wait Operation",

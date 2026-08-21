@@ -241,6 +241,21 @@ class PiToolDispatcher:
             # （与 _execute 分支的发现顺序一致；幂等）。
             if request.tool_name in GENERIC_ENTRY_TOOLS:
                 await service._ensure_mcp_discovered()
+            # PR-N5D：snapshot digest 校验——调用方钉住的工具面与当前
+            # registry 不一致时不静默换工具（下一步重新规划一次）。
+            claimed_digest = str(
+                (request.arguments or {}).get("snapshot_digest", "")
+            )
+            if claimed_digest:
+                current = service.capability_snapshot(mission)
+                if claimed_digest != current.digest:
+                    raise ToolBridgeError(
+                        "CAPABILITY_SNAPSHOT_CHANGED",
+                        "capability snapshot changed（registry 在本回合内变化）"
+                        f"——current digest {current.digest[:23]}…；请重新获取 "
+                        "pi.capability.snapshot 并按新工具面重新规划一次",
+                        retryable=True,
+                    )
             try:
                 frozen = EffectResolver(service._tool_catalog).resolve(
                     request.tool_name, dict(request.arguments or {})

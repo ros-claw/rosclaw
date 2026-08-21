@@ -37,7 +37,7 @@ import { buildBridgeTools } from "../tools/bridge-tools.js";
 import { buildRequestActionTool } from "../tools/request-action.js";
 import { buildCapabilitiesTool } from "../tools/capabilities.js";
 import { buildInspectTool } from "../tools/inspect.js";
-import { buildComputeTool } from "../tools/compute.js";
+
 import { buildTaskTool } from "../tools/task.js";
 import { buildStatusTool } from "../tools/status.js";
 
@@ -143,6 +143,9 @@ export async function createRosclawRuntime(
 	// robot=env-only（写即拒）。十审 W1：与 Worker 共用同一构造逻辑。
 	const modelRuntime = await createSharedModelRuntime(agentDir, options.profile);
 	const systemPrompt = loadSystemPrompt();
+	// PR-N5D：扩展工厂先于 session 创建注册——创建后回填引用，
+	// 供物化工具激活（setActiveToolsByName）。
+	const lateSession: { session?: { setActiveToolsByName(names: string[]): void } } = {};
 
 	const runtime = await createAgentSessionRuntime(
 		async ({ cwd, sessionManager, sessionStartEvent }) => {
@@ -202,6 +205,7 @@ export async function createRosclawRuntime(
 								workspaceStore: options.workspaceStore,
 								workspaceAutoBound: options.workspaceAutoBound === true,
 								taskContext: options.taskContext,
+								lateSession,
 							}),
 						},
 					],
@@ -236,7 +240,7 @@ export async function createRosclawRuntime(
 					center,
 					workspaceRoot: options.taskContext.workspaceRoot,
 				}),
-				// PR-H5：统一执行入口 + operation 控制。
+				// PR-H5/N5D：operation 控制（execute 已物化为精确工具）。
 				...buildEmbodimentExecTools({
 					rosclawHome: options.rosclawHome,
 					active,
@@ -251,12 +255,6 @@ export async function createRosclawRuntime(
 				}),
 				// PR-SIX-3：当前 body 的可信能力面（模型不再猜 ID）。
 				buildCapabilitiesTool({
-					rosclawHome: options.rosclawHome,
-					active,
-					center,
-				}),
-				// PR-SEVEN-2：COMPUTE 能力免审批调用。
-				buildComputeTool({
 					rosclawHome: options.rosclawHome,
 					active,
 					center,
@@ -285,11 +283,14 @@ export async function createRosclawRuntime(
 				services,
 				sessionManager,
 				sessionStartEvent,
-				// allowlist = 模型面唯一真相源（内建 read/grep/find/ls +
-				// 策略覆盖的 bash/write/edit + ROSClaw custom tools）。
-				tools: [...MODEL_TOOL_NAMES],
+				// PR-N5D：静态 allowlist 无法容纳物化工具名（snapshot
+				// 在 mission 绑定后才可知）——不再传 tools allowlist；
+				// 模型面由扩展在 session_start/before_agent_start 经
+				// setActiveToolsByName 精确激活（MODEL_TOOL_NAMES +
+				// 物化名），customTools 仍经 filterModelTools 过滤。
 				customTools,
 			});
+			lateSession.session = result.session;
 			return {
 				...result,
 				services,

@@ -43,6 +43,8 @@ import { EventMirror } from "./event-mirror.js";
 import { WorkspaceStore } from "../session/workspace.js";
 import { buildCommandHandlers } from "./commands.js";
 import { guardInput } from "./input-guard.js";
+import { materializeCapabilityTools, type CapabilitySnapshot } from "../tools/materialize.js";
+import { MODEL_TOOL_NAMES } from "../tools/surface.js";
 import { fetchEmbodiedContext, renderTrustedContext } from "./context-injection.js";
 
 export interface RosclawExtensionOptions {
@@ -68,6 +70,8 @@ export interface RosclawExtensionOptions {
 	workspaceAutoBound?: boolean;
 	/** PR-N1：唯一工作区事实源（session 创建前解析并冻结）。 */
 	taskContext: import("../native/active-task-context.js").ActiveTaskContext;
+	/** PR-N5D：创建后回填的 session 引用（物化工具激活用）。 */
+	lateSession?: { session?: { setActiveToolsByName(names: string[]): void } };
 }
 
 const WORKING_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -79,6 +83,30 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 		//    Kimi K3/OFFLINE 与底部未选模型/UNKNOWN 长期共存） --
 		const center = options.center;
 		const locale = options.locale;
+		// PR-N5D：动态工具物化——CapabilitySnapshot（按当前 body/mode/
+		// health 过滤）→ 精确强类型工具；digest 变化才重物化（不静默
+		// 换工具：执行期 digest 失配由 bridge 以
+		// CAPABILITY_SNAPSHOT_CHANGED 拒绝，这里在下一回合前刷新）。
+		let materializedDigest = "";
+		const refreshCapabilityTools = async (): Promise<void> => {
+			const missionId = options.active.current.missionId;
+			if (!missionId) return;
+			const res = await center.call("pi.capability.snapshot", {
+				mission_id: missionId,
+			}) as { ok?: boolean; snapshot?: CapabilitySnapshot } | undefined;
+			if (!res?.ok || !res.snapshot) return;
+			const snap = res.snapshot;
+			if (snap.digest === materializedDigest) return;
+			const tools = materializeCapabilityTools(snap, {
+				center, active: options.active, rosclawHome: options.rosclawHome,
+			});
+			for (const tool of tools) pi.registerTool(tool);
+			materializedDigest = snap.digest;
+			options.lateSession?.session?.setActiveToolsByName([
+				...MODEL_TOOL_NAMES,
+				...tools.map((tool) => tool.name),
+			]);
+		};
 		// WP-P0-3：恢复对账报告（恢复了什么/重新验证了什么/哪些权限
 		// 失效）——一次性展示，不重复。
 		let resumeReportShown = !options.resumed;
@@ -173,6 +201,11 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 		pi.on("session_start", async (_event, ctx) => {
 			latestCtx = ctx;
 			operationWatcher.start();
+			// PR-N5D：无静态 allowlist——启动即把激活面钉回
+			// MODEL_TOOL_NAMES（+已物化名，digest 变化后重钉）。
+			options.lateSession?.session?.setActiveToolsByName([
+				...MODEL_TOOL_NAMES,
+			]);
 			if (options.workspaceAutoBound && workspaceStore.current) {
 				ctx.ui.notify(`已自动绑定 Project：${workspaceStore.current}（/workspace show 查看）`, "info");
 			}
@@ -400,6 +433,8 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 
 		// -- 每轮注入最新具身上下文（PNA-2，规格 §14.2） ---------------------------
 		pi.on("before_agent_start", async (event, ctx) => {
+			// PR-N5D：回合开始前刷新物化工具面（digest 未变则零成本）。
+			await refreshCapabilityTools();
 			// header 模型名取真实当前 model（P0-NA-16：同一快照语义）。
 			const current = ctx.model as { name?: string; id?: string } | undefined;
 			const display = current ? String(current.name ?? current.id ?? "") : "";

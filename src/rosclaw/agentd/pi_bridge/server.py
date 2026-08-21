@@ -583,6 +583,15 @@ class PiBridgeServer:
             if mission_id and service.get_mission(mission_id) is None:
                 return {"ok": False, "error": "unknown mission", "code": "MISSION_NOT_FOUND"}
             return {"ok": True, "usage": service.usage_report(mission_id)}
+        if method == "pi.capability.snapshot":
+            # PR-N5D：当前回合的精确工具面快照（物化依据 + digest 校验）。
+            mission_id = str(params.get("mission_id", ""))
+            mission = service.get_mission(mission_id) if mission_id else None
+            if mission is None:
+                return {"ok": False, "error": "unknown mission", "code": "MISSION_NOT_FOUND"}
+            await service._ensure_mcp_discovered()
+            snapshot = service.capability_snapshot(mission)
+            return {"ok": True, "snapshot": snapshot.to_canonical_dict()}
         if method == "pi.capabilities":
             # 六审 §6.2.1/§6.2.6：当前 body 的可信能力面——模型不再靠猜
             # capability ID。动作能力只列 body 兼容项；不兼容/被隔离项进

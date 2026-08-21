@@ -14,7 +14,6 @@ describe("Native Agent 工具面（PR-H1）", () => {
 			"rosclaw_status",
 			"rosclaw_capabilities",
 			"rosclaw_observe",
-			"rosclaw_compute",
 			"rosclaw_verify",
 			"rosclaw_memory_query",
 			"rosclaw_fail_safe",
@@ -24,6 +23,11 @@ describe("Native Agent 工具面（PR-H1）", () => {
 		for (const name of [...workspace, ...embodiment]) {
 			assert.ok(MODEL_TOOL_NAMES.includes(name), `缺工具 ${name}`);
 		}
+	});
+
+	it("N5D：通用能力入口退出模型面（物化精确工具取代）", () => {
+		assert.ok(!MODEL_TOOL_NAMES.includes("rosclaw_compute"));
+		assert.ok(!MODEL_TOOL_NAMES.includes("rosclaw_execute"));
 	});
 
 	it("task 治理/Worker 操控工具不再暴露给模型", () => {

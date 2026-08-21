@@ -20,8 +20,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from rosclaw.contracts.agent.tool import (
     ExecutionClass,
     ToolDescriptorV2,
@@ -138,7 +136,6 @@ class TestSnapshotBuild:
         from rosclaw.agentd.tooling.capability_adapter import (
             capability_from_tool_descriptor,
         )
-        from rosclaw.agentd.tooling.catalog import ToolCatalog
         from rosclaw.agentd.tooling.snapshot import build_capability_snapshot
         from rosclaw.contracts.agent.capability import EffectClassV1
 
@@ -188,7 +185,9 @@ class TestSnapshotBridgeAndEnforcement:
         CAPABILITY_SNAPSHOT_CHANGED（不静默换工具）。"""
         from rosclaw.agentd.pi_bridge.tool_dispatch import PiToolDispatcher
         from tests.agentd.test_pi_tool_bridge import (
-            _issue_lease, _request, _setup,
+            _issue_lease,
+            _request,
+            _setup,
         )
 
         service, mission = await _setup(tmp_path)
@@ -214,7 +213,9 @@ class TestSnapshotBridgeAndEnforcement:
         from rosclaw.agentd.pi_bridge.server import PiBridgeServer
         from rosclaw.agentd.pi_bridge.tool_dispatch import PiToolDispatcher
         from tests.agentd.test_pi_tool_bridge import (
-            _issue_lease, _request, _setup,
+            _issue_lease,
+            _request,
+            _setup,
         )
 
         service, mission = await _setup(tmp_path)

@@ -34,20 +34,23 @@ export const PRODUCT_PACK: readonly string[] = [
 	"rosclaw_task_blocked",
 ];
 
-/** Embodiment Pack：具身/安全链（rosclawd 权威不变）。 */
+/** Embodiment Pack：具身/安全链（rosclawd 权威不变）。
+ *
+ * PR-N5D：rosclaw_compute / rosclaw_execute 退出默认模型面——能力以
+ * CapabilitySnapshot 物化的精确强类型工具直接进入（materialize.ts）；
+ * 两者仍是 bridge wire 上的验证链 plumbing（物化工具内部调用）。
+ * rosclaw_task 降级为兼容入口（SIM 管线宏），不再是主要认知路径。 */
 export const EMBODIMENT_PACK: readonly string[] = [
 	"rosclaw_status",
 	"rosclaw_capabilities",
 	"rosclaw_observe",
-	"rosclaw_compute",
 	"rosclaw_task",
 	"rosclaw_verify",
 	"rosclaw_request_action",
 	"rosclaw_memory_query",
 	"rosclaw_inspect",
 	"rosclaw_fail_safe",
-	// PR-H5：统一执行入口 + operation 等待/停止
-	"rosclaw_execute",
+	// operation 等待/停止（PR-H5 统一执行入口已退出模型面——N5D）
 	"rosclaw_wait_operation",
 	"rosclaw_stop_operation",
 ];

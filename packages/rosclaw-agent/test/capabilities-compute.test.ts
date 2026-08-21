@@ -57,7 +57,8 @@ test("工具描述同步四类语义与策略语言（无过时 human-decides）
 	const tool = buildCapabilitiesTool(makeCtx(BACKEND_RESPONSE));
 	const desc = tool.description;
 	assert.match(desc, /compute/i);
-	assert.match(desc, /rosclaw_compute/);
+	// N5D：不再指引通用 rosclaw_compute——指引物化精确工具
+	assert.match(desc, /materialized|物化|propose_/);
 	// 过时描述清除：不再说所有动作都由人工决定（默认 SIM 走 POLICY_AUTO）。
 	assert.ok(!/every action.*human|all actions.*human/i.test(desc), desc);
 });

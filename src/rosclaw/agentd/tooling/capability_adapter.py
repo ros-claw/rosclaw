@@ -121,16 +121,23 @@ def tool_descriptor_from_capability(cap: CapabilityDescriptorV2) -> ToolDescript
     else:
         execution_class = ExecutionClass.OBSERVE
     model_callable = execution_class is not ExecutionClass.PHYSICAL_ACTION
+    # legacy 不变量：OBSERVE 必须 side_effect NONE（N5D 实证：
+    # HOST_PROCESS 等能力 downgrade 成 OBSERVE+REVERSIBLE 会炸）。
+    side_effect = (
+        ToolSideEffectClass.NONE
+        if execution_class is ExecutionClass.OBSERVE
+        else (
+            ToolSideEffectClass.REVERSIBLE
+            if cap.effect.reversible
+            else ToolSideEffectClass.IRREVERSIBLE
+        )
+    )
     return ToolDescriptorV2(
         tool_id=cap.capability_id,
         version=cap.version,
         source=cap.source,
         execution_class=execution_class,
-        side_effect_class=(
-            ToolSideEffectClass.REVERSIBLE
-            if cap.effect.reversible
-            else ToolSideEffectClass.IRREVERSIBLE
-        ) if effect is not EffectClassV1.READ_ONLY else ToolSideEffectClass.NONE,
+        side_effect_class=side_effect,
         effect_domain=(
             "SIMULATION_STATE_ONLY"
             if effect is EffectClassV1.SIMULATED_EFFECT
