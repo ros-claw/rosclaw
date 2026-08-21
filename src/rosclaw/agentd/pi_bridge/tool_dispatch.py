@@ -30,6 +30,7 @@ _TOOL_TABLE: dict[str, str] = {
     "rosclaw_compute": "compute",
     "rosclaw_verify": "read",
     "rosclaw_memory_query": "read",
+    "rosclaw_inspect": "read",
     "rosclaw_fail_safe": "control",
     "rosclaw_request_action": "physical_action",
     # 八审 P0-5：任务级入口——确定性编译器编排，模型只交 TaskSpec。
@@ -339,6 +340,38 @@ class PiToolDispatcher:
             return await self._process_stop(request)
         # 十五审 PR-RF-1/RF-2：治理工具——同一 owning execution 的
         # 提交/观察/steer/回答/暂停/恢复/取消。
+        if name == "rosclaw_inspect":
+            # PR-N3：生态索引自检——程序探测（read 类，免任务绑定）。
+            from rosclaw.agentd.pi_bridge.server import PiBridgeServer  # noqa: F401
+            from rosclaw.cognition.index.query import robot_chain, search
+            from rosclaw.cognition.inspect_cli import ensure_index, inspect_self
+
+            kind = str(request.arguments.get("kind", "self"))
+            query = str(request.arguments.get("query", ""))
+            if kind == "self":
+                info = inspect_self(self._service._home)
+                return PiToolResultV1(
+                    request_id=request.request_id, ok=True, status="COMPLETED",
+                    summary=json.dumps(info, ensure_ascii=False),
+                )
+            idx = ensure_index(self._service._home)
+            if kind == "robot":
+                chain = robot_chain(idx, query)
+                if chain is None:
+                    return PiToolResultV1(
+                        request_id=request.request_id, ok=False, status="FAILED",
+                        summary=f"未知机器人 {query!r}（索引无权威链）",
+                        error_code="UNKNOWN_ROBOT",
+                    )
+                return PiToolResultV1(
+                    request_id=request.request_id, ok=True, status="COMPLETED",
+                    summary=json.dumps(chain, ensure_ascii=False),
+                )
+            hits = search(idx, query or kind, limit=20)
+            return PiToolResultV1(
+                request_id=request.request_id, ok=True, status="COMPLETED",
+                summary=json.dumps({"hits": hits}, ensure_ascii=False),
+            )
         if name == "rosclaw_fail_safe":
             await service.cancel(request.mission_id)
             return PiToolResultV1(

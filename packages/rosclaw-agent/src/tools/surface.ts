@@ -44,6 +44,7 @@ export const EMBODIMENT_PACK: readonly string[] = [
 	"rosclaw_verify",
 	"rosclaw_request_action",
 	"rosclaw_memory_query",
+	"rosclaw_inspect",
 	"rosclaw_fail_safe",
 	// PR-H5：统一执行入口 + operation 等待/停止
 	"rosclaw_execute",

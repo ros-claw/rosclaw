@@ -17,6 +17,13 @@ def main() -> int:
     if root is not None:
         return root
 
+    # PR-N3：inspect self/robot/capability/asset（生态索引自检）。
+    from rosclaw.cognition.inspect_cli import dispatch_inspect_argv
+
+    inspected = dispatch_inspect_argv(sys.argv[1:])
+    if inspected is not None:
+        return inspected
+
     from rosclaw.operator.cli import dispatch_operator_argv
 
     result = dispatch_operator_argv(sys.argv[1:])

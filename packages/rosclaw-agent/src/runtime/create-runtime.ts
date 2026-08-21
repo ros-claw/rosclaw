@@ -36,6 +36,7 @@ import { createRosclawExtension } from "../extension/index.js";
 import { buildBridgeTools } from "../tools/bridge-tools.js";
 import { buildRequestActionTool } from "../tools/request-action.js";
 import { buildCapabilitiesTool } from "../tools/capabilities.js";
+import { buildInspectTool } from "../tools/inspect.js";
 import { buildComputeTool } from "../tools/compute.js";
 import { buildTaskTool } from "../tools/task.js";
 import { buildStatusTool } from "../tools/status.js";
@@ -242,6 +243,12 @@ export async function createRosclawRuntime(
 					center,
 				}),
 				buildStatusTool(center),
+				// PR-N3：生态索引自检（inspect self/robot/capability/asset）。
+				buildInspectTool({
+					rosclawHome: options.rosclawHome,
+					active,
+					center,
+				}),
 				// PR-SIX-3：当前 body 的可信能力面（模型不再猜 ID）。
 				buildCapabilitiesTool({
 					rosclawHome: options.rosclawHome,

@@ -1020,6 +1020,24 @@ class PiBridgeServer:
                 reason=str(params.get("reason", "")),
             )
             return {"ok": True}
+        if method == "pi.inspect":
+            # PR-N3：生态索引自检（self/robot/capability/asset）——
+            # 程序探测，不靠模型猜。
+            from rosclaw.cognition.index.query import robot_chain, search
+            from rosclaw.cognition.inspect_cli import ensure_index, inspect_self
+
+            kind = str(params.get("kind", "self"))
+            query = str(params.get("query", ""))
+            if kind == "self":
+                return {"ok": True, "info": inspect_self(service._home)}
+            idx = ensure_index(service._home)
+            if kind == "robot":
+                chain = robot_chain(idx, query)
+                if chain is None:
+                    return {"ok": False, "error": f"未知机器人 {query!r}"}
+                return {"ok": True, "chain": chain}
+            hits = search(idx, query or kind, limit=20)
+            return {"ok": True, "hits": hits}
         if method == "pi.kernel.artifacts":
             # PR-H8：/artifacts——产物账本（登记才算交付，模型口头提到
             # 不算）。

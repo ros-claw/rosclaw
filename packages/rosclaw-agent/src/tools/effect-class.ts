@@ -40,6 +40,7 @@ export const EFFECT_BY_TOOL: Record<string, EffectClass> = {
 	rosclaw_wait_operation: "READ_ONLY",
 	rosclaw_stop_operation: "HOST_PROCESS",
 	rosclaw_memory_query: "READ_ONLY",
+	rosclaw_inspect: "READ_ONLY",
 	rosclaw_fail_safe: "SHADOW_PROPOSAL",
 	// Product Pack
 	rosclaw_artifact_register: "WORKSPACE_WRITE",

@@ -150,3 +150,69 @@ class TestTrustedContext:
         finally:
             session.stop()
             fake.close()
+
+
+class _InspectFake:
+    """第一轮 → rosclaw_inspect(robot ur5e)；结果回 → 最终回答。"""
+
+    def __init__(self) -> None:
+        self.requests: list[dict] = []
+
+    def answer(self, body: dict) -> bytes:
+        self.requests.append(body)
+        messages = body.get("messages", [])
+        if not body.get("stream"):
+            return json.dumps({
+                "id": "c", "object": "chat.completion", "created": 1,
+                "model": "fake-k3",
+                "choices": [{"index": 0, "message": {"role": "assistant", "content": "pong"}, "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 5, "completion_tokens": 5},
+            }).encode()
+        has_tool_result = bool(messages) and messages[-1].get("role") == "tool"
+        if has_tool_result:
+            frames = [
+                _sse(_chunk("UR5e 权威资产已定位。")),
+                _sse(_chunk("", "stop")),
+                b"data: [DONE]\n\n",
+            ]
+            return b"".join(frames)
+        from tests.agentd.test_product_journey import _tool_call_frames
+
+        frames = _tool_call_frames(
+            "call_inspect", "rosclaw_inspect",
+            json.dumps({"kind": "robot", "query": "ur5e"}),
+        )
+        frames.append(b"data: [DONE]\n\n")
+        return b"".join(frames)
+
+
+class TestInspectTool:
+    def test_inspect_robot_returns_canonical_chain_to_model(self, tmp_path: Path) -> None:
+        """模型调 rosclaw_inspect → 一次调用拿到权威资产链（不再全盘
+        搜索同名文件）。"""
+        fake = _FakeServer()
+        fake.fake = _InspectFake()  # type: ignore[assignment]
+        handler = type("H", (_Handler,), {"fake": fake.fake})
+        fake.server.RequestHandlerClass = handler
+        # _FakeServer 构造时已绑定 handler 类——直接替换 fake 对象即可
+        # （handler 通过类属性读 fake.fake 的引用——直接换）。
+        home, workdir, env = _prepare(tmp_path, fake.base_url)
+        (workdir / ".git").mkdir(exist_ok=True)
+        session = PtySession(
+            [sys.executable, "-m", "rosclaw.entrypoint", "chat"],
+            env, log_path=tmp_path / "pty-n2-inspect.log", cwd=workdir,
+        )
+        try:
+            session.expect(b"ROSClaw Native Agent", timeout=120)
+            session.send("查一下 ur5e 的权威模型资产\r")
+            session.expect("UR5e 权威资产已定位。".encode(), timeout=240)
+            # 假模型收到的 tool 结果必须含权威链。
+            all_text = json.dumps(fake.fake.requests, ensure_ascii=False)
+            assert "robot.mjcf.xml" in all_text, "权威 MJCF 未到达模型"
+            assert "e-urdf-zoo" in all_text
+            assert "canonical" in all_text
+            session.expect_with_resend(b"rosclaw continue", "/quit\r", timeout=60)
+            session.proc.wait(timeout=30)
+        finally:
+            session.stop()
+            fake.close()
