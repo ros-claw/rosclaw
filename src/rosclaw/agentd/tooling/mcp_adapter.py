@@ -106,6 +106,16 @@ def _normalize_result(tool_name: str, source: str, result: Any) -> str | ToolExe
             dropped.append("image_signature_mismatch")
             continue
         images.append(ToolImage(mime_type=mime_type, data_base64=encoded))
+    # PR-N5B：单文本块且可解析为 JSON 对象 → canonical value 是内层
+    # 载荷本身（传输包装 tool/source/content 不是工具输出）。含图片/
+    # dropped 块时保留包装（图像证据边界不动）。
+    if not images and not dropped and len(parts) == 1:
+        try:
+            inner = _json.loads(parts[0])
+        except ValueError:
+            inner = None
+        if isinstance(inner, dict):
+            return _json.dumps(inner, ensure_ascii=False)
     payload: dict[str, Any] = {
         "tool": tool_name,
         "source": source,
@@ -142,6 +152,13 @@ class McpServerConfig:
     #: simulation_state_only；缺省 fail closed 不自动批准）。
     effect_domain: str = ""
     timeout_ms: int = 5000
+    #: PR-N5B/N5E 过渡：server 声明的 per-tool output_schema（第一方
+    #: kit 显式声明；未声明的工具 execute_v2 诚实 OUTPUT_SCHEMA_MISSING，
+    #: 不猜结构）。
+    output_schemas: dict = None  # type: ignore[assignment]  # dataclass 默认见 __post_init__
+    def __post_init__(self) -> None:
+        if self.output_schemas is None:
+            object.__setattr__(self, "output_schemas", {})
 
     def spawn_env(self) -> dict[str, str]:
         env: dict[str, str] = {}
@@ -249,6 +266,7 @@ class McpCapabilityAdapter:
                 ),
                 description=tool.description or "",
                 input_schema=dict(tool.inputSchema or {}),
+                output_schema=dict(cfg.output_schemas.get(tool.name, {})),
                 supported_modes=list(cfg.supported_modes),
                 required_body_types=list(cfg.required_body_types),
                 effect_domain=cfg.effect_domain if physical else "",
@@ -279,6 +297,16 @@ class McpCapabilityAdapter:
             if self._client is not None:
                 raw = await self._client.call_tool(tool_name, arguments)
                 if isinstance(raw, ToolExecutionResult):
+                    return raw
+                # PR-N5B：内层 JSON 对象即 canonical value（不套传输包装）。
+                if isinstance(raw, str):
+                    try:
+                        inner = _json.loads(raw)
+                    except ValueError:
+                        inner = None
+                    if isinstance(inner, dict):
+                        return inner
+                if isinstance(raw, dict):
                     return raw
                 return _json.dumps(
                     {"tool": tool_name, "source": self.source, "content": [raw]},

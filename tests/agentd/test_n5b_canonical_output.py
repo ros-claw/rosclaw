@@ -19,8 +19,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
 from rosclaw.contracts.agent.tool import ExecutionClass, ToolDescriptorV2
 
 _SCHEMA = {

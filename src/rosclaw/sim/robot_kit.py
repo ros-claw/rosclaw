@@ -126,4 +126,70 @@ def kit_server_spec(kit: RobotKitV1) -> dict[str, Any]:
         # 七审 §2.5：第一方 SIM kit 的动作只改仿真状态——POLICY_AUTO
         # 的效果域依据。
         "effect_domain": "SIMULATION_STATE_ONLY",
+        # PR-N5B：第一方 kit 显式声明 output_schema（canonical 输出
+        # 验证依据；N5E 将收紧为 binding manifest）。
+        "output_schemas": dict(_UR5E_OUTPUT_SCHEMAS),
     }
+
+
+#: UR5e 第一方 kit 观测/计算工具的 canonical 输出形状（与
+#: ur5e_mcp.py executor 返回一一对应；required 只列稳定核心键）。
+_UR5E_OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
+    "ur5e.get_joint_state": {
+        "type": "object",
+        "properties": {
+            "ok": {"type": "boolean", "const": True},
+            "evidence_domain": {"type": "string", "const": "simulation"},
+            "joints": {"type": "array", "items": {"type": "number"}},
+            "moving": {"type": "boolean"},
+            "observed_at": {"type": "string"},
+        },
+        "required": ["ok", "evidence_domain", "joints", "moving"],
+        "additionalProperties": True,
+    },
+    "ur5e.get_end_effector_pose": {
+        "type": "object",
+        "properties": {
+            "ok": {"type": "boolean", "const": True},
+            "evidence_domain": {"type": "string", "const": "simulation"},
+            "pose": {"type": "object"},
+            "observed_at": {"type": "string"},
+        },
+        "required": ["ok", "evidence_domain", "pose"],
+        "additionalProperties": True,
+    },
+    "ur5e.get_cartesian_trace": {
+        "type": "object",
+        "properties": {
+            "ok": {"type": "boolean", "const": True},
+            "evidence_domain": {"type": "string", "const": "simulation"},
+            "evidence_level": {"type": "string", "const": "COMMAND_REPLAY"},
+            "trace": {"type": "object"},
+            "observed_at": {"type": "string"},
+        },
+        "required": ["ok", "evidence_domain", "trace"],
+        "additionalProperties": True,
+    },
+    "ur5e.plan_cartesian_path": {
+        "type": "object",
+        "properties": {
+            "ok": {"type": "boolean", "const": True},
+            "plan_id": {"type": "string"},
+            "trajectory_hash": {"type": "string"},
+            "summary": {"type": "string"},
+            "point_count": {"type": "integer"},
+            "workspace_ok": {"type": "boolean"},
+        },
+        "required": ["ok", "point_count", "workspace_ok"],
+        "additionalProperties": True,
+    },
+    "ur5e.verify_drawing": {
+        "type": "object",
+        "properties": {
+            "ok": {"type": "boolean", "const": True},
+            "verification": {"type": "object"},
+        },
+        "required": ["ok", "verification"],
+        "additionalProperties": True,
+    },
+}
