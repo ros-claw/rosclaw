@@ -96,10 +96,20 @@ def verdict_for(
     acceptance: dict,
     workspace: Path,
     summary: str,
+    require_trusted_evidence: bool = False,
+    trusted_evidence_present: bool = False,
 ) -> dict[str, Any]:
     """统一判定。返回 {status, checks, failures}——status:
-    PASS / REPAIR_REQUIRED（零证据即 REPAIR_REQUIRED，绝不 PASS）。"""
+    PASS / REPAIR_REQUIRED（零证据即 REPAIR_REQUIRED，绝不 PASS）。
+
+    PR-N0：require_trusted_evidence（机器人行为任务）时必须有受信
+    管道证据（kernel 内部登记的产物）——模型自产证据不算数。"""
     failures = verify_artifacts(artifacts, workspace)
+    if require_trusted_evidence and not trusted_evidence_present:
+        failures.append(
+            "TRUSTED_EVIDENCE_MISSING: 机器人行为任务缺受信管道的独立"
+            "验证证据——模型自产 artifact 不算数"
+        )
     checks = len(artifacts)
     acc_checks, acc_failures = verify_acceptance(acceptance, workspace)
     checks += acc_checks

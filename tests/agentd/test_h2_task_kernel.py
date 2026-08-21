@@ -86,6 +86,9 @@ class TestInputTransaction:
             message_id="msg_1", text="画五角星", cwd=str(tmp_path),
         )
         kernel.transition(first["task_id"], "SUCCEEDED", reason="verified")
+        # PR-N0：用户 /done 接受后，新消息才开新任务（未接受则重开
+        # 同一任务的 revision——幽灵成功熔断）。
+        kernel.accept_task(first["task_id"])
         second = kernel.bind_message(
             mission_id="m1", session_ref="s1", backend_native_id="n1",
             message_id="msg_2", text="再画一个圆", cwd=str(tmp_path),

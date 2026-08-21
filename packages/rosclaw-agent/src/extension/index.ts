@@ -487,10 +487,10 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 					return;
 				}
 				try {
-					await center.call("pi.kernel.transition", {
+					// PR-N0：/done = 用户接受（user_accepted_at）——此后
+					// 新消息开新任务；未接受的 SUCCEEDED 被用户修正重开。
+					await center.call("pi.kernel.accept", {
 						task_id: inputController.currentTaskId,
-						state: "SUCCEEDED",
-						reason: "user_accepted",
 					});
 					ctx.ui.notify(
 						`任务已接受（${inputController.currentTaskId.slice(0, 14)}…）`,

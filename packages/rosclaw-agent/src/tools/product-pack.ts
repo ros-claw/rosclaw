@@ -34,15 +34,13 @@ export function buildProductPackTools(ctx: BridgeToolContext): ToolDefinition[] 
 			label: "ROSClaw Task Finish",
 			description:
 				"Finish the current task: the verifier really runs (registered " +
-				"artifacts checked by content hash, acceptance checked). " +
-				"REPAIR_REQUIRED returns failures — fix in the SAME task, then " +
-				"finish again. Zero evidence never succeeds.",
+				"artifacts checked by content hash; the acceptance frozen at " +
+				"task creation is checked — you CANNOT pass new acceptance " +
+				"rules here). REPAIR_REQUIRED returns failures — fix in the " +
+				"SAME task, then finish again. Zero evidence never succeeds.",
 			parameters: Type.Object({
 				summary: Type.String({ description: "完成摘要（用户可见）" }),
 				artifact_ids: Type.Optional(Type.Array(Type.String())),
-				acceptance: Type.Optional(Type.Record(Type.String(), Type.Unknown(), {
-					description: "结构化验收：{required_files:[...]} 或 {run:{argv:[...]}}",
-				})),
 			}),
 			async execute(_id, params, _signal, _onUpdate, _toolCtx) {
 				return await executeVia(ctx, "rosclaw_task_finish", params as Record<string, unknown>);

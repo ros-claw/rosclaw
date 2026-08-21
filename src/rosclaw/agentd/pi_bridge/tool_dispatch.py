@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from rosclaw.agentd.pi_bridge.session_binding import SessionBindingStore
@@ -437,29 +436,38 @@ class PiToolDispatcher:
         path = str(request.arguments.get("path", ""))
         if not path:
             raise ToolBridgeError("INVALID_ARGUMENTS", "path required")
-        # 相对路径解析：会话 cwd（模型实际干活的目录）优先，任务
-        # 工作区兜底（§10.1 workspace 固定，但主会话 cwd=用户项目根
-        # 时写入发生在那里——登记必须找到真实文件）。
+        # PR-N0：确定性解析——相对路径依次按会话 cwd（模型实际工作
+        # 目录）与任务 workspace 解析成绝对路径后交 kernel；两处都不
+        # 存在时报错列出两个实际根（禁止反复猜路径）。真正的单一事实
+        # 源（ActiveTaskContext）在 PR-N1。
         from pathlib import Path as _Path
 
         session_cwd = str(request.arguments.get("cwd", "") or "")
+        task_ws = str(task["workspace_path"])
         if _Path(path).is_absolute():
             resolved = path
         elif session_cwd and (_Path(session_cwd) / path).exists():
             resolved = str(_Path(session_cwd) / path)
+        elif (_Path(task_ws) / path).exists():
+            resolved = str(_Path(task_ws) / path)
         else:
-            resolved = str(_Path(task["workspace_path"]) / path)
+            raise ToolBridgeError(
+                "ARTIFACT_MISSING",
+                f"artifact 不存在: {path}（已查会话目录 {session_cwd or '—'} "
+                f"与任务工作区 {task_ws}）",
+            )
         try:
             artifact = kernel.register_artifact(
                 task_id=task["task_id"], path=resolved,
                 media_type=str(request.arguments.get("media_type", "application/octet-stream")),
+                producer="model:rosclaw_artifact_register",
             )
         except ValueError as exc:
             raise ToolBridgeError("ARTIFACT_MISSING", str(exc)) from exc
         return PiToolResultV1(
             request_id=request.request_id,
             ok=True, status="REGISTERED",
-            summary=f"交付物已登记：{Path(resolved).name}（{artifact['size_bytes']}B）artifact_id={artifact['artifact_id']}",
+            summary=f"交付物已登记：{_Path(artifact['path']).name}（{artifact['size_bytes']}B）artifact_id={artifact['artifact_id']}",
         )
 
     async def _task_finish(self, request: PiToolRequestV1) -> PiToolResultV1:
@@ -475,8 +483,8 @@ class PiToolDispatcher:
             artifact_ids=[
                 str(a) for a in (request.arguments.get("artifact_ids") or [])
             ],
-            acceptance=dict(request.arguments.get("acceptance") or {}),
         )
+
         if result["status"] == "SUCCEEDED":
             return PiToolResultV1(
                 request_id=request.request_id, ok=True, status="SUCCEEDED",
@@ -606,10 +614,12 @@ class PiToolDispatcher:
         args = request.arguments
         goal = str(args.get("goal", "")).strip()
         parameters = args.get("parameters")
-        if goal != "draw_shape" or not isinstance(parameters, dict):
+        if goal not in ("simulate_trajectory", "draw_shape") or not isinstance(
+            parameters, dict
+        ):
             raise ToolBridgeError(
                 "UNKNOWN_CAPABILITY",
-                f"未知确定性任务 {goal!r}——当前支持 draw_shape"
+                f"未知确定性任务 {goal!r}——当前支持 simulate_trajectory"
                 "（其余长任务走 rosclaw_execute/process_start）",
             )
         service = self._service
@@ -681,9 +691,11 @@ class PiToolDispatcher:
                 import contextlib as _cl
 
                 with _cl.suppress(ValueError):
-                    # 产物文件缺失由验收 failures 表达
+                    # 产物文件缺失由验收 failures 表达；受信管道登记
+                    # （producer=kernel——PR-N0 行为任务必须有此证据）。
                     service._task_kernel.register_artifact(
-                        task_id=task["task_id"], path=path, media_type=media
+                        task_id=task["task_id"], path=path, media_type=media,
+                        producer="kernel:sim_pipeline",
                     )
         state = "VERIFIED" if not failures else "FAILED"
         payload = {

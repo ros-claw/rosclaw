@@ -94,8 +94,54 @@ class TaskKernel:
             "ORDER BY t.created_at DESC LIMIT 1",
             (mission_id, session_ref),
         ).fetchone()
-        if active is not None and active["state"] in TASK_TERMINAL:
-            active = None  # 已终态的 task 不再收 revision
+        if (
+            active is not None
+            and active["state"] in TASK_TERMINAL
+            and not (
+                active["state"] == "SUCCEEDED"
+                and not active["user_accepted_at"]
+            )
+        ):
+            active = None  # 已终态且（非 SUCCEEDED 或已被用户接受）
+        if active is not None and active["state"] == "SUCCEEDED":
+            # PR-N0：SUCCEEDED 但未经 /done 接受 → 用户修正消息重开
+            # 同一任务（revision+1、状态回 RUNNING、旧 verification
+            # 立即作废——幽灵成功熔断）。
+            task_id = str(active["task_id"])
+            revision = int(active["active_revision"]) + 1
+            now = datetime.now(UTC).isoformat()
+            self._conn.execute(
+                "INSERT INTO task_revisions (task_id, revision, "
+                "user_message_id, goal_delta, created_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (task_id, revision, message_id, text, now),
+            )
+            self._conn.execute(
+                "UPDATE tasks SET active_revision = ?, state = 'RUNNING', "
+                "updated_at = ? WHERE task_id = ?",
+                (revision, now, task_id),
+            )
+            superseded = self._conn.execute(
+                "UPDATE verifications SET status = 'SUPERSEDED' "
+                "WHERE task_id = ? AND status = 'PASS'",
+                (task_id,),
+            ).rowcount
+            self._emit(task_id, "verification.superseded",
+                       {"count": superseded, "reason": "user_rejected"},
+                       session_ref=session_ref)
+            self._emit(task_id, "task.revised",
+                       {"revision": revision, "delta": text[:200],
+                        "reopened_from": "SUCCEEDED"},
+                       session_ref=session_ref)
+            return {
+                "task_id": task_id,
+                "revision": revision,
+                "created_task": False,
+                "replayed": False,
+                "reopened": True,
+                "workspace_path": str(active["workspace_path"]),
+                "state": "RUNNING",
+            }
         if active is not None and force_new:
             self._conn.execute(
                 "UPDATE task_session_bindings SET active = 0 "
@@ -264,12 +310,27 @@ class TaskKernel:
     def register_artifact(
         self, *, task_id: str, path: str, media_type: str,
         producer_operation_id: str = "",
+        producer: str = "model:tool",
     ) -> dict[str, Any]:
         """登记交付物：实读文件算 sha256/size（不存在的文件拒绝登记）。
-        登记才进交付列表——模型口头提到不算。"""
+        登记才进交付列表——模型口头提到不算。
+
+        PR-N0：producer 区分受信管道（'kernel:<pipeline>'——内核内部
+        登记）与模型工具调用（'model:<tool>'）；相对路径只按任务
+        workspace 根解析（禁止按 session cwd 猜——cwd 分裂是事故
+        根因之一），找不到时报错带实际解析根。"""
+        task = self.get_task(task_id)
+        if task is None:
+            raise ValueError(f"unknown task {task_id!r}")
+        workspace = Path(str(task["workspace_path"])).resolve()
         file = Path(path)
+        if not file.is_absolute():
+            file = workspace / file
+        file = file.resolve()
         if not file.exists():
-            raise ValueError(f"artifact 不存在: {path}")
+            raise ValueError(
+                f"artifact 不存在: {path}（解析根: {workspace}）"
+            )
         content = file.read_bytes()
         artifact_id = new_id("art")
         now = datetime.now(UTC).isoformat()
@@ -283,10 +344,10 @@ class TaskKernel:
         }
         self._conn.execute(
             "INSERT INTO artifacts (artifact_id, task_id, path, media_type, "
-            "sha256, size_bytes, producer_operation_id, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "sha256, size_bytes, producer_operation_id, producer, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (artifact_id, task_id, str(file), media_type, record["sha256"],
-             len(content), producer_operation_id or None, now),
+             len(content), producer_operation_id or None, producer, now),
         )
         self._emit(task_id, "artifact.created",
                    {"artifact_id": artifact_id, "path": str(file),
@@ -295,19 +356,29 @@ class TaskKernel:
 
     def finish_task(
         self, *, task_id: str, summary: str, artifact_ids: list[str],
-        acceptance: dict | None = None,
     ) -> dict[str, Any]:
         """FinishRequest（§12.1）：验收真跑 → SUCCEEDED / REPAIR_REQUIRED。
-        终态幂等（重放不重复验证、不覆盖）。"""
+        终态幂等（重放不重复验证、不覆盖——返回原 receipt id）。
+
+        PR-N0 熔断：
+        - 验收条件只读任务创建时冻结值（模型收尾不得改规则）；
+        - 机器人行为任务（body_id 非空）必须含受信管道证据
+          （kernel 内部登记的产物）——模型自产证据不算数。
+        """
         task = self.get_task(task_id)
         if task is None:
             raise ValueError(f"unknown task {task_id!r}")
         if task["state"] in TASK_TERMINAL:
-            # 幂等：SUCCEEDED 重放返回既有终态。
+            # 幂等：SUCCEEDED 重放返回既有终态 + 原 receipt。
+            prior = self._conn.execute(
+                "SELECT verification_id FROM verifications WHERE task_id = ? "
+                "AND status = 'PASS' ORDER BY rowid DESC LIMIT 1",
+                (task_id,),
+            ).fetchone()
             return {
                 "status": task["state"],
                 "already_terminal": True,
-                "verification_id": "",
+                "verification_id": str(prior["verification_id"]) if prior else "",
             }
         artifacts = [
             dict(r)
@@ -319,11 +390,23 @@ class TaskKernel:
         ] if artifact_ids else []
         from rosclaw.task_kernel.verifier import verdict_for
 
+        rev_row = self._conn.execute(
+            "SELECT acceptance_json FROM task_revisions WHERE task_id = ? "
+            "AND revision = ?",
+            (task_id, int(task["active_revision"])),
+        ).fetchone()
+        frozen = json.loads(str(rev_row["acceptance_json"])) if rev_row else {}
+        trusted_present = any(
+            str(a.get("producer") or "").startswith("kernel:")
+            for a in artifacts
+        )
         verdict = verdict_for(
             artifacts=artifacts,
-            acceptance=acceptance or {},
+            acceptance=frozen,
             workspace=Path(task["workspace_path"]),
             summary=summary,
+            require_trusted_evidence=bool(task["body_id"]),
+            trusted_evidence_present=trusted_present,
         )
         now = datetime.now(UTC).isoformat()
         if verdict["status"] == "PASS":
@@ -352,6 +435,40 @@ class TaskKernel:
             "failures": verdict["failures"],
             "checks": verdict["checks"],
         }
+
+    def set_acceptance(self, task_id: str, acceptance: dict) -> None:
+        """验收条件在任务创建/修订时冻结（PR-N0）——finish 不接受
+        模型临时传入的新规则。"""
+        task = self.get_task(task_id)
+        if task is None:
+            raise ValueError(f"unknown task {task_id!r}")
+        self._conn.execute(
+            "UPDATE task_revisions SET acceptance_json = ? "
+            "WHERE task_id = ? AND revision = ?",
+            (json.dumps(acceptance, ensure_ascii=False), task_id,
+             int(task["active_revision"])),
+        )
+        self._emit(task_id, "acceptance.frozen",
+                   {"revision": int(task["active_revision"])})
+
+    def accept_task(self, task_id: str) -> None:
+        """/done：用户接受（PR-N0）——SUCCEEDED 永久关闭；此后新消息
+        开新任务，不污染已接受结果。"""
+        task = self.get_task(task_id)
+        if task is None:
+            raise ValueError(f"unknown task {task_id!r}")
+        if task["state"] != "SUCCEEDED":
+            raise ValueError(
+                f"任务未验收通过（{task['state']}）——不能接受"
+            )
+        if task["user_accepted_at"]:
+            return  # 幂等
+        now = datetime.now(UTC).isoformat()
+        self._conn.execute(
+            "UPDATE tasks SET user_accepted_at = ? WHERE task_id = ?",
+            (now, task_id),
+        )
+        self._emit(task_id, "task.accepted", {"accepted_at": now})
 
     def block_task(
         self, *, task_id: str, reason_code: str, detail: str,

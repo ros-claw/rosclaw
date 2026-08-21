@@ -1002,6 +1002,13 @@ class PiBridgeServer:
                 str(params.get("session_ref", "")),
             )
             return {"ok": True, "task": task}
+        if method == "pi.kernel.accept":
+            # PR-N0：/done 用户接受（与系统验收 accepted_at 区分）。
+            try:
+                service._task_kernel.accept_task(str(params.get("task_id", "")))
+            except ValueError as exc:
+                return {"ok": False, "error": str(exc)}
+            return {"ok": True}
         if method == "pi.kernel.transition":
             kernel = service._task_kernel
             kernel.transition(
