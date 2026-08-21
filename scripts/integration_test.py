@@ -37,7 +37,7 @@ def _heading(title: str) -> None:
 def test_digital_twin() -> bool:
     """Validate both accepted and rejected UR5e trajectories in MuJoCo."""
     _heading("TEST 1: Digital Twin Firewall")
-    model_path = ROOT / "src" / "rosclaw" / "specs" / "ur5e.xml"
+    model_path = ROOT / "tests" / "fixtures" / "ur5e_minimal_fixture.xml"
     if not model_path.exists():
         print(f"FAIL: model not found at {model_path}")
         return False
@@ -85,7 +85,7 @@ def test_simulation_guard() -> bool:
     _heading("TEST 2: Simulation-Only Firewall Decorator")
     from rosclaw.firewall import mujoco_firewall
 
-    model_path = ROOT / "src" / "rosclaw" / "specs" / "ur5e.xml"
+    model_path = ROOT / "tests" / "fixtures" / "ur5e_minimal_fixture.xml"
     joint_limits = {
         "shoulder_pan_joint": (-6.2831853, 6.2831853),
         "shoulder_lift_joint": (-6.2831853, 6.2831853),
