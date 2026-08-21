@@ -80,7 +80,7 @@ class TestFullPipeline:
 
         from rosclaw.firewall import DigitalTwinFirewall, SafetyLevel
 
-        model_path = str(PROJECT_ROOT / "src" / "rosclaw" / "specs" / "ur5e.xml")
+        model_path = str(PROJECT_ROOT / "tests" / "fixtures" / "ur5e_minimal_fixture.xml")
         fw = DigitalTwinFirewall(model_path=model_path, sim_steps_per_check=10)
 
         over_traj = [np.zeros(6), np.array([10.0, 0, 0, 0, 0, 0])]
@@ -95,7 +95,7 @@ class TestFullPipeline:
 
         from rosclaw.firewall import DigitalTwinFirewall, SafetyLevel
 
-        model_path = str(PROJECT_ROOT / "src" / "rosclaw" / "specs" / "ur5e.xml")
+        model_path = str(PROJECT_ROOT / "tests" / "fixtures" / "ur5e_minimal_fixture.xml")
         fw = DigitalTwinFirewall(model_path=model_path, sim_steps_per_check=10)
 
         safe_traj = [np.zeros(6), np.array([0.3, -0.2, 0.1, 0, 0, 0])]

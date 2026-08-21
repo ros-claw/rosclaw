@@ -282,15 +282,20 @@ class UR5MCPServer:
     def _find_default_model(self) -> str:
         """Find default MuJoCo model for UR5."""
         # Try to find model in package share directories
+        # PR-N0+：生产路径不再有简化测试模型（原 specs/ur5e.xml 已移
+        # tests/fixtures/ur5e_minimal_fixture.xml）——找不到权威资产
+        # 就诚实失败，绝不返回不存在的路径假装有默认值。
         possible_paths = [
             "/opt/ros/humble/share/ur_description/meshes/ur5e/ur5e.xml",
             "/usr/share/mujoco/ur5e.xml",
-            str(Path(__file__).parent.parent / "specs" / "ur5e.xml"),
         ]
         for path in possible_paths:
             if Path(path).exists():
                 return path
-        return possible_paths[-1]  # Return last as default
+        raise FileNotFoundError(
+            "UR5e 权威资产不可用（已查 ur_description/mujoco 系统路径）"
+            "——e-URDF-Zoo 权威资产经 Resource Resolver 解析（PR-N4）"
+        )
 
     def _register_tools(self) -> None:
         """Register MCP tools."""

@@ -21,7 +21,7 @@ from rosclaw.firewall import (  # noqa: E402
 )
 
 # Path to test model
-MODEL_PATH = Path(__file__).parent.parent / "src" / "rosclaw" / "specs" / "ur5e.xml"
+MODEL_PATH = Path(__file__).parent / "fixtures" / "ur5e_minimal_fixture.xml"
 
 # UR5e joint limits
 JOINT_LIMITS = {
