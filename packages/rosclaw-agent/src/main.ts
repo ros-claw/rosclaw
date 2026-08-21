@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 /** rosclaw-agent 入口（PNA-0）：Pi InteractiveMode + ROSClaw 品牌。
  *
- * `rosclaw chat --engine pi` 由 Python CLI 转调本入口。
- * Pi 是唯一主认知循环（规格 §2.1）——本进程不启动 Python AgentLoop。
+ * `rosclaw chat` 由 Python CLI 转调本入口。用户没有 engine 选择面
+ * （ADR-0012A）：Pi 是唯一默认 Harness Backend，本进程不启动
+ * Python AgentLoop。
  */
 
 // PI_CODING_AGENT_DIR 必须在任何 pi 模块加载前设定（config.js 在
