@@ -102,3 +102,4 @@ generated/
 node_modules/
 /agentd/
 /config.yaml
+.rosclaw-index/
