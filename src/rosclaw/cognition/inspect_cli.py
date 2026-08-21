@@ -86,7 +86,27 @@ def dispatch_inspect_argv(argv: list[str]) -> int | None:
             for key, value in chain.items():
                 print(f"  {key}: {value}")
         return 0
-    if kind in ("capability", "asset"):
+    if kind == "asset":
+        # PR-N4：ResourceManifestV1（production resolver——fixture 永不
+        # 出现）。
+        from rosclaw.cognition.resolver import resolve_resource
+
+        manifest = resolve_resource(
+            "robot", query, product_root=_product_root()
+        )
+        if manifest is None:
+            print(f"无权威资源 {query!r}（production resolver 无结果——"
+                  "不降级到 fixture/猜测）", file=sys.stderr)
+            return 1
+        if json_out:
+            print(json.dumps(manifest, ensure_ascii=False, indent=2))
+        else:
+            print(f"{manifest['resource_id']} [{manifest['quality']}] "
+                  f"source={manifest['source']}")
+            for key, path in manifest["paths"].items():
+                print(f"  {key}: {path}")
+        return 0
+    if kind == "capability":
         hits = search(idx, query or kind, limit=20)
         if json_out:
             print(json.dumps({"hits": hits}, ensure_ascii=False, indent=2))

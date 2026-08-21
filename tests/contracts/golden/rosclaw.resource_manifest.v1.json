@@ -1,0 +1,76 @@
+{
+  "additionalProperties": true,
+  "description": "资源清单：身份 + 信任 + 质量 + 兼容性 + 路径 + digest。",
+  "properties": {
+    "schema_version": {
+      "const": "rosclaw.resource_manifest.v1",
+      "default": "rosclaw.resource_manifest.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "resource_id": {
+      "title": "Resource Id",
+      "type": "string"
+    },
+    "kind": {
+      "title": "Kind",
+      "type": "string"
+    },
+    "version": {
+      "default": "1.0",
+      "title": "Version",
+      "type": "string"
+    },
+    "source": {
+      "default": "",
+      "title": "Source",
+      "type": "string"
+    },
+    "trust": {
+      "default": "ROSCLAW_OFFICIAL",
+      "title": "Trust",
+      "type": "string"
+    },
+    "quality": {
+      "default": "PRODUCTION",
+      "enum": [
+        "PRODUCTION",
+        "TEST_FIXTURE",
+        "EXPERIMENTAL"
+      ],
+      "title": "Quality",
+      "type": "string"
+    },
+    "canonical": {
+      "default": true,
+      "title": "Canonical",
+      "type": "boolean"
+    },
+    "compatibility": {
+      "additionalProperties": true,
+      "title": "Compatibility",
+      "type": "object"
+    },
+    "paths": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Paths",
+      "type": "object"
+    },
+    "digests": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Digests",
+      "type": "object"
+    }
+  },
+  "required": [
+    "resource_id",
+    "kind"
+  ],
+  "title": "rosclaw.resource_manifest.v1",
+  "type": "object",
+  "$id": "rosclaw://schemas/rosclaw.resource_manifest.v1"
+}

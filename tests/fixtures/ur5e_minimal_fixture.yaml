@@ -1,0 +1,15 @@
+# 简化 UR5e 测试夹具（N 总纲 §8.4）——生产路径陷阱的诚实标记。
+# 原为 src/rosclaw/specs/ur5e.xml（项目早期 MuJoCo firewall 阶段引入
+# 的简化圆柱/胶囊模型）。绝不用于正式任务交付。
+resource_id: robot:ur5e_minimal_fixture
+kind: robot
+version: "1.0"
+source: tests/fixtures
+trust: TEST_ONLY
+quality: TEST_FIXTURE
+canonical: false
+compatibility:
+  simulators: [mujoco]
+  note: 简化圆柱/胶囊模型——仅测试用
+paths:
+  mjcf: ur5e_minimal_fixture.xml

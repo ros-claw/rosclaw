@@ -356,6 +356,24 @@ class Sandbox:
 
         return self._load_error
 
+    def resource_manifest(self) -> dict:
+        """PR-N4（§8 PR-N4）：加载的模型资源身份——resource ID +
+        model path + 内容 digest（verifier 可证明实际加载的是哪个
+        资产）。"""
+        import hashlib
+
+        path = self._model_path
+        return {
+            "resource_id": f"robot:{self._robot_id}",
+            "model_path": str(path) if path else "",
+            "digest": (
+                "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+                if path and path.exists() else ""
+            ),
+            "world_id": self._world_id,
+            "loaded": self._model is not None,
+        }
+
     @property
     def model_path(self) -> Path | None:
         """Resolved MJCF path used by this sandbox."""

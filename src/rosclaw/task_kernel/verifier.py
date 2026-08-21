@@ -105,6 +105,14 @@ def verdict_for(
     PR-N0：require_trusted_evidence（机器人行为任务）时必须有受信
     管道证据（kernel 内部登记的产物）——模型自产证据不算数。"""
     failures = verify_artifacts(artifacts, workspace)
+    # PR-N4（§8.4）：正式任务产物引用测试夹具 → 直接失败。
+    for artifact in artifacts:
+        if "tests/fixtures" in str(artifact.get("path", "")):
+            failures.append(
+                "RESOURCE_PROVENANCE_FAILED: 产物引用测试夹具 "
+                f"{Path(str(artifact['path'])).name}——正式任务不得使用 "
+                "fixture 资产"
+            )
     if require_trusted_evidence and not trusted_evidence_present:
         failures.append(
             "TRUSTED_EVIDENCE_MISSING: 机器人行为任务缺受信管道的独立"
