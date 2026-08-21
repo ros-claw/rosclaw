@@ -66,6 +66,8 @@ export interface RosclawExtensionOptions {
 	/** 十一审 PR-D：Workspace 一等状态。 */
 	workspaceStore?: import("../session/workspace.js").WorkspaceStore;
 	workspaceAutoBound?: boolean;
+	/** PR-N1：唯一工作区事实源（session 创建前解析并冻结）。 */
+	taskContext: import("../native/active-task-context.js").ActiveTaskContext;
 }
 
 const WORKING_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -123,8 +125,14 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 		// 十一审 PR-D：Workspace——header 快照 + /workspace 命令（命令层
 		// 直接处理，不进模型）。
 		const workspaceStore = options.workspaceStore ?? new WorkspaceStore(options.rosclawHome);
+		// PR-N1：header 显示真实 workspaceRoot（来源诚实标注）——
+		// 不再用持久化 Project 名谎报（显示 Project rosclaw 而工具
+		// 在别处工作的 split-brain 已消灭）。
+		const ctxLabel = options.taskContext.workspaceSource === "default"
+			? options.taskContext.workspaceRoot
+			: options.taskContext.workspaceRoot.split("/").filter(Boolean).pop();
 		(center.noteWorkspace?.bind(center) as ((d?: string) => void) | undefined)?.(
-			workspaceStore.current ? workspaceStore.displayName() : undefined,
+			ctxLabel,
 		);
 		pi.registerCommand("workspace", {
 			description: "项目 workspace：/workspace show | use <path> | recent",
@@ -467,7 +475,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			missionId: () => options.active.current.missionId ?? "",
 			sessionRef: () => options.active.current.sessionId ?? "",
 			backendNativeId: () => options.active.current.sessionId ?? "",
-			cwd: () => process.cwd(),
+			cwd: () => options.taskContext.workspaceRoot,
 			notify: (text, kind) => {
 				latestCtx?.ui.notify(text, kind);
 			},

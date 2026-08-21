@@ -6,6 +6,7 @@
  * 助手最终回答在下一个 turn——outcome 不能提前清除）。
  */
 
+import { resolveTaskContext } from "../src/native/active-task-context.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -78,6 +79,7 @@ async function collectHarness() {
 		center,
 		locale,
 		rosclawHome: "/tmp/rh-test",
+		taskContext: resolveTaskContext({ rosclawHome: "/tmp/rh-test", cwd: "/tmp", mode: "SIMULATION" }),
 	});
 	factory(pi as never);
 	const emit = async (name: string, event: unknown) => {

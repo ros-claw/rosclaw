@@ -1,3 +1,4 @@
+import { resolveTaskContext } from "../src/native/active-task-context.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -53,7 +54,7 @@ async function collectHandlers() {
 		operatorCallFn: async () => ({ ok: false }),
 	});
 	const locale = new LocaleManager("/tmp/rh-test/agent");
-	const factory = createRosclawExtension({ profile: "developer", version: "0.1.0", systemPrompt: "TEST PROMPT", active, coordinator, center, locale, rosclawHome: "/tmp/rh-test" });
+	const factory = createRosclawExtension({ profile: "developer", version: "0.1.0", systemPrompt: "TEST PROMPT", active, coordinator, center, locale, rosclawHome: "/tmp/rh-test", taskContext: resolveTaskContext({ rosclawHome: "/tmp/rh-test", cwd: "/tmp", mode: "SIMULATION" }) });
 	factory(pi as never);
 	return { handlers, commands };
 }

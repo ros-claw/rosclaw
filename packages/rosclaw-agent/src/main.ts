@@ -88,12 +88,29 @@ async function main(): Promise<number> {
 	// WP-P0-1（总纲 §5.1）：恢复路径全部经 Pi SessionManager 公开
 	// API——不再有手写目录扫描/mtime 排序/文件名拼接（Pi 文件名可含
 	// 时间前缀，拼接 id 是格式漂移风险）。
+	const { WorkspaceStore } = await import("./session/workspace.js");
+	const workspaceStore = new WorkspaceStore(rosclawHome);
+	// PR-N1：ActiveTaskContext 在 session 创建前解析并冻结——
+	// runtime/工具/bridge/artifact/verifier/header 全从这里取路径。
+	const { resolveTaskContext } = await import("./native/active-task-context.js");
+	const taskContext = resolveTaskContext({
+		rosclawHome,
+		cwd: process.cwd(),  // 唯一允许的进程 cwd 读取（启动解析输入）
+		mode: "SIMULATION",
+		explicitWorkspace: workspace,
+	});
+	// 持久化绑定规则与旧 resolveStartupWorkspace 一致（explicit/git
+	// 会 bind；restored/default 不覆盖既有绑定）。
+	if (taskContext.workspaceSource === "explicit" || taskContext.workspaceSource === "git") {
+		workspaceStore.bind(taskContext.workspaceRoot);
+	}
+	const startupWs = { bound: workspaceStore.current, auto: taskContext.workspaceSource === "git" };
 	let initialSession: import("@earendil-works/pi-coding-agent").SessionManager | undefined;
 	const sessionDir = `${rosclawHome}/agent/sessions`;
 	if (browseSessions) {
 		const { browseSessions: openPicker } = await import("./session/picker.js");
 		const picked = await openPicker(
-			(onProgress) => SessionManager.list(process.cwd(), sessionDir, onProgress),
+			(onProgress) => SessionManager.list(taskContext.workspaceRoot, sessionDir, onProgress),
 			(onProgress) => SessionManager.listAll(sessionDir, onProgress),
 		);
 		if (!picked) return 0;  // 用户取消——干净退出，不建会话
@@ -116,18 +133,16 @@ async function main(): Promise<number> {
 		}
 		initialSession = SessionManager.open(hit.path, sessionDir);
 	} else if (continueLast) {
-		initialSession = SessionManager.continueRecent(process.cwd(), sessionDir);
+		initialSession = SessionManager.continueRecent(taskContext.workspaceRoot, sessionDir);
 	}
 	const isResume = Boolean(
 		resumeSessionId || resumeSessionPath || browseSessions || continueLast,
 	);
 	// 十一审 PR-D：Workspace 一等状态——显式 --workspace > cwd git 自动
 	// 绑定 > 既有绑定。
-	const { WorkspaceStore, resolveStartupWorkspace } = await import("./session/workspace.js");
-	const workspaceStore = new WorkspaceStore(rosclawHome);
-	const startupWs = resolveStartupWorkspace(workspaceStore, workspace, process.cwd());
 	const { runtime, coordinator, leaseManager } = await createRosclawRuntime({
-		cwd: process.cwd(),
+		cwd: taskContext.workspaceRoot,
+		taskContext,
 		rosclawHome,
 		profile,
 		version: VERSION,

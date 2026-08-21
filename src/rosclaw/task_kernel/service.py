@@ -58,6 +58,7 @@ class TaskKernel:
         body_id: str = "",
         locale: str = "auto",
         force_new: bool = False,
+        workspace_root: str = "",
     ) -> dict[str, Any]:
         """用户消息 → root task 绑定（原子）。返回
         {task_id, revision, created_task, workspace_path, replayed}。
@@ -174,8 +175,15 @@ class TaskKernel:
                 "state": str(active["state"]),
             }
         # 3. 新 root task：workspace 固定 + revision 1 + primary binding。
+        #    PR-N1：workspace_path = 调用方解析的真实工作根（用户项目/
+        #    default workspace——ActiveTaskContext 唯一事实源）；缺省才
+        #    回落 home/tasks/<id>/workspace（兼容存量调用）。
         task_id = new_id("task")
-        workspace = self._home / "tasks" / task_id / "workspace"
+        workspace = (
+            Path(workspace_root).resolve()
+            if workspace_root
+            else self._home / "tasks" / task_id / "workspace"
+        )
         workspace.mkdir(parents=True, exist_ok=True)
         for sub in ("artifacts", "checkpoints", "logs", "snapshots"):
             (self._home / "tasks" / task_id / sub).mkdir(parents=True, exist_ok=True)

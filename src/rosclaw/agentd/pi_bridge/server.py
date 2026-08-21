@@ -961,6 +961,9 @@ class PiBridgeServer:
                 text=str(params.get("text", "")),
                 cwd=str(params.get("cwd", "")),
                 mode=str(params.get("mode", "SIMULATION")),
+                # PR-N1：任务 workspace = ActiveTaskContext 的
+                # workspaceRoot（cwd 即工作根——同一事实源）。
+                workspace_root=str(params.get("cwd", "")),
                 body_id=str(params.get("body_id", "")),
                 force_new=bool(params.get("force_new", False)),
             )

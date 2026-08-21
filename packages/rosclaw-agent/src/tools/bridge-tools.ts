@@ -20,6 +20,9 @@ export interface BridgeToolContext {
 	/** 十一审 PR-D：绑定的 workspace（delegate 默认目标——不再让模型
 	 *  在自然语言里猜路径）。 */
 	workspace?: () => string | null;
+	/** PR-N1：ActiveTaskContext 的工作根（artifact 登记的会话目录
+	 *  语义就是它——不再读 process.cwd()）。 */
+	workspaceRoot?: string;
 }
 
 let requestCounter = 0;

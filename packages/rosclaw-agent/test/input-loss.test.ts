@@ -13,6 +13,7 @@ import test from "node:test";
 
 async function callInputHandler(text: string) {
 	const { createRosclawExtension } = await import("../src/extension/index.js");
+	const { resolveTaskContext } = await import("../src/native/active-task-context.js");
 	const { envelopeHash } = await import("../src/extension/context-injection.js");
 	const handlers: Record<string, (event: unknown, ctx: unknown) => Promise<unknown>> = {};
 	const fakePi = new Proxy(
@@ -83,6 +84,7 @@ async function callInputHandler(text: string) {
 		center,
 		locale: { effective: "zh-CN", subscribe: () => () => {} },
 		rosclawHome: "/tmp/rh-nine1",
+		taskContext: resolveTaskContext({ rosclawHome: "/tmp/rh-nine1", cwd: "/tmp", mode: "SIMULATION" }),
 	} as never;
 	const factory = createRosclawExtension(options);
 	factory(fakePi as never);

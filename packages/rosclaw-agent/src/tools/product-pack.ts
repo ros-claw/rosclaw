@@ -25,7 +25,7 @@ export function buildProductPackTools(ctx: BridgeToolContext): ToolDefinition[] 
 			async execute(_id, params, _signal, _onUpdate, _toolCtx) {
 				return await executeVia(ctx, "rosclaw_artifact_register", {
 					...(params as Record<string, unknown>),
-					cwd: process.cwd(),
+					cwd: ctx.workspaceRoot ?? "",
 				});
 			},
 		}),

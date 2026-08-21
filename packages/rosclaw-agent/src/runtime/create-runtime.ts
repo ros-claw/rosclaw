@@ -41,6 +41,9 @@ import { buildStatusTool } from "../tools/status.js";
 
 export interface RosclawRuntimeOptions {
 	cwd: string;
+	/** PR-N1：ActiveTaskContext（session 创建前解析并冻结——唯一
+	 *  工作区事实源）。 */
+	taskContext: import("../native/active-task-context.js").ActiveTaskContext;
 	rosclawHome: string;
 	profile: "developer" | "robot";
 	version: string;
@@ -175,6 +178,7 @@ export async function createRosclawRuntime(
 								sessionManager,
 								workspaceStore: options.workspaceStore,
 								workspaceAutoBound: options.workspaceAutoBound === true,
+								taskContext: options.taskContext,
 							}),
 						},
 					],
@@ -207,6 +211,7 @@ export async function createRosclawRuntime(
 					rosclawHome: options.rosclawHome,
 					active,
 					center,
+					workspaceRoot: options.taskContext.workspaceRoot,
 				}),
 				// PR-H5：统一执行入口 + operation 控制。
 				...buildEmbodimentExecTools({
