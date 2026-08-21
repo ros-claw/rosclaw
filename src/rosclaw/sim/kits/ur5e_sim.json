@@ -54,8 +54,7 @@
    "ur5e.move_to_pose",
    "ur5e.stop",
    "ur5e.execute_plan",
-   "ur5e.reset_simulation",
-   "ur5e.execute_cartesian_path"
+   "ur5e.reset_simulation"
   ],
   "compute": [
    "ur5e.plan_cartesian_path",

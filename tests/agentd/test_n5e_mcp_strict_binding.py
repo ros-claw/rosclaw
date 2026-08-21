@@ -161,6 +161,12 @@ class TestSharedSnapshotFacts:
         service, mission = await _setup(tmp_path)
         await service._ensure_mcp_discovered()
         for d in service._tool_catalog.list(source="mcp:ur5e-sim"):
+            if d.tool_id == "ur5e.execute_cartesian_path":
+                # deprecated dev 整轨迹层按设计隔离（八审 P0-3 模型不得
+                # 搬运载荷 + N5E 未声明不上线——两契约同时成立）。
+                reason = service._tool_catalog.quarantine_reason(d.tool_id)
+                assert reason is not None and "QUARANTINED_UNCLASSIFIED" in reason
+                continue
             assert service._tool_catalog.quarantine_reason(d.tool_id) is None, (
                 f"第一方 kit 工具被误隔离: {d.tool_id}"
             )
