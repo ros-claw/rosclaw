@@ -1,21 +1,33 @@
-/** 资源安全策略（PNA-9，规格 §10）。
+/** 资源安全策略（PR-N2 重构，N 总纲 §PR-N2）——四通道拆分。
  *
- * - robot：机器人/SHADOW/REAL——全部项目资源禁止，凭据 env-only；
- * - developer：桌面开发/SIM——允许用户级主题，项目资源仍需显式批准
- *   （默认不加载 .pi/extensions、AGENTS.md、~/.agents/skills）；
- * - worker：headless 原生 Worker——无 ROS 网络/控制 socket/机器人设备，
- *   仅 WorkOrder 指定目录的只读文件工具（本包内不启用任何文件工具，
- *   worker sandbox 的文件能力由 WorkerPack 侧实现并验证）。
+ * 旧五连布尔（noExtensions/noSkills/noPromptTemplates/noThemes/
+ * noContextFiles）把"可信只读项目上下文"和"任意可执行扩展"一刀切
+ * 全关——Native Agent 因此失去成熟 Harness 的项目认知入口。
+ *
+ * 拆分语义：
+ * - contextFiles："off" | "trusted-readonly"——AGENTS.md/CLAUDE.md
+ *   等只读上下文在信任根内允许（来源/路径/大小预算见
+ *   trustFilterContextFiles）；
+ * - skills："off" | "bundled-signed"——任意项目 Skill 不加载；仅
+ *   ROSClaw 内置且 digest 校验通过的 Skill（bundled-skills.ts）；
+ * - promptTemplates："off"——项目提示模板是文本注入面，默认关；
+ * - extensions："off"——任意项目可执行扩展默认禁（后续显式批准
+ *   机制另行开放）；
+ * - executables："off"——项目 hooks/脚本类可执行资源默认禁。
  */
 
 export type ResourceProfile = "robot" | "developer" | "worker";
 
+export type ChannelPolicy = "off" | "trusted-readonly" | "bundled-signed";
+
 export interface ResourcePolicy {
-	noExtensions: boolean;
-	noSkills: boolean;
-	noPromptTemplates: boolean;
-	noThemes: boolean;
-	noContextFiles: boolean;
+	contextFiles: ChannelPolicy;
+	skills: ChannelPolicy;
+	promptTemplates: "off";
+	extensions: "off";
+	executables: "off";
+	/** 用户主题（纯展示，非项目面）。 */
+	themes: boolean;
 	credentialPolicy: "env-only" | "file-0600";
 	allowBash: boolean;
 	allowFileTools: boolean;
@@ -25,36 +37,68 @@ export function resourcePolicy(profile: ResourceProfile): ResourcePolicy {
 	switch (profile) {
 		case "robot":
 			return {
-				noExtensions: true,
-				noSkills: true,
-				noPromptTemplates: true,
-				noThemes: true,
-				noContextFiles: true,
+				contextFiles: "off",
+				skills: "off",
+				promptTemplates: "off",
+				extensions: "off",
+				executables: "off",
+				themes: false,
 				credentialPolicy: "env-only",
 				allowBash: false,
 				allowFileTools: false,
 			};
 		case "developer":
 			return {
-				noExtensions: true, // 项目扩展默认不加载（显式批准机制后续批次）
-				noSkills: true,
-				noPromptTemplates: true,
-				noThemes: false, // 用户主题允许
-				noContextFiles: true, // AGENTS.md 不注入（具身注入走 envelope）
+				contextFiles: "trusted-readonly",
+				skills: "bundled-signed",
+				promptTemplates: "off",
+				extensions: "off",
+				executables: "off",
+				themes: true,
 				credentialPolicy: "file-0600",
 				allowBash: false,
 				allowFileTools: false,
 			};
 		case "worker":
 			return {
-				noExtensions: true,
-				noSkills: true,
-				noPromptTemplates: true,
-				noThemes: true,
-				noContextFiles: true,
+				contextFiles: "off",
+				skills: "off",
+				promptTemplates: "off",
+				extensions: "off",
+				executables: "off",
+				themes: false,
 				credentialPolicy: "env-only",
 				allowBash: false,
-				allowFileTools: false, // WorkerPack 侧按 WorkOrder 授权
+				allowFileTools: false,
 			};
 	}
+}
+
+/** 上下文文件信任过滤（来源+路径+大小预算；超预算/出根剔除并诊断）。 */
+export function trustFilterContextFiles(
+	files: Array<{ path: string; content: string }>,
+	options: { allowedRoots: string[]; maxTotalBytes: number },
+): { kept: Array<{ path: string; content: string }>; diagnostics: string[] } {
+	const kept: Array<{ path: string; content: string }> = [];
+	const diagnostics: string[] = [];
+	let total = 0;
+	for (const file of files) {
+		const inRoot = options.allowedRoots.some(
+			(root) => file.path === root || file.path.startsWith(root + "/"),
+		);
+		if (!inRoot) {
+			diagnostics.push(`剔除（出信任根）：${file.path}`);
+			continue;
+		}
+		const bytes = Buffer.byteLength(file.content, "utf-8");
+		if (total + bytes > options.maxTotalBytes) {
+			diagnostics.push(
+				`剔除（超预算 ${options.maxTotalBytes}B）：${file.path}（${bytes}B）`,
+			);
+			continue;
+		}
+		total += bytes;
+		kept.push(file);
+	}
+	return { kept, diagnostics };
 }

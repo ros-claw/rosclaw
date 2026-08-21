@@ -34,11 +34,17 @@ test("known commands pass through", () => {
 
 test("resource policy per profile", () => {
 	const robot = resourcePolicy("robot");
-	assert.ok(robot.noExtensions && robot.noSkills && robot.noContextFiles && robot.noThemes);
+	assert.ok(
+		robot.extensions === "off" && robot.skills === "off"
+		&& robot.contextFiles === "off" && !robot.themes,
+	);
 	assert.equal(robot.credentialPolicy, "env-only");
 	assert.equal(robot.allowBash, false);
 	const developer = resourcePolicy("developer");
-	assert.equal(developer.noThemes, false, "developer 允许用户主题");
+	assert.equal(developer.themes, true, "developer 允许用户主题");
+	// PR-N2：developer 的可信上下文/内置签名 Skill 恢复（拆分面）。
+	assert.equal(developer.contextFiles, "trusted-readonly");
+	assert.equal(developer.skills, "bundled-signed");
 	assert.equal(developer.credentialPolicy, "file-0600");
 	const worker = resourcePolicy("worker");
 	assert.equal(worker.allowFileTools, false);

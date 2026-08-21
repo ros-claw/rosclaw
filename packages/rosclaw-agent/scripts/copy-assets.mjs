@@ -15,3 +15,12 @@ if (!existsSync(from)) {
 }
 copyFileSync(from, join(targetDir, "native_agent_v2.md"));
 console.log(`copied prompt from ${from}`);
+
+// PR-N2：内置签名 Skill 进 dist（dist/skills/）。
+import { cpSync } from "node:fs";
+const skillsSource = join(pkgRoot, "skills");
+const skillsTarget = join(pkgRoot, "dist", "skills");
+if (existsSync(skillsSource)) {
+	cpSync(skillsSource, skillsTarget, { recursive: true });
+	console.log("copied skills");
+}

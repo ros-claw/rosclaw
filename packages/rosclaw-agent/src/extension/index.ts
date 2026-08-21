@@ -399,14 +399,18 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 		});
 
 		// -- 每轮注入最新具身上下文（PNA-2，规格 §14.2） ---------------------------
-		pi.on("before_agent_start", async (_event, ctx) => {
+		pi.on("before_agent_start", async (event, ctx) => {
 			// header 模型名取真实当前 model（P0-NA-16：同一快照语义）。
 			const current = ctx.model as { name?: string; id?: string } | undefined;
 			const display = current ? String(current.name ?? current.id ?? "") : "";
 			if (display) center.noteModel(display);
 			const missionId = options.active.current.missionId;
 			if (!missionId) {
-				return { systemPrompt: options.systemPrompt };
+				// PR-N2：用事件携带的 Pi 组装提示词（含可信项目上下文 +
+				// 内置签名 Skill + cwd）——此前每轮整体替换为
+				// options.systemPrompt，Pi 加载的 context/skills 被丢弃
+				// （"恢复项目认知"的事故根因之一）。
+				return { systemPrompt: event.systemPrompt ?? options.systemPrompt };
 			}
 			const fetched = await fetchEmbodiedContext(
 				options.rosclawHome,
@@ -425,7 +429,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			// chrome 刷新由 active.subscribe → center → refreshChrome 统一
 			// 完成（applyEnvelope/markContextStale 都会触发）。
 			return {
-				systemPrompt: options.systemPrompt,
+				systemPrompt: event.systemPrompt ?? options.systemPrompt,
 				message: {
 					customType: "rosclaw.embodied_context",
 					content: renderTrustedContext(fetched),

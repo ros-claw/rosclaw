@@ -14,7 +14,8 @@ import {
 	SettingsManager,
 	type AgentSessionRuntime,
 } from "@earendil-works/pi-coding-agent";
-import { resourcePolicy } from "../extension/resource-policy.js";
+import { resourcePolicy, trustFilterContextFiles } from "../extension/resource-policy.js";
+import { verifyBundledSkills } from "../extension/bundled-skills.js";
 import { createSharedModelRuntime } from "./model-runtime.js";
 import { filterModelTools, MODEL_TOOL_NAMES } from "../tools/surface.js";
 import { buildWorkspacePackTools } from "../tools/workspace-pack.js";
@@ -153,13 +154,34 @@ export async function createRosclawRuntime(
 					// PNA-9：profile 化资源策略（robot 全禁；developer 仅用户
 					// 主题；项目 .pi/AGENTS.md/skills 一律不加载）。
 					...(function () {
+						// PR-N2（N 总纲 §PR-N2）：四通道拆分——可信只读
+						// 上下文恢复（trustFilterContextFiles 按根+预算
+						// 过滤）；内置签名 Skill 经 digest 校验后走
+						// additionalSkillPaths；任意项目扩展/模板/可执行
+						// 资源仍关。
 						const policy = resourcePolicy(options.profile);
+						const skillsDir = new URL("../../skills/", import.meta.url).pathname;
+						const bundled = policy.skills === "bundled-signed"
+							? verifyBundledSkills(skillsDir)
+							: { verified: [], excluded: [], skillPaths: [] };
 						return {
-							noExtensions: policy.noExtensions,
-							noSkills: policy.noSkills,
-							noPromptTemplates: policy.noPromptTemplates,
-							noThemes: policy.noThemes,
-							noContextFiles: policy.noContextFiles,
+							noExtensions: true,
+							noSkills: policy.skills === "off",
+							noPromptTemplates: true,
+							noThemes: !policy.themes,
+							noContextFiles: policy.contextFiles === "off",
+							additionalSkillPaths: bundled.skillPaths,
+							agentsFilesOverride: (base: { agentsFiles: Array<{ path: string; content: string }> }) => {
+								const allowed = [
+									options.taskContext.workspaceRoot,
+									options.taskContext.productRoot,
+								];
+								const filtered = trustFilterContextFiles(base.agentsFiles, {
+									allowedRoots: allowed,
+									maxTotalBytes: 64 * 1024,
+								});
+								return { agentsFiles: filtered.kept };
+							},
 						};
 					})(),
 					extensionFactories: [
