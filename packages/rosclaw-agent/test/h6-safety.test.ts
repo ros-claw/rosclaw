@@ -9,26 +9,42 @@
  */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
 import { MODEL_TOOL_NAMES } from "../src/tools/surface.js";
 
-test("H6: 每个模型可见工具都有 EffectClass 声明", async () => {
-	const { EFFECT_BY_TOOL } = await import("../src/tools/effect-class.js");
+test("H6/N5C: 每个模型可见工具都有 EffectClass（单一合约来源）", async () => {
+	// N5C：手写 EFFECT_BY_TOOL 已删除——rosclaw_* 来自 Python 注册表
+	// 生成的 effects.generated.json；workspace 原语来自 workspace-pack
+	// 同位声明。
+	const { getToolEffect } = await import("../src/tools/effects.js");
 	for (const name of MODEL_TOOL_NAMES) {
-		assert.ok(EFFECT_BY_TOOL[name], `工具 ${name} 缺 EffectClass 声明`);
+		assert.ok(getToolEffect(name), `工具 ${name} 缺 EffectClass 声明`);
 	}
 });
 
-test("H6: bash effect=HOST_PROCESS，request_action=PHYSICAL_EFFECT", async () => {
-	const { EFFECT_BY_TOOL } = await import("../src/tools/effect-class.js");
-	assert.equal(EFFECT_BY_TOOL.bash, "HOST_PROCESS");
-	assert.equal(EFFECT_BY_TOOL.write, "WORKSPACE_WRITE");
-	assert.equal(EFFECT_BY_TOOL.read, "READ_ONLY");
-	assert.equal(EFFECT_BY_TOOL.rosclaw_request_action, "PHYSICAL_EFFECT");
+test("H6/N5C: workspace 原语与具身工具分类正确", async () => {
+	const { getToolEffect } = await import("../src/tools/effects.js");
+	assert.equal(getToolEffect("bash"), "HOST_PROCESS");
+	assert.equal(getToolEffect("write"), "WORKSPACE_WRITE");
+	assert.equal(getToolEffect("read"), "READ_ONLY");
+	assert.equal(getToolEffect("rosclaw_request_action"), "PHYSICAL_EFFECT");
+});
+
+test("N5C: 通用入口是 DYNAMIC——按参数解析，不静态写死", async () => {
+	const { getToolEffect } = await import("../src/tools/effects.js");
+	for (const name of ["rosclaw_execute", "rosclaw_compute", "rosclaw_observe"]) {
+		assert.equal(getToolEffect(name), "DYNAMIC",
+			`${name} 必须 DYNAMIC（相同入口调 SIM/REAL 能力 effect 不同）`);
+	}
+});
+
+test("N5C: 手写 effect-class.ts 已删除（结构守门）", () => {
+	assert.equal(existsSync(new URL("../src/tools/effect-class.ts", import.meta.url)), false,
+		"effect-class.ts 手写表不得复活——effect 从 Capability 生成");
 });
 
 test("H6: REAL/SHADOW 模式无 bwrap → bash fail closed", async () => {
