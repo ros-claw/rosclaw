@@ -242,9 +242,9 @@ class TestFuseArmed:
     ) -> None:
         """bridge 回落：bind 不带 body_id 时用 mission 绑定 body——
         熔断在 chat 路径首条消息即武装（不自审前的惰性失效）。"""
-        from tests.agentd.test_pi_tool_bridge import _setup  # noqa: F401
-
         import asyncio
+
+        from tests.agentd.test_pi_tool_bridge import _setup  # noqa: F401
 
         async def _run() -> None:
             service, mission = await _setup(tmp_path)
