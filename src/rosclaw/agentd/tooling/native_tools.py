@@ -38,6 +38,16 @@ def register_native_tools(
                 "properties": {"detail": {"type": "boolean"}},
                 "additionalProperties": False,
             },
+            output_schema={
+                "type": "object",
+                "properties": {
+                    "evidence_class": {"type": "string", "const": "configured"},
+                    "body_id": {"type": "string"},
+                    "summary": {"type": "string"},
+                },
+                "required": ["evidence_class", "body_id", "summary"],
+                "additionalProperties": False,
+            },
             supported_modes=["SIMULATION", "SHADOW", "REAL"],
             evidence_class=ToolEvidenceClass.CONFIGURED,
             verifier="schema+configured-label",
@@ -61,6 +71,20 @@ def register_native_tools(
                 input_schema={
                     "type": "object",
                     "properties": {"verbose": {"type": "boolean"}},
+                    "additionalProperties": False,
+                },
+                output_schema={
+                    "type": "object",
+                    "properties": {
+                        "evidence_class": {"type": "string", "const": "simulated"},
+                        "mode": {"type": "string"},
+                        "body_id": {"type": "string"},
+                        "joints_rad": {"type": "array", "items": {"type": "number"}},
+                        "health": {"type": "string"},
+                        "fresh": {"type": "boolean"},
+                    },
+                    "required": ["evidence_class", "mode", "body_id",
+                                 "joints_rad", "health", "fresh"],
                     "additionalProperties": False,
                 },
                 supported_modes=["SIMULATION", "SHADOW", "REAL"],
@@ -91,6 +115,27 @@ def register_native_tools(
                         "z": {"type": "number"},
                     },
                     "required": ["x", "y", "z"],
+                    "additionalProperties": False,
+                },
+
+                output_schema={
+                    "type": "object",
+                    "properties": {
+                        "evidence_class": {"type": "string", "const": "simulated"},
+                        "run_id": {"type": "string"},
+                        "target_m": {"type": "array", "items": {"type": "number"}},
+                        "policy": {"type": ["string", "null"]},
+                        "physics_steps": {"type": ["integer", "null"]},
+                        "collision_check": {"type": "string"},
+                        "final_distance_m": {"type": ["number", "null"]},
+                        "final_state": {"type": "string"},
+                        "task_success": {"type": "boolean"},
+                        "evidence_verified": {"type": "boolean"},
+                        "verification": {"type": "object"},
+                        "receipt_path": {"type": "string"},
+                    },
+                    "required": ["evidence_class", "run_id", "task_success",
+                                 "evidence_verified", "receipt_path"],
                     "additionalProperties": False,
                 },
                 supported_modes=["SIMULATION"],
@@ -131,6 +176,21 @@ def register_native_tools(
                     "required": ["shape"],
                     "additionalProperties": False,
                 },
+
+                output_schema={
+                    "type": "object",
+                    "properties": {
+                        "ok": {"type": "boolean", "const": True},
+                        "plan_id": {"type": "string"},
+                        "hash": {"type": "string"},
+                        "point_count": {"type": "integer"},
+                        "summary": {"type": "string"},
+                        "evidence_class": {"type": "string", "const": "simulated"},
+                    },
+                    "required": ["ok", "plan_id", "hash", "point_count",
+                                 "summary", "evidence_class"],
+                    "additionalProperties": False,
+                },
                 supported_modes=["SIMULATION"],
                 evidence_class=ToolEvidenceClass.SIMULATED,
                 reliability=0.99,
@@ -150,6 +210,29 @@ def register_native_tools(
                     "type": "object",
                     "properties": {"plan_id": {"type": "string"}},
                     "required": ["plan_id"],
+                    "additionalProperties": False,
+                },
+
+                output_schema={
+                    "type": "object",
+                    "properties": {
+                        "ok": {"type": "boolean", "const": True},
+                        "trace_id": {"type": "string"},
+                        "evidence_level": {"type": "string",
+                                           "const": "SIM_DYN_ROLLOUT"},
+                        "physics_executed": {"type": "boolean"},
+                        "is_safe": {"type": "boolean"},
+                        "violations": {"type": "array",
+                                       "items": {"type": "string"}},
+                        "point_count": {"type": "integer"},
+                        "tracking": {"type": "object"},
+                        "resource": {"type": "object"},
+                        "artifacts": {"type": "object"},
+                        "evidence_class": {"type": "string", "const": "simulated"},
+                    },
+                    "required": ["ok", "trace_id", "evidence_level",
+                                 "physics_executed", "is_safe", "violations",
+                                 "tracking", "artifacts", "evidence_class"],
                     "additionalProperties": False,
                 },
                 supported_modes=["SIMULATION"],
@@ -175,6 +258,30 @@ def register_native_tools(
                     "required": ["trace_id"],
                     "additionalProperties": False,
                 },
+
+                output_schema={
+                    "type": "object",
+                    "properties": {
+                        "ok": {"type": "boolean", "const": True},
+                        "artifact": {
+                            "type": "object",
+                            "properties": {
+                                "path": {"type": "string"},
+                                "frames": {"type": "integer"},
+                                "format": {"type": "string", "const": "gif"},
+                                "bytes": {"type": "integer"},
+                                "evidence_level": {"type": "string",
+                                                   "const": "SIM_DYN_ROLLOUT"},
+                            },
+                            "required": ["path", "frames", "format", "bytes",
+                                         "evidence_level"],
+                            "additionalProperties": False,
+                        },
+                        "evidence_class": {"type": "string", "const": "simulated"},
+                    },
+                    "required": ["ok", "artifact", "evidence_class"],
+                    "additionalProperties": False,
+                },
                 supported_modes=["SIMULATION"],
                 evidence_class=ToolEvidenceClass.SIMULATED,
                 reliability=0.99,
@@ -197,6 +304,22 @@ def register_native_tools(
                     "required": ["trace_id", "max_tracking_error_m"],
                     "additionalProperties": False,
                 },
+
+                output_schema={
+                    "type": "object",
+                    "properties": {
+                        "ok": {"type": "boolean", "const": True},
+                        "verdict": {"type": "string", "enum": ["PASS", "FAIL"]},
+                        "threshold_m": {"type": "number"},
+                        "metrics": {"type": "object"},
+                        "evidence_level": {"type": "string",
+                                           "const": "SIM_DYN_ROLLOUT"},
+                        "evidence_class": {"type": "string", "const": "simulated"},
+                    },
+                    "required": ["ok", "verdict", "threshold_m", "metrics",
+                                 "evidence_level", "evidence_class"],
+                    "additionalProperties": False,
+                },
                 supported_modes=["SIMULATION"],
                 evidence_class=ToolEvidenceClass.SIMULATED,
                 reliability=0.99,
@@ -205,7 +328,7 @@ def register_native_tools(
         ]
     for descriptor in descriptors:
 
-        async def _exec(arguments: dict[str, Any], _name: str = descriptor.tool_id) -> str:
+        async def _exec(arguments: dict[str, Any], _name: str = descriptor.tool_id) -> dict[str, Any]:
             return await registry.execute(_name, arguments)
 
         catalog.register(descriptor, _exec)

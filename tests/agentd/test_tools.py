@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 
 import pytest
 
@@ -21,14 +20,14 @@ def _registry() -> BuiltinToolRegistry:
 
 
 def test_state_tool_marks_evidence_simulated() -> None:
-    payload = json.loads(asyncio.run(_registry().execute(SIM_STATE_TOOL, {"verbose": False})))
+    payload = asyncio.run(_registry().execute(SIM_STATE_TOOL, {"verbose": False}))
     assert payload["evidence_class"] == "simulated"
     assert payload["mode"] == "SIMULATION"
     assert payload["health"] == "OK"
 
 
 def test_body_tool_returns_configured_summary() -> None:
-    payload = json.loads(asyncio.run(_registry().execute(SIM_BODY_TOOL, {"detail": False})))
+    payload = asyncio.run(_registry().execute(SIM_BODY_TOOL, {"verbose": False}))
     assert payload["evidence_class"] == "configured"
     assert payload["summary"] == "simulated UR5e test body"
 
@@ -39,8 +38,8 @@ def test_unknown_tool_is_rejected() -> None:
 
 
 def test_reach_tool_runs_physics_and_reports_success() -> None:
-    payload = json.loads(
-        asyncio.run(_registry().execute(SIM_REACH_TOOL, {"x": -0.1, "y": 0.5, "z": 0.25}))
+    payload = asyncio.run(
+        _registry().execute(SIM_REACH_TOOL, {"x": -0.1, "y": 0.5, "z": 0.25})
     )
     assert payload["evidence_class"] == "simulated"
     assert payload["final_state"] == "COMPLETED"
@@ -52,8 +51,8 @@ def test_reach_tool_runs_physics_and_reports_success() -> None:
 
 
 def test_reach_tool_reports_blocked_target_honestly() -> None:
-    payload = json.loads(
-        asyncio.run(_registry().execute(SIM_REACH_TOOL, {"x": 0.4, "y": 0.1, "z": 0.12}))
+    payload = asyncio.run(
+        _registry().execute(SIM_REACH_TOOL, {"x": 0.4, "y": 0.1, "z": 0.12})
     )
     assert payload["final_state"] == "BLOCKED"
     assert payload["task_success"] is False

@@ -24,9 +24,16 @@ from rosclaw.contracts.agent.capability import (
     ToolProjectionV1,
 )
 from rosclaw.contracts.agent.tool import ExecutionClass, ToolDescriptorV2
+from rosclaw.contracts.agent.tool_result import (
+    ToolResultEnvelopeV2,
+    ToolResultErrorV1,
+    ToolResultStatusV1,
+)
 from rosclaw.contracts.common import ValidationError
 
-ToolOutput = str | ToolExecutionResult
+# N5B：executor 只返回 canonical JSON value（dict）；str 为过渡兼容
+# （execute_v2 会 json.loads 归一；非 JSON 文本一律 INVALID_CAPABILITY_OUTPUT）。
+ToolOutput = str | dict[str, Any] | ToolExecutionResult
 ToolExecutor = Callable[[dict[str, Any]], Awaitable[ToolOutput]]
 
 
@@ -182,4 +189,135 @@ class ToolCatalog:
             raise ValidationError(f"tool {tool_id!r} has no executor (source offline?)")
         return await asyncio.wait_for(
             executor(arguments), timeout=descriptor.timeout_ms / 1000.0
+        )
+
+    # -- N5B canonical output -----------------------------------------------------
+
+    async def execute_v2(
+        self, call_id: str, tool_id: str, arguments: dict[str, Any]
+    ) -> ToolResultEnvelopeV2:
+        """canonical 输出路径（PR-N5B）：守卫 → 执行 → output_schema
+        验证 → ToolResultEnvelopeV2。任何失败都是诚实 envelope，
+        不抛出、不让 executor 文本冒充结构化结果。
+        """
+        import json as _json
+
+        import jsonschema
+
+        def _blocked(code: str, message: str) -> ToolResultEnvelopeV2:
+            return ToolResultEnvelopeV2(
+                call_id=call_id, capability_id=tool_id,
+                status=ToolResultStatusV1.BLOCKED,
+                error=ToolResultErrorV1(code=code, message=message),
+            )
+
+        def _failed(
+            code: str, message: str, *, retryable: bool = False,
+            recovery: list[str] | None = None,
+        ) -> ToolResultEnvelopeV2:
+            return ToolResultEnvelopeV2(
+                call_id=call_id, capability_id=tool_id,
+                status=ToolResultStatusV1.FAILED,
+                error=ToolResultErrorV1(
+                    code=code, message=message, retryable=retryable,
+                    recovery=recovery or [],
+                ),
+            )
+
+        descriptor = self._descriptors.get(self._canonical(tool_id))
+        if descriptor is None:
+            return _blocked("CAPABILITY_UNKNOWN", f"tool {tool_id!r} not in catalog")
+        tool_id = descriptor.tool_id
+        if (
+            descriptor.execution_class is ExecutionClass.PHYSICAL_ACTION
+            or not descriptor.model_callable
+        ):
+            return _blocked(
+                "TOOL_NOT_CALLABLE",
+                f"tool {tool_id!r} is not directly executable (physical or "
+                "non-model-callable) — flows only through the approval chain",
+            )
+        reason = self._quarantine.get(tool_id)
+        if reason is not None:
+            return _blocked(
+                "CAPABILITY_QUARANTINED", f"tool {tool_id!r} quarantined: {reason}"
+            )
+        executor = self._executors.get(tool_id)
+        if executor is None:
+            return _failed(
+                "EXECUTOR_OFFLINE", f"tool {tool_id!r} has no executor "
+                "(source offline?)"
+            )
+        if not descriptor.output_schema:
+            return _failed(
+                "OUTPUT_SCHEMA_MISSING",
+                f"tool {tool_id!r} declares no output_schema — refusing to "
+                "guess at structure",
+                recovery=["为能力补 output_schema（N5B 硬约束）"],
+            )
+        try:
+            raw = await asyncio.wait_for(
+                executor(arguments), timeout=descriptor.timeout_ms / 1000.0
+            )
+        except TimeoutError:
+            return _failed(
+                "EXECUTOR_TIMEOUT",
+                f"tool {tool_id!r} exceeded {descriptor.timeout_ms}ms",
+                retryable=True,
+            )
+        except Exception as exc:  # noqa: BLE001 — 诚实 FAILED envelope
+            return _failed(
+                "EXECUTOR_ERROR", f"{type(exc).__name__}: {exc}"[:400],
+            )
+        # 归一为 canonical value：只接受 dict / ToolExecutionResult /
+        # JSON 对象字符串；裸文本不得冒充结构化结果。
+        value: Any
+        if isinstance(raw, ToolExecutionResult):
+            value = {"text": raw.text, "image_mime_types": [
+                img.mime_type for img in raw.images
+            ]}
+        elif isinstance(raw, dict):
+            value = raw
+        elif isinstance(raw, str):
+            try:
+                value = _json.loads(raw)
+            except ValueError:
+                return _failed(
+                    "INVALID_CAPABILITY_OUTPUT",
+                    f"tool {tool_id!r} returned a bare string masquerading as "
+                    "a structured result",
+                    recovery=["executor 只返回 canonical JSON value"],
+                )
+        else:
+            return _failed(
+                "INVALID_CAPABILITY_OUTPUT",
+                f"tool {tool_id!r} returned {type(raw).__name__}, expected "
+                "canonical JSON object",
+            )
+        if not isinstance(value, dict):
+            return _failed(
+                "INVALID_CAPABILITY_OUTPUT",
+                f"tool {tool_id!r} returned non-object JSON "
+                f"({type(value).__name__})",
+            )
+        if "presentationMeta" in value or "presentation_meta" in value:
+            return _failed(
+                "INVALID_CAPABILITY_OUTPUT",
+                f"tool {tool_id!r} executor submitted presentation meta — "
+                "presentation_meta is generated only by trusted projections",
+            )
+        try:
+            jsonschema.validate(value, descriptor.output_schema)
+        except jsonschema.ValidationError as exc:
+            path = ".".join(str(p) for p in exc.absolute_path)
+            return _failed(
+                "INVALID_CAPABILITY_OUTPUT",
+                f"tool {tool_id!r} output failed output_schema: "
+                f"{exc.message[:200]}"
+                + (f" (at {path})" if path else ""),
+                recovery=["核对 executor 输出与 output_schema 的一致性"],
+            )
+        return ToolResultEnvelopeV2(
+            call_id=call_id, capability_id=tool_id,
+            status=ToolResultStatusV1.SUCCEEDED, value=value,
         )

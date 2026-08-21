@@ -9,7 +9,6 @@ wired in a later PR through the daemon client — the registry is the seam.
 from __future__ import annotations
 
 import asyncio
-import json
 from typing import Any
 
 from rosclaw.agentd.models.gateway import StrictTool
@@ -67,6 +66,77 @@ _TOOL_SCHEMAS: dict[str, StrictTool] = {
             "additionalProperties": False,
         },
     ),
+    # N5B：SIM 动力学闭环四能力入 allowlist——此前只在 execute 分发里
+    # 有分支，但没进 _TOOL_SCHEMAS，经 registry 调用一律 "not
+    # allowlisted"（能力目录与实际可调用漂移的实证）。
+    TRAJ_PLAN_TOOL: StrictTool(
+        name=TRAJ_PLAN_TOOL,
+        description=(
+            "Generate a parameterized planar Cartesian path "
+            "(shape=star5|circle, center_m, scale_m) — sampled closed loop "
+            "with safe-workspace validation. Returns plan_id handle."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "shape": {"type": "string", "enum": ["star5", "circle"]},
+                "center_m": {"type": "array", "items": {"type": "number"}},
+                "scale_m": {"type": "number"},
+                "plane": {"type": "string", "enum": ["xy"]},
+                "max_segment_m": {"type": "number"},
+            },
+            "required": ["shape", "center_m", "scale_m", "plane",
+                         "max_segment_m"],
+            "additionalProperties": False,
+        },
+    ),
+    TRAJ_SIMULATE_TOOL: StrictTool(
+        name=TRAJ_SIMULATE_TOOL,
+        description=(
+            "Run a real MuJoCo dynamics rollout of a planned Cartesian "
+            "trajectory with the SIMULATED UR5e (DLS-IK → joint trajectory → "
+            "physics rollout → actual eef trace + tracking metrics). "
+            "Evidence class: SIM_DYN_ROLLOUT (simulated)."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {"plan_id": {"type": "string"}},
+            "required": ["plan_id"],
+            "additionalProperties": False,
+        },
+    ),
+    TRAJ_RENDER_TOOL: StrictTool(
+        name=TRAJ_RENDER_TOOL,
+        description=(
+            "Render the ACTUAL eef trace of a dynamics rollout into a "
+            "playable GIF artifact (>=30 frames)."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "trace_id": {"type": "string"},
+                "format": {"type": "string", "enum": ["gif"]},
+            },
+            "required": ["trace_id", "format"],
+            "additionalProperties": False,
+        },
+    ),
+    TRAJ_VERIFY_TOOL: StrictTool(
+        name=TRAJ_VERIFY_TOOL,
+        description=(
+            "Verify trajectory tracking against a threshold "
+            "(max_tracking_error_m) — honest PASS/FAIL with metrics."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "trace_id": {"type": "string"},
+                "max_tracking_error_m": {"type": "number"},
+            },
+            "required": ["trace_id", "max_tracking_error_m"],
+            "additionalProperties": False,
+        },
+    ),
 }
 
 
@@ -81,37 +151,33 @@ class BuiltinToolRegistry:
     def strict_tools(self, names: list[str]) -> list[StrictTool]:
         return [_TOOL_SCHEMAS[n] for n in names if n in _TOOL_SCHEMAS]
 
-    async def execute(self, name: str, arguments: dict[str, Any]) -> str:
+    async def execute(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        """N5B：返回 canonical JSON value（dict）——Registry 按
+        output_schema 验证并包 envelope；不再是 JSON 文本。"""
         if name not in _TOOL_SCHEMAS:
             raise ValidationError(f"tool {name!r} not allowlisted")
         if name == SIM_STATE_TOOL:
-            return json.dumps(
-                {
-                    "evidence_class": "simulated",
-                    "mode": "SIMULATION",
-                    "body_id": self._body_id,
-                    "joints_rad": [0.0, -1.57, 1.57, 0.0, 0.0, 0.0],
-                    "health": "OK",
-                    "fresh": True,
-                },
-                ensure_ascii=False,
-            )
+            return {
+                "evidence_class": "simulated",
+                "mode": "SIMULATION",
+                "body_id": self._body_id,
+                "joints_rad": [0.0, -1.57, 1.57, 0.0, 0.0, 0.0],
+                "health": "OK",
+                "fresh": True,
+            }
         if name == SIM_REACH_TOOL:
             return await asyncio.to_thread(self._execute_reach, arguments)
         if name in (
             TRAJ_PLAN_TOOL, TRAJ_SIMULATE_TOOL, TRAJ_RENDER_TOOL, TRAJ_VERIFY_TOOL,
         ):
             return await asyncio.to_thread(self._execute_trajectory_tool, name, arguments)
-        return json.dumps(
-            {
-                "evidence_class": "configured",
-                "body_id": self._body_id,
-                "summary": self._body_summary,
-            },
-            ensure_ascii=False,
-        )
+        return {
+            "evidence_class": "configured",
+            "body_id": self._body_id,
+            "summary": self._body_summary,
+        }
 
-    def _execute_trajectory_tool(self, name: str, arguments: dict[str, Any]) -> str:
+    def _execute_trajectory_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         """十四审 PR-14.6：SIM 动力学闭环四能力（COMPUTE——纯计算/
         渲染/验证，无物理副作用；证据 SIM_DYN_ROLLOUT=simulated）。"""
         from pathlib import Path as _Path
@@ -155,9 +221,9 @@ class BuiltinToolRegistry:
         except (ValueError, KeyError) as exc:
             raise ValidationError(f"{name} 参数错误: {exc}") from exc
         result["evidence_class"] = "simulated"
-        return json.dumps(result, ensure_ascii=False)
+        return result
 
-    def _execute_reach(self, arguments: dict[str, Any]) -> str:
+    def _execute_reach(self, arguments: dict[str, Any]) -> dict[str, Any]:
         from rosclaw.product.demo import DemoConfigurationError, run_demo
 
         try:
@@ -176,22 +242,19 @@ class BuiltinToolRegistry:
             raise ValidationError(f"sim_reach target invalid: {exc}") from exc
         simulation = receipt.simulation_result or {}
         verification = receipt.verification_result or {}
-        return json.dumps(
-            {
-                "evidence_class": "simulated",
-                "run_id": receipt.action_id,
-                "target_m": list(target),
-                "policy": receipt.policy_decision.get("reason"),
-                "physics_steps": simulation.get("steps"),
-                "collision_check": (
-                    "PASS" if not simulation.get("collision") else "FAIL"
-                ),
-                "final_distance_m": verification.get("final_error_m"),
-                "final_state": receipt.final_state.value,
-                "task_success": bool(verification.get("success")),
-                "evidence_verified": receipt.verified,
-                "verification": verification,
-                "receipt_path": str(receipt_path),
-            },
-            ensure_ascii=False,
-        )
+        return {
+            "evidence_class": "simulated",
+            "run_id": receipt.action_id,
+            "target_m": list(target),
+            "policy": receipt.policy_decision.get("reason"),
+            "physics_steps": simulation.get("steps"),
+            "collision_check": (
+                "PASS" if not simulation.get("collision") else "FAIL"
+            ),
+            "final_distance_m": verification.get("final_error_m"),
+            "final_state": receipt.final_state.value,
+            "task_success": bool(verification.get("success")),
+            "evidence_verified": receipt.verified,
+            "verification": verification,
+            "receipt_path": str(receipt_path),
+        }

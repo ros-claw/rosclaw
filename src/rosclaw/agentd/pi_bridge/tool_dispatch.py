@@ -67,6 +67,30 @@ class ToolBridgeError(RuntimeError):
         self.retryable = retryable
 
 
+def _envelope_result(request: PiToolRequestV1, envelope) -> PiToolResultV1:
+    """N5B：canonical envelope → 模型可见投影（status + capability_id +
+    value）；FAILED/BLOCKED 以稳定错误码诚实抛出。"""
+    if envelope.status.value == "SUCCEEDED":
+        projection = {
+            "status": envelope.status.value,
+            "capability_id": envelope.capability_id,
+            "value": envelope.value,
+        }
+        if envelope.artifact_refs:
+            projection["artifact_refs"] = list(envelope.artifact_refs)
+        return PiToolResultV1(
+            request_id=request.request_id,
+            ok=True,
+            status="COMPLETED",
+            summary=json.dumps(projection, ensure_ascii=False)[:8000],
+        )
+    error = envelope.error
+    code = error.code if error else "EXECUTOR_ERROR"
+    message = error.message if error else f"capability {envelope.status.value}"
+    retryable = error.retryable if error else False
+    raise ToolBridgeError(code, message[:400], retryable=retryable)
+
+
 class PiToolDispatcher:
     def __init__(self, service: AgentService) -> None:
         self._service = service
@@ -245,23 +269,10 @@ class PiToolDispatcher:
                 raise ToolBridgeError(
                     "CAPABILITY_QUARANTINED", f"capability {capability_id} is quarantined"
                 )
-            try:
-                output = await service._tool_registry.execute(
-                    capability_id, dict(args.get("arguments", {}))
-                )
-            except Exception as exc:  # noqa: BLE001 — 八审 P0-6：错误分类
-                raise ToolBridgeError(
-                    "INVALID_ARGUMENTS" if "validation" in str(type(exc).__name__).lower()
-                    or "validation" in str(exc).lower() else "EXECUTOR_ERROR",
-                    f"{type(exc).__name__}: {exc}"[:400],
-                ) from exc
-            text = output if isinstance(output, str) else json.dumps(output, ensure_ascii=False)
-            return PiToolResultV1(
-                request_id=request.request_id,
-                ok=True,
-                status="COMPLETED",
-                summary=text[:8000],
+            envelope = await service._tool_catalog.execute_v2(
+                request.request_id, capability_id, dict(args.get("arguments", {}))
             )
+            return _envelope_result(request, envelope)
         if name == "rosclaw_compute":
             # 七审 §2.2/PR-SEVEN-2.2：COMPUTE 能力免审批调用（纯计算无
             # 物理副作用）——不再被 observe 的 OBSERVE-only 拒绝。
@@ -284,23 +295,10 @@ class PiToolDispatcher:
                 raise ToolBridgeError(
                     "CAPABILITY_QUARANTINED", f"capability {capability_id} is quarantined"
                 )
-            try:
-                output = await service._tool_registry.execute(
-                    capability_id, dict(args.get("arguments", {}))
-                )
-            except Exception as exc:  # noqa: BLE001 — 八审 P0-6：错误分类
-                raise ToolBridgeError(
-                    "INVALID_ARGUMENTS" if "validation" in str(type(exc).__name__).lower()
-                    or "validation" in str(exc).lower() else "EXECUTOR_ERROR",
-                    f"{type(exc).__name__}: {exc}"[:400],
-                ) from exc
-            text = output if isinstance(output, str) else json.dumps(output, ensure_ascii=False)
-            return PiToolResultV1(
-                request_id=request.request_id,
-                ok=True,
-                status="COMPLETED",
-                summary=text[:8000],
+            envelope = await service._tool_catalog.execute_v2(
+                request.request_id, capability_id, dict(args.get("arguments", {}))
             )
+            return _envelope_result(request, envelope)
         if name == "rosclaw_verify":
             receipts = [
                 e.payload

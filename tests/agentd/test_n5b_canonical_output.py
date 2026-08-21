@@ -222,9 +222,7 @@ class TestDispatcherCanonicalProjection:
     async def test_broken_executor_error_code_visible(self, tmp_path) -> None:
         """坏 executor → 模型可见 INVALID_CAPABILITY_OUTPUT（诚实失败，
         不再把垃圾文本当结果）。"""
-        from rosclaw.agentd.pi_bridge.tool_dispatch import (
-            PiToolDispatcher, ToolBridgeError,
-        )
+        from rosclaw.agentd.pi_bridge.tool_dispatch import PiToolDispatcher
         from tests.agentd.test_pi_tool_bridge import _issue_lease, _request
 
         service, mission = await self._service(tmp_path)
@@ -233,22 +231,22 @@ class TestDispatcherCanonicalProjection:
             return {"oops": True}
 
         service._tool_catalog._executors["trajectory_generate_planar_path"] = bad
-        try:
-            await PiToolDispatcher(service).execute(
-                caller_pid=1, caller_uid=1000,
-                request=_request(
-                    "rosclaw_compute",
-                    mission=mission.mission_id, idem="n5b_2",
-                    lease=await _issue_lease(service, mission),
-                    arguments={
-                        "capability_id": "trajectory_generate_planar_path",
-                        "arguments": {"shape": "star5",
-                                      "center_m": [0.35, 0.25, 0.30],
-                                      "scale_m": 0.10},
-                    },
-                ),
-            )
-            raise AssertionError("应当抛 ToolBridgeError")
-        except ToolBridgeError as exc:
-            assert exc.code == "INVALID_CAPABILITY_OUTPUT", exc
+        result = await PiToolDispatcher(service).execute(
+            caller_pid=1, caller_uid=1000,
+            request=_request(
+                "rosclaw_compute",
+                mission=mission.mission_id, idem="n5b_2",
+                lease=await _issue_lease(service, mission),
+                arguments={
+                    "capability_id": "trajectory_generate_planar_path",
+                    "arguments": {"shape": "star5",
+                                  "center_m": [0.35, 0.25, 0.30],
+                                  "scale_m": 0.10},
+                },
+            ),
+        )
+        # 模型可见面：ok=False + 稳定错误码（dispatcher 把
+        # ToolBridgeError 转成诚实 REJECTED 结果）。
+        assert result.ok is False
+        assert result.error_code == "INVALID_CAPABILITY_OUTPUT", result
         await service.close()

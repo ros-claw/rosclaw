@@ -1,0 +1,138 @@
+{
+  "$defs": {
+    "ToolResultErrorV1": {
+      "additionalProperties": true,
+      "description": "稳定错误码——模型/Harness 据 code 做恢复决策，不解析 message。",
+      "properties": {
+        "code": {
+          "minLength": 1,
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "default": "",
+          "title": "Message",
+          "type": "string"
+        },
+        "retryable": {
+          "default": false,
+          "title": "Retryable",
+          "type": "boolean"
+        },
+        "recovery": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Recovery",
+          "type": "array"
+        }
+      },
+      "required": [
+        "code"
+      ],
+      "title": "ToolResultErrorV1",
+      "type": "object"
+    },
+    "ToolResultStatusV1": {
+      "enum": [
+        "SUCCEEDED",
+        "FAILED",
+        "BLOCKED",
+        "PENDING"
+      ],
+      "title": "ToolResultStatusV1",
+      "type": "string"
+    }
+  },
+  "additionalProperties": true,
+  "description": "一次能力调用的 canonical 结果。",
+  "properties": {
+    "schema_version": {
+      "const": "rosclaw.tool_result_envelope.v2",
+      "default": "rosclaw.tool_result_envelope.v2",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "call_id": {
+      "minLength": 1,
+      "title": "Call Id",
+      "type": "string"
+    },
+    "capability_id": {
+      "minLength": 1,
+      "title": "Capability Id",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/ToolResultStatusV1"
+    },
+    "value": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Value"
+    },
+    "error": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ToolResultErrorV1"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "artifact_refs": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Artifact Refs",
+      "type": "array"
+    },
+    "evidence_refs": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Evidence Refs",
+      "type": "array"
+    },
+    "operation_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Operation Id"
+    },
+    "presentation_meta": {
+      "anyOf": [
+        {},
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Presentation Meta"
+    }
+  },
+  "required": [
+    "call_id",
+    "capability_id",
+    "status"
+  ],
+  "title": "rosclaw.tool_result_envelope.v2",
+  "type": "object",
+  "$id": "rosclaw://schemas/rosclaw.tool_result_envelope.v2"
+}
