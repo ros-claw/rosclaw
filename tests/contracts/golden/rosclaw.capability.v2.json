@@ -1,0 +1,234 @@
+{
+  "$defs": {
+    "CapabilityCompatibilityV1": {
+      "additionalProperties": true,
+      "properties": {
+        "modes": {
+          "items": {
+            "enum": [
+              "SIMULATION",
+              "SHADOW",
+              "REAL"
+            ],
+            "type": "string"
+          },
+          "title": "Modes",
+          "type": "array"
+        },
+        "body_types": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Body Types",
+          "type": "array"
+        },
+        "robot_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Robot Ids",
+          "type": "array"
+        },
+        "resource_kinds": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Resource Kinds",
+          "type": "array"
+        },
+        "runtime_requirements": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Runtime Requirements",
+          "type": "array"
+        }
+      },
+      "title": "CapabilityCompatibilityV1",
+      "type": "object"
+    },
+    "CapabilityEffectV1": {
+      "additionalProperties": true,
+      "description": "能力的效应声明：执行前冻结、写事件，审批/并发/Verifier 共读。",
+      "properties": {
+        "class": {
+          "$ref": "#/$defs/EffectClassV1"
+        },
+        "domain": {
+          "default": "",
+          "title": "Domain",
+          "type": "string"
+        },
+        "reversible": {
+          "default": true,
+          "title": "Reversible",
+          "type": "boolean"
+        },
+        "risk_tier": {
+          "default": "LOW",
+          "enum": [
+            "LOW",
+            "MEDIUM",
+            "HIGH",
+            "CRITICAL"
+          ],
+          "title": "Risk Tier",
+          "type": "string"
+        },
+        "requires_fresh_real_context": {
+          "default": false,
+          "title": "Requires Fresh Real Context",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "class"
+      ],
+      "title": "CapabilityEffectV1",
+      "type": "object"
+    },
+    "CapabilityEvidenceV1": {
+      "additionalProperties": true,
+      "properties": {
+        "evidence_class": {
+          "default": "",
+          "title": "Evidence Class",
+          "type": "string"
+        },
+        "verifier_ref": {
+          "default": "",
+          "title": "Verifier Ref",
+          "type": "string"
+        },
+        "resource_provenance_required": {
+          "default": false,
+          "title": "Resource Provenance Required",
+          "type": "boolean"
+        }
+      },
+      "title": "CapabilityEvidenceV1",
+      "type": "object"
+    },
+    "CapabilityExecutionV1": {
+      "additionalProperties": true,
+      "properties": {
+        "executor_ref": {
+          "default": "",
+          "title": "Executor Ref",
+          "type": "string"
+        },
+        "long_running": {
+          "default": false,
+          "title": "Long Running",
+          "type": "boolean"
+        },
+        "cancellation": {
+          "default": "cooperative",
+          "enum": [
+            "cooperative",
+            "immediate",
+            "none"
+          ],
+          "title": "Cancellation",
+          "type": "string"
+        },
+        "concurrency": {
+          "default": "shared",
+          "enum": [
+            "exclusive",
+            "shared",
+            "serialized"
+          ],
+          "title": "Concurrency",
+          "type": "string"
+        },
+        "idempotent": {
+          "default": true,
+          "title": "Idempotent",
+          "type": "boolean"
+        }
+      },
+      "title": "CapabilityExecutionV1",
+      "type": "object"
+    },
+    "EffectClassV1": {
+      "description": "单一 Effect Contract 词表（N5C 正式启用，此处先冻结枚举）。",
+      "enum": [
+        "READ_ONLY",
+        "PURE_COMPUTE",
+        "WORKSPACE_WRITE",
+        "HOST_PROCESS",
+        "NETWORK_EFFECT",
+        "SIMULATED_EFFECT",
+        "SHADOW_PROPOSAL",
+        "PHYSICAL_EFFECT"
+      ],
+      "title": "EffectClassV1",
+      "type": "string"
+    }
+  },
+  "additionalProperties": true,
+  "description": "ROSClaw 能力描述符（canonical）——Harness 无关的领域事实。",
+  "properties": {
+    "schema_version": {
+      "const": "rosclaw.capability.v2",
+      "default": "rosclaw.capability.v2",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "capability_id": {
+      "minLength": 1,
+      "title": "Capability Id",
+      "type": "string"
+    },
+    "version": {
+      "default": "1.0.0",
+      "title": "Version",
+      "type": "string"
+    },
+    "source": {
+      "minLength": 1,
+      "title": "Source",
+      "type": "string"
+    },
+    "description": {
+      "default": "",
+      "title": "Description",
+      "type": "string"
+    },
+    "input_schema": {
+      "additionalProperties": true,
+      "title": "Input Schema",
+      "type": "object"
+    },
+    "output_schema": {
+      "additionalProperties": true,
+      "title": "Output Schema",
+      "type": "object"
+    },
+    "effect": {
+      "$ref": "#/$defs/CapabilityEffectV1"
+    },
+    "compatibility": {
+      "$ref": "#/$defs/CapabilityCompatibilityV1"
+    },
+    "execution": {
+      "$ref": "#/$defs/CapabilityExecutionV1"
+    },
+    "evidence": {
+      "$ref": "#/$defs/CapabilityEvidenceV1"
+    },
+    "metadata": {
+      "additionalProperties": true,
+      "title": "Metadata",
+      "type": "object"
+    }
+  },
+  "required": [
+    "capability_id",
+    "source"
+  ],
+  "title": "rosclaw.capability.v2",
+  "type": "object",
+  "$id": "rosclaw://schemas/rosclaw.capability.v2"
+}

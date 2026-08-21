@@ -87,13 +87,11 @@ class TestMigrationAdapter:
         cap = capability_from_tool_descriptor(legacy)
         assert cap.schema_version == "rosclaw.capability.v2"
         assert cap.capability_id == legacy.tool_id
-        assert cap.effect.class.value == expected_effect
+        assert cap.effect.class_.value == expected_effect
         assert cap.effect.reversible is expected_reversible
         assert cap.effect.risk_tier == legacy.risk_tier
         # 兼容块映射
-        assert [m.value for m in cap.compatibility.modes] == list(
-            legacy.supported_modes
-        )
+        assert list(cap.compatibility.modes) == list(legacy.supported_modes)
         assert cap.execution.idempotent == legacy.idempotent
         assert cap.evidence.evidence_class == legacy.evidence_class.value
         assert cap.evidence.verifier_ref == legacy.verifier
@@ -110,7 +108,7 @@ class TestCatalogCanonicalV2:
         cap = catalog.capability("sim_reach")
         assert cap is not None
         assert cap.capability_id == "sim_reach"
-        assert cap.effect.class.value == "SIMULATED_EFFECT"
+        assert cap.effect.class_.value == "SIMULATED_EFFECT"
         # legacy 视图保持不变（resolver/dispatch 未迁移期）
         legacy = catalog.get("sim_reach")
         assert legacy is not None
@@ -210,10 +208,11 @@ class TestMutation:
         from rosclaw.agentd.tooling.capability_adapter import (
             capability_from_tool_descriptor,
         )
+        from rosclaw.contracts.agent.capability import EffectClassV1
 
         cap = capability_from_tool_descriptor(_legacy())
         tampered = cap.model_copy(deep=True)
-        tampered.effect.class = tampered.effect.class.__class__("READ_ONLY")
+        tampered.effect.class_ = EffectClassV1.READ_ONLY
         assert tampered.canonical_hash() != cap.canonical_hash()
 
 
@@ -226,8 +225,12 @@ class TestProductWiring:
         from rosclaw.agentd.tools import SIM_REACH_TOOL, BuiltinToolRegistry
 
         catalog = ToolCatalog()
-        register_native_tools(catalog, BuiltinToolRegistry(), simulation=True)
+        register_native_tools(
+            catalog,
+            BuiltinToolRegistry(body_id="sim/ur5e", body_summary="UR5e"),
+            simulation=True,
+        )
         cap = catalog.capability(SIM_REACH_TOOL)
         assert cap is not None
-        assert cap.effect.class.value == "SIMULATED_EFFECT"
+        assert cap.effect.class_.value == "SIMULATED_EFFECT"
         assert cap.evidence.evidence_class == "SIMULATED"

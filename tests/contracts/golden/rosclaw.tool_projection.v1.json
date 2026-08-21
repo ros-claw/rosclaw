@@ -1,0 +1,59 @@
+{
+  "$defs": {
+    "ProjectionExposure": {
+      "enum": [
+        "direct",
+        "propose_only",
+        "internal"
+      ],
+      "title": "ProjectionExposure",
+      "type": "string"
+    }
+  },
+  "additionalProperties": true,
+  "description": "能力 → 模型/Harness 工具的投影描述。",
+  "properties": {
+    "schema_version": {
+      "const": "rosclaw.tool_projection.v1",
+      "default": "rosclaw.tool_projection.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "tool_name": {
+      "minLength": 1,
+      "title": "Tool Name",
+      "type": "string"
+    },
+    "capability_id": {
+      "minLength": 1,
+      "title": "Capability Id",
+      "type": "string"
+    },
+    "input_schema": {
+      "additionalProperties": true,
+      "title": "Input Schema",
+      "type": "object"
+    },
+    "output_schema": {
+      "additionalProperties": true,
+      "title": "Output Schema",
+      "type": "object"
+    },
+    "presentation_ref": {
+      "default": "",
+      "title": "Presentation Ref",
+      "type": "string"
+    },
+    "exposure": {
+      "$ref": "#/$defs/ProjectionExposure",
+      "default": "direct"
+    }
+  },
+  "required": [
+    "tool_name",
+    "capability_id"
+  ],
+  "title": "rosclaw.tool_projection.v1",
+  "type": "object",
+  "$id": "rosclaw://schemas/rosclaw.tool_projection.v1"
+}

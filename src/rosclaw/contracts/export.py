@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 
 from rosclaw.contracts.agent.branch import ReasoningBranchV1
+from rosclaw.contracts.agent.capability import CapabilityDescriptorV2, ToolProjectionV1
 from rosclaw.contracts.agent.context import EmbodiedContextBundleV1
 from rosclaw.contracts.agent.decision import DecisionV1
 from rosclaw.contracts.agent.mission import MissionSessionV1
@@ -57,6 +58,8 @@ ALL_CONTRACTS: dict[str, type[ContractModel]] = {
         ApprovalRequestV2,
         ExactActionV1,
         ToolDescriptorV2,
+        CapabilityDescriptorV2,
+        ToolProjectionV1,
         CommandSpecV1,
         CommandRequestV1,
         CommandResultV1,

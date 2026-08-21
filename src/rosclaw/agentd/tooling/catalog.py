@@ -12,7 +12,17 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from rosclaw.agentd.tooling.capability_adapter import (
+    capability_from_tool_descriptor,
+    tool_descriptor_from_capability,
+)
 from rosclaw.agentd.tooling.result import ToolExecutionResult
+from rosclaw.contracts.agent.capability import (
+    CapabilityDescriptorV2,
+    EffectClassV1,
+    ProjectionExposure,
+    ToolProjectionV1,
+)
 from rosclaw.contracts.agent.tool import ExecutionClass, ToolDescriptorV2
 from rosclaw.contracts.common import ValidationError
 
@@ -33,6 +43,10 @@ class ToolCatalog:
         self._descriptors: dict[str, ToolDescriptorV2] = {}
         self._executors: dict[str, ToolExecutor] = {}
         self._quarantine: dict[str, str] = {}  # tool_id -> reason
+        # PR-N5A：CapabilityDescriptorV2 为 canonical 存储；_descriptors
+        # 是过渡期的 legacy 派生视图（N11 删除）。
+        self._capabilities: dict[str, CapabilityDescriptorV2] = {}
+        self._projections: dict[str, ToolProjectionV1] = {}
 
     def register(self, descriptor: ToolDescriptorV2, executor: ToolExecutor | None = None) -> None:
         if "__" in descriptor.tool_id:
@@ -42,14 +56,62 @@ class ToolCatalog:
         if descriptor.tool_id in self._descriptors:
             raise ValidationError(f"tool {descriptor.tool_id!r} already registered")
         self._descriptors[descriptor.tool_id] = descriptor
+        self._capabilities[descriptor.tool_id] = capability_from_tool_descriptor(descriptor)
         if executor is not None:
             self._executors[descriptor.tool_id] = executor
 
     def replace(self, descriptor: ToolDescriptorV2, executor: ToolExecutor | None = None) -> None:
         """Idempotent re-registration (e.g. MCP reconnect re-discovery)."""
         self._descriptors[descriptor.tool_id] = descriptor
+        self._capabilities[descriptor.tool_id] = capability_from_tool_descriptor(descriptor)
         if executor is not None:
             self._executors[descriptor.tool_id] = executor
+
+    # -- N5A capability/projection surface --------------------------------------
+
+    def register_capability(
+        self, capability: CapabilityDescriptorV2, executor: ToolExecutor | None = None
+    ) -> None:
+        """直接注册 V2 能力（canonical）；同步派生 legacy 视图。"""
+        cid = capability.capability_id
+        if cid in self._capabilities:
+            raise ValidationError(f"capability {cid!r} already registered")
+        self._capabilities[cid] = capability
+        self._descriptors[cid] = tool_descriptor_from_capability(capability)
+        if executor is not None:
+            self._executors[cid] = executor
+
+    def capability(self, tool_id: str) -> CapabilityDescriptorV2 | None:
+        """canonical 能力视图（审批/并发/Verifier 应读这里）。"""
+        return self._capabilities.get(self._canonical(tool_id))
+
+    def list_capabilities(self, *, source: str | None = None) -> list[CapabilityDescriptorV2]:
+        items = sorted(self._capabilities.values(), key=lambda c: c.capability_id)
+        if source is not None:
+            items = [c for c in items if c.source == source]
+        return items
+
+    def register_projection(self, projection: ToolProjectionV1) -> None:
+        """注册能力→工具投影。PHYSICAL_EFFECT 拒绝 direct（fail closed）。"""
+        cap = self._capabilities.get(projection.capability_id)
+        if cap is None:
+            raise ValidationError(
+                f"projection {projection.tool_name!r}: capability "
+                f"{projection.capability_id!r} not registered"
+            )
+        if (
+            cap.effect.class_ is EffectClassV1.PHYSICAL_EFFECT
+            and projection.exposure is ProjectionExposure.DIRECT
+        ):
+            raise ValidationError(
+                f"projection {projection.tool_name!r}: PHYSICAL_EFFECT capability "
+                f"{cap.capability_id!r} is never directly model-exposed — use "
+                "propose_only (ActionAdmission) or internal"
+            )
+        self._projections[projection.tool_name] = projection
+
+    def projection(self, tool_name: str) -> ToolProjectionV1 | None:
+        return self._projections.get(tool_name)
 
     def get(self, tool_id: str) -> ToolDescriptorV2 | None:
         return self._descriptors.get(tool_id)

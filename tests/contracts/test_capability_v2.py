@@ -99,7 +99,7 @@ class TestCapabilityDescriptorV2:
 
         cap = CapabilityDescriptorV2.model_validate_contract(_capability_payload())
         assert cap.capability_id == "ur5e.simulate_cartesian_trajectory"
-        assert cap.effect.class.value == "SIMULATED_EFFECT"
+        assert cap.effect.class_.value == "SIMULATED_EFFECT"
         assert cap.compatibility.modes == ["SIMULATION"]
         assert cap.execution.idempotent is True
         assert cap.evidence.resource_provenance_required is True
@@ -111,9 +111,13 @@ class TestCapabilityDescriptorV2:
 
         golden = GOLDEN_DIR / "rosclaw.capability.v2.json"
         assert golden.exists(), f"missing golden file {golden}"
-        assert json.loads(golden.read_text(encoding="utf-8")) == (
-            CapabilityDescriptorV2.model_json_schema()
-        ), "schema rosclaw.capability.v2 drifted from golden"
+        current = CapabilityDescriptorV2.model_json_schema()
+        current["$id"] = "rosclaw://schemas/rosclaw.capability.v2"
+        current["title"] = "rosclaw.capability.v2"
+        assert json.loads(golden.read_text(encoding="utf-8")) == current, (
+            "schema rosclaw.capability.v2 drifted from golden; if intentional, "
+            "re-export via rosclaw.contracts.export and review the diff"
+        )
 
     def test_invalid_effect_class_rejected(self) -> None:
         from rosclaw.contracts.agent.capability import CapabilityDescriptorV2
@@ -164,9 +168,14 @@ class TestToolProjectionV1:
 
         golden = GOLDEN_DIR / "rosclaw.tool_projection.v1.json"
         assert golden.exists(), f"missing golden file {golden}"
-        assert json.loads(golden.read_text(encoding="utf-8")) == (
-            ToolProjectionV1.model_json_schema()
-        ), "schema rosclaw.tool_projection.v1 drifted from golden"
+        current = ToolProjectionV1.model_json_schema()
+        current["$id"] = "rosclaw://schemas/rosclaw.tool_projection.v1"
+        current["title"] = "rosclaw.tool_projection.v1"
+        assert json.loads(golden.read_text(encoding="utf-8")) == current, (
+            "schema rosclaw.tool_projection.v1 drifted from golden; if "
+            "intentional, re-export via rosclaw.contracts.export and review "
+            "the diff"
+        )
 
     def test_exposure_values(self) -> None:
         from rosclaw.contracts.agent.capability import ToolProjectionV1
