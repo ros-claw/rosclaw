@@ -480,6 +480,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			sessionRef: () => options.active.current.sessionId ?? "",
 			backendNativeId: () => options.active.current.sessionId ?? "",
 			cwd: () => options.taskContext.workspaceRoot,
+			bodyId: () => options.active.current.bodyId ?? "",
 			notify: (text, kind) => {
 				latestCtx?.ui.notify(text, kind);
 			},
@@ -501,9 +502,13 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				try {
 					// PR-N0：/done = 用户接受（user_accepted_at）——此后
 					// 新消息开新任务；未接受的 SUCCEEDED 被用户修正重开。
-					await center.call("pi.kernel.accept", {
+					const r = await center.call("pi.kernel.accept", {
 						task_id: inputController.currentTaskId,
 					});
+					if (r.ok === false) {
+						ctx.ui.notify(`不能接受：${String(r.error ?? '')}`, "warning");
+						return;
+					}
 					ctx.ui.notify(
 						`任务已接受（${inputController.currentTaskId.slice(0, 14)}…）`,
 						"info",

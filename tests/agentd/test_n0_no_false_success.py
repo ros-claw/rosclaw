@@ -234,3 +234,39 @@ class TestNoFalseSuccess:
         assert r2["verification_id"] == r1["verification_id"], (
             "重复验证竟产生新 receipt"
         )
+
+
+class TestFuseArmed:
+    def test_bind_without_body_falls_back_to_mission_body(
+        self, tmp_path: Path
+    ) -> None:
+        """bridge 回落：bind 不带 body_id 时用 mission 绑定 body——
+        熔断在 chat 路径首条消息即武装（不自审前的惰性失效）。"""
+        from tests.agentd.test_pi_tool_bridge import _setup  # noqa: F401
+
+        import asyncio
+
+        async def _run() -> None:
+            service, mission = await _setup(tmp_path)
+            from rosclaw.agentd.pi_bridge.server import PiBridgeServer
+
+            bridge = PiBridgeServer(service, tmp_path / "run" / "pi-bridge.sock")
+            result = await bridge._dispatch(
+                "user:local:1000", 1, "pi.task.bind",
+                {
+                    "token": service.control_token,
+                    "mission_id": mission.mission_id,
+                    "session_ref": "pi_1", "backend_native_id": "pi_1",
+                    "message_id": "msg_fuse", "text": "画五角星",
+                    "cwd": str(tmp_path),
+                },
+            )
+            assert result.get("ok"), result
+            task = service._task_kernel.get_task(result["task_id"])
+            assert task is not None
+            assert task["body_id"], (
+                "bind 未带 body_id 且未回落 mission body——熔断惰性失效"
+            )
+            await service.close()
+
+        asyncio.run(_run())

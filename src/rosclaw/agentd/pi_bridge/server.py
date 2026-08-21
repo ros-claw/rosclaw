@@ -964,7 +964,15 @@ class PiBridgeServer:
                 # PR-N1：任务 workspace = ActiveTaskContext 的
                 # workspaceRoot（cwd 即工作根——同一事实源）。
                 workspace_root=str(params.get("cwd", "")),
-                body_id=str(params.get("body_id", "")),
+                body_id=(
+                    str(params.get("body_id", ""))
+                    # 首条消息尚无 envelope——回落 mission 绑定 body
+                    # （PR-N0 熔断的执行面必须首条即武装）。
+                    or (service.get_mission(str(params.get("mission_id", "")))
+                        .body_binding.body_id if service.get_mission(
+                            str(params.get("mission_id", ""))
+                        ) else "")
+                ),
                 force_new=bool(params.get("force_new", False)),
             )
             return {"ok": True, **result}

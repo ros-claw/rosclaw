@@ -32,7 +32,7 @@ export function classifyModelError(raw: string): ClassifiedModelError {
 	const text = raw.toLowerCase();
 	// 顺序敏感：quota 在 generic 403/auth 之前。
 	if (
-		/usage limit|quota|billing|access_terminated/.test(text)
+		/usage limit|quota|billing|access_terminated|membership|402/.test(text)
 	) {
 		return {
 			code: "PROVIDER_QUOTA_EXHAUSTED",

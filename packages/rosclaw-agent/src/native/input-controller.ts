@@ -27,6 +27,9 @@ export interface InputControllerDeps {
 	sessionRef: () => string;
 	backendNativeId: () => string;
 	cwd: () => string;
+	/** 当前绑定 body（PR-N0 熔断的执行面：机器人行为任务的受信
+	 *  证据要求由 body_id 驱动——不传则熔断在 chat 路径惰性失效）。 */
+	bodyId?: () => string;
 	notify: (text: string, kind: "info" | "warning" | "error") => void;
 }
 
@@ -50,6 +53,7 @@ export class InputController {
 				message_id: messageId,
 				text,
 				cwd: this.deps.cwd(),
+				body_id: this.deps.bodyId?.() ?? "",
 				force_new: this.forceNewNext,
 			})) as unknown as TaskBindResult & { ok?: boolean };
 			this.forceNewNext = false;
