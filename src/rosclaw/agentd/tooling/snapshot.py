@@ -54,8 +54,13 @@ def build_capability_snapshot(
         cid = cap.capability_id
         reason = catalog.quarantine_reason(cid)
         if reason is not None:
+            # 已知机器原因码直传（如 QUARANTINED_UNCLASSIFIED），其余
+            # 统一 CAPABILITY_QUARANTINED。
+            code = reason.split(":", 1)[0].strip()
+            if code not in ("QUARANTINED_UNCLASSIFIED",):
+                code = "CAPABILITY_QUARANTINED"
             excluded.append(SnapshotExcludedV1(
-                capability_id=cid, reason="CAPABILITY_QUARANTINED",
+                capability_id=cid, reason=code,
             ))
             continue
         effect = cap.effect.class_

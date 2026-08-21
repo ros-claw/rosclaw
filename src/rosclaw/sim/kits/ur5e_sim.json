@@ -54,11 +54,13 @@
    "ur5e.move_to_pose",
    "ur5e.stop",
    "ur5e.execute_plan",
-   "ur5e.reset_simulation"
+   "ur5e.reset_simulation",
+   "ur5e.execute_cartesian_path"
   ],
   "compute": [
    "ur5e.plan_cartesian_path",
-   "ur5e.verify_drawing"
+   "ur5e.verify_drawing",
+   "ur5e.render_trace_preview"
   ]
  }
 }

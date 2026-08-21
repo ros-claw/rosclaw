@@ -17,8 +17,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 
 class _FakeTool:
     def __init__(self, name: str, *, read_only: bool = False) -> None:

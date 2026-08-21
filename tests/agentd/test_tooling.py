@@ -267,22 +267,36 @@ class TestMcpClassification:
         )
 
     def test_action_verb_is_physical(self) -> None:
+        # PR-N5E：动词启发式不再上线——未显式声明 → None（调用方
+        # QUARANTINED_UNCLASSIFIED）；启发式只在 suggest_classification
+        # 给 doctor 建议。
+        from rosclaw.agentd.tooling.mcp_adapter import suggest_classification
+
         adapter = self._adapter()
-        assert adapter.classify("limo.speaker.play_tone", None) is ExecutionClass.PHYSICAL_ACTION
-        assert adapter.classify("limo.base.move_to", None) is ExecutionClass.PHYSICAL_ACTION
+        assert adapter.classify("limo.speaker.play_tone", None) is None
+        assert adapter.classify("limo.base.move_to", None) is None
+        assert suggest_classification("limo.speaker.play_tone", None) == "PHYSICAL_ACTION"
+        assert suggest_classification("limo.base.move_to", None) == "PHYSICAL_ACTION"
 
     def test_readonly_annotation_is_observe(self) -> None:
         from mcp.types import ToolAnnotations
 
+        from rosclaw.agentd.tooling.mcp_adapter import suggest_classification
+
         adapter = self._adapter()
         ann = ToolAnnotations(readOnlyHint=True)
-        assert adapter.classify("limo.localization.get_pose", ann) is ExecutionClass.OBSERVE
-        # action verb wins over readOnlyHint (suspicious combo → fail closed)
-        assert adapter.classify("limo.arm.set_pose", ann) is ExecutionClass.PHYSICAL_ACTION
+        # N5E：第三方自声明注解不是绑定依据——未显式声明即 None。
+        assert adapter.classify("limo.localization.get_pose", ann) is None
+        assert adapter.classify("limo.arm.set_pose", ann) is None
+        assert suggest_classification("limo.localization.get_pose", ann) == "OBSERVE"
+        assert suggest_classification("limo.arm.set_pose", ann) == "PHYSICAL_ACTION"
 
     def test_ambiguous_fails_closed(self) -> None:
+        # PR-N5E：含糊工具不再默认 PHYSICAL_ACTION 上线——未声明即
+        # None（隔离到 QUARANTINED_UNCLASSIFIED，比"当物理动作上线"
+        # 更诚实：不执行、不展示为可用）。
         adapter = self._adapter()
-        assert adapter.classify("limo.misc.unknown", None) is ExecutionClass.PHYSICAL_ACTION
+        assert adapter.classify("limo.misc.unknown", None) is None
 
     def test_config_overrides(self) -> None:
         adapter = self._adapter(
@@ -294,9 +308,13 @@ class TestMcpClassification:
     def test_destructive_annotation_is_physical(self) -> None:
         from mcp.types import ToolAnnotations
 
+        from rosclaw.agentd.tooling.mcp_adapter import suggest_classification
+
         adapter = self._adapter()
         ann = ToolAnnotations(readOnlyHint=True, destructiveHint=True)
-        assert adapter.classify("x.y", ann) is ExecutionClass.PHYSICAL_ACTION
+        # N5E：注解不参与上线分类；destructive 建议仍为 PHYSICAL_ACTION。
+        assert adapter.classify("x.y", ann) is None
+        assert suggest_classification("x.y", ann) == "PHYSICAL_ACTION"
 
     def test_image_content_is_preserved_with_bounded_metadata(self) -> None:
         from mcp.types import CallToolResult, ImageContent, TextContent
@@ -436,6 +454,10 @@ class TestMcpDiscovery:
                 args=(str(FIXTURE_SERVER),),
                 supported_modes=("SIMULATION", "SHADOW"),
                 required_body_types=("agilex-limo",),
+                # PR-N5E 严格绑定：显式声明分类（生产必需——未声明
+                # 的进 QUARANTINED_UNCLASSIFIED，见下方断言）。
+                observation_tools=("limo.localization.get_pose",),
+                action_tools=("limo.speaker.play_tone",),
             ),
             catalog,
         )
@@ -451,8 +473,10 @@ class TestMcpDiscovery:
         # 退出条件 2：action 不可被模型直接执行。
         assert tone.execution_class is ExecutionClass.PHYSICAL_ACTION
         assert not tone.model_callable and tone.requires_exact_action_grant
-        # 无注解工具 fail closed。
+        # 无声明工具 fail closed：QUARANTINED_UNCLASSIFIED（注册为
+        # 不可调用形态 + 隔离——比"当物理动作上线"更诚实）。
         assert ambiguous.execution_class is ExecutionClass.PHYSICAL_ACTION
+        assert catalog.quarantine_reason("limo.misc.ambiguous") is not None
 
         # observation 通过 catalog 真正执行（真实 MCP stdio 调用）。
         output = await catalog.execute("limo.localization.get_pose", {"frame": "map"})

@@ -245,6 +245,12 @@ class ToolCatalog:
         if descriptor is None:
             return _blocked("CAPABILITY_UNKNOWN", f"tool {tool_id!r} not in catalog")
         tool_id = descriptor.tool_id
+        # 隔离原因优先于 callable 形态——"为什么不能用"先讲诚实原因。
+        reason = self._quarantine.get(tool_id)
+        if reason is not None:
+            return _blocked(
+                "CAPABILITY_QUARANTINED", f"tool {tool_id!r} quarantined: {reason}"
+            )
         if (
             descriptor.execution_class is ExecutionClass.PHYSICAL_ACTION
             or not descriptor.model_callable
@@ -253,11 +259,6 @@ class ToolCatalog:
                 "TOOL_NOT_CALLABLE",
                 f"tool {tool_id!r} is not directly executable (physical or "
                 "non-model-callable) — flows only through the approval chain",
-            )
-        reason = self._quarantine.get(tool_id)
-        if reason is not None:
-            return _blocked(
-                "CAPABILITY_QUARANTINED", f"tool {tool_id!r} quarantined: {reason}"
             )
         executor = self._executors.get(tool_id)
         if executor is None:

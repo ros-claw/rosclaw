@@ -169,6 +169,22 @@ class McpServerConfig:
         return env
 
 
+def suggest_classification(tool_name: str, annotations: Any) -> str:
+    """名称/注解启发式建议——仅 developer doctor/inspect 展示用，
+    绝不参与上线分类（PR-N5E）。返回 "" 表示无建议。"""
+    destructive = (
+        bool(getattr(annotations, "destructiveHint", False)) if annotations else False
+    )
+    if destructive:
+        return "PHYSICAL_ACTION"
+    read_only = bool(getattr(annotations, "readOnlyHint", False)) if annotations else False
+    if _ACTION_VERBS.search(tool_name):
+        return "PHYSICAL_ACTION"
+    if read_only:
+        return "OBSERVE"
+    return ""
+
+
 @dataclass
 class DiscoveryReport:
     server: str
@@ -194,7 +210,11 @@ class McpCapabilityAdapter:
 
     # -- classification ---------------------------------------------------------
 
-    def classify(self, tool_name: str, annotations: Any) -> ExecutionClass:
+    def classify(self, tool_name: str, annotations: Any) -> ExecutionClass | None:
+        """PR-N5E 严格绑定：只认安装配置的显式声明列表（绑定 manifest
+        等效物）。未声明 → None（调用方 QUARANTINED_UNCLASSIFIED 隔离，
+        不上线执行）。名称动词/第三方注解启发式不参与上线分类——只在
+        suggest_classification（developer doctor）里给建议。"""
         cfg = self._config
         if tool_name in cfg.action_tools:
             return ExecutionClass.PHYSICAL_ACTION
@@ -202,18 +222,7 @@ class McpCapabilityAdapter:
             return ExecutionClass.COMPUTE
         if tool_name in cfg.observation_tools:
             return ExecutionClass.OBSERVE
-        read_only = bool(getattr(annotations, "readOnlyHint", False)) if annotations else False
-        destructive = (
-            bool(getattr(annotations, "destructiveHint", False)) if annotations else False
-        )
-        if destructive:
-            return ExecutionClass.PHYSICAL_ACTION
-        if read_only and not _ACTION_VERBS.search(tool_name):
-            return ExecutionClass.OBSERVE
-        if _ACTION_VERBS.search(tool_name):
-            return ExecutionClass.PHYSICAL_ACTION
-        # ambiguous → fail closed
-        return ExecutionClass.PHYSICAL_ACTION
+        return None
 
     # -- discovery ---------------------------------------------------------------
 
@@ -255,7 +264,39 @@ class McpCapabilityAdapter:
 
         self._catalog.lift_source_quarantine(self.source)
         for tool in listed.tools:
-            execution_class = self.classify(tool.name, tool.annotations)
+            classified = self.classify(tool.name, tool.annotations)
+            if classified is None:
+                # PR-N5E：含糊工具 → QUARANTINED_UNCLASSIFIED（注册可见、
+                # 不可执行、进 snapshot excluded；原因带启发式建议供
+                # doctor/inspect 展示——建议不上线）。
+                suggestion = suggest_classification(tool.name, tool.annotations)
+                descriptor = ToolDescriptorV2(
+                    tool_id=tool.name,
+                    source=self.source,
+                    execution_class=ExecutionClass.PHYSICAL_ACTION,
+                    side_effect_class=ToolSideEffectClass.REVERSIBLE,
+                    description=tool.description or "",
+                    input_schema=dict(tool.inputSchema or {}),
+                    supported_modes=list(cfg.supported_modes),
+                    required_body_types=list(cfg.required_body_types),
+                    effect_domain="",
+                    timeout_ms=cfg.timeout_ms,
+                    evidence_class=ToolEvidenceClass.MEASURED,
+                    idempotent=False,
+                    model_callable=False,
+                    requires_exact_action_grant=True,
+                )
+                self._catalog.replace(descriptor, self._make_executor(tool.name))
+                self._catalog.quarantine_tool(
+                    tool.name,
+                    "QUARANTINED_UNCLASSIFIED: 未在安装配置显式声明分类"
+                    f"（observation/compute/action 列表）；建议分类: "
+                    f"{suggestion or '未知'}——在 server 配置中显式声明后"
+                    "自动解除隔离",
+                )
+                report.tools.append(descriptor)
+                continue
+            execution_class = classified
             physical = execution_class is ExecutionClass.PHYSICAL_ACTION
             descriptor = ToolDescriptorV2(
                 tool_id=tool.name,

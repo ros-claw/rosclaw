@@ -614,6 +614,20 @@ class PiBridgeServer:
             sim_executor_sources = set(service._sim_executors.keys())
             for descriptor in service._tool_catalog.list():
                 cls = descriptor.execution_class.value
+                # N5E：观测/计算桶也查隔离——被隔离的进 excluded
+                # （与 snapshot 同一事实源），不得显示为可用。
+                if cls in ("OBSERVE", "COMPUTE"):
+                    qreason = service._tool_catalog.quarantine_reason(
+                        descriptor.tool_id
+                    )
+                    if qreason is not None:
+                        excluded.append(
+                            {
+                                "capability_id": descriptor.tool_id,
+                                "reason": qreason.split(":", 1)[0].strip(),
+                            }
+                        )
+                        continue
                 if cls == "OBSERVE":
                     if descriptor.model_callable:
                         # PR-N5C：每条携带 canonical effect_class。
