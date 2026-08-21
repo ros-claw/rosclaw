@@ -49,6 +49,7 @@ def _bind_and_finish(service, mission, *, idem: str) -> str:
         mission_id=mission.mission_id, session_ref="pi_1",
         backend_native_id="pi_1", message_id=f"msg_{idem}",
         text="画五角星", cwd=str(service._home),
+        body_id=mission.body_binding.body_id,
     )
     task_id = str(bound["task_id"])
     return task_id
