@@ -1,4 +1,6 @@
-# ADR-0012A：Harness Backend 默认与认证路线——用户无 engine 面
+# ADR-0013：Harness Backend 默认与认证路线——用户无 engine 面
+
+（即调整方案 §十二.3 所称"ADR-0012A"；按 ADR-0000 命名规范编为 0013）
 
 - 状态：Accepted（2026-08-21，PR-ADR-0012A）
 - 基线：main=`090da56`
