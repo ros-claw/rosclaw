@@ -93,7 +93,7 @@ async function main(): Promise<number> {
 	// PR-N1：ActiveTaskContext 在 session 创建前解析并冻结——
 	// runtime/工具/bridge/artifact/verifier/header 全从这里取路径。
 	const { resolveTaskContext } = await import("./native/active-task-context.js");
-	const taskContext = resolveTaskContext({
+	let taskContext = resolveTaskContext({
 		rosclawHome,
 		cwd: process.cwd(),  // 唯一允许的进程 cwd 读取（启动解析输入）
 		mode: "SIMULATION",
@@ -138,6 +138,19 @@ async function main(): Promise<number> {
 	const isResume = Boolean(
 		resumeSessionId || resumeSessionPath || browseSessions || continueLast,
 	);
+	// N4.2：resume 的 workspace 以会话记录为准（优先于 cwd 推导）。
+	if (isResume && initialSession) {
+		const resumedCwd = initialSession.getCwd();
+		if (resumedCwd) {
+			taskContext = resolveTaskContext({
+				rosclawHome,
+				cwd: process.cwd(),  // 唯一允许的进程 cwd 读取（启动解析输入）
+				mode: "SIMULATION",
+				explicitWorkspace: workspace,
+				resumedWorkspace: resumedCwd,
+			});
+		}
+	}
 	// 十一审 PR-D：Workspace 一等状态——显式 --workspace > cwd git 自动
 	// 绑定 > 既有绑定。
 	const { runtime, coordinator, leaseManager } = await createRosclawRuntime({

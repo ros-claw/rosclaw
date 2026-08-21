@@ -319,6 +319,7 @@ class TaskKernel:
         self, *, task_id: str, path: str, media_type: str,
         producer_operation_id: str = "",
         producer: str = "model:tool",
+        metadata: dict | None = None,
     ) -> dict[str, Any]:
         """登记交付物：实读文件算 sha256/size（不存在的文件拒绝登记）。
         登记才进交付列表——模型口头提到不算。
@@ -350,16 +351,25 @@ class TaskKernel:
             "sha256": hashlib.sha256(content).hexdigest(),
             "size_bytes": len(content),
         }
+        # N4.1：模型自产证据标 EXPERIMENTAL——通过 qualification 前
+        # 不当正式能力证据（N 调整方案 §二）。
+        meta = dict(metadata or {})
+        if producer.startswith("model:"):
+            meta.setdefault("evidence_tier", "EXPERIMENTAL")
+        meta_json = json.dumps(meta, ensure_ascii=False)
         self._conn.execute(
             "INSERT INTO artifacts (artifact_id, task_id, path, media_type, "
-            "sha256, size_bytes, producer_operation_id, producer, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "sha256, size_bytes, producer_operation_id, producer, "
+            "metadata_json, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (artifact_id, task_id, str(file), media_type, record["sha256"],
-             len(content), producer_operation_id or None, producer, now),
+             len(content), producer_operation_id or None, producer,
+             meta_json, now),
         )
         self._emit(task_id, "artifact.created",
                    {"artifact_id": artifact_id, "path": str(file),
                     "bytes": len(content)})
+        record["metadata_json"] = meta_json
         return record
 
     def finish_task(
@@ -404,6 +414,60 @@ class TaskKernel:
             (task_id, int(task["active_revision"])),
         ).fetchone()
         frozen = json.loads(str(rev_row["acceptance_json"])) if rev_row else {}
+        # N4.1：资源证明比对——产物元数据的 resource 块 ↔ 当前权威
+        # manifest（resolver）↔ 内容 digest。producer 只是来源身份，
+        # 不代替资源证明。
+        provenance_failures: list[str] = []
+        embodiment_used = self.task_used_embodiment(task_id)
+        if embodiment_used:
+            robot_id = str(task["body_id"]).removeprefix("sim/")
+            resource_proofs = []
+            for art in artifacts:
+                meta = json.loads(str(art.get("metadata_json") or "{}"))
+                resource = meta.get("resource") or {}
+                if resource:
+                    resource_proofs.append(resource)
+            if not resource_proofs:
+                provenance_failures.append(
+                    "RESOURCE_PROVENANCE_MISSING: 行为任务产物无资源证明"
+                )
+            else:
+                from rosclaw.cognition.resolver import resolve_resource
+
+                product_root = Path(__file__).resolve().parents[3]
+                manifest = resolve_resource(
+                    "robot", robot_id, product_root=product_root
+                )
+                if manifest is None:
+                    provenance_failures.append(
+                        f"RESOURCE_PROVENANCE_MISSING: 无 {robot_id} 权威 "
+                        "manifest 可比对"
+                    )
+                else:
+                    expected_digest = manifest.get("digests", {}).get(
+                        "mjcf", ""
+                    )
+                    for proof in resource_proofs:
+                        if proof.get("resource_id") != f"robot:{robot_id}":
+                            provenance_failures.append(
+                                "RESOURCE_ID_MISMATCH: "
+                                f"{proof.get('resource_id')} != "
+                                f"robot:{robot_id}"
+                            )
+                        if proof.get("quality") != "PRODUCTION" or (
+                            proof.get("canonical") is not True
+                        ):
+                            provenance_failures.append(
+                                "NON_CANONICAL_RESOURCE: "
+                                f"quality={proof.get('quality')}"
+                            )
+                        if expected_digest and (
+                            proof.get("model_digest") != expected_digest
+                        ):
+                            provenance_failures.append(
+                                "RESOURCE_DIGEST_MISMATCH: 实际加载模型 "
+                                "与权威 manifest 摘要不符"
+                            )
         trusted_present = any(
             str(a.get("producer") or "").startswith("kernel:")
             for a in artifacts
@@ -413,8 +477,9 @@ class TaskKernel:
             acceptance=frozen,
             workspace=Path(task["workspace_path"]),
             summary=summary,
-            require_trusted_evidence=bool(task["body_id"]),
+            require_trusted_evidence=embodiment_used,
             trusted_evidence_present=trusted_present,
+            extra_failures=provenance_failures,
         )
         now = datetime.now(UTC).isoformat()
         if verdict["status"] == "PASS":
@@ -443,6 +508,26 @@ class TaskKernel:
             "failures": verdict["failures"],
             "checks": verdict["checks"],
         }
+
+    #: 具身执行工具（用了这些 = 行为任务——受信证据规则才武装）。
+    _EMBODIMENT_TOOLS = frozenset({
+        "rosclaw_task", "rosclaw_execute", "rosclaw_request_action",
+    })
+
+    def note_tool_use(self, task_id: str, tool_name: str) -> None:
+        """具身工具使用落账（dispatcher 在 _execute_validated 调用）——
+        N4.1：行为任务的判定依据是实际用了具身执行工具，不是
+        body 存在（编码任务绑着机器人 body 也是编码任务）。"""
+        if tool_name in self._EMBODIMENT_TOOLS:
+            self._emit(task_id, "task.tool_used", {"tool": tool_name})
+
+    def task_used_embodiment(self, task_id: str) -> bool:
+        row = self._conn.execute(
+            "SELECT COUNT(*) AS c FROM task_events WHERE task_id = ? "
+            "AND event_type = 'task.tool_used'",
+            (task_id,),
+        ).fetchone()
+        return bool(row and row["c"] > 0)
 
     def set_acceptance(self, task_id: str, acceptance: dict) -> None:
         """验收条件在任务创建/修订时冻结（PR-N0）——finish 不接受

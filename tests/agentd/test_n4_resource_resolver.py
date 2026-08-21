@@ -108,7 +108,7 @@ class TestProvenanceVerifier:
             manifest = sandbox.resource_manifest()
             assert manifest["resource_id"] == "robot:ur5e"
             assert Path(manifest["model_path"]).exists()
-            assert manifest["digest"].startswith("sha256:")
+            assert manifest["model_digest"].startswith("sha256:")
             assert "robot.mjcf.xml" in manifest["model_path"]
         finally:
             sandbox.close()

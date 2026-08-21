@@ -45,6 +45,7 @@ def _bind_kernel_task(service, mission, *, goal: str = "画五角星") -> str:
         message_id="msg_ckpt_1",
         text=goal,
         cwd=str(service._home),
+        body_id=mission.body_binding.body_id,
     )
     return str(bound["task_id"])
 

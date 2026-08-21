@@ -16,7 +16,13 @@ import { resolve } from "node:path";
 
 import { gitRootOf, WorkspaceStore } from "../session/workspace.js";
 
-export type WorkspaceSource = "explicit" | "git" | "restored" | "default";
+export type WorkspaceSource =
+	| "explicit"
+	| "resumed"
+	| "git"
+	| "restored"
+	| "cwd"
+	| "default";
 
 export interface ActiveTaskContext {
 	/** session 创建后由 runtime 回填前的占位——冻结时可为空。 */
@@ -50,6 +56,10 @@ export function resolveTaskContext(options: {
 	cwd: string;
 	mode: "SIMULATION" | "SHADOW" | "REAL";
 	explicitWorkspace?: string;
+	/** resume 会话记录的 workspace（优先于 cwd 推导——N4.2）。 */
+	resumedWorkspace?: string;
+	/** 真实 HOME（测试可注入——默认 process.env.HOME）。 */
+	homeDir?: string;
 	robotId?: string;
 	simulatorId?: string;
 }): ActiveTaskContext {
@@ -57,9 +67,14 @@ export function resolveTaskContext(options: {
 	let workspaceSource: WorkspaceSource;
 	let projectRoot: string | undefined;
 
+	const home = options.homeDir ?? process.env.HOME ?? "";
 	if (options.explicitWorkspace) {
 		workspaceRoot = resolve(options.explicitWorkspace);
 		workspaceSource = "explicit";
+		projectRoot = gitRootOf(workspaceRoot) ?? workspaceRoot;
+	} else if (options.resumedWorkspace) {
+		workspaceRoot = resolve(options.resumedWorkspace);
+		workspaceSource = "resumed";
 		projectRoot = gitRootOf(workspaceRoot) ?? workspaceRoot;
 	} else {
 		const repo = gitRootOf(options.cwd);
@@ -74,9 +89,30 @@ export function resolveTaskContext(options: {
 				workspaceSource = "restored";
 				projectRoot = gitRootOf(workspaceRoot) ?? workspaceRoot;
 			} else {
-				workspaceRoot = resolve(options.rosclawHome, "workspaces", "default");
-				workspaceSource = "default";
-				mkdirSync(workspaceRoot, { recursive: true });
+				// N4.2：普通可写目录直接当工作区（用户直觉）——仅 / 或
+				// HOME 或不可写目录回落 default（不把 HOME 当工作区）。
+				const cwdResolved = resolve(options.cwd);
+				const isHomeOrRoot =
+					cwdResolved === "/" || (home !== "" && cwdResolved === resolve(home));
+				let writable = false;
+				if (!isHomeOrRoot) {
+					try {
+						mkdirSync(cwdResolved, { recursive: true });
+						writable = true;
+					} catch {
+						writable = false;
+					}
+				}
+				if (!isHomeOrRoot && writable) {
+					workspaceRoot = cwdResolved;
+					workspaceSource = "cwd";
+				} else {
+					workspaceRoot = resolve(
+						options.rosclawHome, "workspaces", "default",
+					);
+					workspaceSource = "default";
+					mkdirSync(workspaceRoot, { recursive: true });
+				}
 			}
 		}
 	}

@@ -149,6 +149,17 @@ class PiToolDispatcher:
         await self._mirror_decision(request, result)
         return result
 
+    def _note_embodiment_use(self, request: PiToolRequestV1) -> None:
+        """N4.1：具身执行工具落账——行为任务的判定依据是实际调用，
+        不是 body 在场。"""
+        task = self._service._task_kernel.active_task_for(
+            request.mission_id, request.pi_session_id
+        )
+        if task is not None:
+            self._service._task_kernel.note_tool_use(
+                str(task["task_id"]), request.tool_name
+            )
+
     async def _execute_validated(self, request: PiToolRequestV1) -> PiToolResultV1:
         service = self._service
         # 2. session binding + mission。
@@ -311,13 +322,16 @@ class PiToolDispatcher:
                 "no results in this SIM profile",
             )
         if name == "rosclaw_request_action":
+            self._note_embodiment_use(request)
             return await self._request_action(request)
         if name == "rosclaw_task":
+            self._note_embodiment_use(request)
             return await self._task(request)
         # PR-H3：process 工具——长进程 = Operation（立即返回，事件流
         # 可查，终态 followUp 一次）。
         # PR-H5：统一执行入口 + operation 控制。
         if name == "rosclaw_execute":
+            self._note_embodiment_use(request)
             return await self._execute(request)
         if name == "rosclaw_wait_operation":
             return await self._wait_operation(request)
@@ -725,10 +739,12 @@ class PiToolDispatcher:
 
                 with _cl.suppress(ValueError):
                     # 产物文件缺失由验收 failures 表达；受信管道登记
-                    # （producer=kernel——PR-N0 行为任务必须有此证据）。
+                    # （producer=kernel——PR-N0）+ 资源证明元数据
+                    # （N4.1——producer 只是来源身份，资源证明才算数）。
                     service._task_kernel.register_artifact(
                         task_id=task["task_id"], path=path, media_type=media,
                         producer="kernel:sim_pipeline",
+                        metadata={"resource": result.get("resource") or {}},
                     )
         state = "VERIFIED" if not failures else "FAILED"
         payload = {

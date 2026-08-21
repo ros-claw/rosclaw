@@ -357,19 +357,60 @@ class Sandbox:
         return self._load_error
 
     def resource_manifest(self) -> dict:
-        """PR-N4（§8 PR-N4）：加载的模型资源身份——resource ID +
-        model path + 内容 digest（verifier 可证明实际加载的是哪个
-        资产）。"""
+        """PR-N4/N4.1：执行资源证明——resource ID + model path +
+        内容 digest + manifest digest + mesh digests + 解析代次 +
+        质量/权威标记（verifier 可证明实际加载的是哪个资产）。"""
         import hashlib
 
         path = self._model_path
+        model_digest = (
+            "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+            if path and path.exists() else ""
+        )
+        mesh_digests: dict[str, str] = {}
+        quality = ""
+        canonical: bool | None = None
+        manifest_digest = ""
+        resolver_generation = ""
+        robot_id = self._robot_id
+        # 别名归一（sim_ur5e → ur5e）后查权威 manifest。
+        robot_id = {"sim_ur5e": "ur5e"}.get(robot_id, robot_id)
+        if path and path.exists():
+            assets_dir = path.parent / "assets"
+            if assets_dir.is_dir():
+                h = hashlib.sha256()
+                for f in sorted(assets_dir.rglob("*")):
+                    if f.is_file():
+                        h.update(str(f.relative_to(assets_dir)).encode())
+                        h.update(hashlib.sha256(f.read_bytes()).digest())
+                mesh_digests = {"assets": "sha256:" + h.hexdigest()}
+            try:
+                from rosclaw.cognition.resolver import resolve_resource
+
+                # 产品根：model path 上溯（e-urdf-zoo/<robot>/x.xml
+                # → 根）。
+                product_root = path.parent.parent.parent
+                manifest = resolve_resource(
+                    "robot", robot_id, product_root=product_root
+                )
+                if manifest is not None:
+                    quality = manifest.get("quality", "")
+                    canonical = manifest.get("canonical")
+                    manifest_digest = manifest.get("digests", {}).get(
+                        "profile", ""
+                    )
+                    resolver_generation = manifest_digest
+            except Exception:  # noqa: BLE001 - resolver 不可用不阻塞执行
+                pass
         return {
-            "resource_id": f"robot:{self._robot_id}",
+            "resource_id": f"robot:{robot_id}",
+            "manifest_digest": manifest_digest,
             "model_path": str(path) if path else "",
-            "digest": (
-                "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
-                if path and path.exists() else ""
-            ),
+            "model_digest": model_digest,
+            "mesh_digests": mesh_digests,
+            "resolver_generation": resolver_generation,
+            "quality": quality,
+            "canonical": canonical,
             "world_id": self._world_id,
             "loaded": self._model is not None,
         }

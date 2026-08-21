@@ -23,6 +23,23 @@ from pathlib import Path
 from rosclaw.task_kernel.service import TaskKernel
 
 
+def _real_ur5e_resource() -> dict:
+    """真实权威 manifest 的资源证明（对照组用真值——不是编数字）。"""
+    from rosclaw.cognition.resolver import resolve_resource
+
+    repo = Path(__file__).resolve().parents[2]
+    manifest = resolve_resource("robot", "ur5e", product_root=repo)
+    assert manifest is not None
+    return {
+        "resource_id": "robot:ur5e",
+        "manifest_digest": manifest["digests"].get("profile", ""),
+        "model_path": manifest["paths"]["mjcf"],
+        "model_digest": manifest["digests"]["mjcf"],
+        "quality": "PRODUCTION",
+        "canonical": True,
+    }
+
+
 def _kernel(tmp_path: Path) -> TaskKernel:
     conn = sqlite3.connect(":memory:", check_same_thread=False)
     conn.row_factory = sqlite3.Row
@@ -63,6 +80,8 @@ class TestNoFalseSuccess:
         机器人行为任务不得 SUCCEEDED（需要受信管道的独立验证证据）。"""
         kernel = _kernel(tmp_path)
         task_id = _bind(kernel, tmp_path)
+        # 行为任务=实际调用具身执行工具（body 在场只是绑定事实）。
+        kernel.note_tool_use(task_id, "rosclaw_task")
         art = _write_artifact(kernel, task_id, "star.gif", b"GIF89a" + b"x" * 2048)
         result = kernel.finish_task(
             task_id=task_id, summary="五角星画好了", artifact_ids=[art["artifact_id"]],
@@ -77,6 +96,7 @@ class TestNoFalseSuccess:
         """对照组：受信管道产物（kernel 内部登记）→ 可以 SUCCEEDED。"""
         kernel = _kernel(tmp_path)
         task_id = _bind(kernel, tmp_path)
+        kernel.note_tool_use(task_id, "rosclaw_task")
         task = kernel.get_task(task_id)
         assert task is not None
         path = Path(task["workspace_path"]) / "star.gif"
@@ -84,6 +104,7 @@ class TestNoFalseSuccess:
         art = kernel.register_artifact(
             task_id=task_id, path=str(path), media_type="image/gif",
             producer="kernel:sim_pipeline",
+            metadata={"resource": _real_ur5e_resource()},
         )
         result = kernel.finish_task(
             task_id=task_id, summary="done", artifact_ids=[art["artifact_id"]],

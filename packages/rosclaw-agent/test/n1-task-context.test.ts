@@ -62,10 +62,21 @@ test("N1: 持久化 workspace 恢复（诚实标注 restored）", () => {
 	assert.equal(ctx.workspaceSource, "restored");
 });
 
-test("N1: 什么都没有 → default workspace（真实创建，不谎称项目）", () => {
+test("N4.2：普通可写 cwd（非 git）→ 工作区=cwd（用户直觉）", () => {
+	const home = mkHome();
+	const plain = mkHome();
+	const ctx = resolveTaskContext({
+		rosclawHome: home, cwd: plain, mode: "SIMULATION",
+	});
+	assert.equal(ctx.workspaceRoot, plain);
+	assert.equal(ctx.workspaceSource, "cwd");
+});
+
+test("N4.2：HOME/根目录启动 → default workspace（不把 HOME 当工作区）", () => {
 	const home = mkHome();
 	const ctx = resolveTaskContext({
-		rosclawHome: home, cwd: mkHome(), mode: "SIMULATION",
+		rosclawHome: home, cwd: join(home, "fakehome"), mode: "SIMULATION",
+		homeDir: join(home, "fakehome"),
 	});
 	assert.equal(ctx.workspaceRoot, join(home, "workspaces", "default"));
 	assert.equal(ctx.workspaceSource, "default");

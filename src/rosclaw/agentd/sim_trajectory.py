@@ -275,6 +275,7 @@ class SimTrajectoryService:
                 {"x": start["x"], "y": start["y"], "z": lift_z},
             ]
             joint_trajectory = _ik_waypoints(model, data, transit + points)
+            resource_proof = sandbox.resource_manifest()
             scenario = ScenarioSpec(
                 scenario_id=f"sim-trajectory-{plan['hash'][:8]}",
                 robot_id="ur5e",
@@ -282,6 +283,8 @@ class SimTrajectoryService:
                 body_snapshot_hash=f"sha256:{plan['hash']}",
                 model_hash=file_hash(sandbox.model_path),
                 seed=0,
+                # N4.1：执行资源证明随 scenario/receipt 走。
+                metadata={"resource": resource_proof},
             )
             backend = MujocoCpuBackend(sandbox)
             # 慢速插值（0.0005 rad/控制步）——每个 IK 航点约 10 步，
@@ -324,6 +327,8 @@ class SimTrajectoryService:
                     "planned": points,
                     "actual": actual,
                     "evidence_level": "SIM_DYN_ROLLOUT",
+                    # N4.1：资源证明进 trace（可反查 manifest/digest）。
+                    "resource": resource_proof,
                 }, ensure_ascii=False),
                 encoding="utf-8",
             )
@@ -336,7 +341,10 @@ class SimTrajectoryService:
                 encoding="utf-8",
             )
             (out_dir / "metrics.json").write_text(
-                json.dumps(metrics, ensure_ascii=False, indent=2),
+                json.dumps(
+                    {**metrics, "resource": resource_proof},
+                    ensure_ascii=False, indent=2,
+                ),
                 encoding="utf-8",
             )
             return {
@@ -348,6 +356,7 @@ class SimTrajectoryService:
                 "violations": list(receipt.violations),
                 "point_count": len(actual),
                 "tracking": metrics,
+                "resource": resource_proof,
                 "artifacts": {
                     "trace_json": str(out_dir / "trace.json"),
                     "trace_csv": str(out_dir / "trace.csv"),

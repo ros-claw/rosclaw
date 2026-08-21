@@ -98,6 +98,7 @@ def verdict_for(
     summary: str,
     require_trusted_evidence: bool = False,
     trusted_evidence_present: bool = False,
+    extra_failures: list[str] | None = None,
 ) -> dict[str, Any]:
     """统一判定。返回 {status, checks, failures}——status:
     PASS / REPAIR_REQUIRED（零证据即 REPAIR_REQUIRED，绝不 PASS）。
@@ -118,6 +119,7 @@ def verdict_for(
             "TRUSTED_EVIDENCE_MISSING: 机器人行为任务缺受信管道的独立"
             "验证证据——模型自产 artifact 不算数"
         )
+    failures += list(extra_failures or [])
     checks = len(artifacts)
     acc_checks, acc_failures = verify_acceptance(acceptance, workspace)
     checks += acc_checks
