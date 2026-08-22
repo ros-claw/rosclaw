@@ -178,8 +178,7 @@ class TestTrajectoryVerifier:
         # 用不同参数的 run 的 metrics 替换（内容寻址下同参同 id——
         # 拼凑检测必须用不同 trace）。
         other_home = tmp_path / "other"
-        other = self._run_pipeline(other_home, shape="star5")
-        other_run = other["run"]
+        self._run_pipeline(other_home, shape="star5")
         # 另一 home 里跑一个不同尺度的 run 得不同 trace_id。
         from rosclaw.agentd.sim_trajectory import SimTrajectoryService
 
@@ -206,7 +205,7 @@ class TestTrajectoryVerifier:
 
         ctx = self._run_pipeline(tmp_path)
         metrics_path = Path(ctx["run"]["artifacts"]["metrics_json"])
-        metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
+        json.loads(metrics_path.read_text(encoding="utf-8"))
         # metrics 不含 physics_executed——它在 run result 里；trace.json
         # 有 evidence_level。破坏证据等级模拟"非动力学"。
         trace_path = Path(ctx["run"]["artifacts"]["trace_json"])
