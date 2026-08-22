@@ -1,0 +1,238 @@
+{
+  "$defs": {
+    "AgentEventType": {
+      "enum": [
+        "agent.started",
+        "agent.settled",
+        "agent.failed",
+        "turn.accepted",
+        "turn.ended",
+        "turn.cancel.requested",
+        "message.started",
+        "message.ended",
+        "mission.state.changed",
+        "mission.renamed",
+        "mission.archived",
+        "context.compilation.started",
+        "context.compilation.completed",
+        "context.usage",
+        "model.selected",
+        "model.request.started",
+        "model.text.delta",
+        "model.retry.scheduled",
+        "model.failover",
+        "model.request.ended",
+        "model.tool_call.proposed",
+        "tool.proposed",
+        "tool.effect_resolved",
+        "tool.started",
+        "tool.progress",
+        "tool.completed",
+        "task_graph.committed",
+        "worker.offered",
+        "worker.claimed",
+        "worker.started",
+        "worker.submitted",
+        "worker.verifying",
+        "worker.accepted",
+        "worker.failed",
+        "worker.expired",
+        "worker.completed",
+        "approval.requested",
+        "approval.decided",
+        "grant.revoked",
+        "grant.consumed",
+        "action.proposed",
+        "action.dispatched",
+        "action.progress",
+        "action.receipt",
+        "receipt.received",
+        "verification.started",
+        "verification.completed",
+        "compaction.started",
+        "compaction.completed",
+        "mission.completed",
+        "mission.failed",
+        "input.persisted",
+        "input.dispatched",
+        "operation.started",
+        "operation.output",
+        "operation.completed",
+        "operation.failed",
+        "session.idle",
+        "session.degraded",
+        "turn.failed",
+        "warning",
+        "capabilities.changed",
+        "config.reloaded",
+        "error"
+      ],
+      "title": "AgentEventType",
+      "type": "string"
+    },
+    "Visibility": {
+      "enum": [
+        "USER",
+        "DEBUG",
+        "AUDIT"
+      ],
+      "title": "Visibility",
+      "type": "string"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": {
+      "const": "rosclaw.agent_event.v2",
+      "default": "rosclaw.agent_event.v2",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "event_id": {
+      "title": "Event Id",
+      "type": "string"
+    },
+    "sequence": {
+      "default": 0,
+      "title": "Sequence",
+      "type": "integer"
+    },
+    "mission_id": {
+      "title": "Mission Id",
+      "type": "string"
+    },
+    "turn_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Turn Id"
+    },
+    "task_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Task Id"
+    },
+    "trace_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Trace Id"
+    },
+    "timestamp": {
+      "title": "Timestamp",
+      "type": "string"
+    },
+    "type": {
+      "$ref": "#/$defs/AgentEventType"
+    },
+    "visibility": {
+      "$ref": "#/$defs/Visibility",
+      "default": "USER"
+    },
+    "payload": {
+      "additionalProperties": true,
+      "title": "Payload",
+      "type": "object"
+    },
+    "session_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Session Id"
+    },
+    "revision": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Revision"
+    },
+    "item_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Item Id"
+    },
+    "call_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Call Id"
+    },
+    "operation_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Operation Id"
+    },
+    "model_visible": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Model Visible"
+    }
+  },
+  "required": [
+    "event_id",
+    "mission_id",
+    "timestamp",
+    "type"
+  ],
+  "title": "rosclaw.agent_event.v2",
+  "type": "object",
+  "$id": "rosclaw://schemas/rosclaw.agent_event.v2"
+}

@@ -10,6 +10,7 @@ import json
 import sys
 from pathlib import Path
 
+from rosclaw.contracts.agent.agent_event import AgentEventV2
 from rosclaw.contracts.agent.branch import ReasoningBranchV1
 from rosclaw.contracts.agent.capability import CapabilityDescriptorV2, ToolProjectionV1
 from rosclaw.contracts.agent.capability_snapshot import CapabilitySnapshotV1
@@ -45,6 +46,7 @@ ALL_CONTRACTS: dict[str, type[ContractModel]] = {
     cls.SCHEMA: cls
     for cls in (
         MissionSessionV1,
+        AgentEventV2,
         TaskNodeV1,
         TaskGraphV1,
         TaskGraphPatchV1,

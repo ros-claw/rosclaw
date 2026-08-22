@@ -19,8 +19,6 @@ import asyncio
 import json
 from pathlib import Path
 
-import pytest
-
 REPO = Path(__file__).resolve().parents[2]
 
 
@@ -86,10 +84,11 @@ class TestContractFields:
 class TestJournalColumns:
     def test_linkage_fields_roundtrip_through_journal(self, tmp_path: Path) -> None:
         """一等列真实落库（不是只在 payload）并能 replay 回来。"""
+        import sqlite3
+
         from rosclaw.agentd.events import AgentEventStore
         from rosclaw.contracts.agent.agent_event import AgentEventType
         from rosclaw.storage.migrations import MigrationRunner
-        import sqlite3
 
         conn = sqlite3.connect(":memory:", check_same_thread=False)
         conn.row_factory = sqlite3.Row
@@ -231,8 +230,8 @@ class TestBackpressure:
         收到显式 session.degraded 标记（OVERLOADED 语义）。"""
         from rosclaw.agentd.events import MissionEventBus
         from rosclaw.contracts.agent.agent_event import (
-            AgentEventV2,
             AgentEventType,
+            AgentEventV2,
             Visibility,
         )
 
@@ -266,8 +265,8 @@ class TestBackpressure:
     def test_debug_events_droppable_without_marker(self) -> None:
         from rosclaw.agentd.events import MissionEventBus
         from rosclaw.contracts.agent.agent_event import (
-            AgentEventV2,
             AgentEventType,
+            AgentEventV2,
             Visibility,
         )
 

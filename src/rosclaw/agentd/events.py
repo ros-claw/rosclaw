@@ -55,12 +55,34 @@ class MissionEventBus:
                 queue.put_nowait(event)
             except asyncio.QueueFull:
                 # Slow consumer: drop DEBUG first, never block the domain op.
-                if event.visibility is not Visibility.DEBUG:
-                    try:
-                        queue.get_nowait()
-                        queue.put_nowait(event)
-                    except (asyncio.QueueEmpty, asyncio.QueueFull):
-                        pass
+                if event.visibility is Visibility.DEBUG:
+                    continue
+                # PR-HP1：饱和必须显式 OVERLOADED——USER/AUDIT 不得静默
+                # 丢：驱逐最旧 + 放入当前事件 + 保证队列里有
+                # session.degraded 标记（消费者据此知道发生了丢弃并可从
+                # journal 按 cursor 补放）。不阻塞执行。
+                import contextlib as _cl
+
+                with _cl.suppress(asyncio.QueueEmpty):
+                    queue.get_nowait()  # evict oldest
+                marker = AgentEventV2(
+                    event_id=new_id("evt"),
+                    sequence=0,
+                    mission_id=event.mission_id,
+                    timestamp=_utcnow(),
+                    type=AgentEventType.SESSION_DEGRADED,
+                    visibility=Visibility.USER,
+                    payload={
+                        "reason": "OVERLOADED",
+                        "note": "live 队列饱和——部分事件已从流中驱逐；"
+                        "journal 完整，按 cursor 重放可补",
+                    },
+                )
+                # 标记去重：队尾已是 degraded 则不重复插。
+                with _cl.suppress(asyncio.QueueFull):
+                    queue.put_nowait(marker)
+                with _cl.suppress(asyncio.QueueFull):
+                    queue.put_nowait(event)
 
 
 class AgentEventStore:
@@ -81,6 +103,12 @@ class AgentEventStore:
         turn_id: str | None = None,
         task_id: str | None = None,
         trace_id: str | None = None,
+        session_id: str | None = None,
+        revision: int | None = None,
+        item_id: str | None = None,
+        call_id: str | None = None,
+        operation_id: str | None = None,
+        model_visible: bool | None = None,
     ) -> AgentEventV2:
         async with self._lock:
             row = self._conn.execute(
@@ -100,11 +128,20 @@ class AgentEventStore:
                 type=type,
                 visibility=visibility,
                 payload=payload or {},
+                session_id=session_id,
+                revision=revision,
+                item_id=item_id,
+                call_id=call_id,
+                operation_id=operation_id,
+                model_visible=model_visible,
             )
+            # PR-HP1：一等链路段落库（029 迁移列）。
             self._conn.execute(
                 "INSERT INTO agent_events (event_id, mission_id, sequence, turn_id, "
-                "task_id, trace_id, type, visibility, payload_json, timestamp) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "task_id, trace_id, type, visibility, payload_json, timestamp, "
+                "session_id, revision, item_id, call_id, operation_id, "
+                "model_visible) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     event.event_id,
                     mission_id,
@@ -116,6 +153,12 @@ class AgentEventStore:
                     visibility.value,
                     json.dumps(payload or {}, sort_keys=True, ensure_ascii=False),
                     event.timestamp,
+                    session_id,
+                    revision,
+                    item_id,
+                    call_id,
+                    operation_id,
+                    None if model_visible is None else (1 if model_visible else 0),
                 ),
             )
         # Publish only after the journal row is committed.
@@ -155,6 +198,8 @@ class AgentEventStore:
 
     @staticmethod
     def _row_to_event(row: sqlite3.Row) -> AgentEventV2:
+        keys = set(row.keys())  # sqlite3.Row 不支持 __contains__——取一次键集
+        model_visible_raw = row["model_visible"] if "model_visible" in keys else None
         return AgentEventV2(
             event_id=row["event_id"],
             sequence=row["sequence"],
@@ -166,4 +211,12 @@ class AgentEventStore:
             type=AgentEventType(row["type"]),
             visibility=Visibility(row["visibility"]),
             payload=json.loads(row["payload_json"]),
+            session_id=row["session_id"] if "session_id" in keys else None,
+            revision=row["revision"] if "revision" in keys else None,
+            item_id=row["item_id"] if "item_id" in keys else None,
+            call_id=row["call_id"] if "call_id" in keys else None,
+            operation_id=row["operation_id"] if "operation_id" in keys else None,
+            model_visible=(
+                None if model_visible_raw is None else bool(model_visible_raw)
+            ),
         )

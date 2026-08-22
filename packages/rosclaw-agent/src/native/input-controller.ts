@@ -59,6 +59,14 @@ export class InputController {
 			this.forceNewNext = false;
 			this.currentTaskId = result.task_id;
 			this.currentRevision = result.revision;
+			// PR-HP1：投递确认——persisted 之后、Harness 处理之前落
+			// input.dispatched（顺序不变量由 bridge 强制：未 persisted
+			// 的 message 打标即被拒）。失败不阻断——persisted 已是
+			// 权威证据，dispatched 是审计增强。
+			this.deps.call("pi.input.dispatched", {
+				mission_id: this.deps.missionId(),
+				message_id: messageId,
+			}).catch(() => undefined);
 			return result;
 		} catch (err) {
 			// 绑定失败不投递（幽灵执行防线）：消息不消失于沉默——

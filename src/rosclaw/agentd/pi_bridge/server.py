@@ -1008,7 +1008,59 @@ class PiBridgeServer:
                 ),
                 force_new=bool(params.get("force_new", False)),
             )
+            # PR-HP1：input.persisted——输入持久化+task 绑定的
+            # journal 证据（先于任何模型请求；文本带 hash+字节数可
+            # 审计，全文在 Pi session journal 唯一持有）。
+            import hashlib as _hashlib
+
+            from rosclaw.contracts.agent.agent_event import AgentEventType
+
+            text = str(params.get("text", ""))
+            await service._events.append(
+                str(params.get("mission_id", "")),
+                AgentEventType.INPUT_PERSISTED,
+                {
+                    "message_id": str(params.get("message_id", "")),
+                    "text_sha256": "sha256:" + _hashlib.sha256(
+                        text.encode("utf-8")
+                    ).hexdigest(),
+                    "bytes": len(text.encode("utf-8")),
+                },
+                session_id=str(params.get("session_ref", "")),
+                task_id=str(result.get("task_id", "")),
+                revision=int(result.get("revision", 0)) or None,
+                model_visible=True,
+            )
             return {"ok": True, **result}
+        if method == "pi.input.dispatched":
+            # PR-HP1：投递确认——对应 message 必须先 persisted
+            # （顺序不变量：dispatched 不得先于 persisted 出现）。
+            mission_id = str(params.get("mission_id", ""))
+            message_id = str(params.get("message_id", ""))
+            from rosclaw.contracts.agent.agent_event import AgentEventType
+
+            persisted = [
+                e for e in service.events_replay(mission_id, limit=1000)
+                if e.type is AgentEventType.INPUT_PERSISTED
+                and e.payload.get("message_id") == message_id
+            ]
+            if not persisted:
+                return {
+                    "ok": False,
+                    "error": f"message {message_id!r} was never persisted "
+                    "(bind first) — refusing to mark dispatched",
+                    "code": "INPUT_NOT_PERSISTED",
+                }
+            await service._events.append(
+                mission_id,
+                AgentEventType.INPUT_DISPATCHED,
+                {"message_id": message_id},
+                session_id=persisted[0].session_id,
+                task_id=persisted[0].task_id,
+                revision=persisted[0].revision,
+                model_visible=True,
+            )
+            return {"ok": True}
         if method == "pi.kernel.list":
             kernel = service._task_kernel
             return {

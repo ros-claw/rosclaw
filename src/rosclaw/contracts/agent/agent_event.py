@@ -72,6 +72,17 @@ class AgentEventType(StrEnum):
     COMPACTION_COMPLETED = "compaction.completed"
     MISSION_COMPLETED = "mission.completed"
     MISSION_FAILED = "mission.failed"
+    # PR-HP1：NativeEventV2 硬不变量（调整方案 §四）——输入门/操作/
+    # 会话活性。
+    INPUT_PERSISTED = "input.persisted"
+    INPUT_DISPATCHED = "input.dispatched"
+    OPERATION_STARTED = "operation.started"
+    OPERATION_OUTPUT = "operation.output"
+    OPERATION_COMPLETED = "operation.completed"
+    OPERATION_FAILED = "operation.failed"
+    SESSION_IDLE = "session.idle"
+    SESSION_DEGRADED = "session.degraded"
+    TURN_FAILED = "turn.failed"
     # 系统
     WARNING = "warning"
     CAPABILITIES_CHANGED = "capabilities.changed"
@@ -100,3 +111,16 @@ class AgentEventV2(ContractModel):
     type: AgentEventType
     visibility: Visibility = Visibility.USER
     payload: dict[str, Any] = Field(default_factory=dict)
+    # PR-HP1：一等链路段（落库列，不埋 payload——resume/trace/投影
+    # 直接读列）。
+    session_id: str | None = None
+    #: 任务 revision（输入绑定的 task revision）。
+    revision: int | None = None
+    #: Harness 原生 item id（Pi item 等——只在 binding 语义内使用）。
+    item_id: str | None = None
+    #: 工具调用 id（tool.* 事件的调用关联）。
+    call_id: str | None = None
+    #: 长操作 id（operation.* 事件关联）。
+    operation_id: str | None = None
+    #: 内容是否进入了模型上下文（可重放日志的模型可见性标注）。
+    model_visible: bool | None = None
