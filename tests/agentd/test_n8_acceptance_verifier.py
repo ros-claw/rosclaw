@@ -18,8 +18,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 REPO = Path(__file__).resolve().parents[2]
 
 
@@ -177,14 +175,23 @@ class TestTrajectoryVerifier:
         from rosclaw.task_kernel.verifier_plugins import TrajectoryVerifier
 
         ctx = self._run_pipeline(tmp_path)
-        ctx2 = self._run_pipeline(tmp_path / "h2" if False else tmp_path, shape="circle") \
-            if False else None
-        # 用另一个独立 home 的 metrics 替换——trace_id 不同。
+        # 用不同参数的 run 的 metrics 替换（内容寻址下同参同 id——
+        # 拼凑检测必须用不同 trace）。
         other_home = tmp_path / "other"
         other = self._run_pipeline(other_home, shape="star5")
+        other_run = other["run"]
+        # 另一 home 里跑一个不同尺度的 run 得不同 trace_id。
+        from rosclaw.agentd.sim_trajectory import SimTrajectoryService
+
+        sim2 = SimTrajectoryService(other_home)
+        plan2 = sim2.generate_planar_path(
+            shape="star5", center_m=[0.35, 0.25, 0.30], scale_m=0.08,
+        )
+        run2 = sim2.simulate_cartesian_trajectory(plan2["plan_id"])
+        other_metrics = run2["artifacts"]["metrics_json"]
         failures = TrajectoryVerifier().check(
             trace_json=ctx["run"]["artifacts"]["trace_json"],
-            metrics_json=other["run"]["artifacts"]["metrics_json"],
+            metrics_json=other_metrics,
             gif_path=ctx["render"]["artifact"]["path"],
             home=tmp_path,
             declared_shape="star5",
@@ -223,7 +230,6 @@ class TestVerifierRegistry:
         （既有调用方无感）。"""
         from rosclaw.task_kernel.verifier import verdict_for
         from rosclaw.task_kernel.verifier_plugins import (
-            VerifierRegistry,
             default_registry,
         )
 

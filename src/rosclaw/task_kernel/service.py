@@ -531,18 +531,43 @@ class TaskKernel:
 
     def set_acceptance(self, task_id: str, acceptance: dict) -> None:
         """验收条件在任务创建/修订时冻结（PR-N0）——finish 不接受
-        模型临时传入的新规则。"""
+        模型临时传入的新规则。PR-N8：同时编译并冻结
+        AcceptanceSpecV2（来源归因在案）。"""
         task = self.get_task(task_id)
         if task is None:
             raise ValueError(f"unknown task {task_id!r}")
+        revision = int(task["active_revision"])
+        from rosclaw.task_kernel.acceptance import compile_acceptance
+
+        # 模型经 rosclaw_task_finish 之外不设验收——kernel 设置的
+        # acceptance 是任务级输入（task_default 源）。
+        spec = compile_acceptance(
+            task_id=task_id, revision=revision, task_default=acceptance,
+        )
         self._conn.execute(
-            "UPDATE task_revisions SET acceptance_json = ? "
+            "UPDATE task_revisions SET acceptance_json = ?, "
+            "acceptance_spec_json = ? "
             "WHERE task_id = ? AND revision = ?",
-            (json.dumps(acceptance, ensure_ascii=False), task_id,
-             int(task["active_revision"])),
+            (json.dumps(acceptance, ensure_ascii=False),
+             json.dumps(spec.to_canonical_dict(), ensure_ascii=False),
+             task_id, revision),
         )
         self._emit(task_id, "acceptance.frozen",
-                   {"revision": int(task["active_revision"])})
+                   {"revision": revision, "spec_id": spec.spec_id})
+
+    def get_acceptance_spec(self, task_id: str) -> dict | None:
+        """当前活跃 revision 的冻结 AcceptanceSpecV2（dict 视图）。"""
+        task = self.get_task(task_id)
+        if task is None:
+            return None
+        row = self._conn.execute(
+            "SELECT acceptance_spec_json FROM task_revisions "
+            "WHERE task_id = ? AND revision = ?",
+            (task_id, int(task["active_revision"])),
+        ).fetchone()
+        if row is None or not row["acceptance_spec_json"]:
+            return None
+        return json.loads(row["acceptance_spec_json"])
 
     def accept_task(self, task_id: str) -> None:
         """/done：用户接受（PR-N0）——SUCCEEDED 永久关闭；此后新消息

@@ -1,0 +1,99 @@
+{
+  "additionalProperties": true,
+  "description": "一个 task revision 的冻结验收规格。",
+  "properties": {
+    "schema_version": {
+      "const": "rosclaw.acceptance_spec.v2",
+      "default": "rosclaw.acceptance_spec.v2",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "spec_id": {
+      "minLength": 1,
+      "title": "Spec Id",
+      "type": "string"
+    },
+    "task_id": {
+      "minLength": 1,
+      "title": "Task Id",
+      "type": "string"
+    },
+    "revision": {
+      "minimum": 1,
+      "title": "Revision",
+      "type": "integer"
+    },
+    "required_artifacts": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Required Artifacts",
+      "type": "array"
+    },
+    "evidence_classes": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Evidence Classes",
+      "type": "array"
+    },
+    "resource_provenance_required": {
+      "default": false,
+      "title": "Resource Provenance Required",
+      "type": "boolean"
+    },
+    "numeric_thresholds": {
+      "additionalProperties": {
+        "type": "number"
+      },
+      "title": "Numeric Thresholds",
+      "type": "object"
+    },
+    "visual_requirements": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Visual Requirements",
+      "type": "array"
+    },
+    "postconditions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Postconditions",
+      "type": "array"
+    },
+    "allowed_execution_modes": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Allowed Execution Modes",
+      "type": "array"
+    },
+    "required_receipt": {
+      "default": "",
+      "title": "Required Receipt",
+      "type": "string"
+    },
+    "verifier_refs": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Verifier Refs",
+      "type": "array"
+    },
+    "sources": {
+      "additionalProperties": true,
+      "title": "Sources",
+      "type": "object"
+    }
+  },
+  "required": [
+    "spec_id",
+    "task_id",
+    "revision"
+  ],
+  "title": "rosclaw.acceptance_spec.v2",
+  "type": "object",
+  "$id": "rosclaw://schemas/rosclaw.acceptance_spec.v2"
+}
