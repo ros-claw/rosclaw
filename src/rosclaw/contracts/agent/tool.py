@@ -66,6 +66,9 @@ class ToolDescriptorV2(ContractModel):
     required_body_types: list[str] = Field(default_factory=list)
     freshness_ms: int | None = Field(default=None, ge=0)
     timeout_ms: int = Field(default=2000, gt=0)
+    #: PR-N6C：只有明确声明 cooperative cancel 的 executor 才允许
+    #: deadline 杀死；未声明 → timeout_ms 不作为执行截止（不墙钟杀）。
+    cooperative_cancel: bool = False
     risk_tier: Literal["LOW", "MEDIUM", "HIGH", "CRITICAL"] = "LOW"
     evidence_class: ToolEvidenceClass = ToolEvidenceClass.MEASURED
     #: verifier id, e.g. "schema+timestamp+frame"; empty = no verifier

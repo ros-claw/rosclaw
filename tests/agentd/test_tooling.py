@@ -130,16 +130,26 @@ class TestCatalogGuards:
         assert catalog.get("test.observe").description == "v2"
 
     async def test_timeout_enforced(self) -> None:
+        """N6C deadline 语义：未声明 cooperative_cancel → 无墙钟杀死
+        （慢执行正常完成）；声明 → deadline 生效。"""
         import asyncio
 
         async def slow(args):
-            await asyncio.sleep(5)
+            await asyncio.sleep(0.2)
             return "{}"
 
         catalog = ToolCatalog()
         catalog.register(_obs(timeout_ms=50), slow)
-        with pytest.raises(asyncio.TimeoutError):
-            await catalog.execute("test.observe", {})
+        # 未声明 cooperative cancel：不再被杀（N6C——默认无 deadline）。
+        assert await catalog.execute("test.observe", {}) == "{}"
+        # 声明后 deadline 生效。
+        catalog2 = ToolCatalog()
+        catalog2.register(
+            _obs(timeout_ms=50).model_copy(update={"cooperative_cancel": True}),
+            slow,
+        )
+        with pytest.raises(TimeoutError):
+            await catalog2.execute("test.observe", {})
 
 
 async def _never_called(args):  # pragma: no cover - guard

@@ -119,6 +119,11 @@
       "title": "Timeout Ms",
       "type": "integer"
     },
+    "cooperative_cancel": {
+      "default": false,
+      "title": "Cooperative Cancel",
+      "type": "boolean"
+    },
     "risk_tier": {
       "default": "LOW",
       "enum": [

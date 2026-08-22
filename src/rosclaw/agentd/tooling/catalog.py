@@ -204,9 +204,12 @@ class ToolCatalog:
         executor = self._executors.get(tool_id)
         if executor is None:
             raise ValidationError(f"tool {tool_id!r} has no executor (source offline?)")
-        return await asyncio.wait_for(
-            executor(arguments), timeout=descriptor.timeout_ms / 1000.0
-        )
+        # PR-N6C：未声明 cooperative cancel 不得墙钟杀死。
+        if descriptor.cooperative_cancel:
+            return await asyncio.wait_for(
+                executor(arguments), timeout=descriptor.timeout_ms / 1000.0
+            )
+        return await executor(arguments)
 
     # -- N5B canonical output -----------------------------------------------------
 
@@ -228,16 +231,22 @@ class ToolCatalog:
                 error=ToolResultErrorV1(code=code, message=message),
             )
 
+        from rosclaw.agentd.tooling.recovery import recovery_for
+
         def _failed(
             code: str, message: str, *, retryable: bool = False,
             recovery: list[str] | None = None,
         ) -> ToolResultEnvelopeV2:
+            # PR-N6C：recovery 从注册表投影（同一码同一文）；显式
+            # recovery 参数优先（调用点有更精确上下文时）。
+            projected = recovery_for(code)
             return ToolResultEnvelopeV2(
                 call_id=call_id, capability_id=tool_id,
                 status=ToolResultStatusV1.FAILED,
                 error=ToolResultErrorV1(
                     code=code, message=message, retryable=retryable,
-                    recovery=recovery or [],
+                    recovery=recovery if recovery is not None
+                    else ([projected] if projected else []),
                 ),
             )
 
@@ -274,9 +283,14 @@ class ToolCatalog:
                 recovery=["为能力补 output_schema（N5B 硬约束）"],
             )
         try:
-            raw = await asyncio.wait_for(
-                executor(arguments), timeout=descriptor.timeout_ms / 1000.0
-            )
+            # PR-N6C：只有 cooperative_cancel 的 executor 有 deadline；
+            # wait_for 的取消传播进 executor（协程取消即停止确认）。
+            if descriptor.cooperative_cancel:
+                raw = await asyncio.wait_for(
+                    executor(arguments), timeout=descriptor.timeout_ms / 1000.0
+                )
+            else:
+                raw = await executor(arguments)
         except TimeoutError:
             return _failed(
                 "EXECUTOR_TIMEOUT",
@@ -333,7 +347,6 @@ class ToolCatalog:
                 f"tool {tool_id!r} output failed output_schema: "
                 f"{exc.message[:200]}"
                 + (f" (at {path})" if path else ""),
-                recovery=["核对 executor 输出与 output_schema 的一致性"],
             )
         return ToolResultEnvelopeV2(
             call_id=call_id, capability_id=tool_id,
