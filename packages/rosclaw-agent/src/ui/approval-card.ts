@@ -1,3 +1,4 @@
+// HP2-COMPAT: pi-tui 组件原语（Component/Text）——TUI 渲染原语，HP3 前保持；不新增会话装配引用。
 /** ApprovalCard 组件（PNA-5，规格 §20.2/§20.3）：不可变卡片 + 显式 Y/N。
  *
  * - 显示 mission/mode/capability/完整参数/风险/TTL/display_hash；

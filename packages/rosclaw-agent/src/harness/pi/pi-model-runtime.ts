@@ -8,7 +8,7 @@
 
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 
-import { credentialStoreFor } from "../credentials/store.js";
+import { credentialStoreFor } from "../../credentials/store.js";
 
 export async function createSharedModelRuntime(
 	agentDir: string,

@@ -20,7 +20,7 @@ function info(id: string, name: string, firstMessage: string): SessionInfo {
 }
 
 test("resolveSessionQuery：ID/前缀/标题/歧义", async () => {
-	const { resolveSessionQuery } = await import("../src/session/resolve.js");
+	const { resolveSessionQuery } = await import("../src/harness/pi/pi-resolve.js");
 	const sessions = [
 		info("abc123", "五角星轨迹仿真", "画五角星"),
 		info("abd999", "五角星复测", "再画一次"),
@@ -38,7 +38,7 @@ test("resolveSessionQuery：ID/前缀/标题/歧义", async () => {
 
 test("picker 是公开 API 薄组装（不复制上游 picker 内核）", async () => {
 	const { readFileSync } = await import("node:fs");
-	const source = readFileSync("src/session/picker.ts", "utf-8");
+	const source = readFileSync("src/harness/pi/pi-picker.ts", "utf-8");
 	assert.ok(source.includes("SessionSelectorComponent"), "必须用 Pi 公开组件");
 	assert.ok(!source.includes("class SessionList"), "不得复制上游列表内核");
 	assert.ok(source.split("\n").length < 80, "薄组装层应保持极小");

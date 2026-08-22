@@ -1,3 +1,4 @@
+// HP2-COMPAT: 工具定义原语（defineTool/Type/ToolDefinition）——工具层在 HP3 投影层（Codex MCP）落地前保持 Pi 形态；不新增会话装配引用。
 /** 治理工具集（十五审 PR-RF-1，ADR-0011 无为而治）。
  *
  * 模型唯一的任务入口：task_submit 交目标合同（TaskSpec），其余都是

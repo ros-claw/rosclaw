@@ -77,10 +77,13 @@ function parseArgs(argv: string[]): CliArgs {
 }
 
 async function main(): Promise<number> {
-	const { InteractiveMode, runPrintMode, SessionManager } = await import(
-		"@earendil-works/pi-coding-agent"
-	);
-	const { createRosclawRuntime } = await import("./runtime/create-runtime.js");
+	// PR-HP2：Pi SDK 调用全部经 harness/pi/ 帮助函数——本文件不再
+	// 直接引用 Pi 包。
+	const {
+		continueRecentPiSession, listAllPiSessions, listPiSessions,
+		openPiSession, runPiInteractive, runPiPrint,
+	} = await import("./harness/pi/pi-sessions.js");
+	const { createRosclawRuntime } = await import("./harness/pi/pi-runtime.js");
 	const {
 		profile, initialMessage, print, missionId, workspace,
 		resumeSessionId, resumeSessionPath, browseSessions, continueLast,
@@ -106,23 +109,23 @@ async function main(): Promise<number> {
 		workspaceStore.bind(taskContext.workspaceRoot);
 	}
 	const startupWs = { bound: workspaceStore.current, auto: taskContext.workspaceSource === "git" };
-	let initialSession: import("@earendil-works/pi-coding-agent").SessionManager | undefined;
+	let initialSession: import("./harness/pi/pi-sessions.js").SessionManager | undefined;
 	const sessionDir = `${rosclawHome}/agent/sessions`;
 	if (browseSessions) {
-		const { browseSessions: openPicker } = await import("./session/picker.js");
+		const { browseSessions: openPicker } = await import("./harness/pi/pi-picker.js");
 		const picked = await openPicker(
-			(onProgress) => SessionManager.list(taskContext.workspaceRoot, sessionDir, onProgress),
-			(onProgress) => SessionManager.listAll(sessionDir, onProgress),
+			(onProgress) => listPiSessions(taskContext.workspaceRoot, sessionDir, onProgress),
+			(onProgress) => listAllPiSessions(sessionDir, onProgress),
 		);
 		if (!picked) return 0;  // 用户取消——干净退出，不建会话
-		initialSession = SessionManager.open(picked, sessionDir);
+		initialSession = openPiSession(picked, sessionDir);
 	} else if (resumeSessionPath) {
-		initialSession = SessionManager.open(resumeSessionPath, sessionDir);
+		initialSession = openPiSession(resumeSessionPath, sessionDir);
 	} else if (resumeSessionId) {
 		// 兼容路径：`chat --resume <id>`——精确 ID/唯一前缀经
-		// SessionManager.listAll 解析（拒绝路径穿越由解析保证）。
-		const { resolveSessionQuery } = await import("./session/resolve.js");
-		const sessions = await SessionManager.listAll(sessionDir);
+		// listAll 解析（拒绝路径穿越由解析保证）。
+		const { resolveSessionQuery } = await import("./harness/pi/pi-resolve.js");
+		const sessions = await listAllPiSessions(sessionDir);
 		const hit = resolveSessionQuery(resumeSessionId, sessions);
 		if (!hit.ok) {
 			console.error(
@@ -132,9 +135,9 @@ async function main(): Promise<number> {
 			);
 			return 2;
 		}
-		initialSession = SessionManager.open(hit.path, sessionDir);
+		initialSession = openPiSession(hit.path, sessionDir);
 	} else if (continueLast) {
-		initialSession = SessionManager.continueRecent(taskContext.workspaceRoot, sessionDir);
+		initialSession = continueRecentPiSession(taskContext.workspaceRoot, sessionDir);
 	}
 	const isResume = Boolean(
 		resumeSessionId || resumeSessionPath || browseSessions || continueLast,
@@ -190,17 +193,14 @@ async function main(): Promise<number> {
 	try {
 		if (print) {
 			// 非 TTY 单发模式（冒烟/脚本）。
-			return await runPrintMode(runtime, {
-				mode: "text",
+			return await runPiPrint(runtime, {
 				...(initialMessage ? { initialMessage } : {}),
 			});
 		}
-		const mode = new InteractiveMode(runtime, {
+		return await runPiInteractive(runtime, {
 			verbose: false,
 			...(initialMessage ? { initialMessage } : {}),
 		});
-		await mode.run();
-		return 0;
 	} finally {
 		await leaseManager.release();
 	}

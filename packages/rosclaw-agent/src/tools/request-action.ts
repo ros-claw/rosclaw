@@ -1,3 +1,4 @@
+// HP2-COMPAT: 工具定义原语（defineTool/Type/ToolDefinition）——工具层在 HP3 投影层（Codex MCP）落地前保持 Pi 形态；不新增会话装配引用。
 /** rosclaw_request_action 工具（NA-FIX-4/5，二次审计 P0-4/P0-5/P0-6）。
  *
  * 两阶段协调（P0-5 修复——不再在 tool_execution_start 盲等卡片）：

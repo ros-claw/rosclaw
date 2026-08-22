@@ -5,13 +5,13 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 test("P0-4: rosclaw_request_action must be registered in the runtime tool list", () => {
-	// 直接静态检查：create-runtime 必须有 request_action 工具的注册。
+	// 直接静态检查：pi-runtime 必须有 request_action 工具的注册。
 	const runtime = readFileSync(
-		new URL("../../src/runtime/create-runtime.ts", import.meta.url),
+		new URL("../../src/harness/pi/pi-runtime.ts", import.meta.url),
 		"utf-8",
 	);
 	assert.match(runtime, /buildRequestActionTool|rosclaw_request_action/,
-		"create-runtime 没有注册 rosclaw_request_action（P0-4）");
+		"pi-runtime 没有注册 rosclaw_request_action（P0-4）");
 });
 
 test("P0-4: native_agent_v2.md 不得声明未注册的工具", () => {
@@ -28,7 +28,7 @@ test("P0-4: native_agent_v2.md 不得声明未注册的工具", () => {
 
 test("P1-1: raw thinking must be hidden by default", () => {
 	const runtime = readFileSync(
-		new URL("../../src/runtime/create-runtime.ts", import.meta.url),
+		new URL("../../src/harness/pi/pi-runtime.ts", import.meta.url),
 		"utf-8",
 	);
 	assert.match(runtime, /[Hh]ideThinking(Block)?/,

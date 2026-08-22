@@ -1,3 +1,4 @@
+// HP2-COMPAT: 工具定义原语（defineTool/Type/ToolDefinition）——工具层在 HP3 投影层（Codex MCP）落地前保持 Pi 形态；不新增会话装配引用。
 /** Process 工具（PR-H3，总纲 v2 §10.2/§11.4）——长进程 = Operation。
  *
  * process_start 立即返回 operation_id（不在 tool call 里死等）；

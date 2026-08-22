@@ -5,7 +5,7 @@
  *    delegate/credentials migration/pi-worker-main/profiles/content-normalize）；
  * 2. extension/index.ts 不再 import 这些模块、不再注册 /jobs /job
  *    /workers /delegate 命令；
- * 3. main.ts 无 headless worker 入口；create-runtime 无 migrateProviders；
+ * 3. main.ts 无 headless worker 入口；pi-runtime 无 migrateProviders；
  * 4. 本测试即"禁止重新引入"结构扫描——文件被重新创建即红。
  */
 import assert from "node:assert/strict";
@@ -51,6 +51,6 @@ test("H9: headless worker 入口与凭据迁移已移除", () => {
 	const main = readFileSync(join(SRC, "main.ts"), "utf-8");
 	assert.ok(!main.includes("pi-worker-main"), "main.ts 仍有 headless worker 入口");
 	assert.ok(!main.includes("runHeadlessWorker"), "main.ts 仍调 runHeadlessWorker");
-	const runtime = readFileSync(join(SRC, "runtime/create-runtime.ts"), "utf-8");
-	assert.ok(!runtime.includes("migrateProviders"), "create-runtime 仍做旧凭据迁移");
+	const runtime = readFileSync(join(SRC, "harness/pi/pi-runtime.ts"), "utf-8");
+	assert.ok(!runtime.includes("migrateProviders"), "pi-runtime 仍做旧凭据迁移");
 });

@@ -1,3 +1,4 @@
+// HP2-COMPAT: 工具定义原语（defineTool/Type/ToolDefinition）——工具层在 HP3 投影层（Codex MCP）落地前保持 Pi 形态；不新增会话装配引用。
 /** Embodiment Pack 执行工具（PR-H5，总纲 v2 §10.2）。
  *
  * PR-N5D：rosclaw_execute 已退出模型面（能力物化为精确工具）；

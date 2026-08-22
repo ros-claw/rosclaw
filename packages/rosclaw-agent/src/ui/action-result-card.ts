@@ -1,3 +1,4 @@
+// HP2-COMPAT: pi-tui 组件原语（Component/Text）——TUI 渲染原语，HP3 前保持；不新增会话装配引用。
 /** ActionResultCard（五审 P0-5F）：kernel 渲染的不可变动作结果卡。
  *
  * 动作终态只能来自结构化 ExecutionOutcome——模型自然语言不得

@@ -1,3 +1,4 @@
+// HP2-COMPAT: pi-tui 组件原语——Worker 面板渲染，HP3 前保持；不新增会话装配引用。
 /** F2 Task Panel（PR-H9 重写，总纲 v2 §18.3 task/task-panel.ts）。
  *
  * 数据源全面切换到 TaskKernel（pi.kernel.list/events/artifacts）——

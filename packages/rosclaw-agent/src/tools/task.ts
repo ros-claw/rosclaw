@@ -1,3 +1,4 @@
+// HP2-COMPAT: 工具定义原语（defineTool/Type/ToolDefinition）——工具层在 HP3 投影层（Codex MCP）落地前保持 Pi 形态；不新增会话装配引用。
 /** `rosclaw_task` 工具（八审 §2.2/P0-5）：任务级入口。
  *
  * 已知任务（draw_shape 等）走确定性 Task Compiler/Runner——模型只交

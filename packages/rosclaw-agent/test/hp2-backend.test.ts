@@ -14,7 +14,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 
-const SRC = new URL("../src/", import.meta.url).pathname;
+const SRC = new URL("../../src/", import.meta.url).pathname;  // dist/test → 包根/src
 
 function* walk(dir: string): Generator<string> {
 	for (const name of readdirSync(dir)) {

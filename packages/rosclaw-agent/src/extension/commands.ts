@@ -1,3 +1,4 @@
+// HP2-COMPAT: Pi 扩展宿主类型（ExtensionContext/Factory）——扩展运行於 Pi 扩展宿主内，HP3 前保持；不新增会话装配引用。
 /** ROSClaw TUI 命令注册（NA-FIX-6，二次审计 P0-8 + 规格 §7.2）。
  *
  * 每个命令都有真实 handler + 权限路径 + 测试；/estop 走 dedicated

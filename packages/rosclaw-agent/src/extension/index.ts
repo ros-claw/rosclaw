@@ -1,3 +1,4 @@
+// HP2-COMPAT: Pi 扩展宿主类型（ExtensionContext/Factory）——扩展运行於 Pi 扩展宿主内，HP3 前保持；不新增会话装配引用。
 /** ROSClaw 内联扩展（PNA-0）：品牌 + 安全基线。
  *
  * - header/footer/title/working 动画替换为 ROSClaw；

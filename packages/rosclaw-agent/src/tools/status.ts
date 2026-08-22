@@ -1,3 +1,4 @@
+// HP2-COMPAT: 工具定义原语（defineTool/Type/ToolDefinition）——工具层在 HP3 投影层（Codex MCP）落地前保持 Pi 形态；不新增会话装配引用。
 /** `rosclaw_status` 自定义工具（PNA-0 + 六审 PR-SIX-1）：只读状态，
  * 与 /status、Header、Footer 共享同一个 KernelSnapshotV1——数据只经
  * UDS pi.status（Native Agent 路径不再访问旧 HTTP 8765 面；

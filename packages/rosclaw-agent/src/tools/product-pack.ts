@@ -1,3 +1,4 @@
+// HP2-COMPAT: 工具定义原语（defineTool/Type/ToolDefinition）——工具层在 HP3 投影层（Codex MCP）落地前保持 Pi 形态；不新增会话装配引用。
 /** Product Pack 工具（PR-H4，总纲 v2 §10.2/§12）——交付登记/收尾/阻塞。
  *
  * 任务不能靠一句话完成：action-oriented 任务必须 task_finish（带登记

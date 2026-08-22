@@ -1,3 +1,4 @@
+// HP2-COMPAT: 工具定义原语（defineTool/Type/ToolDefinition）——工具层在 HP3 投影层（Codex MCP）落地前保持 Pi 形态；不新增会话装配引用。
 /** 动态工具物化（PR-N5D，调整方案 §三.N5D）。
  *
  * CapabilitySnapshot → 当前回合的精确强类型工具：模型直接看到

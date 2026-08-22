@@ -1,3 +1,4 @@
+// HP2-COMPAT: 工具定义原语（defineTool/Type/ToolDefinition）——工具层在 HP3 投影层（Codex MCP）落地前保持 Pi 形态；不新增会话装配引用。
 /** ROSClaw 工具集（PNA-3）：经 pi-bridge 调用 agentd，全部带验证链。
  *
  * Pi 主 Agent 只有这些工具（noTools:"all"）；每个调用都携带

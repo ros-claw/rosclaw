@@ -1,3 +1,4 @@
+// HP2-COMPAT: pi-tui 组件原语——Worker 面板渲染，HP3 前保持；不新增会话装配引用。
 /** Developer Workbench 约束工具（十审 W3，审计 §9）。
  *
  * 本机 user namespace 被禁（unshare -rm / bwrap 不可用）——隔离在工具层

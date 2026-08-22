@@ -14,38 +14,38 @@ import {
 	SettingsManager,
 	type AgentSessionRuntime,
 } from "@earendil-works/pi-coding-agent";
-import { resourcePolicy, trustFilterContextFiles } from "../extension/resource-policy.js";
-import { verifyBundledSkills } from "../extension/bundled-skills.js";
-import { createSharedModelRuntime } from "./model-runtime.js";
-import { filterModelTools, MODEL_TOOL_NAMES } from "../tools/surface.js";
-import { buildWorkspacePackTools } from "../tools/workspace-pack.js";
-import { buildProcessTools } from "../tools/process-tools.js";
-import { buildProductPackTools } from "../tools/product-pack.js";
-import { buildEmbodimentExecTools } from "../tools/embodiment-exec.js";
-import { ActiveSessionContext } from "../session/active-context.js";
-import { AgentSessionCoordinator } from "../session/coordinator.js";
-import { SessionLeaseManager } from "../session/lease-manager.js";
-import { ProductStateCenter } from "../session/state-center.js";
-import { LocaleManager } from "../i18n/locale.js";
-import { defaultOperatorSocket } from "../bridge/operatord-client.js";
+import { resourcePolicy, trustFilterContextFiles } from "../../extension/resource-policy.js";
+import { verifyBundledSkills } from "../../extension/bundled-skills.js";
+import { createSharedModelRuntime } from "./pi-model-runtime.js";
+import { filterModelTools, MODEL_TOOL_NAMES } from "../../tools/surface.js";
+import { buildWorkspacePackTools } from "../../tools/workspace-pack.js";
+import { buildProcessTools } from "../../tools/process-tools.js";
+import { buildProductPackTools } from "../../tools/product-pack.js";
+import { buildEmbodimentExecTools } from "../../tools/embodiment-exec.js";
+import { ActiveSessionContext } from "../../session/active-context.js";
+import { AgentSessionCoordinator } from "../../session/coordinator.js";
+import { SessionLeaseManager } from "../../session/lease-manager.js";
+import { ProductStateCenter } from "../../session/state-center.js";
+import { LocaleManager } from "../../i18n/locale.js";
+import { defaultOperatorSocket } from "../../bridge/operatord-client.js";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { createRosclawExtension } from "../extension/index.js";
-import { buildBridgeTools } from "../tools/bridge-tools.js";
-import { buildRequestActionTool } from "../tools/request-action.js";
-import { buildCapabilitiesTool } from "../tools/capabilities.js";
-import { buildInspectTool } from "../tools/inspect.js";
+import { createRosclawExtension } from "../../extension/index.js";
+import { buildBridgeTools } from "../../tools/bridge-tools.js";
+import { buildRequestActionTool } from "../../tools/request-action.js";
+import { buildCapabilitiesTool } from "../../tools/capabilities.js";
+import { buildInspectTool } from "../../tools/inspect.js";
 
-import { buildTaskTool } from "../tools/task.js";
-import { buildStatusTool } from "../tools/status.js";
+import { buildTaskTool } from "../../tools/task.js";
+import { buildStatusTool } from "../../tools/status.js";
 
 export interface RosclawRuntimeOptions {
 	cwd: string;
 	/** PR-N1：ActiveTaskContext（session 创建前解析并冻结——唯一
 	 *  工作区事实源）。 */
-	taskContext: import("../native/active-task-context.js").ActiveTaskContext;
+	taskContext: import("../../native/active-task-context.js").ActiveTaskContext;
 	rosclawHome: string;
 	profile: "developer" | "robot";
 	version: string;
@@ -55,7 +55,7 @@ export interface RosclawRuntimeOptions {
 	/** WP-P0-3：本次启动是恢复——session_start 展示 Resume Report。 */
 	resumed?: boolean;
 	/** 十一审 PR-D：Workspace 一等状态。 */
-	workspaceStore?: import("../session/workspace.js").WorkspaceStore;
+	workspaceStore?: import("../../session/workspace.js").WorkspaceStore;
 	workspaceAutoBound?: boolean;
 }
 
@@ -164,7 +164,7 @@ export async function createRosclawRuntime(
 						// additionalSkillPaths；任意项目扩展/模板/可执行
 						// 资源仍关。
 						const policy = resourcePolicy(options.profile);
-						const skillsDir = new URL("../../skills/", import.meta.url).pathname;
+						const skillsDir = new URL("../../../skills/", import.meta.url).pathname;  // harness/pi/ 深一级
 						const bundled = policy.skills === "bundled-signed"
 							? verifyBundledSkills(skillsDir)
 							: { verified: [], excluded: [], skillPaths: [] };
