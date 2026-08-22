@@ -287,11 +287,10 @@ class TestBackpressure:
             event_id="evt_dbg", sequence=1025,
             type=AgentEventType.CONTEXT_USAGE, visibility=Visibility.DEBUG, **base,
         ))
-        seen = []
-        while not queue.empty():
-            seen.append(queue.get_nowait().event_id)
-        # DEBUG 可丢（设计允许），不强制标记。
-        assert "evt_dbg" not in seen or True  # 记录现状，不阻塞
+        # DEBUG 可丢（设计允许）：不驱逐 USER 内容、不加标记、不抛错。
+        head = queue.get_nowait()
+        assert head.event_id == "evt_0", "DEBUG 丢弃不应驱逐既有 USER 事件"
+        assert head.type.value != "session.degraded"
 
 
 class TestReplayCursor:
