@@ -58,30 +58,47 @@ class TestRequestActionChain:
                     await _decide_pending(service, mission.mission_id, sock, True)
                     return
 
-        approver = asyncio.create_task(operator_approves())
-        try:
-            result = await dispatcher.execute(
-                caller_pid=1,
-                caller_uid=1000,
-                request=_request(
-                    "rosclaw_request_action",
-                    mission=mission.mission_id,
-                    idem="idem_ra_1",
-                    lease=await _issue_lease(service, mission),
-                    arguments={
-                        "capability_id": "sim_ground_truth",
-                        "arguments": {},
-                        "expected_effect": "SIM 探测",
-                        "risk_tier": "LOW",
-                    },
-                )
+        # PR-N7：不再轮询 330s——第一次调用立即 WAITING_APPROVAL +
+        # approval_id；operator 决定后模型携 approval_id 续接执行。
+        result = await dispatcher.execute(
+            caller_pid=1,
+            caller_uid=1000,
+            request=_request(
+                "rosclaw_request_action",
+                mission=mission.mission_id,
+                idem="idem_ra_1",
+                lease=await _issue_lease(service, mission),
+                arguments={
+                    "capability_id": "sim_ground_truth",
+                    "arguments": {},
+                    "expected_effect": "SIM 探测",
+                    "risk_tier": "LOW",
+                },
             )
-        finally:
-            approver.cancel()
+        )
+        assert result.status == "WAITING_APPROVAL"
         assert result.approval_id
+        await _decide_pending(service, mission.mission_id, sock, True)
+        resumed = await dispatcher.execute(
+            caller_pid=1,
+            caller_uid=1000,
+            request=_request(
+                "rosclaw_request_action",
+                mission=mission.mission_id,
+                idem="idem_ra_1b",
+                lease=await _issue_lease(service, mission),
+                arguments={
+                    "capability_id": "sim_ground_truth",
+                    "arguments": {},
+                    "expected_effect": "SIM 探测",
+                    "risk_tier": "LOW",
+                    "approval_id": result.approval_id,
+                },
+            )
+        )
         # SIM executor 结果（接受与否取决于 sim executor 存在性——关键是
         # 链走到了执行而非卡在授权）。
-        assert result.status in {"COMPLETED", "FAILED"}
+        assert resumed.status in {"COMPLETED", "FAILED"}
         await operatord.stop()
         await agent_server.stop()
         await service.close()
@@ -97,25 +114,45 @@ class TestRequestActionChain:
                     await _decide_pending(service, mission.mission_id, sock, False)
                     return
 
-        denier = asyncio.create_task(operator_denies())
-        try:
-            result = await dispatcher.execute(
-                caller_pid=1,
-                caller_uid=1000,
-                request=_request(
-                    "rosclaw_request_action",
-                    mission=mission.mission_id,
-                    idem="idem_ra_2",
-                    lease=await _issue_lease(service, mission),
-                    arguments={"capability_id": "sim_ground_truth", "arguments": {}},
-                )
+        # PR-N7：先立即返回 WAITING_APPROVAL，operator 拒绝后不可执行。
+        result = await dispatcher.execute(
+            caller_pid=1,
+            caller_uid=1000,
+            request=_request(
+                "rosclaw_request_action",
+                mission=mission.mission_id,
+                idem="idem_ra_2",
+                lease=await _issue_lease(service, mission),
+                arguments={"capability_id": "sim_ground_truth", "arguments": {}},
             )
-        finally:
-            denier.cancel()
-        assert not result.ok
-        assert result.status == "DECLINED"
-        assert result.error_code == "OPERATOR_DECLINED"
-        # 没有产生任何 grant。
+        )
+        assert result.status == "WAITING_APPROVAL"
+        await _decide_pending(service, mission.mission_id, sock, False)
+        # 拒绝后携带 approval_id 续接 → 诚实拒绝（不得执行；
+        # dispatcher 把 ToolBridgeError 转成 REJECTED 结果）。
+        rejected = await dispatcher.execute(
+            caller_pid=1,
+            caller_uid=1000,
+            request=_request(
+                "rosclaw_request_action",
+                mission=mission.mission_id,
+                idem="idem_ra_2b",
+                lease=await _issue_lease(service, mission),
+                arguments={
+                    "capability_id": "sim_ground_truth",
+                    "arguments": {},
+                    "approval_id": result.approval_id,
+                },
+            )
+        )
+        assert not rejected.ok
+        assert rejected.error_code == "APPROVAL_NOT_FOUND"
+        # 决定诚实落账（DECLINED）+ 没有产生任何 grant。
+        from rosclaw.agentd.pi_bridge.action_admission import ActionAdmissionService
+
+        assert ActionAdmissionService(service).decision_status(
+            result.approval_id
+        )["status"] in ("DECLINED", "DENIED")
         assert service.list_grants() == []
         await operatord.stop()
         await agent_server.stop()

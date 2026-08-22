@@ -18,8 +18,6 @@ import json
 import time
 from pathlib import Path
 
-import pytest
-
 
 async def _request_action(service, mission, *, idem: str, extra_args=None):
     from rosclaw.agentd.pi_bridge.tool_dispatch import PiToolDispatcher
@@ -88,9 +86,9 @@ class TestLeaseOnlyForRealBodyState:
     ) -> None:
         """REAL 域（physical_body）动作的 lease 要求不变——fail
         closed 不动摇。"""
+        from rosclaw.agentd.pi_bridge.tool_dispatch import PiToolDispatcher
         from rosclaw.agentd.tooling.descriptor import physical_action_descriptor
         from tests.agentd.test_pi_tool_bridge import _request, _setup
-        from rosclaw.agentd.pi_bridge.tool_dispatch import PiToolDispatcher
 
         service, mission = await _setup(tmp_path)
         # 注册一个 REAL 域能力（无 SIMULATION_STATE_ONLY 标记）。

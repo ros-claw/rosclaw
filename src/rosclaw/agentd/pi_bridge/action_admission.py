@@ -149,6 +149,7 @@ class ActionAdmissionService:
         *,
         caller_pid: int | None = None,
         caller_uid: int | None = None,
+        sim_only_effect: bool = False,
     ) -> ValidatedAdmissionContext:
         """session → mission → writer lease → caller identity → context
         lease → revision → body → mode 全链硬校验（HOTFIX-1：freshness
@@ -170,6 +171,30 @@ class ActionAdmissionService:
         #    P0-5A：lease 记录的 caller_uid 必须与当前调用者一致。
         from rosclaw.agentd.pi_bridge.context_lease import ContextLeaseStore
 
+        if sim_only_effect:
+            # PR-N7（调整方案 §六）：Context Lease 只约束依赖真实身体
+            # 状态的动作——SIM 域（simulation_state）动作豁免真实
+            # context lease（本地 MuJoCo 仿真不要求真实 body freshness；
+            # SIM 任务不再被 REAL lease 阻挡）。身份/写入者/模式校验
+            # 不变（上方 _validate_session_and_caller 已执行）。
+            from rosclaw.agentd.pi_bridge.context import build_embodied_context
+            from rosclaw.agentd.pi_bridge.context_lease import context_hash_of
+
+            current_envelope = build_embodied_context(
+                self._service, ctx.mission_id
+            )
+            snapshot = self._service.snapshot(ctx.mission_id)
+            writer = self._bindings.writer_of(ctx.mission_id)
+            assert writer is not None
+            return ValidatedAdmissionContext(
+                binding_id=binding.binding_id,
+                writer_lease_id=writer.lease_id,
+                context_lease_id="",
+                context_hash=context_hash_of(current_envelope),
+                context_revision=snapshot.context_revision,
+                body_hash=mission.body_binding.effective_body_hash,
+                mode=mission.mode.value,
+            )
         if not ctx.context_lease_id:
             raise ToolBridgeError(
                 "CONTEXT_LEASE_REQUIRED",
@@ -357,12 +382,23 @@ class ActionAdmissionService:
         # 六审 §6.3：发现必须先于 context 校验——capabilities 在
         # context_hash 内，发现会改变 hash。
         await service._ensure_mcp_discovered()
-        validated = self._validate_request_context(
-            request, caller_pid=caller_pid, caller_uid=caller_uid
-        )
         mission = service.get_mission(request.mission_id)
-        assert mission is not None  # _validate_request_context 已保证
+        # PR-N7：lease 豁免判定在验证前——读 canonical 能力效应域
+        # （N5A/N5C 链），不是 legacy 字符串。
         descriptor = service._tool_catalog.get(capability_id)
+        cap = service._tool_catalog.capability(capability_id) if descriptor else None
+        sim_only = bool(
+            descriptor is not None
+            and cap is not None
+            and cap.effect.domain == "simulation_state"
+            and mission is not None
+            and mission.mode.value == "SIMULATION"
+        )
+        validated = self._validate_request_context(
+            request, caller_pid=caller_pid, caller_uid=caller_uid,
+            sim_only_effect=sim_only,
+        )
+        assert mission is not None  # get_mission 已保证（validate 亦有）
         if descriptor is None:
             raise ToolBridgeError(
                 "CAPABILITY_UNKNOWN",

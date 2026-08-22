@@ -833,7 +833,6 @@ class PiToolDispatcher:
         """PNA-5 + NA-FIX-5 + 三审 P0-NA-10：经唯一 ActionAdmissionService——
         完整请求上下文（session/lease/revision/body/mode）硬校验、
         精确 grant、结构化回执、execute TOCTOU 复验。"""
-        import asyncio as _asyncio
 
         from rosclaw.agentd.pi_bridge.action_admission import (
             ActionAdmissionService,
@@ -864,6 +863,38 @@ class PiToolDispatcher:
             context_lease_id=request.context_lease_id,
         )
         admission = ActionAdmissionService(self._service)
+        # PR-N7：审批续接——携带既有 approval_id 的调用直接进入
+        # 执行路径（operator 已决定），不重建卡、不轮询。
+        resume_approval_id = str(args.get("approval_id", "") or "")
+        if resume_approval_id:
+            status = admission.decision_status(resume_approval_id)["status"]
+            if status == "APPROVED":
+                result = await admission.execute(
+                    resume_approval_id, request=ctx,
+                    caller_pid=self._caller_pid, caller_uid=self._caller_uid,
+                )
+                return PiToolResultV1(
+                    request_id=request.request_id,
+                    ok=bool(result.get("executed")),
+                    status=str(result.get("status", "FAILED")),
+                    summary=str(result.get("summary", ""))[:8000],
+                    approval_id=resume_approval_id,
+                    error_code=result.get("error_code"),
+                )
+            if status == "PENDING":
+                return PiToolResultV1(
+                    request_id=request.request_id,
+                    ok=False,
+                    status="WAITING_APPROVAL",
+                    summary=f"审批 {resume_approval_id} 仍待决定——让出回合等待事件",
+                    approval_id=resume_approval_id,
+                    error_code="WAITING_APPROVAL",
+                    retryable=True,
+                )
+            raise ToolBridgeError(
+                "APPROVAL_NOT_FOUND",
+                f"approval {resume_approval_id} 状态 {status}——不可续接执行",
+            )
         card = await admission.propose(
             request=ctx,
             capability_id=capability_id,
@@ -874,20 +905,25 @@ class PiToolDispatcher:
             caller_pid=self._caller_pid,
             caller_uid=self._caller_uid,
         )
-        # 等 operator（决定只能经 operatord 到达）。
-        deadline_sec = 330.0
-        waited = 0.0
-        while waited < deadline_sec:
-            status = admission.decision_status(card["approval_id"])["status"]
-            if status != "PENDING":
-                break
-            await _asyncio.sleep(1.0)
-            waited += 1.0
+        # PR-N7（调整方案 §六）：不再在模型工具里轮询 330 秒——
+        # 创建审批后立即返回 WAITING_APPROVAL + approval_id；operator
+        # 决定事件恢复原 session，模型携带 approval_id 续接执行。
+        # 审批可安全过期，但绝不卡住 Harness 回合。
         status = admission.decision_status(card["approval_id"])["status"]
         if status == "PENDING":
-            raise ToolBridgeError(
-                "APPROVAL_TIMEOUT",
-                "operator 未在期限内决定（默认拒绝语义）——动作未执行",
+            from rosclaw.agentd.tooling.recovery import recovery_for
+
+            return PiToolResultV1(
+                request_id=request.request_id,
+                ok=False,
+                status="WAITING_APPROVAL",
+                summary=(
+                    f"已创建审批 {card['approval_id']}——等待 operator 决定；"
+                    f"{recovery_for('WAITING_APPROVAL') or '让出回合，等待事件恢复'}"
+                ),
+                approval_id=card["approval_id"],
+                error_code="WAITING_APPROVAL",
+                retryable=True,
             )
         if status != "APPROVED":
             return PiToolResultV1(
