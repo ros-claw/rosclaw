@@ -15,8 +15,6 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-import pytest
-
 from rosclaw.contracts.agent.tool import ExecutionClass, ToolDescriptorV2
 
 #: 方案 §五.N6C 的稳定错误分类（含本仓既有码的对应关系）。
@@ -86,7 +84,9 @@ class TestDoomFingerprint:
         from rosclaw.agentd.pi_bridge.server import PiBridgeServer
         from rosclaw.agentd.pi_bridge.tool_dispatch import PiToolDispatcher
         from tests.agentd.test_pi_tool_bridge import (
-            _issue_lease, _request, _setup,
+            _issue_lease,
+            _request,
+            _setup,
         )
 
         service, mission = await _setup(tmp_path)
