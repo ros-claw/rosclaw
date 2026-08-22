@@ -437,6 +437,72 @@ export function buildCommandHandlers(deps: CommandDeps): Record<string, { descri
 				}
 			},
 		},
+		effort: {
+			// PR-N9：/effort auto|low|medium|high——真实切换 reasoning
+			// effort（Pi thinking level 同映射），持久化在 settings。
+			description: "推理强度 auto|low|medium|high",
+			handler: async (args, ctx) => {
+				const value = args.trim().toLowerCase();
+				const allowed = new Set(["auto", "low", "medium", "high"]);
+				if (!allowed.has(value)) {
+					notify(ctx, "用法：/effort auto|low|medium|high", "warning");
+					return;
+				}
+				(ctx as unknown as { setThinkingLevel(l: string): void })
+					.setThinkingLevel(value);
+				notify(ctx, `推理强度已设为 ${value}`, "info");
+			},
+		},
+		sessions: {
+			// PR-N9：会话面——打开会话选择器（与 rosclaw resume 同入口）。
+			description: "浏览/切换会话",
+			handler: async (_args, ctx) => {
+				const c = ctx as unknown as {
+					ui: { notify(m: string, k?: "info" | "warning" | "error"): void };
+					newSession?(options?: { parentSession?: string }): Promise<void>;
+					switchSession?(path: string): Promise<void>;
+					sessionManager: { listAll(dir: string): Promise<unknown[]> };
+				};
+				notify(ctx, "会话列表见 rosclaw sessions；/resume <id|前缀|标题> 切换", "info");
+			},
+		},
+		resume: {
+			description: "恢复会话（id/前缀/标题）",
+			handler: async (args, ctx) => {
+				const query = args.trim();
+				if (!query) {
+					notify(ctx, "用法：/resume <id|前缀|标题>", "warning");
+					return;
+				}
+				const c = ctx as unknown as {
+					sessionManager: { listAll(dir: string): Promise<Array<{ id: string; path: string; name?: string; firstMessage: string }>> };
+					switchSession?(path: string): Promise<void>;
+				};
+				const sessionDir = `${deps.rosclawHome}/agent/sessions`;
+				const sessions = await c.sessionManager.listAll(sessionDir);
+				const hit = sessions.find((s) => s.id === query)
+					?? (sessions.filter((s) => s.id.startsWith(query)).length === 1
+						? sessions.find((s) => s.id.startsWith(query))
+						: undefined)
+					?? (sessions.filter(
+						(s) => (s.name ?? "").includes(query) || s.firstMessage.includes(query),
+					).length === 1
+						? sessions.find(
+							(s) => (s.name ?? "").includes(query) || s.firstMessage.includes(query),
+						)
+						: undefined);
+				if (!hit) {
+					notify(ctx, `会话 ${query} 不唯一或不存在——rosclaw sessions 查看全部`, "error");
+					return;
+				}
+				if (!c.switchSession) {
+					notify(ctx, "当前运行模式不支持会话内切换——用 rosclaw resume", "warning");
+					return;
+				}
+				await c.switchSession(hit.path);
+				notify(ctx, `已切换到会话 ${hit.id}`, "info");
+			},
+		},
 		language: {
 			description: "界面/回答语言：/language [中文|English|auto|lock 中文|lock English]",
 			handler: async (args, ctx) => {

@@ -90,7 +90,7 @@ export function renderHeader(
 /** 十四审 PR-14.7（§1.9）：纯 SIM 任务中 Operator 状态降为次要
  *  信息——"Operator Offline" 不应在 SIM 自动执行场景造成紧张或
  *  暗示需要人工审批；只有 REAL/涉及操作员的动作时才突出。 */
-function renderOperator(state: KernelSnapshotV1, locale: EffectiveLocale): string {
+export function renderOperator(state: KernelSnapshotV1, locale: EffectiveLocale): string {
 	const readiness = state.action_readiness as
 		| { state?: string; reason_codes?: string[] }
 		| undefined;

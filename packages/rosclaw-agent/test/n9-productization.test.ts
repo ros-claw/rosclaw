@@ -46,22 +46,20 @@ test("N9: /effort 接受 auto|low|medium|high 并真实应用", async () => {
 	assert.match(notified, /auto\|low\|medium\|high/);
 });
 
-test("N9: 纯 SIM 不展示 OPERATOR_OFFLINE", async () => {
-	const { ProductStateCenter } = await import("../src/session/state-center.js");
-	const center = new ProductStateCenter("/tmp/x");
-	// 纯 SIM：operator 离线不得进入问题码（SIM 不需要 operator）。
-	center.patchKernel({ mode: "SIMULATION" } as never);
-	(center as unknown as { operatorState: string }).operatorState = "OFFLINE";
-	const snapshot = center.snapshot();
-	const codes = snapshot.attention?.codes ?? snapshot.attention_codes ?? [];
-	assert.ok(!codes.includes("OPERATOR_OFFLINE"),
-		"纯 SIM 展示 OPERATOR_OFFLINE——误导用户");
-	// REAL 下必须展示（安全相关可见性不动摇）。
-	center.patchKernel({ mode: "REAL" } as never);
-	const snapReal = center.snapshot();
-	const codesReal = snapReal.attention?.codes ?? snapReal.attention_codes ?? [];
-	assert.ok(codesReal.includes("OPERATOR_OFFLINE"),
-		"REAL 下 OPERATOR_OFFLINE 必须可见");
+test("N9: 纯 SIM 不展示 Operator Offline（renderOperator 唯一 seam）", async () => {
+	const { renderOperator } = await import("../src/ui/product-state.js");
+	// 纯 SIM：operator 状态降为不展示（PR-14.7 语义钉住）。
+	const sim = renderOperator({
+		mode: "SIMULATION", operator: "OFFLINE",
+		action_readiness: { state: "READY", reason_codes: [] },
+	} as never, "zh-CN" as never);
+	assert.ok(!/离线|Offline|OFFLINE/.test(sim), `纯 SIM 仍显示 Offline: ${sim}`);
+	// REAL 下必须显示。
+	const real = renderOperator({
+		mode: "REAL", operator: "OFFLINE",
+		action_readiness: { state: "BLOCKED", reason_codes: ["OPERATOR_OFFLINE"] },
+	} as never, "zh-CN" as never);
+	assert.ok(/离线|Offline|OFFLINE/.test(real), `REAL 下 Offline 未显示: ${real}`);
 });
 
 test("N9: Working… 被结构化阶段替代", async () => {

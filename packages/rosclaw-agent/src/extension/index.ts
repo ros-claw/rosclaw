@@ -47,6 +47,7 @@ import { guardInput } from "./input-guard.js";
 import { materializeCapabilityTools, type CapabilitySnapshot } from "../tools/materialize.js";
 import { MODEL_TOOL_NAMES } from "../tools/surface.js";
 import { fetchEmbodiedContext, renderTrustedContext } from "./context-injection.js";
+import { phaseWorkingMessage } from "./activity.js";
 
 export interface RosclawExtensionOptions {
 	profile: "developer" | "robot";
@@ -897,6 +898,16 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 		);
 		// 每个 outcome 只校验紧随其后的第一段助手叙述；turn 结束清除。
 		let lastOutcome: (ActionResultData & { narrativeSeen?: boolean; conflictClaim?: string }) | null = null;
+		// PR-N9：结构化活动区——工具开始/结束驱动活动区文案
+		// （可审计事件，不是静态 Working… 也不是思维链）。
+		pi.on("tool_execution_start", async (event, ctx) => {
+			if (!ctx.hasUI) return;
+			ctx.ui.setWorkingMessage(
+				phaseWorkingMessage({
+					currentTool: String(event.toolName ?? ""), operation: null,
+				}),
+			);
+		});
 		pi.on("tool_execution_end", async (event, _ctx) => {
 			turnGuard.noteTool(String(event.toolName ?? ""));
 			if (event.toolName === "process_start") {
