@@ -19,8 +19,6 @@ import json
 import sqlite3
 from pathlib import Path
 
-import pytest
-
 
 def _kernel(tmp_path: Path):
     from rosclaw.storage.migrations import MigrationRunner
@@ -125,7 +123,7 @@ class TestFinishWalksGraph:
         render 血缘（模型自写 matplotlib 产物）→ 不得 SUCCEEDED。"""
         kernel = _kernel(tmp_path)
         task_id = _star_task(kernel, tmp_path)
-        ctx = _run_trusted_pipeline(tmp_path)
+        _run_trusted_pipeline(tmp_path)  # 同任务存在受信 trace（审计场景前提）
         task = kernel.get_task(task_id)
         ws = Path(str(task["workspace_path"]))
         # 模型自写 GIF（无 render receipt 血缘）。
