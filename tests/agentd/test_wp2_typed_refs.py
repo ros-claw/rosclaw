@@ -54,10 +54,15 @@ class TestTypedRefV1:
 
 
 class TestSharedPlanStore:
-    async def test_kit_plan_consumable_by_native_simulator(self) -> None:
+    async def test_kit_plan_consumable_by_native_simulator(
+        self, monkeypatch
+    ) -> None:
         """审计事故的直接复现：kit plan → native simulate 必须通。"""
         with tempfile.TemporaryDirectory() as td:
-            os.environ["ROSCLAW_HOME"] = td
+            # monkeypatch：测试结束自动还原——裸 os.environ 赋值会
+            # 泄漏给同进程后续测试（CI 实证：body 测试集体
+            # "Body already linked"）。
+            monkeypatch.setenv("ROSCLAW_HOME", td)
             from tests.agentd.test_pi_tool_bridge import _setup
 
             service, mission = await _setup(Path(td))
