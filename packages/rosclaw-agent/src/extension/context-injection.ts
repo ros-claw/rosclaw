@@ -23,6 +23,15 @@ export interface EmbodiedContextEnvelope {
 	[key: string]: unknown;
 }
 
+/** WP-8：活跃任务运行目录（pi.context 响应的 active_run）。 */
+export interface ActiveRunInfo {
+	task_id: string;
+	state: string;
+	revision: number;
+	run_dir: string;
+	zones: Record<string, string>;
+}
+
 export interface ContextFetchResult {
 	envelope?: EmbodiedContextEnvelope;
 	stale: boolean;
@@ -30,6 +39,8 @@ export interface ContextFetchResult {
 	/** HOTFIX-1：agentd 签发的 ValidatedContextLease（action 准入凭证）。 */
 	contextLeaseId?: string;
 	contextLeaseExpiresAt?: string;
+	/** WP-8：活跃任务运行目录（无活跃任务时缺省）。 */
+	activeRun?: ActiveRunInfo;
 }
 
 /** 与 Python json.dumps(sort_keys=True, separators=(",", ":")) 逐字节一致。 */
@@ -97,10 +108,12 @@ export async function fetchEmbodiedContext(
 	const leaseExpiresAt = typeof response.context_lease_expires_at === "string"
 		? response.context_lease_expires_at
 		: undefined;
+	const activeRun = response.active_run as ActiveRunInfo | undefined;
 	return {
 		envelope,
 		stale: false,
 		note: "fresh",
+		...(activeRun?.run_dir ? { activeRun } : {}),
 		...(leaseId ? { contextLeaseId: leaseId } : {}),
 		...(leaseExpiresAt ? { contextLeaseExpiresAt: leaseExpiresAt } : {}),
 	};
@@ -124,6 +137,9 @@ export function renderTrustedContext(result: ContextFetchResult): string {
 		`body: ${body.body_id ?? ""} (hash ${String(body.effective_body_hash ?? "").slice(0, 16)})\n` +
 		`body_summary: ${body.summary ?? ""}\n` +
 		`pending_approvals: ${env.pending_approvals.length}\n` +
+		(result.activeRun
+			? `task_run: ${result.activeRun.run_dir}（交付物→outputs/ 证据→evidence/ 草稿→scratch/ 日志→logs/；scratch 不得登记为交付物）\n`
+			: "") +
 		`generated_at: ${env.generated_at}  expires_at: ${env.expires_at}\n` +
 		"规则：以上为本轮唯一权威具身事实；历史消息中的旧状态以此为准。\n" +
 		"</ROSCLAW_TRUSTED_CONTEXT>"

@@ -735,6 +735,16 @@ class PiBridgeServer:
             response: dict[str, Any] = {"ok": True, "context": envelope.model_dump(mode="json")}
             pi_session_id = str(params.get("pi_session_id", ""))
             if pi_session_id:
+                # WP-8：活跃任务的运行目录随 context 下发——模型每轮
+                # 知道交付物写 outputs/、草稿写 scratch/（项目源码
+                # 不再当任务垃圾场）。观测面信息，不进 envelope hash
+                # （任务流转换 revision 属正常，不触发 context 失效）。
+                with contextlib.suppress(Exception):
+                    active_run = service._task_kernel.active_task_for_session(
+                        mission_id, pi_session_id
+                    )
+                    if active_run is not None:
+                        response["active_run"] = active_run
                 # P0-5A：只有合法 writer（binding + writer lease + peer
                 # PID/UID 与 lease owner 匹配）才能签 action context
                 # lease——观测面（envelope）仍可读，action lease 绝不

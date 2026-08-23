@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from rosclaw.contracts.common import new_id
+from rosclaw.task_kernel.run_store import ensure_run, run_dir, zone_of
 
 #: root task 状态机（§9.4）：ACTIVE 子态 + TERMINAL。
 TASK_ACTIVE = frozenset({
@@ -111,6 +112,7 @@ class TaskKernel:
             task_id = str(active["task_id"])
             revision = int(active["active_revision"]) + 1
             now = datetime.now(UTC).isoformat()
+            ensure_run(self._home, task_id, revision)  # WP-8
             self._conn.execute(
                 "INSERT INTO task_revisions (task_id, revision, "
                 "user_message_id, goal_delta, created_at) "
@@ -152,6 +154,7 @@ class TaskKernel:
             active = None
         if active is not None:
             revision = int(active["active_revision"]) + 1
+            ensure_run(self._home, str(active["task_id"]), revision)  # WP-8
             self._conn.execute(
                 "INSERT INTO task_revisions (task_id, revision, "
                 "user_message_id, goal_delta, created_at) "
@@ -187,6 +190,9 @@ class TaskKernel:
         workspace.mkdir(parents=True, exist_ok=True)
         for sub in ("artifacts", "checkpoints", "logs", "snapshots"):
             (self._home / "tasks" / task_id / sub).mkdir(parents=True, exist_ok=True)
+        # WP-8：运行目录四区（scratch/outputs/evidence/logs）——
+        # 项目源码不再当任务垃圾场。
+        ensure_run(self._home, task_id, 1)
         self._conn.execute(
             "INSERT INTO tasks (task_id, mission_id, root_goal, mode, body_id, "
             "workspace_path, state, active_revision, locale, created_at, "
@@ -244,7 +250,42 @@ class TaskKernel:
         row = self._conn.execute(
             "SELECT * FROM tasks WHERE task_id = ?", (task_id,)
         ).fetchone()
-        return dict(row) if row else None
+        if row is None:
+            return None
+        task = dict(row)
+        # WP-8：当前 revision 的运行目录（模型/界面可查）。
+        task["run_dir"] = str(
+            run_dir(self._home, task_id, int(task["active_revision"]))
+        )
+        return task
+
+    def active_task_for_session(
+        self, mission_id: str, session_ref: str
+    ) -> dict | None:
+        """WP-8：session 的活跃 task + 运行目录/四区（pi.context
+        接线——模型每轮知道写哪里）。"""
+        row = self._conn.execute(
+            "SELECT t.* FROM tasks t JOIN task_session_bindings b "
+            "ON b.task_id = t.task_id "
+            "WHERE t.mission_id = ? AND b.session_ref = ? AND b.active = 1 "
+            "AND b.role = 'primary' "
+            "ORDER BY t.created_at DESC LIMIT 1",
+            (mission_id, session_ref),
+        ).fetchone()
+        if row is None:
+            return None
+        task = self.get_task(str(row["task_id"]))
+        assert task is not None
+        run = ensure_run(
+            self._home, str(task["task_id"]), int(task["active_revision"])
+        )
+        return {
+            "task_id": str(task["task_id"]),
+            "state": str(task["state"]),
+            "revision": int(task["active_revision"]),
+            "run_dir": run["run_dir"],
+            "zones": run["zones"],
+        }
 
     def list_tasks(self, mission_id: str = "") -> list[dict]:
         if mission_id:
@@ -341,6 +382,16 @@ class TaskKernel:
                 f"artifact 不存在: {path}（解析根: {workspace}）"
             )
         content = file.read_bytes()
+        # WP-8：运行区纪律——scratch 是草稿区，不得登记为交付物；
+        # outputs/evidence 登记记录 zone（交付/证据可归因）。
+        zone = zone_of(
+            self._home, task_id, int(task["active_revision"]), file
+        )
+        if zone == "scratch":
+            raise ValueError(
+                f"SCRATCH_NOT_DELIVERABLE: {file} 在 scratch 草稿区——"
+                "草稿不是交付物；请把最终交付物写入 outputs/ 再登记"
+            )
         artifact_id = new_id("art")
         now = datetime.now(UTC).isoformat()
         record = {
@@ -354,6 +405,9 @@ class TaskKernel:
         # N4.1：模型自产证据标 EXPERIMENTAL——通过 qualification 前
         # 不当正式能力证据（N 调整方案 §二）。
         meta = dict(metadata or {})
+        if zone:
+            meta["zone"] = zone
+            record["zone"] = zone
         if producer.startswith("model:"):
             meta.setdefault("evidence_tier", "EXPERIMENTAL")
         # WP-4：血缘图——带 render receipt 的交付物在登记时推导并
