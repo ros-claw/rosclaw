@@ -48,6 +48,9 @@ import { materializeCapabilityTools, type CapabilitySnapshot } from "../tools/ma
 import { MODEL_TOOL_NAMES } from "../tools/surface.js";
 import { fetchEmbodiedContext, renderTrustedContext } from "./context-injection.js";
 import { phaseWorkingMessage } from "./activity.js";
+import { ROSCLAW_SHORTCUTS } from "./shortcuts.js";
+import { AutoNamer } from "../session/auto-name.js";
+import { formatPolicyAutoNotice } from "../ui/tool-display.js";
 
 export interface RosclawExtensionOptions {
 	profile: "developer" | "robot";
@@ -354,7 +357,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			setTimeout(() => {
 				void center.probeOperator(true);
 			}, 800);
-			pi.registerShortcut("shift+ctrl+b", {
+			pi.registerShortcut(ROSCLAW_SHORTCUTS.operatorBootstrap, {
 				description: i18nT("operator.bootstrap_title", locale.effective),
 				handler: async (shortcutCtx) => {
 					await runBootstrap(shortcutCtx as typeof ctx);
@@ -389,16 +392,9 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 		pi.on("input", async (event, _ctx) => {
 			const text = String((event as { text?: string }).text ?? "").trim();
 			if (!text || text.startsWith("/")) return { action: "continue" as const };
-			// WP-P0-2：首个有效输入自动命名（确定性截断 ≤30 字，不调
-			// 模型）——退出提示/会话列表展示标题而非内部 ID。
-			try {
-				const sm = options.sessionManager;
-				if (sm && !sm.getSessionName()) {
-					sm.appendSessionInfo(text.slice(0, 30));
-				}
-			} catch {
-				// 命名失败不阻塞输入。
-			}
+			// WP-7：命名权交给 AutoNamer——首个"驱动工具活动"的输入
+			// 才命名（真实任务的确定性信号；闲聊会话不谎报任务名）。
+			autoNamer.noteInput(text);
 			// 九审 §6.1/NINE-2：UserTurn 落账（先落账再进模型）——任务
 			// 因果链（caused_by_turn_id）的来源。落账失败不阻塞输入
 			// （Pi JSONL 仍是消息账本；UserTurn 是任务因果投影）。
@@ -681,7 +677,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				// 桥暂不可用——保留旧内容，下回合再刷。
 			}
 		};
-		pi.registerShortcut("ctrl+t", {
+		pi.registerShortcut(ROSCLAW_SHORTCUTS.taskActivity, {
 			description: "打开/关闭任务活动视图",
 			handler: async (ctx) => {
 				activityWidgetOn = !activityWidgetOn;
@@ -729,14 +725,14 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				});
 			}, { overlay: true });
 		};
-		pi.registerShortcut("f2", {
+		pi.registerShortcut(ROSCLAW_SHORTCUTS.tasksCenter, {
 			description: "打开/关闭任务面板",
 			handler: async (ctx) => {
 				await openTasksCenter(ctx);
 			},
 		});
 		try {
-			pi.registerShortcut("alt+j", {
+			pi.registerShortcut(ROSCLAW_SHORTCUTS.tasksCenterAlt, {
 				description: "任务面板（第二绑定）",
 				handler: async (ctx) => {
 					await openTasksCenter(ctx);
@@ -760,8 +756,10 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			};
 			// 七审 §2.5：POLICY_AUTO——安全 SIM 政策自动授权，只通知不弹卡。
 			if (details.phase === "POLICY_AUTO") {
+				// WP-7：SIM 用户面隐藏 POLICY_AUTO/approval/grant 治理
+				// 术语（审计链在事件账本，用户给可理解的说明）。
 				ctx.ui.notify(
-					`安全仿真自动执行（POLICY_AUTO，approval ${details.approval_id ?? ""}，全链审计）`,
+					formatPolicyAutoNotice({ approvalId: details.approval_id }),
 					"info",
 				);
 				return;
@@ -902,6 +900,17 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 		// （可审计事件，不是静态 Working… 也不是思维链）。
 		pi.on("tool_execution_start", async (event, ctx) => {
 			if (!ctx.hasUI) return;
+			// WP-7：首个真实任务命名——工具活动是确定性信号。
+			autoNamer.noteToolActivity();
+			const autoName = autoNamer.name();
+			if (autoName) {
+				try {
+					const sm = options.sessionManager;
+					if (sm && !sm.getSessionName()) sm.appendSessionInfo(autoName);
+				} catch {
+					// 命名失败不阻塞执行。
+				}
+			}
 			ctx.ui.setWorkingMessage(
 				phaseWorkingMessage({
 					currentTool: String(event.toolName ?? ""), operation: null,
@@ -985,6 +994,8 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 
 		// -- 认知事件镜像（PNA-8，规格 §24.2）：hash-only，不双写全文 ----------
 		// NA-FIX-2：mirror 动态读 active（切换后不再写旧 mission）。
+		// WP-7：会话自动命名（见 input/tool_execution_start 接线）。
+		const autoNamer = new AutoNamer();
 		const mirror = new EventMirror(
 			options.rosclawHome,
 			options.active.current.sessionId,

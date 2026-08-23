@@ -16,8 +16,10 @@
  */
 
 import { defineTool } from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
 
 import type { BridgeToolContext } from "./bridge-tools.js";
+import { displayLabelFor, summarizeToolResultText } from "../ui/tool-display.js";
 
 export interface SnapshotActiveTool {
 	tool_name: string;
@@ -57,7 +59,9 @@ export function materializeCapabilityTools(
 		const digest = snapshot.digest;
 		tools.push(defineTool({
 			name: entry.tool_name,
-			label: entry.tool_name,
+			// WP-7：用户面 label 剥治理前缀（propose_）与双下划线——
+			// 工具 name（模型调用面）不变，只改渲染。
+			label: displayLabelFor(entry.tool_name),
 			description:
 				`${entry.description}（capability: ${capabilityId}；` +
 				`effect: ${entry.effect_class}）`,
@@ -108,6 +112,14 @@ export function materializeCapabilityTools(
 					details: { ok, error_code: result.error_code ?? null },
 					isError: !ok,
 				};
+			},
+			// WP-7：用户面折叠渲染——模型上下文保留完整文本，TUI
+			// 只渲染单行摘要（JSON 不刷屏；REJECTED 明确"未执行"）。
+			renderResult(result: { content?: Array<{ type: string; text?: string }> }) {
+				const text = (result.content ?? [])
+					.map((b) => (b.type === "text" ? String(b.text ?? "") : ""))
+					.join("\n");
+				return new Text(summarizeToolResultText(text), 1, 0);
 			},
 		}));
 	}

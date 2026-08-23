@@ -2,7 +2,8 @@
  *
  * 红测试先行——以下不存在时必须红：
  * 1. /effort auto|low|medium|high 真实切换 reasoning effort；
- * 2. /sessions 与 /resume 命令存在（TUI 会话面）；
+ * 2. /sessions 与 /switch 命令存在（TUI 会话面；WP-7：/resume 与
+ *    Pi 内置冲突改名 /switch）；
  * 3. 纯 SIM 下不展示 OPERATOR_OFFLINE（SIM 不需要 operator）；
  * 4. Working… 被结构化阶段替代（工具/操作进行中显示当前阶段，
  *    不是静态 Working…）——展示可审计事件，不展示思维链。
@@ -10,7 +11,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-test("N9: /effort 与 /sessions、/resume 命令存在", async () => {
+test("N9: /effort 与 /sessions、/switch 命令存在", async () => {
 	const { buildCommandHandlers } = await import("../src/extension/commands.js");
 	const handlers = buildCommandHandlers({
 		rosclawHome: "/tmp/x",
@@ -21,7 +22,7 @@ test("N9: /effort 与 /sessions、/resume 命令存在", async () => {
 	});
 	assert.ok(handlers.effort, "/effort 缺失");
 	assert.ok(handlers.sessions, "/sessions 缺失");
-	assert.ok(handlers.resume, "/resume 缺失");
+	assert.ok(handlers.switch, "/switch 缺失");
 });
 
 test("N9: /effort 接受 auto|low|medium|high 并真实应用", async () => {

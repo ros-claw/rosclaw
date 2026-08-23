@@ -463,15 +463,17 @@ export function buildCommandHandlers(deps: CommandDeps): Record<string, { descri
 					switchSession?(path: string): Promise<void>;
 					sessionManager: { listAll(dir: string): Promise<unknown[]> };
 				};
-				notify(ctx, "会话列表见 rosclaw sessions；/resume <id|前缀|标题> 切换", "info");
+				notify(ctx, "会话列表见 rosclaw sessions；/switch <id|前缀|标题> 切换", "info");
 			},
 		},
-		resume: {
+		// WP-7：原 /resume 与 Pi 内置命令冲突（启动 [Extension issues]
+		// 实证）——改名 /switch。
+		switch: {
 			description: "恢复会话（id/前缀/标题）",
 			handler: async (args, ctx) => {
 				const query = args.trim();
 				if (!query) {
-					notify(ctx, "用法：/resume <id|前缀|标题>", "warning");
+					notify(ctx, "用法：/switch <id|前缀|标题>", "warning");
 					return;
 				}
 				const c = ctx as unknown as {
