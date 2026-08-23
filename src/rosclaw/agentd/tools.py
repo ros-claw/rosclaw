@@ -145,14 +145,17 @@ _TOOL_SCHEMAS: dict[str, StrictTool] = {
     TRAJ_VERIFY_TOOL: StrictTool(
         name=TRAJ_VERIFY_TOOL,
         description=(
-            "Verify trajectory tracking against a threshold "
-            "(max_tracking_error_m) — honest PASS/FAIL with metrics."
+            "Verify trajectory tracking against thresholds "
+            "(max_tracking_error_m; optional max_orientation_error_deg "
+            "for tool-axis vs contact-plane normal) — honest PASS/FAIL "
+            "with metrics."
         ),
         parameters={
             "type": "object",
             "properties": {
                 "trace_id": {"type": "string"},
                 "max_tracking_error_m": {"type": "number"},
+                "max_orientation_error_deg": {"type": "number"},
             },
             "required": ["trace_id", "max_tracking_error_m"],
             "additionalProperties": False,
@@ -227,6 +230,10 @@ class BuiltinToolRegistry:
                 )
                 # 模型视图不带完整 points（载荷留文件——句柄+摘要）。
                 result = {k: v for k, v in result.items() if k != "points"}
+                # WP-5：SE(3) 规格本体落盘在 plan 记录里（太大不入
+                # 模型面结果）；发内容寻址 digest 供反查。
+                result["spec_digest"] = result.get("spec", {}).get("digest", "")
+                result.pop("spec", None)
             elif name == TRAJ_SIMULATE_TOOL:
                 result = svc.simulate_cartesian_trajectory(
                     str(arguments["plan_id"])
@@ -237,9 +244,13 @@ class BuiltinToolRegistry:
                     format=str(arguments.get("format", "gif")),
                 )
             else:
+                orient_deg = arguments.get("max_orientation_error_deg")
                 result = svc.verify_tracking(
                     str(arguments["trace_id"]),
                     max_tracking_error_m=float(arguments["max_tracking_error_m"]),
+                    max_orientation_error_deg=(
+                        float(orient_deg) if orient_deg is not None else None
+                    ),
                 )
         except (ValueError, KeyError) as exc:
             raise ValidationError(f"{name} 参数错误: {exc}") from exc

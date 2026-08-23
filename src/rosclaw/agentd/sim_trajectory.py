@@ -3,12 +3,15 @@
 四个注册能力（全部 COMPUTE 类、SIMULATION 限定、确定性、无副作用）：
 
 1. trajectory.generate_planar_path——形状参数化平面轨迹（star5/circle
-   同一组合，不为每个形状写新仿真器）；
+   同一组合，不为每个形状写新仿真器）；WP-5 起产出 SE(3)
+   PoseTrajectorySpecV1（位置+朝向+approach/contact/lift 语义段）；
 2. ur5e.simulate_cartesian_trajectory——真实 MuJoCo 动力学 rollout
-   （SIM_DYN_ROLLOUT 证据，不是命令回放）：DLS-IK 把笛卡尔路径转成
-   关节轨迹，MujocoCpuBackend 物理推演，FK 还原实际 eef 轨迹；
+   （SIM_DYN_ROLLOUT 证据，不是命令回放）：6-DOF DLS-IK 把位姿轨迹
+   转成关节轨迹，MujocoCpuBackend 物理推演，FK 还原实际 eef 位姿
+   （位置+朝向）；
 3. simulation.render_trace——实际 eef 轨迹渲染 GIF（可打开的产物）；
-4. simulation.verify_tracking——跟踪误差阈值判定（PASS/FAIL 诚实）。
+4. simulation.verify_tracking——跟踪误差阈值判定（位置+朝向，
+   PASS/FAIL 诚实）。
 
 交付物全部落盘（rosclaw_home/sim/）：trace.json/trace.csv/metrics.json/
 GIF——部分成果产品化，不是只有 bash-log。
@@ -28,6 +31,172 @@ _SAFE_Z = (0.02, 1.20)
 #: UR5e home 关节角（与 sandbox keyframe 一致）。
 _HOME_QPOS = [-1.5708, -1.5708, 1.5708, -1.5708, -1.5708, 0.0]
 _SHAPES = ("star5", "circle")
+#: approach/lift 抬升高度（接触平面上方，米）。
+_APPROACH_LIFT_M = 0.15
+
+
+# ----------------------------------------------------------------------
+# SE(3) 数学助手（WP-5）——纯 stdlib，规划路径不依赖 mujoco/numpy。
+# ----------------------------------------------------------------------
+def _cross(a: list[float], b: list[float]) -> list[float]:
+    return [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    ]
+
+
+def _dot(a, b) -> float:
+    return float(sum(x * y for x, y in zip(a, b, strict=True)))
+
+
+def _normalize(v: list[float]) -> list[float]:
+    n = math.sqrt(sum(x * x for x in v))
+    if n < 1e-12:
+        raise ValueError(f"zero vector not normalizable: {v}")
+    return [x / n for x in v]
+
+
+def _mat_to_quat_xyzw(r: list[list[float]]) -> list[float]:
+    """行主序 3x3 旋转矩阵 → xyzw 单位四元数。"""
+    t = r[0][0] + r[1][1] + r[2][2]
+    if t > 0.0:
+        s = math.sqrt(t + 1.0) * 2.0
+        return [
+            (r[2][1] - r[1][2]) / s,
+            (r[0][2] - r[2][0]) / s,
+            (r[1][0] - r[0][1]) / s,
+            0.25 * s,
+        ]
+    if r[0][0] > r[1][1] and r[0][0] > r[2][2]:
+        s = math.sqrt(1.0 + r[0][0] - r[1][1] - r[2][2]) * 2.0
+        return [
+            0.25 * s,
+            (r[0][1] + r[1][0]) / s,
+            (r[0][2] + r[2][0]) / s,
+            (r[2][1] - r[1][2]) / s,
+        ]
+    if r[1][1] > r[2][2]:
+        s = math.sqrt(1.0 + r[1][1] - r[0][0] - r[2][2]) * 2.0
+        return [
+            (r[0][1] + r[1][0]) / s,
+            0.25 * s,
+            (r[1][2] + r[2][1]) / s,
+            (r[0][2] - r[2][0]) / s,
+        ]
+    s = math.sqrt(1.0 + r[2][2] - r[0][0] - r[1][1]) * 2.0
+    return [
+        (r[0][2] + r[2][0]) / s,
+        (r[1][2] + r[2][1]) / s,
+        0.25 * s,
+        (r[1][0] - r[0][1]) / s,
+    ]
+
+
+def _quat_xyzw_to_mat(q: list[float]) -> list[list[float]]:
+    x, y, z, w = q
+    return [
+        [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+        [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+        [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)],
+    ]
+
+
+def _quat_mul_xyzw(a: list[float], b: list[float]) -> list[float]:
+    ax, ay, az, aw = a
+    bx, by, bz, bw = b
+    return [
+        aw * bx + ax * bw + ay * bz - az * by,
+        aw * by - ax * bz + ay * bw + az * bx,
+        aw * bz + ax * by - ay * bx + az * bw,
+        aw * bw - ax * bx - ay * by - az * bz,
+    ]
+
+
+def _tool_down_orientation(normal_xyz: list[float]) -> list[float]:
+    """工具 z 轴对准 -法向（垂直接触平面）的目标朝向（xyzw）。
+
+    x 轴取世界 x 在平面上的投影（退化时取世界 y）——绕工具轴的
+    旋转对平面作业无关，取确定性约定。
+    """
+    z_d = _normalize([-n for n in normal_xyz])
+    ref = [1.0, 0.0, 0.0]
+    if abs(_dot(ref, z_d)) > 0.9:
+        ref = [0.0, 1.0, 0.0]
+    d = _dot(ref, z_d)
+    x_d = _normalize([ref[i] - d * z_d[i] for i in range(3)])
+    y_d = _cross(z_d, x_d)
+    return _mat_to_quat_xyzw([
+        [x_d[0], y_d[0], z_d[0]],
+        [x_d[1], y_d[1], z_d[1]],
+        [x_d[2], y_d[2], z_d[2]],
+    ])
+
+
+def _tool_z_of_quat(q: list[float]) -> list[float]:
+    """四元数（xyzw）表达的工具 z 轴在世界系的方向。"""
+    x, y, z, w = q
+    return [
+        2 * (x * z + y * w),
+        2 * (y * z - x * w),
+        1 - 2 * (x * x + y * y),
+    ]
+
+
+def _build_pose_spec(points: list[dict], *, plane: str) -> dict:
+    """接触点列 → PoseTrajectorySpecV1（approach/contact/lift 显式段）。
+
+    当前只支持 xy 水平接触平面（法向 +z）——规格本身支持任意
+    平面，生成器对非 xy 诚实拒绝（见 generate_planar_path）。
+    """
+    if plane != "xy":
+        raise ValueError(f"unsupported plane {plane!r} (supported: xy)")
+    normal = [0.0, 0.0, 1.0]
+    quat = _tool_down_orientation(normal)
+    offset = float(points[0]["z"])
+    start, end = points[0], points[-1]
+    waypoints: list[dict] = [
+        # approach：接触点上方 → 接触点（降下到位）。
+        {
+            "position_m": [start["x"], start["y"], start["z"] + _APPROACH_LIFT_M],
+            "orientation_xyzw": quat,
+            "kind": "approach",
+        },
+        {
+            "position_m": [start["x"], start["y"], start["z"]],
+            "orientation_xyzw": quat,
+            "kind": "approach",
+        },
+    ]
+    waypoints += [
+        {
+            "position_m": [p["x"], p["y"], p["z"]],
+            "orientation_xyzw": quat,
+            "kind": "contact",
+        }
+        for p in points
+    ]
+    # lift：末点抬升回 approach 高度。
+    waypoints.append({
+        "position_m": [end["x"], end["y"], end["z"] + _APPROACH_LIFT_M],
+        "orientation_xyzw": quat,
+        "kind": "lift",
+    })
+    digest = hashlib.sha256(
+        json.dumps(waypoints, sort_keys=True).encode()
+    ).hexdigest()
+    return {
+        "schema_version": "rosclaw.pose_trajectory_spec.v1",
+        "frame_id": "world",
+        "tool_frame": "attachment_site",
+        "contact_plane": {
+            "schema_version": "rosclaw.contact_plane.v1",
+            "normal_xyz": normal,
+            "offset_m": offset,
+        },
+        "waypoints": waypoints,
+        "digest": f"sha256:{digest}",
+    }
 
 
 def _workspace_check(point: dict) -> None:
@@ -82,36 +251,47 @@ def _sample_segments(vertices: list[dict], max_segment_m: float) -> list[dict]:
     return points
 
 
-def _ik_waypoints(model, data, points: list[dict]) -> list[list[float]]:
-    """阻尼最小二乘 IK：笛卡尔路径 → 关节轨迹（从 home 顺序求解，
-    每点以上一点为初值——轨迹连续不跳变）。"""
+def _ik_waypoints_6d(
+    model, data, poses: list[dict], site_id: int
+) -> list[list[float]]:
+    """6-DOF 阻尼最小二乘 IK（WP-5）：SE(3) 位姿航点 → 关节轨迹。
+
+    位置 + 朝向同时跟踪（朝向误差用世界系四元数误差
+    2·vec(q_target ⊗ q_cur⁻¹)，单调到 180° 不退化）。从 home
+    顺序求解，每点以上一点为初值——轨迹连续不跳变。不收敛即
+    编译期失败（零执行），诚实报错。
+    """
     import mujoco
     import numpy as np
 
-    site_id = -1
-    for site_name in ("attachment_site", "tcp"):
-        site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, site_name)
-        if site_id >= 0:
-            break
-    if site_id < 0:
-        raise ValueError("ur5e model has no end-effector site")
     nu = int(model.nu)
     q = np.array(_HOME_QPOS[:nu], dtype=float)
     waypoints: list[list[float]] = []
-    jac = np.zeros((3, model.nv))
+    jacp = np.zeros((3, model.nv))
+    jacr = np.zeros((3, model.nv))
     lam = 0.05
-    for point in points:
-        target = np.array([point["x"], point["y"], point["z"]], dtype=float)
-        for _ in range(120):
+    for pose in poses:
+        target_p = np.array(pose["position_m"], dtype=float)
+        target_q = list(pose["orientation_xyzw"])
+        for _ in range(240):
             data.qpos[:nu] = q
             mujoco.mj_forward(model, data)
-            err = target - np.array(data.site_xpos[site_id])
-            if float(np.linalg.norm(err)) < 1e-3:
+            err_p = target_p - np.array(data.site_xpos[site_id])
+            r_cur = np.array(data.site_xmat[site_id]).reshape(3, 3).tolist()
+            q_cur = _mat_to_quat_xyzw(r_cur)
+            q_err = _quat_mul_xyzw(target_q, [-q_cur[0], -q_cur[1], -q_cur[2], q_cur[3]])
+            if q_err[3] < 0.0:  # 半球固定——走最短弧
+                q_err = [-v for v in q_err]
+            err_r = 2.0 * np.array(q_err[:3])
+            if float(np.linalg.norm(err_p)) < 1e-3 and float(
+                np.linalg.norm(err_r)
+            ) < 0.02:
                 break
-            mujoco.mj_jacSite(model, data, jac, None, site_id)
-            jac_pos = jac[:, :nu]
-            dq = jac_pos.T @ np.linalg.solve(
-                jac_pos @ jac_pos.T + lam * lam * np.eye(3), err
+            mujoco.mj_jacSite(model, data, jacp, jacr, site_id)
+            jac = np.vstack([jacp[:, :nu], jacr[:, :nu]])
+            err = np.concatenate([err_p, err_r])
+            dq = jac.T @ np.linalg.solve(
+                jac @ jac.T + lam * lam * np.eye(6), err
             )
             dq = np.clip(dq, -0.10, 0.10)
             q = q + dq
@@ -121,9 +301,10 @@ def _ik_waypoints(model, data, points: list[dict]) -> list[list[float]]:
                 model.actuator_ctrlrange[:nu, 1],
             )
         else:
+            pos = pose["position_m"]
             raise ValueError(
-                f"IK 未收敛于 ({point['x']:.3f},{point['y']:.3f},{point['z']:.3f})"
-                "——路径不可达（编译期失败，零执行）"
+                f"IK 未收敛于 ({pos[0]:.3f},{pos[1]:.3f},{pos[2]:.3f})"
+                "（位置+朝向）——路径不可达（编译期失败，零执行）"
             )
         waypoints.append(q.copy().tolist())
     return waypoints
@@ -190,6 +371,9 @@ class SimTrajectoryService:
         )
         for point in points:
             _workspace_check(point)
+        # WP-5：SE(3) 位姿规格——approach/contact/lift 显式段 +
+        # 工具朝向 + 接触平面，随 plan 持久化（内容寻址可反查）。
+        spec = _build_pose_spec(points, plane=plane)
         digest = hashlib.sha256(
             json.dumps(points, sort_keys=True).encode()
         ).hexdigest()
@@ -200,6 +384,7 @@ class SimTrajectoryService:
                 "shape": shape, "center_m": list(center_m), "scale_m": scale_m,
                 "plane": plane, "max_segment_m": max_segment_m,
                 "points": points, "hash": digest,
+                "spec": spec,
             }, ensure_ascii=False),
             encoding="utf-8",
         )
@@ -209,6 +394,7 @@ class SimTrajectoryService:
             "hash": digest,
             "points": points,
             "point_count": len(points),
+            "spec": spec,
             "summary": (
                 f"{shape}：中心 ({center_m[0]}, {center_m[1]}, {center_m[2]})m，"
                 f"半径 {scale_m}m，{len(points)} 个插值点，已闭合"
@@ -232,6 +418,15 @@ class SimTrajectoryService:
             )
         return record
 
+    @staticmethod
+    def _spec_of(plan: dict) -> dict:
+        """WP-5 前的旧 plan（无 spec）→ 从接触点合成默认 SE(3) 规格
+        （工具轴垂直接触平面，approach/lift 与新版同构）。"""
+        spec = plan.get("spec")
+        if spec:
+            return spec
+        return _build_pose_spec(plan["points"], plane="xy")
+
     # --------------------------------------------------------------
     # 2. ur5e.simulate_cartesian_trajectory
     # --------------------------------------------------------------
@@ -248,6 +443,8 @@ class SimTrajectoryService:
 
         plan = self._load_plan(plan_id)
         points = plan["points"]
+        spec = self._spec_of(plan)
+        waypoints = spec["waypoints"]
         from rosclaw.sandbox.backends import (
             MujocoCpuBackend,
             RolloutRequest,
@@ -269,23 +466,34 @@ class SimTrajectoryService:
         try:
             model = sandbox.physics_model
             data = sandbox.physics_data
-            # 安全转场：home（桌面上方）→ 抬升 → 路径起点上方 → 下降
-            # 到起点——否则 home→起点的开环插值会拖着连杆扫过桌面
-            # （COLLISION 实证）。
             import mujoco as _mj
             import numpy as _np
 
+            site_id = -1
+            for site_name in ("attachment_site", "tcp"):
+                site_id = _mj.mj_name2id(
+                    model, _mj.mjtObj.mjOBJ_SITE, site_name
+                )
+                if site_id >= 0:
+                    break
+            if site_id < 0:
+                raise ValueError("ur5e model has no end-effector site")
+            # 安全转场：home（桌面上方）→ 抬升到 approach 高度 →
+            # spec 航点（approach 降下 → contact → lift 抬升，WP-5
+            # 显式建模在规格里，不再是这里的临时拼接）。
             data.qpos[: int(model.nu)] = _np.array(_HOME_QPOS[: int(model.nu)])
             _mj.mj_forward(model, data)
-            _site = _mj.mj_name2id(model, _mj.mjtObj.mjOBJ_SITE, "attachment_site")
-            home_eef = [float(v) for v in data.site_xpos[_site]]
-            start = points[0]
-            lift_z = max(0.50, float(start["z"]) + 0.20)
-            transit = [
-                {"x": home_eef[0], "y": home_eef[1], "z": lift_z},
-                {"x": start["x"], "y": start["y"], "z": lift_z},
-            ]
-            joint_trajectory = _ik_waypoints(model, data, transit + points)
+            home_eef = [float(v) for v in data.site_xpos[site_id]]
+            approach_z = float(waypoints[0]["position_m"][2])
+            approach_quat = list(waypoints[0]["orientation_xyzw"])
+            transit = [{
+                "position_m": [home_eef[0], home_eef[1], approach_z],
+                "orientation_xyzw": approach_quat,
+                "kind": "transit",
+            }]
+            joint_trajectory = _ik_waypoints_6d(
+                model, data, transit + waypoints, site_id
+            )
             resource_proof = sandbox.resource_manifest()
             scenario = ScenarioSpec(
                 scenario_id=f"sim-trajectory-{plan['hash'][:8]}",
@@ -309,27 +517,34 @@ class SimTrajectoryService:
                     artifact_dir=out_dir,
                 )
             )
-            # 实际 eef 轨迹：对 states 的 qpos 做 FK（不是命令回放——
-            # 是物理推演后的真实位置）。
+            # 实际 eef 位姿：对 states 的 qpos 做 FK（不是命令回放——
+            # 是物理推演后的真实位置+朝向）。
             import mujoco
 
             states_path = out_dir / "trajectory_states.json"
             states = json.loads(states_path.read_text(encoding="utf-8"))["states"]
-            site_id = mujoco.mj_name2id(
-                model, mujoco.mjtObj.mjOBJ_SITE, "attachment_site"
-            )
             actual: list[dict] = []
             for sample in states:
                 data.qpos[: int(model.nu)] = np.array(sample["qpos"])
                 mujoco.mj_forward(model, data)
                 pos = data.site_xpos[site_id]
+                r_mat = (
+                    np.array(data.site_xmat[site_id]).reshape(3, 3).tolist()
+                )
+                quat = _mat_to_quat_xyzw(r_mat)
                 actual.append({
                     "t": round(float(sample["time"]), 4),
                     "x": round(float(pos[0]), 6),
                     "y": round(float(pos[1]), 6),
                     "z": round(float(pos[2]), 6),
+                    "quat_xyzw": [round(float(v), 6) for v in quat],
                 })
-            metrics = self._tracking_metrics(points, actual)
+            # 期望工具轴 = -接触平面法向（画图姿态）。
+            normal = spec["contact_plane"]["normal_xyz"]
+            desired_tool_z = [-float(n) for n in normal]
+            metrics = self._tracking_metrics(
+                points, actual, desired_tool_z=desired_tool_z
+            )
             # 落盘交付物：trace.json / trace.csv / metrics.json。
             (out_dir / "trace.json").write_text(
                 json.dumps({
@@ -340,6 +555,8 @@ class SimTrajectoryService:
                         states_path.read_bytes()
                     ).hexdigest(),
                     "plan_hash": plan["hash"],
+                    # WP-5：SE(3) 规格锚点——朝向/接触平面可反查。
+                    "spec_digest": spec["digest"],
                     "planned": points,
                     "actual": actual,
                     "evidence_level": "SIM_DYN_ROLLOUT",
@@ -384,27 +601,48 @@ class SimTrajectoryService:
             sandbox.close()
 
     @staticmethod
-    def _tracking_metrics(planned: list[dict], actual: list[dict]) -> dict:
-        """实际 eef 到规划路径（最近点）的跟踪误差——剔除 home →
-        路径起点的转场段（从首次进入路径邻域起算）。"""
-        start = 0
-        for idx, a in enumerate(actual):
-            near = min(
+    def _tracking_metrics(
+        planned: list[dict],
+        actual: list[dict],
+        *,
+        desired_tool_z: list[float] | None = None,
+    ) -> dict:
+        """实际 eef 到规划路径（最近点）的跟踪误差——剔除转场段
+        （从首次进入路径邻域起算，到最后一次离开邻域为止；WP-5 的
+        lift 抬升段刻意离开接触路径，不计入接触跟踪误差）。WP-5：
+        朝向误差（实际工具轴 vs 期望工具轴，度）同段统计。"""
+        window = 0.05
+
+        def _near(a: dict) -> float:
+            return min(
                 math.dist((a["x"], a["y"], a["z"]), (p["x"], p["y"], p["z"]))
                 for p in planned
             )
-            if near < 0.05:
+
+        start = 0
+        for idx, a in enumerate(actual):
+            if _near(a) < window:
                 start = idx
                 break
-        actual = actual[start:]
+        end = len(actual)
+        for idx in range(len(actual) - 1, -1, -1):
+            if _near(actual[idx]) < window:
+                end = idx + 1
+                break
+        actual = actual[start:end]
         errors = []
+        orient_errors: list[float] = []
         for a in actual:
             best = min(
                 math.dist((a["x"], a["y"], a["z"]), (p["x"], p["y"], p["z"]))
                 for p in planned
             )
             errors.append(best)
-        return {
+            if desired_tool_z is not None and "quat_xyzw" in a:
+                tool_z = _tool_z_of_quat(a["quat_xyzw"])
+                cos = max(-1.0, min(1.0, _dot(tool_z, desired_tool_z)))
+                orient_errors.append(math.degrees(math.acos(cos)))
+        metrics = {
             "max_error_m": round(max(errors, default=0.0), 6),
             "mean_error_m": round(
                 sum(errors) / len(errors) if errors else 0.0, 6
@@ -412,6 +650,12 @@ class SimTrajectoryService:
             "samples": len(actual),
             "planned_points": len(planned),
         }
+        if orient_errors:
+            metrics["max_orientation_error_deg"] = round(max(orient_errors), 3)
+            metrics["mean_orientation_error_deg"] = round(
+                sum(orient_errors) / len(orient_errors), 3
+            )
+        return metrics
 
     # --------------------------------------------------------------
     # 3. simulation.render_trace
@@ -472,7 +716,11 @@ class SimTrajectoryService:
     # 4. simulation.verify_tracking
     # --------------------------------------------------------------
     def verify_tracking(
-        self, trace_id: str, *, max_tracking_error_m: float
+        self,
+        trace_id: str,
+        *,
+        max_tracking_error_m: float,
+        max_orientation_error_deg: float | None = None,
     ) -> dict[str, Any]:
         out_dir = self._traces_dir / trace_id
         metrics_path = out_dir / "metrics.json"
@@ -482,10 +730,25 @@ class SimTrajectoryService:
         verdict = (
             "PASS" if metrics["max_error_m"] <= max_tracking_error_m else "FAIL"
         )
+        orientation: dict[str, Any] | None = None
+        if max_orientation_error_deg is not None:
+            if "max_orientation_error_deg" not in metrics:
+                raise ValueError(
+                    f"TRACE_ORIENTATION_MISSING: trace {trace_id!r} 无朝向"
+                    "指标（WP-5 前的旧 trace）——无法按朝向阈值验收"
+                )
+            orientation = {
+                "threshold_deg": max_orientation_error_deg,
+                "max_error_deg": metrics["max_orientation_error_deg"],
+                "mean_error_deg": metrics.get("mean_orientation_error_deg"),
+            }
+            if metrics["max_orientation_error_deg"] > max_orientation_error_deg:
+                verdict = "FAIL"
         return {
             "ok": True,
             "verdict": verdict,
             "threshold_m": max_tracking_error_m,
             "metrics": metrics,
+            "orientation": orientation,
             "evidence_level": "SIM_DYN_ROLLOUT",
         }

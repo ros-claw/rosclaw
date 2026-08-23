@@ -186,10 +186,13 @@ def register_native_tools(
                         "hash": {"type": "string"},
                         "point_count": {"type": "integer"},
                         "summary": {"type": "string"},
+                        # WP-5：SE(3) 位姿规格的内容寻址 digest（规格本体
+                        # 在 plan 记录里，可用 plan_id 反查）。
+                        "spec_digest": {"type": "string"},
                         "evidence_class": {"type": "string", "const": "simulated"},
                     },
                     "required": ["ok", "plan_id", "hash", "point_count",
-                                 "summary", "evidence_class"],
+                                 "summary", "spec_digest", "evidence_class"],
                     "additionalProperties": False,
                 },
                 supported_modes=["SIMULATION"],
@@ -293,14 +296,17 @@ def register_native_tools(
                 source=NATIVE_SOURCE,
                 execution_class=ExecutionClass.COMPUTE,
                 description=(
-                    "Verify trajectory tracking against a threshold "
-                    "(max_tracking_error_m) — honest PASS/FAIL with metrics."
+                    "Verify trajectory tracking against thresholds "
+                    "(max_tracking_error_m; optional max_orientation_error_deg "
+                    "for tool-axis vs contact-plane normal) — honest PASS/FAIL "
+                    "with metrics."
                 ),
                 input_schema={
                     "type": "object",
                     "properties": {
                         "trace_id": {"type": "string"},
                         "max_tracking_error_m": {"type": "number"},
+                        "max_orientation_error_deg": {"type": "number"},
                     },
                     "required": ["trace_id", "max_tracking_error_m"],
                     "additionalProperties": False,
@@ -313,12 +319,15 @@ def register_native_tools(
                         "verdict": {"type": "string", "enum": ["PASS", "FAIL"]},
                         "threshold_m": {"type": "number"},
                         "metrics": {"type": "object"},
+                        # WP-5：朝向验收明细（未请求朝向阈值时为 null）。
+                        "orientation": {"type": ["object", "null"]},
                         "evidence_level": {"type": "string",
                                            "const": "SIM_DYN_ROLLOUT"},
                         "evidence_class": {"type": "string", "const": "simulated"},
                     },
                     "required": ["ok", "verdict", "threshold_m", "metrics",
-                                 "evidence_level", "evidence_class"],
+                                 "orientation", "evidence_level",
+                                 "evidence_class"],
                     "additionalProperties": False,
                 },
                 supported_modes=["SIMULATION"],

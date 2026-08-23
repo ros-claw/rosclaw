@@ -130,20 +130,42 @@ class TrajectoryVerifier:
                 f"NOT_DYNAMICS: 证据等级 {trace.get('evidence_level')!r} "
                 "不是 SIM_DYN_ROLLOUT——动力学未执行"
             )
-        # 实际轨迹闭合：闭环 = 轨迹末点回到"规划路径起点"邻域
-        # （actual 含 home→路径起点的转场段——闭合语义对路径起点测量，
-        # 不是对 home）。
+        # 实际轨迹闭合：闭环 = 接触段后段回到"规划路径起点"邻域
+        # （actual 含 home→路径起点的转场段与 WP-5 的 lift 抬升段——
+        # 闭合语义对接触段测量：接触段后窗内距规划起点的最近距离，
+        # 不是 trace 末尾的抬升点，也不是 home）。
         actual = trace.get("actual") or []
         planned = trace.get("planned") or []
         if actual and planned:
-            last, loop_start = actual[-1], planned[0]
-            gap = math.dist(
-                (last["x"], last["y"], last["z"]),
-                (loop_start["x"], loop_start["y"], loop_start["z"]),
+            def _path_dist(pt: dict) -> float:
+                return min(
+                    math.dist(
+                        (pt["x"], pt["y"], pt["z"]),
+                        (p["x"], p["y"], p["z"]),
+                    )
+                    for p in planned
+                )
+
+            near_idx = [
+                i for i, a in enumerate(actual) if _path_dist(a) < 0.05
+            ]
+            contact = (
+                actual[near_idx[0] : near_idx[-1] + 1] if near_idx else actual
+            )
+            loop_start = planned[0]
+            # 接触段后一半（去程必经过起点邻域，回程接近才算闭合）。
+            return_leg = contact[len(contact) // 2 :] or contact
+            gap = min(
+                math.dist(
+                    (a["x"], a["y"], a["z"]),
+                    (loop_start["x"], loop_start["y"], loop_start["z"]),
+                )
+                for a in return_leg
             )
             if gap > 0.01:
                 failures.append(
-                    f"LOOP_NOT_CLOSED: 轨迹末点距规划起点 {gap:.4f}m——未闭合"
+                    f"LOOP_NOT_CLOSED: 接触段回程距规划起点最近 "
+                    f"{gap:.4f}m——未闭合"
                 )
         # 跟踪一致（实际 vs 规划）。
         tracking = metrics.get("tracking") or metrics
