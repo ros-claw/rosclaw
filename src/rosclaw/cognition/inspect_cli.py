@@ -71,6 +71,27 @@ def dispatch_inspect_argv(argv: list[str]) -> int | None:
                   f"（{'健康' if info['index']['ok'] and not info['index']['stale'] else '需重建'}）")
         return 0
 
+    if kind == "simulation-render":
+        # WP-3：渲染后端探测诊断（EGL→OSMesa→Xvfb 子进程隔离）。
+        from rosclaw.agentd.sim_render import probe_render_backend
+
+        backend, detail = probe_render_backend()
+        info = {
+            "backend": backend,
+            "probe": detail,
+            "ok": backend is not None,
+        }
+        if json_out:
+            print(json.dumps(info, ensure_ascii=False, indent=2))
+        else:
+            if backend:
+                print(f"渲染后端: {backend}")
+            else:
+                print("渲染后端不可用（EGL/OSMesa/Xvfb 全部失败）:")
+            for name, msg in detail.items():
+                print(f"  {name}: {msg}")
+        return 0 if backend else 1
+
     idx = ensure_index()
     if kind == "robot":
         if not query:

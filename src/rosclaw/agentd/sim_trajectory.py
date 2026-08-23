@@ -334,6 +334,11 @@ class SimTrajectoryService:
             (out_dir / "trace.json").write_text(
                 json.dumps({
                     "schema_version": "rosclaw.sim_trace.v1",
+                    # WP-3：states digest 锚点——渲染/验证据此拒绝被
+                    # 篡改的 trajectory_states。
+                    "states_digest": "sha256:" + hashlib.sha256(
+                        states_path.read_bytes()
+                    ).hexdigest(),
                     "plan_hash": plan["hash"],
                     "planned": points,
                     "actual": actual,

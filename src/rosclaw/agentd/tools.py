@@ -22,6 +22,8 @@ TRAJ_PLAN_TOOL = "trajectory_generate_planar_path"
 TRAJ_SIMULATE_TOOL = "ur5e_simulate_cartesian_trajectory"
 TRAJ_RENDER_TOOL = "simulation_render_trace"
 TRAJ_VERIFY_TOOL = "simulation_verify_tracking"
+# WP-3：原生离线场景渲染（真实 MuJoCo 场景 replay，不是 2D 折线）。
+SCENE_RENDER_TOOL = "simulation_render_scene"
 
 _TOOL_SCHEMAS: dict[str, StrictTool] = {
     SIM_STATE_TOOL: StrictTool(
@@ -121,6 +123,25 @@ _TOOL_SCHEMAS: dict[str, StrictTool] = {
             "additionalProperties": False,
         },
     ),
+    SCENE_RENDER_TOOL: StrictTool(
+        name=SCENE_RENDER_TOOL,
+        description=(
+            "Render a dynamics rollout trace into a real MuJoCo scene GIF "
+            "(canonical MJCF + trajectory state replay + camera preset + "
+            "EGL/OSMesa/Xvfb auto-probe). Returns artifact + render receipt "
+            "(renderer build digest + input trace digest). Offline — never "
+            "installs packages at runtime."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "trace_id": {"type": "string"},
+                "camera": {"type": "string", "enum": ["follow", "free", "top"]},
+            },
+            "required": ["trace_id", "camera"],
+            "additionalProperties": False,
+        },
+    ),
     TRAJ_VERIFY_TOOL: StrictTool(
         name=TRAJ_VERIFY_TOOL,
         description=(
@@ -171,6 +192,8 @@ class BuiltinToolRegistry:
             TRAJ_PLAN_TOOL, TRAJ_SIMULATE_TOOL, TRAJ_RENDER_TOOL, TRAJ_VERIFY_TOOL,
         ):
             return await asyncio.to_thread(self._execute_trajectory_tool, name, arguments)
+        if name == SCENE_RENDER_TOOL:
+            return await asyncio.to_thread(self._execute_scene_render, arguments)
         return {
             "evidence_class": "configured",
             "body_id": self._body_id,
@@ -220,6 +243,22 @@ class BuiltinToolRegistry:
                 )
         except (ValueError, KeyError) as exc:
             raise ValidationError(f"{name} 参数错误: {exc}") from exc
+        result["evidence_class"] = "simulated"
+        return result
+
+    def _execute_scene_render(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        """WP-3：原生离线场景渲染（canonical MJCF + qpos replay）。"""
+        from pathlib import Path as _Path
+
+        from rosclaw.agentd.sim_render import render_scene_trace
+
+        if self._home is None:
+            raise ValidationError("scene render requires rosclaw home")
+        result = render_scene_trace(
+            _Path(self._home),
+            str(arguments["trace_id"]),
+            camera=str(arguments.get("camera", "follow")),
+        )
         result["evidence_class"] = "simulated"
         return result
 

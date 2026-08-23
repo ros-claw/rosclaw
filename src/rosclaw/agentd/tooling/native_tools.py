@@ -148,6 +148,7 @@ def register_native_tools(
         # 十四审 PR-14.6：SIM 动力学闭环四能力（COMPUTE——确定性仿真/
         # 渲染/验证，无人工审批；SIMULATION 限定；证据 SIMULATED）。
         from rosclaw.agentd.tools import (
+            SCENE_RENDER_TOOL,
             TRAJ_PLAN_TOOL,
             TRAJ_RENDER_TOOL,
             TRAJ_SIMULATE_TOOL,
@@ -325,6 +326,44 @@ def register_native_tools(
                 reliability=0.99,
                 typical_latency_ms=100,
             ),
+            # WP-3：原生离线场景渲染（真实 MuJoCo 场景 replay——
+            # 不是 2D 折线预览）。
+            ToolDescriptorV2(
+                tool_id=SCENE_RENDER_TOOL,
+                source=NATIVE_SOURCE,
+                execution_class=ExecutionClass.COMPUTE,
+                description=(
+                    "Render a dynamics rollout trace into a real MuJoCo "
+                    "scene GIF (canonical MJCF + trajectory state replay + "
+                    "camera preset + EGL/OSMesa/Xvfb auto-probe). Offline; "
+                    "returns artifact + render receipt (build/input digests)."
+                ),
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "trace_id": {"type": "string"},
+                        "camera": {"type": "string",
+                                   "enum": ["follow", "free", "top"]},
+                    },
+                    "required": ["trace_id"],
+                    "additionalProperties": False,
+                },
+                output_schema={
+                    "type": "object",
+                    "properties": {
+                        "ok": {"type": "boolean", "const": True},
+                        "artifact": {"type": "object"},
+                        "receipt": {"type": "object"},
+                        "evidence_class": {"type": "string", "const": "simulated"},
+                    },
+                    "required": ["ok", "artifact", "receipt", "evidence_class"],
+                    "additionalProperties": False,
+                },
+                supported_modes=["SIMULATION"],
+                evidence_class=ToolEvidenceClass.SIMULATED,
+                reliability=0.95,
+                typical_latency_ms=30000,
+            ),
         ]
     for descriptor in descriptors:
 
@@ -332,3 +371,23 @@ def register_native_tools(
             return await registry.execute(_name, arguments)
 
         catalog.register(descriptor, _exec)
+    # WP-2/WP-3：引用端口声明（canonical capability——snapshot 连通性
+    # 的依据）。simulate 消费 plan 产 trace；scene render 消费 trace
+    # 产 render；plan 产 plan。
+    if simulation:
+        from rosclaw.agentd.tools import TRAJ_PLAN_TOOL as _PLAN
+        from rosclaw.agentd.tools import TRAJ_SIMULATE_TOOL as _SIM
+
+        _ref_ports = {
+            _PLAN: ([], [{"kind": "plan"}]),
+            _SIM: ([{"kind": "plan", "from": _PLAN}], [{"kind": "trace"}]),
+            SCENE_RENDER_TOOL: (
+                [{"kind": "trace", "from": _SIM}], [{"kind": "render"}],
+            ),
+        }
+        for _tid, (_accepts, _produces) in _ref_ports.items():
+            _cap = catalog.capability(_tid)
+            if _cap is not None:
+                catalog._capabilities[_tid] = _cap.model_copy(update={
+                    "accepts_refs": _accepts, "produces_refs": _produces,
+                })
