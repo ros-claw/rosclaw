@@ -3,16 +3,17 @@
 	"version": "0.1.0",
 	"private": true,
 	"type": "module",
-	"description": "ROSClaw Native Agent \u2014 Pi-backed harness + ROSClaw embodied kernel",
+	"description": "ROSClaw Native Agent — Pi-backed harness + ROSClaw embodied kernel",
 	"bin": {
 		"rosclaw-agent": "dist/src/main.js"
 	},
 	"scripts": {
-		"build": "tsc -p tsconfig.json && npm run copy-assets",
+		"build": "tsc -p tsconfig.json && npm run copy-assets && npm run stamp-build",
 		"test": "npm run build && node --test dist/test/*.test.js",
 		"start": "node dist/src/main.js",
 		"copy-assets": "node scripts/copy-assets.mjs",
-		"postinstall": "node patches/apply-upstream-patches.mjs"
+		"postinstall": "node patches/apply-upstream-patches.mjs",
+		"stamp-build": "node -e \"const{execSync}=require('child_process');const fs=require('fs');let c=process.env.GITHUB_SHA||'';if(!c){try{c=execSync('git rev-parse HEAD').toString().trim()}catch(e){c=''}}fs.writeFileSync('dist/build-stamp.json',JSON.stringify({commit:c||'unknown'}))\""
 	},
 	"engines": {
 		"node": ">=22.19.0"

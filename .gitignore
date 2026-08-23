@@ -103,3 +103,4 @@ node_modules/
 /agentd/
 /config.yaml
 .rosclaw-index/
+_build_stamp.json

@@ -405,6 +405,15 @@ jobs:
       - name: Install build dependencies
         run: pip install hatch
 
+      # P0-5：wheel 打构建戳——安装一致性诊断（mixed build 检测）。
+      - name: Stamp wheel build commit
+        run: |
+          python - <<'PY'
+          import json, os
+          with open("src/rosclaw/_build_stamp.json", "w") as fh:
+              json.dump({"commit": os.environ["GITHUB_SHA"]}, fh)
+          PY
+
       - name: Build package
         run: hatch build
 
@@ -419,6 +428,7 @@ jobs:
           with zipfile.ZipFile(wheels[0]) as wheel:
               names = set(wheel.namelist())
           required = {
+              "rosclaw/_build_stamp.json",
               "rosclaw/kernel/action_gateway.py",
               "rosclaw/runtime/doctor_levels.py",
               "rosclaw/sandbox/episode.py",

@@ -6841,6 +6841,16 @@ def main() -> int:
     )
     subparsers = parser.add_subparsers(dest="command")
 
+    # version（P0-5：安装一致性诊断——实现/部署漂移可察觉）
+    version_parser = subparsers.add_parser(
+        "version", help="Show version / installation diagnostics"
+    )
+    version_parser.add_argument(
+        "--diagnostic", action="store_true",
+        help="Show installation composition (commits/digests/revisions)",
+    )
+    version_parser.add_argument("--json", action="store_true", help="JSON output")
+
     # The full SimForge parser is loaded lazily by the early dispatch above.
     subparsers.add_parser("simforge", help="Run simulation qualification and evolution")
 
@@ -8926,6 +8936,12 @@ def main() -> int:
 
     args = parser.parse_args()
     with telemetry_command_hook(args):
+        if args.command == "version":
+            from rosclaw.version_diag import cmd_version
+
+            return cmd_version(
+                diagnostic=bool(args.diagnostic), as_json=bool(args.json),
+            )
         if args.command == "init":
             return cmd_init(args)
         elif args.command in ("run", "start"):

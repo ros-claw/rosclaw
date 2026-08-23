@@ -317,6 +317,18 @@ def _chat_pi(home: Path, args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 2
+    # P0-5：安装一致性门禁——wheel 与 TS dist 混合构建（0823 报告/
+    # 实例漂移事故）直接阻断，不带着不可信的能力声明进会话。
+    from rosclaw.version_diag import (
+        assert_installation_coherent,
+        collect_diagnostics,
+    )
+
+    try:
+        assert_installation_coherent(collect_diagnostics(home=home))
+    except SystemExit as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
     node, entry = runtime
     config = load_agent_config(home / "config.yaml")
     # 十审 W0：诊断路由必须先于 AgentService 构造（启动 warning 就在那里）。
