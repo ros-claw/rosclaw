@@ -786,10 +786,18 @@ class PiToolDispatcher:
                     # 产物文件缺失由验收 failures 表达；受信管道登记
                     # （producer=kernel——PR-N0）+ 资源证明元数据
                     # （N4.1——producer 只是来源身份，资源证明才算数）。
+                    # WP-4：媒体带 preview 血缘（2D 预演是 COMMAND_REPLAY
+                    # 可视化——血缘到 trace，不当场景渲染证据）。
+                    _meta: dict = {"resource": result.get("resource") or {}}
+                    if media.startswith("image/"):
+                        _meta["lineage"] = {
+                            "trace_id": str(result.get("trace_id", "")),
+                            "kind": "preview_2d",
+                        }
                     service._task_kernel.register_artifact(
                         task_id=task["task_id"], path=path, media_type=media,
                         producer="kernel:sim_pipeline",
-                        metadata={"resource": result.get("resource") or {}},
+                        metadata=_meta,
                     )
         state = "VERIFIED" if not failures else "FAILED"
         payload = {

@@ -101,10 +101,18 @@ class TestNoFalseSuccess:
         assert task is not None
         path = Path(task["workspace_path"]) / "star.gif"
         path.write_bytes(b"GIF89a" + b"x" * 2048)
+        # WP-4：产品路径的受信媒体带 preview 血缘（trace 引用）——
+        # 无血缘的受信媒体声明已不被接受（LINEAGE_MISSING）。
+        trace_dir = tmp_path / "sim" / "traces" / "trace_test1"
+        trace_dir.mkdir(parents=True, exist_ok=True)
+        (trace_dir / "trace.json").write_text("{}", encoding="utf-8")
         art = kernel.register_artifact(
             task_id=task_id, path=str(path), media_type="image/gif",
             producer="kernel:sim_pipeline",
-            metadata={"resource": _real_ur5e_resource()},
+            metadata={
+                "resource": _real_ur5e_resource(),
+                "lineage": {"trace_id": "trace_test1", "kind": "preview_2d"},
+            },
         )
         result = kernel.finish_task(
             task_id=task_id, summary="done", artifact_ids=[art["artifact_id"]],

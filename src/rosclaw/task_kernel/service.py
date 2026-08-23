@@ -356,6 +356,36 @@ class TaskKernel:
         meta = dict(metadata or {})
         if producer.startswith("model:"):
             meta.setdefault("evidence_tier", "EXPERIMENTAL")
+        # WP-4：血缘图——带 render receipt 的交付物在登记时推导并
+        # 打戳（digest 从 receipt 文件实算，task/revision 打当前
+        # 活跃值；不是调用方自述）。
+        lineage = meta.get("lineage")
+        if lineage is not None and lineage.get("kind") == "preview_2d":
+            # 2D 预演（COMMAND_REPLAY 可视化）——血缘到 trace 即可，
+            # 无 render receipt；登记时打 task/revision 戳。
+            lineage["task_id"] = task_id
+            lineage["revision"] = int(task["active_revision"])
+            meta["lineage"] = lineage
+        elif lineage is not None:
+            receipt_path = Path(str(lineage.get("render_receipt_path", "")))
+            if not receipt_path.exists():
+                raise ValueError(
+                    f"LINEAGE_UNREADABLE: render receipt 不存在: "
+                    f"{receipt_path}"
+                )
+            receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+            lineage["render_receipt_digest"] = "sha256:" + hashlib.sha256(
+                receipt_path.read_bytes()
+            ).hexdigest()
+            lineage["input_trace_digest"] = str(
+                receipt.get("input_trace_digest", "")
+            )
+            lineage["trace_id"] = str(
+                lineage.get("trace_id") or receipt_path.parent.name
+            )
+            lineage["task_id"] = task_id
+            lineage["revision"] = int(task["active_revision"])
+            meta["lineage"] = lineage
         meta_json = json.dumps(meta, ensure_ascii=False)
         self._conn.execute(
             "INSERT INTO artifacts (artifact_id, task_id, path, media_type, "
@@ -468,8 +498,101 @@ class TaskKernel:
                                 "RESOURCE_DIGEST_MISMATCH: 实际加载模型 "
                                 "与权威 manifest 摘要不符"
                             )
+        # WP-4：Evidence Graph 遍历——行为任务的媒体交付物（受信
+        # 声明）必须有完整血缘：receipt digest 实算一致、renderer
+        # 输入确实是该 trace、revision 不跨（不拼接）、模型手工登记
+        # 不得升级为 TRUSTED。
+        graph_failures: list[str] = []
+        if embodiment_used:
+            for art in artifacts:
+                producer = str(art.get("producer") or "")
+                media = str(art.get("media_type") or "")
+                if not media.startswith("image/"):
+                    continue
+                meta = json.loads(str(art.get("metadata_json") or "{}"))
+                lineage = meta.get("lineage") or {}
+                if producer.startswith("model:"):
+                    # EXPERIMENTAL 媒体：不当受信证据（N0 已挡）——
+                    # 这里只标注血缘缺失，不再升级。
+                    if not lineage:
+                        graph_failures.append(
+                            f"LINEAGE_MISSING: 模型自产媒体 "
+                            f"{Path(str(art['path'])).name} 无血缘——"
+                            "EXPERIMENTAL，不当受信交付证据"
+                        )
+                    continue
+                # 受信声明（kernel:*）媒体必须血缘完整；2D 预演
+                # （preview_2d）血缘到 trace 即可——不当场景渲染证据，
+                # 诚实降级标注。
+                receipt_digest = str(lineage.get("render_receipt_digest", ""))
+                trace_id = str(lineage.get("trace_id", ""))
+                if lineage.get("kind") == "preview_2d" and trace_id:
+                    receipt_digest = "preview"  # 免 receipt 要求
+                if not receipt_digest or not trace_id:
+                    graph_failures.append(
+                        f"LINEAGE_MISSING: 受信声明媒体 "
+                        f"{Path(str(art['path'])).name} 缺 render "
+                        "receipt/trace 血缘"
+                    )
+                    continue
+                if int(lineage.get("revision", -1)) != int(
+                    task["active_revision"]
+                ):
+                    graph_failures.append(
+                        f"REVISION_SPLICE: 血缘 revision "
+                        f"{lineage.get('revision')} != 活跃 "
+                        f"{task['active_revision']}——跨 revision 拼接"
+                    )
+                # 证据产生时间必须 ≥ 当前 revision 开始时间（r1 跑的
+                # trace 不能服务 r2）。
+                rev_row2 = self._conn.execute(
+                    "SELECT created_at FROM task_revisions WHERE task_id = ? "
+                    "AND revision = ?",
+                    (task_id, int(task["active_revision"])),
+                ).fetchone()
+                trace_json2 = (
+                    self._home / "sim" / "traces"
+                    / str(lineage.get("trace_id", "")) / "trace.json"
+                )
+                if rev_row2 and trace_json2.exists():
+                    from datetime import datetime as _dt
+
+                    rev_start = _dt.fromisoformat(
+                        str(rev_row2["created_at"])
+                    ).timestamp()
+                    produced_at = trace_json2.stat().st_mtime
+                    if produced_at < rev_start - 1.0:  # 1s 时钟宽容
+                        graph_failures.append(
+                            "REVISION_SPLICE: trace 证据产生时间早于当前 "
+                            "revision 开始——旧 revision 证据不得复用"
+                        )
+                trace_json = (
+                    self._home / "sim" / "traces" / trace_id / "trace.json"
+                )
+                if not trace_json.exists():
+                    graph_failures.append(
+                        f"LINEAGE_TRACE_MISSING: trace {trace_id} 不存在"
+                    )
+                    continue
+                # renderer 输入 digest 校验只对场景渲染血缘（receipt
+                # 类）；preview_2d 是命令回放可视化，无此语义。
+                if lineage.get("kind") != "preview_2d":
+                    trace_digest = "sha256:" + hashlib.sha256(
+                        trace_json.read_bytes()
+                    ).hexdigest()
+                    if str(lineage.get("input_trace_digest", "")) != trace_digest:
+                        graph_failures.append(
+                            "LINEAGE_DIGEST_MISMATCH: renderer 输入 digest 与 "
+                            "该 trace 实际内容不符——renderer 吃的不是这条 trace"
+                        )
+        provenance_failures += graph_failures
         trusted_present = any(
             str(a.get("producer") or "").startswith("kernel:")
+            and not str(a.get("media_type") or "").startswith("image/")
+            or (
+                str(a.get("producer") or "").startswith("kernel:")
+                and json.loads(str(a.get("metadata_json") or "{}")).get("lineage")
+            )
             for a in artifacts
         )
         verdict = verdict_for(

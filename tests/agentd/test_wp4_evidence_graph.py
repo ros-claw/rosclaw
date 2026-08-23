@@ -65,14 +65,14 @@ class TestLineageRegistration:
         task_id = _star_task(kernel, tmp_path)
         ctx = _run_trusted_pipeline(tmp_path)
         gif = ctx["render"]["artifact"]["path"]
+        receipt_path = (
+            tmp_path / "sim" / "traces" / ctx["run"]["trace_id"]
+            / "render_receipt.json"
+        )
         art = kernel.register_artifact(
             task_id=task_id, path=gif, media_type="image/gif",
             producer="kernel:sim_render",
-            metadata={
-                "lineage": {
-                    "render_receipt_digest": "sha256:" + "0" * 1,  # 占位由实现纠正
-                },
-            },
+            metadata={"lineage": {"render_receipt_path": str(receipt_path)}},
         )
         meta = json.loads(str(art.get("metadata_json", "{}")) or "{}")
         lineage = meta.get("lineage") or {}
@@ -101,7 +101,7 @@ class TestFinishWalksGraph:
             / "render_receipt.json",
             receipt_dst,
         )
-        kernel.register_artifact(
+        art = kernel.register_artifact(
             task_id=task_id, path=str(gif_dst), media_type="image/gif",
             producer="kernel:sim_render",
             metadata={
@@ -114,7 +114,7 @@ class TestFinishWalksGraph:
         )
         result = kernel.finish_task(
             task_id=task_id, summary="五角星仿真完成",
-            artifact_ids=None,
+            artifact_ids=[str(art["artifact_id"])],
         )
         assert result["status"] == "SUCCEEDED", result.get("failures")
 
@@ -138,7 +138,8 @@ class TestFinishWalksGraph:
         meta = json.loads(str(art.get("metadata_json", "{}")) or "{}")
         assert meta.get("evidence_tier") == "EXPERIMENTAL"
         result = kernel.finish_task(
-            task_id=task_id, summary="完成", artifact_ids=None,
+            task_id=task_id, summary="完成",
+            artifact_ids=[str(art["artifact_id"])],
         )
         assert result["status"] != "SUCCEEDED"
         assert any(
@@ -171,7 +172,7 @@ class TestFinishWalksGraph:
             / "render_receipt.json",
             receipt_dst,
         )
-        kernel.register_artifact(
+        art = kernel.register_artifact(
             task_id=task_id, path=str(gif_dst), media_type="image/gif",
             producer="kernel:sim_render",
             metadata={
@@ -183,7 +184,8 @@ class TestFinishWalksGraph:
             },
         )
         result = kernel.finish_task(
-            task_id=task_id, summary="借用 r1 证据", artifact_ids=None,
+            task_id=task_id, summary="借用 r1 证据",
+            artifact_ids=[str(art["artifact_id"])],
         )
         assert result["status"] != "SUCCEEDED", (
             "跨 revision 拼接被接受"
