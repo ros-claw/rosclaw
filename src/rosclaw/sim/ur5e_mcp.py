@@ -476,9 +476,11 @@ def render_trace_preview() -> str:
 
 @server.tool(
     name="ur5e.verify_drawing",
-    description="后验几何验证（COMPUTE）：trace 对目标轨迹的端点误差/"
-    "RMSE/最大误差/闭合误差——全部过阈值才 PASS。默认验证最近执行的"
-    " plan（无需模型传 hash）。",
+    description="后验几何验证（COMPUTE，NOT_INDEPENDENT/非独立证据）："
+    "trace 对目标轨迹的端点误差/RMSE/最大误差/闭合误差——全部过阈值才"
+    " PASS。注意：trace 来自本执行器自身的命令流（COMMAND_REPLAY_ONLY），"
+    "不构成独立验收证据；任务验收须走受信管线（动力学 rollout + "
+    "TrajectoryVerifier）。默认验证最近执行的 plan（无需模型传 hash）。",
     annotations={"readOnlyHint": True},
 )
 def verify_drawing(expected_trajectory_hash: str = "") -> str:

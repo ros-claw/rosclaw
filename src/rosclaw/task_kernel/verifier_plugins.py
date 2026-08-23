@@ -17,6 +17,7 @@ verdict 由插件链产生——每个插件是一类真实检查；插件可注
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -197,6 +198,168 @@ class TrajectoryVerifier:
                 )
             elif declared_shape == "star5":
                 failures += self._star_topology_failures(plan)
+        # WP-6：语义验收——证据必须真正证明目标（0823 审计 P0-1）。
+        failures += self._media_failures(gif)
+        failures += self._states_integrity_failures(trace_path, trace)
+        failures += self._render_trust_failures(trace_path, gif)
+        failures += self._se3_failures(trace, metrics, planned, actual)
+        return failures
+
+    # --------------------------------------------------------------
+    # WP-6 深度语义检查
+    # --------------------------------------------------------------
+    @staticmethod
+    def _media_failures(gif: Path) -> list[str]:
+        """GIF 必须可解码且非空白——"有 GIF 文件"不等于"画了什么"。"""
+        try:
+            from PIL import Image
+        except ImportError:
+            return [
+                "MEDIA_CHECK_UNAVAILABLE: PIL 不可用——媒体可解码性"
+                "未能验证（fail closed）"
+            ]
+        try:
+            img = Image.open(gif)
+            n_frames = int(getattr(img, "n_frames", 1))
+            img.seek(max(0, n_frames // 2))
+            import numpy as np
+
+            arr = np.asarray(img.convert("L"), dtype=float)
+        except Exception:
+            return [f"MEDIA_UNDECODABLE: {gif.name} 不是可解码的图像"]
+        failures: list[str] = []
+        if n_frames < 2:
+            failures.append(
+                f"MEDIA_INSUFFICIENT_FRAMES: 仅 {n_frames} 帧——不是过程证据"
+            )
+        if float(arr.std()) < 1.0:
+            failures.append(
+                f"MEDIA_BLANK: {gif.name} 中间帧像素方差 ≈0——空白画面，"
+                "没画任何东西"
+            )
+        return failures
+
+    @staticmethod
+    def _states_integrity_failures(
+        trace_path: Path, trace: dict
+    ) -> list[str]:
+        """动力学 states 完整性：digest 锚定 + qpos 必须真实变化
+        （恒等 states = 命令回放伪装动力学）。"""
+        states_path = trace_path.parent / "trajectory_states.json"
+        if not states_path.exists():
+            return [
+                "TRACE_STATES_MISSING: 缺 trajectory_states.json——"
+                "动力学推演状态不在案"
+            ]
+        declared = str(trace.get("states_digest", ""))
+        if not declared:
+            return [
+                "TRACE_STATES_DIGEST_MISSING: trace 无 states_digest "
+                "锚点——states 可篡改而不可察觉"
+            ]
+        actual_digest = "sha256:" + hashlib.sha256(
+            states_path.read_bytes()
+        ).hexdigest()
+        if declared != actual_digest:
+            return [
+                f"TRACE_STATES_DIGEST_MISMATCH: trajectory_states 与 trace "
+                f"记录不符（{declared[:19]}… != {actual_digest[:19]}…）——"
+                "states 被篡改"
+            ]
+        doc = json.loads(states_path.read_text(encoding="utf-8"))
+        states = doc.get("states") or []
+        if len(states) < 2:
+            return ["STATES_STATIC: 动力学 states 不足 2 帧——未推演"]
+        n_joints = len(states[0].get("qpos") or [])
+        spread = 0.0
+        for j in range(n_joints):
+            col = [float(s["qpos"][j]) for s in states]
+            spread = max(spread, max(col) - min(col))
+        if spread < 1e-6:
+            return [
+                "STATES_STATIC: 全部 states 的 qpos 恒等——关节从未运动，"
+                "是命令回放伪装动力学 rollout"
+            ]
+        return []
+
+    @staticmethod
+    def _render_trust_failures(trace_path: Path, gif: Path) -> list[str]:
+        """场景渲染 GIF（WP-3 正式渲染产物）必须带 RenderReceipt，
+        且 receipt 锚定被验 trace——renderer 可信链。"""
+        if not gif.name.endswith("-scene.gif"):
+            return []  # 2D 预览 GIF：媒体检查已覆盖，无渲染可信链要求
+        receipt_path = gif.parent / "render_receipt.json"
+        if not receipt_path.exists():
+            return [
+                "RENDER_RECEIPT_MISSING: 场景渲染 GIF 缺 render_receipt.json"
+                "——渲染来源不可信"
+            ]
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        failures: list[str] = []
+        if not str(receipt.get("renderer_build_digest", "")).startswith("sha256:"):
+            failures.append(
+                "RENDER_RECEIPT_MISSING: receipt 缺 renderer_build_digest——"
+                "渲染器构建不可归因"
+            )
+        trace_digest = "sha256:" + hashlib.sha256(
+            trace_path.read_bytes()
+        ).hexdigest()
+        if str(receipt.get("input_trace_digest", "")) != trace_digest:
+            failures.append(
+                "RENDER_INPUT_MISMATCH: receipt 锚定的 trace 与被验 trace "
+                "不符——拼凑渲染证据"
+            )
+        return failures
+
+    @staticmethod
+    def _se3_failures(
+        trace: dict,
+        metrics: dict,
+        planned: list[dict],
+        actual: list[dict],
+        *,
+        max_orientation_error_deg: float = 25.0,
+        contact_height_tol_m: float = 0.02,
+    ) -> list[str]:
+        """SE(3) 语义（WP-5 规格锚定的 trace）：工具轴保持接触平面
+        法向；接触段贴合接触平面（画在平面上，不是悬空）。"""
+        failures: list[str] = []
+        tracking = metrics.get("tracking") or metrics
+        if trace.get("spec_digest"):
+            orient = tracking.get("max_orientation_error_deg")
+            if orient is None:
+                failures.append(
+                    "ORIENTATION_METRICS_MISSING: trace 锚定 SE(3) 规格但 "
+                    "metrics 无朝向指标——朝向验收依据缺失"
+                )
+            elif float(orient) > max_orientation_error_deg:
+                failures.append(
+                    f"TOOL_AXIS_DEVIATION: 工具轴偏离接触平面法向 "
+                    f"{orient}° > {max_orientation_error_deg}°"
+                )
+        if planned and actual:
+            plane_z = float(planned[0]["z"])
+
+            def _path_dist(pt: dict) -> float:
+                return min(
+                    math.dist(
+                        (pt["x"], pt["y"], pt["z"]),
+                        (p["x"], p["y"], p["z"]),
+                    )
+                    for p in planned
+                )
+
+            near = [a for a in actual if _path_dist(a) < 0.05]
+            contact = near or actual
+            mean_dev = sum(
+                abs(float(a["z"]) - plane_z) for a in contact
+            ) / len(contact)
+            if mean_dev > contact_height_tol_m:
+                failures.append(
+                    f"CONTACT_HEIGHT_DEVIATION: 接触段平均偏离接触平面 "
+                    f"{mean_dev:.4f}m > {contact_height_tol_m}m——"
+                    "没画在平面上"
+                )
         return failures
 
     @staticmethod

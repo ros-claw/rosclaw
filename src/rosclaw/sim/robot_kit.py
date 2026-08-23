@@ -129,7 +129,22 @@ def kit_server_spec(kit: RobotKitV1) -> dict[str, Any]:
         # PR-N5B：第一方 kit 显式声明 output_schema（canonical 输出
         # 验证依据；N5E 将收紧为 binding manifest）。
         "output_schemas": dict(_UR5E_OUTPUT_SCHEMAS),
+        # WP-6：验证类工具的诚实标注（证据强度是模型/治理的决策
+        # 依据——命令回放校验不得冒充独立验收证据）。
+        "verifier_notes": dict(_UR5E_VERIFIER_NOTES),
     }
+
+
+#: 验证类工具的诚实标注（WP-6）：ur5e.verify_drawing 的 trace 来自
+#: kit 执行器自身的命令流——它是命令回放几何校验，不是独立验收
+#: 证据；独立验收必须走受信管线（SIM_DYN_ROLLOUT + TrajectoryVerifier）。
+_UR5E_VERIFIER_NOTES: dict[str, str] = {
+    "ur5e.verify_drawing": (
+        "COMMAND_REPLAY_ONLY / NOT_INDEPENDENT: 命令回放几何校验"
+        "（trace 来自 kit 执行器自身的命令流，非动力学推演）——"
+        "不构成独立验收证据"
+    ),
+}
 
 
 #: UR5e 第一方 kit 观测/计算工具的 canonical 输出形状（与

@@ -22,8 +22,6 @@ import hashlib
 import json
 from pathlib import Path
 
-import pytest
-
 
 def _run_pipeline(home: Path, shape: str = "star5") -> dict:
     from rosclaw.agentd.sim_trajectory import SimTrajectoryService
@@ -40,14 +38,14 @@ def _run_pipeline(home: Path, shape: str = "star5") -> dict:
 def _check(home: Path, ctx: dict, **overrides) -> list[str]:
     from rosclaw.task_kernel.verifier_plugins import TrajectoryVerifier
 
-    args = dict(
-        trace_json=ctx["run"]["artifacts"]["trace_json"],
-        metrics_json=ctx["run"]["artifacts"]["metrics_json"],
-        gif_path=ctx["render"]["artifact"]["path"],
-        home=home,
-        declared_shape="star5",
-        max_tracking_error_m=0.05,
-    )
+    args = {
+        "trace_json": ctx["run"]["artifacts"]["trace_json"],
+        "metrics_json": ctx["run"]["artifacts"]["metrics_json"],
+        "gif_path": ctx["render"]["artifact"]["path"],
+        "home": home,
+        "declared_shape": "star5",
+        "max_tracking_error_m": 0.05,
+    }
     args.update(overrides)
     return TrajectoryVerifier().check(**args)
 

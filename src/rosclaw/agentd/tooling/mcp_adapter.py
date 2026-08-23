@@ -156,9 +156,14 @@ class McpServerConfig:
     #: kit 显式声明；未声明的工具 execute_v2 诚实 OUTPUT_SCHEMA_MISSING，
     #: 不猜结构）。
     output_schemas: dict = None  # type: ignore[assignment]  # dataclass 默认见 __post_init__
+    #: WP-6：验证类工具的诚实标注（如 verify_drawing = 命令回放，
+    #: 非独立证据）——进 ToolDescriptorV2.verifier。
+    verifier_notes: dict = None  # type: ignore[assignment]
     def __post_init__(self) -> None:
         if self.output_schemas is None:
             object.__setattr__(self, "output_schemas", {})
+        if self.verifier_notes is None:
+            object.__setattr__(self, "verifier_notes", {})
 
     def spawn_env(self) -> dict[str, str]:
         # WP-2：统一走 kit_spawn_env（默认安全环境 + env_refs +
@@ -330,7 +335,12 @@ class McpCapabilityAdapter:
                 freshness_ms=500 if not physical else None,
                 timeout_ms=cfg.timeout_ms,
                 evidence_class=ToolEvidenceClass.MEASURED,
-                verifier="schema+timestamp+frame",
+                # WP-6：server 声明的诚实标注优先（如 verify_drawing
+                # 是命令回放校验，NOT_INDEPENDENT）；缺省沿用既有标签。
+                verifier=(
+                    str(cfg.verifier_notes.get(tool.name, "") or "")
+                    or "schema+timestamp+frame"
+                ),
                 idempotent=not physical,
                 model_callable=not physical,
                 requires_exact_action_grant=physical,
