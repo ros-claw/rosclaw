@@ -18,7 +18,6 @@ native simulate 报 unknown plan（两套进程/格式互不兼容）。
 from __future__ import annotations
 
 import json
-import os
 import tempfile
 from pathlib import Path
 
