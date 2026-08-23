@@ -240,6 +240,11 @@ jobs:
       - name: Install dependencies
         run: uv pip install -e ".[dev]" --system
 
+      # WP-3：OSMesa 软渲染库——CI runner 无 GPU/EGL，MuJoCo 离屏渲染
+      # 后端探测需要 libosmesa6（缺库时渲染测试诚实失败，不跳过）。
+      - name: Install OSMesa (MuJoCo offscreen rendering)
+        run: sudo apt-get update && sudo apt-get install -y libosmesa6
+
       - name: Run full non-deployment suite
         run: pytest -q -m 'not slow and not integration and not deployment'
 
