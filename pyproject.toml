@@ -132,6 +132,8 @@ Documentation = "https://docs.rosclaw.io"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/rosclaw"]
+# P0-5：构建戳被 .gitignore（不污工作树）——wheel 必须强制包含。
+artifacts = ["**/_build_stamp.json"]
 
 [tool.hatch.metadata]
 allow-direct-references = true
