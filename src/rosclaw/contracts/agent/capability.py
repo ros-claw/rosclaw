@@ -100,6 +100,10 @@ class CapabilityDescriptorV2(ContractModel):
     )
     execution: CapabilityExecutionV1 = Field(default_factory=CapabilityExecutionV1)
     evidence: CapabilityEvidenceV1 = Field(default_factory=CapabilityEvidenceV1)
+    #: WP-2：引用端口——本能力消费/产出哪些 TypedRef kind
+    #: （snapshot 只暴露可实际连接的组合）。
+    accepts_refs: list[dict[str, Any]] = Field(default_factory=list)
+    produces_refs: list[dict[str, Any]] = Field(default_factory=list)
     #: 自由元数据（如 adapted_from 迁移标注）；不得携带凭据。
     metadata: dict[str, Any] = Field(default_factory=dict)
 

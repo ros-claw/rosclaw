@@ -30,6 +30,7 @@ from rosclaw.contracts.agent.task_contracts import (
 from rosclaw.contracts.agent.task_graph import TaskGraphPatchV1, TaskGraphV1, TaskNodeV1
 from rosclaw.contracts.agent.tool import ToolDescriptorV2
 from rosclaw.contracts.agent.tool_result import ToolResultEnvelopeV2
+from rosclaw.contracts.agent.typed_ref import TypedRefV1
 from rosclaw.contracts.common import ContractModel
 from rosclaw.contracts.operator.approval import ApprovalRequestV2
 from rosclaw.contracts.operator.exact_action import ExactActionV1
@@ -68,6 +69,7 @@ ALL_CONTRACTS: dict[str, type[ContractModel]] = {
         ToolProjectionV1,
         CapabilitySnapshotV1,
         ToolResultEnvelopeV2,
+        TypedRefV1,
         CommandSpecV1,
         CommandRequestV1,
         CommandResultV1,

@@ -218,6 +218,22 @@
     "evidence": {
       "$ref": "#/$defs/CapabilityEvidenceV1"
     },
+    "accepts_refs": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Accepts Refs",
+      "type": "array"
+    },
+    "produces_refs": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Produces Refs",
+      "type": "array"
+    },
     "metadata": {
       "additionalProperties": true,
       "title": "Metadata",

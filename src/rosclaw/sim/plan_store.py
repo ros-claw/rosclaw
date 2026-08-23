@@ -72,10 +72,38 @@ class PersistentPlanStore:
         self._write(record)
         return record
 
-    def get_for_execute(self, plan_id: str) -> dict:
+    def _read_envelope(self, plan_id: str) -> dict | None:
+        """WP-2：envelope/native 原始记录互通——native 原始记录
+        （trajectory 本体）包成 envelope 视图。"""
         record = self._read(plan_id)
         if record is None:
-            raise ValueError(f"unknown plan_id {plan_id!r} (fail closed)")
+            return None
+        if "trajectory" not in record:
+            if "points" not in record or "hash" not in record:
+                return None  # 不可解码——由调用方给 REF_FORMAT_UNKNOWN
+            record = {
+                "plan_id": plan_id,
+                "digest": record["hash"],
+                "trajectory": record,
+                "summary": record.get("summary", ""),
+                "created_at": self._now(),
+                "status": "PLANNED",
+            }
+        return record
+
+    def get_for_execute(self, plan_id: str) -> dict:
+        record = self._read_envelope(plan_id)
+        if record is None:
+            path = self._path(plan_id)
+            if path.exists():
+                raise ValueError(
+                    f"REF_FORMAT_UNKNOWN: plan {plan_id!r} 记录格式不可解码 "
+                    "(fail closed)"
+                )
+            raise ValueError(
+                f"REF_NOT_FOUND: plan_id {plan_id!r} 不在共享 PlanStore "
+                "(fail closed)"
+            )
         if record["status"] != "PLANNED":
             raise ValueError(
                 f"plan {plan_id} already consumed — single-use (fail closed)"

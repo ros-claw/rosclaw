@@ -268,12 +268,15 @@ class AgentService:
             if self._daemon_client is not None:
                 break
             from rosclaw.agentd.sim_executor import SimActionChannel
-            from rosclaw.agentd.tooling.persistent_client import PersistentMcpClient
 
             # 观测与 SIM 执行共享同一 server 进程（有状态身体）。
+            from rosclaw.agentd.tooling.mcp_adapter import kit_spawn_env
+            from rosclaw.agentd.tooling.persistent_client import PersistentMcpClient
+
             shared_client = PersistentMcpClient(
                 command=str(sim_server.get("command", "")),
                 args=tuple(str(a) for a in sim_server.get("args", []) or []),
+                env=kit_spawn_env(),
             )
             self._shared_mcp_client = shared_client
             server_name = str(sim_server.get("name", "sim"))
@@ -573,10 +576,15 @@ class AgentService:
             self._mcp_adapters.append(self._make_mcp_adapter(spec, self._tool_catalog))
         if self._daemon_client is None and kit.executor_identity not in self._sim_executors:
             from rosclaw.agentd.sim_executor import SimActionChannel
+
+            # WP-2：持久通道同 spawn_env 规则——ROSCLAW_HOME 必须到达
+            # kit 子进程（否则 PlanStore 退回进程内存）。
+            from rosclaw.agentd.tooling.mcp_adapter import kit_spawn_env
             from rosclaw.agentd.tooling.persistent_client import PersistentMcpClient
 
             shared = PersistentMcpClient(
-                command=str(spec["command"]), args=tuple(spec["args"])
+                command=str(spec["command"]), args=tuple(spec["args"]),
+                env=kit_spawn_env(),
             )
             self._shared_mcp_client = shared
             self._sim_executors[kit.executor_identity] = SimActionChannel(

@@ -216,10 +216,21 @@ class SimTrajectoryService:
         }
 
     def _load_plan(self, plan_id: str) -> dict:
+        """WP-2：统一引用——kit envelope 记录（PersistentPlanStore）
+        与 native 原始记录互通；不可解码给诚实错误码。"""
         path = self._plans_dir / f"{plan_id}.json"
         if not path.exists():
-            raise ValueError(f"unknown plan {plan_id!r}")
-        return json.loads(path.read_text(encoding="utf-8"))
+            raise ValueError(f"REF_NOT_FOUND: plan {plan_id!r} 不在共享 PlanStore")
+        record = json.loads(path.read_text(encoding="utf-8"))
+        # kit envelope：{plan_id, digest, trajectory, summary, status}
+        if "trajectory" in record:
+            record = record["trajectory"]
+        if "points" not in record or "hash" not in record:
+            raise ValueError(
+                f"REF_FORMAT_UNKNOWN: plan {plan_id!r} 的记录格式不可解码"
+                "（缺 points/hash）——生产者与消费者的引用格式不兼容"
+            )
+        return record
 
     # --------------------------------------------------------------
     # 2. ur5e.simulate_cartesian_trajectory

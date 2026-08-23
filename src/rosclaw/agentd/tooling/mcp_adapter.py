@@ -161,12 +161,28 @@ class McpServerConfig:
             object.__setattr__(self, "output_schemas", {})
 
     def spawn_env(self) -> dict[str, str]:
-        env: dict[str, str] = {}
-        for ref in self.env_refs:
-            value = os.environ.get(ref)
-            if value:  # missing → simply not passed; never logged
-                env[ref] = value
-        return env
+        # WP-2：统一走 kit_spawn_env（默认安全环境 + env_refs +
+        # ROSCLAW_HOME）——ROSCLAW_HOME 是共享存储位置（路径，非凭据），
+        # 不到子进程则第一方 kit 的 PlanStore 退回进程内存（0823 审计
+        # P0-4 根因）。MCP stdio 的 env=None 是"默认最小环境"语义。
+        return kit_spawn_env(self.env_refs)
+
+
+def kit_spawn_env(env_refs: tuple[str, ...] = ()) -> dict[str, str]:
+    """MCP 子进程环境（WP-2）：默认安全环境 + env_refs + ROSCLAW_HOME
+    （共享存储位置——没有它第一方 kit 的 PlanStore 退回进程内存）。
+    spawn_env 与 PersistentMcpClient 共用本函数。"""
+    from mcp.client.stdio import get_default_environment
+
+    env: dict[str, str] = dict(get_default_environment())
+    for ref in env_refs:
+        value = os.environ.get(ref)
+        if value:
+            env[ref] = value
+    home = os.environ.get("ROSCLAW_HOME")
+    if home:
+        env["ROSCLAW_HOME"] = home
+    return env
 
 
 def suggest_classification(tool_name: str, annotations: Any) -> str:

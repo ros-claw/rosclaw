@@ -87,6 +87,26 @@ def build_capability_snapshot(
             input_schema=dict(cap.input_schema),
             output_schema=dict(cap.output_schema),
         ))
+    # WP-2：引用连通性——消费者 accepts_refs 的每个 kind 必须在
+    # active 里有 produces_refs 生产者；否则 excluded（模型看不到
+    # 天然连不上的工具）。
+    produced_kinds = set()
+    for entry in active:
+        for ref in _capability_produces(catalog, entry.capability_id):
+            produced_kinds.add(ref.get("kind", ""))
+    still_active: list[SnapshotActiveToolV1] = []
+    for entry in active:
+        needs = _capability_accepts(catalog, entry.capability_id)
+        missing = [r.get("kind", "") for r in needs
+                   if r.get("kind", "") not in produced_kinds]
+        if missing:
+            excluded.append(SnapshotExcludedV1(
+                capability_id=entry.capability_id,
+                reason="REF_NOT_CONNECTABLE",
+            ))
+        else:
+            still_active.append(entry)
+    active = still_active
     snap = CapabilitySnapshotV1(
         generation=generation if generation is not None else catalog.generation,
         body_id=body_id,
@@ -102,6 +122,16 @@ def build_capability_snapshot(
         canonical_json(snap.hash_payload()).encode("utf-8")
     ).hexdigest()
     return snap
+
+
+def _capability_accepts(catalog, capability_id: str) -> list[dict]:
+    cap = catalog.capability(capability_id)
+    return list(cap.accepts_refs) if cap is not None else []
+
+
+def _capability_produces(catalog, capability_id: str) -> list[dict]:
+    cap = catalog.capability(capability_id)
+    return list(cap.produces_refs) if cap is not None else []
 
 
 __all__ = ["build_capability_snapshot"]

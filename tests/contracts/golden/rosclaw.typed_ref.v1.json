@@ -1,0 +1,66 @@
+{
+  "additionalProperties": true,
+  "description": "能力产物的类型化引用（plan/trace/render/verification…）。",
+  "properties": {
+    "schema_version": {
+      "const": "rosclaw.typed_ref.v1",
+      "default": "rosclaw.typed_ref.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "kind": {
+      "minLength": 1,
+      "title": "Kind",
+      "type": "string"
+    },
+    "uri": {
+      "minLength": 1,
+      "title": "Uri",
+      "type": "string"
+    },
+    "producer_capability": {
+      "minLength": 1,
+      "title": "Producer Capability",
+      "type": "string"
+    },
+    "digest": {
+      "minLength": 1,
+      "title": "Digest",
+      "type": "string"
+    },
+    "body_id": {
+      "default": "",
+      "title": "Body Id",
+      "type": "string"
+    },
+    "world_id": {
+      "default": "",
+      "title": "World Id",
+      "type": "string"
+    },
+    "task_id": {
+      "default": "",
+      "title": "Task Id",
+      "type": "string"
+    },
+    "revision": {
+      "default": 0,
+      "title": "Revision",
+      "type": "integer"
+    },
+    "storage_backend": {
+      "default": "",
+      "title": "Storage Backend",
+      "type": "string"
+    }
+  },
+  "required": [
+    "kind",
+    "uri",
+    "producer_capability",
+    "digest"
+  ],
+  "title": "rosclaw.typed_ref.v1",
+  "type": "object",
+  "$id": "rosclaw://schemas/rosclaw.typed_ref.v1"
+}
