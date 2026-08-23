@@ -40,6 +40,7 @@ from rosclaw.app.cli import add_app_subparsers, dispatch_app_command
 from rosclaw.body.cli import add_body_subparser, dispatch_body_command
 from rosclaw.body.registry import BodyRegistryManager
 from rosclaw.body.resolver import BodyResolver
+from rosclaw.cli_extensions import dispatch_cli_extension, register_cli_extensions
 from rosclaw.connectors.ros.cli import add_ros_subparser, cmd_doctor_ros, dispatch_ros_command
 from rosclaw.core.event_bus import Event, EventPriority
 from rosclaw.darwin.cli import cmd_darwin
@@ -8924,8 +8925,15 @@ def main() -> int:
     # feedback and telemetry
     add_feedback_subparser(subparsers)
 
+    # Downstream applications may contribute namespaced command trees without
+    # importing their domain logic into ROSClaw core.
+    register_cli_extensions(subparsers)
+
     args = parser.parse_args()
     with telemetry_command_hook(args):
+        extension_result = dispatch_cli_extension(args)
+        if extension_result is not None:
+            return extension_result
         if args.command == "init":
             return cmd_init(args)
         elif args.command in ("run", "start"):
