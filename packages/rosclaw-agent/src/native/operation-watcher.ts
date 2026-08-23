@@ -73,6 +73,38 @@ export class OperationWatcher {
 			}
 			this.delivered.add(operationId);
 			this.tracked.delete(operationId);
+			// WP-1（0823 审计 P0-3）：终态一致性——owning task 已终态
+			// （或 operation 属旧 revision）时，终态事件只更新账本和
+			// TUI，绝不触发模型回合。规则：Task 终态后、下一条用户
+			// 输入前，模型调用次数恒等于 0。
+			const taskId = String(op.task_id ?? "");
+			let taskTerminal = false;
+			let staleRevision = false;
+			if (taskId) {
+				try {
+					const taskResult = await this.deps.call("pi.kernel.get", {
+						task_id: taskId,
+					});
+					const task = (taskResult.task ?? null) as Record<string, unknown> | null;
+					const taskState = String(task?.state ?? "");
+					taskTerminal = task !== null && taskState !== "RUNNING"
+						&& taskState !== "CREATED" && taskState !== "WAITING_APPROVAL";
+					const opRevision = Number(op.revision ?? 0);
+					const activeRevision = Number(task?.active_revision ?? 0);
+					staleRevision = opRevision > 0 && activeRevision > 0
+						&& opRevision !== activeRevision;
+				} catch {
+					// 查询失败不赌——按终态处理（不触发回合），下周期
+					// 由 delivered 集合保证不重复。
+					taskTerminal = true;
+				}
+			}
+			if (taskTerminal || staleRevision) {
+				sink?.notify?.(
+					`Operation ${state}（任务已${staleRevision ? "换 revision" : "终态"}——已存档，不再打扰）：${operationId.slice(0, 18)}…`,
+				);
+				continue;
+			}
 			// 终态一次性 followUp（compact 结构化结果——同一 session 继续
 			// 验证/修复，不新建 Worker/任务）。
 			const content =

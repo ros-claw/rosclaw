@@ -54,12 +54,18 @@ class OperationManager:
         """启动后台进程 operation——立即返回（调用方不死等）。"""
         operation_id = new_id("op")
         now = datetime.now(UTC).isoformat()
+        # WP-1：记录启动时 task 活跃 revision——旧 revision 的迟到
+        # 终态只存档（不触发模型回合）。
+        task_row = self._conn.execute(
+            "SELECT active_revision FROM tasks WHERE task_id = ?", (task_id,)
+        ).fetchone()
+        revision = int(task_row["active_revision"]) if task_row else None
         self._conn.execute(
             "INSERT INTO operations (operation_id, task_id, attempt_id, kind, "
-            "state, resumable, started_at, heartbeat_at) "
-            "VALUES (?, ?, ?, ?, 'RUNNING', ?, ?, ?)",
+            "state, resumable, started_at, heartbeat_at, revision) "
+            "VALUES (?, ?, ?, ?, 'RUNNING', ?, ?, ?, ?)",
             (operation_id, task_id, attempt_id, kind,
-             1 if resumable else 0, now, now),
+             1 if resumable else 0, now, now, revision),
         )
         self._emit(task_id, "operation.started",
                    {"operation_id": operation_id, "kind": kind,
