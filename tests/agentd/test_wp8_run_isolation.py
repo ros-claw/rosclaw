@@ -97,6 +97,8 @@ class TestArtifactZoneDiscipline:
         assert artifact.get("zone") == "outputs", artifact
 
     def test_evidence_zone_recorded(self, tmp_path: Path) -> None:
+        """P0-E：evidence 区是 kernel-only——受信管道（producer=
+        kernel:*）登记记录 zone；模型路径登记被拒（见 P0-E 套件）。"""
         kernel = _kernel(tmp_path)
         bound = _bind(kernel, tmp_path)
         task_id = str(bound["task_id"])
@@ -106,6 +108,7 @@ class TestArtifactZoneDiscipline:
         receipt.write_text("{}", encoding="utf-8")
         result = kernel.register_artifact(
             task_id=task_id, path=str(receipt), media_type="application/json",
+            producer="kernel:trajectory_pipeline",
         )
         artifact = result.get("artifact") or result
         assert artifact.get("zone") == "evidence", artifact

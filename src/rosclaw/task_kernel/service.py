@@ -495,6 +495,27 @@ class TaskKernel:
                 f"SCRATCH_NOT_DELIVERABLE: {file} 在 scratch 草稿区——"
                 "草稿不是交付物；请把最终交付物写入 outputs/ 再登记"
             )
+        # P0-E：evidence 区是 kernel-only——模型不能自己写
+        # verify_*.json 冒充受信证据（producer 身份来自登记调用方，
+        # 不接受文件内容自述）。
+        if zone == "evidence" and not producer.startswith("kernel:"):
+            raise ValueError(
+                f"EVIDENCE_KERNEL_ONLY: {file} 在 evidence 受信区——"
+                "该目录只接受内核管道登记；模型的交付物请写 outputs/"
+            )
+        # P0-E：幂等 upsert——同 task 同内容（sha256）返回既有
+        # ArtifactRef（同文件登记十次仍只有一个引用；内容变化才
+        # 产生新引用——内容寻址，不是路径寻址）。
+        digest = hashlib.sha256(content).hexdigest()
+        existing = self._conn.execute(
+            "SELECT * FROM artifacts WHERE task_id = ? AND sha256 = ?",
+            (task_id, digest),
+        ).fetchone()
+        if existing is not None:
+            record = dict(existing)
+            record["metadata_json"] = str(existing["metadata_json"])
+            record["idempotent_replay"] = True
+            return record
         artifact_id = new_id("art")
         now = datetime.now(UTC).isoformat()
         record = {
@@ -502,7 +523,7 @@ class TaskKernel:
             "task_id": task_id,
             "path": str(file),
             "media_type": media_type,
-            "sha256": hashlib.sha256(content).hexdigest(),
+            "sha256": digest,
             "size_bytes": len(content),
         }
         # N4.1：模型自产证据标 EXPERIMENTAL——通过 qualification 前
