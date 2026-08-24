@@ -703,6 +703,14 @@ class SimTrajectoryService:
             out, save_all=True, append_images=images[1:],
             duration=int(1000 / max(fps, 1)), loop=0,
         )
+        # P0-F 闭包（金丝雀实证）：2D 预览与场景渲染同样产出
+        # MP4——两条渲染路径都覆盖完整视频格式集（用户要 MP4 时
+        # 选哪条都有交付物，同一 TraceRef）。
+        import imageio.v3 as iio
+        import numpy as _np
+
+        mp4 = out_dir / f"{trace_id}.mp4"
+        iio.imwrite(mp4, [_np.asarray(img) for img in images], fps=max(fps, 1))
         return {
             "ok": True,
             "artifact": {
@@ -710,6 +718,13 @@ class SimTrajectoryService:
                 "frames": frames,
                 "format": "gif",
                 "bytes": out.stat().st_size,
+                "evidence_level": "SIM_DYN_ROLLOUT",
+            },
+            "mp4_artifact": {
+                "path": str(mp4),
+                "frames": frames,
+                "format": "mp4",
+                "bytes": mp4.stat().st_size,
                 "evidence_level": "SIM_DYN_ROLLOUT",
             },
         }
