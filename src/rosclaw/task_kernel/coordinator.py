@@ -31,6 +31,15 @@ from rosclaw.task_kernel.service import TaskKernel
 #: 媒体/交付类失败前缀（execution 已成功，只 delivery 待修）。
 _DELIVERY_FAILURE_PREFIXES = ("RENDER_", "MEDIA_")
 
+#: 目标声明媒体交付物的关键词（通用——不是形状特例：任何要
+#: 视频/GIF/MP4/动画的目标都要求媒体交付证据）。
+_GOAL_MEDIA_MARKERS = ("视频", "动画", "gif", "mp4", "video")
+
+
+def _goal_requires_media(goal: str) -> bool:
+    lowered = goal.lower()
+    return any(marker in lowered for marker in _GOAL_MEDIA_MARKERS)
+
 VerifyRunner = Callable[[dict, list[dict], dict], dict[str, Any]]
 
 
@@ -91,9 +100,24 @@ class TaskCoordinator:
         frozen = self._kernel.get_acceptance_spec(task_id) or {}
         verdict = self._verify(task, artifacts, frozen)
         failures = list(verdict.get("failures") or [])
-        passed = verdict.get("status") in ("PASS", "SUCCEEDED") or (
-            str(verdict.get("status", "")) == "SUCCEEDED"
-        )
+        # 目标声明媒体交付物（视频/GIF/MP4/动画）但零媒体交付——
+        # 执行成功 ≠ 交付成功（0824 金丝雀实证：模型只 rollout 不
+        # 渲染就结束，trace 内部件不是用户要的视频）。
+        if _goal_requires_media(str(task.get("root_goal") or "")):
+            has_media = any(
+                str(a.get("media_type") or "").startswith(("image/", "video/"))
+                for a in artifacts
+            )
+            if not has_media:
+                failures.append(
+                    "MEDIA_DELIVERABLE_MISSING: 目标要求视频/GIF/MP4"
+                    "交付物但无媒体产物（image/* 或 video/*）——"
+                    "渲染步骤未完成"
+                )
+        passed = (
+            verdict.get("status") in ("PASS", "SUCCEEDED")
+            or str(verdict.get("status", "")) == "SUCCEEDED"
+        ) and not failures
         now = datetime.now(UTC).isoformat()
         if passed:
             outcome = self._build_outcome(
