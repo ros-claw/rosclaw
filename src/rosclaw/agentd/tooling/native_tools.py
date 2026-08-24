@@ -366,6 +366,10 @@ def register_native_tools(
                     "properties": {
                         "ok": {"type": "boolean", "const": True},
                         "artifact": {"type": "object"},
+                        # WP-3 双产物（GIF+MP4）——sim_render 返回 artifacts
+                        # 映射；schema 缺它会把成功渲染误判为
+                        # INVALID_CAPABILITY_OUTPUT。
+                        "artifacts": {"type": "object"},
                         "receipt": {"type": "object"},
                         "evidence_class": {"type": "string", "const": "simulated"},
                     },

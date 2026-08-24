@@ -1028,13 +1028,20 @@ class PiBridgeServer:
             # 新 revision；已附着直接返回（不重复 bump）。
             kernel = service._task_kernel
             try:
+                # N0 熔断：body_id 缺省回落 mission 绑定（与
+                # pi.task.bind 同语义——执行面必须首条即武装，否则
+                # N4.1 资源证明在空 body 下误判 RESOURCE_PROVENANCE_MISSING）。
+                _mission = service.get_mission(str(params.get("mission_id", "")))
                 result = kernel.ensure_task_for_effect(
                     mission_id=str(params.get("mission_id", "")),
                     session_ref=str(params.get("session_ref", "")),
                     backend_native_id=str(params.get("backend_native_id", "")),
                     cwd=str(params.get("cwd", "")),
                     mode=str(params.get("mode", "SIMULATION")),
-                    body_id=str(params.get("body_id", "")),
+                    body_id=(
+                        str(params.get("body_id", ""))
+                        or (_mission.body_binding.body_id if _mission else "")
+                    ),
                     explicit_goal=str(params.get("explicit_goal", "")),
                 )
             except ValueError as exc:

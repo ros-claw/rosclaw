@@ -314,6 +314,8 @@ class PiToolDispatcher:
             backend_native_id=request.pi_session_id,
             cwd="",
             mode=mission.mode.value if mission else "SIMULATION",
+            # N0 熔断：body 缺省回落 mission 绑定（执行面首条即武装）。
+            body_id=(mission.body_binding.body_id if mission else ""),
         )
 
     async def _dispatch(self, request: PiToolRequestV1) -> PiToolResultV1:
