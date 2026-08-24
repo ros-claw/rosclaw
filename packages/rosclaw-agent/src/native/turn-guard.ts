@@ -33,6 +33,14 @@ const WORK_TOOLS = new Set(["write", "edit", "bash"]);
 // 重复 start（实证：H3 回归双开 operation）。
 const FINISH_TOOLS = new Set(["rosclaw_task_finish", "rosclaw_task_blocked"]);
 
+// P0-B（0824 总纲 §19.P0-B）：Terminal Fence——task 已终态时
+// TurnGuard 不得注入 follow-up（终态后触发模型回合=幽灵执行）。
+// 与 task_kernel.TASK_ACTIVE 同集合（ ACTIVE 子态才可被催收尾）。
+const TASK_ACTIVE = new Set([
+	"RUNNING", "WAITING_OPERATION", "WAITING_INPUT",
+	"WAITING_PERMISSION", "PAUSED", "VERIFYING", "RECOVERING",
+]);
+
 export class TurnGuard {
 	private usedWorkTools = false;
 	private finished = false;
@@ -64,6 +72,9 @@ export class TurnGuard {
 			return; // 桥不可用——下回合再说（不阻塞回合收尾）
 		}
 		if (!task) return;
+		// P0-B：终态栅栏——非 ACTIVE 子态一律不触发（延迟事件只
+		// 归档，不变成新的模型请求）。
+		if (!TASK_ACTIVE.has(String(task.state ?? ""))) return;
 		const key = `${String(task.task_id)}:r${String(task.active_revision)}`;
 		if (this.nudged.has(key)) return; // 每 revision 只提醒一次
 		this.nudged.add(key);
@@ -79,7 +90,13 @@ export class TurnGuard {
 				customType: "rosclaw.turn_guard",
 				content,
 				display: false,
-				details: { task_id: String(task.task_id), revision: Number(task.active_revision) },
+				details: {
+					task_id: String(task.task_id),
+					revision: Number(task.active_revision),
+					// P0-B：因果续接——同一 (task, revision) 的催促因果
+					// 唯一，内核/账本按 causation_id 幂等去重。
+					causation_id: `turn_guard:${String(task.task_id)}:r${String(task.active_revision)}`,
+				},
 			},
 			sink.isIdle ? { triggerTurn: true } : { triggerTurn: true, deliverAs: "followUp" },
 		);
