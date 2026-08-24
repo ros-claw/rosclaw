@@ -165,7 +165,7 @@ def context_hash_of(envelope: Any) -> str:
     以及 pending_approvals/receipts/active_actions/workers——它们是
     动作的*结果*（建卡/建任务即在 envelope 里新增条目），不是使
     上下文失效的输入变化（P0-C 实证：首个 effectful call 建 task
-    → workers 新增 → 同回合 admission 误判 CONTEXT_HASH_MISMATCH）。
+    → workers 新增 → 同回合一 Admission 误判 CONTEXT_HASH_MISMATCH）。
     """
     from rosclaw.contracts.pi.canonical import canonical_dumps
 

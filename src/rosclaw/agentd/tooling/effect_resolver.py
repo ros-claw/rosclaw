@@ -82,6 +82,8 @@ DIRECT_TOOL_EFFECTS: dict[str, EffectClassV1] = {
     "rosclaw_process_output": EffectClassV1.READ_ONLY,
     "rosclaw_process_stop": EffectClassV1.HOST_PROCESS,
     "rosclaw_artifact_register": EffectClassV1.WORKSPACE_WRITE,
+    # P0-D：模型面唯一交付入口（幂等 deliver——与 register 同效应）。
+    "rosclaw_deliver": EffectClassV1.WORKSPACE_WRITE,
     "rosclaw_task_finish": EffectClassV1.WORKSPACE_WRITE,
     "rosclaw_task_blocked": EffectClassV1.WORKSPACE_WRITE,
     # SIM 管线宏（当前唯一实现）；goal 变化不改变仿真效应本质。

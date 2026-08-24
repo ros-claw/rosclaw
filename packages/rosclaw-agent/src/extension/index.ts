@@ -30,7 +30,6 @@ import {
 import type { ProductStateCenter } from "../session/state-center.js";
 import { InputController } from "../native/input-controller.js";
 import { OperationWatcher } from "../native/operation-watcher.js";
-import { TurnGuard } from "../native/turn-guard.js";
 import { classifyModelError } from "../native/model-errors.js";
 import {
 	renderArtifactList,
@@ -143,18 +142,6 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 								: undefined,
 						}
 					: undefined,
-		});
-		// PR-H4：TurnGuard——工作回合未验收收尾 → 注入一次结构化提醒
-		// （同一 task/revision 只一次；终态由 Verifier 决定）。
-		const turnGuard = new TurnGuard({
-			call: (method, params) => center.call(method, params),
-			missionId: () => options.active.current.missionId ?? "",
-			sessionRef: () => options.active.current.sessionId ?? "",
-			sink: () =>
-				latestCtx
-					? { api: pi, isIdle: latestCtx.isIdle() }
-					: undefined,
-			notify: (text) => latestCtx?.ui.notify(text, "info"),
 		});
 		// 十一审 PR-D：Workspace——header 快照 + /workspace 命令（命令层
 		// 直接处理，不进模型）。
@@ -488,6 +475,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 					"rosclaw_task",
 					"rosclaw_observe",
 					"rosclaw_verify",
+					"rosclaw_deliver",
 					"rosclaw_memory_query",
 					"rosclaw_fail_safe",
 					"rosclaw_delegate",
@@ -902,6 +890,8 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 		// P0-A：同一动作的权威结果卡只渲染一张（provider retry/
 		// 事件重放不产生第二张卡）。
 		const actionCardDeduper = new StableIdDeduper();
+		// P0-D：完成通知每 session 只发一次（不重复报喜）。
+		const completedNotified = new Set<string>();
 		// 每个 outcome 只校验紧随其后的第一段助手叙述；turn 结束清除。
 		let lastOutcome: (ActionResultData & { narrativeSeen?: boolean; conflictClaim?: string }) | null = null;
 		// PR-N9：结构化活动区——工具开始/结束驱动活动区文案
@@ -926,7 +916,6 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			);
 		});
 		pi.on("tool_execution_end", async (event, _ctx) => {
-			turnGuard.noteTool(String(event.toolName ?? ""));
 			if (event.toolName === "process_start") {
 				// PR-H3：登记模型启动的 operation（终态后 followUp 一次）。
 				const text = JSON.stringify(event.result?.details ?? {}) + JSON.stringify(event.result?.content ?? []);
@@ -990,7 +979,36 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			return undefined;
 		});
 		pi.on("turn_end", async () => {
-			await turnGuard.onTurnEnd();
+			// P0-D：Harness idle → Coordinator 自动收尾（登记/验证/
+			// outcome——零模型调用；outcome 确定性摘要直接呈现）。
+			try {
+				const missionId = options.active.current.missionId;
+				const sessionId = options.active.current.sessionId;
+				if (missionId && sessionId) {
+					const considered = await center.call("pi.coordinator.consider", {
+						mission_id: missionId,
+						session_ref: sessionId,
+					});
+					const outcome = considered.outcome as {
+						lifecycle?: string; verification?: string;
+						delivery?: string; repair_directive?: { criterion?: string };
+					} | null | undefined;
+					if (outcome?.lifecycle === "COMPLETED" && !completedNotified.has(sessionId)) {
+						completedNotified.add(sessionId);
+						latestCtx?.ui.notify(
+							`任务完成：验收 ${outcome.verification} · 交付 ${outcome.delivery}（/activity 查看账本）`,
+							"info",
+						);
+					} else if (outcome?.delivery === "NEEDS_REPAIR") {
+						latestCtx?.ui.notify(
+							`执行成功，交付待修：${outcome.repair_directive?.criterion ?? ""}`,
+							"warning",
+						);
+					}
+				}
+			} catch {
+				// 收尾评估失败不阻塞回合——下一次 turn_end 再评估。
+			}
 			// PR-H8：Task Activity widget 回合后自动刷新（开启时）。
 			await refreshActivityWidget();
 			if (lastOutcome?.conflictClaim) {

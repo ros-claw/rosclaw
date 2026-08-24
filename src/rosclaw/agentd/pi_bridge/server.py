@@ -1149,6 +1149,20 @@ class PiBridgeServer:
             ]
             return {"ok": True, "task": task, "revisions": revisions,
                     "events": events}
+        if method == "pi.coordinator.consider":
+            # P0-D：Harness idle（turn_end）驱动的自动收尾——返回
+            # outcome（可能为 None=任务仍在进行）。
+            kernel = service._task_kernel
+            task = kernel.latest_task_for(
+                str(params.get("mission_id", "")),
+                str(params.get("session_ref", "")),
+            )
+            if task is None:
+                return {"ok": True, "outcome": None}
+            from rosclaw.task_kernel.coordinator import TaskCoordinator
+
+            outcome = TaskCoordinator(kernel).consider(str(task["task_id"]))
+            return {"ok": True, "outcome": outcome}
         if method == "pi.kernel.latest":
             # P0-C：最近 task（含刚终态）——/activity /logs /artifacts。
             task = service._task_kernel.latest_task_for(

@@ -6,7 +6,8 @@
   3. 断言没有任何模型请求、工具调用或新文件。
 
 真实链路：PTY `rosclaw chat`（假模型：process_start 慢操作 → write →
-artifact_register → task_finish → 最终回答）→ task SUCCEEDED 后慢
+rosclaw_deliver（P0-D 契约——Coordinator 自动验收）→ 最终回答）→
+task SUCCEEDED 后慢
 operation 才终止 → 断言：最终回答之后模型请求数恒为 0、工作区无
 新文件。
 """
@@ -39,8 +40,9 @@ pytestmark = pytest.mark.skipif(
 
 
 class _GhostFake:
-    """process_start（慢命令）→ write → artifact_register →
-    task_finish → 最终回答。回答后再来任何请求都是幽灵回合。"""
+    """process_start（慢命令）→ write → rosclaw_deliver →
+    最终回答（P0-D：不收尾——Coordinator 自动验收）。回答后再来
+    任何请求都是幽灵回合。"""
 
     def __init__(self) -> None:
         self.requests: list[dict] = []
@@ -61,10 +63,8 @@ class _GhostFake:
             nxt = {
                 "call_op": ("call_write", "write",
                             {"path": "note.txt", "content": "wp1\n"}),
-                "call_write": ("call_art", "rosclaw_artifact_register",
+                "call_write": ("call_art", "rosclaw_deliver",
                                {"path": "note.txt"}),
-                "call_art": ("call_fin", "rosclaw_task_finish",
-                             {"summary": "完成"}),
             }.get(call_id)
             if nxt is not None:
                 frames = _tool_call_frames(nxt[0], nxt[1], json.dumps(nxt[2]))

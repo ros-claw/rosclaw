@@ -1,0 +1,221 @@
+"""Task Coordinator（P0-D，0824 总纲 §7.4/§8/§19.P0-D）。
+
+模型不再手动收尾（task_finish/task_blocked/artifact_register 退出
+模型工具面）——Coordinator 自动事务：
+
+1. 收集该 revision 的 artifacts（capability 自动登记 + 交付物）；
+2. 运行 Verifier（与 finish_task 同一验收事实源——不重写规则）；
+3. 生成 TaskOutcomeV2（六维：lifecycle/execution/verification/
+   delivery/user_acceptance/evidence）；
+4. PASS → 终态 + kernel-owned outcome 落库（deterministic replay——
+   重复 consider 返回同一 outcome）；
+5. FAIL → RepairDirective（失败 criterion + 错误指纹）；同指纹
+   再现 → WAITING_INPUT（不继续烧 token）；
+6. 媒体/交付类失败（RENDER_/MEDIA_）= execution SUCCEEDED +
+   delivery NEEDS_REPAIR——lifecycle 不关闭（BLOCKED 不再是
+   万能终态）。
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import sqlite3
+from collections.abc import Callable
+from datetime import UTC, datetime
+from typing import Any
+
+from rosclaw.contracts.common import new_id
+from rosclaw.task_kernel.service import TaskKernel
+
+#: 媒体/交付类失败前缀（execution 已成功，只 delivery 待修）。
+_DELIVERY_FAILURE_PREFIXES = ("RENDER_", "MEDIA_")
+
+VerifyRunner = Callable[[dict, list[dict], dict], dict[str, Any]]
+
+
+def _default_verify_runner(kernel: TaskKernel) -> VerifyRunner:
+    """与 finish_task 同一验收事实源（全部产物 + 冻结验收）。"""
+
+    def _run(task: dict, artifacts: list[dict], frozen: dict) -> dict[str, Any]:
+        return kernel.finish_task(
+            task_id=str(task["task_id"]),
+            summary=(
+                f"Coordinator 自动验收（{len(artifacts)} 项产物）"
+            ),
+            artifact_ids=[str(a["artifact_id"]) for a in artifacts],
+        )
+
+    return _run
+
+
+class TaskCoordinator:
+    """任务自动收尾权威（agentd 进程内，与 kernel 同连接）。"""
+
+    def __init__(
+        self,
+        kernel: TaskKernel,
+        verify_runner: VerifyRunner | None = None,
+    ) -> None:
+        self._kernel = kernel
+        self._conn: sqlite3.Connection = kernel._conn
+        self._verify = verify_runner or _default_verify_runner(kernel)
+
+    def consider(self, task_id: str) -> dict[str, Any] | None:
+        """评估 task 是否可收尾；返回 TaskOutcomeV2（幂等）。
+
+        - 已有 outcome（含终态重放）→ 原样返回（deterministic）；
+        - 无 artifacts 且无冻结验收 → None（任务还在进行——
+          Coordinator 不替模型宣布开始）。"""
+        task = self._kernel.get_task(task_id)
+        if task is None:
+            raise ValueError(f"unknown task {task_id!r}")
+        revision = int(task["active_revision"])
+        prior = self._conn.execute(
+            "SELECT outcome_json FROM task_outcomes WHERE task_id = ? "
+            "AND revision = ?",
+            (task_id, revision),
+        ).fetchone()
+        if prior is not None:
+            return json.loads(str(prior["outcome_json"]))
+        artifacts = [
+            dict(r)
+            for r in self._conn.execute(
+                "SELECT * FROM artifacts WHERE task_id = ?", (task_id,)
+            ).fetchall()
+        ]
+        # 完成信号：有产物或有冻结验收——两者皆无说明任务还在
+        # 进行（Coordinator 不替模型宣布开始）。
+        if not artifacts and not self._kernel.get_acceptance_spec(task_id):
+            return None
+        frozen = self._kernel.get_acceptance_spec(task_id) or {}
+        verdict = self._verify(task, artifacts, frozen)
+        failures = list(verdict.get("failures") or [])
+        passed = verdict.get("status") in ("PASS", "SUCCEEDED") or (
+            str(verdict.get("status", "")) == "SUCCEEDED"
+        )
+        now = datetime.now(UTC).isoformat()
+        if passed:
+            outcome = self._build_outcome(
+                task, revision, artifacts,
+                lifecycle="COMPLETED",
+                execution="SUCCEEDED",
+                verification="PASS",
+                delivery="DELIVERED",
+                created_at=now,
+            )
+            self._store_outcome(task_id, revision, outcome, now)
+            return outcome
+        # FAIL：区分 delivery 待修（媒体类）与 verification 失败。
+        delivery_only = bool(failures) and all(
+            f.startswith(_DELIVERY_FAILURE_PREFIXES) for f in failures
+        )
+        if delivery_only:
+            outcome = self._build_outcome(
+                task, revision, artifacts,
+                lifecycle="ACTIVE",
+                execution="SUCCEEDED",
+                verification="FAIL",
+                delivery="NEEDS_REPAIR",
+                created_at=now,
+            )
+            directive = self._repair_directive(task_id, revision, failures, now)
+            outcome["repair_directive"] = directive
+            # 瞬态不落库——修复后下一次 consider 重算。
+            return outcome
+        # verification FAIL：RepairDirective + 同指纹再现 →
+        # WAITING_INPUT（§8.3：不继续烧 token）。
+        fingerprint = hashlib.sha256(
+            json.dumps(sorted(failures), ensure_ascii=False).encode()
+        ).hexdigest()[:24]
+        directive = self._repair_directive(
+            task_id, revision, failures, now, fingerprint=fingerprint
+        )
+        seen = self._conn.execute(
+            "SELECT COUNT(*) AS n FROM task_repairs WHERE task_id = ? "
+            "AND fingerprint = ?",
+            (task_id, fingerprint),
+        ).fetchone()
+        outcome = self._build_outcome(
+            task, revision, artifacts,
+            lifecycle="ACTIVE",
+            execution="SUCCEEDED" if artifacts else "RUNNING",
+            verification="FAIL",
+            delivery="PARTIAL" if artifacts else "NONE",
+            created_at=now,
+        )
+        outcome["repair_directive"] = directive
+        if int(seen["n"]) > 1:
+            # 同指纹再现 → WAITING_INPUT（持久化——重放不再重试）。
+            self._conn.execute(
+                "UPDATE tasks SET state = 'WAITING_INPUT', updated_at = ? "
+                "WHERE task_id = ?",
+                (now, task_id),
+            )
+            self._store_outcome(task_id, revision, outcome, now)
+        return outcome
+
+    # --------------------------------------------------------------
+    def _build_outcome(
+        self, task: dict, revision: int, artifacts: list[dict], *,
+        lifecycle: str, execution: str, verification: str,
+        delivery: str, created_at: str,
+    ) -> dict[str, Any]:
+        trust = "EXPERIMENTAL"
+        if any(
+            str(a.get("producer") or "").startswith("kernel:")
+            for a in artifacts
+        ):
+            trust = "TRUSTED"
+        accepted = bool(task.get("user_accepted_at"))
+        return {
+            "schema_version": "rosclaw.task_outcome.v2",
+            "task_id": str(task["task_id"]),
+            "revision": revision,
+            "lifecycle": lifecycle,
+            "execution": execution,
+            "verification": verification,
+            "delivery": delivery,
+            "user_acceptance": "ACCEPTED" if accepted else "UNSEEN",
+            "evidence": {
+                "domain": str(task.get("mode") or "SIMULATION"),
+                "trust": trust,
+            },
+            "blocked_on": [],
+            "created_at": created_at,
+        }
+
+    def _repair_directive(
+        self, task_id: str, revision: int, failures: list[str], now: str,
+        *, fingerprint: str = "",
+    ) -> dict[str, Any]:
+        fingerprint = fingerprint or hashlib.sha256(
+            json.dumps(sorted(failures), ensure_ascii=False).encode()
+        ).hexdigest()[:24]
+        directive = {
+            "criterion": failures[0] if failures else "",
+            "repairable": True,
+            "fingerprint": fingerprint,
+            "failures": failures,
+        }
+        self._conn.execute(
+            "INSERT INTO task_repairs (repair_id, task_id, revision, "
+            "fingerprint, directive_json, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (new_id("rep"), task_id, revision, fingerprint,
+             json.dumps(directive, ensure_ascii=False), now),
+        )
+        return directive
+
+    def _store_outcome(
+        self, task_id: str, revision: int, outcome: dict, now: str
+    ) -> None:
+        self._conn.execute(
+            "INSERT OR IGNORE INTO task_outcomes (outcome_id, task_id, "
+            "revision, outcome_json, created_at) VALUES (?, ?, ?, ?, ?)",
+            (new_id("out"), task_id, revision,
+             json.dumps(outcome, ensure_ascii=False, sort_keys=True), now),
+        )
+
+
+__all__ = ["TaskCoordinator"]

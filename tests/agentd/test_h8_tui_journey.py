@@ -1,7 +1,7 @@
 """PR-H8 红测试：Task Activity/Logs/Artifacts 产品旅程（总纲 v2 §20 PR-H8）。
 
 真实链路：PTY `rosclaw chat` → 假模型编排（write → process_start →
-rosclaw_artifact_register → rosclaw_task_finish）→ 主会话真实执行 →
+rosclaw_deliver（P0-D：不收尾——Coordinator 自动验收）→ 主会话真实执行 →
 用户用 /activity /logs /artifacts 三个命令查看任务进度——数据全部
 来自 TaskKernel 事件流/产物账本（不经 LLM 总结）。
 
@@ -35,7 +35,8 @@ pytestmark = pytest.mark.skipif(
 
 
 class _FullJourneyFake:
-    """write → process_start → artifact_register → task_finish → 回答。"""
+    """write → process_start → rosclaw_deliver → 回答（P0-D 契约：
+    不调 task_finish——Coordinator 自动验收终态）。"""
 
     def __init__(self) -> None:
         self.requests: list[dict] = []
@@ -67,19 +68,15 @@ class _FullJourneyFake:
                     {"command": "echo h8-operation-marker"},
                 ),
                 "call_op": (
-                    "call_art", "rosclaw_artifact_register",
+                    "call_art", "rosclaw_deliver",
                     {"path": "report.txt", "media_type": "text/plain"},
-                ),
-                "call_art": (
-                    "call_fin", "rosclaw_task_finish",
-                    {"summary": "报告已生成并验收"},
                 ),
             }.get(call_id)
             if nxt is not None:
                 frames = _tool_call_frames(nxt[0], nxt[1], json.dumps(nxt[2]))
                 frames.append(b"data: [DONE]\n\n")
                 return b"".join(frames)
-            # task_finish 后（及 operation followUp 回合）→ 最终回答
+            # deliver 后（及 operation followUp 回合）→ 最终回答
             frames = [
                 _sse(_chunk("任务完成：report.txt 已交付。")),
                 _sse(_chunk("", "stop")),

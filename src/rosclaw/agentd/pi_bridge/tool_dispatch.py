@@ -44,6 +44,8 @@ _TOOL_TABLE: dict[str, str] = {
     "rosclaw_process_output": "read",
     "rosclaw_process_stop": "delegate",
     # PR-H4：Product Pack——交付登记/收尾/阻塞（验收决定终态）。
+    # P0-D：rosclaw_deliver 是模型面唯一幂等交付入口。
+    "rosclaw_deliver": "delegate",
     "rosclaw_artifact_register": "delegate",
     "rosclaw_task_finish": "task",
     "rosclaw_task_blocked": "delegate",
@@ -273,9 +275,37 @@ class PiToolDispatcher:
         # 5. 分发。
         return await self._dispatch(request)
 
+    def _coordinator_consider(
+        self, request: PiToolRequestV1, result: PiToolResultV1
+    ) -> None:
+        """P0-D：effectful 完成后的自动收尾评估——outcome 摘要附进
+        工具结果 details（模型看到结果，无需新回合）。"""
+        try:
+            kernel = self._service._task_kernel
+            task = kernel.latest_task_for(
+                request.mission_id, request.pi_session_id
+            )
+            if task is None:
+                return
+            from rosclaw.task_kernel.coordinator import TaskCoordinator
+
+            outcome = TaskCoordinator(kernel).consider(str(task["task_id"]))
+            if outcome is not None:
+                details = dict(result.details or {})
+                details["task_outcome"] = {
+                    "lifecycle": outcome["lifecycle"],
+                    "verification": outcome["verification"],
+                    "delivery": outcome["delivery"],
+                }
+                result.details = details
+        except Exception:
+            # 收尾评估失败不影响工具结果本身（下轮再评估）。
+            return
+
     def _ensure_task_for_effect(self, request: PiToolRequestV1) -> None:
         """P0-C（0824 总纲 §6.2）：effectful wire 工具执行前的原子
-        admission——缺动机输入诚实拒绝（INPUT_MOTIVATION_MISSING）。"""
+        admission——缺动机输入诚实拒绝（INPUT_MOTIVATION_MISSING）。
+        mode 取 mission 权威值（request 不携带 mode 字段）。"""
         kernel = self._service._task_kernel
         mission = self._service.get_mission(request.mission_id)
         kernel.ensure_task_for_effect(
@@ -392,14 +422,24 @@ class PiToolDispatcher:
         if name == "rosclaw_execute":
             self._note_embodiment_use(request)
             self._ensure_task_for_effect(request)
-            return await self._execute(request)
+            result = await self._execute(request)
+            self._coordinator_consider(request, result)
+            return result
         if name == "rosclaw_wait_operation":
             return await self._wait_operation(request)
         if name == "rosclaw_stop_operation":
             return await self._process_stop(request)
-        # PR-H4：Product Pack。
+        # PR-H4：Product Pack。P0-D：rosclaw_deliver 是模型面唯一
+        # 幂等交付入口（普通文件工具创建的交付物）；capability 产物
+        # 自动登记不走模型。
+        if name == "rosclaw_deliver":
+            result = await self._artifact_register(request)
+            self._coordinator_consider(request, result)
+            return result
         if name == "rosclaw_artifact_register":
-            return await self._artifact_register(request)
+            result = await self._artifact_register(request)
+            self._coordinator_consider(request, result)
+            return result
         if name == "rosclaw_task_finish":
             return await self._task_finish(request)
         if name == "rosclaw_task_blocked":

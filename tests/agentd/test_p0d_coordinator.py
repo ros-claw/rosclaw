@@ -17,8 +17,6 @@ import json
 import sqlite3
 from pathlib import Path
 
-import pytest
-
 
 def _kernel(home: Path):
     from rosclaw.storage.migrations import MigrationRunner
@@ -119,6 +117,8 @@ class TestAutoFinalize:
 
         kernel, _conn = _kernel(tmp_path)
         task_id = _make_task(kernel, tmp_path)
+        # 任务产出了部分交付物，但跟踪验收失败。
+        _register_file(kernel, tmp_path, task_id)
 
         def fake_verify(_task, _artifacts, _frozen):
             return {

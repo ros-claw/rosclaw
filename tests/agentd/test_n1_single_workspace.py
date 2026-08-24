@@ -50,7 +50,7 @@ class _WriteAndDoneFake:
         if has_tool_result:
             call_id = str(messages[-1].get("tool_call_id", ""))
             nxt = {
-                "call_write": ("call_art", "rosclaw_artifact_register", {"path": "note.txt"}),
+                "call_write": ("call_art", "rosclaw_deliver", {"path": "note.txt"}),
                 "call_art": ("call_fin", "rosclaw_task_finish", {"summary": "完成"}),
             }.get(call_id)
             if nxt is not None:

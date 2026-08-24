@@ -27,11 +27,12 @@ export const WORKSPACE_PACK: readonly string[] = [
 	"process_stop",
 ];
 
-/** Product Pack（PR-H4）：交付登记/收尾/阻塞——终态由 Verifier 决定。 */
+/** Product Pack（P0-D，0824 总纲 §8.1）：模型面只剩幂等
+ *  rosclaw_deliver（普通文件工具创建的交付物）——task_finish/
+ *  task_blocked/artifact_register 退出模型面（Coordinator 自动
+ *  收尾，capability 产物自动登记）。 */
 export const PRODUCT_PACK: readonly string[] = [
-	"rosclaw_artifact_register",
-	"rosclaw_task_finish",
-	"rosclaw_task_blocked",
+	"rosclaw_deliver",
 ];
 
 /** Embodiment Pack：具身/安全链（rosclawd 权威不变）。
@@ -50,8 +51,8 @@ export const EMBODIMENT_PACK: readonly string[] = [
 	"rosclaw_memory_query",
 	"rosclaw_inspect",
 	"rosclaw_fail_safe",
-	// operation 等待/停止（PR-H5 统一执行入口已退出模型面——N5D）
-	"rosclaw_wait_operation",
+	// operation 停止（P0-D：轮询式 wait_operation 退出模型面——
+	// Operation 事件流驱动，模型不轮询）
 	"rosclaw_stop_operation",
 ];
 
