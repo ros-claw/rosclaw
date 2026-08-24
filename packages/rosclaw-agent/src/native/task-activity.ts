@@ -133,10 +133,13 @@ export function renderArtifactList(
 ): string[] {
 	if (!artifacts.length) return ["（当前任务无产物登记）"];
 	return artifacts.map((a) => {
-		const name = String(a.path ?? "").split("/").pop() ?? "";
+		const path = String(a.path ?? "");
+		const name = path.split("/").pop() ?? "";
 		const size = Number(a.size_bytes ?? 0);
 		const sha = String(a.sha256 ?? "").slice(0, 7);
 		const media = String(a.media_type ?? "");
-		return `◆ ${name}  ${size} 字节  sha:${sha}  ${media}`.trimEnd();
+		// P0-H：OSC8 超链接——终端可点击打开交付物。
+		const link = `\x1b]8;;file://${path}\x07${name}\x1b]8;;\x07`;
+		return `◆ ${link}  ${size} 字节  sha:${sha}  ${media}`.trimEnd();
 	});
 }

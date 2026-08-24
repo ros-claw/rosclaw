@@ -26,7 +26,7 @@ describe("P0-H 无 engine 痕迹", () => {
 			action_readiness: { state: "ready" },
 			snapshot_seq: 1,
 		} as never;
-		for (const out of [renderHeader(snap, "zh"), renderFooter(snap, "zh")]) {
+		for (const out of [renderHeader(snap, "zh-CN"), renderFooter(snap, "zh-CN")]) {
 			assert.ok(!/pi-coding-agent|Pi SDK|powered by pi/i.test(out),
 				`chrome 含 engine 痕迹: ${out.slice(0, 120)}`);
 		}
@@ -88,7 +88,7 @@ describe("P0-H Working 单行", () => {
 		const { phaseWorkingMessage } = await import("../src/extension/activity.js");
 		for (const msg of [
 			phaseWorkingMessage({ currentTool: "bash", operation: null }),
-			phaseWorkingMessage({ currentTool: "", operation: "op_1" }),
+			phaseWorkingMessage({ currentTool: "", operation: { id: "op_1", label: "op_1" } }),
 		]) {
 			assert.ok(!msg.includes("\n"), `working message 多行: ${msg}`);
 		}

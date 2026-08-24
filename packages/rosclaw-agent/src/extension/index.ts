@@ -51,6 +51,7 @@ import { ROSCLAW_SHORTCUTS } from "./shortcuts.js";
 import { StableIdDeduper } from "./dedup.js";
 import { AutoNamer } from "../session/auto-name.js";
 import { formatPolicyAutoNotice } from "../ui/tool-display.js";
+import { classifyNotice, NotificationLevelFilter } from "../ui/levels.js";
 
 export interface RosclawExtensionOptions {
 	profile: "developer" | "robot";
@@ -155,13 +156,25 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 		(center.noteWorkspace?.bind(center) as ((d?: string) => void) | undefined)?.(
 			ctxLabel,
 		);
+		pi.registerCommand("debug", {
+			description: "切换调试信息层（治理/审计机制细节默认隐藏）",
+			handler: async (_args, ctx) => {
+				levelFilter.toggle();
+				ctx.ui.notify(
+					levelFilter.visible("debug")
+						? "调试信息层已开启（approval/grant/lease 等机制细节可见）"
+						: "调试信息层已关闭",
+					"info",
+				);
+			},
+		});
 		pi.registerCommand("workspace", {
 			description: "项目 workspace：/workspace show | use <path> | recent",
 			handler: async (args, ctx) => {
 				const sub = args.trim();
 				if (!sub || sub === "show") {
 					const current = workspaceStore.current;
-					ctx.ui.notify(
+					notifyLeveled(ctx, 
 						current ? `当前 Project：${current}` : "未绑定 Project（从 git 仓库内启动自动绑定，或 /workspace use <path>）",
 						"info",
 					);
@@ -169,7 +182,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				}
 				if (sub === "recent") {
 					const recent = workspaceStore.recent;
-					ctx.ui.notify(
+					notifyLeveled(ctx, 
 						recent.length ? `最近的 workspace：\n${recent.join("\n")}` : "（无最近记录）",
 						"info",
 					);
@@ -182,13 +195,13 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 						(center.noteWorkspace?.bind(center) as ((d?: string) => void) | undefined)?.(
 							workspaceStore.displayName(),
 						);
-						ctx.ui.notify(`已绑定 Project：${bound}`, "info");
+						notifyLeveled(ctx, `已绑定 Project：${bound}`, "info");
 					} catch (err) {
-						ctx.ui.notify(`绑定失败：${(err as Error).message}`, "error");
+						notifyLeveled(ctx, `绑定失败：${(err as Error).message}`, "error");
 					}
 					return;
 				}
-				ctx.ui.notify("用法：/workspace show | use <path> | recent", "warning");
+				notifyLeveled(ctx, "用法：/workspace show | use <path> | recent", "warning");
 			},
 		});
 		pi.on("session_start", async (_event, ctx) => {
@@ -200,7 +213,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				...MODEL_TOOL_NAMES,
 			]);
 			if (options.workspaceAutoBound && workspaceStore.current) {
-				ctx.ui.notify(`已自动绑定 Project：${workspaceStore.current}（/workspace show 查看）`, "info");
+				notifyLeveled(ctx, `已自动绑定 Project：${workspaceStore.current}（/workspace show 查看）`, "info");
 			}
 		});
 		pi.on("session_shutdown", async () => {
@@ -220,7 +233,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 						verdict?: string; lines?: string[];
 					};
 					if (result.ok && report.lines?.length) {
-						ctx.ui.notify(
+						notifyLeveled(ctx, 
 							`已恢复（${report.verdict ?? "?"}）\n${report.lines.join("\n")}`,
 							report.verdict === "RESUMED" ? "info" : "warning",
 						);
@@ -332,9 +345,9 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				// 丢失——helpers 在但未调用，行为测试首跑抓到）：
 				// 空 reason 不渲染悬空冒号；READY 恢复正面清除。
 				if (state === "BROKEN") {
-					ctx.ui.notify(formatKitBrokenHint(kit ?? {}, loc), "warning");
+					notifyLeveled(ctx, formatKitBrokenHint(kit ?? {}, loc), "warning");
 				} else if (state === "READY" && prev === "BROKEN") {
-					ctx.ui.notify(
+					notifyLeveled(ctx, 
 						formatKitRecoveredHint(
 							center.snapshot().body_display ?? "", loc,
 						),
@@ -512,7 +525,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			description: "开始新任务（当前任务保持可恢复）",
 			handler: async (_args, ctx) => {
 				inputController.forceNewNext = true;
-				ctx.ui.notify("下一条消息将开始新任务", "info");
+				notifyLeveled(ctx, "下一条消息将开始新任务", "info");
 			},
 		});
 		pi.registerCommand("done", {
@@ -520,7 +533,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			handler: async (_args, ctx) => {
 				const doneTaskId = await inputController.activeTaskId();
 				if (!doneTaskId) {
-					ctx.ui.notify("当前没有活跃任务", "warning");
+					notifyLeveled(ctx, "当前没有活跃任务", "warning");
 					return;
 				}
 				try {
@@ -530,15 +543,15 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 						task_id: doneTaskId,
 					});
 					if (r.ok === false) {
-						ctx.ui.notify(`不能接受：${String(r.error ?? '')}`, "warning");
+						notifyLeveled(ctx, `不能接受：${String(r.error ?? '')}`, "warning");
 						return;
 					}
-					ctx.ui.notify(
+					notifyLeveled(ctx, 
 						`任务已接受（${doneTaskId.slice(0, 14)}…）`,
 						"info",
 					);
 				} catch (err) {
-					ctx.ui.notify(`操作失败：${(err as Error).message}`, "error");
+					notifyLeveled(ctx, `操作失败：${(err as Error).message}`, "error");
 				}
 			},
 		});
@@ -551,10 +564,10 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 					});
 					const tasks = (result.tasks ?? []) as Array<Record<string, unknown>>;
 					if (!tasks.length) {
-						ctx.ui.notify("当前没有任务", "info");
+						notifyLeveled(ctx, "当前没有任务", "info");
 						return;
 					}
-					ctx.ui.notify(
+					notifyLeveled(ctx, 
 						tasks
 							.map(
 								(t) =>
@@ -564,7 +577,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 						"info",
 					);
 				} catch (err) {
-					ctx.ui.notify(`查询失败：${(err as Error).message}`, "error");
+					notifyLeveled(ctx, `查询失败：${(err as Error).message}`, "error");
 				}
 			},
 		});
@@ -573,7 +586,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			handler: async (_args, ctx) => {
 				const infoTaskId = await inputController.latestTaskId();
 				if (!infoTaskId) {
-					ctx.ui.notify("当前没有绑定任务", "warning");
+					notifyLeveled(ctx, "当前没有绑定任务", "warning");
 					return;
 				}
 				try {
@@ -581,7 +594,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 						task_id: infoTaskId,
 					});
 					const task = (result.task ?? {}) as Record<string, unknown>;
-					ctx.ui.notify(
+					notifyLeveled(ctx, 
 						`任务 ${String(task.task_id).slice(0, 14)}…\n` +
 							`状态: ${String(task.state)}\n` +
 							`revision: ${String(task.active_revision)}\n` +
@@ -590,7 +603,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 						"info",
 					);
 				} catch (err) {
-					ctx.ui.notify(`查询失败：${(err as Error).message}`, "error");
+					notifyLeveled(ctx, `查询失败：${(err as Error).message}`, "error");
 				}
 			},
 		});
@@ -610,14 +623,14 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			description: "当前任务活动（阶段时间线——来自任务账本，非模型总结）",
 			handler: async (_args, ctx) => {
 				if (!(await inputController.latestTaskId())) {
-					ctx.ui.notify("当前没有绑定任务", "warning");
+					notifyLeveled(ctx, "当前没有绑定任务", "warning");
 					return;
 				}
 				try {
 					const events = await fetchTaskEvents();
-					ctx.ui.notify(renderTaskActivity(events).join("\n"), "info");
+					notifyLeveled(ctx, renderTaskActivity(events).join("\n"), "info");
 				} catch (err) {
-					ctx.ui.notify(`查询失败：${(err as Error).message}`, "error");
+					notifyLeveled(ctx, `查询失败：${(err as Error).message}`, "error");
 				}
 			},
 		});
@@ -625,14 +638,14 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			description: "当前任务后台进程输出（operation 日志尾部）",
 			handler: async (_args, ctx) => {
 				if (!(await inputController.latestTaskId())) {
-					ctx.ui.notify("当前没有绑定任务", "warning");
+					notifyLeveled(ctx, "当前没有绑定任务", "warning");
 					return;
 				}
 				try {
 					const events = await fetchTaskEvents();
-					ctx.ui.notify(renderOperationLogs(events).join("\n"), "info");
+					notifyLeveled(ctx, renderOperationLogs(events).join("\n"), "info");
 				} catch (err) {
-					ctx.ui.notify(`查询失败：${(err as Error).message}`, "error");
+					notifyLeveled(ctx, `查询失败：${(err as Error).message}`, "error");
 				}
 			},
 		});
@@ -640,7 +653,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			description: "当前任务交付物列表（登记才算交付）",
 			handler: async (_args, ctx) => {
 				if (!(await inputController.latestTaskId())) {
-					ctx.ui.notify("当前没有绑定任务", "warning");
+					notifyLeveled(ctx, "当前没有绑定任务", "warning");
 					return;
 				}
 				try {
@@ -648,9 +661,9 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 						task_id: await inputController.latestTaskId(),
 					});
 					const artifacts = (result.artifacts ?? []) as Array<Record<string, unknown>>;
-					ctx.ui.notify(renderArtifactList(artifacts).join("\n"), "info");
+					notifyLeveled(ctx, renderArtifactList(artifacts).join("\n"), "info");
 				} catch (err) {
-					ctx.ui.notify(`查询失败：${(err as Error).message}`, "error");
+					notifyLeveled(ctx, `查询失败：${(err as Error).message}`, "error");
 				}
 			},
 		});
@@ -694,7 +707,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 		};
 		const openTasksCenter = async (ctx: CmdCtx) => {
 			if (!options.active.current.missionId) {
-				ctx.ui.notify("未绑定 Mission——Task Panel 不可用", "warning");
+				notifyLeveled(ctx, "未绑定 Mission——Task Panel 不可用", "warning");
 				return;
 			}
 			const missionId = options.active.current.missionId;
@@ -713,7 +726,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 						const r = await center.call("pi.kernel.artifacts", { task_id: taskId });
 						return (r.artifacts ?? []) as Array<Record<string, unknown>>;
 					},
-					notify: (text, kind) => ctx.ui.notify(text, kind),
+					notify: (text, kind) => notifyLeveled(ctx, text, kind),
 					onClose: () => done(true),
 				});
 			}, { overlay: true });
@@ -751,7 +764,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			if (details.phase === "POLICY_AUTO") {
 				// WP-7：SIM 用户面隐藏 POLICY_AUTO/approval/grant 治理
 				// 术语（审计链在事件账本，用户给可理解的说明）。
-				ctx.ui.notify(
+				notifyLeveled(ctx, 
 					formatPolicyAutoNotice({ approvalId: details.approval_id }),
 					"info",
 				);
@@ -763,7 +776,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			// 明确告知等待态——tool 的 onUpdate partial 文本会被 TUI spinner
 			// 覆盖；spinner 行持续重绘，是执行中唯一稳定可见的通道。
 			ctx.ui.setWorkingMessage(`等待 Operator 决定（approval ${approvalId}）…默认拒绝`);
-			ctx.ui.notify(`等待 Operator 决定（approval ${approvalId}）…默认拒绝`, "info");
+			notifyLeveled(ctx, `等待 Operator 决定（approval ${approvalId}）…默认拒绝`, "info");
 			// P0-NA-14：经 approvals.get 精确拉卡（不扫 list）；拉取失败、
 			// 字段缺失或 display_hash 不一致 → fail-closed，不显示可批准卡。
 			let cardData: Record<string, unknown> | undefined;
@@ -816,7 +829,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				|| (displayHash !== "" && String(cardData.display_hash ?? "") !== displayHash)
 				|| !exactIntegrity
 			) {
-				ctx.ui.notify(
+				notifyLeveled(ctx, 
 					`授权卡不可用（${cardError || "字段缺失或 hash 不一致"}）——` +
 					"动作未执行。为安全起见本卡不可在此批准；请重新发起请求。",
 					"error",
@@ -853,7 +866,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 							approve,
 						},
 					)) as { ok: boolean; error?: string };
-					ctx.ui.notify(
+					notifyLeveled(ctx, 
 						decided.ok
 							? approve
 								? "已批准（等待执行回执）"
@@ -863,7 +876,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 					);
 				});
 			} catch (err) {
-				ctx.ui.notify(`授权卡交互失败：${(err as Error).message}`, "error");
+				notifyLeveled(ctx, `授权卡交互失败：${(err as Error).message}`, "error");
 			}
 		});
 
@@ -1027,6 +1040,18 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 		// NA-FIX-2：mirror 动态读 active（切换后不再写旧 mission）。
 		// WP-7：会话自动命名（见 input/tool_execution_start 接线）。
 		const autoNamer = new AutoNamer();
+		// P0-H：三层信息密度——debug 层（治理/审计机制细节）默认
+		// 隐藏，/debug 切换；conversation/activity 永远可见。
+		const levelFilter = new NotificationLevelFilter();
+		const notifyLeveled = (
+			ctx: { ui: { notify(t: string, k?: "info" | "warning" | "error"): void } },
+			text: string,
+			kind?: "info" | "warning" | "error",
+		): void => {
+			if (levelFilter.visible(classifyNotice(text))) {
+				ctx.ui.notify(text, kind);
+			}
+		};
 		const mirror = new EventMirror(
 			options.rosclawHome,
 			options.active.current.sessionId,
@@ -1076,16 +1101,16 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			notify: (message, type) => undefined,
 		};
 		pi.on("session_start", async (event, ctx) => {
-			options.coordinator.setNotify((message, type) => ctx.ui.notify(message, type));
-			lifecycle.notify = (message, type) => ctx.ui.notify(message, type);
+			options.coordinator.setNotify((message, type) => notifyLeveled(ctx, message, type));
+			lifecycle.notify = (message, type) => notifyLeveled(ctx, message, type);
 			try {
 				await handleSessionStart(lifecycle, event.reason, sessionIdOf(ctx));
 			} catch (err) {
-				ctx.ui.notify(`session 绑定异常：${(err as Error).message}`, "error");
+				notifyLeveled(ctx, `session 绑定异常：${(err as Error).message}`, "error");
 			}
 		});
 		pi.on("session_before_switch", async (event, ctx) => {
-			lifecycle.notify = (message, type) => ctx.ui.notify(message, type);
+			lifecycle.notify = (message, type) => notifyLeveled(ctx, message, type);
 			// 只读预检：target 文件头可解析——绑定动作在 session_start
 			// （此时 target 已是活动 session，id 无歧义）。
 			const veto = await shouldCancelSwitch(event.targetSessionFile, (file) => {
@@ -1098,19 +1123,19 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				}
 			});
 			if (veto) {
-				ctx.ui.notify(veto, "warning");
+				notifyLeveled(ctx, veto, "warning");
 				return { cancel: true };
 			}
 			return undefined;
 		});
 		pi.on("session_before_tree", async (_event, ctx) => {
-			lifecycle.notify = (message, type) => ctx.ui.notify(message, type);
+			lifecycle.notify = (message, type) => notifyLeveled(ctx, message, type);
 			const veto = await shouldCancelTree({
 				rosclawHome: options.rosclawHome,
 				missionId: options.active.current.missionId,
 			});
 			if (veto) {
-				ctx.ui.notify(veto, "warning");
+				notifyLeveled(ctx, veto, "warning");
 				return { cancel: true };
 			}
 			return undefined;

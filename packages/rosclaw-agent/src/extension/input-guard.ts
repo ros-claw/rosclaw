@@ -46,6 +46,8 @@ const ROSCLAW_COMMANDS = new Set([
 	// WP-7：会话面（/switch 原 /resume——与 Pi 内置冲突改名）。
 	"/sessions",
 	"/switch",
+	// P0-H：调试信息层开关。
+	"/debug",
 ]);
 
 // Pi 内建（审计 §4 全表）——放行进内建 dispatch。
