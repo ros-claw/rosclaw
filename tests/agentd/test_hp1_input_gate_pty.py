@@ -151,11 +151,24 @@ class TestInputPersistedGate:
                 f"input.persisted({persisted_at}) 晚于首个模型请求"
                 f"({fake.fake.first_request_at})——输入门被破坏"
             )
-            # 一等列携带：session/task/revision/model_visible。
+            # 一等列携带：session/model_visible。P0-C（0824 总纲
+            # §6.1）：persist 不再逐条 bind task——input.persisted
+            # 不再携带 task_id（任务在首个 effectful call 才附着，
+            # 可经 user_inputs.task_id 追溯）；纯对话输入（你好）
+            # 必须保持 tasks=0。
             assert persisted[2], "input.persisted 缺 session_id 列"
-            assert persisted[3], "input.persisted 缺 task_id 列"
-            assert persisted[4] is not None
-            assert persisted[5] == 1
+            assert persisted[5] == 1, "input.persisted 缺 model_visible 列"
+            db2 = sqlite3.connect(home / "agentd" / "missions.db")
+            try:
+                task_count = db2.execute(
+                    "SELECT COUNT(*) FROM tasks"
+                ).fetchone()[0]
+            finally:
+                db2.close()
+            assert task_count == 0, (
+                "P0-C 契约破坏：纯对话输入创建了 Task（问候/解释/"
+                "只读查询必须 tasks=0）"
+            )
             session.expect_with_resend(b"rosclaw continue", "/quit\r", timeout=60)
             session.proc.wait(timeout=30)
         finally:

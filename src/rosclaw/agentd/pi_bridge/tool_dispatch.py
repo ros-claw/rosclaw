@@ -273,6 +273,18 @@ class PiToolDispatcher:
         # 5. 分发。
         return await self._dispatch(request)
 
+    def _ensure_task_for_effect(self, request: PiToolRequestV1) -> None:
+        """P0-C（0824 总纲 §6.2）：effectful wire 工具执行前的原子
+        admission——缺动机输入诚实拒绝（INPUT_MOTIVATION_MISSING）。"""
+        kernel = self._service._task_kernel
+        kernel.ensure_task_for_effect(
+            mission_id=request.mission_id,
+            session_ref=request.pi_session_id,
+            backend_native_id=request.pi_session_id,
+            cwd="",
+            mode=request.mode or "SIMULATION",
+        )
+
     async def _dispatch(self, request: PiToolRequestV1) -> PiToolResultV1:
         service = self._service
         name = request.tool_name
@@ -368,6 +380,7 @@ class PiToolDispatcher:
             )
         if name == "rosclaw_request_action":
             self._note_embodiment_use(request)
+            self._ensure_task_for_effect(request)
             return await self._request_action(request)
         if name == "rosclaw_task":
             self._note_embodiment_use(request)
@@ -377,6 +390,7 @@ class PiToolDispatcher:
         # PR-H5：统一执行入口 + operation 控制。
         if name == "rosclaw_execute":
             self._note_embodiment_use(request)
+            self._ensure_task_for_effect(request)
             return await self._execute(request)
         if name == "rosclaw_wait_operation":
             return await self._wait_operation(request)
@@ -390,6 +404,7 @@ class PiToolDispatcher:
         if name == "rosclaw_task_blocked":
             return await self._task_blocked(request)
         if name == "rosclaw_process_start":
+            self._ensure_task_for_effect(request)
             return await self._process_start(request)
         if name == "rosclaw_process_status":
             return await self._process_status(request)

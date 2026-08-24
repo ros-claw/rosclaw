@@ -322,10 +322,14 @@ def _chat_pi(home: Path, args: argparse.Namespace) -> int:
     from rosclaw.version_diag import (
         assert_installation_coherent,
         collect_diagnostics,
+        is_stamped_install,
     )
 
     try:
-        assert_installation_coherent(collect_diagnostics(home=home))
+        # 只约束带构建戳的安装产物；源码 checkout（无戳）不阻断
+        # ——开发树 python/TS 各自演进是常态。
+        if is_stamped_install():
+            assert_installation_coherent(collect_diagnostics(home=home))
     except SystemExit as exc:
         print(str(exc), file=sys.stderr)
         return 2

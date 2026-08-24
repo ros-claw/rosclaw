@@ -227,6 +227,18 @@ export async function createRosclawRuntime(
 					// 凭据/控制 token/bridge socket 不经 shell 可达）。
 					mode: () => active.current.mode,
 					rosclawHome: options.rosclawHome,
+					// P0-C：bash/write/edit 执行前的原子 admission
+					// （首个 effectful call 建 task——动机=session
+					// 最新输入）。
+					beforeEffect: async () => {
+						await center.call("pi.task.ensure_effect", {
+							mission_id: active.current.missionId ?? "",
+							session_ref: active.current.sessionId ?? "",
+							backend_native_id: active.current.sessionId ?? "",
+							cwd,
+							mode: active.current.mode ?? "SIMULATION",
+						});
+					},
 				}),
 				// PR-H3：process 工具（长 Operation——立即返回 operation_id）。
 				...buildProcessTools({

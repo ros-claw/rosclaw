@@ -180,6 +180,13 @@ def mixed_build_reason(diag: dict[str, Any]) -> str | None:
     )
 
 
+def is_stamped_install() -> bool:
+    """是否带构建戳的安装（CI wheel）。源码 checkout 无戳——
+    chat 门禁只约束安装产物（开发树 python/TS 各自演进是常态，
+    mixed 状态在 version --diagnostic 可见但不阻断）。"""
+    return (_pkg_root() / _STAMP_NAME).exists()
+
+
 def assert_installation_coherent(diag: dict[str, Any]) -> None:
     """chat 启动门禁：混合构建直接阻断（SystemExit）。"""
     reason = mixed_build_reason(diag)
@@ -221,6 +228,7 @@ def cmd_version(*, diagnostic: bool, as_json: bool,
 
 __all__ = [
     "assert_installation_coherent",
+    "is_stamped_install",
     "cmd_version",
     "collect_diagnostics",
     "eurdf_generation",

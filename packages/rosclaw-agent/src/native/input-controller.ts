@@ -42,40 +42,64 @@ export class InputController {
 
 	constructor(private readonly deps: InputControllerDeps) {}
 
-	/** 输入事务：先落账绑定，再决定是否投递。返回 null = 不投递。 */
-	async bind(text: string): Promise<TaskBindResult | null> {
+	/** P0-C（0824 总纲 §6.1）：输入先落会话（pi.input.persist——
+	 *  不立即创建 Task；persist 失败不投递，HP1 防线语义不变）。
+	 *  返回 null = 不投递。 */
+	async persist(text: string): Promise<{ input_id?: string } | null> {
 		const messageId = `msg_${randomUUID()}`;
 		try {
-			const result = (await this.deps.call("pi.task.bind", {
+			const result = (await this.deps.call("pi.input.persist", {
 				mission_id: this.deps.missionId(),
 				session_ref: this.deps.sessionRef(),
 				backend_native_id: this.deps.backendNativeId(),
 				message_id: messageId,
 				text,
-				cwd: this.deps.cwd(),
-				body_id: this.deps.bodyId?.() ?? "",
 				force_new: this.forceNewNext,
-			})) as unknown as TaskBindResult & { ok?: boolean };
+			})) as unknown as { ok?: boolean; input?: { input_id?: string } };
 			this.forceNewNext = false;
-			this.currentTaskId = result.task_id;
-			this.currentRevision = result.revision;
-			// PR-HP1：投递确认——persisted 之后、Harness 处理之前落
-			// input.dispatched（顺序不变量由 bridge 强制：未 persisted
-			// 的 message 打标即被拒）。失败不阻断——persisted 已是
-			// 权威证据，dispatched 是审计增强。
 			this.deps.call("pi.input.dispatched", {
 				mission_id: this.deps.missionId(),
 				message_id: messageId,
 			}).catch(() => undefined);
-			return result;
+			return result.input ?? {};
 		} catch (err) {
-			// 绑定失败不投递（幽灵执行防线）：消息不消失于沉默——
+			// 持久化失败不投递（幽灵执行防线）：消息不消失于沉默——
 			// 明确通知用户重发。
 			this.deps.notify(
-				`任务绑定失败（消息未发送，请重试）：${(err as Error).message}`.slice(0, 200),
+				`输入持久化失败（消息未发送，请重试）：${(err as Error).message}`.slice(0, 200),
 				"error",
 			);
 			return null;
+		}
+	}
+
+	/** P0-C：活跃 task 来自内核查询（同一事实源）——不再依赖
+	 *  bind 返回值（输入不再逐条建 task）。 */
+	async activeTaskId(): Promise<string> {
+		try {
+			const result = await this.deps.call("pi.kernel.active", {
+				mission_id: this.deps.missionId(),
+				session_ref: this.deps.sessionRef(),
+			});
+			const task = result.task as { task_id?: string } | null | undefined;
+			return String(task?.task_id ?? "");
+		} catch {
+			return "";
+		}
+	}
+
+	/** 最近 task（含刚终态）——/activity /logs /artifacts 的展示
+	 *  目标（终态不抹掉刚完成的任务账本）。 */
+	async latestTaskId(): Promise<string> {
+		try {
+			const result = await this.deps.call("pi.kernel.latest", {
+				mission_id: this.deps.missionId(),
+				session_ref: this.deps.sessionRef(),
+			});
+			const task = result.task as { task_id?: string } | null | undefined;
+			return String(task?.task_id ?? "");
+		} catch {
+			return "";
 		}
 	}
 }

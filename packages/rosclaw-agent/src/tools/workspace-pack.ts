@@ -87,6 +87,10 @@ export interface WorkspacePackOptions {
 	/** 操作者显式授权的无沙箱降级（仅 SIM；bwrap 不可用的主机——
 	 *  等价 ROSCLAW_ALLOW_UNSANDBOXED_SHELL=1）。 */
 	allowUnsandboxedShell?: () => boolean;
+	/** P0-C（0824 总纲 §6.2）：effectful 工具执行前的原子
+	 *  admission（ensure_task_for_effect）——bash/write/edit
+	 *  执行前触发。 */
+	beforeEffect?: () => Promise<void>;
 }
 
 /** P0-6：沙箱内必须遮蔽的敏感路径（凭据/控制面/云凭据）。
@@ -134,6 +138,8 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 		async execute(_id, params, signal) {
 			const command = String(params.command ?? "").trim();
 			if (!command) return denied("empty command");
+			// P0-C：首个 effectful call 的原子 admission。
+			await options.beforeEffect?.();
 			const argv0 = command.split(/\s+/)[0].replace(/^\(.*\)\s*/, "");
 			const base = argv0.split("/").pop() ?? argv0;
 			if (DENIED_COMMAND.has(base)) {
@@ -260,6 +266,8 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 			content: Type.String(),
 		}),
 		async execute(_id, params) {
+			// P0-C：首个 effectful call 的原子 admission。
+			await options.beforeEffect?.();
 			try {
 				const p = resolveInRoot(root, String(params.path));
 				mkdirSync(dirname(p), { recursive: true });
@@ -286,6 +294,8 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 			newText: Type.String(),
 		}),
 		async execute(_id, params) {
+			// P0-C：首个 effectful call 的原子 admission。
+			await options.beforeEffect?.();
 			try {
 				const p = resolveInRoot(root, String(params.path));
 				const text = readFileSync(p, "utf-8");

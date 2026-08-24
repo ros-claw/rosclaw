@@ -411,10 +411,11 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			} catch {
 				// 落账失败不阻塞输入。
 			}
-			// PR-H2（ADR-0012 §9.3）：root task 输入事务——先绑定再
-			// 投递；绑定失败不投递（handled + 通知重发=无幽灵执行）。
-			const bound = await inputController.bind(text);
-			if (!bound) return { action: "handled" as const };
+			// P0-C（0824 总纲 §6.1）：输入先落会话（persist——不立即
+			// 创建 Task；hello/解释/只读查询 tasks=0）。持久化失败不
+			// 投递（handled + 通知重发=无幽灵执行，HP1 语义不变）。
+			const persisted = await inputController.persist(text);
+			if (!persisted) return { action: "handled" as const };
 			return { action: "continue" as const };
 		});
 
@@ -529,7 +530,8 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 		pi.registerCommand("done", {
 			description: "接受当前任务（用户验收——之后的新目标是新任务）",
 			handler: async (_args, ctx) => {
-				if (!inputController.currentTaskId) {
+				const doneTaskId = await inputController.activeTaskId();
+				if (!doneTaskId) {
 					ctx.ui.notify("当前没有活跃任务", "warning");
 					return;
 				}
@@ -537,14 +539,14 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 					// PR-N0：/done = 用户接受（user_accepted_at）——此后
 					// 新消息开新任务；未接受的 SUCCEEDED 被用户修正重开。
 					const r = await center.call("pi.kernel.accept", {
-						task_id: inputController.currentTaskId,
+						task_id: doneTaskId,
 					});
 					if (r.ok === false) {
 						ctx.ui.notify(`不能接受：${String(r.error ?? '')}`, "warning");
 						return;
 					}
 					ctx.ui.notify(
-						`任务已接受（${inputController.currentTaskId.slice(0, 14)}…）`,
+						`任务已接受（${doneTaskId.slice(0, 14)}…）`,
 						"info",
 					);
 				} catch (err) {
@@ -581,13 +583,14 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 		pi.registerCommand("taskinfo", {
 			description: "当前任务详情（root task/revision/workspace/状态）",
 			handler: async (_args, ctx) => {
-				if (!inputController.currentTaskId) {
+				const infoTaskId = await inputController.latestTaskId();
+				if (!infoTaskId) {
 					ctx.ui.notify("当前没有绑定任务", "warning");
 					return;
 				}
 				try {
 					const result = await center.call("pi.kernel.get", {
-						task_id: inputController.currentTaskId,
+						task_id: infoTaskId,
 					});
 					const task = (result.task ?? {}) as Record<string, unknown>;
 					ctx.ui.notify(
@@ -607,9 +610,10 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 		// -- PR-H8：Task Activity/Logs/Artifacts（数据全部来自 TaskKernel
 		//    事件流/产物账本，不经 LLM——假进度不可能） --------------------
 		const fetchTaskEvents = async (): Promise<KernelEvent[]> => {
-			if (!inputController.currentTaskId) return [];
+			const taskId = await inputController.latestTaskId();
+			if (!taskId) return [];
 			const result = await center.call("pi.kernel.events", {
-				task_id: inputController.currentTaskId,
+				task_id: taskId,
 				after_seq: 0,
 			});
 			return (result.events ?? []) as KernelEvent[];
@@ -617,7 +621,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 		pi.registerCommand("activity", {
 			description: "当前任务活动（阶段时间线——来自任务账本，非模型总结）",
 			handler: async (_args, ctx) => {
-				if (!inputController.currentTaskId) {
+				if (!(await inputController.latestTaskId())) {
 					ctx.ui.notify("当前没有绑定任务", "warning");
 					return;
 				}
@@ -632,7 +636,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 		pi.registerCommand("logs", {
 			description: "当前任务后台进程输出（operation 日志尾部）",
 			handler: async (_args, ctx) => {
-				if (!inputController.currentTaskId) {
+				if (!(await inputController.latestTaskId())) {
 					ctx.ui.notify("当前没有绑定任务", "warning");
 					return;
 				}
@@ -647,13 +651,13 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 		pi.registerCommand("artifacts", {
 			description: "当前任务交付物列表（登记才算交付）",
 			handler: async (_args, ctx) => {
-				if (!inputController.currentTaskId) {
+				if (!(await inputController.latestTaskId())) {
 					ctx.ui.notify("当前没有绑定任务", "warning");
 					return;
 				}
 				try {
 					const result = await center.call("pi.kernel.artifacts", {
-						task_id: inputController.currentTaskId,
+						task_id: await inputController.latestTaskId(),
 					});
 					const artifacts = (result.artifacts ?? []) as Array<Record<string, unknown>>;
 					ctx.ui.notify(renderArtifactList(artifacts).join("\n"), "info");
@@ -667,7 +671,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 		let activityWidgetOn = false;
 		const refreshActivityWidget = async (): Promise<void> => {
 			if (!activityWidgetOn || !latestCtx?.hasUI) return;
-			if (!inputController.currentTaskId) {
+			if (!(await inputController.latestTaskId())) {
 				latestCtx.ui.setWidget("rosclaw-activity", ["（当前没有绑定任务）"]);
 				return;
 			}

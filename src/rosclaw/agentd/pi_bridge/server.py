@@ -992,6 +992,54 @@ class PiBridgeServer:
                 stored += 1
             service._store.connection.commit()
             return {"ok": True, "stored": stored}
+        if method == "pi.input.persist":
+            # P0-C（0824 总纲 §6.1）：输入先落会话——不立即创建
+            # Task（问候/解释/只读查询 tasks=0）。持久化失败照样
+            # 阻断投递（HP1 输入丢失防线语义不变）。
+            kernel = service._task_kernel
+            record = kernel.persist_input(
+                mission_id=str(params.get("mission_id", "")),
+                session_ref=str(params.get("session_ref", "")),
+                message_id=str(params.get("message_id", "")),
+                text=str(params.get("text", "")),
+                force_new=bool(params.get("force_new", False)),
+            )
+            import hashlib as _hashlib  # noqa: F401
+
+            from rosclaw.contracts.agent.agent_event import AgentEventType
+
+            text = str(params.get("text", ""))
+            await service._events.append(
+                str(params.get("mission_id", "")),
+                AgentEventType.INPUT_PERSISTED,
+                {
+                    "message_id": str(params.get("message_id", "")),
+                    "text_sha256": _hashlib.sha256(text.encode()).hexdigest(),
+                    "bytes": len(text.encode()),
+                    "task_bound": False,
+                },
+                session_id=str(params.get("session_ref", "")),
+                model_visible=True,
+            )
+            return {"ok": True, "input": record}
+        if method == "pi.task.ensure_effect":
+            # P0-C（0824 总纲 §6.2）：首个 effectful call 的原子
+            # admission——以 session 最新未附着输入为动机建 task/
+            # 新 revision；已附着直接返回（不重复 bump）。
+            kernel = service._task_kernel
+            try:
+                result = kernel.ensure_task_for_effect(
+                    mission_id=str(params.get("mission_id", "")),
+                    session_ref=str(params.get("session_ref", "")),
+                    backend_native_id=str(params.get("backend_native_id", "")),
+                    cwd=str(params.get("cwd", "")),
+                    mode=str(params.get("mode", "SIMULATION")),
+                    body_id=str(params.get("body_id", "")),
+                    explicit_goal=str(params.get("explicit_goal", "")),
+                )
+            except ValueError as exc:
+                return {"ok": False, "error": str(exc), "code": "INPUT_MOTIVATION_MISSING"}
+            return {"ok": True, **result}
         if method == "pi.task.bind":
             # PR-H2（ADR-0012）：输入事务——用户消息先落账+绑定 root
             # task，再投递 Harness（幽灵执行防线的权威端）。
@@ -1101,6 +1149,13 @@ class PiBridgeServer:
             ]
             return {"ok": True, "task": task, "revisions": revisions,
                     "events": events}
+        if method == "pi.kernel.latest":
+            # P0-C：最近 task（含刚终态）——/activity /logs /artifacts。
+            task = service._task_kernel.latest_task_for(
+                str(params.get("mission_id", "")),
+                str(params.get("session_ref", "")),
+            )
+            return {"ok": True, "task": task}
         if method == "pi.kernel.active":
             # PR-H4：TurnGuard 用——当前 session 的活跃 task（无则 null）。
             task = service._task_kernel.active_task_for(

@@ -46,6 +46,94 @@ class TaskKernel:
     # --------------------------------------------------------------
     # 输入事务（§9.3 Root Task 绑定算法）
     # --------------------------------------------------------------
+    def persist_input(
+        self, *, mission_id: str, session_ref: str, message_id: str,
+        text: str, force_new: bool = False,
+    ) -> dict[str, Any]:
+        """P0-C（0824 总纲 §6.1）：输入先落会话，不立即创建 Task。
+
+        message_id 幂等（重发/重放返回既有 input）；问候/解释/
+        只读查询永远只走这条路——tasks=0 直到首个 effectful call
+        或显式 /goal。"""
+        existing = self._conn.execute(
+            "SELECT * FROM user_inputs WHERE message_id = ?", (message_id,),
+        ).fetchone()
+        if existing is not None:
+            return dict(existing)
+        input_id = new_id("inp")
+        digest = hashlib.sha256(text.encode()).hexdigest()
+        state = "FORCE_NEW" if force_new else "PERSISTED"
+        self._conn.execute(
+            "INSERT INTO user_inputs (input_id, mission_id, session_ref, "
+            "message_id, text, text_digest, delivery_state, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (input_id, mission_id, session_ref, message_id, text,
+             f"sha256:{digest}", state, datetime.now(UTC).isoformat()),
+        )
+        return {
+            "input_id": input_id, "mission_id": mission_id,
+            "session_ref": session_ref, "message_id": message_id,
+            "text": text, "text_digest": f"sha256:{digest}",
+            "task_id": None, "delivery_state": "PERSISTED",
+        }
+
+    def ensure_task_for_effect(
+        self, *, mission_id: str, session_ref: str, backend_native_id: str,
+        cwd: str, mode: str = "SIMULATION", body_id: str = "",
+        explicit_goal: str = "",
+    ) -> dict[str, Any]:
+        """P0-C（0824 总纲 §6.2）：首个 effectful call 的原子 admission。
+
+        以 session 最新未附着输入为动机：未附着 → 建 task/新
+        revision（沿用 bind_message 的全部身份语义）并回写
+        input.task_id；已附着 → 直接返回该 task（同一动机输入的
+        连续 effectful call 不重复 bump revision）。"""
+        row = self._conn.execute(
+            "SELECT * FROM user_inputs WHERE mission_id = ? AND "
+            "session_ref = ? ORDER BY created_at DESC, rowid DESC LIMIT 1",
+            (mission_id, session_ref),
+        ).fetchone()
+        if row is None and not explicit_goal:
+            raise ValueError(
+                "INPUT_MOTIVATION_MISSING: 无持久化输入——effectful "
+                "call 缺少动机输入，不猜目标"
+            )
+        if row is not None and row["task_id"]:
+            task = self.get_task(str(row["task_id"]))
+            if task is not None:
+                return {
+                    "task_id": str(task["task_id"]),
+                    "revision": int(task["active_revision"]),
+                    "created_task": False,
+                    "replayed": False,
+                    "workspace_path": str(task["workspace_path"]),
+                    "state": str(task["state"]),
+                }
+        bound = self.bind_message(
+            mission_id=mission_id,
+            session_ref=session_ref,
+            backend_native_id=backend_native_id,
+            message_id=(
+                str(row["message_id"]) if row is not None
+                else f"goal_{new_id('msg')}"
+            ),
+            text=explicit_goal or str(row["text"]),
+            cwd=cwd, mode=mode, body_id=body_id,
+            # /newtask：该输入被显式要求开新任务。
+            force_new=(
+                row is not None and row["delivery_state"] == "FORCE_NEW"
+            ),
+        )
+        if row is not None:
+            self._conn.execute(
+                "UPDATE user_inputs SET task_id = ? WHERE message_id = ?",
+                (str(bound["task_id"]), str(row["message_id"])),
+            )
+        return bound
+
+    # --------------------------------------------------------------
+    # 输入事务（§9.3 Root Task 绑定算法）
+    # --------------------------------------------------------------
     def bind_message(
         self,
         *,
@@ -329,6 +417,18 @@ class TaskKernel:
         if state in TASK_TERMINAL:
             self._emit(task_id, "task.terminal",
                        {"state": state, "reason": reason[:200]})
+
+    def latest_task_for(self, mission_id: str, session_ref: str) -> dict | None:
+        """P0-C：session 最近 task（含刚终态）——/activity /logs
+        /artifacts 展示最近任务的活动账本（终态不抹掉历史）。"""
+        row = self._conn.execute(
+            "SELECT t.* FROM tasks t JOIN task_session_bindings b "
+            "ON b.task_id = t.task_id "
+            "WHERE t.mission_id = ? AND b.session_ref = ? "
+            "ORDER BY t.created_at DESC LIMIT 1",
+            (mission_id, session_ref),
+        ).fetchone()
+        return dict(row) if row else None
 
     def active_task_for(self, mission_id: str, session_ref: str) -> dict | None:
         row = self._conn.execute(
