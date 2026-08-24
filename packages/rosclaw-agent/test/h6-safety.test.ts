@@ -5,7 +5,10 @@
  * 2. REAL/SHADOW 模式 bash 必须 bwrap 强隔离（无 bwrap → fail
  *    closed 诚实拒绝，不裸跑）；
  * 3. bwrap 内：无网络、无 /dev 写、workspace 可写、其余只读；
- * 4. SIM 模式保持现状（不 bwrap——效率优先，env 剥离已在 H1）。
+ * 4. SIM 模式在 H6 曾不沙箱（效率优先）——P0-6（0823 审计）
+ *    起全模式沙箱：SIM 裸跑可绕过治理（读凭据/控制 token、
+ *    直调 bridge socket），无 bwrap 主机 SIM 降级需操作者显式
+ *    授权且带 TOOL_LAYER_ONLY 标记。
  */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";

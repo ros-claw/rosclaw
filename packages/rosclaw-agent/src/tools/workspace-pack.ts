@@ -71,8 +71,9 @@ function scrubEnv(source: NodeJS.ProcessEnv): Record<string, string> {
 export interface WorkspacePackOptions {
 	/** 项目根（write/edit 的作用域；bash 的 cwd）。 */
 	root: string;
-	/** 当前模式（PR-H6：REAL/SHADOW → bash 必须 bwrap 强隔离；
-	 *  无 bwrap fail closed）。 */
+	/** 当前模式（P0-6：全模式 bash 必须 bwrap 强隔离——无 bwrap
+	 *  REAL/SHADOW fail closed；SIM 仅在操作者显式授权下降级
+	 *  （TOOL_LAYER_ONLY 标记），否则同样 fail closed）。 */
 	mode?: () => string;
 	/** bwrap 路径探测（测试可注入）。 */
 	bwrapPath?: () => string | null;
@@ -80,6 +81,33 @@ export interface WorkspacePackOptions {
 	bashLogPath?: string;
 	/** 显式默认超时（运营配置；默认无定时器）。 */
 	defaultBashTimeoutMs?: number;
+	/** rosclaw home（P0-6：沙箱内遮蔽其 agent/agentd/run——凭据/
+	 *  控制 token/bridge socket 不经 shell 可达，治理不可绕过）。 */
+	rosclawHome?: string;
+	/** 操作者显式授权的无沙箱降级（仅 SIM；bwrap 不可用的主机——
+	 *  等价 ROSCLAW_ALLOW_UNSANDBOXED_SHELL=1）。 */
+	allowUnsandboxedShell?: () => boolean;
+}
+
+/** P0-6：沙箱内必须遮蔽的敏感路径（凭据/控制面/云凭据）。
+ *  无条件遮蔽（不过滤存在性）——--tmpfs 对不存在路径同样成立
+ *  （沙箱内呈现为空目录）：不向外泄漏"哪些路径存在"，会话中
+ *  新建的凭据文件也被覆盖。 */
+export function _sensitiveMasks(homeDir: string, rosclawHome?: string): string[] {
+	const candidates = [
+		`${homeDir}/.ssh`,
+		`${homeDir}/.gnupg`,
+		`${homeDir}/.aws`,
+		`${homeDir}/.config/gh`,
+		...(rosclawHome
+			? [`${rosclawHome}/agent`, `${rosclawHome}/agentd`, `${rosclawHome}/run`]
+			: []),
+	];
+	const args: string[] = [];
+	for (const path of candidates) {
+		args.push("--tmpfs", path);
+	}
+	return args;
 }
 
 export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefinition[] {
@@ -121,20 +149,39 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 				{ defaultTimeoutMs: options.defaultBashTimeoutMs },
 			);
 			const started = Date.now();
-			// PR-H6（§14.5）：REAL/SHADOW 模式的 shell 必须强隔离
-			// （bwrap：宿主只读、workspace 可写、无网络、无 /dev 写、
-			// env 已剥离）——无 bwrap fail closed，绝不裸跑。
+			// P0-6（0823 审计）：全模式 shell 必须 bwrap 强隔离——
+			// SIM auto 下 Harness Shell 裸跑可绕过治理（读凭据/
+			// 控制 token、直调 bridge socket、写项目源码树）。
+			// 无 bwrap：REAL/SHADOW fail closed（H6 不变）；SIM 仅在
+			// 操作者显式授权下降级（TOOL_LAYER_ONLY 诚实标记）。
 			const mode = options.mode?.() ?? "SIMULATION";
-			const sandboxed = mode === "REAL" || mode === "SHADOW";
+			const strict = mode === "REAL" || mode === "SHADOW";
 			// options.bwrapPath 存在即以它为准（测试注入 null =
 			// 强制不可用）；未注入才真实探测。
 			const bwrap = options.bwrapPath
 				? options.bwrapPath()
 				: (_bwrapAvailable() ? "/usr/bin/bwrap" : null);
-			if (sandboxed && !bwrap) {
-				return denied(
-					`${mode} 模式 shell 需要 bwrap 强隔离——本机无 bwrap，fail closed（不裸跑）`,
-				);
+			const sandboxed = bwrap !== null;
+			let degradedMarker = "";
+			if (!sandboxed) {
+				const degradedAllowed = !strict
+					&& (options.allowUnsandboxedShell?.() === true
+						|| process.env.ROSCLAW_ALLOW_UNSANDBOXED_SHELL === "1");
+				if (!degradedAllowed) {
+					return denied(
+						`${mode} 模式 shell 需要 bwrap 强隔离——本机无可用 bwrap`
+						+ "（user namespace 受限），fail closed（不裸跑）。"
+						+ (strict
+							? ""
+							: " SIM 下如确需无沙箱 shell，操作者须显式授权："
+								+ "ROSCLAW_ALLOW_UNSANDBOXED_SHELL=1（结果带 "
+								+ "TOOL_LAYER_ONLY 标记）"),
+					);
+				}
+				degradedMarker =
+					"[TOOL_LAYER_ONLY: 本机无 OS 沙箱（bwrap 不可用）——"
+					+ "操作者显式授权的降级运行，凭据/控制面在 shell 可达"
+					+ "（风险已告知）]\n";
 			}
 			const output = await new Promise<string>((resolvePromise) => {
 				let spawnCmd = "sh";
@@ -143,6 +190,12 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 					spawnCmd = bwrap;
 					spawnArgs = [
 						"--ro-bind", "/", "/",
+						// P0-6：凭据/控制面遮蔽（顺序在 ro-bind 之后、
+						// workspace rw 之前——socket/token/私钥不可读，
+						// 治理链不可经 shell 绕过）。
+						..._sensitiveMasks(
+							process.env.HOME ?? "", options.rosclawHome,
+						),
 						"--bind", root, root, // workspace 可写（其余宿主只读）
 						"--unshare-net",
 						"--dev", "/dev", // 全新 devtmpfs——真设备不可见
@@ -174,7 +227,9 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 					if (timer) clearTimeout(timer);
 					const head = `exit=${code ?? "signal"} wall=${Date.now() - started}ms`
 						+ (timedOut ? " TIMEOUT(explicit)" : "");
-					resolvePromise(`${head}\n${buf.slice(0, MAX_OUTPUT_BYTES)}`);
+					resolvePromise(
+						`${degradedMarker}${head}\n${buf.slice(0, MAX_OUTPUT_BYTES)}`,
+					);
 				});
 				child.on("error", (err) => {
 					if (timer) clearTimeout(timer);

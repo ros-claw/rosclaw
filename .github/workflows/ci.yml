@@ -59,6 +59,10 @@ jobs:
           cache-dependency-path: packages/rosclaw-agent/package-lock.json
       - run: npm ci
         working-directory: packages/rosclaw-agent
+      # P0-6：bubblewrap——OS 隔离实证测试（凭据遮蔽/无网络/越界
+      # 只读）需要真 bwrap；user namespace 在 ubuntu runner 可用。
+      - name: Install bubblewrap (OS isolation proof tests)
+        run: sudo apt-get update && sudo apt-get install -y bubblewrap
       - run: npm test
         working-directory: packages/rosclaw-agent
 
