@@ -49,6 +49,7 @@ import { MODEL_TOOL_NAMES } from "../tools/surface.js";
 import { fetchEmbodiedContext, renderTrustedContext } from "./context-injection.js";
 import { phaseWorkingMessage } from "./activity.js";
 import { ROSCLAW_SHORTCUTS } from "./shortcuts.js";
+import { StableIdDeduper } from "./dedup.js";
 import { AutoNamer } from "../session/auto-name.js";
 import { formatPolicyAutoNotice } from "../ui/tool-display.js";
 
@@ -894,6 +895,9 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 					)
 					: undefined,
 		);
+		// P0-A：同一动作的权威结果卡只渲染一张（provider retry/
+		// 事件重放不产生第二张卡）。
+		const actionCardDeduper = new StableIdDeduper();
 		// 每个 outcome 只校验紧随其后的第一段助手叙述；turn 结束清除。
 		let lastOutcome: (ActionResultData & { narrativeSeen?: boolean; conflictClaim?: string }) | null = null;
 		// PR-N9：结构化活动区——工具开始/结束驱动活动区文案
@@ -939,7 +943,12 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				errorCode: details.error_code ? String(details.error_code) : undefined,
 			};
 			lastOutcome = data;
-			pi.appendEntry("rosclaw.action_result", data);
+			// P0-A：稳定 ID（txn/action/approval/call 任一可用）upsert。
+			if (actionCardDeduper.check(
+				data.txnId ?? data.actionId ?? data.approvalId ?? "",
+			)) {
+				pi.appendEntry("rosclaw.action_result", data);
+			}
 		});
 		// 冲突检测：outcome 非 COMPLETED 而助手叙述自称完成 → 可见冲突标记。
 		// pi 事件模型：tool 执行属于"tool_call turn"——turn_end 先于下一轮

@@ -109,8 +109,20 @@ class AgentEventStore:
         call_id: str | None = None,
         operation_id: str | None = None,
         model_visible: bool | None = None,
+        event_id: str | None = None,
     ) -> AgentEventV2:
+        """落账一条事件。P0-A：调用方提供稳定 event_id 时幂等——
+        (session_id, event_id) unique；重复注入（provider retry/
+        断流重连/重放）返回既有事件且不重复 publish。"""
         async with self._lock:
+            if event_id is not None and session_id is not None:
+                existing = self._conn.execute(
+                    "SELECT * FROM agent_events WHERE session_id = ? "
+                    "AND event_id = ?",
+                    (session_id, event_id),
+                ).fetchone()
+                if existing is not None:
+                    return self._row_to_event(existing)
             row = self._conn.execute(
                 "SELECT COALESCE(MAX(sequence), 0) + 1 AS next_seq FROM agent_events "
                 "WHERE mission_id = ?",
@@ -118,7 +130,7 @@ class AgentEventStore:
             ).fetchone()
             sequence = int(row["next_seq"])
             event = AgentEventV2(
-                event_id=new_id("evt"),
+                event_id=event_id or new_id("evt"),
                 sequence=sequence,
                 mission_id=mission_id,
                 turn_id=turn_id,

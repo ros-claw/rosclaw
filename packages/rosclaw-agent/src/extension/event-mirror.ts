@@ -25,6 +25,9 @@ export function contentHash(text: string): string {
 export class EventMirror {
 	private queue: MirrorEvent[] = [];
 	private flushing = false;
+	// P0-A：provider retry/重连重放对同一 message 重复 push——
+	// 按 (event_type, entryId|content_hash) 去重，只镜像一次。
+	private readonly mirrored = new Set<string>();
 
 	constructor(
 		private readonly rosclawHome: string,
@@ -40,6 +43,10 @@ export class EventMirror {
 	}
 
 	push(eventType: string, options: { entryId?: string; text?: string; model?: string; usage?: Record<string, unknown> } = {}): void {
+		// P0-A：稳定键去重（entryId 优先；无 entryId 用内容 hash）。
+		const dedupKey = `${eventType}:${options.entryId || (options.text !== undefined ? contentHash(options.text) : "")}`;
+		if (dedupKey !== `${eventType}:` && this.mirrored.has(dedupKey)) return;
+		if (dedupKey !== `${eventType}:`) this.mirrored.add(dedupKey);
 		this.queue.push({
 			mirror_id: `mir_${randomUUID().slice(0, 12)}`,
 			pi_session_id: this.piSessionId,

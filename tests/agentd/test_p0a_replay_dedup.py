@@ -16,8 +16,6 @@ import json
 import sqlite3
 from pathlib import Path
 
-import pytest
-
 
 def _store(tmp_path: Path):
     from rosclaw.agentd.events import AgentEventStore
