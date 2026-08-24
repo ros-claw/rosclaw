@@ -580,6 +580,17 @@ class PiToolDispatcher:
         kernel = self._service._task_kernel
         task = kernel.active_task_for(request.mission_id, request.pi_session_id)
         if task is None:
+            # 终态后语义（0824 金丝雀实证）：Coordinator 已验收完成的任务
+            # 不需要再交付——给可行动的引导，不是裸错误。
+            latest = kernel.latest_task_for(
+                request.mission_id, request.pi_session_id
+            )
+            if latest is not None and str(latest.get("state")) == "SUCCEEDED":
+                raise ToolBridgeError(
+                    "TASK_ALREADY_COMPLETED",
+                    "任务已验收完成（SUCCEEDED）——无需再交付；"
+                    "用户有新目标时会开始新任务，请直接回答即可",
+                )
             raise ToolBridgeError("NO_ACTIVE_TASK", "无活跃任务")
         path = str(request.arguments.get("path", ""))
         if not path:

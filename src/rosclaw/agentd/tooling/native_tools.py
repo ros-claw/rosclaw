@@ -251,7 +251,9 @@ def register_native_tools(
                 execution_class=ExecutionClass.COMPUTE,
                 description=(
                     "Render the ACTUAL eef trace of a dynamics rollout into a "
-                    "playable GIF artifact (>=30 frames)."
+                    "playable 2D top-view GIF artifact (>=30 frames; flat "
+                    "trajectory projection, no MP4 — for real 3D scene video "
+                    "with GIF+MP4 use simulation_render_scene instead)."
                 ),
                 input_schema={
                     "type": "object",
@@ -342,10 +344,12 @@ def register_native_tools(
                 source=NATIVE_SOURCE,
                 execution_class=ExecutionClass.COMPUTE,
                 description=(
-                    "Render a dynamics rollout trace into a real MuJoCo "
-                    "scene GIF (canonical MJCF + trajectory state replay + "
-                    "camera preset + EGL/OSMesa/Xvfb auto-probe). Offline; "
-                    "returns artifact + render receipt (build/input digests)."
+                    "Render a dynamics rollout trace into real MuJoCo scene "
+                    "video — produces BOTH GIF and MP4 (canonical MJCF + "
+                    "trajectory state replay + camera preset + EGL/OSMesa/"
+                    "Xvfb auto-probe). Offline; returns gif+mp4 artifacts + "
+                    "render receipt (build/input digests). Use this when the "
+                    "user asks for video/MP4 of the simulated robot."
                 ),
                 input_schema={
                     "type": "object",
