@@ -55,7 +55,7 @@ class TestAutoFinalize:
 
         kernel, conn = _kernel(tmp_path)
         task_id = _make_task(kernel, tmp_path)
-        artifact = _register_file(kernel, tmp_path, task_id)
+        _register_file(kernel, tmp_path, task_id)
         coordinator = TaskCoordinator(kernel)
         outcome = coordinator.consider(task_id)
         assert outcome is not None, "Coordinator 未产出 outcome"
