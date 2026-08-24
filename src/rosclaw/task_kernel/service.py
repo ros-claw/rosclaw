@@ -628,7 +628,12 @@ class TaskKernel:
         provenance_failures: list[str] = []
         embodiment_used = self.task_used_embodiment(task_id)
         if embodiment_used:
-            robot_id = str(task["body_id"]).removeprefix("sim/")
+            # P0-G：canonical alias 唯一权威换算（不再手写前缀）。
+            from rosclaw.cognition.alias import canonical_resource_id
+
+            robot_id = canonical_resource_id(
+                str(task["body_id"])
+            ).removeprefix("robot:")
             resource_proofs = []
             for art in artifacts:
                 meta = json.loads(str(art.get("metadata_json") or "{}"))

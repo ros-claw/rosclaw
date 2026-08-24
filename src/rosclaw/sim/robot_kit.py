@@ -198,6 +198,31 @@ _UR5E_OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
         "required": ["ok", "point_count", "workspace_ok"],
         "additionalProperties": True,
     },
+    "ur5e.render_trace_preview": {
+        "type": "object",
+        "properties": {
+            "ok": {"type": "boolean", "const": True},
+            "evidence_domain": {"type": "string", "const": "simulation"},
+            "evidence_level": {"type": "string", "const": "COMMAND_REPLAY"},
+            "artifact": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "media_type": {"type": "string", "const": "image/gif"},
+                    "bytes": {"type": "integer"},
+                    "frames": {"type": "integer"},
+                    "sha256": {"type": "string"},
+                },
+                "required": ["path", "bytes", "frames"],
+                "additionalProperties": False,
+            },
+            "trajectory_hash": {"type": "string"},
+            "label": {"type": "string"},
+        },
+        "required": ["ok", "evidence_domain", "evidence_level",
+                     "artifact", "trajectory_hash"],
+        "additionalProperties": False,
+    },
     "ur5e.verify_drawing": {
         "type": "object",
         "properties": {

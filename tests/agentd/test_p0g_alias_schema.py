@@ -56,11 +56,18 @@ class TestOutputSchemaCompleteness:
     def test_all_native_tools_have_output_schema(self) -> None:
         """全部原生工具 output_schema 齐全（CI 期爆炸，不是运行时
         OUTPUT_SCHEMA_MISSING）。"""
-        from rosclaw.agentd.tooling.native_tools import build_native_descriptors
+        from rosclaw.agentd.tooling.catalog import ToolCatalog
+        from rosclaw.agentd.tooling.native_tools import register_native_tools
+        from rosclaw.agentd.tools import BuiltinToolRegistry
 
+        catalog = ToolCatalog()
+        register_native_tools(
+            catalog,
+            BuiltinToolRegistry(body_id="sim/ur5e", body_summary="UR5e"),
+        )
         missing = [
             d.tool_id
-            for d in build_native_descriptors()
+            for d in catalog.list(source="native:agentd")
             if not d.output_schema
         ]
         assert missing == [], f"原生工具缺 output_schema: {missing}"
