@@ -913,6 +913,7 @@ class PiToolDispatcher:
             failures.append(f"rollout 不安全: {result.get('violations')}")
         metrics = verify["metrics"]
         gif_path = str(render["artifact"]["path"])
+        mp4_path = str((render.get("mp4_artifact") or {}).get("path", ""))
         # 产物登记进 kernel 账本（当前会话有活跃任务时——登记才算交付）。
         task = service._task_kernel.active_task_for(
             request.mission_id, request.pi_session_id
@@ -920,8 +921,11 @@ class PiToolDispatcher:
         if task is not None:
             for path, media in (
                 (gif_path, "image/gif"),
+                (mp4_path, "video/mp4"),
                 (str(result["artifacts"]["trace_json"]), "application/json"),
             ):
+                if not path:
+                    continue
                 import contextlib as _cl
 
                 with _cl.suppress(ValueError):
