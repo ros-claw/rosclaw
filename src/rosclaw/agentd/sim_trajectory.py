@@ -510,7 +510,7 @@ class SimTrajectoryService:
                 RolloutRequest(
                     scenario=scenario,
                     trajectory=joint_trajectory,
-                    max_joint_delta_rad=0.0005,
+                    max_joint_delta_rad=0.0003,
                     artifact_dir=out_dir,
                 )
             )
@@ -604,11 +604,13 @@ class SimTrajectoryService:
         *,
         desired_tool_z: list[float] | None = None,
     ) -> dict:
-        """实际 eef 到规划路径（最近点）的跟踪误差——剔除转场段
-        （从首次进入路径邻域起算，到最后一次离开邻域为止；WP-5 的
-        lift 抬升段刻意离开接触路径，不计入接触跟踪误差）。WP-5：
-        朝向误差（实际工具轴 vs 期望工具轴，度）同段统计。"""
+        """实际 eef 到规划路径（最近点）的跟踪误差——只统计接触段
+        （|z - 接触平面| ≤ 2cm 且在路径邻域内；approach 降下与 lift
+        抬升的过渡采样会被 5cm 邻域误纳——它们在平面上方 ≈5cm 处，
+        是转场不是接触跟踪）。WP-5：朝向误差同段统计。"""
         window = 0.05
+        plane_tol = 0.02
+        plane_z = float(planned[0]["z"]) if planned else 0.0
 
         def _near(a: dict) -> float:
             return min(
@@ -616,14 +618,17 @@ class SimTrajectoryService:
                 for p in planned
             )
 
+        def _on_plane(a: dict) -> bool:
+            return abs(float(a["z"]) - plane_z) <= plane_tol
+
         start = 0
         for idx, a in enumerate(actual):
-            if _near(a) < window:
+            if _near(a) < window and _on_plane(a):
                 start = idx
                 break
         end = len(actual)
         for idx in range(len(actual) - 1, -1, -1):
-            if _near(actual[idx]) < window:
+            if _near(actual[idx]) < window and _on_plane(actual[idx]):
                 end = idx + 1
                 break
         actual = actual[start:end]

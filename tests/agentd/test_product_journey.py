@@ -822,6 +822,10 @@ def _prepare_installed_chat(
         # 六审 §8：chrome 走 i18n catalog——旅程固定 en-US（断言
         # 与 locale 无关的稳定性由 catalog parity 测试保证）。
         ROSCLAW_UI_LOCALE="en-US",
+        # P0-6：本机 user namespace 受限（Jetson 内核 uid_map 不可写）
+        # ——SIM 旅程显式授权降级 shell（结果带 TOOL_LAYER_ONLY
+        # 标记；有 bwrap 的主机此变量无影响）。
+        ROSCLAW_ALLOW_UNSANDBOXED_SHELL="1",
         PATH=f"{prefix / 'bin'}:{os.environ['PATH']}",
     )
     return home, env, rosclaw

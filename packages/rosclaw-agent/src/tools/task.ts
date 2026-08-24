@@ -99,11 +99,17 @@ export function buildTaskTool(ctx: BridgeToolContext) {
 				};
 			}
 			if (taskState !== "WAITING_APPROVAL") {
+				// P0 实证：失败原因不得为空——优先结构化 failures，
+				// 回落 error 字段（"任务FAILED：" 无可读原因是假失败面）。
+				const failureDetail = Array.isArray(submitted.failures)
+					? (submitted.failures as unknown[]).map(String).join("；")
+					: "";
+				const reason = String(submitted.error ?? "") || failureDetail;
 				return {
 					content: [
 						{
 							type: "text" as const,
-							text: `任务${taskState}：${String(submitted.error ?? "")}`,
+							text: `任务${taskState}：${reason}`,
 						},
 					],
 					details: { ok: false, error_code: taskState, ...submitted },
