@@ -435,10 +435,15 @@ class PiToolDispatcher:
         # 幂等交付入口（普通文件工具创建的交付物）；capability 产物
         # 自动登记不走模型。
         if name == "rosclaw_deliver":
+            # P0-C：deliver 也是 effectful——首个 effectful call 就是
+            # 交付时先原子 admission（否则裸 NO_ACTIVE_TASK——
+            # 金丝雀实证模型先 deliver 后干活的路径）。
+            self._ensure_task_for_effect(request)
             result = await self._artifact_register(request)
             self._coordinator_consider(request, result)
             return result
         if name == "rosclaw_artifact_register":
+            self._ensure_task_for_effect(request)
             result = await self._artifact_register(request)
             self._coordinator_consider(request, result)
             return result
