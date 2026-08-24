@@ -98,6 +98,10 @@ dev = [
     "jsonschema>=4.0.0",
     "rank-bm25>=0.2",
     "Pillow>=10.0",
+    # P0-F：离线渲染依赖闭包（imageio-ffmpeg 自带静态 ffmpeg——
+    # MP4 不需要系统 ffmpeg/网络）。
+    "imageio>=2.31",
+    "imageio-ffmpeg>=0.4",
     "httpx2>=2.0.0",
     # rosclaw-how permits newer pyseekdb releases, but the native-memory
     # integration and Jetson validation currently target the 1.3 API.

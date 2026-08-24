@@ -34,13 +34,39 @@ _PROBE_SNIPPET = (
 )
 
 
+def _probe_xvfb(*, timeout_sec: float = 30.0) -> tuple[bool, str]:
+    """Xvfb 后端探测（P0-F）：必须经 xvfb-run 包一层虚拟显示 +
+    MUJOCO_GL=glfw——MUJOCO_GL=xvfb 是无效值（0824 事故：手工
+    Xvfb 成功、官方却判断不可用的根因）。无 xvfb-run 即不可用
+    （诚实明细，不猜）。"""
+    import shutil
+
+    wrapper = shutil.which("xvfb-run")
+    if wrapper is None:
+        return False, "xvfb-run 不在 PATH（未安装 xvfb）"
+    env = dict(os_environ(), MUJOCO_GL="glfw")
+    try:
+        proc = subprocess.run(
+            [wrapper, "-a", sys.executable, "-c", _PROBE_SNIPPET],
+            env=env, capture_output=True, timeout=timeout_sec,
+        )
+        if proc.returncode == 0 and b"OK" in proc.stdout:
+            return True, "ok"
+        return False, (
+            proc.stderr.decode(errors="replace").strip().splitlines() or ["?"]
+        )[-1][:200]
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        return False, f"{type(exc).__name__}: {exc}"[:200]
+
+
 def probe_render_backend(
     *, timeout_sec: float = 30.0,
 ) -> tuple[str | None, dict[str, str]]:
     """EGL→OSMesa→Xvfb 子进程隔离探测（进程内探测会崩宿主——
-    本机 glfw 实证）。返回 (backend or None, 每后端明细)。"""
+    本机 glfw 实证；每个后端真实渲染一帧 smoke test）。返回
+    (backend or None, 每后端明细)。"""
     detail: dict[str, str] = {}
-    for backend in _BACKEND_ORDER:
+    for backend in ("egl", "osmesa"):
         env = dict(os_environ(), MUJOCO_GL=backend)
         try:
             proc = subprocess.run(
@@ -55,6 +81,10 @@ def probe_render_backend(
             )[-1][:200]
         except (subprocess.TimeoutExpired, OSError) as exc:
             detail[backend] = f"{type(exc).__name__}: {exc}"[:200]
+    ok, note = _probe_xvfb(timeout_sec=timeout_sec)
+    detail["xvfb"] = note
+    if ok:
+        return "xvfb", detail
     return None, detail
 
 
@@ -115,15 +145,25 @@ def render_scene_trace(
     # 次 import 前设定；渲染在子进程执行（GL 崩不跨进程伤宿主）。
     import os
 
-    env = dict(os.environ, MUJOCO_GL=backend)
-    proc = subprocess.run(
-        [
+    # Xvfb 后端经 xvfb-run 提供虚拟显示 + MUJOCO_GL=glfw（P0-F）。
+    import shutil
+
+    if backend == "xvfb":
+        env = dict(os.environ, MUJOCO_GL="glfw")
+        argv = [
+            shutil.which("xvfb-run") or "xvfb-run", "-a",
             sys.executable, "-m", "rosclaw.agentd.sim_render",
             str(home), trace_id, camera, str(max_frames),
             str(width), str(height),
-        ],
-        env=env, capture_output=True, timeout=600,
-    )
+        ]
+    else:
+        env = dict(os.environ, MUJOCO_GL=backend)
+        argv = [
+            sys.executable, "-m", "rosclaw.agentd.sim_render",
+            str(home), trace_id, camera, str(max_frames),
+            str(width), str(height),
+        ]
+    proc = subprocess.run(argv, env=env, capture_output=True, timeout=600)
     if proc.returncode != 0:
         tail = proc.stderr.decode(errors="replace")[-300:]
         raise ValueError(f"RENDER_FAILED: 子进程渲染失败: {tail}")
@@ -207,6 +247,14 @@ def _render_impl(
             out, save_all=True, append_images=images[1:],
             duration=int(1000 / 12), loop=0,
         )
+        # P0-F：官方渲染同时产出 MP4（imageio + imageio-ffmpeg
+        # 自带静态 ffmpeg——离线，不需要系统 ffmpeg）。
+        import imageio.v3 as iio
+        import numpy as _np
+
+        mp4 = trace_dir / f"{trace_id}-scene.mp4"
+        frames_arr = [_np.asarray(img) for img in images]
+        iio.imwrite(mp4, frames_arr, fps=12)
     finally:
         renderer.close()
         sandbox.close()
@@ -219,6 +267,7 @@ def _render_impl(
             trace_path.read_bytes()
         ).hexdigest(),
         "states_digest": states_digest,
+        "outputs": ["gif", "mp4"],
         "resource": trace.get("resource") or {},
     }
     (trace_dir / "render_receipt.json").write_text(
@@ -232,6 +281,22 @@ def _render_impl(
             "format": "gif",
             "bytes": out.stat().st_size,
             "evidence_level": "SIM_DYN_ROLLOUT",
+        },
+        "artifacts": {
+            "gif": {
+                "path": str(out),
+                "frames": len(images),
+                "format": "gif",
+                "bytes": out.stat().st_size,
+                "evidence_level": "SIM_DYN_ROLLOUT",
+            },
+            "mp4": {
+                "path": str(mp4),
+                "frames": len(images),
+                "format": "mp4",
+                "bytes": mp4.stat().st_size,
+                "evidence_level": "SIM_DYN_ROLLOUT",
+            },
         },
         "receipt": receipt,
     }

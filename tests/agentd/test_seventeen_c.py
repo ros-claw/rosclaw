@@ -85,31 +85,25 @@ class TestRuntimeManager:
 
 
 class TestSimRenderRuntime:
-    def test_render_trace_uses_managed_runtime(self, tmp_path: Path,
-                                               monkeypatch) -> None:
-        """render_trace 必须先 ensure 仿真 runtime（不是裸 import PIL
-        碰运气）。托管也缺 → RuntimeNotReadyError（诚实）。"""
+    def test_render_trace_pil_missing_honest_no_install(self, tmp_path: Path,
+                                                        monkeypatch) -> None:
+        """P0-F（0824 总纲 §15.1）：PIL 缺失 → RENDER_DEPS_MISSING
+        诚实失败——任务期间绝不安装（不查 runtime manager、不发起
+        pip install；Pillow 是主包依赖，安装阶段闭包）。"""
         import sys as _sys
 
         from rosclaw.agentd import sim_trajectory
-        from rosclaw.agentd.runtime_manager import RuntimeNotReadyError
-
-        calls: list[str] = []
 
         class _SpyManager:
-            def ensure(self, name, spec=None):
-                calls.append(name)
-                raise RuntimeNotReadyError("probe failed: PIL")
+            def ensure(self, name, spec=None):  # noqa: ARG002
+                raise AssertionError("任务期仍尝试托管安装——P0-F 违约")
 
-        # 强制宿主 PIL 缺失（sys.modules[name]=None → ImportError）——
-        # 验证的是托管 fallback 路径，不是本机环境巧合。
         monkeypatch.setitem(_sys.modules, "PIL", None)
         service = sim_trajectory.SimTrajectoryService(
             tmp_path, runtime_manager=_SpyManager()
         )
-        with pytest.raises(RuntimeNotReadyError):
+        with pytest.raises(ValueError, match="RENDER_DEPS_MISSING"):
             service._import_pil()
-        assert "rosclaw-simulation" in calls
 
     def test_render_trace_real_gif_via_manager(self, tmp_path: Path) -> None:
         """真实链路：managed runtime ensure → 渲染 GIF 成功（本机 .venv

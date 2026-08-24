@@ -34,6 +34,8 @@ class TestXvfbProbe:
     def test_xvfb_probe_uses_xvfb_run_with_glfw(self) -> None:
         """Xvfb 探测必须经 xvfb-run + MUJOCO_GL=glfw——
         MUJOCO_GL=xvfb 是无效值（0824 官方误判不可用的根因）。"""
+        import shutil as _sh
+
         from rosclaw.agentd import sim_render
 
         calls: list[dict] = []
@@ -46,12 +48,15 @@ class TestXvfbProbe:
                 stderr = b""
             return Proc()
 
-        original = sim_render.subprocess.run
+        original_run = sim_render.subprocess.run
+        original_which = _sh.which
         sim_render.subprocess.run = fake_run  # type: ignore[assignment]
+        _sh.which = lambda name: "/usr/bin/xvfb-run" if name == "xvfb-run" else None  # type: ignore[assignment]
         try:
             sim_render._probe_xvfb()
         finally:
-            sim_render.subprocess.run = original  # type: ignore[assignment]
+            sim_render.subprocess.run = original_run  # type: ignore[assignment]
+            _sh.which = original_which  # type: ignore[assignment]
         assert calls, "_probe_xvfb 未发起探测"
         argv = calls[0]["argv"]
         assert "xvfb-run" in argv[0] or "xvfb-run" in argv, (
@@ -127,17 +132,24 @@ class TestOfflineRenderOutputs:
         import imageio  # noqa: F401
         import imageio_ffmpeg  # noqa: F401
 
-    def test_pil_missing_honest_error_no_install(
-        self, tmp_path: Path, monkeypatch
-    ) -> None:
-        """PIL 缺失 → RENDER_DEPS_MISSING 诚实失败，不发起安装。"""
-        from rosclaw.agentd import sim_render
+    def test_pil_missing_honest_error_no_install(self) -> None:
+        """PIL 缺失 → RENDER_DEPS_MISSING 诚实失败，不发起安装
+        （P0-F：Pillow 是主依赖——任务期间绝不安装）。"""
+        import builtins
 
-        def boom():
-            raise ImportError("No module named 'PIL'")
+        from rosclaw.agentd.sim_trajectory import SimTrajectoryService
 
-        monkeypatch.setattr(sim_render, "_render_impl", boom)
-        monkeypatch.setenv("ROSCLAW_HOME", str(tmp_path))
-        run = _make_trace(tmp_path)
-        with pytest.raises((ValueError, ImportError)):
-            sim_render.render_scene_trace(tmp_path, run["trace_id"])
+        real_import = builtins.__import__
+
+        def fake_import(name, *args, **kwargs):
+            if name == "PIL" or name.startswith("PIL."):
+                raise ImportError("No module named 'PIL'")
+            return real_import(name, *args, **kwargs)
+
+        builtins.__import__ = fake_import
+        try:
+            sim = SimTrajectoryService(Path("/tmp/p0f"))
+            with pytest.raises(ValueError, match="RENDER_DEPS_MISSING"):
+                sim._import_pil()
+        finally:
+            builtins.__import__ = real_import

@@ -322,21 +322,18 @@ class SimTrajectoryService:
         self._runtime_manager = runtime_manager
 
     def _import_pil(self):
-        """PIL 导入：宿主环境优先；缺失 → 托管 rosclaw-simulation
-        runtime ensure+activate 后重试；托管也不可用 → RuntimeNotReadyError
-        （诚实——调用方映射 BLOCKED，不是裸 ModuleNotFoundError）。"""
+        """PIL 导入（P0-F）：Pillow 是主包依赖（安装阶段闭包）——
+        任务期间绝不安装；缺失 → RENDER_DEPS_MISSING 诚实失败
+        （安装损坏，重装一致构建，不是任务期 pip install）。"""
         try:
             from PIL import Image, ImageDraw
 
             return Image, ImageDraw
-        except ImportError:
-            if self._runtime_manager is None:
-                raise
-            handle = self._runtime_manager.ensure("rosclaw-simulation")
-            self._runtime_manager.activate(handle)
-            from PIL import Image, ImageDraw
-
-            return Image, ImageDraw
+        except ImportError as exc:
+            raise ValueError(
+                "RENDER_DEPS_MISSING: Pillow 不可用——安装阶段依赖"
+                "闭包破损（请重新安装一致构建；任务期间不安装依赖）"
+            ) from exc
 
     # --------------------------------------------------------------
     # 1. trajectory.generate_planar_path

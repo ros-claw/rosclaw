@@ -33,7 +33,7 @@ jobs:
       # WP-3：OSMesa 软渲染库——CI runner 无 GPU/EGL，MuJoCo 离屏渲染
       # 后端探测需要 libosmesa6（缺库时渲染测试诚实失败，不跳过）。
       - name: Install OSMesa (MuJoCo offscreen rendering)
-        run: sudo apt-get update && sudo apt-get install -y libosmesa6
+        run: sudo apt-get update && sudo apt-get install -y libosmesa6 xvfb
 
       - name: Gate A — import / contract
         run: |
