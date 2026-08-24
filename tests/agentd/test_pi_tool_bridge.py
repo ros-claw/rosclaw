@@ -94,6 +94,12 @@ async def _setup(tmp_path: Path):
     bindings.acquire_lease(
         mission_id=mission.mission_id, pi_session_id="pi_1", owner_pid=1, owner_uid=1000
     )
+    # P0-C：effectful admission 的动机输入——与产品流一致（输入
+    # 先 persist，再有工具调用）。
+    service._task_kernel.persist_input(
+        mission_id=mission.mission_id, session_ref="pi_1",
+        message_id="msg_setup", text="tool bridge 测试目标",
+    )
     _register_sim_action_capability(service)
     return service, mission
 

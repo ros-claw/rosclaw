@@ -119,6 +119,9 @@ class TaskKernel:
             ),
             text=explicit_goal or str(row["text"]),
             cwd=cwd, mode=mode, body_id=body_id,
+            # 任务 workspace = 调用方解析的工作根（与 pi.task.bind
+            # 同一语义——不传则回落 home/tasks/<id>/workspace）。
+            workspace_root=cwd,
             # /newtask：该输入被显式要求开新任务。
             force_new=(
                 row is not None and row["delivery_state"] == "FORCE_NEW"

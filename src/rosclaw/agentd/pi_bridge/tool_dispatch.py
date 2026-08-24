@@ -277,12 +277,13 @@ class PiToolDispatcher:
         """P0-C（0824 总纲 §6.2）：effectful wire 工具执行前的原子
         admission——缺动机输入诚实拒绝（INPUT_MOTIVATION_MISSING）。"""
         kernel = self._service._task_kernel
+        mission = self._service.get_mission(request.mission_id)
         kernel.ensure_task_for_effect(
             mission_id=request.mission_id,
             session_ref=request.pi_session_id,
             backend_native_id=request.pi_session_id,
             cwd="",
-            mode=request.mode or "SIMULATION",
+            mode=mission.mode.value if mission else "SIMULATION",
         )
 
     async def _dispatch(self, request: PiToolRequestV1) -> PiToolResultV1:

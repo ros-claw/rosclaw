@@ -162,9 +162,10 @@ def context_hash_of(envelope: Any) -> str:
 
     P0-5B：只覆盖稳定的具身事实（body/mode/revision/capabilities/
     task graph）。排除 generated_at/expires_at/hash（时间易变），
-    以及 pending_approvals/receipts/active_actions——它们是动作的
-    *结果*（建卡即在 envelope 里新增 pending），不是使上下文失效
-    的输入变化。
+    以及 pending_approvals/receipts/active_actions/workers——它们是
+    动作的*结果*（建卡/建任务即在 envelope 里新增条目），不是使
+    上下文失效的输入变化（P0-C 实证：首个 effectful call 建 task
+    → workers 新增 → 同回合 admission 误判 CONTEXT_HASH_MISMATCH）。
     """
     from rosclaw.contracts.pi.canonical import canonical_dumps
 
@@ -177,6 +178,7 @@ def context_hash_of(envelope: Any) -> str:
         "pending_approvals",
         "receipts",
         "active_actions",
+        "workers",
     ):
         payload.pop(volatile, None)
     # 八审总纲验证轮实测：turn_in_flight 是回合运行时标志（回合内
