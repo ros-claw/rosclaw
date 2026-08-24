@@ -69,6 +69,72 @@ class ToolBridgeError(RuntimeError):
         self.retryable = retryable
 
 
+#: 自动登记扫描的 artifact 键（0824 总纲 §8.1：可信 capability
+#: 产生的 artifact 必须自动登记——模型不需要也不应该手动 deliver
+#: capability 产物）。
+_ARTIFACT_SCALAR_KEYS = ("artifact", "mp4_artifact")
+_FORMAT_MEDIA = {
+    "gif": "image/gif", "mp4": "video/mp4",
+    "json": "application/json", "csv": "text/csv",
+}
+
+
+def _auto_register_artifacts(
+    service, request: PiToolRequestV1, value: object
+) -> None:
+    """capability 产物自动登记（producer=kernel:capability:<id>，
+    幂等——同内容重复登记返回同一 ArtifactRef）。
+
+    产物生成即 effectful（0824 总纲 §8.1：可信 capability 产生的
+    artifact 必须自动登记）——首次产出时原子 admission（模型不
+    需要也不应该手动 deliver capability 产物）。"""
+    if not isinstance(value, dict):
+        return
+    kernel = service._task_kernel
+    mission = service.get_mission(request.mission_id)
+    bound = kernel.ensure_task_for_effect(
+        mission_id=request.mission_id,
+        session_ref=request.pi_session_id,
+        backend_native_id=request.pi_session_id,
+        cwd="",
+        mode=mission.mode.value if mission else "SIMULATION",
+        body_id=(mission.body_binding.body_id if mission else ""),
+    )
+    task = kernel.get_task(str(bound["task_id"]))
+    if task is None:
+        return
+    candidates: list[dict] = []
+    for key in _ARTIFACT_SCALAR_KEYS:
+        item = value.get(key)
+        if isinstance(item, dict) and item.get("path"):
+            candidates.append(item)
+    nested = value.get("artifacts")
+    if isinstance(nested, dict):
+        for item in nested.values():
+            if isinstance(item, dict) and item.get("path"):
+                candidates.append(item)
+            elif isinstance(item, str) and item.endswith((".json", ".csv")):
+                candidates.append({
+                    "path": item,
+                    "format": item.rsplit(".", 1)[-1],
+                })
+    # 归因用真实 capability_id（不是 wire 入口名）。
+    capability_id = str(
+        (request.arguments or {}).get("capability_id") or request.tool_name
+    )
+    for item in candidates:
+        path = str(item["path"])
+        fmt = str(item.get("format") or path.rsplit(".", 1)[-1])
+        try:
+            kernel.register_artifact(
+                task_id=str(task["task_id"]), path=path,
+                media_type=_FORMAT_MEDIA.get(fmt, "application/octet-stream"),
+                producer=f"kernel:capability:{capability_id}",
+            )
+        except ValueError:
+            continue  # 文件缺失等由验收表达——登记不阻断工具结果
+
+
 def _envelope_result(request: PiToolRequestV1, envelope) -> PiToolResultV1:
     """N5B：canonical envelope → 模型可见投影（status + capability_id +
     value）；FAILED/BLOCKED 以稳定错误码诚实抛出。"""
@@ -364,6 +430,7 @@ class PiToolDispatcher:
             envelope = await service._tool_catalog.execute_v2(
                 request.request_id, capability_id, dict(args.get("arguments", {}))
             )
+            _auto_register_artifacts(service, request, envelope.value)
             return _envelope_result(request, envelope)
         if name == "rosclaw_compute":
             # 七审 §2.2/PR-SEVEN-2.2：COMPUTE 能力免审批调用（纯计算无
@@ -390,6 +457,7 @@ class PiToolDispatcher:
             envelope = await service._tool_catalog.execute_v2(
                 request.request_id, capability_id, dict(args.get("arguments", {}))
             )
+            _auto_register_artifacts(service, request, envelope.value)
             return _envelope_result(request, envelope)
         if name == "rosclaw_verify":
             receipts = [
