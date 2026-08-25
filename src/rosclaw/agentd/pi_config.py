@@ -92,6 +92,63 @@ def pi_model_configured(home: Path) -> bool:
     return read_pi_model_config(home) is not None
 
 
+#: provider → 认可的 env 凭据键（P1-A3：credential 单源报告）。
+PROVIDER_ENV_KEYS = {
+    "kimi-code": ("ROSCLAW_KIMI_API_KEY", "KIMI_API_KEY"),
+    "kimi-api": ("MOONSHOT_API_KEY",),
+    "openai": ("OPENAI_API_KEY",),
+    "anthropic": ("ANTHROPIC_API_KEY",),
+    "openrouter": ("OPENROUTER_API_KEY",),
+}
+
+
+def credential_source_report(home: Path) -> list[dict]:
+    """凭据来源报告（P1-A3）——只有 env 与 Pi auth.json 两个来源。
+
+    永不打印 secret 内容（只指纹前 8 位）。legacy
+    ``agentd/credentials.json`` 只报"已停用"事实（env 名可列——
+    值绝不读取/展示/注入）。
+    """
+    import hashlib
+    import os
+
+    report: list[dict] = []
+    for provider, keys in PROVIDER_ENV_KEYS.items():
+        entry: dict = {"provider": provider, "source": "none", "env_name": keys[0]}
+        for key in keys:
+            value = os.environ.get(key, "")
+            if value:
+                entry = {
+                    "provider": provider,
+                    "source": "env",
+                    "env_name": key,
+                    "fingerprint": hashlib.sha256(value.encode()).hexdigest()[:8],
+                }
+                break
+        report.append(entry)
+    auth_path = home / "agent" / "auth.json"
+    auth = _read_json(auth_path)
+    for provider in auth:
+        report.append({"provider": str(provider), "source": "pi-auth-file"})
+    legacy_path = home / "agentd" / "credentials.json"
+    if legacy_path.exists():
+        names: list[str] = []
+        legacy = _read_json(legacy_path)
+        env_block = legacy.get("environment")
+        if isinstance(env_block, dict):
+            names = sorted(str(k) for k in env_block)
+        report.append(
+            {
+                "provider": "(legacy)",
+                "source": "legacy-disabled",
+                "env_names": names,
+                "note": "agentd/credentials.json 已停用（不再读取/注入）——"
+                "请用 env 或 chat 内 /login",
+            }
+        )
+    return report
+
+
 def write_pi_model_config(
     home: Path,
     *,

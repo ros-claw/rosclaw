@@ -239,6 +239,10 @@ def doctor(home: Path) -> dict:
     }
     report["components"] = _component_report()
     report["authorization"] = _authorization_report(home)
+    # P1-A3：凭据来源只有 env 与 Pi auth.json（NA-FIX-7 可见性保留）。
+    from rosclaw.agentd.pi_config import credential_source_report
+
+    report["credential_sources"] = credential_source_report(home)
     if model is None:
         report["status"] = "MODEL_NOT_READY"
         report["reason"] = "no model profile configured — run `rosclaw setup model`"
@@ -270,11 +274,4 @@ def doctor(home: Path) -> dict:
     elif probe.error:
         report["reason"] = probe.error
     report["pi_engine"] = _pi_engine_report(home)
-    # NA-FIX-7：凭据来源可见（无 secret 内容，仅来源与指纹）。
-    try:
-        from rosclaw.agentd.credentials import ModelCredentialBroker
-
-        report["credential_sources"] = ModelCredentialBroker(home).source_report()
-    except Exception as exc:  # noqa: BLE001
-        report["credential_sources"] = [{"error": str(exc)}]
     return report

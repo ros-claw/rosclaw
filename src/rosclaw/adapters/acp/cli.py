@@ -21,18 +21,15 @@ def dispatch_acp_argv(argv: list[str]) -> int | None:
     )
     from rosclaw.adapters.acp.server import serve_stdio
     from rosclaw.agentd.config import load_agent_config
-    from rosclaw.agentd.credentials import AgentCredentialStore, CredentialStoreError
+    from rosclaw.agentd.pi_config import pi_model_configured
     from rosclaw.agentd.service import AgentService
 
-    try:
-        AgentCredentialStore(home).inject()
-    except CredentialStoreError as exc:
-        print(str(exc), file=sys.stderr)
+    # P1-A3：credential 单源——不再 inject legacy agentd/credentials.json；
+    # 凭据只来自进程 env 与 Pi auth.json（chat 引擎自解析）。
+    if not pi_model_configured(home):
+        print("未配置模型。先运行 `rosclaw setup model`。", file=sys.stderr)
         return 2
     config = load_agent_config(home / "config.yaml")
-    if not config.profiles:
-        print("未配置模型。先运行 `rosclaw agent init`。", file=sys.stderr)
-        return 2
     service = AgentService(config, home)
     import contextlib
 

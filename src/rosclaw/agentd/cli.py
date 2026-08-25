@@ -8,18 +8,12 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import getpass
 import json
 import os
 import sys
 from pathlib import Path
 
 from rosclaw.agentd.config import load_agent_config
-from rosclaw.agentd.credentials import (
-    AgentCredentialStore,
-    CredentialStoreError,
-    ModelCredentialBroker,
-)
 from rosclaw.agentd.onboarding import PROVIDER_CHOICES, configure_model, doctor
 from rosclaw.agentd.pi_entry import (
     find_pi_agent_entry as _find_pi_agent_entry,
@@ -27,27 +21,12 @@ from rosclaw.agentd.pi_entry import (
 from rosclaw.agentd.service import AgentService, create_app
 
 LOCK_NAME = "agentd/agentd.lock"
-CREDENTIAL_ENV_BY_PROVIDER = {
-    "kimi-code": "ROSCLAW_KIMI_API_KEY",
-    "kimi-api": "MOONSHOT_API_KEY",
-}
 
 
 def _home(args: argparse.Namespace) -> Path:
     return Path(
         getattr(args, "home", None) or os.environ.get("ROSCLAW_HOME", Path.home() / ".rosclaw")
     )
-
-
-def _load_stored_credentials(home: Path) -> bool:
-    """NA-FIX-7：统一经 ModelCredentialBroker——legacy 一次性 read-and-migrate，
-    不再双写。"""
-    try:
-        ModelCredentialBroker(home).migrate_legacy_once()
-    except CredentialStoreError as exc:
-        print(str(exc), file=sys.stderr)
-        return False
-    return True
 
 
 def _acquire_lock(home: Path) -> Path:
@@ -79,15 +58,15 @@ def cmd_start(args: argparse.Namespace) -> int:
     import uvicorn
 
     home = _home(args)
-    if not _load_stored_credentials(home):
-        return 2
-    config = load_agent_config(home / "config.yaml")
-    if not config.profiles:
+    from rosclaw.agentd.pi_config import pi_model_configured
+
+    if not pi_model_configured(home):
         print(
             "未配置模型。先运行 `rosclaw setup model`，或 `rosclaw agent doctor` 查看缺口。",
             file=sys.stderr,
         )
         return 2
+    config = load_agent_config(home / "config.yaml")
     lock = _acquire_lock(home)
     # 十四审 PR-14.7（§1.9）：agentd serve 入口也要先装诊断路由——
     # 十三审只覆盖了 chat 入口，干净安装路径仍漏启动告警。
@@ -193,8 +172,6 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         report = doctor_runtime(home, topic)
         print(json.dumps(report, ensure_ascii=False, indent=2))
         return 0 if report.get("ready") else 1
-    if not _load_stored_credentials(home):
-        return 2
     report = doctor(home)
     print(json.dumps(report, ensure_ascii=False, indent=2))
     return 0 if report.get("status") == "READY" else 1
@@ -203,8 +180,6 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 def cmd_init(args: argparse.Namespace) -> int:
     home = _home(args)
     home.mkdir(parents=True, exist_ok=True)
-    if not _load_stored_credentials(home):
-        return 2
     choice = args.provider
     if choice is None:
         if not sys.stdin.isatty():
@@ -240,8 +215,6 @@ def cmd_init(args: argparse.Namespace) -> int:
 
 def cmd_chat(args: argparse.Namespace) -> int:
     home = _home(args)
-    if not _load_stored_credentials(home):
-        return 2
     # PR-H9：legacy 引擎（Python AgentLoop console）已删除——Native
     # Agent（Harness Backend 主会话）是唯一引擎（ADR-0012）。
     if getattr(args, "legacy", False) or (
@@ -544,35 +517,6 @@ def _resume_target_mode(home: Path, args: argparse.Namespace) -> str | None:
         return None
 
 
-def cmd_credential(args: argparse.Namespace) -> int:
-    env_name = CREDENTIAL_ENV_BY_PROVIDER[args.provider]
-    try:
-        store = AgentCredentialStore(_home(args))
-        if args.credential_command == "set":
-            value = (
-                getpass.getpass(f"{env_name}: ").strip()
-                if sys.stdin.isatty()
-                else sys.stdin.read().strip()
-            )
-            store.set(env_name, value)
-            result = store.status(env_name)
-            result["provider"] = args.provider
-            result["updated"] = True
-        elif args.credential_command == "delete":
-            deleted = store.delete(env_name)
-            result = store.status(env_name)
-            result["provider"] = args.provider
-            result["deleted"] = deleted
-        else:
-            result = store.status(env_name)
-            result["provider"] = args.provider
-    except (CredentialStoreError, ValueError) as exc:
-        print(str(exc), file=sys.stderr)
-        return 2
-    print(json.dumps(result, ensure_ascii=False, indent=2))
-    return 0
-
-
 def cmd_backend(args: argparse.Namespace) -> int:
     """查看/切换模型 backend（批次 D：Kimi 现有配置无需改动即可迁移）。"""
     import yaml
@@ -635,8 +579,6 @@ def build_parser() -> argparse.ArgumentParser:
     p_init.add_argument("--api-key-ref", default=None)
     p_init.set_defaults(func=cmd_init)
 
-    add_credential_subcommands(sub)
-
     p_backend = sub.add_parser("backend", help="model backend: legacy | modeld")
     p_backend.add_argument("--set", choices=["legacy", "modeld"], default=None)
     p_backend.set_defaults(func=cmd_backend)
@@ -650,13 +592,6 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def add_credential_subcommands(sub) -> None:
-    p_credential = sub.add_parser("credential", help="owner-only model credentials")
-    credential_sub = p_credential.add_subparsers(dest="credential_command", required=True)
-    for name in ("set", "status", "delete"):
-        parser = credential_sub.add_parser(name, help=f"{name} a persisted model credential")
-        parser.add_argument("--provider", choices=tuple(CREDENTIAL_ENV_BY_PROVIDER), required=True)
-        parser.set_defaults(func=cmd_credential)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -694,9 +629,6 @@ def add_agent_subparsers(subparsers) -> None:
                 help="主题探测：simulation = 托管仿真 runtime（无需模型凭据）",
             )
         p.set_defaults(func=fn)
-
-    add_credential_subcommands(agent_sub)
-
 
     p_learn = subparsers.add_parser("learning", help="learning candidates")
     learn_sub = p_learn.add_subparsers(dest="learning_command", required=True)
