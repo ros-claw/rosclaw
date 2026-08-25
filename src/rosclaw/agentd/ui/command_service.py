@@ -61,7 +61,12 @@ _ARGS_SCHEMAS: dict[str, dict] = {
     "doctor": {"interaction": "none"},
     "mode": {
         "positional": [
-            {"name": "mode", "type": "enum", "enum": ["SIMULATION", "SHADOW", "REAL"], "required": False}
+            {
+                "name": "mode",
+                "type": "enum",
+                "enum": ["SIMULATION", "SHADOW", "REAL"],
+                "required": False,
+            }
         ],
         "interaction": "none",
     },
@@ -89,7 +94,12 @@ _ARGS_SCHEMAS: dict[str, dict] = {
     },
     "scoped-models": {
         "positional": [
-            {"name": "subcommand", "type": "enum", "enum": ["add", "remove", "list"], "required": False},
+            {
+                "name": "subcommand",
+                "type": "enum",
+                "enum": ["add", "remove", "list"],
+                "required": False,
+            },
             {"name": "target", "type": "string", "required": False},
         ],
         "interaction": "none",
@@ -147,7 +157,9 @@ class CommandService:
         self._specs[spec.name] = spec
         self._handlers[spec.handler] = handler
 
-    def specs(self, *, mission_state: str | None = None, turn_in_flight: bool = False) -> list[CommandSpecV1]:
+    def specs(
+        self, *, mission_state: str | None = None, turn_in_flight: bool = False
+    ) -> list[CommandSpecV1]:
         """All server commands, annotated with availability for this context."""
         out: list[CommandSpecV1] = []
         for spec in sorted(self._specs.values(), key=lambda s: s.name):
@@ -282,151 +294,6 @@ class CommandService:
                 message=f"{len(items)} 个已注册工具",
                 data={"tools": items},
             )
-
-        # -- MODEL_CONTROL（批次 D） -------------------------------------------
-
-        async def _providers(req: CommandRequestV1) -> CommandResultV1:
-            data = await service.modeld_providers()
-            providers = data.get("providers", [])
-            lines = [
-                f"{p['id']:14} {p.get('auth', '?'):14} {p.get('name', '')}"
-                for p in providers
-            ]
-            current = service.current_model_label()
-            return CommandResultV1(
-                request_id=req.request_id,
-                command_name=req.command_name,
-                ok=bool(data.get("available", True)),
-                message=(
-                    f"当前模型：{current}\n" + "\n".join(lines)
-                    if lines
-                    else data.get("error", "modeld 不可用")
-                ),
-                data={"providers": providers, "current": current},
-            )
-
-        async def _model(req: CommandRequestV1) -> CommandResultV1:
-            target = str(req.arguments.get("target", "")).strip()
-            if not target:
-                data = await service.modeld_providers()
-                models: dict[str, list[str]] = {}
-                for p in data.get("providers", []):
-                    listing = await service.modeld_models(p["id"])
-                    models[p["id"]] = [m["id"] for m in listing.get("models", [])]
-                return CommandResultV1(
-                    request_id=req.request_id,
-                    command_name=req.command_name,
-                    ok=True,
-                    message=f"当前模型：{service.current_model_label()}",
-                    data={"models": models, "current": service.current_model_label()},
-                )
-            if "/" not in target:
-                return CommandResultV1(
-                    request_id=req.request_id,
-                    command_name=req.command_name,
-                    ok=False,
-                    error_code="invalid_arguments",
-                    message="/model 需要 <provider>/<model>，如 /model kimi-code/k3",
-                )
-            provider, _, model = target.partition("/")
-            result = service.switch_model(provider, model)
-            return CommandResultV1(
-                request_id=req.request_id,
-                command_name=req.command_name,
-                ok=result.get("ok", False),
-                message=result.get("message", ""),
-                error_code=result.get("error_code", ""),
-            )
-
-        async def _login(req: CommandRequestV1) -> CommandResultV1:
-            provider = str(req.arguments.get("provider", "")).strip()
-            api_key = str(req.arguments.get("api_key", "")).strip()
-            if not provider or not api_key:
-                return CommandResultV1(
-                    request_id=req.request_id,
-                    command_name=req.command_name,
-                    ok=False,
-                    error_code="invalid_arguments",
-                    message="/login 需要 provider 与 api_key（TUI 会用 masked input 收集）",
-                )
-            result = await service.modeld_login(provider, api_key)
-            return CommandResultV1(
-                request_id=req.request_id,
-                command_name=req.command_name,
-                ok=bool(result.get("ok")),
-                message=(
-                    f"已登录 {provider}（凭据存于 modeld credential store；不会进入对话）"
-                    if result.get("ok")
-                    else str(result.get("error", "login failed"))
-                ),
-            )
-
-        async def _logout(req: CommandRequestV1) -> CommandResultV1:
-            provider = str(req.arguments.get("provider", "")).strip()
-            if not provider:
-                return CommandResultV1(
-                    request_id=req.request_id,
-                    command_name=req.command_name,
-                    ok=False,
-                    error_code="invalid_arguments",
-                    message="/logout 需要 provider",
-                )
-            result = await service.modeld_logout(provider)
-            return CommandResultV1(
-                request_id=req.request_id,
-                command_name=req.command_name,
-                ok=bool(result.get("ok", True)),
-                message=f"已登出 {provider}（活动 turn 不受影响，下一 turn 生效）",
-            )
-
-        self._register(
-            CommandSpecV1(
-                name="providers",
-                description="列出 Provider 与认证状态（不含 secret）",
-                category=CommandCategory.MODEL,
-                owner=CommandOwner.MODEL_CONTROL,
-                during_turn=True,
-                handler="model.providers",
-            ),
-            _providers,
-        )
-        self._register(
-            CommandSpecV1(
-                name="model",
-                description="查看或切换模型（切换不改变工具权限/Mission mode/grant）",
-                argument_hint="[<provider>/<model>]",
-                category=CommandCategory.MODEL,
-                owner=CommandOwner.MODEL_CONTROL,
-                mutability="CONTROL_STATE",
-                handler="model.select",
-            ),
-            _model,
-        )
-        self._register(
-            CommandSpecV1(
-                name="login",
-                description="Provider API key 登录（secret 不进对话）",
-                argument_hint="<provider>",
-                category=CommandCategory.MODEL,
-                owner=CommandOwner.MODEL_CONTROL,
-                mutability="PERSISTED",
-                handler="model.login",
-            ),
-            _login,
-        )
-        self._register(
-            CommandSpecV1(
-                name="logout",
-                description="Provider 登出",
-                argument_hint="<provider>",
-                category=CommandCategory.MODEL,
-                owner=CommandOwner.MODEL_CONTROL,
-                mutability="PERSISTED",
-                confirmation="CONFIRM",
-                handler="model.logout",
-            ),
-            _logout,
-        )
 
         self._register(
             CommandSpecV1(
@@ -592,10 +459,22 @@ def _register_batch_e(service, register) -> None:  # noqa: C901 - 命令集合�
 
     async def _grants(req: CommandRequestV1) -> CommandResultV1:
         grants = [
-            {k: v for k, v in g.items() if k in (
-                "grant_id", "principal", "mode", "tier", "risk_ceiling",
-                "revoked", "consumed", "expires_at", "public_hash",
-            )}
+            {
+                k: v
+                for k, v in g.items()
+                if k
+                in (
+                    "grant_id",
+                    "principal",
+                    "mode",
+                    "tier",
+                    "risk_ceiling",
+                    "revoked",
+                    "consumed",
+                    "expires_at",
+                    "public_hash",
+                )
+            }
             for g in service.list_grants()
         ]
         return CommandResultV1(
@@ -774,8 +653,14 @@ def _register_batch_e(service, register) -> None:  # noqa: C901 - 命令集合�
                 "tokens": getattr(bundle.layers, name).token_estimate,
             }
             for name in (
-                "constitution", "embodiment", "dynamic_self", "capabilities",
-                "mission", "memory", "organization", "safety",
+                "constitution",
+                "embodiment",
+                "dynamic_self",
+                "capabilities",
+                "mission",
+                "memory",
+                "organization",
+                "safety",
             )
         }
         return CommandResultV1(
@@ -938,7 +823,7 @@ def _register_batch_e(service, register) -> None:  # noqa: C901 - 命令集合�
     register(
         CommandSpecV1(
             name="doctor",
-            description="agentd/modeld/Provider/MCP/Worker/rosclawd 就绪检查",
+            description="agentd/Provider/MCP/Worker/rosclawd 就绪检查",
             category=CommandCategory.HELP_UI,
             owner=CommandOwner.AGENT_CONTROL,
             during_turn=True,
@@ -1073,8 +958,7 @@ def _register_batch_e2(service, register) -> None:
             command_name=req.command_name,
             ok=True,
             message=(
-                f"已导入为只读 Mission {result['mission_id']}；"
-                "不恢复任何授权/Permit/审批效力。"
+                f"已导入为只读 Mission {result['mission_id']}；不恢复任何授权/Permit/审批效力。"
             ),
             data=result,
         )

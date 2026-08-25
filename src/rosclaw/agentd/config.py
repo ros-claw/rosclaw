@@ -52,7 +52,6 @@ class AgentConfig:
     body_id: str | None = None
     sim_body_id: str = "sim/ur5e"
     profiles: list[ModelProfile] = field(default_factory=list)
-    model_backend: str = "legacy"  # legacy | modeld（批次 D）
     mcp_servers: list[dict[str, Any]] = field(default_factory=list)
     agent_runtime: AgentRuntimeConfig = field(default_factory=AgentRuntimeConfig)
     raw: dict[str, Any] = field(default_factory=dict)
@@ -120,14 +119,11 @@ def load_agent_config(path: Path | None = None) -> AgentConfig:
         body_id=(str(agent["body_id"]) if agent.get("body_id") else None),
         sim_body_id=str(agent.get("sim_body_id", "sim/ur5e")),
         profiles=profiles,
-        model_backend=str(models.get("backend", "legacy")),
         mcp_servers=[dict(s or {}) for s in (data.get("mcp_servers", []) or [])],
         agent_runtime=AgentRuntimeConfig(
             default=str(data.get("agent_runtime", {}).get("default", "pi-sdk")),
             enabled=list(data.get("agent_runtime", {}).get("enabled", ["pi-sdk"])),
-            auto_discovery=bool(
-                data.get("agent_runtime", {}).get("auto_discovery", False)
-            ),
+            auto_discovery=bool(data.get("agent_runtime", {}).get("auto_discovery", False)),
         ),
         raw={
             "agent": agent,

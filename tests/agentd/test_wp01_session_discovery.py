@@ -69,26 +69,6 @@ class TestSessionListing:
         # 最近活动排序：def456 更新。
         assert sessions[0]["session_id"] == "def456"
 
-    def test_resolve_query_id_prefix_title(self, tmp_path: Path) -> None:
-        """精确 ID / 唯一前缀 / 标题解析；歧义报候选不猜。"""
-        from rosclaw.agentd.session_list import list_sessions, resolve_session_query
-
-        sessions_dir = tmp_path / "agent" / "sessions"
-        self._write_session(sessions_dir, "abc123", "五角星轨迹仿真", "画五角星", "2026-08-10T10:00:00Z")
-        self._write_session(sessions_dir, "abd999", "五角星复测", "再画", "2026-08-11T10:00:00Z")
-        # 精确 ID
-        hit = resolve_session_query(list_sessions(tmp_path), "abc123")
-        assert hit.get("path", "").endswith(".jsonl")
-        # 标题
-        hit = resolve_session_query(list_sessions(tmp_path), "五角星轨迹仿真")
-        assert "abc123" in hit.get("path", "")
-        # 歧义前缀
-        miss = resolve_session_query(list_sessions(tmp_path), "ab")
-        assert miss.get("error") == "AMBIGUOUS"
-        assert len(miss.get("candidates", [])) == 2
-        # 不存在
-        none = resolve_session_query(list_sessions(tmp_path), "zzz")
-        assert none.get("error") == "NOT_FOUND"
 
 
 class TestExitHintIsProductCommand:

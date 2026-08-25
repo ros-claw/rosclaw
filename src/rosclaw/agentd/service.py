@@ -235,9 +235,7 @@ class AgentService:
         # （Operation ≠ Worker：无模型、事件流、即时返回）。
         from rosclaw.task_kernel.operation_manager import OperationManager
 
-        self._operation_manager = OperationManager(
-            self._task_kernel, self._store.connection
-        )
+        self._operation_manager = OperationManager(self._task_kernel, self._store.connection)
         # Daemon action channel (K3) + consent channel (ADR-0007): only when
         # a rosclawd client is actually available — otherwise both degrade
         # honestly.
@@ -585,7 +583,8 @@ class AgentService:
             from rosclaw.agentd.tooling.persistent_client import PersistentMcpClient
 
             shared = PersistentMcpClient(
-                command=str(spec["command"]), args=tuple(spec["args"]),
+                command=str(spec["command"]),
+                args=tuple(spec["args"]),
                 env=kit_spawn_env(),
             )
             self._shared_mcp_client = shared
@@ -674,11 +673,10 @@ class AgentService:
                 )
 
             checks = {
-                "trajectory": any(
-                    "plan" in t for t in kit.compute_tools if _usable(t)
-                ),
+                "trajectory": any("plan" in t for t in kit.compute_tools if _usable(t)),
                 "verifier": any(
-                    "verify" in t for t in (*kit.compute_tools, *kit.observation_tools)
+                    "verify" in t
+                    for t in (*kit.compute_tools, *kit.observation_tools)
                     if _usable(t)
                 ),
                 "executor": status.get("executor") == "READY",
@@ -693,9 +691,7 @@ class AgentService:
                 "idempotent": True,
                 "cancellable": True,
                 "real_authorization": False,
-                "command": (
-                    f"/robot repair {target.kit_id}" if target else ""
-                ),
+                "command": (f"/robot repair {target.kit_id}" if target else ""),
             }
         return {
             "ok": True,
@@ -803,9 +799,7 @@ class AgentService:
 
         body_id = mission.body_binding.body_id if mission is not None else ""
         mode = mission.mode.value if mission is not None else "SIMULATION"
-        return build_capability_snapshot(
-            self._tool_catalog, body_id=body_id, mode=mode
-        )
+        return build_capability_snapshot(self._tool_catalog, body_id=body_id, mode=mode)
 
     async def _ensure_mcp_discovered(self) -> None:
         """Discover configured MCP servers once (PR-05); failures quarantine
@@ -823,9 +817,7 @@ class AgentService:
                 try:
                     await adapter.discover()
                 except Exception:  # noqa: BLE001 - discovery must never break chat
-                    self._tool_catalog.quarantine_source(
-                        adapter.source, "discovery_crashed"
-                    )
+                    self._tool_catalog.quarantine_source(adapter.source, "discovery_crashed")
             self._mcp_discovered = True
 
     @property
@@ -835,94 +827,6 @@ class AgentService:
     @property
     def tool_resolver(self):
         return self._tool_resolver
-
-    # -- modeld 管理面（批次 D：/providers /model /login /logout） ---------------
-    def _modeld_mgmt(self):
-        """共享的 modeld 管理通道（懒启动；runtime 缺失 → None）。"""
-        if getattr(self, "_modeld_mgmt_instance", None) is not None:
-            return self._modeld_mgmt_instance
-        from rosclaw.agentd.models.modeld_gateway import ModeldGateway, _find_modeld_runtime
-
-        if _find_modeld_runtime() is None:
-            return None
-        profile = self._config.to_policy().default if self._config.profiles else None
-        if profile is None:
-            return None
-        self._modeld_mgmt_instance = ModeldGateway(profile, home=self._home)
-        return self._modeld_mgmt_instance
-
-    async def modeld_providers(self) -> dict:
-        mgmt = self._modeld_mgmt()
-        if mgmt is None:
-            return {"available": False, "providers": [], "error": "modeld runtime unavailable"}
-        try:
-            data = await mgmt.manage("GET", "/v1/providers")
-            data["available"] = True
-            return data
-        except Exception as exc:  # noqa: BLE001
-            return {"available": False, "providers": [], "error": str(exc)}
-
-    async def modeld_models(self, provider: str) -> dict:
-        mgmt = self._modeld_mgmt()
-        if mgmt is None:
-            return {"models": [], "error": "modeld runtime unavailable"}
-        return await mgmt.manage("GET", f"/v1/models?provider={provider}")
-
-    async def modeld_login(self, provider: str, api_key: str) -> dict:
-        """API key 登录：secret 只经内存进 modeld，不落 mission journal。"""
-        mgmt = self._modeld_mgmt()
-        if mgmt is None:
-            return {"ok": False, "error": "modeld runtime unavailable"}
-        return await mgmt.manage(
-            "POST", f"/v1/auth/{provider}/login", {"mode": "api_key", "api_key": api_key}
-        )
-
-    async def modeld_logout(self, provider: str) -> dict:
-        mgmt = self._modeld_mgmt()
-        if mgmt is None:
-            return {"ok": False, "error": "modeld runtime unavailable"}
-        return await mgmt.manage("POST", f"/v1/auth/{provider}/logout", {})
-
-    def current_model_label(self) -> str:
-        if not self._config.profiles:
-            return "未配置模型"
-        profile = self._config.to_policy().default
-        return f"{profile.provider}/{profile.model}（profile: {profile.name}）"
-
-    def switch_model(self, provider: str, model: str) -> dict:
-        """切换默认 profile 的 provider/model（内存态；持久化走 /settings）。
-
-        切换永不改变工具权限、Mission mode 或 grant（§8.5）。
-        """
-        if not self._config.profiles:
-            return {"ok": False, "error_code": "no_profiles", "message": "未配置模型"}
-        profile = self._config.to_policy().default
-        old = f"{profile.provider}/{profile.model}"
-        if self._config.model_backend != "modeld":
-            return {
-                "ok": False,
-                "error_code": "legacy_backend",
-                "message": (
-                    "legacy backend 的运行时在启动时绑定 endpoint，/model 暂不支持热切换；"
-                    "请设置 models.backend: modeld 后重试（Kimi 现有配置无需改动）"
-                ),
-            }
-        # modeld provider 名映射与 ModeldGateway 一致。
-        from rosclaw.agentd.models.modeld_gateway import _PROVIDER_MAP
-
-        mapped = _PROVIDER_MAP.get(provider, provider)
-        # profile 对象被 config / FailoverGateway candidates / 既有 AgentLoop
-        # 共享；frozen dataclass 的就地字段替换让"下一 turn 生效"在所有
-        # 引用点同时成立（当前 turn 不中断）。
-        object.__setattr__(profile, "provider", mapped)
-        object.__setattr__(profile, "model", model)
-        return {
-            "ok": True,
-            "message": (
-                f"模型已从 {old} 切换为 {mapped}/{model}（下一 turn 生效；"
-                "当前 turn 不中断；持久化配置修改将在 /settings 提供）"
-            ),
-        }
 
     @property
     def commands(self):
@@ -955,8 +859,8 @@ class AgentService:
     def reload_domains(self, domains: list[str]) -> dict:
         """/reload（§8.15）：分域原子重载；安全域永远拒绝。
 
-        可 reload：prompts（prompt registry）、models（modeld provider
-        catalog refresh 提示）。
+        可 reload：prompts（prompt registry）。models 不可 reload——
+        模型配置归 Pi 单源（chat 内 /model 热切换，启动时装配）。
         不可 reload：rosclawd Policy、Robot Pack 签名、Body 安全边界、
         Permit、设备权限、REAL 风险上限。
         """
@@ -975,8 +879,8 @@ class AgentService:
                     results[domain] = {"ok": False, "detail": f"{exc}（保持旧配置）"}
             elif domain == "models":
                 results[domain] = {
-                    "ok": True,
-                    "detail": "modeld provider catalog 为启动时构建；/model 可切换，重启后重建。",
+                    "ok": False,
+                    "detail": "models 归 Pi 配置单源（chat 内 /model）——/reload 不涉及。",
                 }
             elif domain in ("policy", "robot_pack", "body", "permits", "permissions", "safety"):
                 results[domain] = {
@@ -1057,9 +961,7 @@ class AgentService:
 
         try:
             loop = asyncio.get_running_loop()
-            loop.create_task(
-                self._events.append(mission_id, AgentEventType.MISSION_ARCHIVED, {})
-            )
+            loop.create_task(self._events.append(mission_id, AgentEventType.MISSION_ARCHIVED, {}))
         except RuntimeError:
             pass
 
@@ -1075,9 +977,7 @@ class AgentService:
             "body_id": self._body_id,
             "daemon_connected": self._daemon_client is not None,
             "mcp_servers": [a.source for a in self._mcp_adapters],
-            "model_profile": (
-                f"{model.provider}/{model.model}" if model else ""
-            ),
+            "model_profile": (f"{model.provider}/{model.model}" if model else ""),
             "model": model.model if model else "",
             "tools_registered": len(self._tool_catalog.list()),
         }
@@ -1454,7 +1354,10 @@ class AgentService:
         if model is None:
             return {
                 **base,
-                "profile": "", "provider": "", "model": "", "base_url": "",
+                "profile": "",
+                "provider": "",
+                "model": "",
+                "base_url": "",
                 "api_key_ref": "",
             }
         return {
@@ -1693,9 +1596,7 @@ def create_app(service: AgentService):
                     )
             pairing = os.environ.get("ROSCLAW_CONSOLE_TOKEN")
             if pairing and request.headers.get("x-rosclaw-token") != pairing:
-                return JSONResponse(
-                    status_code=403, content={"detail": "pairing token required"}
-                )
+                return JSONResponse(status_code=403, content={"detail": "pairing token required"})
         # P1-4：ephemeral control token——除 /health 与 /console（HTML
         # 壳）外全部端点（含敏感 GET）都必须携带。token 经 0600 文件
         # 交给同机 TUI/CLI，不写 journal、不进 ps。
@@ -1913,7 +1814,9 @@ def create_app(service: AgentService):
         principal = service.principal_for_request(request_id)
         try:
             grant = await service.decide_approval(
-                request_id, principal=principal, approve=payload.approve,
+                request_id,
+                principal=principal,
+                approve=payload.approve,
                 _from_operatord=True,
             )
         except Exception as exc:  # noqa: BLE001

@@ -49,17 +49,15 @@ class SettingsService:
     def set_key(self, dotted: str, value: Any) -> dict:
         if dotted not in _ALLOWED_KEYS:
             if dotted.startswith(_FORBIDDEN_PREFIXES):
-                raise ValidationError(
-                    f"{dotted} 属安全域，/settings 永不修改（走专用管理面）"
-                )
+                raise ValidationError(f"{dotted} 属安全域，/settings 永不修改（走专用管理面）")
             raise ValidationError(f"未知的 settings 键 {dotted!r}（白名单外）")
         expected = _ALLOWED_KEYS[dotted]
         if expected is int and isinstance(value, str) and value.isdigit():
             value = int(value)
         if not isinstance(value, expected):
             raise ValidationError(f"{dotted} 需要 {expected.__name__}，得到 {type(value).__name__}")
-        if dotted == "models.backend" and value not in ("legacy", "modeld"):
-            raise ValidationError("models.backend 只能是 legacy|modeld")
+        if dotted == "models.backend":
+            raise ValidationError("models.backend 已废除（P1-A5）——模型运行时唯一=Pi")
 
         data = self.get()
         node = data

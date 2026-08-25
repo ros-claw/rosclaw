@@ -17,9 +17,9 @@ from rosclaw.contracts.common import ContractModel
 class CommandOwner(StrEnum):
     LOCAL_UI = "LOCAL_UI"  # TUI 本地处理（/clear-screen、/quit）
     AGENT_CONTROL = "AGENT_CONTROL"  # AgentService 通用控制（/cancel）
-    MODEL_CONTROL = "MODEL_CONTROL"  # modeld（/model、/login）
     MISSION_CONTROL = "MISSION_CONTROL"  # Mission 语义（/new、/compact、/rename）
     SAFETY_CONTROL = "SAFETY_CONTROL"  # Operator/rosclawd 专用（/estop、/approve）
+    MODEL_CONTROL = "MODEL_CONTROL"  # /thinking /scoped-models（legacy console）
 
 
 class CommandCategory(StrEnum):

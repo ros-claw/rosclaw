@@ -110,7 +110,7 @@ async def probe_home(home: Path) -> ModelProbeResult:
 
 
 def _component_report() -> dict:
-    """批次 D/E 与 PR-11 组件检查：Node、modeld、TUI 资产。"""
+    """PR-11 组件检查：Node 与 TUI 资产（P1-A5：modeld 已废除）。"""
     import shutil
     import subprocess
 
@@ -126,12 +126,10 @@ def _component_report() -> dict:
             node_version = node_version or out
         except Exception:  # noqa: BLE001
             continue
-    from rosclaw.agentd.models.modeld_gateway import _find_modeld_runtime
     from rosclaw.agentd.pi_entry import find_tui_runtime as _find_tui_runtime
 
     return {
         "node": {"version": node_version, "ok": node_ok, "required": ">=22.19.0"},
-        "modeld": {"available": _find_modeld_runtime() is not None},
         "tui": {"available": _find_tui_runtime() is not None},
     }
 

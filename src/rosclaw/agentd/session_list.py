@@ -62,9 +62,7 @@ def _parse_session_file(path: Path) -> dict[str, Any] | None:
                         content = message.get("content", "")
                         if isinstance(content, list):
                             content = " ".join(
-                                str(b.get("text", ""))
-                                for b in content
-                                if isinstance(b, dict)
+                                str(b.get("text", "")) for b in content if isinstance(b, dict)
                             )
                         first_message = str(content)[:120]
     if not session_id:
@@ -79,30 +77,3 @@ def _parse_session_file(path: Path) -> dict[str, Any] | None:
         "created": created,
         "modified": str(stat.st_mtime),
     }
-
-
-def resolve_session_query(
-    sessions: list[dict[str, Any]], query: str
-) -> dict[str, Any]:
-    """精确 ID → 唯一前缀 → 标题/首条消息匹配。歧义报候选，不猜。"""
-    query = query.strip()
-    if not query:
-        return {"error": "EMPTY_QUERY"}
-    for s in sessions:
-        if s["session_id"] == query:
-            return s
-    prefix = [s for s in sessions if s["session_id"].startswith(query)]
-    if len(prefix) == 1:
-        return prefix[0]
-    if len(prefix) > 1:
-        return {"error": "AMBIGUOUS", "candidates": prefix}
-    titled = [
-        s
-        for s in sessions
-        if query in (s.get("display_name") or "") or query in (s.get("first_message") or "")
-    ]
-    if len(titled) == 1:
-        return titled[0]
-    if len(titled) > 1:
-        return {"error": "AMBIGUOUS", "candidates": titled}
-    return {"error": "NOT_FOUND"}

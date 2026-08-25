@@ -1,6 +1,5 @@
 """复盘回归（2026-08-04 深度审查）：
 
-- ModeldGateway 多实例 socket 冲突（并发 mission/failover/mgmt 共存）
 - fork 基于 canonical journal（compaction 后历史不丢）
 - §19.6 攻击回归：tool result 伪造"用户已授权"不得批准；
   客户端断开后 pending approval 保持待定并最终过期
@@ -8,7 +7,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 from pathlib import Path
 
@@ -49,28 +47,6 @@ def _service(tmp_path: Path, script=None) -> AgentService:
     )
 
 
-class TestModeldSocketIsolation:
-    @pytest.mark.skipif(
-        __import__("rosclaw.agentd.models.modeld_gateway", fromlist=["_find_modeld_runtime"])._find_modeld_runtime()
-        is None,
-        reason="modeld runtime unavailable",
-    )
-    async def test_concurrent_gateways_do_not_break_each_other(self, tmp_path: Path) -> None:
-        from rosclaw.agentd.models.modeld_gateway import ModeldGateway
-        from rosclaw.agentd.models.profiles import kimi_code_k3_profile
-
-        g1 = ModeldGateway(kimi_code_k3_profile(), home=tmp_path)
-        g2 = ModeldGateway(kimi_code_k3_profile(), home=tmp_path)
-        assert g1._socket_path != g2._socket_path or not g1._socket_path
-        await asyncio.gather(g1._ensure_started(), g2._ensure_started())
-        try:
-            assert g1._socket_path != g2._socket_path
-            d1 = await g1.manage("GET", "/v1/providers")
-            d2 = await g2.manage("GET", "/v1/providers")
-            assert d1.get("providers") and d2.get("providers")
-        finally:
-            await g1.close()
-            await g2.close()
 
 
 class TestAttackRegressions:

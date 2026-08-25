@@ -217,9 +217,7 @@ def cmd_chat(args: argparse.Namespace) -> int:
     home = _home(args)
     # PR-H9：legacy 引擎（Python AgentLoop console）已删除——Native
     # Agent（Harness Backend 主会话）是唯一引擎（ADR-0012）。
-    if getattr(args, "legacy", False) or (
-        getattr(args, "engine", None) not in (None, "pi")
-    ):
+    if getattr(args, "legacy", False) or (getattr(args, "engine", None) not in (None, "pi")):
         print(
             "legacy 引擎已随 H9 删除（旧 Python AgentLoop console）——"
             "rosclaw chat 即 Native Agent，无需 --engine/--legacy。",
@@ -261,9 +259,7 @@ def _route_internal_diagnostics_to_log(home: Path, *, debug: bool) -> None:
         log_dir = home / "logs"
         log_dir.mkdir(parents=True, exist_ok=True)
         handler = _logging.FileHandler(log_dir / "python-warnings.log")
-        handler.setFormatter(
-            _logging.Formatter("%(asctime)s %(name)s %(levelname)s %(message)s")
-        )
+        handler.setFormatter(_logging.Formatter("%(asctime)s %(name)s %(levelname)s %(message)s"))
         py_warnings = _logging.getLogger("py.warnings")
         py_warnings.addHandler(handler)
         py_warnings.propagate = False
@@ -320,29 +316,9 @@ def _chat_pi(home: Path, args: argparse.Namespace) -> int:
         resume_argv = ["--continue"]
     elif getattr(args, "resume", None):
         query = str(args.resume)
-        if query == "__picker__":
-            # WP-P0-1：裸 --resume → 会话选择器。
-            resume_argv = ["--browse-sessions"]
-        else:
-            # WP-P0-1：ID/前缀/标题 → 真实 session 路径（用户不再
-            # 需要知道内部 ID；歧义报候选不猜）。
-            from rosclaw.agentd.session_list import (
-                list_sessions,
-                resolve_session_query,
-            )
-
-            hit = resolve_session_query(list_sessions(home), query)
-            if hit.get("error"):
-                print(f"会话未解析：{query}", file=sys.stderr)
-                for cand in hit.get("candidates", []):
-                    print(
-                        "  候选："
-                        f"{cand.get('display_name') or cand.get('first_message') or cand['session_id']}"
-                        f"（{cand['session_id'][:12]}…）",
-                        file=sys.stderr,
-                    )
-                return 2
-            resume_argv = ["--resume-path", hit["path"]]
+        # WP-P0-1：裸 --resume → 会话选择器；P1-A5：查询原样传 Pi
+        # 入口（TS 单份解析），歧义/未命中由 TS 侧诚实报错。
+        resume_argv = ["--browse-sessions"] if query == "__picker__" else ["--resume", query]
     if args.mission:
         mission = service.get_mission(args.mission)
         if mission is None:
@@ -395,10 +371,10 @@ def _chat_pi(home: Path, args: argparse.Namespace) -> int:
     resume_mode = None
     if resume_argv:
         resume_mode = _resume_target_mode(home, args)
-    effective_mode = (
-        mission.mode.value if mission is not None else resume_mode
+    effective_mode = mission.mode.value if mission is not None else resume_mode
+    profile = (
+        "robot" if effective_mode is not None and effective_mode != "SIMULATION" else "developer"
     )
-    profile = "robot" if effective_mode is not None and effective_mode != "SIMULATION" else "developer"
     # 六审 §7：产品 supervisor——SIM developer 且已 enrollment 但服务未
     # 运行时，chat 直接代为启动独立 operatord（生命周期归本进程；
     # 决定权/签名仍在 operatord）。未 enrollment 不自动办理——TUI 内
@@ -412,8 +388,12 @@ def _chat_pi(home: Path, args: argparse.Namespace) -> int:
         if enrolled and not operator_sock.exists():
             managed_operatord = _sp.Popen(  # noqa: S603 - 固定入口
                 [
-                    sys.executable, "-m", "rosclaw.entrypoint",
-                    "operatord", "start", "--no-human-presence-check",
+                    sys.executable,
+                    "-m",
+                    "rosclaw.entrypoint",
+                    "operatord",
+                    "start",
+                    "--no-human-presence-check",
                 ],
                 env=dict(os.environ, ROSCLAW_HOME=str(home)),
                 stdout=(home / "run" / "operatord.out.log").open("ab"),
@@ -517,41 +497,6 @@ def _resume_target_mode(home: Path, args: argparse.Namespace) -> str | None:
         return None
 
 
-def cmd_backend(args: argparse.Namespace) -> int:
-    """查看/切换模型 backend（批次 D：Kimi 现有配置无需改动即可迁移）。"""
-    import yaml
-
-    home = _home(args)
-    config_path = home / "config.yaml"
-    data = {}
-    if config_path.exists():
-        data = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
-    models = data.setdefault("models", {})
-    current = models.get("backend", "legacy")
-    if not args.set:
-        print(json.dumps({"backend": current}, ensure_ascii=False))
-        return 0
-    if args.set == current:
-        print(f"backend 已是 {current}")
-        return 0
-    if args.set == "modeld":
-        from rosclaw.agentd.models.modeld_gateway import _find_modeld_runtime
-
-        if _find_modeld_runtime() is None:
-            print(
-                "rosclaw-modeld 不可用（需要 Node >= 22.19 与已构建的 "
-                "packages/rosclaw-modeld）。修复后再切换。",
-                file=sys.stderr,
-            )
-            return 2
-    models["backend"] = args.set
-    config_path.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
-    print(
-        f"backend: {current} → {args.set}。现有 profile 与 env 凭据引用保持不变；下一 turn 生效。"
-    )
-    return 0
-
-
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="rosclaw-agentd", description="ROSClaw Native Agent")
     parser.add_argument("--home", default=None, help="ROSClaw home (default ~/.rosclaw)")
@@ -567,7 +512,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_doctor = sub.add_parser("doctor", help="model/agent readiness probe")
     p_doctor.add_argument(
-        "topic", nargs="?", default="",
+        "topic",
+        nargs="?",
+        default="",
         help="主题探测：simulation = 托管仿真 runtime（无需模型凭据）",
     )
     p_doctor.set_defaults(func=cmd_doctor)
@@ -579,10 +526,6 @@ def build_parser() -> argparse.ArgumentParser:
     p_init.add_argument("--api-key-ref", default=None)
     p_init.set_defaults(func=cmd_init)
 
-    p_backend = sub.add_parser("backend", help="model backend: legacy | modeld")
-    p_backend.add_argument("--set", choices=["legacy", "modeld"], default=None)
-    p_backend.set_defaults(func=cmd_backend)
-
     p_chat = sub.add_parser("chat", help="interactive chat (in-process)")
     p_chat.add_argument("--mission", default=None)
     p_chat.add_argument("--mode", default=None, choices=["SIMULATION", "SHADOW", "REAL"])
@@ -590,8 +533,6 @@ def build_parser() -> argparse.ArgumentParser:
     p_chat.set_defaults(func=cmd_chat)
 
     return parser
-
-
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -625,7 +566,9 @@ def add_agent_subparsers(subparsers) -> None:
             p.add_argument("--api-key-ref", default=None)
         if name == "doctor":
             p.add_argument(
-                "topic", nargs="?", default="",
+                "topic",
+                nargs="?",
+                default="",
                 help="主题探测：simulation = 托管仿真 runtime（无需模型凭据）",
             )
         p.set_defaults(func=fn)
@@ -646,8 +589,9 @@ def add_agent_subparsers(subparsers) -> None:
 
     p_chat = subparsers.add_parser("chat", help="chat with the Native Agent")
     # 十一审 PR-D：rosclaw chat [PATH]——Project workspace 一等状态。
-    p_chat.add_argument("path", nargs="?", default=None,
-                        help="项目目录（git 仓库自动绑定为 workspace）")
+    p_chat.add_argument(
+        "path", nargs="?", default=None, help="项目目录（git 仓库自动绑定为 workspace）"
+    )
     p_chat.add_argument("--workspace", default=None, help="显式指定 workspace 路径")
     p_chat.add_argument("--mission", default=None)
     p_chat.add_argument("--mode", default=None, choices=["SIMULATION", "SHADOW", "REAL"])
@@ -688,21 +632,17 @@ def add_agent_subparsers(subparsers) -> None:
         default=None,
         metavar="ID或标题",
         # WP-P0-1：裸 --resume 打开会话选择器；参数支持精确 ID/
-        # 唯一前缀/标题（由 session_list.resolve_session_query 解析）。
+        # 唯一前缀/标题（由 Pi 入口 TS 单份解析——P1-A5）。
         help="恢复会话：无参数打开选择器；或给 ID/唯一前缀/标题",
     )
     p_chat.set_defaults(func=cmd_chat)
 
     # WP-P0-1（总纲 §4.2/§5.1）：会话可发现性——用户不再需要知道
     # 内部 session id。
-    p_sessions = subparsers.add_parser(
-        "sessions", help="列出/搜索会话（TTY 下引导选择器）"
-    )
+    p_sessions = subparsers.add_parser("sessions", help="列出/搜索会话（TTY 下引导选择器）")
     p_sessions.add_argument("query", nargs="?", default="", help="搜索标题/内容")
     p_sessions.set_defaults(func=cmd_sessions)
-    p_resume = subparsers.add_parser(
-        "resume", help="恢复会话：无参数打开选择器；或给 ID/前缀/标题"
-    )
+    p_resume = subparsers.add_parser("resume", help="恢复会话：无参数打开选择器；或给 ID/前缀/标题")
     p_resume.add_argument("query", nargs="?", default="", metavar="ID或标题")
     p_resume.set_defaults(func=cmd_resume)
     p_continue = subparsers.add_parser("continue", help="继续最近会话")
