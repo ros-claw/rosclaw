@@ -88,9 +88,6 @@ class TestWaitStopOperation:
     async def test_wait_returns_terminal(self, tmp_path: Path) -> None:
 
         service, mission = await _setup(tmp_path)
-        from rosclaw.agentd.pi_bridge.tool_dispatch import PiToolDispatcher
-
-        dispatcher = PiToolDispatcher(service)
         import sys
 
         op = await service._operation_manager.start(
