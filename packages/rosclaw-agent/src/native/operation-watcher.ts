@@ -1,9 +1,15 @@
-/** OperationWatcher（PR-H3，总纲 v2 §11.4）——operation 终态一次性
- *  followUp 注入同一 session。
+/** OperationWatcher V2（P1-B2，0824 总纲 §12.3）——operation 事件流
+ *  驱动：progress 流式进 TUI + 终态一次性 followUp。
  *
- * 不是 completion watcher 轮询链：只跟踪模型显式启动的 operation；
- * 终态只触发一次 followUp（紧凑结构化结果），heartbeat/progress 绝不
- * 进模型上下文（零 LLM token 开销——进度展示走 UI 事件流）。
+ * - 每个 tick 只发 pi.kernel.events（task_id + last_seq 增量游标，
+ *   不重不漏）——不再逐 op 轮询 pi.op.get（注册时一次性取 task_id
+ *   除外）；
+ * - operation.output/progress 事件 → sink.setWidget 按 operation_id
+ *   原位更新（单活动区，同 key 覆盖）；终态 → widget 清除；
+ * - progress 绝不进模型上下文（setWidget ≠ sendMessage，零 LLM
+ *   token 开销）；
+ * - 终态一次性 followUp（WP-1 语义不变：owning task 终态/旧
+ *   revision 只存档不触发回合）。
  */
 
 interface SendSink {
@@ -18,23 +24,45 @@ interface SendSink {
 	): void;
 }
 
+interface WatcherSink {
+	api: SendSink;
+	isIdle: boolean;
+	notify?: (text: string) => void;
+	setWidget?: (key: string, lines: string[] | undefined) => void;
+}
+
 interface OperationWatcherDeps {
 	call: (method: string, params: Record<string, unknown>) => Promise<Record<string, unknown>>;
-	sink: () => { api: SendSink; isIdle: boolean; notify?: (text: string) => void } | undefined;
+	sink: () => WatcherSink | undefined;
+}
+
+interface KernelEvent {
+	seq: number;
+	event_type: string;
+	operation_id?: string;
+	payload?: Record<string, unknown>;
 }
 
 const POLL_MS = 2000;
+const TERMINAL_STATES = new Set(["SUCCEEDED", "FAILED", "CANCELLED", "LOST"]);
+const TERMINAL_EVENTS = new Set([
+	"operation.completed", "operation.failed", "operation.cancelled", "operation.lost",
+]);
 
 export class OperationWatcher {
 	private timer: ReturnType<typeof setInterval> | undefined;
-	private readonly tracked = new Map<string, string>(); // operation_id → state(已见终态则删)
+	private readonly tracked = new Map<string, string>(); // operation_id → task_id（注册后解析）
+	private readonly pending = new Set<string>(); // task_id 未解析的 operation
 	private readonly delivered = new Set<string>();
+	private readonly seqByTask = new Map<string, number>();
+	private readonly lastLineByOp = new Map<string, string>();
 
 	constructor(private readonly deps: OperationWatcherDeps) {}
 
 	/** 模型启动 operation 时登记（tool_execution_end: process_start）。 */
 	track(operationId: string): void {
-		if (operationId) this.tracked.set(operationId, "RUNNING");
+		if (!operationId || this.tracked.has(operationId)) return;
+		this.pending.add(operationId);
 	}
 
 	start(): void {
@@ -50,82 +78,140 @@ export class OperationWatcher {
 		this.timer = undefined;
 	}
 
-	private async tick(): Promise<void> {
-		if (!this.tracked.size) return;
-		const sink = this.deps.sink();
-		for (const operationId of [...this.tracked.keys()]) {
-			if (this.delivered.has(operationId)) {
-				this.tracked.delete(operationId);
-				continue;
-			}
-			let op: Record<string, unknown> | undefined;
+	/** 注册解析（每个 op 仅一次）：task_id 是事件流订阅键。 */
+	private async resolvePending(): Promise<void> {
+		for (const operationId of [...this.pending]) {
 			try {
 				const result = await this.deps.call("pi.op.get", {
 					operation_id: operationId,
 				});
-				op = result.operation as Record<string, unknown> | undefined;
+				const op = (result.operation ?? {}) as Record<string, unknown>;
+				const taskId = String(op.task_id ?? "");
+				if (!taskId) continue; // 桥暂不可知——下周期再试（不报假死）
+				this.pending.delete(operationId);
+				this.tracked.set(operationId, taskId);
+				if (TERMINAL_STATES.has(String(op.state ?? ""))) {
+					await this.handleTerminal(operationId, op);
+				}
 			} catch {
-				continue; // 桥暂不可用——下周期再试（不报假死）
+				// 桥暂不可用——下周期再试。
 			}
-			const state = String(op?.state ?? "");
-			if (!op || !(state === "SUCCEEDED" || state === "FAILED" || state === "CANCELLED")) {
-				continue;
+		}
+	}
+
+	private async tick(): Promise<void> {
+		await this.resolvePending();
+		if (!this.tracked.size) return;
+		const sink = this.deps.sink();
+		const taskIds = [...new Set(this.tracked.values())];
+		for (const taskId of taskIds) {
+			let events: KernelEvent[] = [];
+			try {
+				const result = await this.deps.call("pi.kernel.events", {
+					task_id: taskId,
+					last_seq: this.seqByTask.get(taskId) ?? 0,
+				});
+				events = (result.events ?? []) as KernelEvent[];
+			} catch {
+				continue; // 桥暂不可用——下周期从同游标重放（不重不漏）
 			}
-			this.delivered.add(operationId);
-			this.tracked.delete(operationId);
-			// WP-1（0823 审计 P0-3）：终态一致性——owning task 已终态
-			// （或 operation 属旧 revision）时，终态事件只更新账本和
-			// TUI，绝不触发模型回合。规则：Task 终态后、下一条用户
-			// 输入前，模型调用次数恒等于 0。
-			const taskId = String(op.task_id ?? "");
-			let taskTerminal = false;
-			let staleRevision = false;
-			if (taskId) {
-				try {
-					const taskResult = await this.deps.call("pi.kernel.get", {
+			for (const event of events) {
+				this.seqByTask.set(taskId, Math.max(
+					this.seqByTask.get(taskId) ?? 0, Number(event.seq) || 0,
+				));
+				const operationId = String(event.operation_id ?? "");
+				if (!operationId || !this.tracked.has(operationId)) continue;
+				if (event.event_type === "operation.output") {
+					const text = String(event.payload?.text ?? "").trim();
+					if (text) this.upsertWidget(sink, operationId, text);
+				} else if (event.event_type === "operation.progress") {
+					const progress = (event.payload?.progress ?? {}) as Record<string, unknown>;
+					const label = [
+						progress.pct !== undefined ? `${progress.pct}%` : "",
+						String(progress.stage ?? ""),
+					].filter(Boolean).join(" ");
+					if (label) this.upsertWidget(sink, operationId, label);
+				} else if (TERMINAL_EVENTS.has(event.event_type)) {
+					await this.handleTerminal(operationId, {
+						operation_id: operationId,
 						task_id: taskId,
+						state: String(event.payload?.state ?? ""),
 					});
-					const task = (taskResult.task ?? null) as Record<string, unknown> | null;
-					const taskState = String(task?.state ?? "");
-					taskTerminal = task !== null && taskState !== "RUNNING"
-						&& taskState !== "CREATED" && taskState !== "WAITING_APPROVAL";
-					const opRevision = Number(op.revision ?? 0);
-					const activeRevision = Number(task?.active_revision ?? 0);
-					staleRevision = opRevision > 0 && activeRevision > 0
-						&& opRevision !== activeRevision;
-				} catch {
-					// 查询失败不赌——按终态处理（不触发回合），下周期
-					// 由 delivered 集合保证不重复。
-					taskTerminal = true;
 				}
 			}
-			if (taskTerminal || staleRevision) {
-				sink?.notify?.(
-					`Operation ${state}（任务已${staleRevision ? "换 revision" : "终态"}——已存档，不再打扰）：${operationId.slice(0, 18)}…`,
-				);
-				continue;
-			}
-			// 终态一次性 followUp（compact 结构化结果——同一 session 继续
-			// 验证/修复，不新建 Worker/任务）。
-			const content =
-				`后台 Operation ${operationId} 已终止：${state}`
-				+ (op.failure_code ? `（${String(op.failure_code)}）` : "")
-				+ "。用 process_output 查看输出，然后在同一任务里继续（验证/修复/交付）。";
-			if (sink?.api) {
-				sink.api.sendMessage(
-					{
-						customType: "rosclaw.operation.result",
-						content,
-						display: false,
-						details: { operation_id: operationId, state },
-					},
-					// idle 时立即触发回合；忙时 followUp 排队。
-					sink.isIdle
-						? { triggerTurn: true }
-						: { triggerTurn: true, deliverAs: "followUp" },
-				);
-			}
-			sink?.notify?.(`Operation ${state}：${operationId.slice(0, 18)}…`);
 		}
+	}
+
+	private upsertWidget(sink: WatcherSink | undefined, operationId: string, line: string): void {
+		if (!sink?.setWidget) return;
+		this.lastLineByOp.set(operationId, line);
+		sink.setWidget(`op:${operationId}`, [
+			`⠋ Operation ${operationId.slice(0, 18)}… ${line}`,
+		]);
+	}
+
+	private clearWidget(sink: WatcherSink | undefined, operationId: string): void {
+		if (!sink?.setWidget || !this.lastLineByOp.has(operationId)) return;
+		this.lastLineByOp.delete(operationId);
+		sink.setWidget(`op:${operationId}`, undefined);
+	}
+
+	private async handleTerminal(
+		operationId: string, op: Record<string, unknown>,
+	): Promise<void> {
+		if (this.delivered.has(operationId)) return;
+		this.delivered.add(operationId);
+		this.pending.delete(operationId);
+		this.tracked.delete(operationId);
+		const sink = this.deps.sink();
+		this.clearWidget(sink, operationId);
+		const state = String(op.state ?? "");
+		// WP-1（0823 审计 P0-3）：终态一致性——owning task 已终态
+		// （或 operation 属旧 revision）时，终态事件只更新账本和
+		// TUI，绝不触发模型回合。
+		const taskId = String(op.task_id ?? "");
+		let taskTerminal = false;
+		let staleRevision = false;
+		if (taskId) {
+			try {
+				const taskResult = await this.deps.call("pi.kernel.get", {
+					task_id: taskId,
+				});
+				const task = (taskResult.task ?? null) as Record<string, unknown> | null;
+				const taskState = String(task?.state ?? "");
+				taskTerminal = task !== null && taskState !== "RUNNING"
+					&& taskState !== "CREATED" && taskState !== "WAITING_APPROVAL";
+				const opRevision = Number(op.revision ?? 0);
+				const activeRevision = Number(task?.active_revision ?? 0);
+				staleRevision = opRevision > 0 && activeRevision > 0
+					&& opRevision !== activeRevision;
+			} catch {
+				taskTerminal = true; // 查询失败不赌——按终态处理（不触发回合）
+			}
+		}
+		if (taskTerminal || staleRevision) {
+			sink?.notify?.(
+				`Operation ${state}（任务已${staleRevision ? "换 revision" : "终态"}——已存档，不再打扰）：${operationId.slice(0, 18)}…`,
+			);
+			return;
+		}
+		const content =
+			`后台 Operation ${operationId} 已终止：${state}`
+			+ (op.failure_code ? `（${String(op.failure_code)}）` : "")
+			+ "。用 process_output 查看输出，然后在同一任务里继续（验证/修复/交付）。";
+		if (sink?.api) {
+			sink.api.sendMessage(
+				{
+					customType: "rosclaw.operation.result",
+					content,
+					display: false,
+					details: { operation_id: operationId, state },
+				},
+				sink.isIdle
+					? { triggerTurn: true }
+					: { triggerTurn: true, deliverAs: "followUp" },
+			);
+		}
+		sink?.notify?.(`Operation ${state}：${operationId.slice(0, 18)}…`);
 	}
 }

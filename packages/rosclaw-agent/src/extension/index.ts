@@ -133,6 +133,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 		let latestCtx: LatestCtx | undefined;
 		// PR-H3：OperationWatcher——operation 终态一次性 followUp（同一
 		// session；progress/heartbeat 绝不进模型上下文）。
+		// P1-B2：progress 经 setWidget 按 operation_id 原位更新（单活动区）。
 		const operationWatcher = new OperationWatcher({
 			call: (method, params) => center.call(method, params),
 			sink: () =>
@@ -142,6 +143,10 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 							isIdle: latestCtx.isIdle(),
 							notify: latestCtx.hasUI
 								? (text: string) => latestCtx?.ui.notify(text, "info")
+								: undefined,
+							setWidget: latestCtx.hasUI
+								? (key: string, lines: string[] | undefined) =>
+										latestCtx?.ui.setWidget(key, lines)
 								: undefined,
 						}
 					: undefined,
