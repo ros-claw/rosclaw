@@ -75,7 +75,7 @@ class _ProgressFake:
         frames = _tool_call_frames(
             "call_opstart", "process_start",
             json.dumps({
-                "command": "for i in 1 2 3; do echo progress-step-$i; sleep 1.2; done",
+                "command": "for i in 1 2 3; do echo progress-step-$i; sleep 2.5; done",
             }),
         )
         frames.append(b"data: [DONE]\n\n")
