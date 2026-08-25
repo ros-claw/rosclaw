@@ -148,7 +148,11 @@ class TestProbeViaPiEngine:
         """probe_home 经 node main.js --probe（同一 ModelRuntime）。"""
         import asyncio
 
+        from rosclaw.agentd import pi_entry
+
         configure_model(tmp_path, "kimi-code")
+        # CI 无已构建 dist——engine 发现打桩（engine-missing 有独立用例）。
+        monkeypatch.setattr(pi_entry, "find_pi_agent_entry", lambda: ("node", "/fake/main.js"))
         calls: list[list[str]] = []
 
         class _FakeProc:
@@ -199,7 +203,10 @@ class TestProbeViaPiEngine:
         """Pi probe 报告失败（如 401）→ 原样透传，不粉饰。"""
         import asyncio
 
+        from rosclaw.agentd import pi_entry
+
         configure_model(tmp_path, "kimi-code")
+        monkeypatch.setattr(pi_entry, "find_pi_agent_entry", lambda: ("node", "/fake/main.js"))
 
         class _FakeProc:
             returncode = 0
