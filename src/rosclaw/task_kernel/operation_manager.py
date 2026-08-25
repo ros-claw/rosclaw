@@ -52,6 +52,8 @@ class OperationManager:
         self._conn = conn
         self._procs: dict[str, asyncio.subprocess.Process] = {}
         self._drivers: dict[str, asyncio.Task] = {}
+        # operation_id → (client, goal_id)——ROS 2 Action 操作（P1-B3）。
+        self._actions: dict[str, tuple[object, str]] = {}
 
     # --------------------------------------------------------------
     # 生命周期
@@ -174,7 +176,17 @@ class OperationManager:
         self, operation_id: str, state: str, *, failure_code: str = "",
         result_ref: str = "",
     ) -> None:
-        """终态落账（终态不可逆——CANCELLED/LOST 不被迟到事件覆盖）。"""
+        self._write_terminal(
+            operation_id, state, failure_code=failure_code,
+            result_ref=result_ref,
+        )
+
+    def _write_terminal(
+        self, operation_id: str, state: str, *, failure_code: str = "",
+        result_ref: str = "",
+    ) -> None:
+        """终态落账（终态不可逆——CANCELLED/LOST 不被迟到事件覆盖）。
+        同步核心：Action result 回调（listener 线程）也走这里。"""
         row = self.get(operation_id)
         if row is None or row["state"] in OPERATION_TERMINAL:
             return
@@ -195,6 +207,92 @@ class OperationManager:
                    {"operation_id": operation_id, "state": state,
                     "failure_code": failure_code},
                    operation_id=operation_id)
+
+    # --------------------------------------------------------------
+    # ROS 2 Action provider（P1-B3，0824 总纲 §12/P1-B）
+    # --------------------------------------------------------------
+    async def start_action(
+        self,
+        *,
+        task_id: str,
+        attempt_id: str,
+        action: str,
+        action_type: str,
+        args: dict,
+        client,
+        goal_id: str = "",
+    ) -> dict[str, Any]:
+        """ROS 2 Action → 同一 Operation 契约（QUEUED→ADMITTED→
+        RUNNING；feedback→progress；result→终态）。"""
+        from rosclaw.connectors.ros.action_client import (
+            STATUS_CANCELED,
+            STATUS_SUCCEEDED,
+        )
+
+        operation_id = new_id("op")
+        goal_id = goal_id or new_id("goal")
+        now = _now()
+        task_row = self._conn.execute(
+            "SELECT active_revision FROM tasks WHERE task_id = ?", (task_id,)
+        ).fetchone()
+        revision = int(task_row["active_revision"]) if task_row else None
+        self._conn.execute(
+            "INSERT INTO operations (operation_id, task_id, attempt_id, kind, "
+            "state, resumable, started_at, heartbeat_at, revision, goal_id, "
+            "provider, exitcode_path) "
+            "VALUES (?, ?, ?, ?, 'QUEUED', 0, ?, ?, ?, ?, 'ros2_action', '')",
+            (operation_id, task_id, attempt_id, "action", now, now, revision,
+             goal_id),
+        )
+        self._emit(task_id, "operation.queued",
+                   {"operation_id": operation_id, "goal_id": goal_id,
+                    "provider": "ros2_action", "action": action,
+                    "action_type": action_type},
+                   operation_id=operation_id, attempt_id=attempt_id)
+
+        loop = asyncio.get_running_loop()
+
+        def _marshal(fn):
+            def _wrapped(*cb_args):
+                try:
+                    loop.call_soon_threadsafe(fn, *cb_args)
+                except RuntimeError:
+                    # 事件循环已关（测试相位）——同步执行；连接为
+                    # check_same_thread=False 时安全。生产路径 loop 恒活。
+                    fn(*cb_args)
+
+            return _wrapped
+
+        def _on_feedback(values: dict) -> None:
+            self.report_progress(operation_id, values)
+
+        def _on_result(status: int, values: dict) -> None:
+            result_ref = json.dumps(values, ensure_ascii=False)[:500]
+            if status == STATUS_SUCCEEDED:
+                state, code = "SUCCEEDED", ""
+            elif status == STATUS_CANCELED:
+                state = "CANCELLED"
+                code = str(self.get(operation_id).get("cancel_reason") or "action_canceled")
+            else:
+                state, code = "FAILED", f"action_status_{status}"
+            self._actions.pop(operation_id, None)
+            self._write_terminal(
+                operation_id, state,
+                failure_code=code, result_ref=result_ref,
+            )
+
+        client.send_goal(
+            action=action, action_type=action_type, args=args,
+            goal_id=goal_id,
+            on_feedback=_marshal(_on_feedback),
+            on_result=_marshal(_on_result),
+        )
+        self._actions[operation_id] = (client, goal_id)
+        self._transition(operation_id, "ADMITTED",
+                         event="operation.admitted",
+                         payload={"action": action, "goal_id": goal_id})
+        self._transition(operation_id, "RUNNING", event=None)
+        return self.get(operation_id)
 
     async def wait(self, operation_id: str, *, timeout: float = 60.0) -> dict:
         """等终态（测试/短操作同步点——不是轮询生产路径）。"""
@@ -220,6 +318,17 @@ class OperationManager:
         self._emit(row["task_id"], "operation.canceling",
                    {"operation_id": operation_id, "reason": reason},
                    operation_id=operation_id)
+        action_ref = self._actions.get(operation_id)
+        if action_ref is not None:
+            # ROS 2 Action：cancel_goal 请求——终态由 action_result
+            # (CANCELED) 确认；宽限后服务端无响应也落 CANCELLED
+            # （诚实：请求已发，结局不可考）。
+            client, goal_id = action_ref
+            client.cancel_goal(goal_id)  # type: ignore[attr-defined]
+            self._drivers[operation_id] = asyncio.create_task(
+                self._cancel_grace(operation_id, reason)
+            )
+            return
         proc = self._procs.pop(operation_id, None)
         if proc is not None and proc.returncode is None:
             with contextlib.suppress(ProcessLookupError):
@@ -229,6 +338,15 @@ class OperationManager:
             except TimeoutError:
                 with contextlib.suppress(ProcessLookupError):
                     proc.kill()
+        await self._record_terminal(operation_id, "CANCELLED",
+                                    failure_code=reason)
+
+    async def _cancel_grace(
+        self, operation_id: str, reason: str, grace_s: float = 5.0
+    ) -> None:
+        """Action 取消宽限：action_result 未在宽限内到达也落
+        CANCELLED（账本不再悬空）。"""
+        await asyncio.sleep(grace_s)
         await self._record_terminal(operation_id, "CANCELLED",
                                     failure_code=reason)
 

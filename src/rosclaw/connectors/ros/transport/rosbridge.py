@@ -161,7 +161,13 @@ class RosbridgeTransport:
                 self._ws.settimeout(actual_timeout)
                 raw = self._ws.recv()
             except Exception as exc:
-                error = f"Receive failed or timed out after {actual_timeout}s: {exc}"
+                import websocket as _ws_lib
+
+                if isinstance(exc, _ws_lib.WebSocketTimeoutException):
+                    # 推送通道空闲超时——正常（非连接故障，不 invalidate；
+                    # P1-B3 action listener 轮询依赖语义级空闲返回）。
+                    return RosTransportResult(ok=True, data=None, raw=None)
+                error = f"Receive failed after {actual_timeout}s: {exc}"
                 logger.warning(error)
                 self._invalidate()
                 return RosTransportResult(ok=False, error=error, raw=str(exc))
