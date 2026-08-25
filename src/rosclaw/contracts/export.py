@@ -11,7 +11,6 @@ import sys
 from pathlib import Path
 
 from rosclaw.contracts.agent.acceptance import AcceptanceSpecV2
-from rosclaw.contracts.agent.task_spec import TaskSpecV2
 from rosclaw.contracts.agent.agent_event import AgentEventV2
 from rosclaw.contracts.agent.branch import ReasoningBranchV1
 from rosclaw.contracts.agent.capability import CapabilityDescriptorV2, ToolProjectionV1
@@ -29,6 +28,7 @@ from rosclaw.contracts.agent.task_contracts import (
     WorkOrderV2,
 )
 from rosclaw.contracts.agent.task_graph import TaskGraphPatchV1, TaskGraphV1, TaskNodeV1
+from rosclaw.contracts.agent.task_spec import TaskSpecV2
 from rosclaw.contracts.agent.tool import ToolDescriptorV2
 from rosclaw.contracts.agent.tool_result import ToolResultEnvelopeV2
 from rosclaw.contracts.agent.typed_ref import TypedRefV1
