@@ -1,0 +1,164 @@
+{
+  "$defs": {
+    "TaskConstraintsV2": {
+      "additionalProperties": true,
+      "description": "执行约束：mode / frames / allowed_effects。",
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.task_constraints.v2",
+          "default": "rosclaw.task_constraints.v2",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "mode": {
+          "default": "SIMULATION",
+          "title": "Mode",
+          "type": "string"
+        },
+        "frames": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Frames",
+          "type": "array"
+        },
+        "allowed_effects": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Allowed Effects",
+          "type": "array"
+        }
+      },
+      "title": "TaskConstraintsV2",
+      "type": "object"
+    },
+    "TaskGoalV2": {
+      "additionalProperties": true,
+      "description": "任务目标：自然语言原文 + 分类 intent。",
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.task_goal.v2",
+          "default": "rosclaw.task_goal.v2",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "natural_language": {
+          "minLength": 1,
+          "title": "Natural Language",
+          "type": "string"
+        },
+        "intent": {
+          "minLength": 1,
+          "title": "Intent",
+          "type": "string"
+        }
+      },
+      "required": [
+        "natural_language",
+        "intent"
+      ],
+      "title": "TaskGoalV2",
+      "type": "object"
+    },
+    "TaskPreferencesV2": {
+      "additionalProperties": true,
+      "description": "偏好（非验收因素）。",
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.task_preferences.v2",
+          "default": "rosclaw.task_preferences.v2",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "language": {
+          "default": "",
+          "title": "Language",
+          "type": "string"
+        },
+        "verbosity": {
+          "default": "",
+          "title": "Verbosity",
+          "type": "string"
+        }
+      },
+      "title": "TaskPreferencesV2",
+      "type": "object"
+    },
+    "TaskSubjectsV2": {
+      "additionalProperties": true,
+      "description": "作用对象：body_ref（canonical robot:<name>）与 world_ref。",
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.task_subjects.v2",
+          "default": "rosclaw.task_subjects.v2",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "body_ref": {
+          "default": "",
+          "title": "Body Ref",
+          "type": "string"
+        },
+        "world_ref": {
+          "default": "",
+          "title": "World Ref",
+          "type": "string"
+        }
+      },
+      "title": "TaskSubjectsV2",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "description": "TaskSpecV2（一个 task revision 一份——随 revision 冻结）。",
+  "properties": {
+    "schema_version": {
+      "const": "rosclaw.task_spec.v2",
+      "default": "rosclaw.task_spec.v2",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "spec_id": {
+      "minLength": 1,
+      "title": "Spec Id",
+      "type": "string"
+    },
+    "task_id": {
+      "minLength": 1,
+      "title": "Task Id",
+      "type": "string"
+    },
+    "revision": {
+      "minimum": 1,
+      "title": "Revision",
+      "type": "integer"
+    },
+    "goal": {
+      "$ref": "#/$defs/TaskGoalV2"
+    },
+    "subjects": {
+      "$ref": "#/$defs/TaskSubjectsV2"
+    },
+    "constraints": {
+      "$ref": "#/$defs/TaskConstraintsV2"
+    },
+    "preferences": {
+      "$ref": "#/$defs/TaskPreferencesV2"
+    },
+    "acceptance_spec_id": {
+      "default": "",
+      "title": "Acceptance Spec Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "spec_id",
+    "task_id",
+    "revision",
+    "goal"
+  ],
+  "title": "rosclaw.task_spec.v2",
+  "type": "object",
+  "$id": "rosclaw://schemas/rosclaw.task_spec.v2"
+}

@@ -204,11 +204,23 @@ class TaskKernel:
             revision = int(active["active_revision"]) + 1
             now = datetime.now(UTC).isoformat()
             ensure_run(self._home, task_id, revision)  # WP-8
+            # P1-C1：修订也冻结新 revision 的 TaskSpecV2（goal_delta
+            # 是修订文本——旧 revision 的 spec 不被覆盖）。
+            from rosclaw.task_kernel.task_spec import compile_task_spec
+
+            revised_spec = compile_task_spec(
+                task_id=task_id, revision=revision, goal_text=text,
+                body_id=str(active["body_id"] or ""),
+                mode=str(active["mode"] or "SIMULATION"),
+                acceptance_spec_id="",
+                language=str(active["locale"] or "") if active["locale"] != "auto" else "",
+            )
             self._conn.execute(
                 "INSERT INTO task_revisions (task_id, revision, "
-                "user_message_id, goal_delta, created_at) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (task_id, revision, message_id, text, now),
+                "user_message_id, goal_delta, task_spec_json, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (task_id, revision, message_id, text,
+                 revised_spec.model_dump_json(), now),
             )
             self._conn.execute(
                 "UPDATE tasks SET active_revision = ?, state = 'RUNNING', "
@@ -291,10 +303,20 @@ class TaskKernel:
             (task_id, mission_id, text, mode, body_id, str(workspace),
              locale, now, now),
         )
+        # P1-C1：TaskSpecV2 随 revision 1 冻结（intent/subjects/
+        # constraints 工单——root_goal 之外的契约视图）。
+        from rosclaw.task_kernel.task_spec import compile_task_spec
+
+        task_spec = compile_task_spec(
+            task_id=task_id, revision=1, goal_text=text,
+            body_id=body_id, mode=mode, acceptance_spec_id="",
+            language=locale if locale != "auto" else "",
+        )
         self._conn.execute(
             "INSERT INTO task_revisions (task_id, revision, user_message_id, "
-            "goal_delta, created_at) VALUES (?, 1, ?, ?, ?)",
-            (task_id, message_id, text, now),
+            "goal_delta, task_spec_json, created_at) VALUES (?, 1, ?, ?, ?, ?)",
+            (task_id, message_id, text,
+             task_spec.model_dump_json(), now),
         )
         # harness session 登记（backend_native_id 幂等）。
         self._conn.execute(
@@ -874,6 +896,20 @@ class TaskKernel:
         if row is None or not row["acceptance_spec_json"]:
             return None
         return json.loads(row["acceptance_spec_json"])
+
+    def get_task_spec(self, task_id: str) -> dict | None:
+        """当前活跃 revision 的冻结 TaskSpecV2（dict 视图）。"""
+        task = self.get_task(task_id)
+        if task is None:
+            return None
+        row = self._conn.execute(
+            "SELECT task_spec_json FROM task_revisions "
+            "WHERE task_id = ? AND revision = ?",
+            (task_id, int(task["active_revision"])),
+        ).fetchone()
+        if row is None or not row["task_spec_json"]:
+            return None
+        return json.loads(row["task_spec_json"])
 
     def accept_task(self, task_id: str) -> None:
         """/done：用户接受（PR-N0）——SUCCEEDED 永久关闭；此后新消息
