@@ -35,6 +35,8 @@ interface CompactAnchorDeps {
 	/** 事件时取值（resume/switch 后绑定可能变化）。 */
 	missionId: () => string;
 	sessionRef: () => string;
+	/** 诊断（诊断先行）：每次决策一行——skip 原因或 anchored。 */
+	log?: (message: string) => void;
 }
 
 interface PiLike {
@@ -74,10 +76,18 @@ export function registerCompactAnchor(pi: PiLike, deps: CompactAnchorDeps): void
 			mission_id: deps.missionId(),
 			session_ref: deps.sessionRef(),
 		}).catch(() => ({ ok: false }) as never);
-		if (!latest.ok || !latest.task) return; // 无 task/拉取失败——诚实 no-op
+		if (!latest.ok || !latest.task) {
+			deps.log?.(
+				`skip: no task (ok=${latest.ok} mission=${deps.missionId()} session=${deps.sessionRef()})`,
+			);
+			return; // 无 task/拉取失败——诚实 no-op
+		}
 		const task = latest.task as KernelTask;
 		const key = `${task.task_id}:${task.active_revision}`;
-		if (key === lastKey) return; // 同 key 去重
+		if (key === lastKey) {
+			deps.log?.(`skip: dup anchor ${key}`);
+			return; // 同 key 去重
+		}
 		const artifactResult = await deps.call("pi.kernel.artifacts", {
 			task_id: task.task_id ?? "",
 		}).catch(() => ({ ok: false }) as never);
@@ -85,6 +95,7 @@ export function registerCompactAnchor(pi: PiLike, deps: CompactAnchorDeps): void
 			? ((artifactResult.artifacts ?? []) as KernelArtifact[])
 			: [];
 		lastKey = key;
+		deps.log?.(`anchored: ${key} artifacts=${artifacts.length}`);
 		pi.sendMessage(
 			{
 				customType: "rosclaw.task_anchor",
