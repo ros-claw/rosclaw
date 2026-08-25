@@ -6,7 +6,7 @@ pi-coding-agent"：Pi SDK 现在是 rosclaw-agent harness 的实现基础。
 
 - pi-coding-agent/pi-agent-core/pi-ai/pi-tui **只允许**出现在
   packages/rosclaw-agent（harness 包），且必须精确锁 0.83.0；
-- 其他包（rosclaw-tui/rosclaw-modeld）仍只允许 pi-tui/pi-ai；
+- 其他包（rosclaw-tui）仍只允许 pi-tui/pi-ai；
 - hermes-agent/opencode 仍然全禁；
 - Python 仍不得 import 任何外部 Agent 运行时。
 """
@@ -134,18 +134,8 @@ class TestPythonBoundary:
 
 
 class TestRoleBoundaryStatements:
-    """The TUI/modeld code (when it exists) must not cross its lane."""
+    """The TUI code (when it exists) must not cross its lane."""
 
-    def test_modeld_never_touches_hardware_paths(self) -> None:
-        modeld = NODE_ROOT / "rosclaw-modeld"
-        if not modeld.exists():
-            pytest.skip("modeld not created yet")
-        banned = re.compile(r"rosclawd|/dev/tty|serialport|can-utils|gpio|robot-sdk", re.IGNORECASE)
-        for path in modeld.rglob("*.ts"):
-            if "node_modules" in path.parts or "test" in path.parts:
-                continue
-            text = path.read_text(encoding="utf-8")
-            assert not banned.search(text), f"{path} references hardware paths"
 
     def test_pi_ai_providers_all_never_imported(self) -> None:
         """§14.13：pi-ai 必须按 provider 子路径懒加载，providers/all 会

@@ -42,7 +42,7 @@ class TestReleaseGate:
         info = json.loads((root / "build-info.json").read_text())
         assert info["pi_version"] == "0.83.0"
         assert info["rosclaw_commit"]
-        for pkg in ("rosclaw-tui", "rosclaw-modeld", "rosclaw-agent"):
+        for pkg in ("rosclaw-tui", "rosclaw-agent"):
             assert info["packages"][pkg]["dist_sha256"], pkg
         if os.environ.get("ROSCLAW_SKIP_NODE_BUNDLE") != "1":
             node = root / "vendor" / "node-runtime" / "bin" / "node"

@@ -48,16 +48,13 @@ def test_build_release_bundle_structure(tmp_path: Path) -> None:
             f"{root}/rollback.sh",
             f"{root}/packages/rosclaw-tui/package.json",
             f"{root}/packages/rosclaw-tui/package-lock.json",
-            f"{root}/packages/rosclaw-modeld/package.json",
-            f"{root}/packages/rosclaw-modeld/package-lock.json",
             f"{root}/third_party/pi/LICENSE",
             f"{root}/third_party/pi/NOTICE.md",
         ]
         for needle in expected:
             assert needle in names, f"missing {needle}"
-        # TUI/modeld 已构建产物必须进包（安装侧可离线 npm ci 重建）。
+        # TUI 已构建产物必须进包（安装侧可离线 npm ci 重建）。
         assert any("rosclaw-tui/dist/src/main.js" in n for n in names)
-        assert any("rosclaw-modeld/dist/src/main.js" in n for n in names)
         manifest = json.loads(tf.extractfile(f"{root}/manifest.json").read())
         assert manifest["product"] == "rosclaw"
         assert manifest["files"], "manifest must hash every file"
@@ -128,13 +125,12 @@ class TestSignedBundle:
         root = next(stage.iterdir())
         # 签名与公钥存在，SBOM（CycloneDX + 快照）与离线资产存在。
         for name in ("manifest.json", "manifest.sig", "bundle-signing-public.pem",
-                     "sbom-python.txt", "sbom-rosclaw-tui.txt", "sbom-rosclaw-modeld.txt",
+                     "sbom-python.txt", "sbom-rosclaw-tui.txt",
                      "sbom-cyclonedx.json"):
             assert (root / name).exists(), name
         sbom = json.loads((root / "sbom-cyclonedx.json").read_text())
         assert sbom["bomFormat"] == "CycloneDX" and sbom["components"]
         assert (root / "vendor" / "node_modules_pack" / "rosclaw-tui.tar.gz").exists()
-        assert (root / "vendor" / "node_modules_pack" / "rosclaw-modeld.tar.gz").exists()
         # 签名有效。
         verify = subprocess.run(
             ["openssl", "dgst", "-sha256", "-verify",

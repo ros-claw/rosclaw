@@ -37,7 +37,7 @@ rsync -a --exclude '__pycache__' --exclude '*.pyc' \
   { cp -r "$REPO_ROOT/src" "$REPO_ROOT/pyproject.toml" "$REPO_ROOT/README.md" "$STAGE/"; }
 
 # 2. Node 包（预先构建 dist；lockfile 一并打包，安装侧 npm ci 可重现）
-for pkg in rosclaw-tui rosclaw-modeld rosclaw-agent; do
+for pkg in rosclaw-tui rosclaw-agent; do
   src_dir="$REPO_ROOT/packages/$pkg"
   [ -d "$src_dir" ] || { echo "missing packages/$pkg" >&2; exit 1; }
   # 规格 §27.1：clean build——绝不用"dist 存在即跳过"（stale dist 是
@@ -59,7 +59,7 @@ chmod +x "$STAGE/install.sh" "$STAGE/rollback.sh"
 # 4. SBOM（审计 P0-05.2 + R6）：CycloneDX 1.5 JSON（pip freeze/npm ls
 # 只是依赖快照，不是 SBOM——保留快照作调试参考，正式 SBOM 用 CycloneDX）。
 "$PYBIN" -m pip freeze --disable-pip-version-check 2>/dev/null   > "$STAGE/sbom-python.txt" || true
-for pkg in rosclaw-tui rosclaw-modeld rosclaw-agent; do
+for pkg in rosclaw-tui rosclaw-agent; do
   (cd "$REPO_ROOT/packages/$pkg" && npm ls --omit=dev --depth=2 2>/dev/null)     > "$STAGE/sbom-$pkg.txt" || true
 done
 python3 - "$STAGE" "$VERSION" <<'PY'
@@ -128,7 +128,7 @@ mkdir -p "$STAGE/vendor/wheels" "$STAGE/vendor/node_modules_pack"
   echo "FAIL: vendor/wheels 为空——拒绝产出离线包。" >&2
   exit 1
 }
-for pkg in rosclaw-tui rosclaw-modeld rosclaw-agent; do
+for pkg in rosclaw-tui rosclaw-agent; do
   (cd "$REPO_ROOT/packages/$pkg" && npm ci --omit=dev --silent)
   tar -C "$REPO_ROOT/packages/$pkg" -czf "$STAGE/vendor/node_modules_pack/$pkg.tar.gz" node_modules
 done
@@ -160,7 +160,7 @@ info = {
     "node_version": node_version,
     "packages": {},
 }
-for pkg in ("rosclaw-tui", "rosclaw-modeld", "rosclaw-agent"):
+for pkg in ("rosclaw-tui", "rosclaw-agent"):
     pkg_dir = stage / "packages" / pkg
     lock = pkg_dir / "package-lock.json"
     dist = pkg_dir / "dist"
