@@ -5,7 +5,7 @@
 2. PHYSICAL_ACTION 走同一 admission 链（SIM 安全动作 POLICY_AUTO
    记录）；REAL/不兼容 → 诚实 REJECTED（不静默降级）；
 3. 未知 capability_id → REJECTED（不猜）；
-4. rosclaw_wait_operation 等到终态返回（有界）；stop 即 cancel。
+4. 内核 wait 等到终态（P1-B1：模型面 wait_operation 已删）；stop 即 cancel。
 """
 
 from __future__ import annotations
@@ -97,17 +97,12 @@ class TestWaitStopOperation:
             task_id="task_x", attempt_id="a", kind="process",
             argv=[sys.executable, "-c", "print('done-marker', flush=True)"],
         )
-        result = await dispatcher.execute(
-            _request(
-                "rosclaw_wait_operation",
-                mission=mission.mission_id,
-                idem="h5_wait",
-                arguments={"operation_id": op["operation_id"],
-                           "timeout_sec": 10},
-            )
+        # P1-B1：rosclaw_wait_operation 已从模型面删除——测试同步点
+        # 用内核 wait（不是轮询生产路径）。
+        final = await service._operation_manager.wait(
+            op["operation_id"], timeout=10
         )
-        assert result.ok, result.summary
-        assert "SUCCEEDED" in result.summary
+        assert final["state"] == "SUCCEEDED", final
         await service.close()
 
     async def test_stop_cancels(self, tmp_path: Path) -> None:
