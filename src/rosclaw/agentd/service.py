@@ -1067,17 +1067,18 @@ class AgentService:
         return bool(self._store.mission_meta(mission_id)["archived"])
 
     def status_snapshot(self, mission_id: str | None = None) -> dict:
+        from rosclaw.agentd.pi_config import read_pi_model_config
+
+        model = read_pi_model_config(self._home)
         data: dict = {
             "agent": "rosclaw-agentd",
             "body_id": self._body_id,
             "daemon_connected": self._daemon_client is not None,
             "mcp_servers": [a.source for a in self._mcp_adapters],
             "model_profile": (
-                self._config.to_policy().default.name if self._config.profiles else ""
+                f"{model.provider}/{model.model}" if model else ""
             ),
-            "model": (
-                self._config.to_policy().default.model if self._config.profiles else ""
-            ),
+            "model": model.model if model else "",
             "tools_registered": len(self._tool_catalog.list()),
         }
         if mission_id:
@@ -1428,49 +1429,41 @@ class AgentService:
 
     # ------------------------------------------------------------------
     async def probe(self):
-        """模型探测（PR-H9：不再持有持久 gateway——临时构造、用完
-        即关；配置即真相）。"""
-        from rosclaw.agentd.models.gateway import (
-            ModelGatewayError,
-            ModelProbeResult,
-            OpenAICompatGateway,
-        )
+        """模型探测（P1-A1：经 Pi engine——与 chat 同一 ModelRuntime
+        同一配置；不再有第二条 Python HTTP probe 栈）。"""
+        from rosclaw.agentd.models.gateway import ModelProbeResult
+        from rosclaw.agentd.pi_config import read_pi_model_config
+        from rosclaw.agentd.pi_probe import pi_probe_home
 
-        if not self._config.profiles:
+        if read_pi_model_config(self._home) is None:
             return ModelProbeResult(reachable=False, error="no_profiles")
-        gateway = OpenAICompatGateway(self._config.to_policy().default)
-        try:
-            return await gateway.probe()
-        except ModelGatewayError as exc:
-            return ModelProbeResult(reachable=False, error=f"{exc.kind}: {exc}")
-        finally:
-            await gateway.close()
+        return await pi_probe_home(self._home)
 
     def status(self) -> dict:
-        if not self._config.profiles:
-            return {
-                "agent_enabled": self._config.enabled,
-                "default_mode": self._config.default_mode,
-                "body_id": self._body_id,
-                "daemon_connected": self._daemon_client is not None,
-                "profile": "", "provider": "", "model": "", "base_url": "",
-                "api_key_ref": "",
-                "missions": len(self._store.list_missions()),
-                "maturity": "experimental",
-            }
-        profile = self._config.to_policy().default
-        return {
+        from rosclaw.agentd.pi_config import read_pi_model_config
+
+        model = read_pi_model_config(self._home)
+        base = {
             "agent_enabled": self._config.enabled,
             "default_mode": self._config.default_mode,
             "body_id": self._body_id,
             "daemon_connected": self._daemon_client is not None,
-            "profile": profile.name,
-            "provider": profile.provider,
-            "model": profile.model,
-            "base_url": profile.base_url,
-            "api_key_ref": profile.api_key_ref,
             "missions": len(self._store.list_missions()),
             "maturity": "experimental",
+        }
+        if model is None:
+            return {
+                **base,
+                "profile": "", "provider": "", "model": "", "base_url": "",
+                "api_key_ref": "",
+            }
+        return {
+            **base,
+            "profile": f"{model.provider}/{model.model}",
+            "provider": model.provider,
+            "model": model.model,
+            "base_url": model.base_url,
+            "api_key_ref": model.api_key_ref,
         }
 
     async def estop(self, reason: str, *, principal: str) -> dict:

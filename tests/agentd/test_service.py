@@ -12,7 +12,6 @@ import json
 from pathlib import Path
 
 import pytest
-import yaml
 
 from rosclaw.agentd.cli import main as agentd_main
 from rosclaw.agentd.config import load_agent_config
@@ -187,13 +186,20 @@ class TestOnboarding:
         assert config.physical_action_count == 3
 
     def test_configure_writes_key_ref_only(self, tmp_path: Path) -> None:
+        """P1-A1：setup 写 Pi 配置单源——key 只写 $ENV 引用。"""
         summary = configure_model(tmp_path, "kimi-code")
         assert summary["configured"]
-        data = yaml.safe_load((tmp_path / "config.yaml").read_text())
-        profile = data["models"]["profiles"]["embodied_default"]
-        assert profile["api_key_ref"] == "env:ROSCLAW_KIMI_API_KEY"
-        assert "api_key" not in profile
-        assert "sk-" not in (tmp_path / "config.yaml").read_text()
+        models = json.loads(
+            (tmp_path / "agent" / "models.json").read_text(encoding="utf-8")
+        )
+        provider = models["providers"]["kimi-code"]
+        assert provider["apiKey"] == "$ROSCLAW_KIMI_API_KEY"
+        assert summary["api_key_ref"] == "env:ROSCLAW_KIMI_API_KEY"
+        for path in (
+            tmp_path / "agent" / "models.json",
+            tmp_path / "agent" / "settings.json",
+        ):
+            assert "sk-" not in path.read_text(encoding="utf-8")
 
     def test_doctor_not_ready_without_key(self, tmp_path: Path, monkeypatch) -> None:
         configure_model(tmp_path, "kimi-code")

@@ -24,6 +24,7 @@ interface CliArgs {
 	workspace?: string;
 	initialMessage?: string;
 	print: boolean;
+	probe: boolean;
 	missionId?: string;
 	resumeSessionId?: string;
 	resumeSessionPath?: string;
@@ -35,6 +36,7 @@ function parseArgs(argv: string[]): CliArgs {
 	let profile: "developer" | "robot" = "developer";
 	let initialMessage: string | undefined;
 	let print = false;
+	let probe = false;
 	let missionId: string | undefined;
 	let resumeSessionId: string | undefined;
 	let resumeSessionPath: string | undefined;
@@ -53,6 +55,9 @@ function parseArgs(argv: string[]): CliArgs {
 			i += 1;
 		} else if (argv[i] === "--print") {
 			print = true;
+		} else if (argv[i] === "--probe") {
+			// P1-A1：模型探测单源——setup/doctor 经此走 Pi ModelRuntime。
+			probe = true;
 		} else if (argv[i] === "--mission" && argv[i + 1]) {
 			missionId = argv[i + 1];
 			i += 1;
@@ -71,7 +76,7 @@ function parseArgs(argv: string[]): CliArgs {
 		}
 	}
 	return {
-		profile, initialMessage, print, missionId, workspace,
+		profile, initialMessage, print, probe, missionId, workspace,
 		resumeSessionId, resumeSessionPath, browseSessions, continueLast,
 	};
 }
@@ -85,10 +90,24 @@ async function main(): Promise<number> {
 	} = await import("./harness/pi/pi-sessions.js");
 	const { createRosclawRuntime } = await import("./harness/pi/pi-runtime.js");
 	const {
-		profile, initialMessage, print, missionId, workspace,
+		profile, initialMessage, print, probe, missionId, workspace,
 		resumeSessionId, resumeSessionPath, browseSessions, continueLast,
 	} = parseArgs(process.argv.slice(2));
 	const rosclawHome = rosclawHomeEnv;
+	if (probe) {
+		// P1-A1：headless 探测通道——输出单行 JSON（无 secret），
+		// Python onboarding/doctor 解析；不建会话、不进 TUI。
+		const { probePiModel } = await import("./harness/pi/pi-probe.js");
+		const report = await probePiModel({
+			agentDir: `${rosclawHome}/agent`,
+			// 探测只读全局 settings（defaultProvider/Model）——project
+			// settings 无关；probe 不新增进程 cwd 读取（N1 不变量）。
+			cwd: workspace ?? rosclawHome,
+			profile,
+		});
+		console.log(JSON.stringify(report));
+		return report.reachable && report.chat_ok && report.tool_call_ok ? 0 : 1;
+	}
 	// WP-P0-1（总纲 §5.1）：恢复路径全部经 Pi SessionManager 公开
 	// API——不再有手写目录扫描/mtime 排序/文件名拼接（Pi 文件名可含
 	// 时间前缀，拼接 id 是格式漂移风险）。

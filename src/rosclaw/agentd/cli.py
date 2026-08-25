@@ -253,11 +253,11 @@ def cmd_chat(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 2
-    try:
-        if not load_agent_config(home / "config.yaml").profiles:
-            print("未配置模型。先运行 `rosclaw setup model`。", file=sys.stderr)
-            return 2
-    except ValueError:
+    # P1-A1：chat 准入读 Pi 配置单源（agent/settings.json+models.json——
+    # chat 引擎实际消费的那份），不再读 config.yaml 模型段。
+    from rosclaw.agentd.pi_config import pi_model_configured
+
+    if not pi_model_configured(home):
         print("未配置模型。先运行 `rosclaw setup model`。", file=sys.stderr)
         return 2
     return _chat_pi(home, args)
