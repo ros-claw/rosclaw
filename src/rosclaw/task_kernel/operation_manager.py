@@ -335,6 +335,14 @@ class OperationManager:
             return False
         except PermissionError:
             return True
+        # kill(pid,0) 对 zombie 也成功——/proc stat 'Z' 必须判死
+        # （CI 实证：kill -9 后无人 reap → 僵尸被误判存活 → 假 reattach）。
+        try:
+            stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+            if stat.rpartition(")")[2].split()[0] == "Z":
+                return False
+        except OSError:
+            return False
         return True
 
     @staticmethod
