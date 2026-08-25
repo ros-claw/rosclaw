@@ -135,7 +135,7 @@ class TestOperationClosedLoop:
             assert ops[0][1] == "SUCCEEDED", ops
             assert ops[0][2], "终态必须冻结 ended_at"
             kinds = [e[0] for e in events]
-            assert "operation.started" in kinds
+            assert "operation.admitted" in kinds
             assert "operation.output" in kinds
             assert "operation.completed" in kinds
             assert orders == 0

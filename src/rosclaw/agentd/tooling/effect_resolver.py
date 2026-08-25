@@ -71,7 +71,6 @@ DIRECT_TOOL_EFFECTS: dict[str, EffectClassV1] = {
     "rosclaw_status": EffectClassV1.READ_ONLY,
     "rosclaw_capabilities": EffectClassV1.READ_ONLY,
     "rosclaw_verify": EffectClassV1.READ_ONLY,
-    "rosclaw_wait_operation": EffectClassV1.READ_ONLY,
     "rosclaw_stop_operation": EffectClassV1.HOST_PROCESS,
     "rosclaw_memory_query": EffectClassV1.READ_ONLY,
     "rosclaw_inspect": EffectClassV1.READ_ONLY,

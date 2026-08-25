@@ -29,7 +29,7 @@ class TestContractFields:
         for value in (
             "input.persisted",
             "input.dispatched",
-            "operation.started",
+            "operation.admitted",
             "operation.output",
             "operation.completed",
             "operation.failed",

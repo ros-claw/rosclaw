@@ -1,7 +1,7 @@
 """PR-H3 红测试：OperationManager 与统一事件流（总纲 v2 §11）。
 
 红测试先行——修复前必须红：
-1. operation 启动即落账（operations 表 + task_events operation.started），
+1. operation 启动即落账（operations 表 + task_events operation.queued/admitted），
    长进程立即返回 operation_id（不在 tool call 里死等）；
 2. stdout/stderr/progress/heartbeat 进统一事件流（单调 seq）；
 3. 终态事件后 elapsed 停止（heartbeat_at/ended_at 冻结）；
@@ -48,7 +48,7 @@ class TestOperationLifecycle:
             argv=[sys.executable, "-c",
                   "import time; print('p1', flush=True); time.sleep(0.3); print('p2', flush=True)"],
         )
-        assert op["state"] == "RUNNING"
+        assert op["state"] in ("ADMITTED", "RUNNING")
         assert op["operation_id"]
         # 立即返回——进程在后台跑。
         await ops.wait(op["operation_id"], timeout=10)
@@ -57,7 +57,7 @@ class TestOperationLifecycle:
         # stdout 进事件流。
         events = ops.events_since(task_id, 0)
         kinds = [e["event_type"] for e in events]
-        assert "operation.started" in kinds
+        assert "operation.admitted" in kinds
         assert "operation.output" in kinds
         assert "operation.completed" in kinds
         output = "".join(

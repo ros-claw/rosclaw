@@ -1,31 +1,47 @@
-"""OperationManager（PR-H3，总纲 v2 §11）——长任务/进程的统一运营层。
+"""OperationManager V2（P1-B1，0824 总纲 §12）——长任务统一运营层。
 
 Operation ≠ Worker：无模型的确定性执行过程（仿真 rollout、渲染、
-数据处理、长测试、编译）。核心不变量：
+数据处理、长测试、编译、ROS 2 Action）。核心不变量：
 
+- 状态机：QUEUED → ADMITTED → RUNNING → SUCCEEDED/FAILED；
+  cancel 经 CANCELING（带 reason）→ CANCELLED；失联 DEGRADED；
+  重启不可证实 LOST。终态不可逆——迟到完成绝不覆盖。
 - start() 立即返回 operation_id（不在调用方死等）；
-- stdout/stderr/progress/heartbeat 全部进 task_events（单调 seq，
-  断线从 last_seq+1 重放，不重不漏）；
-- 终态即冻结 ended_at/heartbeat_at（elapsed 必须停止）；
-- cancel 先写账本再发信号；迟到 completion 不得覆盖 CANCELLED；
-- 进程死亡 → FAILED（非零退出）/SUCCEEDED——一个驱动周期内收敛，
-  不允许 DB 显示 RUNNING 但无进程。
+- stdout/progress/heartbeat 全部进 task_events（单调 seq，断线从
+  last_seq+1 重放，不重不漏）；
+- **没有默认 wall-clock kill**：deadline 是任务语义、lease 是控制权、
+  liveness timeout 只标 DEGRADED（§12.2）——sweep 永不杀进程；
+- 重启恢复（reattach-or-LOST）：pid 活 → reattach（DEGRADED +
+  pid-watcher）；pid 死 + exitcode 文件 → 应用真实终态；否则诚实
+  LOST（绝不把僵尸行留在 RUNNING）。
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
+import os
+import signal
 import sqlite3
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from rosclaw.contracts.common import new_id
 
-OPERATION_TERMINAL = frozenset({"SUCCEEDED", "FAILED", "CANCELLED"})
+#: 终态集合（不可逆）。LOST：重启后无法证实结局的诚实终态。
+OPERATION_TERMINAL = frozenset({"SUCCEEDED", "FAILED", "CANCELLED", "LOST"})
 
 #: 单行输出事件的最大字节（防爆 task_events）。
 _MAX_OUTPUT_CHUNK = 4000
+
+#: pid-watcher 轮询间隔（reattach 后等进程消失）。
+_WATCH_POLL_S = 2.0
+
+
+def _now() -> str:
+    return datetime.now(UTC).isoformat()
 
 
 class OperationManager:
@@ -50,47 +66,78 @@ class OperationManager:
         cwd: str | None = None,
         env: dict[str, str] | None = None,
         resumable: bool = False,
+        goal_id: str = "",
+        provider: str = "process",
     ) -> dict[str, Any]:
-        """启动后台进程 operation——立即返回（调用方不死等）。"""
+        """启动后台 operation——QUEUED→ADMITTED，立即返回。"""
         operation_id = new_id("op")
-        now = datetime.now(UTC).isoformat()
-        # WP-1：记录启动时 task 活跃 revision——旧 revision 的迟到
-        # 终态只存档（不触发模型回合）。
+        goal_id = goal_id or new_id("goal")
+        now = _now()
         task_row = self._conn.execute(
             "SELECT active_revision FROM tasks WHERE task_id = ?", (task_id,)
         ).fetchone()
         revision = int(task_row["active_revision"]) if task_row else None
+        exitcode_path = str(self._operations_dir() / f"{operation_id}.exitcode")
         self._conn.execute(
             "INSERT INTO operations (operation_id, task_id, attempt_id, kind, "
-            "state, resumable, started_at, heartbeat_at, revision) "
-            "VALUES (?, ?, ?, ?, 'RUNNING', ?, ?, ?, ?)",
+            "state, resumable, started_at, heartbeat_at, revision, goal_id, "
+            "provider, exitcode_path) "
+            "VALUES (?, ?, ?, ?, 'QUEUED', ?, ?, ?, ?, ?, ?, ?)",
             (operation_id, task_id, attempt_id, kind,
-             1 if resumable else 0, now, now, revision),
+             1 if resumable else 0, now, now, revision, goal_id, provider,
+             exitcode_path),
         )
-        self._emit(task_id, "operation.started",
-                   {"operation_id": operation_id, "kind": kind,
-                    "argv": argv[:5]},
+        self._emit(task_id, "operation.queued",
+                   {"operation_id": operation_id, "goal_id": goal_id,
+                    "provider": provider, "kind": kind},
                    operation_id=operation_id, attempt_id=attempt_id)
-        proc = await asyncio.create_subprocess_exec(
-            *argv,
-            cwd=cwd,
-            env=env,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-            start_new_session=True,
-        )
+        proc = await self._spawn(operation_id, argv, cwd, env, exitcode_path)
         self._procs[operation_id] = proc
+        self._transition(operation_id, "ADMITTED",
+                         event="operation.admitted",
+                         payload={"pid": proc.pid, "argv": argv[:5]})
+        self._conn.execute(
+            "UPDATE operations SET pid = ? WHERE operation_id = ?",
+            (proc.pid, operation_id),
+        )
         self._drivers[operation_id] = asyncio.create_task(
             self._drive(operation_id, task_id, attempt_id, proc)
         )
         return self.get(operation_id)
 
+    async def _spawn(
+        self,
+        operation_id: str,
+        argv: list[str],
+        cwd: str | None,
+        env: dict[str, str] | None,
+        exitcode_path: str,
+    ) -> asyncio.subprocess.Process:
+        """exitcode wrapper：进程退出码落盘——agentd 死后重启 sweep
+        仍能恢复真实终态（不靠运气）。"""
+        spawn_env = dict(os.environ if env is None else env)
+        spawn_env["OP_EXITCODE_FILE"] = exitcode_path
+        wrapped = [
+            "sh", "-c",
+            '"$@"; rc=$?; printf %s "$rc" > "$OP_EXITCODE_FILE"',
+            "op-wrap", *argv,
+        ]
+        return await asyncio.create_subprocess_exec(
+            *wrapped,
+            cwd=cwd,
+            env=spawn_env,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            start_new_session=True,
+        )
+
     async def _drive(
         self, operation_id: str, task_id: str, attempt_id: str,
         proc: asyncio.subprocess.Process,
     ) -> None:
-        """后台驱动：读 stdout → output 事件 + heartbeat；进程退出 →
-        终态（账本优先于一切）。"""
+        """后台驱动：置 RUNNING → 读 stdout（output 事件 + heartbeat）
+        → 进程退出 → 终态（账本优先于一切）。"""
+        self._transition(operation_id, "RUNNING", event=None)
         assert proc.stdout is not None
         try:
             while True:
@@ -109,30 +156,41 @@ class OperationManager:
                        operation_id=operation_id, attempt_id=attempt_id)
         returncode = await proc.wait()
         self._procs.pop(operation_id, None)
-        if self.get(operation_id)["state"] == "CANCELLED":
-            return  # 取消已落账——迟到完成不覆盖
+        current = self.get(operation_id)["state"]
+        if current in ("CANCELING", "CANCELLED"):
+            return  # 取消流程持有账本——迟到完成不覆盖
+        # 权威退出码在 exitcode 文件（wrapper 自身的 rc 是 printf 的
+        # 0——不能拿来判成败）；无文件（wrapper 被信号杀）回落 returncode。
+        row = self.get(operation_id)
+        file_rc = self._read_exitcode(str(row.get("exitcode_path") or ""))
+        effective = file_rc if file_rc is not None else returncode
         await self._record_terminal(
             operation_id,
-            "SUCCEEDED" if returncode == 0 else "FAILED",
-            failure_code="" if returncode == 0 else f"exit_{returncode}",
+            "SUCCEEDED" if effective == 0 else "FAILED",
+            failure_code="" if effective == 0 else f"exit_{effective}",
         )
 
     async def _record_terminal(
-        self, operation_id: str, state: str, *, failure_code: str = ""
+        self, operation_id: str, state: str, *, failure_code: str = "",
+        result_ref: str = "",
     ) -> None:
-        """终态落账（终态不可逆——CANCELLED 不被迟到完成覆盖）。"""
+        """终态落账（终态不可逆——CANCELLED/LOST 不被迟到事件覆盖）。"""
         row = self.get(operation_id)
         if row is None or row["state"] in OPERATION_TERMINAL:
             return
-        now = datetime.now(UTC).isoformat()
-        # ended_at + heartbeat_at 同时冻结（elapsed 停止）。
+        now = _now()
         self._conn.execute(
             "UPDATE operations SET state = ?, ended_at = ?, heartbeat_at = ?, "
-            "failure_code = ? WHERE operation_id = ?",
-            (state, now, now, failure_code, operation_id),
+            "failure_code = ?, result_ref = ? WHERE operation_id = ?",
+            (state, now, now, failure_code,
+             result_ref or row.get("result_ref") or "", operation_id),
         )
-        event_type = ("operation.completed" if state == "SUCCEEDED"
-                      else "operation.failed")
+        event_type = {
+            "SUCCEEDED": "operation.completed",
+            "FAILED": "operation.failed",
+            "CANCELLED": "operation.cancelled",
+            "LOST": "operation.lost",
+        }[state]
         self._emit(row["task_id"], event_type,
                    {"operation_id": operation_id, "state": state,
                     "failure_code": failure_code},
@@ -146,14 +204,24 @@ class OperationManager:
         return self.get(operation_id)
 
     async def cancel(self, operation_id: str, *, reason: str = "user") -> None:
-        """先写账本再发信号（迟到完成不覆盖 CANCELLED）。"""
-        await self._record_terminal(operation_id, "CANCELLED",
-                                    failure_code=reason)
+        """CANCELING（账本+原因）→ 信号 → CANCELLED。
+
+        迟到完成在 CANCELING/CANCELLED 下都不覆盖（§12.1 取消握手）。
+        """
+        row = self.get(operation_id)
+        if not row or row["state"] in OPERATION_TERMINAL:
+            return
+        now = _now()
+        self._conn.execute(
+            "UPDATE operations SET state = 'CANCELING', cancel_reason = ?, "
+            "heartbeat_at = ? WHERE operation_id = ?",
+            (reason, now, operation_id),
+        )
+        self._emit(row["task_id"], "operation.canceling",
+                   {"operation_id": operation_id, "reason": reason},
+                   operation_id=operation_id)
         proc = self._procs.pop(operation_id, None)
         if proc is not None and proc.returncode is None:
-            import contextlib
-            import signal
-
             with contextlib.suppress(ProcessLookupError):
                 proc.send_signal(signal.SIGTERM)
             try:
@@ -161,6 +229,144 @@ class OperationManager:
             except TimeoutError:
                 with contextlib.suppress(ProcessLookupError):
                     proc.kill()
+        await self._record_terminal(operation_id, "CANCELLED",
+                                    failure_code=reason)
+
+    # --------------------------------------------------------------
+    # liveness（§12.2：只标 DEGRADED，永不 kill）
+    # --------------------------------------------------------------
+    async def sweep_liveness(self, *, stale_after_s: float = 30.0) -> dict:
+        """heartbeat 过期 → DEGRADED；恢复 → RUNNING。绝不杀进程。"""
+        degraded = resumed = 0
+        now = datetime.now(UTC).timestamp()
+        rows = self._conn.execute(
+            "SELECT operation_id, task_id, state, heartbeat_at FROM operations "
+            "WHERE state IN ('QUEUED', 'ADMITTED', 'RUNNING', 'DEGRADED')",
+        ).fetchall()
+        for row in rows:
+            heartbeat = datetime.fromisoformat(str(row["heartbeat_at"])).timestamp()
+            stale = (now - heartbeat) > stale_after_s
+            if stale and row["state"] != "DEGRADED":
+                self._transition(
+                    row["operation_id"], "DEGRADED",
+                    event="operation.degraded",
+                    payload={"stale_after_s": stale_after_s},
+                )
+                degraded += 1
+            elif not stale and row["state"] == "DEGRADED":
+                self._transition(row["operation_id"], "RUNNING",
+                                 event="operation.resumed", payload={})
+                resumed += 1
+        return {"degraded": degraded, "resumed": resumed}
+
+    # --------------------------------------------------------------
+    # 重启恢复（reattach-or-LOST）
+    # --------------------------------------------------------------
+    async def recover_on_boot(self) -> dict:
+        """agentd 重启后的 operation 对账。
+
+        - pid 活 → reattach（DEGRADED + pid-watcher 等退出）；
+        - pid 死 + exitcode 文件 → 应用真实终态；
+        - 否则 → 诚实 LOST（事件留痕，绝不留僵尸 RUNNING）。
+        """
+        report = {"reattached": 0, "terminated": 0, "lost": 0}
+        rows = self._conn.execute(
+            "SELECT operation_id, task_id, pid, exitcode_path FROM operations "
+            "WHERE state IN ('QUEUED', 'ADMITTED', 'RUNNING', 'DEGRADED', "
+            "'CANCELING')",
+        ).fetchall()
+        for row in rows:
+            op_id = str(row["operation_id"])
+            pid = int(row["pid"] or 0)
+            exitcode = self._read_exitcode(str(row["exitcode_path"] or ""))
+            if exitcode is not None:
+                await self._record_terminal(
+                    op_id, "SUCCEEDED" if exitcode == 0 else "FAILED",
+                    failure_code="" if exitcode == 0 else f"exit_{exitcode}",
+                )
+                report["terminated"] += 1
+                continue
+            if pid > 0 and self._pid_alive(pid):
+                self._transition(op_id, "DEGRADED",
+                                 event="operation.reattached",
+                                 payload={"pid": pid})
+                self._drivers[op_id] = asyncio.create_task(
+                    self._watch_pid(op_id, str(row["task_id"]), pid,
+                                    str(row["exitcode_path"] or ""))
+                )
+                report["reattached"] += 1
+                continue
+            await self._record_terminal(
+                op_id, "LOST",
+                failure_code="restart_unverifiable",
+            )
+            report["lost"] += 1
+        return report
+
+    async def _watch_pid(
+        self, operation_id: str, task_id: str, pid: int, exitcode_path: str
+    ) -> None:
+        """reattach 后的 pid-watcher：等进程消失 → exitcode 定终态
+        （无 exitcode = 诚实 LOST——退出码不可考）。"""
+        while self._pid_alive(pid):
+            exitcode = self._read_exitcode(exitcode_path)
+            if exitcode is not None:
+                break
+            await asyncio.sleep(_WATCH_POLL_S)
+        current = self.get(operation_id)["state"]
+        if current in OPERATION_TERMINAL or current == "CANCELING":
+            return
+        exitcode = self._read_exitcode(exitcode_path)
+        if exitcode is not None:
+            await self._record_terminal(
+                operation_id, "SUCCEEDED" if exitcode == 0 else "FAILED",
+                failure_code="" if exitcode == 0 else f"exit_{exitcode}",
+            )
+        else:
+            await self._record_terminal(
+                operation_id, "LOST", failure_code="exit_unverifiable",
+            )
+
+    @staticmethod
+    def _pid_alive(pid: int) -> bool:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        return True
+
+    @staticmethod
+    def _read_exitcode(path: str) -> int | None:
+        if not path:
+            return None
+        try:
+            text = Path(path).read_text(encoding="utf-8").strip()
+        except OSError:
+            return None
+        try:
+            return int(text)
+        except ValueError:
+            return None
+
+    # --------------------------------------------------------------
+    # progress / result（§12.3：provider feedback → operation.progress）
+    # --------------------------------------------------------------
+    def report_progress(self, operation_id: str, progress: dict) -> None:
+        """provider 反馈 → progress_json + operation.progress 事件
+        （UI 按 operation_id upsert；不进模型上下文）。"""
+        row = self.get(operation_id)
+        if not row or row["state"] in OPERATION_TERMINAL:
+            return
+        self._touch(operation_id, str(row["task_id"]))
+        self._conn.execute(
+            "UPDATE operations SET progress_json = ? WHERE operation_id = ?",
+            (json.dumps(progress, ensure_ascii=False), operation_id),
+        )
+        self._emit(str(row["task_id"]), "operation.progress",
+                   {"operation_id": operation_id, "progress": progress},
+                   operation_id=operation_id)
 
     # --------------------------------------------------------------
     # 查询/事件流
@@ -192,6 +398,38 @@ class OperationManager:
             for r in rows
         ]
 
+    # --------------------------------------------------------------
+    # 内部
+    # --------------------------------------------------------------
+    def _operations_dir(self) -> Path:
+        db_file = self._conn.execute(
+            "PRAGMA database_list"
+        ).fetchone()["file"]
+        directory = Path(str(db_file)).parent / "operations"
+        directory.mkdir(parents=True, exist_ok=True)
+        return directory
+
+    def _transition(
+        self, operation_id: str, state: str, *,
+        event: str | None, payload: dict | None = None,
+    ) -> None:
+        row = self.get(operation_id)
+        # 终态不可逆；CANCELING 同样不可被普通迁移覆盖（取消流程持有
+        # 账本——driver 迟到置 RUNNING 不得踩掉 CANCELING）。
+        if not row or row["state"] in OPERATION_TERMINAL or (
+            row["state"] == "CANCELING" and state != "CANCELLED"
+        ):
+            return
+        self._conn.execute(
+            "UPDATE operations SET state = ?, heartbeat_at = ? "
+            "WHERE operation_id = ?",
+            (state, _now(), operation_id),
+        )
+        if event:
+            self._emit(str(row["task_id"]), event,
+                       {"operation_id": operation_id, **(payload or {})},
+                       operation_id=operation_id)
+
     def _touch(self, operation_id: str, task_id: str) -> None:
         """heartbeat——仅非终态（终态后心跳冻结）。"""
         row = self.get(operation_id)
@@ -199,7 +437,7 @@ class OperationManager:
             return
         self._conn.execute(
             "UPDATE operations SET heartbeat_at = ? WHERE operation_id = ?",
-            (datetime.now(UTC).isoformat(), operation_id),
+            (_now(), operation_id),
         )
 
     def _emit(self, task_id: str, event_type: str, payload: dict,
@@ -208,6 +446,5 @@ class OperationManager:
             "INSERT INTO task_events (task_id, attempt_id, operation_id, "
             "event_type, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?)",
             (task_id, attempt_id or None, operation_id or None, event_type,
-             json.dumps(payload, ensure_ascii=False),
-             datetime.now(UTC).isoformat()),
+             json.dumps(payload, ensure_ascii=False), _now()),
         )

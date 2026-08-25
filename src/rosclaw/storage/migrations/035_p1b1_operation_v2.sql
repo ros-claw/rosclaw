@@ -1,0 +1,8 @@
+-- P1-B1（0824 总纲 §12）：Operation V2 记录扩展。
+ALTER TABLE operations ADD COLUMN goal_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE operations ADD COLUMN provider TEXT NOT NULL DEFAULT 'process';
+ALTER TABLE operations ADD COLUMN pid INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE operations ADD COLUMN progress_json TEXT NOT NULL DEFAULT '';
+ALTER TABLE operations ADD COLUMN result_ref TEXT NOT NULL DEFAULT '';
+ALTER TABLE operations ADD COLUMN cancel_reason TEXT NOT NULL DEFAULT '';
+ALTER TABLE operations ADD COLUMN exitcode_path TEXT NOT NULL DEFAULT '';

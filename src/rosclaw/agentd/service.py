@@ -9,6 +9,7 @@ ModelGateway 装配/WorkerManager/TaskRunner/ControlPlane）已删除——
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 from datetime import UTC, datetime
 from pathlib import Path
@@ -1406,10 +1407,31 @@ class AgentService:
         path = socket_path or (self._home / "run" / "pi-bridge.sock")
         self._pi_bridge = PiBridgeServer(self, path)
         await self._pi_bridge.start()
+        await self._ensure_operation_maintenance()
         return path
+
+    async def _ensure_operation_maintenance(self) -> None:
+        """P1-B1（0824 总纲 §12）：operation 维护循环——启动时
+        重启对账（reattach-or-LOST）+ 周期 liveness sweep（只标
+        DEGRADED，永不 wall-clock kill）。幂等。"""
+        if getattr(self, "_op_maintenance_task", None) is not None:
+            return
+        await self._operation_manager.recover_on_boot()
+
+        async def _sweep_loop() -> None:
+            while True:
+                await asyncio.sleep(10.0)
+                with contextlib.suppress(Exception):  # sweep 故障不炸服务
+                    await self._operation_manager.sweep_liveness()
+
+        self._op_maintenance_task = asyncio.create_task(_sweep_loop())
 
     async def close(self) -> None:
 
+        maintenance = getattr(self, "_op_maintenance_task", None)
+        if maintenance is not None:
+            maintenance.cancel()
+            self._op_maintenance_task = None
         # 六审 §7：产品 supervisor 管理的 operatord 随 service 终止。
         managed = getattr(self, "_managed_operator", None)
         if managed is not None:

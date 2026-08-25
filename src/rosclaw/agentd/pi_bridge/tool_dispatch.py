@@ -51,7 +51,6 @@ _TOOL_TABLE: dict[str, str] = {
     "rosclaw_task_blocked": "delegate",
     # PR-H5：统一执行入口 + operation 等待/停止。
     "rosclaw_execute": "task",
-    "rosclaw_wait_operation": "read",
     "rosclaw_stop_operation": "delegate",
 }
 #: 后续批次才开放；现在调用必须得到诚实的"未开放"拒绝。
@@ -495,8 +494,6 @@ class PiToolDispatcher:
             result = await self._execute(request)
             self._coordinator_consider(request, result)
             return result
-        if name == "rosclaw_wait_operation":
-            return await self._wait_operation(request)
         if name == "rosclaw_stop_operation":
             return await self._process_stop(request)
         # PR-H4：Product Pack。P0-D：rosclaw_deliver 是模型面唯一
@@ -612,41 +609,6 @@ class PiToolDispatcher:
         # PHYSICAL_ACTION：同一 admission 链（policy AUTO/ASK/DENY——
         # REAL 永远 rosclawd+operator；execute 不是绕过的旁路）。
         return await self._request_action(request)
-
-    async def _wait_operation(self, request: PiToolRequestV1) -> PiToolResultV1:
-        """等有界（模型主动等——默认上限 120s；终态返回末段输出）。"""
-        import asyncio as _aio
-
-        operation_id = str(request.arguments.get("operation_id", ""))
-        op = self._service._operation_manager.get(operation_id)
-        if not op:
-            raise ToolBridgeError("NOT_FOUND", f"unknown operation {operation_id!r}")
-        timeout = min(float(request.arguments.get("timeout_sec", 120) or 120), 120)
-        deadline = _aio.get_running_loop().time() + timeout
-        while _aio.get_running_loop().time() < deadline:
-            op = self._service._operation_manager.get(operation_id)
-            if op["state"] in ("SUCCEEDED", "FAILED", "CANCELLED"):
-                events = self._service._operation_manager.events_since(
-                    op["task_id"], 0
-                )
-                tail = "".join(
-                    str(e["payload"].get("text", ""))
-                    for e in events
-                    if e["event_type"] == "operation.output"
-                    and e.get("operation_id") == operation_id
-                )[-1500:]
-                return PiToolResultV1(
-                    request_id=request.request_id,
-                    ok=op["state"] == "SUCCEEDED",
-                    status=str(op["state"]),
-                    summary=f"operation 终态 {op['state']}\n{tail}",
-                )
-            await _aio.sleep(0.5)
-        return PiToolResultV1(
-            request_id=request.request_id, ok=True, status="RUNNING",
-            summary=f"operation 仍在运行（等待 {timeout}s 未见终态——"
-            "可以稍后 process_status 再查，或等完成通知）",
-        )
 
     async def _artifact_register(
         self, request: PiToolRequestV1

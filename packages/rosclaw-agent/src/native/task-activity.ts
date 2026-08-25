@@ -51,7 +51,8 @@ export function renderTaskActivity(events: KernelEvent[]): string[] {
 					+ (p.reason ? `（${firstLine(p.reason, 40)}）` : ""),
 				);
 				break;
-			case "operation.started": {
+			case "operation.started":
+		case "operation.admitted": {
 				const argv = Array.isArray(p.argv) ? p.argv.join(" ") : "";
 				lines.push(
 					`▸ 进程启动 [${short(p.operation_id)}]：${firstLine(argv)}`,
@@ -105,7 +106,7 @@ export function renderOperationLogs(
 	let currentOp = "";
 	for (const event of sorted) {
 		const p = event.payload;
-		if (event.event_type === "operation.started") {
+		if (event.event_type === "operation.started" || event.event_type === "operation.admitted") {
 			currentOp = short(p.operation_id);
 			const argv = Array.isArray(p.argv) ? p.argv.join(" ") : "";
 			lines.push(`$ [${currentOp}] ${firstLine(argv, 80)}`);
