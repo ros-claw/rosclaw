@@ -126,11 +126,13 @@ def _tool_down_orientation(normal_xyz: list[float]) -> list[float]:
     d = _dot(ref, z_d)
     x_d = _normalize([ref[i] - d * z_d[i] for i in range(3)])
     y_d = _cross(z_d, x_d)
-    return _mat_to_quat_xyzw([
-        [x_d[0], y_d[0], z_d[0]],
-        [x_d[1], y_d[1], z_d[1]],
-        [x_d[2], y_d[2], z_d[2]],
-    ])
+    return _mat_to_quat_xyzw(
+        [
+            [x_d[0], y_d[0], z_d[0]],
+            [x_d[1], y_d[1], z_d[1]],
+            [x_d[2], y_d[2], z_d[2]],
+        ]
+    )
 
 
 def _tool_z_of_quat(q: list[float]) -> list[float]:
@@ -143,6 +145,19 @@ def _tool_z_of_quat(q: list[float]) -> list[float]:
     ]
 
 
+def _plane_basis(normal_xyz: list[float]) -> tuple[list[float], list[float]]:
+    """法向 → 平面正交基（e1,e2——任意平面的一等表达，§15.4）。
+
+    normal=[0,0,1] 时 e1=[1,0,0]/e2=[0,1,0]（xy 默认行为不变）。
+    """
+    normal = _normalize(normal_xyz)
+    # 取一个不与法向平行的参考轴叉乘出 e1。
+    reference = [1.0, 0.0, 0.0] if abs(normal[0]) < 0.9 else [0.0, 1.0, 0.0]
+    e1 = _normalize(_cross(reference, normal))
+    e2 = _normalize(_cross(normal, e1))
+    return e1, e2
+
+
 def _build_pose_spec(points: list[dict], *, plane: str) -> dict:
     """接触点列 → PoseTrajectorySpecV1（approach/contact/lift 显式段）。
 
@@ -152,39 +167,49 @@ def _build_pose_spec(points: list[dict], *, plane: str) -> dict:
     if plane != "xy":
         raise ValueError(f"unsupported plane {plane!r} (supported: xy)")
     normal = [0.0, 0.0, 1.0]
+    return _build_pose_spec_3d(points, normal_xyz=normal)
+
+
+def _build_pose_spec_3d(
+    points: list[dict],
+    *,
+    normal_xyz: list[float],
+    geometry: str = "shape",
+    max_segment_m: float | None = None,
+    speed_mps: float | None = None,
+    accel_mps2: float | None = None,
+) -> dict:
+    """任意平面 PoseTrajectorySpecV1（§15.4）——approach/contact/lift
+    沿平面法向；xy 是 normal=[0,0,1] 的特例。"""
+    normal = _normalize(normal_xyz)
     quat = _tool_down_orientation(normal)
-    offset = float(points[0]["z"])
     start, end = points[0], points[-1]
+    # 平面 offset = 首点在法向上的投影（n·p）。
+    offset = _dot([start["x"], start["y"], start["z"]], normal)
+
+    def _at(point: dict, lift: float) -> list[float]:
+        return [
+            point["x"] + normal[0] * lift,
+            point["y"] + normal[1] * lift,
+            point["z"] + normal[2] * lift,
+        ]
+
     waypoints: list[dict] = [
-        # approach：接触点上方 → 接触点（降下到位）。
-        {
-            "position_m": [start["x"], start["y"], start["z"] + _APPROACH_LIFT_M],
-            "orientation_xyzw": quat,
-            "kind": "approach",
-        },
-        {
-            "position_m": [start["x"], start["y"], start["z"]],
-            "orientation_xyzw": quat,
-            "kind": "approach",
-        },
+        {"position_m": _at(start, _APPROACH_LIFT_M), "orientation_xyzw": quat, "kind": "approach"},
+        {"position_m": _at(start, 0.0), "orientation_xyzw": quat, "kind": "approach"},
     ]
     waypoints += [
-        {
-            "position_m": [p["x"], p["y"], p["z"]],
-            "orientation_xyzw": quat,
-            "kind": "contact",
-        }
+        {"position_m": [p["x"], p["y"], p["z"]], "orientation_xyzw": quat, "kind": "contact"}
         for p in points
     ]
-    # lift：末点抬升回 approach 高度。
-    waypoints.append({
-        "position_m": [end["x"], end["y"], end["z"] + _APPROACH_LIFT_M],
-        "orientation_xyzw": quat,
-        "kind": "lift",
-    })
-    digest = hashlib.sha256(
-        json.dumps(waypoints, sort_keys=True).encode()
-    ).hexdigest()
+    waypoints.append(
+        {
+            "position_m": _at(end, _APPROACH_LIFT_M),
+            "orientation_xyzw": quat,
+            "kind": "lift",
+        }
+    )
+    digest = hashlib.sha256(json.dumps(waypoints, sort_keys=True).encode()).hexdigest()
     return {
         "schema_version": "rosclaw.pose_trajectory_spec.v1",
         "frame_id": "world",
@@ -196,6 +221,14 @@ def _build_pose_spec(points: list[dict], *, plane: str) -> dict:
         },
         "waypoints": waypoints,
         "digest": f"sha256:{digest}",
+        "geometry": geometry,
+        "plane_pose": {
+            "position_m": [normal[0] * offset, normal[1] * offset, normal[2] * offset],
+            "orientation_xyzw": quat,
+        },
+        "tool_pose_constraint": {"axis": "tool_z", "tolerance_deg": 5.0},
+        "sampling": {"max_segment_m": max_segment_m},
+        "timing": {"speed_mps": speed_mps, "accel_mps2": accel_mps2},
     }
 
 
@@ -218,17 +251,14 @@ def _shape_vertices(shape: str, center: list[float], scale: float) -> list[dict]
         for k in range(10):
             angle = math.radians(90 + k * 36)
             r = scale if k % 2 == 0 else inner
-            vertices.append(
-                {"x": cx + r * math.cos(angle), "y": cy + r * math.sin(angle), "z": cz}
-            )
+            vertices.append({"x": cx + r * math.cos(angle), "y": cy + r * math.sin(angle), "z": cz})
     elif shape == "circle":
         # 解析圆弧采样（弦插值会落入圆内——圆走精确弧，不走折线）。
         step = max(1, math.ceil(2 * math.pi * scale / 0.02))
         for k in range(step):
             angle = 2 * math.pi * k / step
             vertices.append(
-                {"x": cx + scale * math.cos(angle),
-                 "y": cy + scale * math.sin(angle), "z": cz}
+                {"x": cx + scale * math.cos(angle), "y": cy + scale * math.sin(angle), "z": cz}
             )
     else:
         raise ValueError(f"unsupported shape {shape!r} (supported: {', '.join(_SHAPES)})")
@@ -243,17 +273,17 @@ def _sample_segments(vertices: list[dict], max_segment_m: float) -> list[dict]:
         steps = max(1, math.ceil(seg / max_segment_m))
         for i in range(1, steps + 1):
             ratio = i / steps
-            points.append({
-                "x": a["x"] + (b["x"] - a["x"]) * ratio,
-                "y": a["y"] + (b["y"] - a["y"]) * ratio,
-                "z": a["z"] + (b["z"] - a["z"]) * ratio,
-            })
+            points.append(
+                {
+                    "x": a["x"] + (b["x"] - a["x"]) * ratio,
+                    "y": a["y"] + (b["y"] - a["y"]) * ratio,
+                    "z": a["z"] + (b["z"] - a["z"]) * ratio,
+                }
+            )
     return points
 
 
-def _ik_waypoints_6d(
-    model, data, poses: list[dict], site_id: int
-) -> list[list[float]]:
+def _ik_waypoints_6d(model, data, poses: list[dict], site_id: int) -> list[list[float]]:
     """6-DOF 阻尼最小二乘 IK（WP-5）：SE(3) 位姿航点 → 关节轨迹。
 
     位置 + 朝向同时跟踪（朝向误差用世界系四元数误差
@@ -283,16 +313,12 @@ def _ik_waypoints_6d(
             if q_err[3] < 0.0:  # 半球固定——走最短弧
                 q_err = [-v for v in q_err]
             err_r = 2.0 * np.array(q_err[:3])
-            if float(np.linalg.norm(err_p)) < 1e-3 and float(
-                np.linalg.norm(err_r)
-            ) < 0.02:
+            if float(np.linalg.norm(err_p)) < 1e-3 and float(np.linalg.norm(err_r)) < 0.02:
                 break
             mujoco.mj_jacSite(model, data, jacp, jacr, site_id)
             jac = np.vstack([jacp[:, :nu], jacr[:, :nu]])
             err = np.concatenate([err_p, err_r])
-            dq = jac.T @ np.linalg.solve(
-                jac @ jac.T + lam * lam * np.eye(6), err
-            )
+            dq = jac.T @ np.linalg.solve(jac @ jac.T + lam * lam * np.eye(6), err)
             dq = np.clip(dq, -0.10, 0.10)
             q = q + dq
             q = np.clip(
@@ -346,12 +372,12 @@ class SimTrajectoryService:
         scale_m: float,
         plane: str = "xy",
         max_segment_m: float = 0.02,
+        plane_normal_xyz: list[float] | None = None,
+        plane_offset_m: float | None = None,
     ) -> dict[str, Any]:
         if shape not in _SHAPES:
-            raise ValueError(
-                f"unsupported shape {shape!r} (supported: {', '.join(_SHAPES)})"
-            )
-        if plane != "xy":
+            raise ValueError(f"unsupported shape {shape!r} (supported: {', '.join(_SHAPES)})")
+        if plane != "xy" and plane_normal_xyz is None:
             raise ValueError(f"unsupported plane {plane!r} (supported: xy)")
         if not isinstance(center_m, list | tuple) or len(center_m) != 3:
             raise ValueError("center_m must be [x, y, z]")
@@ -359,30 +385,75 @@ class SimTrajectoryService:
             raise ValueError(f"scale_m {scale_m} outside range [0.02, 0.35]")
         if not (0.005 <= float(max_segment_m) <= 0.1):
             raise ValueError("max_segment_m outside range [0.005, 0.1]")
-        vertices = _shape_vertices(shape, list(center_m), float(scale_m))
-        # 圆已是精确弧采样；其余走线段插值。
-        points = (
-            vertices
-            if shape == "circle"
-            else _sample_segments(vertices, float(max_segment_m))
-        )
-        for point in points:
-            _workspace_check(point)
-        # WP-5：SE(3) 位姿规格——approach/contact/lift 显式段 +
-        # 工具朝向 + 接触平面，随 plan 持久化（内容寻址可反查）。
-        spec = _build_pose_spec(points, plane=plane)
-        digest = hashlib.sha256(
-            json.dumps(points, sort_keys=True).encode()
-        ).hexdigest()
+        if plane_normal_xyz is None:
+            vertices = _shape_vertices(shape, list(center_m), float(scale_m))
+            # 圆已是精确弧采样；其余走线段插值。
+            points = (
+                vertices if shape == "circle" else _sample_segments(vertices, float(max_segment_m))
+            )
+            for point in points:
+                _workspace_check(point)
+            # WP-5：SE(3) 位姿规格——approach/contact/lift 显式段 +
+            # 工具朝向 + 接触平面，随 plan 持久化（内容寻址可反查）。
+            spec = _build_pose_spec(points, plane=plane)
+        else:
+            # §15.4 任意平面：法向单位化 → 正交基 → 局部 (u,v) 顶点
+            # 映到世界坐标。center 在平面上的投影是形状中心。
+            norm = math.sqrt(sum(v * v for v in plane_normal_xyz))
+            if abs(norm - 1.0) > 1e-3:
+                raise ValueError(f"plane normal 非单位向量: {plane_normal_xyz}")
+            normal = _normalize(plane_normal_xyz)
+            e1, e2 = _plane_basis(normal)
+            offset = (
+                float(plane_offset_m)
+                if plane_offset_m is not None
+                else _dot(list(center_m), normal)
+            )
+            # 形状中心在平面内：center - (center·n - offset) n
+            proj = _dot(list(center_m), normal) - offset
+            center_on_plane = [
+                float(center_m[0]) - proj * normal[0],
+                float(center_m[1]) - proj * normal[1],
+                float(center_m[2]) - proj * normal[2],
+            ]
+            local_vertices = _shape_vertices(shape, [0.0, 0.0, 0.0], float(scale_m))
+            local_points = (
+                local_vertices
+                if shape == "circle"
+                else _sample_segments(local_vertices, float(max_segment_m))
+            )
+            points = [
+                {
+                    "x": center_on_plane[0] + p["x"] * e1[0] + p["y"] * e2[0],
+                    "y": center_on_plane[1] + p["x"] * e1[1] + p["y"] * e2[1],
+                    "z": center_on_plane[2] + p["x"] * e1[2] + p["y"] * e2[2],
+                }
+                for p in local_points
+            ]
+            for point in points:
+                _workspace_check(point)
+            spec = _build_pose_spec_3d(
+                points,
+                normal_xyz=normal,
+                max_segment_m=max_segment_m,
+            )
+        digest = hashlib.sha256(json.dumps(points, sort_keys=True).encode()).hexdigest()
         plan_id = f"plan_{digest[:16]}"
         self._plans_dir.mkdir(parents=True, exist_ok=True)
         (self._plans_dir / f"{plan_id}.json").write_text(
-            json.dumps({
-                "shape": shape, "center_m": list(center_m), "scale_m": scale_m,
-                "plane": plane, "max_segment_m": max_segment_m,
-                "points": points, "hash": digest,
-                "spec": spec,
-            }, ensure_ascii=False),
+            json.dumps(
+                {
+                    "shape": shape,
+                    "center_m": list(center_m),
+                    "scale_m": scale_m,
+                    "plane": plane,
+                    "max_segment_m": max_segment_m,
+                    "points": points,
+                    "hash": digest,
+                    "spec": spec,
+                },
+                ensure_ascii=False,
+            ),
             encoding="utf-8",
         )
         return {
@@ -427,6 +498,70 @@ class SimTrajectoryService:
     # --------------------------------------------------------------
     # 2. ur5e.simulate_cartesian_trajectory
     # --------------------------------------------------------------
+    def generate_reach_path(
+        self,
+        target_m: list[float],
+        *,
+        approach_m: float = 0.05,
+        normal_xyz: list[float] | None = None,
+    ) -> dict[str, Any]:
+        """arm reach（0824 §23 验收）：approach→contact 到目标点。"""
+        if not isinstance(target_m, list | tuple) or len(target_m) != 3:
+            raise ValueError("target_m must be [x, y, z]")
+        normal = _normalize(normal_xyz or [0.0, 0.0, 1.0])
+        target = {"x": float(target_m[0]), "y": float(target_m[1]), "z": float(target_m[2])}
+        _workspace_check(target)
+        approach = {
+            "x": target["x"] + normal[0] * approach_m,
+            "y": target["y"] + normal[1] * approach_m,
+            "z": target["z"] + normal[2] * approach_m,
+        }
+        spec = _build_pose_spec_3d([approach, target], normal_xyz=normal)
+        # reach：contact_plane 过 target（接触判定面向目标点，不是
+        # approach 起点）；waypoints 只需 approach→contact。
+        quat = spec["waypoints"][0]["orientation_xyzw"]
+        spec["waypoints"] = [
+            {
+                "position_m": [approach["x"], approach["y"], approach["z"]],
+                "orientation_xyzw": quat,
+                "kind": "approach",
+            },
+            {
+                "position_m": [target["x"], target["y"], target["z"]],
+                "orientation_xyzw": quat,
+                "kind": "contact",
+            },
+        ]
+        spec["contact_plane"] = dict(spec["contact_plane"])
+        spec["contact_plane"]["offset_m"] = _dot([target["x"], target["y"], target["z"]], normal)
+        digest = hashlib.sha256(json.dumps(spec["waypoints"], sort_keys=True).encode()).hexdigest()
+        spec["digest"] = f"sha256:{digest}"
+        plan_id = f"plan_{digest[:16]}"
+        self._plans_dir.mkdir(parents=True, exist_ok=True)
+        (self._plans_dir / f"{plan_id}.json").write_text(
+            json.dumps(
+                {
+                    "shape": "reach",
+                    "target_m": list(target_m),
+                    "approach_m": approach_m,
+                    "points": [approach, target],
+                    "hash": digest,
+                    "spec": spec,
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        return {
+            "ok": True,
+            "plan_id": plan_id,
+            "hash": digest,
+            "points": [approach, target],
+            "point_count": 2,
+            "spec": spec,
+            "summary": f"reach 路径：approach→{list(target_m)}",
+        }
+
     def simulate_cartesian_trajectory(
         self,
         plan_id: str,
@@ -468,9 +603,7 @@ class SimTrajectoryService:
 
             site_id = -1
             for site_name in ("attachment_site", "tcp"):
-                site_id = _mj.mj_name2id(
-                    model, _mj.mjtObj.mjOBJ_SITE, site_name
-                )
+                site_id = _mj.mj_name2id(model, _mj.mjtObj.mjOBJ_SITE, site_name)
                 if site_id >= 0:
                     break
             if site_id < 0:
@@ -483,14 +616,14 @@ class SimTrajectoryService:
             home_eef = [float(v) for v in data.site_xpos[site_id]]
             approach_z = float(waypoints[0]["position_m"][2])
             approach_quat = list(waypoints[0]["orientation_xyzw"])
-            transit = [{
-                "position_m": [home_eef[0], home_eef[1], approach_z],
-                "orientation_xyzw": approach_quat,
-                "kind": "transit",
-            }]
-            joint_trajectory = _ik_waypoints_6d(
-                model, data, transit + waypoints, site_id
-            )
+            transit = [
+                {
+                    "position_m": [home_eef[0], home_eef[1], approach_z],
+                    "orientation_xyzw": approach_quat,
+                    "kind": "transit",
+                }
+            ]
+            joint_trajectory = _ik_waypoints_6d(model, data, transit + waypoints, site_id)
             resource_proof = sandbox.resource_manifest()
             scenario = ScenarioSpec(
                 scenario_id=f"sim-trajectory-{plan['hash'][:8]}",
@@ -525,55 +658,59 @@ class SimTrajectoryService:
                 data.qpos[: int(model.nu)] = np.array(sample["qpos"])
                 mujoco.mj_forward(model, data)
                 pos = data.site_xpos[site_id]
-                r_mat = (
-                    np.array(data.site_xmat[site_id]).reshape(3, 3).tolist()
-                )
+                r_mat = np.array(data.site_xmat[site_id]).reshape(3, 3).tolist()
                 quat = _mat_to_quat_xyzw(r_mat)
-                actual.append({
-                    "t": round(float(sample["time"]), 4),
-                    "x": round(float(pos[0]), 6),
-                    "y": round(float(pos[1]), 6),
-                    "z": round(float(pos[2]), 6),
-                    "quat_xyzw": [round(float(v), 6) for v in quat],
-                })
+                actual.append(
+                    {
+                        "t": round(float(sample["time"]), 4),
+                        "x": round(float(pos[0]), 6),
+                        "y": round(float(pos[1]), 6),
+                        "z": round(float(pos[2]), 6),
+                        "quat_xyzw": [round(float(v), 6) for v in quat],
+                    }
+                )
             # 期望工具轴 = -接触平面法向（画图姿态）。
             normal = spec["contact_plane"]["normal_xyz"]
             desired_tool_z = [-float(n) for n in normal]
             metrics = self._tracking_metrics(
-                points, actual, desired_tool_z=desired_tool_z
+                points,
+                actual,
+                desired_tool_z=desired_tool_z,
+                contact_plane=spec.get("contact_plane"),
             )
             # 落盘交付物：trace.json / trace.csv / metrics.json。
             (out_dir / "trace.json").write_text(
-                json.dumps({
-                    "schema_version": "rosclaw.sim_trace.v1",
-                    # WP-3：states digest 锚点——渲染/验证据此拒绝被
-                    # 篡改的 trajectory_states。
-                    "states_digest": "sha256:" + hashlib.sha256(
-                        states_path.read_bytes()
-                    ).hexdigest(),
-                    "plan_hash": plan["hash"],
-                    # WP-5：SE(3) 规格锚点——朝向/接触平面可反查。
-                    "spec_digest": spec["digest"],
-                    "planned": points,
-                    "actual": actual,
-                    "evidence_level": "SIM_DYN_ROLLOUT",
-                    # N4.1：资源证明进 trace（可反查 manifest/digest）。
-                    "resource": resource_proof,
-                }, ensure_ascii=False),
+                json.dumps(
+                    {
+                        "schema_version": "rosclaw.sim_trace.v1",
+                        # WP-3：states digest 锚点——渲染/验证据此拒绝被
+                        # 篡改的 trajectory_states。
+                        "states_digest": "sha256:"
+                        + hashlib.sha256(states_path.read_bytes()).hexdigest(),
+                        "plan_hash": plan["hash"],
+                        # WP-5：SE(3) 规格锚点——朝向/接触平面可反查。
+                        "spec_digest": spec["digest"],
+                        "planned": points,
+                        "actual": actual,
+                        "evidence_level": "SIM_DYN_ROLLOUT",
+                        # N4.1：资源证明进 trace（可反查 manifest/digest）。
+                        "resource": resource_proof,
+                    },
+                    ensure_ascii=False,
+                ),
                 encoding="utf-8",
             )
             (out_dir / "trace.csv").write_text(
                 "t,x,y,z\n"
-                + "\n".join(
-                    f"{p['t']},{p['x']},{p['y']},{p['z']}" for p in actual
-                )
+                + "\n".join(f"{p['t']},{p['x']},{p['y']},{p['z']}" for p in actual)
                 + "\n",
                 encoding="utf-8",
             )
             (out_dir / "metrics.json").write_text(
                 json.dumps(
                     {**metrics, "resource": resource_proof},
-                    ensure_ascii=False, indent=2,
+                    ensure_ascii=False,
+                    indent=2,
                 ),
                 encoding="utf-8",
             )
@@ -603,23 +740,30 @@ class SimTrajectoryService:
         actual: list[dict],
         *,
         desired_tool_z: list[float] | None = None,
+        contact_plane: dict | None = None,
     ) -> dict:
         """实际 eef 到规划路径（最近点）的跟踪误差——只统计接触段
-        （|z - 接触平面| ≤ 2cm 且在路径邻域内；approach 降下与 lift
-        抬升的过渡采样会被 5cm 邻域误纳——它们在平面上方 ≈5cm 处，
-        是转场不是接触跟踪）。WP-5：朝向误差同段统计。"""
+        （到接触平面 ≤ 2cm 且在路径邻域内；approach/lift 过渡是
+        转场不是接触跟踪）。P1-C3：接触判定平面感知（任意法向
+        n·p−offset ≤ tol——xy 是 normal=[0,0,1] 的特例）。WP-5：
+        朝向误差同段统计。"""
         window = 0.05
         plane_tol = 0.02
         plane_z = float(planned[0]["z"]) if planned else 0.0
+        plane_normal = (
+            list(contact_plane.get("normal_xyz") or [0.0, 0.0, 1.0])
+            if contact_plane
+            else [0.0, 0.0, 1.0]
+        )
+        plane_offset = float(contact_plane.get("offset_m", plane_z)) if contact_plane else plane_z
 
         def _near(a: dict) -> float:
             return min(
-                math.dist((a["x"], a["y"], a["z"]), (p["x"], p["y"], p["z"]))
-                for p in planned
+                math.dist((a["x"], a["y"], a["z"]), (p["x"], p["y"], p["z"])) for p in planned
             )
 
         def _on_plane(a: dict) -> bool:
-            return abs(float(a["z"]) - plane_z) <= plane_tol
+            return abs(_dot([a["x"], a["y"], a["z"]], plane_normal) - plane_offset) <= plane_tol
 
         start = 0
         for idx, a in enumerate(actual):
@@ -636,8 +780,7 @@ class SimTrajectoryService:
         orient_errors: list[float] = []
         for a in actual:
             best = min(
-                math.dist((a["x"], a["y"], a["z"]), (p["x"], p["y"], p["z"]))
-                for p in planned
+                math.dist((a["x"], a["y"], a["z"]), (p["x"], p["y"], p["z"])) for p in planned
             )
             errors.append(best)
             if desired_tool_z is not None and "quat_xyzw" in a:
@@ -646,9 +789,7 @@ class SimTrajectoryService:
                 orient_errors.append(math.degrees(math.acos(cos)))
         metrics = {
             "max_error_m": round(max(errors, default=0.0), 6),
-            "mean_error_m": round(
-                sum(errors) / len(errors) if errors else 0.0, 6
-            ),
+            "mean_error_m": round(sum(errors) / len(errors) if errors else 0.0, 6),
             "samples": len(actual),
             "planned_points": len(planned),
         }
@@ -662,8 +803,7 @@ class SimTrajectoryService:
     # --------------------------------------------------------------
     # 3. simulation.render_trace
     # --------------------------------------------------------------
-    def render_trace(self, trace_id: str, *, format: str = "gif",
-                     fps: int = 12) -> dict[str, Any]:
+    def render_trace(self, trace_id: str, *, format: str = "gif", fps: int = 12) -> dict[str, Any]:
         if format != "gif":
             raise ValueError(f"unsupported format {format!r} (supported: gif)")
         out_dir = self._traces_dir / trace_id
@@ -700,8 +840,11 @@ class SimTrajectoryService:
             images.append(img)
         out = out_dir / f"{trace_id}.gif"
         images[0].save(
-            out, save_all=True, append_images=images[1:],
-            duration=int(1000 / max(fps, 1)), loop=0,
+            out,
+            save_all=True,
+            append_images=images[1:],
+            duration=int(1000 / max(fps, 1)),
+            loop=0,
         )
         # P0-F 闭包（金丝雀实证）：2D 预览与场景渲染同样产出
         # MP4——两条渲染路径都覆盖完整视频格式集（用户要 MP4 时
@@ -744,9 +887,7 @@ class SimTrajectoryService:
         if not metrics_path.exists():
             raise ValueError(f"unknown trace {trace_id!r}")
         metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
-        verdict = (
-            "PASS" if metrics["max_error_m"] <= max_tracking_error_m else "FAIL"
-        )
+        verdict = "PASS" if metrics["max_error_m"] <= max_tracking_error_m else "FAIL"
         orientation: dict[str, Any] | None = None
         if max_orientation_error_deg is not None:
             if "max_orientation_error_deg" not in metrics:

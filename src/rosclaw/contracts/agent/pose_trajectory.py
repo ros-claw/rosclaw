@@ -60,21 +60,22 @@ class PoseWaypointV1(ContractModel):
     @classmethod
     def _known_kind(cls, value: str) -> str:
         if value not in WAYPOINT_KINDS:
-            raise ValueError(
-                f"unknown waypoint kind {value!r} (frozen: {WAYPOINT_KINDS})"
-            )
+            raise ValueError(f"unknown waypoint kind {value!r} (frozen: {WAYPOINT_KINDS})")
         return value
 
 
 class PoseTrajectorySpecV1(ContractModel):
-    """SE(3) 位姿轨迹规格（内容寻址，digest 可反查）。"""
+    """SE(3) 位姿轨迹规格（内容寻址，digest 可反查）。
+
+    P1-C3（0824 总纲 §15.4 PathSpec3D）：geometry/plane_pose/
+    tool_pose_constraint/sampling/timing 为可选扩展——缺省规格
+    （旧 xy 平面格式）保持合法与语义不变。
+    """
 
     SCHEMA: ClassVar[str] = "rosclaw.pose_trajectory_spec.v1"
     HASH_PREFIX: ClassVar[str] = "pose_trajectory_spec"
 
-    schema_version: Literal["rosclaw.pose_trajectory_spec.v1"] = (
-        "rosclaw.pose_trajectory_spec.v1"
-    )
+    schema_version: Literal["rosclaw.pose_trajectory_spec.v1"] = "rosclaw.pose_trajectory_spec.v1"
     #: 位置所在的世界/基座坐标系（如 "world"）。
     frame_id: str = Field(min_length=1)
     #: 工具坐标系（MJCF site 名，如 "attachment_site"）。
@@ -83,6 +84,16 @@ class PoseTrajectorySpecV1(ContractModel):
     waypoints: list[PoseWaypointV1] = Field(min_length=1)
     #: 内容寻址 digest（sha256:…，对 waypoints 规范化 JSON）。
     digest: str = Field(min_length=1)
+    #: §15.4：几何类型（polyline|spline|shape）。
+    geometry: str | None = None
+    #: §15.4：平面位姿（position + quaternion——任意平面一等表达）。
+    plane_pose: dict | None = None
+    #: §15.4：工具朝向约束（axis/normal/tolerance_deg）。
+    tool_pose_constraint: dict | None = None
+    #: §15.4：采样约束（max_segment_m/max_angle_deg）。
+    sampling: dict | None = None
+    #: §15.4：速度/加速度（speed_mps/accel_mps2）。
+    timing: dict | None = None
 
 
 __all__ = [
