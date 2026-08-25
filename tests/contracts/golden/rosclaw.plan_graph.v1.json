@@ -1,0 +1,94 @@
+{
+  "$defs": {
+    "PlanNodeV1": {
+      "additionalProperties": true,
+      "description": "一个 DAG 节点：op + 命名输入/输出（typed refs 按名流动）。",
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.plan_node.v1",
+          "default": "rosclaw.plan_node.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "op": {
+          "minLength": 1,
+          "title": "Op",
+          "type": "string"
+        },
+        "inputs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Inputs",
+          "type": "array"
+        },
+        "outputs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Outputs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "op"
+      ],
+      "title": "PlanNodeV1",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "description": "typed PlanGraph（一个 task revision 的施工图）。",
+  "properties": {
+    "schema_version": {
+      "const": "rosclaw.plan_graph.v1",
+      "default": "rosclaw.plan_graph.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "graph_id": {
+      "minLength": 1,
+      "title": "Graph Id",
+      "type": "string"
+    },
+    "task_id": {
+      "minLength": 1,
+      "title": "Task Id",
+      "type": "string"
+    },
+    "revision": {
+      "minimum": 1,
+      "title": "Revision",
+      "type": "integer"
+    },
+    "nodes": {
+      "items": {
+        "$ref": "#/$defs/PlanNodeV1"
+      },
+      "minItems": 1,
+      "title": "Nodes",
+      "type": "array"
+    },
+    "digest": {
+      "minLength": 1,
+      "title": "Digest",
+      "type": "string"
+    }
+  },
+  "required": [
+    "graph_id",
+    "task_id",
+    "revision",
+    "nodes",
+    "digest"
+  ],
+  "title": "rosclaw.plan_graph.v1",
+  "type": "object",
+  "$id": "rosclaw://schemas/rosclaw.plan_graph.v1"
+}
