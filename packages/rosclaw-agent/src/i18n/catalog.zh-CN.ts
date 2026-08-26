@@ -10,6 +10,7 @@ export const CATALOG_ZH = {
 	"chrome.sim_auto": "SIM 自动",
 	"chrome.action": "动作",
 	"chrome.unbound": "未绑定 Mission · /help 查看命令",
+	"chrome.preparing": "正在准备（连接内核）…",
 	"chrome.no_model": "未选模型",
 	"mode.SIMULATION": "仿真",
 	"mode.SHADOW": "影子",

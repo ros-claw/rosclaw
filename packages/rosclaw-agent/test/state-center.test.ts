@@ -205,7 +205,7 @@ async function makeCenter(calls: Array<{ method: string }>, activeOverride?: unk
 		if (method === "approvals.list") return { ok: true, approvals: [] };
 		return { ok: true };
 	};
-	return new ProductStateCenter({
+	const center = new ProductStateCenter({
 		rosclawHome: "/tmp/rh-six1",
 		active: active as never,
 		operatorSocket: "/tmp/rh-six1/run/operatord.sock",
@@ -213,4 +213,8 @@ async function makeCenter(calls: Array<{ method: string }>, activeOverride?: unk
 		call: call as never,
 		operatorCallFn: async () => ({ ok: true }),
 	});
+	// R0-6：生产路径 session_start 必跑 bootstrap——测试 center
+	// 同一初始语义（否则 readiness 永远停在 PREPARING）。
+	await center.bootstrap();
+	return center;
 }

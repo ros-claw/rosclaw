@@ -14,6 +14,7 @@
 
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
+import { ensureFreshContextForSim } from "../extension/context-injection.js";
 import type { BridgeToolContext } from "./bridge-tools.js";
 
 const AWAIT_TIMEOUT_MS = 330_000;
@@ -43,6 +44,13 @@ export function buildTaskTool(ctx: BridgeToolContext) {
 					isError: true,
 				};
 			}
+			// R0-6：SIM stale context 在 recipe 前自动 refresh（REAL
+			// 不刷新——fail closed 由内核 admission 裁决）。
+			await ensureFreshContextForSim(
+				ctx.rosclawHome,
+				ctx.active,
+				(home, method, params2) => ctx.center.call(method, params2),
+			);
 			const callTask = (args: Record<string, unknown>, idemSuffix: string) =>
 				ctx.center.call("pi.tools.execute", {
 					request: {

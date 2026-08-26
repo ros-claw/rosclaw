@@ -69,6 +69,11 @@ export function renderHeader(
 	if (!state.mission_id) {
 		return `${line1}\n${t("chrome.unbound", locale)}`;
 	}
+	// R0-6：启动事务未完成 → "正在准备"（不是 Unreachable/Stale/
+	// Blocked 三连——启动瞬态不是稳态事实）。
+	if (state.action_readiness.state === "PREPARING") {
+		return `${line1}\n${t("chrome.preparing", locale)}`;
+	}
 	const body = state.body_display ?? state.body_id ?? t("state.LOADING", locale);
 	const contextState = t(`state.${state.context_state}` as never, locale);
 	const context =

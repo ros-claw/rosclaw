@@ -43,6 +43,41 @@ export interface ContextFetchResult {
 	activeRun?: ActiveRunInfo;
 }
 
+/** R0-6（0826 体验审计 §5.R0-6 item 5）：SIM recipe 前 stale
+ *  context 自动 refresh（一次——不循环烧调用）；REAL 不自动刷新
+ *  （fail closed——内核 admission 裁决，不替它放宽）。 */
+export async function ensureFreshContextForSim(
+	rosclawHome: string,
+	active: {
+		current: {
+			mode: string;
+			missionId?: string;
+			sessionId?: string;
+			contextState: string;
+		};
+		applyEnvelope: (
+			envelope: EmbodiedContextEnvelope,
+			contextLeaseId?: string,
+		) => void;
+	},
+	call: typeof bridgeCall,
+): Promise<void> {
+	const state = active.current;
+	if (state.mode !== "SIMULATION") return; // REAL/SHADOW fail closed
+	if (state.contextState === "FRESH") return;
+	if (!state.missionId) return;
+	const fetched = await fetchEmbodiedContext(
+		rosclawHome,
+		state.missionId,
+		state.sessionId,
+		call,
+	);
+	if (!fetched.stale && fetched.envelope) {
+		active.applyEnvelope(fetched.envelope, fetched.contextLeaseId);
+	}
+}
+
+
 /** 与 Python json.dumps(sort_keys=True, separators=(",", ":")) 逐字节一致。 */
 function canonicalJson(value: unknown): string {
 	if (value === null || value === undefined) return "null";

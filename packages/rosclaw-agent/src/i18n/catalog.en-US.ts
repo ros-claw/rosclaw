@@ -12,6 +12,7 @@ export const CATALOG_EN: Record<CatalogKey, string> = {
 	"chrome.sim_auto": "SIM auto",
 	"chrome.action": "Action",
 	"chrome.unbound": "No Mission bound · /help for commands",
+	"chrome.preparing": "Preparing (connecting kernel)…",
 	"chrome.no_model": "No model selected",
 	"mode.SIMULATION": "Simulation",
 	"mode.SHADOW": "Shadow",

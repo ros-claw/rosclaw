@@ -262,6 +262,9 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			// locale）触发同一次 chrome 重绘。
 			center.subscribe(() => refreshChrome());
 			locale.subscribe(() => refreshChrome());
+			// R0-6：启动事务——bridge ping 有限重试（内核行为不耗
+			// token）；完成前 chrome 显示"正在准备"，不是假 Blocked。
+			void center.bootstrap();
 			// 真实探测 operatord——结果回来后经 subscribe 统一重绘
 			// （OFFLINE/READY/UNKNOWN 都是真实返回值，绝不硬编码 ready）。
 			void center.probeOperator();

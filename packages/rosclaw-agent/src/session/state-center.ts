@@ -29,7 +29,7 @@ export type KernelState = "READY" | "UNREACHABLE";
 export type ContextState = "LOADING" | "FRESH" | "STALE" | "UNAVAILABLE";
 export type LeaseState = "ACTIVE" | "LOST" | "NONE";
 export type OperatorState = "READY" | "OFFLINE" | "UNKNOWN";
-export type ReadinessState = "READY" | "BLOCKED" | "DEGRADED";
+export type ReadinessState = "READY" | "BLOCKED" | "DEGRADED" | "PREPARING";
 
 /** ActionReadinessV1（六审 §3.3）：工具侧硬门 + UI 首要受阻原因。 */
 export interface ActionReadinessV1 {
@@ -92,6 +92,12 @@ type Listener = () => void;
 export class ProductStateCenter {
 	private seq = 0;
 	private kernelState: KernelState = "READY";
+	/** R0-6（0826 体验审计 §5.R0-6）：启动事务——bootstrap 完成前
+	 *  chrome/ready 显示"正在准备"（不是 Kernel Unreachable +
+	 *  Context Stale + Action Blocked 三连假真相）。 */
+	private bootstrapState: "PENDING" | "READY" | "DEGRADED" = "PENDING";
+	private bootstrapPromise: Promise<void> | null = null;
+	private recovering = false;
 	private operatorState: OperatorState = "UNKNOWN";
 	private lastOperatorProbe = 0;
 	private modelDisplay = "";
@@ -171,6 +177,16 @@ export class ProductStateCenter {
 	/** ActionReadinessV1：UI 提前诚实拒绝；内核 admission 仍是最终权威。 */
 	private computeReadiness(): ActionReadinessV1 {
 		const state = this.deps.active.current;
+		// R0-6：启动事务未完成 → PREPARING（不是 Kernel Unreachable +
+		// Context Stale + Action Blocked 三连假真相——启动瞬态不是
+		// 稳态事实）。
+		if (this.bootstrapState === "PENDING") {
+			return {
+				state: "PREPARING",
+				reason_codes: ["BOOTSTRAP"],
+				snapshot_seq: this.seq,
+			};
+		}
 		const codes: string[] = [];
 		if (!state.missionId) codes.push("NO_MISSION");
 		if (this.kernelState !== "READY") codes.push("KERNEL_UNREACHABLE");
@@ -200,6 +216,62 @@ export class ProductStateCenter {
 	async actionReadiness(): Promise<ActionReadinessV1> {
 		await this.probeOperator(true);
 		return this.computeReadiness();
+	}
+
+	/** R0-6：启动事务——bridge ping 有限重试（内核行为，不消耗
+	 *  模型 token）；成功 READY，耗尽诚实 UNREACHABLE（稳态事实
+	 *  才上屏）。幂等：并发/重复调用共享同一事务。 */
+	async bootstrap(): Promise<void> {
+		if (this.bootstrapState === "READY") return;
+		if (this.bootstrapPromise) return this.bootstrapPromise;
+		this.bootstrapPromise = (async () => {
+			const delays = [0, 500, 1500];
+			for (let attempt = 0; attempt < delays.length; attempt += 1) {
+				if (delays[attempt] > 0) {
+					await new Promise((resolve) =>
+						setTimeout(resolve, delays[attempt]),
+					);
+				}
+				try {
+					await this.callFn(this.deps.rosclawHome, "pi.status", {});
+					this.kernelState = "READY";
+					this.bootstrapState = "READY";
+					this.changed();
+					return;
+				} catch {
+					// 下一次重试（启动瞬态——不上屏为稳态）。
+				}
+			}
+			this.kernelState = "UNREACHABLE";
+			this.bootstrapState = "DEGRADED";
+			this.deps.active.markContextStale("kernel unreachable");
+			this.changed();
+		})().finally(() => {
+			this.bootstrapPromise = null;
+		});
+		return this.bootstrapPromise;
+	}
+
+	/** R0-6：运行期瞬态失败后的内核有限重连（不消耗模型
+	 *  token）——成功即 READY 并原位刷新 chrome。 */
+	async recoverKernel(): Promise<void> {
+		if (this.kernelState !== "UNREACHABLE" || this.recovering) return;
+		this.recovering = true;
+		try {
+			for (let attempt = 0; attempt < 2; attempt += 1) {
+				try {
+					await this.callFn(this.deps.rosclawHome, "pi.status", {});
+					this.kernelState = "READY";
+					this.bootstrapState = "READY";
+					this.changed();
+					return;
+				} catch {
+					// 仍不可达——保持诚实 UNREACHABLE。
+				}
+			}
+		} finally {
+			this.recovering = false;
+		}
 	}
 
 	get isSimAutoPolicy(): boolean {
@@ -233,6 +305,9 @@ export class ProductStateCenter {
 				this.deps.active.markContextStale("kernel unreachable");
 			}
 			this.changed();
+			// R0-6：瞬态失败内核有限重连（不消耗模型 token）——
+			// 成功后原位刷新，失败保持诚实 UNREACHABLE。
+			void this.recoverKernel();
 			throw err;
 		}
 	}
