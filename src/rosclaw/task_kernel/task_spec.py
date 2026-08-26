@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from rosclaw.contracts.agent.task_spec import (
     TaskConstraintsV2,
+    TaskDeliverableV2,
     TaskGoalV2,
     TaskPreferencesV2,
     TaskSpecV2,
@@ -29,6 +30,40 @@ _INTENT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("compute.generic", ("计算", "compute", "分析", "误差", "统计")),
 )
 _CHAT_MARKERS = ("你好", "介绍", "hello", "你是谁", "谢谢")
+
+#: R0-2 交付/场景标记（通用词类——与 intent 动词规则同一模式；
+#: 形状/场景特例不进规则）。媒体：视频类 → scene_video（required），
+#: 动画/GIF 类 → preview_animation；工具/场景/接触各一词类。
+_SCENE_VIDEO_MARKERS = ("视频", "video", "mp4", "录像")
+_PREVIEW_MARKERS = ("gif", "动图")
+_TOOL_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("tool:pen", ("笔", "pen", "画笔", "马克笔", "marker")),
+)
+_WORLD_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("world:tabletop", ("桌面", "桌子", "桌上", "tabletop", "table")),
+)
+_CONTACT_MARKERS = ("接触", "contact", "贴在", "贴着")
+
+
+def _any_marker(text: str, markers: tuple[str, ...]) -> bool:
+    lowered = text.lower()
+    return any(m in lowered or m in text for m in markers)
+
+
+def _compile_deliverables(goal_text: str) -> list[TaskDeliverableV2]:
+    """目标文本 → 交付物声明（只声明用户要的——不编造 required）。"""
+    deliverables: list[TaskDeliverableV2] = []
+    if _any_marker(goal_text, _SCENE_VIDEO_MARKERS):
+        deliverables.append(TaskDeliverableV2(
+            kind="scene_video", media_type="video/mp4", required=True,
+            min_frames=30, min_resolution=[640, 360],
+        ))
+    if _any_marker(goal_text, _PREVIEW_MARKERS):
+        deliverables.append(TaskDeliverableV2(
+            kind="preview_animation", media_type="image/gif",
+            required=True, min_frames=30,
+        ))
+    return deliverables
 
 
 def _classify_intent(goal_text: str) -> str:
@@ -61,6 +96,24 @@ def compile_task_spec(
         from rosclaw.cognition.alias import canonical_resource_id
 
         body_ref = canonical_resource_id(body_id)
+    # R0-2：工具/场景/接触声明（通用标记——无形状特例）。
+    tool_ref = ""
+    for ref, markers in _TOOL_MARKERS:
+        if _any_marker(goal_text, markers):
+            tool_ref = ref
+            break
+    if not world_ref:
+        for ref, markers in _WORLD_MARKERS:
+            if _any_marker(goal_text, markers):
+                world_ref = ref
+                break
+    contact_required = _any_marker(goal_text, _CONTACT_MARKERS)
+    # "在桌面/桌上画" = 工具与桌面接触（draw on table 的通用语义）。
+    if world_ref == "world:tabletop" and _classify_intent(goal_text) in (
+        "manipulation.draw_path",
+        "manipulation.reach",
+    ):
+        contact_required = True
     return TaskSpecV2(
         spec_id=new_id("tspec"),
         task_id=task_id,
@@ -69,13 +122,20 @@ def compile_task_spec(
             natural_language=goal_text,
             intent=_classify_intent(goal_text),
         ),
-        subjects=TaskSubjectsV2(body_ref=body_ref, world_ref=world_ref),
+        subjects=TaskSubjectsV2(
+            body_ref=body_ref, tool_ref=tool_ref, world_ref=world_ref
+        ),
         constraints=TaskConstraintsV2(
             mode=mode,
             frames=list(frames or []),
             allowed_effects=list(allowed_effects or []),
+            contact_required=contact_required,
+            tool_axis_aligned_with_plane_normal_deg=(
+                3.0 if tool_ref else None
+            ),
         ),
         preferences=TaskPreferencesV2(language=language, verbosity=verbosity),
+        deliverables=_compile_deliverables(goal_text),
         acceptance_spec_id=acceptance_spec_id,
     )
 

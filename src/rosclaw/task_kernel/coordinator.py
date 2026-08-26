@@ -29,7 +29,7 @@ from rosclaw.contracts.common import new_id
 from rosclaw.task_kernel.service import TaskKernel
 
 #: 媒体/交付类失败前缀（execution 已成功，只 delivery 待修）。
-_DELIVERY_FAILURE_PREFIXES = ("RENDER_", "MEDIA_")
+_DELIVERY_FAILURE_PREFIXES = ("RENDER_", "MEDIA_", "DELIVERABLE_")
 
 #: 目标声明媒体交付物的关键词（通用——不是形状特例：任何要
 #: 视频/GIF/MP4/动画的目标都要求媒体交付证据）。
@@ -103,7 +103,14 @@ class TaskCoordinator:
         # 目标声明媒体交付物（视频/GIF/MP4/动画）但零媒体交付——
         # 执行成功 ≠ 交付成功（0824 金丝雀实证：模型只 rollout 不
         # 渲染就结束，trace 内部件不是用户要的视频）。
-        if _goal_requires_media(str(task.get("root_goal") or "")):
+        # R0-2：spec 冻结 deliverables 时以 spec 为准（finish_task
+        # 已把 DELIVERABLE_MISSING 放进 failures）——启发式只做
+        # 无 spec 任务的回落。
+        spec = self._kernel.get_task_spec(task_id) or {}
+        spec_deliverables = list(spec.get("deliverables") or [])
+        if not spec_deliverables and _goal_requires_media(
+            str(task.get("root_goal") or "")
+        ):
             has_media = any(
                 str(a.get("media_type") or "").startswith(("image/", "video/"))
                 for a in artifacts
@@ -130,17 +137,33 @@ class TaskCoordinator:
             )
             self._store_outcome(task_id, revision, outcome, now)
             return outcome
-        # FAIL：区分 delivery 待修（媒体类）与 verification 失败。
+        # FAIL：区分 delivery 待修（媒体/交付类）与 verification 失败。
         delivery_only = bool(failures) and all(
             f.startswith(_DELIVERY_FAILURE_PREFIXES) for f in failures
         )
         if delivery_only:
+            # R0-2：required deliverables 缺失 = 运动执行 PASS 但
+            # 用户请求未完整满足——verification PARTIAL（不是整体
+            # VERIFIED）；delivery 按已满足 kind 分 MISSING/PARTIAL。
+            deliverable_missing = any(
+                f.startswith("DELIVERABLE_MISSING") for f in failures
+            )
+            delivery = "NEEDS_REPAIR"
+            verification = "FAIL"
+            if deliverable_missing:
+                from rosclaw.task_kernel.deliverables import (
+                    deliverable_verdict,
+                )
+
+                dv = deliverable_verdict(spec_deliverables, artifacts)
+                verification = "PARTIAL"
+                delivery = "PARTIAL" if dv["satisfied"] else "MISSING"
             outcome = self._build_outcome(
                 task, revision, artifacts,
                 lifecycle="ACTIVE",
                 execution="SUCCEEDED",
-                verification="FAIL",
-                delivery="NEEDS_REPAIR",
+                verification=verification,
+                delivery=delivery,
                 created_at=now,
             )
             directive = self._repair_directive(task_id, revision, failures, now)
@@ -192,6 +215,23 @@ class TaskCoordinator:
         ):
             trust = "TRUSTED"
         accepted = bool(task.get("user_accepted_at"))
+        # R0-2：证据等级按产物事实拆分（不是单个 SIM_DYN_ROLLOUT
+        # 覆盖全部）——MOTION_ROLLOUT（资源证明的轨迹）/
+        # SCENE_RENDER（scene_3d kind）/REAL_RECEIPT（REAL 域）。
+        from rosclaw.task_kernel.deliverables import artifact_delivery_kind
+
+        levels: list[str] = []
+        kinds = {artifact_delivery_kind(a) for a in artifacts}
+        has_resource_proof = any(
+            json.loads(str(a.get("metadata_json") or "{}")).get("resource")
+            for a in artifacts
+        )
+        if has_resource_proof:
+            levels.append("MOTION_ROLLOUT")
+        if "scene_3d" in kinds:
+            levels.append("SCENE_RENDER")
+        if str(task.get("mode") or "") == "REAL":
+            levels.append("REAL_RECEIPT")
         return {
             "schema_version": "rosclaw.task_outcome.v2",
             "task_id": str(task["task_id"]),
@@ -204,6 +244,7 @@ class TaskCoordinator:
             "evidence": {
                 "domain": str(task.get("mode") or "SIMULATION"),
                 "trust": trust,
+                "levels": levels,
             },
             "blocked_on": [],
             "created_at": created_at,

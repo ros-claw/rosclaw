@@ -166,7 +166,10 @@ def draw_path_recipe(
             if not path:
                 continue
             meta: dict[str, Any] = {"resource": trace["resource"]}
-            if media_type.startswith("image/"):
+            if media_type.startswith(("image/", "video/")):
+                # gif 与 mp4 都是 2D 轨迹预览（COMMAND_REPLAY 可视
+                # 化）——preview_2d kind；场景视频（scene_3d）是
+                # 另一条渲染链（R0-3），kind 分野是硬边界。
                 meta["lineage"] = {
                     "trace_id": trace["trace_id"],
                     "kind": "preview_2d",

@@ -2,7 +2,7 @@
   "$defs": {
     "TaskConstraintsV2": {
       "additionalProperties": true,
-      "description": "执行约束：mode / frames / allowed_effects。",
+      "description": "执行约束：mode / frames / allowed_effects + R0-2 接触与\n工具轴约束（contact_required / tool_axis_aligned_with_plane_\nnormal_deg——语义验收的声明面）。",
       "properties": {
         "schema_version": {
           "const": "rosclaw.task_constraints.v2",
@@ -28,9 +28,70 @@
           },
           "title": "Allowed Effects",
           "type": "array"
+        },
+        "contact_required": {
+          "default": false,
+          "title": "Contact Required",
+          "type": "boolean"
+        },
+        "tool_axis_aligned_with_plane_normal_deg": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool Axis Aligned With Plane Normal Deg"
         }
       },
       "title": "TaskConstraintsV2",
+      "type": "object"
+    },
+    "TaskDeliverableV2": {
+      "additionalProperties": true,
+      "description": "交付物声明：kind/media_type/required + 最低质量门槛。\n\nrequired=True 的交付物未出现在产物账本（按 kind 匹配）→\nDELIVERABLE_MISSING——任务成功 ≠ 用户请求成功。",
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.task_deliverable.v2",
+          "default": "rosclaw.task_deliverable.v2",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "kind": {
+          "minLength": 1,
+          "title": "Kind",
+          "type": "string"
+        },
+        "media_type": {
+          "default": "",
+          "title": "Media Type",
+          "type": "string"
+        },
+        "required": {
+          "default": false,
+          "title": "Required",
+          "type": "boolean"
+        },
+        "min_frames": {
+          "default": 0,
+          "title": "Min Frames",
+          "type": "integer"
+        },
+        "min_resolution": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Min Resolution",
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "TaskDeliverableV2",
       "type": "object"
     },
     "TaskGoalV2": {
@@ -87,7 +148,7 @@
     },
     "TaskSubjectsV2": {
       "additionalProperties": true,
-      "description": "作用对象：body_ref（canonical robot:<name>）与 world_ref。",
+      "description": "作用对象：body_ref（canonical robot:<name>）、tool_ref 与\nworld_ref（R0-2：工具/场景是验收一等事实——\"持笔在桌面\"必须\n可声明、可核验，不允许最终回答自由夸大）。",
       "properties": {
         "schema_version": {
           "const": "rosclaw.task_subjects.v2",
@@ -98,6 +159,11 @@
         "body_ref": {
           "default": "",
           "title": "Body Ref",
+          "type": "string"
+        },
+        "tool_ref": {
+          "default": "",
+          "title": "Tool Ref",
           "type": "string"
         },
         "world_ref": {
@@ -145,6 +211,13 @@
     },
     "preferences": {
       "$ref": "#/$defs/TaskPreferencesV2"
+    },
+    "deliverables": {
+      "items": {
+        "$ref": "#/$defs/TaskDeliverableV2"
+      },
+      "title": "Deliverables",
+      "type": "array"
     },
     "acceptance_spec_id": {
       "default": "",

@@ -791,6 +791,26 @@ class TaskKernel:
                             "该 trace 实际内容不符——renderer 吃的不是这条 trace"
                         )
         provenance_failures += graph_failures
+        # R0-2（0826 体验审计 §5.R0-2）：spec 冻结的 required
+        # deliverables 按 kind 核验全量产物账本——任务成功 ≠ 用户
+        # 请求成功（2D 预览不满足 scene_video——kind 分野是硬边界）。
+        spec = self.get_task_spec(task_id)
+        spec_deliverables = (spec or {}).get("deliverables") or []
+        if spec_deliverables:
+            from rosclaw.task_kernel.deliverables import deliverable_verdict
+
+            ledger = [
+                dict(r)
+                for r in self._conn.execute(
+                    "SELECT * FROM artifacts WHERE task_id = ?", (task_id,),
+                ).fetchall()
+            ]
+            dv = deliverable_verdict(spec_deliverables, ledger)
+            for kind in dv["missing"]:
+                provenance_failures.append(
+                    f"DELIVERABLE_MISSING: required 交付物 {kind} 未在产物"
+                    "账本（按 kind 匹配——2D 预览不满足场景视频）"
+                )
         trusted_present = any(
             str(a.get("producer") or "").startswith("kernel:")
             and not str(a.get("media_type") or "").startswith("image/")
