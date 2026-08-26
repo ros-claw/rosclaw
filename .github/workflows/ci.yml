@@ -211,7 +211,10 @@ jobs:
     runs-on: ubuntu-latest
     # 七审合并级联实测：套件在 20 分钟处超时被 cancel（87%）——
     # 审计轮次累积的测试让套件超过预算。
-    timeout-minutes: 30
+    # R0-3/R0-5：真实 3D 场景渲染进入回归（recipe scene 节点 +
+    # 场景媒体核验）——两次 30 分钟 timeout-cancel 实证；预算随
+    # 真实渲染覆盖提升到 45（与 native-agent-gate 最重档一致）。
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7.0.0
 
