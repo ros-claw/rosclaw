@@ -215,20 +215,23 @@ class TaskCoordinator:
         ):
             trust = "TRUSTED"
         accepted = bool(task.get("user_accepted_at"))
-        # R0-2：证据等级按产物事实拆分（不是单个 SIM_DYN_ROLLOUT
-        # 覆盖全部）——MOTION_ROLLOUT（资源证明的轨迹）/
-        # SCENE_RENDER（scene_3d kind）/REAL_RECEIPT（REAL 域）。
+        # R0-5（0826 体验审计 §5.R0-5）：证据等级按产物事实拆分
+        # （GEOMETRY_PLAN/KINEMATIC_TRACKING/DYNAMIC_ROLLOUT/
+        # CONTACT_SIMULATION/SCENE_RENDER/REAL_RECEIPT）——产物
+        # 元数据 evidence.levels 是权威（受信管道打戳），scene_3d
+        # kind 补 SCENE_RENDER。
         from rosclaw.task_kernel.deliverables import artifact_delivery_kind
 
         levels: list[str] = []
+        seen_levels: set[str] = set()
+        for a in artifacts:
+            meta = json.loads(str(a.get("metadata_json") or "{}"))
+            for level in (meta.get("evidence") or {}).get("levels") or []:
+                if level not in seen_levels:
+                    seen_levels.add(level)
+                    levels.append(str(level))
         kinds = {artifact_delivery_kind(a) for a in artifacts}
-        has_resource_proof = any(
-            json.loads(str(a.get("metadata_json") or "{}")).get("resource")
-            for a in artifacts
-        )
-        if has_resource_proof:
-            levels.append("MOTION_ROLLOUT")
-        if "scene_3d" in kinds:
+        if "scene_3d" in kinds and "SCENE_RENDER" not in seen_levels:
             levels.append("SCENE_RENDER")
         if str(task.get("mode") or "") == "REAL":
             levels.append("REAL_RECEIPT")

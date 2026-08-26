@@ -135,6 +135,8 @@ def render_scene_trace(
         )
     if tool_ref:
         _require_tool_asset(tool_ref)
+    if world_id:
+        _require_world_asset(world_id)
     backend, probe_detail = probe_render_backend()
     if backend is None:
         raise ValueError(
@@ -249,6 +251,18 @@ def _render_attempt(
             f"RENDER_RESULT_INCOMPLETE: result 缺字段 {missing}"
         )
     return result
+
+
+def _require_world_asset(world_id: str) -> None:
+    """world 资产断言（WORLD_ASSET_MISSING 诚实失败——"桌面
+    移除"注入时不得假装有桌面）。"""
+    from rosclaw.sandbox.sandbox_api import SUPPORTED_MUJOCO_WORLDS
+
+    if world_id not in SUPPORTED_MUJOCO_WORLDS:
+        raise ValueError(
+            f"WORLD_ASSET_MISSING: world {world_id!r} 不可用"
+            f"（支持：{sorted(SUPPORTED_MUJOCO_WORLDS)}）"
+        )
 
 
 def _require_tool_asset(tool_ref: str) -> None:

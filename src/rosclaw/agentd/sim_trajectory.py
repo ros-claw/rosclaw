@@ -787,9 +787,39 @@ class SimTrajectoryService:
                 tool_z = _tool_z_of_quat(a["quat_xyzw"])
                 cos = max(-1.0, min(1.0, _dot(tool_z, desired_tool_z)))
                 orient_errors.append(math.degrees(math.acos(cos)))
+        # R0-5：分布/闭合/平面指标（低质量 PASS 防线——max/mean
+        # 之外，RMSE/p95/闭合/平面偏差全部落账）。
+        sorted_errors = sorted(errors)
+        p95 = (
+            sorted_errors[min(len(sorted_errors) - 1,
+                              int(len(sorted_errors) * 0.95))]
+            if sorted_errors else 0.0
+        )
+        rmse = (
+            math.sqrt(sum(e * e for e in errors) / len(errors))
+            if errors else 0.0
+        )
+        closure = 0.0
+        if len(actual) >= 2:
+            first, last = actual[0], actual[-1]
+            closure = math.dist(
+                (first["x"], first["y"], first["z"]),
+                (last["x"], last["y"], last["z"]),
+            )
+        plane_deviations = [
+            abs(_dot([a["x"], a["y"], a["z"]], plane_normal) - plane_offset)
+            for a in actual
+        ]
         metrics = {
             "max_error_m": round(max(errors, default=0.0), 6),
             "mean_error_m": round(sum(errors) / len(errors) if errors else 0.0, 6),
+            "rmse_error_m": round(rmse, 6),
+            "p95_error_m": round(p95, 6),
+            "closure_error_m": round(closure, 6),
+            "plane_max_deviation_m": round(
+                max(plane_deviations, default=0.0), 6
+            ),
+            "contact_samples": len(actual),
             "samples": len(actual),
             "planned_points": len(planned),
         }

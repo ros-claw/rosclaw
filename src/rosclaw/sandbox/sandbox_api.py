@@ -12,6 +12,10 @@ from typing import Any
 logger = logging.getLogger("rosclaw.sandbox.sandbox_api")
 _SAFE_IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 
+#: 支持的 MuJoCo world（R0-5：父进程 world 断言与子进程加载
+#: 共用同一集合——"桌面移除"故障注入面）。
+SUPPORTED_MUJOCO_WORLDS = frozenset({"empty", "tabletop"})
+
 
 class SandboxSession:
     """Lightweight session handle."""
@@ -72,7 +76,7 @@ class Sandbox:
             logger.warning("%s", self._load_error)
             return
 
-        if self._world_id not in {"empty", "tabletop"}:
+        if self._world_id not in SUPPORTED_MUJOCO_WORLDS:
             self._load_error = f"Unsupported MuJoCo world '{self._world_id}'."
             logger.warning("%s", self._load_error)
             return

@@ -120,7 +120,19 @@ def draw_path_recipe(
     plane = str(inputs.get("plane", "xy"))
     max_segment_m = float(inputs.get("max_segment_m", 0.03))
     acceptance = inputs.get("acceptance") or {}
-    threshold = float(acceptance.get("max_tracking_error_m", 0.05))
+    # R0-5：尺度/平台自适应阈值（不是 50mm 平阈值——实测下限为
+    # 地板，scale*5% 为目标，3mm 绝对地板）。
+    from rosclaw.task_kernel.embodied_verifier import (
+        contact_failures,
+        scene_media_failures,
+        tool_axis_failures,
+        tracking_acceptance,
+    )
+
+    threshold = float(
+        acceptance.get("max_tracking_error_m")
+        or tracking_acceptance(scale_m)
+    )
     min_frames = int(acceptance.get("animation_min_frames", 30))
 
     service = SimTrajectoryService(home, runtime_manager=runtime_manager)
@@ -195,6 +207,21 @@ def draw_path_recipe(
             if not path:
                 continue
             meta: dict[str, Any] = {"resource": trace["resource"]}
+            if media_type == "application/json":
+                # R0-5：证据等级元数据（拆分——不用单个
+                # SIM_DYN_ROLLOUT 覆盖全部）。轨迹数据产物承载
+                # 几何规划/运动学跟踪/动力学推演证据；接触仿真
+                # 在有接触段样本时成立。
+                levels = [
+                    "GEOMETRY_PLAN",
+                    "KINEMATIC_TRACKING",
+                    "DYNAMIC_ROLLOUT",
+                ]
+                if int((trace.get("tracking") or {}).get(
+                    "contact_samples", 0
+                ) or 0) > 0:
+                    levels.append("CONTACT_SIMULATION")
+                meta["evidence"] = {"levels": levels}
             if media_type.startswith(("image/", "video/")):
                 # gif 与 mp4 都是 2D 轨迹预览（COMMAND_REPLAY 可视
                 # 化）——preview_2d kind；场景视频（scene_3d）是
@@ -286,6 +313,12 @@ def draw_path_recipe(
                 "trace_id": trace_id,
                 "receipt": result.get("receipt") or {},
                 "frames": int((result.get("artifact") or {}).get("frames", 0)),
+                "gif_path": str(
+                    ((result.get("artifacts") or {}).get("gif") or {}).get("path", "")
+                ),
+                "mp4_path": str(
+                    ((result.get("artifacts") or {}).get("mp4") or {}).get("path", "")
+                ),
             }
         }
 
@@ -311,6 +344,17 @@ def draw_path_recipe(
             failures.append(f"动画帧数 {render['frames']} < {min_frames}")
         if not trace["is_safe"]:
             failures.append(f"rollout 不安全: {trace['violations']}")
+        # R0-5：接触证据 + 工具轴对齐（spec 声明驱动——不查没有
+        # 声明的，但也不放过声明了没证据的）。
+        constraints = spec.get("constraints") or {}
+        failures += contact_failures(constraints, metrics)
+        axis_limit = constraints.get(
+            "tool_axis_aligned_with_plane_normal_deg"
+        )
+        failures += tool_axis_failures(
+            metrics,
+            limit_deg=float(axis_limit) if axis_limit is not None else 3.0,
+        )
         if failures:
             # recipe 级验收失败 → 不调 finish_task（不制造
             # "账本 SUCCEEDED、交付 FAILED"的双真相）；任务保持
@@ -325,6 +369,23 @@ def draw_path_recipe(
                     "min_frames": min_frames,
                 }
             }
+        # R0-5：场景媒体可解码/帧数/分辨率核验（文件存在≠可交付
+        # ——MP4 损坏注入不得完整 PASS）。
+        media_failures: list[str] = []
+        scene_mp4 = str(scene.get("mp4_path", ""))
+        if scene_mp4:
+            scene_deliverable = next(
+                (d for d in (spec.get("deliverables") or [])
+                 if d.get("kind") == "scene_video"),
+                {},
+            )
+            media_failures = scene_media_failures(
+                scene_mp4,
+                min_frames=int(scene_deliverable.get("min_frames", 0) or 0),
+                min_resolution=list(
+                    scene_deliverable.get("min_resolution") or []
+                ),
+            )
         # 验收真跑决定终态（frozen acceptance + R0-2 required
         # deliverables——场景缺失即 DELIVERABLE_MISSING，不整体 PASS）。
         verdict = kernel.finish_task(
@@ -335,7 +396,9 @@ def draw_path_recipe(
         kernel_failures = [str(f) for f in verdict.get("failures", [])]
         status = (
             "PASS"
-            if verdict.get("status") == "SUCCEEDED" and not scene_failure
+            if verdict.get("status") == "SUCCEEDED"
+            and not scene_failure
+            and not media_failures
             else "FAIL"
         )
         return {
@@ -344,7 +407,7 @@ def draw_path_recipe(
                 "verification_id": str(verdict.get("verification_id", "")),
                 "failures": kernel_failures + (
                     [scene_failure] if scene_failure else []
-                ),
+                ) + media_failures,
                 "metrics": metrics,
                 "threshold_m": threshold,
                 "min_frames": min_frames,
