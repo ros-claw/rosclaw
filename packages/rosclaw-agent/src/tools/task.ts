@@ -14,7 +14,9 @@
 
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
 import { ensureFreshContextForSim } from "../extension/context-injection.js";
+import { renderTaskToolResult } from "../ui/task-card.js";
 import type { BridgeToolContext } from "./bridge-tools.js";
 
 const AWAIT_TIMEOUT_MS = 330_000;
@@ -180,6 +182,16 @@ export function buildTaskTool(ctx: BridgeToolContext) {
 				details: { ok: verified, ...resumed },
 				isError: !verified,
 			};
+		},
+		// R0-8（0826 体验审计 §5.R0-8）：TUI 任务卡——默认层不再
+		// 打印整段 payload JSON（规划/仿真/验证/交付一行一态 +
+		// 误差/阈值 + 交付打开命令）；完整 JSON 保留在模型上下文
+		// 与 /activity。
+		renderResult(result: { content?: Array<{ type: string; text?: string }> }) {
+			const text = (result.content ?? [])
+				.map((b) => (b.type === "text" ? String(b.text ?? "") : ""))
+				.join("\n");
+			return new Text(renderTaskToolResult(text), 1, 0);
 		},
 	});
 }

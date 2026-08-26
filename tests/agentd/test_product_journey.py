@@ -1619,6 +1619,13 @@ class TestProductJourney:
             assert "ROSCLAW 授权请求".encode() not in action_segment, (
                 "默认安全 SIM 竟弹人工审批卡"
             )
+            # R0-8（0826 体验审计 §2.6/§5.R0-8）：TUI 默认层是任务卡
+            # ——屏幕上不得出现整段 payload raw JSON（真实终端屏幕
+            # 断言，不是 DB 事件扫描）。
+            for raw_key in (b'"artifact_refs"', b'"plan":', b'"verification":'):
+                assert raw_key not in action_segment, (
+                    f"TUI 仍在刷 raw JSON（{raw_key!r}）——任务卡未生效"
+                )
             # PR-H9：SIM 自动的证据面——kernel 任务 + GIF 产物登记 +
             # 零 Operator 卡（任务级确定性链不需要人工/政策卡）。
             self._assert_sim_task_evidence(home)
