@@ -32,6 +32,9 @@ interface ProbeOptions {
 	profile: "developer" | "robot";
 	/** 单步网络超时（chat/tool call）；默认 60s。 */
 	timeoutMs?: number;
+	/** R0-7：deep=true 才跑严格 tool call（默认便宜探测——
+	 *  auth/models/chat，setup 不再默认烧两次模型请求）。 */
+	deep?: boolean;
 	/** 测试注入：替代真实 ModelRuntime。 */
 	runtime?: ModelRuntime;
 	/** 测试注入：替代 SettingsManager 读取。 */
@@ -157,7 +160,12 @@ export async function probePiModel(options: ProbeOptions): Promise<PiProbeReport
 		report.error = classifyError(err);
 		return report;
 	}
-	// 4) 严格 tool call。
+	// 4) 严格 tool call——只在 deep 模式执行（R0-7：默认便宜探测
+	// 不烧第二次模型请求；tool readiness 由 deep 探测或 chat 真实
+	// 工具成功证据升级）。
+	if (!options.deep) {
+		return report;
+	}
 	try {
 		const reply = await withTimeout(
 			runtime.completeSimple(model, {

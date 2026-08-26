@@ -298,9 +298,10 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         report = doctor_runtime(home, topic)
         print(json.dumps(report, ensure_ascii=False, indent=2))
         return 0 if report.get("ready") else 1
-    report = doctor(home)
+    report = doctor(home, deep=bool(getattr(args, "deep", False)))
     print(json.dumps(report, ensure_ascii=False, indent=2))
-    return 0 if report.get("status") == "READY" else 1
+    ok_states = {"TOOL_READY", "CHAT_READY", "DEGRADED"}
+    return 0 if report.get("status") in ok_states else 1
 
 
 def cmd_init(args: argparse.Namespace) -> int:
@@ -323,15 +324,45 @@ def cmd_init(args: argparse.Namespace) -> int:
         model=args.model,
         api_key_ref=args.api_key_ref,
     )
-    print(json.dumps(summary, ensure_ascii=False, indent=2))
     if not summary.get("configured"):
+        print(json.dumps(summary, ensure_ascii=False))
         return 0
-    print("\n运行 doctor 探测（connectivity / models / chat / tool call）…")
+    # R0-7（0826 体验审计 §2.7）：默认便宜探测（auth+models+
+    # chat——严格 tool call 归 `rosclaw agentd doctor --deep`）。
     report = doctor(home)
-    print(json.dumps(report, ensure_ascii=False, indent=2))
-    if report.get("status") != "READY":
+    if getattr(args, "json", False):
+        print(json.dumps(
+            {"configure": summary, "doctor": report},
+            ensure_ascii=False, indent=2,
+        ))
+    else:
+        # 默认 ≤6 行人类摘要（不是一百行 JSON）。
+        status = str(report.get("status", ""))
+        effort = ""
+        try:
+            settings = json.loads(
+                (home / "agent" / "settings.json").read_text(encoding="utf-8")
+            )
+            effort = str(settings.get("defaultThinkingLevel", ""))
+        except (OSError, ValueError):
+            effort = ""
+        print(f"模型已配置：{summary.get('provider')} / {summary.get('model')}")
+        print(f"凭据引用：{summary.get('api_key_ref')}（值只在环境变量）")
+        if effort:
+            print(f"推理强度：{effort}（/effort 可改）")
+        print(f"探测（便宜档）：{status}")
+        if status == "TOOL_READY":
+            print("对话与工具调用均可用。")
+        elif status == "CHAT_READY":
+            print("对话可用；工具调用完整探测：`rosclaw agentd doctor --deep`")
+        elif status == "DEGRADED":
+            print(f"对话可用，工具自检退化——{report.get('reason', '')}")
+        else:
+            print(f"未就绪：{report.get('reason', status)}")
+    ok_states = {"TOOL_READY", "CHAT_READY", "DEGRADED"}
+    if report.get("status") not in ok_states:
         print(
-            "\n模型尚未就绪（MODEL_NOT_READY）。这是诚实状态，不是假成功；"
+            "\n模型尚未通过便宜探测。这是诚实状态，不是假成功；"
             "请检查 key/endpoint 后重试 `rosclaw agent doctor`。",
             file=sys.stderr,
         )
@@ -643,6 +674,11 @@ def build_parser() -> argparse.ArgumentParser:
         default="",
         help="主题探测：simulation = 托管仿真 runtime（无需模型凭据）",
     )
+    p_doctor.add_argument(
+        "--deep",
+        action="store_true",
+        help="完整探测（严格 tool call——可能产生一次模型请求）",
+    )
     p_doctor.set_defaults(func=cmd_doctor)
 
     p_init = sub.add_parser("init", help="configure model provider + probe")
@@ -650,6 +686,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_init.add_argument("--base-url", default=None)
     p_init.add_argument("--model", default=None)
     p_init.add_argument("--api-key-ref", default=None)
+    p_init.add_argument("--json", action="store_true", help="完整结构化报告")
     p_init.set_defaults(func=cmd_init)
 
     p_chat = sub.add_parser("chat", help="interactive chat (in-process)")

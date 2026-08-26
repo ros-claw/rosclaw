@@ -205,12 +205,14 @@ class TestOnboarding:
         configure_model(tmp_path, "kimi-code")
         monkeypatch.delenv("ROSCLAW_KIMI_API_KEY", raising=False)
         report = doctor(tmp_path)
-        assert report["status"] == "MODEL_NOT_READY"
+        # R0-7 状态格：配置了但 key 不在环境 = UNCONFIGURED（缺凭据）。
+        assert report["status"] == "UNCONFIGURED"
         assert report["api_key_present"] is False
 
     def test_doctor_no_profiles(self, tmp_path: Path) -> None:
         report = doctor(tmp_path)
-        assert report["status"] == "MODEL_NOT_READY"
+        # R0-7 状态格：未配置 = UNCONFIGURED。
+        assert report["status"] == "UNCONFIGURED"
         assert "setup model" in report["reason"]
 
 

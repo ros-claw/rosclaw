@@ -248,7 +248,7 @@ class TestDoctorSingleSource:
         monkeypatch.setattr(
             onboarding,
             "probe_home",
-            lambda home: _async_result(
+            lambda home, *, deep=False: _async_result(
                 ModelProbeResult(
                     reachable=True,
                     models_visible=("k3",),
@@ -258,15 +258,17 @@ class TestDoctorSingleSource:
                 )
             ),
         )
-        report = doctor(tmp_path)
-        assert report["status"] == "READY"
+        # R0-7：deep 完整探测全过 → TOOL_READY（状态格）。
+        report = doctor(tmp_path, deep=True)
+        assert report["status"] == "TOOL_READY"
         assert report["probe"]["chat_ok"] is True
         assert report["probe"]["tool_call_ok"] is True
         assert report["api_key_present"] is True
 
     def test_doctor_not_ready_without_pi_config(self, tmp_path: Path) -> None:
         report = doctor(tmp_path)
-        assert report["status"] == "MODEL_NOT_READY"
+        # R0-7 状态格：未配置 = UNCONFIGURED（不是二元 NOT_READY）。
+        assert report["status"] == "UNCONFIGURED"
         assert "setup model" in report["reason"]
 
 

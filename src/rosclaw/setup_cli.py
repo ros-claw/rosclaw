@@ -40,18 +40,24 @@ def _home() -> Path:
 
 
 def _model_status(home: Path) -> dict:
-    """模型配置状态（复用 agentd onboarding 的探测，不重新实现）。"""
+    """模型配置状态（复用 agentd onboarding 的探测，不重新实现）。
+
+    R0-7 状态格：TOOL_READY/CHAT_READY/DEGRADED 都算"已配置
+    可用"（DEGRADED 是对话可用、工具自检退化——不是
+    NEEDS_SETUP）；UNCONFIGURED/AUTH_READY 才是配置缺口。
+    """
     try:
         from rosclaw.agentd.onboarding import doctor
 
         report = doctor(home)
         model = report.get("model", {})
-        ready = report.get("status") == "READY"
+        status = str(report.get("status", ""))
+        ready = status in {"TOOL_READY", "CHAT_READY", "DEGRADED"}
         return {
             "state": "READY" if ready else "NEEDS_SETUP",
             "provider": model.get("provider", ""),
             "model": model.get("model", ""),
-            "detail": "ready" if ready else str(report.get("status", "unknown")),
+            "detail": status or "unknown",
         }
     except Exception as exc:  # noqa: BLE001 - 状态探测不崩向导
         return {"state": "NEEDS_SETUP", "detail": f"probe failed: {exc}"}

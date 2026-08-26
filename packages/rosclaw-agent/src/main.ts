@@ -25,6 +25,7 @@ interface CliArgs {
 	initialMessage?: string;
 	print: boolean;
 	probe: boolean;
+	deepProbe: boolean;
 	missionId?: string;
 	resumeSessionId?: string;
 	resumeSessionPath?: string;
@@ -37,6 +38,7 @@ function parseArgs(argv: string[]): CliArgs {
 	let initialMessage: string | undefined;
 	let print = false;
 	let probe = false;
+	let deepProbe = false;
 	let missionId: string | undefined;
 	let resumeSessionId: string | undefined;
 	let resumeSessionPath: string | undefined;
@@ -58,6 +60,10 @@ function parseArgs(argv: string[]): CliArgs {
 		} else if (argv[i] === "--probe") {
 			// P1-A1：模型探测单源——setup/doctor 经此走 Pi ModelRuntime。
 			probe = true;
+		} else if (argv[i] === "--deep") {
+			// R0-7：严格 tool call 探测（doctor --deep 专用——默认
+			// 便宜探测不烧第二次模型请求）。
+			deepProbe = true;
 		} else if (argv[i] === "--mission" && argv[i + 1]) {
 			missionId = argv[i + 1];
 			i += 1;
@@ -76,7 +82,7 @@ function parseArgs(argv: string[]): CliArgs {
 		}
 	}
 	return {
-		profile, initialMessage, print, probe, missionId, workspace,
+		profile, initialMessage, print, probe, deepProbe, missionId, workspace,
 		resumeSessionId, resumeSessionPath, browseSessions, continueLast,
 	};
 }
@@ -90,7 +96,7 @@ async function main(): Promise<number> {
 	} = await import("./harness/pi/pi-sessions.js");
 	const { createRosclawRuntime } = await import("./harness/pi/pi-runtime.js");
 	const {
-		profile, initialMessage, print, probe, missionId, workspace,
+		profile, initialMessage, print, probe, deepProbe, missionId, workspace,
 		resumeSessionId, resumeSessionPath, browseSessions, continueLast,
 	} = parseArgs(process.argv.slice(2));
 	const rosclawHome = rosclawHomeEnv;
@@ -104,9 +110,11 @@ async function main(): Promise<number> {
 			// settings 无关；probe 不新增进程 cwd 读取（N1 不变量）。
 			cwd: workspace ?? rosclawHome,
 			profile,
+			deep: deepProbe,
 		});
 		console.log(JSON.stringify(report));
-		return report.reachable && report.chat_ok && report.tool_call_ok ? 0 : 1;
+		// 便宜探测（默认）以 chat_ok 为收敛；deep 才要求 tool call。
+		return report.reachable && report.chat_ok && (deepProbe ? report.tool_call_ok : true) ? 0 : 1;
 	}
 	// WP-P0-1（总纲 §5.1）：恢复路径全部经 Pi SessionManager 公开
 	// API——不再有手写目录扫描/mtime 排序/文件名拼接（Pi 文件名可含

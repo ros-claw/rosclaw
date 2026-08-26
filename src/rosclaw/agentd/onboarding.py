@@ -4,12 +4,19 @@ P1-A1（0824 总纲 §10.1）：模型配置与探测**单源**——setup 写
 ``~/.rosclaw/agent/{settings,models}.json``（Pi ModelRuntime 实际
 消费的配置），probe 经 Pi engine（``main.js --probe``，与 chat 同一
 ModelRuntime）。不再写 config.yaml 模型段、不再另起 Python HTTP
-chat probe。失败诚实记为 ``MODEL_NOT_READY``——绝不假成功。
+chat probe。
+
+R0-7（0826 体验审计 §5.R0-7）：readiness 状态格
+``UNCONFIGURED / AUTH_READY / CHAT_READY / TOOL_READY /
+DEGRADED``——tool probe 失败不覆盖 chat 成功的事实；默认便宜
+探测（无严格 tool call），``doctor --deep`` 完整探测。失败诚实
+分格——绝不假成功。
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 
 from rosclaw.agentd.models.gateway import ModelProbeResult, key_fingerprint
@@ -85,9 +92,11 @@ def configure_model(
         context_window=int(template["context_window"]),
         max_tokens=int(template["max_tokens"]),
     )
-    if reasoning_effort != "high":
-        # thinking level 由 Pi settings 自持（/effort）——setup 不复制。
-        pass
+    if reasoning_effort:
+        # R0-7（0826 体验审计 §2.7/§5.R0-7）：reasoning_effort 真写
+        # Pi settings（defaultThinkingLevel——此前被静默忽略）；保留
+        # 其他 settings 键。
+        _write_thinking_level(home, reasoning_effort)
     return {
         "configured": True,
         "config_path": str(home / "agent"),
@@ -99,14 +108,40 @@ def configure_model(
     }
 
 
-async def probe_home(home: Path) -> ModelProbeResult:
-    """经 Pi engine 探测（与 chat 同一 ModelRuntime、同一配置文件）。"""
+def _write_thinking_level(home: Path, effort: str) -> None:
+    """defaultThinkingLevel 写入 agent/settings.json（保留其他键）。"""
+    allowed = {"auto", "low", "medium", "high", "off"}
+    if effort not in allowed:
+        return
+    settings_path = home / "agent" / "settings.json"
+    settings: dict = {}
+    if settings_path.exists():
+        try:
+            settings = json.loads(settings_path.read_text(encoding="utf-8"))
+        except ValueError:
+            settings = {}
+    if settings.get("defaultThinkingLevel") == effort:
+        return
+    settings["defaultThinkingLevel"] = effort
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.write_text(
+        json.dumps(settings, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+async def probe_home(home: Path, *, deep: bool = False) -> ModelProbeResult:
+    """经 Pi engine 探测（与 chat 同一 ModelRuntime、同一配置文件）。
+
+    deep=False：便宜探测（auth + models + chat——默认路径）；
+    deep=True：加严格 tool call（doctor --deep）。
+    """
     if read_pi_model_config(home) is None:
         return ModelProbeResult(
             reachable=False,
             error="MODEL_NOT_CONFIGURED: 未配置模型——运行 `rosclaw setup model`",
         )
-    return await pi_probe_home(home)
+    return await pi_probe_home(home, deep=deep)
 
 
 def _component_report() -> dict:
@@ -218,8 +253,43 @@ def _pi_engine_report(home: Path) -> dict:
     }
 
 
-def doctor(home: Path) -> dict:
-    """Honest agent readiness report. Never prints raw credentials."""
+def _real_tool_success(home: Path) -> bool:
+    """chat 真实工具调用成功（账本证据）——探测失败不覆盖真实
+    成功事实（0826 旅程：setup 报 NOT_READY 后 chat 真实完成了
+    工具调用）。"""
+    db_path = home / "agentd" / "missions.db"
+    if not db_path.exists():
+        return False
+    import sqlite3
+
+    try:
+        conn = sqlite3.connect(db_path)
+        try:
+            row = conn.execute(
+                "SELECT COUNT(*) AS n FROM agent_events "
+                "WHERE type = 'tool.completed' AND json_extract("
+                "payload_json, '$.ok') = 1 AND json_extract("
+                "payload_json, '$.tool_name') IN "
+                "('rosclaw_task', 'rosclaw_execute', 'rosclaw_request_action')",
+            ).fetchone()
+            return bool(row and row[0] > 0)
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return False
+
+
+def doctor(home: Path, *, deep: bool = False) -> dict:
+    """Honest agent readiness report. Never prints raw credentials.
+
+    R0-7（0826 体验审计 §5.R0-7）：
+    - 默认便宜探测（models listing + chat，无严格 tool call——
+      严格 tool call 是 ``deep=True`` 才跑的完整检查）；
+    - 状态格：UNCONFIGURED / AUTH_READY / CHAT_READY /
+      TOOL_READY / DEGRADED（chat_ok 但 tool probe 失败——对话
+      可用、工具自检退化；tool probe 失败不覆盖 chat 事实）；
+    - chat 真实工具调用成功（账本证据）→ TOOL_READY。
+    """
     from rosclaw.agentd.config import load_agent_config
 
     agent_config = load_agent_config(home / "config.yaml")
@@ -242,7 +312,7 @@ def doctor(home: Path) -> dict:
 
     report["credential_sources"] = credential_source_report(home)
     if model is None:
-        report["status"] = "MODEL_NOT_READY"
+        report["status"] = "UNCONFIGURED"
         report["reason"] = "no model profile configured — run `rosclaw setup model`"
         return report
     import os
@@ -254,22 +324,41 @@ def doctor(home: Path) -> dict:
     report["api_key_present"] = bool(key)
     if key:
         report["api_key_fingerprint"] = key_fingerprint(key)
-    probe = asyncio.run(probe_home(home))
+    probe = asyncio.run(probe_home(home, deep=deep))
     report["probe"] = {
         "reachable": probe.reachable,
         "models_visible": list(probe.models_visible),
         "expected_model_present": probe.expected_model_present,
         "chat_ok": probe.chat_ok,
         "tool_call_ok": probe.tool_call_ok,
+        "deep": deep,
         "error": probe.error,
     }
-    ready = bool(
-        probe.reachable and probe.chat_ok and probe.tool_call_ok and (key or not model.api_key_ref)
-    )
-    report["status"] = "READY" if ready else "MODEL_NOT_READY"
-    if not ready and not probe.error:
-        report["reason"] = "probe incomplete (see probe fields)"
-    elif probe.error:
-        report["reason"] = probe.error
+    # R0-7 状态格（不是二元 READY/NOT_READY——tool probe 失败
+    # 不覆盖 chat 成功的事实）。
+    tool_evidence = _real_tool_success(home)
+    report["tool_evidence"] = tool_evidence
+    if not key and model.api_key_ref:
+        report["status"] = "UNCONFIGURED"
+        report["reason"] = f"api key 未在环境中（{model.api_key_ref}）"
+    elif not probe.reachable:
+        report["status"] = "AUTH_READY"
+        report["reason"] = probe.error or "endpoint 不可达（凭据已配置）"
+    elif probe.chat_ok and (
+        (deep and probe.tool_call_ok) or tool_evidence
+    ):
+        # deep 完整探测通过，或账本有真实工具成功证据。
+        report["status"] = "TOOL_READY"
+    elif probe.chat_ok and deep and not probe.tool_call_ok:
+        report["status"] = "DEGRADED"
+        report["reason"] = (
+            probe.error
+            or "对话可用；工具自检退化（rosclaw doctor --deep 重试）"
+        )
+    elif probe.chat_ok:
+        report["status"] = "CHAT_READY"
+    else:
+        report["status"] = "AUTH_READY"
+        report["reason"] = probe.error or "chat probe 未通过"
     report["pi_engine"] = _pi_engine_report(home)
     return report

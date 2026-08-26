@@ -76,9 +76,10 @@ test("auth 缺失 → AUTH_NOT_CONFIGURED，不做 chat", async () => {
 	assert.equal(report.chat_ok, false);
 });
 
-test("四步全过 → 全绿 + provider/model 回显", async () => {
+test("四步全过 → 全绿 + provider/model 回显（deep 模式）", async () => {
 	const report = await probePiModel({
 		...BASE,
+		deep: true,
 		defaults: DEFAULTS,
 		runtime: fakeRuntime({}),
 	});
@@ -90,6 +91,27 @@ test("四步全过 → 全绿 + provider/model 回显", async () => {
 	assert.equal(report.provider, "kimi-code");
 	assert.equal(report.model, "k3");
 	assert.deepEqual(report.models_visible, ["k3"]);
+	assert.equal(report.error, undefined);
+});
+
+test("R0-7：默认便宜探测不跑严格 tool call（chat 一次请求）", async () => {
+	let calls = 0;
+	const runtime = fakeRuntime({}) as unknown as {
+		completeSimple: (m: unknown, ctx: { tools?: unknown[] }) => Promise<unknown>;
+	};
+	const orig = runtime.completeSimple;
+	runtime.completeSimple = async (m: unknown, ctx: { tools?: unknown[] }) => {
+		calls += 1;
+		return orig(m, ctx);
+	};
+	const report = await probePiModel({
+		...BASE,
+		defaults: DEFAULTS,
+		runtime: runtime as never,
+	});
+	assert.equal(report.chat_ok, true);
+	assert.equal(calls, 1, `便宜探测竟发起 ${calls} 次模型请求（应为 1 次 chat）`);
+	assert.equal(report.tool_call_ok, false, "便宜探测不判 tool call（未探测≠失败）");
 	assert.equal(report.error, undefined);
 });
 
@@ -114,9 +136,10 @@ test("chat 429 → RATE_LIMITED 分类", async () => {
 	assert.match(report.error ?? "", /^RATE_LIMITED/);
 });
 
-test("tool call 缺失 → TOOL_CALL_PROBE_FAILED（诚实失败）", async () => {
+test("tool call 缺失 → TOOL_CALL_PROBE_FAILED（诚实失败，deep 模式）", async () => {
 	const report = await probePiModel({
 		...BASE,
+		deep: true,
 		defaults: DEFAULTS,
 		runtime: fakeRuntime({
 			toolReply: { stopReason: "stop", content: [{ type: "text", text: "ok" }] },

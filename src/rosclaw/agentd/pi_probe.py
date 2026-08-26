@@ -29,8 +29,12 @@ def _sanitize(text: str, *, limit: int = 400) -> str:
     return _SECRET_RE.sub("sk-***", text.strip())[:limit]
 
 
-async def pi_probe_home(home: Path) -> ModelProbeResult:
-    """经 Pi engine 探测 home 的模型配置（settings/models 单源）。"""
+async def pi_probe_home(home: Path, *, deep: bool = False) -> ModelProbeResult:
+    """经 Pi engine 探测 home 的模型配置（settings/models 单源）。
+
+    deep=False 便宜探测（auth+models+chat）；deep=True 加严格
+    tool call（--deep 传给 TS probe——R0-7 分级探测）。
+    """
     located = pi_entry.find_pi_agent_entry()
     if located is None:
         return ModelProbeResult(
@@ -40,11 +44,12 @@ async def pi_probe_home(home: Path) -> ModelProbeResult:
         )
     node, entry = located
     env = dict(os.environ, ROSCLAW_HOME=str(home))
+    argv = [node, str(entry), "--probe"]
+    if deep:
+        argv.append("--deep")
     try:
         proc = await asyncio.create_subprocess_exec(
-            node,
-            str(entry),
-            "--probe",
+            *argv,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=env,
