@@ -27,6 +27,17 @@ RECOVERY_REGISTRY: dict[str, str] = {
     "ACCEPTANCE_FAILED": "按结构化失败项修复同一 revision（不新开任务）",
     "SAFETY_DENIED": "不重复调用——向用户给出原因",
     "WAITING_APPROVAL": "让出回合——等待审批事件恢复，不轮询",
+    # R0-9（0826 体验审计 §5.R0-9）：渲染/资产类基础设施错误——
+    # 模型重试预算为 0（换参数重试不会成功）。
+    "RENDER_INPUT_MISSING": "渲染输入缺失——先完成轨迹 rollout（trace 不存在/无 states），不重试渲染",
+    "RENDER_INPUT_DIGEST_MISMATCH": "trace 被改写——重跑 rollout 生成新 trace，不重试渲染",
+    "RENDER_BACKEND_UNAVAILABLE": "渲染后端不可用（EGL/OSMesa/Xvfb）——安装/修复离屏后端，模型不重试",
+    "RENDER_RESULT_MISSING": "渲染子进程未产出结果——内核已降级一次；检查渲染后端日志，模型不重试",
+    "RENDER_RESULT_CORRUPT": "渲染结果损坏——内核侧故障，模型不重试",
+    "RENDER_RESULT_INCOMPLETE": "渲染结果不完整——内核侧故障，模型不重试",
+    "RENDER_FAILED": "渲染子进程失败——内核已降级一次；检查后端/依赖，模型不重试",
+    "WORLD_ASSET_MISSING": "场景 world 资产不存在——换已支持的 world 或安装资产，模型不重试",
+    "TOOL_ASSET_MISSING": "工具资产不存在——不得假装持笔；安装工具资产或去掉工具声明",
 }
 
 

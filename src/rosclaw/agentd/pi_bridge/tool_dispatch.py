@@ -210,6 +210,51 @@ def _failure_fingerprint(request: PiToolRequestV1) -> str:
     )
 
 
+#: R0-9（0826 体验审计 §5.R0-9）：transient 错误码（可安全重试——
+#: 状态已变化/等待外部事件，不记熔断也不计预算）。
+_TRANSIENT_CODES = frozenset({
+    "CONTEXT_NOT_FRESH",
+    "CONTEXT_HASH_MISMATCH",
+    "NEEDS_REPLAN",
+    "CONTEXT_LEASE_REQUIRED",
+    "CAPABILITY_SNAPSHOT_CHANGED",
+    "WAITING_APPROVAL",
+})
+
+#: 基础设施/配置错误前缀（模型重试预算为 0——重试不会成功，
+#: 修复路径在 recovery_action）。
+_INFRA_PREFIXES = (
+    "RENDER_", "RUNTIME_", "TRANSPORT_", "PI_ENGINE",
+    "WORLD_ASSET_", "TOOL_ASSET_", "RESOURCE_",
+)
+
+
+def _error_envelope_details(code: str) -> dict:
+    """ErrorEnvelope 语义（R0-9）：scope / attempt_budget /
+    recovery_action——基础设施/配置/确定性错误模型重试预算为 0；
+    只有明确 transient 且状态已变化时可重试。"""
+    from rosclaw.agentd.tooling.recovery import recovery_for
+
+    if code in _TRANSIENT_CODES:
+        return {
+            "scope": "transient",
+            "attempt_budget": 1,
+            "retry_after_condition": "状态已变化（context/审批/快照刷新后）",
+            "recovery_action": recovery_for(code),
+        }
+    scope = (
+        "infrastructure"
+        if code.startswith(_INFRA_PREFIXES)
+        else "deterministic"
+    )
+    return {
+        "scope": scope,
+        "attempt_budget": 0,
+        "retry_after_condition": "",
+        "recovery_action": recovery_for(code),
+    }
+
+
 class PiToolDispatcher:
     def __init__(self, service: AgentService) -> None:
         self._service = service
@@ -260,6 +305,7 @@ class PiToolDispatcher:
                 summary=exc.message,
                 error_code=exc.code,
                 retryable=exc.retryable,
+                details=_error_envelope_details(exc.code),
             )
         if result.ok:
             failures.pop(fingerprint, None)

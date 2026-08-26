@@ -298,9 +298,18 @@ class ToolCatalog:
                 retryable=True,
             )
         except Exception as exc:  # noqa: BLE001 — 诚实 FAILED envelope
-            return _failed(
-                "EXECUTOR_ERROR", f"{type(exc).__name__}: {exc}"[:400],
-            )
+            # R0-9（0826 体验审计 §5.R0-9）：能力实现抛出的带码错误
+            # （"RENDER_INPUT_MISSING: …" 形如 CODE: message）保留
+            # 稳定错误码——基础设施错误不被包成无语义的
+            # EXECUTOR_ERROR（重试预算/恢复动作按码分派）。
+            message = f"{type(exc).__name__}: {exc}"[:400]
+            code = "EXECUTOR_ERROR"
+            import re as _re
+
+            match = _re.match(r"^(?:\w+Error: )?([A-Z][A-Z0-9_]{3,}):\s", str(exc))
+            if match:
+                code = match.group(1)
+            return _failed(code, message)
         # 归一为 canonical value：只接受 dict / ToolExecutionResult /
         # JSON 对象字符串；裸文本不得冒充结构化结果。
         value: Any
