@@ -28,6 +28,15 @@ import json
 from pathlib import Path
 
 
+def _stub_pi_entry(monkeypatch) -> None:
+    """CI 无内置 dist——stub engine 查找（P1-A1 的 CI 教训）。"""
+    from rosclaw.agentd import pi_entry
+
+    monkeypatch.setattr(
+        pi_entry, "find_pi_agent_entry", lambda: ("node", "/fake/main.js")
+    )
+
+
 def _configured_home(tmp_path: Path) -> Path:
     from rosclaw.agentd.onboarding import configure_model
 
@@ -105,6 +114,7 @@ class TestProbeLevels:
 
         monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
         monkeypatch.setenv("ROSCLAW_KIMI_API_KEY", "sk-test-fake")
+        _stub_pi_entry(monkeypatch)
         from rosclaw.agentd.onboarding import doctor
 
         report = doctor(tmp_path)
@@ -138,6 +148,7 @@ class TestReadinessTaxonomy:
 
         monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
         monkeypatch.setenv("ROSCLAW_KIMI_API_KEY", "sk-test-fake")
+        _stub_pi_entry(monkeypatch)
         from rosclaw.agentd.onboarding import doctor
 
         return doctor(tmp_path, deep=True)
@@ -219,6 +230,7 @@ class TestReadinessTaxonomy:
 
         monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
         monkeypatch.setenv("ROSCLAW_KIMI_API_KEY", "sk-test-fake")
+        _stub_pi_entry(monkeypatch)
         from rosclaw.agentd.onboarding import doctor
 
         report = doctor(tmp_path, deep=True)
@@ -254,6 +266,7 @@ class TestSetupOutput:
             return _Proc()
 
         monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
+        _stub_pi_entry(monkeypatch)
         rc = agentd_main([
             "--home", str(tmp_path), "init",
             "--provider", "kimi-code",
