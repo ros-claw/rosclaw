@@ -162,23 +162,9 @@ class TaskExecutionService:
         )
 
     def _ledger_artifacts(self, task_id: str) -> list[dict[str, Any]]:
-        """产物账本视图（id/path/media_type/bytes——用户可见交付的
-        原料；不是"目录里有文件"）。"""
-        rows = self._conn.execute(
-            "SELECT artifact_id, path, media_type, size_bytes, producer "
-            "FROM artifacts WHERE task_id = ? ORDER BY created_at",
-            (task_id,),
-        ).fetchall()
-        return [
-            {
-                "artifact_id": str(r["artifact_id"]),
-                "path": str(r["path"]),
-                "media_type": str(r["media_type"]),
-                "size_bytes": int(r["size_bytes"]),
-                "producer": str(r["producer"]),
-            }
-            for r in rows
-        ]
+        """产物账本的用户可见视图（R0-4：id/kind/media/size/
+        digest/open_command——不是"目录里有文件"）。"""
+        return self._kernel.artifact_refs_for(task_id)
 
 
 __all__ = ["TaskExecutionOutcome", "TaskExecutionService"]

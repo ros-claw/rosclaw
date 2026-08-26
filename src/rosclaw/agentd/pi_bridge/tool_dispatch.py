@@ -80,15 +80,19 @@ _FORMAT_MEDIA = {
 
 def _auto_register_artifacts(
     service, request: PiToolRequestV1, value: object
-) -> None:
+) -> list[dict]:
     """capability 产物自动登记（producer=kernel:capability:<id>，
     幂等——同内容重复登记返回同一 ArtifactRef）。
 
     产物生成即 effectful（0824 总纲 §8.1：可信 capability 产生的
     artifact 必须自动登记）——首次产出时原子 admission（模型不
-    需要也不应该手动 deliver capability 产物）。"""
+    需要也不应该手动 deliver capability 产物）。
+
+    R0-4：返回登记的 ArtifactRef 列表（id/kind/media/digest/
+    open_command）——ToolResult 投影必须带回模型（登记了但模型
+    看不到 = 交付失败）。"""
     if not isinstance(value, dict):
-        return
+        return []
     kernel = service._task_kernel
     mission = service.get_mission(request.mission_id)
     bound = kernel.ensure_task_for_effect(
@@ -101,7 +105,7 @@ def _auto_register_artifacts(
     )
     task = kernel.get_task(str(bound["task_id"]))
     if task is None:
-        return
+        return []
     candidates: list[dict] = []
     for key in _ARTIFACT_SCALAR_KEYS:
         item = value.get(key)
@@ -121,30 +125,55 @@ def _auto_register_artifacts(
     capability_id = str(
         (request.arguments or {}).get("capability_id") or request.tool_name
     )
+    registered: list[dict] = []
     for item in candidates:
         path = str(item["path"])
         fmt = str(item.get("format") or path.rsplit(".", 1)[-1])
         try:
-            kernel.register_artifact(
+            record = kernel.register_artifact(
                 task_id=str(task["task_id"]), path=path,
                 media_type=_FORMAT_MEDIA.get(fmt, "application/octet-stream"),
                 producer=f"kernel:capability:{capability_id}",
             )
         except ValueError:
             continue  # 文件缺失等由验收表达——登记不阻断工具结果
+        registered.append({
+            "artifact_id": str(record["artifact_id"]),
+            "media_type": str(record["media_type"]),
+            "path": str(record["path"]),
+            "size_bytes": int(record["size_bytes"]),
+            "digest": str(record["sha256"]),
+            "open_command": f"rosclaw artifact open {record['artifact_id']}",
+        })
+    return registered
 
 
-def _envelope_result(request: PiToolRequestV1, envelope) -> PiToolResultV1:
+def _envelope_result(
+    request: PiToolRequestV1, envelope, *, auto_refs: list[dict] | None = None
+) -> PiToolResultV1:
     """N5B：canonical envelope → 模型可见投影（status + capability_id +
-    value）；FAILED/BLOCKED 以稳定错误码诚实抛出。"""
+    value）；FAILED/BLOCKED 以稳定错误码诚实抛出。
+
+    R0-4：artifact_refs = 能力声明 refs + 内核自动登记 refs（按
+    artifact_id 去重）——登记了但模型看不到 = 交付失败。"""
     if envelope.status.value == "SUCCEEDED":
         projection = {
             "status": envelope.status.value,
             "capability_id": envelope.capability_id,
             "value": envelope.value,
         }
-        if envelope.artifact_refs:
-            projection["artifact_refs"] = list(envelope.artifact_refs)
+        refs: list[dict] = []
+        seen: set[str] = set()
+        for ref in [*(auto_refs or []), *(envelope.artifact_refs or [])]:
+            if not isinstance(ref, dict):
+                continue
+            key = str(ref.get("artifact_id") or ref.get("path") or "")
+            if key and key in seen:
+                continue
+            seen.add(key)
+            refs.append(ref)
+        if refs:
+            projection["artifact_refs"] = refs
         return PiToolResultV1(
             request_id=request.request_id,
             ok=True,
@@ -451,8 +480,10 @@ class PiToolDispatcher:
             envelope = await service._tool_catalog.execute_v2(
                 request.request_id, capability_id, dict(args.get("arguments", {}))
             )
-            _auto_register_artifacts(service, request, envelope.value)
-            return _envelope_result(request, envelope)
+            auto_refs = _auto_register_artifacts(
+                service, request, envelope.value
+            )
+            return _envelope_result(request, envelope, auto_refs=auto_refs)
         if name == "rosclaw_compute":
             # 七审 §2.2/PR-SEVEN-2.2：COMPUTE 能力免审批调用（纯计算无
             # 物理副作用）——不再被 observe 的 OBSERVE-only 拒绝。
@@ -478,8 +509,10 @@ class PiToolDispatcher:
             envelope = await service._tool_catalog.execute_v2(
                 request.request_id, capability_id, dict(args.get("arguments", {}))
             )
-            _auto_register_artifacts(service, request, envelope.value)
-            return _envelope_result(request, envelope)
+            auto_refs = _auto_register_artifacts(
+                service, request, envelope.value
+            )
+            return _envelope_result(request, envelope, auto_refs=auto_refs)
         if name == "rosclaw_verify":
             receipts = [
                 e.payload

@@ -931,6 +931,40 @@ class TaskKernel:
             return None
         return json.loads(row["task_spec_json"])
 
+    def artifact_refs_for(self, task_id: str) -> list[dict[str, Any]]:
+        """R0-4（0826 体验审计 §5.R0-4）：用户可见 ArtifactRef 视图
+        ——id/kind/media_type/size/digest/open_command。
+
+        "数据库里有文件"不等于交付成功：交付面（ToolResult/
+        TaskOutcome/CLI）只认这份带 open_command 的视图。
+        """
+        from rosclaw.task_kernel.deliverables import artifact_delivery_kind
+
+        rows = self._conn.execute(
+            "SELECT * FROM artifacts WHERE task_id = ? ORDER BY created_at",
+            (task_id,),
+        ).fetchall()
+        refs: list[dict[str, Any]] = []
+        for row in rows:
+            artifact = dict(row)
+            artifact_id = str(artifact["artifact_id"])
+            raw_digest = str(artifact["sha256"])
+            refs.append({
+                "artifact_id": artifact_id,
+                "kind": artifact_delivery_kind(artifact),
+                "media_type": str(artifact["media_type"]),
+                "path": str(artifact["path"]),
+                "size_bytes": int(artifact["size_bytes"]),
+                "digest": (
+                    raw_digest
+                    if raw_digest.startswith("sha256:")
+                    else f"sha256:{raw_digest}"
+                ),
+                "producer": str(artifact.get("producer") or ""),
+                "open_command": f"rosclaw artifact open {artifact_id}",
+            })
+        return refs
+
     def accept_task(self, task_id: str) -> None:
         """/done：用户接受（PR-N0）——SUCCEEDED 永久关闭；此后新消息
         开新任务，不污染已接受结果。"""

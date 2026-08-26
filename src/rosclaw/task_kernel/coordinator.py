@@ -246,6 +246,11 @@ class TaskCoordinator:
                 "trust": trust,
                 "levels": levels,
             },
+            # R0-4：用户可见交付视图（id/kind/media/size/digest/
+            # open_command）——数据库里有文件 ≠ 交付成功。
+            "artifact_refs": self._kernel.artifact_refs_for(
+                str(task["task_id"])
+            ),
             "blocked_on": [],
             "created_at": created_at,
         }

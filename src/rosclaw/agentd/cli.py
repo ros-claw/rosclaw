@@ -101,6 +101,132 @@ def cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
+# ----------------------------------------------------------------------
+# R0-4（0826 体验审计 §5.R0-4）：artifact 用户可达交付面。
+# ----------------------------------------------------------------------
+
+
+def _artifact_rows(args: argparse.Namespace, artifact_id: str = ""):
+    from rosclaw.agentd.mission.store import MissionStore
+
+    home = _home(args)
+    db_path = home / "agentd" / "missions.db"
+    if not db_path.exists():
+        return None, []
+    store = MissionStore(db_path)
+    conn = store.connection
+    if artifact_id:
+        rows = conn.execute(
+            "SELECT * FROM artifacts WHERE artifact_id = ?", (artifact_id,),
+        ).fetchall()
+    else:
+        task_id = str(getattr(args, "task", "") or "")
+        if task_id:
+            rows = conn.execute(
+                "SELECT * FROM artifacts WHERE task_id = ? "
+                "ORDER BY created_at DESC LIMIT 100",
+                (task_id,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM artifacts ORDER BY created_at DESC LIMIT 100",
+            ).fetchall()
+    return conn, [dict(r) for r in rows]
+
+
+def _artifact_view(row: dict) -> dict:
+    from rosclaw.task_kernel.deliverables import artifact_delivery_kind
+
+    raw_digest = str(row["sha256"])
+    return {
+        "artifact_id": str(row["artifact_id"]),
+        "task_id": str(row["task_id"]),
+        "kind": artifact_delivery_kind(row),
+        "media_type": str(row["media_type"]),
+        "path": str(row["path"]),
+        "size_bytes": int(row["size_bytes"]),
+        "digest": (
+            raw_digest
+            if raw_digest.startswith("sha256:")
+            else f"sha256:{raw_digest}"
+        ),
+        "open_command": f"rosclaw artifact open {row['artifact_id']}",
+    }
+
+
+def cmd_artifact_list(args: argparse.Namespace) -> int:
+    conn, rows = _artifact_rows(args)
+    if conn is None:
+        print("还没有产物账本（agentd 未初始化）。")
+        return 0
+    views = [_artifact_view(r) for r in rows]
+    if getattr(args, "json", False):
+        print(json.dumps(views, ensure_ascii=False, indent=2))
+        return 0
+    if not views:
+        print("还没有登记的交付物。")
+        return 0
+    for v in views:
+        print(
+            f"  {v['artifact_id']:<28} {v['kind']:<12} {v['media_type']:<16}"
+            f" {v['size_bytes']:>9}B  {v['path']}"
+        )
+    print("\n打开：rosclaw artifact open <id> · 导出：rosclaw artifact export <id> <path>")
+    return 0
+
+
+def cmd_artifact_open(args: argparse.Namespace) -> int:
+    conn, rows = _artifact_rows(args, str(args.artifact_id))
+    if conn is None or not rows:
+        print(f"未知交付物 {args.artifact_id!r}（rosclaw artifact list 可查）")
+        return 2
+    view = _artifact_view(rows[0])
+    path = Path(view["path"])
+    if not path.exists():
+        print(f"交付物文件缺失：{path}（账本登记于 {view['task_id']}）")
+        return 3
+    import shutil
+
+    has_display = bool(
+        os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")
+    )
+    opener = shutil.which("xdg-open")
+    if has_display and opener:
+        import subprocess
+
+        subprocess.Popen(  # noqa: S603 - 系统 opener，参数无拼接
+            [opener, str(path)],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        print(f"已用系统默认程序打开：{path}")
+        return 0
+    # SSH/纯终端：给可复制路径 + 导出提示（OSC 8 链接是有显示时
+    # 的增强，不是依赖）。
+    print(f"{path}")
+    print(f"（无显示环境——导出查看：rosclaw artifact export {view['artifact_id']} <path>）")
+    return 0
+
+
+def cmd_artifact_export(args: argparse.Namespace) -> int:
+    import shutil
+
+    conn, rows = _artifact_rows(args, str(args.artifact_id))
+    if conn is None or not rows:
+        print(f"未知交付物 {args.artifact_id!r}（rosclaw artifact list 可查）")
+        return 2
+    view = _artifact_view(rows[0])
+    src = Path(view["path"])
+    if not src.exists():
+        print(f"交付物文件缺失：{src}（账本登记于 {view['task_id']}）")
+        return 3
+    dest = Path(str(args.dest))
+    if dest.is_dir():
+        dest = dest / src.name
+    shutil.copy2(src, dest)
+    print(f"已导出：{dest}（{view['size_bytes']}B，{view['digest'][:19]}…）")
+    return 0
+
+
 def cmd_learning_list(args: argparse.Namespace) -> int:
     from rosclaw.agentd.learning.pipeline import LearningPipeline
     from rosclaw.agentd.mission import MissionStore
@@ -532,6 +658,20 @@ def build_parser() -> argparse.ArgumentParser:
     p_chat.add_argument("--goal", default=None)
     p_chat.set_defaults(func=cmd_chat)
 
+    p_art = sub.add_parser("artifact", help="交付物查看/打开/导出（R0-4）")
+    art_sub = p_art.add_subparsers(dest="artifact_command", required=True)
+    p_al = art_sub.add_parser("list", help="列出登记的交付物")
+    p_al.add_argument("--task", default="", help="按 task_id 过滤")
+    p_al.add_argument("--json", action="store_true", help="机器可读输出")
+    p_al.set_defaults(func=cmd_artifact_list)
+    p_ao = art_sub.add_parser("open", help="打开交付物（无显示环境给路径）")
+    p_ao.add_argument("artifact_id")
+    p_ao.set_defaults(func=cmd_artifact_open)
+    p_ae = art_sub.add_parser("export", help="导出交付物到指定路径")
+    p_ae.add_argument("artifact_id")
+    p_ae.add_argument("dest")
+    p_ae.set_defaults(func=cmd_artifact_export)
+
     return parser
 
 
@@ -586,6 +726,21 @@ def add_agent_subparsers(subparsers) -> None:
     p_lp.add_argument("--principal", default="user:local:1000")
     p_lp.add_argument("--evaluation-ref", required=True)
     p_lp.set_defaults(func=cmd_learning_promote)
+
+    # R0-4：交付物用户可达面（SSH/纯终端一等）。
+    p_art = subparsers.add_parser("artifact", help="交付物查看/打开/导出")
+    art_sub = p_art.add_subparsers(dest="artifact_command", required=True)
+    p_al = art_sub.add_parser("list", help="列出登记的交付物")
+    p_al.add_argument("--task", default="", help="按 task_id 过滤")
+    p_al.add_argument("--json", action="store_true", help="机器可读输出")
+    p_al.set_defaults(func=cmd_artifact_list)
+    p_ao = art_sub.add_parser("open", help="打开交付物（无显示环境给路径）")
+    p_ao.add_argument("artifact_id")
+    p_ao.set_defaults(func=cmd_artifact_open)
+    p_ae = art_sub.add_parser("export", help="导出交付物到指定路径")
+    p_ae.add_argument("artifact_id")
+    p_ae.add_argument("dest")
+    p_ae.set_defaults(func=cmd_artifact_export)
 
     p_chat = subparsers.add_parser("chat", help="chat with the Native Agent")
     # 十一审 PR-D：rosclaw chat [PATH]——Project workspace 一等状态。
