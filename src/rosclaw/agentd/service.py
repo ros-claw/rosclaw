@@ -237,6 +237,17 @@ class AgentService:
         from rosclaw.task_kernel.operation_manager import OperationManager
 
         self._operation_manager = OperationManager(self._task_kernel, self._store.connection)
+        # R0-1（0826 体验审计 §5.R0-1）：TaskExecutionService——已知
+        # 任务的唯一生产入口（TaskSpecV2→TaskRouter→PlanGraph→
+        # PlanExecutor）。rosclaw_task 只是它的兼容 adapter。
+        from rosclaw.agentd.task_execution import TaskExecutionService
+
+        self._task_execution = TaskExecutionService(
+            kernel=self._task_kernel,
+            conn=self._store.connection,
+            home=self._home,
+            runtime_manager=self._runtime_manager,
+        )
         # Daemon action channel (K3) + consent channel (ADR-0007): only when
         # a rosclawd client is actually available — otherwise both degrade
         # honestly.

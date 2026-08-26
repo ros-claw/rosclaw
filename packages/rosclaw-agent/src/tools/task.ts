@@ -1,9 +1,11 @@
 // HP2-COMPAT: 工具定义原语（defineTool/Type/ToolDefinition）——工具层在 HP3 投影层（Codex MCP）落地前保持 Pi 形态；不新增会话装配引用。
-/** `rosclaw_task` 工具（八审 §2.2/P0-5）：任务级入口。
+/** `rosclaw_task` 工具（八审 §2.2/P0-5 → R0-1 重写为 adapter）：
+ * 任务级入口。
  *
- * 已知任务（draw_shape 等）走确定性 Task Compiler/Runner——模型只交
- * TaskSpec（goal + 业务参数），内核完成规划、策略判定、单动作执行与
- * 自动验证；模型不搬轨迹/hash/lease/grant，不逐点控制。
+ * 已知任务（draw_shape 等）走唯一生产链：TaskExecutionService
+ * （frozen TaskSpecV2 → TaskRouter → recipe PlanGraph → PlanExecutor）
+ * ——模型只交 goal + 业务参数，内核完成路由、规划、单动作执行与自动
+ * 验证；模型不搬轨迹/hash/lease/grant，不逐点控制。
  *
  * ASK 策略下两阶段：submit 返回 WAITING_APPROVAL（展卡）→ 人工决定
  * → resume（task_id）执行+验证。与 rosclaw_request_action 共用同一

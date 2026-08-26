@@ -54,39 +54,57 @@ class TestContextCheckpoint:
     async def test_checkpoint_from_authoritative_store(self, tmp_path: Path) -> None:
         service, mission = await _setup(tmp_path)
         task_id = _bind_kernel_task(service, mission)
-        result = await _run_task(service, mission, idem="idem_ckpt_1")
-        assert result.ok
         from rosclaw.agentd.pi_bridge.server import PiBridgeServer
 
         bridge = PiBridgeServer(service, tmp_path / "run" / "pi-bridge.sock")
-        checkpoint = await bridge._dispatch(
+        # 执行前：活跃 kernel 任务在非终态列表。
+        before = await bridge._dispatch(
             "user:local:1000",
             1,
             "pi.context.checkpoint",
             {"token": service.control_token, "mission_id": mission.mission_id},
         )
-        assert checkpoint.get("ok"), checkpoint
-        cp = checkpoint.get("checkpoint") or {}
+        assert before.get("ok"), before
+        cp = before.get("checkpoint") or {}
         assert cp.get("schema_version") == "rosclaw.embodied_checkpoint.v1"
         assert cp.get("mission_id") == mission.mission_id
         assert cp.get("mode") == "SIMULATION"
         assert cp.get("body_id") == "sim/ur5e"
-        # 活跃 kernel 任务在非终态列表。
         nonterminal = cp.get("nonterminal_tasks") or []
         assert any(t.get("task_id") == task_id for t in nonterminal), cp
         assert cp.get("pending_approvals") == []
         assert cp.get("sim_policy") in ("auto", "ask")
+        # R0-1：recipe 一次调用即完整闭环（内核自动收尾）——执行后
+        # 任务进入终态，不再停留在非终态列表。
+        result = await _run_task(service, mission, idem="idem_ckpt_1")
+        assert result.ok
+        after = await bridge._dispatch(
+            "user:local:1000",
+            1,
+            "pi.context.checkpoint",
+            {"token": service.control_token, "mission_id": mission.mission_id},
+        )
+        cp_after = after.get("checkpoint") or {}
+        assert not any(
+            t.get("task_id") == task_id
+            for t in (cp_after.get("nonterminal_tasks") or [])
+        ), cp_after
+        recent = cp_after.get("recent_tasks") or []
+        assert any(
+            t.get("task_id") == task_id and t.get("state") == "SUCCEEDED"
+            for t in recent
+        ), cp_after
         await service.close()
 
     async def test_checkpoint_after_kernel_finish(self, tmp_path: Path) -> None:
-        """kernel 终态（Verifier 验收）后：非终态列表为空、recent 含
-        SUCCEEDED。"""
+        """kernel 终态（recipe 内 Verifier 验收）后：非终态列表为空、
+        recent 含 SUCCEEDED；finish_task 重放幂等（不覆盖原 receipt）。"""
         service, mission = await _setup(tmp_path)
         task_id = _bind_kernel_task(service, mission)
         result = await _run_task(service, mission, idem="idem_ckpt_2")
         assert result.ok
-        # rosclaw_task 已把 gif/trace 登记进 kernel 产物账本——用
-        # Verifier 路径收尾（finish_task 真验收）。
+        # R0-1：recipe 的 verify 节点已跑 finish_task 真验收——
+        # 模型面不需要也不应该再次收尾（重放幂等返回原终态）。
         kernel = service._task_kernel
         artifacts = [
             str(r["artifact_id"])
@@ -98,6 +116,7 @@ class TestContextCheckpoint:
             task_id=task_id, summary="五角星仿真完成", artifact_ids=artifacts
         )
         assert finish["status"] == "SUCCEEDED", finish
+        assert finish.get("already_terminal") is True, finish
         from rosclaw.agentd.pi_bridge.server import PiBridgeServer
 
         bridge = PiBridgeServer(service, tmp_path / "run" / "pi-bridge.sock")

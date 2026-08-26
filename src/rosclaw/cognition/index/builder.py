@@ -25,9 +25,16 @@ def _sha256(path: Path) -> str:
 
 
 def _zoo_root(product_root: Path) -> Path | None:
-    """e-URDF-Zoo 根：product_root/e-urdf-zoo（checkout 或打包布局）。"""
+    """e-URDF-Zoo 根：product_root/e-urdf-zoo（checkout）→ packaged
+    eurdf_zoo_data（wheel 安装布局——R0-1 实证：安装布局下无回落
+    会让 N4.1 资源证明误判"无权威 manifest"）。"""
     zoo = product_root / "e-urdf-zoo"
-    return zoo if zoo.is_dir() else None
+    if zoo.is_dir():
+        return zoo
+    from rosclaw.runtime.eurdf_loader import _default_zoo_path
+
+    fallback = _default_zoo_path()
+    return fallback if fallback.is_dir() else None
 
 
 def _product_fingerprint(product_root: Path, zoo: Path | None) -> str:

@@ -225,26 +225,49 @@ class TestExecutor:
 
 class TestDrawPathTemplate:
     def test_draw_path_end_to_end(self, tmp_path: Path) -> None:
-        """确定性 draw_path 模板（真实 sim 链，无模型）：ResourceRef/
-        PlanRef/TraceRef/RenderRef 全产出 + 媒体落盘。"""
+        """确定性 draw_path recipe（真实 sim 链，无模型）：ResourceRef/
+        PlanRef/TraceRef/RenderRef 全产出 + 媒体落盘。
+
+        R0-1：测试必须经 TaskExecutionService（唯一生产入口）——
+        禁止直调 recipe handler 证明一条用户永远到不了的路径。
+        """
         conn = _conn(tmp_path)
-        _task(conn)
-        from rosclaw.agentd.plan_templates import run_draw_path_plan
+        from rosclaw.agentd.task_execution import TaskExecutionService
 
         kernel = TaskKernel(conn, tmp_path)
-        result = run_draw_path_plan(
-            kernel, conn, tmp_path,
-            task_id="task_1",
-            shape="star5",
-            center_m=[0.35, 0.0, 0.12],
-            scale_m=0.12,
+        kernel.persist_input(
+            mission_id="m1", session_ref="s1",
+            message_id="msg_1", text="画一个五角星",
         )
-        assert result.ok is True, result
+        bound = kernel.ensure_task_for_effect(
+            mission_id="m1", session_ref="s1", backend_native_id="s1",
+            cwd=str(tmp_path),
+        )
+        task_id = str(bound["task_id"])
+        outcome = TaskExecutionService(
+            kernel=kernel, conn=conn, home=tmp_path,
+        ).execute(
+            task_id,
+            recipe_inputs={
+                # 安全工作空间内的已知几何（与生产缺省一致——
+                # 低 z 平面会触发碰撞失败，那是验收在工作）。
+                "shape": "star5", "center_m": [0.35, 0.25, 0.30],
+                "scale_m": 0.12,
+            },
+        )
+        assert outcome.ok, outcome.failure
         for ref in ("ResourceRef", "PlanRef", "TraceRef", "RenderRef"):
-            assert ref in result.refs, f"缺 {ref}"
-        render = result.refs["RenderRef"]
+            assert ref in outcome.refs, f"缺 {ref}"
+        render = outcome.refs["RenderRef"]
         assert Path(render["gif_path"]).exists()
         assert Path(render["mp4_path"]).exists()
-        types = _events(conn)
+        types = [
+            str(r["event_type"])
+            for r in conn.execute(
+                "SELECT event_type FROM task_events WHERE task_id = ? "
+                "ORDER BY seq",
+                (task_id,),
+            ).fetchall()
+        ]
         assert "plan.node_started" in types
         assert "plan.node_completed" in types
