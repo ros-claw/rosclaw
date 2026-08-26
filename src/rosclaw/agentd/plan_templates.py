@@ -33,8 +33,14 @@ from rosclaw.task_kernel.plan_executor import (
 from rosclaw.task_kernel.service import TaskKernel
 
 
-def build_draw_path_graph(task_id: str, revision: int) -> PlanGraphV1:
-    """draw_path 标准 DAG（参数经 handler 闭包传递，不在图里写死）。"""
+def build_draw_path_graph(
+    task_id: str, revision: int, *, include_scene: bool = False
+) -> PlanGraphV1:
+    """draw_path 标准 DAG（参数经 handler 闭包传递，不在图里写死）。
+
+    include_scene（R0-3）：spec 要求 scene_video 时在 2D 渲染后
+    插入场景渲染节点（scene_3d kind——与 preview_2d 硬边界）。
+    """
     nodes = [
         PlanNodeV1(id="resolve_robot", op="resource.resolve", outputs=["ResourceRef"]),
         PlanNodeV1(
@@ -44,13 +50,26 @@ def build_draw_path_graph(task_id: str, revision: int) -> PlanGraphV1:
             id="simulate", op="robot.execute_plan", inputs=["PlanRef"], outputs=["TraceRef"]
         ),
         PlanNodeV1(id="render", op="simulation.render", inputs=["TraceRef"], outputs=["RenderRef"]),
+    ]
+    verify_inputs = ["PlanRef", "TraceRef", "RenderRef"]
+    if include_scene:
+        nodes.append(
+            PlanNodeV1(
+                id="render_scene",
+                op="simulation.render",
+                inputs=["TraceRef"],
+                outputs=["SceneRef"],
+            )
+        )
+        verify_inputs.append("SceneRef")
+    nodes.append(
         PlanNodeV1(
             id="verify",
             op="task.verify",
-            inputs=["PlanRef", "TraceRef", "RenderRef"],
+            inputs=verify_inputs,
             outputs=["VerificationRef"],
-        ),
-    ]
+        )
+    )
     digest = hashlib.sha256(
         json.dumps(
             [[n.id, n.op, n.inputs, n.outputs] for n in nodes],
@@ -109,6 +128,16 @@ def draw_path_recipe(
     revision = int(task.get("active_revision") or 1)
     body_id = str(task.get("body_id") or "sim/ur5e")
     artifact_ids: list[str] = []
+    # R0-3：场景语义来自 frozen spec（world/tool/deliverables）——
+    # spec 要求 scene_video 才跑场景渲染。
+    spec = kernel.get_task_spec(task_id) or {}
+    subjects = spec.get("subjects") or {}
+    scene_world = str(subjects.get("world_ref", "")).removeprefix("world:")
+    scene_tool = str(subjects.get("tool_ref", ""))
+    scene_required = any(
+        d.get("kind") == "scene_video" and d.get("required")
+        for d in (spec.get("deliverables") or [])
+    )
 
     def h_resolve(inputs_: dict) -> dict:
         return {"ResourceRef": {"body_ref": canonical_resource_id(body_id)}}
@@ -194,9 +223,81 @@ def draw_path_recipe(
             }
         }
 
+    def h_scene(inputs_: dict) -> dict:
+        """R0-3：场景渲染节点（spec 要求 scene_video 时入图）。
+
+        world/tool 来自 frozen spec；失败不炸图——SceneRef 记
+        FAILED + 稳定错误码，verify 节点产出 PARTIAL（2D 交付不
+        被场景故障拖死）。
+        """
+        from rosclaw.agentd.sim_render import render_scene_trace
+
+        trace = inputs_["TraceRef"]
+        trace_id = trace["trace_id"]
+        try:
+            result = render_scene_trace(
+                home, trace_id,
+                world_id=scene_world or "empty",
+                tool_ref=scene_tool,
+            )
+        except ValueError as exc:
+            return {
+                "SceneRef": {
+                    "status": "FAILED",
+                    "failure": str(exc)[:300],
+                    "trace_id": trace_id,
+                }
+            }
+        receipt_path = (
+            home / "sim" / "traces" / trace_id / "render_receipt.json"
+        )
+        for key, media_type in (("gif", "image/gif"), ("mp4", "video/mp4")):
+            item = (result.get("artifacts") or {}).get(key) or {}
+            path = str(item.get("path") or "")
+            if not path:
+                continue
+            try:
+                record = kernel.register_artifact(
+                    task_id=task_id,
+                    path=path,
+                    media_type=media_type,
+                    producer="kernel:plan_template:draw_path",
+                    metadata={
+                        "resource": trace["resource"],
+                        "lineage": {
+                            "trace_id": trace_id,
+                            "kind": "scene_3d",
+                            "render_receipt_path": str(receipt_path),
+                        },
+                    },
+                )
+            except ValueError as exc:
+                return {
+                    "SceneRef": {
+                        "status": "FAILED",
+                        "failure": f"SCENE_ARTIFACT_REGISTER: {exc}"[:300],
+                        "trace_id": trace_id,
+                    }
+                }
+            artifact_ids.append(str(record["artifact_id"]))
+        return {
+            "SceneRef": {
+                "status": "OK",
+                "trace_id": trace_id,
+                "receipt": result.get("receipt") or {},
+                "frames": int((result.get("artifact") or {}).get("frames", 0)),
+            }
+        }
+
     def h_verify(inputs_: dict) -> dict:
         trace = inputs_["TraceRef"]
         render = inputs_["RenderRef"]
+        scene = inputs_.get("SceneRef") or {}
+        scene_failure = (
+            str(scene.get("failure", ""))
+            if scene.get("status") == "FAILED"
+            else ""
+        )
         verify = service.verify_tracking(
             trace["trace_id"], max_tracking_error_m=threshold
         )
@@ -218,25 +319,32 @@ def draw_path_recipe(
                 "VerificationRef": {
                     "status": "FAIL",
                     "verification_id": "",
-                    "failures": failures,
+                    "failures": failures + ([scene_failure] if scene_failure else []),
                     "metrics": metrics,
                     "threshold_m": threshold,
                     "min_frames": min_frames,
                 }
             }
-        # 验收真跑决定终态（frozen acceptance——模型自述不算数）。
+        # 验收真跑决定终态（frozen acceptance + R0-2 required
+        # deliverables——场景缺失即 DELIVERABLE_MISSING，不整体 PASS）。
         verdict = kernel.finish_task(
             task_id=task_id,
             summary=f"draw_path recipe 执行（{len(artifact_ids)} 项产物）",
             artifact_ids=artifact_ids,
         )
         kernel_failures = [str(f) for f in verdict.get("failures", [])]
-        status = "PASS" if verdict.get("status") == "SUCCEEDED" else "FAIL"
+        status = (
+            "PASS"
+            if verdict.get("status") == "SUCCEEDED" and not scene_failure
+            else "FAIL"
+        )
         return {
             "VerificationRef": {
                 "status": status,
                 "verification_id": str(verdict.get("verification_id", "")),
-                "failures": kernel_failures,
+                "failures": kernel_failures + (
+                    [scene_failure] if scene_failure else []
+                ),
                 "metrics": metrics,
                 "threshold_m": threshold,
                 "min_frames": min_frames,
@@ -250,7 +358,11 @@ def draw_path_recipe(
         "simulation.render": h_render,
         "task.verify": h_verify,
     }
-    graph = build_draw_path_graph(task_id, revision)
+    graph = build_draw_path_graph(task_id, revision, include_scene=scene_required)
+    if scene_required:
+        # render_scene 与 render 同 op——executor 按节点 id 优先
+        # 分派（同 op 多实例的合法机制）。
+        handlers["render_scene"] = h_scene
     return PlanExecutor(kernel, conn).run(graph, handlers)
 
 

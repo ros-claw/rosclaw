@@ -158,6 +158,29 @@ def _envelope_result(request: PiToolRequestV1, envelope) -> PiToolResultV1:
     raise ToolBridgeError(code, message[:400], retryable=retryable)
 
 
+#: 熔断指纹的易变参数（R0-3，0826 体验审计 §5.R0-3）：基础设施
+#: 故障的重试熔断按 capability+参数实质判定——换 camera 不绕过
+#: renderer 熔断（事故实证：同一渲染故障换 camera 重试三次）。
+_VOLATILE_FINGERPRINT_KEYS = frozenset({"camera"})
+
+
+def _failure_fingerprint(request: PiToolRequestV1) -> str:
+    def _strip(value: object) -> object:
+        if isinstance(value, dict):
+            return {
+                k: _strip(v)
+                for k, v in value.items()
+                if k not in _VOLATILE_FINGERPRINT_KEYS
+            }
+        if isinstance(value, list):
+            return [_strip(v) for v in value]
+        return value
+
+    return request.tool_name + ":" + json.dumps(
+        _strip(request.arguments), sort_keys=True, ensure_ascii=False
+    )
+
+
 class PiToolDispatcher:
     def __init__(self, service: AgentService) -> None:
         self._service = service
@@ -183,10 +206,9 @@ class PiToolDispatcher:
         # 八审 §4 P0-6：doom-loop 熔断——同一工具同一参数出错后原样
         # 重复直接拒绝（不再消耗模型回合）；成功即重置，不误伤合法
         # 重复观测。进程级指纹（安全语义仍在 fail-closed 链上，熔断
-        # 只是效率护栏）。
-        fingerprint = request.tool_name + ":" + json.dumps(
-            request.arguments, sort_keys=True, ensure_ascii=False
-        )
+        # 只是效率护栏）。R0-3：指纹剔除易变参数（camera 等）——
+        # 基础设施故障换参数不能绕过。
+        fingerprint = _failure_fingerprint(request)
         failures = getattr(self._service, "_tool_fail_fingerprints", None)
         if failures is None:
             failures = self._service._tool_fail_fingerprints = {}

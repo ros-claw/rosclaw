@@ -51,7 +51,9 @@ class PlanExecutor:
     ) -> PlanExecutionResult:
         refs: dict[str, Any] = {}
         for node in graph.nodes:
-            handler = handlers.get(node.op)
+            # 节点 id 优先于 op——同一 op 可在图中出现多次（如
+            # simulation.render 的 2D 预览与 3D 场景是两个节点）。
+            handler = handlers.get(node.id) or handlers.get(node.op)
             if handler is None:
                 return self._fail(
                     graph,

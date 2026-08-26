@@ -66,25 +66,11 @@ def probe_render_backend(
     本机 glfw 实证；每个后端真实渲染一帧 smoke test）。返回
     (backend or None, 每后端明细)。"""
     detail: dict[str, str] = {}
-    for backend in ("egl", "osmesa"):
-        env = dict(os_environ(), MUJOCO_GL=backend)
-        try:
-            proc = subprocess.run(
-                [sys.executable, "-c", _PROBE_SNIPPET],
-                env=env, capture_output=True, timeout=timeout_sec,
-            )
-            if proc.returncode == 0 and b"OK" in proc.stdout:
-                detail[backend] = "ok"
-                return backend, detail
-            detail[backend] = (
-                proc.stderr.decode(errors="replace").strip().splitlines() or ["?"]
-            )[-1][:200]
-        except (subprocess.TimeoutExpired, OSError) as exc:
-            detail[backend] = f"{type(exc).__name__}: {exc}"[:200]
-    ok, note = _probe_xvfb(timeout_sec=timeout_sec)
-    detail["xvfb"] = note
-    if ok:
-        return "xvfb", detail
+    for backend in _BACKEND_ORDER:
+        ok, note = _probe_backend(backend, timeout_sec=timeout_sec)
+        detail[backend] = note
+        if ok:
+            return backend, detail
     return None, detail
 
 
@@ -109,8 +95,20 @@ def render_scene_trace(
     max_frames: int = 60,
     width: int = 640,
     height: int = 360,
+    world_id: str = "empty",
+    tool_ref: str = "",
 ) -> dict[str, Any]:
-    """trace → 场景 GIF（真实 MuJoCo 离屏渲染）+ RenderReceipt。"""
+    """trace → 场景 GIF+MP4（真实 MuJoCo 离屏渲染）+ RenderReceipt。
+
+    R0-3（0826 体验审计 §5.R0-3）：
+    - 结构化 IPC：子进程写原子 result JSON 文件，stdout/stderr 只
+      作诊断——空输出/噪声/rc=0 无结果都是稳定错误码，绝不向
+      调用方泄漏裸 JSONDecodeError；
+    - 后端降级只在 supervisor 内部执行一次（EGL→OSMesa→Xvfb
+      顺序）——模型只收到最终结果；
+    - world_id/tool_ref 来自 TaskSpec——声明了工具但资产不存在
+      时 TOOL_ASSET_MISSING 诚实失败（不假装持笔）。
+    """
     home = Path(home)
     trace_dir = home / "sim" / "traces" / trace_id
     trace_path = trace_dir / "trace.json"
@@ -135,40 +133,139 @@ def render_scene_trace(
             f"RENDER_INPUT_DIGEST_MISMATCH: trajectory_states 与 trace 记录"
             f"不符（{declared[:19]}… != {states_digest[:19]}…）"
         )
+    if tool_ref:
+        _require_tool_asset(tool_ref)
     backend, probe_detail = probe_render_backend()
     if backend is None:
         raise ValueError(
             "RENDER_BACKEND_UNAVAILABLE: EGL/OSMesa/Xvfb 全部不可用——"
             + json.dumps(probe_detail, ensure_ascii=False)[:300]
         )
-    # GL 平台在 mujoco import 时初始化——MUJOCO_GL 必须在子进程首
-    # 次 import 前设定；渲染在子进程执行（GL 崩不跨进程伤宿主）。
-    import os
+    # supervisor 内部一次降级：首选后端渲染失败 → 下一个后端再试
+    # 一次；之后把最终错误抛出（调用方只见一次有语义的结果）。
+    candidates = [backend, *[b for b in _BACKEND_ORDER if b != backend]]
+    last_error: ValueError | None = None
+    for attempt, candidate in enumerate(candidates[:2]):
+        if attempt > 0:
+            ok, note = _probe_backend(candidate)
+            if not ok:
+                last_error = ValueError(
+                    f"RENDER_BACKEND_UNAVAILABLE: 降级后端 {candidate} "
+                    f"不可用（{note}）"
+                )
+                continue
+        try:
+            return _render_attempt(
+                home, trace_id, candidate,
+                camera=camera, max_frames=max_frames,
+                width=width, height=height,
+                world_id=world_id, tool_ref=tool_ref,
+            )
+        except ValueError as exc:
+            last_error = exc
+    assert last_error is not None
+    raise last_error
 
-    # Xvfb 后端经 xvfb-run 提供虚拟显示 + MUJOCO_GL=glfw（P0-F）。
+
+def _probe_backend(backend: str, *, timeout_sec: float = 30.0) -> tuple[bool, str]:
+    """单后端探测（egl/osmesa 直接；xvfb 经 xvfb-run+glfw）。"""
+    if backend == "xvfb":
+        return _probe_xvfb(timeout_sec=timeout_sec)
+    env = dict(os_environ(), MUJOCO_GL=backend)
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-c", _PROBE_SNIPPET],
+            env=env, capture_output=True, timeout=timeout_sec,
+        )
+        if proc.returncode == 0 and b"OK" in proc.stdout:
+            return True, "ok"
+        return False, (
+            proc.stderr.decode(errors="replace").strip().splitlines() or ["?"]
+        )[-1][:200]
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        return False, f"{type(exc).__name__}: {exc}"[:200]
+
+
+def _render_attempt(
+    home: Path,
+    trace_id: str,
+    backend: str,
+    *,
+    camera: str,
+    max_frames: int,
+    width: int,
+    height: int,
+    world_id: str,
+    tool_ref: str,
+) -> dict[str, Any]:
+    """单次渲染尝试（结构化 IPC：原子 result 文件为唯一结果
+    通道——stdout/stderr 只作诊断日志）。"""
+    import os
     import shutil
 
+    result_path = (
+        home / "sim" / "traces" / trace_id / f"{trace_id}-scene-result.json"
+    )
+    result_path.unlink(missing_ok=True)
+    argv = [
+        sys.executable, "-m", "rosclaw.agentd.sim_render",
+        str(home), trace_id, camera, str(max_frames),
+        str(width), str(height),
+        "--world", world_id, "--tool", tool_ref,
+        "--result", str(result_path),
+    ]
     if backend == "xvfb":
         env = dict(os.environ, MUJOCO_GL="glfw")
-        argv = [
-            shutil.which("xvfb-run") or "xvfb-run", "-a",
-            sys.executable, "-m", "rosclaw.agentd.sim_render",
-            str(home), trace_id, camera, str(max_frames),
-            str(width), str(height),
-        ]
+        argv = [shutil.which("xvfb-run") or "xvfb-run", "-a", *argv]
     else:
         env = dict(os.environ, MUJOCO_GL=backend)
-        argv = [
-            sys.executable, "-m", "rosclaw.agentd.sim_render",
-            str(home), trace_id, camera, str(max_frames),
-            str(width), str(height),
-        ]
     proc = subprocess.run(argv, env=env, capture_output=True, timeout=600)
-    if proc.returncode != 0:
-        tail = proc.stderr.decode(errors="replace")[-300:]
-        raise ValueError(f"RENDER_FAILED: 子进程渲染失败: {tail}")
-    result = json.loads(proc.stdout.decode())
+    if not result_path.exists():
+        if proc.returncode != 0:
+            tail = proc.stderr.decode(errors="replace")[-300:]
+            raise ValueError(f"RENDER_FAILED: 子进程渲染失败: {tail}")
+        raise ValueError(
+            "RENDER_RESULT_MISSING: 子进程 rc=0 但未写 result 文件"
+            f"（stdout 尾部: {proc.stdout.decode(errors='replace')[-200:]!r}）"
+        )
+    try:
+        result = json.loads(result_path.read_text(encoding="utf-8"))
+    except ValueError as exc:
+        raise ValueError(
+            f"RENDER_RESULT_CORRUPT: result 文件不是合法 JSON（{exc}）"
+        ) from exc
+    if not isinstance(result, dict) or not result.get("ok"):
+        code = str(result.get("error_code", "RENDER_FAILED")) if isinstance(
+            result, dict
+        ) else "RENDER_FAILED"
+        message = (
+            str(result.get("message", "")) if isinstance(result, dict) else ""
+        )
+        raise ValueError(f"{code}: {message}"[:400])
+    missing = [k for k in ("artifact", "artifacts", "receipt")
+               if k not in result]
+    if missing:
+        raise ValueError(
+            f"RENDER_RESULT_INCOMPLETE: result 缺字段 {missing}"
+        )
     return result
+
+
+def _require_tool_asset(tool_ref: str) -> None:
+    """工具资产断言（TOOL_ASSET_MISSING 诚实失败——不假装持笔）。
+
+    资产查找：packaged/repo zoo 的 tools/<name>/ 目录（当前无任何
+    工具资产——声明即失败，等资产包落地后自然解锁）。
+    """
+    from rosclaw.runtime.eurdf_loader import _default_zoo_path
+
+    name = tool_ref.removeprefix("tool:")
+    candidate = _default_zoo_path().parent / "tools" / name
+    if not candidate.is_dir():
+        raise ValueError(
+            f"TOOL_ASSET_MISSING: {tool_ref} 无权威工具资产（查找 "
+            f"{candidate}）——不得假装持笔渲染"
+        )
 
 
 def _render_impl(
@@ -179,6 +276,8 @@ def _render_impl(
     max_frames: int,
     width: int,
     height: int,
+    world_id: str = "empty",
+    tool_ref: str = "",
 ) -> dict[str, Any]:
     """子进程内真实渲染（MUJOCO_GL 已由父进程设定）。"""
     backend = os_environ().get("MUJOCO_GL", "")
@@ -191,10 +290,11 @@ def _render_impl(
     states_digest = "sha256:" + hashlib.sha256(
         states_path.read_bytes()
     ).hexdigest()
-    # canonical MJCF（与 rollout 同一资源链）。
+    # canonical MJCF（与 rollout 同一资源链）；world 来自 TaskSpec
+    # （tabletop/empty——empty 不得冒充桌面场景）。
     from rosclaw.sandbox.sandbox_api import Sandbox
 
-    sandbox = Sandbox.create("ur5e", "empty", "mujoco")
+    sandbox = Sandbox.create("ur5e", world_id, "mujoco")
     if not sandbox.has_physics:
         raise ValueError(f"RENDER_INPUT: canonical 模型不可用: {sandbox.load_error}")
     import mujoco
@@ -262,6 +362,8 @@ def _render_impl(
         "schema_version": "rosclaw.render_receipt.v1",
         "backend": backend,
         "camera": camera,
+        "world_id": world_id,
+        "tool_ref": tool_ref,
         "renderer_build_digest": _renderer_build_digest(),
         "input_trace_digest": "sha256:" + hashlib.sha256(
             trace_path.read_bytes()
@@ -306,9 +408,38 @@ __all__ = ["probe_render_backend", "render_scene_trace"]
 
 
 if __name__ == "__main__":
+    # R0-3 结构化 IPC：结果写原子 result 文件（tmp+replace），
+    # stdout/stderr 只作诊断——父进程不解析 stdout。
+    import argparse
 
-    _home, _trace, _camera, _maxf, _w, _h = sys.argv[1:7]
-    print(json.dumps(_render_impl(
-        Path(_home), _trace, camera=_camera,
-        max_frames=int(_maxf), width=int(_w), height=int(_h),
-    )))
+    _parser = argparse.ArgumentParser()
+    _parser.add_argument("home")
+    _parser.add_argument("trace_id")
+    _parser.add_argument("camera")
+    _parser.add_argument("max_frames", type=int)
+    _parser.add_argument("width", type=int)
+    _parser.add_argument("height", type=int)
+    _parser.add_argument("--world", default="empty")
+    _parser.add_argument("--tool", default="")
+    _parser.add_argument("--result", required=True)
+    _args = _parser.parse_args()
+    _result_path = Path(_args.result)
+    try:
+        _payload: dict = _render_impl(
+            Path(_args.home), _args.trace_id, camera=_args.camera,
+            max_frames=_args.max_frames, width=_args.width,
+            height=_args.height, world_id=_args.world, tool_ref=_args.tool,
+        )
+    except Exception as _exc:  # noqa: BLE001 - 失败也是结构化结果
+        _message = str(_exc)[:300]
+        _code = "RENDER_FAILED"
+        if ":" in _message:
+            _head = _message.split(":", 1)[0]
+            if _head.replace("_", "").isalnum() and _head.isupper():
+                _code, _message = _head, _message.split(":", 1)[1].strip()
+        _payload = {"ok": False, "error_code": _code, "message": _message}
+    _result_path.parent.mkdir(parents=True, exist_ok=True)
+    _tmp = _result_path.with_suffix(".tmp")
+    _tmp.write_text(json.dumps(_payload, ensure_ascii=False), encoding="utf-8")
+    _tmp.replace(_result_path)  # 原子替换——父进程只认完整文件
+    sys.exit(0 if _payload.get("ok") else 1)
