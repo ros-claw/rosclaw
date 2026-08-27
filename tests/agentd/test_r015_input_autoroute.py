@@ -24,14 +24,9 @@
 
 from __future__ import annotations
 
-import json
-import sqlite3
 from pathlib import Path
 
 import pytest
-
-from tests.agentd.test_r01_production_chain import _kernel
-from tests.agentd.test_r02_task_spec_deliverables import _draw_task
 
 
 class TestRecipePlaneSupport:
@@ -105,7 +100,6 @@ class TestServerAutoRoute:
         import asyncio
 
         from rosclaw.agentd.pi_bridge.server import PiBridgeServer
-
         from tests.agentd.test_pi_tool_bridge import _setup
 
         service, mission = await _setup(tmp_path)
@@ -155,7 +149,6 @@ class TestServerAutoRoute:
 
     async def test_question_not_auto_routed(self, tmp_path: Path) -> None:
         from rosclaw.agentd.pi_bridge.server import PiBridgeServer
-
         from tests.agentd.test_pi_tool_bridge import _setup
 
         service, mission = await _setup(tmp_path)

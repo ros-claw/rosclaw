@@ -280,12 +280,11 @@ def assert_model_behavior_budget(home: Path, *, max_task_calls: int = 1) -> None
         "SELECT COUNT(*) FROM task_events WHERE event_type = 'task.tool_used'"
     ).fetchone()[0]
     # 能力链调用（run8 实证：materialized capability 手拼绕链——
-    # compute/observe/execute 都算）。
+    # compute/execute 才算绕链；observe 是观察不是绕链）。
     capability_calls = conn.execute(
         "SELECT COUNT(*) FROM agent_events WHERE type = 'tool.completed' "
         "AND json_extract(payload_json, '$.tool_name') IN "
-        "('rosclaw_compute', 'rosclaw_observe', 'rosclaw_execute', "
-        "'rosclaw_request_action')"
+        "('rosclaw_compute', 'rosclaw_execute', 'rosclaw_request_action')"
     ).fetchone()[0]
     total = calls + capability_calls
     assert total <= max_task_calls, (

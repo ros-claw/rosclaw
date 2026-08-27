@@ -25,6 +25,14 @@ import math
 from pathlib import Path
 from typing import Any
 
+#: R0-1.5（金丝雀实证：模型传 'xz'/'vertical' 被拒）——命名平面
+#: xy/xz/yz 映射为法向（任意法向走 plane_normal_xyz）。
+_NAMED_PLANE_NORMALS = {
+    "xy": [0.0, 0.0, 1.0],
+    "xz": [0.0, 1.0, 0.0],
+    "yz": [1.0, 0.0, 0.0],
+}
+
 #: 与 ur5e_mcp 一致的安全工作空间（规划即拒越界）。
 _SAFE_RADIUS = (0.10, 0.80)
 _SAFE_Z = (0.02, 1.20)
@@ -377,13 +385,6 @@ class SimTrajectoryService:
     ) -> dict[str, Any]:
         if shape not in _SHAPES:
             raise ValueError(f"unsupported shape {shape!r} (supported: {', '.join(_SHAPES)})")
-        # R0-1.5（金丝雀实证：模型传 'xz'/'vertical' 被拒）——命名
-        # 平面 xy/xz/yz 映射为法向（任意法向走 plane_normal_xyz）。
-        _NAMED_PLANE_NORMALS = {
-            "xy": [0.0, 0.0, 1.0],
-            "xz": [0.0, 1.0, 0.0],
-            "yz": [1.0, 0.0, 0.0],
-        }
         if plane != "xy" and plane_normal_xyz is None:
             normal = _NAMED_PLANE_NORMALS.get(plane)
             if normal is None:

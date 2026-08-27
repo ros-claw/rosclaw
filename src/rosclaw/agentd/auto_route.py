@@ -37,12 +37,12 @@ async def maybe_auto_route(
 ) -> dict[str, Any] | None:
     """指令性画路径输入 → 自动路由执行。返回 auto_task 描述或
     None（不可路由/疑问句/重放）。"""
-    from rosclaw.task_kernel.task_spec import _classify_intent
     from rosclaw.task_kernel.task_router import (
         compile_recipe_inputs,
         is_task_directive,
         route_recipe,
     )
+    from rosclaw.task_kernel.task_spec import _classify_intent
 
     text = text.strip()
     if not text or not is_task_directive(text):
