@@ -44,8 +44,11 @@ export class InputController {
 
 	/** P0-C（0824 总纲 §6.1）：输入先落会话（pi.input.persist——
 	 *  不立即创建 Task；persist 失败不投递，HP1 防线语义不变）。
-	 *  返回 null = 不投递。 */
-	async persist(text: string): Promise<{ input_id?: string } | null> {
+	 *  返回 null = 不投递。R0-1.5：auto_task（内核自动路由的任务）
+	 *  穿透给调用方（watcher 跟踪进度/终态）。 */
+	async persist(
+		text: string,
+	): Promise<{ input_id?: string; auto_task?: { task_id?: string } } | null> {
 		const messageId = `msg_${randomUUID()}`;
 		try {
 			const result = (await this.deps.call("pi.input.persist", {
@@ -55,13 +58,17 @@ export class InputController {
 				message_id: messageId,
 				text,
 				force_new: this.forceNewNext,
-			})) as unknown as { ok?: boolean; input?: { input_id?: string } };
+			})) as unknown as {
+				ok?: boolean;
+				input?: { input_id?: string };
+				auto_task?: { task_id?: string };
+			};
 			this.forceNewNext = false;
 			this.deps.call("pi.input.dispatched", {
 				mission_id: this.deps.missionId(),
 				message_id: messageId,
 			}).catch(() => undefined);
-			return result.input ?? {};
+			return { ...(result.input ?? {}), auto_task: result.auto_task };
 		} catch (err) {
 			// 持久化失败不投递（幽灵执行防线）：消息不消失于沉默——
 			// 明确通知用户重发。

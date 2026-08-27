@@ -1021,7 +1021,21 @@ class PiBridgeServer:
                 session_id=str(params.get("session_ref", "")),
                 model_visible=True,
             )
-            return {"ok": True, "input": record}
+            # R0-1.5：指令性画路径输入 → 内核自动路由执行（唯一
+            # 生产链，零模型工具调用；SIM only，疑问句不触发）。
+            from rosclaw.agentd.auto_route import maybe_auto_route
+
+            auto_task = await maybe_auto_route(
+                service,
+                mission_id=str(params.get("mission_id", "")),
+                session_ref=str(params.get("session_ref", "")),
+                message_id=str(params.get("message_id", "")),
+                text=text,
+            )
+            out: dict = {"ok": True, "input": record}
+            if auto_task:
+                out["auto_task"] = auto_task
+            return out
         if method == "pi.task.ensure_effect":
             # P0-C（0824 总纲 §6.2）：首个 effectful call 的原子
             # admission——以 session 最新未附着输入为动机建 task/
@@ -1160,9 +1174,16 @@ class PiBridgeServer:
             # P0-D：Harness idle（turn_end）驱动的自动收尾——返回
             # outcome（可能为 None=任务仍在进行）。
             kernel = service._task_kernel
-            task = kernel.latest_task_for(
-                str(params.get("mission_id", "")),
-                str(params.get("session_ref", "")),
+            # R0-1.5：task_id 直查（自动路由任务的 watcher followUp）；
+            # 无 task_id 时回落 mission+session 最新任务（P0-D 原义）。
+            task_id = str(params.get("task_id", ""))
+            task = (
+                kernel.get_task(task_id)
+                if task_id
+                else kernel.latest_task_for(
+                    str(params.get("mission_id", "")),
+                    str(params.get("session_ref", "")),
+                )
             )
             if task is None:
                 return {"ok": True, "outcome": None}

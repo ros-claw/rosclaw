@@ -383,6 +383,15 @@ class _FakeModel:
             # 步骤的"Worker 结果已收到并验证"混淆）。
             frames.append(_sse(_chunk("Worker 结果已综合给用户。")))
             frames.append(_sse(_chunk("", "stop")))
+        elif "任务完成：验收 PASS" in text or (
+            "任务完成：验收 PASS" in _text(messages[-1] if messages else {})
+        ):
+            # R0-1.5：自动路由任务的终态 followUp 回合——outcome 权威
+            # （验收 PASS + 交付完成）才说完成。
+            frames.append(_sse(_chunk("五角星已绘制完成，几何验证通过。")))
+            frames.append(_sse(_chunk("", "stop")))
+            frames.append(b"data: [DONE]\n\n")
+            return b"".join(frames)
         elif "委派" in text:
             # PR-H1（ADR-0012）：模型面不再有 task_submit/delegate——
             # Native Agent 用自己的工作工具在同一 session 直接完成。
@@ -415,24 +424,13 @@ class _FakeModel:
                     )
                 )
             else:
-                # 八审 P0-5：任务级入口——一次 rosclaw_task 调用（确定性
-                # 编译器完成规划/策略/执行/验证），不再手工拼工具链。
-                frames.extend(
-                    _tool_call_frames(
-                        "call_task",
-                        "rosclaw_task",
-                        json.dumps(
-                            {
-                                "goal": "draw_shape",
-                                "parameters": {
-                                    "shape": "star5",
-                                    "center_m": [0.35, 0.25, 0.30],
-                                    "radius_m": 0.10,
-                                },
-                            }
-                        ),
-                    )
-                )
+                # R0-1.5（金丝雀实证 + 0826 审计收口）：已知 recipe 由
+                # 输入路由自动执行（零模型调用）——模型不再调
+                # rosclaw_task（已退出模型面），只确认收到指令。
+                frames.append(_sse(_chunk("已收到——确定性任务链自动执行中。")))
+                frames.append(_sse(_chunk("", "stop")))
+                frames.append(b"data: [DONE]\n\n")
+                return b"".join(frames)
         elif "回到零点" in text:
             # 七审 PR-SEVEN-7 Journey B：单独动作（deny 腿）——一次
             # 人工拒绝必须 fail closed（无 txn、无 grant、诚实回答）。

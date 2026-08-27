@@ -175,7 +175,10 @@ def run_once(idx: int, base: Path) -> dict:
     for (usage_json,) in usage_rows:
         try:
             usage = json.loads(str(usage_json))
-            total_tokens += int(usage.get("total_tokens") or 0)
+            # Pi usage 是 camelCase（totalTokens）——实测金丝雀账本。
+            total_tokens += int(
+                usage.get("totalTokens") or usage.get("total_tokens") or 0
+            )
         except (ValueError, TypeError):
             continue
     outcome["tokens"] = total_tokens
@@ -269,13 +272,26 @@ def assert_user_visible_delivery(home: Path, *, require_scene: bool = False) -> 
 
 
 def assert_model_behavior_budget(home: Path, *, max_task_calls: int = 1) -> None:
-    """模型行为预算：具身入口调用 ≤max、bash=0、手工 finish=0
-    （已知 recipe 不允许模型绕链脚本化）。"""
+    """模型行为预算：具身/能力链入口调用 ≤max、bash=0、手工
+    finish=0（已知 recipe 不允许模型绕链脚本化——R0-1.5 后
+    自动路由，期望 0 次）。"""
     conn = sqlite3.connect(home / "agentd" / "missions.db")
     calls = conn.execute(
         "SELECT COUNT(*) FROM task_events WHERE event_type = 'task.tool_used'"
     ).fetchone()[0]
-    assert calls <= max_task_calls, f"具身入口调用 {calls} 次 > {max_task_calls}"
+    # 能力链调用（run8 实证：materialized capability 手拼绕链——
+    # compute/observe/execute 都算）。
+    capability_calls = conn.execute(
+        "SELECT COUNT(*) FROM agent_events WHERE type = 'tool.completed' "
+        "AND json_extract(payload_json, '$.tool_name') IN "
+        "('rosclaw_compute', 'rosclaw_observe', 'rosclaw_execute', "
+        "'rosclaw_request_action')"
+    ).fetchone()[0]
+    total = calls + capability_calls
+    assert total <= max_task_calls, (
+        f"具身/能力链调用 {total} 次 > {max_task_calls}"
+        f"（task_used={calls} capability={capability_calls}）"
+    )
     bash = conn.execute(
         "SELECT COUNT(*) FROM agent_events WHERE type = 'tool.completed' "
         "AND json_extract(payload_json, '$.tool_name') = 'bash'"

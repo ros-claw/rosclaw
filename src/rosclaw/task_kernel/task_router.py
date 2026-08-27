@@ -44,4 +44,49 @@ def route_recipe(spec: Mapping[str, Any], *, goal_hint: str = "") -> str | None:
     return RECIPE_BY_GOAL.get(goal_hint)
 
 
-__all__ = ["RECIPE_BY_INTENT", "route_recipe"]
+#: R0-1.5（金丝雀实证）：NL → recipe 几何参数（通用词类标记——
+#: 形状词/平面词是通用类别，不是五角星特例 prompt 硬编码）。
+_SHAPE_WORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("star5", ("五角星", "星形", "star")),
+    ("circle", ("圆", "circle")),
+)
+
+#: 竖直平面词类 → 命名面（xz：y=const 立面——画板/墙面的常见
+#: 含义；yz 留给显式 "yz 面"）。
+_VERTICAL_MARKERS = ("竖直平面", "垂直平面", "竖直面", "垂直面", "立面",
+                     "vertical plane", "竖着", "竖直方向")
+_YZ_MARKERS = ("yz 面", "yz面", "yz plane")
+
+#: 疑问/讨论形式护栏——"怎么画五角星"是讨论不是指令，不自动执行。
+_QUESTION_MARKERS = ("怎么", "如何", "吗", "？", "?", "what", "how",
+                     "why", "解释", "介绍", "是什么")
+
+
+def is_task_directive(text: str) -> bool:
+    """指令形式判定：疑问句/讨论形式不自动执行。"""
+    lowered = text.lower()
+    return not any(m in lowered or m in text for m in _QUESTION_MARKERS)
+
+
+def compile_recipe_inputs(goal_text: str) -> dict[str, Any]:
+    """NL → recipe 几何参数（缺的字段由 recipe 确定性缺省补齐）。"""
+    inputs: dict[str, Any] = {}
+    lowered = goal_text.lower()
+    for shape, markers in _SHAPE_WORDS:
+        if any(m in goal_text or m in lowered for m in markers):
+            inputs["shape"] = shape
+            break
+    if any(m in goal_text or m in lowered for m in _YZ_MARKERS):
+        inputs["plane"] = "yz"
+    elif any(m in goal_text or m in lowered for m in _VERTICAL_MARKERS):
+        inputs["plane"] = "xz"
+    return inputs
+
+
+__all__ = [
+    "RECIPE_BY_GOAL",
+    "RECIPE_BY_INTENT",
+    "compile_recipe_inputs",
+    "is_task_directive",
+    "route_recipe",
+]

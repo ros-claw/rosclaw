@@ -17,9 +17,9 @@ describe("Native Agent 工具面（PR-H1）", () => {
 			"rosclaw_verify",
 			"rosclaw_memory_query",
 			"rosclaw_fail_safe",
-			"rosclaw_task",
 			"rosclaw_request_action",
 		];
+		// R0-1.5：rosclaw_task 退出模型面（输入路由自动执行）。
 		for (const name of [...workspace, ...embodiment]) {
 			assert.ok(MODEL_TOOL_NAMES.includes(name), `缺工具 ${name}`);
 		}

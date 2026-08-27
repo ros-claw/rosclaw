@@ -426,6 +426,18 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			// 投递（handled + 通知重发=无幽灵执行，HP1 语义不变）。
 			const persisted = await inputController.persist(text);
 			if (!persisted) return { action: "handled" as const };
+			// R0-1.5：输入路由自动执行——已知 recipe 由内核直接执行
+			// （零模型调用）；watcher 跟踪进度/终态（followUp 一次）。
+			const autoTask = (persisted as { auto_task?: { task_id?: string } })
+				.auto_task;
+			if (autoTask?.task_id) {
+				operationWatcher.trackTask(String(autoTask.task_id));
+				const ctx2 = latestCtx;
+				ctx2?.ui.notify(
+					"任务已由确定性链自动开始执行（/activity 查看进度）",
+					"info",
+				);
+			}
 			return { action: "continue" as const };
 		});
 

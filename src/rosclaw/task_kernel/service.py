@@ -258,11 +258,28 @@ class TaskKernel:
         if active is not None:
             revision = int(active["active_revision"]) + 1
             ensure_run(self._home, str(active["task_id"]), revision)  # WP-8
+            # P1-C1 + R0-1.5（金丝雀实证）：普通修订分支也必须冻结
+            # 新 revision 的 TaskSpecV2——此前只有"SUCCEEDED 重开"
+            # 分支冻结，活跃任务修订的 spec 为空（TaskExecutionService
+            # 无法路由——TASK_SPEC_MISSING）。
+            from rosclaw.task_kernel.task_spec import compile_task_spec
+
+            revised_spec = compile_task_spec(
+                task_id=str(active["task_id"]), revision=revision,
+                goal_text=text,
+                body_id=str(active["body_id"] or ""),
+                mode=str(active["mode"] or "SIMULATION"),
+                acceptance_spec_id="",
+                language=(
+                    str(active["locale"] or "") if active["locale"] != "auto" else ""
+                ),
+            )
             self._conn.execute(
                 "INSERT INTO task_revisions (task_id, revision, "
-                "user_message_id, goal_delta, created_at) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (active["task_id"], revision, message_id, text, now),
+                "user_message_id, goal_delta, task_spec_json, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (str(active["task_id"]), revision, message_id, text,
+                 revised_spec.model_dump_json(), now),
             )
             self._conn.execute(
                 "UPDATE tasks SET active_revision = ?, updated_at = ? "

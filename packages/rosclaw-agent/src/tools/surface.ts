@@ -40,14 +40,13 @@ export const PRODUCT_PACK: readonly string[] = [
  * PR-N5D：rosclaw_compute / rosclaw_execute 退出默认模型面——能力以
  * CapabilitySnapshot 物化的精确强类型工具直接进入（materialize.ts）；
  * 两者仍是 bridge wire 上的验证链 plumbing（物化工具内部调用）。
- * R0-1：rosclaw_task = TaskExecutionService 的兼容 adapter（frozen
- * TaskSpecV2 → TaskRouter → PlanGraph——唯一生产链）；TaskSpec 承载
- * 完整几何/交付语义（R0-2）后退出模型面，由输入路由自动触发。 */
+ * R0-1.5：rosclaw_task 退出模型面——已知 recipe 由输入路由自动
+ * 执行（TaskExecutionService 唯一生产链，零模型调用）；wire 层
+ * adapter 保留兼容。 */
 export const EMBODIMENT_PACK: readonly string[] = [
 	"rosclaw_status",
 	"rosclaw_capabilities",
 	"rosclaw_observe",
-	"rosclaw_task",
 	"rosclaw_verify",
 	"rosclaw_request_action",
 	"rosclaw_memory_query",
@@ -75,6 +74,10 @@ export const REMOVED_FROM_MODEL: readonly string[] = [
 	"rosclaw_task_pause",
 	"rosclaw_task_resume",
 	"rosclaw_task_cancel",
+	// R0-1.5（金丝雀实证 + 0826 审计 §6 删除清单）：任务级入口
+	// 由输入路由自动执行（零模型调用）——模型面不再有
+	// rosclaw_task；wire 层 adapter 保留（兼容既有 session）。
+	"rosclaw_task",
 	// Worker 操控全系
 	"rosclaw_delegate",
 	"rosclaw_retry_work",

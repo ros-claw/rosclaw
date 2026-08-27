@@ -131,11 +131,13 @@ test("N5D: propose_ 工具走 admission 链（rosclaw_execute 管线）", async 
 	assert.equal(params.request.arguments.capability_id, "ur5e.move_joints");
 });
 
-test("N5D: rosclaw_compute/rosclaw_execute 退出模型面，task 保留兼容", () => {
+test("N5D: rosclaw_compute/rosclaw_execute 退出模型面；R0-1.5 task 亦退出", () => {
 	assert.ok(!MODEL_TOOL_NAMES.includes("rosclaw_compute"),
 		"rosclaw_compute 应从默认模型面删除");
 	assert.ok(!MODEL_TOOL_NAMES.includes("rosclaw_execute"),
 		"rosclaw_execute 应从默认模型面删除");
-	assert.ok(MODEL_TOOL_NAMES.includes("rosclaw_task"),
-		"rosclaw_task 降级为兼容入口（保留）");
+	// R0-1.5（金丝雀实证 + 0826 审计 §6）：已知 recipe 由输入路由
+	// 自动执行——rosclaw_task 退出模型面（wire adapter 保留）。
+	assert.ok(!MODEL_TOOL_NAMES.includes("rosclaw_task"),
+		"rosclaw_task 已退出模型面（输入路由自动执行）");
 });

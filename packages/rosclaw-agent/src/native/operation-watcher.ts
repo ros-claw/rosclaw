@@ -56,6 +56,11 @@ export class OperationWatcher {
 	private readonly delivered = new Set<string>();
 	private readonly seqByTask = new Map<string, number>();
 	private readonly lastLineByOp = new Map<string, string>();
+	/** R0-1.5：自动路由任务跟踪（task_id 集合——plan 进度 +
+	 *  终态一次 followUp）。 */
+	private readonly trackedTasks = new Set<string>();
+	private readonly deliveredTasks = new Set<string>();
+	private readonly completedNodesByTask = new Map<string, Set<string>>();
 
 	constructor(private readonly deps: OperationWatcherDeps) {}
 
@@ -63,6 +68,14 @@ export class OperationWatcher {
 	track(operationId: string): void {
 		if (!operationId || this.tracked.has(operationId)) return;
 		this.pending.add(operationId);
+	}
+
+	/** R0-1.5：自动路由任务登记（输入路由执行——无 operation，
+	 *  跟踪 task 事件流：plan.node 进度 widget + 终态一次
+	 *  followUp）。 */
+	trackTask(taskId: string): void {
+		if (!taskId || this.trackedTasks.has(taskId)) return;
+		this.trackedTasks.add(taskId);
 	}
 
 	start(): void {
@@ -101,9 +114,12 @@ export class OperationWatcher {
 
 	private async tick(): Promise<void> {
 		await this.resolvePending();
-		if (!this.tracked.size) return;
+		if (!this.tracked.size && !this.trackedTasks.size) return;
 		const sink = this.deps.sink();
-		const taskIds = [...new Set(this.tracked.values())];
+		// R0-1.5：op 任务与自动路由任务同一增量轮询（不重不漏）。
+		const taskIds = [
+			...new Set([...this.tracked.values(), ...this.trackedTasks]),
+		];
 		for (const taskId of taskIds) {
 			let events: KernelEvent[] = [];
 			try {
@@ -120,6 +136,9 @@ export class OperationWatcher {
 					this.seqByTask.get(taskId) ?? 0, Number(event.seq) || 0,
 				));
 				const operationId = String(event.operation_id ?? "");
+				if (this.trackedTasks.has(taskId)) {
+					await this.handleTaskEvent(taskId, event);
+				}
 				if (!operationId || !this.tracked.has(operationId)) continue;
 				if (event.event_type === "operation.output") {
 					const text = String(event.payload?.text ?? "").trim();
@@ -154,6 +173,70 @@ export class OperationWatcher {
 		if (!sink?.setWidget || !this.lastLineByOp.has(operationId)) return;
 		this.lastLineByOp.delete(operationId);
 		sink.setWidget(`op:${operationId}`, undefined);
+	}
+
+	/** R0-1.5：自动路由任务事件——plan.node 进度原位 widget +
+	 *  终态（verification.completed）一次 followUp（不重复、
+	 *  progress 不进模型上下文）。 */
+	private static readonly NODE_LABELS: Record<string, string> = {
+		resolve_robot: "资源",
+		make_path: "规划",
+		simulate: "仿真",
+		render: "渲染",
+		render_scene: "场景视频",
+		verify: "验证",
+	};
+
+	private async handleTaskEvent(taskId: string, event: KernelEvent): Promise<void> {
+		if (this.deliveredTasks.has(taskId)) return;
+		const sink = this.deps.sink();
+		if (event.event_type === "plan.node_completed") {
+			const nodeId = String(event.payload?.node_id ?? "");
+			const done = this.completedNodesByTask.get(taskId) ?? new Set<string>();
+			done.add(nodeId);
+			this.completedNodesByTask.set(taskId, done);
+			if (sink?.setWidget) {
+				const labels = [...done].map(
+					(n) => `✓ ${OperationWatcher.NODE_LABELS[n] ?? n}`,
+				);
+				sink.setWidget(`task:${taskId}`, [
+					`⠋ 任务执行中（确定性链）：${labels.join(" ")}`,
+				]);
+			}
+			return;
+		}
+		if (event.event_type !== "verification.completed") return;
+		// 终态：一次 followUp（outcome 权威——不由模型自由夸大）。
+		this.deliveredTasks.add(taskId);
+		this.trackedTasks.delete(taskId);
+		this.completedNodesByTask.delete(taskId);
+		if (sink?.setWidget) sink.setWidget(`task:${taskId}`, undefined);
+		let outcomeText = "";
+		try {
+			const result = await this.deps.call("pi.coordinator.consider", {
+				task_id: taskId,
+			});
+			const outcome = (result.outcome ?? {}) as Record<string, unknown>;
+			const refs = (outcome.artifact_refs ?? []) as Array<Record<string, unknown>>;
+			const opens = refs.map((r) => String(r.open_command ?? "")).filter(Boolean);
+			const passed = outcome.verification === "PASS";
+			outcomeText = passed
+				? `任务完成：验收 PASS · 交付 ${String(outcome.delivery ?? "")}`
+					+ (opens.length ? `——交付物：${opens.join(" · ")}` : "")
+				: `任务未完成：验收 ${String(outcome.verification ?? "?")} · 交付 ${String(outcome.delivery ?? "?")}`
+					+ "——如实告知用户限制，不要宣称完整完成";
+		} catch {
+			outcomeText = "任务已终态（outcome 拉取失败——/activity 查看账本）";
+		}
+		sink?.api.sendMessage(
+			{
+				customType: "rosclaw.task_terminal",
+				content: outcomeText,
+				display: false,
+				details: { task_id: taskId },
+			},
+			{ triggerTurn: true, deliverAs: "followUp" },
+		);
 	}
 
 	private async handleTerminal(
