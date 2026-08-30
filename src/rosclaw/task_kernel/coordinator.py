@@ -127,6 +127,13 @@ class TaskCoordinator:
         ) and not failures
         now = datetime.now(UTC).isoformat()
         if passed:
+            # P0-4（0827 审计）：Kernel 原生交付投影——登记产物由内核
+            # 投影到 outputs/ 投影视图（不经模型 Shell、不依赖
+            # bwrap）；投影失败 = DELIVERED + workspace_projection
+            # DEGRADED，绝不翻转成 MISSING（账本/open_command 权威）。
+            from rosclaw.task_kernel.projection import project_deliverables
+
+            projection = project_deliverables(self._kernel, str(task["task_id"]))
             outcome = self._build_outcome(
                 task, revision, artifacts,
                 lifecycle="COMPLETED",
@@ -134,6 +141,7 @@ class TaskCoordinator:
                 verification="PASS",
                 delivery="DELIVERED",
                 created_at=now,
+                workspace_projection=projection,
             )
             self._store_outcome(task_id, revision, outcome, now)
             return outcome
@@ -206,7 +214,7 @@ class TaskCoordinator:
     def _build_outcome(
         self, task: dict, revision: int, artifacts: list[dict], *,
         lifecycle: str, execution: str, verification: str,
-        delivery: str, created_at: str,
+        delivery: str, created_at: str, workspace_projection: str = "",
     ) -> dict[str, Any]:
         trust = "EXPERIMENTAL"
         if any(
@@ -244,6 +252,10 @@ class TaskCoordinator:
             "verification": verification,
             "delivery": delivery,
             "user_acceptance": "ACCEPTED" if accepted else "UNSEEN",
+            # P0-4：outputs/ 是 ArtifactStore 的投影视图——OK/
+            # DEGRADED（投影退化不翻转 delivery；空串=未评估的非
+            # PASS 分支）。
+            "workspace_projection": workspace_projection,
             "evidence": {
                 "domain": str(task.get("mode") or "SIMULATION"),
                 "trust": trust,

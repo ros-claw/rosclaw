@@ -75,6 +75,17 @@ test("终态呈现器：PASS 带交付命令；PARTIAL 诚实无完成宣称", a
 	assert.match(partial, /未完全达成|未完成/);
 	assert.match(partial, /PARTIAL/);
 	assert.match(partial, /MISSING/);
+	// P0-4：投影退化如实告知（DELIVERED + DEGRADED 不假装正常）。
+	const degraded = renderTerminalReply({
+		verification: "PASS",
+		delivery: "DELIVERED",
+		workspace_projection: "DEGRADED",
+		artifact_refs: [
+			{ artifact_id: "art_g", open_command: "rosclaw artifact open art_g" },
+		],
+	});
+	assert.match(degraded, /任务完成/);
+	assert.match(degraded, /投影退化/);
 });
 
 test("watcher 终态：确定性呈现一次（display, 无 triggerTurn）+ 重放不重发", async () => {

@@ -12,6 +12,9 @@ export interface TerminalOutcome {
 	verification?: string;
 	delivery?: string;
 	lifecycle?: string;
+	/** P0-4：outputs/ 投影视图状态（DEGRADED = 投影失败但账本
+	 *  交付有效——必须如实告知，不得静默）。 */
+	workspace_projection?: string;
 	artifact_refs?: Array<{
 		artifact_id?: string;
 		open_command?: string;
@@ -27,11 +30,14 @@ export function renderTerminalReply(outcome: TerminalOutcome): string {
 		.map((r) => String(r.open_command ?? ""))
 		.filter(Boolean);
 	const passed = verification === "PASS" && delivery === "DELIVERED";
+	const degraded = outcome.workspace_projection === "DEGRADED"
+		? "\n（工作区投影退化——交付物仍可用上面的 artifact open 命令打开）"
+		: "";
 	if (passed) {
 		const head = "✅ 任务完成：验收 PASS · 交付 DELIVERED";
 		return opens.length
-			? `${head}\n交付物：${opens.join(" · ")}`
-			: head;
+			? `${head}\n交付物：${opens.join(" · ")}${degraded}`
+			: head + degraded;
 	}
 	return (
 		`⚠️ 任务未完全达成：验收 ${verification} · 交付 ${delivery}`
