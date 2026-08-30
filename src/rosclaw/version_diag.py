@@ -158,12 +158,23 @@ def _live_agentd(home: Path | None) -> dict[str, Any]:
     import asyncio
 
     async def _query() -> dict[str, Any]:
+        # pi-bridge 全方法要 control token（0600 文件，同 UID 可读）。
+        import contextlib
+
+        token = ""
+        with contextlib.suppress(OSError):
+            token = (sock.parent / "agentd-control.token").read_text(
+                encoding="utf-8"
+            ).strip()
         reader, writer = await asyncio.wait_for(
             asyncio.open_unix_connection(str(sock)), timeout=2.0,
         )
         try:
             writer.write(
-                json.dumps({"method": "pi.status", "params": {}}).encode() + b"\n"
+                json.dumps({
+                    "method": "pi.status",
+                    "params": {"token": token},
+                }).encode() + b"\n"
             )
             await writer.drain()
             line = await asyncio.wait_for(reader.readline(), timeout=2.0)
