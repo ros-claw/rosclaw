@@ -34,6 +34,23 @@ SCALE_FACTOR = 0.05
 #: 工具轴对齐容差（指南 §5.R0-5：tool axis ≤3°）。
 TOOL_AXIS_LIMIT_DEG = 3.0
 
+#: 接近阈值带宽（0827 审计 P0-5）：误差 ≥90% 阈值占用时不得显示
+#: 普通 PASS（19.86mm/20mm=99.3% 显示 PASS 是假成功）。
+NEAR_LIMIT_RATIO = 0.9
+
+
+def tracking_grade(max_error_m: float, threshold_m: float) -> str:
+    """跟踪误差分级：PASS / PASS_NEAR_LIMIT（≥90% 阈值占用）/ FAIL。"""
+    error = float(max_error_m)
+    threshold = float(threshold_m)
+    if error > threshold:
+        return "FAIL"
+    # 浮点边界：90.000...% 也算 near-limit（ε 容差，不放低标准——
+    # 只是不让二进制表示误差吃掉精确边界）。
+    if threshold > 0 and error + 1e-12 >= NEAR_LIMIT_RATIO * threshold:
+        return "PASS_NEAR_LIMIT"
+    return "PASS"
+
 
 def tracking_acceptance(
     scale_m: float, *, robot_floor_m: float = SIM_JACOBIAN_FLOOR_M

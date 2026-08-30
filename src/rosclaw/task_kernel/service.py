@@ -621,6 +621,7 @@ class TaskKernel:
 
     def finish_task(
         self, *, task_id: str, summary: str, artifact_ids: list[str],
+        grade: str = "", tracking_max_error_m: float | None = None,
     ) -> dict[str, Any]:
         """FinishRequest（§12.1）：验收真跑 → SUCCEEDED / REPAIR_REQUIRED。
         终态幂等（重放不重复验证、不覆盖——返回原 receipt id）。
@@ -629,6 +630,11 @@ class TaskKernel:
         - 验收条件只读任务创建时冻结值（模型收尾不得改规则）；
         - 机器人行为任务（body_id 非空）必须含受信管道证据
           （kernel 内部登记的产物）——模型自产证据不算数。
+
+        P0-5（0827 审计）：grade（PASS / PASS_NEAR_LIMIT——≥90%
+        阈值占用的诚实分级）与 tracking_max_error_m 由调用方（受信
+        管道）申报并随验收行持久化——误差事实留账，Coordinator
+        呈现分级而不是一律 PASS。
         """
         task = self.get_task(task_id)
         if task is None:
@@ -849,20 +855,29 @@ class TaskKernel:
         now = datetime.now(UTC).isoformat()
         if verdict["status"] == "PASS":
             verification_id = new_id("vrf")
+            # P0-5：误差事实与分级随验收行持久化（checks_json 是
+            # 审计面——误差/分级不回填就无从复核"接近阈值"）。
+            checks_payload: dict[str, Any] = {"checks": verdict["checks"]}
+            if grade:
+                checks_payload["grade"] = grade
+            if tracking_max_error_m is not None:
+                checks_payload["tracking_max_error_m"] = float(
+                    tracking_max_error_m
+                )
             self._conn.execute(
                 "INSERT INTO verifications (verification_id, task_id, "
                 "revision, status, checks_json, evidence_json, created_at) "
                 "VALUES (?, ?, ?, 'PASS', ?, ?, ?)",
                 (verification_id, task_id, int(task["active_revision"]),
-                 json.dumps({"checks": verdict["checks"]},
-                            ensure_ascii=False),
+                 json.dumps(checks_payload, ensure_ascii=False),
                  json.dumps({"artifact_ids": artifact_ids},
                             ensure_ascii=False),
                  now),
             )
             self._emit(task_id, "verification.completed",
                        {"verification_id": verification_id, "status": "PASS",
-                        "checks": verdict["checks"]})
+                        "checks": verdict["checks"],
+                        **({"grade": grade} if grade else {})})
             self.transition(task_id, "SUCCEEDED", reason="verification_passed")
             return {"status": "SUCCEEDED", "verification_id": verification_id}
         # REPAIR_REQUIRED：回同一 session（task 保持活跃——修复不新建）。

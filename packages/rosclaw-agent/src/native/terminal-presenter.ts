@@ -29,12 +29,17 @@ export function renderTerminalReply(outcome: TerminalOutcome): string {
 	const opens = refs
 		.map((r) => String(r.open_command ?? ""))
 		.filter(Boolean);
-	const passed = verification === "PASS" && delivery === "DELIVERED";
+	const passed = (verification === "PASS" || verification === "PASS_NEAR_LIMIT")
+		&& delivery === "DELIVERED";
 	const degraded = outcome.workspace_projection === "DEGRADED"
 		? "\n（工作区投影退化——交付物仍可用上面的 artifact open 命令打开）"
 		: "";
 	if (passed) {
-		const head = "✅ 任务完成：验收 PASS · 交付 DELIVERED";
+		// P0-5：PASS_NEAR_LIMIT 如实标注（≥90% 阈值占用不显示普通
+		// PASS——19.86mm/20mm 是"勉强通过"，不是"干净通过"）。
+		const head = verification === "PASS_NEAR_LIMIT"
+			? "✅ 任务完成：验收 PASS_NEAR_LIMIT（误差接近阈值上限，勉强通过） · 交付 DELIVERED"
+			: "✅ 任务完成：验收 PASS · 交付 DELIVERED";
 		return opens.length
 			? `${head}\n交付物：${opens.join(" · ")}${degraded}`
 			: head + degraded;

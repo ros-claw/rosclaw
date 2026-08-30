@@ -135,7 +135,8 @@ def run_once(idx: int, base: Path) -> dict:
         outcome["failures"].append("task_outcomes 未落库")
     else:
         oc = json.loads(str(outcomes[0]["outcome_json"]))
-        if oc.get("verification") != "PASS":
+        # P0-5：PASS_NEAR_LIMIT 是合法诚实分级（接近阈值≠失败）。
+        if oc.get("verification") not in ("PASS", "PASS_NEAR_LIMIT"):
             outcome["failures"].append(f"outcome verification={oc.get('verification')}")
     db.close()
     # R0-9（§7.4）：生产路径/用户可见交付/行为预算/证据等级/屏幕

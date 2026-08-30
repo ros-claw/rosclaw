@@ -336,7 +336,12 @@ def draw_path_recipe(
         )
         metrics = verify["metrics"]
         failures: list[str] = []
-        if verify["verdict"] != "PASS":
+        # P0-5（0827 审计）：误差分级——≥90% 阈值占用是
+        # PASS_NEAR_LIMIT（诚实"接近阈值"），不是普通 PASS。
+        from rosclaw.task_kernel.embodied_verifier import tracking_grade
+
+        grade = tracking_grade(float(metrics["max_error_m"]), threshold)
+        if grade == "FAIL":
             failures.append(
                 f"跟踪误差 {metrics['max_error_m']}m > {threshold}m"
             )
@@ -392,6 +397,8 @@ def draw_path_recipe(
             task_id=task_id,
             summary=f"draw_path recipe 执行（{len(artifact_ids)} 项产物）",
             artifact_ids=artifact_ids,
+            grade=grade,
+            tracking_max_error_m=float(metrics["max_error_m"]),
         )
         kernel_failures = [str(f) for f in verdict.get("failures", [])]
         status = (

@@ -86,6 +86,14 @@ test("终态呈现器：PASS 带交付命令；PARTIAL 诚实无完成宣称", a
 	});
 	assert.match(degraded, /任务完成/);
 	assert.match(degraded, /投影退化/);
+	// P0-5：PASS_NEAR_LIMIT 诚实标注（接近阈值 ≠ 干净 PASS）。
+	const nearLimit = renderTerminalReply({
+		verification: "PASS_NEAR_LIMIT",
+		delivery: "DELIVERED",
+		artifact_refs: [],
+	});
+	assert.match(nearLimit, /PASS_NEAR_LIMIT/);
+	assert.match(nearLimit, /接近阈值/);
 });
 
 test("watcher 终态：确定性呈现一次（display, 无 triggerTurn）+ 重放不重发", async () => {

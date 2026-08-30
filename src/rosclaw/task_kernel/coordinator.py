@@ -134,11 +134,29 @@ class TaskCoordinator:
             from rosclaw.task_kernel.projection import project_deliverables
 
             projection = project_deliverables(self._kernel, str(task["task_id"]))
+            # P0-5（0827 审计）：验收分级诚实呈现——≥90% 阈值占用的
+            # PASS_NEAR_LIMIT 不显示为普通 PASS（grade 由受信管道随
+            # 验收行持久化，无 grade = 普通 PASS）。
+            grade_row = self._conn.execute(
+                "SELECT checks_json FROM verifications WHERE task_id = ? "
+                "AND status = 'PASS' ORDER BY rowid DESC LIMIT 1",
+                (str(task["task_id"]),),
+            ).fetchone()
+            verification = "PASS"
+            if grade_row is not None:
+                try:
+                    grade = str(
+                        json.loads(str(grade_row["checks_json"])).get("grade", "")
+                    )
+                except ValueError:
+                    grade = ""
+                if grade == "PASS_NEAR_LIMIT":
+                    verification = "PASS_NEAR_LIMIT"
             outcome = self._build_outcome(
                 task, revision, artifacts,
                 lifecycle="COMPLETED",
                 execution="SUCCEEDED",
-                verification="PASS",
+                verification=verification,
                 delivery="DELIVERED",
                 created_at=now,
                 workspace_projection=projection,
