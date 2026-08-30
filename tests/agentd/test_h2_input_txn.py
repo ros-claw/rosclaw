@@ -43,8 +43,11 @@ class TestInputRootTaskGate:
         )
         try:
             session.expect(b"ROSClaw Native Agent", timeout=120)
+            # 0827 P0-1/2（Input Arbiter）：已知 recipe 指令由
+            # TASK_ROUTER 认领——suppress 模型回合，确定性链执行，
+            # 终态由 Presenter 确定性呈现（不经模型回答）。
             session.send("画一个五角星\r")
-            session.expect("已在同一会话直接完成".encode(), timeout=180)
+            session.expect("任务完成：验收".encode(), timeout=300)
             db = sqlite3.connect(home / "agentd" / "missions.db")
             tasks = db.execute(
                 "SELECT task_id, state, active_revision FROM tasks"
@@ -53,16 +56,25 @@ class TestInputRootTaskGate:
             assert len(tasks) == 1, f"首个目标必须只建一个 root task: {tasks}"
             task_id = tasks[0][0]
             assert tasks[0][2] == 1
-            # 消息可见（不消失）：session JSONL 含用户文本。
-            sessions = list((home / "agent" / "sessions").glob("*.jsonl"))
-            assert sessions, "session JSONL 不存在"
-            blob = sessions[0].read_text(encoding="utf-8", errors="replace")
-            assert "画一个五角星" in blob, "用户消息幽灵消失"
+            # 消息可见（不消失）：屏幕回声 + 内核 user_inputs 权威账本
+            # （0827 P0-1 注：全抑制会话无模型回合——pi 的
+            # SessionManager 在首个 assistant 消息前不落盘，session
+            # JSONL 不存在是 pi 的正常懒惰持久化，不是输入丢失）。
+            assert "画一个五角星" in session.clean.decode(
+                "utf-8", errors="replace"
+            ), "屏幕无指令回声"
+            db = sqlite3.connect(home / "agentd" / "missions.db")
+            input_row = db.execute(
+                "SELECT text FROM user_inputs WHERE text LIKE '%画一个五角星%'"
+            ).fetchone()
+            db.close()
+            assert input_row, "user_inputs 权威账本缺输入（幽灵执行防线）"
 
-            # 追问 → revision 2（同一 task）。
+            # 追问 → revision 2（同一 task，不裂变）；确定性链按新
+            # revision 重跑（圆形）。
             marker = len(session.clean)
             session.send("改成画圆形\r")
-            session.expect("已在同一会话直接完成".encode(), timeout=180,
+            session.expect("任务完成：验收".encode(), timeout=300,
                            after=marker)
             db = sqlite3.connect(home / "agentd" / "missions.db")
             tasks = db.execute(

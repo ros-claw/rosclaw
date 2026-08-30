@@ -79,9 +79,14 @@ export class OperationWatcher {
 	/** R0-1.5：自动路由任务登记（输入路由执行——无 operation，
 	 *  跟踪 task 事件流：plan.node 进度 widget + 终态确定性呈现）。
 	 *  P0-3（0827 审计）：只投影不唤醒——终态回复由 Presenter
-	 *  确定性发布（triggerTurn:false），不再是模型回合。 */
+	 *  确定性发布（triggerTurn:false），不再是模型回合。
+	 *  修订重跑（"改成画圆形"→ 同 task 新 revision 再执行）必须
+	 *  重新武装终态呈现——deliveredTasks 按执行周期清理（旧事件由
+	 *  seq 游标去重，不靠终态集合挡新一轮）。 */
 	trackTask(taskId: string): void {
-		if (!taskId || this.trackedTasks.has(taskId)) return;
+		if (!taskId) return;
+		this.deliveredTasks.delete(taskId);
+		if (this.trackedTasks.has(taskId)) return;
 		this.trackedTasks.add(taskId);
 	}
 

@@ -187,6 +187,16 @@ class TaskKernel:
             "ORDER BY t.created_at DESC LIMIT 1",
             (mission_id, session_ref),
         ).fetchone()
+        # /newtask（FORCE_NEW）必须最先判定——先于 SUCCEEDED 重开：
+        # 否则"显式开新任务"被旧任务的重开语义吞掉（h2 旅程实证：
+        # FORCE_NEW 输入落成旧任务 revision 3）。
+        if active is not None and force_new:
+            self._conn.execute(
+                "UPDATE task_session_bindings SET active = 0 "
+                "WHERE task_id = ? AND session_ref = ?",
+                (active["task_id"], session_ref),
+            )
+            active = None
         if (
             active is not None
             and active["state"] in TASK_TERMINAL
@@ -248,13 +258,6 @@ class TaskKernel:
                 "workspace_path": str(active["workspace_path"]),
                 "state": "RUNNING",
             }
-        if active is not None and force_new:
-            self._conn.execute(
-                "UPDATE task_session_bindings SET active = 0 "
-                "WHERE task_id = ? AND session_ref = ?",
-                (active["task_id"], session_ref),
-            )
-            active = None
         if active is not None:
             revision = int(active["active_revision"]) + 1
             ensure_run(self._home, str(active["task_id"]), revision)  # WP-8
