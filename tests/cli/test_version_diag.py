@@ -6,7 +6,7 @@
 实现与部署漂移而不可察觉。`rosclaw version --diagnostic --json`
 必须报告安装的真实构成：wheel commit / TS dist digest / extension
 digest / kit digest / migration revision / e-URDF 内容代数；
-两侧 commit 不一致 → INSTALLATION_MIXED_BUILD（chat 阻断）。
+两侧 commit 不一致 → INSTALLATION_VERSION_MISMATCH（chat 阻断）。
 """
 
 from __future__ import annotations
@@ -42,7 +42,7 @@ class TestCollectDiagnostics:
             "ts_dist": {"commit": "def456", "entry": "x", "dist_digest": "y"},
         }
         reason = mixed_build_reason(diag)
-        assert reason is not None and "INSTALLATION_MIXED_BUILD" in reason
+        assert reason is not None and "INSTALLATION_VERSION_MISMATCH" in reason
 
     def test_matching_commits_not_mixed(self) -> None:
         from rosclaw.version_diag import mixed_build_reason
@@ -71,7 +71,7 @@ class TestCollectDiagnostics:
                 "wheel_commit": "aaa",
                 "ts_dist": {"commit": "bbb", "entry": "x", "dist_digest": "y"},
             })
-        assert "INSTALLATION_MIXED_BUILD" in str(exc.value)
+        assert "INSTALLATION_VERSION_MISMATCH" in str(exc.value)
 
 
 class TestVersionCli:

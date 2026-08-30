@@ -176,9 +176,26 @@ class PiBridgeServer:
             # 七审 PR-SEVEN-5：机器人友好名 + kit 摘要——UI 默认显示
             # display_name，不再只显示内部 body_id。
             kit_status = await service.robot_kit_status()
+            # P0-8（0827 审计）：build identity——agentd 版本 + boot_id
+            # （每次启动唯一）+ capability snapshot hash（有 mission
+            # 时）——/status 与 version --verbose 同源。
+            from rosclaw import __version__ as _agentd_version
+
+            capability_digest = ""
+            if mission is not None:
+                try:
+                    snapshot = service.capability_snapshot(mission)
+                    capability_digest = str(
+                        snapshot.to_canonical_dict().get("digest", "")
+                    )
+                except Exception:  # noqa: BLE001 - 快照失败不阻塞 status
+                    capability_digest = ""
             return {
                 "ok": True,
                 "agentd": "READY",
+                "agentd_version": _agentd_version,
+                "boot_id": service.boot_id,
+                "capability_digest": capability_digest,
                 "authorization_profile": service.authorization_profile(),
                 "sim_policy": sim_policy,
                 "body_id": service._body_id,

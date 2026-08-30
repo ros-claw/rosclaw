@@ -98,6 +98,11 @@ class AgentService:
 
         self._config = config
         self._home = rosclaw_home
+        # P0-8（0827 审计）：boot_id——每次进程启动唯一（会话间状态
+        # 归因/日志关联的安装身份面）。
+        import uuid as _uuid
+
+        self.boot_id = f"boot_{_uuid.uuid4().hex[:16]}"
         db_dir = rosclaw_home / AGENTD_DIR
         db_dir.mkdir(parents=True, exist_ok=True)
         self._store = MissionStore(db_dir / "missions.db")

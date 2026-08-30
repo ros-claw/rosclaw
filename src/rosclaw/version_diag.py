@@ -14,7 +14,7 @@
 - eurdf_generation：e-urdf-zoo 内容 digest（无代数标记时内容
   寻址就是代数）；
 - mixed_build：wheel 与 TS dist 的 commit 都已知且不同 →
-  INSTALLATION_MIXED_BUILD（chat 启动阻断）；任一侧 unknown
+  INSTALLATION_VERSION_MISMATCH（chat 启动阻断）；任一侧 unknown
   不谎报混合。
 """
 
@@ -146,9 +146,48 @@ def eurdf_generation() -> str:
     return _tree_digest(zoo) or "unknown"
 
 
+def _live_agentd(home: Path | None) -> dict[str, Any]:
+    """查询运行中的 agentd（pi-bridge.sock，NDJSON）——P0-8 运行时
+    身份（version + boot_id + capability snapshot hash）。未运行/
+    不可达 → {"running": False}（诚实，不编造）。"""
+    if home is None:
+        return {"running": False}
+    sock = Path(home) / "run" / "pi-bridge.sock"
+    if not sock.exists():
+        return {"running": False}
+    import asyncio
+
+    async def _query() -> dict[str, Any]:
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_unix_connection(str(sock)), timeout=2.0,
+        )
+        try:
+            writer.write(
+                json.dumps({"method": "pi.status", "params": {}}).encode() + b"\n"
+            )
+            await writer.drain()
+            line = await asyncio.wait_for(reader.readline(), timeout=2.0)
+            return json.loads(line.decode())
+        finally:
+            writer.close()
+
+    try:
+        status = asyncio.run(_query())
+    except Exception:  # noqa: BLE001 - 不可达即未运行
+        return {"running": False}
+    if not status.get("ok"):
+        return {"running": False}
+    return {
+        "running": True,
+        "agentd_version": status.get("agentd_version", ""),
+        "boot_id": status.get("boot_id", ""),
+        "capability_digest": status.get("capability_digest", ""),
+    }
+
+
 def collect_diagnostics(*, home: Path | None = None) -> dict[str, Any]:
-    """安装一致性快照（home 保留给运行时项——当前全部为安装态）。"""
-    del home  # 运行时项（capability snapshot digest）由 agentd 面提供
+    """安装一致性快照 + 运行时身份（home 给运行时项——agentd
+    version/boot_id/capability digest 来自活实例）。"""
     from rosclaw import __version__
 
     ts = _ts_dist()
@@ -160,6 +199,8 @@ def collect_diagnostics(*, home: Path | None = None) -> dict[str, Any]:
         "kit_digest": kit_digest(),
         "migration_revision": migration_revision(),
         "eurdf_generation": eurdf_generation(),
+        # P0-8：agentd 运行时身份（未运行 = running False，不编造）。
+        "agentd": _live_agentd(home),
     }
     reason = mixed_build_reason(diag)
     diag["mixed_build"] = reason is not None
@@ -169,13 +210,17 @@ def collect_diagnostics(*, home: Path | None = None) -> dict[str, Any]:
 
 
 def mixed_build_reason(diag: dict[str, Any]) -> str | None:
-    """两侧 commit 都已知且不同 → 混合构建（诚实：unknown 不报）。"""
+    """两侧 commit 都已知且不同 → 混合构建（诚实：unknown 不报）。
+
+    P0-8（0827 审计）：稳定错误码 INSTALLATION_VERSION_MISMATCH——
+    "报告测新代码、用户跑旧 wheel/dist"必须能被这个码拒绝。
+    """
     wheel = str(diag.get("wheel_commit", "unknown"))
     ts = str((diag.get("ts_dist") or {}).get("commit", "unknown"))
     if wheel == "unknown" or ts == "unknown" or wheel == ts:
         return None
     return (
-        f"INSTALLATION_MIXED_BUILD: wheel 构建自 {wheel[:12]} 而 TS dist "
+        f"INSTALLATION_VERSION_MISMATCH: wheel 构建自 {wheel[:12]} 而 TS dist "
         f"构建自 {ts[:12]}——实现与部署不一致，能力声明不可信"
     )
 
@@ -221,6 +266,14 @@ def cmd_version(*, diagnostic: bool, as_json: bool,
         print(f"  kit_digest:        {diag['kit_digest']}")
         print(f"  migration:         r{diag['migration_revision']}")
         print(f"  eurdf_generation:  {diag['eurdf_generation']}")
+        agentd = diag.get("agentd") or {}
+        if agentd.get("running"):
+            print(f"  agentd_version:    {agentd.get('agentd_version', '')}")
+            print(f"  agentd_boot_id:    {agentd.get('boot_id', '')}")
+            digest = agentd.get("capability_digest") or "（无 active mission）"
+            print(f"  capability_digest: {digest}")
+        else:
+            print("  agentd:            未在运行（version 会话外无活实例）")
         if diag["mixed_build"]:
             print(f"  ⚠ {diag['mixed_build_reason']}")
     return 0

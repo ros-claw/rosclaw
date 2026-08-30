@@ -6846,7 +6846,7 @@ def main() -> int:
         "version", help="Show version / installation diagnostics"
     )
     version_parser.add_argument(
-        "--diagnostic", action="store_true",
+        "--diagnostic", "--verbose", dest="diagnostic", action="store_true",
         help="Show installation composition (commits/digests/revisions)",
     )
     version_parser.add_argument("--json", action="store_true", help="JSON output")
@@ -8954,6 +8954,7 @@ def main() -> int:
 
             return cmd_version(
                 diagnostic=bool(args.diagnostic), as_json=bool(args.json),
+                home=get_rosclaw_home(),  # P0-8：home 给运行时身份
             )
         if args.command == "init":
             return cmd_init(args)
