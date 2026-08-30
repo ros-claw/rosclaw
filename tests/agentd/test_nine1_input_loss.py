@@ -83,11 +83,12 @@ class TestInputNeverLost:
                             )
                         if "画一个五角星" in str(content):
                             found_user = True
-                if entry.get("type") == "custom_message" and (
-                    entry.get("customType") == "rosclaw.user_directive"
+                if (
+                    entry.get("type") == "custom_message"
+                    and entry.get("customType") == "rosclaw.user_directive"
+                    and "画一个五角星" in str(entry.get("content", ""))
                 ):
-                    if "画一个五角星" in str(entry.get("content", "")):
-                        found_echo = True
+                    found_echo = True
         # 单 Owner 契约：输入以确定性链回声落在 transcript（绝不能是
         # user message——user message 意味着送进了模型=双控制者）。
         assert found_echo, (
