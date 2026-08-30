@@ -58,6 +58,9 @@ export interface KernelSnapshotV1 {
 	context_revision: number;
 	lease_state: LeaseState;
 	operator: OperatorState;
+	/** P0-7（0827 审计）：provider 状态——PAUSED = 配额/凭据类确定性
+	 *  错误（一张卡 + /model 入口；不再反复请求）。 */
+	provider?: "OK" | "PAUSED";
 	action_readiness: ActionReadinessV1;
 	/** 十一审 PR-D：当前绑定 workspace（None=无 Project）。 */
 	workspace?: string;
@@ -92,6 +95,9 @@ type Listener = () => void;
 export class ProductStateCenter {
 	private seq = 0;
 	private kernelState: KernelState = "READY";
+	/** P0-7：provider 暂停（配额/凭据类确定性错误——模型切换或
+	 *  下次成功清除）。 */
+	private providerState: "OK" | "PAUSED" = "OK";
 	/** R0-6（0826 体验审计 §5.R0-6）：启动事务——bootstrap 完成前
 	 *  chrome/ready 显示"正在准备"（不是 Kernel Unreachable +
 	 *  Context Stale + Action Blocked 三连假真相）。 */
@@ -169,6 +175,7 @@ export class ProductStateCenter {
 			context_revision: state.contextRevision,
 			lease_state: state.leaseState,
 			operator: this.operatorState,
+			provider: this.providerState,
 			action_readiness: this.computeReadiness(),
 			workspace: this.workspaceDisplay,
 		};
@@ -190,6 +197,9 @@ export class ProductStateCenter {
 		const codes: string[] = [];
 		if (!state.missionId) codes.push("NO_MISSION");
 		if (this.kernelState !== "READY") codes.push("KERNEL_UNREACHABLE");
+		// P0-7：provider 暂停（配额/凭据确定性错误）——模型驱动的
+		// 动作此刻必然失败，readiness 诚实标注。
+		if (this.providerState === "PAUSED") codes.push("PROVIDER_PAUSED");
 		if (state.leaseState !== "ACTIVE") codes.push("NO_WRITER_LEASE");
 		if (state.missionId && state.contextState !== "FRESH") codes.push("CONTEXT_STALE");
 		if (state.missionId && !state.contextLeaseId) codes.push("NO_CONTEXT_LEASE");
@@ -283,6 +293,20 @@ export class ProductStateCenter {
 			this.modelDisplay = display;
 			this.changed();
 		}
+	}
+
+	/** P0-7：provider 确定性错误 → PAUSED（Header/readiness 可见）。 */
+	noteProviderPaused(_code: string): void {
+		if (this.providerState === "PAUSED") return;
+		this.providerState = "PAUSED";
+		this.changed();
+	}
+
+	/** P0-7：模型切换/下次成功 → 恢复（同一 turn 继续，不重建任务）。 */
+	noteProviderOk(): void {
+		if (this.providerState === "OK") return;
+		this.providerState = "OK";
+		this.changed();
 	}
 
 	/** UDS 桥调用包装：失败即原子降级（kernel UNREACHABLE + context

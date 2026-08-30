@@ -31,7 +31,7 @@ import type { ProductStateCenter } from "../session/state-center.js";
 import { InputController } from "../native/input-controller.js";
 import { OperationWatcher } from "../native/operation-watcher.js";
 import { suppressModelTurn } from "../native/turn-disposition.js";
-import { classifyModelError } from "../native/model-errors.js";
+import { classifyModelError, ProviderErrorGate } from "../native/model-errors.js";
 import {
 	renderArtifactList,
 	renderOperationLogs,
@@ -1028,16 +1028,43 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 		// 内消息 finalize 进行中，会话层会丢条目）。
 		const COMPLETION_CLAIM =
 			/(已执行|已完成|已确认|执行完毕|成功执行|successfully executed|has been executed|action completed)/i;
+		// P0-7（0827 审计 §八）：provider 错误经闸门——同一错误码一张
+		// 中文卡（重试的重复 message_end 不重复显示）；原始错误进
+		// /activity 账本；PROVIDER_PAUSED 进 Header/readiness；模型
+		// 切换或下次成功复位（恢复同一 turn，不重建任务）。
+		const providerGate = new ProviderErrorGate();
+		pi.on("model_select", async () => {
+			providerGate.onModelSwitch();
+			center.noteProviderOk();
+			return undefined;
+		});
 		pi.on("message_end", async (event) => {
 			// PR-H7（§8.4）：provider 错误分类——403 配额≠鉴权错误；
 			// 稳定错误码 + 用户可理解说明 + 恢复动作（task 可继续）。
 			const msg = event.message as { role?: string; stopReason?: string; errorMessage?: string };
 			if (msg.role === "assistant" && (msg.stopReason === "error" || msg.errorMessage)) {
-				const classified = classifyModelError(String(msg.errorMessage ?? ""));
-				latestCtx?.ui.notify(
-					`[${classified.code}] ${classified.explanation}——${classified.recovery}`,
-					"error",
-				);
+				const raw = String(msg.errorMessage ?? "");
+				const classified = classifyModelError(raw);
+				let hasActiveTask = false;
+				try {
+					hasActiveTask = Boolean(await inputController.activeTaskId());
+				} catch {
+					hasActiveTask = false;
+				}
+				const verdict = providerGate.onError(classified, {
+					hasActiveTask, raw,
+				});
+				if (verdict.showCard) {
+					latestCtx?.ui.notify(verdict.cardText, "error");
+					center.noteProviderPaused(classified.code);
+				}
+				// 原始错误永远进账本（即使卡片被去重——/activity 可查）。
+				if (verdict.activity) {
+					pi.appendEntry("rosclaw.provider_error", verdict.activity);
+				}
+			} else if (msg.role === "assistant" && !msg.errorMessage) {
+				providerGate.onSuccess();
+				center.noteProviderOk();
 			}
 			if (!lastOutcome || lastOutcome.narrativeSeen) return undefined;
 			const message = event.message as { role?: string; content?: unknown };

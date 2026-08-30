@@ -97,6 +97,10 @@ def configure_model(
         # Pi settings（defaultThinkingLevel——此前被静默忽略）；保留
         # 其他 settings 键。
         _write_thinking_level(home, reasoning_effort)
+        # P0-7（0827 审计 §八）：Provider 重试预算进 Pi settings——
+        # 配额类确定性错误命中 Pi NON_RETRYABLE 词表时零重试；其余
+        # 瞬态错误最多 1 次自动重试（默认 3 次会把确定性 403 烧 4 次）。
+        _write_retry_budget(home)
     return {
         "configured": True,
         "config_path": str(home / "agent"),
@@ -123,6 +127,30 @@ def _write_thinking_level(home: Path, effort: str) -> None:
     if settings.get("defaultThinkingLevel") == effort:
         return
     settings["defaultThinkingLevel"] = effort
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.write_text(
+        json.dumps(settings, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _write_retry_budget(home: Path) -> None:
+    """retry.maxRetries=1 写入 agent/settings.json（保留其他键，
+    幂等）——P0-7：确定性 provider 错误不得被自动重试烧配额。"""
+    settings_path = home / "agent" / "settings.json"
+    settings: dict = {}
+    if settings_path.exists():
+        try:
+            settings = json.loads(settings_path.read_text(encoding="utf-8"))
+        except ValueError:
+            settings = {}
+    retry = settings.get("retry")
+    if not isinstance(retry, dict):
+        retry = {}
+    if retry.get("maxRetries") == 1:
+        return
+    retry["maxRetries"] = 1
+    settings["retry"] = retry
     settings_path.parent.mkdir(parents=True, exist_ok=True)
     settings_path.write_text(
         json.dumps(settings, ensure_ascii=False, indent=2) + "\n",
