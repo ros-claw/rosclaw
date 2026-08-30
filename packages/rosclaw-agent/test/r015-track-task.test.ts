@@ -1,11 +1,12 @@
 /** R0-1.5 红测试（金丝雀实证 + 0826 审计收口）：trackTask——
- * 自动路由任务的 plan 进度 widget + 终态一次 followUp。
+ * 自动路由任务的 plan 进度 widget + 终态确定性呈现。
  *
  * 断言：
  * 1. plan.node_started/completed → 单活动区 widget 原位更新
  *    （不重复打印、不进模型上下文）；
- * 2. verification.completed PASS → 一次 followUp（含交付打开
- *    命令）——重放不重复投递；
+ * 2. verification.completed PASS → 终态回复确定性呈现一次
+ *    （display:true、triggerTurn:false——0827 P0-3：Coordinator 是
+ *    唯一终态发布者，不 followUp 唤醒 Agent）——重放不重复投递；
  * 3. 终态后 untrack（不再轮询）。
  */
 
@@ -72,8 +73,9 @@ test("trackTask：进度 widget + 终态一次 followUp + untrack", async () => 
 		progressLines.some((line) => /规划|make_path/.test(line)),
 		`进度 widget 无规划节点行：${JSON.stringify(widgets)}`,
 	);
-	// 终态 → followUp 一次。
-	assert.equal(followUps.length, 1, `followUp 应恰好一次（实际 ${followUps.length}）`);
+	// 终态 → 确定性呈现一次（0827 P0-3：display:true +
+	// triggerTurn:false，不唤醒模型）。
+	assert.equal(followUps.length, 1, `终态呈现应恰好一次（实际 ${followUps.length}）`);
 	assert.match(followUps[0], /art_g/);
 	// 重放不重复投递。
 	await (watcher as never as { tick(): Promise<void> }).tick();

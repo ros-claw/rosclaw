@@ -1035,6 +1035,19 @@ class PiBridgeServer:
             out: dict = {"ok": True, "input": record}
             if auto_task:
                 out["auto_task"] = auto_task
+            # P0-1（0827 审计·Input Arbiter）：权威 TurnDisposition——
+            # 一条输入只有一个 Owner。TASK_ROUTER 认领后 Harness 必须
+            # suppress 模型回合（否则确定性链与 Native Agent 双控制者
+            # 竞争，终态互相矛盾）。
+            out["turn_disposition"] = {
+                "input_id": str(
+                    record.get("input_id", "")
+                    or params.get("message_id", "")
+                ),
+                "owner": "TASK_ROUTER" if auto_task else "PI_CONVERSATION",
+                "task_id": str(auto_task.get("task_id", "")) if auto_task else "",
+                "suppress_model_turn": bool(auto_task),
+            }
             return out
         if method == "pi.task.ensure_effect":
             # P0-C（0824 总纲 §6.2）：首个 effectful call 的原子

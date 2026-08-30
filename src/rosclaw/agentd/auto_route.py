@@ -47,7 +47,24 @@ async def maybe_auto_route(
     text = text.strip()
     if not text or not is_task_directive(text):
         return None
+    kernel = service._task_kernel
+    # P0-1/P0-2（0827 审计·双控制者根治）：重放优先——同一
+    # message_id 已认领（进程内去重）或已附着任务（持久层去重，
+    # 覆盖 daemon 重启后的重投递）时，返回同一任务的 auto_task
+    # 描述。若重放返回 None，输入会掉进模型路径=双执行。
     if message_id in _routed:
+        row = kernel._conn.execute(
+            "SELECT task_id FROM user_inputs WHERE message_id = ?",
+            (message_id,),
+        ).fetchone()
+        if row is not None and row["task_id"]:
+            return {
+                "task_id": str(row["task_id"]),
+                "recipe_id": "",
+                "state": "RUNNING",
+                "inputs": {},
+                "replayed": True,
+            }
         return None
     intent = _classify_intent(text)
     if route_recipe({"goal": {"intent": intent}}) is None:
@@ -55,13 +72,19 @@ async def maybe_auto_route(
     mission = service.get_mission(mission_id)
     if mission is not None and mission.mode.value != "SIMULATION":
         return None  # REAL/SHADOW 不自动路由（rosclawd 权威链）
-    kernel = service._task_kernel
-    # 重放/已附着输入不重路由（双保险）。
+    # 重放/已附着输入不重路由（持久层双保险：返回同一任务而不是
+    # None——None 意味着"交给模型"，对重放即双控制者）。
     row = kernel._conn.execute(
         "SELECT task_id FROM user_inputs WHERE message_id = ?", (message_id,),
     ).fetchone()
     if row is not None and row["task_id"]:
-        return None
+        return {
+            "task_id": str(row["task_id"]),
+            "recipe_id": "",
+            "state": "RUNNING",
+            "inputs": {},
+            "replayed": True,
+        }
     try:
         bound = kernel.ensure_task_for_effect(
             mission_id=mission_id,

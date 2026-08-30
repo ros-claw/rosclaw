@@ -10,7 +10,13 @@
  *   token 开销）；
  * - 终态一次性 followUp（WP-1 语义不变：owning task 终态/旧
  *   revision 只存档不触发回合）。
+ *
+ * P0-3（0827 审计）：trackTask（输入路由任务）只投影——终态回复由
+ * Coordinator 经 TerminalPresenter 确定性呈现（display:true,
+ * triggerTurn:false），绝不 followUp 唤醒 Agent（双控制者根治）。
  */
+
+import { renderTerminalReply, type TerminalOutcome } from "./terminal-presenter.js";
 
 interface SendSink {
 	sendMessage(
@@ -71,8 +77,9 @@ export class OperationWatcher {
 	}
 
 	/** R0-1.5：自动路由任务登记（输入路由执行——无 operation，
-	 *  跟踪 task 事件流：plan.node 进度 widget + 终态一次
-	 *  followUp）。 */
+	 *  跟踪 task 事件流：plan.node 进度 widget + 终态确定性呈现）。
+	 *  P0-3（0827 审计）：只投影不唤醒——终态回复由 Presenter
+	 *  确定性发布（triggerTurn:false），不再是模型回合。 */
 	trackTask(taskId: string): void {
 		if (!taskId || this.trackedTasks.has(taskId)) return;
 		this.trackedTasks.add(taskId);
@@ -206,7 +213,10 @@ export class OperationWatcher {
 			return;
 		}
 		if (event.event_type !== "verification.completed") return;
-		// 终态：一次 followUp（outcome 权威——不由模型自由夸大）。
+		// P0-3（0827 审计）：Coordinator 是唯一终态发布者——终态回复由
+		// TaskOutcome 确定性生成、display 直接呈现；绝不 followUp 唤醒
+		// Agent（0827 实证：followUp 触发模型回合与确定性链互相矛盾
+		// =双控制者）。trackTask 只投影，不唤醒。
 		this.deliveredTasks.add(taskId);
 		this.trackedTasks.delete(taskId);
 		this.completedNodesByTask.delete(taskId);
@@ -217,14 +227,7 @@ export class OperationWatcher {
 				task_id: taskId,
 			});
 			const outcome = (result.outcome ?? {}) as Record<string, unknown>;
-			const refs = (outcome.artifact_refs ?? []) as Array<Record<string, unknown>>;
-			const opens = refs.map((r) => String(r.open_command ?? "")).filter(Boolean);
-			const passed = outcome.verification === "PASS";
-			outcomeText = passed
-				? `任务完成：验收 PASS · 交付 ${String(outcome.delivery ?? "")}`
-					+ (opens.length ? `——交付物：${opens.join(" · ")}` : "")
-				: `任务未完成：验收 ${String(outcome.verification ?? "?")} · 交付 ${String(outcome.delivery ?? "?")}`
-					+ "——如实告知用户限制，不要宣称完整完成";
+			outcomeText = renderTerminalReply(outcome as TerminalOutcome);
 		} catch {
 			outcomeText = "任务已终态（outcome 拉取失败——/activity 查看账本）";
 		}
@@ -232,10 +235,10 @@ export class OperationWatcher {
 			{
 				customType: "rosclaw.task_terminal",
 				content: outcomeText,
-				display: false,
+				display: true,
 				details: { task_id: taskId },
 			},
-			{ triggerTurn: true, deliverAs: "followUp" },
+			{ triggerTurn: false },
 		);
 	}
 

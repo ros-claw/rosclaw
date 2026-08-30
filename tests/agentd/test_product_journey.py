@@ -194,7 +194,7 @@ class _FakeModel:
             if tool_call_id == "call_star_action":
                 # Journey B 批准腿：admission COMPLETED → 完成回答。
                 if "COMPLETED" in tool_content:
-                    answer = "五角星已绘制完成，几何验证通过。"
+                    answer = "位姿移动测试完成，结构化回执已确认。"
                 else:
                     answer = f"动作未完成（{tool_content[:80]}）。"
                 frames.append(_sse(_chunk(answer)))
@@ -383,15 +383,6 @@ class _FakeModel:
             # 步骤的"Worker 结果已收到并验证"混淆）。
             frames.append(_sse(_chunk("Worker 结果已综合给用户。")))
             frames.append(_sse(_chunk("", "stop")))
-        elif "任务完成：验收 PASS" in text or (
-            "任务完成：验收 PASS" in _text(messages[-1] if messages else {})
-        ):
-            # R0-1.5：自动路由任务的终态 followUp 回合——outcome 权威
-            # （验收 PASS + 交付完成）才说完成。
-            frames.append(_sse(_chunk("五角星已绘制完成，几何验证通过。")))
-            frames.append(_sse(_chunk("", "stop")))
-            frames.append(b"data: [DONE]\n\n")
-            return b"".join(frames)
         elif "委派" in text:
             # PR-H1（ADR-0012）：模型面不再有 task_submit/delegate——
             # Native Agent 用自己的工作工具在同一 session 直接完成。
@@ -402,35 +393,27 @@ class _FakeModel:
                     json.dumps({"command": "echo 日志要点已归纳"}),
                 )
             )
-        elif "画五角星" in text or "画一个五角星" in text:
-            if getattr(self, "_ask_policy", False):
-                # 七审 Journey B（PR-H9）：ask 策略的人工卡走唯一授权面
-                # rosclaw_request_action（admission）——rosclaw_task 是
-                # 免卡确定性 SIM 闭环，不产生人工卡。
-                frames.extend(
-                    _tool_call_frames(
-                        "call_star_action",
-                        "rosclaw_request_action",
-                        json.dumps(
-                            {
-                                "capability_id": "ur5e.move_to_pose",
-                                "arguments": {
-                                    "x": 0.35, "y": 0.25, "z": 0.40,
-                                },
-                                "expected_effect": "机械臂画五角星",
-                                "risk_tier": "LOW",
-                            }
-                        ),
-                    )
+        elif "位姿移动测试" in text:
+            # Journey B（ask 策略，PR-H9）：人工卡走唯一授权面
+            # rosclaw_request_action（admission）。0827 P0-1 后已知
+            # recipe 由 Input Arbiter 认领（suppress 模型回合）——
+            # 授权卡旅程改用非 recipe 指令保持模型腿可测。
+            frames.extend(
+                _tool_call_frames(
+                    "call_star_action",
+                    "rosclaw_request_action",
+                    json.dumps(
+                        {
+                            "capability_id": "ur5e.move_to_pose",
+                            "arguments": {
+                                "x": 0.35, "y": 0.25, "z": 0.40,
+                            },
+                            "expected_effect": "小幅位姿移动测试",
+                            "risk_tier": "LOW",
+                        }
+                    ),
                 )
-            else:
-                # R0-1.5（金丝雀实证 + 0826 审计收口）：已知 recipe 由
-                # 输入路由自动执行（零模型调用）——模型不再调
-                # rosclaw_task（已退出模型面），只确认收到指令。
-                frames.append(_sse(_chunk("已收到——确定性任务链自动执行中。")))
-                frames.append(_sse(_chunk("", "stop")))
-                frames.append(b"data: [DONE]\n\n")
-                return b"".join(frames)
+            )
         elif "回到零点" in text:
             # 七审 PR-SEVEN-7 Journey B：单独动作（deny 腿）——一次
             # 人工拒绝必须 fail closed（无 txn、无 grant、诚实回答）。
@@ -901,15 +884,18 @@ class TestProductJourney:
             session.expect(b"Operator Ready", timeout=60)
             self._journey_verdicts["operator_bootstrapped_in_tui"] = True
             # -- 批准腿：一次人工卡覆盖整条轨迹 --------------------------
+            # 0827 P0-1：已知 recipe（画五角星）由 Input Arbiter 认领后
+            # suppress 模型回合——授权卡旅程改用非 recipe 指令（位姿
+            # 移动）保持模型腿/人工卡链路真实可测。
             approve_start = len(session.clean)
-            session.send("我想跑一个机械臂仿真，让机械臂画五角星\r")
+            session.send("让机械臂做一次小幅位姿移动测试\r")
             overlay_at = len(session.clean)
             session.expect("ROSCLAW 授权请求".encode(), timeout=240)
             # overlay 聚焦竞态：渲染出现 ≠ 键盘路由就绪——重试发 y
             # 直到任务完成文本出现（decided 后卡片立即关闭，决定行
             # 不一定渲染——不能用它当 marker）。
             session.expect_with_resend(
-                "五角星已绘制完成，几何验证通过".encode(), "y", timeout=240
+                "位姿移动测试完成，结构化回执已确认。".encode(), "y", timeout=240
             )
             segment = session.clean[approve_start:]
             assert b"POLICY_AUTO" not in segment, "ask 策略竟走政策自动授权"
@@ -1607,12 +1593,21 @@ class TestProductJourney:
             #    SIM 自动执行）：能力面 → 初始观测 → POLICY_AUTO（无人工
             #    卡、不按 Y）→ 执行 → 后置观测验证。
             action_start = len(session.clean)
+            model_turns_before = len(fake.fake.requests)
             session.send("我想跑一个机械臂仿真，让机械臂画五角星\r")
-            # 九审 §1.5 + PR-H9：rosclaw_task → SimTrajectoryService
-            # 确定性闭环（SIM 动力学直跑——无 Operator 卡、无 POLICY_AUTO
-            # 卡——默认安全 SIM 自动是产品语义）。
-            # 最终回答必须基于 verifier（不是模型自称画完）。
-            session.expect("五角星已绘制完成，几何验证通过".encode(), timeout=180)
+            # 0827 P0-1/2/3（双控制者根治）：已知 recipe 由 Input
+            # Arbiter 原子认领（TASK_ROUTER）——suppress 模型回合，
+            # 单一 PlanGraph 执行，终态由 Coordinator/Presenter 确定性
+            # 呈现（"任务完成：验收 PASS" 是 TaskOutcome 的呈现，不是
+            # 模型回合的回答）。
+            session.expect("任务完成：验收 PASS".encode(), timeout=180)
+            # 单 Owner 硬证据：整个自动执行窗口零模型请求（双控制者
+            # 时代模型会收到同一指令并手工再执行一遍）。
+            assert len(fake.fake.requests) == model_turns_before, (
+                f"已知 recipe 竟产生 {len(fake.fake.requests) - model_turns_before} "
+                "次模型请求——双控制者未根治"
+            )
+            self._journey_verdicts["auto_route_zero_model_turns"] = True
             action_segment = session.clean[action_start:]
             assert "ROSCLAW 授权请求".encode() not in action_segment, (
                 "默认安全 SIM 竟弹人工审批卡"

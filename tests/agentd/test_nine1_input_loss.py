@@ -1,9 +1,14 @@
 """NINE-1 红测试（九审 §0.1/§25.1）：输入吞噬的最小复现（PTY 级）。
 
 红测试先行——九审实测顺序：hello（正常）→ 自然语言五角星（输入
-消失，后台出现任务结果，模型不知情）。本测试固定：自然语言任务
-输入必须进入 Pi session JSONL 的 user message——TUI、模型消息、
-持久化账本三者一致。
+消失，后台出现任务结果，模型不知情）。
+
+0827 P0-1/2（Input Arbiter）后契约更新：已知 recipe 的指令由
+TASK_ROUTER 认领并 suppress 模型回合——输入绝不作为 user message
+进模型（那是双控制者通道），但必须作为确定性链回声（custom
+message，display:true）落在 session transcript，且内核 user_inputs
+账本持有权威记录。本测试固定：transcript 有回声 + 无 user
+message + 内核账本有记录——三者一致。
 """
 
 from __future__ import annotations
@@ -51,9 +56,13 @@ class TestInputNeverLost:
                     session.stop()
         finally:
             fake.close()
-        # 核心断言：用户输入作为 user message 存在于 session JSONL。
+        # 核心断言：用户输入必须在会话 transcript 可见。0827 P0-1/2
+        # （Input Arbiter）后，已知 recipe 的指令被 TASK_ROUTER 认领并
+        # suppress 模型回合——输入不再是 user message（那是双控制者的
+        # 通道），而是确定性链回声（custom message，display:true）。
         sessions_dir = home / "agent" / "sessions"
-        found = False
+        found_user = False
+        found_echo = False
         for session_file in sessions_dir.glob("*.jsonl"):
             for line in session_file.read_text(
                 encoding="utf-8", errors="replace"
@@ -62,20 +71,30 @@ class TestInputNeverLost:
                     entry = json.loads(line)
                 except json.JSONDecodeError:
                     continue
-                if entry.get("type") != "message":
-                    continue
-                message = entry.get("message", {})
-                if message.get("role") != "user":
-                    continue
-                content = message.get("content", "")
-                if isinstance(content, list):
-                    content = " ".join(
-                        str(b.get("text", "")) for b in content if isinstance(b, dict)
-                    )
-                if "画一个五角星" in str(content):
-                    found = True
-                    break
-        assert found, (
-            "用户输入'我想用机械臂画一个五角星'未进入 session JSONL——"
-            "P0-INPUT-LOSS（幽灵执行）"
+                if entry.get("type") == "message":
+                    message = entry.get("message", {})
+                    if message.get("role") == "user":
+                        content = message.get("content", "")
+                        if isinstance(content, list):
+                            content = " ".join(
+                                str(b.get("text", ""))
+                                for b in content
+                                if isinstance(b, dict)
+                            )
+                        if "画一个五角星" in str(content):
+                            found_user = True
+                if entry.get("type") == "custom_message" and (
+                    entry.get("customType") == "rosclaw.user_directive"
+                ):
+                    if "画一个五角星" in str(entry.get("content", "")):
+                        found_echo = True
+        # 单 Owner 契约：输入以确定性链回声落在 transcript（绝不能是
+        # user message——user message 意味着送进了模型=双控制者）。
+        assert found_echo, (
+            "用户输入'画一个五角星'的确定性链回声未进入 session JSONL——"
+            "输入在 transcript 不可见（HP1 会话证据缺失）"
+        )
+        assert not found_user, (
+            "已认领输入竟作为 user message 进入会话——模型会再次看到"
+            "同一指令（双控制者回归）"
         )

@@ -30,6 +30,7 @@ import {
 import type { ProductStateCenter } from "../session/state-center.js";
 import { InputController } from "../native/input-controller.js";
 import { OperationWatcher } from "../native/operation-watcher.js";
+import { suppressModelTurn } from "../native/turn-disposition.js";
 import { classifyModelError } from "../native/model-errors.js";
 import {
 	renderArtifactList,
@@ -427,16 +428,37 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			const persisted = await inputController.persist(text);
 			if (!persisted) return { action: "handled" as const };
 			// R0-1.5：输入路由自动执行——已知 recipe 由内核直接执行
-			// （零模型调用）；watcher 跟踪进度/终态（followUp 一次）。
+			// （零模型调用）；watcher 跟踪进度/终态（确定性呈现）。
+			// P0-1/P0-2（0827 审计·双控制者根治）：Input Arbiter——
+			// 一条输入只有一个 Owner。TASK_ROUTER 认领后 suppress 模型
+			// 回合（handled，不再 continue）——同一指令绝不进 Pi Agent。
 			const autoTask = (persisted as { auto_task?: { task_id?: string } })
 				.auto_task;
-			if (autoTask?.task_id) {
-				operationWatcher.trackTask(String(autoTask.task_id));
+			if (suppressModelTurn(persisted)) {
+				if (autoTask?.task_id) {
+					operationWatcher.trackTask(String(autoTask.task_id));
+				}
+				// 指令回声：handled 的输入不进 Pi 会话——确定性链认领的
+				// 指令必须落在 session transcript（HP1 输入丢失防线的
+				// 会话证据 + 用户可见），但绝不触发模型回合。
+				pi.sendMessage(
+					{
+						customType: "rosclaw.user_directive",
+						content: text,
+						display: true,
+						details: {
+							task_id: autoTask?.task_id ?? "",
+							owner: "TASK_ROUTER",
+						},
+					},
+					{ triggerTurn: false },
+				);
 				const ctx2 = latestCtx;
 				ctx2?.ui.notify(
 					"任务已由确定性链自动开始执行（/activity 查看进度）",
 					"info",
 				);
+				return { action: "handled" as const };
 			}
 			return { action: "continue" as const };
 		});

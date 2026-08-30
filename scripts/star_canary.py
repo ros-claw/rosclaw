@@ -146,9 +146,10 @@ def run_once(idx: int, base: Path) -> dict:
     for check in (
         lambda: assert_production_plan_graph(home),
         lambda: assert_user_visible_delivery(home, require_scene=True),
-        lambda: assert_model_behavior_budget(home, max_task_calls=1),
+        lambda: assert_model_behavior_budget(home, max_task_calls=0),
         lambda: assert_evidence_levels(home, require_scene=True),
         lambda: assert_screen_clean(session.clean),
+        lambda: assert_single_owner(home, session.clean),
         lambda: assert_final_answer_consistent(
             session.clean.decode("utf-8", errors="replace")[-3000:],
             final_outcome,
@@ -337,6 +338,37 @@ def assert_screen_clean(screen: bytes) -> None:
         assert not (marker in text and has_success), (
             f"屏幕同时出现 {marker} 与成功标记——readiness 与 effect 矛盾"
         )
+
+
+def assert_single_owner(home: Path, screen: bytes) -> None:
+    """0827 审计·已知 recipe Gate：单输入单 Owner + 单终态发布者。
+
+    - 模型 effectful 调用为 0（双控制者时代模型手拼执行 ≈10 次）；
+    - 屏幕恰好 1 条最终回复（"任务完成：验收"——确定性呈现，
+      不再有模型回合的第二个终态）；
+    - 终态后无新模型回合（pi_event_mirrors 的 LLM usage 为 0——
+      suppress_model_turn 后整个窗口无模型调用）。
+    """
+    conn = sqlite3.connect(home / "agentd" / "missions.db")
+    capability_calls = conn.execute(
+        "SELECT COUNT(*) FROM agent_events WHERE type = 'tool.completed' "
+        "AND json_extract(payload_json, '$.tool_name') IN "
+        "('rosclaw_compute', 'rosclaw_execute', 'rosclaw_request_action', "
+        "'rosclaw_deliver')"
+    ).fetchone()[0]
+    llm_turns = conn.execute(
+        "SELECT COUNT(*) FROM pi_event_mirrors WHERE usage_json != ''"
+    ).fetchone()[0]
+    conn.close()
+    assert capability_calls == 0, (
+        f"已知 recipe 竟有 {capability_calls} 次模型具身调用——双控制者未根治"
+    )
+    assert llm_turns == 0, (
+        f"已知 recipe 竟产生 {llm_turns} 次模型回合——suppress_model_turn 未生效"
+    )
+    text = screen.decode("utf-8", errors="replace")
+    replies = text.count("任务完成：验收")
+    assert replies == 1, f"最终回复应恰好 1 条（实际 {replies}）——单终态发布者"
 
 
 _COMPLETION_CLAIMS = ("已绘制完成，视频已交付", "全部完成", "完整完成")
