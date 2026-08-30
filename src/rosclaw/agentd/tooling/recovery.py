@@ -38,6 +38,11 @@ RECOVERY_REGISTRY: dict[str, str] = {
     "RENDER_FAILED": "渲染子进程失败——内核已降级一次；检查后端/依赖，模型不重试",
     "WORLD_ASSET_MISSING": "场景 world 资产不存在——换已支持的 world 或安装资产，模型不重试",
     "TOOL_ASSET_MISSING": "工具资产不存在——不得假装持笔；安装工具资产或去掉工具声明",
+    # P0-6（0827 审计）：引用类稳定码——跨进程引用失败必须带码
+    # 透传（不得包成 EXECUTOR_ERROR 丢语义）。
+    "REF_NOT_FOUND": "引用不在共享 PlanStore——重新规划生成新引用，不重试同一 id",
+    "REF_FORMAT_UNKNOWN": "引用格式不可解码（生产者/消费者 schema 不兼容）——用生产者当前 schema 重新生成",
+    "REF_CONFORMANCE_FAILED": "PlanRef 生产者/消费者不共享存储——工具对已退出模型面，改用别的规划链",
 }
 
 

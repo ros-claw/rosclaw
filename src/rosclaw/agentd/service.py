@@ -806,9 +806,31 @@ class AgentService:
 
     def capability_snapshot(self, mission):
         """PR-N5D：当前 registry → 该 mission 的 CapabilitySnapshotV1
-        （body/mode 过滤 + digest）。generation 来自 catalog 代际。"""
+        （body/mode 过滤 + digest）。generation 来自 catalog 代际。
+
+        P0-6（0827 审计）：PlanRef conformance——生产者/消费者不共享
+        存储的工具对在此刻隔离出模型面（不兼容工具在场 = 模型必然
+        撞 REF_NOT_FOUND 后瞎试）。一次性探针，结果缓存。"""
         from rosclaw.agentd.tooling.snapshot import build_capability_snapshot
 
+        if not getattr(self, "_plan_ref_conformance_done", False):
+            self._plan_ref_conformance_done = True
+            try:
+                from rosclaw.agentd.plan_ref_conformance import (
+                    plan_ref_conformance,
+                )
+
+                for exclusion in plan_ref_conformance(self._home):
+                    self._tool_catalog.quarantine_tool(
+                        str(exclusion["capability_id"]),
+                        f"REF_CONFORMANCE_FAILED: {exclusion['reason']}",
+                    )
+            except Exception:  # noqa: BLE001 - 探针自身故障不阻塞快照
+                import logging
+
+                logging.getLogger("rosclaw.conformance").warning(
+                    "plan-ref conformance probe failed", exc_info=True,
+                )
         body_id = mission.body_binding.body_id if mission is not None else ""
         mode = mission.mode.value if mission is not None else "SIMULATION"
         return build_capability_snapshot(self._tool_catalog, body_id=body_id, mode=mode)

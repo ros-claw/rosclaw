@@ -117,21 +117,42 @@ class PlanStore:
         self._records.clear()
 
 
-def _make_plan_store():
+def _make_plan_store(home: str | None = None):
     """WP-P0-7：ROSCLAW_HOME 可用 → 落盘 PlanStore（executor 重启
-    不丢 plan、已消费不复活）；否则内存（单测直 import）。"""
+    不丢 plan、已消费不复活）；否则内存（单测直 import 兼容——
+    conformance 会把这种进程的工具对排除出模型面）。"""
     import os as _os
     from pathlib import Path as _Path
 
-    home = _os.environ.get("ROSCLAW_HOME")
-    if home:
+    resolved = home or _os.environ.get("ROSCLAW_HOME")
+    if resolved:
         from rosclaw.sim.plan_store import PersistentPlanStore
 
-        return PersistentPlanStore(_Path(home) / "sim" / "plans")
+        return PersistentPlanStore(_Path(resolved) / "sim" / "plans")
     return PlanStore()
 
 
-_PLAN_STORE = _make_plan_store()
+# P0-6（0827 审计）：import 时解析的模块级单例是 PlanRef 分裂根因
+# ——进程在 ROSCLAW_HOME 设置前 import 就永远拿内存 store（生产者
+# 写内存、消费者读磁盘 → REF_NOT_FOUND）。改为调用时解析（按
+# resolved home 缓存实例）。
+_PLAN_STORES: dict[str, object] = {}
+_FALLBACK_STORE = _make_plan_store("")
+
+
+def _plan_store():
+    """调用时解析共享 PlanStore（ROSCLAW_HOME 后设置也生效）。"""
+    import os as _os
+
+    home = _os.environ.get("ROSCLAW_HOME")
+    if not home:
+        return _FALLBACK_STORE
+    key = home
+    store = _PLAN_STORES.get(key)
+    if store is None:
+        store = _make_plan_store(home)
+        _PLAN_STORES[key] = store
+    return store
 
 
 def _canonical_point(point: dict) -> dict:
@@ -231,7 +252,7 @@ def plan_cartesian_path(
         f"{shape} 五角星：中心 ({center_x}, {center_y}, {z})m，"
         f"外半径 {outer_radius}m，{len(points)} 个插值点，已闭合"
     )
-    record = _PLAN_STORE.put(trajectory, summary)
+    record = _plan_store().put(trajectory, summary)
     result = {
         "ok": True,
         "sim_kind": SIM_KIND,
@@ -254,7 +275,7 @@ def plan_cartesian_path(
     annotations={"readOnlyHint": False, "destructiveHint": False},
 )
 def execute_plan(plan_id: str) -> str:
-    record = _PLAN_STORE.get_for_execute(plan_id)
+    record = _plan_store().get_for_execute(plan_id)
     trajectory = record["trajectory"]
     points = trajectory["points"]
     # 执行前复验（TOCTOU）：canonical hash + 工作空间。
@@ -263,7 +284,7 @@ def execute_plan(plan_id: str) -> str:
         raise ValueError(f"plan {plan_id} payload hash mismatch (fail closed)")
     for point in points:
         _workspace_check(point)
-    _PLAN_STORE.consume(plan_id)
+    _plan_store().consume(plan_id)
     result = json.loads(_execute_trajectory(trajectory))
     result["plan_id"] = plan_id
     result["digest"] = record["digest"]
@@ -490,7 +511,7 @@ def verify_drawing(expected_trajectory_hash: str = "") -> str:
         expected_trajectory_hash = str(last.get("trajectory_hash", ""))
         if not expected_trajectory_hash:
             raise ValueError("no executed plan to verify (fail closed)")
-    record = _PLAN_STORE.by_digest(expected_trajectory_hash)
+    record = _plan_store().by_digest(expected_trajectory_hash)
     if record is None:
         raise ValueError(f"unknown trajectory hash {expected_trajectory_hash[:16]}")
     expected = record["trajectory"]
@@ -546,7 +567,7 @@ def verify_drawing(expected_trajectory_hash: str = "") -> str:
 def reset_simulation() -> str:
     _state["trace"] = []
     _state["plans"] = {}
-    _PLAN_STORE.clear()
+    _plan_store().clear()
     _state["moving"] = False
     return json.dumps(
         {

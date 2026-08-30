@@ -41,6 +41,29 @@ class ToolNotCallableError(ValidationError):
     """Raised when code tries to execute a tool the model must never call."""
 
 
+def stable_error_code(exc: Exception) -> str:
+    """异常 → 稳定错误码（R0-9 锚定 + P0-6 白名单搜索）。
+
+    - 锚定："CODE: message"（或 "XxxError: CODE: message"）直取
+      （R0-9 行为：码形前缀即透传，不限注册表——新码不被压扁）；
+    - P0-6（0827 审计）：执行器/MCP 包装前缀（"Error executing
+      tool ...: REF_NOT_FOUND: ..."）让锚定失配——白名单搜索前
+      200 字符，只有注册码透传（散文里的 TODO:/NOTE: 不冒充码）。
+    """
+    import re as _re
+
+    from rosclaw.agentd.tooling.recovery import RECOVERY_REGISTRY
+
+    text = str(exc)
+    match = _re.match(r"^(?:\w+Error: )?([A-Z][A-Z0-9_]{3,}):\s", text)
+    if match:
+        return match.group(1)
+    for candidate in _re.finditer(r"\b([A-Z][A-Z0-9_]{3,}):", text[:200]):
+        if candidate.group(1) in RECOVERY_REGISTRY:
+            return candidate.group(1)
+    return "EXECUTOR_ERROR"
+
+
 class ToolQuarantinedError(ValidationError):
     """Raised when a tool/source is quarantined (health check failed)."""
 
@@ -303,13 +326,7 @@ class ToolCatalog:
             # 稳定错误码——基础设施错误不被包成无语义的
             # EXECUTOR_ERROR（重试预算/恢复动作按码分派）。
             message = f"{type(exc).__name__}: {exc}"[:400]
-            code = "EXECUTOR_ERROR"
-            import re as _re
-
-            match = _re.match(r"^(?:\w+Error: )?([A-Z][A-Z0-9_]{3,}):\s", str(exc))
-            if match:
-                code = match.group(1)
-            return _failed(code, message)
+            return _failed(stable_error_code(exc), message)
         # 归一为 canonical value：只接受 dict / ToolExecutionResult /
         # JSON 对象字符串；裸文本不得冒充结构化结果。
         value: Any
