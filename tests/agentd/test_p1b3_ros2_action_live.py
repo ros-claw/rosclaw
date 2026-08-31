@@ -103,10 +103,10 @@ class FakeRosbridgeActionServer:
         server = getattr(self, "_server", None)
         if server is not None:
             self._loop.call_soon_threadsafe(server.close)
-            deadline = time.monotonic() + 5
-            while self._thread.is_alive() and time.monotonic() < deadline:
+            self._thread.join(timeout=5)
+            if self._thread.is_alive():
                 self._loop.call_soon_threadsafe(self._loop.stop)
-                self._thread.join(timeout=0.5)
+                self._thread.join(timeout=1)
         else:
             self._loop.call_soon_threadsafe(self._loop.stop)
 
@@ -158,6 +158,16 @@ class TestRos2ActionLiveJourney:
                     client=client,
                 )
                 await mgr.cancel(op2["operation_id"], reason="journey-stop")
+                # Keep the request loop alive until the listener callback or
+                # bounded cancel grace commits the terminal state.  Closing
+                # asyncio.run immediately after cancel races a valid callback
+                # against loop shutdown under full-suite load.
+                deadline = asyncio.get_running_loop().time() + 10.0
+                while (
+                    mgr.get(op2["operation_id"])["state"] != "CANCELLED"
+                    and asyncio.get_running_loop().time() < deadline
+                ):
+                    await asyncio.sleep(0.05)
                 return op
 
             op = asyncio.run(run())

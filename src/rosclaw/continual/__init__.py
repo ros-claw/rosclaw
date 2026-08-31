@@ -5,6 +5,9 @@ from rosclaw.continual.champion_registry import (
     ChampionClaimAudit,
     ChampionRecordKind,
     ChampionRegistryRecord,
+    DominanceMetricRole,
+    PairedDominanceEvidence,
+    PairedDominanceMetric,
     PromotionAuthority,
 )
 from rosclaw.continual.contracts import (
@@ -109,6 +112,7 @@ __all__ = [
     "ChampionClaimAudit",
     "ChampionRecordKind",
     "ChampionRegistryRecord",
+    "DominanceMetricRole",
     "ControlSegment",
     "CostVector",
     "CurriculumMixture",
@@ -152,6 +156,8 @@ __all__ = [
     "ExperienceRecord",
     "PlasticityEvidence",
     "PlasticityLease",
+    "PairedDominanceEvidence",
+    "PairedDominanceMetric",
     "PlasticityLeaseAudit",
     "ReplayMix",
     "ResidualAdaptationContract",

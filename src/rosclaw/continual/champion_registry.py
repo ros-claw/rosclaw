@@ -8,6 +8,7 @@ does not match it.
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass
 from enum import StrEnum
@@ -44,6 +45,126 @@ class ChampionRecordKind(StrEnum):
     TRACK_REPLACEMENT = "track_replacement"
     SPECIALIST_BASELINE = "specialist_baseline"
     CANDIDATE_ARCHIVED = "candidate_archived"
+
+
+class DominanceMetricRole(StrEnum):
+    """Whether a paired metric must improve or merely remain safe."""
+
+    OBJECTIVE = "objective"
+    GUARDRAIL = "guardrail"
+
+
+@dataclass(frozen=True)
+class PairedDominanceMetric:
+    """One same-suite challenger comparison with explicit direction and tolerance."""
+
+    metric_id: str
+    incumbent_value: float
+    challenger_value: float
+    higher_is_better: bool
+    role: DominanceMetricRole
+    minimum_improvement: float = 0.0
+    maximum_regression: float = 0.0
+    schema_version: str = "rosclaw.continual.paired_dominance_metric.v1"
+
+    def __post_init__(self) -> None:
+        _require_identifier("metric_id", self.metric_id)
+        if not isinstance(self.higher_is_better, bool) or not isinstance(
+            self.role, DominanceMetricRole
+        ):
+            raise ValueError("paired-dominance metric direction or role is invalid")
+        values = (
+            self.incumbent_value,
+            self.challenger_value,
+            self.minimum_improvement,
+            self.maximum_regression,
+        )
+        if any(not math.isfinite(value) for value in values):
+            raise ValueError("paired-dominance metric values must be finite")
+        if self.minimum_improvement < 0.0 or self.maximum_regression < 0.0:
+            raise ValueError("paired-dominance tolerances must be non-negative")
+        if self.role is DominanceMetricRole.OBJECTIVE:
+            if self.minimum_improvement <= 0.0 or self.maximum_regression != 0.0:
+                raise ValueError("objective metric requires a positive minimum improvement")
+        elif self.minimum_improvement != 0.0:
+            raise ValueError("guardrail metric cannot require objective improvement")
+
+    @property
+    def signed_improvement(self) -> float:
+        delta = self.challenger_value - self.incumbent_value
+        return delta if self.higher_is_better else -delta
+
+    @property
+    def passed(self) -> bool:
+        if self.role is DominanceMetricRole.OBJECTIVE:
+            return self.signed_improvement >= self.minimum_improvement
+        return self.signed_improvement >= -self.maximum_regression
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schema_version": self.schema_version,
+            "metric_id": self.metric_id,
+            "incumbent_value": self.incumbent_value,
+            "challenger_value": self.challenger_value,
+            "higher_is_better": self.higher_is_better,
+            "role": self.role.value,
+            "minimum_improvement": self.minimum_improvement,
+            "maximum_regression": self.maximum_regression,
+            "signed_improvement": self.signed_improvement,
+            "passed": self.passed,
+        }
+
+
+@dataclass(frozen=True)
+class PairedDominanceEvidence:
+    """Domain-neutral proof that a challenger improves a frozen champion suite."""
+
+    incumbent_artifact_hash: str
+    challenger_artifact_hash: str
+    scenario_suite_hash: str
+    metrics: tuple[PairedDominanceMetric, ...]
+    evidence_domain: str = "SIM"
+    schema_version: str = "rosclaw.continual.paired_dominance_evidence.v1"
+
+    def __post_init__(self) -> None:
+        for label, value in (
+            ("incumbent_artifact_hash", self.incumbent_artifact_hash),
+            ("challenger_artifact_hash", self.challenger_artifact_hash),
+            ("scenario_suite_hash", self.scenario_suite_hash),
+        ):
+            _require_hash(label, value)
+        if not isinstance(self.metrics, tuple) or any(
+            not isinstance(metric, PairedDominanceMetric) for metric in self.metrics
+        ):
+            raise ValueError("paired-dominance metrics must be an immutable typed tuple")
+        metric_ids = tuple(metric.metric_id for metric in self.metrics)
+        if (
+            self.incumbent_artifact_hash == self.challenger_artifact_hash
+            or not self.metrics
+            or len(metric_ids) != len(set(metric_ids))
+            or not any(metric.role is DominanceMetricRole.OBJECTIVE for metric in self.metrics)
+            or self.evidence_domain != "SIM"
+        ):
+            raise ValueError("paired-dominance evidence is invalid")
+
+    @property
+    def promotion_passed(self) -> bool:
+        return all(metric.passed for metric in self.metrics)
+
+    @property
+    def evidence_hash(self) -> str:
+        return canonical_hash(self.to_dict())
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schema_version": self.schema_version,
+            "incumbent_artifact_hash": self.incumbent_artifact_hash,
+            "challenger_artifact_hash": self.challenger_artifact_hash,
+            "scenario_suite_hash": self.scenario_suite_hash,
+            "metrics": [metric.to_dict() for metric in self.metrics],
+            "promotion_passed": self.promotion_passed,
+            "evidence_domain": self.evidence_domain,
+        }
 
 
 @dataclass(frozen=True)
@@ -278,5 +399,8 @@ __all__ = [
     "ChampionClaimAudit",
     "ChampionRecordKind",
     "ChampionRegistryRecord",
+    "DominanceMetricRole",
+    "PairedDominanceEvidence",
+    "PairedDominanceMetric",
     "PromotionAuthority",
 ]
