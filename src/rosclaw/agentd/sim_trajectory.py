@@ -895,9 +895,10 @@ class SimTrajectoryService:
         # "artifact 为空"瞬态 FAIL。先写临时文件再 os.replace。
         import os as _os
 
-        tmp_out = out_dir / f".{trace_id}.gif.tmp"
+        tmp_out = out_dir / f".{trace_id}.gif.tmp.gif"
         images[0].save(
             tmp_out,
+            format="GIF",
             save_all=True,
             append_images=images[1:],
             duration=int(1000 / max(fps, 1)),
@@ -911,7 +912,7 @@ class SimTrajectoryService:
         import numpy as _np
 
         mp4 = out_dir / f"{trace_id}.mp4"
-        tmp_mp4 = out_dir / f".{trace_id}.mp4.tmp"
+        tmp_mp4 = out_dir / f".{trace_id}.mp4.tmp.mp4"
         iio.imwrite(tmp_mp4, [_np.asarray(img) for img in images], fps=max(fps, 1))
         _os.replace(tmp_mp4, mp4)
         return {
