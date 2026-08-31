@@ -1,5 +1,12 @@
 """Versioned continual-learning substrate for ROSClaw simulation."""
 
+from rosclaw.continual.champion_registry import (
+    CanonicalChampionRegistry,
+    ChampionClaimAudit,
+    ChampionRecordKind,
+    ChampionRegistryRecord,
+    PromotionAuthority,
+)
 from rosclaw.continual.contracts import (
     ControlSegment,
     CostVector,
@@ -17,6 +24,53 @@ from rosclaw.continual.experience import (
     ExperienceRecord,
     ReplayMix,
 )
+from rosclaw.continual.failure_curriculum import (
+    CapabilityBin,
+    CapabilityFrontierScheduler,
+    CurriculumMixture,
+    CurriculumSource,
+    DreamPerturbation,
+    FailureConditionedDream,
+    PerturbationDistribution,
+)
+from rosclaw.continual.individual_scope import (
+    FrozenPartner,
+    FrozenPartnerSet,
+    IndividualGrowthScope,
+    IndividualPromotionEvidence,
+)
+from rosclaw.continual.learner_backend import (
+    LearnerBackendContract,
+    LearnerCapability,
+    LearnerRunEvidence,
+    LearnerRunStatus,
+)
+from rosclaw.continual.plasticity_lease import (
+    AgentPolicyBinding,
+    AgentUpdateMode,
+    PlasticityLease,
+    PlasticityLeaseAudit,
+    audit_plasticity_lease,
+)
+from rosclaw.continual.reproducibility import (
+    THREAD_ENVIRONMENT_KEYS,
+    NumericalEnvironmentCheck,
+    NumericalRuntimeContract,
+)
+from rosclaw.continual.residual_adaptation import (
+    ParameterIsolationEvidence,
+    ResidualAdaptationContract,
+    load_residual_adaptation_contract,
+    write_residual_adaptation_contract,
+)
+from rosclaw.continual.safety_profiles import (
+    GrowthSafetyDecision,
+    GrowthSafetyObservation,
+    GrowthSafetyProfile,
+    GrowthSafetyUse,
+    evaluate_growth_safety,
+    validate_profile_pair,
+)
 from rosclaw.continual.serde import experience_batch_from_dict, experience_batch_to_dict
 from rosclaw.continual.stability import (
     ContinualCandidateEvidence,
@@ -27,18 +81,69 @@ from rosclaw.continual.stability import (
     StabilityPlasticityGate,
     TaskRetention,
 )
+from rosclaw.continual.successor_state import (
+    SkillSuccessorState,
+    SuccessorMetricSpec,
+    SuccessorStateEvaluation,
+    SuccessorStateGrowthObjective,
+    SuccessorStateSample,
+    SuccessorStateTracker,
+)
+from rosclaw.continual.teacher_manifold import (
+    TeacherManifoldDecision,
+    TeacherManifoldGateContract,
+    TeacherManifoldMetric,
+)
+from rosclaw.continual.teacher_prior import (
+    ConditionalTeacherPriorContract,
+    ConditionalTeacherQuery,
+)
 from rosclaw.continual.weight_update import ResidualWeightSlot, WeightSlotReceipt, WeightSlotState
 
 __all__ = [
+    "AgentPolicyBinding",
+    "AgentUpdateMode",
+    "CanonicalChampionRegistry",
+    "CapabilityBin",
+    "CapabilityFrontierScheduler",
+    "ChampionClaimAudit",
+    "ChampionRecordKind",
+    "ChampionRegistryRecord",
     "ControlSegment",
     "CostVector",
+    "CurriculumMixture",
+    "CurriculumSource",
+    "DreamPerturbation",
     "ExperiencePartition",
     "ExperienceUse",
+    "FailureConditionedDream",
+    "FrozenPartner",
+    "FrozenPartnerSet",
+    "IndividualGrowthScope",
+    "IndividualPromotionEvidence",
+    "LearnerBackendContract",
+    "LearnerCapability",
+    "LearnerRunEvidence",
+    "LearnerRunStatus",
+    "GrowthSafetyDecision",
+    "GrowthSafetyObservation",
+    "GrowthSafetyProfile",
+    "GrowthSafetyUse",
+    "NumericalEnvironmentCheck",
+    "NumericalRuntimeContract",
+    "ParameterIsolationEvidence",
     "PolicyVersion",
+    "PerturbationDistribution",
+    "PromotionAuthority",
     "RewardVector",
     "SkillPhase",
     "VersionedTrajectory",
     "ContinualCandidateEvidence",
+    "ConditionalTeacherPriorContract",
+    "ConditionalTeacherQuery",
+    "TeacherManifoldDecision",
+    "TeacherManifoldGateContract",
+    "TeacherManifoldMetric",
     "ContinualDecision",
     "ContinualExperienceStore",
     "ContinualGateReport",
@@ -46,13 +151,28 @@ __all__ = [
     "ExperienceBufferConfig",
     "ExperienceRecord",
     "PlasticityEvidence",
+    "PlasticityLease",
+    "PlasticityLeaseAudit",
     "ReplayMix",
+    "ResidualAdaptationContract",
+    "load_residual_adaptation_contract",
+    "write_residual_adaptation_contract",
     "ResidualWeightSlot",
     "SelfCoreEvidence",
+    "SkillSuccessorState",
     "StabilityPlasticityGate",
     "TaskRetention",
+    "THREAD_ENVIRONMENT_KEYS",
     "WeightSlotReceipt",
     "WeightSlotState",
+    "SuccessorMetricSpec",
+    "SuccessorStateEvaluation",
+    "SuccessorStateGrowthObjective",
+    "SuccessorStateSample",
+    "SuccessorStateTracker",
+    "audit_plasticity_lease",
+    "evaluate_growth_safety",
     "experience_batch_from_dict",
     "experience_batch_to_dict",
+    "validate_profile_pair",
 ]
