@@ -370,8 +370,17 @@ def cmd_init(args: argparse.Namespace) -> int:
     return 0
 
 
+def _ensure_home_env(home: Path) -> None:
+    """agentd 进程导出 ROSCLAW_HOME（0827 复核实证）：此前只传给
+    子进程——agentd 自身没有时，ur5e_mcp 的 PlanStore 回落内存
+    （PlanRef 生产/消费分裂）或 conformance 把工具对误杀出模型面。
+    setdefault：显式 export 的值优先。"""
+    os.environ.setdefault("ROSCLAW_HOME", str(home))
+
+
 def cmd_chat(args: argparse.Namespace) -> int:
     home = _home(args)
+    _ensure_home_env(home)
     # PR-H9：legacy 引擎（Python AgentLoop console）已删除——Native
     # Agent（Harness Backend 主会话）是唯一引擎（ADR-0012）。
     if getattr(args, "legacy", False) or (getattr(args, "engine", None) not in (None, "pi")):
