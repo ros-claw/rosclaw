@@ -20,7 +20,7 @@ test("trackTask：进度 widget + 终态一次 followUp + untrack", async () => 
 		{ seq: 2, event_type: "plan.node_completed", payload: { node_id: "resolve_robot" } },
 		{ seq: 3, event_type: "plan.node_started", payload: { node_id: "make_path" } },
 		{ seq: 4, event_type: "plan.node_completed", payload: { node_id: "make_path" } },
-		{ seq: 5, event_type: "verification.completed", payload: { status: "PASS", verification_id: "vrf_1" } },
+		{ seq: 5, event_type: "task.terminal", payload: { status: "PASS", verification_id: "vrf_1" } },
 	];
 	const widgets: Array<[string, string[] | undefined]> = [];
 	const followUps: string[] = [];

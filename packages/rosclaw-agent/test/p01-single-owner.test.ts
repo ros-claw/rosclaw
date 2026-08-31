@@ -100,7 +100,7 @@ test("watcher 终态：确定性呈现一次（display, 无 triggerTurn）+ 重�
 	const { OperationWatcher } = await import("../src/native/operation-watcher.js");
 	const events = [
 		{ seq: 1, event_type: "plan.node_completed", payload: { node_id: "make_path" } },
-		{ seq: 2, event_type: "verification.completed", payload: { status: "PASS" } },
+		{ seq: 2, event_type: "task.terminal", payload: { status: "PASS" } },
 	];
 	const sent: Array<{ content: string; display: boolean; options: Record<string, unknown> }> = [];
 	const watcher = new OperationWatcher({
@@ -159,7 +159,7 @@ test("watcher 修订重跑：同 task 新 revision 再执行 → 终态再次呈
 	// 的 verification.completed 被吞——修订重跑没有终态回复。
 	const { OperationWatcher } = await import("../src/native/operation-watcher.js");
 	const events = [
-		{ seq: 1, event_type: "verification.completed", payload: { status: "PASS" } },
+		{ seq: 1, event_type: "task.terminal", payload: { status: "PASS" } },
 	];
 	const sent: string[] = [];
 	const watcher = new OperationWatcher({
@@ -196,7 +196,7 @@ test("watcher 修订重跑：同 task 新 revision 再执行 → 终态再次呈
 	// 必须再次呈现。
 	watcher.trackTask("task_rev");
 	events.push({
-		seq: 2, event_type: "verification.completed", payload: { status: "PASS" },
+		seq: 2, event_type: "task.terminal", payload: { status: "PASS" },
 	});
 	await (watcher as never as { tick(): Promise<void> }).tick();
 	assert.equal(sent.length, 2, "修订重跑的终态被吞（deliveredTasks 未按执行周期清理）");

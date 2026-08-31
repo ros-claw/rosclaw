@@ -461,6 +461,12 @@ def _chat_pi(home: Path, args: argparse.Namespace) -> int:
         return 2
     node, entry = runtime
     config = load_agent_config(home / "config.yaml")
+    # P0-7（0827 审计·真实 K3 复验实证）：retry 预算只在 setup 写
+    # 不够——手工/legacy 配置的家目录绕过 setup（pi 默认 3 次重试
+    # 把确定性 403 烧 4 次）。chat 启动幂等补齐（保留其他键）。
+    from rosclaw.agentd.onboarding import _write_retry_budget
+
+    _write_retry_budget(home)
     # 十审 W0：诊断路由必须先于 AgentService 构造（启动 warning 就在那里）。
     _route_internal_diagnostics_to_log(home, debug=bool(getattr(args, "debug", False)))
     service = AgentService(config, home)

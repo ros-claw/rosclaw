@@ -226,11 +226,16 @@ export class OperationWatcher {
 			}
 			return;
 		}
-		if (event.event_type !== "verification.completed") return;
-		// 空闲门控（0827 真实 K3 复验实证）：Agent 还在流式回答时，
-		// pi 会把 triggerTurn:false 的 custom message steer 进正在运行
-		// 的回合——终态回复消失在流里且违反"终态后零模型回合"。
-		// 不空闲 → 挂起（pendingTerminalTasks），空闲后由 tick 呈现。
+		if (event.event_type !== "task.terminal") return;
+		// 0827 真实 K3 复验实证：verification.completed 会在中间态
+		// （REPAIR_REQUIRED/FAIL）触发——把它当终态呈现 = 把瞬态失败
+		// 钉成用户可见终态并毒化 deliveredTasks（链恢复 PASS 后回复
+		// 缺席，内核 SUCCEEDED 与屏幕 FAIL 矛盾——正是 0827 审计的
+		// 双真相）。终态发布只认 task.terminal（内核权威终态）。
+		// 空闲门控：Agent 还在流式回答时，pi 会把 triggerTurn:false 的
+		// custom message steer 进正在运行的回合——终态回复消失在流
+		// 里且违反"终态后零模型回合"。不空闲 → 挂起
+		// （pendingTerminalTasks），空闲后由 tick 呈现。
 		const sinkNow = this.deps.sink();
 		if (sinkNow && !sinkNow.isIdle) {
 			this.pendingTerminalTasks.add(taskId);

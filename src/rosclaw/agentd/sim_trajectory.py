@@ -890,13 +890,20 @@ class SimTrajectoryService:
             draw.ellipse((ex - 5, ey - 5, ex + 5, ey + 5), outline=(200, 30, 30), width=2)
             images.append(img)
         out = out_dir / f"{trace_id}.gif"
+        # 原子写（0827 真实 K3 复验实证）：同内容修订重跑同 trace_id
+        # 目录——原位写 GIF 的截断窗口被 verify_artifacts 抓成
+        # "artifact 为空"瞬态 FAIL。先写临时文件再 os.replace。
+        import os as _os
+
+        tmp_out = out_dir / f".{trace_id}.gif.tmp"
         images[0].save(
-            out,
+            tmp_out,
             save_all=True,
             append_images=images[1:],
             duration=int(1000 / max(fps, 1)),
             loop=0,
         )
+        _os.replace(tmp_out, out)
         # P0-F 闭包（金丝雀实证）：2D 预览与场景渲染同样产出
         # MP4——两条渲染路径都覆盖完整视频格式集（用户要 MP4 时
         # 选哪条都有交付物，同一 TraceRef）。
@@ -904,7 +911,9 @@ class SimTrajectoryService:
         import numpy as _np
 
         mp4 = out_dir / f"{trace_id}.mp4"
-        iio.imwrite(mp4, [_np.asarray(img) for img in images], fps=max(fps, 1))
+        tmp_mp4 = out_dir / f".{trace_id}.mp4.tmp"
+        iio.imwrite(tmp_mp4, [_np.asarray(img) for img in images], fps=max(fps, 1))
+        _os.replace(tmp_mp4, mp4)
         return {
             "ok": True,
             "artifact": {
