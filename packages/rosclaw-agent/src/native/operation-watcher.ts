@@ -67,6 +67,9 @@ export class OperationWatcher {
 	private readonly trackedTasks = new Set<string>();
 	private readonly deliveredTasks = new Set<string>();
 	private readonly completedNodesByTask = new Map<string, Set<string>>();
+	/** 空闲门控挂起：终态事件已到但 Agent 流式中——延迟到空闲呈现
+	 *  （seq 游标已前进，靠本集合重试，不是重放事件）。 */
+	private readonly pendingTerminalTasks = new Set<string>();
 
 	constructor(private readonly deps: OperationWatcherDeps) {}
 
@@ -126,7 +129,8 @@ export class OperationWatcher {
 
 	private async tick(): Promise<void> {
 		await this.resolvePending();
-		if (!this.tracked.size && !this.trackedTasks.size) return;
+		if (!this.tracked.size && !this.trackedTasks.size
+			&& !this.pendingTerminalTasks.size) return;
 		const sink = this.deps.sink();
 		// R0-1.5：op 任务与自动路由任务同一增量轮询（不重不漏）。
 		const taskIds = [
@@ -170,6 +174,11 @@ export class OperationWatcher {
 					});
 				}
 			}
+		}
+		// 空闲门控挂起 drain：流式中延迟的终态在空闲后独立呈现
+		// （seq 游标已前进——靠 pending 集合重试，不是重放事件）。
+		for (const taskId of [...this.pendingTerminalTasks]) {
+			await this.presentTerminal(taskId);
 		}
 	}
 
@@ -218,10 +227,30 @@ export class OperationWatcher {
 			return;
 		}
 		if (event.event_type !== "verification.completed") return;
-		// P0-3（0827 审计）：Coordinator 是唯一终态发布者——终态回复由
-		// TaskOutcome 确定性生成、display 直接呈现；绝不 followUp 唤醒
-		// Agent（0827 实证：followUp 触发模型回合与确定性链互相矛盾
-		// =双控制者）。trackTask 只投影，不唤醒。
+		// 空闲门控（0827 真实 K3 复验实证）：Agent 还在流式回答时，
+		// pi 会把 triggerTurn:false 的 custom message steer 进正在运行
+		// 的回合——终态回复消失在流里且违反"终态后零模型回合"。
+		// 不空闲 → 挂起（pendingTerminalTasks），空闲后由 tick 呈现。
+		const sinkNow = this.deps.sink();
+		if (sinkNow && !sinkNow.isIdle) {
+			this.pendingTerminalTasks.add(taskId);
+			return;
+		}
+		await this.presentTerminal(taskId);
+	}
+
+	/** P0-3（0827 审计）：Coordinator 是唯一终态发布者——终态回复由
+	 *  TaskOutcome 确定性生成、display 直接呈现；绝不 followUp 唤醒
+	 *  Agent（0827 实证：followUp 触发模型回合与确定性链互相矛盾
+	 *  =双控制者）。trackTask 只投影，不唤醒。 */
+	private async presentTerminal(taskId: string): Promise<void> {
+		if (this.deliveredTasks.has(taskId)) return;
+		const sink = this.deps.sink();
+		if (sink && !sink.isIdle) {
+			this.pendingTerminalTasks.add(taskId);
+			return;
+		}
+		this.pendingTerminalTasks.delete(taskId);
 		this.deliveredTasks.add(taskId);
 		this.trackedTasks.delete(taskId);
 		this.completedNodesByTask.delete(taskId);
