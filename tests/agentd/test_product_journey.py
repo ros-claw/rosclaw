@@ -1616,7 +1616,10 @@ class TestProductJourney:
             assert "下一步".encode() in action_segment, (
                 "终态卡缺下一步指引（P0-6 产品化未生效）"
             )
-            assert "路径：".encode() in action_segment, (
+            # 绝对路径行（裸路径——无标签，防 CJK 换行撕裂）。
+            import re as _re
+
+            assert _re.search(rb"/[\w./-]*\.gif", action_segment), (
                 "终态卡缺交付物绝对路径"
             )
             assert b"rosclaw artifact open" in action_segment, (

@@ -36,7 +36,9 @@ export interface TerminalOutcome {
 	}>;
 }
 
-/** 交付物一行：文件名 + 绝对路径 + 打开命令（可复制执行）。 */
+/** 交付物三行：文件名（大小）/ 裸绝对路径 / 裸打开命令——
+ *  无标签前缀（0901 journey 实证：CJK 换行会把"路径："从值
+ *  中间撕开；裸行既防撕裂又便于复制）。 */
 function renderArtifactLine(ref: {
 	artifact_id?: string;
 	open_command?: string;
@@ -54,11 +56,11 @@ function renderArtifactLine(ref: {
 				? `${size} B`
 				: "";
 	const head = name
-		? `${name}${sizeText ? `（${sizeText}）` : ""}`
-		: String(ref.artifact_id ?? "artifact");
-	const pathLine = path ? `\n  路径：${path}` : "";
-	const openLine = ref.open_command ? `\n  打开：${ref.open_command}` : "";
-	return `• ${head}${pathLine}${openLine}`;
+		? `• ${name}${sizeText ? `（${sizeText}）` : ""}`
+		: `• ${String(ref.artifact_id ?? "artifact")}`;
+	const pathLine = path ? `\n  ${path}` : "";
+	const openLine = ref.open_command ? `\n  ${ref.open_command}` : "";
+	return `${head}${pathLine}${openLine}`;
 }
 
 /** 任务终态的最终用户回复（确定性——同一 outcome 永远同一文本）。 */

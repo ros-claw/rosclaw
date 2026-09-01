@@ -13,6 +13,7 @@
  */
 
 import type { Component } from "@earendil-works/pi-tui";
+import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 
 /** 内核自定义消息的最小视图（pi CustomMessage 的结构子集——卡片
  *  只用 customType/content，不与 details 的具体类型耦合）。 */
@@ -28,13 +29,29 @@ class KernelMessageCard implements Component {
 	) {}
 
 	render(width: number): string[] {
-		const border = "─".repeat(Math.max(10, Math.min(width - 4, 76)));
-		const lines = [`┌${border}┐`, `│ ${this.title}`];
+		// 宽度不变量（0901 journey 实证：卡片行超宽 = pi
+		// uncaughtException 直接退出进程）：每行 visibleWidth ≤
+		// width。长路径 wrap 不截断（路径是交付面信息，丢不得）。
+		const inner = Math.max(8, width - 2); // "│ " 前缀 + 余量
+		const border = "─".repeat(Math.max(8, Math.min(width - 2, 76)));
+		const lines = [
+			truncateToWidth(`┌${border}┐`, width),
+			truncateToWidth(`│ ${this.title}`, width),
+		];
 		for (const raw of this.content.split("\n")) {
-			lines.push(raw ? `│ ${raw}` : "│");
+			if (!raw) {
+				lines.push("│");
+				continue;
+			}
+			for (const piece of wrapTextWithAnsi(raw, inner)) {
+				lines.push(truncateToWidth(`│ ${piece}`, width));
+			}
 		}
-		lines.push(`└${border}┘`);
-		return lines;
+		lines.push(truncateToWidth(`└${border}┘`, width));
+		// 兜底：任何路径都不许超宽（防御 wrap 边界情况）。
+		return lines.map((l) =>
+			visibleWidth(l) > width ? truncateToWidth(l, width) : l,
+		);
 	}
 
 	invalidate(): void {}

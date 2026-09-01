@@ -84,6 +84,37 @@ test("P0-6 内核消息卡：三个 customType 都有注册卡（不漏内部标
 	}
 });
 
+test("P0-6 卡片渲染永不超宽（PTY 实证：超宽 = pi 进程崩溃退出）", async () => {
+	const { kernelMessageRenderers } = await import(
+		"../src/ui/kernel-message-cards.js"
+	);
+	const { visibleWidth } = await import("@earendil-works/pi-tui");
+	// 0901 journey 实证：长绝对路径（>80 列）让卡片行超宽 →
+	// pi uncaughtException 直接退出（Rendered line exceeds terminal
+	// width）。卡片必须 wrap 到终端宽度内。
+	const longPath =
+		"/tmp/pytest-of-nvidia/pytest-2286/test_full_journey_pty0/prefix/" +
+		"current/home/agentd/outputs/star-scene.gif";
+	for (const [t, render] of Object.entries(kernelMessageRenderers)) {
+		const component = render({
+			customType: t,
+			content: `✅ 任务完成：验收 PASS\n交付物：\n  路径：${longPath}\n  打开：rosclaw artifact open art_x`,
+		});
+		assert.ok(component);
+		for (const w of [80, 120, 40]) {
+			for (const line of component.render(w)) {
+				assert.ok(
+					visibleWidth(line) <= w,
+					`${t} 在宽度 ${w} 超宽：${visibleWidth(line)}——${line}`,
+				);
+			}
+		}
+		// wrap 后路径信息仍在（不丢字符）。
+		const text = component.render(80).join("\n");
+		assert.ok(text.includes("star-scene.gif"), `${t} 丢了文件名`);
+	}
+});
+
 test("P0-6 user_directive 卡标注确定性链接管", async () => {
 	const { kernelMessageRenderers } = await import(
 		"../src/ui/kernel-message-cards.js"
