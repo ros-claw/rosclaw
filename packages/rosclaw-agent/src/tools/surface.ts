@@ -55,6 +55,12 @@ export const EMBODIMENT_PACK: readonly string[] = [
 	// operation 停止（P0-D：轮询式 wait_operation 退出模型面——
 	// Operation 事件流驱动，模型不轮询）
 	"rosclaw_stop_operation",
+	// 0901 P0-3：只读任务/交付物面——解释/查看不再靠猜名字
+	// （task.list_artifacts/artifact.open 漂移实证撞
+	// EFFECT_UNRESOLVABLE 后重跑任务）。
+	"rosclaw_task_inspect",
+	"rosclaw_artifact_list",
+	"rosclaw_artifact_resolve",
 ];
 
 /** 模型可见工具（唯一真相源）。 */

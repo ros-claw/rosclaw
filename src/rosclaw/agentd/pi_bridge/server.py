@@ -1235,6 +1235,69 @@ class PiBridgeServer:
                 str(params.get("session_ref", "")),
             )
             return {"ok": True, "task": task}
+        # 0901 P0-3：只读交付物面——解释/查看不再靠模型猜名字
+        # （task.list_artifacts/artifact.open 漂移实证）。
+        if method == "pi.artifact.list":
+            # task_id 缺省=该 session 最近任务（含刚终态）；session 无
+            # 绑定时回落 mission 最近任务（session 轮换不丢交付面）。
+            kernel = service._task_kernel
+            task_id = str(params.get("task_id", ""))
+            if not task_id:
+                latest = kernel.latest_task_for(
+                    str(params.get("mission_id", "")),
+                    str(params.get("session_ref", "")),
+                )
+                task_id = str(latest["task_id"]) if latest else ""
+            if not task_id:
+                row = kernel._conn.execute(
+                    "SELECT task_id FROM tasks WHERE mission_id = ? "
+                    "ORDER BY created_at DESC LIMIT 1",
+                    (str(params.get("mission_id", "")),),
+                ).fetchone()
+                task_id = str(row["task_id"]) if row else ""
+            if not task_id:
+                return {"ok": True, "artifacts": []}
+            return {
+                "ok": True,
+                "task_id": task_id,
+                "artifacts": kernel.artifact_refs_for(task_id),
+            }
+        if method == "pi.artifact.resolve":
+            artifact_id = str(params.get("artifact_id", ""))
+            conn = service._task_kernel._conn
+            row = conn.execute(
+                "SELECT * FROM artifacts WHERE artifact_id = ?",
+                (artifact_id,),
+            ).fetchone()
+            if row is None:
+                return {
+                    "ok": False,
+                    "error": f"未知交付物 {artifact_id!r}",
+                    "code": "REF_NOT_FOUND",
+                }
+            from rosclaw.task_kernel.deliverables import (
+                artifact_delivery_kind,
+            )
+
+            record = dict(row)
+            raw_digest = str(record["sha256"])
+            return {
+                "ok": True,
+                "artifact": {
+                    "artifact_id": artifact_id,
+                    "task_id": str(record["task_id"]),
+                    "kind": artifact_delivery_kind(record),
+                    "media_type": str(record["media_type"]),
+                    "path": str(record["path"]),
+                    "size_bytes": int(record["size_bytes"]),
+                    "digest": (
+                        raw_digest
+                        if raw_digest.startswith("sha256:")
+                        else f"sha256:{raw_digest}"
+                    ),
+                    "open_command": f"rosclaw artifact open {artifact_id}",
+                },
+            }
         if method == "pi.kernel.accept":
             # PR-N0：/done 用户接受（与系统验收 accepted_at 区分）。
             try:
