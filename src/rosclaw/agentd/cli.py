@@ -370,8 +370,47 @@ def cmd_init(args: argparse.Namespace) -> int:
     return 0
 
 
+def _ensure_home_env(home: Path) -> None:
+    """agentd 进程导出 ROSCLAW_HOME（0827 复核实证）：此前只传给
+    子进程——agentd 自身没有时，ur5e_mcp 的 PlanStore 回落内存
+    （PlanRef 生产/消费分裂）或 conformance 把工具对误杀出模型面。
+    setdefault：显式 export 的值优先。"""
+    os.environ.setdefault("ROSCLAW_HOME", str(home))
+
+
+def _ensure_home_env(home: Path) -> str | None:
+    """agentd 进程导出 ROSCLAW_HOME（0827 复核实证）：此前只传给
+    子进程——agentd 自身没有时，ur5e_mcp 的 PlanStore 回落内存
+    （PlanRef 生产/消费分裂）或 conformance 把工具对误杀出模型面。
+
+    返回之前的值（None = 此前未设置）——调用方在退出时恢复
+    （cmd_chat 是库函数也是进程入口：进程 env 不得永久改写，否则
+    同进程后续调用方/测试的 get_rosclaw_home 被劫持——p1a1 测试
+    实证：泄漏的 ROSCLAW_HOME 让 35 个 body 测试 split-brain）。"""
+    previous = os.environ.get("ROSCLAW_HOME")
+    if previous is None:
+        os.environ["ROSCLAW_HOME"] = str(home)
+    return previous
+
+
+def _restore_home_env(previous: str | None) -> None:
+    """_ensure_home_env 的配对恢复（进程 env 不永久改写）。"""
+    if previous is None:
+        os.environ.pop("ROSCLAW_HOME", None)
+    else:
+        os.environ["ROSCLAW_HOME"] = previous
+
+
 def cmd_chat(args: argparse.Namespace) -> int:
     home = _home(args)
+    previous_home_env = _ensure_home_env(home)
+    try:
+        return _cmd_chat_impl(args, home)
+    finally:
+        _restore_home_env(previous_home_env)
+
+
+def _cmd_chat_impl(args: argparse.Namespace, home: Path) -> int:
     # PR-H9：legacy 引擎（Python AgentLoop console）已删除——Native
     # Agent（Harness Backend 主会话）是唯一引擎（ADR-0012）。
     if getattr(args, "legacy", False) or (getattr(args, "engine", None) not in (None, "pi")):

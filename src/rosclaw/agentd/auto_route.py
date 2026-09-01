@@ -110,11 +110,24 @@ async def maybe_auto_route(
 
     async def _run() -> None:
         try:
-            await asyncio.to_thread(
+            outcome = await asyncio.to_thread(
                 service._task_execution.execute,
                 task_id,
                 recipe_inputs=inputs,
             )
+            # 0827 复核实证：断链不能沉默——execute 失败（node_failed/
+            # 验收失败）时任务停在 RUNNING、无 task.terminal，用户
+            # 永远等不到回复。无模型可修复的路径（suppress 了模型
+            # 回合）必须诚实终态：FAILED + task.terminal——watcher
+            # 由此呈现失败回复（用户可追问开新 revision）。
+            if not outcome.ok:
+                kernel.transition(
+                    task_id, "FAILED",
+                    reason=(
+                        f"{outcome.error_code or 'EXECUTION_FAILED'}: "
+                        f"{(outcome.failure or ';'.join(outcome.failures))[:200]}"
+                    ),
+                )
         except Exception as exc:  # noqa: BLE001 - 执行失败是任务数据
             # 不沉默——失败写诊断日志（金丝雀实证：静默吞错导致
             # "任务 RUNNING 无事件"无迹可查）。
@@ -125,6 +138,16 @@ async def maybe_auto_route(
                 "auto-route execution failed for %s: %s\n%s",
                 task_id, exc, traceback.format_exc()[-2000:],
             )
+            # 同上：异常断链也到 FAILED 终态（不沉默）。
+            try:
+                kernel.transition(
+                    task_id, "FAILED",
+                    reason=f"EXECUTION_EXCEPTION: {exc}"[:220],
+                )
+            except Exception:  # noqa: BLE001 - 终态迁移失败只记日志
+                logging.getLogger("rosclaw.auto_route").exception(
+                    "FAILED transition failed for %s", task_id,
+                )
 
     asyncio.get_event_loop().create_task(_run())
     return {
