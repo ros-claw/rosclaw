@@ -68,7 +68,6 @@ class TestTerminalAuthority:
     ) -> None:
         """真实生产链（plan.node 事件齐全）→ 正常终态（回归护栏）。"""
         from rosclaw.agentd.task_execution import TaskExecutionService
-        from rosclaw.task_kernel.coordinator import TaskCoordinator
         from tests.agentd.test_r01_production_chain import _kernel
         from tests.agentd.test_r02_task_spec_deliverables import _draw_task
 
@@ -103,7 +102,7 @@ class TestTerminalAuthority:
         task_id = str(bound["task_id"])
         hello = tmp_path / "hello.txt"
         hello.write_text("hello\n", encoding="utf-8")
-        record = kernel.register_artifact(
+        kernel.register_artifact(
             task_id=task_id, path=str(hello),
             media_type="text/plain", producer="model:rosclaw_deliver",
         )
