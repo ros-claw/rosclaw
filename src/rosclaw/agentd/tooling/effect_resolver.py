@@ -75,6 +75,10 @@ DIRECT_TOOL_EFFECTS: dict[str, EffectClassV1] = {
     "rosclaw_memory_query": EffectClassV1.READ_ONLY,
     "rosclaw_inspect": EffectClassV1.READ_ONLY,
     "rosclaw_fail_safe": EffectClassV1.SHADOW_PROPOSAL,
+    # 0901 P0-3：只读任务/交付物面（解释/查看——零副作用）。
+    "rosclaw_task_inspect": EffectClassV1.READ_ONLY,
+    "rosclaw_artifact_list": EffectClassV1.READ_ONLY,
+    "rosclaw_artifact_resolve": EffectClassV1.READ_ONLY,
     "rosclaw_request_action": EffectClassV1.PHYSICAL_EFFECT,
     "rosclaw_process_start": EffectClassV1.HOST_PROCESS,
     "rosclaw_process_status": EffectClassV1.READ_ONLY,

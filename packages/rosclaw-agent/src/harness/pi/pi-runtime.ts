@@ -39,6 +39,7 @@ import { buildCapabilitiesTool } from "../../tools/capabilities.js";
 import { buildInspectTool } from "../../tools/inspect.js";
 
 import { buildTaskTool } from "../../tools/task.js";
+import { buildReadOnlyTaskTools } from "../../tools/task-read.js";
 import { buildStatusTool } from "../../tools/status.js";
 
 export interface RosclawRuntimeOptions {
@@ -275,6 +276,13 @@ export async function createRosclawRuntime(
 				// PR-EIGHT-5：任务级入口（确定性编译器——模型只交
 				// TaskSpec，不搬载荷、不逐点控制）。
 				buildTaskTool({
+					rosclawHome: options.rosclawHome,
+					active,
+					center,
+				}),
+				// 0901 P0-3：只读任务/交付物面（解释/查看已有结果——
+				// 认识确定性链刚做的事，不重跑）。
+				...buildReadOnlyTaskTools({
 					rosclawHome: options.rosclawHome,
 					active,
 					center,

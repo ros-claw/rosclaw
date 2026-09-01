@@ -1,5 +1,7 @@
 {
+  "rosclaw_artifact_list": "READ_ONLY",
   "rosclaw_artifact_register": "WORKSPACE_WRITE",
+  "rosclaw_artifact_resolve": "READ_ONLY",
   "rosclaw_capabilities": "READ_ONLY",
   "rosclaw_compute": "DYNAMIC",
   "rosclaw_deliver": "WORKSPACE_WRITE",
@@ -18,5 +20,6 @@
   "rosclaw_task": "SIMULATED_EFFECT",
   "rosclaw_task_blocked": "WORKSPACE_WRITE",
   "rosclaw_task_finish": "WORKSPACE_WRITE",
+  "rosclaw_task_inspect": "READ_ONLY",
   "rosclaw_verify": "READ_ONLY"
 }

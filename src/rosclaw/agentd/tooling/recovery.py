@@ -51,4 +51,23 @@ def recovery_for(code: str) -> str:
     return RECOVERY_REGISTRY.get(code, "")
 
 
-__all__ = ["RECOVERY_REGISTRY", "recovery_for"]
+#: 0901 P0-3：模型按名字猜的漂移名 → 真实只读工具（实测：
+#: task.list_artifacts/artifact.open 撞 EFFECT_UNRESOLVABLE 后模型
+#: 降级 Shell/列能力/重跑任务）。
+_READ_ONLY_HINT = (
+    "查看/解释已有结果用只读工具：rosclaw_task_inspect（任务+验收+"
+    "交付物）、rosclaw_artifact_list、rosclaw_artifact_resolve——"
+    "不要重新执行"
+)
+
+
+def recovery_hint(code: str, *, context: str = "") -> str:
+    """带上下文的恢复提示：漂移的 task.*/artifact.* 名字指向真实
+    只读工具；其余回落 recovery_for（code 默认动作）。"""
+    lowered = context.lower()
+    if lowered.startswith(("task.", "artifact.")):
+        return _READ_ONLY_HINT
+    return recovery_for(code)
+
+
+__all__ = ["RECOVERY_REGISTRY", "recovery_for", "recovery_hint"]
