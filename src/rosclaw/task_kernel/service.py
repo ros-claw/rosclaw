@@ -620,6 +620,19 @@ class TaskKernel:
                    {"artifact_id": artifact_id, "path": str(file),
                     "bytes": len(content)})
         record["metadata_json"] = meta_json
+        # 0901 P0-2：登记即投影——outputs/ 是即时投影视图（不等
+        # coordinator PASS；PARTIAL/FAIL 任务的已产出交付物也必须
+        # 可打开）。投影失败绝不阻断登记（投影是视图不是真相）。
+        from rosclaw.task_kernel.projection import project_deliverables
+
+        try:
+            project_deliverables(self, task_id)
+        except Exception:  # noqa: BLE001 - 投影是视图，失败不阻断登记
+            import logging
+
+            logging.getLogger("rosclaw.projection").warning(
+                "project-on-register failed for %s", task_id, exc_info=True,
+            )
         return record
 
     def finish_task(
