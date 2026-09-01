@@ -1052,6 +1052,23 @@ class PiBridgeServer:
             out: dict = {"ok": True, "input": record}
             if auto_task:
                 out["auto_task"] = auto_task
+            # 0901 P0-4（硬 Gate A）：解释性追问 → EXPLAIN_HANDLER
+            # 只读确定性回答（零模型回合、零新 task/trace/artifact）。
+            explain = None
+            if auto_task is None:
+                from rosclaw.agentd.explain_route import (
+                    is_explain_followup,
+                    maybe_explain_last_task,
+                )
+
+                if is_explain_followup(text):
+                    explain = maybe_explain_last_task(
+                        service,
+                        mission_id=str(params.get("mission_id", "")),
+                        session_ref=str(params.get("session_ref", "")),
+                    )
+            if explain:
+                out["explain"] = explain
             # P0-1（0827 审计·Input Arbiter）：权威 TurnDisposition——
             # 一条输入只有一个 Owner。TASK_ROUTER 认领后 Harness 必须
             # suppress 模型回合（否则确定性链与 Native Agent 双控制者
@@ -1061,9 +1078,17 @@ class PiBridgeServer:
                     record.get("input_id", "")
                     or params.get("message_id", "")
                 ),
-                "owner": "TASK_ROUTER" if auto_task else "PI_CONVERSATION",
-                "task_id": str(auto_task.get("task_id", "")) if auto_task else "",
-                "suppress_model_turn": bool(auto_task),
+                "owner": (
+                    "TASK_ROUTER" if auto_task
+                    else "EXPLAIN_HANDLER" if explain
+                    else "PI_CONVERSATION"
+                ),
+                "task_id": (
+                    str(auto_task.get("task_id", "")) if auto_task
+                    else str(explain.get("task_id", "")) if explain
+                    else ""
+                ),
+                "suppress_model_turn": bool(auto_task or explain),
             }
             return out
         if method == "pi.task.ensure_effect":

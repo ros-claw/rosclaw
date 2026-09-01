@@ -53,6 +53,15 @@ export class InputController {
 	): Promise<{
 		input_id?: string;
 		auto_task?: { task_id?: string; replayed?: boolean };
+		/** 0901 P0-4：EXPLAIN_HANDLER 的只读负载（outcome+artifacts）。 */
+		explain?: {
+			task_id?: string;
+			goal?: string;
+			state?: string;
+			revision?: number;
+			outcome?: Record<string, unknown> | null;
+			artifacts?: Array<Record<string, unknown>>;
+		};
 		turn_disposition?: {
 			input_id?: string;
 			owner?: string;
@@ -73,6 +82,14 @@ export class InputController {
 				ok?: boolean;
 				input?: { input_id?: string };
 				auto_task?: { task_id?: string; replayed?: boolean };
+				explain?: {
+					task_id?: string;
+					goal?: string;
+					state?: string;
+					revision?: number;
+					outcome?: Record<string, unknown> | null;
+					artifacts?: Array<Record<string, unknown>>;
+				};
 				turn_disposition?: {
 					input_id?: string;
 					owner?: string;
@@ -88,6 +105,7 @@ export class InputController {
 			return {
 				...(result.input ?? {}),
 				auto_task: result.auto_task,
+				explain: result.explain,
 				turn_disposition: result.turn_disposition,
 			};
 		} catch (err) {

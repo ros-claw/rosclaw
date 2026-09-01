@@ -31,6 +31,10 @@ import type { ProductStateCenter } from "../session/state-center.js";
 import { InputController } from "../native/input-controller.js";
 import { OperationWatcher } from "../native/operation-watcher.js";
 import { suppressModelTurn } from "../native/turn-disposition.js";
+import {
+	renderTerminalReply,
+	type TerminalOutcome,
+} from "../native/terminal-presenter.js";
 import { classifyModelError, ProviderErrorGate } from "../native/model-errors.js";
 import {
 	renderArtifactList,
@@ -435,6 +439,56 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			const autoTask = (persisted as { auto_task?: { task_id?: string } })
 				.auto_task;
 			if (suppressModelTurn(persisted)) {
+				// 0901 P0-4（硬 Gate A）：解释性追问 → EXPLAIN_HANDLER
+				// 只读确定性回答（从 TaskOutcome 直接呈现——零模型
+				// 回合、零新 task/trace/artifact、零仿真）。
+				const explain = (
+					persisted as {
+						explain?: {
+							task_id?: string;
+							goal?: string;
+							state?: string;
+							outcome?: Record<string, unknown>;
+							artifacts?: Array<Record<string, unknown>>;
+						};
+					}
+				).explain;
+				if (explain) {
+					const goal = String(explain.goal ?? "").slice(0, 80);
+					const refs = (explain.outcome?.artifact_refs ??
+						explain.artifacts ??
+						[]) as Array<Record<string, unknown>>;
+					const lines = refs
+						.map((r) => {
+							const kind = String(r.kind ?? r.media_type ?? "");
+							const path = String(r.path ?? "");
+							return `  · ${kind}：${path}`;
+						})
+						.filter((l) => !l.endsWith("："));
+					// 进行中的任务没有终态 outcome——诚实"还在执行"，
+					// 不把 UNKNOWN 渲染成"未达成"。
+					const inFlight = !explain.outcome;
+					const body = inFlight
+						? `刚才的任务（${String(explain.task_id ?? "").slice(0, 20)}…）：`
+							+ `${goal}——还在执行中（/activity 查看进度）`
+							+ (lines.length ? `\n已产出：\n${lines.join("\n")}` : "")
+						: `刚才的任务（${String(explain.task_id ?? "").slice(0, 20)}…）：`
+							+ `${goal}——状态 ${String(explain.state ?? "")}\n`
+							+ renderTerminalReply(
+								(explain.outcome ?? {}) as TerminalOutcome,
+							)
+							+ (lines.length ? `\n交付物：\n${lines.join("\n")}` : "");
+					pi.sendMessage(
+						{
+							customType: "rosclaw.task_explain",
+							content: body,
+							display: true,
+							details: { task_id: explain.task_id ?? "" },
+						},
+						{ triggerTurn: false },
+					);
+					return { action: "handled" as const };
+				}
 				if (autoTask?.task_id) {
 					operationWatcher.trackTask(String(autoTask.task_id));
 				}

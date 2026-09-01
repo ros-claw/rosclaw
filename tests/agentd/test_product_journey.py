@@ -1626,6 +1626,28 @@ class TestProductJourney:
             # 七审 §6 PR-SEVEN-4：轨迹级证据——verify PASS（端点/RMSE/
             # 闭合误差全过）+ 单 ExactAction 覆盖整条轨迹。
             self._assert_star_verified(home)
+            # 0901 P0-4（硬 Gate A）：PARTIAL/终态后用户问"你这是
+            # 啥？"→ EXPLAIN_HANDLER 只读确定性回答——0 新 task、
+            # 0 模型请求、0 次仿真（0901 实证：解释追问曾重跑整个
+            # 任务制造第二套 artifact）。
+            import sqlite3 as _sq3
+
+            tasks_before = _sq3.connect(
+                home / "agentd" / "missions.db"
+            ).execute("SELECT COUNT(*) FROM tasks").fetchone()[0]
+            model_turns_before_explain = len(fake.fake.requests)
+            session.send("你这是啥？\r")
+            session.expect("刚才的任务".encode(), timeout=60)
+            assert len(fake.fake.requests) == model_turns_before_explain, (
+                "解释追问竟触发模型回合"
+            )
+            tasks_after = _sq3.connect(
+                home / "agentd" / "missions.db"
+            ).execute("SELECT COUNT(*) FROM tasks").fetchone()[0]
+            assert tasks_after == tasks_before, (
+                f"解释追问竟建新任务：{tasks_before} → {tasks_after}"
+            )
+            self._journey_verdicts["explain_followup_zero_recompute"] = True
             # 6c. LIMO 交叉（六审 §6.3.10）：LIMO 动作在 UR5e body 上必须
             #     建卡前 BODY_CAPABILITY_MISMATCH，零 approval/grant/txn。
             self._assert_cross_body_rejected(session, home)
