@@ -229,18 +229,21 @@ _INFRA_PREFIXES = (
 )
 
 
-def _error_envelope_details(code: str) -> dict:
+def _error_envelope_details(code: str, *, tool_name: str = "") -> dict:
     """ErrorEnvelope 语义（R0-9）：scope / attempt_budget /
     recovery_action——基础设施/配置/确定性错误模型重试预算为 0；
-    只有明确 transient 且状态已变化时可重试。"""
-    from rosclaw.agentd.tooling.recovery import recovery_for
+    只有明确 transient 且状态已变化时可重试。
+
+    0901 P0-3：tool_name 进恢复提示——漂移的 task.*/artifact.*
+    名字指向真实只读工具（不再泛泛"查注册表"）。"""
+    from rosclaw.agentd.tooling.recovery import recovery_hint
 
     if code in _TRANSIENT_CODES:
         return {
             "scope": "transient",
             "attempt_budget": 1,
             "retry_after_condition": "状态已变化（context/审批/快照刷新后）",
-            "recovery_action": recovery_for(code),
+            "recovery_action": recovery_hint(code, context=tool_name),
         }
     scope = (
         "infrastructure"
@@ -251,7 +254,7 @@ def _error_envelope_details(code: str) -> dict:
         "scope": scope,
         "attempt_budget": 0,
         "retry_after_condition": "",
-        "recovery_action": recovery_for(code),
+        "recovery_action": recovery_hint(code, context=tool_name),
     }
 
 
@@ -305,7 +308,10 @@ class PiToolDispatcher:
                 summary=exc.message,
                 error_code=exc.code,
                 retryable=exc.retryable,
-                details=_error_envelope_details(exc.code),
+                details=_error_envelope_details(
+                    exc.code,
+                    tool_name=str(request.tool_name or ""),
+                ),
             )
         if result.ok:
             failures.pop(fingerprint, None)

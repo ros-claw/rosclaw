@@ -688,6 +688,76 @@ class TaskKernel:
         # 不代替资源证明。
         provenance_failures: list[str] = []
         embodiment_used = self.task_used_embodiment(task_id)
+        # 0901 P0-5：具身任务的终态权威——手拼低层 capability（裸
+        # compute/observe/simulate 直调）的产物不得发布终态。实证：
+        # 0901 第二轮模型手拼 simulate→trace 落账，turn_end 的
+        # consider 直接把任务收成 PASS·DELIVERED（渲染/验证还在
+        # 后面跑）。
+        # 判别边界（0827 全量回归实证）：body_id 非空只是会话绑定
+        # （chat 默认绑 body——纯写文件任务也带 body_id，不得误伤）；
+        # 真正的"具身实效"是任务实际触碰了具身面：embodiment 工具
+        # 事件（task.tool_used）或 kernel 能力/仿真产物
+        # （kernel:capability:*/kernel:sim* producer）。
+        # 受信执行证据三选一：PlanGraph plan.node 事件（确定性链）、
+        # Operator 链 COMPLETED txn、或 kernel 核验血缘的产物
+        # （登记时 kernel 计算的 receipt/trace digest——受信 sim
+        # 管道跑过的密码学证明）。
+        capability_touched = self._conn.execute(
+            "SELECT COUNT(*) AS n FROM artifacts WHERE task_id = ? AND "
+            "(producer LIKE 'kernel:capability:%' OR "
+            "producer LIKE 'kernel:sim%')",
+            (task_id,),
+        ).fetchone()
+        embodied_in_effect = bool(task.get("body_id")) and (
+            embodiment_used or int(capability_touched["n"]) > 0
+        )
+        authority_failure: list[str] = []
+        if embodied_in_effect:
+            plan_events = self._conn.execute(
+                "SELECT COUNT(*) AS n FROM task_events WHERE task_id = ? "
+                "AND event_type LIKE 'plan.node_%'",
+                (task_id,),
+            ).fetchone()
+            binding = self._conn.execute(
+                "SELECT session_ref FROM task_session_bindings "
+                "WHERE task_id = ? AND role = 'primary' LIMIT 1",
+                (task_id,),
+            ).fetchone()
+            receipts = self._conn.execute(
+                "SELECT COUNT(*) AS n FROM action_txns "
+                "WHERE mission_id = ? AND pi_session_id = ? "
+                "AND state = 'COMPLETED'",
+                (str(task["mission_id"]),
+                 str(binding["session_ref"]) if binding else ""),
+            ).fetchone()
+            lineage_rows = self._conn.execute(
+                "SELECT metadata_json FROM artifacts WHERE task_id = ? "
+                "AND metadata_json LIKE '%\"lineage\"%'",
+                (task_id,),
+            ).fetchall()
+            # 血缘两态都算受信执行证据（登记时 kernel 打戳/核验）：
+            # render 血缘（receipt digest 实算）与 preview_2d 血缘
+            # （trace 引用 + task/revision 打戳——WP-4 产品路径）。
+            # 裸手拼产物（无 lineage 元数据）两者皆无。
+            lineage_present = any(
+                ((json.loads(str(r["metadata_json"]) or "{}")
+                  .get("lineage") or {}).get("render_receipt_digest"))
+                or (
+                    (json.loads(str(r["metadata_json"]) or "{}")
+                     .get("lineage") or {}).get("kind") == "preview_2d"
+                    and (json.loads(str(r["metadata_json"]) or "{}")
+                         .get("lineage") or {}).get("trace_id")
+                )
+                for r in lineage_rows
+            )
+            if (not int(plan_events["n"]) and not int(receipts["n"])
+                    and not lineage_present):
+                authority_failure.append(
+                    "PLAN_AUTHORITY_MISSING: 具身任务缺受信执行证据"
+                    "（PlanGraph plan.node 事件 / Operator 链 COMPLETED "
+                    "txn / kernel 核验血缘产物 三选一）——手拼低层 "
+                    "capability 不得发布终态"
+                )
         if embodiment_used:
             # P0-G：canonical alias 唯一权威换算（不再手写前缀）。
             from rosclaw.cognition.alias import canonical_resource_id
@@ -830,6 +900,7 @@ class TaskKernel:
                             "该 trace 实际内容不符——renderer 吃的不是这条 trace"
                         )
         provenance_failures += graph_failures
+        provenance_failures += authority_failure
         # R0-2（0826 体验审计 §5.R0-2）：spec 冻结的 required
         # deliverables 按 kind 核验全量产物账本——任务成功 ≠ 用户
         # 请求成功（2D 预览不满足 scene_video——kind 分野是硬边界）。
