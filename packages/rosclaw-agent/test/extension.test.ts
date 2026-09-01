@@ -19,6 +19,8 @@ async function collectHandlers() {
 		registerShortcut() {},
 		// P0-5F：内核结果卡/冲突条目的渲染器与落盘 API（mock 空实现）。
 		registerEntryRenderer() {},
+		// P0-6（0901）：内核消息卡渲染器注册（mock 空实现）。
+		registerMessageRenderer() {},
 		appendEntry() {},
 	};
 	const { ActiveSessionContext } = await import("../src/session/active-context.js");

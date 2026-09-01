@@ -1609,6 +1609,28 @@ class TestProductJourney:
             )
             self._journey_verdicts["auto_route_zero_model_turns"] = True
             action_segment = session.clean[action_start:]
+            # 0901 P0-6（终态呈现产品化）：终态卡必须有 交付物文件名 +
+            # 绝对路径 + 打开命令 + 下一步——一行结论不是产品（用户
+            # 看完不知道该干嘛）。内部 customType 标签（[rosclaw.xxx]）
+            # 绝不上屏——协议细节不是用户界面。
+            assert "下一步".encode() in action_segment, (
+                "终态卡缺下一步指引（P0-6 产品化未生效）"
+            )
+            assert "路径：".encode() in action_segment, (
+                "终态卡缺交付物绝对路径"
+            )
+            assert b"rosclaw artifact open" in action_segment, (
+                "终态卡缺打开命令"
+            )
+            assert b".gif" in action_segment, "终态卡缺交付物文件名"
+            assert b"[rosclaw." not in action_segment, (
+                "内部 customType 标签漏到屏幕——渲染卡未注册"
+            )
+            # 指令回声卡：确定性链接管的输入以卡片呈现（不是裸标签）。
+            assert "确定性链接管".encode() in action_segment, (
+                "user_directive 指令回声卡未生效"
+            )
+            self._journey_verdicts["terminal_card_productized"] = True
             assert "ROSCLAW 授权请求".encode() not in action_segment, (
                 "默认安全 SIM 竟弹人工审批卡"
             )
@@ -1638,6 +1660,14 @@ class TestProductJourney:
             model_turns_before_explain = len(fake.fake.requests)
             session.send("你这是啥？\r")
             session.expect("刚才的任务".encode(), timeout=60)
+            # 0901 P0-6：解释卡以卡片呈现（标题可见），内部 customType
+            # 标签绝不上屏。
+            assert "只读账本回答".encode() in session.clean, (
+                "解释追问未以卡片呈现（task_explain 渲染卡未注册）"
+            )
+            assert b"[rosclaw." not in session.clean, (
+                "内部 customType 标签漏到屏幕——渲染卡未注册"
+            )
             assert len(fake.fake.requests) == model_turns_before_explain, (
                 "解释追问竟触发模型回合"
             )

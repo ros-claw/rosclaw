@@ -1,0 +1,99 @@
+/** 0901-P0-6 红测试：TerminalPresenter 产品化 + 内核消息卡渲染器。
+ *
+ * 0901 体验实证（用户原话：从用户角度真的不太好）：
+ * 1. 终态回复只有一行结论——没有原因（为什么失败）、没有文件名、
+ *    没有绝对路径、没有下一步（用户看完不知道该干嘛）；
+ * 2. 内部 customType 标签（[rosclaw.user_directive]/[rosclaw.task_terminal]）
+ *    原样漏到屏幕——内部协议细节不该出现在用户界面。
+ */
+
+import assert from "node:assert/strict";
+import test from "node:test";
+
+test("P0-6 PASS 呈现：文件名 + 绝对路径 + 打开命令 + 下一步", async () => {
+	const { renderTerminalReply } = await import(
+		"../src/native/terminal-presenter.js"
+	);
+	const reply = renderTerminalReply({
+		verification: "PASS",
+		delivery: "DELIVERED",
+		artifact_refs: [
+			{
+				artifact_id: "art_g",
+				path: "/home/u/proj/outputs/star-scene.gif",
+				media_type: "image/gif",
+				size_bytes: 1234567,
+				open_command: "rosclaw artifact open art_g",
+			},
+		],
+	});
+	assert.match(reply, /任务完成/);
+	// 文件名（basename）。
+	assert.match(reply, /star-scene\.gif/);
+	// 绝对路径全文。
+	assert.match(reply, /\/home\/u\/proj\/outputs\/star-scene\.gif/);
+	// 打开命令仍在。
+	assert.match(reply, /rosclaw artifact open art_g/);
+	// 下一步指引。
+	assert.match(reply, /下一步/);
+});
+
+test("P0-6 FAIL 呈现：原因逐条列出（repair_directive.failures）+ 下一步", async () => {
+	const { renderTerminalReply } = await import(
+		"../src/native/terminal-presenter.js"
+	);
+	const reply = renderTerminalReply({
+		verification: "FAIL",
+		delivery: "MISSING",
+		artifact_refs: [],
+		repair_directive: {
+			failures: [
+				"DELIVERABLE_MISSING: required 交付物 scene_video 未在产物账本",
+				"TRACKING_ERROR: 最大跟踪误差 0.031m 超阈值 0.020m",
+			],
+		},
+	});
+	assert.match(reply, /未完全达成/);
+	// 原因区：用户必须能看到"为什么"。
+	assert.match(reply, /原因/);
+	assert.match(reply, /scene_video/);
+	assert.match(reply, /0\.031m/);
+	// 下一步指引。
+	assert.match(reply, /下一步/);
+});
+
+test("P0-6 内核消息卡：三个 customType 都有注册卡（不漏内部标签）", async () => {
+	const { kernelMessageRenderers } = await import(
+		"../src/ui/kernel-message-cards.js"
+	);
+	const types = Object.keys(kernelMessageRenderers);
+	assert.ok(types.includes("rosclaw.user_directive"));
+	assert.ok(types.includes("rosclaw.task_terminal"));
+	assert.ok(types.includes("rosclaw.task_explain"));
+	for (const t of types) {
+		const component = kernelMessageRenderers[t](
+			{ customType: t, content: "任务已完成：验收 PASS" },
+		);
+		assert.ok(component, `${t} 应有渲染卡`);
+		const lines = component.render(80);
+		const text = lines.join("\n");
+		// 内容呈现。
+		assert.match(text, /任务已完成/);
+		// 内部 customType 标签绝不上屏。
+		assert.doesNotMatch(text, /\[?rosclaw\.(user_directive|task_terminal|task_explain)\]?/);
+	}
+});
+
+test("P0-6 user_directive 卡标注确定性链接管", async () => {
+	const { kernelMessageRenderers } = await import(
+		"../src/ui/kernel-message-cards.js"
+	);
+	const component = kernelMessageRenderers["rosclaw.user_directive"]({
+		customType: "rosclaw.user_directive",
+		content: "画一个五角星",
+	});
+	assert.ok(component);
+	const text = component.render(80).join("\n");
+	assert.match(text, /画一个五角星/);
+	assert.match(text, /确定性链/);
+});

@@ -4,8 +4,14 @@
  *  MISSING"——两个发布者互相矛盾）。
  *
  * 输出原则：
- * - PASS + DELIVERED → 完成 + 交付物打开命令；
- * - 其余 → 诚实"未完全达成" + 验收/交付状态，绝不出现完成宣称。
+ * - PASS + DELIVERED → 完成 + 交付物（文件名/绝对路径/打开命令）
+ *   + 下一步；
+ * - 其余 → 诚实"未完全达成" + 原因（验收失败逐条）+ 已产出 +
+ *   下一步，绝不出现完成宣称。
+ *
+ * 0901 P0-6（体验审计 §十二 P0-6）：一行结论不是产品——用户必须
+ * 看到 原因（为什么失败）、文件名、绝对路径、下一步（看完知道
+ * 该干嘛）。
  */
 
 export interface TerminalOutcome {
@@ -15,10 +21,44 @@ export interface TerminalOutcome {
 	/** P0-4：outputs/ 投影视图状态（DEGRADED = 投影失败但账本
 	 *  交付有效——必须如实告知，不得静默）。 */
 	workspace_projection?: string;
+	/** P0-6：验收/交付失败原因（repair_directive.failures——
+	 *  Coordinator 已持久化的权威失败清单）。 */
+	repair_directive?: {
+		failures?: string[];
+	};
 	artifact_refs?: Array<{
 		artifact_id?: string;
 		open_command?: string;
+		/** P0-6：绝对路径 + 媒体类型 + 大小（交付面三要素）。 */
+		path?: string;
+		media_type?: string;
+		size_bytes?: number;
 	}>;
+}
+
+/** 交付物一行：文件名 + 绝对路径 + 打开命令（可复制执行）。 */
+function renderArtifactLine(ref: {
+	artifact_id?: string;
+	open_command?: string;
+	path?: string;
+	size_bytes?: number;
+}): string {
+	const path = String(ref.path ?? "");
+	const name = path ? path.split("/").pop() ?? "" : "";
+	const size = Number(ref.size_bytes ?? 0);
+	const sizeText = size >= 1_048_576
+		? `${(size / 1_048_576).toFixed(1)} MB`
+		: size >= 1024
+			? `${(size / 1024).toFixed(1)} KB`
+			: size > 0
+				? `${size} B`
+				: "";
+	const head = name
+		? `${name}${sizeText ? `（${sizeText}）` : ""}`
+		: String(ref.artifact_id ?? "artifact");
+	const pathLine = path ? `\n  路径：${path}` : "";
+	const openLine = ref.open_command ? `\n  打开：${ref.open_command}` : "";
+	return `• ${head}${pathLine}${openLine}`;
 }
 
 /** 任务终态的最终用户回复（确定性——同一 outcome 永远同一文本）。 */
@@ -26,9 +66,7 @@ export function renderTerminalReply(outcome: TerminalOutcome): string {
 	const verification = String(outcome.verification ?? "UNKNOWN");
 	const delivery = String(outcome.delivery ?? "UNKNOWN");
 	const refs = outcome.artifact_refs ?? [];
-	const opens = refs
-		.map((r) => String(r.open_command ?? ""))
-		.filter(Boolean);
+	const artifactLines = refs.map(renderArtifactLine);
 	const passed = (verification === "PASS" || verification === "PASS_NEAR_LIMIT")
 		&& delivery === "DELIVERED";
 	const degraded = outcome.workspace_projection === "DEGRADED"
@@ -40,13 +78,26 @@ export function renderTerminalReply(outcome: TerminalOutcome): string {
 		const head = verification === "PASS_NEAR_LIMIT"
 			? "✅ 任务完成：验收 PASS_NEAR_LIMIT（误差接近阈值上限，勉强通过） · 交付 DELIVERED"
 			: "✅ 任务完成：验收 PASS · 交付 DELIVERED";
-		return opens.length
-			? `${head}\n交付物：${opens.join(" · ")}${degraded}`
-			: head + degraded;
+		if (!artifactLines.length) return head + degraded;
+		return (
+			`${head}\n交付物：\n${artifactLines.join("\n")}${degraded}\n`
+			+ "下一步：用上面的「打开」命令查看交付物；/activity 查看完整账本"
+		);
 	}
+	// 失败/部分达成：原因逐条（用户必须看到"为什么"）+ 已产出 +
+	// 下一步。
+	const failures = outcome.repair_directive?.failures ?? [];
+	const reasonLines = failures.length
+		? `\n原因：\n${failures.map((f) => `• ${f}`).join("\n")}`
+		: "";
+	const producedLines = artifactLines.length
+		? `\n已产出：\n${artifactLines.join("\n")}`
+		: "";
 	return (
 		`⚠️ 任务未完全达成：验收 ${verification} · 交付 ${delivery}`
-		+ "——如实说明限制，不宣称完整完成（/activity 查看账本）"
-		+ (opens.length ? `\n已产出交付物：${opens.join(" · ")}` : "")
+		+ "——如实说明限制，不宣称完整完成"
+		+ reasonLines
+		+ producedLines
+		+ "\n下一步：/activity 查看完整账本；或直接说明如何修正（在同一任务内继续，不重新跑已完成的步骤）"
 	);
 }

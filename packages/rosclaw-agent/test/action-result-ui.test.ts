@@ -34,6 +34,8 @@ async function collectHarness() {
 		registerEntryRenderer(customType: string, renderer: never) {
 			entryRenderers.set(customType, renderer);
 		},
+		// P0-6（0901）：内核消息卡渲染器注册（mock 空实现）。
+		registerMessageRenderer() {},
 		appendEntry(customType: string, data?: unknown) {
 			appended.push({ customType, data });
 		},

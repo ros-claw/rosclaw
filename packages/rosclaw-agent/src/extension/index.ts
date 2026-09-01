@@ -21,6 +21,7 @@ import {
 import { defaultOperatorSocket, operatorCall } from "../bridge/operatord-client.js";
 import { ApprovalCardComponent } from "../ui/approval-card.js";
 import { ActionResultCardComponent, type ActionResultData } from "../ui/action-result-card.js";
+import { kernelMessageRenderers } from "../ui/kernel-message-cards.js";
 import {
 	formatKitBrokenHint,
 	formatKitRecoveredHint,
@@ -998,6 +999,13 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				notifyLeveled(ctx, `授权卡交互失败：${(err as Error).message}`, "error");
 			}
 		});
+
+		// -- 内核消息卡（0901 体验审计 P0-6）----------------------------
+		// 内部 customType（user_directive/task_terminal/task_explain）
+		// 以卡片呈现——协议标签（[rosclaw.xxx]）绝不上屏。
+		for (const [customType, card] of Object.entries(kernelMessageRenderers)) {
+			pi.registerMessageRenderer(customType, (message) => card(message));
+		}
 
 		// -- 权威 Action Result Card（五审 P0-5F）--------------------------
 		// 动作终态只由 ROSClaw runtime 渲染（结构化 outcome → 不可变卡）；
