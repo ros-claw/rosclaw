@@ -30,6 +30,15 @@ def main() -> int:
     if result is not None:
         return result
 
+    # 0901 P0-1：artifact 交付面挂进 `rosclaw` 入口（实证事故：
+    # TerminalPresenter 给的 `rosclaw artifact open <id>` 此前落到
+    # legacy parser 打顶层帮助——dispatch 链缺失，不是版本漂移）。
+    from rosclaw.agentd.cli import dispatch_artifact_argv
+
+    result = dispatch_artifact_argv(sys.argv[1:])
+    if result is not None:
+        return result
+
     # P0-CLI-01：统一 setup 向导（model/body/operator/worker/integration）
     # 先于 legacy parser——legacy 的 setup 只有 lerobot，契约失真。
     from rosclaw.setup_cli import dispatch_setup_argv

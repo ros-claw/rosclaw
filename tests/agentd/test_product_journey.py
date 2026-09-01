@@ -1632,6 +1632,24 @@ class TestProductJourney:
             # 6b. 对抗场景（P0-4F 场景 D）：模型谎称完成——系统必须
             #    以结构化状态为准，不采信模型自述。
             self._assert_adversarial_model_ignored(session, home)
+            # 0901 P0-1（硬 Gate B）：安装产物的 `rosclaw artifact` 一族
+            # 真实可达——list 不回落顶层帮助、path 给绝对路径（0901
+            # 实证：open_command 给了 `rosclaw artifact open` 但入口
+            # 没有 dispatch——承诺无实现）。
+            import subprocess as _subp
+
+            art_list = _subp.run(
+                [str(rosclaw), "artifact", "list"], env=env,
+                capture_output=True, text=True, timeout=60,
+            )
+            assert art_list.returncode == 0, art_list.stderr
+            assert "usage: rosclaw" not in art_list.stdout, (
+                f"安装产物的 artifact list 回落顶层帮助：{art_list.stdout[:300]}"
+            )
+            assert ".mp4" in art_list.stdout or ".gif" in art_list.stdout, (
+                f"交付物未列出：{art_list.stdout[:300]}"
+            )
+            self._journey_verdicts["artifact_cli_reachable_in_install"] = True
             # 7. /compact（HOTFIX-5：真断言——compact 完成、上下文与
             #    receipt 保留、summary 可用——不是只发命令后 sleep）。
             #    先把 session 推过 keepRecentTokens 阈值（~20K tokens），

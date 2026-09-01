@@ -207,6 +207,45 @@ def cmd_artifact_open(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_artifact_show(args: argparse.Namespace) -> int:
+    """0901 P0-1：类型/大小/摘要/任务/血缘详情。"""
+    conn, rows = _artifact_rows(args, str(args.artifact_id))
+    if conn is None or not rows:
+        print(f"未知交付物 {args.artifact_id!r}（rosclaw artifact list 可查）")
+        return 2
+    view = _artifact_view(rows[0])
+    meta = rows[0].get("metadata_json")
+    lineage = {}
+    if isinstance(meta, str):
+        import contextlib
+
+        with contextlib.suppress(ValueError):
+            lineage = (json.loads(meta) or {}).get("lineage") or {}
+    if getattr(args, "json", False):
+        print(json.dumps({**view, "lineage": lineage}, ensure_ascii=False, indent=2))
+        return 0
+    print(f"artifact:  {view['artifact_id']}")
+    print(f"kind:      {view['kind']}")
+    print(f"media:     {view['media_type']}")
+    print(f"size:      {view['size_bytes']}B")
+    print(f"digest:    {view['digest']}")
+    print(f"task:      {view['task_id']}")
+    print(f"path:      {view['path']}")
+    if lineage:
+        print(f"lineage:   {json.dumps(lineage, ensure_ascii=False)[:200]}")
+    return 0
+
+
+def cmd_artifact_path(args: argparse.Namespace) -> int:
+    """0901 P0-1：只输出绝对路径（SSH/脚本一等）。"""
+    conn, rows = _artifact_rows(args, str(args.artifact_id))
+    if conn is None or not rows:
+        print(f"未知交付物 {args.artifact_id!r}", file=sys.stderr)
+        return 2
+    print(_artifact_view(rows[0])["path"])
+    return 0
+
+
 def cmd_artifact_export(args: argparse.Namespace) -> int:
     import shutil
 
@@ -222,9 +261,49 @@ def cmd_artifact_export(args: argparse.Namespace) -> int:
     dest = Path(str(args.dest))
     if dest.is_dir():
         dest = dest / src.name
+    dest.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(src, dest)
     print(f"已导出：{dest}（{view['size_bytes']}B，{view['digest'][:19]}…）")
     return 0
+
+
+def dispatch_artifact_argv(argv: list[str]) -> int | None:
+    """0901 P0-1：`rosclaw artifact ...` 入口快路径（entrypoint
+    dispatch 链调用）。
+
+    实证事故：artifact list/open/export 只注册在 rosclaw-agentd
+    子命令树里，用户面 `rosclaw artifact open <id>` 落到 legacy
+    parser 打顶层帮助——TerminalPresenter 给用户的 open_command
+    不可达。这里把 artifact 一族直接挂进 `rosclaw` 入口（与
+    rosclaw-agentd 同一组 handler——不复制实现）。"""
+    if not argv or argv[0] != "artifact":
+        return None
+    parser = argparse.ArgumentParser(
+        prog="rosclaw artifact",
+        description="交付物查看/打开/导出",
+    )
+    sub = parser.add_subparsers(dest="artifact_command", required=True)
+    p_list = sub.add_parser("list", help="列出登记的交付物")
+    p_list.add_argument("--task", default="", help="按 task_id 过滤")
+    p_list.add_argument("--json", action="store_true", help="机器可读输出")
+    p_list.set_defaults(func=cmd_artifact_list)
+    p_show = sub.add_parser("show", help="交付物详情（类型/大小/任务/血缘）")
+    p_show.add_argument("artifact_id")
+    p_show.add_argument("--json", action="store_true", help="机器可读输出")
+    p_show.set_defaults(func=cmd_artifact_show)
+    p_path = sub.add_parser("path", help="只输出绝对路径（SSH/脚本可用）")
+    p_path.add_argument("artifact_id")
+    p_path.set_defaults(func=cmd_artifact_path)
+    p_open = sub.add_parser("open", help="打开交付物（无显示环境给路径）")
+    p_open.add_argument("artifact_id")
+    p_open.set_defaults(func=cmd_artifact_open)
+    p_export = sub.add_parser("export", help="导出交付物到指定路径")
+    p_export.add_argument("artifact_id")
+    p_export.add_argument("dest")
+    p_export.set_defaults(func=cmd_artifact_export)
+    args = parser.parse_args(argv[1:])
+    # --home 由 _home(args) 统一解析（env ROSCLAW_HOME 回落）。
+    return args.func(args)
 
 
 def cmd_learning_list(args: argparse.Namespace) -> int:
