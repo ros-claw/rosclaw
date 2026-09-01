@@ -47,8 +47,11 @@ def project_deliverables(kernel: TaskKernel, task_id: str) -> str:
         ).fetchall()
         for row in rows:
             src = Path(str(row["path"]))
-            if zone_of(kernel._home, task_id, revision, src) == "outputs":
+            zone = zone_of(kernel._home, task_id, revision, src)
+            if zone == "outputs":
                 continue  # 已在交付区——无需投影
+            if zone == "evidence":
+                continue  # 证据区（verify_*.json）不进交付视图
             if not src.exists():
                 degraded = True
                 _LOG.warning("projection source missing: %s", src)
