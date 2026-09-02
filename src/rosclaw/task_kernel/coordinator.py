@@ -87,6 +87,38 @@ class TaskCoordinator:
         ).fetchone()
         if prior is not None:
             return json.loads(str(prior["outcome_json"]))
+        # 0902 复核（用户实测）：已终态（FAILED/BLOCKED/CANCELLED）任务
+        # 不得重验——finish_task 终态幂等只回 status（无 failures），
+        # 重跑会把空 failures 写成假 repair directive，终态卡丢"原因"
+        # （用户问"失败啥意思"卡片答不了）。原因的唯一权威是
+        # terminal_reason（终态迁移时写入）——从账本重建 outcome。
+        if str(task["state"]) in ("FAILED", "BLOCKED", "CANCELLED"):
+            term_artifacts = [
+                dict(r)
+                for r in self._conn.execute(
+                    "SELECT * FROM artifacts WHERE task_id = ?", (task_id,)
+                ).fetchall()
+            ]
+            reason = str(task.get("terminal_reason") or "")
+            failures = [f.strip() for f in reason.split("；") if f.strip()]
+            now = datetime.now(UTC).isoformat()
+            cancelled = str(task["state"]) == "CANCELLED"
+            outcome = self._build_outcome(
+                task, revision, term_artifacts,
+                lifecycle="COMPLETED",
+                execution="SUCCEEDED" if term_artifacts else "RUNNING",
+                verification="CANCELLED" if cancelled else "FAIL",
+                delivery="PARTIAL" if term_artifacts else "NONE",
+                created_at=now,
+            )
+            if failures:
+                outcome["repair_directive"] = {
+                    "criterion": failures[0],
+                    "repairable": False,
+                    "failures": failures,
+                }
+            self._store_outcome(task_id, revision, outcome, now)
+            return outcome
         artifacts = [
             dict(r)
             for r in self._conn.execute(
