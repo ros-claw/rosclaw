@@ -930,6 +930,31 @@ class TaskKernel:
                     f"DELIVERABLE_MISSING: required 交付物 {kind} 未在产物"
                     "账本（按 kind 匹配——2D 预览不满足场景视频）"
                 )
+        # 0902 R0-3（审计 §3.1/R0-4）：逐条 Requirement 验收——PASS
+        # 必须附带逐条 RequirementCoverage；未满足/不可证条款阻止
+        # 终态（0902 实证：tool_ref=""/overlays=[] 竟 PASS）。
+        requirement_coverage: list[dict[str, Any]] = []
+        spec_requirements = (spec or {}).get("requirements") or []
+        if spec_requirements:
+            from rosclaw.task_kernel.requirement_check import (
+                check_requirements,
+                unmet_failures,
+            )
+
+            req_ledger = [
+                dict(r)
+                for r in self._conn.execute(
+                    "SELECT * FROM artifacts WHERE task_id = ? "
+                    "AND revision = ?",
+                    (task_id, int(task["active_revision"])),
+                ).fetchall()
+            ]
+            requirement_coverage = check_requirements(
+                home=self._home, requirements=spec_requirements,
+                artifacts=req_ledger,
+                embodied=bool(task.get("body_id")),
+            )
+            provenance_failures += unmet_failures(requirement_coverage)
         trusted_present = any(
             str(a.get("producer") or "").startswith("kernel:")
             and not str(a.get("media_type") or "").startswith("image/")
@@ -954,6 +979,10 @@ class TaskKernel:
             # P0-5：误差事实与分级随验收行持久化（checks_json 是
             # 审计面——误差/分级不回填就无从复核"接近阈值"）。
             checks_payload: dict[str, Any] = {"checks": verdict["checks"]}
+            # 0902 R0-3：PASS 附带逐条 RequirementCoverage（审计面——
+            # "每条要求都被证据满足"可复核，不是一句 PASS）。
+            if requirement_coverage:
+                checks_payload["requirement_coverage"] = requirement_coverage
             if grade:
                 checks_payload["grade"] = grade
             if tracking_max_error_m is not None:

@@ -1687,6 +1687,28 @@ class TestProductJourney:
             # 6b. 对抗场景（P0-4F 场景 D）：模型谎称完成——系统必须
             #    以结构化状态为准，不采信模型自述。
             self._assert_adversarial_model_ignored(session, home)
+            # 0902 R0（反假成功 P0 事故复归）：用户对已完成任务新增
+            # 材料性要求（红笔 + 3D 实际轨迹 + 不要 2D）→ 覆盖率门禁
+            # 不得让旧 recipe 认领重跑，旧 revision 的视频不得满足新
+            # revision——绝不出现第二个"任务完成"卡；输入落到模型
+            # 路径（覆盖率不足 → 交 Native Agent，不猜）。
+            seg_before_rev = len(session.clean)
+            model_turns_before_rev = len(fake.fake.requests)
+            session.send(
+                "不对——加红色圆柱笔，在 3D 画面里显示本次实际轨迹，"
+                "不要 2D\r"
+            )
+            import time as _time
+
+            _time.sleep(8)  # 路由/模型回合窗口
+            rev_seg = session.clean[seg_before_rev:]
+            assert "任务完成：验收 PASS".encode() not in rev_seg, (
+                "0902 假成功复现：新要求竟被旧产物满足并宣布 PASS"
+            )
+            assert len(fake.fake.requests) > model_turns_before_rev, (
+                "未覆盖要求竟没落到模型路径（被旧 recipe 吞了）"
+            )
+            self._journey_verdicts["revision_no_fake_success"] = True
             # 0901 P0-1（硬 Gate B）：安装产物的 `rosclaw artifact` 一族
             # 真实可达——list 不回落顶层帮助、path 给绝对路径（0901
             # 实证：open_command 给了 `rosclaw artifact open` 但入口

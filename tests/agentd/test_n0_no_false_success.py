@@ -17,6 +17,7 @@ task_finish 可临时修改 acceptance、artifact cwd 分裂、用户否定后�
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from pathlib import Path
 
@@ -105,7 +106,16 @@ class TestNoFalseSuccess:
         # 无血缘的受信媒体声明已不被接受（LINEAGE_MISSING）。
         trace_dir = tmp_path / "sim" / "traces" / "trace_test1"
         trace_dir.mkdir(parents=True, exist_ok=True)
-        (trace_dir / "trace.json").write_text("{}", encoding="utf-8")
+        # 0902 R0-3：真实管道的 trace 必带 plan_hash（plan 记录是
+        # shape/plane 条款的核验源）——夹具对齐真实形态。
+        plan_hash = "a" * 32
+        (trace_dir / "trace.json").write_text(
+            json.dumps({"plan_hash": plan_hash}), encoding="utf-8")
+        plans = tmp_path / "sim" / "plans"
+        plans.mkdir(parents=True, exist_ok=True)
+        (plans / f"plan_{plan_hash[:16]}.json").write_text(
+            json.dumps({"shape": "star5", "plane": "xy",
+                        "hash": plan_hash}), encoding="utf-8")
         art = kernel.register_artifact(
             task_id=task_id, path=str(path), media_type="image/gif",
             producer="kernel:sim_pipeline",
