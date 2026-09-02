@@ -607,12 +607,16 @@ class TaskKernel:
             lineage["revision"] = int(task["active_revision"])
             meta["lineage"] = lineage
         meta_json = json.dumps(meta, ensure_ascii=False)
+        # 0902 R0-1：产物打 revision 戳——验收/交付只认当前 revision
+        # 的产物（0902 实证：旧 revision 的 scene 视频在新 revision
+        # 被计入 → PASS/DELIVERED 假成功）。
         self._conn.execute(
-            "INSERT INTO artifacts (artifact_id, task_id, path, media_type, "
-            "sha256, size_bytes, producer_operation_id, producer, "
-            "metadata_json, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (artifact_id, task_id, str(file), media_type, record["sha256"],
+            "INSERT INTO artifacts (artifact_id, task_id, revision, path, "
+            "media_type, sha256, size_bytes, producer_operation_id, "
+            "producer, metadata_json, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (artifact_id, task_id, int(task["active_revision"]),
+             str(file), media_type, record["sha256"],
              len(content), producer_operation_id or None, producer,
              meta_json, now),
         )
@@ -671,8 +675,9 @@ class TaskKernel:
             dict(r)
             for r in self._conn.execute(
                 "SELECT * FROM artifacts WHERE task_id = ? AND "
+                "revision = ? AND "
                 f"artifact_id IN ({','.join('?' * max(len(artifact_ids), 1))})",
-                (task_id, *artifact_ids),
+                (task_id, int(task["active_revision"]), *artifact_ids),
             ).fetchall()
         ] if artifact_ids else []
         from rosclaw.task_kernel.verifier import verdict_for
@@ -909,10 +914,14 @@ class TaskKernel:
         if spec_deliverables:
             from rosclaw.task_kernel.deliverables import deliverable_verdict
 
+            # 0902 R0-1：deliverable 账本只数当前 revision——旧
+            # revision 产物不得满足新条件（假成功结构修复）。
             ledger = [
                 dict(r)
                 for r in self._conn.execute(
-                    "SELECT * FROM artifacts WHERE task_id = ?", (task_id,),
+                    "SELECT * FROM artifacts WHERE task_id = ? "
+                    "AND revision = ?",
+                    (task_id, int(task["active_revision"])),
                 ).fetchall()
             ]
             dv = deliverable_verdict(spec_deliverables, ledger)
@@ -1050,19 +1059,54 @@ class TaskKernel:
             return None
         return json.loads(row["task_spec_json"])
 
-    def artifact_refs_for(self, task_id: str) -> list[dict[str, Any]]:
+    def artifacts_for_revision(
+        self, task_id: str, revision: int | None = None
+    ) -> list[dict[str, Any]]:
+        """0902 R0-1：指定 revision（默认当前活跃 revision）的产物。
+
+        验收/交付的唯一合法输入——旧 revision 产物不得满足新条件
+        （0902 假成功实证的结构修复）。显式复用走未来的
+        REUSED_UNCHANGED 标注，绝不默认计入。
+        """
+        task = self.get_task(task_id)
+        if task is None:
+            raise ValueError(f"unknown task {task_id!r}")
+        rev = int(task["active_revision"]) if revision is None else revision
+        return [
+            dict(r)
+            for r in self._conn.execute(
+                "SELECT * FROM artifacts WHERE task_id = ? AND revision = ? "
+                "ORDER BY created_at",
+                (task_id, rev),
+            ).fetchall()
+        ]
+
+    def artifact_refs_for(
+        self, task_id: str, revision: int | None = None
+    ) -> list[dict[str, Any]]:
         """R0-4（0826 体验审计 §5.R0-4）：用户可见 ArtifactRef 视图
         ——id/kind/media_type/size/digest/open_command。
 
         "数据库里有文件"不等于交付成功：交付面（ToolResult/
         TaskOutcome/CLI）只认这份带 open_command 的视图。
+
+        0902 R0-1：revision 限定——任务终态卡的"已产出"只列当前
+        revision 的产物（旧 revision 产物不得冒充新交付）。revision
+        为空 = 全量账本视图（CLI/只读查询用）。
         """
         from rosclaw.task_kernel.deliverables import artifact_delivery_kind
 
-        rows = self._conn.execute(
-            "SELECT * FROM artifacts WHERE task_id = ? ORDER BY created_at",
-            (task_id,),
-        ).fetchall()
+        if revision is None:
+            rows = self._conn.execute(
+                "SELECT * FROM artifacts WHERE task_id = ? ORDER BY created_at",
+                (task_id,),
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                "SELECT * FROM artifacts WHERE task_id = ? AND revision = ? "
+                "ORDER BY created_at",
+                (task_id, revision),
+            ).fetchall()
         refs: list[dict[str, Any]] = []
         for row in rows:
             artifact = dict(row)

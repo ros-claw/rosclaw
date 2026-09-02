@@ -1,0 +1,11 @@
+-- 0902 审计 R0-1：Artifact revision 作用域——反假成功的结构修复。
+-- 实证：用户新增"红色圆柱笔+3D 轨迹+不要 2D"（新 revision）后，旧
+-- revision 的 scene.mp4 仍在任务产物账本（task 级无 revision 分野），
+-- 验收把旧视频计为新条件已满足 → PASS/DELIVERED 假成功。
+-- artifacts 增加 revision 列；验收/交付只认当前 revision 的产物；
+-- 历史行回填 1（保守方向：旧产物不会被计入后续 revision）。
+-- 注意：本目录迁移同时被 SeekDB（episode 记忆库）套用——其自有
+-- artifacts 表无 task_id 列，索引不得引用 task_id（037 首版实证
+-- CI 失败：no such column: task_id）。任务产物表行数小，task_id+revision
+-- 过滤的表扫代价可接受；需要索引时在 agentd 专属迁移里做。
+ALTER TABLE artifacts ADD COLUMN revision INTEGER NOT NULL DEFAULT 1;

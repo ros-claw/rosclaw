@@ -96,7 +96,9 @@ class TaskCoordinator:
             term_artifacts = [
                 dict(r)
                 for r in self._conn.execute(
-                    "SELECT * FROM artifacts WHERE task_id = ?", (task_id,)
+                    "SELECT * FROM artifacts WHERE task_id = ? "
+                    "AND revision = ?",
+                    (task_id, revision),
                 ).fetchall()
             ]
             reason = str(task.get("terminal_reason") or "")
@@ -122,7 +124,8 @@ class TaskCoordinator:
         artifacts = [
             dict(r)
             for r in self._conn.execute(
-                "SELECT * FROM artifacts WHERE task_id = ?", (task_id,)
+                "SELECT * FROM artifacts WHERE task_id = ? AND revision = ?",
+                (task_id, revision),
             ).fetchall()
         ]
         # 完成信号：有产物或有冻结验收——两者皆无说明任务还在
@@ -314,7 +317,7 @@ class TaskCoordinator:
             # R0-4：用户可见交付视图（id/kind/media/size/digest/
             # open_command）——数据库里有文件 ≠ 交付成功。
             "artifact_refs": self._kernel.artifact_refs_for(
-                str(task["task_id"])
+                str(task["task_id"]), revision=revision
             ),
             "blocked_on": [],
             "created_at": created_at,
