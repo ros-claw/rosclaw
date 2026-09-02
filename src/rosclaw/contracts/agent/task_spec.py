@@ -85,6 +85,21 @@ DELIVERABLE_KIND_TO_ARTIFACT_KIND: dict[str, str] = {
 }
 
 
+class TaskRequirementV2(ContractModel):
+    """材料性要求条款（0902 审计 R0-2，§3.1）——每条用户要求是
+    可核验条款：level(must/forbidden) + claim（用户可读）+
+    verifier（覆盖比对键/验收键）。recipe 只在 100% 覆盖时执行。"""
+
+    SCHEMA: ClassVar[str] = "rosclaw.task_requirement.v2"
+
+    schema_version: Literal["rosclaw.task_requirement.v2"] = (
+        "rosclaw.task_requirement.v2"
+    )
+    req_id: str = Field(min_length=1)
+    level: str = Field(min_length=1)
+    claim: str = Field(min_length=1)
+    verifier: str = Field(min_length=1)
+
 class TaskDeliverableV2(ContractModel):
     """交付物声明：kind/media_type/required + 最低质量门槛。
 
@@ -160,6 +175,9 @@ class TaskSpecV2(ContractModel):
     #: 交付物声明（R0-2）：required 交付物未按 kind 出现在产物
     #: 账本 → DELIVERABLE_MISSING——任务成功 ≠ 用户请求成功。
     deliverables: list[TaskDeliverableV2] = Field(default_factory=list)
+    #: 材料性要求条款（0902 审计 R0-2）：recipe 只在 100% 覆盖时
+    #: 执行；R0-3 逐条验收。空 = 无材料性附加条件。
+    requirements: list[TaskRequirementV2] = Field(default_factory=list)
     #: 冻结验收规格关联（AcceptanceSpecV2.spec_id；未冻结为空——
     #: 诚实空，不编造）。
     acceptance_spec_id: str = ""
@@ -172,6 +190,7 @@ __all__ = [
     "TaskConstraintsV2",
     "TaskDeliverableV2",
     "TaskGoalV2",
+    "TaskRequirementV2",
     "TaskPreferencesV2",
     "TaskSpecV2",
     "TaskSubjectsV2",

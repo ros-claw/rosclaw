@@ -67,7 +67,29 @@ async def maybe_auto_route(
             }
         return None
     intent = _classify_intent(text)
-    if route_recipe({"goal": {"intent": intent}}) is None:
+    recipe_id = route_recipe({"goal": {"intent": intent}})
+    if recipe_id is None:
+        return None
+    # 0902 R0-2（§3.1 硬规则）：语义覆盖率门禁——recipe 只在材料性
+    # 要求 100% 覆盖时执行。0902 实证：关键词命中吞掉"红色圆柱笔/
+    # 3D 轨迹/不要 2D"→ 旧视频复用 → PASS/DELIVERED 假成功。任一
+    # must/forbidden 条款未被 recipe 声明覆盖 → 不自动路由（交
+    # Native Agent 编译 TaskSpec——不猜）。门禁在任务创建之前——
+    # 未覆盖不产生幽灵任务。
+    from rosclaw.task_kernel.requirements import compile_requirements
+    from rosclaw.task_kernel.task_router import RECIPE_COVERAGE
+
+    coverage = RECIPE_COVERAGE.get(recipe_id, frozenset())
+    uncovered = [r for r in compile_requirements(text)
+                 if r.verifier not in coverage]
+    if uncovered:
+        import logging
+
+        logging.getLogger("rosclaw.auto_route").info(
+            "coverage gate: recipe %s 未覆盖 %s——转 Native Agent 路径",
+            recipe_id,
+            [r.verifier for r in uncovered],
+        )
         return None
     mission = service.get_mission(mission_id)
     if mission is not None and mission.mode.value != "SIMULATION":

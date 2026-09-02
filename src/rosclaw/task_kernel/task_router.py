@@ -28,6 +28,27 @@ RECIPE_BY_GOAL: dict[str, str] = {
     "simulate_trajectory": "recipe:sim.draw_path",
 }
 
+#: 0902 R0-2（§3.1 硬规则）：recipe 语义覆盖声明——该 recipe 能
+#: 可验证地满足哪些条款（verifier 键）。快速配方只在材料性要求
+#: 100% 覆盖时执行；任一 must/forbidden 未覆盖 → 不自动路由
+#: （交 Native Agent 编译 TaskSpec——不猜）。recipe 只能加速，
+#: 不得绕过需求编译与验收。
+RECIPE_COVERAGE: dict[str, frozenset[str]] = {
+    "recipe:sim.draw_path": frozenset({
+        # 形状：recipe 只会画注册过的形状（画错形状=冒充）。
+        "shape.star5", "shape.circle",
+        # 平面：xy 默认 + xz/yz 命名面（compile_recipe_inputs）。
+        "plan.plane.horizontal", "plan.plane.vertical",
+        # 交付：3D 场景视频 + 2D 预览 + 实际轨迹数据。
+        "deliverable.scene_3d", "deliverable.video",
+        "deliverable.preview_2d", "trace.actual",
+        # 不覆盖（——出现即转 Native Agent）：receipt.tool_ref（挂载
+        # 工具）、render.tool_color（颜色）、receipt.overlays.*（轨迹
+        # 叠加）、delivery.not_2d_only（禁止项）、verification.contact
+        # （接触）、未知形状。
+    }),
+}
+
 
 def route_recipe(spec: Mapping[str, Any], *, goal_hint: str = "") -> str | None:
     """frozen TaskSpecV2（dict 视图）→ recipe_id；无路由 → None。
@@ -86,6 +107,7 @@ def compile_recipe_inputs(goal_text: str) -> dict[str, Any]:
 __all__ = [
     "RECIPE_BY_GOAL",
     "RECIPE_BY_INTENT",
+    "RECIPE_COVERAGE",
     "compile_recipe_inputs",
     "is_task_directive",
     "route_recipe",

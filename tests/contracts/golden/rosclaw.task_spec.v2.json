@@ -146,6 +146,46 @@
       "title": "TaskPreferencesV2",
       "type": "object"
     },
+    "TaskRequirementV2": {
+      "additionalProperties": true,
+      "description": "材料性要求条款（0902 审计 R0-2，§3.1）——每条用户要求是\n可核验条款：level(must/forbidden) + claim（用户可读）+\nverifier（覆盖比对键/验收键）。recipe 只在 100% 覆盖时执行。",
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.task_requirement.v2",
+          "default": "rosclaw.task_requirement.v2",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "req_id": {
+          "minLength": 1,
+          "title": "Req Id",
+          "type": "string"
+        },
+        "level": {
+          "minLength": 1,
+          "title": "Level",
+          "type": "string"
+        },
+        "claim": {
+          "minLength": 1,
+          "title": "Claim",
+          "type": "string"
+        },
+        "verifier": {
+          "minLength": 1,
+          "title": "Verifier",
+          "type": "string"
+        }
+      },
+      "required": [
+        "req_id",
+        "level",
+        "claim",
+        "verifier"
+      ],
+      "title": "TaskRequirementV2",
+      "type": "object"
+    },
     "TaskSubjectsV2": {
       "additionalProperties": true,
       "description": "作用对象：body_ref（canonical robot:<name>）、tool_ref 与\nworld_ref（R0-2：工具/场景是验收一等事实——\"持笔在桌面\"必须\n可声明、可核验，不允许最终回答自由夸大）。",
@@ -217,6 +257,13 @@
         "$ref": "#/$defs/TaskDeliverableV2"
       },
       "title": "Deliverables",
+      "type": "array"
+    },
+    "requirements": {
+      "items": {
+        "$ref": "#/$defs/TaskRequirementV2"
+      },
+      "title": "Requirements",
       "type": "array"
     },
     "acceptance_spec_id": {
