@@ -1583,9 +1583,21 @@ class TestProductJourney:
             #     127.0.0.1:8765（chat 的 agentd 用 port=0，必然误报
             #     UNREACHABLE）。PTY 输出与发给模型的 tool 结果双重断言。
             session.send("读取系统状态\r")
+            status_start = len(session.clean)
             session.expect("内核状态已读取".encode(), timeout=120)
             assert b"127.0.0.1:8765" not in session.clean, (
                 "Native Agent 输出仍引用旧 HTTP 面 8765"
+            )
+            # 0902 R3-c（§6.1 三层界面）：status 的用户面是单行摘要——
+            # 整段原始 JSON 不得进 scrollback（0902 实录：16 行 JSON
+            # 直接上屏）。模型面仍是完整 JSON（下面的 tool 结果断言
+            # 不受影响 = 诚实性不降级）。
+            status_segment = session.clean[status_start:]
+            assert b'"agentd": "READY"' not in status_segment, (
+                "status 原始 JSON 整段上屏——renderResult 折叠未生效"
+            )
+            assert "内核状态".encode() in status_segment, (
+                "紧凑摘要（✓ 内核状态 …）未出现"
             )
             # 发给模型的 tool 结果（fake 请求的 tool 消息）必须是 READY——
             # 与 /status 同一内核视图。

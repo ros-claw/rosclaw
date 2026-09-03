@@ -7,6 +7,7 @@
  * 不兼容项进 excluded 并附机器原因码（BODY_CAPABILITY_MISMATCH 等）。
  */
 
+import { compactRenderResult } from "../ui/compact-result.js";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import type { BridgeToolContext } from "./bridge-tools.js";
@@ -25,6 +26,9 @@ export function buildCapabilitiesTool(ctx: BridgeToolContext) {
 			"propose_<name> tools that enter the admission chain (REAL is always " +
 			"gated by rosclawd/operator). Never invent capability names.",
 		parameters: Type.Object({}),
+		// 0902 R3-c（§6.1）：用户面单行摘要——模型上下文保留完整
+		// JSON（诚实性不降级），TUI 不再整段打原始 JSON。
+		renderResult: compactRenderResult,
 		async execute(_toolCallId, _params, _signal, _onUpdate, _ctx) {
 			const state = ctx.active.current;
 			if (!state.missionId) {

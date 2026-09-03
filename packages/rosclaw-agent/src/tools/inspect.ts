@@ -6,6 +6,7 @@
  * self 返回版本/根目录/索引健康；capability/asset 走全文搜索。
  */
 
+import { compactRenderResult } from "../ui/compact-result.js";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 
@@ -34,6 +35,9 @@ export function buildInspectTool(ctx: BridgeToolContext) {
 			),
 			query: Type.Optional(Type.String({ description: "robot_id 或搜索词" })),
 		}),
+		// 0902 R3-c（§6.1）：用户面单行摘要——模型上下文保留完整
+		// JSON（诚实性不降级），TUI 不再整段打原始 JSON。
+		renderResult: compactRenderResult,
 		async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
 			const args = params as { kind: string; query?: string };
 			return await executeVia(ctx, "rosclaw_inspect", {

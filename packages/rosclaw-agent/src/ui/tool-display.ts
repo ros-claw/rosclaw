@@ -89,3 +89,27 @@ function tryParseJson(text: string): unknown {
 		return undefined;
 	}
 }
+
+
+// ---------------------------------------------------------------------
+// 0902 R3-c（§6.1）：状态 JSON → 单行摘要（纯函数，无 pi 依赖——
+// HP2 结构门安全；pi-tui 渲染在 compact-result.ts）。
+// ---------------------------------------------------------------------
+
+/** 状态 JSON → 单行摘要（agentd/kernel/operator/mission 关键状态）。 */
+export function summarizeStatusText(text: string): string {
+	const parsed = tryParseJson(text.trim());
+	if (parsed && typeof parsed === "object" && "agentd" in (parsed as object)) {
+		const p = parsed as Record<string, unknown>;
+		const mission = (p.mission ?? {}) as Record<string, unknown>;
+		const parts = [
+			`agentd=${String(p.agentd ?? "?")}`,
+			`kernel=${String(p.kernel ?? "?")}`,
+			`operator=${String(p.operator ?? "?")}`,
+		];
+		if (mission.state) parts.push(`mission=${String(mission.state)}`);
+		if (p.action_readiness) parts.push(`actions=${String(p.action_readiness)}`);
+		return `✓ 内核状态 ${parts.join(" · ")}`;
+	}
+	return summarizeToolResultText(text);
+}

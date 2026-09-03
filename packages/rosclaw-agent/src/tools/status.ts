@@ -5,6 +5,7 @@
  * chat 的 agentd 用 port=0，HTTP 必然误报 UNREACHABLE）。
  * 永不伪造可达性。 */
 
+import { compactRenderResult } from "../ui/compact-result.js";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import type { ProductStateCenter } from "../session/state-center.js";
@@ -18,6 +19,9 @@ export function buildStatusTool(center: ProductStateCenter) {
 			"Read-only. Returns honest unreachable errors when agentd is down — " +
 			"never invent robot state.",
 		parameters: Type.Object({}),
+		// 0902 R3-c（§6.1）：用户面单行摘要——模型上下文保留完整
+		// JSON（诚实性不降级），TUI 不再整段打原始 JSON。
+		renderResult: compactRenderResult,
 		async execute(_toolCallId, _params, _signal, _onUpdate, _ctx) {
 			try {
 				const report = await center.statusReport();
