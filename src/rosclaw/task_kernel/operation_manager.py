@@ -186,10 +186,18 @@ class OperationManager:
         result_ref: str = "",
     ) -> None:
         """终态落账（终态不可逆——CANCELLED/LOST 不被迟到事件覆盖）。
-        同步核心：Action result 回调（listener 线程）也走这里。"""
+        同步核心：Action result 回调（listener 线程）也走这里。
+
+        CI 实证（p1b3 flake 根治）：CANCELING 也必须被保护——
+        action_result(SUCCEEDED) 在取消宽限窗内到达时曾覆盖
+        CANCELING（goal2 永远停在 SUCCEEDED）。取消流程持有账本：
+        CANCELING 下只接受 CANCELLED（服务端 CANCELED 确认——
+        握手正常完成）；SUCCEEDED/FAILED 是迟到完成，拒。"""
         row = self.get(operation_id)
         if row is None or row["state"] in OPERATION_TERMINAL:
             return
+        if row["state"] == "CANCELING" and state != "CANCELLED":
+            return  # 取消流程持有账本——迟到完成不覆盖 CANCELING
         now = _now()
         self._conn.execute(
             "UPDATE operations SET state = ?, ended_at = ?, heartbeat_at = ?, "

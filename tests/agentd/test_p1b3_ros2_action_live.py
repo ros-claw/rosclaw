@@ -162,7 +162,7 @@ class TestRos2ActionLiveJourney:
                 # bounded cancel grace commits the terminal state.  Closing
                 # asyncio.run immediately after cancel races a valid callback
                 # against loop shutdown under full-suite load.
-                deadline = asyncio.get_running_loop().time() + 10.0
+                deadline = asyncio.get_running_loop().time() + 20.0
                 while (
                     mgr.get(op2["operation_id"])["state"] != "CANCELLED"
                     and asyncio.get_running_loop().time() < deadline
@@ -191,7 +191,8 @@ class TestRos2ActionLiveJourney:
             _wait(lambda: conn.execute(
                 "SELECT state FROM operations WHERE operation_id = ?",
                 (rows[0]["operation_id"],),
-            ).fetchone()["state"] == "CANCELLED", label="goal2 CANCELLED")
+            ).fetchone()["state"] == "CANCELLED", timeout=30.0,
+                  label="goal2 CANCELLED")
             final = conn.execute(
                 "SELECT state, cancel_reason FROM operations "
                 "WHERE operation_id = ?",

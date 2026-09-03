@@ -128,6 +128,42 @@ class TestStateMachine:
         op_id = asyncio.run(run())
         assert mgr.get(op_id)["state"] == "CANCELLED"
 
+    def test_late_result_never_overwrites_canceling(self, tmp_path: Path) -> None:
+        """CI 实证（p1b3 flake 根治）：CANCELING 窗内到达的迟到
+        action_result(SUCCEEDED) 曾覆盖 CANCELING（_write_terminal 只查
+        OPERATION_TERMINAL）——goal 永远停在 SUCCEEDED，grace 的
+        CANCELLED 被终态拒绝。取消流程持有账本：CANCELING 下只接受
+        CANCELLED（服务端 CANCELED 确认），SUCCEEDED/FAILED 拒。"""
+        conn = _conn(tmp_path)
+        _task(conn)
+        mgr = OperationManager(None, conn)
+
+        async def run():
+            op = await mgr.start(
+                task_id="task_1", attempt_id="", kind="process",
+                argv=["sh", "-c", "sleep 30"],
+            )
+            return op["operation_id"]
+
+        op_id = asyncio.run(run())
+        # 直接置于 CANCELING（action 取消窗——listener 回调与
+        # _write_terminal 同入口）。
+        conn.execute(
+            "UPDATE operations SET state = 'CANCELING', cancel_reason = 'r' "
+            "WHERE operation_id = ?",
+            (op_id,),
+        )
+        # 取消窗内的迟到完成：SUCCEEDED/FAILED 拒（取消流程持有账本）。
+        mgr._write_terminal(op_id, "SUCCEEDED")
+        assert mgr.get(op_id)["state"] == "CANCELING", (
+            "迟到 SUCCEEDED 覆盖了 CANCELING——取消握手被破坏"
+        )
+        mgr._write_terminal(op_id, "FAILED")
+        assert mgr.get(op_id)["state"] == "CANCELING"
+        # 服务端 CANCELED 确认正常落地（握手完成）。
+        mgr._write_terminal(op_id, "CANCELLED")
+        assert mgr.get(op_id)["state"] == "CANCELLED"
+
 
 class TestLiveness:
     def test_stale_heartbeat_marks_degraded_never_kills(self, tmp_path: Path) -> None:
