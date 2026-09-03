@@ -32,6 +32,7 @@ import type { ProductStateCenter } from "../session/state-center.js";
 import { InputController } from "../native/input-controller.js";
 import { OperationWatcher } from "../native/operation-watcher.js";
 import { suppressModelTurn } from "../native/turn-disposition.js";
+import { ProviderStallWatchdog } from "../native/provider-watchdog.js";
 import {
 	renderTerminalReply,
 	type TerminalOutcome,
@@ -131,6 +132,8 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 		type LatestCtx = {
 			isIdle(): boolean;
 			hasUI: boolean;
+			/** pi ExtensionContext 自带——编程取消停滞的模型回合。 */
+			abort?: () => void;
 			ui: {
 				notify(t: string, k: "info" | "warning" | "error"): void;
 				setWidget(key: string, lines: string[] | undefined): void;
@@ -883,12 +886,20 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			const requestId = details.request_id;
 			ctx.ui.setWorkingMessage(`等待授权决定（${requestId}）…默认拒绝`);
 			notifyLeveled(ctx, `等待授权决定（${requestId}）…默认拒绝`, "info");
+			// 卡打开 = 用户在场——暂停停滞看门狗（journey 实证：确认卡
+			// 等待被 45s 流式 idle 误判取消）。
+			stallWatchdog.pauseForUser();
+			let choice: string | undefined;
 			try {
-				const choice = await ctx.ui.select(
+				choice = await ctx.ui.select(
 					"本机无 OS 沙箱（bwrap 不可用）——当前命令需要在任务工作区内无沙箱执行（凭据/控制面对 shell 可达）",
 					["允许一次", "本任务允许（当前 revision）", "拒绝"],
 					{ timeout: 120000 },
 				);
+			} finally {
+				stallWatchdog.resumeFromUser();
+			}
+			try {
 				const decision = choice === "允许一次"
 					? "allow_once"
 					: choice?.startsWith("本任务允许")
@@ -1184,6 +1195,48 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				outcome.conflictClaim = text.slice(0, 120);
 			}
 			return undefined;
+		});
+		// 0902 R1-b（审计 §7）：Provider 停滞分阶段看门狗——首 token
+		// 10s 提示/30s 取消；流式 idle 15s 状态/45s 恢复。有字节流动的
+		// 长任务不杀（流动即续期）。"Provider 是根因"不等于 ROSClaw
+		// 没责任——静默 300s 是产品缺陷。
+		const stallWatchdog = new ProviderStallWatchdog({
+			notice: (t) => latestCtx?.ui.notify(t, "warning"),
+			stallAbort: () => {
+				if (latestCtx && !latestCtx.isIdle()) latestCtx.abort?.();
+			},
+		});
+		pi.on("turn_start", async () => {
+			stallWatchdog.turnStarted();
+		});
+		pi.on("message_update", async () => {
+			stallWatchdog.contentProgress();
+		});
+		pi.on("message_end", async (event) => {
+			// 只数 assistant 消息——pi 在 turn_start 后立刻为用户 prompt
+			// 自身发 message_start/message_end（agent-loop.js runAgentLoop）。
+			// 若不按 role 过滤，stall 腿的 prompt message_end 会把看门狗
+			// 提前推进流式阶段：首 token 计时被清，"响应迟滞"提示永不
+			// 触发（journey pytest-2340/2341 实证）。
+			const role = (event as { message?: { role?: unknown } }).message?.role;
+			if (role === "assistant") stallWatchdog.contentProgress();
+		});
+		// 工具执行（含授权卡等待）是活跃证据——等卡的回合不是
+		// 停滞（journey 实证：委派腿的确认卡等待被误判停滞取消）。
+		pi.on("tool_execution_start", async () => {
+			stallWatchdog.contentProgress();
+		});
+		pi.on("tool_execution_update", async () => {
+			stallWatchdog.contentProgress();
+		});
+		pi.on("tool_execution_end", async () => {
+			stallWatchdog.contentProgress();
+		});
+		pi.on("agent_end", async () => {
+			stallWatchdog.turnEnded();
+		});
+		pi.on("turn_end", async () => {
+			stallWatchdog.turnEnded();
 		});
 		pi.on("turn_end", async () => {
 			// P0-D：Harness idle → Coordinator 自动收尾（登记/验证/

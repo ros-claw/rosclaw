@@ -468,6 +468,13 @@ class _Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802
         length = int(self.headers.get("content-length", "0"))
         body = json.loads(self.rfile.read(length) or b"{}")
+        # 0902 R1-b：provider 停滞故障注入——挂起的请求永不写回
+        # （watchdog 必须在窗口内取消，不能让回合静默死等）。
+        if getattr(self.fake, "stall", False):
+            import threading as _th
+
+            _th.Event().wait(120)
+            return
         payload = self.fake.answer(body)
         self.send_response(200)
         ctype = "text/event-stream" if body.get("stream") else "application/json"
@@ -1540,7 +1547,15 @@ class TestProductJourney:
                 session.expect(
                     "本机无 OS 沙箱".encode(), timeout=120,
                 )
-                session.send("\r")  # 允许一次（第一项）
+                # 允许一次（第一项）。Enter 竞态实证：对话框首帧
+                # 渲染与键盘接管之间存在窗口——标题仍在可见期内
+                # 每 1s 重试 Enter，直到对话框消失。
+                for _ in range(15):
+                    time.sleep(1.0)
+                    session.send("\r")
+                    time.sleep(0.5)
+                    if "本机无 OS 沙箱".encode() not in session.clean[-4000:]:
+                        break
             # PR-H1：Native 直接完成（不委派）——同一 session 的工具执行。
             session.expect("已直接完成日志总结".encode(), timeout=180)
             # P0-4G（TranscriptPolicy）：SECRET_PROBE 回合后，任何后续
@@ -1717,6 +1732,14 @@ class TestProductJourney:
                 "未覆盖要求竟没落到模型路径（被旧 recipe 吞了）"
             )
             self._journey_verdicts["revision_no_fake_success"] = True
+            # 0902 R1-b（审计 §7）：provider 停滞——分阶段看门狗提示
+            # +取消，不再静默 300s（fake server 挂起不应答的故障注入）。
+            fake.fake.stall = True
+            session.send("再聊聊这个任务\r")
+            session.expect("响应迟滞".encode(), timeout=40)  # 10s 提示
+            session.expect("已取消本次请求".encode(), timeout=60)  # 30s 取消
+            fake.fake.stall = False
+            self._journey_verdicts["provider_stall_watchdog"] = True
             # 0901 P0-1（硬 Gate B）：安装产物的 `rosclaw artifact` 一族
             # 真实可达——list 不回落顶层帮助、path 给绝对路径（0901
             # 实证：open_command 给了 `rosclaw artifact open` 但入口
