@@ -36,15 +36,17 @@ export interface TerminalOutcome {
 	}>;
 }
 
-/** 交付物三行：文件名（大小）/ 裸绝对路径 / 裸打开命令——
- *  无标签前缀（0901 journey 实证：CJK 换行会把"路径："从值
- *  中间撕开；裸行既防撕裂又便于复制）。 */
+/** 交付物行：文件名（大小）+ 短打开命令——默认层不裸打内部
+ *  绝对路径（0902 §6.1：普通用户不得看到 sim/traces 内部路径；
+ *  0901 的可达性由 open/path/export 命令承接）。verbose（诊断层
+ *  /activity）才附绝对路径。无标签前缀（0901 journey 实证：CJK
+ *  换行会把"路径："从值中间撕开）。 */
 function renderArtifactLine(ref: {
 	artifact_id?: string;
 	open_command?: string;
 	path?: string;
 	size_bytes?: number;
-}): string {
+}, verbose: boolean): string {
 	const path = String(ref.path ?? "");
 	const name = path ? path.split("/").pop() ?? "" : "";
 	const size = Number(ref.size_bytes ?? 0);
@@ -58,17 +60,21 @@ function renderArtifactLine(ref: {
 	const head = name
 		? `• ${name}${sizeText ? `（${sizeText}）` : ""}`
 		: `• ${String(ref.artifact_id ?? "artifact")}`;
-	const pathLine = path ? `\n  ${path}` : "";
+	const pathLine = verbose && path ? `\n  ${path}` : "";
 	const openLine = ref.open_command ? `\n  ${ref.open_command}` : "";
 	return `${head}${pathLine}${openLine}`;
 }
 
 /** 任务终态的最终用户回复（确定性——同一 outcome 永远同一文本）。 */
-export function renderTerminalReply(outcome: TerminalOutcome): string {
+export function renderTerminalReply(
+	outcome: TerminalOutcome,
+	options?: { verbose?: boolean },
+): string {
 	const verification = String(outcome.verification ?? "UNKNOWN");
 	const delivery = String(outcome.delivery ?? "UNKNOWN");
 	const refs = outcome.artifact_refs ?? [];
-	const artifactLines = refs.map(renderArtifactLine);
+	const verbose = options?.verbose === true;
+	const artifactLines = refs.map((ref) => renderArtifactLine(ref, verbose));
 	const passed = (verification === "PASS" || verification === "PASS_NEAR_LIMIT")
 		&& delivery === "DELIVERED";
 	const degraded = outcome.workspace_projection === "DEGRADED"

@@ -10,7 +10,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-test("P0-6 PASS 呈现：文件名 + 绝对路径 + 打开命令 + 下一步", async () => {
+test("P0-6 PASS 呈现：文件名 + 打开命令 + 下一步（0902 R3-b：绝对路径进诊断层）", async () => {
 	const { renderTerminalReply } = await import(
 		"../src/native/terminal-presenter.js"
 	);
@@ -30,10 +30,25 @@ test("P0-6 PASS 呈现：文件名 + 绝对路径 + 打开命令 + 下一步", a
 	assert.match(reply, /任务完成/);
 	// 文件名（basename）。
 	assert.match(reply, /star-scene\.gif/);
-	// 绝对路径全文。
-	assert.match(reply, /\/home\/u\/proj\/outputs\/star-scene\.gif/);
 	// 打开命令仍在。
 	assert.match(reply, /rosclaw artifact open art_g/);
+	// 0902 R3-b：默认层不裸打绝对路径（内部路径进 verbose 诊断层）；
+	// 可达性由 open/path/export 命令承接。
+	assert.doesNotMatch(reply, /\/home\/u\/proj\/outputs\/star-scene\.gif/);
+	const verbose = renderTerminalReply({
+		verification: "PASS",
+		delivery: "DELIVERED",
+		artifact_refs: [
+			{
+				artifact_id: "art_g",
+				path: "/home/u/proj/outputs/star-scene.gif",
+				media_type: "image/gif",
+				size_bytes: 1234567,
+				open_command: "rosclaw artifact open art_g",
+			},
+		],
+	}, { verbose: true });
+	assert.match(verbose, /\/home\/u\/proj\/outputs\/star-scene\.gif/);
 	// 下一步指引。
 	assert.match(reply, /下一步/);
 });

@@ -1648,23 +1648,23 @@ class TestProductJourney:
             )
             self._journey_verdicts["auto_route_zero_model_turns"] = True
             action_segment = session.clean[action_start:]
-            # 0901 P0-6（终态呈现产品化）：终态卡必须有 交付物文件名 +
-            # 绝对路径 + 打开命令 + 下一步——一行结论不是产品（用户
-            # 看完不知道该干嘛）。内部 customType 标签（[rosclaw.xxx]）
-            # 绝不上屏——协议细节不是用户界面。
-            assert "下一步".encode() in action_segment, (
-                "终态卡缺下一步指引（P0-6 产品化未生效）"
-            )
-            # 绝对路径行（裸路径——无标签，防 CJK 换行撕裂）。
             import re as _re
 
-            assert _re.search(rb"/[\w./-]*\.gif", action_segment), (
-                "终态卡缺交付物绝对路径"
+            # 0901 P0-6 + 0902 R3-b（§6.1 三层界面）：终态卡默认层
+            # 必须有 交付物文件名 + 打开命令 + 下一步——且不得裸打
+            # 内部绝对路径（sim/traces/trace_* 是诊断层内容；可达性
+            # 由 rosclaw open/path/export 承接）。内部 customType
+            # 标签（[rosclaw.xxx]）绝不上屏。
+            assert "下一步".encode() in action_segment, (
+                "终态卡缺下一步指引（P0-6 产品化未生效）"
             )
             assert b"rosclaw artifact open" in action_segment, (
                 "终态卡缺打开命令"
             )
             assert b".gif" in action_segment, "终态卡缺交付物文件名"
+            assert not _re.search(rb"/[\w./-]*sim/traces/", action_segment), (
+                "终态卡默认层裸打内部 trace 路径（0902 §6.1 违规）"
+            )
             assert b"[rosclaw." not in action_segment, (
                 "内部 customType 标签漏到屏幕——渲染卡未注册"
             )
