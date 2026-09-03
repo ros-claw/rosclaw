@@ -803,10 +803,8 @@ def _prepare_installed_chat(
         # 六审 §8：chrome 走 i18n catalog——旅程固定 en-US（断言
         # 与 locale 无关的稳定性由 catalog parity 测试保证）。
         ROSCLAW_UI_LOCALE="en-US",
-        # P0-6：本机 user namespace 受限（Jetson 内核 uid_map 不可写）
-        # ——SIM 旅程显式授权降级 shell（结果带 TOOL_LAYER_ONLY
-        # 标记；有 bwrap 的主机此变量无影响）。
-        ROSCLAW_ALLOW_UNSANDBOXED_SHELL="1",
+        # 0902 R1-a：全局环境变量授权已从正式路径删除——无 bwrap
+        # 主机走会话内确认卡（委派腿回答），有 bwrap 主机沙箱直跑。
         PATH=f"{prefix / 'bin'}:{os.environ['PATH']}",
     )
     return home, env, rosclaw
@@ -1533,6 +1531,16 @@ class TestProductJourney:
             time.sleep(2.0)
             # 5. delegate worker。
             session.send("请委派 worker 总结这段日志\r")
+            # 0902 R1-a：无 bwrap 主机上 bash 降级走确认卡（允许一次
+            # = 第一项，Enter 选定）——不再是全局环境变量。有 bwrap 的
+            # 主机沙箱直跑（无卡）。
+            import shutil as _shutil
+
+            if _shutil.which("bwrap") is None:
+                session.expect(
+                    "本机无 OS 沙箱".encode(), timeout=120,
+                )
+                session.send("\r")  # 允许一次（第一项）
             # PR-H1：Native 直接完成（不委派）——同一 session 的工具执行。
             session.expect("已直接完成日志总结".encode(), timeout=180)
             # P0-4G（TranscriptPolicy）：SECRET_PROBE 回合后，任何后续

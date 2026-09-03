@@ -1260,6 +1260,51 @@ class PiBridgeServer:
                 str(params.get("session_ref", "")),
             )
             return {"ok": True, "task": task}
+        # 0902 R1-a：Approval Broker——shell 降级授权的 Runtime 批准面
+        #（删除全局环境变量授权的正式路径；0902 实证：用户已答"允许！"
+        # 仍被要求 export+重启）。grant 绑定 task+revision+scope。
+        if method == "pi.shell_gate.request":
+            from rosclaw.agentd.shell_gate import ShellGateBroker
+
+            broker = ShellGateBroker(service._task_kernel)
+            req = broker.request(
+                task_id=str(params.get("task_id", "")),
+                revision=int(params.get("revision", 0) or 0),
+                mission_id=str(params.get("mission_id", "")),
+                session_ref=str(params.get("session_ref", "")),
+                scope=str(params.get("scope", "shell.unsandboxed")),
+            )
+            return {"ok": True, "request": req}
+        if method == "pi.shell_gate.status":
+            from rosclaw.agentd.shell_gate import ShellGateBroker
+
+            broker = ShellGateBroker(service._task_kernel)
+            return {
+                "ok": True,
+                "request": broker.status(str(params.get("request_id", ""))),
+            }
+        if method == "pi.shell_gate.decide":
+            from rosclaw.agentd.shell_gate import ShellGateBroker
+
+            broker = ShellGateBroker(service._task_kernel)
+            try:
+                updated = broker.decide(
+                    str(params.get("request_id", "")),
+                    str(params.get("decision", "")),
+                )
+            except ValueError as exc:
+                return {"ok": False, "error": str(exc)}
+            return {"ok": True, "request": updated}
+        if method == "pi.shell_gate.check":
+            from rosclaw.agentd.shell_gate import ShellGateBroker
+
+            broker = ShellGateBroker(service._task_kernel)
+            granted = broker.check(
+                task_id=str(params.get("task_id", "")),
+                revision=int(params.get("revision", 0) or 0),
+                scope=str(params.get("scope", "shell.unsandboxed")),
+            )
+            return {"ok": True, "granted": granted}
         # 0901 P0-3：只读交付物面——解释/查看不再靠模型猜名字
         # （task.list_artifacts/artifact.open 漂移实证）。
         if method == "pi.artifact.list":
