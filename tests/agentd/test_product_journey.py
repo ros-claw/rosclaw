@@ -1774,6 +1774,23 @@ class TestProductJourney:
                 f"交付物未列出：{art_list.stdout[:300]}"
             )
             self._journey_verdicts["artifact_cli_reachable_in_install"] = True
+            # 0902 R3-a（§6.2）：`rosclaw open <id>` 最短主入口在安装
+            # 产物上真实可达（重写为 artifact open，同一 handler）。
+            import re as _re
+
+            id_match = _re.search(r"art_[0-9a-f]{24}", art_list.stdout)
+            assert id_match, f"artifact list 无 artifact id：{art_list.stdout[:300]}"
+            art_path = _subp.run(
+                [str(rosclaw), "open", id_match.group(0)], env=env,
+                capture_output=True, text=True, timeout=60,
+            )
+            # open 在无图形环境下可能打不开查看器——但 dispatch 必须
+            # 到达 artifact handler（不回落顶层帮助/未知命令）。
+            combined = art_path.stdout + art_path.stderr
+            assert "usage: rosclaw" not in combined, (
+                f"rosclaw open 回落顶层帮助：{combined[:300]}"
+            )
+            self._journey_verdicts["open_shortcut_reachable_in_install"] = True
             # 7. /compact（HOTFIX-5：真断言——compact 完成、上下文与
             #    receipt 保留、summary 可用——不是只发命令后 sleep）。
             #    先把 session 推过 keepRecentTokens 阈值（~20K tokens），
