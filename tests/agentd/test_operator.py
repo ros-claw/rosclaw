@@ -28,10 +28,12 @@ from rosclaw.contracts.operator.approval import ActionDisplayV1, ApprovalRequest
 from rosclaw.operator import GrantDeniedError, OperatorBroker
 from tests.agentd.conftest import LOCAL_PRINCIPAL
 
-NOW = datetime.now(UTC)
-
 
 def _request(broker_body_hash: str = "body_abc", **overrides) -> ApprovalRequestV2:
+    # 时间戳必须调用时取——模块级 NOW 在慢套件上过期（10 分钟
+    # TTL）：套件运行超过 TTL 后 request_expired 批量假失败
+    # （本机 32min 套件与 CI Full Regression 双双实证）。
+    now = datetime.now(UTC)
     payload = {
         "request_id": "appr_test1",
         "mission_id": "mis_x",
@@ -48,8 +50,8 @@ def _request(broker_body_hash: str = "body_abc", **overrides) -> ApprovalRequest
         ),
         "context_id": "ctx_1",
         "context_revision": 1,
-        "created_at": NOW.isoformat(),
-        "expires_at": (NOW + timedelta(minutes=10)).isoformat(),
+        "created_at": now.isoformat(),
+        "expires_at": (now + timedelta(minutes=10)).isoformat(),
     }
     payload.update(overrides)
     return ApprovalRequestV2(**payload)
