@@ -27,6 +27,9 @@ export interface TasksCenterDeps {
 	fetchArtifacts: (taskId: string) => Promise<Array<Record<string, unknown>>>;
 	notify: (text: string, kind: "info" | "warning" | "error") => void;
 	onClose: () => void;
+	/** 0902 R3-d（§6.2）：按 o 打开交付物（宿主注入——xdg-open
+	 *  等；无图形环境由宿主诚实告知）。 */
+	openArtifact?: (path: string) => void;
 }
 
 const POLL_MS = 2000;
@@ -57,6 +60,7 @@ export class TasksCenterComponent implements Component {
 	private tab: Tab = "Activity";
 	private showHelp = false;
 	private lines: string[] = [];
+	private artifacts: Array<Record<string, unknown>> = [];
 	private timer: ReturnType<typeof setInterval> | undefined;
 	private disposed = false;
 
@@ -96,7 +100,8 @@ export class TasksCenterComponent implements Component {
 			this.lines = renderTaskActivity(await this.deps.fetchEvents(taskId));
 			return;
 		}
-		this.lines = renderArtifactList(await this.deps.fetchArtifacts(taskId));
+		this.artifacts = await this.deps.fetchArtifacts(taskId);
+		this.lines = renderArtifactList(this.artifacts);
 	}
 
 	handleInput(data: string): void {
@@ -130,6 +135,29 @@ export class TasksCenterComponent implements Component {
 			void this.pollContent();
 			return;
 		}
+		// 0902 R3-d（§6.2）：Artifacts 页按 o 打开当前任务首个媒体
+		// 交付物（gif/mp4 优先——用户要的是视频；无媒体则第一条例
+		// 外诚实提示）。宿主注入 openArtifact（无图形环境宿主告知）。
+		if (key === "o") {
+			const media = this.artifacts.find((a) =>
+				String(a.media_type ?? "").startsWith("image/")
+				|| String(a.media_type ?? "").startsWith("video/")
+			) ?? this.artifacts[0];
+			const path = String(media?.path ?? "");
+			if (!path) {
+				this.deps.notify("该任务无交付物可打开", "info");
+				return;
+			}
+			if (!this.deps.openArtifact) {
+				this.deps.notify(
+					`本机无图形环境——rosclaw artifact path 取路径：${path.split("/").pop()}`,
+					"info",
+				);
+				return;
+			}
+			this.deps.openArtifact(path);
+			return;
+		}
 		if (key === "?") {
 			this.showHelp = !this.showHelp;
 			return;
@@ -156,7 +184,7 @@ export class TasksCenterComponent implements Component {
 			out.push("│ F2/Esc 关闭 · ↑↓ 选择 · Tab 切 Activity/Artifacts · r 刷新 · a 产物");
 			out.push("│ 任务由对话驱动：修改目标直接说，验收用 /done——面板只读");
 		} else {
-			out.push("│ ↑↓选择 Tab切页 r刷新 ?帮助 Esc关闭");
+			out.push("│ ↑↓选择 Tab切页 r刷新 o打开交付物 ?帮助 Esc关闭");
 		}
 		out.push(`└${border}┘`);
 		return out;

@@ -88,3 +88,34 @@ describe("H9 Task Panel（kernel 背板）", () => {
 		panel.dispose();
 	});
 });
+
+describe("0902 R3-d：面板内按 o 打开交付物（§6.2 任务卡直接打开）", () => {
+	it("Artifacts 页按 o → 打开当前任务首个媒体交付物", async () => {
+		const opened: string[] = [];
+		const deps = makeDeps(TASKS);
+		deps.openArtifact = (path: string) => { opened.push(path); };
+		const panel = new TasksCenterComponent(deps);
+		await new Promise((r) => setTimeout(r, 30));
+		panel.handleInput("a"); // 切 Artifacts
+		await new Promise((r) => setTimeout(r, 30));
+		panel.handleInput("o");
+		await new Promise((r) => setTimeout(r, 30));
+		assert.deepEqual(opened, ["/ws/star.gif"]);
+		panel.dispose();
+	});
+
+	it("无产物任务按 o → 诚实提示，不假装打开", async () => {
+		const notes: string[] = [];
+		const deps = makeDeps(TASKS);
+		deps.fetchArtifacts = async () => [];
+		deps.openArtifact = () => { throw new Error("不应调用"); };
+		deps.notify = (t: string) => { notes.push(t); };
+		const panel = new TasksCenterComponent(deps);
+		await new Promise((r) => setTimeout(r, 30));
+		panel.handleInput("a");
+		await new Promise((r) => setTimeout(r, 30));
+		panel.handleInput("o");
+		assert.ok(notes.some((n) => n.includes("无交付物")), notes.join("|"));
+		panel.dispose();
+	});
+});

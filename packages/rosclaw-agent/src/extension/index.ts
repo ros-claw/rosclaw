@@ -9,6 +9,7 @@
 import type { ExtensionContext, ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { readFileSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { ActiveSessionContext } from "../session/active-context.js";
 import type { AgentSessionCoordinator } from "../session/coordinator.js";
@@ -893,6 +894,13 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 					},
 					notify: (text, kind) => notifyLeveled(ctx, text, kind),
 					onClose: () => done(true),
+					// 0902 R3-d（§6.2）：按 o 打开交付物——图形环境
+					// 探测（xdg-open 存在才注入；否则组件内诚实提示）。
+					openArtifact: spawnSync("which", ["xdg-open"]).status === 0
+						? (path: string) => {
+							spawn("xdg-open", [path], { detached: true, stdio: "ignore" }).unref();
+						}
+						: undefined,
 				});
 			}, { overlay: true });
 		};
