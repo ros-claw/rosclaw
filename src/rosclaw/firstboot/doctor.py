@@ -98,6 +98,7 @@ class FirstbootDoctor:
         checks.extend(self._check_eurdf_zoo())
         checks.extend(self._check_provider_registry())
         checks.extend(self._check_sandbox())
+        checks.extend(self._check_os_isolation())
         checks.extend(self._check_practice())
         checks.extend(self._check_memory())
         checks.extend(self._check_docker())
@@ -479,6 +480,54 @@ class FirstbootDoctor:
         finally:
             if sandbox is not None:
                 sandbox.close()
+
+    def _check_os_isolation(self) -> list[CheckResult]:
+        """0902 R1-c（§5.3）：OS 级隔离与图形后端——启动前一次探测
+        +真实 smoke，结论落盘 home/agent/os-isolation.json（任务开始
+        前消费），而不是执行到一半甩给用户。"""
+        from rosclaw.firstboot.os_isolation import probe_and_persist
+
+        probe = probe_and_persist(self.home)
+        checks: list[CheckResult] = []
+        bwrap = probe["bwrap"]
+        if bwrap["path"] and bwrap["smoke_ok"]:
+            checks.append(CheckResult(
+                "os_isolation.bwrap", "OS isolation (bwrap)",
+                CheckStatus.PASS, False,
+                f"bwrap 可用且 smoke 通过：{bwrap['path']}",
+            ))
+        elif bwrap["path"]:
+            checks.append(CheckResult(
+                "os_isolation.bwrap", "OS isolation (bwrap)",
+                CheckStatus.WARN, False,
+                f"bwrap 已安装但 smoke 失败（user namespace 受限？）："
+                f"{bwrap['detail']}——shell 将走会话内确认卡降级",
+                "检查内核 user namespace 设置（如 kernel.unprivileged_userns_clone=1 / "
+                "apparmor userns 策略），或重装 bubblewrap",
+            ))
+        else:
+            checks.append(CheckResult(
+                "os_isolation.bwrap", "OS isolation (bwrap)",
+                CheckStatus.WARN, False,
+                "本机无 bwrap——shell 类操作将在会话内弹确认卡（降级运行）",
+                "sudo apt install bubblewrap（或提供等效 OS 沙箱）",
+            ))
+        container = probe["container"]
+        checks.append(CheckResult(
+            "os_isolation.container", "Container backend",
+            CheckStatus.PASS if container else CheckStatus.WARN, False,
+            f"容器后端可用：{container}" if container else "无 docker/podman（可选后端）",
+            None if container else "可选：安装 docker 或 podman 作为隔离后端",
+        ))
+        graphics = probe["graphics"]
+        checks.append(CheckResult(
+            "os_isolation.graphics", "Graphics backend",
+            CheckStatus.PASS if graphics else CheckStatus.WARN, False,
+            f"渲染图形后端：{graphics}" if graphics
+            else "无 OSMesa/EGL——headless 仿真渲染不可用",
+            None if graphics else "sudo apt install libosmesa6（或配置 EGL）",
+        ))
+        return checks
 
     def _check_practice(self) -> list[CheckResult]:
         try:

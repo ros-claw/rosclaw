@@ -9,6 +9,7 @@
 import type { ExtensionContext, ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { ActiveSessionContext } from "../session/active-context.js";
 import type { AgentSessionCoordinator } from "../session/coordinator.js";
 import {
@@ -38,6 +39,7 @@ import {
 	type TerminalOutcome,
 } from "../native/terminal-presenter.js";
 import { classifyModelError, ProviderErrorGate } from "../native/model-errors.js";
+import { _bwrapAvailable } from "../tools/workspace-pack.js";
 import {
 	renderArtifactList,
 	renderOperationLogs,
@@ -87,11 +89,34 @@ export interface RosclawExtensionOptions {
 	taskContext: import("../native/active-task-context.js").ActiveTaskContext;
 	/** PR-N5D：创建后回填的 session 引用（物化工具激活用）。 */
 	lateSession?: { session?: { setActiveToolsByName(names: string[]): void } };
+	/** 0902 R1-c（§5.3）：OS 隔离探测（测试可注入）——默认消费
+	 *  doctor 落盘的 os-isolation.json，无记录时回落 bwrap 存在性。 */
+	osIsolationProbe?: () => { isolationReady: boolean };
 }
 
 const WORKING_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
+/** 0902 R1-c 默认 OS 隔离探测：doctor 落盘的 os-isolation.json 为
+ *  单源（§5.3"setup/doctor 一次探测"）；无记录时回落 bwrap 存在性。 */
+function makeDefaultOsIsolationProbe(rosclawHome: string): () => { isolationReady: boolean } {
+	return () => {
+		try {
+			const raw = readFileSync(
+				join(rosclawHome, "agent", "os-isolation.json"), "utf-8",
+			);
+			const data = JSON.parse(raw) as { isolation_ready?: unknown };
+			if (typeof data.isolation_ready === "boolean") {
+				return { isolationReady: data.isolation_ready };
+			}
+		} catch {
+			// 无记录/坏记录 → 回落存在性探测。
+		}
+		return { isolationReady: _bwrapAvailable() };
+	};
+}
+
 export function createRosclawExtension(options: RosclawExtensionOptions): ExtensionFactory {
+	const defaultOsIsolationProbe = makeDefaultOsIsolationProbe(options.rosclawHome);
 	return (pi) => {
 		// -- 品牌 + 单一状态源（六审 PR-SIX-1：Header/Footer 在同一次
 		//    refreshChrome 里用同一个 KernelSnapshotV1 重绘——不允许顶部
@@ -230,6 +255,23 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			]);
 			if (options.workspaceAutoBound && workspaceStore.current) {
 				notifyLeveled(ctx, `已自动绑定 Project：${workspaceStore.current}（/workspace show 查看）`, "info");
+			}
+			// 0902 R1-c（§5.3）：无 OS 沙箱 → 会话开始一次性提示（任务
+			// 开始前），而不是 shell 执行到一半才甩卡。探测单源 =
+			// doctor 落盘的 os-isolation.json（无记录回落 bwrap 存在性）。
+			if (ctx.hasUI) {
+				try {
+					const probe = options.osIsolationProbe ?? defaultOsIsolationProbe;
+					if (!probe().isolationReady) {
+						notifyLeveled(ctx,
+							"本机无 OS 沙箱（bwrap 不可用）——shell 类操作将在会话内"
+							+ "弹确认卡降级运行；rosclaw doctor 查看结论与修复建议",
+							"warning",
+						);
+					}
+				} catch {
+					// 探测失败不阻塞会话启动（doctor 可重跑）。
+				}
 			}
 		});
 		pi.on("session_shutdown", async () => {

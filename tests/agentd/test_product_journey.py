@@ -570,6 +570,7 @@ def _build_and_install(tmp_path: Path) -> tuple[Path, Path]:
 from rosclaw import __version__ as PRODUCT_VERSION  # noqa: E402,N812
 from rosclaw.agentd.operator_socket import display_hash_for  # noqa: E402
 from rosclaw.contracts.operator.approval import ApprovalRequestV2  # noqa: E402
+from rosclaw.firstboot.os_isolation import probe_os_isolation  # noqa: E402
 
 
 @contextlib.contextmanager
@@ -1523,6 +1524,18 @@ class TestProductJourney:
             # Operator 初始化，不弹逐动作人工卡（ask-every-time 旅程在
             # SEVEN-7 单独覆盖 bootstrap 路径）。
             self._journey_verdicts["operator_not_required_for_safe_sim"] = True
+            # 0902 R1-c（§5.3）：无可用 OS 沙箱（缺失或 present-but-
+            # broken——userns 受限）时，会话开始即一次性提示沙箱缺失 +
+            # doctor 修复入口（任务开始前），而不是执行到一半才甩卡。
+            # 探测单源 = os_isolation.probe_os_isolation（功能 smoke，
+            # 不是 which——本机 bwrap 装了但 RTM_NEWADDR 被拒）。
+            # （模块级 import——journey 运行期间源码 checkout 隐藏。）
+            if not probe_os_isolation()["isolation_ready"]:
+                session.expect("本机无 OS 沙箱".encode(), timeout=30)
+                assert b"rosclaw doctor" in session.clean, (
+                    "沙箱提示必须带 doctor 修复入口"
+                )
+                self._journey_verdicts["sandbox_notice_at_session_start"] = True
             # 2. 普通对话。
             session.send("你好\r")
             session.expect("你好，我是 ROSClaw".encode(), timeout=90)
@@ -1539,11 +1552,11 @@ class TestProductJourney:
             # 5. delegate worker。
             session.send("请委派 worker 总结这段日志\r")
             # 0902 R1-a：无 bwrap 主机上 bash 降级走确认卡（允许一次
-            # = 第一项，Enter 选定）——不再是全局环境变量。有 bwrap 的
-            # 主机沙箱直跑（无卡）。
-            import shutil as _shutil
-
-            if _shutil.which("bwrap") is None:
+            # = 第一项，Enter 选定）——不再是全局环境变量。有可用 OS
+            # 沙箱的主机直跑（无卡）。守卫必须功能探测（bwrap 装了但
+            # userns 受限 = 不可用；which 误判曾让本机从未走过批准路径
+            # ——卡 120s 超时默认拒绝蒙混过关，批准腿零覆盖）。
+            if not probe_os_isolation()["isolation_ready"]:
                 session.expect(
                     "本机无 OS 沙箱".encode(), timeout=120,
                 )
@@ -1556,6 +1569,9 @@ class TestProductJourney:
                     time.sleep(0.5)
                     if "本机无 OS 沙箱".encode() not in session.clean[-4000:]:
                         break
+                # 批准路径必须真实走到（不是 120s 超时默认拒绝蒙混）。
+                session.expect("已批准——原操作继续".encode(), timeout=30)
+                self._journey_verdicts["shell_approval_card_approved"] = True
             # PR-H1：Native 直接完成（不委派）——同一 session 的工具执行。
             session.expect("已直接完成日志总结".encode(), timeout=180)
             # P0-4G（TranscriptPolicy）：SECRET_PROBE 回合后，任何后续
