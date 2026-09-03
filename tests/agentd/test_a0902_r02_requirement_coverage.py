@@ -106,19 +106,22 @@ class TestCoverageGate:
         assert not result.get("auto_task"), result
         assert tasks == 0, f"未覆盖竟建了任务（幽灵任务）: {tasks}"
 
-    async def test_trace_overlay_blocks_autoroute(self, tmp_path: Path) -> None:
+    async def test_trace_overlay_now_auto_routes(self, tmp_path: Path) -> None:
+        """R2-3：渲染器已支持 actual_eef_trace overlay（render_from_spec
+        证据绑定）——该要求被 recipe 真实覆盖，自动路由。"""
         result, tasks = await self._persist(
             tmp_path, "画五角星视频，在 3D 画面里显示本次实际轨迹", "m1"
         )
-        assert not result.get("auto_task"), result
-        assert tasks == 0
+        assert result.get("auto_task"), result
+        assert tasks == 1
 
-    async def test_forbid_2d_blocks_autoroute(self, tmp_path: Path) -> None:
+    async def test_forbid_2d_now_auto_routes(self, tmp_path: Path) -> None:
+        """R2-3：3D 场景视频在账即满足"不要只有 2D"禁止项——自动路由。"""
         result, tasks = await self._persist(
             tmp_path, "画五角星，不要 2D", "m1"
         )
-        assert not result.get("auto_task"), result
-        assert tasks == 0
+        assert result.get("auto_task"), result
+        assert tasks == 1
 
     async def test_unknown_shape_blocks_autoroute(self, tmp_path: Path) -> None:
         result, tasks = await self._persist(

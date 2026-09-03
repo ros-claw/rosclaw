@@ -42,10 +42,13 @@ RECIPE_COVERAGE: dict[str, frozenset[str]] = {
         # 交付：3D 场景视频 + 2D 预览 + 实际轨迹数据。
         "deliverable.scene_3d", "deliverable.video",
         "deliverable.preview_2d", "trace.actual",
+        # R2-3（渲染器已支持，有实现才覆盖）：场景渲染按任务要求
+        # 带 actual_eef_trace overlay（RenderSpec 证据绑定到本次
+        # trace）；3D 场景视频在账即满足"不要只有 2D"禁止项。
+        "receipt.overlays.actual_eef_trace", "delivery.not_2d_only",
         # 不覆盖（——出现即转 Native Agent）：receipt.tool_ref（挂载
-        # 工具）、render.tool_color（颜色）、receipt.overlays.*（轨迹
-        # 叠加）、delivery.not_2d_only（禁止项）、verification.contact
-        # （接触）、未知形状。
+        # 工具，无资产）、render.tool_color（颜色无证据通道）、
+        # verification.contact（无接触验证器）、未知形状。
     }),
 }
 

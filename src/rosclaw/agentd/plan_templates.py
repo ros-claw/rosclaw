@@ -150,6 +150,18 @@ def draw_path_recipe(
         d.get("kind") == "scene_video" and d.get("required")
         for d in (spec.get("deliverables") or [])
     )
+    # R2-3（0902 §4.3）：需求驱动 overlay——任务要求"显示实际轨迹"
+    # 时场景渲染必须带 actual_eef_trace overlay（RenderSpec 链），
+    # 且场景渲染因此成为必需（overlay 画在场景视频上）。
+    requirements = spec.get("requirements") or []
+    overlay_trace_required = any(
+        str(r.get("verifier") or "") == "receipt.overlays.actual_eef_trace"
+        and str(r.get("level") or "") == "must"
+        for r in requirements
+        if isinstance(r, dict)
+    )
+    if overlay_trace_required:
+        scene_required = True
 
     def h_resolve(inputs_: dict) -> dict:
         return {"ResourceRef": {"body_ref": canonical_resource_id(body_id)}}
@@ -262,11 +274,32 @@ def draw_path_recipe(
         trace = inputs_["TraceRef"]
         trace_id = trace["trace_id"]
         try:
-            result = render_scene_trace(
-                home, trace_id,
-                world_id=scene_world or "empty",
-                tool_ref=scene_tool,
-            )
+            if overlay_trace_required:
+                # R2-3：RenderSpec 驱动——overlay 证据绑定到本次
+                # trace（render_from_spec 父进程校验，旧证据冒充
+                # 会被 RENDER_EVIDENCE_MISMATCH 拒）。
+                from rosclaw.agentd.sim_render import render_from_spec
+                from rosclaw.contracts.agent.render_spec import RenderSpecV1
+
+                result = render_from_spec(
+                    home,
+                    RenderSpecV1(
+                        body_ref=f"robot:{body_id}",
+                        world_ref=f"world:{scene_world or 'empty'}",
+                        overlays=[{
+                            "kind": "actual_eef_trace",
+                            "source_ref": f"trace:{trace_id}",
+                        }],
+                        outputs=["gif", "mp4"],
+                    ),
+                    trace_id,
+                )
+            else:
+                result = render_scene_trace(
+                    home, trace_id,
+                    world_id=scene_world or "empty",
+                    tool_ref=scene_tool,
+                )
         except ValueError as exc:
             return {
                 "SceneRef": {

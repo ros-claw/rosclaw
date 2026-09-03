@@ -158,11 +158,15 @@ def _check_one(req: dict[str, Any], *, receipts: list[dict[str, Any]],
         if not receipts:
             return _done(UNVERIFIABLE, "无 render receipt 可核对轨迹叠加")
         for r in receipts:
-            overlays = r.get("overlays")
+            # R2-2 渲染器回写 overlays_applied（真实绘制的 overlay——
+            # 宣称与画面一致）；overlays 为旧键兼容。
+            overlays = r.get("overlays_applied")
+            if not isinstance(overlays, list):
+                overlays = r.get("overlays")
             if isinstance(overlays, list) and "actual_eef_trace" in overlays:
-                return _done(SATISFIED, "overlays 含 actual_eef_trace")
-        if any("overlays" in r for r in receipts):
-            return _done(VIOLATED, "receipt.overlays 不含实际轨迹")
+                return _done(SATISFIED, "overlays_applied 含 actual_eef_trace")
+        if any(("overlays_applied" in r or "overlays" in r) for r in receipts):
+            return _done(VIOLATED, "receipt.overlays_applied 不含实际轨迹")
         return _done(UNVERIFIABLE,
                      "receipt 无 overlays 字段——渲染器尚不支持轨迹叠加")
     if verifier == "render.tool_color":
@@ -199,6 +203,7 @@ def check_requirements(
     requirements: list[dict[str, Any]],
     artifacts: list[dict[str, Any]],
     embodied: bool = True,
+    receipts: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """逐条验收。artifacts 必须是当前 revision 的产物集（R0-1）。
 
@@ -211,7 +216,7 @@ def check_requirements(
         return []
     from rosclaw.task_kernel.deliverables import artifact_delivery_kind
 
-    receipts = _load_receipts(artifacts)
+    receipts = receipts if receipts is not None else _load_receipts(artifacts)
     plan = _load_plan(home, artifacts)
     kinds = {artifact_delivery_kind(a) for a in artifacts}
     media = {str(a.get("media_type") or "") for a in artifacts}
