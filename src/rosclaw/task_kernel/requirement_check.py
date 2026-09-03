@@ -171,6 +171,12 @@ def _check_one(req: dict[str, Any], *, receipts: list[dict[str, Any]],
                      "receipt 无 overlays 字段——渲染器尚不支持轨迹叠加")
     if verifier == "render.tool_color":
         return _done(UNVERIFIABLE, "颜色无证据通道（渲染器不回写外观属性）")
+    if verifier == "render.orientation":
+        return _done(UNVERIFIABLE, "画面方向无证据通道（渲染器不回写宽高比语义）")
+    if verifier == "render.speed":
+        return _done(UNVERIFIABLE, "播放速度无证据通道（渲染器不回写帧率语义）")
+    if verifier == "delivery.channel":
+        return _done(UNVERIFIABLE, "外发渠道无证据通道（无外发能力）")
     if verifier == "verification.contact":
         return _done(UNVERIFIABLE, "接触无证据通道（无接触验证器）")
     if verifier == "deliverable.scene_3d":

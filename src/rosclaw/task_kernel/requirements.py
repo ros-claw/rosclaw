@@ -58,6 +58,13 @@ _SCENE_3D_MARKERS = ("3d", "三维", "场景视频", "scene video")
 _VIDEO_MARKERS = ("视频", "video", "mp4", "录像")
 _PREVIEW_MARKERS = ("gif", "动图", "2d 预览", "preview")
 _CONTACT_MARKERS = ("接触", "贴着", "贴在", "contact")
+#: 0902 holdout 实证缺口：呈现参数（竖屏/横屏）、速度（慢动作）、
+#: 交付渠道（邮箱）此前不编译——被自动链静默丢弃（t26 实证：
+#: "竖屏视频"自动路由后交付横屏）。识别即条款，无证据通道 →
+#: 不可证阻止终态（诚实，不静默满足）。
+_ORIENTATION_MARKERS = ("竖屏", "横屏", "portrait", "landscape")
+_SPEED_MARKERS = ("慢动作", "慢速", "加速播放", "slow motion")
+_DELIVERY_CHANNEL_MARKERS = ("邮箱", "email", "发送到邮箱")
 
 #: 形状注册表：已知形状词 → shape key。recipe 覆盖集合之外的已知
 #: 形状 = "已知但未覆盖"（门禁拦截——不允许画错形状冒充）。
@@ -106,6 +113,12 @@ def compile_requirements(goal_text: str) -> list[Requirement]:
         _add("must", "2D 预览交付", "deliverable.preview_2d")
     if _any(goal_text, _CONTACT_MARKERS):
         _add("must", "接触验证", "verification.contact")
+    if _any(goal_text, _ORIENTATION_MARKERS):
+        _add("must", "指定画面方向（竖屏/横屏）", "render.orientation")
+    if _any(goal_text, _SPEED_MARKERS):
+        _add("must", "指定播放速度", "render.speed")
+    if _any(goal_text, _DELIVERY_CHANNEL_MARKERS):
+        _add("must", "指定交付渠道（邮箱等外发）", "delivery.channel")
     if _any(goal_text, _FORBID_2D_MARKERS):
         _add("forbidden", "禁止只交付 2D", "delivery.not_2d_only")
     return reqs

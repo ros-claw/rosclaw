@@ -93,7 +93,13 @@ def is_task_directive(text: str) -> bool:
 
 
 def compile_recipe_inputs(goal_text: str) -> dict[str, Any]:
-    """NL → recipe 几何参数（缺的字段由 recipe 确定性缺省补齐）。"""
+    """NL → recipe 几何参数（缺的字段由 recipe 确定性缺省补齐）。
+
+    0902 holdout 实证：尺寸词（"8 厘米"）此前被静默丢弃——recipe
+    用默认 scale 交付与用户要求不符的尺寸。显式尺寸是材料性参数：
+    识别为 scale_m 输入（识别不了尺寸含义时不猜——缺省）。 """
+    import re as _re
+
     inputs: dict[str, Any] = {}
     lowered = goal_text.lower()
     for shape, markers in _SHAPE_WORDS:
@@ -104,6 +110,13 @@ def compile_recipe_inputs(goal_text: str) -> dict[str, Any]:
         inputs["plane"] = "yz"
     elif any(m in goal_text or m in lowered for m in _VERTICAL_MARKERS):
         inputs["plane"] = "xz"
+    size = _re.search(r"(\d+(?:\.\d+)?)\s*(厘米|cm|毫米|mm)(?![\w])", lowered)
+    if size:
+        value = float(size.group(1))
+        unit = size.group(2)
+        scale_m = value / 100.0 if unit in ("厘米", "cm") else value / 1000.0
+        if 0.005 <= scale_m <= 0.5:  # 工作区物理上界之外不猜（诚实缺省）
+            inputs["scale_m"] = scale_m
     return inputs
 
 
