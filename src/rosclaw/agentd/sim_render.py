@@ -20,7 +20,10 @@ import json
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from rosclaw.contracts.agent.render_spec import RenderSpecV1
 
 #: 探测顺序（经验证的最小到最简）。
 _BACKEND_ORDER = ("egl", "osmesa", "xvfb")
@@ -87,6 +90,85 @@ def _renderer_build_digest() -> str:
     return "sha256:" + hashlib.sha256(payload.encode()).hexdigest()
 
 
+def render_from_spec(
+    home: Path,
+    spec: RenderSpecV1,
+    trace_id: str,
+    *,
+    max_frames: int = 60,
+    width: int = 640,
+    height: int = 360,
+) -> dict[str, Any]:
+    """RenderSpecV1 驱动的通用渲染（0902 R2-2，§4.3）。
+
+    与 render_scene_trace 的差异：本体来自 RenderProfile 注册表
+    （不再 hardcode ur5e）；overlay 真实绘制且证据绑定；outputs
+    遵守 spec 声明。
+
+    父进程职责（子进程只做像素）：
+    - 本体档案解析（RENDER_PROFILE_MISSING 诚实失败）；
+    - overlay 证据绑定：trace 源 == 本次 trace_id；plan 源 ==
+      trace 的 plan_hash（RENDER_EVIDENCE_MISMATCH——旧证据不得
+      冒充本次，0902 假成功教训）；
+    - 未实现 overlay 类型 RENDER_OVERLAY_UNSUPPORTED（不静默跳过
+      宣称已画）。
+    """
+    from rosclaw.agentd.render_profiles import resolve_render_profile
+
+    body_id = spec.body_ref.removeprefix("robot:")
+    profile = resolve_render_profile(body_id)  # 未登记即抛
+
+    home = Path(home)
+    trace_path = home / "sim" / "traces" / trace_id / "trace.json"
+    if not trace_path.exists():
+        raise ValueError(f"RENDER_INPUT_MISSING: trace {trace_id!r} 不存在")
+    plan_hash = str(json.loads(trace_path.read_text(encoding="utf-8")).get("plan_hash", ""))
+
+    supported = {"actual_eef_trace", "planned_trace", "waypoints", "contact_points"}
+    for overlay in spec.overlays:
+        if overlay.kind not in supported:
+            raise ValueError(
+                f"RENDER_OVERLAY_UNSUPPORTED: {overlay.kind} 渲染未实现"
+                f"（已支持：{sorted(supported)}）——不静默跳过"
+            )
+        if overlay.kind == "actual_eef_trace":
+            if overlay.source_ref != f"trace:{trace_id}":
+                raise ValueError(
+                    f"RENDER_EVIDENCE_MISMATCH: overlay source_ref "
+                    f"{overlay.source_ref!r} != 本次 trace:{trace_id}"
+                )
+        else:
+            if overlay.source_ref != f"plan:{plan_hash[:16]}":
+                raise ValueError(
+                    f"RENDER_EVIDENCE_MISMATCH: overlay source_ref "
+                    f"{overlay.source_ref!r} != 本次 plan:{plan_hash[:16]}"
+                )
+    if len(spec.attachments) > 1:
+        raise ValueError(
+            "RENDER_ATTACHMENTS_UNSUPPORTED: 多附件渲染未实现（当前单附件）"
+        )
+    tool_ref = spec.attachments[0].tool_ref if spec.attachments else ""
+    camera = spec.cameras[0].preset if spec.cameras else (
+        profile.default_cameras[0].preset if profile.default_cameras else "follow"
+    )
+    # 世界引用 → world_id（world:tabletop → tabletop）。
+    world_id = spec.world_ref.removeprefix("world:")
+
+    # spec 落盘进 trace 目录——子进程从文件读（CLI 参数不塞 JSON）。
+    spec_payload = spec.model_dump(mode="json")
+    spec_path = trace_path.parent / f"{trace_id}-render-spec.json"
+    spec_path.write_text(
+        json.dumps(spec_payload, ensure_ascii=False), encoding="utf-8"
+    )
+    result = render_scene_trace(
+        home, trace_id,
+        camera=camera, max_frames=max_frames, width=width, height=height,
+        world_id=world_id, tool_ref=tool_ref,
+        render_spec_path=spec_path,
+    )
+    return result
+
+
 def render_scene_trace(
     home: Path,
     trace_id: str,
@@ -97,6 +179,7 @@ def render_scene_trace(
     height: int = 360,
     world_id: str = "empty",
     tool_ref: str = "",
+    render_spec_path: Path | None = None,
 ) -> dict[str, Any]:
     """trace → 场景 GIF+MP4（真实 MuJoCo 离屏渲染）+ RenderReceipt。
 
@@ -162,6 +245,7 @@ def render_scene_trace(
                 camera=camera, max_frames=max_frames,
                 width=width, height=height,
                 world_id=world_id, tool_ref=tool_ref,
+                render_spec_path=render_spec_path,
             )
         except ValueError as exc:
             last_error = exc
@@ -199,6 +283,7 @@ def _render_attempt(
     height: int,
     world_id: str,
     tool_ref: str,
+    render_spec_path: Path | None = None,
 ) -> dict[str, Any]:
     """单次渲染尝试（结构化 IPC：原子 result 文件为唯一结果
     通道——stdout/stderr 只作诊断日志）。"""
@@ -216,6 +301,8 @@ def _render_attempt(
         "--world", world_id, "--tool", tool_ref,
         "--result", str(result_path),
     ]
+    if render_spec_path is not None:
+        argv += ["--spec", str(render_spec_path)]
     if backend == "xvfb":
         env = dict(os.environ, MUJOCO_GL="glfw")
         argv = [shutil.which("xvfb-run") or "xvfb-run", "-a", *argv]
@@ -282,6 +369,101 @@ def _require_tool_asset(tool_ref: str) -> None:
         )
 
 
+def _overlay_scene_geoms(
+    spec_overlays: list[dict],
+    trace: dict,
+    plan_doc: dict | None,
+) -> list[tuple[str, Any]]:
+    """overlay → 装饰几何序列（mujoco mjvGeom 配置元组）。
+
+    返回 (kind, payload) 列表由调用方逐帧应用到 scene——真实绘制，
+    绘制成功的 kind 才进 receipt 的 overlays_applied。
+    """
+
+    # 渲染成本有界（CI 软件光栅实证：全量轨迹点 >600s 超时）——
+    # 折线/点列抽稀到 240 段以内，形状语义不变。
+    def _decimate(pts: list, cap: int = 240) -> list:
+        if len(pts) <= cap:
+            return pts
+        step = (len(pts) - 1) / (cap - 1)
+        return [pts[round(i * step)] for i in range(cap)]
+
+    applied: list[tuple[str, Any]] = []
+    for overlay in spec_overlays:
+        kind = overlay.get("kind", "")
+        if kind == "actual_eef_trace":
+            pts = _decimate(
+                [(p["x"], p["y"], p["z"]) for p in trace.get("actual") or []]
+            )
+            applied.append((kind, ("polyline", pts, (1.0, 0.2, 0.2, 0.9))))
+        elif kind == "planned_trace":
+            pts = _decimate([
+                (p["x"], p["y"], p["z"]) for p in trace.get("planned") or []
+            ])
+            applied.append((kind, ("polyline", pts, (0.2, 0.6, 1.0, 0.9))))
+        elif kind == "waypoints":
+            wps = (plan_doc or {}).get("spec", {}).get("waypoints") or []
+            pts = [tuple(w["position_m"]) for w in wps]
+            applied.append((kind, ("points", pts, (1.0, 0.8, 0.1, 0.95))))
+        elif kind == "contact_points":
+            wps = (plan_doc or {}).get("spec", {}).get("waypoints") or []
+            pts = [tuple(w["position_m"]) for w in wps if w.get("kind") == "contact"]
+            applied.append((kind, ("points", pts, (0.1, 1.0, 0.3, 1.0))))
+    return applied
+
+
+def _apply_overlay_geoms(renderer: Any, overlays: list[tuple[str, Any]]) -> list[str]:
+    """把 overlay 几何 append 进 renderer.scene（装饰几何，不碰物理）。
+    返回实际画上的 kind 列表。"""
+    import mujoco
+    import numpy as np
+
+    scn = renderer.scene
+    drawn: list[str] = []
+    for kind, payload in overlays:
+        shape, pts, rgba = payload
+        if not pts:
+            continue
+        if shape == "polyline":
+            for a, b in zip(pts, pts[1:], strict=False):
+                if scn.ngeom >= scn.maxgeom:
+                    break
+                # mujoco 3.x：mjv_connector 只设 size/pos/mat——
+                # rgba 等其余属性必须先 mjv_initGeom（实证：
+                # mjv_makeConnector 在 3.11 已改名为 mjv_connector）。
+                geom = scn.geoms[scn.ngeom]
+                mujoco.mjv_initGeom(
+                    geom,
+                    mujoco.mjtGeom.mjGEOM_CAPSULE,
+                    np.zeros(3), np.zeros(3),
+                    np.eye(3).flatten(),
+                    np.array(rgba, dtype=np.float32),
+                )
+                mujoco.mjv_connector(
+                    geom,
+                    mujoco.mjtGeom.mjGEOM_CAPSULE,
+                    1.6,  # 线宽（像素级近似）
+                    np.array(a, dtype=float), np.array(b, dtype=float),
+                )
+                scn.ngeom += 1
+            drawn.append(kind)
+        else:  # points
+            for p in pts:
+                if scn.ngeom >= scn.maxgeom:
+                    break
+                mujoco.mjv_initGeom(
+                    scn.geoms[scn.ngeom],
+                    mujoco.mjtGeom.mjGEOM_SPHERE,
+                    np.array([0.004, 0.0, 0.0]),
+                    np.array(p, dtype=float),
+                    np.eye(3).flatten(),
+                    np.array(rgba, dtype=np.float32),
+                )
+                scn.ngeom += 1
+            drawn.append(kind)
+    return drawn
+
+
 def _render_impl(
     home: Path,
     trace_id: str,
@@ -292,6 +474,7 @@ def _render_impl(
     height: int,
     world_id: str = "empty",
     tool_ref: str = "",
+    render_spec_path: str = "",
 ) -> dict[str, Any]:
     """子进程内真实渲染（MUJOCO_GL 已由父进程设定）。"""
     backend = os_environ().get("MUJOCO_GL", "")
@@ -304,11 +487,25 @@ def _render_impl(
     states_digest = "sha256:" + hashlib.sha256(
         states_path.read_bytes()
     ).hexdigest()
+    # RenderSpec（R2-2）：本体档案 + overlay + outputs 全部由 spec
+    # 驱动；无 spec = 旧路径（ur5e 默认，向后兼容）。
+    spec_doc: dict = {}
+    if render_spec_path:
+        spec_doc = json.loads(Path(render_spec_path).read_text(encoding="utf-8"))
+    spec_overlays = spec_doc.get("overlays") or []
+    spec_outputs = spec_doc.get("outputs") or ["gif", "mp4"]
+    spec_body_ref = str(spec_doc.get("body_ref") or "")
     # canonical MJCF（与 rollout 同一资源链）；world 来自 TaskSpec
-    # （tabletop/empty——empty 不得冒充桌面场景）。
+    # （tabletop/empty——empty 不得冒充桌面场景）。本体：spec 驱动时
+    # 走 RenderProfile 注册表（不 hardcode）；无 spec 保持 ur5e 兼容。
     from rosclaw.sandbox.sandbox_api import Sandbox
 
-    sandbox = Sandbox.create("ur5e", world_id, "mujoco")
+    robot_id = "ur5e"
+    if spec_body_ref:
+        from rosclaw.agentd.render_profiles import sandbox_robot_id
+
+        robot_id = sandbox_robot_id(spec_body_ref.removeprefix("robot:"))
+    sandbox = Sandbox.create(robot_id, world_id, "mujoco")
     if not sandbox.has_physics:
         raise ValueError(f"RENDER_INPUT: canonical 模型不可用: {sandbox.load_error}")
     import mujoco
@@ -349,29 +546,61 @@ def _render_impl(
     try:
         from PIL import Image
 
+        # overlay 几何（静态点列，逐帧重挂——update_scene 每帧重置
+        # scene.ngeom）。plan 源 overlay 需要 plan 文档。
+        plan_doc: dict | None = None
+        if any(o.get("kind") != "actual_eef_trace" for o in spec_overlays):
+            plan_hash = str(trace.get("plan_hash", ""))
+            plan_path = home / "sim" / "plans" / f"plan_{plan_hash[:16]}.json"
+            if plan_path.exists():
+                plan_doc = json.loads(plan_path.read_text(encoding="utf-8"))
+        overlay_geoms = _overlay_scene_geoms(spec_overlays, trace, plan_doc)
+        overlays_applied: list[str] = []
+
         images = []
         for idx in frames_idx:
             q = positions[idx]
             data.qpos[: int(model.nu)] = np.array(q[: int(model.nu)])
             mujoco.mj_forward(model, data)
             renderer.update_scene(data, camera=cam)
+            if overlay_geoms:
+                overlays_applied = _apply_overlay_geoms(renderer, overlay_geoms)
             images.append(Image.fromarray(renderer.render()))
-        out = trace_dir / f"{trace_id}-scene.gif"
-        images[0].save(
-            out, save_all=True, append_images=images[1:],
-            duration=int(1000 / 12), loop=0,
-        )
-        # P0-F：官方渲染同时产出 MP4（imageio + imageio-ffmpeg
-        # 自带静态 ffmpeg——离线，不需要系统 ffmpeg）。
-        import imageio.v3 as iio
-        import numpy as _np
+        artifacts: dict[str, Any] = {}
+        if "gif" in spec_outputs:
+            out = trace_dir / f"{trace_id}-scene.gif"
+            images[0].save(
+                out, save_all=True, append_images=images[1:],
+                duration=int(1000 / 12), loop=0,
+            )
+            artifacts["gif"] = {
+                "path": str(out),
+                "frames": len(images),
+                "format": "gif",
+                "bytes": out.stat().st_size,
+                "evidence_level": "SIM_DYN_ROLLOUT",
+            }
+        if "mp4" in spec_outputs:
+            # P0-F：官方渲染同时产出 MP4（imageio + imageio-ffmpeg
+            # 自带静态 ffmpeg——离线，不需要系统 ffmpeg）。
+            import imageio.v3 as iio
+            import numpy as _np
 
-        mp4 = trace_dir / f"{trace_id}-scene.mp4"
-        frames_arr = [_np.asarray(img) for img in images]
-        iio.imwrite(mp4, frames_arr, fps=12)
+            mp4 = trace_dir / f"{trace_id}-scene.mp4"
+            frames_arr = [_np.asarray(img) for img in images]
+            iio.imwrite(mp4, frames_arr, fps=12)
+            artifacts["mp4"] = {
+                "path": str(mp4),
+                "frames": len(images),
+                "format": "mp4",
+                "bytes": mp4.stat().st_size,
+                "evidence_level": "SIM_DYN_ROLLOUT",
+            }
     finally:
         renderer.close()
         sandbox.close()
+    if not artifacts:
+        raise ValueError("RENDER_OUTPUT_EMPTY: spec.outputs 未产生任何产物")
     receipt = {
         "schema_version": "rosclaw.render_receipt.v1",
         "backend": backend,
@@ -383,42 +612,30 @@ def _render_impl(
             trace_path.read_bytes()
         ).hexdigest(),
         "states_digest": states_digest,
-        "outputs": ["gif", "mp4"],
+        "outputs": sorted(artifacts),
         "resource": trace.get("resource") or {},
     }
+    if spec_doc:
+        # R2-2：spec 锚点进 receipt（body/spec digest/真实绘制的
+        # overlay——宣称与画面一致可审计）。
+        receipt["body_ref"] = spec_body_ref
+        receipt["overlays_applied"] = overlays_applied
+        receipt["spec_digest"] = "sha256:" + hashlib.sha256(
+            json.dumps(spec_doc, sort_keys=True).encode()
+        ).hexdigest()
     (trace_dir / "render_receipt.json").write_text(
         json.dumps(receipt, ensure_ascii=False, indent=1), encoding="utf-8"
     )
+    primary = artifacts.get("gif") or artifacts["mp4"]
     return {
         "ok": True,
-        "artifact": {
-            "path": str(out),
-            "frames": len(images),
-            "format": "gif",
-            "bytes": out.stat().st_size,
-            "evidence_level": "SIM_DYN_ROLLOUT",
-        },
-        "artifacts": {
-            "gif": {
-                "path": str(out),
-                "frames": len(images),
-                "format": "gif",
-                "bytes": out.stat().st_size,
-                "evidence_level": "SIM_DYN_ROLLOUT",
-            },
-            "mp4": {
-                "path": str(mp4),
-                "frames": len(images),
-                "format": "mp4",
-                "bytes": mp4.stat().st_size,
-                "evidence_level": "SIM_DYN_ROLLOUT",
-            },
-        },
+        "artifact": primary,
+        "artifacts": artifacts,
         "receipt": receipt,
     }
 
 
-__all__ = ["probe_render_backend", "render_scene_trace"]
+__all__ = ["probe_render_backend", "render_from_spec", "render_scene_trace"]
 
 
 if __name__ == "__main__":
@@ -435,6 +652,7 @@ if __name__ == "__main__":
     _parser.add_argument("height", type=int)
     _parser.add_argument("--world", default="empty")
     _parser.add_argument("--tool", default="")
+    _parser.add_argument("--spec", default="")
     _parser.add_argument("--result", required=True)
     _args = _parser.parse_args()
     _result_path = Path(_args.result)
@@ -443,6 +661,7 @@ if __name__ == "__main__":
             Path(_args.home), _args.trace_id, camera=_args.camera,
             max_frames=_args.max_frames, width=_args.width,
             height=_args.height, world_id=_args.world, tool_ref=_args.tool,
+            render_spec_path=_args.spec,
         )
     except Exception as _exc:  # noqa: BLE001 - 失败也是结构化结果
         _message = str(_exc)[:300]
