@@ -20,6 +20,7 @@ from rosclaw.contracts.agent.decision import DecisionV1
 from rosclaw.contracts.agent.mission import MissionSessionV1
 from rosclaw.contracts.agent.model_turn import ModelTurnResultV1
 from rosclaw.contracts.agent.plan_graph import PlanGraphV1
+from rosclaw.contracts.agent.render_spec import RenderProfileV1, RenderSpecV1
 from rosclaw.contracts.agent.task_contracts import (
     ArtifactRefV1,
     EvidenceClaimV1,
@@ -31,6 +32,7 @@ from rosclaw.contracts.agent.task_contracts import (
 from rosclaw.contracts.agent.task_graph import TaskGraphPatchV1, TaskGraphV1, TaskNodeV1
 from rosclaw.contracts.agent.task_spec import TaskSpecV2
 from rosclaw.contracts.agent.tool import ToolDescriptorV2
+from rosclaw.contracts.agent.tool_asset import ToolAssetV1
 from rosclaw.contracts.agent.tool_result import ToolResultEnvelopeV2
 from rosclaw.contracts.agent.typed_ref import TypedRefV1
 from rosclaw.contracts.common import ContractModel
@@ -54,6 +56,9 @@ ALL_CONTRACTS: dict[str, type[ContractModel]] = {
         AcceptanceSpecV2,
         TaskSpecV2,
         PlanGraphV1,
+        RenderSpecV1,
+        RenderProfileV1,
+        ToolAssetV1,
         TaskNodeV1,
         TaskGraphV1,
         TaskGraphPatchV1,

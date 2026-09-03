@@ -1,0 +1,152 @@
+{
+  "$defs": {
+    "RenderAttachmentV1": {
+      "additionalProperties": true,
+      "description": "附件挂载：tool_ref + 挂载坐标系（变换细节在 ToolAsset）。",
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.render_attachment.v1",
+          "default": "rosclaw.render_attachment.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "tool_ref": {
+          "minLength": 1,
+          "title": "Tool Ref",
+          "type": "string"
+        },
+        "mount_frame": {
+          "minLength": 1,
+          "title": "Mount Frame",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tool_ref",
+        "mount_frame"
+      ],
+      "title": "RenderAttachmentV1",
+      "type": "object"
+    },
+    "RenderCameraV1": {
+      "additionalProperties": true,
+      "description": "相机：预设 + 可选参数覆盖。",
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.render_camera.v1",
+          "default": "rosclaw.render_camera.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "preset": {
+          "minLength": 1,
+          "title": "Preset",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "title": "Params",
+          "type": "object"
+        }
+      },
+      "required": [
+        "preset"
+      ],
+      "title": "RenderCameraV1",
+      "type": "object"
+    },
+    "RenderOverlayV1": {
+      "additionalProperties": true,
+      "description": "渲染叠加层：语义 kind + 证据来源引用。",
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.render_overlay.v1",
+          "default": "rosclaw.render_overlay.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "kind": {
+          "minLength": 1,
+          "title": "Kind",
+          "type": "string"
+        },
+        "source_ref": {
+          "default": "",
+          "title": "Source Ref",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "RenderOverlayV1",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "description": "渲染任务规格（§4.3 主契约）。",
+  "properties": {
+    "schema_version": {
+      "const": "rosclaw.render_spec.v1",
+      "default": "rosclaw.render_spec.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "body_ref": {
+      "minLength": 1,
+      "title": "Body Ref",
+      "type": "string"
+    },
+    "world_ref": {
+      "minLength": 1,
+      "title": "World Ref",
+      "type": "string"
+    },
+    "attachments": {
+      "items": {
+        "$ref": "#/$defs/RenderAttachmentV1"
+      },
+      "title": "Attachments",
+      "type": "array"
+    },
+    "overlays": {
+      "items": {
+        "$ref": "#/$defs/RenderOverlayV1"
+      },
+      "title": "Overlays",
+      "type": "array"
+    },
+    "cameras": {
+      "items": {
+        "$ref": "#/$defs/RenderCameraV1"
+      },
+      "title": "Cameras",
+      "type": "array"
+    },
+    "outputs": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Outputs",
+      "type": "array"
+    }
+  },
+  "required": [
+    "body_ref",
+    "world_ref",
+    "outputs"
+  ],
+  "title": "rosclaw.render_spec.v1",
+  "type": "object",
+  "$id": "rosclaw://schemas/rosclaw.render_spec.v1"
+}

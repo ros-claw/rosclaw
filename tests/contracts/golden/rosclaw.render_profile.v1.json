@@ -1,0 +1,88 @@
+{
+  "$defs": {
+    "RenderCameraV1": {
+      "additionalProperties": true,
+      "description": "相机：预设 + 可选参数覆盖。",
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.render_camera.v1",
+          "default": "rosclaw.render_camera.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "preset": {
+          "minLength": 1,
+          "title": "Preset",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "title": "Params",
+          "type": "object"
+        }
+      },
+      "required": [
+        "preset"
+      ],
+      "title": "RenderCameraV1",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "description": "本体渲染档案：渲染器对任意本体的一等输入（不按本体名\nhardcode——root/qpos 映射/EEF frame/默认相机全在这里）。",
+  "properties": {
+    "schema_version": {
+      "const": "rosclaw.render_profile.v1",
+      "default": "rosclaw.render_profile.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "body_id": {
+      "minLength": 1,
+      "title": "Body Id",
+      "type": "string"
+    },
+    "root_body": {
+      "minLength": 1,
+      "title": "Root Body",
+      "type": "string"
+    },
+    "qpos_mapping": {
+      "additionalProperties": {
+        "type": "integer"
+      },
+      "title": "Qpos Mapping",
+      "type": "object"
+    },
+    "eef_frame": {
+      "minLength": 1,
+      "title": "Eef Frame",
+      "type": "string"
+    },
+    "default_cameras": {
+      "items": {
+        "$ref": "#/$defs/RenderCameraV1"
+      },
+      "title": "Default Cameras",
+      "type": "array"
+    }
+  },
+  "required": [
+    "body_id",
+    "root_body",
+    "qpos_mapping",
+    "eef_frame"
+  ],
+  "title": "rosclaw.render_profile.v1",
+  "type": "object",
+  "$id": "rosclaw://schemas/rosclaw.render_profile.v1"
+}

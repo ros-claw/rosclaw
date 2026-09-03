@@ -1,0 +1,99 @@
+{
+  "$defs": {
+    "ToolMountV1": {
+      "additionalProperties": true,
+      "description": "挂载变换：父坐标系 + 可选 SE(3) 偏移（米/四元数 xyzw）。",
+      "properties": {
+        "schema_version": {
+          "const": "rosclaw.tool_mount.v1",
+          "default": "rosclaw.tool_mount.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "parent_frame": {
+          "minLength": 1,
+          "title": "Parent Frame",
+          "type": "string"
+        },
+        "position_m": {
+          "default": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Position M",
+          "type": "array"
+        },
+        "orientation_xyzw": {
+          "default": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "title": "Orientation Xyzw",
+          "type": "array"
+        }
+      },
+      "required": [
+        "parent_frame"
+      ],
+      "title": "ToolMountV1",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "description": "工具资产 manifest。",
+  "properties": {
+    "schema_version": {
+      "const": "rosclaw.tool_asset.v1",
+      "default": "rosclaw.tool_asset.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "tool_id": {
+      "minLength": 1,
+      "title": "Tool Id",
+      "type": "string"
+    },
+    "name": {
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+    },
+    "physical": {
+      "title": "Physical",
+      "type": "boolean"
+    },
+    "adapters": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Adapters",
+      "type": "object"
+    },
+    "mount": {
+      "$ref": "#/$defs/ToolMountV1"
+    }
+  },
+  "required": [
+    "tool_id",
+    "name",
+    "physical",
+    "adapters",
+    "mount"
+  ],
+  "title": "rosclaw.tool_asset.v1",
+  "type": "object",
+  "$id": "rosclaw://schemas/rosclaw.tool_asset.v1"
+}
