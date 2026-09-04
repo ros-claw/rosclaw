@@ -38,6 +38,19 @@ class TestEcosystemIndex:
         assert "fixtures" not in json.dumps(chain)
         assert "specs/ur5e" not in json.dumps(chain)
 
+    def test_robot_chain_accepts_body_id_forms(self, tmp_path: Path) -> None:
+        """0903 体验实证：模型按 header 的 body_id "sim/ur5e" 查
+        robot_chain → 未命中报 UNKNOWN_ROBOT。body_id/资源 id/别名
+        族都必须命中同一条权威链。"""
+        from rosclaw.cognition.index.builder import build_index
+        from rosclaw.cognition.index.query import robot_chain
+
+        index_path = build_index(tmp_path / "idx", REPO)
+        for form in ("ur5e", "sim/ur5e", "sim_ur5e", "robot:ur5e"):
+            chain = robot_chain(index_path, form)
+            assert chain is not None, f"{form} 未命中权威链"
+            assert chain["canonical"] is True
+
     def test_inspect_self_shape(self, tmp_path: Path) -> None:
         from rosclaw.cognition.index.builder import build_index
         from rosclaw.cognition.inspect_cli import inspect_self

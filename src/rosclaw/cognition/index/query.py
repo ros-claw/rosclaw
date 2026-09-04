@@ -85,15 +85,41 @@ def search(index_path: Path, text: str, *, limit: int = 10) -> list[dict]:
         conn.close()
 
 
+def _robot_id_candidates(robot_id: str) -> list[str]:
+    """查询规范化（0903 体验实证：模型按 header 里的 body_id
+    "sim/ur5e" 查 robot_chain，索引 canonical_id 是 zoo 目录名
+    "ur5e"——miss 报 UNKNOWN_ROBOT）。body_id/资源 id/别名族全试。"""
+    q = str(robot_id).strip()
+    candidates = [q]
+    for sep in ("sim/", "robot:", "real/"):
+        if q.startswith(sep):
+            candidates.append(q[len(sep):])
+    if q.startswith("sim_"):
+        candidates.append(q[4:])
+    candidates.append(q.replace("-", "_"))
+    # 去重保序。
+    seen: list[str] = []
+    for c in candidates:
+        if c and c not in seen:
+            seen.append(c)
+    return seen
+
+
 def robot_chain(index_path: Path, robot_id: str, *, product_root: Path | None = None) -> dict | None:
     """一次调用返回权威资产链。索引损坏 → 重建（product_root 可由
     meta 恢复）后重试一次；仍失败 → None（调用方诚实降级）。"""
+    candidates = _robot_id_candidates(robot_id)
     for attempt in range(2):
         try:
             conn = _connect(index_path)
             try:
-                robot = _entities(conn, "kind = 'robot' AND canonical_id = ?",
-                                  (robot_id,))
+                robot = []
+                for candidate in candidates:
+                    robot = _entities(
+                        conn, "kind = 'robot' AND canonical_id = ?",
+                        (candidate,))
+                    if robot:
+                        break
                 if not robot:
                     return None
                 payload = json.loads(robot[0]["payload_json"])
