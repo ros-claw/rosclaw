@@ -41,7 +41,7 @@ jobs:
           node-version: '22.19.0'
           cache: 'npm'
           cache-dependency-path: packages/rosclaw-tui/package-lock.json
-      - run: npm ci
+      - run: timeout 600 npm ci --fetch-retries=5 || timeout 600 npm ci
         working-directory: packages/rosclaw-tui
       - run: npm test
         working-directory: packages/rosclaw-tui
@@ -57,7 +57,7 @@ jobs:
           node-version: '22.19.0'
           cache: 'npm'
           cache-dependency-path: packages/rosclaw-agent/package-lock.json
-      - run: npm ci
+      - run: timeout 600 npm ci --fetch-retries=5 || timeout 600 npm ci
         working-directory: packages/rosclaw-agent
       # P0-6：bubblewrap——OS 隔离实证测试（凭据遮蔽/无网络/越界
       # 只读）需要真 bwrap；user namespace 在 ubuntu runner 可用。
@@ -214,7 +214,10 @@ jobs:
     # R0-3/R0-5：真实 3D 场景渲染进入回归（recipe scene 节点 +
     # 场景媒体核验）——两次 30 分钟 timeout-cancel 实证；预算随
     # 真实渲染覆盖提升到 45（与 native-agent-gate 最重档一致）。
-    timeout-minutes: 45
+    # 0902 复核批实证：R2 渲染器测试（overlay 像素证据）+ holdout
+    # 套件把套件推过 45 分钟（run 33844510892 精确 45 分钟被
+    # cancel）——预算 60。
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7.0.0
 

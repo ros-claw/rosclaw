@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import logging
 import os
 import signal
 import sqlite3
@@ -32,6 +33,8 @@ from rosclaw.contracts.common import new_id
 
 #: 终态集合（不可逆）。LOST：重启后无法证实结局的诚实终态。
 OPERATION_TERMINAL = frozenset({"SUCCEEDED", "FAILED", "CANCELLED", "LOST"})
+
+_LOG = logging.getLogger("rosclaw.operation_manager")
 
 #: 单行输出事件的最大字节（防爆 task_events）。
 _MAX_OUTPUT_CHUNK = 4000
@@ -331,11 +334,20 @@ class OperationManager:
             # ROS 2 Action：cancel_goal 请求——终态由 action_result
             # (CANCELED) 确认；宽限后服务端无响应也落 CANCELLED
             # （诚实：请求已发，结局不可考）。
+            # 0902 复核 L1：cancel_goal 抛异常时 grace 任务必须先
+            # 建好——否则 operation 永卡 CANCELING（sweep_liveness
+            # 不管 CANCELING，重启才收 LOST）。
             client, goal_id = action_ref
-            client.cancel_goal(goal_id)  # type: ignore[attr-defined]
             self._drivers[operation_id] = asyncio.create_task(
                 self._cancel_grace(operation_id, reason)
             )
+            try:
+                client.cancel_goal(goal_id)  # type: ignore[attr-defined]
+            except Exception:  # noqa: BLE001 - 发送失败由 grace 落 CANCELLED
+                _LOG.warning(
+                    "cancel_goal 发送失败（%s）——grace 落 CANCELLED",
+                    operation_id, exc_info=True,
+                )
             return
         proc = self._procs.pop(operation_id, None)
         if proc is not None and proc.returncode is None:

@@ -59,10 +59,14 @@ export class ProviderStallWatchdog {
 		this.firstTokenTimers.push(
 			setTimeout(() => {
 				if (!this.active || this.sawContent || this.userBusy) return;
-				this.opts.notice(
-					"模型响应迟滞（10s 无首个内容）——可能是 Provider 排队或网络慢；"
-					+ "30s 仍无响应将自动取消本次请求（可重发）",
-				);
+				try {
+					this.opts.notice(
+						"模型响应迟滞（10s 无首个内容）——可能是 Provider 排队或网络慢；"
+						+ "30s 仍无响应将自动取消本次请求（可重发）",
+					);
+				} catch {
+					// 通知失败不崩宿主（M8）。
+				}
 			}, this.opts.firstTokenNoticeMs),
 			setTimeout(() => this._stall("首 token 30s 无响应"), this.opts.firstTokenAbortMs),
 		);
@@ -108,7 +112,11 @@ export class ProviderStallWatchdog {
 		this.streamIdleTimers = [
 			setTimeout(() => {
 				if (!this.active || this.abortedOnce) return;
-				this.opts.notice("模型生成中断流（15s 无新内容）——仍在等待 Provider…");
+				try {
+					this.opts.notice("模型生成中断流（15s 无新内容）——仍在等待 Provider…");
+				} catch {
+					// M8。
+				}
 			}, this.opts.streamIdleStatusMs),
 			setTimeout(() => this._stall("流式 idle 45s"), this.opts.streamIdleAbortMs),
 		];
@@ -117,8 +125,18 @@ export class ProviderStallWatchdog {
 	private _stall(reason: string): void {
 		if (!this.active || this.abortedOnce || this.userBusy) return;
 		this.abortedOnce = true;
-		this.opts.notice(`Provider 无响应（${reason}）——已取消本次请求，可重发`);
-		this.opts.stallAbort();
+		// 0902 复核 M8：回调异常不得崩扩展宿主（setTimeout 回调里
+		// 裸调 = uncaught exception）。
+		try {
+			this.opts.notice(`Provider 无响应（${reason}）——已取消本次请求，可重发`);
+		} catch {
+			// 通知失败不阻断取消。
+		}
+		try {
+			this.opts.stallAbort();
+		} catch {
+			// abort 失败同理。
+		}
 		this._disarm();
 	}
 

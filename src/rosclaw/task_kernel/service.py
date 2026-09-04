@@ -587,7 +587,12 @@ class TaskKernel:
             lineage["revision"] = int(task["active_revision"])
             meta["lineage"] = lineage
         elif lineage is not None:
-            receipt_path = Path(str(lineage.get("render_receipt_path", "")))
+            receipt_ref = str(lineage.get("render_receipt_path") or "")
+            if not receipt_ref:
+                raise ValueError(
+                    "LINEAGE_UNREADABLE: lineage 缺 render_receipt_path"
+                )
+            receipt_path = Path(receipt_ref)
             if not receipt_path.exists():
                 raise ValueError(
                     f"LINEAGE_UNREADABLE: render receipt 不存在: "
@@ -693,6 +698,24 @@ class TaskKernel:
         # 不代替资源证明。
         provenance_failures: list[str] = []
         embodiment_used = self.task_used_embodiment(task_id)
+        # 0902 复核（M6 连带）：显式传入的 artifact_ids 属于旧
+        # revision → 诚实 REVISION_SPLICE 失败（不是静默丢弃——
+        # 调用方把旧产物当新交付必须可见地失败）。
+        if artifact_ids:
+            stale = self._conn.execute(
+                "SELECT artifact_id, revision FROM artifacts WHERE "
+                "task_id = ? AND "
+                f"artifact_id IN ({','.join('?' * len(artifact_ids))}) "
+                "AND revision != ?",
+                (task_id, *artifact_ids, int(task["active_revision"])),
+            ).fetchall()
+            for row in stale:
+                provenance_failures.append(
+                    f"REVISION_SPLICE: 产物 {row['artifact_id']} 属于旧 "
+                    f"revision r{row['revision']}（当前 r"
+                    f"{int(task['active_revision'])}）——旧产物不得交付新 "
+                    "revision"
+                )
         # 0901 P0-5：具身任务的终态权威——手拼低层 capability（裸
         # compute/observe/simulate 直调）的产物不得发布终态。实证：
         # 0901 第二轮模型手拼 simulate→trace 落账，turn_end 的
@@ -709,9 +732,10 @@ class TaskKernel:
         # 管道跑过的密码学证明）。
         capability_touched = self._conn.execute(
             "SELECT COUNT(*) AS n FROM artifacts WHERE task_id = ? AND "
+            "revision = ? AND "
             "(producer LIKE 'kernel:capability:%' OR "
             "producer LIKE 'kernel:sim%')",
-            (task_id,),
+            (task_id, int(task["active_revision"])),
         ).fetchone()
         embodied_in_effect = bool(task.get("body_id")) and (
             embodiment_used or int(capability_touched["n"]) > 0
@@ -737,8 +761,9 @@ class TaskKernel:
             ).fetchone()
             lineage_rows = self._conn.execute(
                 "SELECT metadata_json FROM artifacts WHERE task_id = ? "
+                "AND revision = ? "
                 "AND metadata_json LIKE '%\"lineage\"%'",
-                (task_id,),
+                (task_id, int(task["active_revision"])),
             ).fetchall()
             # 血缘两态都算受信执行证据（登记时 kernel 打戳/核验）：
             # render 血缘（receipt digest 实算）与 preview_2d 血缘

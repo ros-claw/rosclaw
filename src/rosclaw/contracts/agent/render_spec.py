@@ -59,7 +59,9 @@ class RenderOverlayV1(ContractModel):
         return value
 
     def model_post_init(self, __context: object, /) -> None:
-        if self.kind in ("actual_eef_trace", "planned_trace", "contact_points") and (
+        if self.kind in (
+            "actual_eef_trace", "planned_trace", "contact_points", "waypoints",
+        ) and (
             not self.source_ref.startswith(_TRACE_SOURCE_PREFIXES)
         ):
             raise ValueError(

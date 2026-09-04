@@ -102,7 +102,11 @@ class TaskCoordinator:
                 ).fetchall()
             ]
             reason = str(task.get("terminal_reason") or "")
-            failures = [f.strip() for f in reason.split("；") if f.strip()]
+            # 0902 复核 L6：写方有两种分号（auto_route 用 ASCII ";"，
+            # 别处用全角"；")——重建必须两种都切，否则单条巨行。
+            import re as _re
+
+            failures = [f.strip() for f in _re.split("[；;]", reason) if f.strip()]
             now = datetime.now(UTC).isoformat()
             cancelled = str(task["state"]) == "CANCELLED"
             outcome = self._build_outcome(

@@ -119,6 +119,28 @@ class TaskExecutionService:
                     "（REAL/SHADOW 走 rosclawd 权威链）"
                 ),
             )
+        # 0902 复核 M3：模型面/直接执行也过覆盖率门禁——auto_route
+        # 的门禁不能只挡用户输入路径（否则 rosclaw_task 对未覆盖条款
+        # 照跑 recipe：三角形画成五角星，烧完资源才验收失败）。
+        from rosclaw.task_kernel.requirements import compile_requirements
+        from rosclaw.task_kernel.task_router import RECIPE_COVERAGE
+
+        goal_text = str(task.get("root_goal") or "")
+        coverage = RECIPE_COVERAGE.get(recipe_id, frozenset())
+        uncovered = [
+            r for r in compile_requirements(goal_text)
+            if r.verifier not in coverage
+        ]
+        if uncovered:
+            return TaskExecutionOutcome(
+                ok=False, task_id=task_id, recipe_id=recipe_id,
+                error_code="RECIPE_COVERAGE_NOT_MET",
+                failure=(
+                    "任务含 recipe 未覆盖的材料性条款（"
+                    + "、".join(str(r.claim) for r in uncovered)
+                    + "）——不得执行确定性链冒充；交模型路径/诚实报告"
+                )[:400],
+            )
         handler = _RECIPE_REGISTRY[recipe_id]
         try:
             result = handler(

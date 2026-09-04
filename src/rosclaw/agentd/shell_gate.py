@@ -73,6 +73,20 @@ class ShellGateBroker:
         ).fetchone()
         if row is None:
             return {"request_id": request_id, "status": "UNKNOWN"}
+        # 0902 复核 M7：APPROVED_ONCE 首个读取者消费——并发等待者
+        # 不得都看到批准（"允许一次"≠"所有在飞者"）。原子 UPDATE
+        # 先行（SQLite 单写者保证只有一方把状态翻成 CONSUMED）。
+        if row["status"] == "APPROVED_ONCE":
+            cur = self._conn.execute(
+                "UPDATE shell_gate_requests SET status = 'CONSUMED' "
+                "WHERE request_id = ? AND status = 'APPROVED_ONCE'",
+                (request_id,),
+            )
+            self._conn.commit()
+            if cur.rowcount == 0:
+                # 已被别的读取者消费。
+                row = dict(row)
+                row["status"] = "CONSUMED"
         return dict(row)
 
     def decide(self, request_id: str, decision: str) -> dict[str, Any]:
@@ -105,8 +119,13 @@ class ShellGateBroker:
                  int(row["revision"]), str(row["mission_id"]),
                  str(row["scope"]), now),
             )
-        updated = self.status(request_id)
-        return updated
+        # 直接读（不走 status() 的消费路径——M7：decide 内部的
+        # 状态回读不得消费 APPROVED_ONCE）。
+        updated = self._conn.execute(
+            "SELECT * FROM shell_gate_requests WHERE request_id = ?",
+            (request_id,),
+        ).fetchone()
+        return dict(updated) if updated else {"request_id": request_id, "status": "UNKNOWN"}
 
     def check(self, *, task_id: str, revision: int,
               scope: str = SCOPE_UNSANDBOXED_SHELL) -> bool:

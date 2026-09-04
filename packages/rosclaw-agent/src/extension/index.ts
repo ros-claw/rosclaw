@@ -1058,6 +1058,10 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				return;
 			}
 			const card: Record<string, unknown> = cardData;
+			// 0902 复核 H2：动作批准卡（物理动作——比 shell 卡更需要
+			// 思考时间）必须暂停停滞看门狗——与 shell 确认卡同规则
+			//（journey 实证类：卡等待被 45s 流式 idle 误判取消）。
+			stallWatchdog.pauseForUser();
 			try {
 				await ctx.ui.custom<boolean>((_tui, _theme, _kb, done) => {
 					return new ApprovalCardComponent(
@@ -1098,6 +1102,8 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				});
 			} catch (err) {
 				notifyLeveled(ctx, `授权卡交互失败：${(err as Error).message}`, "error");
+			} finally {
+				stallWatchdog.resumeFromUser();
 			}
 		});
 
@@ -1253,7 +1259,18 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 		const stallWatchdog = new ProviderStallWatchdog({
 			notice: (t) => latestCtx?.ui.notify(t, "warning"),
 			stallAbort: () => {
-				if (latestCtx && !latestCtx.isIdle()) latestCtx.abort?.();
+				// 0902 复核 M8：abort 是可选链——pi 实际 ctx 若无此方法，
+				// 不得宣称"已取消"（假取消文案）；诚实提示手动中断。
+				if (latestCtx && !latestCtx.isIdle()) {
+					if (typeof latestCtx.abort === "function") {
+						latestCtx.abort();
+					} else if (latestCtx.hasUI) {
+						latestCtx.ui.notify(
+							"Provider 停滞但当前 pi 版本不支持编程取消——请按 Esc 手动中断",
+							"warning",
+						);
+					}
+				}
 			},
 		});
 		pi.on("turn_start", async () => {

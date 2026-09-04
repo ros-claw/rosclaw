@@ -75,7 +75,7 @@ jobs:
       - name: Install Node deps (rosclaw-agent)
         run: |
           cd packages/rosclaw-agent
-          npm ci
+          timeout 600 npm ci --fetch-retries=5 --fetch-retry-mintimeout=15000 --fetch-retry-maxtimeout=60000 || timeout 600 npm ci
       - name: Run product journey
         id: run
         run: |
@@ -182,7 +182,7 @@ jobs:
       - name: Install Node deps (rosclaw-agent)
         run: |
           cd packages/rosclaw-agent
-          npm ci
+          timeout 600 npm ci --fetch-retries=5 --fetch-retry-mintimeout=15000 --fetch-retry-maxtimeout=60000 || timeout 600 npm ci
       - name: Run TUI PTY matrix
         run: |
           .venv/bin/python -m pytest tests/agentd/test_tui_ime.py tests/agentd/test_tmux_env.py -q --tb=short \
@@ -235,7 +235,7 @@ jobs:
       - name: Install Node deps (rosclaw-agent)
         run: |
           cd packages/rosclaw-agent
-          npm ci
+          timeout 600 npm ci --fetch-retries=5 --fetch-retry-mintimeout=15000 --fetch-retry-maxtimeout=60000 || timeout 600 npm ci
       - name: Run interaction perf
         run: |
           .venv/bin/python -m pytest tests/agentd/test_interaction_perf.py -q -s --tb=short \
@@ -287,7 +287,7 @@ jobs:
       - name: Install Node deps (rosclaw-agent)
         run: |
           cd packages/rosclaw-agent
-          npm ci
+          timeout 600 npm ci --fetch-retries=5 --fetch-retry-mintimeout=15000 --fetch-retry-maxtimeout=60000 || timeout 600 npm ci
       - name: Run 100x start/exit soak
         run: |
           .venv/bin/python -m pytest tests/agentd/test_start_exit_soak.py -q --tb=short \
@@ -401,7 +401,7 @@ jobs:
       - name: Install Node deps (rosclaw-agent)
         run: |
           cd packages/rosclaw-agent
-          npm ci
+          timeout 600 npm ci --fetch-retries=5 --fetch-retry-mintimeout=15000 --fetch-retry-maxtimeout=60000 || timeout 600 npm ci
       - name: Run real-model behavior journey
         id: run
         env:

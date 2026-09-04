@@ -138,7 +138,7 @@ def render_from_spec(
                     f"{overlay.source_ref!r} != 本次 trace:{trace_id}"
                 )
         else:
-            if overlay.source_ref != f"plan:{plan_hash[:16]}":
+            if not plan_hash or overlay.source_ref != f"plan:{plan_hash[:16]}":
                 raise ValueError(
                     f"RENDER_EVIDENCE_MISMATCH: overlay source_ref "
                     f"{overlay.source_ref!r} != 本次 plan:{plan_hash[:16]}"

@@ -29,7 +29,11 @@ _LOG = logging.getLogger("rosclaw.projection")
 
 
 def project_deliverables(kernel: TaskKernel, task_id: str) -> str:
-    """把任务登记产物投影到运行 outputs/ 区。返回 OK/DEGRADED。"""
+    """把任务登记产物投影到运行 outputs/ 区。返回 OK/DEGRADED。
+
+    0902 复核 H1：只投影**当前 revision**——旧 revision 产物进新
+    revision 的 outputs/ 就是 0902 事故的交付面（验收层 fail-closed
+    但交付视图 fail-open）。"""
     task = kernel.get_task(task_id)
     if task is None:
         return "DEGRADED"
@@ -42,8 +46,8 @@ def project_deliverables(kernel: TaskKernel, task_id: str) -> str:
         degraded = False
         rows = kernel._conn.execute(
             "SELECT artifact_id, path, sha256 FROM artifacts "
-            "WHERE task_id = ?",
-            (task_id,),
+            "WHERE task_id = ? AND revision = ?",
+            (task_id, revision),
         ).fetchall()
         for row in rows:
             src = Path(str(row["path"]))

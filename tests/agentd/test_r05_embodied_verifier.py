@@ -238,9 +238,14 @@ class TestGateFourInjections:
             tmp_path, "机械臂末端持笔画五角星并做仿真视频"
         )
         assert not outcome.ok
-        assert any("TOOL_ASSET_MISSING" in f for f in outcome.failures), (
-            outcome.failures
-        )
+        # 0902 复核 M3 后：门禁更早拒绝（笔条款未覆盖 → 不执行）——
+        # 两种诚实失败都接受：gate 拒绝（RECIPE_COVERAGE_NOT_MET）或
+        # 执行到渲染层 TOOL_ASSET_MISSING。不得完整 PASS 是红线。
+        failures = list(outcome.failures) + [str(outcome.error_code or "")]
+        assert any(
+            "TOOL_ASSET_MISSING" in f or "RECIPE_COVERAGE" in f
+            for f in failures
+        ), failures
 
     def test_table_removed_no_full_pass(self, tmp_path: Path) -> None:
         """桌面 world 不可用（注入：支持集合移除 tabletop）→

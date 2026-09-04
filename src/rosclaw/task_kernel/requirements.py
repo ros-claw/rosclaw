@@ -66,15 +66,20 @@ _ORIENTATION_MARKERS = ("竖屏", "横屏", "portrait", "landscape")
 _SPEED_MARKERS = ("慢动作", "慢速", "加速播放", "slow motion")
 _DELIVERY_CHANNEL_MARKERS = ("邮箱", "email", "发送到邮箱", "微信", "钉钉")
 
-#: 形状注册表：已知形状词 → shape key。recipe 覆盖集合之外的已知
-#: 形状 = "已知但未覆盖"（门禁拦截——不允许画错形状冒充）。
-_SHAPE_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
+#: 形状注册表（唯一事实源——0902 复核 M4：task_router 的输入编译
+#: 与本条款编译曾各有一份词表且裸"圆"命中"圆桌/圆珠笔"）。已知但
+#: 未覆盖的形状 = "已知但未覆盖"（门禁拦截——不允许画错形状冒充）。
+#: circle 用精确词形（"画圆/圆形/圆圈/圆环/个圆"）——裸"圆"会命中
+#: 圆桌/圆珠笔（M4 实证）。
+SHAPE_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("star5", ("五角星", "星形", "star")),
     ("circle", ("圆形", "圆圈", "画圆", "圆环", "个圆", "circle")),
     ("square", ("正方形", "方形", "square")),
     ("triangle", ("三角形", "triangle")),
     ("spiral", ("螺旋", "spiral")),
 )
+# 兼容旧名（防止外部 import 断裂）——新代码用 SHAPE_MARKERS。
+_SHAPE_MARKERS = SHAPE_MARKERS
 
 #: 修订方向词：其后的形状才是当前目标（"不要五角星了，改成画圆"
 #: ——盲写语料实证：前置形状是被否定的，取错 = 画错形状冒充）。
