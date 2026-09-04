@@ -18,7 +18,8 @@
 
 import { execFileSync, spawn } from "node:child_process";
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
@@ -334,6 +335,15 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 			await options.beforeEffect?.();
 			try {
 				const p = resolveInRoot(root, String(params.path));
+				// 0903（§4.4）：产品核心源码只读——普通任务不得修改
+				// 正在运行的产品（改产品走开发流程：clone+PR）。
+				if (isProductSourcePath(p)) {
+					return denied(
+						"拒绝写入：目标是正在运行的 ROSClaw 产品核心源码"
+						+ "（§4.4 普通任务不得修改产品核心）——改产品请走开发流程"
+						+ "（克隆仓库+PR），不要在本会话内改运行中的代码",
+					);
+				}
 				mkdirSync(dirname(p), { recursive: true });
 				writeFileSync(p, String(params.content), "utf-8");
 				return {
@@ -362,6 +372,12 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 			await options.beforeEffect?.();
 			try {
 				const p = resolveInRoot(root, String(params.path));
+				if (isProductSourcePath(p)) {
+					return denied(
+						"拒绝编辑：目标是正在运行的 ROSClaw 产品核心源码（§4.4）"
+						+ "——改产品请走开发流程（克隆仓库+PR）",
+					);
+				}
 				const text = readFileSync(p, "utf-8");
 				const oldText = String(params.oldText);
 				const occurrences = text.split(oldText).length - 1;
@@ -380,6 +396,28 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 	});
 
 	return [bashTool, writeTool, editTool];
+}
+
+/** 运行中产品自身源码根（0903 体验实证 + §4.4：普通任务禁止修改
+ *  正在运行的产品核心——模型在"画立方体"任务中途给规划器加形状）。
+ *  本文件位于 <产品根>/packages/rosclaw-agent/(dist/)src/tools/，
+ *  向上解析到产品根；守护 <根>/src/rosclaw 与 <根>/packages/
+ *  rosclaw-agent/src。 */
+export function productSourceRoots(): string[] {
+	const here = dirname(fileURLToPath(import.meta.url));
+	// src/tools 或 dist/src/tools → 产品根（rosclaw-agent 包的上一级
+	// 的上一级：packages/rosclaw-agent → <根>）。
+	let root = here;
+	for (let i = 0; i < 5; i++) root = dirname(root);
+	return [join(root, "src", "rosclaw"), join(root, "packages", "rosclaw-agent", "src")];
+}
+
+/** 路径是否落在运行中产品核心源码树。 */
+export function isProductSourcePath(target: string): boolean {
+	const real = resolve(target);
+	return productSourceRoots().some(
+		(r) => real === r || real.startsWith(r + sep),
+	);
 }
 
 /** bwrap 可用性（PR-H6 fail-closed 判定的真实探测）。 */

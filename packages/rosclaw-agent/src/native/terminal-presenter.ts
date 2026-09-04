@@ -92,6 +92,15 @@ export function renderTerminalReply(
 			+ "下一步：用上面的「打开」命令查看交付物；/activity 查看完整账本"
 		);
 	}
+	// 0903 体验实证：UNKNOWN·UNKNOWN 空卡（投诉被当新指令建了
+	// 空 revision，consider 报 UNKNOWN/UNKNOWN 无原因）——双
+	// UNKNOWN 且零产物时诚实说"尚未产生可验收结果"，不装成终态卡。
+	if (verification === "UNKNOWN" && delivery === "UNKNOWN" && !refs.length) {
+		return (
+			"ℹ️ 任务尚未产生可验收结果（未执行或执行未完成）"
+			+ "——说明你要的修正或新目标即可，我不会拿旧结果冒充。"
+		);
+	}
 	// 失败/部分达成：原因逐条（用户必须看到"为什么"）+ 已产出 +
 	// 下一步。
 	const failures = outcome.repair_directive?.failures ?? [];
