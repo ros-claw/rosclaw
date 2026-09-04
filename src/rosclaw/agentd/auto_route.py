@@ -82,6 +82,20 @@ async def maybe_auto_route(
     coverage = RECIPE_COVERAGE.get(recipe_id, frozenset())
     uncovered = [r for r in compile_requirements(text)
                  if r.verifier not in coverage]
+    # 0902 盲写语料实证（发现 A）：画类指令无可识别形状时 recipe
+    # 会用默认 star5 交付——"画个心形"画成五角星 = 假成功。形状是
+    # draw_path 的核心参数：不识别即 fail-closed 交模型。
+    if recipe_id == "recipe:sim.draw_path":
+        from rosclaw.task_kernel.task_router import compile_recipe_inputs
+
+        if "shape" not in compile_recipe_inputs(text):
+            import logging
+
+            logging.getLogger("rosclaw.auto_route").info(
+                "coverage gate: draw_path 无可识别形状——转模型路径"
+                "（fail-closed：不识别不默认 star5）",
+            )
+            return None
     if uncovered:
         import logging
 

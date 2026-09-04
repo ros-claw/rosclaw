@@ -64,17 +64,42 @@ _CONTACT_MARKERS = ("接触", "贴着", "贴在", "contact")
 #: 不可证阻止终态（诚实，不静默满足）。
 _ORIENTATION_MARKERS = ("竖屏", "横屏", "portrait", "landscape")
 _SPEED_MARKERS = ("慢动作", "慢速", "加速播放", "slow motion")
-_DELIVERY_CHANNEL_MARKERS = ("邮箱", "email", "发送到邮箱")
+_DELIVERY_CHANNEL_MARKERS = ("邮箱", "email", "发送到邮箱", "微信", "钉钉")
 
 #: 形状注册表：已知形状词 → shape key。recipe 覆盖集合之外的已知
 #: 形状 = "已知但未覆盖"（门禁拦截——不允许画错形状冒充）。
 _SHAPE_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("star5", ("五角星", "星形", "star")),
-    ("circle", ("圆形", "圆圈", "画圆", "圆环", "circle")),
+    ("circle", ("圆形", "圆圈", "画圆", "圆环", "个圆", "circle")),
     ("square", ("正方形", "方形", "square")),
     ("triangle", ("三角形", "triangle")),
     ("spiral", ("螺旋", "spiral")),
 )
+
+#: 修订方向词：其后的形状才是当前目标（"不要五角星了，改成画圆"
+#: ——盲写语料实证：前置形状是被否定的，取错 = 画错形状冒充）。
+_REVISE_MARKERS = ("改成", "改为", "换成", "换为")
+#: 多本体声称（当前无双本体执行面——识别即条款，不覆盖即拦截）。
+_MULTI_BODY_MARKERS = ("两台", "双臂", "两个机械臂", "同时画", "一起画")
+#: 禁止视频交付（recipe 永远产 mp4——必须拦截而不是交付后违反）。
+_FORBID_VIDEO_MARKERS = ("不要视频", "别生成视频", "千万别生成视频",
+                         "不要录像", "no video")
+
+
+def select_shape(goal_text: str) -> str | None:
+    """文本 → 目标形状（修订感知：改成/改为/换成 之后的形状才是
+    当前目标；无匹配 → None——调用方 fail-closed，不得默认 star5）。"""
+    text = goal_text
+    for marker in _REVISE_MARKERS:
+        idx = text.find(marker)
+        if idx >= 0:
+            text = text[idx + len(marker):]
+            break
+    lowered = text.lower()
+    for shape, markers in _SHAPE_MARKERS:
+        if any(m in text or m in lowered for m in markers):
+            return shape
+    return None
 
 
 def compile_requirements(goal_text: str) -> list[Requirement]:
@@ -90,10 +115,9 @@ def compile_requirements(goal_text: str) -> list[Requirement]:
             verifier=verifier,
         ))
 
-    for shape, markers in _SHAPE_MARKERS:
-        if _any(goal_text, markers):
-            _add("must", f"绘制形状：{shape}", f"shape.{shape}")
-            break
+    shape = select_shape(goal_text)
+    if shape:
+        _add("must", f"绘制形状：{shape}", f"shape.{shape}")
     if _any(goal_text, _TOOL_MARKERS):
         _add("must", "末端挂载工具", "receipt.tool_ref")
     if _any(goal_text, _COLOR_MARKERS):
@@ -113,6 +137,10 @@ def compile_requirements(goal_text: str) -> list[Requirement]:
         _add("must", "2D 预览交付", "deliverable.preview_2d")
     if _any(goal_text, _CONTACT_MARKERS):
         _add("must", "接触验证", "verification.contact")
+    if _any(goal_text, _MULTI_BODY_MARKERS):
+        _add("must", "多本体协同", "scene.multi_body")
+    if _any(goal_text, _FORBID_VIDEO_MARKERS):
+        _add("forbidden", "禁止视频交付", "delivery.no_video")
     if _any(goal_text, _ORIENTATION_MARKERS):
         _add("must", "指定画面方向（竖屏/横屏）", "render.orientation")
     if _any(goal_text, _SPEED_MARKERS):

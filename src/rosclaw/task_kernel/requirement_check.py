@@ -175,6 +175,13 @@ def _check_one(req: dict[str, Any], *, receipts: list[dict[str, Any]],
         return _done(UNVERIFIABLE, "画面方向无证据通道（渲染器不回写宽高比语义）")
     if verifier == "render.speed":
         return _done(UNVERIFIABLE, "播放速度无证据通道（渲染器不回写帧率语义）")
+    if verifier == "scene.multi_body":
+        return _done(UNVERIFIABLE, "多本体协同无执行面（当前单本体）")
+    if verifier == "delivery.no_video":
+        # forbidden：账内有 video/* 即违反。
+        if any(m.startswith("video/") for m in media):
+            return _done(VIOLATED, "账内有视频产物——违反禁止项")
+        return _done(SATISFIED, "无视频交付——未违反禁止项")
     if verifier == "delivery.channel":
         return _done(UNVERIFIABLE, "外发渠道无证据通道（无外发能力）")
     if verifier == "verification.contact":

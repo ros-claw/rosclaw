@@ -14,6 +14,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from rosclaw.task_kernel.requirements import select_shape
+
 #: intent → recipe_id（冻结映射；新增 recipe = 新 intent 映射 +
 #: TaskExecutionService 注册 handler，一一对应）。
 RECIPE_BY_INTENT: dict[str, str] = {
@@ -68,12 +70,7 @@ def route_recipe(spec: Mapping[str, Any], *, goal_hint: str = "") -> str | None:
     return RECIPE_BY_GOAL.get(goal_hint)
 
 
-#: R0-1.5（金丝雀实证）：NL → recipe 几何参数（通用词类标记——
-#: 形状词/平面词是通用类别，不是五角星特例 prompt 硬编码）。
-_SHAPE_WORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("star5", ("五角星", "星形", "star")),
-    ("circle", ("圆", "circle")),
-)
+
 
 #: 竖直平面词类 → 命名面（xz：y=const 立面——画板/墙面的常见
 #: 含义；yz 留给显式 "yz 面"）。
@@ -85,11 +82,20 @@ _YZ_MARKERS = ("yz 面", "yz面", "yz plane")
 _QUESTION_MARKERS = ("怎么", "如何", "吗", "？", "?", "what", "how",
                      "why", "解释", "介绍", "是什么")
 
+#: 代码请求护栏（0902 盲写语料实证：「帮我写一段画五角星的 Python
+#: 代码」被 intent 关键词误分类为 draw_shape → 直接画了一颗星——
+#: 用户要的是代码不是执行）。写代码/写脚本请求不是物理执行指令。
+_CODE_REQUEST_MARKERS = ("写一段", "写个代码", "写代码", "代码实现",
+                         "python 代码", "python代码", "写个脚本",
+                         "write code", "write a script")
+
 
 def is_task_directive(text: str) -> bool:
-    """指令形式判定：疑问句/讨论形式不自动执行。"""
+    """指令形式判定：疑问句/讨论/代码请求形式不自动执行。"""
     lowered = text.lower()
-    return not any(m in lowered or m in text for m in _QUESTION_MARKERS)
+    if any(m in lowered or m in text for m in _QUESTION_MARKERS):
+        return False
+    return not any(m in lowered or m in text for m in _CODE_REQUEST_MARKERS)
 
 
 def compile_recipe_inputs(goal_text: str) -> dict[str, Any]:
@@ -102,10 +108,11 @@ def compile_recipe_inputs(goal_text: str) -> dict[str, Any]:
 
     inputs: dict[str, Any] = {}
     lowered = goal_text.lower()
-    for shape, markers in _SHAPE_WORDS:
-        if any(m in goal_text or m in lowered for m in markers):
-            inputs["shape"] = shape
-            break
+    # 0902 盲写语料实证：改成/改为/换成 后的形状才是当前目标
+    # （"不要五角星了改成画圆"取前置 = 画错形状冒充）。
+    shape = select_shape(goal_text)
+    if shape:
+        inputs["shape"] = shape
     if any(m in goal_text or m in lowered for m in _YZ_MARKERS):
         inputs["plane"] = "yz"
     elif any(m in goal_text or m in lowered for m in _VERTICAL_MARKERS):
