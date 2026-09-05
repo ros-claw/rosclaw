@@ -1,11 +1,10 @@
-"""0902 审计 R2-3 红测试：需求驱动的能力组合——overlay 要求让
-draw_path recipe 走 RenderSpec 渲染（§4.3/R2.3），不再是"recipe
-覆盖表与实现两张皮"。
+"""0902 审计 R2-3：需求驱动的能力组合——overlay 要求让 draw_path
+recipe 走 RenderSpec 渲染（§4.3/R2.3），不再是"recipe 覆盖表与
+实现两张皮"。
 
-0902 事故的完整闭环：用户说"在 3D 画面里显示本次实际轨迹，不要
-2D"——R0-2 门禁此前把它挡在 recipe 外（交模型），因为渲染器根本
-不支持 overlay；R2-2 渲染器支持后，recipe 必须真实交付 overlay
-（不是改表宣称覆盖）。
+大道至简 R0-1 后：聊天自动路由已删除，本测试直接驱动
+TaskExecutionService（recipe 执行链本身仍是渲染/验收能力的载体；
+路由层语义由 test_ddzj_r01_all_nl_to_pi.py 钉死）。
 
 闭环断言：
 1. 端到端：任务 spec 带 receipt.overlays.actual_eef_trace 要求 →
@@ -13,13 +12,9 @@ draw_path recipe 走 RenderSpec 渲染（§4.3/R2.3），不再是"recipe
    含 actual_eef_trace → finish_task 逐条 verdict SATISFIED →
    任务 SUCCEEDED（真 PASS，不是宣称）；
 2. requirement_check 读 receipt 的 overlays_applied（R2-2 的诚实
-   字段名）——旧 overlays 键兼容；
-3. 覆盖表诚实扩展：RECIPE_COVERAGE[recipe:sim.draw_path] 现在含
-   receipt.overlays.actual_eef_trace 与 delivery.not_2d_only——
-   有实现才覆盖；
-4. 门禁行为更新（R0-2 测试随能力演进）：轨迹叠加/不要 2D 现在
-   自动路由（能力真实存在）；持笔/颜色/接触仍不路由（无资产/
-   无证据通道——诚实边界不动）。
+   字段名）；
+3. 覆盖表诚实扩展：RECIPE_COVERAGE[recipe:sim.draw_path] 含
+   receipt.overlays.actual_eef_trace 与 delivery.not_2d_only。
 """
 
 from __future__ import annotations
@@ -37,35 +32,36 @@ class TestOverlayRequirementEndToEnd:
     ) -> None:
         """轨迹叠加要求 → recipe 真实交付（receipt 证据）→ 逐条
         verdict SATISFIED → SUCCEEDED。"""
-        from rosclaw.agentd.auto_route import reset_routed_for_tests
-        from rosclaw.agentd.pi_bridge.server import PiBridgeServer
+        from rosclaw.task_kernel.task_router import compile_recipe_inputs
         from tests.agentd.test_pi_tool_bridge import _setup
 
-        reset_routed_for_tests()
         service, mission = await _setup(tmp_path)
-        bridge = PiBridgeServer(service, tmp_path / "run" / "pi-bridge.sock")
-        result = await bridge._dispatch(
-            "user:local:1000", 1, "pi.input.persist",
-            {
-                "token": service.control_token,
-                "mission_id": mission.mission_id,
-                "session_ref": "pi_1",
-                "message_id": "msg_overlay_1",
-                # 圆形（非五角星——通用性证据）+ 轨迹叠加 + 不要 2D。
-                "text": "画一个圆形轨迹，在 3D 画面里显示本次实际轨迹，不要 2D",
-            },
-        )
-        assert result.get("ok"), result
-        auto = result.get("auto_task")
-        assert auto, f"overlay 要求已可覆盖——仍被挡在 recipe 外: {result}"
+        # 大道至简 R0-1：不经聊天路由——直接建任务并驱动执行链
+        # （demo/模型路径共用同一执行面）。
+        text = "画一个圆形轨迹，在 3D 画面里显示本次实际轨迹，不要 2D"
         kernel = service._task_kernel
-        task_id = str(auto["task_id"])
-        deadline = asyncio.get_event_loop().time() + 300
-        while asyncio.get_event_loop().time() < deadline:
-            task = kernel.get_task(task_id)
-            if task and task["state"] in ("SUCCEEDED", "FAILED", "REPAIR_REQUIRED"):
-                break
-            await asyncio.sleep(2)
+        # 与产品流一致：任务文本先 persist（条款编译的输入面），
+        # 再 admission 建任务。
+        kernel.persist_input(
+            mission_id=mission.mission_id, session_ref="pi_1",
+            message_id="m_overlay", text=text,
+        )
+        bound = kernel.ensure_task_for_effect(
+            mission_id=mission.mission_id,
+            session_ref="pi_1",
+            backend_native_id="pi_1",
+            cwd="",
+            mode="SIMULATION",
+            body_id=str(mission.body_binding.body_id),
+            explicit_goal=text,
+        )
+        task_id = str(bound["task_id"])
+        outcome = await asyncio.to_thread(
+            service._task_execution.execute,
+            task_id,
+            recipe_inputs=compile_recipe_inputs(text),
+        )
+        assert outcome.ok, f"{outcome.error_code}: {outcome.failure}"
         task = kernel.get_task(task_id)
         assert task["state"] == "SUCCEEDED", (
             f"终态 {task['state']}：{task.get('terminal_reason')}"

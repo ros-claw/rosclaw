@@ -18,6 +18,7 @@ import contextlib
 import fcntl
 import json
 import os
+import re
 import socket
 import subprocess
 import tarfile
@@ -303,6 +304,76 @@ class _FakeModel:
                 frames.append(_sse(_chunk("", "stop")))
                 frames.append(b"data: [DONE]\n\n")
                 return b"".join(frames)
+            # 大道至简 R0-1：Pi 驱动的通用物理工具链（plan → simulate
+            # → verify → render）。工具结果可能是 rosclaw_* 包装
+            # （{"content": [...]}）或物化工具裸 JSON——两种都解析。
+            def _payload() -> dict:
+                with contextlib.suppress(Exception):
+                    wrapper = json.loads(tool_content)
+                    if isinstance(wrapper, dict) and "content" in wrapper:
+                        wrapper = json.loads(wrapper["content"][0])
+                    if isinstance(wrapper, dict):
+                        # rosclaw_execute/compute 投影：{status, value}
+                        value = wrapper.get("value")
+                        if isinstance(value, dict):
+                            return value
+                        return wrapper
+                return {}
+
+            if tool_call_id == "call_plan2":
+                plan_id = str(_payload().get("plan_id", ""))
+                assert plan_id, f"plan 结果缺 plan_id：{tool_content[:200]}"
+                frames.extend(
+                    _tool_call_frames(
+                        "call_sim",
+                        "ur5e_simulate_cartesian_trajectory",
+                        json.dumps({"plan_id": plan_id}),
+                    )
+                )
+                frames.append(b"data: [DONE]\n\n")
+                return b"".join(frames)
+            if tool_call_id == "call_sim":
+                trace_id = str(_payload().get("trace_id", ""))
+                assert trace_id, f"simulate 结果缺 trace_id：{tool_content[:200]}"
+                frames.extend(
+                    _tool_call_frames(
+                        "call_vtrack",
+                        "simulation_verify_tracking",
+                        json.dumps(
+                            {"trace_id": trace_id, "max_tracking_error_m": 0.05}
+                        ),
+                    )
+                )
+                frames.append(b"data: [DONE]\n\n")
+                return b"".join(frames)
+            if tool_call_id == "call_vtrack":
+                payload = _payload()
+                trace_id = ""
+                with contextlib.suppress(Exception):
+                    trace_id = str(payload.get("trace_id", ""))
+                if not trace_id:
+                    # verify 结果不回带 trace_id 时从仿真结果上下文取——
+                    # 假模型没有记忆，从历史消息里翻最近的 trace_id。
+                    for m in reversed(messages):
+                        c = str(m.get("content", ""))
+                        mm = re.search(r"trace_[0-9a-f]+", c)
+                        if mm:
+                            trace_id = mm.group(0)
+                            break
+                frames.extend(
+                    _tool_call_frames(
+                        "call_render",
+                        "simulation_render_trace",
+                        json.dumps({"trace_id": trace_id, "format": "gif"}),
+                    )
+                )
+                frames.append(b"data: [DONE]\n\n")
+                return b"".join(frames)
+            if tool_call_id == "call_render":
+                frames.append(_sse(_chunk("五角星已绘制完成，几何验证通过。")))
+                frames.append(_sse(_chunk("", "stop")))
+                frames.append(b"data: [DONE]\n\n")
+                return b"".join(frames)
             if tool_call_id == "call_limo_tone":
                 # 交叉本体拒绝的诚实回答（六审 §6.3.10）。
                 answer = "本体不兼容，未执行。"
@@ -393,6 +464,32 @@ class _FakeModel:
                     json.dumps({"command": "echo 日志要点已归纳"}),
                 )
             )
+        elif "画五角星" in text:
+            # 大道至简 R0-1：画五角星不再被确定性链接管——Pi（假模型）
+            # 自己驱动通用物理工具链（0905 真实会话同款四步）：
+            # plan → simulate → verify → render → 基于结果的回答。
+            frames.extend(
+                _tool_call_frames(
+                    "call_plan2",
+                    "trajectory_generate_planar_path",
+                    json.dumps(
+                        {
+                            "shape": "star5",
+                            "center_m": [0.35, 0.25, 0.30],
+                            "scale_m": 0.10,
+                            "plane": "xy",
+                            "max_segment_m": 0.02,
+                        }
+                    ),
+                )
+            )
+        elif "你这是啥" in text:
+            # 大道至简 R0-1：解释性追问也进 Pi——Pi 读账本自己回答
+            # （EXPLAIN_HANDLER 退役）。
+            frames.append(
+                _sse(_chunk("刚才的任务是让机械臂画五角星，仿真已完成。"))
+            )
+            frames.append(_sse(_chunk("", "stop")))
         elif "位姿移动测试" in text:
             # Journey B（ask 策略，PR-H9）：人工卡走唯一授权面
             # rosclaw_request_action（admission）。0827 P0-1 后已知
@@ -1640,51 +1737,39 @@ class TestProductJourney:
             # "等待 Operator 决定" 是瞬时 working message/notify——overlay
             # 打开快时它一帧都渲染不出来（CI 两次失败的根因：overlay 已在
             # 等 Y/N，journey 却在等一个被覆盖的瞬时文本，永不按 y）。
-            # 6. UR5e 机械臂 SIM 闭环（六审 §6.3 + 七审 §2.5 默认安全
-            #    SIM 自动执行）：能力面 → 初始观测 → POLICY_AUTO（无人工
-            #    卡、不按 Y）→ 执行 → 后置观测验证。
+            # 6. UR5e 机械臂 SIM 闭环（大道至简 R0-1：Pi 唯一大脑）——
+            #    画五角星无条件进模型回合；Pi 自己驱动通用物理工具链
+            #    （capabilities → plan → execute → trace → verify），
+            #    最终回答基于 verify 结果。SIM POLICY_AUTO：无人工卡。
             action_start = len(session.clean)
             model_turns_before = len(fake.fake.requests)
             session.send("我想跑一个机械臂仿真，让机械臂画五角星\r")
-            # 0827 P0-1/2/3（双控制者根治）：已知 recipe 由 Input
-            # Arbiter 原子认领（TASK_ROUTER）——suppress 模型回合，
-            # 单一 PlanGraph 执行，终态由 Coordinator/Presenter 确定性
-            # 呈现（"任务完成：验收 PASS" 是 TaskOutcome 的呈现，不是
-            # 模型回合的回答）。
-            session.expect("任务完成：验收 PASS".encode(), timeout=180)
-            # 单 Owner 硬证据：整个自动执行窗口零模型请求（双控制者
-            # 时代模型会收到同一指令并手工再执行一遍）。
-            assert len(fake.fake.requests) == model_turns_before, (
-                f"已知 recipe 竟产生 {len(fake.fake.requests) - model_turns_before} "
-                "次模型请求——双控制者未根治"
+            # Pi 驱动硬证据①：模型基于 verify 结果回答（工具链真实
+            # 跑完——plan/execute/trace/verify 都是真工具调用）。
+            session.expect("五角星已绘制完成，几何验证通过。".encode(), timeout=180)
+            # Pi 驱动硬证据②：模型回合真实发生且多次（工具链每个
+            # 环节一个回合）——不再有任何确定性链抢答。
+            assert len(fake.fake.requests) > model_turns_before, (
+                "画五角星竟没有模型回合——确定性链抢答未根治"
             )
-            self._journey_verdicts["auto_route_zero_model_turns"] = True
+            self._journey_verdicts["pi_drives_sim_chain"] = True
             action_segment = session.clean[action_start:]
             import re as _re
 
-            # 0901 P0-6 + 0902 R3-b（§6.1 三层界面）：终态卡默认层
-            # 必须有 交付物文件名 + 打开命令 + 下一步——且不得裸打
-            # 内部绝对路径（sim/traces/trace_* 是诊断层内容；可达性
-            # 由 rosclaw open/path/export 承接）。内部 customType
-            # 标签（[rosclaw.xxx]）绝不上屏。
-            assert "下一步".encode() in action_segment, (
-                "终态卡缺下一步指引（P0-6 产品化未生效）"
+            # 大道至简 R0-1：不再出现确定性链终态卡/接管回声卡——
+            # 用户看到的是 Pi 的回答，不是 Kernel 的 PASS 宣称。
+            assert "任务完成：验收 PASS".encode() not in action_segment, (
+                "Kernel 竟自动宣布任务完成（用户目标判定未退役）"
             )
-            assert b"rosclaw artifact open" in action_segment, (
-                "终态卡缺打开命令"
+            assert "确定性链接管".encode() not in action_segment, (
+                "确定性链接管回声卡未退役"
             )
-            assert b".gif" in action_segment, "终态卡缺交付物文件名"
             assert not _re.search(rb"/[\w./-]*sim/traces/", action_segment), (
-                "终态卡默认层裸打内部 trace 路径（0902 §6.1 违规）"
+                "屏幕裸打内部 trace 路径（0902 §6.1 违规）"
             )
             assert b"[rosclaw." not in action_segment, (
                 "内部 customType 标签漏到屏幕——渲染卡未注册"
             )
-            # 指令回声卡：确定性链接管的输入以卡片呈现（不是裸标签）。
-            assert "确定性链接管".encode() in action_segment, (
-                "user_directive 指令回声卡未生效"
-            )
-            self._journey_verdicts["terminal_card_productized"] = True
             assert "ROSCLAW 授权请求".encode() not in action_segment, (
                 "默认安全 SIM 竟弹人工审批卡"
             )
@@ -1695,17 +1780,17 @@ class TestProductJourney:
                 assert raw_key not in action_segment, (
                     f"TUI 仍在刷 raw JSON（{raw_key!r}）——任务卡未生效"
                 )
-            # PR-H9：SIM 自动的证据面——kernel 任务 + GIF 产物登记 +
-            # 零 Operator 卡（任务级确定性链不需要人工/政策卡）。
+            # 证据面不变：kernel 任务 + GIF 产物登记 + 零 Operator 卡
+            # （SIM 工具链自动执行不需要人工/政策卡）。
             self._assert_sim_task_evidence(home)
             self._journey_verdicts["safe_sim_auto_executed_with_audit"] = True
             # 七审 §6 PR-SEVEN-4：轨迹级证据——verify PASS（端点/RMSE/
             # 闭合误差全过）+ 单 ExactAction 覆盖整条轨迹。
             self._assert_star_verified(home)
-            # 0901 P0-4（硬 Gate A）：PARTIAL/终态后用户问"你这是
-            # 啥？"→ EXPLAIN_HANDLER 只读确定性回答——0 新 task、
-            # 0 模型请求、0 次仿真（0901 实证：解释追问曾重跑整个
-            # 任务制造第二套 artifact）。
+            # 大道至简 R0-1：解释性追问"你这是啥？"也进 Pi——Pi 读
+            # 账本自己回答（EXPLAIN_HANDLER 退役）；0 新 task、0 次
+            # 新仿真（0901 实证：解释追问曾重跑整个任务制造第二套
+            # artifact）。
             import sqlite3 as _sq3
 
             tasks_before = _sq3.connect(
@@ -1713,17 +1798,16 @@ class TestProductJourney:
             ).execute("SELECT COUNT(*) FROM tasks").fetchone()[0]
             model_turns_before_explain = len(fake.fake.requests)
             session.send("你这是啥？\r")
+            # Pi 自己回答（读账本/上下文）——回答出现在屏幕上。
             session.expect("刚才的任务".encode(), timeout=60)
-            # 0901 P0-6：解释卡以卡片呈现（标题可见），内部 customType
-            # 标签绝不上屏。
-            assert "只读账本回答".encode() in session.clean, (
-                "解释追问未以卡片呈现（task_explain 渲染卡未注册）"
-            )
             assert b"[rosclaw." not in session.clean, (
                 "内部 customType 标签漏到屏幕——渲染卡未注册"
             )
-            assert len(fake.fake.requests) == model_turns_before_explain, (
-                "解释追问竟触发模型回合"
+            # 大道至简 R0-1：解释追问**必须**触发模型回合（Pi 是唯一
+            # 大脑——不再有 EXPLAIN_HANDLER 确定性回答），但不得
+            # 建新任务、不得重跑仿真（重跑会有新 task）。
+            assert len(fake.fake.requests) > model_turns_before_explain, (
+                "解释追问竟没进模型——唯一大脑未生效"
             )
             tasks_after = _sq3.connect(
                 home / "agentd" / "missions.db"
@@ -1731,7 +1815,7 @@ class TestProductJourney:
             assert tasks_after == tasks_before, (
                 f"解释追问竟建新任务：{tasks_before} → {tasks_after}"
             )
-            self._journey_verdicts["explain_followup_zero_recompute"] = True
+            self._journey_verdicts["explain_followup_via_pi"] = True
             # 6c. LIMO 交叉（六审 §6.3.10）：LIMO 动作在 UR5e body 上必须
             #     建卡前 BODY_CAPABILITY_MISMATCH，零 approval/grant/txn。
             self._assert_cross_body_rejected(session, home)

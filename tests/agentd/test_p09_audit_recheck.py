@@ -1,14 +1,8 @@
-"""0827 复核（对抗自审）红测试：断链不沉默 + 重启恢复 + HOME 导出。
+"""0827 复核（对抗自审）：断链不沉默 + 重启恢复 + HOME 导出。
 
-复核发现的三处真实缺陷（文档 §十 故障注入 Gate 的未实证项）：
-1. 断链沉默：确定性链失败（渲染坏掉）→ execute() ok=False，任务
-   停在 RUNNING 无 task.terminal——watcher 无呈现点，用户永远
-   等不到回复（进度 widget 永久空转）。
-2. 重启不恢复：rollout 与 render 之间 agentd 重启 → auto_route
-   后台协程死掉，任务停在 RUNNING 无人重新驱动（Gate 明确要求
-   "恢复同一 task/revision"）。
-3. ROSCLAW_HOME 未在 agentd 进程导出 → PlanRef 生产/消费分裂
-   （或 conformance 误杀工具对）——cli chat 必须 setdefault 导出。
+大道至简 R0-1 后：聊天自动路由已删除，本文件直接驱动
+TaskExecutionService（执行链纪律不变——失败是数据、重启恢复
+重新驱动同一 task/revision；驱动方纪律由 R0-2 demo 驱动面继承）。
 """
 
 from __future__ import annotations
@@ -19,19 +13,6 @@ from pathlib import Path
 import pytest
 
 
-async def _persist(bridge, service, mission_id: str, message_id: str, text: str):
-    return await bridge._dispatch(
-        "user:local:1000", 1, "pi.input.persist",
-        {
-            "token": service.control_token,
-            "mission_id": mission_id,
-            "session_ref": "pi_1",
-            "message_id": message_id,
-            "text": text,
-        },
-    )
-
-
 class TestBrokenChainNotSilent:
     async def test_failed_chain_transitions_terminal(
         self, tmp_path: Path
@@ -39,11 +20,8 @@ class TestBrokenChainNotSilent:
         """渲染链打坏 → 自动路由执行失败 → 任务必须到 FAILED 终态
         （task.terminal 事件存在——watcher 才能呈现诚实失败）。"""
         from rosclaw.agentd import sim_render
-        from rosclaw.agentd.auto_route import reset_routed_for_tests
-        from rosclaw.agentd.pi_bridge.server import PiBridgeServer
         from tests.agentd.test_pi_tool_bridge import _setup
 
-        reset_routed_for_tests()
         service, mission = await _setup(tmp_path)
         # 打坏场景渲染（spec 要求 scene_video → render_scene 节点失败）。
         original = sim_render.render_scene_trace
@@ -53,22 +31,33 @@ class TestBrokenChainNotSilent:
 
         sim_render.render_scene_trace = broken  # type: ignore[assignment]
         try:
-            bridge = PiBridgeServer(
-                service, tmp_path / "run" / "pi-bridge.sock"
-            )
-            result = await _persist(
-                bridge, service, mission.mission_id, "msg_broken",
-                "画一个五角星，给我仿真视频",
-            )
-            assert result.get("auto_task"), result
-            task_id = str(result["auto_task"]["task_id"])
             kernel = service._task_kernel
-            deadline = asyncio.get_event_loop().time() + 180
-            while asyncio.get_event_loop().time() < deadline:
-                task = kernel.get_task(task_id)
-                if task and task["state"] in ("SUCCEEDED", "FAILED", "REPAIR_REQUIRED"):
-                    break
-                await asyncio.sleep(2)
+            text = "画一个五角星，给我仿真视频"
+            kernel.persist_input(
+                mission_id=mission.mission_id, session_ref="pi_1",
+                message_id="msg_broken", text=text,
+            )
+            bound = kernel.ensure_task_for_effect(
+                mission_id=mission.mission_id, session_ref="pi_1",
+                backend_native_id="pi_1", cwd="", mode="SIMULATION",
+                body_id=str(mission.body_binding.body_id),
+                explicit_goal=text,
+            )
+            task_id = str(bound["task_id"])
+            from rosclaw.task_kernel.task_router import compile_recipe_inputs
+
+            outcome = await asyncio.to_thread(
+                service._task_execution.execute, task_id,
+                recipe_inputs=compile_recipe_inputs(text),
+            )
+            assert not outcome.ok, "渲染打坏竟执行成功"
+            # 断链不沉默纪律（原 auto_route._run，现由驱动面继承）：
+            # 执行失败 → FAILED 终态 + task.terminal。
+            kernel.transition(
+                task_id, "FAILED",
+                reason=f"{outcome.error_code or 'EXECUTION_FAILED'}: "
+                       f"{(outcome.failure or '')[:200]}",
+            )
             task = kernel.get_task(task_id)
             assert task["state"] == "FAILED", (
                 f"断链必须到 FAILED 终态（不能 RUNNING 沉默空转）：{task['state']}"
@@ -90,28 +79,31 @@ class TestResumeInterruptedExecution:
     ) -> None:
         """模拟崩溃现场（RUNNING + plan.node 事件 + 无 task.terminal）
         → 服务启动恢复钩子重新驱动 → 同一 task/revision 到终态。"""
-        from rosclaw.agentd.auto_route import reset_routed_for_tests
-        from rosclaw.agentd.pi_bridge.server import PiBridgeServer
         from tests.agentd.test_pi_tool_bridge import _setup
 
-        reset_routed_for_tests()
         service, mission = await _setup(tmp_path)
-        bridge = PiBridgeServer(service, tmp_path / "run" / "pi-bridge.sock")
-        result = await _persist(
-            bridge, service, mission.mission_id, "msg_resume",
-            "画一个五角星",
-        )
-        assert result.get("auto_task"), result
-        task_id = str(result["auto_task"]["task_id"])
         kernel = service._task_kernel
-        # 等首轮执行完（SUCCEEDED），然后**伪造崩溃现场**：把任务
+        text = "画一个五角星"
+        kernel.persist_input(
+            mission_id=mission.mission_id, session_ref="pi_1",
+            message_id="msg_resume", text=text,
+        )
+        bound = kernel.ensure_task_for_effect(
+            mission_id=mission.mission_id, session_ref="pi_1",
+            backend_native_id="pi_1", cwd="", mode="SIMULATION",
+            body_id=str(mission.body_binding.body_id),
+            explicit_goal=text,
+        )
+        task_id = str(bound["task_id"])
+        from rosclaw.task_kernel.task_router import compile_recipe_inputs
+
+        outcome = await asyncio.to_thread(
+            service._task_execution.execute, task_id,
+            recipe_inputs=compile_recipe_inputs(text),
+        )
+        assert outcome.ok, f"{outcome.error_code}: {outcome.failure}"
+        # 首轮执行完（SUCCEEDED），然后**伪造崩溃现场**：把任务
         # 状态拨回 RUNNING（等价于 rollout/render 之间进程被杀）。
-        deadline = asyncio.get_event_loop().time() + 180
-        while asyncio.get_event_loop().time() < deadline:
-            task = kernel.get_task(task_id)
-            if task and task["state"] == "SUCCEEDED":
-                break
-            await asyncio.sleep(2)
         assert kernel.get_task(task_id)["state"] == "SUCCEEDED"
         revision_before = int(kernel.get_task(task_id)["active_revision"])
         kernel._conn.execute(

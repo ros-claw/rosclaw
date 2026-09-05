@@ -1451,12 +1451,12 @@ class AgentService:
 
     async def resume_interrupted_executions(self) -> list[str]:
         """0827 复核实证（§十 故障注入 Gate）：rollout 与 render 之间
-        agentd 重启——auto_route 的后台协程死掉，确定性链任务停在
+        agentd 重启——后台执行协程死掉，确定性链任务停在
         RUNNING 无人重新驱动。启动时扫描"RUNNING + 有 plan.node 事件
         + 最新事件不是 task.terminal"的任务重新执行（同一 task、同一
         revision——重跑即恢复，幂等每进程一次）。
 
-        失败处理与 auto_route 同一纪律：重驱动失败 → FAILED 终态
+        失败处理纪律：重驱动失败 → FAILED 终态
         （不沉默）。返回被重新驱动的 task_id 列表。"""
         if getattr(self, "_resume_interrupted_done", False):
             return []

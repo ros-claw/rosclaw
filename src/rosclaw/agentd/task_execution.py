@@ -119,7 +119,7 @@ class TaskExecutionService:
                     "（REAL/SHADOW 走 rosclawd 权威链）"
                 ),
             )
-        # 0902 复核 M3：模型面/直接执行也过覆盖率门禁——auto_route
+        # 0902 复核 M3：模型面/直接执行也过覆盖率门禁——聊天路由
         # 的门禁不能只挡用户输入路径（否则 rosclaw_task 对未覆盖条款
         # 照跑 recipe：三角形画成五角星，烧完资源才验收失败）。
         from rosclaw.task_kernel.requirements import compile_requirements

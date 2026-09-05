@@ -1,20 +1,9 @@
-"""0902 审计 R0-2 红测试：RequirementCompiler + 语义覆盖率门禁。
+"""0902 审计 R0-2：RequirementCompiler 编译器单测。
 
-0902 实证（P0 事故）：用户新增"红色圆柱笔 + 3D 实际轨迹 + 不要 2D"，
-自动路由只识别"机械臂+轨迹+画"关键词命中五角星 recipe——新材料性
-条件被吞，旧视频复用，宣布 PASS/DELIVERED 假成功。
-
-硬规则（审计 §3.1）：
-- 快速配方只有在语义覆盖率 100% 时才能执行；
-- 任一 must/forbidden 条款未被 recipe 覆盖 → 不自动路由（交
-  Native Agent 编译 TaskSpec——不猜）；
-- 未覆盖时不得创建幽灵任务（任务创建之前就拦截）。
-
-闭环断言：
-1. 编译器把工具/颜色/轨迹可见/平面/禁止/形状编译为可核验条款；
-2. 纯五角星（全覆盖）→ 自动路由不受影响（回归护栏）；
-3. 持笔/轨迹可见/不要 2D/未知形状 → 不自动路由 + 零幽灵任务；
-4. 条款随 TaskSpec 冻结（R0-3 逐条验收的输入面）。
+大道至简 R0-1 后：聊天主路径自动路由已删除（见
+test_ddzj_r01_all_nl_to_pi.py），本文件只保留编译器纯函数与
+TaskSpec 冻结面；覆盖率门禁将随 R0-2（Kernel 只报客观事实）
+整体退役。
 """
 
 from __future__ import annotations
@@ -58,77 +47,6 @@ class TestRequirementCompiler:
 
         reqs = compile_requirements("画一个正方形")
         assert any(r.verifier == "shape.square" for r in reqs)
-
-
-class TestCoverageGate:
-    """server 级：auto-route 门禁（PiBridgeServer._dispatch 直达）。"""
-
-    async def _persist(self, tmp_path: Path, text: str, msg: str):
-        from rosclaw.agentd.auto_route import reset_routed_for_tests
-        from rosclaw.agentd.pi_bridge.server import PiBridgeServer
-        from tests.agentd.test_pi_tool_bridge import _setup
-
-        # 进程内路由去重表是全局的——每个用例独立（不复用
-        # message_id，否则跨用例误判"已路由"）。
-        reset_routed_for_tests()
-
-        service, mission = await _setup(tmp_path)
-        bridge = PiBridgeServer(service, tmp_path / "run" / "pi-bridge.sock")
-        result = await bridge._dispatch(
-            "user:local:1000", 1, "pi.input.persist",
-            {
-                "token": service.control_token,
-                "mission_id": mission.mission_id,
-                "session_ref": "pi_1",
-                "message_id": msg,
-                "text": text,
-            },
-        )
-        kernel = service._task_kernel
-        task_count = kernel._conn.execute(
-            "SELECT COUNT(*) AS n FROM tasks"
-        ).fetchone()["n"]
-        return result, int(task_count)
-
-    async def test_plain_star_still_auto_routes(self, tmp_path: Path) -> None:
-        """回归护栏：全覆盖输入不受影响（recipe 仍自动执行）。"""
-        result, tasks = await self._persist(
-            tmp_path, "画一个五角星，给我 GIF 和 MP4", "m1"
-        )
-        assert result.get("auto_task"), result
-        assert tasks == 1
-
-    async def test_tool_requirement_blocks_autoroute(self, tmp_path: Path) -> None:
-        """持笔 → recipe 未覆盖 → 不自动路由 + 零幽灵任务。"""
-        result, tasks = await self._persist(
-            tmp_path, "画一个五角星，机械臂末端持笔", "m1"
-        )
-        assert not result.get("auto_task"), result
-        assert tasks == 0, f"未覆盖竟建了任务（幽灵任务）: {tasks}"
-
-    async def test_trace_overlay_now_auto_routes(self, tmp_path: Path) -> None:
-        """R2-3：渲染器已支持 actual_eef_trace overlay（render_from_spec
-        证据绑定）——该要求被 recipe 真实覆盖，自动路由。"""
-        result, tasks = await self._persist(
-            tmp_path, "画五角星视频，在 3D 画面里显示本次实际轨迹", "m1"
-        )
-        assert result.get("auto_task"), result
-        assert tasks == 1
-
-    async def test_forbid_2d_now_auto_routes(self, tmp_path: Path) -> None:
-        """R2-3：3D 场景视频在账即满足"不要只有 2D"禁止项——自动路由。"""
-        result, tasks = await self._persist(
-            tmp_path, "画五角星，不要 2D", "m1"
-        )
-        assert result.get("auto_task"), result
-        assert tasks == 1
-
-    async def test_unknown_shape_blocks_autoroute(self, tmp_path: Path) -> None:
-        result, tasks = await self._persist(
-            tmp_path, "画一个正方形", "m1"
-        )
-        assert not result.get("auto_task"), result
-        assert tasks == 0
 
 
 class TestRequirementsFrozenInSpec:

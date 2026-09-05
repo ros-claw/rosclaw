@@ -1038,57 +1038,21 @@ class PiBridgeServer:
                 session_id=str(params.get("session_ref", "")),
                 model_visible=True,
             )
-            # R0-1.5：指令性画路径输入 → 内核自动路由执行（唯一
-            # 生产链，零模型工具调用；SIM only，疑问句不触发）。
-            from rosclaw.agentd.auto_route import maybe_auto_route
-
-            auto_task = await maybe_auto_route(
-                service,
-                mission_id=str(params.get("mission_id", "")),
-                session_ref=str(params.get("session_ref", "")),
-                message_id=str(params.get("message_id", "")),
-                text=text,
-            )
             out: dict = {"ok": True, "input": record}
-            if auto_task:
-                out["auto_task"] = auto_task
-            # 0901 P0-4（硬 Gate A）：解释性追问 → EXPLAIN_HANDLER
-            # 只读确定性回答（零模型回合、零新 task/trace/artifact）。
-            explain = None
-            if auto_task is None:
-                from rosclaw.agentd.explain_route import (
-                    is_explain_followup,
-                    maybe_explain_last_task,
-                )
-
-                if is_explain_followup(text):
-                    explain = maybe_explain_last_task(
-                        service,
-                        mission_id=str(params.get("mission_id", "")),
-                        session_ref=str(params.get("session_ref", "")),
-                    )
-            if explain:
-                out["explain"] = explain
-            # P0-1（0827 审计·Input Arbiter）：权威 TurnDisposition——
-            # 一条输入只有一个 Owner。TASK_ROUTER 认领后 Harness 必须
-            # suppress 模型回合（否则确定性链与 Native Agent 双控制者
-            # 竞争，终态互相矛盾）。
+            # 大道至简 R0-1（2026-09-05 方案）：聊天主路径删除确定性
+            # 自动路由——所有自然语言无条件进入 Pi（唯一大脑）。
+            # 输入路由/形状词表/解释追问确定性回答全部退役；固定
+            # recipe 只作显式 demo，不再拦截用户对话。TurnDisposition
+            # 恒为 PI_CONVERSATION + suppress=false（协议字段保留以
+            # 兼容版本倾斜，语义已是常量）。
             out["turn_disposition"] = {
                 "input_id": str(
                     record.get("input_id", "")
                     or params.get("message_id", "")
                 ),
-                "owner": (
-                    "TASK_ROUTER" if auto_task
-                    else "EXPLAIN_HANDLER" if explain
-                    else "PI_CONVERSATION"
-                ),
-                "task_id": (
-                    str(auto_task.get("task_id", "")) if auto_task
-                    else str(explain.get("task_id", "")) if explain
-                    else ""
-                ),
-                "suppress_model_turn": bool(auto_task or explain),
+                "owner": "PI_CONVERSATION",
+                "task_id": "",
+                "suppress_model_turn": False,
             }
             return out
         if method == "pi.task.ensure_effect":
