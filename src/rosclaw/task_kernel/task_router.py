@@ -89,22 +89,19 @@ _CODE_REQUEST_MARKERS = ("写一段", "写个代码", "写代码", "代码实现
                          "python 代码", "python代码", "写个脚本",
                          "write code", "write a script")
 
-#: 情绪投诉护栏（0903 体验实证：「你画的居然是个五角星！我要的是
-#: 立方体！」含形状词，确定性链竟把投诉当新指令又画了一遍五角星
-#: 并 PASS——投诉变二次假成功）。投诉交模型（道歉+诚实解释），
-#: 不进确定性链。
-_COMPLAINT_MARKERS = ("居然", "压根", "混蛋", "什么鬼", "什么东西",
-                      "画的什么", "搞什么", "什么玩意")
+
 
 
 def is_task_directive(text: str) -> bool:
-    """指令形式判定：疑问句/讨论/代码请求形式不自动执行。"""
+    """指令形式判定：疑问句/讨论/代码请求形式不自动执行。
+
+    0905：情绪/投诉类文本不做词表护栏——未满足的要求经由语义覆盖
+    门禁自然落到模型路径（shape.cube 已知未覆盖），模型自己处理
+    投诉（用户的明确决定，不是检测情绪的机制）。"""
     lowered = text.lower()
     if any(m in lowered or m in text for m in _QUESTION_MARKERS):
         return False
-    if any(m in lowered or m in text for m in _CODE_REQUEST_MARKERS):
-        return False
-    return not any(m in text for m in _COMPLAINT_MARKERS)
+    return not any(m in lowered or m in text for m in _CODE_REQUEST_MARKERS)
 
 
 def compile_recipe_inputs(goal_text: str) -> dict[str, Any]:

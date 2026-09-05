@@ -77,6 +77,10 @@ SHAPE_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("square", ("正方形", "方形", "square")),
     ("triangle", ("三角形", "triangle")),
     ("spiral", ("螺旋", "spiral")),
+    # 0905：cube 注册为"已知未覆盖"——「画个立方体」与含立方体诉求
+    # 的投诉都经语义覆盖落到模型路径（模型自己处理），而不是检测
+    # 情绪词。登记≠支持执行：无欧拉笔画的受信规划+3D 验收链。
+    ("cube", ("立方体", "立方", "cube", "线框", "wireframe")),
 )
 # 兼容旧名（防止外部 import 断裂）——新代码用 SHAPE_MARKERS。
 _SHAPE_MARKERS = SHAPE_MARKERS
@@ -120,9 +124,13 @@ def compile_requirements(goal_text: str) -> list[Requirement]:
             verifier=verifier,
         ))
 
-    shape = select_shape(goal_text)
-    if shape:
-        _add("must", f"绘制形状：{shape}", f"shape.{shape}")
+    # 多形状条款：文中提到的每个形状都是独立条款（投诉"你画的居
+    # 然是个五角星！我要的是立方体！"——五角星引用被满足不算数，
+    # 立方体诉求未覆盖照样拦截）。select_shape 只决定执行输入。
+    lowered_text = goal_text.lower()
+    for shape, markers in SHAPE_MARKERS:
+        if any(m in goal_text or m in lowered_text for m in markers):
+            _add("must", f"绘制形状：{shape}", f"shape.{shape}")
     if _any(goal_text, _TOOL_MARKERS):
         _add("must", "末端挂载工具", "receipt.tool_ref")
     if _any(goal_text, _COLOR_MARKERS):
