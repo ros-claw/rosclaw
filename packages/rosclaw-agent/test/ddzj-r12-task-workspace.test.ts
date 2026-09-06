@@ -28,10 +28,9 @@ async function makeTools(dir: string, scratch: string) {
 		rosclawHome: dir,
 		mode: () => "SIMULATION",
 		// 本测试只关心路径限定（cwd/extraRoots），不关心沙箱——
-		// 注入无 bwrap + 操作者降级授权（真实主机的 bwrap 完好性
-		// 由 os_isolation 探测覆盖，不在此断言）。
+		// 注入无 bwrap（R1-2b：SIM 任务沙箱自动执行；真实主机的
+		// bwrap 完好性由 os_isolation 探测覆盖，不在此断言）。
 		bwrapPath: () => null,
-		allowUnsandboxedShell: () => true,
 		extraRoots: () => [scratch],
 	} as never);
 }

@@ -69,51 +69,7 @@ function scrubEnv(source: NodeJS.ProcessEnv): Record<string, string> {
 	return out;
 }
 
-/** 0902 R1-a：shell 降级的批准面（Approval Broker 桥接）。
- *  check/request/status 全部经 center.call 到 agentd 账本。 */
-export interface ShellGate {
-	/** standing grant 命中（task+revision+scope 绑定，任务活跃）。 */
-	check(): Promise<boolean>;
-	/** 登记授权请求 → request_id（PENDING）。 */
-	request(): Promise<string>;
-	/** 请求状态（PENDING/APPROVED_ONCE/APPROVED_TASK/DENIED）。 */
-	status(requestId: string): Promise<string>;
-}
 
-/** 等待窗口（与 request-action 的 Operator 等待同语义：超时/中断
- *  = 拒绝语义）。 */
-const SHELL_APPROVAL_TIMEOUT_MS = 10 * 60 * 1000;
-
-/** 无沙箱降级的会话内授权流：request → onUpdate 卡 → 轮询决定。
- *  返回 true = 允许继续原操作（一次或本任务）。 */
-export async function awaitShellApproval(
-	gate: ShellGate,
-	onUpdate: ((partial: {
-		content: Array<{ type: "text"; text: string }>;
-		details: Record<string, unknown>;
-	}) => void) | undefined,
-	signal: AbortSignal | undefined,
-): Promise<boolean> {
-	const requestId = await gate.request();
-	onUpdate?.({
-		content: [{
-			type: "text" as const,
-			text: `等待授权决定（${requestId}）…默认拒绝`,
-		}],
-		details: { phase: "AWAITING_SHELL_APPROVAL", request_id: requestId },
-	});
-	const deadline = Date.now() + SHELL_APPROVAL_TIMEOUT_MS;
-	while (Date.now() < deadline) {
-		if (signal?.aborted) return false; // 中断 = 拒绝语义
-		const status = await gate.status(requestId);
-		if (status === "APPROVED_ONCE" || status === "APPROVED_TASK") {
-			return true;
-		}
-		if (status === "DENIED" || status === "UNKNOWN") return false;
-		await new Promise((resolve) => setTimeout(resolve, 1500));
-	}
-	return false; // 超时 = 默认拒绝
-}
 
 export interface WorkspacePackOptions {
 	/** 项目根（write/edit 的作用域；bash 的 cwd）。 */
@@ -131,12 +87,6 @@ export interface WorkspacePackOptions {
 	/** rosclaw home（P0-6：沙箱内遮蔽其 agent/agentd/run——凭据/
 	 *  控制 token/bridge socket 不经 shell 可达，治理不可绕过）。 */
 	rosclawHome?: string;
-	/** 操作者显式授权的无沙箱降级（仅 SIM；bwrap 不可用的主机——
-	 *  等价 ROSCLAW_ALLOW_UNSANDBOXED_SHELL=1）。 */
-	allowUnsandboxedShell?: () => boolean;
-	/** 0902 R1-a：无沙箱降级的 Runtime 批准面（会话内确认卡 →
-	 *  task+revision+scope 绑定的 grant）。缺失 = fail closed。 */
-	shellGate?: ShellGate;
 	/** 大道至简 R1-2a：任务沙箱额外资根（活跃任务 run dir 的
 	 *  scratch 区——Pi 写的任务代码/脚本放这里；write/edit/bash
 	 *  的 cwd 允许落在 [root, ...extraRoots] 任一根内）。 */
@@ -258,32 +208,13 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 						+ "（user namespace 受限），fail closed（不裸跑）。",
 					);
 				}
-				// 0902 R1-a（审计 §5.2）：SIM 降级走会话内批准——
-				// 确认卡（允许一次/本任务允许/拒绝）→ grant 绑定
-				// task+revision+scope → 立即继续原操作。删除全局
-				// 环境变量授权的正式路径（0902 实证：用户已答"允许"
-				// 仍被要求 export ROSCLAW_ALLOW_UNSANDBOXED_SHELL=1
-				// 并重启——不可接受）。
-				let granted = options.allowUnsandboxedShell?.() === true;
-				if (!granted && options.shellGate) {
-					granted = await options.shellGate.check();
-				}
-				if (!granted && options.shellGate) {
-					granted = await awaitShellApproval(
-						options.shellGate, onUpdate, signal,
-					);
-				}
-				if (!granted) {
-					return denied(
-						`${mode} 模式 shell 需要 bwrap 强隔离——本机无可用 bwrap`
-						+ "（user namespace 受限），fail closed（不裸跑）。"
-						+ " SIM 下如确需无沙箱 shell：在确认卡选「允许一次」或"
-						+ "「本任务允许」（结果带 TOOL_LAYER_ONLY 标记）",
-					);
-				}
+				// 大道至简 R1-2b（2026-09-05 方案安全节）：SIM 任务沙箱
+				// 代码自动执行，不弹批准卡——第一层过滤（灾难命令/危险
+				// 模式/scrubbed env）+ 诚实标记照旧。R1-a 的降级确认卡
+				// 退役（SIM 下卡片是噪音；REAL/SHADOW fail closed 不变）。
 				degradedMarker =
 					"[TOOL_LAYER_ONLY: 本机无 OS 沙箱（bwrap 不可用）——"
-					+ "操作者显式授权的降级运行，凭据/控制面在 shell 可达"
+					+ "SIM 任务沙箱降级运行，凭据/控制面在 shell 可达"
 					+ "（风险已告知）]\n";
 			}
 			const output = await new Promise<string>((resolvePromise) => {

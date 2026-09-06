@@ -928,54 +928,8 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 
 		// -- Approval 卡片（NA-FIX-5，P0-5 修复）：tool 返回精确 approval_id
 		//    后才展卡——绝不取 pending 列表第一个。
-		// 0902 R1-a：shell 降级授权卡（Approval Broker——确认卡只给
-		// 允许一次/本任务允许/拒绝；批准后立即继续原操作）。在
-		// AWAITING_OPERATOR 分支之前拦截（不同 phase 名，不同决定面）。
-		pi.on("tool_execution_update", async (event, ctx) => {
-			if (event.toolName !== "bash" || !ctx.hasUI) return;
-			const details = (event.partialResult?.details ?? {}) as {
-				phase?: string;
-				request_id?: string;
-			};
-			if (details.phase !== "AWAITING_SHELL_APPROVAL" || !details.request_id) return;
-			const requestId = details.request_id;
-			ctx.ui.setWorkingMessage(`等待授权决定（${requestId}）…默认拒绝`);
-			notifyLeveled(ctx, `等待授权决定（${requestId}）…默认拒绝`, "info");
-			// 卡打开 = 用户在场——暂停停滞看门狗（journey 实证：确认卡
-			// 等待被 45s 流式 idle 误判取消）。
-			stallWatchdog.pauseForUser();
-			let choice: string | undefined;
-			try {
-				choice = await ctx.ui.select(
-					"本机无 OS 沙箱（bwrap 不可用）——当前命令需要在任务工作区内无沙箱执行（凭据/控制面对 shell 可达）",
-					["允许一次", "本任务允许（当前 revision）", "拒绝"],
-					{ timeout: 120000 },
-				);
-			} finally {
-				stallWatchdog.resumeFromUser();
-			}
-			try {
-				const decision = choice === "允许一次"
-					? "allow_once"
-					: choice?.startsWith("本任务允许")
-						? "allow_task"
-						: "deny";
-				const decided = (await center.call("pi.shell_gate.decide", {
-					request_id: requestId,
-					decision,
-				})) as { ok: boolean; error?: string };
-				notifyLeveled(ctx,
-					decided.ok
-						? decision === "deny"
-							? "已拒绝（操作未执行）"
-							: "已批准——原操作继续（结果带 TOOL_LAYER_ONLY 标记）"
-						: `决定被拒：${decided.error ?? "unknown"}`,
-					decided.ok ? "info" : "error",
-				);
-			} catch (err) {
-				notifyLeveled(ctx, `授权卡交互失败：${(err as Error).message}`, "error");
-			}
-		});
+		// 大道至简 R1-2b：SIM 任务沙箱 bash 自动执行——R1-a 的
+		// 降级授权卡退役（不再有 AWAITING_SHELL_APPROVAL 相位）。
 		pi.on("tool_execution_update", async (event, ctx) => {
 			if (
 				(event.toolName !== "rosclaw_request_action")

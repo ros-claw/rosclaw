@@ -49,34 +49,24 @@ async function run(bash: { execute: Function }, command: string): Promise<{ text
 	};
 }
 
-test("P0-6: SIM 模式无 bwrap → fail closed（任何模式不裸跑）", async () => {
+test("P0-6/R1-2b: SIM 无 bwrap → 任务沙箱自动执行（不弹卡、带诚实标记）", async () => {
+	// 大道至简 R1-2b（方案安全节）：SIM 任务沙箱代码自动执行，
+	// 不弹批准——第一层过滤 + TOOL_LAYER_ONLY 标记照旧；
+	// REAL/SHADOW 依然 fail closed。
 	const dir = mkdtempSync(join(tmpdir(), "p06-"));
 	const bash = await makeBash(dir, dir, "SIMULATION", () => null);
 	const out = await run(bash, "echo hi");
-	assert.ok(out.isError, "SIM 无 bwrap 裸跑了——治理可绕过");
-	assert.match(out.text, /隔离|bwrap|fail.closed/i);
+	assert.ok(!out.isError, "SIM 任务沙箱应自动执行（无卡）");
+	assert.match(out.text, /hi/);
+	assert.match(out.text, /TOOL_LAYER_ONLY/, "降级运行必须带无 OS 沙箱标记");
 });
 
-test("P0-6: SIM 无 bwrap + 显式降级授权 → 运行但带诚实标记", async () => {
+test("P0-6/R1-2b: REAL 无 bwrap → 依然 fail closed（不裸跑）", async () => {
 	const dir = mkdtempSync(join(tmpdir(), "p06-"));
-	const { buildWorkspacePackTools } = await import("../src/tools/workspace-pack.js");
-	const tools = buildWorkspacePackTools({
-		root: dir,
-		rosclawHome: dir,
-		mode: () => "SIMULATION",
-		bwrapPath: () => null,
-		// 操作者显式授权降级（等同 ROSCLAW_ALLOW_UNSANDBOXED_SHELL=1）。
-		allowUnsandboxedShell: () => true,
-	});
-	const bash = tools.find((t) => t.name === "bash");
-	assert.ok(bash);
-	const result = await bash.execute(
-		"c1", { command: "echo hi" }, new AbortController().signal,
-		async () => {}, {} as never,
-	);
-	const text = String((result.content[0] as { text: string }).text);
-	assert.match(text, /hi/, "显式授权后降级 shell 应运行");
-	assert.match(text, /TOOL_LAYER_ONLY/, "降级运行必须带无 OS 沙箱标记");
+	const bash = await makeBash(dir, dir, "REAL", () => null);
+	const out = await run(bash, "echo hi");
+	assert.ok(out.isError, "REAL 无 bwrap 裸跑了——治理可绕过");
+	assert.match(out.text, /隔离|bwrap|fail.closed/i);
 });
 
 test("P0-6: 敏感路径遮蔽清单覆盖凭据/控制面", async () => {

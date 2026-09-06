@@ -245,46 +245,9 @@ export async function createRosclawRuntime(
 							mode: active.current.mode ?? "SIMULATION",
 						});
 					},
-					// 0902 R1-a：无沙箱降级走 Approval Broker（会话内
-					// 确认卡——grant 绑定 task+revision+scope），删除
-					// 全局环境变量授权的正式路径。
-					shellGate: {
-						check: async () => {
-							const activeTask = (await center.call("pi.kernel.active", {
-								mission_id: active.current.missionId ?? "",
-								session_ref: active.current.sessionId ?? "",
-							})) as { task?: { task_id?: string; active_revision?: number } | null };
-							const task = activeTask.task;
-							if (!task?.task_id) return false;
-							const r = (await center.call("pi.shell_gate.check", {
-								task_id: task.task_id,
-								revision: task.active_revision ?? 1,
-								scope: "shell.unsandboxed",
-							})) as { granted?: boolean };
-							return r.granted === true;
-						},
-						request: async () => {
-							const activeTask = (await center.call("pi.kernel.active", {
-								mission_id: active.current.missionId ?? "",
-								session_ref: active.current.sessionId ?? "",
-							})) as { task?: { task_id?: string; active_revision?: number } | null };
-							const task = activeTask.task;
-							const r = (await center.call("pi.shell_gate.request", {
-								task_id: task?.task_id ?? "",
-								revision: task?.active_revision ?? 1,
-								mission_id: active.current.missionId ?? "",
-								session_ref: active.current.sessionId ?? "",
-								scope: "shell.unsandboxed",
-							})) as { request?: { request_id?: string } };
-							return String(r.request?.request_id ?? "");
-						},
-						status: async (requestId: string) => {
-							const r = (await center.call("pi.shell_gate.status", {
-								request_id: requestId,
-							})) as { request?: { status?: string } };
-							return String(r.request?.status ?? "UNKNOWN");
-						},
-					},
+					// 大道至简 R1-2b：SIM 任务沙箱自动执行不弹卡——
+					// R1-a 的降级确认卡 apparatus 整体退役（REAL/
+					// SHADOW fail closed 不变）。
 				}),
 				// PR-H3：process 工具（长 Operation——立即返回 operation_id）。
 				...buildProcessTools({

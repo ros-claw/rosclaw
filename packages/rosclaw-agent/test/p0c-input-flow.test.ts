@@ -83,7 +83,6 @@ describe("P0-C workspace effect 钩子", () => {
 			root: dir,
 			mode: () => "SIMULATION",
 			bwrapPath: () => null,
-			allowUnsandboxedShell: () => true,
 			beforeEffect: async () => {
 				ensured += 1;
 			},

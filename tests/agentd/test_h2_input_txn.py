@@ -54,33 +54,16 @@ class TestInputRootTaskGate:
             无 bwrap 主机弹 ui.select，标题"本机无 OS 沙箱"，
             第一项"允许一次"，Enter 首帧竞态需每秒重试直到对话
             框消失；有沙箱主机无卡直跑）。模型最终回答落屏。"""
-            import time as _time
-
+            # 大道至简 R1-2b：SIM 任务沙箱 bash 自动执行——无批准
+            # 卡（降级主机也不再弹卡）。
             # 竞态防线：只认本次输入之后的输出（上一腿的同款最终
             # 回答还留在屏上——不锚定 after 会瞬时误匹配）。
             marker = len(session.clean)
             session.send(text + "\r")
-            deadline = _time.time() + 240
-            answered = False
-            while _time.time() < deadline and not answered:
-                if "本机无 OS 沙箱".encode() in session.clean[-4000:]:
-                    for _ in range(15):
-                        _time.sleep(1.0)
-                        session.send("\r")
-                        _time.sleep(0.5)
-                        if "本机无 OS 沙箱".encode() not in session.clean[-4000:]:
-                            break
-                    session.expect("已批准".encode(), timeout=30)
-                try:
-                    session.expect(
-                        "已在同一会话直接完成".encode(), timeout=30,
-                        after=marker,
-                    )
-                    answered = True
-                except AssertionError:
-                    continue
-            if not answered:
-                raise AssertionError(f"输入 {text!r} 未驱动到最终回答")
+            session.expect(
+                "已在同一会话直接完成".encode(), timeout=180,
+                after=marker,
+            )
 
 
         try:

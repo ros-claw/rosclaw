@@ -1648,27 +1648,12 @@ class TestProductJourney:
             time.sleep(2.0)
             # 5. delegate worker。
             session.send("请委派 worker 总结这段日志\r")
-            # 0902 R1-a：无 bwrap 主机上 bash 降级走确认卡（允许一次
-            # = 第一项，Enter 选定）——不再是全局环境变量。有可用 OS
-            # 沙箱的主机直跑（无卡）。守卫必须功能探测（bwrap 装了但
-            # userns 受限 = 不可用；which 误判曾让本机从未走过批准路径
-            # ——卡 120s 超时默认拒绝蒙混过关，批准腿零覆盖）。
+            # 大道至简 R1-2b（方案安全节）：SIM 任务沙箱 bash 自动
+            # 执行，不弹批准卡——R1-a 的降级确认卡退役（REAL/SHADOW
+            # fail closed 不变）。降级主机上结果带 TOOL_LAYER_ONLY
+            # 诚实标记。
             if not probe_os_isolation()["isolation_ready"]:
-                session.expect(
-                    "本机无 OS 沙箱".encode(), timeout=120,
-                )
-                # 允许一次（第一项）。Enter 竞态实证：对话框首帧
-                # 渲染与键盘接管之间存在窗口——标题仍在可见期内
-                # 每 1s 重试 Enter，直到对话框消失。
-                for _ in range(15):
-                    time.sleep(1.0)
-                    session.send("\r")
-                    time.sleep(0.5)
-                    if "本机无 OS 沙箱".encode() not in session.clean[-4000:]:
-                        break
-                # 批准路径必须真实走到（不是 120s 超时默认拒绝蒙混）。
-                session.expect("已批准——原操作继续".encode(), timeout=30)
-                self._journey_verdicts["shell_approval_card_approved"] = True
+                self._journey_verdicts["sim_shell_auto_no_card"] = True
             # PR-H1：Native 直接完成（不委派）——同一 session 的工具执行。
             session.expect("已直接完成日志总结".encode(), timeout=180)
             # P0-4G（TranscriptPolicy）：SECRET_PROBE 回合后，任何后续

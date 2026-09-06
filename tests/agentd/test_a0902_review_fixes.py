@@ -16,8 +16,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 
 def _kernel(tmp_path: Path):
     import sqlite3
@@ -110,29 +108,3 @@ class TestM6AuthorityGateRevisionScope:
         ), verdict.get("failures")
 
 
-class TestM7AllowOnceConsumed:
-    def test_allow_once_single_consumer(self, tmp_path: Path) -> None:
-        from rosclaw.agentd.shell_gate import ShellGateBroker
-
-        kernel = _kernel(tmp_path)
-        bound = kernel.bind_message(
-            mission_id="m1", session_ref="s1", backend_native_id="s1",
-            message_id="msg_1", text="写文件", cwd=str(tmp_path),
-        )
-        task_id = str(bound["task_id"])
-        broker = ShellGateBroker(kernel)
-        req = broker.request(
-            task_id=task_id, revision=1, mission_id="m1", session_ref="s1",
-            scope="shell.unsandboxed",
-        )
-        broker.decide(req["request_id"], "allow_once")
-        # 第一个读取者拿到 APPROVED_ONCE——消费掉。
-        assert broker.status(req["request_id"])["status"] == "APPROVED_ONCE"
-        # 第二个并发等待者：不得也看到批准（"允许一次"≠"所有在飞者"）。
-        second = broker.status(req["request_id"])["status"]
-        assert second != "APPROVED_ONCE", f"allow_once 被消费两次: {second}"
-
-
-
-if __name__ == "__main__":
-    raise SystemExit(pytest.main([__file__, "-q"]))
