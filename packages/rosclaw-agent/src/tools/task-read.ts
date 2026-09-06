@@ -16,6 +16,9 @@
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import type { BridgeToolContext } from "./bridge-tools.js";
+// 大道至简 R2：只读任务工具挂折叠渲染钩（模型上下文留完整
+// JSON，TUI 单行摘要——0905 实证 artifact list 整段刷屏）。
+import { compactRenderResult } from "../ui/compact-result.js";
 
 function text(value: unknown): string {
 	return JSON.stringify(value, null, 1);
@@ -24,6 +27,7 @@ function text(value: unknown): string {
 export function buildReadOnlyTaskTools(ctx: BridgeToolContext) {
 	const taskInspect = defineTool({
 		name: "rosclaw_task_inspect",
+		renderResult: compactRenderResult,
 		label: "ROSClaw Task Inspect",
 		description:
 			"Read the latest task and its outcome (state, verification, " +
@@ -58,6 +62,7 @@ export function buildReadOnlyTaskTools(ctx: BridgeToolContext) {
 
 	const artifactList = defineTool({
 		name: "rosclaw_artifact_list",
+		renderResult: compactRenderResult,
 		label: "ROSClaw Artifact List",
 		description:
 			"List deliverables of the latest task (artifact id, kind, media " +
@@ -81,6 +86,7 @@ export function buildReadOnlyTaskTools(ctx: BridgeToolContext) {
 
 	const artifactResolve = defineTool({
 		name: "rosclaw_artifact_resolve",
+		renderResult: compactRenderResult,
 		label: "ROSClaw Artifact Resolve",
 		description:
 			"Resolve an artifact id to its absolute path, kind, size and " +

@@ -36,7 +36,10 @@ test("R3-b 默认层：文件名+大小+短命令在，内部绝对路径不在"
 	assert.match(reply, /trace_abc-scene\.gif/); // 文件名
 	assert.match(reply, /1\.2 MB/); // 大小
 	assert.match(reply, /rosclaw open art_g/); // 短打开命令
-	assert.doesNotMatch(reply, /\/home\/u\/\.rosclaw\/sim\/traces/, // 内部路径不进默认层
+	// 大道至简 R2：剥 OSC 8 后断言可见文本（链接 escape 里嵌
+	// 的绝对路径终端不可见——可见面仍无内部路径）。
+	const visible = reply.replace(/\x1b\]8;;[^\x07]*\x07/g, "");
+	assert.doesNotMatch(visible, /\/home\/u\/\.rosclaw\/sim\/traces/, // 内部路径不进默认层
 		"默认层仍裸打内部绝对路径");
 });
 

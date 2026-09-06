@@ -34,7 +34,10 @@ test("P0-6 PASS 呈现：文件名 + 打开命令 + 下一步（0902 R3-b：绝�
 	assert.match(reply, /rosclaw artifact open art_g/);
 	// 0902 R3-b：默认层不裸打绝对路径（内部路径进 verbose 诊断层）；
 	// 可达性由 open/path/export 命令承接。
-	assert.doesNotMatch(reply, /\/home\/u\/proj\/outputs\/star-scene\.gif/);
+	// 大道至简 R2：文件名带 OSC 8 可点击链接（escape 序列里嵌
+	// 绝对路径但终端不可见）——断言剥掉 OSC 8 后的可见文本。
+	const visible = reply.replace(/\x1b\]8;;[^\x07]*\x07/g, "");
+	assert.doesNotMatch(visible, /\/home\/u\/proj\/outputs\/star-scene\.gif/);
 	const verbose = renderTerminalReply({
 		verification: "PASS",
 		delivery: "DELIVERED",

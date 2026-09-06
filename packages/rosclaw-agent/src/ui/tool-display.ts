@@ -29,6 +29,22 @@ export function summarizeToolResultText(raw: string): string {
 	const parsed = tryParseJson(text);
 	if (parsed && typeof parsed === "object") {
 		const env = parsed as Record<string, unknown>;
+		// 大道至简 R2：交付物清单 → 计数行（0905 实证：8 个
+		// artifact 的 digest/open_command/内部绝对路径整段刷屏）。
+		const artifacts = env.artifacts;
+		if (Array.isArray(artifacts)) {
+			const mediaCounts = new Map<string, number>();
+			for (const a of artifacts) {
+				const mt = String(
+					(a as Record<string, unknown>)?.media_type ?? "unknown",
+				).split("/").pop() ?? "unknown";
+				mediaCounts.set(mt, (mediaCounts.get(mt) ?? 0) + 1);
+			}
+			const breakdown = [...mediaCounts.entries()]
+				.map(([mt, n]) => `${mt} ×${n}`)
+				.join("、");
+			return `✓ ${artifacts.length} 个交付物（${breakdown}）——明细见 /activity`;
+		}
 		const status = String(env.status ?? "");
 		const cap = String(env.capability_id ?? "");
 		const value = (env.value ?? {}) as Record<string, unknown>;

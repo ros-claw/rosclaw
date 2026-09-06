@@ -58,7 +58,9 @@ function renderArtifactLine(ref: {
 				? `${size} B`
 				: "";
 	const head = name
-		? `• ${name}${sizeText ? `（${sizeText}）` : ""}`
+		// 大道至简 R2：主交付物文件名可点击（OSC 8 file:// 链接——
+		// 终端里直接点开，不必复制路径）。
+		? `• ${path ? `\x1b]8;;file://${path}\x07${name}\x1b]8;;\x07` : name}${sizeText ? `（${sizeText}）` : ""}`
 		: `• ${String(ref.artifact_id ?? "artifact")}`;
 	const pathLine = verbose && path ? `\n  ${path}` : "";
 	const openLine = ref.open_command ? `\n  ${ref.open_command}` : "";
