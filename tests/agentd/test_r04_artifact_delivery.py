@@ -22,43 +22,7 @@ import json
 from pathlib import Path
 
 from rosclaw.agentd.pi_bridge.tool_dispatch import PiToolDispatcher
-from tests.agentd.test_pi_tool_bridge import _issue_lease, _request
-from tests.agentd.test_r01_production_chain import _kernel, _setup_ur5e
-from tests.agentd.test_r02_task_spec_deliverables import _draw_task
-
-
-class TestOutcomeArtifactRefs:
-    def test_outcome_includes_user_visible_refs(self, tmp_path: Path) -> None:
-        """Coordinator outcome 必须带 artifact_refs（id/kind/media/
-        size/digest/open_command）——用户可达交付的权威视图。"""
-        from rosclaw.agentd.task_execution import TaskExecutionService
-        from rosclaw.task_kernel.coordinator import TaskCoordinator
-
-        kernel, conn = _kernel(tmp_path)
-        task_id = _draw_task(kernel, tmp_path, "画一个五角星")
-        kernel.note_tool_use(task_id, "rosclaw_task")
-        TaskExecutionService(
-            kernel=kernel, conn=conn, home=tmp_path,
-        ).execute(
-            task_id,
-            recipe_inputs={"shape": "star5",
-                           "center_m": [0.35, 0.25, 0.30], "scale_m": 0.10},
-        )
-        outcome = TaskCoordinator(kernel).consider(task_id)
-        assert outcome is not None
-        refs = outcome.get("artifact_refs")
-        assert refs, f"outcome 缺 artifact_refs：{outcome}"
-        gif = [r for r in refs if r.get("media_type") == "image/gif"]
-        mp4 = [r for r in refs if r.get("media_type") == "video/mp4"]
-        assert gif and mp4, refs
-        for ref in refs:
-            assert ref.get("artifact_id"), ref
-            assert ref.get("kind"), ref
-            assert ref.get("size_bytes", 0) > 0, ref
-            assert ref.get("digest", "").startswith("sha256:"), ref
-            assert ref.get("open_command", "").startswith(
-                "rosclaw artifact open "
-            ), ref
+from tests.agentd.test_pi_tool_bridge import _issue_lease, _request, _setup_ur5e
 
 
 class TestCapabilityArtifactRefs:
@@ -187,33 +151,6 @@ class TestArtifactCli:
         ])
         assert rc != 0
 
-
-class TestGateUserVisibleDelivery:
-    async def test_payload_refs_openable(self, tmp_path: Path) -> None:
-        """Gate R0-4：成功 payload 的 artifact_refs 每条含
-        artifact_id + open_command——用户最终答案可引用可打开的
-        交付物（DB 有但用户面不可达 = 失败）。"""
-        service, mission = await _setup_ur5e(tmp_path)
-        lease = await _issue_lease(service, mission)
-        result = await PiToolDispatcher(service).execute(
-            _request(
-                "rosclaw_task", mission=mission.mission_id,
-                idem="r04_gate", lease=lease,
-                arguments={
-                    "goal": "draw_shape",
-                    "parameters": {"shape": "star5"},
-                },
-            )
-        )
-        assert result.ok, result.summary
-        payload = json.loads(result.summary)
-        refs = payload.get("artifact_refs") or []
-        assert refs, payload
-        for ref in refs:
-            assert ref.get("artifact_id"), ref
-            assert ref.get("open_command", "").startswith(
-                "rosclaw artifact open "
-            ), ref
-        media = {r.get("media_type") for r in refs}
-        assert "image/gif" in media and "video/mp4" in media, media
-        await service.close()
+# 大道至简 R0-2b：TestOutcomeArtifactRefs/TestGateUserVisibleDelivery
+# （recipe 链 outcome 交付面）随生产 recipe 链删除——capability
+# 产物自动登记面（TestCapabilityArtifactRefs）保留。

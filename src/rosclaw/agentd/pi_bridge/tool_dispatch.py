@@ -34,7 +34,6 @@ _TOOL_TABLE: dict[str, str] = {
     "rosclaw_fail_safe": "control",
     "rosclaw_request_action": "physical_action",
     # 八审 P0-5：任务级入口——确定性编译器编排，模型只交 TaskSpec。
-    "rosclaw_task": "task",
     # 十五审 PR-RF-1/RF-2：治理工具（无为而治）——模型只交目标合同，
     # 观察/steer/回答/暂停/恢复/取消都作用于同一 owning execution。
     # PR-H3：process 工具（长进程 Operation——立即返回/事件流/终态
@@ -295,7 +294,7 @@ class PiToolDispatcher:
                 ok=False,
                 status="REJECTED",
                 summary="同一调用已失败过一次——原样重复不会成功。请改变参数、"
-                "改用任务级入口（rosclaw_task），或诚实报告无法完成。",
+                "换用其他通用原语工具组合，或诚实报告无法完成。",
                 error_code="DOOM_LOOP",
             )
         try:
@@ -589,10 +588,6 @@ class PiToolDispatcher:
             self._note_embodiment_use(request)
             self._ensure_task_for_effect(request)
             return await self._request_action(request)
-        if name == "rosclaw_task":
-            # R0-1：adapter 内部 ensure admission + 具身落账（任务
-            # 存在后标记，证据规则随之武装）。
-            return await self._task(request)
         # PR-H3：process 工具——长进程 = Operation（立即返回，事件流
         # 可查，终态 followUp 一次）。
         # PR-H5：统一执行入口 + operation 控制。
@@ -901,118 +896,6 @@ class PiToolDispatcher:
             request_id=request.request_id,
             ok=True, status="CANCELLED",
             summary=f"operation {operation_id} 已取消（账本先行）",
-        )
-
-    async def _task(self, request: PiToolRequestV1) -> PiToolResultV1:
-        """rosclaw_task（R0-1 兼容 adapter，0826 体验审计 §5.R0-1）。
-
-        唯一生产链：TaskExecutionService.execute（frozen TaskSpecV2
-        → TaskRouter → recipe → PlanGraph → PlanExecutor）。旧内联
-        SIM 管线（generate/simulate/render/verify 直调）已物理删除
-        ——生产对 draw path 只有一条执行链。
-
-        模型只交 goal+parameters；recipe 选择由 frozen spec 的
-        intent 决定（TaskRouter），不是 goal 字符串。
-        """
-        import asyncio as _asyncio
-        import json as _json
-
-        args = request.arguments
-        goal = str(args.get("goal", "")).strip()
-        parameters = args.get("parameters")
-        if goal not in ("simulate_trajectory", "draw_shape") or not isinstance(
-            parameters, dict
-        ):
-            raise ToolBridgeError(
-                "UNKNOWN_CAPABILITY",
-                f"未知确定性任务 {goal!r}——当前支持 simulate_trajectory"
-                "（其余长任务走 rosclaw_execute/process_start）",
-            )
-        # P0-C：活跃任务优先（不重复 bump revision）；没有时首个
-        # effectful call 的原子 admission（动机输入缺失诚实拒绝）。
-        kernel = self._service._task_kernel
-        task = kernel.active_task_for(request.mission_id, request.pi_session_id)
-        if task is None:
-            self._ensure_task_for_effect(request)
-            task = kernel.active_task_for(
-                request.mission_id, request.pi_session_id
-            )
-        if task is None:
-            raise ToolBridgeError("NO_ACTIVE_TASK", "无活跃任务")
-        # 具身落账在任务存在后（证据规则随之武装）。
-        self._note_embodiment_use(request)
-        outcome = await _asyncio.to_thread(
-            self._service._task_execution.execute,
-            str(task["task_id"]),
-            recipe_inputs=dict(parameters),
-            goal_hint=goal,
-        )
-        if outcome.error_code in (
-            "TASK_NOT_FOUND", "TASK_SPEC_MISSING", "TASK_NO_RECIPE",
-            "MODE_DENIED", "RUNTIME_NOT_READY",
-        ):
-            raise ToolBridgeError(outcome.error_code, outcome.failure)
-        refs = outcome.refs
-        render_ref = refs.get("RenderRef") or {}
-        trace_ref = refs.get("TraceRef") or {}
-        verification_ref = refs.get("VerificationRef") or {}
-        metrics = verification_ref.get("metrics") or {}
-        evidence_level = str(
-            trace_ref.get("evidence_level") or "SIM_DYN_ROLLOUT"
-        )
-        # 模型可见 artifacts 必须含全部已登记交付物（R0-1 修复：
-        # 旧链 MP4 登记了却不返回——内核成功、产品失败）。
-        artifacts = {
-            "gif": str(render_ref.get("gif_path", "")),
-            "mp4": str(render_ref.get("mp4_path", "")),
-            **{k: str(v) for k, v in (trace_ref.get("artifacts") or {}).items()},
-            "metrics": metrics,
-            "evidence_level": evidence_level,
-        }
-        gif_path = artifacts["gif"]
-        max_error_m = float(metrics.get("max_error_m", 0.0) or 0.0)
-        payload = {
-            "state": "VERIFIED" if outcome.ok else "FAILED",
-            "goal": goal,
-            "task_id": outcome.task_id,
-            "recipe_id": outcome.recipe_id,
-            "plan": {
-                "refs": sorted(refs.keys()),
-                "failed_node": outcome.failed_node,
-            },
-            "artifacts": artifacts,
-            # 产物账本视图（artifact_id 可查可开——R0-4 交付面的
-            # 原料）。
-            "artifact_refs": outcome.artifacts,
-            "failures": outcome.failures,
-            "verification": {
-                "verdict": "PASS" if outcome.ok else "FAIL",
-                "max_error_m": max_error_m,
-                "threshold_m": verification_ref.get("threshold_m", 0.0),
-                "frames": render_ref.get("frames", 0),
-                "min_frames": verification_ref.get("min_frames", 0),
-                "verification_id": outcome.verification_id,
-            },
-            # WP06：证据等级与局限必须显式——动力学 rollout 自洽，
-            # 不能证明真机执行。
-            "user_view": (
-                f"动力学仿真 rollout 完成：最大跟踪误差 "
-                f"{max_error_m * 1000:.0f}mm，动画 {gif_path}，"
-                f"视频 {artifacts['mp4']}。"
-                f"证据等级 {evidence_level}——仿真动力学自洽，"
-                "不能证明真机执行效果。"
-                if outcome.ok else
-                f"验收未过：{'；'.join(outcome.failures)}"
-                f"（证据等级 {evidence_level}）"
-            ),
-            "evidence_level": evidence_level,
-        }
-        return PiToolResultV1(
-            request_id=request.request_id,
-            ok=outcome.ok,
-            status="COMPLETED" if outcome.ok else "REJECTED",
-            summary=_json.dumps(payload, ensure_ascii=False),
-            error_code="" if outcome.ok else outcome.error_code,
         )
 
     async def _request_action(self, request: PiToolRequestV1) -> PiToolResultV1:

@@ -242,17 +242,9 @@ class AgentService:
         from rosclaw.task_kernel.operation_manager import OperationManager
 
         self._operation_manager = OperationManager(self._task_kernel, self._store.connection)
-        # R0-1（0826 体验审计 §5.R0-1）：TaskExecutionService——已知
-        # 任务的唯一生产入口（TaskSpecV2→TaskRouter→PlanGraph→
-        # PlanExecutor）。rosclaw_task 只是它的兼容 adapter。
-        from rosclaw.agentd.task_execution import TaskExecutionService
-
-        self._task_execution = TaskExecutionService(
-            kernel=self._task_kernel,
-            conn=self._store.connection,
-            home=self._home,
-            runtime_manager=self._runtime_manager,
-        )
+        # 大道至简 R0-2b：生产 recipe 链（TaskExecutionService/
+        # plan_templates/task_router）已删除——执行经通用物理原语
+        # 工具（Pi 驱动）；固定流程只活在显式 demo（product/demo.py）。
         # Daemon action channel (K3) + consent channel (ADR-0007): only when
         # a rosclawd client is actually available — otherwise both degrade
         # honestly.
@@ -1446,61 +1438,7 @@ class AgentService:
         self._pi_bridge = PiBridgeServer(self, path)
         await self._pi_bridge.start()
         await self._ensure_operation_maintenance()
-        await self.resume_interrupted_executions()
         return path
-
-    async def resume_interrupted_executions(self) -> list[str]:
-        """0827 复核实证（§十 故障注入 Gate）：rollout 与 render 之间
-        agentd 重启——后台执行协程死掉，确定性链任务停在
-        RUNNING 无人重新驱动。启动时扫描"RUNNING + 有 plan.node 事件
-        + 最新事件不是 task.terminal"的任务重新执行（同一 task、同一
-        revision——重跑即恢复，幂等每进程一次）。
-
-        失败处理纪律：重驱动失败 → FAILED 终态
-        （不沉默）。返回被重新驱动的 task_id 列表。"""
-        if getattr(self, "_resume_interrupted_done", False):
-            return []
-        self._resume_interrupted_done = True
-        rows = self._store.connection.execute(
-            "SELECT t.task_id, "
-            "  (SELECT e2.event_type FROM task_events e2 "
-            "   WHERE e2.task_id = t.task_id ORDER BY e2.seq DESC LIMIT 1"
-            "  ) AS last_event "
-            "FROM tasks t "
-            "WHERE t.state = 'RUNNING' AND EXISTS ("
-            "  SELECT 1 FROM task_events e WHERE e.task_id = t.task_id "
-            "  AND e.event_type LIKE 'plan.node_%'"
-            ")"
-        ).fetchall()
-        resumed: list[str] = []
-        for row in rows:
-            if str(row["last_event"] or "") == "task.terminal":
-                continue  # 旧 revision 的终态事件——不是中断现场
-            task_id = str(row["task_id"])
-            resumed.append(task_id)
-
-            async def _redrive(tid: str = task_id) -> None:
-                outcome = await asyncio.to_thread(
-                    self._task_execution.execute, tid,
-                )
-                if not outcome.ok:
-                    import logging
-
-                    try:
-                        self._task_kernel.transition(
-                            tid, "FAILED",
-                            reason=(
-                                f"{outcome.error_code or 'EXECUTION_FAILED'}: "
-                                f"{(outcome.failure or '')[:200]}"
-                            ),
-                        )
-                    except Exception:  # noqa: BLE001 - 迁移失败只记日志
-                        logging.getLogger("rosclaw.resume").exception(
-                            "FAILED transition failed for %s", tid,
-                        )
-
-            asyncio.get_event_loop().create_task(_redrive())
-        return resumed
 
     async def _ensure_operation_maintenance(self) -> None:
         """P1-B1（0824 总纲 §12）：operation 维护循环——启动时

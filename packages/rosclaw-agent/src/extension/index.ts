@@ -651,7 +651,6 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 					"rosclaw_status",
 					"rosclaw_capabilities",
 					"rosclaw_compute",
-					"rosclaw_task",
 					"rosclaw_observe",
 					"rosclaw_verify",
 					"rosclaw_deliver",
@@ -973,7 +972,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 		});
 		pi.on("tool_execution_update", async (event, ctx) => {
 			if (
-				(event.toolName !== "rosclaw_request_action" && event.toolName !== "rosclaw_task")
+				(event.toolName !== "rosclaw_request_action")
 				|| !ctx.hasUI
 			) return;
 			const details = (event.partialResult?.details ?? {}) as {
@@ -1138,7 +1137,6 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 		// 事件重放不产生第二张卡）。
 		const actionCardDeduper = new StableIdDeduper();
 		// P0-D：完成通知每 session 只发一次（不重复报喜）。
-		const completedNotified = new Set<string>();
 		// 每个 outcome 只校验紧随其后的第一段助手叙述；turn 结束清除。
 		let lastOutcome: (ActionResultData & { narrativeSeen?: boolean; conflictClaim?: string }) | null = null;
 		// PR-N9：结构化活动区——工具开始/结束驱动活动区文案
@@ -1306,36 +1304,12 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			stallWatchdog.turnEnded();
 		});
 		pi.on("turn_end", async () => {
-			// P0-D：Harness idle → Coordinator 自动收尾（登记/验证/
-			// outcome——零模型调用；outcome 确定性摘要直接呈现）。
-			try {
-				const missionId = options.active.current.missionId;
-				const sessionId = options.active.current.sessionId;
-				if (missionId && sessionId) {
-					const considered = await center.call("pi.coordinator.consider", {
-						mission_id: missionId,
-						session_ref: sessionId,
-					});
-					const outcome = considered.outcome as {
-						lifecycle?: string; verification?: string;
-						delivery?: string; repair_directive?: { criterion?: string };
-					} | null | undefined;
-					if (outcome?.lifecycle === "COMPLETED" && !completedNotified.has(sessionId)) {
-						completedNotified.add(sessionId);
-						latestCtx?.ui.notify(
-							`任务完成：验收 ${outcome.verification} · 交付 ${outcome.delivery}（/activity 查看账本）`,
-							"info",
-						);
-					} else if (outcome?.delivery === "NEEDS_REPAIR") {
-						latestCtx?.ui.notify(
-							`执行成功，交付待修：${outcome.repair_directive?.criterion ?? ""}`,
-							"warning",
-						);
-					}
-				}
-			} catch {
-				// 收尾评估失败不阻塞回合——下一次 turn_end 再评估。
-			}
+			// 大道至简 R0-2b：删除 turn_end 自动 consider→finish——
+			// Kernel 不得在用户回合结束时自动宣布"任务完成：验收 PASS"
+			//（用户目标完成与否由看过全过程的 Pi 判断；任务终态由
+			// 模型显式 rosclaw_task_finish 驱动，Kernel 只核验客观
+			// 执行事实）。0901 P0-5 的 consider→finish 自动终态通道
+			// 一并关闭。
 			// PR-H8：Task Activity widget 回合后自动刷新（开启时）。
 			await refreshActivityWidget();
 			if (lastOutcome?.conflictClaim) {

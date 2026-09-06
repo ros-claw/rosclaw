@@ -83,7 +83,6 @@ export const REMOVED_FROM_MODEL: readonly string[] = [
 	// R0-1.5（金丝雀实证 + 0826 审计 §6 删除清单）：任务级入口
 	// 由输入路由自动执行（零模型调用）——模型面不再有
 	// rosclaw_task；wire 层 adapter 保留（兼容既有 session）。
-	"rosclaw_task",
 	// Worker 操控全系
 	"rosclaw_delegate",
 	"rosclaw_retry_work",

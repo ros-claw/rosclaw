@@ -23,30 +23,76 @@ from pathlib import Path
 import pytest
 
 
-def _run_draw_chain(kernel, conn, tmp_path: Path) -> str:
-    from rosclaw.agentd.task_execution import TaskExecutionService
-    from tests.agentd.test_r02_task_spec_deliverables import _draw_task
+async def _run_draw_chain(service, mission, tmp_path: Path) -> str:
+    """大道至简 R0-2b：通用能力链（plan→simulate→render，模型面
+    同款 rosclaw_compute 驱动）——capability 产物自动登记在同一
+    任务，返回 task_id。"""
+    import json as _json
 
-    task_id = _draw_task(kernel, tmp_path, "画一个五角星")
-    kernel.note_tool_use(task_id, "rosclaw_task")
-    TaskExecutionService(kernel=kernel, conn=conn, home=tmp_path).execute(
-        task_id,
-        recipe_inputs={"shape": "star5",
-                       "center_m": [0.35, 0.25, 0.30], "scale_m": 0.10},
+    from rosclaw.agentd.pi_bridge.tool_dispatch import PiToolDispatcher
+    from tests.agentd.test_pi_tool_bridge import _issue_lease, _request
+
+    lease = await _issue_lease(service, mission)
+    dispatcher = PiToolDispatcher(service)
+    plan = await dispatcher.execute(
+        caller_pid=1, caller_uid=1000,
+        request=_request(
+            "rosclaw_compute", mission=mission.mission_id,
+            idem="p04_plan", lease=lease,
+            arguments={
+                "capability_id": "trajectory_generate_planar_path",
+                "arguments": {"shape": "star5", "center_m": [0.35, 0.25, 0.30],
+                              "scale_m": 0.10, "plane": "xy",
+                              "max_segment_m": 0.02},
+            },
+        ),
     )
-    return task_id
+    assert plan.ok, plan.summary
+    plan_id = _json.loads(plan.summary)["value"]["plan_id"]
+    sim = await dispatcher.execute(
+        caller_pid=1, caller_uid=1000,
+        request=_request(
+            "rosclaw_compute", mission=mission.mission_id,
+            idem="p04_sim", lease=lease,
+            arguments={
+                "capability_id": "ur5e_simulate_cartesian_trajectory",
+                "arguments": {"plan_id": plan_id},
+            },
+        ),
+    )
+    assert sim.ok, sim.summary
+    trace_id = _json.loads(sim.summary)["value"]["trace_id"]
+    render = await dispatcher.execute(
+        caller_pid=1, caller_uid=1000,
+        request=_request(
+            "rosclaw_compute", mission=mission.mission_id,
+            idem="p04_render", lease=lease,
+            arguments={
+                "capability_id": "simulation_render_trace",
+                "arguments": {"trace_id": trace_id, "format": "gif"},
+            },
+        ),
+    )
+    assert render.ok, render.summary
+    row = service._store.connection.execute(
+        "SELECT task_id FROM artifacts ORDER BY created_at DESC LIMIT 1"
+    ).fetchone()
+    assert row, "能力链无产物登记"
+    return str(row["task_id"])
 
 
 class TestKernelDeliveryProjection:
-    def test_artifacts_projected_to_outputs_zone(self, tmp_path: Path) -> None:
-        """生产链跑通后：每个登记产物在 outputs/ 区有同内容投影
+    async def test_artifacts_projected_to_outputs_zone(self, tmp_path: Path) -> None:
+        """能力链跑通后：每个登记产物在 outputs/ 区有同内容投影
         （hardlink/copy 等价——sha256 一致），账本路径不变。"""
         from rosclaw.task_kernel.coordinator import TaskCoordinator
         from rosclaw.task_kernel.run_store import run_dir
-        from tests.agentd.test_r01_production_chain import _kernel
+        from tests.agentd.test_pi_tool_bridge import _setup_ur5e
 
-        kernel, conn = _kernel(tmp_path)
-        task_id = _run_draw_chain(kernel, conn, tmp_path)
+        service, mission = await _setup_ur5e(tmp_path)
+        conn = service._store.connection
+        kernel = service._task_kernel
+        task_id = await _run_draw_chain(service, mission, tmp_path)
         outcome = TaskCoordinator(kernel).consider(task_id)
         assert outcome is not None
         assert outcome.get("delivery") == "DELIVERED", outcome
@@ -68,18 +114,20 @@ class TestKernelDeliveryProjection:
             assert digest == str(row["sha256"]), (
                 f"投影内容与账本不一致：{projected}"
             )
+        await service.close()
 
-    def test_projection_failure_degraded_not_missing(
+    async def test_projection_failure_degraded_not_missing(
         self, tmp_path: Path
     ) -> None:
         """投影失败（outputs 区被破坏）→ delivery 仍 DELIVERED +
         workspace_projection DEGRADED——绝不翻转成 MISSING。"""
         from rosclaw.task_kernel.coordinator import TaskCoordinator
         from rosclaw.task_kernel.run_store import run_dir
-        from tests.agentd.test_r01_production_chain import _kernel
+        from tests.agentd.test_pi_tool_bridge import _setup_ur5e
 
-        kernel, conn = _kernel(tmp_path)
-        task_id = _run_draw_chain(kernel, conn, tmp_path)
+        service, mission = await _setup_ur5e(tmp_path)
+        kernel = service._task_kernel
+        task_id = await _run_draw_chain(service, mission, tmp_path)
         # 破坏 outputs 区：目录替换成普通文件 → mkdir/link 必败。
         outputs = run_dir(tmp_path, task_id, 1) / "outputs"
         outputs.mkdir(parents=True, exist_ok=True)
@@ -100,6 +148,7 @@ class TestKernelDeliveryProjection:
             str(r.get("open_command", "")).startswith("rosclaw artifact open ")
             for r in refs
         ), refs
+        await service.close()
 
 
 if __name__ == "__main__":

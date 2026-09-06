@@ -780,13 +780,27 @@ class TaskKernel:
                 )
                 for r in lineage_rows
             )
+            # 大道至简 R0-2b：受信执行证据第四态——kernel:capability:*
+            # 生产的 simulation_receipt.json 在账。receipt 只能由
+            # SimTrajectoryService 动力学 rollout（内核代码路径）
+            # 写入并随能力自动登记——Pi 驱动的 rollout 因此有合法
+            # 终态路径（recipe 链删除后这是 Pi 具身任务的唯一终态
+            # 面）；模型手拼的同路径文件 producer 不匹配，不算数。
+            capability_receipt = self._conn.execute(
+                "SELECT COUNT(*) AS n FROM artifacts WHERE task_id = ? "
+                "AND revision = ? "
+                "AND producer LIKE 'kernel:capability:%' "
+                "AND path LIKE '%/simulation_receipt.json'",
+                (task_id, int(task["active_revision"])),
+            ).fetchone()
             if (not int(plan_events["n"]) and not int(receipts["n"])
-                    and not lineage_present):
+                    and not lineage_present
+                    and not int(capability_receipt["n"])):
                 authority_failure.append(
                     "PLAN_AUTHORITY_MISSING: 具身任务缺受信执行证据"
                     "（PlanGraph plan.node 事件 / Operator 链 COMPLETED "
-                    "txn / kernel 核验血缘产物 三选一）——手拼低层 "
-                    "capability 不得发布终态"
+                    "txn / kernel 核验血缘产物 / kernel:capability "
+                    "仿真 receipt 四选一）——手拼低层产物不得发布终态"
                 )
         if embodiment_used:
             # P0-G：canonical alias 唯一权威换算（不再手写前缀）。
@@ -955,31 +969,10 @@ class TaskKernel:
                     f"DELIVERABLE_MISSING: required 交付物 {kind} 未在产物"
                     "账本（按 kind 匹配——2D 预览不满足场景视频）"
                 )
-        # 0902 R0-3（审计 §3.1/R0-4）：逐条 Requirement 验收——PASS
-        # 必须附带逐条 RequirementCoverage；未满足/不可证条款阻止
-        # 终态（0902 实证：tool_ref=""/overlays=[] 竟 PASS）。
-        requirement_coverage: list[dict[str, Any]] = []
-        spec_requirements = (spec or {}).get("requirements") or []
-        if spec_requirements:
-            from rosclaw.task_kernel.requirement_check import (
-                check_requirements,
-                unmet_failures,
-            )
-
-            req_ledger = [
-                dict(r)
-                for r in self._conn.execute(
-                    "SELECT * FROM artifacts WHERE task_id = ? "
-                    "AND revision = ?",
-                    (task_id, int(task["active_revision"])),
-                ).fetchall()
-            ]
-            requirement_coverage = check_requirements(
-                home=self._home, requirements=spec_requirements,
-                artifacts=req_ledger,
-                embodied=bool(task.get("body_id")),
-            )
-            provenance_failures += unmet_failures(requirement_coverage)
+        # 大道至简 R0-2b：逐条语义条款验收（RequirementCompiler/
+        # requirement_check）已删除——Kernel 只报客观执行事实
+        # （deliverables 账本/误差指标/receipt），用户目标完成与否
+        # 由看过全过程的 Pi 判断。
         trusted_present = any(
             str(a.get("producer") or "").startswith("kernel:")
             and not str(a.get("media_type") or "").startswith("image/")
@@ -1006,8 +999,6 @@ class TaskKernel:
             checks_payload: dict[str, Any] = {"checks": verdict["checks"]}
             # 0902 R0-3：PASS 附带逐条 RequirementCoverage（审计面——
             # "每条要求都被证据满足"可复核，不是一句 PASS）。
-            if requirement_coverage:
-                checks_payload["requirement_coverage"] = requirement_coverage
             if grade:
                 checks_payload["grade"] = grade
             if tracking_max_error_m is not None:

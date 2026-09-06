@@ -14,22 +14,57 @@ from tests.agentd.test_pi_tool_bridge import _issue_lease, _request, _setup
 
 
 async def _run_task(service, mission, *, idem: str):
+    """大道至简 R0-2b：无 recipe 链——任务产物经通用能力工具产生
+    （rosclaw_compute：plan → simulate，capability 产物自动登记）。
+    """
+    import json as _json
+
     from rosclaw.agentd.pi_bridge.tool_dispatch import PiToolDispatcher
 
-    return await PiToolDispatcher(service).execute(
-        caller_pid=1,
-        caller_uid=1000,
+    lease = await _issue_lease(service, mission)
+    dispatcher = PiToolDispatcher(service)
+    plan = await dispatcher.execute(
+        caller_pid=1, caller_uid=1000,
         request=_request(
-            "rosclaw_task",
-            mission=mission.mission_id,
-            idem=idem,
-            lease=await _issue_lease(service, mission),
+            "rosclaw_compute", mission=mission.mission_id,
+            idem=idem + "_plan", lease=lease,
             arguments={
-                "goal": "draw_shape",
-                "parameters": {"shape": "star5", "center_m": [0.35, 0.25, 0.30], "radius_m": 0.10},
+                "capability_id": "trajectory_generate_planar_path",
+                "arguments": {"shape": "star5", "center_m": [0.35, 0.25, 0.30],
+                              "scale_m": 0.10, "plane": "xy",
+                              "max_segment_m": 0.02},
             },
         ),
     )
+    assert plan.ok, plan.summary
+    plan_id = _json.loads(plan.summary)["value"]["plan_id"]
+    sim = await dispatcher.execute(
+        caller_pid=1, caller_uid=1000,
+        request=_request(
+            "rosclaw_compute", mission=mission.mission_id,
+            idem=idem + "_sim", lease=lease,
+            arguments={
+                "capability_id": "ur5e_simulate_cartesian_trajectory",
+                "arguments": {"plan_id": plan_id},
+            },
+        ),
+    )
+    assert sim.ok, sim.summary
+    trace_id = _json.loads(sim.summary)["value"]["trace_id"]
+    # 渲染交付物（lineage+render receipt 血缘产物——终态权威门禁
+    # 认可的受信执行证据）。
+    result = await dispatcher.execute(
+        caller_pid=1, caller_uid=1000,
+        request=_request(
+            "rosclaw_compute", mission=mission.mission_id,
+            idem=idem + "_render", lease=lease,
+            arguments={
+                "capability_id": "simulation_render_trace",
+                "arguments": {"trace_id": trace_id, "format": "gif"},
+            },
+        ),
+    )
+    return result
 
 
 def _bridge(service, tmp_path: Path):
@@ -39,20 +74,6 @@ def _bridge(service, tmp_path: Path):
 
 
 
-
-def _bind_and_finish(service, mission, *, idem: str) -> str:
-    """PR-H9：kernel 任务 + rosclaw_task 产物 + Verifier 收尾
-    （SUCCEEDED 的唯一合法路径）。"""
-    import asyncio as _asyncio  # noqa: F401
-
-    bound = service._task_kernel.bind_message(
-        mission_id=mission.mission_id, session_ref="pi_1",
-        backend_native_id="pi_1", message_id=f"msg_{idem}",
-        text="画五角星", cwd=str(service._home),
-        body_id=mission.body_binding.body_id,
-    )
-    task_id = str(bound["task_id"])
-    return task_id
 
 
 def _finish_kernel(service, task_id: str) -> None:
@@ -71,10 +92,15 @@ class TestResumeReport:
         """已验收任务（kernel SUCCEEDED）：报告说明"已验收、不会重新
         执行"。"""
         service, mission = await _setup(tmp_path)
-        task_id = _bind_and_finish(service, mission, idem="rr_1")
         result = await _run_task(service, mission, idem="idem_rr_1")
-        assert result.ok
-        _finish_kernel(service, task_id)
+        assert result.ok, result.summary
+        # R0-2b：capability 产物落在 admission 建的任务上——以产物
+        # 归属为准（不再是 bind+recipe 双段式）。
+        row = service._store.connection.execute(
+            "SELECT task_id FROM artifacts ORDER BY created_at DESC LIMIT 1"
+        ).fetchone()
+        assert row, "能力执行无产物登记"
+        _finish_kernel(service, str(row["task_id"]))
         bridge = _bridge(service, tmp_path)
         report = await bridge._dispatch(
             "user:local:1000",

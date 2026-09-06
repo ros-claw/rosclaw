@@ -13,7 +13,6 @@ from rosclaw.contracts.agent.task_spec import (
     TaskDeliverableV2,
     TaskGoalV2,
     TaskPreferencesV2,
-    TaskRequirementV2,
     TaskSpecV2,
     TaskSubjectsV2,
 )
@@ -115,17 +114,10 @@ def compile_task_spec(
         "manipulation.reach",
     ):
         contact_required = True
-    # 0902 R0-2：材料性要求条款随 spec 冻结（RequirementCompiler——
-    # 覆盖率门禁与逐条验收的单一事实源）。
-    from rosclaw.task_kernel.requirements import compile_requirements
-
-    requirements = [
-        TaskRequirementV2(
-            req_id=r.req_id, level=r.level, claim=r.claim,
-            verifier=r.verifier,
-        )
-        for r in compile_requirements(goal_text)
-    ]
+    # 大道至简 R0-2b：语义 Gate（RequirementCompiler）已删除——
+    # Kernel 不再从目标文本编译条款；客观执行事实（deliverables/
+    # 误差指标/receipt）是仅有的验收面。
+    requirements: list = []
     return TaskSpecV2(
         spec_id=new_id("tspec"),
         task_id=task_id,

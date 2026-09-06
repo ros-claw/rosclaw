@@ -68,38 +68,65 @@ class TestEvidenceLevel:
 class TestNoOverclaimCopy:
     def test_product_copy_has_no_overclaim(self) -> None:
         """产品文案不得超出证据能力（实际执行轨迹/真实走过/物理仿真
-        已完成 等）。"""
+        已完成 等）。大道至简 R0-2b：rosclaw_task（task.ts）已删除，
+        扫描面收敛到仍存在的物理工具文案。"""
         banned = ["实际执行轨迹", "真实走过", "实际走过的路径", "物理仿真已完成"]
         for path in (
             Path("src/rosclaw/sim/ur5e_mcp.py"),
             Path("src/rosclaw/agentd/pi_bridge/tool_dispatch.py"),
-            Path("packages/rosclaw-agent/src/tools/task.ts"),
         ):
             text = path.read_text(encoding="utf-8")
             for phrase in banned:
                 assert phrase not in text, f"{path.name} 含过度宣称: {phrase}"
 
-    async def test_task_user_view_is_honest(self, tmp_path: Path) -> None:
-        """TaskResult user_view 必须含证据等级与局限（不是单纯
-        '仿真执行 ✓'）。"""
-        from tests.agentd.test_pi_tool_bridge import _issue_lease, _request, _setup
+    async def test_simulate_result_declares_evidence_level(
+        self, tmp_path: Path
+    ) -> None:
+        """能力结果必须带证据等级（SIM_DYN_ROLLOUT——动力学仿真
+        自洽，不宣称真机）。大道至简 R0-2b：原 rosclaw_task 的
+        user_view 文案随工具删除；证据等级纪律由 capability 结果
+        投影承接。"""
+        import json as _json
+
+        from rosclaw.agentd.pi_bridge.tool_dispatch import PiToolDispatcher
+        from tests.agentd.test_pi_tool_bridge import (
+            _issue_lease,
+            _request,
+            _setup,
+        )
 
         service, mission = await _setup(tmp_path)
-        from rosclaw.agentd.pi_bridge.tool_dispatch import PiToolDispatcher
-
-        result = await PiToolDispatcher(service).execute(
+        dispatcher = PiToolDispatcher(service)
+        lease = await _issue_lease(service, mission)
+        plan = await dispatcher.execute(
             caller_pid=1, caller_uid=1000,
             request=_request(
-                "rosclaw_task", mission=mission.mission_id, idem="idem_ev_1",
-                lease=await _issue_lease(service, mission),
+                "rosclaw_compute", mission=mission.mission_id,
+                idem="ev_plan", lease=lease,
                 arguments={
-                    "goal": "draw_shape",
-                    "parameters": {"shape": "star5", "center_m": [0.35, 0.25, 0.30], "radius_m": 0.10},
+                    "capability_id": "trajectory_generate_planar_path",
+                    "arguments": {"shape": "star5",
+                                  "center_m": [0.35, 0.25, 0.30],
+                                  "scale_m": 0.10, "plane": "xy",
+                                  "max_segment_m": 0.02},
                 },
             ),
         )
-        payload = json.loads(result.summary)
-        view = payload.get("user_view", "")
-        assert "自洽" in view and "不能证明" in view, view
-        assert payload.get("evidence_level") == "SIM_DYN_ROLLOUT"
+        assert plan.ok, plan.summary
+        plan_id = _json.loads(plan.summary)["value"]["plan_id"]
+        sim = await dispatcher.execute(
+            caller_pid=1, caller_uid=1000,
+            request=_request(
+                "rosclaw_compute", mission=mission.mission_id,
+                idem="ev_sim", lease=lease,
+                arguments={
+                    "capability_id": "ur5e_simulate_cartesian_trajectory",
+                    "arguments": {"plan_id": plan_id},
+                },
+            ),
+        )
+        assert sim.ok, sim.summary
+        value = _json.loads(sim.summary)["value"]
+        assert value.get("evidence_level") == "SIM_DYN_ROLLOUT", value
         await service.close()
+

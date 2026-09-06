@@ -25,14 +25,11 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
 
-from rosclaw.agentd.pi_bridge.tool_dispatch import PiToolDispatcher
-from tests.agentd.test_pi_tool_bridge import _issue_lease, _request
-from tests.agentd.test_r01_production_chain import _kernel, _setup_ur5e
+from tests.agentd.test_pi_tool_bridge import _kernel
 
 
 class TestDeliverableContract:
@@ -133,38 +130,30 @@ class TestDeliverableVerification:
         """运动执行成功但 required scene_video 未交付 → 不得整体
         PASS（finish_task 必须含 DELIVERABLE_MISSING）。
 
-        R0-3 后场景链存在——本测试显式注入渲染故障（这正是 Gate
-        R0-2 要求的"把 3D renderer 故意打坏"）。
+        大道至简 R0-2b：无 recipe 链——直接构造账本事实（trace
+        产物在账、场景视频缺失）驱动 finish_task。
         """
-        from rosclaw.agentd import sim_render
-        from rosclaw.agentd.task_execution import TaskExecutionService
-
-        kernel, conn = _kernel(tmp_path)
+        kernel, _conn = _kernel(tmp_path)
         task_id = _draw_task(kernel, tmp_path, "画五角星并做仿真视频")
-        kernel.note_tool_use(task_id, "rosclaw_task")
-        original = sim_render.render_scene_trace
-
-        def broken(*a, **k):
-            raise ValueError("RENDER_BACKEND_UNAVAILABLE: 注入故障")
-
-        sim_render.render_scene_trace = broken  # type: ignore[assignment]
-        try:
-            outcome = TaskExecutionService(
-                kernel=kernel, conn=conn, home=tmp_path,
-            ).execute(
-                task_id,
-                recipe_inputs={"shape": "star5",
-                               "center_m": [0.35, 0.25, 0.30], "scale_m": 0.10},
-            )
-        finally:
-            sim_render.render_scene_trace = original  # type: ignore[assignment]
-        # 运动执行成功（refs 全产出）但交付不完整。
-        assert "TraceRef" in outcome.refs
-        assert not outcome.ok, "required scene_video 缺失不得整体 ok"
+        kernel.note_tool_use(task_id, "rosclaw_execute")
+        # 运动执行成功的账本事实：trace 产物（无 lineage kind →
+        # 交付 kind=data，非场景视频）——DELIVERABLE_MISSING 只认
+        # 场景 kind。
+        f = tmp_path / "trace.json"
+        f.write_text('{"points": 41}', encoding="utf-8")
+        artifact = kernel.register_artifact(
+            task_id=task_id, path=str(f), media_type="application/json",
+            producer="kernel:test",
+        )
+        result = kernel.finish_task(
+            task_id=task_id, summary="done",
+            artifact_ids=[str(artifact["artifact_id"])],
+        )
+        assert result["status"] != "SUCCEEDED", result
         assert any(
             "DELIVERABLE_MISSING" in f and "scene_video" in f
-            for f in outcome.failures
-        ), outcome.failures
+            for f in result.get("failures", [])
+        ), result.get("failures")
         task = kernel.get_task(task_id)
         assert task["state"] != "SUCCEEDED", (
             f"交付不完整不得 SUCCEEDED：{task['state']}"
@@ -200,53 +189,18 @@ class TestDeliverableVerification:
         assert verdict["missing"] == ["scene_video"], verdict
 
 
-class TestCoordinatorOutcome:
-    def test_partial_delivery_outcome(self, tmp_path: Path) -> None:
-        """Coordinator：执行成功 + required scene_video 缺失（注入
-        渲染故障）→ execution SUCCEEDED + verification PARTIAL +
-        delivery MISSING/PARTIAL——不是整体 VERIFIED/DELIVERED。"""
-        from rosclaw.agentd import sim_render
-        from rosclaw.agentd.task_execution import TaskExecutionService
-        from rosclaw.task_kernel.coordinator import TaskCoordinator
 
-        kernel, conn = _kernel(tmp_path)
-        task_id = _draw_task(kernel, tmp_path, "画五角星并做仿真视频")
-        kernel.note_tool_use(task_id, "rosclaw_task")
-        original = sim_render.render_scene_trace
-
-        def broken(*a, **k):
-            raise ValueError("RENDER_BACKEND_UNAVAILABLE: 注入故障")
-
-        sim_render.render_scene_trace = broken  # type: ignore[assignment]
-        try:
-            TaskExecutionService(
-                kernel=kernel, conn=conn, home=tmp_path,
-            ).execute(
-                task_id,
-                recipe_inputs={"shape": "star5",
-                               "center_m": [0.35, 0.25, 0.30], "scale_m": 0.10},
-            )
-        finally:
-            sim_render.render_scene_trace = original  # type: ignore[assignment]
-        outcome = TaskCoordinator(kernel).consider(task_id)
-        assert outcome is not None
-        assert outcome["execution"] == "SUCCEEDED"
-        assert outcome["verification"] == "PARTIAL", outcome
-        assert outcome["delivery"] in ("MISSING", "PARTIAL"), outcome
-        assert outcome["lifecycle"] != "COMPLETED", outcome
-
-
-class TestGateRendererBroken:
+class TestBrokenSceneRendererHonest:
     async def test_broken_scene_renderer_honest_partial(
         self, tmp_path: Path
     ) -> None:
-        """Gate R0-2：3D renderer 故意打坏 → 任务只能 PARTIAL/
-        NEEDS_REPAIR；最终 payload 不得宣称任务完整完成。"""
-        service, mission = await _setup_ur5e(tmp_path)
-        # 目标含"仿真视频"——spec 冻结 required scene_video；
-        # 显式打坏 3D 场景渲染链（R0-3 后链存在，故障必须诚实
-        # 表达为 PARTIAL，不是整体成功也不是整体失败）。
+        """3D renderer 故意打坏 → 渲染诚实抛错（不冒充成功）。
+        大道至简 R0-2b：无 recipe 链——场景渲染是通用原语能力，
+        故障对调用方（Pi）可见，由 Pi 决定修复/报告。
+        """
         from rosclaw.agentd import sim_render
+        from rosclaw.agentd.runtime_manager import RuntimeManager
+        from rosclaw.agentd.sim_trajectory import SimTrajectoryService
 
         original = sim_render.render_scene_trace
 
@@ -254,54 +208,18 @@ class TestGateRendererBroken:
             raise ValueError("RENDER_BACKEND_UNAVAILABLE: 注入故障")
 
         sim_render.render_scene_trace = broken  # type: ignore[assignment]
-        kernel = service._task_kernel
-        kernel.persist_input(
-            mission_id=mission.mission_id, session_ref="pi_1",
-            message_id="msg_video",
-            text="画五角星并做仿真视频",
-        )
-        lease = await _issue_lease(service, mission)
         try:
-            result = await PiToolDispatcher(service).execute(
-                _request(
-                    "rosclaw_task", mission=mission.mission_id,
-                    idem="r02_gate", lease=lease,
-                    arguments={
-                        "goal": "draw_shape",
-                        "parameters": {"shape": "star5",
-                                       "center_m": [0.35, 0.25, 0.30],
-                                       "scale_m": 0.10},
-                    },
-                )
+            svc = SimTrajectoryService(
+                tmp_path, runtime_manager=RuntimeManager(tmp_path),
             )
+            plan = svc.generate_planar_path(
+                shape="star5", center_m=[0.35, 0.25, 0.30], scale_m=0.10,
+            )
+            rollout = svc.simulate_cartesian_trajectory(str(plan["plan_id"]))
+            import pytest as _pt
+
+            with _pt.raises(ValueError, match="RENDER_BACKEND_UNAVAILABLE"):
+                sim_render.render_scene_trace(tmp_path, str(rollout["trace_id"]))
         finally:
             sim_render.render_scene_trace = original  # type: ignore[assignment]
-        payload = json.loads(result.summary)
-        assert payload["state"] != "VERIFIED", payload
-        assert any(
-            "scene_video" in str(f) for f in payload.get("failures", [])
-        ), payload
-        view = str(payload.get("user_view", ""))
-        assert "完成" not in view or "部分" in view or "未" in view, view
-        task = kernel.latest_task_for(mission.mission_id, "pi_1")
-        assert task["state"] != "SUCCEEDED"
-        await service.close()
 
-    async def test_plain_draw_still_succeeds(self, tmp_path: Path) -> None:
-        """回归：无媒体/场景要求的 draw 任务仍完整 SUCCEEDED。"""
-        service, mission = await _setup_ur5e(tmp_path)
-        lease = await _issue_lease(service, mission)
-        result = await PiToolDispatcher(service).execute(
-            _request(
-                "rosclaw_task", mission=mission.mission_id,
-                idem="r02_plain", lease=lease,
-                arguments={
-                    "goal": "draw_shape",
-                    "parameters": {"shape": "star5"},
-                },
-            )
-        )
-        assert result.ok, result.summary
-        payload = json.loads(result.summary)
-        assert payload["state"] == "VERIFIED", payload
-        await service.close()

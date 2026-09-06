@@ -38,7 +38,6 @@ import { buildRequestActionTool } from "../../tools/request-action.js";
 import { buildCapabilitiesTool } from "../../tools/capabilities.js";
 import { buildInspectTool } from "../../tools/inspect.js";
 
-import { buildTaskTool } from "../../tools/task.js";
 import { buildReadOnlyTaskTools } from "../../tools/task-read.js";
 import { buildStatusTool } from "../../tools/status.js";
 
@@ -313,13 +312,9 @@ export async function createRosclawRuntime(
 					active,
 					center,
 				}),
-				// PR-EIGHT-5：任务级入口（确定性编译器——模型只交
-				// TaskSpec，不搬载荷、不逐点控制）。
-				buildTaskTool({
-					rosclawHome: options.rosclawHome,
-					active,
-					center,
-				}),
+				// 大道至简 R0-2b：rosclaw_task（goal→recipe 确定性
+				// 执行）已删除——Pi 用通用物理原语工具自己编排；
+				// 固定流程只在 `rosclaw demo`（产品 CLI）。
 				// 0901 P0-3：只读任务/交付物面（解释/查看已有结果——
 				// 认识确定性链刚做的事，不重跑）。
 				...buildReadOnlyTaskTools({

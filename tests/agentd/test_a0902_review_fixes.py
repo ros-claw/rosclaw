@@ -132,60 +132,6 @@ class TestM7AllowOnceConsumed:
         second = broker.status(req["request_id"])["status"]
         assert second != "APPROVED_ONCE", f"allow_once 被消费两次: {second}"
 
-class TestM3ModelPathCoverageGate:
-    """rosclaw_task（模型面/直接执行）调 recipe 必须过同一覆盖率门禁
-    ——未覆盖条款拒绝执行（不是烧完资源才验收失败）。"""
-
-    def test_uncovered_requirement_blocks_recipe_execution(
-        self, tmp_path: Path
-    ) -> None:
-        import sqlite3
-
-        from rosclaw.agentd.task_execution import TaskExecutionService
-        from rosclaw.storage.migrations import MigrationRunner
-        from rosclaw.task_kernel.service import TaskKernel
-
-        conn = sqlite3.connect(":memory:", check_same_thread=False)
-        conn.row_factory = sqlite3.Row
-        MigrationRunner().apply(conn, "sqlite")
-        kernel = TaskKernel(conn, tmp_path)
-        kernel.persist_input(
-            mission_id="m1", session_ref="s1",
-            message_id="msg_1", text="画一个三角形",
-        )
-        bound = kernel.ensure_task_for_effect(
-            mission_id="m1", session_ref="s1", backend_native_id="s1",
-            cwd=str(tmp_path),
-        )
-        task_id = str(bound["task_id"])
-        outcome = TaskExecutionService(
-            kernel=kernel, conn=conn, home=tmp_path,
-        ).execute(task_id, goal_hint="draw_shape")
-        assert not outcome.ok, "三角形不在覆盖表竟执行了 recipe"
-        assert "COVERAGE" in str(outcome.error_code), outcome.error_code
-        # 零幽灵执行：无 plan/trace 产物落盘。
-        assert not list((tmp_path / "sim").glob("**/*.json")), "未覆盖竟执行了 sim 链"
-
-
-class TestM4ShapeRegistrySingleSource:
-    def test_bare_yuan_matches_nothing(self) -> None:
-        """裸"圆"不得命中圆桌/圆珠笔（双源漂移根治）。"""
-        from rosclaw.task_kernel.task_router import compile_recipe_inputs
-
-        assert "shape" not in compile_recipe_inputs("绕着圆桌画轨迹")
-        assert "shape" not in compile_recipe_inputs("把圆珠笔递给我")
-        assert compile_recipe_inputs("画一个圆形").get("shape") == "circle"
-
-    def test_draw_directive_without_known_shape_not_auto_routed(self) -> None:
-        """画类指令无可识别形状 → fail-closed（画个心形画成五角星
-        = 假成功）。编译层先钉住：心形不产形状条款。"""
-        from rosclaw.task_kernel.requirements import compile_requirements
-        from rosclaw.task_kernel.task_router import RECIPE_COVERAGE
-
-        reqs = compile_requirements("让机械臂画个心形")
-        assert not any(r.verifier.startswith("shape.") for r in reqs)
-        coverage = RECIPE_COVERAGE.get("recipe:sim.draw_path", frozenset())
-        assert "shape.heart" not in coverage
 
 
 if __name__ == "__main__":

@@ -247,3 +247,71 @@ def _register_sim_action_capability(service) -> None:
     service._sim_executors["native:agentd"] = SimActionChannel(
         command="true", args=(), name="fake-sim", client=_FakeSimClient()
     )
+
+
+# ----------------------------------------------------------------------
+# 大道至简 R0-2b：r01 生产链文件随 recipe 链删除——其接线 harness
+# 助手函数迁移至此（共享测试设施）。
+# ----------------------------------------------------------------------
+
+
+def _kernel(home: Path):
+    import sqlite3
+
+    from rosclaw.storage.migrations import MigrationRunner
+    from rosclaw.task_kernel.service import TaskKernel
+
+    conn = sqlite3.connect(":memory:", check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    MigrationRunner().apply(conn, "sqlite")
+    return TaskKernel(conn, home), conn
+
+
+def _draw_task(kernel, home: Path, text: str = "画一个五角星") -> str:
+    kernel.persist_input(
+        mission_id="mis_1", session_ref="s1",
+        message_id="msg_1", text=text,
+    )
+    bound = kernel.ensure_task_for_effect(
+        mission_id="mis_1", session_ref="s1", backend_native_id="s1",
+        cwd=str(home), body_id="sim/ur5e",
+    )
+    return str(bound["task_id"])
+
+
+async def _setup_ur5e(tmp_path: Path):
+    """生产级接线 harness：真实 AgentService + ur5e body 绑定。"""
+    from rosclaw.agentd.config import load_agent_config
+    from rosclaw.agentd.models.gateway import MockModelGateway
+    from rosclaw.agentd.models.profiles import mock_profile
+    from rosclaw.agentd.pi_bridge.session_binding import SessionBindingStore
+    from rosclaw.agentd.service import AgentService
+    from rosclaw.contracts.agent.model_turn import ModelTurnResultV1
+
+    turn = ModelTurnResultV1(
+        turn_id="t", provider="mock", model="m", content="ok",
+        assistant_message={"role": "assistant", "content": "ok"},
+        usage={"prompt_tokens": 1, "completion_tokens": 1,
+               "total_tokens": 2},  # type: ignore[arg-type]
+    )
+    config = load_agent_config(tmp_path / "config.yaml")
+    service = AgentService(
+        config, tmp_path,
+        gateway=MockModelGateway(mock_profile(), [turn]),
+    )
+    mission = service.create_mission("接线测试")
+    bindings = SessionBindingStore(service._store.connection)
+    bindings.bind(
+        pi_session_id="pi_1", pi_session_path="",
+        mission_id=mission.mission_id, body_id="sim/ur5e",
+        execution_mode="SIMULATION", created_by="user:local:1000",
+    )
+    bindings.acquire_lease(
+        mission_id=mission.mission_id, pi_session_id="pi_1",
+        owner_pid=1, owner_uid=1000,
+    )
+    service._task_kernel.persist_input(
+        mission_id=mission.mission_id, session_ref="pi_1",
+        message_id="msg_draw", text="画一个五角星",
+    )
+    return service, mission

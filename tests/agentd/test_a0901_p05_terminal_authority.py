@@ -37,12 +37,17 @@ def _register_trace(kernel, task_id: str, tmp_path: Path) -> None:
 
 
 class TestTerminalAuthority:
+    # 大道至简 R0-2b：plan.node 证据的回归护栏随 PlanExecutor
+    # （recipe 引擎）一起删除——受信执行证据的活形态是
+    # kernel:capability 仿真 receipt（test_ddzj_r02b_recipe_purge.py
+    # 与 test_wp03_resume_report.py 覆盖）。
+
     def test_bare_hand_chain_must_not_complete_embodied_task(
         self, tmp_path: Path
     ) -> None:
         """裸手拼（无 plan.node、无 Operator txn）→ 不得终态。"""
         from rosclaw.task_kernel.coordinator import TaskCoordinator
-        from tests.agentd.test_r01_production_chain import _kernel
+        from tests.agentd.test_pi_tool_bridge import _kernel
         from tests.agentd.test_r02_task_spec_deliverables import _draw_task
 
         kernel, _conn = _kernel(tmp_path)
@@ -63,32 +68,12 @@ class TestTerminalAuthority:
         ).fetchone()
         assert int(terminal["n"]) == 0, "裸手拼竟产生 task.terminal"
 
-    def test_plan_graph_evidence_allows_completion(
-        self, tmp_path: Path
-    ) -> None:
-        """真实生产链（plan.node 事件齐全）→ 正常终态（回归护栏）。"""
-        from rosclaw.agentd.task_execution import TaskExecutionService
-        from tests.agentd.test_r01_production_chain import _kernel
-        from tests.agentd.test_r02_task_spec_deliverables import _draw_task
-
-        kernel, conn = _kernel(tmp_path)
-        task_id = _draw_task(kernel, tmp_path, "画一个五角星")
-        kernel.note_tool_use(task_id, "rosclaw_task")
-        TaskExecutionService(kernel=kernel, conn=conn, home=tmp_path).execute(
-            task_id,
-            recipe_inputs={"shape": "star5",
-                           "center_m": [0.35, 0.25, 0.30], "scale_m": 0.10},
-        )
-        task = kernel.get_task(task_id)
-        assert task["state"] == "SUCCEEDED", (
-            f"生产链竟没终态（P0-5 误伤）：{task['state']}"
-        )
 
     def test_non_body_task_unaffected(self, tmp_path: Path) -> None:
         """无 body 的编码任务（h4 语义）不受影响——hand write+deliver
         仍由 consider 收尾。"""
         from rosclaw.task_kernel.coordinator import TaskCoordinator
-        from tests.agentd.test_r01_production_chain import _kernel
+        from tests.agentd.test_pi_tool_bridge import _kernel
 
         kernel, _conn = _kernel(tmp_path)
         kernel.persist_input(
