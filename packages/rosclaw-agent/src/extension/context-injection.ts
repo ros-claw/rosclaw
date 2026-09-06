@@ -164,13 +164,21 @@ export function renderTrustedContext(result: ContextFetchResult): string {
 		);
 	}
 	const env = result.envelope;
-	const body = env.body as { body_id?: string; effective_body_hash?: string; summary?: string };
+	const body = env.body as {
+		body_id?: string; effective_body_hash?: string; summary?: string;
+		safe_radius_m?: number[]; safe_z_m?: number[];
+	};
 	const safety = env.safety as { mode?: string };
 	return (
 		"<ROSCLAW_TRUSTED_CONTEXT>\n" +
 		`mission: ${env.mission_id}  mode: ${safety.mode ?? ""}  revision: ${env.context_revision}\n` +
 		`body: ${body.body_id ?? ""} (hash ${String(body.effective_body_hash ?? "").slice(0, 16)})\n` +
 		`body_summary: ${body.summary ?? ""}\n` +
+		// R1-2c：安全工作空间窗口（规划器硬校验同值）——Pi 摆
+		// waypoints 不猜边界；实时位姿走 get_end_effector_pose 工具。
+		(body.safe_radius_m && body.safe_z_m
+			? `workspace_window: radius [${body.safe_radius_m[0]}, ${body.safe_radius_m[1]}]m, z [${body.safe_z_m[0]}, ${body.safe_z_m[1]}]m\n`
+			: "") +
 		`pending_approvals: ${env.pending_approvals.length}\n` +
 		(result.activeRun
 			? `task_run: ${result.activeRun.run_dir}（交付物→outputs/ 证据→evidence/ 草稿→scratch/ 日志→logs/；scratch 不得登记为交付物）\n`

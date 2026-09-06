@@ -227,6 +227,12 @@ export async function createRosclawRuntime(
 					// 凭据/控制 token/bridge socket 不经 shell 可达）。
 					mode: () => active.current.mode,
 					rosclawHome: options.rosclawHome,
+					// R1-2a：任务沙箱 scratch 区是 write/edit/bash 的额外
+					// 允许根（活跃任务 run dir——Pi 任务代码不写项目树）。
+					extraRoots: () => {
+						const runDir = active.current.taskRunDir;
+						return runDir ? [join(runDir, "scratch")] : [];
+					},
 					// P0-C：bash/write/edit 执行前的原子 admission
 					// （首个 effectful call 建 task——动机=session
 					// 最新输入）。

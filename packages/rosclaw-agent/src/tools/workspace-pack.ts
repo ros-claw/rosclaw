@@ -137,6 +137,10 @@ export interface WorkspacePackOptions {
 	/** 0902 R1-a：无沙箱降级的 Runtime 批准面（会话内确认卡 →
 	 *  task+revision+scope 绑定的 grant）。缺失 = fail closed。 */
 	shellGate?: ShellGate;
+	/** 大道至简 R1-2a：任务沙箱额外资根（活跃任务 run dir 的
+	 *  scratch 区——Pi 写的任务代码/脚本放这里；write/edit/bash
+	 *  的 cwd 允许落在 [root, ...extraRoots] 任一根内）。 */
+	extraRoots?: () => string[];
 	/** P0-C（0824 总纲 §6.2）：effectful 工具执行前的原子
 	 *  admission（ensure_task_for_effect）——bash/write/edit
 	 *  执行前触发。 */
@@ -168,6 +172,21 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 	const root = options.root;
 	const scrubbedEnv = scrubEnv(process.env);
 
+	/** 大道至简 R1-2a：多根路径解析——[session workspace, 任务
+	 *  scratch 区] 任一根内即合法（其余照旧拒绝）。 */
+	const resolveAllowed = (target: string): string => {
+		const roots = [root, ...(options.extraRoots?.() ?? [])];
+		let lastErr: Error | null = null;
+		for (const r of roots) {
+			try {
+				return resolveInRoot(r, target);
+			} catch (err) {
+				lastErr = err as Error;
+			}
+		}
+		throw lastErr ?? new Error(`path escapes workspace: ${target}`);
+	};
+
 	const denied = (reason: string) => ({
 		content: [{ type: "text" as const, text: `DENIED: ${reason}` }],
 		details: { error: "denied", reason } as Record<string, unknown>,
@@ -184,6 +203,9 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 		parameters: Type.Object({
 			command: Type.String({ description: "要执行的 shell 命令" }),
 			timeout_sec: Type.Optional(Type.Number({ description: "显式超时（秒）——不填则无定时器" })),
+			cwd: Type.Optional(Type.String({
+				description: "工作目录（限 session 工作区/任务 scratch 区内；缺省=session 工作区）",
+			})),
 		}),
 		async execute(_id, params, signal, onUpdate) {
 			const command = String(params.command ?? "").trim();
@@ -205,6 +227,16 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 				{ defaultTimeoutMs: options.defaultBashTimeoutMs },
 			);
 			const started = Date.now();
+			// R1-2a：cwd 参数（限允许的根内——任务 scratch 区的
+			// 脚本可直接运行；越界直接拒绝，不进执行）。
+			let effectiveCwd = root;
+			if (params.cwd !== undefined && params.cwd !== null && String(params.cwd).trim()) {
+				try {
+					effectiveCwd = resolveAllowed(String(params.cwd));
+				} catch (err) {
+					return denied((err as Error).message);
+				}
+			}
 			// P0-6（0823 审计）：全模式 shell 必须 bwrap 强隔离——
 			// SIM auto 下 Harness Shell 裸跑可绕过治理（读凭据/
 			// 控制 token、直调 bridge socket、写项目源码树）。
@@ -267,15 +299,18 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 						..._sensitiveMasks(
 							process.env.HOME ?? "", options.rosclawHome,
 						),
-						"--bind", root, root, // workspace 可写（其余宿主只读）
+						// workspace 与任务 scratch 区可写（其余宿主只读）。
+						...[root, ...(options.extraRoots?.() ?? [])].flatMap(
+							(r) => ["--bind", r, r],
+						),
 						"--unshare-net",
 						"--dev", "/dev", // 全新 devtmpfs——真设备不可见
-						"--chdir", root,
+						"--chdir", effectiveCwd,
 						"sh", "-c", command,
 					];
 				}
 				const child = spawn(spawnCmd, spawnArgs, {
-					cwd: root,
+					cwd: effectiveCwd,
 					env: scrubbedEnv,
 					signal: signal ?? undefined,
 				});
@@ -334,7 +369,7 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 			// P0-C：首个 effectful call 的原子 admission。
 			await options.beforeEffect?.();
 			try {
-				const p = resolveInRoot(root, String(params.path));
+				const p = resolveAllowed(String(params.path));
 				// 0903（§4.4）：产品核心源码只读——普通任务不得修改
 				// 正在运行的产品（改产品走开发流程：clone+PR）。
 				if (isProductSourcePath(p)) {
@@ -371,7 +406,7 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 			// P0-C：首个 effectful call 的原子 admission。
 			await options.beforeEffect?.();
 			try {
-				const p = resolveInRoot(root, String(params.path));
+				const p = resolveAllowed(String(params.path));
 				if (isProductSourcePath(p)) {
 					return denied(
 						"拒绝编辑：目标是正在运行的 ROSClaw 产品核心源码（§4.4）"

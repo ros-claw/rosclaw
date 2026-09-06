@@ -31,6 +31,10 @@ export interface ActiveSessionState {
 	/** 动作准入的 UI/tool 层单一判据——只有 FRESH + ACTIVE 才 true。
 	 *  admission 的内核校验仍是最终权威；本字段让 UI/工具提前诚实拒绝。 */
 	actionsAllowed: boolean;
+	/** 大道至简 R1-2a：活跃任务运行目录（pi.context active_run——
+	 *  任务沙箱 scratch 区= runDir/scratch，write/edit/bash cwd 的
+	 *  额外允许根）。无活跃任务时缺省。 */
+	taskRunDir?: string;
 }
 
 export class ActiveSessionContext {

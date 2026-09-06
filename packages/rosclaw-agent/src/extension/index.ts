@@ -606,6 +606,12 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				// STALE + 禁动作（不再有"revision 碰巧没变就能动作"）。
 				options.active.markContextStale(fetched.note);
 			}
+			// R1-2a：活跃任务运行目录写入 active context——任务沙箱
+			// scratch 区成为 write/edit/bash 的额外允许根（Pi 的任务
+			// 代码写在任务目录，不写项目源码树）。
+			if (fetched.activeRun?.run_dir) {
+				options.active.patch({ taskRunDir: fetched.activeRun.run_dir });
+			}
 			// chrome 刷新由 active.subscribe → center → refreshChrome 统一
 			// 完成（applyEnvelope/markContextStale 都会触发）。
 			return {

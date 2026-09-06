@@ -27,6 +27,20 @@ def build_embodied_context(service: AgentService, mission_id: str) -> EmbodiedCo
     body = service._body_source.get_body(service._body_id)
     snapshot = service.snapshot(mission_id)
     pending = service.pending_approvals(mission_id)
+    # 大道至简 R1-2c：一屏具身事实带安全工作空间窗口（规划器
+    # 硬校验的同一数值——Pi 摆 waypoints 不必先调工具猜边界）。
+    # 静态事实（非实时位姿——实时位姿走 ur5e.get_end_effector_pose
+    # 工具，诚实不混淆）。
+    workspace_window: dict[str, object] = {}
+    if str(mission.body_binding.body_id).endswith("ur5e"):
+        from rosclaw.sim.ur5e_mcp import _SAFE_RADIUS, _SAFE_Z
+
+        workspace_window = {
+            "safe_radius_m": [_SAFE_RADIUS[0], _SAFE_RADIUS[1]],
+            "safe_z_m": [_SAFE_Z[0], _SAFE_Z[1]],
+            "note": "规划器硬校验边界——waypoints 越界即拒；"
+                    "实时末端位姿用 ur5e.get_end_effector_pose",
+        }
     envelope = EmbodiedContextEnvelopeV1(
         mission_id=mission_id,
         context_revision=snapshot.context_revision,
@@ -38,6 +52,7 @@ def build_embodied_context(service: AgentService, mission_id: str) -> EmbodiedCo
             "summary": body.summary if body else "body unavailable (fail closed)",
             "calibrated": body.calibrated if body else False,
             "issues": list(body.issues) if body else ["body source unavailable"],
+            **workspace_window,
         },
         self_state={
             "authorization_profile": service.authorization_profile(),
