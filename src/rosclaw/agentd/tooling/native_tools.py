@@ -161,20 +161,39 @@ def register_native_tools(
                 source=NATIVE_SOURCE,
                 execution_class=ExecutionClass.COMPUTE,
                 description=(
-                    "Generate a parameterized planar Cartesian path "
-                    "(shape=star5|circle, center_m, scale_m) — sampled closed "
-                    "loop with safe-workspace validation. Returns plan_id handle."
+                    "Generate a Cartesian path: either arbitrary waypoints "
+                    "([{x,y,z,contact?}] — contact=false marks a pen-up "
+                    "transit stroke; text/figures/letters are all expressed "
+                    "as point lists by the agent) or a convenience "
+                    "shape=star5|circle with center_m/scale_m. Sampled with "
+                    "safe-workspace validation. Returns plan_id handle. "
+                    "There is NO default shape."
                 ),
                 input_schema={
                     "type": "object",
                     "properties": {
                         "shape": {"type": "string", "enum": ["star5", "circle"]},
+                        "waypoints": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "x": {"type": "number"},
+                                    "y": {"type": "number"},
+                                    "z": {"type": "number"},
+                                    "contact": {"type": "boolean"},
+                                },
+                                "required": ["x", "y", "z"],
+                            },
+                        },
                         "center_m": {"type": "array", "items": {"type": "number"}},
                         "scale_m": {"type": "number"},
                         "plane": {"type": "string", "enum": ["xy"]},
                         "max_segment_m": {"type": "number"},
                     },
-                    "required": ["shape"],
+                    # 大道至简 R1-1：shape 不再必填——waypoints 是通用
+                    # 入口；两者皆缺由执行层报错（无默认形状）。
+                    "required": [],
                     "additionalProperties": False,
                 },
 

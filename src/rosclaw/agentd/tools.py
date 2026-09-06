@@ -74,21 +74,36 @@ _TOOL_SCHEMAS: dict[str, StrictTool] = {
     TRAJ_PLAN_TOOL: StrictTool(
         name=TRAJ_PLAN_TOOL,
         description=(
-            "Generate a parameterized planar Cartesian path "
-            "(shape=star5|circle, center_m, scale_m) — sampled closed loop "
-            "with safe-workspace validation. Returns plan_id handle."
+            "Generate a Cartesian path: either arbitrary waypoints "
+            "([{x,y,z,contact?}] — contact=false marks a pen-up transit "
+            "stroke; anything the agent can express as points: text, "
+            "figures, letters) or a convenience shape=star5|circle with "
+            "center_m/scale_m. Sampled with safe-workspace validation. "
+            "Returns plan_id handle. There is NO default shape."
         ),
         parameters={
             "type": "object",
             "properties": {
                 "shape": {"type": "string", "enum": ["star5", "circle"]},
+                "waypoints": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "x": {"type": "number"},
+                            "y": {"type": "number"},
+                            "z": {"type": "number"},
+                            "contact": {"type": "boolean"},
+                        },
+                        "required": ["x", "y", "z"],
+                    },
+                },
                 "center_m": {"type": "array", "items": {"type": "number"}},
                 "scale_m": {"type": "number"},
                 "plane": {"type": "string", "enum": ["xy"]},
                 "max_segment_m": {"type": "number"},
             },
-            "required": ["shape", "center_m", "scale_m", "plane",
-                         "max_segment_m"],
+            "required": [],
             "additionalProperties": False,
         },
     ),
@@ -221,13 +236,30 @@ class BuiltinToolRegistry:
         )
         try:
             if name == TRAJ_PLAN_TOOL:
-                result = svc.generate_planar_path(
-                    shape=str(arguments.get("shape", "star5")),
-                    center_m=arguments.get("center_m") or [0.35, 0.25, 0.30],
-                    scale_m=float(arguments.get("scale_m", arguments.get("radius_m", 0.10))),
-                    plane=str(arguments.get("plane", "xy")),
-                    max_segment_m=float(arguments.get("max_segment_m", 0.02)),
-                )
+                waypoints = arguments.get("waypoints")
+                if waypoints is not None:
+                    # 大道至简 R1-1：任意路径点是通用入口。
+                    result = svc.generate_planar_path(
+                        waypoints=waypoints,
+                        max_segment_m=float(arguments.get("max_segment_m", 0.02)),
+                    )
+                else:
+                    # 形状便捷参数——shape 不再静默兜底 star5（0905
+                    # 实证：hello 被画成五角星的开关级根因）。
+                    shape = arguments.get("shape")
+                    if not shape:
+                        raise ValidationError(
+                            "trajectory_generate_planar_path 需要 shape "
+                            "(star5|circle) 或 waypoints 任意路径点——"
+                            "无默认形状"
+                        )
+                    result = svc.generate_planar_path(
+                        shape=str(shape),
+                        center_m=arguments.get("center_m") or [0.35, 0.25, 0.30],
+                        scale_m=float(arguments.get("scale_m", arguments.get("radius_m", 0.10))),
+                        plane=str(arguments.get("plane", "xy")),
+                        max_segment_m=float(arguments.get("max_segment_m", 0.02)),
+                    )
                 # 模型视图不带完整 points（载荷留文件——句柄+摘要）。
                 result = {k: v for k, v in result.items() if k != "points"}
                 # WP-5：SE(3) 规格本体落盘在 plan 记录里（太大不入

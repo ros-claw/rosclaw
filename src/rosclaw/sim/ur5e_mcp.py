@@ -170,6 +170,30 @@ def _trajectory_hash(points: list[dict]) -> str:
     return hashlib.sha256(canonical.encode()).hexdigest()
 
 
+def _interpolate(waypoints: list[dict], max_segment_m: float) -> list[dict]:
+    """路径点列按最大线段插值。段目标带 contact=False 时整段标记
+    contact=False（抬笔移动段——多笔画文字/图案的笔段间隔）；
+    无 contact 键的路径点列保持原样（star5 记录格式不变）。"""
+    has_contact = any("contact" in w for w in waypoints)
+    points: list[dict] = [dict(waypoints[0])]
+    for a, b in zip(waypoints, waypoints[1:], strict=False):
+        seg = math.dist((a["x"], a["y"], a["z"]), (b["x"], b["y"], b["z"]))
+        steps = max(1, math.ceil(seg / max_segment_m))
+        for i in range(1, steps + 1):
+            ratio = i / steps
+            point = _canonical_point(
+                {
+                    "x": a["x"] + (b["x"] - a["x"]) * ratio,
+                    "y": a["y"] + (b["y"] - a["y"]) * ratio,
+                    "z": a["z"] + (b["z"] - a["z"]) * ratio,
+                }
+            )
+            if has_contact:
+                point["contact"] = bool(b.get("contact", True))
+            points.append(point)
+    return points
+
+
 def _workspace_check(point: dict) -> None:
     radius = math.hypot(point["x"], point["y"])
     r_lo, r_hi = _SAFE_RADIUS
@@ -185,25 +209,76 @@ def _workspace_check(point: dict) -> None:
 
 @server.tool(
     name="ur5e.plan_cartesian_path",
-    description="规划笛卡尔轨迹（COMPUTE，无副作用）：五角星等平面图形"
-    "生成顶点+插值+canonical hash；全部点经安全工作空间校验。",
+    description="规划笛卡尔轨迹（COMPUTE，无副作用）：任意路径点 "
+    "waypoints=[{x,y,z,contact?}]（contact=false 为抬笔移动段——文字/"
+    "任意图形都由 Agent 表达为点列）或便捷形状 shape=star5；全部点经"
+    "安全工作空间校验，canonical hash + 不透明 plan_id。无默认形状。",
     annotations={"readOnlyHint": True},
 )
 def plan_cartesian_path(
-    shape: str,
-    center_x: float,
-    center_y: float,
-    z: float,
-    outer_radius: float,
+    shape: str = "",
+    center_x: float = 0.0,
+    center_y: float = 0.0,
+    z: float = 0.0,
+    outer_radius: float = 0.0,
     max_segment_m: float = 0.02,
     include_payload: bool = False,
+    waypoints: list[dict] | None = None,
 ) -> str:
-    if shape != "star5":
-        raise ValueError(f"unsupported shape {shape!r} (supported: star5)")
-    if not (0.02 <= outer_radius <= 0.35):
-        raise ValueError("outer_radius out of range [0.02, 0.35]")
     if not (0.005 <= max_segment_m <= 0.1):
         raise ValueError("max_segment_m out of range [0.005, 0.1]")
+    if waypoints is not None:
+        # 大道至简 R1-1：任意路径点——画什么由 Agent 决定（hello/文字/
+        # 任意图形），ROSClaw 负责可靠插值+校验+句柄化。
+        if not isinstance(waypoints, list) or len(waypoints) < 2:
+            raise ValueError("waypoints 至少需要 2 个点")
+        canonical: list[dict] = []
+        for w in waypoints:
+            try:
+                point = _canonical_point(
+                    {"x": float(w["x"]), "y": float(w["y"]),
+                     "z": float(w["z"])}
+                )
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"waypoint 必须是 {{x, y, z}} 数值点：{w!r}（{exc}）"
+                ) from exc
+            _workspace_check(point)
+            canonical.append({**point, "contact": bool(w.get("contact", True))})
+        points = _interpolate(canonical, max_segment_m)
+        lifts = sum(1 for w in canonical if not w["contact"])
+        trajectory = {
+            "shape": "custom",
+            "waypoints": canonical,
+            "points": points,
+            "max_segment_m": max_segment_m,
+            "hash": _trajectory_hash(points),
+        }
+        summary = (
+            f"自定义路径：{len(canonical)} 个路径点"
+            + (f"（{lifts} 段抬笔移动）" if lifts else "")
+            + f"，{len(points)} 个插值点"
+        )
+        record = _plan_store().put(trajectory, summary)
+        result = {
+            "ok": True,
+            "sim_kind": SIM_KIND,
+            "plan_id": record["plan_id"],
+            "digest": record["digest"],
+            "summary": summary,
+            "point_count": len(points),
+            "workspace_ok": True,
+        }
+        if include_payload:  # dev/几何单测后门——绝不默认开
+            result["trajectory"] = trajectory
+        return json.dumps(result, ensure_ascii=False)
+    if shape != "star5":
+        raise ValueError(
+            f"unsupported shape {shape!r} (supported: star5)——或传 "
+            "waypoints 任意路径点（无默认形状）"
+        )
+    if not (0.02 <= outer_radius <= 0.35):
+        raise ValueError("outer_radius out of range [0.02, 0.35]")
     # 五角星轮廓：5 外顶点 + 5 内顶点每 36° 交替，回到起点。
     inner_radius = outer_radius * 0.381966
     waypoints: list[dict] = []
@@ -224,21 +299,7 @@ def plan_cartesian_path(
     for point in waypoints:
         _workspace_check(point)
     # 按最大线段插值。
-    points: list[dict] = [waypoints[0]]
-    for a, b in zip(waypoints, waypoints[1:], strict=False):
-        seg = math.dist((a["x"], a["y"], a["z"]), (b["x"], b["y"], b["z"]))
-        steps = max(1, math.ceil(seg / max_segment_m))
-        for i in range(1, steps + 1):
-            ratio = i / steps
-            points.append(
-                _canonical_point(
-                    {
-                        "x": a["x"] + (b["x"] - a["x"]) * ratio,
-                        "y": a["y"] + (b["y"] - a["y"]) * ratio,
-                        "z": a["z"] + (b["z"] - a["z"]) * ratio,
-                    }
-                )
-            )
+    points = _interpolate(waypoints, max_segment_m)
     trajectory = {
         "shape": shape,
         "waypoints": waypoints,

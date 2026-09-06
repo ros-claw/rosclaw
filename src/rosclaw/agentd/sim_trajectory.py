@@ -375,14 +375,27 @@ class SimTrajectoryService:
     def generate_planar_path(
         self,
         *,
-        shape: str,
-        center_m: list[float],
-        scale_m: float,
+        shape: str | None = None,
+        center_m: list[float] | None = None,
+        scale_m: float | None = None,
         plane: str = "xy",
         max_segment_m: float = 0.02,
         plane_normal_xyz: list[float] | None = None,
         plane_offset_m: float | None = None,
+        waypoints: list[dict] | None = None,
     ) -> dict[str, Any]:
+        # 大道至简 R1-1：任意路径点是通用入口——画什么由 Pi 决定，
+        # 形状枚举只是便捷参数（内部同样生成 waypoints）。
+        if waypoints is not None:
+            return self.generate_waypoint_path(
+                waypoints=waypoints, max_segment_m=max_segment_m,
+            )
+        if shape is None or center_m is None or scale_m is None:
+            raise ValueError(
+                "shape+center_m+scale_m 或 waypoints 必须给一组——"
+                "无默认形状（0905 实证：静默兜底 star5 会把 hello 画成"
+                "五角星）"
+            )
         if shape not in _SHAPES:
             raise ValueError(f"unsupported shape {shape!r} (supported: {', '.join(_SHAPES)})")
         if plane != "xy" and plane_normal_xyz is None:
@@ -489,6 +502,99 @@ class SimTrajectoryService:
                 f"半径 {scale_m}m，{len(points)} 个插值点，已闭合"
             ),
         }
+
+    def generate_waypoint_path(
+        self,
+        *,
+        waypoints: list[dict],
+        max_segment_m: float = 0.02,
+    ) -> dict[str, Any]:
+        """任意路径点规划（大道至简 R1-1——「plan_cartesian 必须接收
+        任意路径点，而不是只接受 star5/circle」）。
+
+        waypoints: [{x, y, z, contact?}]——contact=False 的目标是
+        抬笔移动段（多笔画文字/图案的笔段间隔）。每个点过安全工作
+        空间校验（规划即拒越界），按 max_segment_m 插值，canonical
+        hash + PlanStore 持久化（与形状路径同一消费面：simulate/
+        render/verify 不需要知道路径是不是形状）。
+        """
+        if not isinstance(waypoints, list) or len(waypoints) < 2:
+            raise ValueError("waypoints 至少需要 2 个点")
+        if not (0.005 <= float(max_segment_m) <= 0.1):
+            raise ValueError("max_segment_m outside range [0.005, 0.1]")
+        canonical: list[dict] = []
+        for w in waypoints:
+            try:
+                point = {
+                    "x": round(float(w["x"]), 6),
+                    "y": round(float(w["y"]), 6),
+                    "z": round(float(w["z"]), 6),
+                }
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"waypoint 必须是 {{x, y, z}} 数值点：{w!r}（{exc}）"
+                ) from exc
+            _workspace_check(point)
+            canonical.append({**point, "contact": bool(w.get("contact", True))})
+        # 线段插值；每个插值点继承其段目标的 contact 标记（抬笔段
+        # 整段 contact=False——渲染/验收层可区分绘制与移动）。
+        points: list[dict] = [dict(canonical[0])]
+        for a, b in zip(canonical, canonical[1:], strict=False):
+            seg = math.dist(
+                (a["x"], a["y"], a["z"]), (b["x"], b["y"], b["z"]),
+            )
+            steps = max(1, math.ceil(seg / float(max_segment_m)))
+            for i in range(1, steps + 1):
+                ratio = i / steps
+                points.append(
+                    {
+                        "x": round(a["x"] + (b["x"] - a["x"]) * ratio, 6),
+                        "y": round(a["y"] + (b["y"] - a["y"]) * ratio, 6),
+                        "z": round(a["z"] + (b["z"] - a["z"]) * ratio, 6),
+                        "contact": bool(b["contact"]),
+                    }
+                )
+        digest = hashlib.sha256(
+            json.dumps(points, sort_keys=True).encode()
+        ).hexdigest()
+        plan_id = f"plan_{digest[:16]}"
+        spec = _build_pose_spec(
+            [{"x": p["x"], "y": p["y"], "z": p["z"]} for p in points],
+            plane="xy",
+        )
+        self._plans_dir.mkdir(parents=True, exist_ok=True)
+        (self._plans_dir / f"{plan_id}.json").write_text(
+            json.dumps(
+                {
+                    "shape": "custom",
+                    "waypoints": canonical,
+                    "max_segment_m": max_segment_m,
+                    "points": points,
+                    "hash": digest,
+                    "spec": spec,
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        lifts = sum(1 for w in canonical if not w["contact"])
+        return {
+            "ok": True,
+            "plan_id": plan_id,
+            "hash": digest,
+            "points": points,
+            "point_count": len(points),
+            "spec": spec,
+            "summary": (
+                f"自定义路径：{len(canonical)} 个路径点"
+                + (f"（{lifts} 段抬笔移动）" if lifts else "")
+                + f"，{len(points)} 个插值点"
+            ),
+        }
+
+    def get_plan_payload(self, plan_id: str) -> dict[str, Any]:
+        """PlanStore 记录的公开读取面（审计/测试——内容寻址可反查）。"""
+        return self._load_plan(plan_id)
 
     def _load_plan(self, plan_id: str) -> dict:
         """WP-2：统一引用——kit envelope 记录（PersistentPlanStore）
