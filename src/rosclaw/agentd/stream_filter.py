@@ -11,9 +11,20 @@ from __future__ import annotations
 from collections.abc import Callable
 
 _MARKER = '"schema_version": "rosclaw.decision.v1"'
+#: whitespace-insensitive marker form (models may emit compact JSON)
+_MARKER_COMPACT = "".join(_MARKER.split())
 _FENCE = "```"
 #: max chars after a fence that may still turn into a decision block
 _LOOKAHEAD = len(_MARKER) + 16
+
+
+def _is_decision_tail(tail: str) -> bool:
+    """True when the fence tail contains the DecisionV1 marker.
+
+    Whitespace-insensitive: ``"schema_version":"..."`` (compact JSON) and
+    ``"schema_version": "..."`` are the same protocol block.
+    """
+    return _MARKER_COMPACT in "".join(tail.split())
 
 
 class DecisionBlockFilter:
@@ -38,7 +49,7 @@ class DecisionBlockFilter:
         text = self._pending
         self._pending = ""
         fence = text.find(_FENCE)
-        if fence != -1 and _MARKER in text[fence:]:
+        if fence != -1 and _is_decision_tail(text[fence:]):
             text = text[:fence]
         if text:
             self._sink(text)
@@ -59,7 +70,7 @@ class DecisionBlockFilter:
                 self._sink(before)
             self._pending = self._pending[fence:]
             tail = self._pending
-            if _MARKER in tail:
+            if _is_decision_tail(tail):
                 self._suppressing = True
                 self._pending = ""
                 return
