@@ -1,0 +1,12 @@
+id: L05_visual_grounding
+tier: agent  # 盲视觉闭环——需真实模型；Agent 不可读 MJCF 真值
+fixture: random_rgbd_scene
+variants: 3
+prompt_source: agent
+allowed_mode: SIM
+allowed_outputs: [image, data]
+oracle: annotated_target_world_coords
+limits: {wall_time_s: 600, memory_mib: 4096}
+grading:
+  coord_error_m: 0.02
+  annotation_on_target: true
