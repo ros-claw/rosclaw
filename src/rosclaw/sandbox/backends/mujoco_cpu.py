@@ -206,9 +206,11 @@ class MujocoCpuBackend:
             data.ctrl[: int(model.nu)] = perturbed
         mujoco.mj_forward(model, data)
         nu = int(model.nu)
-        previous_command = data.qpos[:nu].copy()
+        # W03 §7.1：内部跟踪/记录一律先取完整状态，指令比较再取
+        # 受控子集——nq≠nu 的模型不再被静默截断。
+        previous_command = data.qpos.copy()[:nu]
         initial_qpos = previous_command.copy()
-        previous_velocity = data.qvel[:nu].copy()
+        previous_velocity = data.qvel.copy()
         max_velocity = 0.0
         max_acceleration = 0.0
         max_tracking_error = 0.0
@@ -228,8 +230,8 @@ class MujocoCpuBackend:
             nonlocal max_velocity, max_acceleration, max_tracking_error
             nonlocal peak_contact_force, minimum_contact_distance, unstable_steps
             nonlocal deadline_missed, nan_detected, previous_velocity
-            qpos = data.qpos[:nu].copy()
-            qvel = data.qvel[:nu].copy()
+            qpos = data.qpos.copy()
+            qvel = data.qvel.copy()
             nan_detected = nan_detected or bool(
                 not np.isfinite(qpos).all() or not np.isfinite(qvel).all()
             )
@@ -239,7 +241,8 @@ class MujocoCpuBackend:
             previous_velocity = qvel
             max_tracking_error = max(
                 max_tracking_error,
-                float(np.max(np.abs(qpos - command), initial=0.0)),
+                # 跟踪误差 = 实际 vs 同时刻指令（受控子集，§7.3）。
+                float(np.max(np.abs(qpos[:nu] - command), initial=0.0)),
             )
             if step_wall_sec > control_dt:
                 deadline_missed += 1
@@ -276,8 +279,10 @@ class MujocoCpuBackend:
                 {
                     "step": step_count,
                     "time": float(data.time),
-                    "qpos": data.qpos[:nu].copy().tolist(),
-                    "qvel": data.qvel[:nu].copy().tolist(),
+                    # §7.1：完整状态——qpos(nq)/qvel(nv)/ctrl(nu)。
+                    "qpos": data.qpos.copy().tolist(),
+                    "qvel": data.qvel.copy().tolist(),
+                    "ctrl": data.ctrl.copy().tolist(),
                     "command": command.tolist(),
                     "contacts": int(data.ncon),
                 }
@@ -337,7 +342,7 @@ class MujocoCpuBackend:
 
         record_sample(previous_command)
 
-        final_qpos = data.qpos[:nu].copy()
+        final_qpos = data.qpos.copy()[:nu]
         final_tracking_error = float(np.max(np.abs(final_qpos - previous_command), initial=0.0))
         velocity_violation = max_velocity > request.max_joint_velocity_radps + 1e-9
         tracking_violation = final_tracking_error > request.max_final_tracking_error_rad
@@ -403,7 +408,10 @@ class MujocoCpuBackend:
                 "initial_state_hash": canonical_hash(initial_qpos.tolist()),
             },
         )
-        self._persist_artifacts(receipt, samples, request.artifact_dir)
+        self._persist_artifacts(
+            receipt, samples, request.artifact_dir,
+            model=model, model_digest=model_hash,
+        )
         return receipt
 
     @staticmethod
@@ -506,6 +514,9 @@ class MujocoCpuBackend:
         receipt: TrajectorySimulationReceipt,
         samples: list[dict[str, Any]],
         artifact_dir: Path | None,
+        *,
+        model: Any = None,
+        model_digest: str = "",
     ) -> None:
         if artifact_dir is None:
             return
@@ -513,10 +524,21 @@ class MujocoCpuBackend:
         request_path = root / "trajectory_request.json"
         states_path = root / "trajectory_states.json"
         request_hash = _atomic_json(request_path, receipt.request)
-        states_hash = _atomic_json(
-            states_path,
-            {"schema_version": "rosclaw.trajectory_states.v1", "states": samples},
-        )
+        # W03 §7.1：v2 显式声明维度与模型摘要——回放/续仿真据此
+        # 校验同模型完整状态恢复，不再靠消费者猜维度。
+        states_payload: dict[str, Any] = {
+            "schema_version": "rosclaw.trajectory_states.v2",
+            "states": samples,
+        }
+        if model is not None:
+            states_payload["dims"] = {
+                "nq": int(model.nq),
+                "nv": int(model.nv),
+                "nu": int(model.nu),
+            }
+        if model_digest:
+            states_payload["model_digest"] = model_digest
+        states_hash = _atomic_json(states_path, states_payload)
         receipt.artifacts.extend([request_path.as_uri(), states_path.as_uri()])
         receipt.artifact_hashes.update(
             {request_path.name: request_hash, states_path.name: states_hash}
@@ -681,7 +703,8 @@ class MujocoCpuBackend:
         persisted_states = load_artifact_json(states_artifact, "states_artifact")
         if persisted_states is not None and not (
             isinstance(persisted_states, dict)
-            and persisted_states.get("schema_version") == "rosclaw.trajectory_states.v1"
+            and persisted_states.get("schema_version")
+            in {"rosclaw.trajectory_states.v1", "rosclaw.trajectory_states.v2"}
             and isinstance(persisted_states.get("states"), list)
             and persisted_states["states"]
         ):
