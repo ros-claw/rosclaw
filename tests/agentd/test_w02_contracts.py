@@ -219,7 +219,6 @@ class TestApiEndToEnd:
         payload = _json.loads(record.read_text())
         payload["states"][0]["qpos"] = [0.0, 0.0, 0.0]  # 3 != nq=12
         record.write_text(_json.dumps(payload))
-        states = payload["states"]
         import pytest as _pt
 
         with _pt.raises(ValueError, match="STATE_DIMENSION"):
