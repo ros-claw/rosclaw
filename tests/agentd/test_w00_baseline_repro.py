@@ -16,13 +16,9 @@ import pytest
 class TestR1AppendDeliveryBlocked:
     """§2.2-1：`_artifact_register` 在活跃任务缺失且最近任务
     SUCCEEDED 时直接 TASK_ALREADY_COMPLETED 拒绝——0907 实证追加
-    产物被反复拒绝。期望行为（W05）：显式上下文与追加交付不被
-    历史成功阻断。当前基线=拒绝（本测试 xfail 记录）。"""
+    产物被反复拒绝（W05 已修复：显式上下文下追加注册在既有
+    revision，不复活任务；行为测试见 test_w05_delivery_lifecycle.py）。"""
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="W00 基线：历史 SUCCEEDED 阻断追加交付（W05 修复后解标）",
-    )
     async def test_append_after_succeeded_allowed(self, tmp_path) -> None:
         """0907 实证条件的精确复现：handler 直达（无 admission
         动机遮掩）+ active=None + 最近任务 SUCCEEDED → 基线=
