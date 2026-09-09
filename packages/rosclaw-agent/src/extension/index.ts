@@ -151,6 +151,8 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 		// WP-P0-3：恢复对账报告（恢复了什么/重新验证了什么/哪些权限
 		// 失效）——一次性展示，不重复。
 		let resumeReportShown = !options.resumed;
+		// W06 §10.2：无沙箱警告仅显示一次（resume/switch 不重复）。
+		let isolationNoticeShown = false;
 		let refreshChrome: () => void = () => undefined;
 		let probeTimer: ReturnType<typeof setInterval> | null = null;
 		// 十审 W2：Worker 完成推送——custom message 注入（不冒充用户
@@ -260,13 +262,19 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			// 0902 R1-c（§5.3）：无 OS 沙箱 → 会话开始一次性提示（任务
 			// 开始前），而不是 shell 执行到一半才甩卡。探测单源 =
 			// doctor 落盘的 os-isolation.json（无记录回落 bwrap 存在性）。
+			// W06 §10.2：仅显示一次（resume/switch 不重复）；文案如实
+			// ——R1-2b 后 SIM shell 自动执行（TOOL_LAYER_ONLY 标记），
+			// 不存在"弹确认卡降级"，不得再如此宣称。
 			if (ctx.hasUI) {
 				try {
 					const probe = options.osIsolationProbe ?? defaultOsIsolationProbe;
-					if (!probe().isolationReady) {
+					if (!isolationNoticeShown && !probe().isolationReady) {
+						isolationNoticeShown = true;
+						// 通知区会裁剪长文本——doctor 修复入口必须前置
+						// （journey 实证：长文后半段根本不显示）。
 						notifyLeveled(ctx,
-							"本机无 OS 沙箱（bwrap 不可用）——shell 类操作将在会话内"
-							+ "弹确认卡降级运行；rosclaw doctor 查看结论与修复建议",
+							"本机无 OS 隔离——宿主直接执行（证据=进程内 provenance，"
+							+ "非防篡改）；rosclaw doctor 查看结论与修复建议",
 							"warning",
 						);
 					}
