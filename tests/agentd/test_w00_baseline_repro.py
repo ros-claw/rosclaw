@@ -73,13 +73,9 @@ class TestR1AppendDeliveryBlocked:
 class TestR2FullStateReplay:
     """§2.2-2：sim_render 回放用 `data.qpos[:model.nu]` 截断——
     nq≠nu 的模型（freejoint/被动关节/被动物体）丢失状态，真实
-    仿真与视频不一致（W03 修复：模型维度/关节映射驱动的完整
-    状态恢复）。"""
+    仿真与视频不一致（W03 已修复：restore_frame_state 完整状态
+    恢复 + 维度诚实拒绝；行为测试见 test_w03_state_replay.py）。"""
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="W00 基线：qpos 按 nu 截断（W03 修复后解标）",
-    )
     def test_replay_restores_full_nq_not_nu(self) -> None:
         import inspect
 
