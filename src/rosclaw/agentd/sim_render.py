@@ -62,17 +62,52 @@ def _probe_xvfb(*, timeout_sec: float = 30.0) -> tuple[bool, str]:
         return False, f"{type(exc).__name__}: {exc}"[:200]
 
 
+_PROBE_CACHE: dict[str, tuple[str, dict[str, str]]] = {}
+
+
+def _probe_cache_key() -> str:
+    """W04 §8.3：探测缓存键——运行时 + 环境 + 驱动信息。
+
+    任一变化（mujoco/Python 版本、DISPLAY、MUJOCO_GL、xvfb-run
+    可用性、EGL vendor 路径）即换键重新真实探测。"""
+    import shutil
+
+    import mujoco
+
+    payload = "|".join([
+        "mujoco:" + str(mujoco.__version__),
+        "py:" + sys.version.split()[0],
+        "DISPLAY:" + os_environ().get("DISPLAY", ""),
+        "MUJOCO_GL:" + os_environ().get("MUJOCO_GL", ""),
+        "xvfb-run:" + str(bool(shutil.which("xvfb-run"))),
+        "eglvendor:" + os_environ().get("__EGL_VENDOR_LIBRARY_DIRS", ""),
+    ])
+    return hashlib.sha256(payload.encode()).hexdigest()[:16]
+
+
+def _probe_cache_clear() -> None:
+    _PROBE_CACHE.clear()
+
+
 def probe_render_backend(
     *, timeout_sec: float = 30.0,
+    fresh: bool = False,
 ) -> tuple[str | None, dict[str, str]]:
     """EGL→OSMesa→Xvfb 子进程隔离探测（进程内探测会崩宿主——
     本机 glfw 实证；每个后端真实渲染一帧 smoke test）。返回
-    (backend or None, 每后端明细)。"""
+    (backend or None, 每后端明细)。
+
+    W04 §8.3：成功结果按运行时/环境键缓存（同进程重复渲染不再
+    逐次 smoke）；**失败不缓存**——环境恢复后下次真实重探。"""
+    key = _probe_cache_key()
+    if not fresh and key in _PROBE_CACHE:
+        return _PROBE_CACHE[key]
     detail: dict[str, str] = {}
     for backend in _BACKEND_ORDER:
         ok, note = _probe_backend(backend, timeout_sec=timeout_sec)
         detail[backend] = note
         if ok:
+            _PROBE_CACHE[key] = (backend, detail)
             return backend, detail
     return None, detail
 
@@ -174,12 +209,14 @@ def render_scene_trace(
     trace_id: str,
     *,
     camera: str = "follow",
-    max_frames: int = 60,
+    max_frames: int = 480,
     width: int = 640,
     height: int = 360,
     world_id: str = "empty",
     tool_ref: str = "",
     render_spec_path: Path | None = None,
+    fps: float = 12.0,
+    playback_rate: float = 1.0,
 ) -> dict[str, Any]:
     """trace → 场景 GIF+MP4（真实 MuJoCo 离屏渲染）+ RenderReceipt。
 
@@ -187,10 +224,14 @@ def render_scene_trace(
     - 结构化 IPC：子进程写原子 result JSON 文件，stdout/stderr 只
       作诊断——空输出/噪声/rc=0 无结果都是稳定错误码，绝不向
       调用方泄漏裸 JSONDecodeError；
-    - 后端降级只在 supervisor 内部执行一次（EGL→OSMesa→Xvfb
-      顺序）——模型只收到最终结果；
+    - 后端降级只在 supervisor 内部执行——模型只收到最终结果；
     - world_id/tool_ref 来自 TaskSpec——声明了工具但资产不存在
       时 TOOL_ASSET_MISSING 诚实失败（不假装持笔）。
+
+    W04 §8.1：渲染身份（trace/model digest + spec + 展示参数 +
+    渲染器版本）隔离 result/输出文件——同键幂等重试直接复用
+    已完成结果，同 trace 不同参数互不覆盖。max_frames 只是
+    安全上限（选帧由时间戳+fps 驱动，§8.2）。
     """
     home = Path(home)
     trace_dir = home / "sim" / "traces" / trace_id
@@ -220,37 +261,50 @@ def render_scene_trace(
         _require_tool_asset(tool_ref)
     if world_id:
         _require_world_asset(world_id)
+    spec_digest = ""
+    if render_spec_path is not None:
+        spec_digest = "sha256:" + hashlib.sha256(
+            Path(render_spec_path).read_bytes()
+        ).hexdigest()
+    render_key = render_identity_key(
+        states_digest=states_digest, camera=camera,
+        max_frames=max_frames, width=width, height=height,
+        world_id=world_id, tool_ref=tool_ref,
+        spec_digest=spec_digest, fps=fps, playback_rate=playback_rate,
+    )
+    # W04 §8.1：幂等复用——同渲染身份的已完成结果直接返回
+    # （不重渲染、不覆盖其他参数的 result 文件）。
+    keyed_result = (
+        trace_dir / f"{trace_id}-{render_key}-scene-result.json"
+    )
+    if keyed_result.exists():
+        try:
+            cached = json.loads(keyed_result.read_text(encoding="utf-8"))
+        except ValueError:
+            cached = None
+        if isinstance(cached, dict) and cached.get("ok"):
+            cached["reused"] = True
+            return cached
     backend, probe_detail = probe_render_backend()
     if backend is None:
         raise ValueError(
             "RENDER_BACKEND_UNAVAILABLE: EGL/OSMesa/Xvfb 全部不可用——"
             + json.dumps(probe_detail, ensure_ascii=False)[:300]
         )
-    # supervisor 内部一次降级：首选后端渲染失败 → 下一个后端再试
-    # 一次；之后把最终错误抛出（调用方只见一次有语义的结果）。
-    candidates = [backend, *[b for b in _BACKEND_ORDER if b != backend]]
-    last_error: ValueError | None = None
-    for attempt, candidate in enumerate(candidates[:2]):
-        if attempt > 0:
-            ok, note = _probe_backend(candidate)
-            if not ok:
-                last_error = ValueError(
-                    f"RENDER_BACKEND_UNAVAILABLE: 降级后端 {candidate} "
-                    f"不可用（{note}）"
-                )
-                continue
-        try:
-            return _render_attempt(
-                home, trace_id, candidate,
-                camera=camera, max_frames=max_frames,
-                width=width, height=height,
-                world_id=world_id, tool_ref=tool_ref,
-                render_spec_path=render_spec_path,
-            )
-        except ValueError as exc:
-            last_error = exc
-    assert last_error is not None
-    raise last_error
+    # W04 §8.3：降级引擎——全部候选逐个真实尝试（含第三候选），
+    # 每个最多一次；聚合错误带各后端真实原因。
+    return _render_with_fallback(
+        first=backend,
+        probe_backend=_probe_backend,
+        render_call=lambda candidate: _render_attempt(
+            home, trace_id, candidate,
+            camera=camera, max_frames=max_frames,
+            width=width, height=height,
+            world_id=world_id, tool_ref=tool_ref,
+            render_spec_path=render_spec_path,
+            render_key=render_key, fps=fps, playback_rate=playback_rate,
+        ),
+    )
 
 
 def _probe_backend(backend: str, *, timeout_sec: float = 30.0) -> tuple[bool, str]:
@@ -284,14 +338,19 @@ def _render_attempt(
     world_id: str,
     tool_ref: str,
     render_spec_path: Path | None = None,
+    render_key: str = "",
+    fps: float = 12.0,
+    playback_rate: float = 1.0,
 ) -> dict[str, Any]:
     """单次渲染尝试（结构化 IPC：原子 result 文件为唯一结果
-    通道——stdout/stderr 只作诊断日志）。"""
+    通道——stdout/stderr 只作诊断日志）。result 文件按渲染身份
+    命名——并发不同参数的渲染互不覆盖（W04 §8.1）。"""
     import os
     import shutil
 
     result_path = (
-        home / "sim" / "traces" / trace_id / f"{trace_id}-scene-result.json"
+        home / "sim" / "traces" / trace_id
+        / f"{trace_id}-{render_key}-scene-result.json"
     )
     result_path.unlink(missing_ok=True)
     argv = [
@@ -300,6 +359,8 @@ def _render_attempt(
         str(width), str(height),
         "--world", world_id, "--tool", tool_ref,
         "--result", str(result_path),
+        "--key", render_key,
+        "--fps", str(fps), "--rate", str(playback_rate),
     ]
     if render_spec_path is not None:
         argv += ["--spec", str(render_spec_path)]
@@ -464,6 +525,142 @@ def _apply_overlay_geoms(renderer: Any, overlays: list[tuple[str, Any]]) -> list
     return drawn
 
 
+def _render_with_fallback(
+    *,
+    render_call: Any,
+    probe_backend: Any,
+    first: str,
+) -> dict[str, Any]:
+    """W04 §8.3：后端降级——按可用性排序**逐个真实尝试全部
+    候选**（不是只试列表前两个）；每个候选最多一次真实尝试；
+    全失败时聚合每个后端的真实原因（结构化，不丢第三候选）。"""
+    candidates = [first, *[b for b in _BACKEND_ORDER if b != first]]
+    errors: dict[str, str] = {}
+    for attempt, candidate in enumerate(candidates):
+        if attempt > 0:
+            ok, note = probe_backend(candidate)
+            if not ok:
+                errors[candidate] = f"降级探测不可用（{note}）"
+                continue
+        try:
+            return render_call(candidate)
+        except ValueError as exc:
+            errors[candidate] = str(exc)[:200]
+    raise ValueError(
+        "RENDER_BACKEND_EXHAUSTED: 全部后端渲染失败——"
+        + json.dumps(errors, ensure_ascii=False)[:600]
+    )
+
+
+def select_frame_indices(
+    states: list[dict[str, Any]],
+    fps: float,
+    playback_rate: float = 1.0,
+) -> list[int]:
+    """W04 §8.2：时间驱动选帧——目标时刻网格 first+i/fps 上取
+    最近状态（不是按计数均分）；首尾状态必含；playback rate
+    缩放输出时长（2× → 帧数减半，时长=记录时长/2）。"""
+    n = len(states)
+    if n <= 2:
+        return list(range(n))
+    t0 = float(states[0]["time"])
+    t1 = float(states[-1]["time"])
+    duration = max(t1 - t0, 0.0)
+    out_duration = duration / max(float(playback_rate), 1e-9)
+    frame_count = max(2, int(round(out_duration * float(fps))) + 1)
+    times = [float(s["time"]) for s in states]
+    indices: list[int] = []
+    j = 0
+    for k in range(frame_count):
+        target = t0 + (t1 - t0) * k / (frame_count - 1)
+        while j < n - 1 and abs(times[j + 1] - target) <= abs(times[j] - target):
+            j += 1
+        if not indices or j != indices[-1]:
+            indices.append(j)
+    if indices[0] != 0:
+        indices.insert(0, 0)
+    if indices[-1] != n - 1:
+        indices.append(n - 1)
+    return indices
+
+
+def _framing_distance(
+    extent: float | None, *, factor: float, lo: float, hi: float,
+    legacy: float,
+) -> float:
+    if extent is None:
+        return legacy  # 无轨迹点——旧固定参数兼容
+    return max(lo, min(hi, extent * factor))
+
+
+def apply_camera_framing(
+    cam: Any,
+    mode: str,
+    *,
+    center: tuple[float, float, float],
+    extent: float | None,
+) -> None:
+    """W04 §8.2：相机按轨迹/目标包围范围取景——距离随工作区
+    尺寸缩放（固定距离只作无轨迹旧参数兼容）。
+
+    extent = 轨迹包围盒半对角线（米）。"""
+    cx, cy, cz = center
+    cam.lookat[:] = [cx, cy, cz]
+    if mode == "top":
+        cam.distance = _framing_distance(
+            extent, factor=2.4, lo=0.5, hi=4.0, legacy=1.2,
+        )
+        cam.azimuth = 90.0
+        cam.elevation = -89.0
+    elif mode == "follow":
+        cam.distance = _framing_distance(
+            extent, factor=2.2, lo=0.3, hi=3.0, legacy=0.9,
+        )
+        cam.azimuth = 135.0
+        cam.elevation = -25.0
+    else:  # free
+        cam.distance = _framing_distance(
+            extent, factor=2.8, lo=0.5, hi=4.5, legacy=1.4,
+        )
+        cam.azimuth = 45.0
+        cam.elevation = -30.0
+
+
+def render_identity_key(
+    *,
+    states_digest: str,
+    camera: str,
+    max_frames: int,
+    width: int,
+    height: int,
+    world_id: str,
+    tool_ref: str,
+    spec_digest: str,
+    fps: float,
+    playback_rate: float,
+) -> str:
+    """W04 §8.1：渲染身份 = 冻结输入（trace/model digest +
+    spec + 展示参数 + 渲染器版本）——同键幂等复用，异键独立
+    operation 目录互不覆盖。"""
+    payload = json.dumps(
+        {
+            "states_digest": states_digest,
+            "camera": camera,
+            "max_frames": int(max_frames),
+            "width": int(width),
+            "height": int(height),
+            "world_id": world_id,
+            "tool_ref": tool_ref,
+            "spec_digest": spec_digest,
+            "fps": float(fps),
+            "playback_rate": float(playback_rate),
+            "renderer": _renderer_build_digest(),
+        },
+        sort_keys=True,
+    )
+    return hashlib.sha256(payload.encode()).hexdigest()[:16]
+
+
 def restore_frame_state(
     model: Any,
     data: Any,
@@ -515,6 +712,9 @@ def _render_impl(
     world_id: str = "empty",
     tool_ref: str = "",
     render_spec_path: str = "",
+    render_key: str = "",
+    fps: float = 12.0,
+    playback_rate: float = 1.0,
 ) -> dict[str, Any]:
     """子进程内真实渲染（MUJOCO_GL 已由父进程设定）。"""
     backend = os_environ().get("MUJOCO_GL", "")
@@ -573,38 +773,33 @@ def _render_impl(
     model = sandbox.physics_model
     data = sandbox.physics_data
     renderer = mujoco.Renderer(model, height=height, width=width)
-    # 相机预设：follow=跟踪工作区中心；top=俯视；free=固定斜视角。
     cam = mujoco.MjvCamera()
     positions = [s["qpos"] for s in states]
-    n = len(positions)
-    step = max(1, n // max_frames)
-    frames_idx = list(range(0, n, step))[: max(2, n // step)]
-    # 工作区取景（eef 路径包围盒中心）。
+    # W04 §8.2：时间驱动选帧（时间戳 × fps × playback rate，
+    # 首尾必含——不是按计数均分）；max_frames 仅作安全上限。
+    frames_idx = select_frame_indices(states, fps, playback_rate)
+    if len(frames_idx) > max_frames:
+        stride = (len(frames_idx) - 1) / max(max_frames - 1, 1)
+        frames_idx = sorted(
+            {frames_idx[round(k * stride)] for k in range(max_frames)}
+            | {frames_idx[0], frames_idx[-1]}
+        )
+    # 工作区取景（eef 路径包围盒中心 + 半对角线——W04 §8.2
+    # 距离随包围范围缩放，固定距离仅无轨迹旧兼容）。
     trace_pts = trace.get("actual") or []
     if trace_pts:
         cx = sum(p["x"] for p in trace_pts) / len(trace_pts)
         cy = sum(p["y"] for p in trace_pts) / len(trace_pts)
         cz = sum(p["z"] for p in trace_pts) / len(trace_pts)
+        dx = max(p["x"] for p in trace_pts) - min(p["x"] for p in trace_pts)
+        dy = max(p["y"] for p in trace_pts) - min(p["y"] for p in trace_pts)
+        dz = max(p["z"] for p in trace_pts) - min(p["z"] for p in trace_pts)
+        extent: float | None = max(0.5 * (dx * dx + dy * dy + dz * dz) ** 0.5, 0.02)
     else:
         cx, cy, cz = 0.35, 0.25, 0.30
-    if camera == "top":
-        cam.lookat[:] = [cx, cy, cz]
-        cam.distance = 1.2
-        cam.azimuth = 90.0
-        cam.elevation = -89.0
-    elif camera == "follow":
-        cam.lookat[:] = [cx, cy, cz]
-        cam.distance = 0.9
-        cam.azimuth = 135.0
-        cam.elevation = -25.0
-    else:  # free
-        cam.lookat[:] = [cx, cy, cz]
-        cam.distance = 1.4
-        cam.azimuth = 45.0
-        cam.elevation = -30.0
+        extent = None
+    apply_camera_framing(cam, camera, center=(cx, cy, cz), extent=extent)
     try:
-        from PIL import Image
-
         # overlay 几何（静态点列，逐帧重挂——update_scene 每帧重置
         # scene.ngeom）。plan 源 overlay 需要 plan 文档。
         plan_doc: dict | None = None
@@ -616,45 +811,69 @@ def _render_impl(
         overlay_geoms = _overlay_scene_geoms(spec_overlays, trace, plan_doc)
         overlays_applied: list[str] = []
 
-        images = []
-        for idx in frames_idx:
-            q = positions[idx]
-            # W03 §7.2：同模型完整状态恢复（维度不符诚实拒绝，
-            # 不按 nu 截断、不补零）。
-            restore_frame_state(model, data, q, declared_dims)
-            mujoco.mj_forward(model, data)
-            renderer.update_scene(data, camera=cam)
-            if overlay_geoms:
-                overlays_applied = _apply_overlay_geoms(renderer, overlay_geoms)
-            images.append(Image.fromarray(renderer.render()))
+        # W04 §8.1/§8.2：输出按渲染身份命名（同 trace 不同参数
+        # 互不覆盖）；单遍流式编码——渲染一帧写一帧，不把 PIL 与
+        # NumPy 帧双份常驻内存。
+        import imageio.v2 as imageio
+
+        stem = (
+            f"{trace_id}-{render_key}-scene" if render_key
+            else f"{trace_id}-scene"
+        )
+        gif_path = trace_dir / f"{stem}.gif"
+        mp4_path = trace_dir / f"{stem}.mp4"
+        gif_writer = (
+            imageio.get_writer(
+                str(gif_path), format="GIF", mode="I",
+                duration=round(1.0 / float(fps), 4), loop=0,
+            )
+            if "gif" in spec_outputs else None
+        )
+        mp4_writer = (
+            imageio.get_writer(str(mp4_path), fps=float(fps))
+            if "mp4" in spec_outputs else None
+        )
+        frame_count = 0
+        try:
+            for idx in frames_idx:
+                q = positions[idx]
+                # W03 §7.2：同模型完整状态恢复（维度不符诚实拒绝，
+                # 不按 nu 截断、不补零）。
+                restore_frame_state(model, data, q, declared_dims)
+                mujoco.mj_forward(model, data)
+                renderer.update_scene(data, camera=cam)
+                if overlay_geoms:
+                    overlays_applied = _apply_overlay_geoms(
+                        renderer, overlay_geoms
+                    )
+                frame = renderer.render()
+                if gif_writer is not None:
+                    gif_writer.append_data(frame)
+                if mp4_writer is not None:
+                    mp4_writer.append_data(frame)
+                frame_count += 1
+        finally:
+            if gif_writer is not None:
+                gif_writer.close()
+            if mp4_writer is not None:
+                mp4_writer.close()
         artifacts: dict[str, Any] = {}
         if "gif" in spec_outputs:
-            out = trace_dir / f"{trace_id}-scene.gif"
-            images[0].save(
-                out, save_all=True, append_images=images[1:],
-                duration=int(1000 / 12), loop=0,
-            )
             artifacts["gif"] = {
-                "path": str(out),
-                "frames": len(images),
+                "path": str(gif_path),
+                "frames": frame_count,
                 "format": "gif",
-                "bytes": out.stat().st_size,
+                "bytes": gif_path.stat().st_size,
                 "evidence_level": "SIM_DYN_ROLLOUT",
             }
         if "mp4" in spec_outputs:
             # P0-F：官方渲染同时产出 MP4（imageio + imageio-ffmpeg
             # 自带静态 ffmpeg——离线，不需要系统 ffmpeg）。
-            import imageio.v3 as iio
-            import numpy as _np
-
-            mp4 = trace_dir / f"{trace_id}-scene.mp4"
-            frames_arr = [_np.asarray(img) for img in images]
-            iio.imwrite(mp4, frames_arr, fps=12)
             artifacts["mp4"] = {
-                "path": str(mp4),
-                "frames": len(images),
+                "path": str(mp4_path),
+                "frames": frame_count,
                 "format": "mp4",
-                "bytes": mp4.stat().st_size,
+                "bytes": mp4_path.stat().st_size,
                 "evidence_level": "SIM_DYN_ROLLOUT",
             }
     finally:
@@ -920,6 +1139,9 @@ if __name__ == "__main__":
     _parser.add_argument("--world", default="empty")
     _parser.add_argument("--tool", default="")
     _parser.add_argument("--spec", default="")
+    _parser.add_argument("--key", default="")
+    _parser.add_argument("--fps", type=float, default=12.0)
+    _parser.add_argument("--rate", type=float, default=1.0)
     _parser.add_argument("--result", required=True)
     _args = _parser.parse_args()
     _result_path = Path(_args.result)
@@ -928,7 +1150,8 @@ if __name__ == "__main__":
             Path(_args.home), _args.trace_id, camera=_args.camera,
             max_frames=_args.max_frames, width=_args.width,
             height=_args.height, world_id=_args.world, tool_ref=_args.tool,
-            render_spec_path=_args.spec,
+            render_spec_path=_args.spec, render_key=_args.key,
+            fps=_args.fps, playback_rate=_args.rate,
         )
     except Exception as _exc:  # noqa: BLE001 - 失败也是结构化结果
         _message = str(_exc)[:300]
