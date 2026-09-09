@@ -603,15 +603,14 @@ class PiToolDispatcher:
         # 幂等交付入口（普通文件工具创建的交付物）；capability 产物
         # 自动登记不走模型。
         if name == "rosclaw_deliver":
-            # P0-C：deliver 也是 effectful——首个 effectful call 就是
-            # 交付时先原子 admission（否则裸 NO_ACTIVE_TASK——
-            # 金丝雀实证模型先 deliver 后干活的路径）。
-            self._ensure_task_for_effect(request)
+            # P0-C：deliver 也是 effectful——无任务史时首个
+            # effectful call 原子 admission（在 _artifact_register
+            # 内按需触发）；W05 §9.2：有任务史时不预绑定——终态
+            # 追加不得借 admission 绑定未附着输入激活新 revision。
             result = await self._artifact_register(request)
             self._coordinator_consider(request, result)
             return result
         if name == "rosclaw_artifact_register":
-            self._ensure_task_for_effect(request)
             result = await self._artifact_register(request)
             self._coordinator_consider(request, result)
             return result
@@ -716,22 +715,34 @@ class PiToolDispatcher:
     async def _artifact_register(
         self, request: PiToolRequestV1
     ) -> PiToolResultV1:
-        """PR-H4：交付物登记（实读文件算 hash——口头提到不算）。"""
+        """PR-H4：交付物登记（实读文件算 hash——口头提到不算）。
+
+        W05 §9.2 追加交付：终态（SUCCEEDED/FAILED/BLOCKED/
+        CANCELLED）后的登记是**追加**——注册在既有任务的当前
+        revision，不改回 RUNNING、不 bump revision、不绑定未
+        附着的新输入（迟到请求不得自动激活新 revision）。无任务
+        史时保留 P0-C 交付优先 admission。"""
         kernel = self._service._task_kernel
         task = kernel.active_task_for(request.mission_id, request.pi_session_id)
+        appended_post_terminal = False
         if task is None:
-            # 终态后语义（0824 金丝雀实证）：Coordinator 已验收完成的任务
-            # 不需要再交付——给可行动的引导，不是裸错误。
+            from rosclaw.task_kernel.service import TASK_TERMINAL
+
             latest = kernel.latest_task_for(
                 request.mission_id, request.pi_session_id
             )
-            if latest is not None and str(latest.get("state")) == "SUCCEEDED":
-                raise ToolBridgeError(
-                    "TASK_ALREADY_COMPLETED",
-                    "任务已验收完成（SUCCEEDED）——无需再交付；"
-                    "用户有新目标时会开始新任务，请直接回答即可",
+            if latest is not None and str(latest.get("state")) in TASK_TERMINAL:
+                task = latest
+                appended_post_terminal = True
+            elif latest is None:
+                # 交付优先（P0-C 金丝雀）：无任务史——首个 effectful
+                # call 原子 admission 建任务。
+                self._ensure_task_for_effect(request)
+                task = kernel.active_task_for(
+                    request.mission_id, request.pi_session_id
                 )
-            raise ToolBridgeError("NO_ACTIVE_TASK", "无活跃任务")
+            if task is None:
+                raise ToolBridgeError("NO_ACTIVE_TASK", "无活跃任务")
         path = str(request.arguments.get("path", ""))
         if not path:
             raise ToolBridgeError("INVALID_ARGUMENTS", "path required")
@@ -760,9 +771,28 @@ class PiToolDispatcher:
                 task_id=task["task_id"], path=resolved,
                 media_type=str(request.arguments.get("media_type", "application/octet-stream")),
                 producer="model:rosclaw_artifact_register",
+                metadata=(
+                    {
+                        "appended_post_terminal": True,
+                        "task_state_at_registration": str(task["state"]),
+                    }
+                    if appended_post_terminal else None
+                ),
             )
         except ValueError as exc:
             raise ToolBridgeError("ARTIFACT_MISSING", str(exc)) from exc
+        if appended_post_terminal:
+            return PiToolResultV1(
+                request_id=request.request_id,
+                ok=True, status="REGISTERED",
+                summary=(
+                    f"追加交付已登记：{_Path(artifact['path']).name}"
+                    f"（{artifact['size_bytes']}B）"
+                    f"artifact_id={artifact['artifact_id']}——任务保持 "
+                    f"{task['state']}（审计历史不变，未复活任务）；"
+                    "用户有新目标时会开始新任务"
+                ),
+            )
         return PiToolResultV1(
             request_id=request.request_id,
             ok=True, status="REGISTERED",
