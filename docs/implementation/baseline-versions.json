@@ -1,0 +1,48 @@
+{
+  "schema_version": "rosclaw.w00_baseline.v1",
+  "captured_at": "2026-09-09",
+  "git": {
+    "head": "f05aafd",
+    "head_title": "大道至简 R3：A/B 真实比较门禁——负价值阻断发布（#519）",
+    "dirty_files": ["scripts/a0901_live_gate.py (untracked, preserved)"]
+  },
+  "python": {
+    "executable": ".venv/bin/python",
+    "version": "3.11.15",
+    "rosclaw_distribution": "1.0.1 (editable, from source checkout)",
+    "cli": ".venv/bin/rosclaw (entry script → rosclaw.entrypoint)",
+    "key_packages": {
+      "mujoco": "3.11.0 (dev venv) / 3.12.0 (bundle venv)",
+      "pillow": "12.3.0",
+      "numpy": "2.4.6",
+      "pydantic": "2.13.4",
+      "mcp": "1.29.0",
+      "PyYAML": "6.0.3"
+    }
+  },
+  "node": {
+    "system": "v24.19.0 (/tmp/node2219 for dev)",
+    "bundled": "v22.19.0 (arm64, inside release bundle)"
+  },
+  "pi": {
+    "pins": {"@earendil-works/pi-coding-agent": "0.83.0", "@earendil-works/pi-ai": "0.83.0", "@earendil-works/pi-tui": "0.83.0"},
+    "package_lock_sha256_16": "e2c557e386b10500",
+    "lock_resolved_entries": 241
+  },
+  "assets": {
+    "eurdf_zoo": "e-urdf-zoo/ (in-tree, force-included into wheel)",
+    "render_backend": "osmesa (probe: egl n/a, osmesa ok, xvfb n/a)",
+    "os_isolation": "NOT READY (bwrap present-but-broken: RTM_NEWADDR denied)"
+  },
+  "bundle": {
+    "path": "dist/rosclaw-1.2.0-linux-arm64.tar.gz",
+    "files_verified": 6534,
+    "vendor_wheels": 77,
+    "install_smoke": "OK (isolated /tmp/w00-pkgtest; rosclaw --version 1.2.0; doctor healthy)"
+  },
+  "secrets": {
+    "ROSCLAW_KIMI_API_KEY": "absent (real-model paths NOT_RUN)",
+    "MOONSHOT_API_KEY": "absent",
+    "KIMI_API_KEY": "absent"
+  }
+}
