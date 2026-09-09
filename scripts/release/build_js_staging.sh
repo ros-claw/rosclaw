@@ -40,6 +40,9 @@ for pkg in rosclaw-tui rosclaw-agent; do
   mkdir -p "$STAGE/$pkg"
   cp -r "$WORK/$pkg/dist" "$WORK/$pkg/package.json" \
         "$WORK/$pkg/package-lock.json" "$STAGE/$pkg/"
+  # 测试文件不是运行内容——不进 staging（wheel/tar 是发布物；
+  # 体积 + 测试夹具字符串会误触秘密扫描）。
+  rm -rf "$STAGE/$pkg/dist/test"
   cp -r "$WORK/$pkg/src" "$STAGE/$pkg/"
   # 生产依赖 tarball（第二次 npm ci 发生在 WORK 副本——开发
   # checkout 的 node_modules 全程不被触碰）。
