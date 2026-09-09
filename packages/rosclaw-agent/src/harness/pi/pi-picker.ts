@@ -1,13 +1,13 @@
 /** ROSClaw 会话选择器（总纲 WP-P0-1 §5.1/§13）。
  *
- * 组合 Pi 0.83.0 公开 API（SessionSelectorComponent + pi-tui），不复制
+ * 组合 Pi 公开 API（W08：0.85.1 起 TUI 接口化，主屏用 TuiMainScreen）（SessionSelectorComponent + pi-tui），不复制
  * picker/search/tree 内核。交互结构参考上游
  * packages/coding-agent/src/cli/session-picker.ts（MIT，固定
  * v0.83.0；上游 selectSession 不是公开 export，本文件是总纲允许的
  * 极薄组装层——差异测试：test/session-discovery.test.ts）。
  */
 
-import { ProcessTerminal, TUI } from "@earendil-works/pi-tui";
+import { ProcessTerminal, TuiMainScreen } from "@earendil-works/pi-tui";
 import { SessionSelectorComponent } from "@earendil-works/pi-coding-agent";
 import type { SessionInfo } from "@earendil-works/pi-coding-agent";
 
@@ -22,7 +22,7 @@ export async function browseSessions(
 	allSessionsLoader: SessionsLoader,
 ): Promise<string | null> {
 	const terminal = new ProcessTerminal();
-	const ui = new TUI(terminal);
+	const ui = new TuiMainScreen(terminal);
 	return new Promise((resolve) => {
 		let resolved = false;
 		const finish = (path: string | null) => {
