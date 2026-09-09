@@ -133,7 +133,7 @@ for pkg in rosclaw-tui rosclaw-agent; do
 done
 
 # 6. build-info.json（规格 §27.2）：commit/版本/hash/Node 版本可追溯。
-python3 - "$STAGE" "$VERSION" <<'PY'
+python3 - "$STAGE" "$VERSION" "$REPO_ROOT" <<'PY'
 import hashlib, json, subprocess, sys
 from pathlib import Path
 
@@ -154,11 +154,21 @@ except Exception:
 node_version = subprocess.check_output(["node", "--version"], text=True).strip()     if subprocess.call(["bash", "-c", "command -v node >/dev/null"]) == 0 else ""
 info = {
     "rosclaw_commit": commit,
-    "pi_version": "0.83.0",
-    "pi_commit": "588915ec71714688cee8b7153339e8bdebb3e82e",
+    # W08 §12.1-6：pi 版本/commit 从锁定记录读（不写死）——
+    # pi-upstream.lock.json 是单源，升级走 candidate 流程更新它。
+    "pi_version": "",
+    "pi_commit": "",
     "node_version": node_version,
     "packages": {},
 }
+_repo_root = Path(sys.argv[3])
+_upstream_lock = _repo_root / "packages" / "rosclaw-agent" / "pi-upstream.lock.json"
+if not _upstream_lock.exists():
+    _upstream_lock = stage / "packages" / "rosclaw-agent" / "pi-upstream.lock.json"
+if _upstream_lock.exists():
+    _lock = json.loads(_upstream_lock.read_text())
+    info["pi_version"] = str(_lock.get("package_version", ""))
+    info["pi_commit"] = str(_lock.get("source_commit", ""))
 for pkg in ("rosclaw-tui", "rosclaw-agent"):
     pkg_dir = stage / "packages" / pkg
     lock = pkg_dir / "package-lock.json"

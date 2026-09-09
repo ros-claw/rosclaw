@@ -11,8 +11,9 @@ import {
 	ProcessTerminal,
 	SelectList,
 	Text,
-	TUI,
+	TuiMainScreen,
 	matchesKey,
+	type TUI,
 } from "@earendil-works/pi-tui";
 import { parseArgs as parseSchemaArgs } from "./commands/args-parser.js";
 import { MaskedInput } from "./components/masked-input.js";
@@ -94,7 +95,7 @@ export class RosclawTuiApp {
 		}
 
 		const terminal = new ProcessTerminal();
-		this.tui = new TUI(terminal);
+		this.tui = new TuiMainScreen(terminal);
 		this.statusText = new Text(this.statusString());
 		this.editor = new Editor(this.tui, editorTheme);
 		this.editor.onSubmit = (text) => {

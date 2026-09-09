@@ -40,7 +40,13 @@ class TestReleaseGate:
     def test_build_info_and_bundled_node(self, tmp_path: Path) -> None:
         root = _build(tmp_path)
         info = json.loads((root / "build-info.json").read_text())
-        assert info["pi_version"] == "0.83.0"
+        # W08：pi_version 从锁定记录读（不写死）——与
+        # pi-upstream.lock.json 一致即真。
+        upstream = json.loads(
+            (REPO / "packages" / "rosclaw-agent" / "pi-upstream.lock.json")
+            .read_text()
+        )
+        assert info["pi_version"] == upstream["package_version"]
         assert info["rosclaw_commit"]
         for pkg in ("rosclaw-tui", "rosclaw-agent"):
             assert info["packages"][pkg]["dist_sha256"], pkg
