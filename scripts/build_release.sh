@@ -36,18 +36,16 @@ rsync -a --exclude '__pycache__' --exclude '*.pyc' \
   "$REPO_ROOT/LICENSE" "$STAGE/" 2>/dev/null || \
   { cp -r "$REPO_ROOT/src" "$REPO_ROOT/pyproject.toml" "$REPO_ROOT/README.md" "$STAGE/"; }
 
-# 2. Node 包（预先构建 dist；lockfile 一并打包，安装侧 npm ci 可重现）
+# 2. Node 包（共同 JS staging——W11 §15.1：tar 与 wheel 消费同一组
+# 产物；构建在专用工作目录，开发 checkout 不被 npm ci 触碰）
+JS_STAGE="$DIST_DIR/js-stage"
+"$REPO_ROOT/scripts/release/build_js_staging.sh" "$JS_STAGE" "$DIST_DIR/.js-build"
 for pkg in rosclaw-tui rosclaw-agent; do
-  src_dir="$REPO_ROOT/packages/$pkg"
-  [ -d "$src_dir" ] || { echo "missing packages/$pkg" >&2; exit 1; }
-  # 规格 §27.1：clean build——绝不用"dist 存在即跳过"（stale dist 是
-  # 必须消除的事故源）。
-  echo "==> clean-building packages/$pkg"
-  (cd "$src_dir" && rm -rf dist && npm ci --silent && npm run build --silent)
   mkdir -p "$STAGE/packages/$pkg"
-  cp -r "$src_dir/dist" "$src_dir/package.json" "$src_dir/package-lock.json" \
-        "$src_dir/tsconfig.json" "$STAGE/packages/$pkg/"
-  cp -r "$src_dir/src" "$STAGE/packages/$pkg/"
+  cp -r "$JS_STAGE/$pkg/dist" "$JS_STAGE/$pkg/package.json" \
+        "$JS_STAGE/$pkg/package-lock.json" "$STAGE/packages/$pkg/"
+  cp "$REPO_ROOT/packages/$pkg/tsconfig.json" "$STAGE/packages/$pkg/"
+  cp -r "$JS_STAGE/$pkg/src" "$STAGE/packages/$pkg/"
 done
 
 # 3. 第三方声明与安装脚本
@@ -129,8 +127,9 @@ mkdir -p "$STAGE/vendor/wheels" "$STAGE/vendor/node_modules_pack"
   exit 1
 }
 for pkg in rosclaw-tui rosclaw-agent; do
-  (cd "$REPO_ROOT/packages/$pkg" && npm ci --omit=dev --silent)
-  tar -C "$REPO_ROOT/packages/$pkg" -czf "$STAGE/vendor/node_modules_pack/$pkg.tar.gz" node_modules
+  # W11 §15.1：生产依赖来自共同 staging（不再动开发 checkout）。
+  cp "$JS_STAGE/$pkg/node_modules.prod.tar.gz" \
+     "$STAGE/vendor/node_modules_pack/$pkg.tar.gz"
 done
 
 # 6. build-info.json（规格 §27.2）：commit/版本/hash/Node 版本可追溯。

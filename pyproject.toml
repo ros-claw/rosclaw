@@ -149,6 +149,18 @@ allow-direct-references = true
 "worker_plugins/lerobot_policy_rosclaw_rh56/policies/rh56_reference_policy_v1" = "rosclaw/rh56_data/policies/rh56_reference_policy_v1"
 "benchmarks/memory" = "rosclaw/benchmarks/memory"
 "worker_plugins/lerobot_policy_rosclaw_rh56/src/lerobot_policy_rosclaw_rh56" = "lerobot_policy_rosclaw_rh56"
+# W11 §15.1：已构建 JS 必须显式进 wheel（force-include 不假定自动
+# 包含 packages/）。来源 = 共同 staging（scripts/release/
+# build_js_staging.sh——tar 与 wheel 同一组产物）；缺 staging 即
+# 构建硬错误，不静默产出缺 JS 的 wheel。node_modules 不进 wheel
+# （dev 依赖/体积；运行期 Node 前置要求在 README/setup 明示——
+# Alpha 发布形式，规格 §15.2）。
+"dist/js-stage/rosclaw-agent/dist" = "rosclaw/js_stage/rosclaw-agent/dist"
+"dist/js-stage/rosclaw-agent/package.json" = "rosclaw/js_stage/rosclaw-agent/package.json"
+"dist/js-stage/rosclaw-agent/package-lock.json" = "rosclaw/js_stage/rosclaw-agent/package-lock.json"
+"dist/js-stage/rosclaw-tui/dist" = "rosclaw/js_stage/rosclaw-tui/dist"
+"dist/js-stage/rosclaw-tui/package.json" = "rosclaw/js_stage/rosclaw-tui/package.json"
+"dist/js-stage/rosclaw-tui/package-lock.json" = "rosclaw/js_stage/rosclaw-tui/package-lock.json"
 
 [tool.hatch.build.targets.sdist]
 include = [
@@ -160,7 +172,17 @@ include = [
     "/e-urdf-zoo",
     "/configs",
     "/worker_plugins/lerobot_policy_rosclaw_rh56",
+    # W11 §15.4：sdist 从自身内容可重建 wheel——JS 源码 + staging
+    # 构建脚本 + 预构建 js-stage（不依赖本地 git checkout）。
+    "/packages",
+    "/scripts",
+    "/third_party",
 ]
+
+# js-stage 在 .gitignore（构建产物）——sdist 必须强制包含（W11
+# §15.4：sdist 从自身内容重建 wheel 的预构建输入）。
+[tool.hatch.build.targets.sdist.force-include]
+"dist/js-stage" = "dist/js-stage"
 
 [tool.ruff]
 target-version = "py311"
