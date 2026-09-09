@@ -2,16 +2,13 @@
 
 1. 渲染能力描述诚实标明产出物（MP4 可发现——模型选了无 MP4 的
    2D 预览渲染的根因）；
-2. 终态后交付调用给可行动引导（TASK_ALREADY_COMPLETED——不是
-   裸 NO_ACTIVE_TASK）。
+2. 终态后交付调用的语义（W05 §9.2 起）：追加交付登记在既有
+   revision 并带可行动引导——不再 TASK_ALREADY_COMPLETED 拒绝。
 """
 
 from __future__ import annotations
 
-import sqlite3
 from pathlib import Path
-
-import pytest
 
 
 def _descriptor(tool_id: str):
@@ -41,38 +38,33 @@ class TestRenderDiscoverability:
 
 
 class TestCompletedTaskGuidance:
-    def test_deliver_after_succeeded_gives_guidance(self, tmp_path: Path) -> None:
-        from rosclaw.storage.migrations import MigrationRunner
-        from rosclaw.task_kernel.service import TaskKernel
-
-        conn = sqlite3.connect(":memory:", check_same_thread=False)
-        conn.row_factory = sqlite3.Row
-        MigrationRunner().apply(conn, "sqlite")
-        kernel = TaskKernel(conn, tmp_path)
-        kernel.persist_input(
-            mission_id="mis_1", session_ref="s1",
-            message_id="msg_1", text="生成交付物",
+    async def test_deliver_after_succeeded_appends_with_guidance(
+        self, tmp_path: Path
+    ) -> None:
+        """W05 §9.2：终态后登记 = 追加交付（带引导），不是裸错误
+        也不是 TASK_ALREADY_COMPLETED 拒绝。"""
+        from tests.agentd.test_pi_tool_bridge import (
+            _issue_lease,
+            _request,
+            _setup,
         )
-        bound = kernel.ensure_task_for_effect(
-            mission_id="mis_1", session_ref="s1",
-            backend_native_id="s1", cwd=str(tmp_path),
-        )
-        task_id = str(bound["task_id"])
-        from rosclaw.task_kernel.coordinator import TaskCoordinator
+        from tests.agentd.test_w05_delivery_lifecycle import _succeeded_task
 
-        f = tmp_path / "a.txt"
-        f.write_text("x", encoding="utf-8")
-        kernel.register_artifact(task_id=task_id, path=str(f),
-                                 media_type="text/plain")
-        TaskCoordinator(kernel).consider(task_id)
-        assert kernel.get_task(task_id)["state"] == "SUCCEEDED"
-        # 终态后再登记 → 友好引导（TASK_ALREADY_COMPLETED），不是
-        # 裸 NO_ACTIVE_TASK。
-        from rosclaw.agentd.pi_bridge.tool_dispatch import ToolBridgeError
+        service, mission = await _setup(tmp_path)
+        await _succeeded_task(service, mission, tmp_path)
+        f2 = tmp_path / "b.txt"
+        f2.write_text("appendix", encoding="utf-8")
+        from rosclaw.agentd.pi_bridge.tool_dispatch import PiToolDispatcher
 
-        with pytest.raises(ToolBridgeError) as exc:
-            raise ToolBridgeError(
-                "TASK_ALREADY_COMPLETED",
-                "任务已验收完成（SUCCEEDED）——无需再交付",
+        result = await PiToolDispatcher(service).execute(
+            _request(
+                "rosclaw_artifact_register", mission=mission.mission_id,
+                idem="canary_append",
+                lease=await _issue_lease(service, mission),
+                arguments={"path": str(f2)},
             )
-        assert exc.value.code == "TASK_ALREADY_COMPLETED"
+        )
+        assert result.ok, result.summary
+        assert "追加交付" in result.summary
+        assert "用户有新目标时会开始新任务" in result.summary
+        await service.close()
