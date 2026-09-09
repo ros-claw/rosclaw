@@ -261,6 +261,11 @@ def cmd_artifact_export(args: argparse.Namespace) -> int:
     dest = Path(str(args.dest))
     if dest.is_dir():
         dest = dest / src.name
+    # W07 §11.2/§6.4：目标已存在不静默覆盖（与 api.export 的
+    # EXPORT_TARGET_EXISTS 同一纪律——导出是证据链动作）。
+    if dest.exists():
+        print(f"导出目标已存在：{dest}（不静默覆盖——换个路径或先删除）")
+        return 4
     dest.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(src, dest)
     print(f"已导出：{dest}（{view['size_bytes']}B，{view['digest'][:19]}…）")
