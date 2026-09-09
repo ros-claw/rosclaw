@@ -1680,7 +1680,10 @@ class TestProductJourney:
                 # W06 §10.2：文案如实（宿主执行 + 进程内
                 # provenance），一次性显示。
                 session.expect("本机无 OS 隔离".encode(), timeout=30)
-                assert b"rosclaw doctor" in session.clean, (
+                # 长提示按终端宽度换行——"rosclaw doctor" 可能被
+                # 折行拆开；压缩空白后比对（0901 CJK 撕裂同款防线）。
+                squashed = b"".join(session.clean.split())
+                assert "rosclawdoctor".encode() in squashed, (
                     "沙箱提示必须带 doctor 修复入口"
                 )
                 self._journey_verdicts["sandbox_notice_at_session_start"] = True
