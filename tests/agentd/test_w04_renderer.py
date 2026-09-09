@@ -209,9 +209,8 @@ class TestRenderLifecycleE2E:
     def test_retry_reuses_and_two_views_coexist(self, tmp_path) -> None:
         """同参重试复用已完成结果（reused=True 且不重渲染）；
         同 trace 两视角各自产出互不覆盖。"""
-        from tests.agentd.test_wp3_scene_render import _make_trace
-
         from rosclaw.agentd.sim_render import render_scene_trace
+        from tests.agentd.test_wp3_scene_render import _make_trace
 
         run = _make_trace(tmp_path)
         trace_id = run["trace_id"]
@@ -232,9 +231,8 @@ class TestRenderLifecycleE2E:
         """§8.4：输出 1× 时长与记录时长误差 ≤ 一个输出帧。"""
         import json
 
-        from tests.agentd.test_wp3_scene_render import _make_trace
-
         from rosclaw.agentd.sim_render import render_scene_trace
+        from tests.agentd.test_wp3_scene_render import _make_trace
 
         run = _make_trace(tmp_path)
         trace_id = run["trace_id"]
