@@ -270,10 +270,11 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 					const probe = options.osIsolationProbe ?? defaultOsIsolationProbe;
 					if (!isolationNoticeShown && !probe().isolationReady) {
 						isolationNoticeShown = true;
+						// 通知区会裁剪长文本——doctor 修复入口必须前置
+						// （journey 实证：长文后半段根本不显示）。
 						notifyLeveled(ctx,
-							"本机无 OS 隔离（bwrap 不可用）——任务代码直接在宿主执行："
-							+ "可访问工作区外文件与网络，产物证据为进程内 provenance"
-							+ "（非安全隔离、非防篡改）；rosclaw doctor 查看结论与修复建议",
+							"本机无 OS 隔离——宿主直接执行（证据=进程内 provenance，"
+							+ "非防篡改）；rosclaw doctor 查看结论与修复建议",
 							"warning",
 						);
 					}

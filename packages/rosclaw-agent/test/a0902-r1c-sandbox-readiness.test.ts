@@ -96,7 +96,7 @@ test("R1-c: 无 OS 沙箱 → session_start 一次性提示（降级后果 + doc
 	assert.equal(hints.length, 1, `应恰好提示一次，实际 ${hints.length}`);
 	// 文案如实：宿主直接执行 + 进程内 provenance——R1-2b 后
 	// SIM shell 自动执行，不存在"弹确认卡降级"，不得如此宣称。
-	assert.match(hints[0], /宿主执行/);
+	assert.match(hints[0], /宿主直接执行/);
 	assert.match(hints[0], /provenance/);
 	assert.doesNotMatch(hints[0], /确认卡/);
 	assert.match(hints[0], /rosclaw doctor/);
