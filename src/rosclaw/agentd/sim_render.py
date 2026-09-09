@@ -496,15 +496,31 @@ def _render_impl(
     spec_outputs = spec_doc.get("outputs") or ["gif", "mp4"]
     spec_body_ref = str(spec_doc.get("body_ref") or "")
     # canonical MJCF（与 rollout 同一资源链）；world 来自 TaskSpec
-    # （tabletop/empty——empty 不得冒充桌面场景）。本体：spec 驱动时
-    # 走 RenderProfile 注册表（不 hardcode）；无 spec 保持 ur5e 兼容。
+    # （tabletop/empty——empty 不得冒充桌面场景）。本体身份从记录
+    # 推导（W02 §6.3：记录什么模型就用什么模型——绝不静默默认）：
+    # spec.body_ref > trace.resource.robot_id；两者皆无=旧记录
+    # 无身份，诚实拒绝（不补默认 UR5e）。
     from rosclaw.sandbox.sandbox_api import Sandbox
 
-    robot_id = "ur5e"
+    robot_id = ""
     if spec_body_ref:
         from rosclaw.agentd.render_profiles import sandbox_robot_id
 
         robot_id = sandbox_robot_id(spec_body_ref.removeprefix("robot:"))
+    else:
+        resource = trace.get("resource") or {}
+        robot_id = str(
+            resource.get("robot_id") or resource.get("resource_id") or ""
+        ).removeprefix("robot:")
+    if not robot_id:
+        raise ValueError(
+            "LEGACY_MODEL_IDENTITY_MISSING: 该 trace 无模型身份记录"
+            "（无 RenderSpec.body_ref 且 trace.resource.robot_id 缺失）"
+            "——旧记录请重跑 rollout 或显式传 body_ref；新 trace 必须"
+            "携带模型身份（不静默默认机器人）"
+        )
+    if robot_id.startswith("sim/"):
+        robot_id = robot_id.removeprefix("sim/")
     sandbox = Sandbox.create(robot_id, world_id, "mujoco")
     if not sandbox.has_physics:
         raise ValueError(f"RENDER_INPUT: canonical 模型不可用: {sandbox.load_error}")
@@ -636,6 +652,206 @@ def _render_impl(
 
 
 __all__ = ["probe_render_backend", "render_from_spec", "render_scene_trace"]
+
+
+def render_operation(
+    home: Path,
+    trace_ref: str,
+    states: list[dict],
+    *,
+    model_digest: str,
+    camera: str = "follow",
+    outputs: list[str] | None = None,
+    fps: float = 12.0,
+    duration_s: float = 0.0,
+    width: int = 640,
+    height: int = 360,
+) -> str:
+    """通用渲染 operation（W02 §6.4 + W04 先行面）——任意模型的
+    完整状态回放渲染。
+
+    新契约（相对 legacy render_scene_trace）：
+    - 完整 qpos 恢复（nq 全长——不按 nu 截断）；
+    - 时间驱动选帧（按时间戳与目标 fps——不按索引均采样）；
+    - operation 独立目录（renders/<op_id>/——同 trace 不同视角/
+      格式并发互不覆盖；结果先写临时文件再原子发布）；
+    - 模型身份经 trace 记录 → model_ref → models/ 登记解析
+      （不静默默认机器人）；
+    - 渲染在子进程执行（MUJOCO_GL 必须在 import mujoco 前设定
+      ——与 legacy 同纪律）。
+    """
+    import hashlib as _hl
+    import json as _json
+
+    if not states:
+        raise ValueError(f"RENDER_INPUT_MISSING: {trace_ref} 无 states")
+    outputs = outputs or ["gif"]
+    home = Path(home)
+    # 模型身份经 trace 记录 → model_ref → models/ 登记解析
+    # （不静默默认机器人）。
+    record_path = home / "models" / f"{trace_ref}.json"
+    model_path = ""
+    if record_path.exists():
+        op_record = _json.loads(record_path.read_text(encoding="utf-8"))
+        model_ref = str(op_record.get("model_ref", ""))
+        model_record_path = home / "models" / f"{model_ref}.json"
+        if model_record_path.exists():
+            model_path = str(
+                _json.loads(model_record_path.read_text(encoding="utf-8")).get("path") or ""
+            )
+    if not model_path or not Path(model_path).exists():
+        raise ValueError(
+            f"RENDER_MODEL_MISSING: {trace_ref} 的模型记录不可用——"
+            "渲染只接受 load_model 登记过的模型（不静默默认）"
+        )
+    import mujoco as _mj
+
+    _probe_model = _mj.MjModel.from_xml_path(model_path)
+    nq = int(_probe_model.nq)
+    for s in states:
+        if len(s.get("qpos", [])) != nq:
+            raise ValueError(
+                f"STATE_DIMENSION: qpos 长度 {len(s.get('qpos', []))} != "
+                f"nq={nq}（跨模型引用直接拒绝，不静默截断/补零）"
+            )
+    op_id = "render_" + _hl.sha256(_json.dumps({
+        "trace_ref": trace_ref, "model_digest": model_digest,
+        "camera": camera, "outputs": outputs, "fps": fps,
+    }, sort_keys=True).encode()).hexdigest()[:12]
+    op_dir = home / "renders" / op_id
+    op_dir.mkdir(parents=True, exist_ok=True)
+    backend, probe_detail = probe_render_backend()
+    if backend is None:
+        raise ValueError(
+            "RENDER_BACKEND_UNAVAILABLE: " + _json.dumps(
+                probe_detail, ensure_ascii=False,
+            )[:200]
+        )
+    spec = {
+        "operation_id": op_id,
+        "model_path": model_path,
+        "model_digest": model_digest,
+        "trace_ref": trace_ref,
+        "camera": camera,
+        "outputs": outputs,
+        "fps": float(fps),
+        "duration_s": float(duration_s),
+        "width": int(width),
+        "height": int(height),
+        "states": states,
+    }
+    spec_path = op_dir / "_render_spec.json"
+    spec_path.write_text(_json.dumps(spec, ensure_ascii=False), encoding="utf-8")
+    child_code = (
+        "import sys; sys.path.insert(0, "
+        + repr(str(Path(__file__).resolve().parents[2]))
+        + "); from rosclaw.agentd.sim_render import _render_operation_child;"
+        + f"_render_operation_child({str(home)!r}, {str(spec_path)!r})"
+    )
+    import os as _os
+    import shutil as _sh
+
+    argv = [sys.executable, "-c", child_code]
+    if backend == "xvfb":
+        env = dict(_os.environ, MUJOCO_GL="glfw")
+        argv = [_sh.which("xvfb-run") or "xvfb-run", "-a", *argv]
+    else:
+        env = dict(_os.environ, MUJOCO_GL=backend)
+    try:
+        proc = subprocess.run(
+            argv, env=env, capture_output=True, timeout=300,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise ValueError("RENDER_TIMEOUT: 渲染子进程超时（300s）") from exc
+    receipt_path = op_dir / "render_receipt.json"
+    if proc.returncode != 0 or not receipt_path.exists():
+        detail = proc.stderr.decode(errors="replace")[-400:]
+        raise ValueError(
+            f"RENDER_FAILED: 渲染子进程失败（rc={proc.returncode}）：{detail}"
+        )
+    return op_id
+
+
+def _render_operation_child(home: str, spec_path: str) -> None:
+    """渲染子进程主体（MUJOCO_GL 已在父进程 env 设定后 import）。"""
+    import json as _json
+
+    import numpy as np
+    from PIL import Image
+
+    home = Path(home)
+    spec = _json.loads(Path(spec_path).read_text(encoding="utf-8"))
+    states = spec["states"]
+    op_id = spec["operation_id"]
+    op_dir = home / "renders" / op_id
+    import mujoco
+
+    model = mujoco.MjModel.from_xml_path(spec["model_path"])
+    data = mujoco.MjData(model)
+    renderer = mujoco.Renderer(model, height=spec["height"], width=spec["width"])
+    cam = mujoco.MjvCamera()
+    xyz = [(s["qpos"][0], s["qpos"][1], s["qpos"][2]) for s in states]
+    cx = sum(p[0] for p in xyz) / len(xyz)
+    cy = sum(p[1] for p in xyz) / len(xyz)
+    cz = sum(p[2] for p in xyz) / len(xyz)
+    if spec["camera"] == "top":
+        cam.lookat[:] = [cx, cy, cz]
+        cam.distance = 1.2
+        cam.azimuth = 90.0
+        cam.elevation = -89.0
+    else:
+        cam.lookat[:] = [cx, cy, cz]
+        cam.distance = 1.2
+        cam.azimuth = 135.0
+        cam.elevation = -25.0
+    times = [float(s.get("t", 0.0)) for s in states]
+    span = times[-1] - times[0] if len(times) > 1 else 0.0
+    duration_s = float(spec["duration_s"])
+    if duration_s <= 0.0:
+        duration_s = span if span > 0 else len(states) * 0.002
+    fps = float(spec["fps"])
+    frame_count = max(2, int(round(duration_s * fps)))
+    target_times = [times[0] + (duration_s * i / (frame_count - 1))
+                    for i in range(frame_count)]
+    images = []
+    for tt in target_times:
+        idx = min(range(len(times)), key=lambda i: abs(times[i] - tt))
+        data.qpos[:] = np.array(states[idx]["qpos"], dtype=float)
+        mujoco.mj_forward(model, data)
+        renderer.update_scene(data, camera=cam)
+        images.append(Image.fromarray(renderer.render()))
+    artifacts: dict[str, Any] = {}
+    if "gif" in spec["outputs"]:
+        out = op_dir / f"{op_id}.gif"
+        tmp = op_dir / f".{op_id}.gif.tmp"
+        images[0].save(
+            tmp, format="GIF", save_all=True, append_images=images[1:],
+            duration=int(1000 / max(fps, 1.0)), loop=0,
+        )
+        tmp.replace(out)  # 原子发布
+        artifacts["gif"] = {"path": str(out), "frames": len(images),
+                            "bytes": out.stat().st_size}
+    if "mp4" in spec["outputs"]:
+        import imageio.v3 as iio
+
+        mp4 = op_dir / f"{op_id}.mp4"
+        tmp = op_dir / f".{op_id}.mp4.tmp"
+        iio.imwrite(tmp, [np.asarray(img) for img in images],
+                    fps=int(round(fps)))
+        tmp.replace(mp4)
+        artifacts["mp4"] = {"path": str(mp4), "frames": len(images),
+                            "bytes": mp4.stat().st_size}
+    (op_dir / "render_receipt.json").write_text(_json.dumps({
+        "operation_id": op_id,
+        "trace_ref": spec["trace_ref"],
+        "model_digest": spec["model_digest"],
+        "camera": spec["camera"],
+        "fps": fps,
+        "duration_s": duration_s,
+        "frame_count": len(images),
+        "artifacts": artifacts,
+        "evidence_level": "agent_generated_experiment",
+    }, ensure_ascii=False, indent=1), encoding="utf-8")
 
 
 if __name__ == "__main__":
