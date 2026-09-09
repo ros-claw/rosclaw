@@ -396,6 +396,20 @@ jobs:
         with:
           python-version: '3.11'
 
+      # W11 §15.1：wheel 与离线 tar 消费同一组 JS staging——hatch
+      # force-include dist/js-stage，缺 staging 即硬错误（不静默
+      # 产出缺 JS 的 wheel）。
+      - name: Set up Node (JS staging)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.19.0'
+
+      - name: Build JS staging (tar/wheel 同一构建输入)
+        run: bash scripts/release/build_js_staging.sh
+        env:
+          # §15.4 缺资产硬错误落在发布门禁：本 job 缺 staging 即失败。
+          ROSCLAW_REQUIRE_JS_STAGE: "1"
+
       - name: Install build dependencies
         run: pip install hatch
 
@@ -410,6 +424,8 @@ jobs:
 
       - name: Build package
         run: hatch build
+        env:
+          ROSCLAW_REQUIRE_JS_STAGE: "1"
 
       - name: Verify wheel runtime resources
         run: |
@@ -443,9 +459,17 @@ jobs:
               "rosclaw/robot_pack/trust/keys.json",
               "rosclaw/hub/trust/keys.json",
               "lerobot_policy_rosclaw_rh56/__init__.py",
+              # W11 §15.1/§15.4：wheel 自包含已构建 JS（实际开包检查）。
+              "rosclaw/js_stage/rosclaw-agent/dist/src/main.js",
+              "rosclaw/js_stage/rosclaw-agent/dist/prompts/native_agent_v2.md",
+              "rosclaw/js_stage/rosclaw-agent/package-lock.json",
+              "rosclaw/js_stage/rosclaw-tui/dist/src/main.js",
           }
           missing = sorted(required - names)
           assert not missing, f"wheel missing runtime resources: {missing}"
+          assert not any("node_modules" in n for n in names), (
+              "wheel 不得包含 node_modules（dev 依赖/体积）"
+          )
           meshes = [
               name
               for name in names
@@ -453,6 +477,32 @@ jobs:
               and name.endswith(".obj")
           ]
           assert len(meshes) >= 20, f"wheel contains only {len(meshes)} UR5e meshes"
+          PY
+
+      # W11 §15.4：sdist 从自身内容可重建 wheel（JS 源码 + staging
+      # 脚本 + 预构建 js-stage 随 sdist 走）——实际开包检查。
+      - name: Verify sdist self-containment
+        run: |
+          python - <<'PY'
+          import glob
+          import tarfile
+
+          sdists = glob.glob("dist/*.tar.gz")
+          assert len(sdists) == 1, sdists
+          with tarfile.open(sdists[0]) as sdist:
+              names = set(sdist.getnames())
+          required_fragments = (
+              "packages/rosclaw-agent/src/extension/index.ts",
+              "packages/rosclaw-agent/package-lock.json",
+              "scripts/release/build_js_staging.sh",
+              "dist/js-stage/rosclaw-agent/dist/src/main.js",
+              "dist/js-stage/rosclaw-tui/dist/src/main.js",
+          )
+          missing = [
+              f for f in required_fragments
+              if not any(n.endswith(f) for n in names)
+          ]
+          assert not missing, f"sdist 缺重建输入: {missing}"
           PY
 
       - name: Upload artifacts

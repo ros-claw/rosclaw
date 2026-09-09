@@ -23,6 +23,15 @@ rosclaw firstboot --yes --profile offline --no-telemetry
 rosclaw doctor --level verified
 ```
 
+> **Install forms (Alpha).** The offline tar bundle is fully self-contained
+> (Node runtime, npm production deps, Python wheels). The PyPI wheel
+> (`pip install rosclaw`) ships the prebuilt agent JS and Python runtime but
+> **requires Node.js ≥ 22.19 on the host** — it does not bundle a Node
+> runtime, and nothing is downloaded at chat time. Rendering additionally
+> needs a GL backend (OSMesa/EGL/Xvfb); `rosclaw doctor` reports the exact
+> OS packages for your platform. We do not claim "zero system dependencies
+> after pip install" for this release form.
+
 ---
 
 ## What is ROSClaw?

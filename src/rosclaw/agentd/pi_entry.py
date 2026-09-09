@@ -48,8 +48,22 @@ def find_node() -> str | None:
     return None
 
 
+def _wheel_package_root() -> Path:
+    """已安装 rosclaw 包根（site-packages/rosclaw）。"""
+    return Path(__file__).resolve().parents[1]
+
+
+def _wheel_embedded_entry(pkg: str, *, package_root: Path | None = None) -> str | None:
+    """W11 §15.1：wheel 内嵌 JS（rosclaw/js_stage/<pkg>/dist/src/
+    main.js——共同 staging 产物，与离线 tar 同一构建输入）。"""
+    root = package_root if package_root is not None else _wheel_package_root()
+    entry = root / "js_stage" / pkg / "dist" / "src" / "main.js"
+    return str(entry) if entry.exists() else None
+
+
 def package_entry(pkg: str, env_var: str) -> str | None:
-    """pkg dist 入口解析：env → 仓库布局 → 安装布局（<root>/packages/<pkg>）。"""
+    """pkg dist 入口解析：env → 仓库布局 → 安装布局（<root>/packages/<pkg>）
+    → wheel 内嵌 js_stage（pip 安装布局，W11）。"""
     entry_env = os.environ.get(env_var)
     if entry_env:
         return entry_env
@@ -63,7 +77,7 @@ def package_entry(pkg: str, env_var: str) -> str | None:
         installed = root / "packages" / pkg / "dist" / "src" / "main.js"
         if installed.exists():
             return str(installed)
-    return None
+    return _wheel_embedded_entry(pkg)
 
 
 def find_pi_agent_entry() -> tuple[str, str] | None:

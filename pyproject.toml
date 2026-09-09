@@ -150,6 +150,15 @@ allow-direct-references = true
 "benchmarks/memory" = "rosclaw/benchmarks/memory"
 "worker_plugins/lerobot_policy_rosclaw_rh56/src/lerobot_policy_rosclaw_rh56" = "lerobot_policy_rosclaw_rh56"
 
+# W11 §15.1：已构建 JS 经自定义钩子注入非 editable wheel（静态
+# force-include 会被 editable 构建同样强制执行——CI 实证；钩子
+# 按构建版本区分）。缺 staging = 硬错误（scripts/release/
+# build_js_staging.sh——tar/wheel 同一构建输入）。node_modules
+# 不进 wheel；运行期 Node 前置要求在 README/setup 明示（Alpha
+# 发布形式，规格 §15.2）。
+[tool.hatch.build.hooks.custom]
+path = "scripts/hatch_js_stage_hook.py"
+
 [tool.hatch.build.targets.sdist]
 include = [
     "/src",
@@ -160,7 +169,17 @@ include = [
     "/e-urdf-zoo",
     "/configs",
     "/worker_plugins/lerobot_policy_rosclaw_rh56",
+    # W11 §15.4：sdist 从自身内容可重建 wheel——JS 源码 + staging
+    # 构建脚本 + 预构建 js-stage（不依赖本地 git checkout）。
+    "/packages",
+    "/scripts",
+    "/third_party",
 ]
+
+# js-stage 在 .gitignore（构建产物）——sdist 必须强制包含（W11
+# §15.4：sdist 从自身内容重建 wheel 的预构建输入）。
+[tool.hatch.build.targets.sdist.force-include]
+"dist/js-stage" = "dist/js-stage"
 
 [tool.ruff]
 target-version = "py311"
