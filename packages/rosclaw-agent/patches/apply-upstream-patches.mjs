@@ -68,23 +68,19 @@ const PATCHES = [
 			"              } }\n" +
 			"            // Handle commands",
 	},
-	// -- HOTFIX-4：TranscriptPolicy（P0-4G）-------------------------------------
-	// raw reasoning（thinking blocks / reasoning_content / redacted_thinking）
-	// 只作内存瞬态进度——写 session 前剥离；resume/replay/export 不再回放。
+	// -- 大道至简 W01（规格 §5.2）：patch-03/04 退役 ----------------------
+	// TranscriptPolicy 全局删除补丁（写前剥离 + 绝不回放）违反 thinking
+	// 模型的官方 continuation 契约（Kimi/Claude 都要求按原样保留历史
+	// reasoning）。新政策：provider continuation 由上游按官方协议管理；
+	// 会话存储是受控区域；泄漏面（UI/非协议字段/遥测）由 journey 的
+	// _assert_reasoning_protocol 钉死。以下为退役-恢复条目：已打过
+	// 补丁的 node_modules 恢复为上游原文；pristine 环境自然 no-op。
 	{
 		target: T("@earendil-works", "pi-coding-agent", "dist", "core", "session-manager.js"),
-		name: "patch-03: transcript policy — strip raw reasoning on write",
+		name: "retire patch-03 (delete strip block)",
+		retire: true,
+		optionalAnchor: true,
 		anchor:
-			"    appendMessage(message) {\n" +
-			"        const entry = {\n" +
-			"            type: \"message\",\n" +
-			"            id: generateId(this.byId),\n" +
-			"            parentId: this.leafId,\n" +
-			"            timestamp: new Date().toISOString(),\n" +
-			"            message,\n" +
-			"        };",
-		replacement:
-			"    appendMessage(message) {\n" +
 			"        // ROSCLAW-PATCH-03: TranscriptPolicy——raw reasoning 不持久化。\n" +
 			"        // thinking/reasoning 只用于内存瞬态进度；写 session 前剥离\n" +
 			"        // （thinking blocks + provider reasoning 字段变体）。\n" +
@@ -102,35 +98,21 @@ const PATCHES = [
 			"                });\n" +
 			"            }\n" +
 			"            message = clone;\n" +
-			"        }\n" +
-			"        const entry = {\n" +
-			"            type: \"message\",\n" +
-			"            id: generateId(this.byId),\n" +
-			"            parentId: this.leafId,\n" +
-			"            timestamp: new Date().toISOString(),\n" +
-			"            message,\n" +
-			"        };",
+			"        }\n",
+		replacement:
+			"",
 	},
 	{
-		// 注意：pi-ai 有顶层与嵌套（pi-coding-agent/node_modules）两份——
-		// 运行时实际加载嵌套副本，两份都必须打（见 patches/README.md）。
 		target: [
 			T("@earendil-works", "pi-ai", "dist", "api", "openai-completions.js"),
 			{ path: T("@earendil-works", "pi-coding-agent", "node_modules",
 				"@earendil-works", "pi-ai", "dist", "api", "openai-completions.js"),
 				optional: true },
 		],
-		name: "patch-04: transcript policy — never replay raw reasoning to provider",
+		name: "retire patch-04 (restore upstream thinking replay)",
+		retire: true,
+		optionalAnchor: true,
 		anchor:
-			"                    // Use the signature from the first thinking block if available (for llama.cpp server + gpt-oss)\n" +
-			"                    let signature = nonEmptyThinkingBlocks[0].thinkingSignature;\n" +
-			"                    if (model.provider === \"opencode-go\" && signature === \"reasoning\") {\n" +
-			"                        signature = \"reasoning_content\";\n" +
-			"                    }\n" +
-			"                    if (signature && signature.length > 0) {\n" +
-			"                        assistantMsg[signature] = nonEmptyThinkingBlocks.map((block) => block.thinking).join(\"\\n\");\n" +
-			"                    }",
-		replacement:
 			"                    // ROSCLAW-PATCH-04: TranscriptPolicy——raw reasoning\n" +
 			"                    // 绝不回放进 provider 请求（resume/历史消息同策）。\n" +
 			"                    // thinking blocks 只作内存瞬态进度，不再外发。\n" +
@@ -142,6 +124,15 @@ const PATCHES = [
 			"                        if (signature && signature.length > 0) {\n" +
 			"                            assistantMsg[signature] = nonEmptyThinkingBlocks.map((block) => block.thinking).join(\"\\n\");\n" +
 			"                        }\n" +
+			"                    }",
+		replacement:
+			"                    // Use the signature from the first thinking block if available (for llama.cpp server + gpt-oss)\n" +
+			"                    let signature = nonEmptyThinkingBlocks[0].thinkingSignature;\n" +
+			"                    if (model.provider === \"opencode-go\" && signature === \"reasoning\") {\n" +
+			"                        signature = \"reasoning_content\";\n" +
+			"                    }\n" +
+			"                    if (signature && signature.length > 0) {\n" +
+			"                        assistantMsg[signature] = nonEmptyThinkingBlocks.map((block) => block.thinking).join(\"\\n\");\n" +
 			"                    }",
 	},
 ];
@@ -164,6 +155,17 @@ for (const patch of PATCHES) {
 for (const [target, patches] of grouped) {
 	let source = readFileSync(target, "utf8");
 	for (const patch of patches) {
+		// retire 条目：锚点（已打的补丁文本）在场才恢复——空 replacement
+		// 或锚点即原文前缀时，"already applied" 恒真会跳过恢复（实证）。
+		if (patch.retire) {
+			if (!source.includes(patch.anchor)) {
+				console.log(`[already retired] ${patch.name}`);
+				continue;
+			}
+			source = source.replace(patch.anchor, patch.replacement);
+			console.log(`[retired] ${patch.name}`);
+			continue;
+		}
 		if (source.includes(patch.replacement)) {
 			console.log(`[already applied] ${patch.name}`);
 			continue;

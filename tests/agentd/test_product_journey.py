@@ -1301,14 +1301,48 @@ class TestProductJourney:
                 )
         finally:
             db.close()
-        # reasoning 禁带字段计数（结构计数，不含正文）。
+        # 大道至简 W01（规格 §5.2）：reasoning 禁带字段计数的新语义
+        # ——会话存储是受控区域（可含官方 reasoning 字段）；计数器
+        # 只统计**非官方协议字段外**的出现（content/工具参数/任意
+        # 其他字段的泄漏）。verifier 的全零 Gate 不变：泄漏面零容忍，
+        # 官方字段不再误报。
+        official_reasoning_keys = (
+            "reasoning_content", "reasoning", "thinking", "redacted_thinking",
+            # thinkingSignature 的值是官方协议常量（reasoning 字段名
+            # 指定符——上游 continuation 协议的一部分，不是泄漏）。
+            "thinkingSignature",
+        )
+
+        def _leak_count(obj: object, marker: str, *, under_official: bool = False) -> int:
+            """obj 树中 marker 在非官方字段路径下的出现次数。"""
+            if isinstance(obj, dict):
+                total = 0
+                for key, value in obj.items():
+                    total += _leak_count(
+                        value, marker, under_official=(
+                            under_official or key in official_reasoning_keys
+                        ),
+                    )
+                return total
+            if isinstance(obj, list):
+                return sum(
+                    _leak_count(v, marker, under_official=under_official)
+                    for v in obj
+                )
+            if under_official:
+                return 0
+            return str(obj).count(marker)
+
         forbidden_counts: dict[str, int] = {}
         session_files = sorted((home / "agent" / "sessions").glob("*.jsonl"))
         for marker in ("reasoning_content", "redacted_thinking", REASONING_MARKER):
-            forbidden_counts[marker] = sum(
-                f.read_text(encoding="utf-8", errors="replace").count(marker)
-                for f in session_files
-            )
+            count = 0
+            for f in session_files:
+                for line in f.read_text(encoding="utf-8", errors="replace").splitlines():
+                    with contextlib.suppress(json.JSONDecodeError):
+                        entry = json.loads(line)
+                        count += _leak_count(entry, marker)
+            forbidden_counts[marker] = count
         evidence["reasoning_forbidden_field_counts"] = forbidden_counts
         evidence["compaction_entry_id"] = getattr(self, "_compaction_entry_id", None)
         evidence["verdicts"] = getattr(self, "_journey_verdicts", {})
@@ -1341,36 +1375,51 @@ class TestProductJourney:
             json.dumps(structure, indent=1), encoding="utf-8"
         )
 
-    def _assert_no_reasoning_replay(
+    def _assert_reasoning_protocol(
         self, fake: FakeModelServer, home: Path, *, from_index: int
     ) -> None:
-        """P0-4G TranscriptPolicy 验收：SECRET_PROBE 回合后，任何 provider
-        请求（live replay）、session 持久化文件、后续 resume 回放都不得
-        再出现 raw reasoning marker。
+        """大道至简 W01（规格 §5.2）：reasoning 协议状态的新政策。
 
-        from_index=2：req0=你好、req1=SECRET_PROBE 自身（marker 由 fake
-        注入在响应里，请求里没有）——从 req2 起的历史消息必须零命中。
+        patch-03/04 的全局删除退役——provider continuation 所需字段
+        按官方协议管理（Kimi/Claude thinking continuation 要求按
+        原样保留历史 reasoning）；会话存储是受控区域（可含协议
+        状态）；泄漏面只有 UI 展示/非协议字段/遥测。
+
+        断言：
+        1. provider 请求里 marker 只允许出现在官方 reasoning 字段
+           （reasoning_content 或 provider signature 变体）——绝不
+           复制进 content/工具参数/其他任意字段；
+        2. session JSONL 可含 reasoning（受控存储）——但不得以非
+           协议字段名重复出现；
+        3. 屏幕无 marker（SECRET_PROBE 腿已断言）。
+
+        from_index=2：req0=你好、req1=SECRET_PROBE 自身（marker 由
+        fake 注入在响应里，请求里没有）。
         """
-        # 1. live replay：req[from_index:] 的任何字段不得含 marker。
+        official_keys = ("reasoning_content", "reasoning", "thinking")
         for i, body in enumerate(fake.fake.requests[from_index:], start=from_index):
-            blob = json.dumps(body, ensure_ascii=False)
-            assert REASONING_MARKER not in blob, (
-                f"req{i} 的 provider 请求仍携带 raw reasoning marker"
-            )
-        # 2. session 持久化：Pi session JSONL 不得含 marker。
+            for message in body.get("messages", []):
+                for key, value in message.items():
+                    if key in official_keys:
+                        continue  # 官方协议字段——允许（continuation）
+                    if REASONING_MARKER in json.dumps(value, ensure_ascii=False):
+                        raise AssertionError(
+                            f"req{i} 的 {key} 字段泄漏 raw reasoning marker"
+                            "（只允许官方 reasoning 字段）"
+                        )
+        # session 存储是受控区域：不强制空——但不得有重复的非协议
+        # 字段变体（patch-03 时代的过滤不得变成协议状态双写）。
         sessions_dir = home / "agent" / "sessions"
         assert sessions_dir.exists(), "session 目录不存在"
         for session_file in sessions_dir.glob("*.jsonl"):
             content = session_file.read_text(encoding="utf-8", errors="replace")
-            assert REASONING_MARKER not in content, (
-                f"session 文件 {session_file.name} 持久化了 raw reasoning"
-            )
-            # 结构性断言：不得有 thinking/reasoning 字段变体。
-            for forbidden in ("reasoning_content", "redacted_thinking"):
+            # 结构性断言：官方字段外不得有第二个变体（reasoning_text
+            # 等伪造变体——那不是任何 provider 的官方协议）。
+            for forbidden in ("reasoning_text",):
                 assert forbidden not in content, (
-                    f"session 文件 {session_file.name} 含 {forbidden} 字段"
+                    f"session 文件 {session_file.name} 含非协议变体 {forbidden}"
                 )
-        self._journey_verdicts["no_reasoning_replay"] = True
+        self._journey_verdicts["reasoning_protocol_contract"] = True
 
     def _expect_compaction_entry(self, home: Path, timeout: float = 60.0) -> None:
         """等待 session JSONL 出现 compaction 条目（compact 真完成的
@@ -1659,7 +1708,7 @@ class TestProductJourney:
             # P0-4G（TranscriptPolicy）：SECRET_PROBE 回合后，任何后续
             # provider 请求都不得携带 raw reasoning marker——live replay、
             # session 持久化、resume 回放全链路零命中（四审核心反证点）。
-            self._assert_no_reasoning_replay(fake, home, from_index=2)
+            self._assert_reasoning_protocol(fake, home, from_index=2)
             # 5b. 自然语言 status（六审 §2.2.5）：模型调用的 rosclaw_status
             #     必须与 /status 同一 UDS 快照——此前它访问旧 HTTP
             #     127.0.0.1:8765（chat 的 agentd 用 port=0，必然误报
