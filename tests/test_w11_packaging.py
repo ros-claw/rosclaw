@@ -85,6 +85,13 @@ class TestWheelSelfContainment:
         （发布门禁）缺失即硬错误。"""
         import sys
 
+        import pytest
+
+        pytest.importorskip(
+            "hatchling",
+            reason="NOT_RUN: 回归环境无 hatchling——钩子由 CI Build "
+            "Package（真实 hatch build + 内容校验）端到端覆盖",
+        )
         sys.path.insert(0, str(REPO_ROOT / "scripts"))
         from hatch_js_stage_hook import JsStageHook
 
