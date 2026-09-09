@@ -464,6 +464,46 @@ def _apply_overlay_geoms(renderer: Any, overlays: list[tuple[str, Any]]) -> list
     return drawn
 
 
+def restore_frame_state(
+    model: Any,
+    data: Any,
+    qpos: list[float],
+    declared_dims: dict[str, Any] | None,
+) -> str:
+    """W03 §7.2：视频回放的状态恢复——同模型完整 qpos 恢复 +
+    仅前向（调用方随后 mj_forward，不重仿真）。
+
+    维度纪律（绝不补零冒充完整状态）：
+    - 文件声明 dims 与模型不符 → MODEL_DIMS_MISMATCH（跨模型引用拒绝）；
+    - qpos 长度 == nq → 完整恢复；
+    - qpos 长度 == nu < nq（旧版按执行器数截断的记录）→
+      LEGACY_PARTIAL_STATE 诚实拒绝；
+    - 其他长度 → STATE_DIMENSION。
+    """
+    import numpy as np
+
+    nq = int(model.nq)
+    nu = int(model.nu)
+    if declared_dims is not None:
+        declared_nq = int(declared_dims.get("nq", nq))
+        if declared_nq != nq:
+            raise ValueError(
+                f"MODEL_DIMS_MISMATCH: 状态文件声明 nq={declared_nq}，"
+                f"当前模型 nq={nq}（跨模型引用拒绝回放）"
+            )
+    if len(qpos) == nq:
+        data.qpos[:] = np.asarray(qpos, dtype=float)
+        return "restored"
+    if len(qpos) == nu and nq != nu:
+        raise ValueError(
+            f"LEGACY_PARTIAL_STATE: 旧记录仅含 nu={nu} 维位置，当前模型 "
+            f"nq={nq}——拒绝补零冒充完整状态（需重新 rollout 取得完整记录）"
+        )
+    raise ValueError(
+        f"STATE_DIMENSION: qpos 长度 {len(qpos)} != nq={nq}"
+    )
+
+
 def _render_impl(
     home: Path,
     trace_id: str,
@@ -483,7 +523,11 @@ def _render_impl(
     trace_path = trace_dir / "trace.json"
     states_path = trace_dir / "trajectory_states.json"
     trace = json.loads(trace_path.read_text(encoding="utf-8"))
-    states = json.loads(states_path.read_text(encoding="utf-8"))["states"]
+    states_payload = json.loads(states_path.read_text(encoding="utf-8"))
+    states = states_payload["states"]
+    # W03 §7.1：v2 文件显式声明 nq/nv/nu；缺声明 = 旧记录
+    # （receipt 标 legacy_undeclared_dims 兼容回放）。
+    declared_dims = states_payload.get("dims")
     states_digest = "sha256:" + hashlib.sha256(
         states_path.read_bytes()
     ).hexdigest()
@@ -525,7 +569,6 @@ def _render_impl(
     if not sandbox.has_physics:
         raise ValueError(f"RENDER_INPUT: canonical 模型不可用: {sandbox.load_error}")
     import mujoco
-    import numpy as np
 
     model = sandbox.physics_model
     data = sandbox.physics_data
@@ -576,7 +619,9 @@ def _render_impl(
         images = []
         for idx in frames_idx:
             q = positions[idx]
-            data.qpos[: int(model.nu)] = np.array(q[: int(model.nu)])
+            # W03 §7.2：同模型完整状态恢复（维度不符诚实拒绝，
+            # 不按 nu 截断、不补零）。
+            restore_frame_state(model, data, q, declared_dims)
             mujoco.mj_forward(model, data)
             renderer.update_scene(data, camera=cam)
             if overlay_geoms:
@@ -628,6 +673,12 @@ def _render_impl(
             trace_path.read_bytes()
         ).hexdigest(),
         "states_digest": states_digest,
+        # W03 §7.2：状态契约标注——v2 声明维度 / 旧记录兼容回放
+        # （旧记录完整长度恰好等于 nq 时恢复有效；截断记录已在
+        # restore_frame_state 诚实拒绝）。
+        "state_contract": (
+            "declared_dims_v2" if declared_dims else "legacy_undeclared_dims"
+        ),
         "outputs": sorted(artifacts),
         "resource": trace.get("resource") or {},
     }
