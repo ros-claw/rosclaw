@@ -97,7 +97,6 @@ def observe(
     at_time=None = 初始状态（或 initial_state_ref 指定状态）。
     """
     import mujoco
-    import numpy as np
 
     task_root = Path(task_root)
     record = _load_model_record(model_ref, task_root)
@@ -105,8 +104,9 @@ def observe(
     data = mujoco.MjData(model)
     if initial_state_ref:
         state = _load_state_record(initial_state_ref, task_root)
-        data.qpos[:] = np.array(state["qpos"], dtype=float)
-        data.qvel[:] = np.array(state.get("qvel", [0.0] * model.nv), dtype=float)
+        _restore_initial_state(
+            model, data, state, model_digest=str(record["model_digest"]),
+        )
     mujoco.mj_forward(model, data)
 
     out: dict[str, Any] = {"model_ref": model_ref, "time": float(data.time)}
@@ -149,6 +149,45 @@ def _load_state_record(state_ref: str, task_root: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _restore_initial_state(
+    model: Any,
+    data: Any,
+    state: dict[str, Any],
+    *,
+    model_digest: str = "",
+) -> None:
+    """W03 §7.2 续仿真检查点：完整状态恢复 + 模型一致性校验。
+
+    - 状态记录声明 model_digest 且与目标模型不符 → CROSS_MODEL_REF；
+    - qpos/qvel 维度不符 → STATE_DIMENSION（绝不截断或补零）。
+    """
+    import numpy as np
+
+    declared_digest = str(state.get("model_digest", ""))
+    if declared_digest and model_digest and declared_digest != model_digest:
+        raise ValueError(
+            f"CROSS_MODEL_REF: 状态记录模型 {declared_digest[:24]}… "
+            f"!= 目标模型 {model_digest[:24]}…"
+        )
+    qpos = state.get("qpos")
+    if not isinstance(qpos, list) or len(qpos) != int(model.nq):
+        raise ValueError(
+            f"STATE_DIMENSION: 状态 qpos 长度 "
+            f"{len(qpos) if isinstance(qpos, list) else '缺失'} != "
+            f"nq={int(model.nq)}（不截断、不补零）"
+        )
+    data.qpos[:] = np.array(qpos, dtype=float)
+    qvel = state.get("qvel")
+    if qvel is not None:
+        if not isinstance(qvel, list) or len(qvel) != int(model.nv):
+            raise ValueError(
+                f"STATE_DIMENSION: 状态 qvel 长度 "
+                f"{len(qvel) if isinstance(qvel, list) else '非数组'} != "
+                f"nv={int(model.nv)}"
+            )
+        data.qvel[:] = np.array(qvel, dtype=float)
+
+
 def submit_simulation(
     model_ref: str,
     initial_state_ref: str | None,
@@ -174,9 +213,9 @@ def submit_simulation(
     data = mujoco.MjData(model)
     if initial_state_ref:
         state = _load_state_record(initial_state_ref, task_root)
-        data.qpos[:] = np.array(state["qpos"], dtype=float)
-        if state.get("qvel"):
-            data.qvel[:] = np.array(state["qvel"], dtype=float)
+        _restore_initial_state(
+            model, data, state, model_digest=str(record["model_digest"]),
+        )
 
     ctrl_series = controller_or_trajectory.get("ctrl_series")
     if ctrl_series is None and not controller_or_trajectory.get("hold"):

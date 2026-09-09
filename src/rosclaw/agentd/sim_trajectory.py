@@ -779,10 +779,16 @@ class SimTrajectoryService:
             import mujoco
 
             states_path = out_dir / "trajectory_states.json"
-            states = json.loads(states_path.read_text(encoding="utf-8"))["states"]
+            states_payload = json.loads(states_path.read_text(encoding="utf-8"))
+            states = states_payload["states"]
+            # W03 §7.2：FK 回放与视频回放同一恢复契约（完整状态
+            # + 维度诚实拒绝，不按 nu 截断）。
+            from rosclaw.agentd.sim_render import restore_frame_state
+
+            declared_dims = states_payload.get("dims")
             actual: list[dict] = []
             for sample in states:
-                data.qpos[: int(model.nu)] = np.array(sample["qpos"])
+                restore_frame_state(model, data, sample["qpos"], declared_dims)
                 mujoco.mj_forward(model, data)
                 pos = data.site_xpos[site_id]
                 r_mat = np.array(data.site_xmat[site_id]).reshape(3, 3).tolist()
