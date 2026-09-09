@@ -34,16 +34,36 @@ HARNESS_ONLY_PACKAGES = (
 )
 HARNESS_PACKAGE_DIR = "rosclaw-agent"
 
+def _pinned_versions() -> dict[str, str]:
+    """W08：pin 单源 = rosclaw-agent package.json（deps 段）。"""
+    import json
+    from pathlib import Path
+
+    pkg = json.loads(
+        (Path(__file__).resolve().parents[2] / "packages"
+         / "rosclaw-agent" / "package.json").read_text()
+    )
+    return {
+        name: ver for name, ver in (pkg.get("dependencies") or {}).items()
+        if name.startswith("@earendil-works/")
+    }
+
+
 ALLOWED_PI_PACKAGES = {
-    "@earendil-works/pi-tui": "0.83.0",
-    "@earendil-works/pi-ai": "0.83.0",
+    name: ver for name, ver in _pinned_versions().items()
+    if name in ("@earendil-works/pi-tui", "@earendil-works/pi-ai")
 }
 
 ALLOWED_HARNESS_PACKAGES = {
-    "@earendil-works/pi-coding-agent": "0.83.0",
-    "@earendil-works/pi-agent-core": "0.83.0",
-    "@earendil-works/pi-ai": "0.83.0",
-    "@earendil-works/pi-tui": "0.83.0",
+    name: ver
+    for name, ver in _pinned_versions().items()
+    if name
+    in (
+        "@earendil-works/pi-coding-agent",
+        "@earendil-works/pi-agent-core",
+        "@earendil-works/pi-ai",
+        "@earendil-works/pi-tui",
+    )
 }
 
 BANNED_PYTHON_IMPORTS = re.compile(r"pi_agent_core|pi_coding_agent|hermes_agent|opencode_agent")

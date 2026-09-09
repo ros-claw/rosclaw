@@ -16,7 +16,7 @@
 		"start": "node dist/src/main.js"
 	},
 	"dependencies": {
-		"@earendil-works/pi-tui": "0.83.0",
+		"@earendil-works/pi-tui": "0.85.1",
 		"chalk": "^5.3.0"
 	},
 	"devDependencies": {
