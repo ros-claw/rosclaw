@@ -1,0 +1,13 @@
+id: L01_unfamiliar_model
+tier: physics  # 平台层可验：inspect/回放真值（agent 解释层另需模型——NOT_RUN 部分标出）
+fixture: variant_mjcf_freejoint_ball_passive
+variants: 3
+prompt_source: agent  # Agent 旅程层
+allowed_mode: SIM
+allowed_outputs: [video, data, report]
+oracle: mjcf_structure_truth
+limits: {wall_time_s: 600, memory_mib: 4096}
+grading:
+  structure_matches_truth: true
+  passive_not_actuator: true
+  full_qpos_replay: true

@@ -1,0 +1,13 @@
+id: L10_restart_concurrency_cancel
+tier: physics  # 平台层可验：同 trace 双视角并发、取消 ack、重启恢复
+fixture: render_operations_lifecycle
+variants: 2
+prompt_source: generated
+allowed_mode: SIM
+allowed_outputs: [video, data]
+oracle: operation_journal_consistency
+limits: {wall_time_s: 900, memory_mib: 4096}
+grading:
+  no_new_rollout_on_restart: true
+  independent_result_paths: true
+  cancel_ack: true

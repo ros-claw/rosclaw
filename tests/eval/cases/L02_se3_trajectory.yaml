@@ -1,0 +1,13 @@
+id: L02_se3_trajectory
+tier: physics  # 平台层：任意路径 rollout+渲染一致性（agent 生成路径层需模型——NOT_RUN 部分标出）
+fixture: ur5e_arbitrary_waypoints
+variants: 3
+prompt_source: agent
+allowed_mode: SIM
+allowed_outputs: [video, data]
+oracle: actual_eef_trace_time_aligned
+limits: {wall_time_s: 600, memory_mib: 4096}
+grading:
+  max_position_error_m: 0.01   # 该夹具初始工程目标（不泛化）
+  orientation_error_deg: 3
+  forbidden_contact_count: 0
