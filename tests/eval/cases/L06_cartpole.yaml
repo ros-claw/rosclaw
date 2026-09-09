@@ -1,0 +1,13 @@
+id: L06_cartpole
+tier: agent  # Pi 推导 LQR/PD——控制循环本地执行，不逐步调模型
+fixture: cartpole_near_upright
+variants: 3
+prompt_source: agent
+allowed_mode: SIM
+allowed_outputs: [video, data]
+oracle: state_series_balance
+limits: {wall_time_s: 600, memory_mib: 4096}
+grading:
+  balance_after_s: 1.0
+  max_angle_deg: 5
+  within_rail: true

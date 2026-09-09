@@ -1,0 +1,13 @@
+id: L07_damping_experiment
+tier: physics  # 平台层可验：三阻尼×三次、数据可重算、结论与衰减相符
+fixture: passive_pendulum_damping_sweep
+variants: 3
+prompt_source: generated
+allowed_mode: SIM
+allowed_outputs: [data, report]
+oracle: recomputed_decay_consistency
+limits: {wall_time_s: 600, memory_mib: 4096}
+grading:
+  runs_per_condition: 3
+  only_declared_param_changes: true
+  recomputation_matches: true

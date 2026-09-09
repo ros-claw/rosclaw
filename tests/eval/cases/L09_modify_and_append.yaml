@@ -1,0 +1,13 @@
+id: L09_modify_and_append
+tier: agent  # 修订目标+追加交付的模型行为链——需真实模型
+fixture: periodic_motion_then_revision
+variants: 3
+prompt_source: agent
+allowed_mode: SIM
+allowed_outputs: [video]
+oracle: amplitude_ratio_and_trace_reuse
+limits: {wall_time_s: 600, memory_mib: 4096}
+grading:
+  amplitude_ratio_range: [0.45, 0.55]
+  no_redundant_rollout: true
+  no_task_already_completed_loop: true

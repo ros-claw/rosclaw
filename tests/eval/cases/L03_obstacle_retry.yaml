@@ -1,0 +1,13 @@
+id: L03_obstacle_retry
+tier: agent  # 模型读失败事实并改计划——需真实模型，NOT_RUN 无 key
+fixture: ur5e_obstacle_field
+variants: 3
+prompt_source: agent
+allowed_mode: SIM
+allowed_outputs: [video, data, report]
+oracle: goal_reached_no_forbidden_contact
+limits: {wall_time_s: 600, memory_mib: 4096}
+grading:
+  safety_clearance_m: 0.02
+  final_error_m: 0.01
+  forbidden_contact_count: 0

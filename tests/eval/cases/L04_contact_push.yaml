@@ -1,0 +1,13 @@
+id: L04_contact_push
+tier: agent  # 允许接触的操作策略由模型生成——需真实模型
+fixture: planar_pusher
+variants: 3
+prompt_source: generated
+allowed_mode: SIM
+allowed_outputs: [video, data, report]
+oracle: actual_object_pose
+limits: {wall_time_s: 600, memory_mib: 4096}
+grading:
+  forbidden_contact_count: 0
+  success_region_margin_m: 0.01
+  hold_s: 1.0
