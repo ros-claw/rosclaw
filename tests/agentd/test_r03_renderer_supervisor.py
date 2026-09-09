@@ -35,6 +35,17 @@ from pathlib import Path
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _clear_probe_cache():
+    """W04 探测缓存（成功才缓存）——故障注入测试按调用序列
+    对齐行为表，每例前后清空避免跨例污染。"""
+    from rosclaw.agentd import sim_render
+
+    sim_render._probe_cache_clear()
+    yield
+    sim_render._probe_cache_clear()
+
+
 def _make_trace(home: Path) -> dict:
     from rosclaw.agentd.sim_trajectory import SimTrajectoryService
 

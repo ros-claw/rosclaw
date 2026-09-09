@@ -85,13 +85,10 @@ class TestR2FullStateReplay:
 
 class TestR3BackendFallbackDepth:
     """§2.2-3：后端降级只试 `candidates[:2]`——EGL 失败+OSMesa
-    不可用+Xvfb 可用时找不到真正可用的第三后端（W04 修复：
-    按可用性排序逐个真实尝试）。"""
+    不可用+Xvfb 可用时找不到真正可用的第三后端（W04 已修复：
+    _render_with_fallback 全候选逐个真实尝试；行为测试见
+    test_w04_renderer.py）。"""
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="W00 基线：降级只试前两个后端（W04 修复后解标）",
-    )
     def test_fallback_tries_all_candidates(self) -> None:
         import inspect
 
