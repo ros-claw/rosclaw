@@ -1677,8 +1677,13 @@ class TestProductJourney:
             # 不是 which——本机 bwrap 装了但 RTM_NEWADDR 被拒）。
             # （模块级 import——journey 运行期间源码 checkout 隐藏。）
             if not probe_os_isolation()["isolation_ready"]:
-                session.expect("本机无 OS 沙箱".encode(), timeout=30)
-                assert b"rosclaw doctor" in session.clean, (
+                # W06 §10.2：文案如实（宿主执行 + 进程内
+                # provenance），一次性显示。
+                session.expect("本机无 OS 隔离".encode(), timeout=30)
+                # 长提示按终端宽度换行——"rosclaw doctor" 可能被
+                # 折行拆开；压缩空白后比对（0901 CJK 撕裂同款防线）。
+                squashed = b"".join(session.clean.split())
+                assert b"rosclawdoctor" in squashed, (
                     "沙箱提示必须带 doctor 修复入口"
                 )
                 self._journey_verdicts["sandbox_notice_at_session_start"] = True

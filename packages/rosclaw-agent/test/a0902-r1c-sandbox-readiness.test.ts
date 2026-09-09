@@ -90,9 +90,15 @@ test("R1-c: 无 OS 沙箱 → session_start 一次性提示（降级后果 + doc
 	const handlers = await buildExtension(home, () => ({ isolationReady: false }));
 	const notices: string[] = [];
 	for (const h of handlers.get("session_start") ?? []) await h({}, fakeCtx(notices));
-	const hints = notices.filter((n) => n.includes("OS 沙箱"));
+	// W06 §10.2：resume/switch 再次 session_start 不重复提示。
+	for (const h of handlers.get("session_start") ?? []) await h({}, fakeCtx(notices));
+	const hints = notices.filter((n) => n.includes("OS 隔离"));
 	assert.equal(hints.length, 1, `应恰好提示一次，实际 ${hints.length}`);
-	assert.match(hints[0], /确认卡|降级/);
+	// 文案如实：宿主直接执行 + 进程内 provenance——R1-2b 后
+	// SIM shell 自动执行，不存在"弹确认卡降级"，不得如此宣称。
+	assert.match(hints[0], /宿主直接执行/);
+	assert.match(hints[0], /provenance/);
+	assert.doesNotMatch(hints[0], /确认卡/);
 	assert.match(hints[0], /rosclaw doctor/);
 });
 
@@ -101,7 +107,7 @@ test("R1-c: 隔离可用 → 无提示（不噪声）", async () => {
 	const handlers = await buildExtension(home, () => ({ isolationReady: true }));
 	const notices: string[] = [];
 	for (const h of handlers.get("session_start") ?? []) await h({}, fakeCtx(notices));
-	assert.equal(notices.filter((n) => n.includes("OS 沙箱")).length, 0);
+	assert.equal(notices.filter((n) => n.includes("OS 隔离")).length, 0);
 });
 
 test("R1-c: 默认探测消费 doctor 落盘的 os-isolation.json（单源）", async () => {
@@ -117,7 +123,7 @@ test("R1-c: 默认探测消费 doctor 落盘的 os-isolation.json（单源）", 
 	const notices: string[] = [];
 	for (const h of handlers.get("session_start") ?? []) await h({}, fakeCtx(notices));
 	assert.equal(
-		notices.filter((n) => n.includes("OS 沙箱")).length, 1,
+		notices.filter((n) => n.includes("OS 隔离")).length, 1,
 		"doctor 记录 isolation_ready=false 时必须提示",
 	);
 });
