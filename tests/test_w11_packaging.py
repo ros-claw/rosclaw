@@ -55,25 +55,69 @@ class TestDedicatedStagingBuild:
 
 
 class TestWheelSelfContainment:
-    def test_pyproject_wheel_force_includes_js_stage(self) -> None:
-        """wheel force-include 必须映射 js-stage（已构建 JS）——
-        不假定 packages/ 自动进 wheel。"""
+    def test_pyproject_registers_js_stage_hook(self) -> None:
+        """wheel 的 JS 注入走自定义钩子（静态 force-include 会被
+        editable 构建同样强制执行——CI 实证，必须按版本区分）。"""
         text = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+        hook_section = _toml_section(
+            text, "[tool.hatch.build.hooks.custom]"
+        )
+        assert "hatch_js_stage_hook.py" in hook_section
         wheel_section = _toml_section(
             text, "[tool.hatch.build.targets.wheel.force-include]"
         )
-        assert "js-stage" in wheel_section, (
-            "wheel force-include 不含 JS staging（pip 安装将缺 agent JS）"
-        )
-        # 映射行（"src" = "dst" 形式）不得把 node_modules 带进 wheel
-        # （dev 依赖/体积）；注释里提到 node_modules 不算。
         mapping_lines = [
             ln for ln in wheel_section.splitlines()
             if ln.strip().startswith('"')
         ]
+        assert not any("js-stage" in ln for ln in mapping_lines), (
+            "js-stage 不得静态 force-include（editable 构建会硬失败）"
+        )
+        assert not any("node_modules" in ln for ln in mapping_lines), (
+            "node_modules 不得进 wheel（dev 依赖/体积）"
+        )
+
+    def test_hook_injects_for_wheel_skips_editable(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """钩子行为：staging 在场注入 js_stage 映射；缺失默认跳过
+        （editable/开发安装合法）；ROSCLAW_REQUIRE_JS_STAGE=1
+        （发布门禁）缺失即硬错误。"""
+        import sys
+
+        sys.path.insert(0, str(REPO_ROOT / "scripts"))
+        from hatch_js_stage_hook import JsStageHook
+
+        hook = JsStageHook.__new__(JsStageHook)
+        hook._BuildHookInterface__target_name = "wheel"
+        hook._BuildHookInterface__root = str(tmp_path)
+        import pytest
+
+        # 缺 staging：默认跳过（editable/开发安装不硬失败——CI 全灭
+        # 实证：静态 force-include 会误伤开发安装）。
+        monkeypatch.delenv("ROSCLAW_REQUIRE_JS_STAGE", raising=False)
+        data0 = {"force_include": {}}
+        hook.initialize("standard", data0)
+        assert data0["force_include"] == {}
+        # 发布门禁（env=1）：缺 staging 硬错误并指向构建脚本。
+        monkeypatch.setenv("ROSCLAW_REQUIRE_JS_STAGE", "1")
+        with pytest.raises(RuntimeError, match="build_js_staging"):
+            hook.initialize("standard", {"force_include": {}})
+        monkeypatch.delenv("ROSCLAW_REQUIRE_JS_STAGE")
+        # 有 staging → 注入映射（无 node_modules）。
+        for pkg in ("rosclaw-agent", "rosclaw-tui"):
+            entry = tmp_path / "dist" / "js-stage" / pkg / "dist" / "src"
+            entry.mkdir(parents=True)
+            (entry / "main.js").write_text("// built", encoding="utf-8")
+        build_data = {"force_include": {}}
+        hook.initialize("standard", build_data)
+        assert any(
+            v == "rosclaw/js_stage/rosclaw-agent/dist"
+            for v in build_data["force_include"].values()
+        )
         assert not any(
-            "node_modules" in ln for ln in mapping_lines
-        ), "node_modules 不得进 wheel（dev 依赖/体积）"
+            "node_modules" in k for k in build_data["force_include"]
+        )
 
     def test_sdist_self_contained_for_rebuild(self) -> None:
         """sdist 必须包含 packages/（JS 源码）与 scripts/release/
@@ -83,10 +127,16 @@ class TestWheelSelfContainment:
         sdist_section = _toml_section(
             text, "[tool.hatch.build.targets.sdist]"
         )
-        for required in ("/packages", "/scripts", "js-stage"):
+        for required in ("/packages", "/scripts"):
             assert required in sdist_section, (
                 f"sdist 缺 {required}（无法从自身重建 wheel）"
             )
+        sdist_force = _toml_section(
+            text, "[tool.hatch.build.targets.sdist.force-include]"
+        )
+        assert "js-stage" in sdist_force, (
+            "js-stage 必须随 sdist（gitignore 产物须 force-include）"
+        )
 
 
 class TestWheelEmbeddedResolution:
