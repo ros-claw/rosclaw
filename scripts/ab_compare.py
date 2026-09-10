@@ -106,9 +106,13 @@ def _count_session_stats(session_dir: Path) -> tuple[int, int]:
 def _verify_task(task: AbTask, workdir: Path) -> tuple[bool, dict]:
     """同一成功判据核验两组产出。"""
     artifacts = list(workdir.glob(f"**/{task.expect_artifact_glob}"))
-    traces = list(workdir.glob("**/trace*.json")) + list(
-        workdir.glob("**/trace*.csv")
-    )
+    # 轨迹证据命名不由本门禁发明——模型产物叫 ee_trajectory.csv 也是
+    # 真轨迹（实测：窄 glob 曾把 A 组真实完成误判为失败）。
+    traces = [
+        p for p in workdir.glob("**/*")
+        if p.is_file() and p.suffix in (".json", ".csv", ".npy")
+        and ("trace" in p.name or "trajectory" in p.name or "qpos" in p.name)
+    ]
     evidence: dict = {"artifacts": len(artifacts), "traces": len(traces)}
     ok = bool(artifacts)
     if task.expect_trace:
@@ -127,12 +131,60 @@ def _verify_task(task: AbTask, workdir: Path) -> tuple[bool, dict]:
     return ok, evidence
 
 
+
+
+def _find_native_pi_cli() -> str | None:
+    """原生 pi CLI（pi-coding-agent 的上游入口，无 ROSClaw 扩展）。
+    env ROSCLAW_PI_CLI > 仓库 node_modules/.bin/pi > PATH。"""
+    import shutil
+
+    override = os.environ.get("ROSCLAW_PI_CLI")
+    if override:
+        return override
+    repo = (
+        Path(__file__).resolve().parents[1]
+        / "packages" / "rosclaw-agent" / "node_modules" / ".bin" / "pi"
+    )
+    if repo.exists():
+        return str(repo)
+    return shutil.which("pi")
+
+def _prepare_native_pi_env(workdir: Path) -> dict:
+    """A 组原生 Pi 用同一模型同一 key：写 PI_CODING_AGENT_DIR 指向的
+    settings/models（apiKey 只写 $ENV 引用——key 绝不落盘）。
+    值与 rosclaw setup 的 kimi-code 模板同参（onboarding._TEMPLATES）。"""
+    agent_dir = workdir / ".pi-agent"
+    agent_dir.mkdir(parents=True, exist_ok=True)
+    (agent_dir / "settings.json").write_text(json.dumps({
+        "defaultProvider": "kimi-code", "defaultModel": "k3",
+    }), encoding="utf-8")
+    (agent_dir / "models.json").write_text(json.dumps({
+        "providers": {"kimi-code": {
+            "name": "kimi-code",
+            "baseUrl": "https://api.kimi.com/coding/v1",
+            "api": "openai-completions",
+            "apiKey": "$ROSCLAW_KIMI_API_KEY",
+            "models": [{"id": "k3", "name": "Kimi K3",
+                        "contextWindow": 262144, "maxTokens": 16384}],
+        }},
+    }), encoding="utf-8")
+    env = dict(os.environ)
+    env["PI_CODING_AGENT_DIR"] = str(agent_dir)
+    # 公平性：A 组拿到同一公开库栈（mujoco/numpy/imageio 是公共
+    # 包，不是 ROSClaw 产品特性）——repo .venv 进 PATH（实测无它
+    # A 组 ModuleNotFound 空转，不是能力差异）。
+    venv_bin = Path(__file__).resolve().parents[1] / ".venv" / "bin"
+    if venv_bin.exists():
+        env["PATH"] = str(venv_bin) + ":" + env.get("PATH", "")
+        env["VIRTUAL_ENV"] = str(venv_bin.parent)
+    return env
+
 def run_once(
     group: str,
     task: AbTask,
     base: Path,
     *,
-    pi_entry: tuple[str, str] | None,
+    pi_entry: str | None,
     rosclaw_bin: Path,
     timeout_s: int = 900,
 ) -> RunResult:
@@ -144,13 +196,15 @@ def run_once(
     workdir.mkdir(parents=True, exist_ok=True)
     started = time.monotonic()
     if group == "A":
-        assert pi_entry is not None, "A 组需要 pi CLI（node + pi entry）"
-        node, entry = pi_entry
+        assert pi_entry is not None, "A 组需要原生 pi CLI"
         session = PtySession(
-            [node, entry], dict(os.environ), cwd=workdir,
+            [pi_entry], _prepare_native_pi_env(workdir), cwd=workdir,
             log_path=workdir / "pty.log",
         )
-        session_dir = workdir / ".pi" / "sessions"
+        # pi 启动完成前发送会丢输入（实测：prompt 消失在启动竞态，
+        # pi 空转到超时）——先等启动完成标记。
+        session.expect(b"ctrl+o to show full startup help", timeout=120)
+        session_dir = workdir / ".pi-agent" / "sessions"
     else:
         home, env = _prepare_home(workdir)
         session = PtySession(
@@ -167,6 +221,19 @@ def run_once(
             if list(workdir.glob(f"**/{task.expect_artifact_glob}")):
                 break
             time.sleep(5.0)
+        # 产出物先现 ≠ 回合收束（实测：模型写完 mp4 还在写轨迹
+        # CSV——立即核验会少算仍在落的文件）。等输出静止再收尾。
+        settle_deadline = min(time.monotonic() + 120.0, deadline)
+        last_len = -1
+        quiet_since = time.monotonic()
+        while time.monotonic() < settle_deadline:
+            current = len(session.clean)
+            if current != last_len:
+                last_len = current
+                quiet_since = time.monotonic()
+            if time.monotonic() - quiet_since > 10:
+                break
+            time.sleep(1.0)
         session.send("/quit\r")
         time.sleep(2.0)
     finally:
@@ -238,9 +305,7 @@ def main() -> int:
     if not os.environ.get("ROSCLAW_KIMI_API_KEY"):
         print("ERROR: ROSCLAW_KIMI_API_KEY 不在环境（真实模型 gate）", file=sys.stderr)
         return 2
-    from rosclaw.agentd.pi_entry import find_pi_agent_entry
-
-    pi_entry = find_pi_agent_entry()
+    pi_entry = _find_native_pi_cli()
     rosclaw_bin = Path(sys.executable).parent / "rosclaw"
     if not rosclaw_bin.exists():
         rosclaw_bin = Path(sys.executable)
