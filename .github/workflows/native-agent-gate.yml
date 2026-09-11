@@ -76,10 +76,14 @@ jobs:
         run: |
           cd packages/rosclaw-agent
           timeout 600 npm ci --fetch-retries=5 --fetch-retry-mintimeout=15000 --fetch-retry-maxtimeout=60000 || timeout 600 npm ci
+          # 0911 验证：h4 类 PTY 测试的 skip 门是 dist 存在——npm ci 不
+          # 产出 dist（此前 h4 在任何 CI job 都 skip，腐烂三周无人能见）。
+          # 显式 build 让它们在本 job 真跑，堵住本地-only 覆盖空洞。
+          npm run build
       - name: Run product journey
         id: run
         run: |
-          .venv/bin/python -m pytest tests/agentd/test_product_journey.py tests/agentd/test_hf5_4_action_result_ui.py -q --tb=short \
+          .venv/bin/python -m pytest tests/agentd/test_product_journey.py tests/agentd/test_hf5_4_action_result_ui.py tests/agentd/test_h4_verifier_live.py -q --tb=short \
             --junitxml=/tmp/junit-journey.xml
       # 六审 §9.2.4：publishable 证据先 curate 成单份（pytest-0/
       # pytest-current/test_*0/test_*current 的 glob 会把同一 PTY 日志
