@@ -240,7 +240,10 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libosmesa6 xvfb
 
       - name: Run full non-deployment suite
-        run: pytest -q -m 'not slow and not integration and not deployment'
+        # 0911 验证：套件已并行安全（collection 确定性 sorted 参数化 +
+        # AF_UNIX 短路径修复；本地 -n 8 全量实证 7245 通过零并行噪声）。
+        # loadfile 保持文件内顺序（文件内顺序依赖不受影响）。
+        run: pytest -q -n auto --dist loadfile -m 'not slow and not integration and not deployment'
 
   product-acceptance:
     name: Product Acceptance

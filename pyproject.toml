@@ -99,6 +99,10 @@ dev = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
     "pytest-cov>=4.0.0",
+    # 0911 验证：全量套件并行（-n auto --dist loadfile）——本地
+    # 串行 ~2.5h → 并行 ~6min；collection 确定性由 sorted 参数化
+    # 保证（不依赖 PYTHONHASHSEED）。
+    "pytest-xdist>=3.5.0",
     "ruff>=0.1.0",
     "mypy>=1.5.0",
     "jsonschema>=4.0.0",

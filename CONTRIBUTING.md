@@ -141,6 +141,12 @@ def move_joints(self, positions: list[float], duration: float = 2.0) -> bool:
 - **Coverage**: Aim for high coverage on business logic; skip framework/type-system tests
 - **Mocking**: Mock external dependencies (hardware, network), not internal modules
 - **Integration tests**: Place in `tests/` with `test_*.py` naming
+- **Parallel local runs**: the suite is xdist-safe — `pytest tests/ -n auto --dist loadfile`
+  cuts a full local run from hours to minutes. Keep collection order
+  deterministic: never parametrize over `list(<set>)` (set iteration order
+  follows the per-process hash seed); use `sorted(...)` instead. PTY journey
+  tests (`tests/agentd/test_product_journey.py`) must still run exclusively
+  (they hide the source checkout), never under `-n`.
 
 ## Questions?
 
