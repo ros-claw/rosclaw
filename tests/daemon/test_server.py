@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import socket
 import stat
+import tempfile
 import threading
 import time
 from datetime import UTC, datetime, timedelta
@@ -650,8 +651,11 @@ def test_client_rejects_daemon_uid_outside_operator_expectation(
     assert error.value.code == "UNEXPECTED_DAEMON_UID"
 
 
-def test_client_rejects_socket_inside_writable_directory(tmp_path: Path) -> None:
-    runtime_dir = tmp_path / "attacker-controlled"
+def test_client_rejects_socket_inside_writable_directory() -> None:
+    # xdist 实证（0911 验证）：xdist 的 tmp 路径带 popen-gwN 段，拼接
+    # socket 名后超过 AF_UNIX sun_path 107 字节上限——socket 目录用
+    # 短前缀 mkdtemp（安全语义不变：目录 0o777 可写即攻击面）。
+    runtime_dir = Path(tempfile.mkdtemp(prefix="rsock-")) / "attacker-controlled"
     runtime_dir.mkdir()
     runtime_dir.chmod(0o777)
     socket_path = runtime_dir / "rosclawd.sock"
