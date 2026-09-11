@@ -7,18 +7,14 @@ from pathlib import Path
 
 import pytest
 
-from rosclaw.integrations.lerobot.config import get_configured_lerobot_runtime
 from rosclaw.integrations.lerobot.dataset_worker_runner import run_dataset_export
+from tests.integrations.conftest import lerobot_test_runtime_available
 
 PHYSICAL_EPISODE = Path(__file__).parent.parent.parent / "examples" / "practice" / "physical_lerobot_episode"
 
 
-def _runtime_available() -> bool:
-    runtime = get_configured_lerobot_runtime()
-    return bool(runtime and runtime.get("subprocess_available"))
 
-
-@pytest.mark.skipif(not _runtime_available(), reason="LeRobot runtime not available")
+@pytest.mark.skipif(not lerobot_test_runtime_available(), reason="LeRobot runtime not available")
 @pytest.mark.usefixtures("real_lerobot_runtime_config")
 def test_physical_export_creates_telemetry_features_and_sidecars(tmp_path: Path) -> None:
     output_dir = tmp_path / "lerobot_physical"
@@ -74,7 +70,7 @@ def test_physical_export_creates_telemetry_features_and_sidecars(tmp_path: Path)
     assert response.validation.dataloader_ok
 
 
-@pytest.mark.skipif(not _runtime_available(), reason="LeRobot runtime not available")
+@pytest.mark.skipif(not lerobot_test_runtime_available(), reason="LeRobot runtime not available")
 @pytest.mark.usefixtures("real_lerobot_runtime_config")
 def test_physical_export_missing_policy_error(tmp_path: Path) -> None:
     output_dir = tmp_path / "lerobot_physical_error"

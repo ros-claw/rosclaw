@@ -6,19 +6,15 @@ from pathlib import Path
 
 import pytest
 
-from rosclaw.integrations.lerobot.config import get_configured_lerobot_runtime
 from rosclaw.integrations.lerobot.dataset_validator import run_dataloader_smoke
 from rosclaw.integrations.lerobot.dataset_worker_runner import run_dataset_export
+from tests.integrations.conftest import lerobot_test_runtime_available
 
 MINIMAL_EPISODE = Path(__file__).parent.parent.parent / "examples" / "practice" / "minimal_lerobot_episode"
 
 
-def _runtime_available() -> bool:
-    runtime = get_configured_lerobot_runtime()
-    return bool(runtime and runtime.get("subprocess_available"))
 
-
-@pytest.mark.skipif(not _runtime_available(), reason="LeRobot runtime not available")
+@pytest.mark.skipif(not lerobot_test_runtime_available(), reason="LeRobot runtime not available")
 @pytest.mark.usefixtures("real_lerobot_runtime_config")
 def test_dataloader_smoke_on_minimal_export(tmp_path: Path) -> None:
     output_dir = tmp_path / "lerobot_minimal"
