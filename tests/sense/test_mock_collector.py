@@ -11,7 +11,10 @@ class TestMockCollector:
         assert "hot_knee" in SCENARIOS
         assert "kick_not_ready" in SCENARIOS
 
-    @pytest.mark.parametrize("scenario", list(SCENARIOS))
+    # xdist 实证（0911 验证）：SCENARIOS 是 frozenset——list() 的迭代序
+    # 依赖字符串 hash（每进程随机），各 worker collection 顺序不一致
+    # 会被 xdist 判为"收集分叉"。sorted() 让 collection 与进程种子无关。
+    @pytest.mark.parametrize("scenario", sorted(SCENARIOS))
     def test_collect_returns_state(self, scenario):
         collector = MockCollector(robot_id="g1", scenario=scenario)
         state = collector.collect()
