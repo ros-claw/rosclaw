@@ -49,9 +49,12 @@
    （L08）已测，拓展（L03–L06）已运行并披露——**SIM Alpha
    披露条件满足**；§16.1 密封盲测（发行物构建后提供的密封
    任务）未执行，发布前如实保留。
-2. tests/agentd/test_kimi_live.py（K 系列）test-rot：
-   AgentService.send_turn 已删导致 AttributeError——待修或退役
-   （真实能力已由 Gate 2 + A/B 覆盖）。
+2. tests/agentd/test_kimi_live.py（K 系列）test-rot：**已闭环
+   （0911 验证）**——K1–K6 依赖的 send_turn/_worker_manager/
+   _broker/_team_coordinator 架构已被 Pi 单链取代，腐烂测试退役；
+   唯一不依赖已删架构的 K0 抽为 test_kimi_gateway_live.py 并经
+   真实 K3 复验通过。继任真实覆盖：agent 层 L08（诚实拒绝+fake
+   REAL 零命令）+ Gate 2 + A/B。
 3. x86_64 认证矩阵：CI Build Package 在 x86_64 跑 wheel 校验；
    本机实测为 aarch64。
 4. 发布动作边界：本工作只准备材料；**tag + 正式发布需维护者

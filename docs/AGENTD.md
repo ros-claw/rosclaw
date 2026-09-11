@@ -443,7 +443,7 @@ Key/额度不互通，firstboot 必须按 Key 类型匹配 endpoint。
 
 ```bash
 pytest tests/agentd tests/contracts tests/architecture -q          # 单元/契约/不变量
-ROSCLAW_KIMI_API_KEY=... pytest tests/agentd/test_kimi_live.py -m integration  # K0–K3 实网验收
+ROSCLAW_KIMI_API_KEY=... pytest tests/agentd/test_kimi_gateway_live.py -m integration  # K0 网关实网探针
 ```
 
 Live 测试无 fixture 替代：API 不可达即失败，不伪造成功；密钥只走环境变量。
