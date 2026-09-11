@@ -11,6 +11,32 @@ import pytest
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
 
+def lerobot_test_runtime_available() -> bool:
+    """LeRobot skip 探针——与 real_lerobot_runtime_config 的执行口径
+    严格一致：只认 fixture 真正会注册的候选（ROSCLAW_TEST_LEROBOT_PYTHON
+    / 仓库 .venv-lerobot）且 inspect 状态 ready/degraded。
+
+    0911 验证实证：旧探针在 collection 期读**全局** ~/.rosclaw 配置
+    （get_configured_lerobot_runtime），测试体却跑在隔离 HOME——宿主
+    有陈旧 runtime 配置（state=ready 但相对路径不可解析）时 skipif
+    放行、执行 runtime_not_configured 假失败 4 例。探针必须度量
+    "fixture 能不能配出可用 runtime"，不是"全局配置声称有 runtime"。
+    """
+    from rosclaw.integrations.lerobot.runtime import inspect_lerobot_runtime
+
+    candidates: list[Path] = []
+    explicit_python = os.environ.get("ROSCLAW_TEST_LEROBOT_PYTHON")
+    if explicit_python:
+        candidates.append(Path(explicit_python))
+    candidates.append(REPOSITORY_ROOT / ".venv-lerobot" / "bin" / "python")
+    for python_exe in candidates:
+        if python_exe.exists():
+            runtime = inspect_lerobot_runtime(str(python_exe), mode="external")
+            if runtime.state in ("ready", "degraded"):
+                return True
+    return False
+
+
 @pytest.fixture(autouse=True)
 def isolated_rosclaw_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """Use a per-test ROSClAW_HOME without leaking it to unrelated tests."""
