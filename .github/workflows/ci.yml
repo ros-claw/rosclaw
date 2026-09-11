@@ -243,7 +243,12 @@ jobs:
         # 0911 验证：套件已并行安全（collection 确定性 sorted 参数化 +
         # AF_UNIX 短路径修复；本地 -n 8 全量实证 7245 通过零并行噪声）。
         # loadfile 保持文件内顺序（文件内顺序依赖不受影响）。
-        run: pytest -q -n auto --dist loadfile -m 'not slow and not integration and not deployment'
+        # perf_serial（墙钟 SLO/基准）在并行负载下测量失真（main
+        # bdcb115 实证 849ms>600ms 误红）——并行段排除、串行段补跑。
+        run: pytest -q -n auto --dist loadfile -m 'not slow and not integration and not deployment and not perf_serial'
+
+      - name: Run perf_serial suite (serial — wall-clock measurements must be unloaded)
+        run: pytest -q -p no:xdist -m 'perf_serial and not slow and not integration and not deployment'
 
   product-acceptance:
     name: Product Acceptance

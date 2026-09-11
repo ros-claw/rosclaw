@@ -19,6 +19,10 @@ from rosclaw.provider.builtins.critic import MockCriticProvider
 from rosclaw.provider.core.manifest import ProviderManifest
 from rosclaw.provider.core.request import ProviderRequest
 
+# 全文件墙钟基准：xdist 并行负载下测量失真（main CI 实证——目录
+# SLO 测试 849ms>600ms 误红）。perf_serial：并行段排除、串行段补跑。
+pytestmark = pytest.mark.perf_serial
+
 
 def _make_critic_manifest():
     return ProviderManifest(

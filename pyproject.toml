@@ -251,4 +251,7 @@ markers = [
     "rh56_hw: marks tests requiring the physical RH56 hand (ROSCLAW_RH56_HW=1)",
     "rh56_shadow: marks tests running the RH56 real-body shadow gate",
     "rh56_execute: marks tests executing on the physical RH56 (also requires ROSCLAW_RH56_EXECUTE_ACK=YES)",
+    # xdist 实证（main=bdcb115 CI 红）：墙钟 SLO/基准断言在并行负载下
+    # 测量失真——并行段排除、同 job 串行段补跑（测量必须无负载）。
+    "perf_serial: wall-clock SLO/benchmark assertions; excluded from xdist parallel runs and executed in a dedicated serial step",
 ]

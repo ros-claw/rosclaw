@@ -147,6 +147,11 @@ def move_joints(self, positions: list[float], duration: float = 2.0) -> bool:
   follows the per-process hash seed); use `sorted(...)` instead. PTY journey
   tests (`tests/agentd/test_product_journey.py`) must still run exclusively
   (they hide the source checkout), never under `-n`.
+- **Wall-clock SLO/benchmark tests**: mark them `perf_serial` — timing
+  assertions are meaningless under parallel worker load (CI evidence: a
+  10k-session catalog SLO measured 849ms under xdist vs ~350ms serial).
+  CI runs them in a dedicated serial step; locally use
+  `pytest -m perf_serial -p no:xdist`.
 
 ## Questions?
 

@@ -14,6 +14,8 @@ import json
 import time
 from pathlib import Path
 
+import pytest
+
 from tests.agentd.test_pi_tool_bridge import _setup
 
 
@@ -91,6 +93,10 @@ class TestCatalogBackfill:
         await service.close()
 
 
+# 墙钟 SLO（10k 会话 list/search）：xdist 并行负载下测量失真——
+# main CI 实证 849ms>600ms 误红（串行同代码 347ms 量级）。
+# perf_serial：并行段排除、串行段补跑（测量必须无负载才有效）。
+@pytest.mark.perf_serial
 class TestCatalogPerformance:
     async def test_10k_sessions_list_search_slo(self, tmp_path: Path) -> None:
         """10,000 会话：list p95 < 300ms、搜索 < 150ms（总纲 §WP-P0-2）。"""
