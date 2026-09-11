@@ -171,6 +171,9 @@ def test_repository_dual_write_via_projection(tmp_path, store: SeekDBEmbeddedSto
 
 
 @pytest.mark.slow
+# 墙钟对比基准（native hnsw vs sqlite 扫描）：并行负载下两次测量
+# 受竞争影响不可比——perf_serial 串行段运行。
+@pytest.mark.perf_serial
 def test_native_benchmark_vs_sqlite_scan(tmp_path, store: SeekDBEmbeddedStore) -> None:
     """Native HNSW vector search must beat SQLite full-table scan at 10k records."""
     from rosclaw.memory.seekdb_client import SQLiteKnowledgeStore
