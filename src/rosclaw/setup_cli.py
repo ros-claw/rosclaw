@@ -193,14 +193,19 @@ def _cmd_status(args: argparse.Namespace) -> int:
         detail = info.get("detail", "")
         marker = "✓" if state == "READY" else "○"
         print(f"  {marker} {area:12} {state:12} {detail}")
+    # 0914 PR-4（审计 §6）：未完成口径按当前目标——SIM 聊天的必需
+    # 项只有 model。REMOVED（有意删除，如 Worker H9）永远不是"未
+    # 完成"；可选项（integration/operator/robot_kit/safety/language）
+    # 归详细页（--json 全量），不逼用户配置当前目标用不到的东西。
+    required_for_sim_chat = ("model",)
     needs = [
-        k for k, v in status.items()
-        if k != "schema_version" and v.get("state") != "READY"
+        k for k in required_for_sim_chat
+        if status.get(k, {}).get("state") != "READY"
     ]
     if needs:
         print(f"\n未完成：{', '.join(needs)}——运行 `rosclaw setup <area>` 配置。")
     else:
-        print("\n全部就绪。")
+        print("\n当前目标（SIM 聊天）已就绪——可选配置见 `rosclaw setup status --json`。")
     return 0
 
 
