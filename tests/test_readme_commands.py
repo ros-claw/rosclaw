@@ -51,6 +51,14 @@ def _run_command(cmd: str, timeout: int = 30) -> subprocess.CompletedProcess:
         args.append("--dry-run")
     env = os.environ.copy()
     env["PYTHONPATH"] = str(PROJECT_ROOT / "src")
+    # 0914 自审实证：命令继承宿主 ROSCLAW_HOME——本机 ~/.rosclaw
+    # 的 mcp/installed.yaml 残留失效 manifest 时 mcp health 假失败
+    # （CI 干净 HOME 才绿）。隔离到临时空 HOME（命令行为只依赖
+    # 安装产物与仓库，不依赖宿主状态）。
+    import tempfile
+
+    env["ROSCLAW_HOME"] = tempfile.mkdtemp(prefix="rosclaw-readme-")
+
     return subprocess.run(
         [sys.executable, "-m", "rosclaw.entrypoint", *args],
         cwd=PROJECT_ROOT,
