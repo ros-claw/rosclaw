@@ -55,8 +55,35 @@ def test_startup_warning_fires_once_per_process(caplog):
     import rosclaw.storage.seekdb_native as native
 
     native._warned_pyseekdb_version = False
-    with patch("importlib.metadata.version", return_value="1.4.0"), caplog.at_level(logging.ERROR):
+    with patch("importlib.metadata.version", return_value="1.3.1"), caplog.at_level(logging.WARNING):
         native._warn_on_unvalidated_pyseekdb(object())
+        native._warn_on_unvalidated_pyseekdb(object())
+    warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert len(warnings) == 1
+    assert "outside the validated version matrix" in warnings[0].message
+    native._warned_pyseekdb_version = True  # restore
+
+
+def test_known_bad_version_fails_fast():
+    """PR-SDB-140-1 (outline §五): pyseekdb 1.4.0 must raise, not log."""
+    import rosclaw.storage.seekdb_native as native
+
+    native._warned_pyseekdb_version = False
+    with patch("importlib.metadata.version", return_value="1.4.0"):
+        import pytest
+
+        with pytest.raises(RuntimeError, match="KNOWN-INCOMPATIBLE"):
+            native._warn_on_unvalidated_pyseekdb(object())
+    native._warned_pyseekdb_version = True  # restore
+
+
+def test_known_bad_override_env_allows_with_error_log(caplog, monkeypatch):
+    """The lab escape hatch: ROSCLAW_ALLOW_KNOWN_BAD_SEEKDB=1."""
+    import rosclaw.storage.seekdb_native as native
+
+    monkeypatch.setenv("ROSCLAW_ALLOW_KNOWN_BAD_SEEKDB", "1")
+    native._warned_pyseekdb_version = False
+    with patch("importlib.metadata.version", return_value="1.4.0"), caplog.at_level(logging.ERROR):
         native._warn_on_unvalidated_pyseekdb(object())
     errors = [r for r in caplog.records if r.levelno >= logging.ERROR]
     assert len(errors) == 1

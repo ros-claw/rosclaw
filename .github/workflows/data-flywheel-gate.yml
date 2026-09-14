@@ -80,6 +80,12 @@ jobs:
       - name: Gate E — harness unit tests
         run: pytest validation/data_flywheel/tests -q
 
+      - name: Gate G — SeekDB regression matrix (T0-T15, real embedded engine)
+        # PR-SDB-140-1: the #251 surface + rosclaw-level paths on the real
+        # embedded engine; runs on every SDK/engine upgrade from now on.
+        # Own process: pylibseekdb allows one embedded target per process.
+        run: pytest tests/integration/seekdb -q -m 'integration'
+
       - name: Gate F — Golden Flywheel (§42-§44 final acceptance)
         # Separate process from Gate E: pylibseekdb allows one embedded
         # target per process.  Needs mujoco (already in the profile for

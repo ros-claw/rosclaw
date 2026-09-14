@@ -462,9 +462,16 @@ def _pyseekdb_compat_checks(
     (pyseekdb 1.4.0 producing `__pk_increment` syntax errors and empty
     hybrid results on the embedded engine).
     """
-    # (status, note) per SDK version range; keep in sync with pyproject pin.
+    # PR-SDB-140-1: the matrix's single source of truth is seekdb_compat.
+    from rosclaw.storage.seekdb_compat import (
+        CANDIDATE_SDK_VERSIONS,
+        VALIDATED_SDK_VERSIONS,
+        classify_sdk_version,
+    )
+
     matrix = {
-        "validated": ["1.3.0", "1.4.0.post1"],
+        "validated": sorted(VALIDATED_SDK_VERSIONS),
+        "candidate": sorted(CANDIDATE_SDK_VERSIONS),
         "known_incompatible": {
             "1.4.0": "metadata-filtered search legs broken on embedded engine "
             "(code=1064 __pk_increment, malformed FULL JOIN, code=1059 "
@@ -490,6 +497,11 @@ def _pyseekdb_compat_checks(
     elif installed in matrix["validated"]:
         checks.append(("pyseekdb compat", f"{installed} (validated)", True))
         status = "validated"
+    elif installed in matrix["candidate"]:
+        checks.append(
+            ("pyseekdb compat", f"{installed} (candidate — engine-1.4 matrix pending)", True)
+        )
+        status = "candidate"
     elif installed in matrix["known_incompatible"]:
         checks.append(
             ("pyseekdb compat",
@@ -515,7 +527,9 @@ def _pyseekdb_compat_checks(
     result["seekdb"]["pyseekdb_compat"] = {
         "installed": installed,
         "status": status,
+        "classification": classify_sdk_version(installed),
         "validated": matrix["validated"],
+        "candidate": matrix["candidate"],
         "known_incompatible": matrix["known_incompatible"],
     }
 
@@ -538,6 +552,11 @@ def _native_seekdb_checks(
 
     deployment = client.deployment_info()
     result["seekdb"] = {"backend": backend, "deployment": deployment}
+    capabilities = getattr(client, "capabilities", None)
+    if capabilities is not None:
+        result["seekdb"]["capabilities"] = (
+            capabilities.to_dict() if hasattr(capabilities, "to_dict") else capabilities
+        )
     _pyseekdb_compat_checks(checks, issues, result)
 
     # 1. Engine readiness: the store's connect() already probes with a 30 s

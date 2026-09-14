@@ -32,6 +32,7 @@ from threading import Lock
 from typing import Any
 
 from rosclaw.memory.seekdb_client import StructuredStore
+from rosclaw.storage.seekdb_compat import detect_capabilities, log_capabilities
 
 # ADR-0010 compat (PR-DF-01): keep the pre-rename module attribute
 SeekDBClient = StructuredStore
@@ -85,6 +86,27 @@ def _require_pyseekdb():
     return pyseekdb
 
 
+def _validate_sdk_once() -> None:
+    """PR-SDB-140-1: process-wide fail-fast on the known-bad SDK.
+
+    Runs at most once per process; the known-bad raise happens on the FIRST
+    native-store construction, never mid-query.
+    """
+    global _sdk_validated
+    if _sdk_validated:
+        return
+    from rosclaw.storage.seekdb_compat import (
+        installed_distribution_version,
+        validate_sdk_version,
+    )
+
+    validate_sdk_version(installed_distribution_version("pyseekdb"))
+    _sdk_validated = True
+
+
+_sdk_validated = False
+
+
 _warned_pyseekdb_version = False
 
 
@@ -108,23 +130,17 @@ def _warn_on_unvalidated_pyseekdb(pyseekdb: Any) -> None:
             return
     except Exception:  # noqa: BLE001
         return
-    validated = {"1.3.0", "1.4.0.post1"}
-    known_incompatible = {"1.4.0"}
-    if installed in known_incompatible:
-        logger.error(
-            "pyseekdb %s is KNOWN-INCOMPATIBLE with the embedded SeekDB engine "
-            "(broken SQL generation on metadata-filtered search legs; "
-            "oceanbase/pyseekdb#251). Upgrade to 1.4.0.post1 or pin 1.3.0: "
-            "pip install 'pyseekdb==1.4.0.post1'",
-            installed,
-        )
-    elif installed not in validated:
-        logger.warning(
-            "pyseekdb %s is outside the validated version matrix (%s); "
-            "native SeekDB behaviour may drift silently",
-            installed,
-            "/".join(sorted(validated)),
-        )
+    from rosclaw.storage.seekdb_compat import (
+        CANDIDATE_SDK_VERSIONS,
+        VALIDATED_SDK_VERSIONS,
+        validate_sdk_version,
+    )
+
+    # PR-SDB-140-1: the matrix lives in seekdb_compat now.  Known-bad raises
+    # (fail fast); untested warns.  The once-per-process guard above stays.
+    validate_sdk_version(installed)
+    validated = VALIDATED_SDK_VERSIONS | CANDIDATE_SDK_VERSIONS
+    del validated  # matrix display owned by seekdb_compat
 
 
 def _is_collection_not_found(exc: Exception) -> bool:
@@ -198,6 +214,7 @@ class SeekDBRetrievalStore(StructuredStore):
         self._client: Any | None = None
         self._client_stack: ExitStack | None = None
         self._collections: dict[str, Any] = {}
+        self._capabilities: Any | None = None
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -206,6 +223,7 @@ class SeekDBRetrievalStore(StructuredStore):
     def connect(self) -> None:
         if self._client is not None:
             return
+        _validate_sdk_once()
         pyseekdb = _require_pyseekdb()
         if self._path is not None:
             self._claim_embedded_target()
@@ -234,11 +252,18 @@ class SeekDBRetrievalStore(StructuredStore):
             self._client_stack = None
             stack.close()
             raise
+        self._capabilities = detect_capabilities(path=self._path, host=self._host)
+        log_capabilities(self._capabilities)
         logger.info(
             "SeekDBRetrievalStore connected (%s, database=%s)",
             f"embedded:{self._path}" if self._path else f"server:{self._host}:{self._port}",
             self._database,
         )
+
+    @property
+    def capabilities(self) -> Any:
+        """Detected after connect(); None before (PR-SDB-140-1)."""
+        return self._capabilities
 
     def _claim_embedded_target(self) -> None:
         """Prevent pylibseekdb from silently reusing another process-global target."""
@@ -405,11 +430,20 @@ class SeekDBRetrievalStore(StructuredStore):
         self.refresh_index(table)
         return len(ids)
 
-    def refresh_index(self, table: str) -> None:
-        """Force the vector index to pick up recent writes."""
+    def refresh_index(self, table: str, *, strict: bool = True) -> None:
+        """Force the vector index to pick up recent writes.
+
+        PR-SDB-140-1 (outline §九/十三): explicit refreshes are strict by
+        default — a failed refresh on a write→searchable path must raise,
+        not vanish into a debug log (seekdb 1.4 fixed an embedded refresh
+        timeout; only a strict caller can prove it).  Only background
+        best-effort maintenance may pass ``strict=False``.
+        """
         try:
             self._collection(table).refresh_index()
         except Exception as exc:  # noqa: BLE001
+            if strict:
+                raise
             logger.debug("refresh_index(%s): %s", table, exc)
 
     def query(
