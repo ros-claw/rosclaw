@@ -120,3 +120,74 @@ test("R1-b: 回合终态后定时器全解除（无 stray abort）", async () =>
 	await new Promise((r) => setTimeout(r, 200));
 	assert.equal(aborted, 0, "回合结束后仍触发取消");
 });
+
+/** 0914 PR-3（审计 §5）：计时域拆分——Provider 时钟只在真正等待
+ *  Provider 时走。工具执行（90s 渲染/sleep）不是 Provider 停滞：
+ *  tool_execution_start 暂停、end 恢复（0914 实证：后台 Operation
+ *  已 SUCCEEDED，界面却流式 idle 45s 取消模型请求）。 */
+
+test("0914 PR-3: 工具执行阶段暂停 Provider 时钟——长工具不被 idle 误杀", async () => {
+	const { ProviderStallWatchdog } = await import(
+		"../src/native/provider-watchdog.js"
+	);
+	let aborted = 0;
+	const wd = new ProviderStallWatchdog({
+		notice: () => {},
+		stallAbort: () => { aborted++; },
+		firstTokenNoticeMs: 30, firstTokenAbortMs: 80,
+		streamIdleStatusMs: 60, streamIdleAbortMs: 150,
+	});
+	wd.turnStarted();
+	wd.contentProgress(); // 进入流式（已有内容）
+	wd.pauseForTool();    // tool_execution_start——工具阶段开始
+	await new Promise((r) => setTimeout(r, 300)); // 远超 150ms idle 阈值
+	assert.equal(aborted, 0, "工具阶段被 Provider idle 误杀（0914 实证形态）");
+	wd.resumeFromTool();  // tool_execution_end——恢复 Provider 时钟
+	await new Promise((r) => setTimeout(r, 250));
+	assert.equal(aborted, 1, "工具结束后 Provider 静默不再触发恢复");
+	wd.turnEnded();
+});
+
+test("0914 PR-3: 嵌套工具计数——两层 pause 一次 resume 不提前恢复", async () => {
+	const { ProviderStallWatchdog } = await import(
+		"../src/native/provider-watchdog.js"
+	);
+	let aborted = 0;
+	const wd = new ProviderStallWatchdog({
+		notice: () => {},
+		stallAbort: () => { aborted++; },
+		firstTokenNoticeMs: 30, firstTokenAbortMs: 80,
+		streamIdleStatusMs: 60, streamIdleAbortMs: 120,
+	});
+	wd.turnStarted();
+	wd.contentProgress();
+	wd.pauseForTool();
+	wd.pauseForTool();
+	await new Promise((r) => setTimeout(r, 50));
+	wd.resumeFromTool(); // 仍有一层——时钟不得恢复
+	await new Promise((r) => setTimeout(r, 250));
+	assert.equal(aborted, 0, "嵌套工具被提前恢复时钟误杀");
+	wd.resumeFromTool();
+	await new Promise((r) => setTimeout(r, 200));
+	assert.equal(aborted, 1);
+	wd.turnEnded();
+});
+
+test("0914 PR-3: Provider 真停滞仍取消（工具未启动时不放水）", async () => {
+	const { ProviderStallWatchdog } = await import(
+		"../src/native/provider-watchdog.js"
+	);
+	let aborted = 0;
+	const wd = new ProviderStallWatchdog({
+		notice: () => {},
+		stallAbort: () => { aborted++; },
+		firstTokenNoticeMs: 30, firstTokenAbortMs: 80,
+		streamIdleStatusMs: 60, streamIdleAbortMs: 120,
+	});
+	wd.turnStarted();
+	wd.contentProgress();
+	// 无 pauseForTool——纯 Provider 静默：必须按原阈值触发。
+	await new Promise((r) => setTimeout(r, 220));
+	assert.equal(aborted, 1, "拆分后 Provider 真停滞反而不取消了");
+	wd.turnEnded();
+});

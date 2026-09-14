@@ -430,6 +430,30 @@ class PiBridgeServer:
                     lines.append(f"任务 {task_id} 进行中（{state}）——继续对话即恢复")
                 else:
                     lines.append(f"任务 {task_id}：{state}")
+            # 0914 PR-3（审计 §5）：终态 Operation 与产物可发现——
+            # 恢复后模型直接复用成功产物（0914 实证：模型不知后台
+            # 渲染已 SUCCEEDED，复制视频再登记/重复渲染）。
+            op_rows = conn.execute(
+                "SELECT operation_id, kind, state FROM operations "
+                "WHERE state IN ('SUCCEEDED', 'FAILED', 'CANCELLED') "
+                "ORDER BY ended_at DESC LIMIT 5"
+            ).fetchall()
+            for op in op_rows:
+                op_id = str(op["operation_id"])
+                state = str(op["state"])
+                kind = str(op["kind"])
+                if state == "SUCCEEDED":
+                    lines.append(f"Operation {op_id}（{kind}）已成功完成")
+                else:
+                    lines.append(f"Operation {op_id}（{kind}）：{state}")
+            artifact_rows = conn.execute(
+                "SELECT path, media_type FROM artifacts "
+                "ORDER BY created_at DESC LIMIT 5"
+            ).fetchall()
+            for art in artifact_rows:
+                lines.append(
+                    f"已有产物可直接交付/引用（勿重新生成）：{art['path']}"
+                )
             # 过期 PENDING 卡（broker 侧）→ REAUTH_NEEDED（恢复不复活
             # 任何授权）。
             from datetime import UTC as _UTC2

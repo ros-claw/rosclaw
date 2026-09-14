@@ -18,9 +18,11 @@ export function buildProcessTools(ctx: BridgeToolContext): ToolDefinition[] {
 			label: "Process Start",
 			description:
 				"Start a long-running process as an Operation (returns operation_id " +
-				"immediately — progress/output stream via process_output; you are " +
-				"notified once on completion). Use for builds, simulations, renders, " +
-				"long tests. For quick commands use bash instead.",
+				"immediately). After calling this, END YOUR TURN: tell the user the " +
+				"task is running in the background — completion is pushed to the " +
+				"user automatically with the result. Do NOT sleep and do NOT poll " +
+				"process_output to wait; the push brings the result. Use for builds, " +
+				"simulations, renders, long tests. For quick commands use bash instead.",
 			parameters: Type.Object({
 				command: Type.String({ description: "要后台运行的 shell 命令" }),
 			}),
