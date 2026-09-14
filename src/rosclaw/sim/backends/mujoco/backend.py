@@ -40,13 +40,17 @@ from rosclaw.sim.backends.mujoco.rollout import DEFAULT_BUDGETS
 from rosclaw.sim.capabilities import probe_mujoco_capabilities
 from rosclaw.sim.contracts import (
     AuditResult,
+    ComparisonResult,
     ModelInspection,
     ModelPatchResult,
     ModelReference,
     ObservationResult,
     SimulationBackendCapabilities,
+    SimulationReceipt,
     SimulationTrace,
 )
+from rosclaw.sim.experiment import compare as compare_mod
+from rosclaw.sim.experiment.metrics import MetricCollector
 from rosclaw.sim.model_inspect import inspect_mjcf
 from rosclaw.sim.resolve import resolve_mjcf_source, source_kind_for
 from rosclaw.sim.store import SimStore
@@ -443,6 +447,192 @@ class MujocoBackend:
             warnings_detail=outcome["warnings"],
         ).with_digest()
 
+    # -- 实验回执 / strict replay / 对比（MH5，规格 §20/§30/§31/§56/§57） ------
+
+    def run_experiment(
+        self,
+        model_ref: str,
+        *,
+        state_ref: str | None = None,
+        controller: dict[str, Any],
+        duration_s: float | None = None,
+        steps: int | None = None,
+        seed: int = 0,
+        budgets: dict[str, Any] | None = None,
+        audit: bool = True,
+    ) -> SimulationReceipt:
+        """rollout + 指标 + 审计 → SimulationReceipt（不可变落盘，幂等）。"""
+        import mujoco
+
+        manifest = self._manifest(model_ref)
+        if state_ref is not None:
+            model, data = self.restore_state(model_ref, state_ref)
+        else:
+            spec = self._spec_from_manifest(manifest)
+            model, _ = self._compile_smoke(spec)
+            data = mujoco.MjData(model)
+            mujoco.mj_forward(model, data)
+        initial_state_ref = self.capture_and_store(model_ref, model, data)
+
+        plan = rollout_mod.validate_controller(controller, model.nu)
+        resolved_steps = rollout_mod.resolve_steps(
+            controller, steps=steps, duration_s=duration_s, timestep=float(model.opt.timestep)
+        )
+        tracked = [
+            (i, int(model.jnt_qposadr[int(model.actuator_trnid[i][0])]))
+            for i in range(model.nu)
+            if int(model.actuator_trntype[i]) == int(mujoco.mjtTrn.mjTRN_JOINT)
+        ]
+        collector = _make_collector(model, data, plan, tracked)
+        states, actual_steps = rollout_mod.run_rollout(
+            model, data, plan=plan, steps=resolved_steps, budgets=budgets, visit=collector.visit
+        )
+        merged = {**rollout_mod.DEFAULT_BUDGETS, **(budgets or {})}
+        digest = rollout_mod.states_digest(states)
+        record = {
+            "kind": "simulation_trace",
+            "model_ref": model_ref,
+            "model_digest": self._xml_digest(manifest),
+            "seed": seed,
+            "controller": controller,
+            "steps": actual_steps,
+            "timestep_s": float(model.opt.timestep),
+            "duration_s": float(data.time),
+            "states_digest": digest,
+            "states": states,
+        }
+        if len(canonical_json(record).encode("utf-8")) > merged["max_trace_bytes"]:
+            raise ValueError(f"SIM_BUDGET_EXCEEDED: trace bytes > {merged['max_trace_bytes']}")
+        trace_ref = self.store.put("traces", record)
+
+        metrics = collector.finalize(
+            timestep=float(model.opt.timestep), duration_s=float(data.time)
+        )
+        audit_ref = ""
+        success: bool | None = None
+        if audit:
+            audit_result = self.audit(model_ref, trace_ref=trace_ref)
+            audit_ref = audit_result.audit_ref
+            success = audit_result.status == "PASS"
+
+        semantic_digest = content_hash(
+            "simrcp", {"metrics": _round_metrics(metrics), "success": success}
+        )
+        payload = {
+            "kind": "simulation_receipt",
+            "schema_version": "rosclaw.sim.receipt.v1",
+            "backend": "mujoco",
+            "backend_version": manifest["backend_version"],
+            "model_ref": model_ref,
+            "model_digest": self._xml_digest(manifest),
+            "initial_state_ref": initial_state_ref,
+            "action_digest": content_hash("simact", controller),
+            "trace_ref": trace_ref,
+            "seed": seed,
+            "steps": actual_steps,
+            "simulation_time_s": float(data.time),
+            "success": success,
+            "metrics": metrics,
+            "audit_ref": audit_ref,
+            "artifacts": [],
+            "states_digest": digest,
+            "semantic_digest": semantic_digest,
+            "trust_level": "SIMULATED",
+            "usable_for_real_execution": False,
+        }
+        receipt_ref = self.store.put("experiments", payload)
+        return SimulationReceipt(
+            backend="mujoco",
+            backend_version=manifest["backend_version"],
+            created_at=self._created_at(receipt_ref),
+            model_ref=model_ref,
+            model_digest=payload["model_digest"],
+            initial_state_ref=initial_state_ref,
+            action_digest=payload["action_digest"],
+            trace_ref=trace_ref,
+            seed=seed,
+            steps=actual_steps,
+            simulation_time_s=payload["simulation_time_s"],
+            success=success,
+            metrics=metrics,
+            audit_ref=audit_ref,
+            states_digest=digest,
+            semantic_digest=semantic_digest,
+            receipt_ref=receipt_ref,
+        ).with_digest()
+
+    def strict_replay(self, receipt_ref: str) -> dict[str, Any]:
+        """规格 §57：重放校验 model/backend/seed/初始状态/controller/steps/
+        关键指标/任务结果；不一致 → REPLAY_DIVERGED，不得 promotion。
+
+        双层 digest（§56）：raw（states_digest 逐状态）优先；raw 不符时
+        退化到语义层（指标容差 + success）判定。
+        """
+        import mujoco
+
+        payload = self.store.get(receipt_ref)
+        if not isinstance(payload, dict) or payload.get("kind") != "simulation_receipt":
+            raise ValueError(f"REF_NOT_FOUND: {receipt_ref!r} is not a simulation receipt")
+        current_version = str(mujoco.__version__)
+        if payload.get("backend") != "mujoco" or payload.get("backend_version") != current_version:
+            raise ValueError(
+                f"REPLAY_DIVERGED: backend {payload.get('backend')}"
+                f"@{payload.get('backend_version')} != mujoco@{current_version}"
+            )
+        manifest = self._manifest(payload["model_ref"])
+        if payload["model_digest"] != self._xml_digest(manifest):
+            raise ValueError("REPLAY_DIVERGED: model digest mismatch")
+
+        trace_record = self.store.get(payload["trace_ref"])
+        controller = trace_record["controller"]
+        model, data = self.restore_state(payload["model_ref"], payload["initial_state_ref"])
+        plan = rollout_mod.validate_controller(controller, model.nu)
+        tracked = [
+            (i, int(model.jnt_qposadr[int(model.actuator_trnid[i][0])]))
+            for i in range(model.nu)
+            if int(model.actuator_trntype[i]) == int(mujoco.mjtTrn.mjTRN_JOINT)
+        ]
+        collector = _make_collector(model, data, plan, tracked)
+        states, _ = rollout_mod.run_rollout(
+            model, data, plan=plan, steps=int(payload["steps"]), visit=collector.visit
+        )
+        if rollout_mod.states_digest(states) == payload["states_digest"]:
+            return {"verified": True, "mode": "raw", "receipt_ref": receipt_ref}
+
+        metrics = collector.finalize(
+            timestep=float(model.opt.timestep), duration_s=float(data.time)
+        )
+        audit_status = self.audit(payload["model_ref"], trace_ref=payload["trace_ref"]).status
+        if (
+            _metrics_close(metrics, payload["metrics"])
+            and (audit_status == "PASS") == payload["success"]
+        ):
+            return {"verified": True, "mode": "semantic", "receipt_ref": receipt_ref}
+        raise ValueError("REPLAY_DIVERGED: raw states and semantic metrics both mismatch")
+
+    def compare_experiments(self, receipt_refs: list[str]) -> ComparisonResult:
+        """规格 §20：指标表 + best + Pareto 候选（机器比较，不靠 LLM 读数）。"""
+        if not isinstance(receipt_refs, list) or len(receipt_refs) < 2:
+            raise ValueError("COMPARE_REFS_REQUIRED: need >= 2 receipt refs")
+        payloads = []
+        for ref in receipt_refs:
+            payload = self.store.get(ref)
+            if not isinstance(payload, dict) or payload.get("kind") != "simulation_receipt":
+                raise ValueError(f"REF_NOT_FOUND: {ref!r} is not a simulation receipt")
+            payloads.append({**payload, "_ref": ref})
+        table = compare_mod.build_metric_table(payloads)
+        pareto = compare_mod.pareto_front(table)
+        best = compare_mod.best_experiment(table, pareto)
+        return ComparisonResult(
+            backend="mujoco",
+            backend_version=payloads[0]["backend_version"],
+            created_at=datetime.now(UTC).isoformat(),
+            subject_refs=list(receipt_refs),
+            metric_table=table,
+            best_ref=best,
+            pareto_refs=pareto,
+        ).with_digest()
+
     # -- 内部 ---------------------------------------------------------------
 
     def _manifest(self, model_ref: str) -> dict[str, Any]:
@@ -522,3 +712,44 @@ class MujocoBackend:
         """不可变 manifest 的落盘 mtime = 首次创建时间（幂等稳定）。"""
         mtime = self.store.resolve(ref).stat().st_mtime
         return datetime.fromtimestamp(mtime, UTC).isoformat()
+
+
+def _make_collector(model, data, plan: dict[str, Any], tracked):  # noqa: ANN001, ANN202
+    """构造指标采集器：position_targets 先应用（run_rollout 内幂等再
+    应用一次）；ctrl_series 逐行目标由 collector 查表。"""
+    if plan["kind"] == "position_targets":
+        for i, v in enumerate(plan["values"]):
+            data.ctrl[i] = v
+    return MetricCollector(model, data, tracked, series_rows=plan.get("rows"))
+
+
+def _round_metrics(metrics: dict[str, Any], digits: int = 6) -> dict[str, Any]:
+    """语义 digest 用：浮点指标舍入（规格 §56 canonical tolerance）。"""
+    rounded = {}
+    for key, value in metrics.items():
+        if isinstance(value, bool):
+            rounded[key] = value
+        elif isinstance(value, (int, float)):
+            rounded[key] = round(float(value), digits)
+        else:
+            rounded[key] = value
+    return rounded
+
+
+def _metrics_close(actual: dict[str, Any], expected: dict[str, Any]) -> bool:
+    """语义层指标容差比较：bool 精确，数值 rel=1e-6/abs=1e-9。"""
+    import math
+
+    for key, expected_value in expected.items():
+        actual_value = actual.get(key)
+        if isinstance(expected_value, bool):
+            if actual_value != expected_value:
+                return False
+        elif isinstance(expected_value, (int, float)):
+            if not isinstance(actual_value, (int, float)) or not math.isclose(
+                float(actual_value), float(expected_value), rel_tol=1e-6, abs_tol=1e-9
+            ):
+                return False
+        elif actual_value != expected_value:
+            return False
+    return True

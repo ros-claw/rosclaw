@@ -26,6 +26,7 @@ ALL_CONTRACTS = [
     sc.ExperimentResult,
     sc.ComparisonResult,
     sc.SimulationEvidenceBundle,
+    sc.SimulationReceipt,
 ]
 
 SCHEMA_RE = re.compile(r"^rosclaw\.sim\.[a-z0-9_]+\.v1$")
