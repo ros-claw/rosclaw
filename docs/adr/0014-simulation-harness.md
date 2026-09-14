@@ -121,3 +121,21 @@ ROSClaw 已经具备相当多 MuJoCo 底层能力：`sim/api.py` 的最小编程
 5. **api.py 历史缺口记录**：`sim/api.py` 仍接受 task_root 外绝对
    路径；新 `sim/resolve.py` 已堵死（外部 URI → MODEL_NOT_FOUND、
    越界 → MODEL_PATH_ESCAPE），api.py 迁移 PR 时收编。
+
+## 补充：MH3 状态与实验决策（2026-09-14，PR-MH3）
+
+1. **快照即完整可续仿真状态**：time/qpos/qvel/act/ctrl/mocap_pos/
+   mocap_quat，绑定 model_digest；跨模型 `CROSS_MODEL_REF`、维度
+   不符 `STATE_DIMENSION`/`CTRL_DIMENSION`、非有限 `STATE_INVALID`，
+   绝不 silent truncate 或 pad（沿用 api.py 强约束语义）。
+2. **fork 是记录不是复制**：内容寻址下 N 个 branch 初始 ref 必然
+   相同（digest 一致由构造保证）；分支身份为 fork 记录中的
+   branch_id（b0..bN-1）；`max_branch_count=64` 预算 fail closed。
+3. **rollout 强制预算**：max_steps=200k / max_duration=600s /
+   max_wall_time=60s / max_record_points=480 / max_trace_bytes=32MB，
+   超限 `SIM_BUDGET_EXCEEDED`；逐步 NaN/Inf 哨兵 → `SIM_DIVERGED`；
+   controller 白名单 hold / ctrl_series / position_targets，Python
+   controller 不开放（ADR-0014 #3：无 Agent 直连通道）。
+4. **observe 语义化有界**：contact 最多 50 对；能量读取用
+   `mj_energyPos/Vel` 写回 `data.energy` 的 3.11 实际签名；图像类
+   通道留给渲染 PR（返回 artifact ref 而非 RGB 数组）。
