@@ -79,3 +79,20 @@ ROSClaw 已经具备相当多 MuJoCo 底层能力：`sim/api.py` 的最小编程
 - 不变：ADR-0012/0013 全部条款；无 `--engine pi/codex`；无新
   Harness backend 名称；`sim/api.py`、`model_inspect.py`、
   sandbox、SimForge 现有行为本阶段不改写。
+
+## 补充：MH1 不可变 Store 决策（2026-09-14，PR-MH1）
+
+1. **布局共存**：新对象落 `task_root/sim/{models,states,traces,audits,
+   renders,experiments}/`；legacy `sim/api.py` 布局
+   （`task_root/models/`）不动，由 `SimStore` 只读桥解析
+   `model_`/`obs_`/`op_` ref——legacy 分区的写入一律拒绝
+   （`STORE_LEGACY_READONLY`）。api.py 写路径的迁移按能力逐个搬，
+   不在本 PR。
+2. **ref 是内容寻址令牌，不是路径**：
+   `sim<kind>_<sha256[:16]>`，词法层拒绝 `../`、绝对路径与 URI
+   （`REF_INVALID`），路径逃逸在构造上不可能；`SimStore` 另做
+   resolve 前缀 + symlink 双重校验兜底。
+3. **不可变语义 = 幂等写 + 绝不覆写**：同 ref 同内容幂等返回
+   （Agent 重试/网络重放场景的唯一安全语义）；同 ref 异内容
+   （构造上不可达，防御盘外篡改）→ `STORE_IMMUTABLE_VIOLATION`。
+   `get` 读回重算 digest，防盘外篡改。
