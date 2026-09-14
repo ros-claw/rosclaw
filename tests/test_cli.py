@@ -163,9 +163,12 @@ class TestDoctor:
 
 
 class TestLogs:
-    def test_logs_no_logs_dir(self, capsys):
+    def test_logs_no_logs_dir(self, capsys, tmp_path, monkeypatch):
         from rosclaw.cli import main
 
+        # 0914 自审实证：读宿主 ROSCLAW_HOME——本机 logs/ 存在时
+        # 永不命中 "not found"（CI 干净 HOME 才绿）。隔离空 HOME。
+        monkeypatch.setenv("ROSCLAW_HOME", str(tmp_path / "rh"))
         sys.argv = ["rosclaw", "logs"]
         assert main() == 0
         captured = capsys.readouterr()
