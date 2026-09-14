@@ -310,6 +310,29 @@ class MujocoBackend:
         record["fork_ref"] = self.store.put("experiments", record)
         return record
 
+    def transplant_state(self, model_ref: str, state_ref: str) -> str:
+        """显式跨模型状态移植（参数实验场景：同物理状态 → patch 后模型）。
+
+        与 restore 的 fail-closed 不同，这是**显式操作**：维度必须完全
+        一致（nq/nv/na/nu/nmocap），否则 STATE_DIMENSION；移植记录
+        provenance（transplanted_from）。绝不静默截断或补零。
+        """
+        manifest = self._manifest(model_ref)
+        snap = self.store.get(state_ref)
+        if not isinstance(snap, dict) or snap.get("kind") != "state_snapshot":
+            raise ValueError(f"REF_NOT_FOUND: {state_ref!r} is not a state snapshot")
+        spec = self._spec_from_manifest(manifest)
+        model, _ = self._compile_smoke(spec)
+        state.validate_state_values(model, snap)
+        payload = {
+            "kind": "state_snapshot",
+            "model_ref": model_ref,
+            "model_digest": self._xml_digest(manifest),
+            "transplanted_from": state_ref,
+            **{key: snap[key] for key in ("time", *state.STATE_ARRAY_KEYS)},
+        }
+        return self.store.put("states", payload)
+
     # -- 实验：rollout / observe（MH3，规格 §15/§16） -------------------------
 
     def rollout(
