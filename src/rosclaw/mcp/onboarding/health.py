@@ -202,7 +202,32 @@ class HealthRunner:
                         )
                     ],
                 )
-            manifest = self.hub.fetch_manifest(record.manifest_id, record.version)
+            # W-2（0914 二轮自审实证）：陈旧安装记录（manifest 已从
+            # 注册表下架——如 2026-06 安装的 realsense-d405）不得让
+            # 整个 health 硬失败——该 server 报 failed + 可操作指引，
+            # 其余 server 继续检查。
+            try:
+                manifest = self.hub.fetch_manifest(record.manifest_id, record.version)
+            except Exception as exc:  # noqa: BLE001 — 下架/网络/坏 manifest 同类处置
+                return HealthReport(
+                    server_name=server_name,
+                    manifest_id=record.manifest_id,
+                    version=record.version,
+                    overall="failed",
+                    checks=[
+                        HealthResult(
+                            check_id="manifest",
+                            category="install",
+                            passed=False,
+                            required=True,
+                            message=(
+                                f"manifest 已下架/缺失（{exc}）——陈旧安装记录："
+                                f"`rosclaw mcp uninstall {server_name}` 卸载"
+                                "或重装当前可用版本"
+                            ),
+                        )
+                    ],
+                )
 
         report = HealthReport(
             server_name=server_name,
