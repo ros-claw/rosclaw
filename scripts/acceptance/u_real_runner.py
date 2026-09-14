@@ -91,14 +91,18 @@ def _run_one(scenario: str, run_idx: int, out_dir: Path) -> dict:
 
 
 def _oracle(scenario: str, run) -> dict:
-    """环境结局核验（不信模型自报）。"""
+    """环境结局核验（不信模型自报）。
+
+    产物可能在两处：工作区 ws（模型自写脚本产出）与 home 的
+    sim/traces + runs/<task>/outputs（内核渲染+交付登记）——首轮
+    实证：只搜 ws 会把真实成功误判 FAIL（模型走 simulation_render_
+    scene 产物全在 home 侧）。搜索根 = run.tmp_path（含 ws 与 home）。
+    """
     import json as _json
 
-    ws = run.ws
-    videos = sorted(ws.rglob("*.mp4")) + sorted(ws.rglob("*.gif"))
-    receipts = sorted(
-        p for p in ws.rglob("render_receipt.json")
-    )
+    root = run.tmp_path
+    videos = sorted(root.rglob("*.mp4")) + sorted(root.rglob("*.gif"))
+    receipts = sorted(root.rglob("render_receipt.json"))
     overlays_ok = False
     unfulfilled: list = []
     for rp in receipts:
@@ -135,7 +139,7 @@ def _oracle(scenario: str, run) -> dict:
             ),
         }
     # U10：数据文件 + 结论含三种阻尼的衰减比较（数据可重算）。
-    csvs = sorted(ws.rglob("*.csv")) + sorted(ws.rglob("*.json"))
+    csvs = sorted(root.rglob("*.csv")) + sorted(root.rglob("*.json"))
     session_text = run.session.clean.decode("utf-8", errors="replace")
     has_three = all(d in session_text for d in ("0.02", "0.1", "0.3"))
     monotone = ("单调" in session_text) or ("衰减" in session_text)
@@ -146,6 +150,54 @@ def _oracle(scenario: str, run) -> dict:
     }
 
 
+def _rescore(out_dir: Path) -> list[dict]:
+    """对已完成的运行现场重判（oracle 修正后）——不重跑、不烧配额。
+
+    首轮实证：oracle 只搜 ws 把真实成功误判 FAIL（内核渲染产物在
+    home 侧）。重判仍只看环境结局（现场文件 + pty.log）。
+    """
+    import json as _json
+    from dataclasses import dataclass
+
+    @dataclass
+    class _Session:
+        clean: bytes
+
+    @dataclass
+    class _Run:
+        tmp_path: Path
+        session: _Session
+
+    results: list[dict] = []
+    for run_dir in sorted(out_dir.glob("u*_run*")):
+        parts = run_dir.name.split("_run")
+        scenario, run_idx = parts[0].upper(), int(parts[1])
+        pty = run_dir / "pty.log"
+        run = _Run(
+            tmp_path=run_dir,
+            session=_Session(clean=pty.read_bytes() if pty.exists() else b""),
+        )
+        record = _oracle(scenario, run)
+        record.update({
+            "scenario": scenario,
+            "run": run_idx,
+            "rescored": True,
+            "wall_time_s": None,
+            "interventions": 0,
+        })
+        results.append(record)
+        print(
+            f"[rescore] {scenario} run {run_idx}: {record['verdict']} "
+            f"{record['detail'][:120]}",
+            flush=True,
+        )
+    (out_dir / "u-real-rescore.json").write_text(
+        _json.dumps({"results": results}, ensure_ascii=False, indent=1),
+        encoding="utf-8",
+    )
+    return results
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--runs", type=int, default=3)
@@ -154,9 +206,20 @@ def main() -> int:
         "--scenarios", default="U05,U06,U10",
         help="逗号分隔（默认全部真实模型场景）",
     )
+    parser.add_argument(
+        "--rescore", action="store_true",
+        help="对 --out 下已完成运行现场重判（不重跑、不烧配额）",
+    )
     args = parser.parse_args()
     out_dir: Path = args.out
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    if args.rescore:
+        results = _rescore(out_dir)
+        passes = sum(1 for r in results if r["verdict"] == "PASS")
+        fails = sum(1 for r in results if r["verdict"] == "FAIL")
+        print(json.dumps({"pass": passes, "fail": fails}, ensure_ascii=False))
+        return 0 if fails == 0 else 1
 
     results: list[dict] = []
     if not _have_key():
