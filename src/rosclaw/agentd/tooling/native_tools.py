@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from rosclaw.agentd.sim_render import SCENE_RENDER_OVERLAY_INPUT_FRAGMENT
 from rosclaw.agentd.tooling.catalog import ToolCatalog
 from rosclaw.agentd.tools import (
     SIM_BODY_TOOL,
@@ -22,6 +23,11 @@ from rosclaw.contracts.agent.tool import (
 )
 
 NATIVE_SOURCE = "native:agentd"
+
+
+def _scene_render_input_fragment() -> dict:
+    """场景渲染模型面参数片段（0914 PR-2 单一来源守卫）。"""
+    return SCENE_RENDER_OVERLAY_INPUT_FRAGMENT
 
 
 def register_native_tools(
@@ -383,7 +389,11 @@ def register_native_tools(
                     "trajectory state replay + camera preset + EGL/OSMesa/"
                     "Xvfb auto-probe). Offline; returns gif+mp4 artifacts + "
                     "render receipt (build/input digests). Use this when the "
-                    "user asks for video/MP4 of the simulated robot."
+                    "user asks for video/MP4 of the simulated robot. Pass "
+                    "overlays=[{kind: actual_eef_trace}] whenever the user "
+                    "asks to SEE the trajectory in the video — it draws the "
+                    "rollout's real end-effector xyz path into the scene; "
+                    "check overlays_unfulfilled before claiming it is shown."
                 ),
                 input_schema={
                     "type": "object",
@@ -391,6 +401,7 @@ def register_native_tools(
                         "trace_id": {"type": "string"},
                         "camera": {"type": "string",
                                    "enum": ["follow", "free", "top"]},
+                        **_scene_render_input_fragment(),
                     },
                     "required": ["trace_id"],
                     "additionalProperties": False,
@@ -406,6 +417,11 @@ def register_native_tools(
                         "artifacts": {"type": "object"},
                         "receipt": {"type": "object"},
                         "evidence_class": {"type": "string", "const": "simulated"},
+                        # 0914 PR-2：满足度三字段（请求了没画上的项
+                        # 模型必须看见——不能 ok=true 冒充全满足）。
+                        "overlays_requested": {"type": "array"},
+                        "overlays_applied": {"type": "array"},
+                        "overlays_unfulfilled": {"type": "array"},
                     },
                     "required": ["ok", "artifact", "receipt", "evidence_class"],
                     "additionalProperties": False,
