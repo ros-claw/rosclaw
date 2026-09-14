@@ -96,3 +96,28 @@ ROSClaw 已经具备相当多 MuJoCo 底层能力：`sim/api.py` 的最小编程
    （Agent 重试/网络重放场景的唯一安全语义）；同 ref 异内容
    （构造上不可达，防御盘外篡改）→ `STORE_IMMUTABLE_VIOLATION`。
    `get` 读回重算 digest，防盘外篡改。
+
+## 补充：MH2 模型服务决策（2026-09-14，PR-MH2）
+
+1. **存储 = manifest + 资产双对象**：`models/<simmdl_*>.json` 存
+   model manifest（mjcf_xml + assets ref 表 + source +
+   parent_model_ref + patches + compile_warnings），不含 created_at
+   → 内容寻址天然幂等（同 patch 重放同 ref）；mesh/texture 资产以
+   原始字节内容寻址落盘（母子模型自动去重，ur5e 约 31MB 不重复
+   存储）。created_at 由 manifest 落盘 mtime 派生。
+2. **编译警告字段常驻但允许为空**：MuJoCo 3.11 Python 无可靠编译
+   警告捕获通道（`set_mju_user_warning` 实测对 from_string/compile
+   路径不触发）。`compile_warnings` best-effort 捕获、默认 `[]`，
+   测试只断言类型；未来版本通道可用时自动开始记录。
+3. **geom mass/density 取自来源 MjSpec**：编译后 MjModel 将 geom
+   质量并入 body 惯性，不再保留逐 geom 值；`inspect_model_full`
+   在传入 spec 时按名字补齐，未显式声明的记 `None`（诚实标注，
+   不拿编译推导值冒充声明值）。
+4. **P0 patch 只开放 `set` 白名单**；`add`/`remove`/`attach` 显式
+   `MODEL_FIELD_UNSUPPORTED`（拓扑/命名空间语义后续里程碑开放）。
+   actuator kp/kv 映射 `gainprm[0]`/`biasprm[1,2]`，仅限
+   gaintype=fixed + biastype none/affine 的 position 类执行器，
+   其余拒绝而非静默误改。
+5. **api.py 历史缺口记录**：`sim/api.py` 仍接受 task_root 外绝对
+   路径；新 `sim/resolve.py` 已堵死（外部 URI → MODEL_NOT_FOUND、
+   越界 → MODEL_PATH_ESCAPE），api.py 迁移 PR 时收编。
