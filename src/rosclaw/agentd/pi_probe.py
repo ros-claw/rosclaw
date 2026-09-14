@@ -92,4 +92,8 @@ async def pi_probe_home(home: Path, *, deep: bool = False) -> ModelProbeResult:
         chat_ok=bool(payload.get("chat_ok")),
         tool_call_ok=bool(payload.get("tool_call_ok")),
         error=_sanitize(str(payload.get("error") or "")) or None,
+        auth_configured=(
+            bool(payload["auth_configured"])
+            if "auth_configured" in payload else None
+        ),
     )

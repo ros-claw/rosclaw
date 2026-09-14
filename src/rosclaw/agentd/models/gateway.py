@@ -97,6 +97,9 @@ class ModelProbeResult:
     chat_ok: bool | None = None
     tool_call_ok: bool | None = None
     error: str | None = None
+    # 0914 PR-1：Pi 凭据解析的权威结果（auth.json/models.json $ENV/
+    # env 任一命中）——doctor 状态判定只消费它，不再自行读 env。
+    auth_configured: bool | None = None
 
 
 class ModelGateway(Protocol):

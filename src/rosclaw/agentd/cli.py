@@ -393,14 +393,18 @@ def cmd_init(args: argparse.Namespace) -> int:
     home.mkdir(parents=True, exist_ok=True)
     choice = args.provider
     if choice is None:
-        if not sys.stdin.isatty():
-            print("非交互环境需要 --provider：" + ", ".join(PROVIDER_CHOICES), file=sys.stderr)
-            return 2
-        print("选择模型提供方：")
-        for i, c in enumerate(PROVIDER_CHOICES, 1):
-            print(f"  {i}. {c}")
-        raw = input("编号 [1]: ").strip() or "1"
-        choice = PROVIDER_CHOICES[max(0, min(len(PROVIDER_CHOICES) - 1, int(raw) - 1))]
+        # 0914 PR-1（审计 §3.1）：交互模型配置的唯一机制是 chat 内
+        # /login（OAuth/API key 同一流程）——删除独立维护的数字菜单。
+        # 此入口只保留可脚本化的 --provider 兼容路径（写同一 Pi 配置）。
+        print(
+            "交互登录请用：rosclaw chat 内 /login（同一配置与凭据流程，"
+            "支持 OAuth 与 API key）。\n"
+            "脚本化写入配置：rosclaw setup model --provider "
+            + ", ".join(PROVIDER_CHOICES)
+            + "（kimi-code = Kimi Coding Plan 内置映射）。",
+            file=sys.stderr,
+        )
+        return 2
     summary = configure_model(
         home,
         choice,

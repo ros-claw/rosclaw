@@ -19,7 +19,7 @@ import asyncio
 import json
 from pathlib import Path
 
-from rosclaw.agentd.models.gateway import ModelProbeResult, key_fingerprint
+from rosclaw.agentd.models.gateway import ModelProbeResult
 from rosclaw.agentd.models.profiles import (
     KIMI_CN_BASE_URL,
     KIMI_CODE_BASE_URL,
@@ -70,6 +70,42 @@ def configure_model(
         raise ValueError(f"unknown provider choice {choice!r}")
     if choice == "skip":
         return {"configured": False, "reason": "user chose to configure later"}
+    if choice == "kimi-code" and not base_url and not model:
+        # 0914 PR-1（审计 §3.5）：默认映射到 Pi 内置 kimi-coding——
+        # 实测等价（2026-08-01）：同一 api.kimi.com/coding/v1、同一
+        # OpenAI 兼容协议、同一 Bearer key、模型 ID k3/kimi-for-coding
+        # 同服务别名。内置目录让 /login（OAuth/API key）原生可用；
+        # 不写 models.json 自定义条目冒充官方服务。自定义网关走
+        # openai-compat 显式自定义（保留为 custom provider）。
+        settings_path = home / "agent" / "settings.json"
+        settings: dict = {}
+        if settings_path.exists():
+            try:
+                settings = json.loads(settings_path.read_text(encoding="utf-8"))
+            except ValueError:
+                settings = {}
+        settings["defaultProvider"] = "kimi-coding"
+        settings["defaultModel"] = "kimi-for-coding"
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        settings_path.write_text(
+            json.dumps(settings, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        if reasoning_effort:
+            _write_thinking_level(home, reasoning_effort)
+            _write_retry_budget(home)
+        return {
+            "configured": True,
+            "config_path": str(home / "agent"),
+            "provider": "kimi-coding",
+            "base_url": KIMI_CODE_BASE_URL,
+            "model": "kimi-for-coding",
+            "api_key_ref": "env:KIMI_API_KEY",
+            "key_hint": (
+                "chat 内 /login 登录（OAuth 或 API key）；或 export "
+                "KIMI_API_KEY（旧别名 ROSCLAW_KIMI_API_KEY 迁移期仍认）"
+            ),
+        }
     template = _TEMPLATES.get(
         choice,
         {
@@ -343,15 +379,7 @@ def doctor(home: Path, *, deep: bool = False) -> dict:
         report["status"] = "UNCONFIGURED"
         report["reason"] = "no model profile configured — run `rosclaw setup model`"
         return report
-    import os
-
-    key = ""
-    if model.api_key_ref.startswith("env:"):
-        key = os.environ.get(model.api_key_ref[4:], "")
     report["api_key_ref"] = model.api_key_ref
-    report["api_key_present"] = bool(key)
-    if key:
-        report["api_key_fingerprint"] = key_fingerprint(key)
     probe = asyncio.run(probe_home(home, deep=deep))
     report["probe"] = {
         "reachable": probe.reachable,
@@ -359,34 +387,81 @@ def doctor(home: Path, *, deep: bool = False) -> dict:
         "expected_model_present": probe.expected_model_present,
         "chat_ok": probe.chat_ok,
         "tool_call_ok": probe.tool_call_ok,
+        "auth_configured": probe.auth_configured,
         "deep": deep,
         "error": probe.error,
     }
+    # 0914 PR-1（审计 §3.2/§3.3）：凭据判定单源化——只消费 Pi probe
+    # 的解析结果（auth.json/models.json $ENV/env 同一规则），不再
+    # 自行读环境变量二次判定。四态分离：凭据存在（credential_present）
+    # / 服务端认证与配额（状态格 + quota_state）/ 工具调用（状态格）。
+    cred_present = probe.auth_configured
+    if cred_present is None:
+        # 旧 engine 不上报 auth_configured（升级过渡期）——退回
+        # 静态来源枚举（看得到文件/env 存在性）。
+        cred_present = any(
+            e.get("source") in ("env", "pi-auth-file")
+            for e in report["credential_sources"]
+        )
+    report["credential_present"] = bool(cred_present)
+    # 兼容旧字段名（R0-7 报告的 api_key_present）。
+    report["api_key_present"] = bool(cred_present)
+    err = probe.error or ""
     # R0-7 状态格（不是二元 READY/NOT_READY——tool probe 失败
     # 不覆盖 chat 成功的事实）。
     tool_evidence = _real_tool_success(home)
     report["tool_evidence"] = tool_evidence
-    if not key and model.api_key_ref:
+    if not cred_present or err.startswith(("AUTH_NOT_CONFIGURED", "MODEL_NOT_CONFIGURED")):
         report["status"] = "UNCONFIGURED"
-        report["reason"] = f"api key 未在环境中（{model.api_key_ref}）"
-    elif not probe.reachable:
+        report["quota_state"] = "unknown"
+        report["reason"] = (
+            err
+            or "无可用凭据——chat 内 /login 或 `rosclaw setup model` 配置"
+        )
+    elif err.startswith("QUOTA_EXHAUSTED"):
+        # 配额是服务商事实，不是凭据缺失——不得降格 UNCONFIGURED
+        # （重新 /login 不会重置额度；指引换已配置模型）。
         report["status"] = "AUTH_READY"
-        report["reason"] = probe.error or "endpoint 不可达（凭据已配置）"
+        report["quota_state"] = "exhausted"
+        report["reason"] = (
+            "凭据已配置；当前配额已用完——用 /model 切换其他已配置模型"
+            f"（{err}）"
+        )
+    elif err.startswith("AUTH_FAILED"):
+        report["status"] = "AUTH_READY"
+        report["quota_state"] = "unknown"
+        report["reason"] = f"凭据已配置但服务端拒绝（{err}）"
+    elif err.startswith("RATE_LIMITED"):
+        report["status"] = "AUTH_READY"
+        report["quota_state"] = "ok"
+        report["reason"] = f"限流中，稍后自动恢复（{err}）"
+    elif not probe.reachable:
+        # 离线/不可达：配置保留，如实说暂时无法连接。
+        report["status"] = "AUTH_READY"
+        report["quota_state"] = "unknown"
+        report["reason"] = (
+            f"暂时无法连接——凭据已配置且配置已保留（{err}）"
+            if err else "暂时无法连接（凭据已配置，配置已保留）"
+        )
     elif probe.chat_ok and (
         (deep and probe.tool_call_ok) or tool_evidence
     ):
+        report["quota_state"] = "ok"
         # deep 完整探测通过，或账本有真实工具成功证据。
         report["status"] = "TOOL_READY"
     elif probe.chat_ok and deep and not probe.tool_call_ok:
+        report["quota_state"] = "ok"
         report["status"] = "DEGRADED"
         report["reason"] = (
             probe.error
             or "对话可用；工具自检退化（rosclaw doctor --deep 重试）"
         )
     elif probe.chat_ok:
+        report["quota_state"] = "ok"
         report["status"] = "CHAT_READY"
     else:
         report["status"] = "AUTH_READY"
-        report["reason"] = probe.error or "chat probe 未通过"
+        report["quota_state"] = "unknown"
+        report["reason"] = err or "chat probe 未通过"
     report["pi_engine"] = _pi_engine_report(home)
     return report

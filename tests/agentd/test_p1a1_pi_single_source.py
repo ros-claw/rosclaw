@@ -38,16 +38,16 @@ class TestConfigureModelSingleSource:
         summary = configure_model(tmp_path, "kimi-code")
         assert summary["configured"] is True
         settings = _read(tmp_path / "agent" / "settings.json")
-        assert settings["defaultProvider"] == "kimi-code"
-        assert settings["defaultModel"]  # 非空（模板 k3）
-        models = _read(tmp_path / "agent" / "models.json")
-        provider = models["providers"]["kimi-code"]
-        assert provider["baseUrl"] == summary["base_url"]
-        assert provider["api"]  # openai-completions 族
-        # key 只写 $ENV 引用——与生产 home（tests live gate）同构。
-        assert provider["apiKey"] == "$ROSCLAW_KIMI_API_KEY"
-        entry_ids = [m["id"] for m in provider["models"]]
-        assert settings["defaultModel"] in entry_ids
+        # 0914 PR-1：默认映射 Pi 内置 kimi-coding（/login 原生可用）；
+        # 内置目录无需 models.json 自定义条目（有也不得越出官方服务）。
+        assert settings["defaultProvider"] == "kimi-coding"
+        assert settings["defaultModel"] == "kimi-for-coding"
+        models_path = tmp_path / "agent" / "models.json"
+        if models_path.exists():
+            models = _read(models_path)
+            custom = (models.get("providers") or {}).get("kimi-coding")
+            if custom is not None:
+                assert "api.kimi.com/coding" in str(custom.get("baseUrl", ""))
 
     def test_never_writes_raw_key_or_config_yaml_model_section(self, tmp_path: Path) -> None:
         configure_model(tmp_path, "kimi-code")
@@ -55,6 +55,8 @@ class TestConfigureModelSingleSource:
             tmp_path / "agent" / "models.json",
             tmp_path / "agent" / "settings.json",
         ):
+            if not path.exists():
+                continue
             text = path.read_text(encoding="utf-8")
             assert "sk-" not in text, f"{path} 含原始 key 材料"
         config = tmp_path / "config.yaml"
@@ -98,7 +100,7 @@ class TestConfigureModelSingleSource:
         configure_model(tmp_path, "kimi-code")
         settings = _read(agent_dir / "settings.json")
         assert settings["hideThinkingBlock"] is True
-        assert settings["defaultProvider"] == "kimi-code"
+        assert settings["defaultProvider"] == "kimi-coding"  # 0914 PR-1 内置映射
 
 
 class TestChatGateSingleSource:
