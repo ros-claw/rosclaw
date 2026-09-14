@@ -183,3 +183,22 @@ ROSClaw 已经具备相当多 MuJoCo 底层能力：`sim/api.py` 的最小编程
 5. **ExecutionReceipt 集成点**：SimulationReceipt 字段与
    `kernel/contracts.py` 的 simulation_result 槽位对齐，嵌入
    接线属 MH6/MH8（本 PR 不改 kernel 冻结语义）。
+
+## 补充：MH6 Agent 工具面决策（2026-09-14，PR-MH6）
+
+1. **P0_SIM_TOOLS 独立成组**（规格 §29）：10 个 v1 工具不塞进
+   P0_CORE_TOOLS；S0 = get_capabilities/inspect/observe/compare，
+   S1 = load/patch/snapshot/rollout/audit/render；全部 ≤ S1，
+   `usable_for_real_execution=false`，零 REAL permit。
+2. **SimulationRuntime 是 Agent 面编排门面**（`sim/runtime.py`）：
+   RuntimeClient.sim_* 只委派、不自己实现 MuJoCo（规格 §28）；
+   默认任务根 `ROSCLAW_SIM_TASK_ROOT > $ROSCLAW_HOME/sim_tasks/agent`。
+3. **sim_rollout 直接产 SimulationReceipt**（rollout+指标+审计一体），
+   sim_compare 消费 receipt_refs——Agent 的实验链是
+   inspect→patch→snapshot→rollout(receipt)→observe→audit→compare
+   几次结构化调用，不需要写 Python glue。
+4. **render 是证据 artifact 不是真相**：GIF 落 renders 分区，
+   实际渲染后端（EGL/OSMesa/glfw）诚实记录；GL 不可用时
+   `SIM_RENDER_UNAVAILABLE` 显式失败，不静默降级。
+5. **sandbox_run 保留**（规格 §27 legacy facade）；P0_TOOLS 注册
+   顺序与 P0_AGENT_MCP_TOOLS 目录一致（test_server 锁定）。
