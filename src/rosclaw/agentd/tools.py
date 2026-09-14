@@ -319,6 +319,13 @@ class BuiltinToolRegistry:
         if overlays:
             spec_doc["overlays"] = list(overlays)
         trace_dir = home / "sim" / "traces" / trace_id
+        # R09 回归实证：spec 写入前必须按渲染器同一契约先验输入——
+        # 否则 trace 不存在时 FileNotFoundError 顶替 RENDER_INPUT_
+        # MISSING，错误分类从 infrastructure 漂成 deterministic。
+        if not (trace_dir / "trace.json").exists():
+            raise ValidationError(
+                f"RENDER_INPUT_MISSING: trace {trace_id!r} 不存在"
+            )
         spec_path = trace_dir / f"{trace_id}-tool-render-spec.json"
         spec_path.write_text(
             _json.dumps(spec_doc, ensure_ascii=False), encoding="utf-8"
