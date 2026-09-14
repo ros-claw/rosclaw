@@ -12,6 +12,7 @@ import asyncio
 from typing import Any
 
 from rosclaw.agentd.models.gateway import StrictTool
+from rosclaw.agentd.sim_render import SCENE_RENDER_OVERLAY_INPUT_FRAGMENT
 from rosclaw.contracts.common import ValidationError
 
 SIM_STATE_TOOL = "sim_get_state"
@@ -145,13 +146,18 @@ _TOOL_SCHEMAS: dict[str, StrictTool] = {
             "(canonical MJCF + trajectory state replay + camera preset + "
             "EGL/OSMesa/Xvfb auto-probe). Returns artifact + render receipt "
             "(renderer build digest + input trace digest). Offline — never "
-            "installs packages at runtime."
+            "installs packages at runtime. Supports REAL-data overlays "
+            "(actual_eef_trace draws the actual end-effector xyz trajectory "
+            "into the scene — use it whenever the user asks to see the "
+            "trajectory in the video) and reports overlays_unfulfilled "
+            "honestly (never claim an unfulfilled overlay was drawn)."
         ),
         parameters={
             "type": "object",
             "properties": {
                 "trace_id": {"type": "string"},
                 "camera": {"type": "string", "enum": ["follow", "free", "top"]},
+                **SCENE_RENDER_OVERLAY_INPUT_FRAGMENT,
             },
             "required": ["trace_id", "camera"],
             "additionalProperties": False,
@@ -290,18 +296,46 @@ class BuiltinToolRegistry:
         return result
 
     def _execute_scene_render(self, arguments: dict[str, Any]) -> dict[str, Any]:
-        """WP-3：原生离线场景渲染（canonical MJCF + qpos replay）。"""
+        """WP-3：原生离线场景渲染（canonical MJCF + qpos replay）。
+
+        0914 PR-2：模型请求的 overlays/outputs/fps/playback 构造进
+        RenderSpec 落盘并传 render_spec_path——overlay 能力从模型面
+        直达 renderer（旧码永不传 spec，能力断在 dispatch）。返回
+        透传 overlays_requested/applied/unfulfilled——请求了没画上
+        的项模型必须看见（不能 ok=true 冒充全部满足）。
+        """
+        import json as _json
         from pathlib import Path as _Path
 
         from rosclaw.agentd.sim_render import render_scene_trace
 
         if self._home is None:
             raise ValidationError("scene render requires rosclaw home")
-        result = render_scene_trace(
-            _Path(self._home),
-            str(arguments["trace_id"]),
-            camera=str(arguments.get("camera", "follow")),
+        home = _Path(self._home)
+        trace_id = str(arguments["trace_id"])
+        overlays = arguments.get("overlays") or []
+        outputs = arguments.get("outputs") or ["gif", "mp4"]
+        spec_doc: dict = {"outputs": list(outputs)}
+        if overlays:
+            spec_doc["overlays"] = list(overlays)
+        trace_dir = home / "sim" / "traces" / trace_id
+        spec_path = trace_dir / f"{trace_id}-tool-render-spec.json"
+        spec_path.write_text(
+            _json.dumps(spec_doc, ensure_ascii=False), encoding="utf-8"
         )
+        result = render_scene_trace(
+            home,
+            trace_id,
+            camera=str(arguments.get("camera", "follow")),
+            render_spec_path=spec_path,
+            fps=float(arguments.get("fps", 12.0)),
+            playback_rate=float(arguments.get("playback_rate", 1.0)),
+        )
+        # 满足度三字段顶层可读（渲染器已透传则不动；兜底从 receipt 提
+        # 升——工具契约不依赖渲染器内部路径）。
+        receipt = result.get("receipt") or {}
+        for key in ("overlays_requested", "overlays_applied", "overlays_unfulfilled"):
+            result.setdefault(key, receipt.get(key, []))
         result["evidence_class"] = "simulated"
         return result
 
