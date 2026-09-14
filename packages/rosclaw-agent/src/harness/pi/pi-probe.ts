@@ -50,7 +50,13 @@ function classifyError(err: unknown): string {
 		return `QUOTA_EXHAUSTED: ${message}`;
 	}
 	if (/402|payment/i.test(message)) return `QUOTA_EXHAUSTED: ${message}`;
-	if (/429|rate.?limit/i.test(message)) return `RATE_LIMITED: ${message}`;
+	// 0914 二轮自审实证（真实 home doctor）：Kimi 403 的
+	// "concurrent request limit" 是并发限流不是凭据问题——
+	// 归 AUTH_FAILED 会误导用户重换 key（真实复现：403 permission_
+	// error + concurrent request limit）。
+	if (/429|rate.?limit|too many|concurrent.*limit|request limit/i.test(message)) {
+		return `RATE_LIMITED: ${message}`;
+	}
 	if (/401|unauthorized/i.test(message)) return `AUTH_FAILED: ${message}`;
 	if (/403|forbidden/i.test(message)) return `AUTH_FAILED: ${message}`;
 	if (/ECONNREFUSED|ENOTFOUND|ETIMEDOUT|fetch failed|network/i.test(message)) {

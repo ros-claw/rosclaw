@@ -41,3 +41,11 @@ test("H7: 上下文超限", () => {
 		"MODEL_CONTEXT_LIMIT",
 	);
 });
+
+test("二轮自审：403 并发限额 → PROVIDER_RATE_LIMITED（不是凭据/未分类）", () => {
+	const err = classifyModelError(
+		'403 {"error":{"type":"permission_error","message":"You\'ve reached your concurrent request limit"}}',
+	);
+	assert.equal(err.code, "PROVIDER_RATE_LIMITED", `误分类: ${err.code}`);
+	assert.match(err.recovery, /重试|换模型/);
+});
