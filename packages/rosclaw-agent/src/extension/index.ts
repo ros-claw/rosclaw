@@ -1254,16 +1254,16 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			const role = (event as { message?: { role?: unknown } }).message?.role;
 			if (role === "assistant") stallWatchdog.contentProgress();
 		});
-		// 工具执行（含授权卡等待）是活跃证据——等卡的回合不是
-		// 停滞（journey 实证：委派腿的确认卡等待被误判停滞取消）。
+		// 0914 PR-3（审计 §5）：工具执行**不是** Provider 等待——
+		// start 暂停 Provider 时钟、end 恢复（旧码用 contentProgress
+		// 续命：工具运行超过 45s 无事件即被 idle 误杀——0914 实证
+		// 后台 Operation SUCCEEDED 与 Provider idle 取消并存）。
+		// 授权卡等待由 pauseForUser 覆盖（用户在场语义不同）。
 		pi.on("tool_execution_start", async () => {
-			stallWatchdog.contentProgress();
-		});
-		pi.on("tool_execution_update", async () => {
-			stallWatchdog.contentProgress();
+			stallWatchdog.pauseForTool();
 		});
 		pi.on("tool_execution_end", async () => {
-			stallWatchdog.contentProgress();
+			stallWatchdog.resumeFromTool();
 		});
 		pi.on("agent_end", async () => {
 			stallWatchdog.turnEnded();
