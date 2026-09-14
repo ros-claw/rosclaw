@@ -1,0 +1,11 @@
+<mujoco model="broken_prismatic">
+  <worldbody>
+    <body name="rail" pos="0 0 0.5">
+      <geom name="rail_geom" type="box" size="0.02 0.02 0.2" mass="1.0"/>
+      <body name="slider" pos="0 0 0">
+        <joint name="slide" type="slide" axis="0 0 1" range="-0.1 0.1"/>
+        <geom name="slider_geom" type="box" size="0.02 0.02 0.02" mass="0.2" pos="0.5 0 0"/>
+      </body>
+    </body>
+  </worldbody>
+</mujoco>

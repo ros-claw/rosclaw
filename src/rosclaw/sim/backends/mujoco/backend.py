@@ -28,6 +28,9 @@ from pathlib import Path
 from typing import Any
 
 from rosclaw.contracts.common import canonical_json, content_hash
+from rosclaw.sim.audit.context import AuditContext
+from rosclaw.sim.audit.engine import run_checks
+from rosclaw.sim.audit.policy import STRICT_POLICY, AuditPolicy
 from rosclaw.sim.backends.mujoco import observe as observe_mod
 from rosclaw.sim.backends.mujoco import rollout as rollout_mod
 from rosclaw.sim.backends.mujoco import state
@@ -36,6 +39,7 @@ from rosclaw.sim.backends.mujoco.patch import apply_patches
 from rosclaw.sim.backends.mujoco.rollout import DEFAULT_BUDGETS
 from rosclaw.sim.capabilities import probe_mujoco_capabilities
 from rosclaw.sim.contracts import (
+    AuditResult,
     ModelInspection,
     ModelPatchResult,
     ModelReference,
@@ -362,6 +366,81 @@ class MujocoBackend:
             model_ref=model_ref,
             time=float(data.time),
             values=values,
+        ).with_digest()
+
+    # -- 物理诚实审计（MH4，规格 §17-§19） ------------------------------------
+
+    def audit(
+        self,
+        model_ref: str,
+        *,
+        checks: list[str] | None = None,
+        trace_ref: str | None = None,
+        state_ref: str | None = None,
+        policy: AuditPolicy = STRICT_POLICY,
+    ) -> AuditResult:
+        """物理诚实审计：A01-A08 + A15-A20，机器可读结果落 audits 分区。"""
+        manifest = self._manifest(model_ref)
+        spec = self._spec_from_manifest(manifest)
+        model, _ = self._compile_smoke(spec)
+
+        trace_record = None
+        if trace_ref is not None:
+            record = self.store.get(trace_ref)
+            if not isinstance(record, dict) or record.get("kind") != "simulation_trace":
+                raise ValueError(f"REF_NOT_FOUND: {trace_ref!r} is not a simulation trace")
+            if record.get("model_digest") != self._xml_digest(manifest):
+                raise ValueError(f"CROSS_MODEL_REF: trace {trace_ref!r} does not belong to model")
+            trace_record = record
+
+        ctx = AuditContext(
+            model=model,
+            spec=spec,
+            xml_text=manifest["mjcf_xml"],
+            policy=policy,
+            trace_record=trace_record,
+            state_ref=state_ref,
+            restore_fn=lambda sr: self.restore_state(model_ref, sr),
+        )
+        outcome = run_checks(ctx, checks)
+
+        evidence = [trace_ref] if trace_ref is not None else []
+        payload = {
+            "kind": "audit_result",
+            "model_ref": model_ref,
+            "model_digest": self._xml_digest(manifest),
+            "status": outcome["status"],
+            "checks": outcome["checks"],
+            "violations": outcome["violations"],
+            "warnings": outcome["warnings"],
+            "evidence": evidence,
+            "backend": "mujoco",
+            "backend_version": manifest["backend_version"],
+        }
+        audit_ref = self.store.put("audits", payload)
+        return AuditResult(
+            backend="mujoco",
+            backend_version=manifest["backend_version"],
+            created_at=self._created_at(audit_ref),
+            request_digest=content_hash(
+                "simauq",
+                {
+                    "model_ref": model_ref,
+                    "checks": checks,
+                    "trace_ref": trace_ref,
+                    "state_ref": state_ref,
+                },
+            ),
+            status=outcome["status"],
+            checks=outcome["checks"],
+            warnings=[f"{w['check']}: {w.get('reason', 'warn')}" for w in outcome["warnings"]],
+            violations=[
+                f"{v['check']}: {v.get('reason', 'violation')}" for v in outcome["violations"]
+            ],
+            evidence=evidence,
+            audit_ref=audit_ref,
+            violations_detail=outcome["violations"],
+            warnings_detail=outcome["warnings"],
         ).with_digest()
 
     # -- 内部 ---------------------------------------------------------------
