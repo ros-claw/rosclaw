@@ -45,3 +45,14 @@ class TestFilter:
         # remainder is correct. But if no marker follows, prose survives.
         text = '前文```json\n{"other": 1}\n```后文'
         assert _run([text]) == text
+
+    def test_compact_json_decision_block_hidden(self) -> None:
+        # Models may emit compact JSON (no space after colons); the marker
+        # match must be whitespace-tolerant or the protocol block leaks.
+        compact = DECISION.replace('": ', '":')
+        assert _run(["回答。", compact]) == "回答。"
+
+    def test_compact_json_split_across_deltas(self) -> None:
+        compact = "正文" + DECISION.replace('": ', '":')
+        pieces = [compact[i : i + 5] for i in range(0, len(compact), 5)]
+        assert _run(pieces) == "正文"
