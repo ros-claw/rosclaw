@@ -55,6 +55,8 @@ class SimulationRuntime:
             ref = self._backend.initial_state(model_ref)
         else:
             snap = self._backend.store.get(state_ref)
+            if not isinstance(snap, dict):
+                raise ValueError(f"REF_NOT_FOUND: {state_ref!r} is not a state snapshot")
             ref = self._backend.snapshot_state(model_ref, snap)
         return {"state_ref": ref, "model_ref": model_ref}
 

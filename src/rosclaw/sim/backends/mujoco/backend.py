@@ -726,6 +726,8 @@ class MujocoBackend:
             raise ValueError("REPLAY_DIVERGED: model digest mismatch")
 
         trace_record = self.store.get(payload["trace_ref"])
+        if not isinstance(trace_record, dict):
+            raise ValueError(f"REF_NOT_FOUND: {payload['trace_ref']!r} is not a simulation trace")
         controller = trace_record["controller"]
         model, data = self.restore_state(payload["model_ref"], payload["initial_state_ref"])
         plan = rollout_mod.validate_controller(controller, model.nu)
@@ -784,7 +786,13 @@ class MujocoBackend:
         return manifest
 
     def _load_assets(self, manifest: dict[str, Any]) -> dict[str, bytes]:
-        return {name: self.store.get(ref) for name, ref in manifest["assets"].items()}
+        assets: dict[str, bytes] = {}
+        for name, ref in manifest["assets"].items():
+            blob = self.store.get(ref)
+            if not isinstance(blob, bytes):
+                raise ValueError(f"STORE_DIGEST_MISMATCH: asset {name!r} is not raw bytes")
+            assets[name] = blob
+        return assets
 
     def _spec_from_manifest(self, manifest: dict[str, Any]):  # noqa: ANN202
         import mujoco
@@ -867,7 +875,7 @@ def _make_collector(model, data, plan: dict[str, Any], tracked):  # noqa: ANN001
 
 def _round_metrics(metrics: dict[str, Any], digits: int = 6) -> dict[str, Any]:
     """语义 digest 用：浮点指标舍入（规格 §56 canonical tolerance）。"""
-    rounded = {}
+    rounded: dict[str, Any] = {}
     for key, value in metrics.items():
         if isinstance(value, bool):
             rounded[key] = value

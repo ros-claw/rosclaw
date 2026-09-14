@@ -199,7 +199,7 @@ def a08_marker_grounding(ctx: AuditContext) -> dict[str, Any]:
     for site_id in markers:
         name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_SITE, site_id) or f"site_{site_id}"
         point = np.asarray(data.site_xpos[site_id], dtype=float)
-        geomid = np.zeros(1, dtype=np.int32)
+        geomid: np.ndarray = np.zeros(1, dtype=np.int32)
         dist = float(mujoco.mj_ray(model, data, point, down, None, 1, -1, geomid))
         if dist < 0 or dist > ctx.policy.marker_clearance_m:
             violations.append(
