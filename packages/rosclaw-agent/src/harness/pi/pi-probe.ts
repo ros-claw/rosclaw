@@ -43,9 +43,16 @@ interface ProbeOptions {
 
 function classifyError(err: unknown): string {
 	const message = err instanceof Error ? err.message : String(err);
-	if (/401|403|unauthorized|forbidden/i.test(message)) return `AUTH_FAILED: ${message}`;
-	if (/402|payment|quota|insufficient/i.test(message)) return `QUOTA_EXHAUSTED: ${message}`;
+	// 0914 PR-1（审计 §3.3）：配额类关键词优先于状态码——Kimi 以
+	// 403 返回配额耗尽，那是服务商事实不是凭据错误，不得降格成
+	// AUTH_FAILED/未配置（重新 /login 不会重置额度）。
+	if (/quota|insufficient|balance|usage limit|额度|余额/i.test(message)) {
+		return `QUOTA_EXHAUSTED: ${message}`;
+	}
+	if (/402|payment/i.test(message)) return `QUOTA_EXHAUSTED: ${message}`;
 	if (/429|rate.?limit/i.test(message)) return `RATE_LIMITED: ${message}`;
+	if (/401|unauthorized/i.test(message)) return `AUTH_FAILED: ${message}`;
+	if (/403|forbidden/i.test(message)) return `AUTH_FAILED: ${message}`;
 	if (/ECONNREFUSED|ENOTFOUND|ETIMEDOUT|fetch failed|network/i.test(message)) {
 		return `NETWORK_UNREACHABLE: ${message}`;
 	}

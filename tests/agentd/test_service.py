@@ -189,23 +189,36 @@ class TestOnboarding:
         """P1-A1：setup 写 Pi 配置单源——key 只写 $ENV 引用。"""
         summary = configure_model(tmp_path, "kimi-code")
         assert summary["configured"]
-        models = json.loads(
-            (tmp_path / "agent" / "models.json").read_text(encoding="utf-8")
+        # 0914 PR-1：内置 kimi-coding——settings 单源；key 绝不落盘
+        # （内置 provider 连 $ENV 引用条目都不需要）。
+        settings = json.loads(
+            (tmp_path / "agent" / "settings.json").read_text(encoding="utf-8")
         )
-        provider = models["providers"]["kimi-code"]
-        assert provider["apiKey"] == "$ROSCLAW_KIMI_API_KEY"
-        assert summary["api_key_ref"] == "env:ROSCLAW_KIMI_API_KEY"
+        assert settings["defaultProvider"] == "kimi-coding"
+        assert summary["api_key_ref"] == "env:KIMI_API_KEY"
         for path in (
             tmp_path / "agent" / "models.json",
             tmp_path / "agent" / "settings.json",
         ):
-            assert "sk-" not in path.read_text(encoding="utf-8")
+            if path.exists():
+                assert "sk-" not in path.read_text(encoding="utf-8")
 
     def test_doctor_not_ready_without_key(self, tmp_path: Path, monkeypatch) -> None:
         configure_model(tmp_path, "kimi-code")
         monkeypatch.delenv("ROSCLAW_KIMI_API_KEY", raising=False)
+        monkeypatch.delenv("KIMI_API_KEY", raising=False)
+        # 0914 PR-1：缺凭据的判定来自 Pi probe 解析（不再 env 直读）。
+        from rosclaw.agentd import onboarding
+        from rosclaw.agentd.models.gateway import ModelProbeResult
+
+        async def _probe(home, *, deep=False):
+            return ModelProbeResult(
+                reachable=False, chat_ok=False, tool_call_ok=False,
+                auth_configured=False, error="AUTH_NOT_CONFIGURED: 无可用凭据",
+            )
+
+        monkeypatch.setattr(onboarding, "probe_home", _probe)
         report = doctor(tmp_path)
-        # R0-7 状态格：配置了但 key 不在环境 = UNCONFIGURED（缺凭据）。
         assert report["status"] == "UNCONFIGURED"
         assert report["api_key_present"] is False
 

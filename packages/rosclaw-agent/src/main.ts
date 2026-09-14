@@ -19,6 +19,15 @@ process.env.PI_SKIP_VERSION_CHECK = "1";
 const rosclawHomeEnv = process.env.ROSCLAW_HOME ?? `${process.env.HOME}/.rosclaw`;
 process.env.PI_CODING_AGENT_DIR ??= `${rosclawHomeEnv}/agent`;
 
+// 0914 PR-1（审计 §3.6）：ROSCLAW_KIMI_API_KEY 迁移期旧别名——
+// 内置 kimi-coding 期望 KIMI_API_KEY；旧用户只 export 了 ROSCLAW_
+// KIMI_API_KEY 时进程内注入等价变量（只读、不落盘、不打印、
+// 不覆盖已设的 KIMI_API_KEY 与 /login 的 auth.json——auth.json
+// 在 Pi 解析顺序里本就优先于 env）。
+if (!process.env.KIMI_API_KEY && process.env.ROSCLAW_KIMI_API_KEY) {
+	process.env.KIMI_API_KEY = process.env.ROSCLAW_KIMI_API_KEY;
+}
+
 interface CliArgs {
 	profile: "developer" | "robot";
 	workspace?: string;

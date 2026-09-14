@@ -136,6 +136,30 @@ test("chat 429 → RATE_LIMITED 分类", async () => {
 	assert.match(report.error ?? "", /^RATE_LIMITED/);
 });
 
+// 0914 PR-1（审计 §3.3）：403 配额耗尽是服务商事实——配额关键词
+// 优先于状态码，不得降格成 AUTH_FAILED（重新 /login 不重置额度）。
+test("chat 403 quota → QUOTA_EXHAUSTED 分类（不降格凭据错误）", async () => {
+	const report = await probePiModel({
+		...BASE,
+		defaults: DEFAULTS,
+		runtime: fakeRuntime({ chatError: new Error("HTTP 403: quota exceeded for this plan") }),
+	});
+	assert.equal(report.reachable, true);
+	assert.equal(report.chat_ok, false);
+	assert.match(report.error ?? "", /^QUOTA_EXHAUSTED/);
+});
+
+test("chat 裸 403 → AUTH_FAILED 分类（无配额关键词才算凭据问题）", async () => {
+	const report = await probePiModel({
+		...BASE,
+		defaults: DEFAULTS,
+		runtime: fakeRuntime({ chatError: new Error("HTTP 403 forbidden") }),
+	});
+	assert.equal(report.reachable, true);
+	assert.equal(report.chat_ok, false);
+	assert.match(report.error ?? "", /^AUTH_FAILED/);
+});
+
 test("tool call 缺失 → TOOL_CALL_PROBE_FAILED（诚实失败，deep 模式）", async () => {
 	const report = await probePiModel({
 		...BASE,

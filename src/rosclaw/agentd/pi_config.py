@@ -61,7 +61,20 @@ def read_pi_model_config(home: Path) -> PiModelConfig | None:
     providers = _read_json(agent_dir / "models.json").get("providers") or {}
     entry = providers.get(provider)
     if not isinstance(entry, dict):
-        return None
+        # 0914 PR-1：Pi 内置 provider（registry 自带 endpoint/模型目录/
+        # 凭据解析）不需要 models.json 条目——无条目 ≠ 未配置。
+        builtin = BUILTIN_PROVIDER_VIEWS.get(str(provider))
+        if builtin is None:
+            return None
+        return PiModelConfig(
+            provider=str(provider),
+            model=str(model),
+            base_url=str(builtin["base_url"]),
+            api=str(builtin["api"]),
+            api_key_ref=str(builtin["api_key_ref"]),
+            context_window=0,
+            max_tokens=0,
+        )
     api_key_ref = ""
     raw_ref = str(entry.get("apiKey") or "")
     match = _ENV_REF_RE.match(raw_ref)
@@ -92,9 +105,24 @@ def pi_model_configured(home: Path) -> bool:
     return read_pi_model_config(home) is not None
 
 
+#: Pi 内置 provider 的无 secret 视图（0914 PR-1）——registry 自带
+#  endpoint/模型目录/auth 解析，models.json 无需条目；此处只为
+#  doctor/status 展示。新 provider 进内置目录时同步此表。
+BUILTIN_PROVIDER_VIEWS = {
+    "kimi-coding": {
+        "base_url": "https://api.kimi.com/coding/v1",
+        "api": "openai-completions",
+        "api_key_ref": "env:KIMI_API_KEY",
+    },
+}
+
+
 #: provider → 认可的 env 凭据键（P1-A3：credential 单源报告）。
+#  0914 PR-1：kimi-coding 的 ROSCLAW_KIMI_API_KEY 是迁移期旧别名
+#  （列第二位——KIMI_API_KEY 优先；别名只读不写，不覆盖 /login）。
 PROVIDER_ENV_KEYS = {
     "kimi-code": ("ROSCLAW_KIMI_API_KEY", "KIMI_API_KEY"),
+    "kimi-coding": ("KIMI_API_KEY", "ROSCLAW_KIMI_API_KEY"),
     "kimi-api": ("MOONSHOT_API_KEY",),
     "openai": ("OPENAI_API_KEY",),
     "anthropic": ("ANTHROPIC_API_KEY",),
