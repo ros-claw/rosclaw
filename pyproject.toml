@@ -74,15 +74,14 @@ practice-export = [
 ]
 seekdb = [
     # Native SeekDB embedded/server backend (PR-SDB-1).  PR-SDB-140 matrix:
-    #   pyseekdb 1.3.0       = seekdb Engine 1.4.0 official-compatible baseline
-    #                          (pinned; validated on Jetson aarch64, glibc 2.39)
+    #   pyseekdb 1.4.0.post1 = production pin (PR-SDB-140-3 promoted it after
+    #                          the full Engine-1.4 validation matrix passed)
+    #   pyseekdb 1.3.0       = former baseline, still valid on Engine 1.3/1.4
     #   pyseekdb 1.4.0       = KNOWN-BAD, fail-fast at connect
     #                          (oceanbase/pyseekdb#251; override only via
     #                          ROSCLAW_ALLOW_KNOWN_BAD_SEEKDB=1 in labs)
-    #   pyseekdb 1.4.0.post1 = ROSClaw extended candidate; promotion requires
-    #                          the seekdb-engine-1.4 validation matrix (PR-SDB-140-3)
     # Matrix source of truth: src/rosclaw/storage/seekdb_compat.py
-    "pyseekdb==1.3.0",
+    "pyseekdb==1.4.0.post1",
 ]
 embedding = [
     # Qwen3 CrossEncoder prompt support landed in sentence-transformers 5.4.
@@ -117,7 +116,7 @@ dev = [
     "httpx2>=2.0.0",
     # PR-SDB-140: keep in lockstep with the seekdb extra above;
     # pyseekdb 1.4.0 is known-bad (#251) and fails fast at connect.
-    "pyseekdb==1.3.0",
+    "pyseekdb==1.4.0.post1",
     "rosclaw-know>=1.3.0,<2",
     "rosclaw-how>=1.3.0,<2",
 ]

@@ -1,0 +1,107 @@
+{
+  "engine": "engine_1_4_sdk_1_4_post1",
+  "target": "mysql://root@127.0.0.1:2881/bench14_post1",
+  "corpus_size": 400,
+  "started_at": 1789437876.6966174,
+  "startup_s": 0.187,
+  "idle": {
+    "rss_mb": 900.8,
+    "threads": 104,
+    "fds": 39,
+    "cpu_pct": 17.5
+  },
+  "write": {
+    "single_upsert": {
+      "n": 50,
+      "p50_ms": 59.0209,
+      "p95_ms": 67.5935,
+      "p99_ms": 380.8931,
+      "mean_ms": 66.2163,
+      "throughput_rows_s": 15.1
+    },
+    "batch_32": {
+      "n": 4,
+      "p50_ms": 2650.5277,
+      "p95_ms": 3019.9811,
+      "p99_ms": 3019.9811,
+      "mean_ms": 2764.7149,
+      "throughput_rows_s": 11.6
+    },
+    "batch_256": {
+      "n": 2,
+      "p50_ms": 10027.0079,
+      "p95_ms": 16965.326,
+      "p99_ms": 16965.326,
+      "mean_ms": 13496.1669,
+      "throughput_rows_s": 14.8
+    },
+    "batch_1024": {
+      "n": 1,
+      "p50_ms": 27261.0847,
+      "p95_ms": 27261.0847,
+      "p99_ms": 27261.0847,
+      "mean_ms": 27261.0847,
+      "throughput_rows_s": 14.7
+    }
+  },
+  "query": {
+    "metadata_filter": {
+      "n": 100,
+      "p50_ms": 0.2774,
+      "p95_ms": 0.5039,
+      "p99_ms": 0.6281,
+      "mean_ms": 0.3332
+    },
+    "bm25": {
+      "n": 100,
+      "p50_ms": 1.1511,
+      "p95_ms": 1.8616,
+      "p99_ms": 2.3177,
+      "mean_ms": 1.2128
+    },
+    "vector": {
+      "n": 100,
+      "p50_ms": 53.6248,
+      "p95_ms": 54.5988,
+      "p99_ms": 54.7578,
+      "mean_ms": 54.0385
+    },
+    "hybrid_rrf": {
+      "n": 100,
+      "p50_ms": 57.823,
+      "p95_ms": 58.2838,
+      "p99_ms": 58.4444,
+      "mean_ms": 57.8494
+    }
+  },
+  "w2r": {
+    "metadata": {
+      "n": 20,
+      "p50_ms": 2.9231,
+      "p95_ms": 3.0882,
+      "p99_ms": 3.1039,
+      "mean_ms": 2.9037,
+      "visible_fraction": 1.0
+    },
+    "bm25": {
+      "n": 20,
+      "p50_ms": 2.6651,
+      "p95_ms": 3.0855,
+      "p99_ms": 3.2591,
+      "mean_ms": 2.6272,
+      "visible_fraction": 1.0
+    },
+    "vector": {
+      "n": 20,
+      "p50_ms": 53.522,
+      "p95_ms": 53.9765,
+      "p99_ms": 54.3588,
+      "mean_ms": 53.5364,
+      "visible_fraction": 1.0
+    }
+  },
+  "recall": {
+    "probe_hits": 5,
+    "nonempty": true
+  }
+}
