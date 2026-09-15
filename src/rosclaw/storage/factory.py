@@ -9,6 +9,7 @@ that backend detection, URL validation, and observability stay in one place.
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -93,6 +94,69 @@ class StoreFactory:
             chosen = detected
         else:
             chosen = (backend or detected or "memory").lower()
+
+        # PR-SDB-140-4 (outline §五): ROSCLAW_SEEKDB_MODE makes the SeekDB
+        # deployment mode EXPLICIT instead of guessed from path/host:
+        #   legacy_embedded | local_runtime | server
+        # An explicit mode wins over URL-derived detection and validates the
+        # pairing (fail closed on contradiction — §十六).
+        mode = os.environ.get("ROSCLAW_SEEKDB_MODE", "").strip().lower()
+        if mode:
+            mode_map = {
+                "legacy_embedded": "seekdb_embedded",
+                "local_runtime": "local_runtime",
+                "server": "seekdb_server",
+            }
+            if mode not in mode_map:
+                raise ValueError(
+                    f"ROSCLAW_SEEKDB_MODE={mode!r} is not a deployment mode "
+                    f"(supported: {', '.join(mode_map)})."
+                )
+            mapped = mode_map[mode]
+            if backend and backend.lower() not in (mapped, "memory"):
+                raise ValueError(
+                    f"ROSCLAW_SEEKDB_MODE={mode} conflicts with seekdb_backend={backend!r}; "
+                    "set one or the other, not both."
+                )
+            chosen = mapped
+
+        if chosen == "local_runtime":
+            # The 1.4 background-process embedded path.  Lifecycle is owned by
+            # SeekDBLocalRuntime; storage semantics stay in the store adapter.
+            # Fail closed when the bindings wheel is unavailable (aarch64
+            # today) — never silently fall back to another backend.
+            from rosclaw.storage.seekdb_runtime import SeekDBLocalRuntime
+
+            if not SeekDBLocalRuntime.available():
+                from rosclaw.storage.seekdb_runtime import LocalRuntimeUnavailableError
+
+                raise LocalRuntimeUnavailableError(
+                    "ROSCLAW_SEEKDB_MODE=local_runtime but the 'seekdb' bindings "
+                    "package is unavailable on this platform (1.4.0.dev2 ships "
+                    "x86_64 wheels only).  Choose server or legacy_embedded."
+                )
+            rt_dir = path or os.environ.get("ROSCLAW_SEEKDB_PATH") or ""
+            if not rt_dir:
+                raise ValueError(
+                    "local_runtime requires seekdb_path (or ROSCLAW_SEEKDB_PATH) "
+                    "for the runtime's db directory."
+                )
+            runtime = SeekDBLocalRuntime(rt_dir)
+            runtime.recover_if_crashed()
+            info = runtime.start()
+            options = info.connection_options
+            from rosclaw.storage.seekdb_native import SeekDBServerRetrievalStore
+
+            logger.info(
+                "Knowledge store backend: local_runtime (%s, pid=%s)",
+                rt_dir,
+                info.pid,
+            )
+            return SeekDBServerRetrievalStore(
+                host=options.get("host", "127.0.0.1"),
+                port=int(options.get("port", 2881)),
+                database=(options.get("database") or "rosclaw"),
+            )
 
         if chosen == "http":
             raise ValueError(
