@@ -412,6 +412,7 @@ class RuntimeClient:
         steps: int | None = None,
         state_ref: str | None = None,
         seed: int = 0,
+        task_predicates: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         if self.fixture_mode:
             return self._fixture_payload(
@@ -430,6 +431,7 @@ class RuntimeClient:
             steps=steps,
             state_ref=state_ref,
             seed=seed,
+            task_predicates=task_predicates,
         )
 
     async def sim_audit(
@@ -468,6 +470,39 @@ class RuntimeClient:
             height=height,
             max_frames=max_frames,
         )
+
+    async def sim_branch_experiment(
+        self,
+        model_ref: str,
+        branches: list[dict[str, Any]],
+        controller: dict[str, Any],
+        state_ref: str | None = None,
+        duration_s: float | None = None,
+        steps: int | None = None,
+        seed: int = 0,
+        task_predicates: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        if self.fixture_mode:
+            return self._fixture_payload({"receipts": [], "count": 0})
+        return self._sim_call(
+            "sim_branch_experiment",
+            self._sim().branch_experiment,
+            model_ref,
+            branches=branches,
+            controller=controller,
+            state_ref=state_ref,
+            duration_s=duration_s,
+            steps=steps,
+            seed=seed,
+            task_predicates=task_predicates,
+        )
+
+    async def sim_compile_world(
+        self, worldspec: dict[str, Any], name: str = "world"
+    ) -> dict[str, Any]:
+        if self.fixture_mode:
+            return self._fixture_payload({"model_ref": "simmdl_fixture000000"})
+        return self._sim_call("sim_compile_world", self._sim().compile_world, worldspec, name=name)
 
     # ------------------------------------------------------------------
     # S0 practice-query tool

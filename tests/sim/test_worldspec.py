@@ -177,7 +177,9 @@ def test_compile_with_robot_attach(fixture_backend, tmp_path) -> None:
     inspection = backend.inspect_model(world["model_ref"])  # 含 mesh 资产重建
     assert inspection.nq >= 6
     assert inspection.detail["njnt"] >= 6
-    assert world["grippers"] == {"ur5e": False}  # ur5e 无夹爪（诚实推导）
+    # ur5e：e-URDF 声明了 grasp（required_hardware: gripper），但 MJCF
+    # 是手臂本体、无夹爪执行器 → UNPROVEN（诚实，不冒充 AVAILABLE）。
+    assert world["capabilities"] == {"ur5e": "UNPROVEN"}
 
 
 def test_grasp_without_gripper_rejected(fixture_backend, tmp_path) -> None:
@@ -202,6 +204,42 @@ def test_grasp_without_gripper_rejected(fixture_backend, tmp_path) -> None:
         compile_world(backend, spec, name="t1_grasp")
 
 
+def test_grasp_without_sidecar_undeclared(fixture_backend, tmp_path) -> None:
+    """0915 §五：raw MJCF 无声明 = UNDECLARED——名字像 gripper 也不行。"""
+    gripper_bot = """<mujoco model="gripper_bot">
+  <worldbody>
+    <body name="base" pos="0 0 0.1">
+      <joint name="slide" type="slide" axis="0 0 1"/>
+      <geom name="palm" type="box" size="0.04 0.04 0.02" mass="0.5"/>
+      <body name="finger_l" pos="0.05 0 0">
+        <joint name="gripper" type="slide" axis="1 0 0" range="-0.03 0.03"/>
+        <geom name="fl" type="box" size="0.01 0.02 0.02" mass="0.05"/>
+      </body>
+    </body>
+  </worldbody>
+  <actuator>
+    <position name="gripper_servo" joint="gripper" kp="20"/>
+  </actuator>
+</mujoco>
+"""
+    (tmp_path / "bot.xml").write_text(gripper_bot, encoding="utf-8")
+    # 无 sidecar：即使 actuator 名字叫 gripper，也不允许 grasp。
+    from rosclaw.sim.backends.mujoco.backend import MujocoBackend
+
+    spec = _t1_world(body_refs=[{"id": "bot", "kind": "task", "ref": "bot.xml"}])
+    spec["interaction_points"].append(
+        {
+            "id": "grasp_cube",
+            "affordance": "grasp",
+            "target": {"type": "body", "name": "cube"},
+            "depends_on": ["inspect_cube"],
+        }
+    )
+    backend = MujocoBackend(tmp_path)
+    with pytest.raises(ValueError, match="CAPABILITY_UNAVAILABLE"):
+        compile_world(backend, spec, name="t1_undeclared")
+
+
 def test_grasp_with_real_gripper_allowed(fixture_backend, tmp_path) -> None:
     gripper_bot = """<mujoco model="gripper_bot">
   <worldbody>
@@ -220,6 +258,11 @@ def test_grasp_with_real_gripper_allowed(fixture_backend, tmp_path) -> None:
 </mujoco>
 """
     (tmp_path / "bot.xml").write_text(gripper_bot, encoding="utf-8")
+    # 声明→证明绑定：sidecar 声明 grasp 由 joint "gripper" 承担，
+    # 模型负责证明该 joint 存在且有 actuator——不是从名字猜。
+    (tmp_path / "bot.capabilities.yaml").write_text(
+        "grasp:\n  actuator_joints: [gripper]\n", encoding="utf-8"
+    )
     from rosclaw.sim.backends.mujoco.backend import MujocoBackend
 
     spec = _t1_world(body_refs=[{"id": "bot", "kind": "task", "ref": "bot.xml"}])
@@ -233,7 +276,7 @@ def test_grasp_with_real_gripper_allowed(fixture_backend, tmp_path) -> None:
     )
     backend = MujocoBackend(tmp_path)
     world = compile_world(backend, spec, name="t1_gripper")
-    assert world["grippers"] == {"bot": True}
+    assert world["capabilities"] == {"bot": "AVAILABLE"}
 
 
 # --- predicate evaluation -------------------------------------------------------

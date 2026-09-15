@@ -51,6 +51,7 @@ from rosclaw.sim.contracts import (
 )
 from rosclaw.sim.experiment import compare as compare_mod
 from rosclaw.sim.experiment.metrics import MetricCollector
+from rosclaw.sim.experiment.predicates import evaluate_predicates
 from rosclaw.sim.model_inspect import inspect_mjcf
 from rosclaw.sim.resolve import resolve_mjcf_source, source_kind_for
 from rosclaw.sim.store import SimStore
@@ -107,7 +108,6 @@ class MujocoBackend:
         """从 XML 文本装载模型（WorldSpec 编译产物 / patch 之外的生成源）。"""
         import mujoco
 
-        xml_bytes = xml_text.encode("utf-8")
         try:
             spec = mujoco.MjSpec.from_string(xml_text, assets=assets or None)
         except Exception as exc:
@@ -136,7 +136,7 @@ class MujocoBackend:
             backend_version=str(mujoco.__version__),
             created_at=self._created_at(ref),
             model_ref=ref,
-            model_digest="sha256:" + hashlib.sha256(xml_bytes).hexdigest(),
+            model_digest=self._model_digest(manifest),
             source=source,
             compiled=True,
             body_description=body_description or {},
@@ -158,7 +158,7 @@ class MujocoBackend:
         manifest = self._manifest(model_ref)
         spec = self._spec_from_manifest(manifest)
         model, _ = self._compile_smoke(spec)
-        detail = inspect_model_full(model, model_digest=self._xml_digest(manifest), spec=spec)
+        detail = inspect_model_full(model, model_digest=self._model_digest(manifest), spec=spec)
         return ModelInspection(
             backend="mujoco",
             backend_version=manifest["backend_version"],
@@ -187,7 +187,7 @@ class MujocoBackend:
             backend_version=manifest["backend_version"],
             created_at=self._created_at(model_ref),
             model_ref=model_ref,
-            model_digest=self._xml_digest(manifest),
+            model_digest=self._model_digest(manifest),
             parent_model_ref=manifest["parent_model_ref"],
             source=manifest["source"],
             compiled=True,
@@ -227,7 +227,7 @@ class MujocoBackend:
         manifest = self._manifest(model_ref)
         spec = self._spec_from_manifest(manifest)
         model, _ = self._compile_smoke(spec)
-        if values.get("model_digest") != self._xml_digest(manifest):
+        if values.get("model_digest") != self._model_digest(manifest):
             raise ValueError(
                 f"CROSS_MODEL_REF: state digest {values.get('model_digest')!r} != model digest"
             )
@@ -235,7 +235,7 @@ class MujocoBackend:
         payload = {
             "kind": "state_snapshot",
             "model_ref": model_ref,
-            "model_digest": self._xml_digest(manifest),
+            "model_digest": self._model_digest(manifest),
             **{key: values[key] for key in ("time", *state.STATE_ARRAY_KEYS)},
         }
         return self.store.put("states", payload)
@@ -255,7 +255,7 @@ class MujocoBackend:
         """捕获 MjData 当前状态并落盘。"""
         manifest = self._manifest(model_ref)
         values = state.capture_state(model, data)
-        values["model_digest"] = self._xml_digest(manifest)
+        values["model_digest"] = self._model_digest(manifest)
         payload = {
             "kind": "state_snapshot",
             "model_ref": model_ref,
@@ -272,7 +272,7 @@ class MujocoBackend:
         snap = self.store.get(state_ref)
         if not isinstance(snap, dict) or snap.get("kind") != "state_snapshot":
             raise ValueError(f"REF_NOT_FOUND: {state_ref!r} is not a state snapshot")
-        if snap.get("model_digest") != self._xml_digest(manifest):
+        if snap.get("model_digest") != self._model_digest(manifest):
             raise ValueError(
                 f"CROSS_MODEL_REF: state {state_ref!r} does not belong to {model_ref!r}"
             )
@@ -288,7 +288,7 @@ class MujocoBackend:
         snap = self.store.get(state_ref)
         if not isinstance(snap, dict) or snap.get("kind") != "state_snapshot":
             raise ValueError(f"REF_NOT_FOUND: {state_ref!r} is not a state snapshot")
-        if snap.get("model_digest") != self._xml_digest(manifest):
+        if snap.get("model_digest") != self._model_digest(manifest):
             raise ValueError("CROSS_MODEL_REF: fork base state does not belong to model")
         if (
             not isinstance(n, int)
@@ -313,9 +313,14 @@ class MujocoBackend:
     def transplant_state(self, model_ref: str, state_ref: str) -> str:
         """显式跨模型状态移植（参数实验场景：同物理状态 → patch 后模型）。
 
-        与 restore 的 fail-closed 不同，这是**显式操作**：维度必须完全
-        一致（nq/nv/na/nu/nmocap），否则 STATE_DIMENSION；移植记录
-        provenance（transplanted_from）。绝不静默截断或补零。
+        与 restore 的 fail-closed 不同，这是**显式操作**，双重校验
+        （0915 §八）：
+        1. 维度完全一致（nq/nv/na/nu/nmocap），否则 STATE_DIMENSION；
+        2. **结构签名一致**（joint 名/类型/qpos 地址/dof 地址/actuator→
+           joint 映射/mocap 布局）——维度相同但 shoulder↔wrist 语义
+           不同的模型拒绝 STATE_INCOMPATIBLE。
+        参数 patch（kp/damping/friction/mass）不改签名 → 允许。
+        移植记录 provenance（transplanted_from）。
         """
         manifest = self._manifest(model_ref)
         snap = self.store.get(state_ref)
@@ -324,14 +329,49 @@ class MujocoBackend:
         spec = self._spec_from_manifest(manifest)
         model, _ = self._compile_smoke(spec)
         state.validate_state_values(model, snap)
+        source_ref = snap.get("model_ref")
+        if source_ref:
+            source_manifest = self._manifest(source_ref)
+            source_spec = self._spec_from_manifest(source_manifest)
+            source_model, _ = self._compile_smoke(source_spec)
+            if self._structural_signature(source_model) != self._structural_signature(model):
+                raise ValueError(
+                    f"STATE_INCOMPATIBLE: structural signature changed "
+                    f"({source_ref!r} → {model_ref!r})"
+                )
         payload = {
             "kind": "state_snapshot",
             "model_ref": model_ref,
-            "model_digest": self._xml_digest(manifest),
+            "model_digest": self._model_digest(manifest),
             "transplanted_from": state_ref,
             **{key: snap[key] for key in ("time", *state.STATE_ARRAY_KEYS)},
         }
         return self.store.put("states", payload)
+
+    @staticmethod
+    def _structural_signature(model) -> dict[str, Any]:  # noqa: ANN001
+        """joint 名/类型/qpos 地址/dof 地址/actuator→joint 映射/mocap 布局。"""
+        import mujoco
+
+        return {
+            "joints": [
+                (
+                    mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_JOINT, i) or f"joint_{i}",
+                    int(model.jnt_type[i]),
+                    int(model.jnt_qposadr[i]),
+                    int(model.jnt_dofadr[i]),
+                )
+                for i in range(model.njnt)
+            ],
+            "actuators": [
+                (
+                    mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_ACTUATOR, i) or f"actuator_{i}",
+                    int(model.actuator_trnid[i][0]),
+                )
+                for i in range(model.nu)
+            ],
+            "nmocap": int(model.nmocap),
+        }
 
     # -- 实验：rollout / observe（MH3，规格 §15/§16） -------------------------
 
@@ -373,7 +413,7 @@ class MujocoBackend:
         record = {
             "kind": "simulation_trace",
             "model_ref": model_ref,
-            "model_digest": self._xml_digest(manifest),
+            "model_digest": self._model_digest(manifest),
             "seed": seed,
             "controller": controller,
             "steps": actual_steps,
@@ -403,7 +443,7 @@ class MujocoBackend:
             created_at=self._created_at(trace_ref),
             request_digest=request_digest,
             model_ref=model_ref,
-            model_digest=self._xml_digest(manifest),
+            model_digest=self._model_digest(manifest),
             steps=actual_steps,
             timestep_s=float(model.opt.timestep),
             states_digest=digest,
@@ -455,7 +495,7 @@ class MujocoBackend:
             raise ValueError(f"REF_NOT_FOUND: {trace_ref!r} is not a simulation trace")
         model_ref = record["model_ref"]
         manifest = self._manifest(model_ref)
-        if record.get("model_digest") != self._xml_digest(manifest):
+        if record.get("model_digest") != self._model_digest(manifest):
             raise ValueError(f"CROSS_MODEL_REF: trace {trace_ref!r} does not belong to model")
         spec = self._spec_from_manifest(manifest)
         model, _ = self._compile_smoke(spec)
@@ -555,7 +595,7 @@ class MujocoBackend:
             record = self.store.get(trace_ref)
             if not isinstance(record, dict) or record.get("kind") != "simulation_trace":
                 raise ValueError(f"REF_NOT_FOUND: {trace_ref!r} is not a simulation trace")
-            if record.get("model_digest") != self._xml_digest(manifest):
+            if record.get("model_digest") != self._model_digest(manifest):
                 raise ValueError(f"CROSS_MODEL_REF: trace {trace_ref!r} does not belong to model")
             trace_record = record
 
@@ -574,7 +614,7 @@ class MujocoBackend:
         payload = {
             "kind": "audit_result",
             "model_ref": model_ref,
-            "model_digest": self._xml_digest(manifest),
+            "model_digest": self._model_digest(manifest),
             "status": outcome["status"],
             "checks": outcome["checks"],
             "violations": outcome["violations"],
@@ -622,8 +662,14 @@ class MujocoBackend:
         seed: int = 0,
         budgets: dict[str, Any] | None = None,
         audit: bool = True,
+        task_predicates: list[dict[str, Any]] | None = None,
     ) -> SimulationReceipt:
-        """rollout + 指标 + 审计 → SimulationReceipt（不可变落盘，幂等）。"""
+        """rollout + 指标 + 审计 + 任务谓词 → SimulationReceipt（幂等）。
+
+        成功语义三分（0915 优化 §三）：simulation_valid（跑完）/
+        physical_audit_pass（审计过）/ task_success（谓词机器判定）；
+        verification_status ∈ PASS / FAIL / NOT_EVALUATED。
+        """
         import mujoco
 
         manifest = self._manifest(model_ref)
@@ -654,7 +700,7 @@ class MujocoBackend:
         record = {
             "kind": "simulation_trace",
             "model_ref": model_ref,
-            "model_digest": self._xml_digest(manifest),
+            "model_digest": self._model_digest(manifest),
             "seed": seed,
             "controller": controller,
             "steps": actual_steps,
@@ -671,15 +717,36 @@ class MujocoBackend:
         metrics = collector.finalize(
             timestep=float(model.opt.timestep), duration_s=float(data.time)
         )
+
+        simulation_valid = True  # 发散在 run_rollout 已 fail closed
+        physical_audit_pass: bool | None = None
         audit_ref = ""
-        success: bool | None = None
         if audit:
             audit_result = self.audit(model_ref, trace_ref=trace_ref)
             audit_ref = audit_result.audit_ref
-            success = audit_result.status == "PASS"
+            physical_audit_pass = audit_result.status == "PASS"
+
+        task_success: bool | None = None
+        if task_predicates is not None:
+            channels = sorted({p["channel"] for p in task_predicates})
+            observations = self.observe(model_ref, final_state_ref, channels).values
+            verdicts = evaluate_predicates(observations, task_predicates)
+            task_success = all(v["ok"] for v in verdicts)
+
+        if physical_audit_pass is False:
+            verification_status = "FAIL"
+        elif task_predicates is not None:
+            verification_status = "PASS" if task_success else "FAIL"
+        else:
+            verification_status = "NOT_EVALUATED"
 
         semantic_digest = content_hash(
-            "simrcp", {"metrics": _round_metrics(metrics), "success": success}
+            "simrcp",
+            {
+                "metrics": _round_metrics(metrics),
+                "verification_status": verification_status,
+                "task_success": task_success,
+            },
         )
         payload = {
             "kind": "simulation_receipt",
@@ -687,7 +754,7 @@ class MujocoBackend:
             "backend": "mujoco",
             "backend_version": manifest["backend_version"],
             "model_ref": model_ref,
-            "model_digest": self._xml_digest(manifest),
+            "model_digest": self._model_digest(manifest),
             "initial_state_ref": initial_state_ref,
             "action_digest": content_hash("simact", controller),
             "trace_ref": trace_ref,
@@ -695,7 +762,12 @@ class MujocoBackend:
             "seed": seed,
             "steps": actual_steps,
             "simulation_time_s": float(data.time),
-            "success": success,
+            "success": task_success,  # 兼容字段 ≡ task_success（0915 §三）
+            "simulation_valid": simulation_valid,
+            "physical_audit_pass": physical_audit_pass,
+            "task_success": task_success,
+            "task_predicates": task_predicates,
+            "verification_status": verification_status,
             "metrics": metrics,
             "audit_ref": audit_ref,
             "artifacts": [],
@@ -718,7 +790,11 @@ class MujocoBackend:
             seed=seed,
             steps=actual_steps,
             simulation_time_s=payload["simulation_time_s"],
-            success=success,
+            success=task_success,
+            simulation_valid=simulation_valid,
+            physical_audit_pass=physical_audit_pass,
+            task_success=task_success,
+            verification_status=verification_status,
             metrics=metrics,
             audit_ref=audit_ref,
             states_digest=digest,
@@ -727,11 +803,13 @@ class MujocoBackend:
         ).with_digest()
 
     def strict_replay(self, receipt_ref: str) -> dict[str, Any]:
-        """规格 §57：重放校验 model/backend/seed/初始状态/controller/steps/
-        关键指标/任务结果；不一致 → REPLAY_DIVERGED，不得 promotion。
+        """规格 §57 + 0915 §十：重放校验 model/backend/seed/初始状态/
+        controller/steps/关键指标/任务判定；错误分类精确：
+        REPLAY_ENV_MISMATCH / REPLAY_MODEL_MISMATCH /
+        REPLAY_STATE_MISMATCH / REPLAY_PHYSICS_DIVERGED。
 
-        双层 digest（§56）：raw（states_digest 逐状态）优先；raw 不符时
-        退化到语义层（指标容差 + success）判定。
+        双层 digest（§56）：raw 优先；raw 不符退化到语义层
+        （指标容差 + verification_status 复算）判定。
         """
         import mujoco
 
@@ -741,18 +819,21 @@ class MujocoBackend:
         current_version = str(mujoco.__version__)
         if payload.get("backend") != "mujoco" or payload.get("backend_version") != current_version:
             raise ValueError(
-                f"REPLAY_DIVERGED: backend {payload.get('backend')}"
+                f"REPLAY_ENV_MISMATCH: backend {payload.get('backend')}"
                 f"@{payload.get('backend_version')} != mujoco@{current_version}"
             )
         manifest = self._manifest(payload["model_ref"])
-        if payload["model_digest"] != self._xml_digest(manifest):
-            raise ValueError("REPLAY_DIVERGED: model digest mismatch")
+        if payload["model_digest"] != self._model_digest(manifest):
+            raise ValueError("REPLAY_MODEL_MISMATCH: model digest mismatch")
 
         trace_record = self.store.get(payload["trace_ref"])
         if not isinstance(trace_record, dict):
             raise ValueError(f"REF_NOT_FOUND: {payload['trace_ref']!r} is not a simulation trace")
         controller = trace_record["controller"]
-        model, data = self.restore_state(payload["model_ref"], payload["initial_state_ref"])
+        try:
+            model, data = self.restore_state(payload["model_ref"], payload["initial_state_ref"])
+        except ValueError as exc:
+            raise ValueError(f"REPLAY_STATE_MISMATCH: {exc}") from exc
         plan = rollout_mod.validate_controller(controller, model.nu)
         tracked = [
             (i, int(model.jnt_qposadr[int(model.actuator_trnid[i][0])]))
@@ -769,13 +850,29 @@ class MujocoBackend:
         metrics = collector.finalize(
             timestep=float(model.opt.timestep), duration_s=float(data.time)
         )
-        audit_status = self.audit(payload["model_ref"], trace_ref=payload["trace_ref"]).status
-        if (
-            _metrics_close(metrics, payload["metrics"])
-            and (audit_status == "PASS") == payload["success"]
+        verification_status = self._replay_verification_status(
+            model_ref=payload["model_ref"], model=model, data=data, payload=payload
+        )
+        if _metrics_close(metrics, payload["metrics"]) and verification_status == payload.get(
+            "verification_status", "NOT_EVALUATED"
         ):
             return {"verified": True, "mode": "semantic", "receipt_ref": receipt_ref}
-        raise ValueError("REPLAY_DIVERGED: raw states and semantic metrics both mismatch")
+        raise ValueError("REPLAY_PHYSICS_DIVERGED: raw states and semantic metrics both mismatch")
+
+    def _replay_verification_status(
+        self, *, model_ref: str, model, data, payload: dict[str, Any]
+    ) -> str:
+        """重放 verification_status：审计 + 任务谓词复算（0915 §三/§十）。"""
+        physical_audit_pass = self.audit(model_ref, trace_ref=payload["trace_ref"]).status == "PASS"
+        predicates = payload.get("task_predicates")
+        if not physical_audit_pass:
+            return "FAIL"
+        if predicates is None:
+            return "NOT_EVALUATED"
+        channels = sorted({p["channel"] for p in predicates})
+        observations = observe_mod.observe_channels(model, data, channels)
+        verdicts = evaluate_predicates(observations, predicates)
+        return "PASS" if all(v["ok"] for v in verdicts) else "FAIL"
 
     def compare_experiments(self, receipt_refs: list[str]) -> ComparisonResult:
         """规格 §20：指标表 + best + Pareto 候选（机器比较，不靠 LLM 读数）。"""
@@ -877,9 +974,21 @@ class MujocoBackend:
                 assets[key] = source.read_bytes()
         return assets
 
-    @staticmethod
-    def _xml_digest(manifest: dict[str, Any]) -> str:
-        return "sha256:" + hashlib.sha256(manifest["mjcf_xml"].encode("utf-8")).hexdigest()
+    def _model_digest(self, manifest: dict[str, Any]) -> str:
+        """真正的物理模型身份（PR-MH9，0915 文档 §四）：
+        canonical MJCF + 全部资产 blob digest（排序确定性）。
+
+        相同 XML、不同 mesh 字节 → 不同 model_digest → state/trace/
+        replay 绑定全部 fail closed（CROSS_MODEL_REF）。
+        """
+        payload = {
+            "xml": hashlib.sha256(manifest["mjcf_xml"].encode("utf-8")).hexdigest(),
+            "assets": sorted(
+                [name, hashlib.sha256(self.store.get(ref)).hexdigest()]
+                for name, ref in manifest["assets"].items()
+            ),
+        }
+        return "sha256:" + hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
 
     def _created_at(self, ref: str) -> str:
         """不可变 manifest 的落盘 mtime = 首次创建时间（幂等稳定）。"""

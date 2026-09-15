@@ -1,10 +1,38 @@
-# MuJoCo Simulation Harness 实施报告（MH0–MH8，2026-09-14）
+# MuJoCo Simulation Harness 实施报告（MH0–MH8，2026-09-14；MH9 硬化，2026-09-15）
 
-> 依据：《ROSClaw MuJoCo Harness 原生物理仿真能力升级实施总纲》；
+> 依据：《ROSClaw MuJoCo Harness 原生物理仿真能力升级实施总纲》+《实施优化0915》；
 > 架构冻结：ADR-0014；发布门禁：docs/validation/MUJOCO_HARNESS_V1.md。
 >
 > 九个栈叠 PR：#547(MH0) → #548(MH1) → #549(MH2) → #552(MH3) →
-> #553(MH4) → #554(MH5) → #555(MH6) → #557(MH7) → #558(MH8)。
+> #553(MH4) → #554(MH5) → #555(MH6) → #557(MH7) → #558(MH8) → #567(MH9)。
+
+## 0.1 MH9 证据语义硬化（0915 优化文档，2026-09-15）
+
+合入 main 前的语义修正（不加新功能）：
+
+1. **成功语义三分**：`simulation_valid` / `physical_audit_pass` /
+   `task_success` / `verification_status`；`success ≡ task_success`——
+   audit PASS 不再冒充任务成功；`false_success` 含任务判定复算。
+2. **model_digest 纳入资产**：相同 XML 不同 mesh = 不同物理模型，
+   state/trace/replay 绑定 fail closed（test_model_identity 红测试）。
+3. **gripper 能力 = 声明→证明绑定**：e-URDF capabilities/semantic
+   或 task sidecar 声明，模型证明；三态 AVAILABLE/UNDECLARED/
+   UNPROVEN，移除 `"gripper" in name` 名字猜测。
+4. **transplant 结构签名**：joint 名/类型/地址/actuator 映射/mocap
+   全等才允许（STATE_INCOMPATIBLE）。
+5. **replay 错误分类**：ENV/MODEL/STATE/PHYSICS 四类，版本升级不
+   误报物理发散。
+6. **高层原语**：`sim_branch_experiment`（fork+移植+rollout 一次
+   调用）与 `sim_compile_world` 入 P0_SIM_TOOLS（S1）。
+7. **MuJoCo 3.13 资格认证（方案 A）**：pin `>=3.13.0,<3.14`；
+   surfacevel 是 geom 属性（探测通道修正）；pid_actuator 实测存在。
+8. **GL 实证根治**（#547 CI + 本机全量跑暴露）：能力探测改
+   find_spec+ctypes 零副作用（GL 模块导入会翻转渲染后端选择）；
+   渲染全程隔离子进程（Jetson 上 GL 上下文创建可 native abort）；
+   记录实际使用的后端而非环境声明。
+9. **G13 全仓库回归**：发现 install/init/test_command/security 31
+   例本栈引入失败（init 模板 purposes 未注册 sim 工具）→ MH9c
+   修复；其余失败基线对比确证为既有环境/时序腐烂。
 
 ## 0. 目标与结果一句话
 

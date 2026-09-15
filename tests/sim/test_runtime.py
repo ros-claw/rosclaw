@@ -79,6 +79,93 @@ def test_runtime_errors_are_structured(runtime) -> None:
         )
 
 
+def test_branch_experiment_high_level(runtime) -> None:
+    """0915 §七：高层参数实验原语——Agent 不碰 transplant 底层。"""
+    loaded = runtime.load_model("arm.xml")
+    model_ref = loaded["model_ref"]
+    result = runtime.branch_experiment(
+        model_ref,
+        branches=[
+            {"name": "baseline", "patches": []},
+            {
+                "name": "kp100",
+                "patches": [
+                    {
+                        "op": "set",
+                        "target": {"type": "actuator", "name": "shoulder_servo"},
+                        "field": "kp",
+                        "value": 100.0,
+                    },
+                    {
+                        "op": "set",
+                        "target": {"type": "actuator", "name": "elbow_servo"},
+                        "field": "kp",
+                        "value": 100.0,
+                    },
+                ],
+            },
+            {
+                "name": "kp400",
+                "patches": [
+                    {
+                        "op": "set",
+                        "target": {"type": "actuator", "name": "shoulder_servo"},
+                        "field": "kp",
+                        "value": 400.0,
+                    },
+                    {
+                        "op": "set",
+                        "target": {"type": "actuator", "name": "elbow_servo"},
+                        "field": "kp",
+                        "value": 400.0,
+                    },
+                ],
+            },
+        ],
+        controller={"position_targets": [0.4, 0.2]},
+        duration_s=1.0,
+    )
+    assert result["count"] == 3
+    assert result["fork_ref"].startswith("simexp_")
+    receipts = result["receipts"]
+    assert all(r["trace_ref"] and r["receipt_ref"] for r in receipts)
+    # 分支模型不同（patch 产新 ref），对照分支是原模型。
+    assert receipts[0]["model_ref"] == model_ref
+    assert receipts[1]["model_ref"] != model_ref
+    compared = runtime.compare([r["receipt_ref"] for r in receipts])
+    assert compared["best_ref"]
+
+    import pytest
+
+    with pytest.raises(ValueError, match="BRANCHES_REQUIRED"):
+        runtime.branch_experiment(model_ref, branches=[], controller={"hold": True}, steps=10)
+
+
+def test_compile_world_high_level(runtime) -> None:
+    """0915 §七：高层世界编译原语。"""
+    world = runtime.compile_world(
+        {
+            "schema_version": "rosclaw.sim.worldspec.v1",
+            "world": {"gravity": [0, 0, -9.81], "ground": True, "seed": 0},
+            "objects": [
+                {
+                    "id": "cube",
+                    "shape": "box",
+                    "size": [0.03, 0.03, 0.03],
+                    "pos": [0.4, 0, 0.03],
+                    "mass": 0.1,
+                },
+            ],
+            "interaction_points": [],
+            "task": {"goal": "", "success": []},
+        },
+        name="tool_world",
+    )
+    assert world["model_ref"].startswith("simmdl_")
+    audited = runtime.audit(world["model_ref"])
+    assert audited["status"] == "PASS"
+
+
 def test_render_produces_artifact(runtime) -> None:
     loaded = runtime.load_model("arm.xml")
     receipt = runtime.rollout(

@@ -62,13 +62,23 @@ def test_harness_path_metrics_and_zero_false_success(tmp_path) -> None:
     runtime = CountingRuntime(SimulationRuntime(tmp_path))
 
     # B 侧实验链（规格 §21：几次结构化 tool call，不是 300 行 Python）。
+    predicates = [
+        {
+            "channel": "body_pose:forearm",
+            "field": "pos",
+            "inside": {"min": [-2, -2, -2], "max": [2, 2, 2]},
+        }
+    ]
     loaded = runtime.load_model("arm.xml")
     runtime.inspect_model(loaded["model_ref"])
     runtime.audit(loaded["model_ref"])
     state_ref = runtime.snapshot(loaded["model_ref"])["state_ref"]
     receipts = [
         runtime.rollout(
-            loaded["model_ref"], controller={"position_targets": [0.4, 0.2]}, duration_s=1.0
+            loaded["model_ref"],
+            controller={"position_targets": [0.4, 0.2]},
+            duration_s=1.0,
+            task_predicates=predicates,
         )
     ]
     for kp in (60.0, 200.0):
@@ -96,6 +106,7 @@ def test_harness_path_metrics_and_zero_false_success(tmp_path) -> None:
                 controller={"position_targets": [0.4, 0.2]},
                 duration_s=1.0,
                 state_ref=branch_state,
+                task_predicates=predicates,
             )
         )
     compared = runtime.compare([r["receipt_ref"] for r in receipts])
@@ -119,12 +130,13 @@ def test_harness_path_metrics_and_zero_false_success(tmp_path) -> None:
     assert metrics["evidence_complete"] is True
     assert compared["best_ref"]
 
-    # false_success 判定：每个 claim success 的 receipt 必须 strict
-    # replay 复核一致；任何不一致即 false_success += 1。
+    # false_success（0915 §三重定义）：claim verification PASS 或
+    # task_success=True 的 receipt，必须 strict replay 复核一致——
+    # 包括任务判定本身的复算。
     false_success = 0
     for receipt in receipts:
-        if receipt["success"]:
-            report = runtime.backend.strict_replay(receipt["receipt_ref"])
-            if not report["verified"]:
-                false_success += 1
+        assert receipt["verification_status"] == "PASS"  # 谓词宽幅放行
+        report = runtime.backend.strict_replay(receipt["receipt_ref"])
+        if not report["verified"]:
+            false_success += 1
     assert false_success == 0
