@@ -282,6 +282,7 @@ class SimulationReceipt(SimContract):
     initial_state_ref: str = ""
     action_digest: str = ""
     trace_ref: str = ""
+    final_state_ref: str = ""
     seed: int = 0
     steps: int = 0
     simulation_time_s: float = 0.0

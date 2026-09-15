@@ -372,6 +372,87 @@ class MujocoBackend:
             values=values,
         ).with_digest()
 
+    # -- 渲染（MH6，规格 §32） --------------------------------------------------
+
+    def render(
+        self,
+        trace_ref: str,
+        *,
+        camera: str | None = None,
+        width: int = 640,
+        height: int = 480,
+        max_frames: int = 16,
+    ) -> dict[str, Any]:
+        """把 trace 渲染成 GIF artifact 落 renders 分区。
+
+        render 是证据 artifact，不是验证真相（规格 §32）；实际渲染后端
+        诚实记录，OSMesa 不报 GPU。
+        """
+        if not (64 <= width <= 4096) or not (64 <= height <= 4096):
+            raise ValueError(f"RENDER_INPUT_INVALID: width/height out of range: {width}x{height}")
+        if not (1 <= max_frames <= 64):
+            raise ValueError(f"RENDER_INPUT_INVALID: max_frames out of range: {max_frames}")
+        record = self.store.get(trace_ref)
+        if not isinstance(record, dict) or record.get("kind") != "simulation_trace":
+            raise ValueError(f"REF_NOT_FOUND: {trace_ref!r} is not a simulation trace")
+        model_ref = record["model_ref"]
+        manifest = self._manifest(model_ref)
+        if record.get("model_digest") != self._xml_digest(manifest):
+            raise ValueError(f"CROSS_MODEL_REF: trace {trace_ref!r} does not belong to model")
+        spec = self._spec_from_manifest(manifest)
+        model, _ = self._compile_smoke(spec)
+
+        import io
+        import os
+
+        import mujoco
+
+        try:
+            renderer = mujoco.Renderer(model, height, width)
+        except Exception as exc:
+            raise ValueError(f"SIM_RENDER_UNAVAILABLE: {type(exc).__name__}: {exc}") from exc
+        try:
+            from PIL import Image
+
+            states = record["states"]
+            if len(states) > max_frames:
+                stride = -(-len(states) // max_frames)
+                states = states[::stride]
+            frames = []
+            for snapshot in states:
+                data = mujoco.MjData(model)
+                state.apply_state(
+                    model,
+                    data,
+                    {
+                        "time": snapshot["t"],
+                        "qpos": snapshot["qpos"],
+                        "qvel": snapshot["qvel"],
+                        "act": [0.0] * model.na,
+                        "ctrl": snapshot["ctrl"],
+                        "mocap_pos": [0.0] * (model.nmocap * 3),
+                        "mocap_quat": [0.0] * (model.nmocap * 4),
+                    },
+                )
+                renderer.update_scene(data, camera=camera or -1)
+                frames.append(Image.fromarray(renderer.render()))
+            buffer = io.BytesIO()
+            frames[0].save(
+                buffer, format="GIF", save_all=True, append_images=frames[1:], duration=80, loop=0
+            )
+            artifact_ref = self.store.put("renders", buffer.getvalue())
+        finally:
+            renderer.close()
+        return {
+            "artifact_ref": artifact_ref,
+            "frames": len(frames),
+            "width": width,
+            "height": height,
+            "camera": camera or "default",
+            "renderer_backend": os.environ.get("MUJOCO_GL", "") or "default",
+            "trace_ref": trace_ref,
+        }
+
     # -- 物理诚实审计（MH4，规格 §17-§19） ------------------------------------
 
     def audit(
@@ -504,6 +585,7 @@ class MujocoBackend:
         if len(canonical_json(record).encode("utf-8")) > merged["max_trace_bytes"]:
             raise ValueError(f"SIM_BUDGET_EXCEEDED: trace bytes > {merged['max_trace_bytes']}")
         trace_ref = self.store.put("traces", record)
+        final_state_ref = self.capture_and_store(model_ref, model, data)
 
         metrics = collector.finalize(
             timestep=float(model.opt.timestep), duration_s=float(data.time)
@@ -528,6 +610,7 @@ class MujocoBackend:
             "initial_state_ref": initial_state_ref,
             "action_digest": content_hash("simact", controller),
             "trace_ref": trace_ref,
+            "final_state_ref": final_state_ref,
             "seed": seed,
             "steps": actual_steps,
             "simulation_time_s": float(data.time),
@@ -550,6 +633,7 @@ class MujocoBackend:
             initial_state_ref=initial_state_ref,
             action_digest=payload["action_digest"],
             trace_ref=trace_ref,
+            final_state_ref=final_state_ref,
             seed=seed,
             steps=actual_steps,
             simulation_time_s=payload["simulation_time_s"],
