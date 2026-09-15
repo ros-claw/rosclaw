@@ -29,11 +29,14 @@ logger = logging.getLogger("rosclaw.storage.seekdb_compat")
 # --- the matrix ------------------------------------------------------------
 #: Officially compatible with seekdb Engine 1.3.x AND the 1.4.0 engine
 #: (the v1.4.0 release notes name pyseekdb 1.3.0 as the compatible SDK).
-VALIDATED_SDK_VERSIONS = frozenset({"1.3.0"})
-#: ROSClaw extended candidate: #251 fix release, passed the full combo
-#: acceptance on 2026-08-03; promotion to VALIDATED requires the Engine-1.4
-#: matrix (PR-SDB-140-3).
-CANDIDATE_SDK_VERSIONS = frozenset({"1.4.0.post1"})
+#: 1.4.0.post1 earned VALIDATED in PR-SDB-140-3: #251 repro PASS, T0-T15
+#: matrix 16/16 on its bundled 1.4 embedded engine, 273/273 storage+seekdb
+#: suites, server benchmark no-regression, zh/en golden-corpus recall
+#: identical, p95 latencies equal-or-better (BM25 -33%, metadata -49%,
+#: W2R -21% vs SDK 1.3.0 on the same 1.4.0 engine).
+VALIDATED_SDK_VERSIONS = frozenset({"1.3.0", "1.4.0.post1"})
+#: Currently no candidate in flight.
+CANDIDATE_SDK_VERSIONS = frozenset()
 #: Hard-broken SQL generation on metadata-filtered search legs.
 KNOWN_BAD_SDK_VERSIONS = frozenset({"1.4.0"})
 

@@ -21,7 +21,7 @@ from rosclaw.storage.seekdb_compat import (
     [
         (None, "missing"),
         ("1.3.0", "validated"),
-        ("1.4.0.post1", "candidate"),
+        ("1.4.0.post1", "validated"),
         ("1.4.0", "known_bad"),
         ("1.3.1", "untested"),
         ("1.4.0.dev2", "untested"),
