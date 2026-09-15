@@ -183,3 +183,17 @@ test("报告序列化不含 secret 材料", async () => {
 	const text = JSON.stringify(report);
 	assert.ok(!text.includes("sk-"), `报告含 key 材料: ${text}`);
 });
+
+// 二轮自审实证（真实 home doctor）：Kimi 403 "concurrent request
+// limit" 是限流不是凭据问题——AUTH_FAILED 会误导用户重换 key。
+test("chat 403 concurrent request limit → RATE_LIMITED（不是 AUTH_FAILED）", async () => {
+	const report = await probePiModel({
+		...BASE,
+		defaults: DEFAULTS,
+		runtime: fakeRuntime({ chatError: new Error(
+			'403 {"error":{"type":"permission_error","message":"You\'ve reached your concurrent request limit"}}'
+		) }),
+	});
+	assert.equal(report.reachable, true);
+	assert.match(report.error ?? "", /^RATE_LIMITED/, `误分类: ${report.error}`);
+});

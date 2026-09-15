@@ -43,7 +43,9 @@ export function classifyModelError(raw: string): ClassifiedModelError {
 			taskRecoverable: true,
 		};
 	}
-	if (/429|rate.?limit|too many requests/.test(text)) {
+	if (/429|rate.?limit|too many requests|concurrent.*limit|request limit/.test(text)) {
+		// 二轮自审实证：Kimi 403 "concurrent request limit" 是限流——
+		// 稍等重试，不是凭据问题（AUTH/UNKNOWN 都误导）。
 		return {
 			code: "PROVIDER_RATE_LIMITED",
 			explanation: "请求频率超限",
