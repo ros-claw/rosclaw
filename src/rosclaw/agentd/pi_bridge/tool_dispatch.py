@@ -870,9 +870,11 @@ class PiToolDispatcher:
             ok=True,
             status="STARTED",
             summary=(
-                f"Operation 已启动：{op['operation_id']}（后台运行——"
-                "progress/输出经 process_output 查看；完成时会收到一次"
-                "通知，不要在回合里死等）"
+                f"Operation 已启动：{op['operation_id']}（后台运行）。"
+                "现在请直接结束回合：告诉用户任务正在后台执行——完成"
+                "结果会自动推送给用户（OperationWatcher 一次性通知，"
+                "含结果）。不要 sleep 等待、不要反复 process_output "
+                "轮询：完成推送会带结果，轮询只会把回合拖进停滞误判。"
             ),
         )
 

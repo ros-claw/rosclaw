@@ -159,7 +159,7 @@ def render_from_spec(
         raise ValueError(f"RENDER_INPUT_MISSING: trace {trace_id!r} 不存在")
     plan_hash = str(json.loads(trace_path.read_text(encoding="utf-8")).get("plan_hash", ""))
 
-    supported = {"actual_eef_trace", "planned_trace", "waypoints", "contact_points"}
+    supported = set(SUPPORTED_OVERLAY_KINDS)
     for overlay in spec.overlays:
         if overlay.kind not in supported:
             raise ValueError(
@@ -430,6 +430,68 @@ def _require_tool_asset(tool_ref: str) -> None:
         )
 
 
+# 0914 PR-2：模型面 schema 与渲染器校验的**单一来源**——新增
+# overlay kind 只改这里（native_tools/tools.py 的 enum 从此导入）。
+SUPPORTED_OVERLAY_KINDS = (
+    "actual_eef_trace",
+    "planned_trace",
+    "waypoints",
+    "contact_points",
+)
+
+#: 模型面 input_schema 的 overlay/输出参数片段（两 schema 面共享，
+#  防手工抄两份漂移）。
+SCENE_RENDER_OVERLAY_INPUT_FRAGMENT: dict = {
+    "overlays": {
+        "type": "array",
+        "description": (
+            "Scene overlays drawn from REAL data (never decorative "
+            "substitutes): actual_eef_trace = the rollout's actual end "
+            "effector xyz trajectory (red; use when the user asks to SEE "
+            "the trajectory in the video); planned_trace = commanded "
+            "path (blue); waypoints / contact_points = plan markers. "
+            "presentation: full (default, whole path every frame) or "
+            "animated (actual_eef_trace only — revealed in time sync "
+            "with the motion). Check overlays_unfulfilled in the result: "
+            "anything listed there was NOT drawn (reason included) — "
+            "never claim it was."
+        ),
+        "items": {
+            "type": "object",
+            "properties": {
+                "kind": {"type": "string", "enum": sorted(SUPPORTED_OVERLAY_KINDS)},
+                "presentation": {"type": "string", "enum": ["full", "animated"]},
+            },
+            "required": ["kind"],
+            "additionalProperties": False,
+        },
+    },
+    "outputs": {
+        "type": "array",
+        "description": "Media outputs (default both gif+mp4).",
+        "items": {"type": "string", "enum": ["gif", "mp4"]},
+    },
+    "fps": {"type": "number", "description": "Output frames per second (default 12)."},
+    "playback_rate": {
+        "type": "number",
+        "description": "Playback speed vs recorded time (default 1.0).",
+    },
+}
+
+
+def _unfulfilled_reason(kind: str, trace: dict, plan_doc: dict | None) -> str:
+    """overlay 未绘制的原因（诚实归因——不写'未知原因'）。"""
+    if kind == "actual_eef_trace" and not (trace.get("actual") or []):
+        return "no_data: trace.actual 为空——rollout 未记录末端轨迹"
+    if kind == "planned_trace" and not (trace.get("planned") or []):
+        return "no_data: trace.planned 为空——rollout 未记录计划点列"
+    if kind in ("waypoints", "contact_points"):
+        if plan_doc is None:
+            return "no_data: plan 文档缺失（plan_hash 无法解析）"
+        return f"no_data: plan 无 {kind} 对应点列"
+    return f"unsupported: {kind} 未实现"
+
+
 def _overlay_scene_geoms(
     spec_overlays: list[dict],
     trace: dict,
@@ -439,50 +501,73 @@ def _overlay_scene_geoms(
 
     返回 (kind, payload) 列表由调用方逐帧应用到 scene——真实绘制，
     绘制成功的 kind 才进 receipt 的 overlays_applied。
+    payload = (shape, rgba, indexed_pts)——indexed_pts 是
+    (原始 sample index | None, (x,y,z)) 列表：actual_eef_trace 携带
+    原始采样索引供 animated 按时间揭示（0914 PR-2）；其余 kind
+    index=None（静态全量）。
     """
 
     # 渲染成本有界（CI 软件光栅实证：全量轨迹点 >600s 超时）——
-    # 折线/点列抽稀到 240 段以内，形状语义不变。
-    def _decimate(pts: list, cap: int = 240) -> list:
+    # 折线/点列抽稀到 240 段以内，形状语义不变。抽稀按**原始索引**
+    # 等距选取（保持时间关联——禁止抽稀后 linspace 重排）。
+    def _decimate_indexed(pts: list, cap: int = 240) -> list:
         if len(pts) <= cap:
-            return pts
+            return list(enumerate(pts))
         step = (len(pts) - 1) / (cap - 1)
-        return [pts[round(i * step)] for i in range(cap)]
+        return [(round(i * step), pts[round(i * step)]) for i in range(cap)]
 
     applied: list[tuple[str, Any]] = []
     for overlay in spec_overlays:
         kind = overlay.get("kind", "")
         if kind == "actual_eef_trace":
-            pts = _decimate(
-                [(p["x"], p["y"], p["z"]) for p in trace.get("actual") or []]
+            pts = [(p["x"], p["y"], p["z"]) for p in trace.get("actual") or []]
+            applied.append(
+                (kind, ("polyline", (1.0, 0.2, 0.2, 0.9), _decimate_indexed(pts)))
             )
-            applied.append((kind, ("polyline", pts, (1.0, 0.2, 0.2, 0.9))))
         elif kind == "planned_trace":
-            pts = _decimate([
-                (p["x"], p["y"], p["z"]) for p in trace.get("planned") or []
-            ])
-            applied.append((kind, ("polyline", pts, (0.2, 0.6, 1.0, 0.9))))
+            pts = [(p["x"], p["y"], p["z"]) for p in trace.get("planned") or []]
+            applied.append(
+                (kind, (
+                    "polyline", (0.2, 0.6, 1.0, 0.9),
+                    [(None, p) for p in pts],
+                ))
+            )
         elif kind == "waypoints":
             wps = (plan_doc or {}).get("spec", {}).get("waypoints") or []
             pts = [tuple(w["position_m"]) for w in wps]
-            applied.append((kind, ("points", pts, (1.0, 0.8, 0.1, 0.95))))
+            applied.append(
+                (kind, ("points", (1.0, 0.8, 0.1, 0.95), [(None, p) for p in pts]))
+            )
         elif kind == "contact_points":
             wps = (plan_doc or {}).get("spec", {}).get("waypoints") or []
             pts = [tuple(w["position_m"]) for w in wps if w.get("kind") == "contact"]
-            applied.append((kind, ("points", pts, (0.1, 1.0, 0.3, 1.0))))
+            applied.append(
+                (kind, ("points", (0.1, 1.0, 0.3, 1.0), [(None, p) for p in pts]))
+            )
     return applied
+
+
+def _reveal_prefix(
+    indexed_pts: list[tuple[int | None, Any]], sample_idx: int
+) -> list[tuple[int | None, Any]]:
+    """animated 揭示前缀（0914 PR-2 时间条款）：只保留原始 sample
+    index <= sample_idx 的点——时间关联来自原始采样索引（选帧本身
+    就是时间驱动，W04 §8.2），绝不在抽稀点上 linspace 重造时间。"""
+    return [(i, p) for i, p in indexed_pts if i is None or i <= sample_idx]
 
 
 def _apply_overlay_geoms(renderer: Any, overlays: list[tuple[str, Any]]) -> list[str]:
     """把 overlay 几何 append 进 renderer.scene（装饰几何，不碰物理）。
-    返回实际画上的 kind 列表。"""
+    返回实际画上的 kind 列表。payload=(shape, rgba, indexed_pts)——
+    indexed_pts 为 (sample index | None, (x,y,z))，绘制其点列。"""
     import mujoco
     import numpy as np
 
     scn = renderer.scene
     drawn: list[str] = []
     for kind, payload in overlays:
-        shape, pts, rgba = payload
+        shape, rgba, indexed_pts = payload
+        pts = [p for _i, p in indexed_pts]
         if not pts:
             continue
         if shape == "polyline":
@@ -492,6 +577,10 @@ def _apply_overlay_geoms(renderer: Any, overlays: list[tuple[str, Any]]) -> list
                 # mujoco 3.x：mjv_connector 只设 size/pos/mat——
                 # rgba 等其余属性必须先 mjv_initGeom（实证：
                 # mjv_makeConnector 在 3.11 已改名为 mjv_connector）。
+                # 0914 PR-2 帧像素实证：width 是**模型单位（米）**不是
+                # 像素——1.6 米粗胶囊包住相机被背面剔除，overlay 宣称
+                # 画了却完全不可见（旧亮度差测试把它放行三年）；5mm
+                # 线宽在 240p+ 帧上稳定可见（红系像素证据）。
                 geom = scn.geoms[scn.ngeom]
                 mujoco.mjv_initGeom(
                     geom,
@@ -503,7 +592,7 @@ def _apply_overlay_geoms(renderer: Any, overlays: list[tuple[str, Any]]) -> list
                 mujoco.mjv_connector(
                     geom,
                     mujoco.mjtGeom.mjGEOM_CAPSULE,
-                    1.6,  # 线宽（像素级近似）
+                    0.005,  # 线宽 5mm（模型单位——不是像素）
                     np.array(a, dtype=float), np.array(b, dtype=float),
                 )
                 scn.ngeom += 1
@@ -810,6 +899,13 @@ def _render_impl(
                 plan_doc = json.loads(plan_path.read_text(encoding="utf-8"))
         overlay_geoms = _overlay_scene_geoms(spec_overlays, trace, plan_doc)
         overlays_applied: list[str] = []
+        # 0914 PR-2：presentation=animated 的 kind 逐帧按原始 sample
+        # index 揭示（时间同步来自选帧的原始索引，非重造时间轴）。
+        animated_kinds = {
+            str(o.get("kind"))
+            for o in spec_overlays
+            if o.get("presentation") == "animated"
+        }
 
         # W04 §8.1/§8.2：输出按渲染身份命名（同 trace 不同参数
         # 互不覆盖）；单遍流式编码——渲染一帧写一帧，不把 PIL 与
@@ -843,9 +939,19 @@ def _render_impl(
                 mujoco.mj_forward(model, data)
                 renderer.update_scene(data, camera=cam)
                 if overlay_geoms:
-                    overlays_applied = _apply_overlay_geoms(
-                        renderer, overlay_geoms
-                    )
+                    framed = [
+                        (
+                            kind,
+                            (
+                                payload[0],
+                                payload[1],
+                                _reveal_prefix(payload[2], idx)
+                                if kind in animated_kinds else payload[2],
+                            ),
+                        )
+                        for kind, payload in overlay_geoms
+                    ]
+                    overlays_applied = _apply_overlay_geoms(renderer, framed)
                 frame = renderer.render()
                 if gif_writer is not None:
                     gif_writer.append_data(frame)
@@ -906,6 +1012,21 @@ def _render_impl(
         # overlay——宣称与画面一致可审计）。
         receipt["body_ref"] = spec_body_ref
         receipt["overlays_applied"] = overlays_applied
+        # 0914 PR-2：requested/unfulfilled 三字段闭环——请求了但
+        # 画不上的 overlay 必须显式列出带原因（平面投影/空数据
+        # 不得借 ok=true 冒充已满足）。
+        requested = [str(o.get("kind")) for o in spec_overlays if o.get("kind")]
+        receipt["overlays_requested"] = requested
+        unfulfilled: list[dict] = []
+        applied_set = set(overlays_applied)
+        for kind in requested:
+            if kind in applied_set:
+                continue
+            unfulfilled.append({
+                "kind": kind,
+                "reason": _unfulfilled_reason(kind, trace, plan_doc),
+            })
+        receipt["overlays_unfulfilled"] = unfulfilled
         receipt["spec_digest"] = "sha256:" + hashlib.sha256(
             json.dumps(spec_doc, sort_keys=True).encode()
         ).hexdigest()
@@ -913,12 +1034,17 @@ def _render_impl(
         json.dumps(receipt, ensure_ascii=False, indent=1), encoding="utf-8"
     )
     primary = artifacts.get("gif") or artifacts["mp4"]
-    return {
+    result = {
         "ok": True,
         "artifact": primary,
         "artifacts": artifacts,
         "receipt": receipt,
     }
+    # 模型面直接可读（不只埋 receipt——工具返回即见满足度）。
+    result["overlays_requested"] = receipt.get("overlays_requested", [])
+    result["overlays_applied"] = receipt.get("overlays_applied", [])
+    result["overlays_unfulfilled"] = receipt.get("overlays_unfulfilled", [])
+    return result
 
 
 __all__ = ["probe_render_backend", "render_from_spec", "render_scene_trace"]
