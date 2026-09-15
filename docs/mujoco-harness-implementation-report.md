@@ -1,10 +1,31 @@
-# MuJoCo Simulation Harness 实施报告（MH0–MH8，2026-09-14；MH9 硬化，2026-09-15）
+# MuJoCo Simulation Harness 实施报告（MH0–MH8，2026-09-14；MH9 硬化，2026-09-15；已全量合入 main）
 
 > 依据：《ROSClaw MuJoCo Harness 原生物理仿真能力升级实施总纲》+《实施优化0915》；
 > 架构冻结：ADR-0014；发布门禁：docs/validation/MUJOCO_HARNESS_V1.md。
 >
-> 九个栈叠 PR：#547(MH0) → #548(MH1) → #549(MH2) → #552(MH3) →
-> #553(MH4) → #554(MH5) → #555(MH6) → #557(MH7) → #558(MH8) → #567(MH9)。
+> **十个栈叠 PR 全部 CI 绿后 squash 合入 main（01ac050b）**：
+> #547(MH0) → #548(MH1) → #549(MH2) → #552(MH3) → #553(MH4) →
+> #554(MH5) → #555(MH6) → #557(MH7) → #558(MH8) → #567(MH9)。
+
+## 0.2 合并与终验记录（2026-09-15）
+
+- **合并瀑布**：每 PR 先 rebase --onto origin/main 再 force-push
+  （先改 base=main 再推，否则 CI 不触发），13 项必检 + gate 全回归
+  全绿后 admin squash。期间实证修复：#547 CI 暴露探测 GL 副作用、
+  #555 Product Acceptance 暴露 init 模板 purposes 缺失、#558 gate
+  暴露渲染进程内创建 native abort、#552 scene_b trace_id 偶发
+  （本地 10 passed，重跑绿）。
+- **终验（main 本地）**：tests/sim + architecture + w02 + mcp
+  catalog + W09 = **309 passed**；tests/mcp（含 stdio/http e2e）=
+  **216 passed**。
+- **G13 全仓库终验（main，xdist）**：7602 passed / 16 failed /
+  11 errors——失败全部落在既有 flaky/环境集（u_matrix acceptance、
+  hf5_4 fixture、how/mysql、interaction_perf 墙钟、tmux/soak/pty、
+  mcp health 陈旧机器状态等，0911 以来已记录同类零回归）；
+  **tests/sim、tests/mcp、install/init/security、architecture
+  零失败**。
+- **卫生终检**：栈内新代码 ruff check / format / mypy 全净
+  （ur5e_mcp.py 为既有 legacy，不在本栈范围）。
 
 ## 0.1 MH9 证据语义硬化（0915 优化文档，2026-09-15）
 

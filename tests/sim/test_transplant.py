@@ -68,7 +68,14 @@ def test_transplant_within_lineage_ok(backend) -> None:
     state_ref = backend.initial_state(ref.model_ref)
     patched = backend.patch_model(
         ref.model_ref,
-        [{"op": "set", "target": {"type": "joint", "name": "shoulder"}, "field": "damping", "value": 2.0}],
+        [
+            {
+                "op": "set",
+                "target": {"type": "joint", "name": "shoulder"},
+                "field": "damping",
+                "value": 2.0,
+            }
+        ],
     )
     # 参数 patch（damping/kp/mass/friction）不改结构签名 → 允许。
     new_ref = backend.transplant_state(patched.new_model_ref, state_ref)
@@ -87,7 +94,9 @@ def test_transplant_rejects_structural_mismatch(backend) -> None:
     inspection_a = backend.inspect_model(ref.model_ref)
     inspection_b = backend.inspect_model(sibling.model_ref)
     assert (inspection_a.nq, inspection_a.nv, inspection_a.nu) == (
-        inspection_b.nq, inspection_b.nv, inspection_b.nu
+        inspection_b.nq,
+        inspection_b.nv,
+        inspection_b.nu,
     )
     with pytest.raises(ValueError, match="STATE_INCOMPATIBLE"):
         backend.transplant_state(sibling.model_ref, state_ref)

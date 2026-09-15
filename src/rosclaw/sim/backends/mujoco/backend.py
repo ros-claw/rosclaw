@@ -984,8 +984,8 @@ class MujocoBackend:
         payload = {
             "xml": hashlib.sha256(manifest["mjcf_xml"].encode("utf-8")).hexdigest(),
             "assets": sorted(
-                [name, hashlib.sha256(self.store.get(ref)).hexdigest()]
-                for name, ref in manifest["assets"].items()
+                [name, hashlib.sha256(blob).hexdigest()]
+                for name, blob in self._load_assets(manifest).items()
             ),
         }
         return "sha256:" + hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
@@ -1037,7 +1037,7 @@ def _metrics_close(actual: dict[str, Any], expected: dict[str, Any]) -> bool:
     return True
 
 
-_RENDER_WORKER_CODE = r'''
+_RENDER_WORKER_CODE = r"""
 import json
 import os
 import sys
@@ -1069,4 +1069,4 @@ frames[0].save(
     request["out"], format="GIF", save_all=True,
     append_images=frames[1:], duration=80, loop=0,
 )
-'''
+"""

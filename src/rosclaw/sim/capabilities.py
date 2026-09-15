@@ -66,7 +66,11 @@ def _try_import(name: str) -> tuple[bool, str]:
     return True, ""
 
 
-_GL_LIBS = {"egl": ("EGL", "mujoco.egl"), "osmesa": ("OSMesa", "mujoco.osmesa"), "glfw": ("glfw", "mujoco.glfw")}
+_GL_LIBS = {
+    "egl": ("EGL", "mujoco.egl"),
+    "osmesa": ("OSMesa", "mujoco.osmesa"),
+    "glfw": ("glfw", "mujoco.glfw"),
+}
 
 
 def _gl_backend_available(name: str) -> tuple[bool, str]:
