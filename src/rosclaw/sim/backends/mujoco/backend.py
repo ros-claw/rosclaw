@@ -1,8 +1,10 @@
-"""MujocoBackend（PR-MH2，ADR-0014，规格 §12）。
+"""MujocoBackend（PR-MH2/MH3，ADR-0014，规格 §12/§14-§16）。
 
 Maturity: experimental（ADR-0000 §4）。
 
-模型服务四方法：load_model / inspect_model / compile_model / patch_model。
+模型服务：load_model / inspect_model / compile_model / patch_model。
+状态与实验（MH3）：initial_state / snapshot_state / restore_state /
+capture_and_store / fork_state / rollout / observe。
 
 存储设计（双对象，全部经 MH1 SimStore 不可变落盘）：
 - ``models/<simmdl_*>.json`` = model manifest（mjcf_xml + assets ref
@@ -25,15 +27,21 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from rosclaw.contracts.common import content_hash
+from rosclaw.contracts.common import canonical_json, content_hash
+from rosclaw.sim.backends.mujoco import observe as observe_mod
+from rosclaw.sim.backends.mujoco import rollout as rollout_mod
+from rosclaw.sim.backends.mujoco import state
 from rosclaw.sim.backends.mujoco.inspect import inspect_model_full
 from rosclaw.sim.backends.mujoco.patch import apply_patches
+from rosclaw.sim.backends.mujoco.rollout import DEFAULT_BUDGETS
 from rosclaw.sim.capabilities import probe_mujoco_capabilities
 from rosclaw.sim.contracts import (
     ModelInspection,
     ModelPatchResult,
     ModelReference,
+    ObservationResult,
     SimulationBackendCapabilities,
+    SimulationTrace,
 )
 from rosclaw.sim.model_inspect import inspect_mjcf
 from rosclaw.sim.resolve import resolve_mjcf_source, source_kind_for
@@ -167,6 +175,193 @@ class MujocoBackend:
             patch_digest=content_hash("simpat", patches),
             ok=True,
             new_model_ref=new_ref,
+        ).with_digest()
+
+    # -- 状态：快照 / 恢复 / 分叉（MH3，规格 §9/§14） -------------------------
+
+    def snapshot_state(self, model_ref: str, values: dict[str, Any]) -> str:
+        """校验并不可变落盘一个状态快照，返回 state_ref。"""
+        manifest = self._manifest(model_ref)
+        spec = self._spec_from_manifest(manifest)
+        model, _ = self._compile_smoke(spec)
+        if values.get("model_digest") != self._xml_digest(manifest):
+            raise ValueError(
+                f"CROSS_MODEL_REF: state digest {values.get('model_digest')!r} != model digest"
+            )
+        state.validate_state_values(model, values)
+        payload = {
+            "kind": "state_snapshot",
+            "model_ref": model_ref,
+            "model_digest": self._xml_digest(manifest),
+            **{key: values[key] for key in ("time", *state.STATE_ARRAY_KEYS)},
+        }
+        return self.store.put("states", payload)
+
+    def initial_state(self, model_ref: str) -> str:
+        """模型的初始状态（qpos0 + mj_forward）快照，确定性幂等。"""
+        import mujoco
+
+        manifest = self._manifest(model_ref)
+        spec = self._spec_from_manifest(manifest)
+        model, _ = self._compile_smoke(spec)
+        data = mujoco.MjData(model)
+        mujoco.mj_forward(model, data)
+        return self.capture_and_store(model_ref, model, data)
+
+    def capture_and_store(self, model_ref: str, model, data) -> str:  # noqa: ANN001
+        """捕获 MjData 当前状态并落盘。"""
+        manifest = self._manifest(model_ref)
+        values = state.capture_state(model, data)
+        values["model_digest"] = self._xml_digest(manifest)
+        payload = {
+            "kind": "state_snapshot",
+            "model_ref": model_ref,
+            "model_digest": values["model_digest"],
+            **{key: values[key] for key in ("time", *state.STATE_ARRAY_KEYS)},
+        }
+        return self.store.put("states", payload)
+
+    def restore_state(self, model_ref: str, state_ref: str):  # noqa: ANN202
+        """恢复状态为 (MjModel, MjData)；跨模型 / 维度 / 非有限 fail closed。"""
+        import mujoco
+
+        manifest = self._manifest(model_ref)
+        snap = self.store.get(state_ref)
+        if not isinstance(snap, dict) or snap.get("kind") != "state_snapshot":
+            raise ValueError(f"REF_NOT_FOUND: {state_ref!r} is not a state snapshot")
+        if snap.get("model_digest") != self._xml_digest(manifest):
+            raise ValueError(
+                f"CROSS_MODEL_REF: state {state_ref!r} does not belong to {model_ref!r}"
+            )
+        spec = self._spec_from_manifest(manifest)
+        model, _ = self._compile_smoke(spec)
+        data = mujoco.MjData(model)
+        state.apply_state(model, data, snap)
+        return model, data
+
+    def fork_state(self, model_ref: str, state_ref: str, n: int) -> dict[str, Any]:
+        """从同一状态分叉 N 个实验分支；branch 初始 digest 必然一致。"""
+        manifest = self._manifest(model_ref)
+        snap = self.store.get(state_ref)
+        if not isinstance(snap, dict) or snap.get("kind") != "state_snapshot":
+            raise ValueError(f"REF_NOT_FOUND: {state_ref!r} is not a state snapshot")
+        if snap.get("model_digest") != self._xml_digest(manifest):
+            raise ValueError("CROSS_MODEL_REF: fork base state does not belong to model")
+        if (
+            not isinstance(n, int)
+            or isinstance(n, bool)
+            or n < 1
+            or n > DEFAULT_BUDGETS["max_branch_count"]
+        ):
+            raise ValueError(
+                f"SIM_BUDGET_EXCEEDED: branch count {n!r} outside [1, {DEFAULT_BUDGETS['max_branch_count']}]"
+            )
+        record = {
+            "kind": "fork",
+            "model_ref": model_ref,
+            "base_state_ref": state_ref,
+            "n": n,
+            "branch_refs": [state_ref] * n,
+            "branches": [{"branch_id": f"b{i}", "state_ref": state_ref} for i in range(n)],
+        }
+        record["fork_ref"] = self.store.put("experiments", record)
+        return record
+
+    # -- 实验：rollout / observe（MH3，规格 §15/§16） -------------------------
+
+    def rollout(
+        self,
+        model_ref: str,
+        *,
+        state_ref: str | None = None,
+        controller: dict[str, Any],
+        duration_s: float | None = None,
+        steps: int | None = None,
+        seed: int = 0,
+        budgets: dict[str, Any] | None = None,
+    ) -> SimulationTrace:
+        """有界 rollout：controller + 预算，trace 与终态不可变落盘。"""
+        import mujoco
+
+        if not isinstance(seed, int) or isinstance(seed, bool) or seed < 0:
+            raise ValueError(f"ROLLOUT_SEED_INVALID: {seed!r}")
+        manifest = self._manifest(model_ref)
+        if state_ref is not None:
+            model, data = self.restore_state(model_ref, state_ref)
+        else:
+            spec = self._spec_from_manifest(manifest)
+            model, _ = self._compile_smoke(spec)
+            data = mujoco.MjData(model)
+            mujoco.mj_forward(model, data)
+
+        plan = rollout_mod.validate_controller(controller, model.nu)
+        resolved_steps = rollout_mod.resolve_steps(
+            controller, steps=steps, duration_s=duration_s, timestep=float(model.opt.timestep)
+        )
+        states, actual_steps = rollout_mod.run_rollout(
+            model, data, plan=plan, steps=resolved_steps, budgets=budgets
+        )
+
+        merged = {**rollout_mod.DEFAULT_BUDGETS, **(budgets or {})}
+        digest = rollout_mod.states_digest(states)
+        record = {
+            "kind": "simulation_trace",
+            "model_ref": model_ref,
+            "model_digest": self._xml_digest(manifest),
+            "seed": seed,
+            "controller": controller,
+            "steps": actual_steps,
+            "timestep_s": float(model.opt.timestep),
+            "duration_s": float(data.time),
+            "states_digest": digest,
+            "states": states,
+        }
+        if len(canonical_json(record).encode("utf-8")) > merged["max_trace_bytes"]:
+            raise ValueError(f"SIM_BUDGET_EXCEEDED: trace bytes > {merged['max_trace_bytes']}")
+        trace_ref = self.store.put("traces", record)
+        final_state_ref = self.capture_and_store(model_ref, model, data)
+
+        request_digest = content_hash(
+            "simrol",
+            {
+                "model_ref": model_ref,
+                "state_ref": state_ref,
+                "controller": controller,
+                "steps": resolved_steps,
+                "seed": seed,
+            },
+        )
+        return SimulationTrace(
+            backend="mujoco",
+            backend_version=manifest["backend_version"],
+            created_at=self._created_at(trace_ref),
+            request_digest=request_digest,
+            model_ref=model_ref,
+            model_digest=self._xml_digest(manifest),
+            steps=actual_steps,
+            timestep_s=float(model.opt.timestep),
+            states_digest=digest,
+            trace_ref=trace_ref,
+            final_state_ref=final_state_ref,
+        ).with_digest()
+
+    def observe(self, model_ref: str, state_ref: str, channels: list[str]) -> ObservationResult:
+        """语义化有界观测（规格 §16）。"""
+        if not isinstance(channels, list) or not channels:
+            raise ValueError("OBSERVE_CHANNELS_REQUIRED: channels must be a non-empty list")
+        model, data = self.restore_state(model_ref, state_ref)
+        manifest = self._manifest(model_ref)
+        values = observe_mod.observe_channels(model, data, channels)
+        return ObservationResult(
+            backend="mujoco",
+            backend_version=manifest["backend_version"],
+            created_at=datetime.now(UTC).isoformat(),
+            request_digest=content_hash(
+                "simobq", {"model_ref": model_ref, "state_ref": state_ref, "channels": channels}
+            ),
+            model_ref=model_ref,
+            time=float(data.time),
+            values=values,
         ).with_digest()
 
     # -- 内部 ---------------------------------------------------------------
