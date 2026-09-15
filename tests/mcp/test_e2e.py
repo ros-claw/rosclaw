@@ -177,6 +177,21 @@ P0_TOOL_CALLS: list[tuple[str, dict[str, Any]]] = [
     ("sim_audit", {"model_ref": "simmdl_0000000000000000"}),
     ("sim_compare", {"receipt_refs": ["simexp_0000000000000000", "simexp_1111111111111111"]}),
     ("sim_render", {"trace_ref": "simtrc_0000000000000000", "width": 160, "height": 120}),
+    (
+        "sim_branch_experiment",
+        {
+            "model_ref": "simmdl_0000000000000000",
+            "branches": [{"name": "b0", "patches": []}],
+            "controller": {"hold": True},
+            "steps": 10,
+        },
+    ),
+    (
+        "sim_compile_world",
+        # 非法 worldspec → fail closed（空 worldspec 仅 schema_version 合法，
+        # 不能用作反例——实测空世界可编译）。
+        {"worldspec": {"schema_version": "rosclaw.sim.worldspec.v0"}, "name": "e2e"},
+    ),
 ]
 
 EXPECTED_TOOLS = set(P0_AGENT_MCP_TOOLS)
@@ -193,6 +208,8 @@ EXPECTED_ERROR_TOOLS = {
     "sim_audit",
     "sim_compare",
     "sim_render",
+    "sim_branch_experiment",
+    "sim_compile_world",
 }
 
 

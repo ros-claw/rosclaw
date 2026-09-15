@@ -460,56 +460,79 @@ class MujocoBackend:
         spec = self._spec_from_manifest(manifest)
         model, _ = self._compile_smoke(spec)
 
-        import io
-        import os
+        states = record["states"]
+        if len(states) > max_frames:
+            stride = -(-len(states) // max_frames)
+            states = states[::stride]
 
-        import mujoco
-
-        try:
-            renderer = mujoco.Renderer(model, height, width)
-        except Exception as exc:
-            raise ValueError(f"SIM_RENDER_UNAVAILABLE: {type(exc).__name__}: {exc}") from exc
-        try:
-            from PIL import Image
-
-            states = record["states"]
-            if len(states) > max_frames:
-                stride = -(-len(states) // max_frames)
-                states = states[::stride]
-            frames = []
-            for snapshot in states:
-                data = mujoco.MjData(model)
-                state.apply_state(
-                    model,
-                    data,
-                    {
-                        "time": snapshot["t"],
-                        "qpos": snapshot["qpos"],
-                        "qvel": snapshot["qvel"],
-                        "act": [0.0] * model.na,
-                        "ctrl": snapshot["ctrl"],
-                        "mocap_pos": [0.0] * (model.nmocap * 3),
-                        "mocap_quat": [0.0] * (model.nmocap * 4),
-                    },
-                )
-                renderer.update_scene(data, camera=camera or -1)
-                frames.append(Image.fromarray(renderer.render()))
-            buffer = io.BytesIO()
-            frames[0].save(
-                buffer, format="GIF", save_all=True, append_images=frames[1:], duration=80, loop=0
-            )
-            artifact_ref = self.store.put("renders", buffer.getvalue())
-        finally:
-            renderer.close()
+        gif_bytes, actual_backend = self._render_gif_subprocess(
+            manifest, states, camera=camera, width=width, height=height
+        )
+        artifact_ref = self.store.put("renders", gif_bytes)
         return {
             "artifact_ref": artifact_ref,
-            "frames": len(frames),
+            "frames": len(states),
             "width": width,
             "height": height,
             "camera": camera or "default",
-            "renderer_backend": os.environ.get("MUJOCO_GL", "") or "default",
+            "renderer_backend": actual_backend,
             "trace_ref": trace_ref,
         }
+
+    def _render_gif_subprocess(
+        self,
+        manifest: dict[str, Any],
+        states: list[dict[str, Any]],
+        *,
+        camera: str | None,
+        width: int,
+        height: int,
+    ) -> tuple[bytes, str]:
+        """整个渲染在**隔离子进程**完成（WP3 实证纪律：GL 上下文创建
+        在宿主进程内可能 native abort——Jetson 上 egl/osmesa/glfw
+        三类后端的初始化崩溃都实测复现过）。
+
+        后端 egl → osmesa 逐个尝试，绝不走 auto（auto 会选 glfw——
+        递归初始化崩 libc++abi）。返回 (GIF 字节, 实际使用的后端)——
+        记录真实后端，不是环境声明（0915 §十一）。
+        """
+        import json
+        import subprocess
+        import sys
+        import tempfile
+
+        with tempfile.TemporaryDirectory(prefix="rosclaw_render_") as tmp:
+            tmp_path = Path(tmp)
+            model_file = tmp_path / "model.xml"
+            model_file.write_text(manifest["mjcf_xml"], encoding="utf-8")
+            for name, blob_ref in manifest["assets"].items():
+                target = tmp_path / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(self.store.get(blob_ref))
+            request = {
+                "model_path": str(model_file),
+                "states": states,
+                "camera": camera,
+                "width": width,
+                "height": height,
+                "out": str(tmp_path / "out.gif"),
+            }
+            request_file = tmp_path / "request.json"
+            request_file.write_text(json.dumps(request), encoding="utf-8")
+
+            errors = []
+            for candidate in ("egl", "osmesa"):
+                proc = subprocess.run(
+                    [sys.executable, "-c", _RENDER_WORKER_CODE, candidate, str(request_file)],
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                )
+                if proc.returncode == 0 and (tmp_path / "out.gif").is_file():
+                    return (tmp_path / "out.gif").read_bytes(), candidate
+                tail = (proc.stderr or "").strip().splitlines()
+                errors.append(f"{candidate}: {tail[-1] if tail else 'native crash'}")
+            raise ValueError("SIM_RENDER_UNAVAILABLE: " + "; ".join(errors)) from None
 
     # -- 物理诚实审计（MH4，规格 §17-§19） ------------------------------------
 
@@ -903,3 +926,38 @@ def _metrics_close(actual: dict[str, Any], expected: dict[str, Any]) -> bool:
         elif actual_value != expected_value:
             return False
     return True
+
+
+_RENDER_WORKER_CODE = r'''
+import json
+import os
+import sys
+
+backend = sys.argv[1]
+os.environ["MUJOCO_GL"] = backend
+
+import mujoco
+from PIL import Image
+
+request = json.loads(open(sys.argv[2], encoding="utf-8").read())
+model = mujoco.MjModel.from_xml_path(request["model_path"])
+renderer = mujoco.Renderer(model, request["height"], request["width"])
+frames = []
+for snapshot in request["states"]:
+    data = mujoco.MjData(model)
+    data.time = float(snapshot["t"])
+    for i, v in enumerate(snapshot["qpos"]):
+        data.qpos[i] = v
+    for i, v in enumerate(snapshot["qvel"]):
+        data.qvel[i] = v
+    for i, v in enumerate(snapshot["ctrl"]):
+        data.ctrl[i] = v
+    mujoco.mj_forward(model, data)
+    renderer.update_scene(data, camera=request.get("camera") or -1)
+    frames.append(Image.fromarray(renderer.render()))
+renderer.close()
+frames[0].save(
+    request["out"], format="GIF", save_all=True,
+    append_images=frames[1:], duration=80, loop=0,
+)
+'''
