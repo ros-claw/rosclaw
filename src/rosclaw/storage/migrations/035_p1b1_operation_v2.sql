@@ -1,3 +1,4 @@
+-- backend: sqlite
 -- P1-B1（0824 总纲 §12）：Operation V2 记录扩展。
 ALTER TABLE operations ADD COLUMN goal_id TEXT NOT NULL DEFAULT '';
 ALTER TABLE operations ADD COLUMN provider TEXT NOT NULL DEFAULT 'process';

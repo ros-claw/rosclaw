@@ -1,3 +1,4 @@
+-- backend: sqlite
 -- 021：TaskRecord（八审 P0-5）——任务级状态机持久化。
 -- 一个任务 = 一个确定性编译器入口 + 一个 action goal + 自动 verifier；
 -- 崩溃/compact 后可从本表恢复权威任务状态。

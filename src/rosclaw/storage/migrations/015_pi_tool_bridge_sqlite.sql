@@ -1,3 +1,4 @@
+-- backend: sqlite
 -- 015：Pi Tool Bridge 幂等与审计（重构规格 §17，PR-PNA-3）
 
 CREATE TABLE IF NOT EXISTS pi_tool_idempotency (

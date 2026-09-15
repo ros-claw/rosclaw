@@ -1,3 +1,4 @@
+-- backend: all
 -- 0902 审计 R0-1：Artifact revision 作用域——反假成功的结构修复。
 -- 实证：用户新增"红色圆柱笔+3D 轨迹+不要 2D"（新 revision）后，旧
 -- revision 的 scene.mp4 仍在任务产物账本（task 级无 revision 分野），

@@ -1,0 +1,107 @@
+{
+  "engine": "engine_1_4_server",
+  "target": "mysql://root@127.0.0.1:2881/bench14",
+  "corpus_size": 400,
+  "started_at": 1789433622.967602,
+  "startup_s": 1.093,
+  "idle": {
+    "rss_mb": 651.7,
+    "threads": 80,
+    "fds": 39,
+    "cpu_pct": 20.0
+  },
+  "write": {
+    "single_upsert": {
+      "n": 50,
+      "p50_ms": 60.2343,
+      "p95_ms": 62.2585,
+      "p99_ms": 204.5696,
+      "mean_ms": 63.1523,
+      "throughput_rows_s": 15.8
+    },
+    "batch_32": {
+      "n": 4,
+      "p50_ms": 2606.3877,
+      "p95_ms": 2804.4785,
+      "p99_ms": 2804.4785,
+      "mean_ms": 2693.9553,
+      "throughput_rows_s": 11.9
+    },
+    "batch_256": {
+      "n": 2,
+      "p50_ms": 10283.4596,
+      "p95_ms": 17427.7359,
+      "p99_ms": 17427.7359,
+      "mean_ms": 13855.5977,
+      "throughput_rows_s": 14.4
+    },
+    "batch_1024": {
+      "n": 1,
+      "p50_ms": 26619.7162,
+      "p95_ms": 26619.7162,
+      "p99_ms": 26619.7162,
+      "mean_ms": 26619.7162,
+      "throughput_rows_s": 15.0
+    }
+  },
+  "query": {
+    "metadata_filter": {
+      "n": 200,
+      "p50_ms": 0.5353,
+      "p95_ms": 0.9954,
+      "p99_ms": 1.1967,
+      "mean_ms": 0.6002
+    },
+    "bm25": {
+      "n": 200,
+      "p50_ms": 1.5178,
+      "p95_ms": 2.7827,
+      "p99_ms": 3.744,
+      "mean_ms": 1.9392
+    },
+    "vector": {
+      "n": 200,
+      "p50_ms": 55.1243,
+      "p95_ms": 55.635,
+      "p99_ms": 56.1861,
+      "mean_ms": 55.2094
+    },
+    "hybrid_rrf": {
+      "n": 200,
+      "p50_ms": 58.5406,
+      "p95_ms": 59.9619,
+      "p99_ms": 60.118,
+      "mean_ms": 58.766
+    }
+  },
+  "w2r": {
+    "metadata": {
+      "n": 20,
+      "p50_ms": 2.8839,
+      "p95_ms": 3.1882,
+      "p99_ms": 3.1966,
+      "mean_ms": 2.8264,
+      "visible_fraction": 1.0
+    },
+    "bm25": {
+      "n": 20,
+      "p50_ms": 2.7129,
+      "p95_ms": 3.9177,
+      "p99_ms": 4.1192,
+      "mean_ms": 2.8408,
+      "visible_fraction": 1.0
+    },
+    "vector": {
+      "n": 20,
+      "p50_ms": 55.3067,
+      "p95_ms": 56.8997,
+      "p99_ms": 56.9151,
+      "mean_ms": 55.844,
+      "visible_fraction": 1.0
+    }
+  },
+  "recall": {
+    "probe_hits": 5,
+    "nonempty": true
+  }
+}

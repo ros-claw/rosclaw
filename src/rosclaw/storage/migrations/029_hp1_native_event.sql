@@ -1,3 +1,4 @@
+-- backend: sqlite
 -- 029: PR-HP1 NativeEventV2——一等链路段落库（调整方案 §四）。
 --
 -- session_id/revision/item_id/call_id/operation_id/model_visible 成为
