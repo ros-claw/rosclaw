@@ -202,3 +202,26 @@ ROSClaw 已经具备相当多 MuJoCo 底层能力：`sim/api.py` 的最小编程
    `SIM_RENDER_UNAVAILABLE` 显式失败，不静默降级。
 5. **sandbox_run 保留**（规格 §27 legacy facade）；P0_TOOLS 注册
    顺序与 P0_AGENT_MCP_TOOLS 目录一致（test_server 锁定）。
+
+## 补充：MH7 WorldSpec 决策（2026-09-14，PR-MH7）
+
+1. **WorldSpec 是语义，MJCF 是物理实现**：Body 由 e-URDF 管，
+   WorldSpec 管世界与任务（ground/objects/markers/cameras/task
+   谓词）；不复制 robot schema。`rosclaw.sim.worldspec.v1`。
+2. **typed Interaction Contract**（吸收 Text2Mujoco）：typed
+   target + affordance 词表（press/pull/grasp/place/push/inspect/
+   move）+ action_schema JSON-Schema 子集 + depends_on 只许前向
+   引用（DAG 由构造保证）；success/failure 只开放 inside/near
+   两种机器谓词——未知形式 fail closed。
+3. **无假 Affordance 硬约束**（§24/H05）：grasp 要求被挂 body
+   有真实夹爪执行器（编译后推导，不从机器人名字猜）；没有机器人
+   的世界也不能声明 grasp——`CAPABILITY_UNAVAILABLE`。
+4. **MjSpec.attach 实证**（3.11）：`spec.attach(robot_spec,
+   frame=frame, prefix="<id>_")` 挂机器人；attach 后 mesh 文件
+   引用**带 prefix**——剥 prefix 按 basename 复用内容寻址 blob
+   （不重复存储 31MB mesh）。
+5. **marker 贴面**：交互 marker（site group=2）贴目标物体顶面，
+   放原点会被 A08 判 buried（审计自证）。
+6. **sim_build_world / sim_interact 工具面暂缓**（规格 §25 后续）；
+   本 PR 交付编译器与契约层，T1 世界端到端（compile→audit PASS→
+   谓词求值）由 tests/sim/test_worldspec.py 锁定。

@@ -74,49 +74,84 @@ class MujocoBackend:
 
     def load_model(self, asset_ref: str) -> ModelReference:
         """加载 task-local / e-URDF zoo MJCF：编译冒烟 + 资产捕获 + 落盘。"""
-        import mujoco
+        import mujoco  # noqa: F401
 
         path = resolve_mjcf_source(asset_ref, task_root=self._task_root)
         xml_bytes = path.read_bytes()
-
         try:
-            spec = mujoco.MjSpec.from_file(str(path))
-        except Exception as exc:
+            body_description = inspect_mjcf(path).to_dict()
+        except ValueError as exc:
             raise ValueError(f"MODEL_COMPILE_FAILED: {exc}") from exc
-        warnings = self._compile_with_warnings(spec)  # 编译冒烟（失败即拒）
-
-        assets: dict[str, str] = {}
-        for key, data in self._capture_assets(spec, path.parent).items():
-            assets[key] = self.store.put("models", data)
-
-        manifest = {
-            "kind": "model_manifest",
-            "mjcf_xml": xml_bytes.decode("utf-8"),
-            "assets": assets,
-            "source": {
+        ref = self.load_model_xml(
+            xml_bytes.decode("utf-8"),
+            source={
                 "kind": source_kind_for(path, task_root=self._task_root),
                 "ref": str(asset_ref),
             },
+            assets=self._assets_from_file(path),
+            body_description=body_description,
+        )
+        return ref.model_copy(
+            update={"runtime_capabilities": self.capabilities().to_canonical_dict()}
+        )
+
+    def load_model_xml(
+        self,
+        xml_text: str,
+        *,
+        source: dict[str, Any],
+        assets: dict[str, bytes] | None = None,
+        extra_manifest: dict[str, Any] | None = None,
+        body_description: dict[str, Any] | None = None,
+    ) -> ModelReference:
+        """从 XML 文本装载模型（WorldSpec 编译产物 / patch 之外的生成源）。"""
+        import mujoco
+
+        xml_bytes = xml_text.encode("utf-8")
+        try:
+            spec = mujoco.MjSpec.from_string(xml_text, assets=assets or None)
+        except Exception as exc:
+            raise ValueError(f"MODEL_COMPILE_FAILED: {exc}") from exc
+        warnings = self._compile_with_warnings(spec)
+
+        asset_refs: dict[str, str] = {}
+        for key, data in (assets or {}).items():
+            asset_refs[key] = self.store.put("models", data)
+
+        manifest = {
+            "kind": "model_manifest",
+            "mjcf_xml": xml_text,
+            "assets": asset_refs,
+            "source": source,
             "parent_model_ref": None,
             "patches": [],
             "compile_warnings": warnings,
             "backend": "mujoco",
             "backend_version": str(mujoco.__version__),
+            **(extra_manifest or {}),
         }
         ref = self.store.put("models", manifest)
-
         return ModelReference(
             backend="mujoco",
             backend_version=str(mujoco.__version__),
             created_at=self._created_at(ref),
             model_ref=ref,
             model_digest="sha256:" + hashlib.sha256(xml_bytes).hexdigest(),
-            source=manifest["source"],
+            source=source,
             compiled=True,
-            body_description=inspect_mjcf(path).to_dict(),
+            body_description=body_description or {},
             compile_warnings=warnings,
-            runtime_capabilities=self.capabilities().to_canonical_dict(),
         )
+
+    def _assets_from_file(self, path: Path) -> dict[str, bytes]:
+        """从磁盘 MJCF 捕获 file 引用资产（containment 校验）。"""
+        import mujoco
+
+        try:
+            spec = mujoco.MjSpec.from_file(str(path))
+        except Exception as exc:
+            raise ValueError(f"MODEL_COMPILE_FAILED: {exc}") from exc
+        return self._capture_assets(spec, path.parent)
 
     def inspect_model(self, model_ref: str) -> ModelInspection:
         """编译 + §12.2 全量检查（summary 仅供理解，结构化字段权威）。"""
