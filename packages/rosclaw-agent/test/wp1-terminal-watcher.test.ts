@@ -92,3 +92,14 @@ test("WP-1: 旧 revision 的迟到终态只存档（不触发回合）", async (
 	assert.equal(sent.length, 0,
 		"旧 revision 的迟到 operation 结果触发了模型回合");
 });
+
+test("0914 PR-3: 完成事件重放幂等——同一终态处理两次只通知一次", async () => {
+	// 0914 审计 §5：断线重连/事件重放不得重复登记/重复唤醒。
+	const sent: Array<{ content: string; options: unknown }> = [];
+	const notices: string[] = [];
+	const watcher = await makeWatcher({ taskState: "RUNNING", sent, notices });
+	watcher.track("op_1");
+	await (watcher as unknown as { tick(): Promise<void> }).tick();
+	await (watcher as unknown as { tick(): Promise<void> }).tick();
+	assert.equal(sent.length, 1, `完成事件重放导致重复通知（${sent.length} 次）`);
+});
