@@ -30,6 +30,22 @@
 | G12 Harness targeted regression | sim/mcp/architecture/w02/W09 定向回归（**非全仓库**，0915 §十二正名） | `pytest tests/sim tests/mcp tests/architecture tests/agentd/test_w02_contracts.py tests/eval/test_w09_cases.py` | ✅ PASS：**260+ passed**（MH9 后） |
 | G13 Repository full regression | 全仓库 `pytest tests`（默认 marker） | 本文件 §G13 记录 | 见 §G13（MH9 后执行） |
 
+## §G13 Repository full regression 记录（MH9，2026-09-15）
+
+- 运行：`pytest tests -q -n auto --tb=no`（默认 marker，约 7560 例）。
+- **本栈引入并修复**：`agent/templates.py` 的 `_tool_table` purposes
+  未注册 12 个 sim 工具 → install/init/test_command/security 共 31 例
+  失败；基线 main 同环境全绿确证为本栈引入，MH9c 修复后四组全绿。
+- **基线对比确证与本栈无关**（pre-existing 环境/时序腐烂）：
+  `mcp health` readme（~/.rosclaw/mcp/installed.yaml 六月陈旧状态）、
+  hf5_4 class-scoped fixture（并行下偶发，串行全绿）、how/mysql
+  （服务不可用）、interaction_perf（xdist 墙钟干扰，与 V 轨道已修
+  的 perf_serial 同类）、ddzj journey / tmux_env / tui_ime /
+  start_exit_soak / nine1_input_loss（既有 flaky 类，0911 深度验证
+  已记录同类环境失败零回归）。
+- 结论：栈定向套件（tests/sim + tests/mcp + architecture + w02 +
+  W09）全绿；全仓库回归中本栈引起的失败 = 0（修复后）。
+
 ## H01-H08 场景验收（规格 §47-§54）
 
 绑定 `tests/sim/test_agent_scenarios.py`（harness 能力层，Verifier 直接对
