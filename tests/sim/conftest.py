@@ -16,7 +16,7 @@ TINY_MJCF = """<mujoco model="tiny_arm">
       <geom name="base_geom" type="capsule" size="0.05 0.2" mass="1.0"/>
       <body name="forearm" pos="0 0 0.4">
         <joint name="elbow" type="hinge" axis="0 1 0" damping="0.1"/>
-        <geom name="forearm_geom" type="capsule" size="0.03 0.15" mass="0.5"/>
+        <geom name="forearm_geom" type="capsule" size="0.03 0.2" mass="0.5"/>
         <site name="tool0" pos="0 0 0.3"/>
       </body>
     </body>

@@ -33,6 +33,7 @@ __all__ = [
     "ExperimentResult",
     "ComparisonResult",
     "SimulationEvidenceBundle",
+    "SimulationReceipt",
 ]
 
 
@@ -263,6 +264,36 @@ class ComparisonResult(SimContract):
     metric_table: list[dict[str, Any]] = []
     best_ref: str = ""
     pareto_refs: list[str] = []
+
+
+class SimulationReceipt(SimContract):
+    """仿真实验回执（规格 §31）：永远 SIMULATED，永不生成 REAL permit。
+
+    双层 digest（规格 §56）：``states_digest`` = raw（逐状态），
+    ``semantic_digest`` = 语义（指标容差比较层）。
+    """
+
+    SCHEMA: ClassVar[str] = "rosclaw.sim.receipt.v1"
+    HASH_PREFIX: ClassVar[str] = "simrcp"
+    schema_version: Literal["rosclaw.sim.receipt.v1"] = "rosclaw.sim.receipt.v1"
+
+    model_ref: str = ""
+    model_digest: str = ""
+    initial_state_ref: str = ""
+    action_digest: str = ""
+    trace_ref: str = ""
+    seed: int = 0
+    steps: int = 0
+    simulation_time_s: float = 0.0
+    success: bool | None = None
+    metrics: dict[str, Any] = {}
+    audit_ref: str = ""
+    artifacts: list[str] = []
+    states_digest: str = ""
+    semantic_digest: str = ""
+    receipt_ref: str = ""
+    trust_level: str = "SIMULATED"
+    usable_for_real_execution: bool = False
 
 
 class SimulationEvidenceBundle(SimContract):

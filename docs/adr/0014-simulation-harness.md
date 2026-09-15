@@ -162,3 +162,24 @@ ROSClaw 已经具备相当多 MuJoCo 底层能力：`sim/api.py` 的最小编程
 5. **A09-A14/A21-A24 暂缓**（actuator saturation/force·velocity·
    acceleration 限值/接触冲量/sensor 有效性/坐标系/solver·timestep
    敏感性）：注册表结构已预留，后续里程碑开放。
+
+## 补充：MH5 回执与重放决策（2026-09-14，PR-MH5）
+
+1. **SimulationReceipt 是实验的唯一证据形态**（规格 §31）：
+   model/initial_state/action/trace/audit 全 ref 化 + 双层 digest
+   （raw `states_digest` 逐状态 + `semantic_digest` 指标容差层，
+   规格 §56）；payload 不含 created_at → 内容寻址幂等。
+   `trust_level=SIMULATED`、`usable_for_real_execution=false` 恒成立。
+2. **strict replay 判定层级**（§57）：backend/backend_version/
+   model_digest 不符即 `REPLAY_DIVERGED`；raw digest 一致 →
+   verified(raw)；raw 不符但语义指标 + success 容差内一致 →
+   verified(semantic)；双不符 → `REPLAY_DIVERGED`，不得 promotion。
+3. **指标在 rollout 中逐步采集**（不经采样 trace——采样漏峰值）；
+   采集目标必须在采集前应用（position_targets 预应用 +
+   ctrl_series 逐行查表，实证修复过目标错位 bug）。
+4. **sim_compare 机器比较**：指标表 + Pareto 非支配集（
+   tracking_rmse/energy_end/peak_qvel 三轴，success=False 不参与
+   支配）+ best（Pareto 内 rmse 最小）；不让 LLM 肉眼比 JSON。
+5. **ExecutionReceipt 集成点**：SimulationReceipt 字段与
+   `kernel/contracts.py` 的 simulation_result 槽位对齐，嵌入
+   接线属 MH6/MH8（本 PR 不改 kernel 冻结语义）。

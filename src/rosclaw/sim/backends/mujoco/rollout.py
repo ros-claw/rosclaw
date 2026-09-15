@@ -95,8 +95,13 @@ def run_rollout(
     plan: dict[str, Any],
     steps: int,
     budgets: dict[str, Any] | None = None,
+    visit=None,
 ) -> tuple[list[dict[str, Any]], int]:
-    """执行 rollout，返回（采样状态序列, 实际步数）。发散即 SIM_DIVERGED。"""
+    """执行 rollout，返回（采样状态序列, 实际步数）。发散即 SIM_DIVERGED。
+
+    visit: 可选回调 visit(data, step)，每步有限性哨兵通过后调用
+    （指标采集用，如 experiment.metrics）。
+    """
     import mujoco
 
     merged = {**DEFAULT_BUDGETS, **(budgets or {})}
@@ -139,6 +144,8 @@ def run_rollout(
         mujoco.mj_step(model, data)
         if not (np.isfinite(data.qpos).all() and np.isfinite(data.qvel).all()):
             raise ValueError(f"SIM_DIVERGED: non-finite state at step {step + 1}")
+        if visit is not None:
+            visit(data, step)
         if (step + 1) % stride == 0 or step == steps - 1:
             _record()
         if step % 4096 == 4095 and time.monotonic() - started > merged["max_wall_time_s"]:
