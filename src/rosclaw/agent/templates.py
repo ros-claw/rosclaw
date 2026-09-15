@@ -60,6 +60,18 @@ def _tool_table(tool_names: tuple[str, ...]) -> str:
         "invoke_capability": "Plan a capability; creates an approval-gated job only",
         "get_skill_job": "Read a skill job state machine record",
         "cancel_skill_job": "Cancel a non-terminal skill job",
+        "sim_get_capabilities": "Probe MuJoCo runtime capabilities (probed, never guessed)",
+        "sim_load_model": "Load task-local or e-URDF MJCF into the simulation runtime",
+        "sim_inspect_model": "Inspect compiled model: joints, actuators, sensors, options",
+        "sim_patch_model": "Structured MjSpec patch; new immutable model ref",
+        "sim_snapshot": "Snapshot a full resumable physics state",
+        "sim_observe": "Bounded semantic observation channels",
+        "sim_rollout": "Bounded rollout; SimulationReceipt (SIMULATED only)",
+        "sim_audit": "Physical-honesty audit of a model or trace",
+        "sim_compare": "Compare experiment receipts: table, best, Pareto",
+        "sim_render": "Render a trace into a GIF evidence artifact",
+        "sim_branch_experiment": "Branch a state across patched variants and roll out each",
+        "sim_compile_world": "Compile a WorldSpec into a world model",
     }
     lines = ["| Tool | Safety level | Purpose |", "|------|--------------|---------|"]
     for tool in tool_names:
