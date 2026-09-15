@@ -9,7 +9,7 @@ PARETO_METRICS = ("tracking_rmse", "energy_end", "peak_qvel")
 
 
 def build_metric_table(receipts: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """每个实验一行：ref + success + 关键指标。"""
+    """每个实验一行：ref + 验证语义 + 关键指标。"""
     rows = []
     for receipt in receipts:
         metrics = receipt.get("metrics", {})
@@ -17,7 +17,9 @@ def build_metric_table(receipts: list[dict[str, Any]]) -> list[dict[str, Any]]:
             {
                 "receipt_ref": receipt["_ref"],
                 "model_ref": receipt.get("model_ref", ""),
-                "success": receipt.get("success"),
+                "success": receipt.get("task_success", receipt.get("success")),
+                "verification_status": receipt.get("verification_status", "NOT_EVALUATED"),
+                "physical_audit_pass": receipt.get("physical_audit_pass"),
                 "tracking_rmse": metrics.get("tracking_rmse", 0.0),
                 "overshoot": metrics.get("overshoot", 0.0),
                 "settling_time_s": metrics.get("settling_time_s", 0.0),
@@ -32,8 +34,12 @@ def build_metric_table(receipts: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def pareto_front(
     rows: list[dict[str, Any]], metrics: tuple[str, ...] = PARETO_METRICS
 ) -> list[str]:
-    """非支配解集（全部轴越小越好；success=False 不参与支配）。"""
-    candidates = [row for row in rows if row.get("success") is not False]
+    """非支配解集（全部轴越小越好；verification FAIL / task 失败不参与支配）。"""
+    candidates = [
+        row
+        for row in rows
+        if row.get("verification_status") != "FAIL" and row.get("success") is not False
+    ]
     front = []
     for row in candidates:
         dominated = any(

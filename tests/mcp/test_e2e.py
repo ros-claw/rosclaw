@@ -177,6 +177,19 @@ P0_TOOL_CALLS: list[tuple[str, dict[str, Any]]] = [
     ("sim_audit", {"model_ref": "simmdl_0000000000000000"}),
     ("sim_compare", {"receipt_refs": ["simexp_0000000000000000", "simexp_1111111111111111"]}),
     ("sim_render", {"trace_ref": "simtrc_0000000000000000", "width": 160, "height": 120}),
+    (
+        "sim_branch_experiment",
+        {
+            "model_ref": "simmdl_0000000000000000",
+            "branches": [{"name": "b0", "patches": []}],
+            "controller": {"hold": True},
+            "steps": 10,
+        },
+    ),
+    (
+        "sim_compile_world",
+        {"worldspec": {"schema_version": "rosclaw.sim.worldspec.v1"}, "name": "e2e"},
+    ),
 ]
 
 EXPECTED_TOOLS = set(P0_AGENT_MCP_TOOLS)
@@ -193,6 +206,8 @@ EXPECTED_ERROR_TOOLS = {
     "sim_audit",
     "sim_compare",
     "sim_render",
+    "sim_branch_experiment",
+    "sim_compile_world",
 }
 
 

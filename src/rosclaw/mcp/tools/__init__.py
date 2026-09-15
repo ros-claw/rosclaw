@@ -279,10 +279,21 @@ async def _sim_rollout(
     steps: int | None = None,
     state_ref: str | None = None,
     seed: int = 0,
+    task_predicates: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Run a bounded physics rollout; returns a SimulationReceipt (SIMULATED only)."""
+    """Run a bounded physics rollout; returns a SimulationReceipt (SIMULATED only).
+
+    task_predicates: optional machine predicates (inside/near) evaluated on
+    the final state — task_success is decided by them, never by agent text.
+    """
     return await _client().sim_rollout(
-        model_ref, controller, duration_s=duration_s, steps=steps, state_ref=state_ref, seed=seed
+        model_ref,
+        controller,
+        duration_s=duration_s,
+        steps=steps,
+        state_ref=state_ref,
+        seed=seed,
+        task_predicates=task_predicates,
     )
 
 
@@ -311,6 +322,38 @@ async def _sim_render(
     return await _client().sim_render(
         trace_ref, camera=camera, width=width, height=height, max_frames=max_frames
     )
+
+
+async def _sim_branch_experiment(
+    model_ref: str,
+    branches: list[dict[str, Any]],
+    controller: dict[str, Any],
+    state_ref: str | None = None,
+    duration_s: float | None = None,
+    steps: int | None = None,
+    seed: int = 0,
+    task_predicates: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Branch a base state across patched model variants and roll out each.
+
+    High-level primitive: fork + explicit state transplant + per-branch
+    SimulationReceipt in one structured call (no low-level state surgery).
+    """
+    return await _client().sim_branch_experiment(
+        model_ref,
+        branches,
+        controller,
+        state_ref=state_ref,
+        duration_s=duration_s,
+        steps=steps,
+        seed=seed,
+        task_predicates=task_predicates,
+    )
+
+
+async def _sim_compile_world(worldspec: dict[str, Any], name: str = "world") -> dict[str, Any]:
+    """Compile a WorldSpec into a world model (validation + capability proof)."""
+    return await _client().sim_compile_world(worldspec, name=name)
 
 
 async def _practice_query(episode_id: str | None = None, limit: int = 10) -> dict[str, Any]:
@@ -757,6 +800,8 @@ sim_rollout = _tool_wrapper("sim_rollout", _sim_rollout)
 sim_audit = _tool_wrapper("sim_audit", _sim_audit)
 sim_compare = _tool_wrapper("sim_compare", _sim_compare)
 sim_render = _tool_wrapper("sim_render", _sim_render)
+sim_branch_experiment = _tool_wrapper("sim_branch_experiment", _sim_branch_experiment)
+sim_compile_world = _tool_wrapper("sim_compile_world", _sim_compile_world)
 practice_query = _tool_wrapper("practice_query", _practice_query)
 emergency_stop = _tool_wrapper("emergency_stop", _emergency_stop)
 get_runtime_status = _tool_wrapper("get_runtime_status", _get_runtime_status)
@@ -831,6 +876,8 @@ P0_TOOLS: list[ToolFunc] = [
     sim_audit,
     sim_compare,
     sim_render,
+    sim_branch_experiment,
+    sim_compile_world,
 ]
 
 BODY_TOOLS: list[ToolFunc] = [

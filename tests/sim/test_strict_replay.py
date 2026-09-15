@@ -28,20 +28,29 @@ def test_strict_replay_verified(loaded_backend) -> None:
     assert report["receipt_ref"] == receipt.receipt_ref
 
 
-def test_replay_diverged_on_wrong_backend_version(loaded_backend) -> None:
+def test_replay_env_mismatch_on_wrong_backend_version(loaded_backend) -> None:
     backend, ref = loaded_backend
     receipt = backend.run_experiment(ref.model_ref, controller={"hold": True}, duration_s=0.05)
     payload = backend.store.get(receipt.receipt_ref)
     forged = _forge(backend, {**payload, "backend_version": "0.0.0"})
-    with pytest.raises(ValueError, match="REPLAY_DIVERGED"):
+    with pytest.raises(ValueError, match="REPLAY_ENV_MISMATCH"):
         backend.strict_replay(forged)
 
 
-def test_replay_diverged_on_wrong_raw_digest(loaded_backend) -> None:
+def test_replay_model_mismatch_on_wrong_model_digest(loaded_backend) -> None:
     backend, ref = loaded_backend
     receipt = backend.run_experiment(ref.model_ref, controller={"hold": True}, duration_s=0.05)
     payload = backend.store.get(receipt.receipt_ref)
-    # raw digest 错 + metrics 也错 → 不可信。
+    forged = _forge(backend, {**payload, "model_digest": "sha256:" + "0" * 64})
+    with pytest.raises(ValueError, match="REPLAY_MODEL_MISMATCH"):
+        backend.strict_replay(forged)
+
+
+def test_replay_physics_diverged_on_wrong_raw_digest(loaded_backend) -> None:
+    backend, ref = loaded_backend
+    receipt = backend.run_experiment(ref.model_ref, controller={"hold": True}, duration_s=0.05)
+    payload = backend.store.get(receipt.receipt_ref)
+    # raw digest 错 + metrics 也错 → 双不符 = 物理发散。
     forged = _forge(
         backend,
         {
@@ -50,7 +59,7 @@ def test_replay_diverged_on_wrong_raw_digest(loaded_backend) -> None:
             "metrics": {**payload["metrics"], "tracking_rmse": 999.0},
         },
     )
-    with pytest.raises(ValueError, match="REPLAY_DIVERGED"):
+    with pytest.raises(ValueError, match="REPLAY_PHYSICS_DIVERGED"):
         backend.strict_replay(forged)
 
 

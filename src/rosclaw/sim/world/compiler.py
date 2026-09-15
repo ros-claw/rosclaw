@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from rosclaw.sim.world.capability import resolve_grasp_capability
 from rosclaw.sim.world.interactions import check_body_capability, interaction_order
 from rosclaw.sim.world.validation import validate_worldspec
 
@@ -73,18 +74,13 @@ def compile_world(backend, worldspec: dict[str, Any], *, name: str = "world") ->
         parent.add_site(name=f"marker_{point['id']}", pos=marker_pos, group=2)
 
     assets: dict[str, bytes] = {}
-    grippers: dict[str, bool] = {}
+    capabilities: dict[str, dict[str, Any]] = {}
     for body_ref in normalized["body_refs"]:
         robot_ref = backend.load_model(body_ref["ref"])
         robot_manifest = backend.store.get(robot_ref.model_ref)
         robot_assets = {
             key: backend.store.get(ref) for key, ref in robot_manifest["assets"].items()
         }
-        inspection = backend.inspect_model(robot_ref.model_ref)
-        grippers[body_ref["id"]] = any(
-            "gripper" in actuator["target"] or "gripper" in actuator["name"]
-            for actuator in inspection.detail["actuators_detail"]
-        )
         robot_spec = mujoco.MjSpec.from_string(
             robot_manifest["mjcf_xml"], assets=robot_assets or None
         )
@@ -102,9 +98,13 @@ def compile_world(backend, worldspec: dict[str, Any], *, name: str = "world") ->
                 if key.rsplit("/", 1)[-1] == candidate:
                     assets[filename] = data
                     break
+        # 能力声明→证明绑定（0915 §五）：不从 actuator 名字猜夹爪。
+        capabilities[body_ref["id"]] = resolve_grasp_capability(
+            backend, body_ref, model_ref=robot_ref.model_ref
+        )
 
-    # 无假 affordance（§24）：grasp 要求真实夹爪。
-    check_body_capability(normalized["interaction_points"], grippers=grippers)
+    # 无假 affordance（§24）：grasp 要求声明+证明都成立的夹爪。
+    check_body_capability(normalized["interaction_points"], capabilities=capabilities)
 
     result = backend.load_model_xml(
         spec.to_xml(),
@@ -118,5 +118,6 @@ def compile_world(backend, worldspec: dict[str, Any], *, name: str = "world") ->
         "worldspec": normalized,
         "interaction_order": interaction_order(normalized["interaction_points"]),
         "interaction_points": normalized["interaction_points"],
-        "grippers": grippers,
+        "capabilities": {key: verdict["status"] for key, verdict in capabilities.items()},
+        "capabilities_detail": capabilities,
     }

@@ -54,7 +54,49 @@ def test_experiment_metrics_computed(loaded_backend) -> None:
     assert metrics["contact_max_penetration"] == 0.0
 
 
-def test_experiment_success_from_audit(loaded_backend) -> None:
+def test_experiment_success_semantics_split(loaded_backend) -> None:
+    """0915 §三：audit PASS ≠ 任务成功——字段语义必须分开。"""
     backend, ref = loaded_backend
     receipt = backend.run_experiment(ref.model_ref, controller={"hold": True}, duration_s=0.05)
-    assert receipt.success is True  # tiny_arm strict audit PASS
+    assert receipt.physical_audit_pass is True  # tiny_arm strict audit PASS
+    assert receipt.simulation_valid is True
+    assert receipt.task_success is None  # 未给谓词 = 未评估
+    assert receipt.verification_status == "NOT_EVALUATED"
+    assert receipt.success is None  # 兼容字段 ≡ task_success
+
+
+def test_experiment_task_predicates_machine_verdict(loaded_backend) -> None:
+    """任务谓词机器判定：不诚实的 True/False 都由谓词决定。"""
+    backend, ref = loaded_backend
+    predicates = [
+        {
+            "channel": "site_pose:tool0",
+            "field": "pos",
+            "inside": {"min": [-1, -1, 0.6], "max": [1, 1, 0.8]},
+        }
+    ]
+    passing = backend.run_experiment(
+        ref.model_ref, controller={"hold": True}, duration_s=0.05, task_predicates=predicates
+    )
+    assert passing.task_success is True
+    assert passing.verification_status == "PASS"
+    assert passing.success is True  # 兼容字段
+
+    failing_predicates = [
+        {
+            "channel": "site_pose:tool0",
+            "field": "pos",
+            "inside": {"min": [5, 5, 5], "max": [6, 6, 6]},
+        }
+    ]
+    failing = backend.run_experiment(
+        ref.model_ref,
+        controller={"hold": True},
+        duration_s=0.05,
+        task_predicates=failing_predicates,
+    )
+    assert failing.task_success is False
+    assert failing.verification_status == "FAIL"
+    assert failing.success is False
+    # 物理依然健康——物理与任务两分。
+    assert failing.physical_audit_pass is True

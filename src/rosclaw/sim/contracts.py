@@ -267,7 +267,14 @@ class ComparisonResult(SimContract):
 
 
 class SimulationReceipt(SimContract):
-    """仿真实验回执（规格 §31）：永远 SIMULATED，永不生成 REAL permit。
+    """仿真实验回执（规格 §31 + 0915 优化 §三）：永远 SIMULATED。
+
+    成功语义三分（防止"假成功"）：
+    - ``simulation_valid``：rollout 完整跑完（无发散）；
+    - ``physical_audit_pass``：物理诚实审计通过；
+    - ``task_success``：任务谓词机器判定（None = 未评估）；
+    - ``verification_status``：PASS / FAIL / NOT_EVALUATED。
+    兼容字段 ``success`` ≡ ``task_success``（不再是 audit PASS 的别名）。
 
     双层 digest（规格 §56）：``states_digest`` = raw（逐状态），
     ``semantic_digest`` = 语义（指标容差比较层）。
@@ -286,7 +293,11 @@ class SimulationReceipt(SimContract):
     seed: int = 0
     steps: int = 0
     simulation_time_s: float = 0.0
-    success: bool | None = None
+    success: bool | None = None  # ≡ task_success（兼容字段）
+    simulation_valid: bool | None = None
+    physical_audit_pass: bool | None = None
+    task_success: bool | None = None
+    verification_status: str = "NOT_EVALUATED"  # PASS | FAIL | NOT_EVALUATED
     metrics: dict[str, Any] = {}
     audit_ref: str = ""
     artifacts: list[str] = []

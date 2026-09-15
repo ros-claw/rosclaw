@@ -72,6 +72,7 @@ class SimulationRuntime:
         steps: int | None = None,
         state_ref: str | None = None,
         seed: int = 0,
+        task_predicates: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         return self._backend.run_experiment(
             model_ref,
@@ -80,6 +81,7 @@ class SimulationRuntime:
             duration_s=duration_s,
             steps=steps,
             seed=seed,
+            task_predicates=task_predicates,
         ).to_canonical_dict()
 
     def audit(
@@ -95,6 +97,72 @@ class SimulationRuntime:
 
     def compare(self, receipt_refs: list[str]) -> dict[str, Any]:
         return self._backend.compare_experiments(receipt_refs).to_canonical_dict()
+
+    def branch_experiment(
+        self,
+        model_ref: str,
+        *,
+        branches: list[dict[str, Any]],
+        controller: dict[str, Any],
+        state_ref: str | None = None,
+        duration_s: float | None = None,
+        steps: int | None = None,
+        seed: int = 0,
+        task_predicates: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        """高层参数实验原语（PR-MH9，0915 §七）：
+        base model + base state + patches[] → N branches → 显式状态移植
+        → rollout（每分支一个 SimulationReceipt）。
+
+        Agent 不需要碰 transplant_state 底层细节；fork/移植/rollout
+        一次结构化调用完成。branches: [{"name"?, "patches": [...]}]，
+
+        空 patches 为对照分支。
+        """
+        from rosclaw.sim.backends.mujoco.rollout import DEFAULT_BUDGETS
+
+        if not isinstance(branches, list) or not branches:
+            raise ValueError("BRANCHES_REQUIRED: branches must be a non-empty list")
+        if len(branches) > DEFAULT_BUDGETS["max_branch_count"]:
+            raise ValueError(
+                f"SIM_BUDGET_EXCEEDED: branch count {len(branches)} > "
+                f"{DEFAULT_BUDGETS['max_branch_count']}"
+            )
+        base_state = state_ref or self._backend.initial_state(model_ref)
+        fork = self._backend.fork_state(model_ref, base_state, len(branches))
+        receipts = []
+        for index, branch in enumerate(branches):
+            if not isinstance(branch, dict):
+                raise ValueError(f"BRANCH_INVALID: branches[{index}] must be a mapping")
+            patches = branch.get("patches", [])
+            target_ref = model_ref
+            if patches:
+                target_ref = self._backend.patch_model(model_ref, patches).new_model_ref
+            branch_state = self._backend.transplant_state(target_ref, base_state)
+            receipts.append(
+                self._backend.run_experiment(
+                    target_ref,
+                    state_ref=branch_state,
+                    controller=controller,
+                    duration_s=duration_s,
+                    steps=steps,
+                    seed=seed,
+                    task_predicates=task_predicates,
+                ).to_canonical_dict()
+            )
+        return {
+            "fork_ref": fork["fork_ref"],
+            "base_state_ref": base_state,
+            "receipts": receipts,
+            "count": len(receipts),
+        }
+
+    def compile_world(self, worldspec: dict[str, Any], *, name: str = "world") -> dict[str, Any]:
+        """高层世界编译原语（PR-MH9，0915 §七）：
+        WorldSpec → validation → 能力声明→证明绑定 → compile → model_ref。"""
+        from rosclaw.sim.world.compiler import compile_world
+
+        return compile_world(self._backend, worldspec, name=name)
 
     def render(
         self,

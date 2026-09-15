@@ -246,3 +246,34 @@ ROSClaw 已经具备相当多 MuJoCo 底层能力：`sim/api.py` 的最小编程
    round-trip 校验或值域提示）；A09-A14/A21-A24 audit 扩展、
    sim_build_world/sim_interact 工具面、Menagerie source、
    MJX/MJWarp 加速面均按总纲留待后续里程碑。
+
+## 补充：MH9 证据语义硬化（2026-09-15，0915 优化文档）
+
+合入 main 前的语义修正（不作新功能扩展）：
+
+1. **成功语义三分**：`SimulationReceipt` 拆分为
+   `simulation_valid`（rollout 跑完）/ `physical_audit_pass`（审计
+   通过）/ `task_success`（任务谓词机器判定，None=未评估）+
+   `verification_status`（PASS/FAIL/NOT_EVALUATED）；兼容字段
+   `success` ≡ `task_success`——audit PASS 不再冒充任务成功。
+   `false_success` 重定义为：claim PASS 但 strict replay（含任务
+   判定复算）不一致。
+2. **model_digest 纳入资产**：`sha256(canonical{xml_sha, sorted
+   资产 blob sha})`——相同 XML 不同 mesh 字节 = 不同物理模型，
+   state/trace/replay 绑定全部 fail closed（红测试锁定）。
+3. **gripper 能力 = 声明→证明绑定**：e-URDF capabilities.yaml
+   声明（required_hardware/constraints.requires_gripper）+
+   semantic.yaml affordance link 子树 actuated joint 证明；task
+   模型经 `<model>.capabilities.yaml` sidecar 声明并由模型证明。
+   三态 AVAILABLE/UNDECLARED/UNPROVEN，后两者拒绝 grasp——
+   `"gripper" in name` 的名字猜测被移除。
+4. **transplant 结构签名**：joint 名/类型/qpos 地址/dof 地址/
+   actuator→joint 映射/mocap 布局全等才允许移植——维度相同但
+   语义不同的模型拒绝 STATE_INCOMPATIBLE。
+5. **replay 错误分类**：REPLAY_ENV_MISMATCH（backend/版本）/
+   REPLAY_MODEL_MISMATCH / REPLAY_STATE_MISMATCH /
+   REPLAY_PHYSICS_DIVERGED——版本升级不再误报"物理发散"。
+6. **高层原语**：`sim_branch_experiment`（fork+移植+rollout 一次
+   调用，Agent 不碰 transplant 底层）与 `sim_compile_world`
+   （WorldSpec→validation→能力绑定→compile）加入 P0_SIM_TOOLS
+   （S1，全组 ≤S1 不变）。

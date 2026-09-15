@@ -85,6 +85,10 @@ def runtime(tmp_path):
     (tmp_path / "x7.xml").write_text(UNKNOWN_BOT, encoding="utf-8")
     (tmp_path / "sick.xml").write_text(H02_BROKEN, encoding="utf-8")
     (tmp_path / "bot.xml").write_text(GRIPPER_BOT, encoding="utf-8")
+    # 声明→证明绑定（0915 §五）：gripper 由 sidecar 声明、模型证明。
+    (tmp_path / "bot.capabilities.yaml").write_text(
+        "grasp:\n  actuator_joints: [gripper]\n", encoding="utf-8"
+    )
     return SimulationRuntime(tmp_path)
 
 
@@ -227,7 +231,6 @@ def test_h04_world_generation(runtime, tmp_path) -> None:
     """H04：WorldSpec → compile → interaction contract → execute →
     audit → task predicate 机器判定 + 渲染证据。"""
     from rosclaw.sim.world.compiler import compile_world
-    from rosclaw.sim.world.interactions import evaluate_predicates
 
     spec = {
         "schema_version": "rosclaw.sim.worldspec.v1",
@@ -272,19 +275,22 @@ def test_h04_world_generation(runtime, tmp_path) -> None:
     }
     world = compile_world(runtime.backend, spec, name="h04")
     assert world["interaction_order"] == ["grasp_cube"]
-    assert world["grippers"] == {"bot": True}
+    assert world["capabilities"] == {"bot": "AVAILABLE"}
 
     audited = runtime.audit(world["model_ref"])
     assert audited["status"] == "PASS", audited["violations"]
 
-    receipt = runtime.rollout(world["model_ref"], controller={"hold": True}, duration_s=0.2)
-    observed = runtime.observe(world["model_ref"], receipt["final_state_ref"], ["body_pose:cube"])
-    verdict = evaluate_predicates(
-        {"body_pose:cube": observed["values"]["body_pose:cube"]}, spec["task"]["success"]
+    receipt = runtime.rollout(
+        world["model_ref"],
+        controller={"hold": True},
+        duration_s=0.2,
+        task_predicates=spec["task"]["success"],
     )
-    # 诚实：hold 不会完成任务——predicate 机器判 False，不冒充成功。
-    assert verdict[0]["ok"] is False
-    assert receipt["success"] is True  # 物理健康（audit）与任务成功是两回事
+    # 诚实（0915 §三）：hold 完不成任务——task_success 机器判 False，
+    # verification FAIL；物理健康是另一回事，不再共用一个 success 字段。
+    assert receipt["task_success"] is False
+    assert receipt["verification_status"] == "FAIL"
+    assert receipt["physical_audit_pass"] is True
 
     try:
         evidence = runtime.render(receipt["trace_ref"], width=160, height=120, max_frames=2)
