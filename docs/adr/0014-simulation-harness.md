@@ -139,3 +139,26 @@ ROSClaw 已经具备相当多 MuJoCo 底层能力：`sim/api.py` 的最小编程
 4. **observe 语义化有界**：contact 最多 50 对；能量读取用
    `mj_energyPos/Vel` 写回 `data.energy` 的 3.11 实际签名；图像类
    通道留给渲染 PR（返回 artifact ref 而非 RGB 数组）。
+
+## 补充：MH4 物理诚实审计决策（2026-09-14，PR-MH4）
+
+1. **A01-A08 吸收 Text2Mujoco（MIT）思想、按 ROSClaw 后端重写**：
+   碰撞覆盖/显式质量/伺服保持/连杆连续/初始穿透/序列穿透/隐藏
+   自重叠/marker 接地；阈值继承其经验值（0.1mm/1mm/2mm·1°/5mm/
+   3mm·1mm）并全部收拢为 `AuditPolicy` named policy——不为测试
+   通过调松阈值，先修模型。
+2. **红绿 fixture 纪律**：`tests/sim/fixtures/broken_models/` 每个
+   audit 至少 1 red（必须被抓）+ 1 green（必须通过）；fixture
+   设计本身经过物理实证修正——A07 需要 contype/conaffinity 真正
+   互斥才算"隐藏"；A03/A16 需要质量水平偏置打破不稳定平衡；
+   kp=5000 伺服必须配 damping=50 才稳定。
+3. **A15（NaN/Inf）语义实证**：float64 CPU MuJoCo 下动力学极限
+   环几乎不产生真 NaN（3.11 实测 kp=2e9 仍有限）——A15 核心
+   检测面是 **trace/状态数据完整性**（非有限值 fail），live 扫描
+   发散为副面；红测试用伪造 NaN trace 验证检测逻辑。
+4. **审计器故障 ≠ 模型通过**：单项 check 抛异常记 ERROR，总状态
+   FAIL（fail closed）；结果（含逐项 detail/violations/warnings/
+   evidence）机器可读落 audits 分区，`audit_ref` 可寻址。
+5. **A09-A14/A21-A24 暂缓**（actuator saturation/force·velocity·
+   acceleration 限值/接触冲量/sensor 有效性/坐标系/solver·timestep
+   敏感性）：注册表结构已预留，后续里程碑开放。

@@ -1,0 +1,9 @@
+<mujoco model="marker_floating">
+  <worldbody>
+    <geom name="floor" type="plane" size="5 5 0.1"/>
+    <body name="table" pos="0 0 0.4">
+      <geom name="table_geom" type="box" size="0.2 0.2 0.02" mass="2.0"/>
+      <site name="grasp_marker" pos="0 0 0.3" group="2"/>
+    </body>
+  </worldbody>
+</mujoco>

@@ -1,6 +1,9 @@
-"""tests/sim 共享夹具（PR-MH2）：tiny_arm 内联 MJCF 与已加载后端。"""
+"""tests/sim 共享夹具（PR-MH2/MH4）：tiny_arm 内联 MJCF、已加载后端、
+红绿 fixture 模型工厂。"""
 
 from __future__ import annotations
+
+from pathlib import Path
 
 import pytest
 
@@ -43,3 +46,23 @@ def loaded_backend(tiny_task_root):
 
     backend = MujocoBackend(tiny_task_root)
     return backend, backend.load_model("arm.xml")
+
+
+FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
+
+
+@pytest.fixture
+def fixture_backend(tmp_path):
+    """fixture 模型加载工厂：fixture_backend("broken_models", "01_no_collision")
+    → (MujocoBackend, ModelReference)。"""
+
+    from rosclaw.sim.backends.mujoco.backend import MujocoBackend
+
+    backend = MujocoBackend(tmp_path)
+
+    def _load(folder: str, name: str):
+        source = FIXTURES_DIR / folder / f"{name}.xml"
+        (tmp_path / f"{name}.xml").write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+        return backend, backend.load_model(f"{name}.xml")
+
+    return _load

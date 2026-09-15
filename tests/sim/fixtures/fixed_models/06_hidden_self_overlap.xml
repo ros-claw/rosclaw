@@ -1,0 +1,15 @@
+<mujoco model="hidden_self_overlap_fixed">
+  <worldbody>
+    <body name="b1" pos="0 0 0.5">
+      <joint name="j1" type="hinge" axis="0 1 0"/>
+      <geom name="g1" type="sphere" size="0.1" mass="1.0" contype="1" conaffinity="0"/>
+      <body name="b2" pos="0 0 0">
+        <joint name="j2" type="hinge" axis="0 1 0"/>
+        <geom name="g2" type="sphere" size="0.1" mass="1.0" contype="1" conaffinity="0"/>
+      </body>
+    </body>
+  </worldbody>
+  <contact>
+    <exclude body1="b1" body2="b2"/>
+  </contact>
+</mujoco>
