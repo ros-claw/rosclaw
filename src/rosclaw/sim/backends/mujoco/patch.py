@@ -14,8 +14,6 @@ from __future__ import annotations
 import math
 from typing import Any
 
-_PATCH_OPS = ("set", "add", "remove", "attach")
-
 _TARGET_COLLECTIONS = {
     "joint": "joints",
     "geom": "geoms",
@@ -211,9 +209,10 @@ _SET_APPLIERS = {
 def _find_target(spec, target: Any):  # noqa: ANN001, ANN202
     if not isinstance(target, dict):
         raise ValueError(f"MODEL_PATCH_INVALID: target must be a mapping, got {target!r}")
-    collection_name = _TARGET_COLLECTIONS.get(target.get("type"))
+    ttype = target.get("type")
+    collection_name = _TARGET_COLLECTIONS.get(ttype) if isinstance(ttype, str) else None
     if collection_name is None:
-        raise ValueError(f"MODEL_PATCH_INVALID: unknown target type {target.get('type')!r}")
+        raise ValueError(f"MODEL_PATCH_INVALID: unknown target type {ttype!r}")
     name = target.get("name")
     if not isinstance(name, str) or not name:
         raise ValueError("MODEL_PATCH_INVALID: target.name must be a non-empty string")

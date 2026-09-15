@@ -62,6 +62,9 @@ def evaluate_predicates(
             results.append({"predicate": predicate, "ok": False, "reason": "channel_missing"})
             continue
         value = raw.get(field) if isinstance(raw, dict) else raw
+        if value is None:
+            results.append({"predicate": predicate, "ok": False, "reason": "channel_missing"})
+            continue
         if "inside" in predicate:
             box = predicate["inside"]
             ok = all(lo <= v <= hi for v, lo, hi in zip(value, box["min"], box["max"], strict=True))

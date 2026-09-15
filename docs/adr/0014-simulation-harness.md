@@ -225,3 +225,24 @@ ROSClaw 已经具备相当多 MuJoCo 底层能力：`sim/api.py` 的最小编程
 6. **sim_build_world / sim_interact 工具面暂缓**（规格 §25 后续）；
    本 PR 交付编译器与契约层，T1 世界端到端（compile→audit PASS→
    谓词求值）由 tests/sim/test_worldspec.py 锁定。
+
+## 补充：MH8 验收与 Release Gate 决策（2026-09-14，PR-MH8）
+
+1. **H01-H08 分两层**：harness 能力层（tests/sim/test_agent_scenarios.py，
+   Verifier 直接对 MuJoCo 真相，确定性）随本栈合入；真实 LLM 变体
+   按 W09 纪律（PTY 串行、repo .venv PATH）列为 pending-live，不合成
+   冒充。
+2. **显式状态移植**：`transplant_state`（维度校验 + provenance）是
+   参数实验的标准动作；fork 状态**不能**静默跨模型
+   （CROSS_MODEL_REF 语义不变）。
+3. **A/B 指标 B 侧机器生成**（test_ab_harness.py）：tool_calls≤12、
+   bash/Python/XML glue=0、evidence 完整、**false_success=0**（每个
+   claim success 的 receipt 必须 strict replay 复核一致）。
+4. **Release Gate**：docs/validation/MUJOCO_HARNESS_V1.md G1-G12
+   绑定 test+report+commit；G10 A 侧与 G11 为 PARTIAL/pending-live，
+   留痕不阻塞。
+5. **残留风险记录**：mujoco 3.11 `to_xml` 对 `mass=1.0` 特殊省略
+   （patch geom.mass=1.0 会丢 round-trip——后续 patch 层加
+   round-trip 校验或值域提示）；A09-A14/A21-A24 audit 扩展、
+   sim_build_world/sim_interact 工具面、Menagerie source、
+   MJX/MJWarp 加速面均按总纲留待后续里程碑。
