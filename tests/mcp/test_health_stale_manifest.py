@@ -26,9 +26,7 @@ class _StaleHub:
 
 def _stale_runner(tmp_path):
     from rosclaw.mcp.onboarding.health import HealthRunner
-    from rosclaw.mcp.onboarding.installed import InstalledRegistry
-
-    from rosclaw.mcp.onboarding.installed import InstalledRecord
+    from rosclaw.mcp.onboarding.installed import InstalledRecord, InstalledRegistry
 
     registry = InstalledRegistry(home=tmp_path)
     registry.add(
