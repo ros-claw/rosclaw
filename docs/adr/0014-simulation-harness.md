@@ -73,9 +73,14 @@ ROSClaw 已经具备相当多 MuJoCo 底层能力：`sim/api.py` 的最小编程
 - 新增：`tests/sim/`（红→绿）与
   `tests/architecture/test_adr0014_simulation_harness.py`
   （静态不变量，随 CI）。
-- MuJoCo 版本策略：legacy minimum 保持 `mujoco>=3.0.0`；
-  Qualified Harness Runtime 目标为 MuJoCo 3.13.x；能力以运行时
-  探测为准，不做版本字符串比较。
+- MuJoCo 版本策略：~~legacy minimum 保持 `mujoco>=3.0.0`~~
+  （MH9 修订，0915 §九方案 A）：**Qualified Harness Runtime 为
+  MuJoCo 3.13.x**（2026-09-08 发布），`pyproject.toml` 钉
+  `mujoco>=3.13.0,<3.14`；能力以运行时探测为准，不做版本字符串
+  比较。3.13 实测：mjGAIN_PID 存在（pid_actuator=True）、
+  surfacevel 为 geom 属性（探测通道已修正）、`assets=` 仍可用
+  无弃用警告（MjVfs 迁移列 v1.1）。strict replay 的
+  REPLAY_ENV_MISMATCH 语义保证版本升级不误报物理发散。
 - 不变：ADR-0012/0013 全部条款；无 `--engine pi/codex`；无新
   Harness backend 名称；`sim/api.py`、`model_inspect.py`、
   sandbox、SimForge 现有行为本阶段不改写。

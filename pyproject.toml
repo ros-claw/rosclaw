@@ -36,7 +36,10 @@ dependencies = [
     # NumPy 2.5 type stubs require Python 3.12 syntax, while ROSClaw and its
     # CI still support Python 3.11 and run mypy with python_version=3.11.
     "numpy>=1.24.0,<2.5",
-    "mujoco>=3.0.0",
+    # MuJoCo Simulation Harness v1 qualification（ADR-0014 §MuJoCo 版本策略）：
+    # Qualified Harness Runtime 为 3.13.x（2026-09-08 发布）；
+    # legacy minimum 不再接受未经资格认证的 3.0-3.12（0915 §九方案 A）。
+    "mujoco>=3.13.0,<3.14",
     # OpenAI-compatible provider runtime + agentd model gateway use aiohttp
     # for chat completions / SSE streaming (previously optional; required
     # since the Native Agent model path became a first-class feature).
