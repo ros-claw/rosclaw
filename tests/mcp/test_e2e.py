@@ -188,7 +188,9 @@ P0_TOOL_CALLS: list[tuple[str, dict[str, Any]]] = [
     ),
     (
         "sim_compile_world",
-        {"worldspec": {"schema_version": "rosclaw.sim.worldspec.v1"}, "name": "e2e"},
+        # 非法 worldspec → fail closed（空 worldspec 仅 schema_version 合法，
+        # 不能用作反例——实测空世界可编译）。
+        {"worldspec": {"schema_version": "rosclaw.sim.worldspec.v0"}, "name": "e2e"},
     ),
 ]
 
