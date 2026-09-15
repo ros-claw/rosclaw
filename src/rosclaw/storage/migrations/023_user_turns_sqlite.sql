@@ -1,3 +1,4 @@
+-- backend: sqlite
 -- 023：UserTurnV2 + task 因果链（九审 §6.1，NINE-2）。
 -- 用户输入先落账（turn_id/delivery_seq/source/text_hash）；
 -- task_records 增加 caused_by_turn_id——每个副作用可追溯到 turn。

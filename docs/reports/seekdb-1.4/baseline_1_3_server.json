@@ -1,0 +1,104 @@
+{
+  "engine": "engine_1_3_server",
+  "target": "mysql://root@127.0.0.1:2882/bench13",
+  "corpus_size": 400,
+  "started_at": 1789433521.2019436,
+  "startup_s": 1.081,
+  "idle": {
+    "cpu_pct": 0.0
+  },
+  "write": {
+    "single_upsert": {
+      "n": 50,
+      "p50_ms": 61.9739,
+      "p95_ms": 64.3057,
+      "p99_ms": 198.1687,
+      "mean_ms": 64.7706,
+      "throughput_rows_s": 15.4
+    },
+    "batch_32": {
+      "n": 4,
+      "p50_ms": 2582.489,
+      "p95_ms": 2675.6823,
+      "p99_ms": 2675.6823,
+      "mean_ms": 2600.7884,
+      "throughput_rows_s": 12.3
+    },
+    "batch_256": {
+      "n": 2,
+      "p50_ms": 9984.2776,
+      "p95_ms": 17632.5226,
+      "p99_ms": 17632.5226,
+      "mean_ms": 13808.4001,
+      "throughput_rows_s": 14.5
+    },
+    "batch_1024": {
+      "n": 1,
+      "p50_ms": 26644.4528,
+      "p95_ms": 26644.4528,
+      "p99_ms": 26644.4528,
+      "mean_ms": 26644.4528,
+      "throughput_rows_s": 15.0
+    }
+  },
+  "query": {
+    "metadata_filter": {
+      "n": 200,
+      "p50_ms": 0.7106,
+      "p95_ms": 1.4231,
+      "p99_ms": 1.7216,
+      "mean_ms": 0.7833
+    },
+    "bm25": {
+      "n": 200,
+      "p50_ms": 1.6342,
+      "p95_ms": 2.9468,
+      "p99_ms": 3.2456,
+      "mean_ms": 1.6441
+    },
+    "vector": {
+      "n": 200,
+      "p50_ms": 56.7355,
+      "p95_ms": 57.4778,
+      "p99_ms": 58.2167,
+      "mean_ms": 56.9909
+    },
+    "hybrid_rrf": {
+      "n": 200,
+      "p50_ms": 60.3783,
+      "p95_ms": 61.9554,
+      "p99_ms": 62.9901,
+      "mean_ms": 60.5345
+    }
+  },
+  "w2r": {
+    "metadata": {
+      "n": 20,
+      "p50_ms": 3.2185,
+      "p95_ms": 3.8855,
+      "p99_ms": 3.9202,
+      "mean_ms": 3.2863,
+      "visible_fraction": 1.0
+    },
+    "bm25": {
+      "n": 20,
+      "p50_ms": 3.4277,
+      "p95_ms": 4.1124,
+      "p99_ms": 4.9229,
+      "mean_ms": 3.4182,
+      "visible_fraction": 1.0
+    },
+    "vector": {
+      "n": 20,
+      "p50_ms": 55.8365,
+      "p95_ms": 57.3137,
+      "p99_ms": 57.5713,
+      "mean_ms": 56.1774,
+      "visible_fraction": 1.0
+    }
+  },
+  "recall": {
+    "probe_hits": 5,
+    "nonempty": true
+  }
+}

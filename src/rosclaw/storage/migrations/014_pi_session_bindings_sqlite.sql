@@ -1,3 +1,4 @@
+-- backend: sqlite
 -- 014：Pi Session ↔ Mission 绑定与 writer lease（重构规格 §12，PR-PNA-1）
 --
 -- pi_session_bindings：一个 Pi Session 只绑定一个 active Mission；

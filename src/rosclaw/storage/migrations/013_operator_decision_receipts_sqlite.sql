@@ -1,3 +1,4 @@
+-- backend: sqlite
 -- 013：Operator Decision Protocol v1（二次复核 R1/R3）
 --
 -- decision_receipts：agentd 已应用的 daemon 签名 DecisionReceiptV1——

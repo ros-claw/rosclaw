@@ -1,3 +1,4 @@
+-- backend: sqlite
 -- 0902 审计 R1-a：Approval Broker（shell 降级授权）——删除全局环境
 -- 变量授权方案（ROSCLAW_ALLOW_UNSANDBOXED_SHELL）的正式路径。
 --

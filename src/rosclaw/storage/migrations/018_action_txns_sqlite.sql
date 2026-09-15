@@ -1,3 +1,4 @@
+-- backend: sqlite
 -- 018：ActionTxn（四审 HOTFIX-2，P0-4C）——动作事务状态机。
 -- request→session→mission→context→approval→grant→action→receipt
 -- 全 ID 链的单一持久化承载；idempotency_key UNIQUE 防重复建卡。

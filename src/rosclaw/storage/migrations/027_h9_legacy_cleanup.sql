@@ -1,3 +1,4 @@
+-- backend: sqlite
 -- 027: PR-H9 旧链数据迁移——Worker/WorkOrder/TaskRunner/ControlPlane
 -- 默认链已删除（总纲 v2 §18）。存量非终态行不得永远假装 RUNNING：
 -- 诚实标记 CANCELLED（reason=h9_legacy_chain_removed），历史终态行

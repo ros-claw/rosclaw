@@ -1,3 +1,4 @@
+-- backend: sqlite
 -- P0-D（0824 总纲 §7.4/§19.P0-D）：TaskOutcomeV2 与修复指令。
 -- BLOCKED 不再是万能终态——结果拆六维；delivery 失败不关 lifecycle。
 CREATE TABLE IF NOT EXISTS task_outcomes (
