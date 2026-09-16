@@ -346,3 +346,26 @@ ROSClaw 已经具备相当多 MuJoCo 底层能力：`sim/api.py` 的最小编程
    实际使用的后端。
 3. depth 归一化 16-bit PNG；segmentation 8-bit 标签图；
    混合通道一次调用（物理通道 in-process，相机通道子进程）。
+
+## 补充：MH15 限值与数值健壮性 Audit（2026-09-16，0916 优化 §二十一-§二十三）
+
+1. **A09-A14 限值审计**：限值来源纪律——模型自带
+   ctrlrange/forcerange（物理事实）与 e-URDF Safety Profile
+   （velocity_limits/force_limits/max_joint_effort）；无声明
+   → NOT_EVALUATED（中性，不拉低总状态，绝不用万能阈值）。
+2. **A21-A24 有效性/约定/健壮性**：sensor 有限性 + 延迟 buffer
+   覆盖（nsample 在 3.13 MjModel 不可达——解析来源 XML）；
+   frame 约定（重力主导 -Z，WARN）；solver 安全组合探针
+   （Newton vs CG，实质偏差 → ROBUSTNESS_WARNING）；timestep
+   探针（dt vs dt/2，实质偏差 → NUMERICAL_FRAGILITY）。
+   discrete integrator 只作 diagnostic candidate，不冒充原方案成功。
+3. **实证记录**：
+   - MuJoCo 不回写裁剪 `data.ctrl`——命令值越界滞留，A09 必须
+     把"贴边界"与"越界"都计为饱和。
+   - forcerange 是物理裁剪，力恰好钉在限值——A10 的缺陷形态是
+     "持续饱和比"而非"超过限值"。
+   - 简单模型（含单自由度不稳定伺服）Newton/CG/PGS 逐位一致——
+     solver 不敏感是物理事实；真正敏感的形态是多接触堆叠 +
+     严重受限 iterations 预算（CG 收敛不足）。
+   - A10 接入后 compare 语义闭环：kp=400 持续饱和 → verification
+     FAIL → Pareto 排除（物理诚实胜过 rmse 更小）。

@@ -164,7 +164,17 @@ def test_h02_broken_model_doctor(runtime) -> None:
         ],
     )
     healed = runtime.audit(fixed["new_model_ref"])
-    assert healed["status"] == "PASS", healed["violations"]
+    # 三个注入缺陷必须全部消除。MH15 后 kp=5000 硬伺服在 dt=0.002 下
+    # 被 A24 诚实标记 NUMERICAL_FRAGILITY（WARN 不判 FAIL——
+    # 修缺陷不等于消除刚度，这是审计栈按设计工作）。
+    for name in ("A02_explicit_mass", "A05_initial_penetration", "A03_servo_hold"):
+        assert healed["checks"][name]["status"] == "PASS", healed["checks"][name]
+    non_pass = {
+        name: outcome["status"]
+        for name, outcome in healed["checks"].items()
+        if outcome["status"] not in ("PASS", "NOT_EVALUATED")
+    }
+    assert set(non_pass) <= {"A24_timestep_sensitivity"}, non_pass
 
     # 母模型仍然是坏的（不可变——修复不污染亲缘）。
     assert runtime.audit(loaded["model_ref"])["status"] == "FAIL"

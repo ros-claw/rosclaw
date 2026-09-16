@@ -15,8 +15,8 @@
 | G21 Real A/B Baseline vs Harness | A=coding agent，B=harness，同模型/prompt/seed | 同上 | ⏸ NOT_RUN（需真实模型 key） |
 | G22 Executable Interaction Honesty | sim_interact + executor registry + GRASP_HONESTY | `tests/sim/test_interact.py`（grasp 诚实流/precondition/未声明 weld/未知 executor）、`tests/sim/test_predicates_v2.py` | ✅ PASS（MH12） |
 | G23 Multimodal Observation Evidence | camera_rgb/depth/segmentation → artifact_ref | `tests/sim/test_observe_camera.py`（PNG magic/dtype/intrinsics/实际后端） | ✅ PASS（MH13） |
-| G24 Parallel CPU Agreement | mujoco.rollout native batch 与串行一致性 | MH14 待做 | ⏸ NOT_RUN |
-| G25 Numerical Robustness | A23/A24（solver/timestep/discrete diagnostic） | MH15 待做 | ⏸ NOT_RUN |
+| G24 Parallel CPU Agreement | mujoco.rollout native batch 与串行一致性 | `tests/sim/test_batch_parallel.py`（轨迹逐步一致 abs 1e-9/异构拒绝/branch_experiment 并行+串行回退） | ✅ PASS（MH14） |
+| G25 Numerical Robustness | A23/A24（solver/timestep/discrete diagnostic） | `tests/sim/test_audit_limits.py`（A09-A14/A21-A24 红绿 + NOT_EVALUATED 中性） | ✅ PASS（MH15） |
 | G26 SysID Synthetic Recovery + Holdout | 合成数据参数恢复 + holdout 改进 | MH17 待做 | ⏸ NOT_RUN |
 
 ## MH10 实证记录（2026-09-16）
