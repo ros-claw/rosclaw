@@ -192,6 +192,15 @@ P0_TOOL_CALLS: list[tuple[str, dict[str, Any]]] = [
         # 不能用作反例——实测空世界可编译）。
         {"worldspec": {"schema_version": "rosclaw.sim.worldspec.v0"}, "name": "e2e"},
     ),
+    (
+        "sim_interact",
+        {
+            "model_ref": "simmdl_0000000000000000",
+            "state_ref": "simsta_0000000000000000",
+            "interaction": {"executor": "joint_target", "target": {"type": "joint", "name": "j1"}},
+            "payload": {"target": 0.1},
+        },
+    ),
 ]
 
 EXPECTED_TOOLS = set(P0_AGENT_MCP_TOOLS)
@@ -210,6 +219,7 @@ EXPECTED_ERROR_TOOLS = {
     "sim_render",
     "sim_branch_experiment",
     "sim_compile_world",
+    "sim_interact",
 }
 
 

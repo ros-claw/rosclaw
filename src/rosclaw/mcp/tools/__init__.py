@@ -356,6 +356,20 @@ async def _sim_compile_world(worldspec: dict[str, Any], name: str = "world") -> 
     return await _client().sim_compile_world(worldspec, name=name)
 
 
+async def _sim_interact(
+    model_ref: str,
+    state_ref: str,
+    interaction: dict[str, Any],
+    payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Execute a typed interaction via the official executor registry.
+
+    Grasp flows are physically honest: contact evidence + measured relpose
+    + constraint_assisted_grasp marker, never qpos teleport or hidden weld.
+    """
+    return await _client().sim_interact(model_ref, state_ref, interaction, payload)
+
+
 async def _practice_query(episode_id: str | None = None, limit: int = 10) -> dict[str, Any]:
     """List practice episodes or fetch one by ID."""
     return await _client().practice_query(episode_id=episode_id, limit=limit)
@@ -802,6 +816,7 @@ sim_compare = _tool_wrapper("sim_compare", _sim_compare)
 sim_render = _tool_wrapper("sim_render", _sim_render)
 sim_branch_experiment = _tool_wrapper("sim_branch_experiment", _sim_branch_experiment)
 sim_compile_world = _tool_wrapper("sim_compile_world", _sim_compile_world)
+sim_interact = _tool_wrapper("sim_interact", _sim_interact)
 practice_query = _tool_wrapper("practice_query", _practice_query)
 emergency_stop = _tool_wrapper("emergency_stop", _emergency_stop)
 get_runtime_status = _tool_wrapper("get_runtime_status", _get_runtime_status)
@@ -878,6 +893,7 @@ P0_TOOLS: list[ToolFunc] = [
     sim_render,
     sim_branch_experiment,
     sim_compile_world,
+    sim_interact,
 ]
 
 BODY_TOOLS: list[ToolFunc] = [
