@@ -334,3 +334,15 @@ ROSClaw 已经具备相当多 MuJoCo 底层能力：`sim/api.py` 的最小编程
 4. **v2 快照与 transplant**：transplant_state 支持
    state_snapshot_v2（结构签名一致 ⇒ 状态布局一致，
    mj_setState 再做尺寸校验）。
+
+## 补充：MH13 多模态观测（2026-09-16，0916 优化文档 §十六）
+
+1. **camera_rgb/camera_depth/camera_segmentation 通道**：返回
+   artifact_ref + width/height/dtype + camera + intrinsics（fovy/
+   focal/主点）+ extrinsics + simulation_time——不把图像数组塞进
+   JSON tool result。
+2. **渲染继续走隔离子进程**（Shared RenderService 方向：egl →
+   osmesa → honest error，绝不 auto）；`renderer_backend` 记录
+   实际使用的后端。
+3. depth 归一化 16-bit PNG；segmentation 8-bit 标签图；
+   混合通道一次调用（物理通道 in-process，相机通道子进程）。
