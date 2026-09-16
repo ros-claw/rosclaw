@@ -81,9 +81,9 @@ def compile_world(backend, worldspec: dict[str, Any], *, name: str = "world") ->
         robot_assets = {
             key: backend.store.get(ref) for key, ref in robot_manifest["assets"].items()
         }
-        robot_spec = mujoco.MjSpec.from_string(
-            robot_manifest["mjcf_xml"], assets=robot_assets or None
-        )
+        from rosclaw.sim.backends.mujoco.backend import _spec_from_xml_assets
+
+        robot_spec = _spec_from_xml_assets(robot_manifest["mjcf_xml"], robot_assets)
         frame = spec.worldbody.add_frame(pos=body_ref["pose"]["pos"], quat=body_ref["pose"]["quat"])
         spec.attach(robot_spec, frame=frame, prefix=f"{body_ref['id']}_")
         # attach 后 mesh 引用带 prefix（3.11 实测）；剥 prefix 按 basename

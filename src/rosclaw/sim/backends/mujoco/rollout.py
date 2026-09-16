@@ -54,8 +54,14 @@ def resolve_steps(
     raise ValueError("ROLLOUT_STEPS_REQUIRED: hold/position_targets 需要 steps 或 duration_s")
 
 
-def validate_controller(controller: Any, nu: int) -> dict[str, Any]:
-    """校验 controller 形状（fail closed）。"""
+def validate_controller(
+    controller: Any, nu: int, channels: list[dict[str, Any]] | None = None
+) -> dict[str, Any]:
+    """校验 controller 形状（fail closed）。
+
+    position_targets 只允许**全部单输入**模型（0916 §三：PID 多输入
+    模型必须走 setpoints 按名寻址，Agent 不该猜 ctrl[i] 含义）。
+    """
     if not isinstance(controller, dict):
         raise ValueError(f"CONTROLLER_INVALID: controller must be a mapping, got {controller!r}")
     if controller.get("hold") is True:
@@ -79,12 +85,49 @@ def validate_controller(controller: Any, nu: int) -> dict[str, Any]:
     if targets is not None:
         if not isinstance(targets, list) or len(targets) != nu:
             raise ValueError(f"CONTROLLER_INVALID: position_targets must have {nu} entries")
+        if channels is not None and any(c["role"] not in ("ctrl",) for c in channels):
+            raise ValueError(
+                "CONTROLLER_SCHEMA_MISMATCH: position_targets requires all actuators "
+                "to be single-input (use setpoints for multi-input actuators)"
+            )
         values = []
         for v in targets:
             if not isinstance(v, (int, float)) or isinstance(v, bool) or not np.isfinite(v):
                 raise ValueError(f"CONTROLLER_INVALID: non-finite target {v!r}")
             values.append(float(v))
         return {"kind": "position_targets", "values": values}
+    setpoints = controller.get("setpoints")
+    if setpoints is not None:
+        if not isinstance(setpoints, dict) or not setpoints:
+            raise ValueError("CONTROLLER_INVALID: setpoints must be a non-empty mapping")
+        if channels is None:
+            raise ValueError("CONTROLLER_SCHEMA_MISMATCH: setpoints requires control schema")
+        channel_map: dict[tuple[str, str], int] = {}
+        default_map: dict[str, int] = {}
+        for c in channels:
+            channel_map[(c["actuator"], c["role"])] = c["index"]
+            default_map.setdefault(c["actuator"], c["index"])
+        values = [0.0] * nu
+        for actuator, entry in setpoints.items():
+            if not isinstance(entry, dict) or not entry:
+                raise ValueError(
+                    f"CONTROLLER_SCHEMA_MISMATCH: setpoints[{actuator!r}] must be a mapping"
+                )
+            for role, value in entry.items():
+                if (actuator, role) in channel_map:
+                    index = channel_map[(actuator, role)]
+                elif role == "ctrl" and actuator in default_map:
+                    index = default_map[actuator]
+                else:
+                    raise ValueError(f"CONTROLLER_SCHEMA_MISMATCH: no channel {actuator}:{role}")
+                if (
+                    not isinstance(value, (int, float))
+                    or isinstance(value, bool)
+                    or not np.isfinite(value)
+                ):
+                    raise ValueError(f"CONTROLLER_INVALID: non-finite setpoint {actuator}:{role}")
+                values[index] = float(value)
+        return {"kind": "setpoints", "values": values}
     raise ValueError(f"CONTROLLER_INVALID: unsupported controller {controller!r}")
 
 
@@ -115,7 +158,7 @@ def run_rollout(
 
     if plan["kind"] == "hold":
         hold_ctrl = [float(v) for v in data.ctrl]
-    elif plan["kind"] == "position_targets":
+    elif plan["kind"] in ("position_targets", "setpoints"):
         for i, v in enumerate(plan["values"]):
             data.ctrl[i] = v
 
