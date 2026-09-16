@@ -39,8 +39,8 @@ def spec_name(spec_value: int) -> str:
 
 def capture_state_v2(model, data, *, fidelity: str = FIDELITY_FULL_INTEGRATION):  # noqa: ANN001, ANN202
     """mj_getState 捕获完整状态向量（float64）。"""
-    import numpy as np
     import mujoco
+    import numpy as np
 
     spec = _spec_enum(fidelity)
     size = mujoco.mj_stateSize(model, spec)
@@ -51,8 +51,8 @@ def capture_state_v2(model, data, *, fidelity: str = FIDELITY_FULL_INTEGRATION):
 
 def apply_state_v2(model, data, vector, spec_value: int) -> None:  # noqa: ANN001
     """mj_setState 恢复；维度/有限性 fail closed。"""
-    import numpy as np
     import mujoco
+    import numpy as np
 
     spec = mujoco.mjtState(spec_value)
     expected = mujoco.mj_stateSize(model, spec)

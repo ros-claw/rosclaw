@@ -8,8 +8,6 @@ from __future__ import annotations
 
 import hashlib
 
-import pytest
-
 from rosclaw.contracts.common import canonical_json
 from rosclaw.sim.refs import make_ref
 
