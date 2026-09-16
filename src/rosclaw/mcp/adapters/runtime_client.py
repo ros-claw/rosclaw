@@ -67,6 +67,7 @@ class RuntimeClient:
         self._runtime: Any | None = None
         self._runtime_error: str | None = None
         self._adapter_cache: dict[str, Any] | None = None
+        self._sim_runtime: Any | None = None
 
     # ------------------------------------------------------------------
     # Runtime lifecycle
@@ -344,6 +345,177 @@ class RuntimeClient:
             if isinstance(exc, MCPError):
                 raise
             self._unavailable("sandbox_run", str(exc), code="SIMULATION_FAILED")
+
+    # ------------------------------------------------------------------
+    # SimulationRuntime tools (PR-MH6, ADR-0014)
+    #
+    # 这些工具调用 SimulationRuntime（Native Runtime 进程内能力），不经
+    # rosclawd；全部 <= S1，usable_for_real_execution=false，零 REAL permit。
+    # ------------------------------------------------------------------
+
+    def _sim(self) -> Any:
+        if self._sim_runtime is None:
+            from rosclaw.sim.runtime import SimulationRuntime
+
+            self._sim_runtime = SimulationRuntime()
+        return self._sim_runtime
+
+    def _sim_call(self, operation: str, fn: Any, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        try:
+            return fn(*args, **kwargs)
+        except ValueError as exc:
+            message = str(exc)
+            code = message.split(":", 1)[0] if ":" in message else "SIMULATION_FAILED"
+            self._unavailable(operation, message, code=code)
+
+    async def sim_get_capabilities(self) -> dict[str, Any]:
+        if self.fixture_mode:
+            return self._fixture_payload(
+                {"backend": "mujoco", "capabilities": {}, "usable_for_real_execution": False}
+            )
+        return self._sim_call("sim_get_capabilities", self._sim().get_capabilities)
+
+    async def sim_load_model(self, asset_ref: str) -> dict[str, Any]:
+        if self.fixture_mode:
+            return self._fixture_payload({"model_ref": "simmdl_fixture000000", "compiled": True})
+        return self._sim_call("sim_load_model", self._sim().load_model, asset_ref)
+
+    async def sim_inspect_model(self, model_ref: str) -> dict[str, Any]:
+        if self.fixture_mode:
+            return self._fixture_payload({"model_ref": model_ref, "nq": 0, "nv": 0, "nu": 0})
+        return self._sim_call("sim_inspect_model", self._sim().inspect_model, model_ref)
+
+    async def sim_patch_model(
+        self, model_ref: str, patches: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        if self.fixture_mode:
+            return self._fixture_payload({"ok": False, "note": "fixture mode; no patch applied"})
+        return self._sim_call("sim_patch_model", self._sim().patch_model, model_ref, patches)
+
+    async def sim_snapshot(self, model_ref: str, state_ref: str | None = None) -> dict[str, Any]:
+        if self.fixture_mode:
+            return self._fixture_payload({"state_ref": "simsta_fixture000000"})
+        return self._sim_call("sim_snapshot", self._sim().snapshot, model_ref, state_ref)
+
+    async def sim_observe(
+        self, model_ref: str, state_ref: str, channels: list[str]
+    ) -> dict[str, Any]:
+        if self.fixture_mode:
+            return self._fixture_payload({"values": {}, "channels": channels})
+        return self._sim_call("sim_observe", self._sim().observe, model_ref, state_ref, channels)
+
+    async def sim_rollout(
+        self,
+        model_ref: str,
+        controller: dict[str, Any],
+        duration_s: float | None = None,
+        steps: int | None = None,
+        state_ref: str | None = None,
+        seed: int = 0,
+        task_predicates: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        if self.fixture_mode:
+            return self._fixture_payload(
+                {
+                    "trust_level": "SIMULATED",
+                    "usable_for_real_execution": False,
+                    "note": "fixture mode; no physics was executed.",
+                }
+            )
+        return self._sim_call(
+            "sim_rollout",
+            self._sim().rollout,
+            model_ref,
+            controller=controller,
+            duration_s=duration_s,
+            steps=steps,
+            state_ref=state_ref,
+            seed=seed,
+            task_predicates=task_predicates,
+        )
+
+    async def sim_audit(
+        self,
+        model_ref: str,
+        checks: list[str] | None = None,
+        trace_ref: str | None = None,
+    ) -> dict[str, Any]:
+        if self.fixture_mode:
+            return self._fixture_payload({"status": "PASS", "note": "fixture mode; no audit ran"})
+        return self._sim_call(
+            "sim_audit", self._sim().audit, model_ref, checks=checks, trace_ref=trace_ref
+        )
+
+    async def sim_compare(self, receipt_refs: list[str]) -> dict[str, Any]:
+        if self.fixture_mode:
+            return self._fixture_payload({"metric_table": [], "best_ref": ""})
+        return self._sim_call("sim_compare", self._sim().compare, receipt_refs)
+
+    async def sim_render(
+        self,
+        trace_ref: str,
+        camera: str | None = None,
+        width: int = 640,
+        height: int = 480,
+        max_frames: int = 16,
+    ) -> dict[str, Any]:
+        if self.fixture_mode:
+            return self._fixture_payload({"artifact_ref": "simrnd_fixture000000", "frames": 0})
+        return self._sim_call(
+            "sim_render",
+            self._sim().render,
+            trace_ref,
+            camera=camera,
+            width=width,
+            height=height,
+            max_frames=max_frames,
+        )
+
+    async def sim_branch_experiment(
+        self,
+        model_ref: str,
+        branches: list[dict[str, Any]],
+        controller: dict[str, Any],
+        state_ref: str | None = None,
+        duration_s: float | None = None,
+        steps: int | None = None,
+        seed: int = 0,
+        task_predicates: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        if self.fixture_mode:
+            return self._fixture_payload({"receipts": [], "count": 0})
+        return self._sim_call(
+            "sim_branch_experiment",
+            self._sim().branch_experiment,
+            model_ref,
+            branches=branches,
+            controller=controller,
+            state_ref=state_ref,
+            duration_s=duration_s,
+            steps=steps,
+            seed=seed,
+            task_predicates=task_predicates,
+        )
+
+    async def sim_compile_world(
+        self, worldspec: dict[str, Any], name: str = "world"
+    ) -> dict[str, Any]:
+        if self.fixture_mode:
+            return self._fixture_payload({"model_ref": "simmdl_fixture000000"})
+        return self._sim_call("sim_compile_world", self._sim().compile_world, worldspec, name=name)
+
+    async def sim_interact(
+        self,
+        model_ref: str,
+        state_ref: str,
+        interaction: dict[str, Any],
+        payload: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        if self.fixture_mode:
+            return self._fixture_payload({"ok": False, "note": "fixture mode; no interaction"})
+        return self._sim_call(
+            "sim_interact", self._sim().interact, model_ref, state_ref, interaction, payload
+        )
 
     # ------------------------------------------------------------------
     # S0 practice-query tool

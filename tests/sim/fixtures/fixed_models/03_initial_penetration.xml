@@ -1,0 +1,9 @@
+<mujoco model="initial_penetration_fixed">
+  <worldbody>
+    <geom name="floor" type="plane" size="5 5 0.1"/>
+    <body name="box" pos="0 0 0.05">
+      <freejoint name="box_free"/>
+      <geom name="box_geom" type="box" size="0.05 0.05 0.05" mass="0.5"/>
+    </body>
+  </worldbody>
+</mujoco>

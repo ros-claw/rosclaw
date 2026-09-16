@@ -234,6 +234,142 @@ async def _sandbox_run(joint_positions: list[float]) -> dict[str, Any]:
     return await _client().sandbox_run(joint_positions)
 
 
+# ---------------------------------------------------------------------------
+# MuJoCo Simulation Harness tools (PR-MH6, ADR-0014, 规格 §25)
+#
+# Agent 原生物理实验面：inspect → patch → snapshot → rollout → observe →
+# audit → compare → render。全部 <= S1，usable_for_real_execution=false。
+# ---------------------------------------------------------------------------
+
+
+async def _sim_get_capabilities() -> dict[str, Any]:
+    """Probe the MuJoCo simulation runtime capabilities (probed, never guessed)."""
+    return await _client().sim_get_capabilities()
+
+
+async def _sim_load_model(asset_ref: str) -> dict[str, Any]:
+    """Load a task-local or e-URDF zoo MJCF into the simulation runtime."""
+    return await _client().sim_load_model(asset_ref)
+
+
+async def _sim_inspect_model(model_ref: str) -> dict[str, Any]:
+    """Inspect a compiled model: bodies, joints, actuators, sensors, options."""
+    return await _client().sim_inspect_model(model_ref)
+
+
+async def _sim_patch_model(model_ref: str, patches: list[dict[str, Any]]) -> dict[str, Any]:
+    """Apply structured MjSpec patches; produces a new immutable model ref."""
+    return await _client().sim_patch_model(model_ref, patches)
+
+
+async def _sim_snapshot(model_ref: str, state_ref: str | None = None) -> dict[str, Any]:
+    """Snapshot a full resumable physics state bound to the model digest."""
+    return await _client().sim_snapshot(model_ref, state_ref)
+
+
+async def _sim_observe(model_ref: str, state_ref: str, channels: list[str]) -> dict[str, Any]:
+    """Observe semantic bounded channels (joints, bodies, sites, sensors, contacts)."""
+    return await _client().sim_observe(model_ref, state_ref, channels)
+
+
+async def _sim_rollout(
+    model_ref: str,
+    controller: dict[str, Any],
+    duration_s: float | None = None,
+    steps: int | None = None,
+    state_ref: str | None = None,
+    seed: int = 0,
+    task_predicates: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Run a bounded physics rollout; returns a SimulationReceipt (SIMULATED only).
+
+    task_predicates: optional machine predicates (inside/near) evaluated on
+    the final state — task_success is decided by them, never by agent text.
+    """
+    return await _client().sim_rollout(
+        model_ref,
+        controller,
+        duration_s=duration_s,
+        steps=steps,
+        state_ref=state_ref,
+        seed=seed,
+        task_predicates=task_predicates,
+    )
+
+
+async def _sim_audit(
+    model_ref: str,
+    checks: list[str] | None = None,
+    trace_ref: str | None = None,
+) -> dict[str, Any]:
+    """Run the physical-honesty audit (collision, mass, servo hold, penetration...)."""
+    return await _client().sim_audit(model_ref, checks=checks, trace_ref=trace_ref)
+
+
+async def _sim_compare(receipt_refs: list[str]) -> dict[str, Any]:
+    """Compare experiment receipts: metric table, best branch, Pareto candidates."""
+    return await _client().sim_compare(receipt_refs)
+
+
+async def _sim_render(
+    trace_ref: str,
+    camera: str | None = None,
+    width: int = 640,
+    height: int = 480,
+    max_frames: int = 16,
+) -> dict[str, Any]:
+    """Render a trace into a GIF evidence artifact (render is not proof of truth)."""
+    return await _client().sim_render(
+        trace_ref, camera=camera, width=width, height=height, max_frames=max_frames
+    )
+
+
+async def _sim_branch_experiment(
+    model_ref: str,
+    branches: list[dict[str, Any]],
+    controller: dict[str, Any],
+    state_ref: str | None = None,
+    duration_s: float | None = None,
+    steps: int | None = None,
+    seed: int = 0,
+    task_predicates: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Branch a base state across patched model variants and roll out each.
+
+    High-level primitive: fork + explicit state transplant + per-branch
+    SimulationReceipt in one structured call (no low-level state surgery).
+    """
+    return await _client().sim_branch_experiment(
+        model_ref,
+        branches,
+        controller,
+        state_ref=state_ref,
+        duration_s=duration_s,
+        steps=steps,
+        seed=seed,
+        task_predicates=task_predicates,
+    )
+
+
+async def _sim_compile_world(worldspec: dict[str, Any], name: str = "world") -> dict[str, Any]:
+    """Compile a WorldSpec into a world model (validation + capability proof)."""
+    return await _client().sim_compile_world(worldspec, name=name)
+
+
+async def _sim_interact(
+    model_ref: str,
+    state_ref: str,
+    interaction: dict[str, Any],
+    payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Execute a typed interaction via the official executor registry.
+
+    Grasp flows are physically honest: contact evidence + measured relpose
+    + constraint_assisted_grasp marker, never qpos teleport or hidden weld.
+    """
+    return await _client().sim_interact(model_ref, state_ref, interaction, payload)
+
+
 async def _practice_query(episode_id: str | None = None, limit: int = 10) -> dict[str, Any]:
     """List practice episodes or fetch one by ID."""
     return await _client().practice_query(episode_id=episode_id, limit=limit)
@@ -619,9 +755,7 @@ def _invoke_capability_sync(capability_id: str, args: dict | None) -> dict[str, 
         plan = service.plan(hit.name, args or {})
         HostOpsPolicy().validate_plan(plan)
     except (SkillPlanError, HostOpsPolicyError) as exc:
-        raise _capability_error(
-            "PLAN_REJECTED", f"plan for {hit.name} rejected: {exc}"
-        ) from exc
+        raise _capability_error("PLAN_REJECTED", f"plan for {hit.name} rejected: {exc}") from exc
     job = SkillJobStore().create(
         skill=hit.name,
         capability=capability_id,
@@ -670,6 +804,19 @@ list_skills = _tool_wrapper("list_skills", _list_skills)
 query_memory = _tool_wrapper("query_memory", _query_memory)
 validate_trajectory = _tool_wrapper("validate_trajectory", _validate_trajectory)
 sandbox_run = _tool_wrapper("sandbox_run", _sandbox_run)
+sim_get_capabilities = _tool_wrapper("sim_get_capabilities", _sim_get_capabilities)
+sim_load_model = _tool_wrapper("sim_load_model", _sim_load_model)
+sim_inspect_model = _tool_wrapper("sim_inspect_model", _sim_inspect_model)
+sim_patch_model = _tool_wrapper("sim_patch_model", _sim_patch_model)
+sim_snapshot = _tool_wrapper("sim_snapshot", _sim_snapshot)
+sim_observe = _tool_wrapper("sim_observe", _sim_observe)
+sim_rollout = _tool_wrapper("sim_rollout", _sim_rollout)
+sim_audit = _tool_wrapper("sim_audit", _sim_audit)
+sim_compare = _tool_wrapper("sim_compare", _sim_compare)
+sim_render = _tool_wrapper("sim_render", _sim_render)
+sim_branch_experiment = _tool_wrapper("sim_branch_experiment", _sim_branch_experiment)
+sim_compile_world = _tool_wrapper("sim_compile_world", _sim_compile_world)
+sim_interact = _tool_wrapper("sim_interact", _sim_interact)
 practice_query = _tool_wrapper("practice_query", _practice_query)
 emergency_stop = _tool_wrapper("emergency_stop", _emergency_stop)
 get_runtime_status = _tool_wrapper("get_runtime_status", _get_runtime_status)
@@ -732,6 +879,21 @@ P0_TOOLS: list[ToolFunc] = [
     invoke_capability,
     get_skill_job,
     cancel_skill_job,
+    # MuJoCo Simulation Harness tools (PR-MH6, ADR-0014; 顺序与
+    # tool_catalog.P0_SIM_TOOLS 保持一致——test_p0_tools_contains_expected_set 锁定）。
+    sim_get_capabilities,
+    sim_load_model,
+    sim_inspect_model,
+    sim_patch_model,
+    sim_snapshot,
+    sim_observe,
+    sim_rollout,
+    sim_audit,
+    sim_compare,
+    sim_render,
+    sim_branch_experiment,
+    sim_compile_world,
+    sim_interact,
 ]
 
 BODY_TOOLS: list[ToolFunc] = [
