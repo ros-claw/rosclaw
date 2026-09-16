@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import math
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
 
@@ -470,7 +471,10 @@ def _judge_repair_aleg(root: Path, original_asset: str) -> dict[str, Any]:
     claimed = (answer or {}).get("fixed_model_ref")
 
     for candidate in _candidate_xml_files(root, original_asset):
-        body = _body_check(original_xml, candidate.read_text(encoding="utf-8"))
+        try:
+            body = _body_check(original_xml, candidate.read_text(encoding="utf-8"))
+        except (ET.ParseError, UnicodeDecodeError):
+            continue  # Agent 的草稿/半成品不是有效候选（不判作弊）。
         if not body["ok"]:
             continue
         try:
@@ -521,7 +525,10 @@ def _judge_experiment_aleg(root: Path, original_asset: str) -> dict[str, Any]:
 
     best: tuple[Path, float] | None = None
     for candidate in _candidate_xml_files(root, original_asset):
-        body = _body_check(original_xml, candidate.read_text(encoding="utf-8"))
+        try:
+            body = _body_check(original_xml, candidate.read_text(encoding="utf-8"))
+        except (ET.ParseError, UnicodeDecodeError):
+            continue
         if not body["ok"]:
             continue
         try:
