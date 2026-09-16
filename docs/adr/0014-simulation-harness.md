@@ -311,3 +311,26 @@ ROSClaw 已经具备相当多 MuJoCo 底层能力：`sim/api.py` 的最小编程
    便携工件走 `spec.assets` 填充 + `to_zip/from_zip`——
    `export_model_mjz` 输出自包含 .mjz（31MB mesh 嵌入，
    跨机器 from_zip 直接编译）。
+
+## 补充：MH12 可执行交互运行时（2026-09-16，0916 优化文档）
+
+1. **Interaction Contract ≠ Interaction Execution**：新增
+   `sim_interact`（S1）与官方 executor registry
+   （joint_target/actuator_setpoint/gripper_close/gripper_open/
+   constraint_attach/constraint_release）——WorldSpec 不允许
+   arbitrary Python；每个 executor 遵循 validate → precondition →
+   execute → observe → postcondition → receipt，receipt 落
+   experiments 分区（trust_level=SIMULATED）。
+2. **Grasp 物理诚实**：approach → close gripper → **接触证据**（无
+   接触即 `INTERACTION_PRECONDITION_FAILED`）→ **实测相对位姿**
+   → activate weld（必须预先在模型中声明 equality，未声明即
+   `INTERACTION_NO_WELD_DECLARED`）；weld 一律标记
+   `constraint_assisted_grasp = true`（task abstraction，不冒充
+   contact-dynamics grasp）；release 必须有重力响应证据。
+3. **Task Predicate Registry v2**：inside/near/contact/
+   joint_in_range/upright/speed_below 全部机器可执行，返回
+   {predicate, ok, measured, threshold}；自然语言条件
+   （"looks placed correctly"）永远不是 verifier truth。
+4. **v2 快照与 transplant**：transplant_state 支持
+   state_snapshot_v2（结构签名一致 ⇒ 状态布局一致，
+   mj_setState 再做尺寸校验）。

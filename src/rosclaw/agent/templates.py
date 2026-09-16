@@ -72,6 +72,7 @@ def _tool_table(tool_names: tuple[str, ...]) -> str:
         "sim_render": "Render a trace into a GIF evidence artifact",
         "sim_branch_experiment": "Branch a state across patched variants and roll out each",
         "sim_compile_world": "Compile a WorldSpec into a world model",
+        "sim_interact": "Execute a typed interaction via the official executor registry",
     }
     lines = ["| Tool | Safety level | Purpose |", "|------|--------------|---------|"]
     for tool in tool_names:

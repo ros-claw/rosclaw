@@ -26,6 +26,7 @@ EXPECTED_SIM_TOOLS = (
     "sim_render",
     "sim_branch_experiment",
     "sim_compile_world",
+    "sim_interact",
 )
 
 S0_TOOLS = {"sim_get_capabilities", "sim_inspect_model", "sim_observe", "sim_compare"}

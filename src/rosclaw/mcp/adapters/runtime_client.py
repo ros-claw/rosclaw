@@ -504,6 +504,19 @@ class RuntimeClient:
             return self._fixture_payload({"model_ref": "simmdl_fixture000000"})
         return self._sim_call("sim_compile_world", self._sim().compile_world, worldspec, name=name)
 
+    async def sim_interact(
+        self,
+        model_ref: str,
+        state_ref: str,
+        interaction: dict[str, Any],
+        payload: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        if self.fixture_mode:
+            return self._fixture_payload({"ok": False, "note": "fixture mode; no interaction"})
+        return self._sim_call(
+            "sim_interact", self._sim().interact, model_ref, state_ref, interaction, payload
+        )
+
     # ------------------------------------------------------------------
     # S0 practice-query tool
     # ------------------------------------------------------------------

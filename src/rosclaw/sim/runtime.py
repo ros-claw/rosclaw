@@ -167,6 +167,16 @@ class SimulationRuntime:
 
         return compile_world(self._backend, worldspec, name=name)
 
+    def interact(
+        self,
+        model_ref: str,
+        state_ref: str,
+        interaction: dict[str, Any],
+        payload: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """执行 typed interaction（官方 executor registry）。"""
+        return self._backend.interact(model_ref, state_ref, interaction, payload)
+
     def render(
         self,
         trace_ref: str,
