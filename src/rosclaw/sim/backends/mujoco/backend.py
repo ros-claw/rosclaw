@@ -31,6 +31,7 @@ from rosclaw.contracts.common import canonical_json, content_hash
 from rosclaw.sim.audit.context import AuditContext
 from rosclaw.sim.audit.engine import run_checks
 from rosclaw.sim.audit.policy import STRICT_POLICY, AuditPolicy
+from rosclaw.sim.backends.mujoco import interact as interact_mod
 from rosclaw.sim.backends.mujoco import observe as observe_mod
 from rosclaw.sim.backends.mujoco import rollout as rollout_mod
 from rosclaw.sim.backends.mujoco import state, state_v2
@@ -318,11 +319,13 @@ class MujocoBackend:
         """
         manifest = self._manifest(model_ref)
         snap = self.store.get(state_ref)
-        if not isinstance(snap, dict) or snap.get("kind") != "state_snapshot":
+        if not isinstance(snap, dict) or snap.get("kind") not in (
+            "state_snapshot",
+            "state_snapshot_v2",
+        ):
             raise ValueError(f"REF_NOT_FOUND: {state_ref!r} is not a state snapshot")
         spec = self._spec_from_manifest(manifest)
         model, _ = self._compile_smoke(spec)
-        state.validate_state_values(model, snap)
         source_ref = snap.get("model_ref")
         if source_ref:
             source_manifest = self._manifest(source_ref)
@@ -333,6 +336,26 @@ class MujocoBackend:
                     f"STATE_INCOMPATIBLE: structural signature changed "
                     f"({source_ref!r} → {model_ref!r})"
                 )
+        if snap.get("kind") == "state_snapshot_v2":
+            # v2：结构签名一致 ⇒ 状态布局一致；mj_setState 再做尺寸校验。
+            import mujoco as _mujoco
+            import numpy as np
+
+            blob = self.store.get(snap["state_vector_ref"])
+            if not isinstance(blob, bytes):
+                raise ValueError(
+                    f"STORE_DIGEST_MISMATCH: state vector {snap['state_vector_ref']!r}"
+                )
+            vector = np.frombuffer(blob, dtype=np.float64).copy()
+            state_v2.apply_state_v2(model, _mujoco.MjData(model), vector, snap["state_spec_value"])
+            meta = {
+                **snap,
+                "model_ref": model_ref,
+                "model_digest": self._model_digest(manifest),
+                "transplanted_from": state_ref,
+            }
+            return self.store.put("states", meta)
+        state.validate_state_values(model, snap)
         payload = {
             "kind": "state_snapshot",
             "model_ref": model_ref,
@@ -487,6 +510,86 @@ class MujocoBackend:
     @staticmethod
     def _structural_signature_str(model) -> str:  # noqa: ANN001
         return content_hash("simsig", MujocoBackend._structural_signature(model))
+
+    # -- 可执行交互（MH12，0916 §十二-§十四） ----------------------------------
+
+    def interact(
+        self,
+        model_ref: str,
+        state_ref: str,
+        interaction: dict[str, Any],
+        payload: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """执行一个 typed interaction：executor → 新 state_ref + receipt。
+
+        interaction: {"executor": <注册表名>, "target": {"type","name"},
+        可选 "id"/"weld"}。executor 只允许官方注册表
+        （interact.EXECUTORS），不允许 arbitrary Python。
+        """
+        if not isinstance(interaction, dict):
+            raise ValueError("INTERACTION_INVALID: interaction must be a mapping")
+        executor = interaction.get("executor")
+        if executor not in interact_mod.EXECUTORS:
+            raise ValueError(
+                f"INTERACTION_EXECUTOR_UNKNOWN: {executor!r} "
+                f"(registered: {list(interact_mod.EXECUTORS)})"
+            )
+        target = interaction.get("target")
+        if not isinstance(target, dict) or not isinstance(target.get("name"), str):
+            raise ValueError("INTERACTION_INVALID: target.name must be a non-empty string")
+        payload = payload or {}
+        if not isinstance(payload, dict):
+            raise ValueError("INTERACTION_PAYLOAD_INVALID: payload must be a mapping")
+
+        manifest = self._manifest(model_ref)
+        model, data = self.restore_state_v2(model_ref, state_ref)
+        interaction = {**interaction, "_model_ref": model_ref}
+
+        if executor == "joint_target":
+            outcome = interact_mod.exec_joint_target(self, model, data, interaction, payload)
+        elif executor == "actuator_setpoint":
+            outcome = interact_mod.exec_actuator_setpoint(self, model, data, interaction, payload)
+        elif executor == "gripper_close":
+            outcome = interact_mod.exec_gripper_motion(
+                self, model, data, interaction, payload, close=True
+            )
+        elif executor == "gripper_open":
+            outcome = interact_mod.exec_gripper_motion(
+                self, model, data, interaction, payload, close=False
+            )
+        elif executor == "constraint_attach":
+            outcome = interact_mod.exec_constraint_attach(self, model, data, interaction, payload)
+        else:
+            outcome = interact_mod.exec_constraint_release(self, model, data, interaction, payload)
+
+        new_state_ref = self.capture_and_store_v2(model_ref, model, data)
+        receipt = {
+            "kind": "interaction_receipt",
+            "model_ref": model_ref,
+            "model_digest": self._model_digest(manifest),
+            "interaction_id": interaction.get("id", executor),
+            "executor": executor,
+            "target": target,
+            "payload": payload,
+            "outcome": outcome,
+            "initial_state_ref": state_ref,
+            "final_state_ref": new_state_ref,
+            "constraint_assisted_grasp": bool(outcome.get("constraint_assisted_grasp", False)),
+            "trust_level": "SIMULATED",
+            "usable_for_real_execution": False,
+        }
+        receipt_ref = self.store.put("experiments", receipt)
+        return {
+            "ok": True,
+            "interaction_id": receipt["interaction_id"],
+            "executor": executor,
+            "outcome": outcome,
+            "state_ref": new_state_ref,
+            "receipt_ref": receipt_ref,
+            "constraint_assisted_grasp": receipt["constraint_assisted_grasp"],
+            "trust_level": "SIMULATED",
+            "usable_for_real_execution": False,
+        }
 
     # -- 实验：rollout / observe（MH3，规格 §15/§16） -------------------------
 

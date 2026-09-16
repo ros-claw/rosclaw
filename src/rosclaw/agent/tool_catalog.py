@@ -63,6 +63,7 @@ P0_SIM_TOOLS: tuple[str, ...] = (
     "sim_render",
     "sim_branch_experiment",
     "sim_compile_world",
+    "sim_interact",
 )
 
 P0_AGENT_MCP_TOOLS: tuple[str, ...] = (
@@ -102,6 +103,7 @@ MCP_TOOL_SAFETY_LEVELS: dict[str, str] = {
     "sim_render": "S1_SIMULATION_ONLY",
     "sim_branch_experiment": "S1_SIMULATION_ONLY",
     "sim_compile_world": "S1_SIMULATION_ONLY",
+    "sim_interact": "S1_SIMULATION_ONLY",
     "get_runtime_status": "S0_READ_ONLY",
     "request_action": "S3_GUARDED_ACTION",
     "request_guarded_action": "S3_GUARDED_ACTION",

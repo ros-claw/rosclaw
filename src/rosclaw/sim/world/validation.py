@@ -16,7 +16,7 @@ OBJECT_SHAPES = ("box", "cylinder", "sphere", "capsule")
 TARGET_TYPES = ("body", "geom", "joint", "actuator", "site", "camera")
 BODY_REF_KINDS = ("eurdf", "task")  # menagerie 属 P1（规格 §34）
 AFFORDANCES = ("press", "pull", "grasp", "place", "push", "inspect", "move")
-PREDICATE_FORMS = ("inside", "near")
+PREDICATE_FORMS = ("inside", "near", "contact", "joint_in_range", "upright", "speed_below")
 
 
 def _fail(message: str) -> None:
@@ -84,18 +84,20 @@ def _validate_action_schema(schema: Any, field: str) -> dict[str, Any]:
 
 
 def _validate_predicate(predicate: Any, field: str) -> dict[str, Any]:
-    """success/failure 机器谓词：只开放 inside / near 两种形式。"""
+    """success/failure 机器谓词：inside / near / contact /
+    joint_in_range / upright / speed_below——全部机器可执行，
+    不允许自然语言条件（0916 §十五）。"""
     if not isinstance(predicate, dict):
         _fail(f"{field} must be a mapping")
-    channel = predicate.get("channel")
-    if not isinstance(channel, str) or ":" not in channel:
-        _fail(f"{field}.channel must be '<channel>:<name>', got {channel!r}")
-    if predicate.get("field") not in ("pos", "quat", "value"):
-        _fail(f"{field}.field unsupported: {predicate.get('field')!r}")
-    forms = [form for form in PREDICATE_FORMS if form in predicate]
-    if len(forms) != 1:
+    form = next((f for f in PREDICATE_FORMS if f in predicate), None)
+    if form is None:
         _fail(f"{field} must have exactly one of {PREDICATE_FORMS}")
-    form = forms[0]
+    if form in ("inside", "near"):
+        channel = predicate.get("channel")
+        if not isinstance(channel, str) or ":" not in channel:
+            _fail(f"{field}.channel must be '<channel>:<name>', got {channel!r}")
+        if predicate.get("field") not in ("pos", "quat", "value"):
+            _fail(f"{field}.field unsupported: {predicate.get('field')!r}")
     if form == "inside":
         box = predicate["inside"]
         if not isinstance(box, dict):
@@ -104,7 +106,7 @@ def _validate_predicate(predicate: Any, field: str) -> dict[str, Any]:
         _vec(box.get("max"), f"{field}.inside.max", 3)
         if any(lo > hi for lo, hi in zip(box["min"], box["max"], strict=True)):
             _fail(f"{field}.inside min > max")
-    else:
+    elif form == "near":
         near = predicate["near"]
         if not isinstance(near, dict):
             _fail(f"{field}.near must be a mapping")
@@ -112,6 +114,34 @@ def _validate_predicate(predicate: Any, field: str) -> dict[str, Any]:
         tolerance = _finite(near.get("tolerance"), f"{field}.near.tolerance")
         if tolerance <= 0:
             _fail(f"{field}.near.tolerance must be > 0")
+    elif form == "contact":
+        spec = predicate["contact"]
+        if not isinstance(spec, dict):
+            _fail(f"{field}.contact must be a mapping")
+        if "max_dist" in spec:
+            _finite(spec["max_dist"], f"{field}.contact.max_dist")
+    elif form == "joint_in_range":
+        spec = predicate["joint_in_range"]
+        if not isinstance(spec, dict):
+            _fail(f"{field}.joint_in_range must be a mapping")
+        lo = _finite(spec.get("min"), f"{field}.joint_in_range.min")
+        hi = _finite(spec.get("max"), f"{field}.joint_in_range.max")
+        if lo > hi:
+            _fail(f"{field}.joint_in_range min > max")
+    elif form == "upright":
+        spec = predicate["upright"]
+        if not isinstance(spec, dict):
+            _fail(f"{field}.upright must be a mapping")
+        tilt = _finite(spec.get("max_tilt_deg", 15.0), f"{field}.upright.max_tilt_deg")
+        if tilt <= 0 or tilt > 180:
+            _fail(f"{field}.upright.max_tilt_deg out of (0, 180]")
+    elif form == "speed_below":
+        spec = predicate["speed_below"]
+        if not isinstance(spec, dict):
+            _fail(f"{field}.speed_below must be a mapping")
+        limit = _finite(spec.get("max"), f"{field}.speed_below.max")
+        if limit < 0:
+            _fail(f"{field}.speed_below.max must be >= 0")
     return predicate
 
 
