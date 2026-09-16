@@ -513,6 +513,22 @@ def _cmd_chat_impl(args: argparse.Namespace, home: Path) -> int:
     from rosclaw.agentd.pi_config import pi_model_configured
 
     if not pi_model_configured(home):
+        # G-3（0916 三审 B-6）：自动登录流——未配置不再把用户推出
+        # 去跑 setup（绕路）；TTY 下确认后写入内置 kimi-coding 默认
+        # 配置直接进 chat（/login 是 PR-1 后唯一交互登录机制——进
+        # 会话即可用）。非 TTY 保持脚本化诚实错误。
+        if sys.stdin.isatty() and sys.stdout.isatty():
+            print("未配置模型。默认接入 Kimi Code（kimi-coding）后进入 chat——")
+            print("会话内 /login 登录即用（API key 或 OAuth）。[Y/n] ", end="", flush=True)
+            answer = sys.stdin.readline().strip().lower()
+            if answer in ("", "y", "yes"):
+                from rosclaw.agentd.onboarding import configure_model
+
+                configure_model(home, "kimi-code")
+                print("已写入默认配置——正在进入 chat（请 /login）…")
+                return _chat_pi(home, args)
+            print("已取消——稍后可运行 `rosclaw setup model` 或 `rosclaw chat`。", file=sys.stderr)
+            return 2
         print("未配置模型。先运行 `rosclaw setup model`。", file=sys.stderr)
         return 2
     return _chat_pi(home, args)
