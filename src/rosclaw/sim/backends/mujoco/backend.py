@@ -672,12 +672,29 @@ class MujocoBackend:
         ).with_digest()
 
     def observe(self, model_ref: str, state_ref: str, channels: list[str]) -> ObservationResult:
-        """语义化有界观测（规格 §16）。"""
+        """语义化有界观测（规格 §16 + 0916 §十六多模态）。
+
+        物理通道走 in-process 计算；camera_rgb/depth/segmentation 走
+        隔离子进程渲染，返回 artifact_ref + intrinsics/extrinsics——
+        不把图像数组塞进 JSON。
+        """
         if not isinstance(channels, list) or not channels:
             raise ValueError("OBSERVE_CHANNELS_REQUIRED: channels must be a non-empty list")
         model, data = self.restore_state_v2(model_ref, state_ref)
         manifest = self._manifest(model_ref)
-        values = observe_mod.observe_channels(model, data, channels)
+
+        camera_channels = [
+            c
+            for c in channels
+            if c.startswith(("camera_rgb:", "camera_depth:", "camera_segmentation:"))
+        ]
+        physics_channels = [c for c in channels if c not in camera_channels]
+        values = (
+            observe_mod.observe_channels(model, data, physics_channels) if physics_channels else {}
+        )
+        for channel in camera_channels:
+            values[channel] = self._observe_camera(manifest, model, data, channel)
+
         return ObservationResult(
             backend="mujoco",
             backend_version=manifest["backend_version"],
@@ -689,6 +706,117 @@ class MujocoBackend:
             time=float(data.time),
             values=values,
         ).with_digest()
+
+    def _observe_camera(
+        self, manifest: dict[str, Any], model, data, channel: str
+    ) -> dict[str, Any]:  # noqa: ANN001
+        """渲染单相机通道为 PNG artifact（隔离子进程）。"""
+        import math
+
+        import mujoco
+
+        kind, _, camera_name = channel.partition(":")
+        camera_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_CAMERA, camera_name)
+        if camera_id < 0:
+            raise ValueError(f"OBSERVE_CHANNEL_UNKNOWN: {channel}")
+
+        width, height = 640, 480
+        fovy = float(model.cam_fovy[camera_id])
+        intrinsics = {
+            "fovy_deg": fovy,
+            "focal_px": height / (2 * math.tan(math.radians(fovy) / 2)),
+            "principal_point": [width / 2, height / 2],
+        }
+        extrinsics = {
+            "pos": [float(v) for v in data.cam_xpos[camera_id]],
+            "mat": [float(v) for v in data.cam_xmat[camera_id]],
+        }
+
+        gif_backend, artifact_ref, dtype = self._render_camera_frame_subprocess(
+            manifest, model, data, kind=kind, camera_name=camera_name, width=width, height=height
+        )
+        return {
+            "artifact_ref": artifact_ref,
+            "width": width,
+            "height": height,
+            "dtype": dtype,
+            "camera": camera_name,
+            "intrinsics": intrinsics,
+            "extrinsics": extrinsics,
+            "renderer_backend": gif_backend,
+            "simulation_time": float(data.time),
+        }
+
+    @staticmethod
+    def _camera_details(model) -> list[dict[str, Any]]:  # noqa: ANN001
+        import mujoco
+
+        return [
+            {"name": mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_CAMERA, i) or f"camera_{i}"}
+            for i in range(model.ncam)
+        ]
+
+    def _render_camera_frame_subprocess(
+        self,
+        manifest: dict[str, Any],
+        model,  # noqa: ANN001
+        data,  # noqa: ANN001
+        *,
+        kind: str,
+        camera_name: str,
+        width: int,
+        height: int,
+    ) -> tuple[str, str, str]:
+        """单帧相机渲染（隔离子进程，egl→osmesa，绝不走 auto）。"""
+        import json
+        import subprocess
+        import sys
+        import tempfile
+
+        dtype_map = {
+            "camera_rgb": "uint8",
+            "camera_depth": "uint16",
+            "camera_segmentation": "uint8",
+        }
+        with tempfile.TemporaryDirectory(prefix="rosclaw_cam_") as tmp:
+            tmp_path = Path(tmp)
+            model_file = tmp_path / "model.xml"
+            model_file.write_text(manifest["mjcf_xml"], encoding="utf-8")
+            for name, blob in self._load_assets(manifest).items():
+                target = tmp_path / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(blob)
+            request = {
+                "model_path": str(model_file),
+                "state": {
+                    "time": float(data.time),
+                    "qpos": [float(v) for v in data.qpos],
+                    "qvel": [float(v) for v in data.qvel],
+                    "ctrl": [float(v) for v in data.ctrl],
+                },
+                "camera": camera_name,
+                "kind": kind,
+                "width": width,
+                "height": height,
+                "out": str(tmp_path / "frame.png"),
+            }
+            request_file = tmp_path / "request.json"
+            request_file.write_text(json.dumps(request), encoding="utf-8")
+
+            errors = []
+            for candidate in ("egl", "osmesa"):
+                proc = subprocess.run(
+                    [sys.executable, "-c", _CAMERA_WORKER_CODE, candidate, str(request_file)],
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                )
+                if proc.returncode == 0 and (tmp_path / "frame.png").is_file():
+                    artifact_ref = self.store.put("renders", (tmp_path / "frame.png").read_bytes())
+                    return candidate, artifact_ref, dtype_map[kind]
+                tail = (proc.stderr or "").strip().splitlines()
+                errors.append(f"{candidate}: {tail[-1] if tail else 'native crash'}")
+            raise ValueError("SIM_RENDER_UNAVAILABLE: " + "; ".join(errors)) from None
 
     # -- 渲染（MH6，规格 §32） --------------------------------------------------
 
@@ -1319,3 +1447,50 @@ def _spec_from_xml_assets(xml_text: str, assets: dict[str, bytes]):  # noqa: ANN
         return mujoco.MjSpec.from_string(xml_text, assets=assets or None)
     except Exception as exc:
         raise ValueError(f"MODEL_COMPILE_FAILED: {exc}") from exc
+
+
+_CAMERA_WORKER_CODE = r"""
+import json
+import os
+import sys
+
+backend = sys.argv[1]
+os.environ["MUJOCO_GL"] = backend
+
+import mujoco
+import numpy as np
+from PIL import Image
+
+request = json.loads(open(sys.argv[2], encoding="utf-8").read())
+model = mujoco.MjModel.from_xml_path(request["model_path"])
+data = mujoco.MjData(model)
+state = request["state"]
+data.time = float(state["time"])
+for i, v in enumerate(state["qpos"]):
+    data.qpos[i] = v
+for i, v in enumerate(state["qvel"]):
+    data.qvel[i] = v
+for i, v in enumerate(state["ctrl"]):
+    data.ctrl[i] = v
+mujoco.mj_forward(model, data)
+
+renderer = mujoco.Renderer(model, request["height"], request["width"])
+renderer.update_scene(data, camera=request["camera"])
+kind = request["kind"]
+if kind == "camera_depth":
+    renderer.enable_depth_rendering()
+    depth = np.asarray(renderer.render(), dtype=np.float64)
+    finite = depth[np.isfinite(depth)]
+    norm = np.zeros_like(depth)
+    if finite.size:
+        lo, hi = float(finite.min()), float(finite.max())
+        norm = np.clip((depth - lo) / max(hi - lo, 1e-9), 0.0, 1.0)
+    Image.fromarray((norm * 65535).astype(np.uint16), mode="I;16").save(request["out"])
+elif kind == "camera_segmentation":
+    renderer.enable_segmentation_rendering()
+    seg = np.asarray(renderer.render())[:, :, 0].astype(np.uint8)
+    Image.fromarray(seg).save(request["out"])
+else:
+    Image.fromarray(renderer.render()).save(request["out"])
+renderer.close()
+"""

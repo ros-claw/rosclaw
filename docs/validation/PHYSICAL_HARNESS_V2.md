@@ -14,7 +14,7 @@
 | G20 True Agent H01-H08（HarnessBench live） | 无答案泄漏的独立 workspace + 外部 oracle + 真实 LLM | `benchmarks/harnessbench/`（框架待建） | ⏸ NOT_RUN（需真实模型 key） |
 | G21 Real A/B Baseline vs Harness | A=coding agent，B=harness，同模型/prompt/seed | 同上 | ⏸ NOT_RUN（需真实模型 key） |
 | G22 Executable Interaction Honesty | sim_interact + executor registry + GRASP_HONESTY | `tests/sim/test_interact.py`（grasp 诚实流/precondition/未声明 weld/未知 executor）、`tests/sim/test_predicates_v2.py` | ✅ PASS（MH12） |
-| G23 Multimodal Observation Evidence | camera_rgb/depth/segmentation → artifact_ref | MH13 待做 | ⏸ NOT_RUN |
+| G23 Multimodal Observation Evidence | camera_rgb/depth/segmentation → artifact_ref | `tests/sim/test_observe_camera.py`（PNG magic/dtype/intrinsics/实际后端） | ✅ PASS（MH13） |
 | G24 Parallel CPU Agreement | mujoco.rollout native batch 与串行一致性 | MH14 待做 | ⏸ NOT_RUN |
 | G25 Numerical Robustness | A23/A24（solver/timestep/discrete diagnostic） | MH15 待做 | ⏸ NOT_RUN |
 | G26 SysID Synthetic Recovery + Holdout | 合成数据参数恢复 + holdout 改进 | MH17 待做 | ⏸ NOT_RUN |
