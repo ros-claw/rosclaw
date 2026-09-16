@@ -48,7 +48,8 @@ def inspect_model_full(model, *, model_digest: str = "", spec=None) -> dict[str,
         joints_detail.append(entry)
 
     actuators_detail: list[dict[str, Any]] = []
-    for i in range(model.nu):
+    # 3.12+ PID 多输入下 nu（ctrl 维）≠ 执行器个数——以 trnid 行数为准。
+    for i in range(model.actuator_trnid.shape[0]):
         joint_id = int(model.actuator_trnid[i][0])
         gaintype = mujoco.mjtGain(model.actuator_gaintype[i])
         biastype = mujoco.mjtBias(model.actuator_biastype[i])
@@ -187,6 +188,8 @@ def inspect_model_full(model, *, model_digest: str = "", spec=None) -> dict[str,
 
     keyframes = [_name(model, mujoco.mjtObj.mjOBJ_KEY, i, f"key_{i}") for i in range(model.nkey)]
 
+    control_channels = _control_channels(model, spec)
+
     opt = model.opt
     options = {
         "timestep": float(opt.timestep),
@@ -216,10 +219,59 @@ def inspect_model_full(model, *, model_digest: str = "", spec=None) -> dict[str,
         "tendons": tendons,
         "contact_excludes": contact_excludes,
         "keyframes": keyframes,
+        "control_channels": control_channels,
         "options": options,
     }
     detail["summary_cn"] = summarize_cn(detail)
     return detail
+
+
+_ROLE_UNITS = {"pos": "rad|m", "vel": "rad/s|m/s", "ff": "Nm|N", "ctrl": ""}
+
+
+def _control_channels(model, spec) -> list[dict[str, Any]]:  # noqa: ANN001
+    """ctrl 向量逐通道语义（MH10，0916 §三）：
+    一个 actuator ≠ 一个 ctrl scalar——3.12+ PID 多输入（pos/vel/ff）。
+
+    arity 从来源 MjSpec 推导（PID 的 vel 输入 = biasprm[2] 非零，
+    ff 输入 = ffrange 非零）；总和必须与 model.nu 一致，否则标
+    schema_note（诚实记录，不猜）。
+    """
+    import mujoco
+
+    channels: list[dict[str, Any]] = []
+    if spec is None:
+        # 无 spec 时无法可靠推导 arity——回退为每 ctrl 一路 ctrl 语义。
+        for i in range(model.nu):
+            channels.append({"index": i, "actuator": f"actuator_{i}", "role": "ctrl", "unit": ""})
+        return channels
+
+    index = 0
+    for element in spec.actuators:
+        name = element.name or f"actuator_{index}"
+        if mujoco.mjtGain(element.gaintype) == mujoco.mjtGain.mjGAIN_PID:
+            roles = ["pos"]
+            if len(element.biasprm) > 2 and float(element.biasprm[2]) != 0.0:
+                roles.append("vel")
+            ffrange = getattr(element, "ffrange", None)
+            if ffrange is not None and any(float(v) != 0.0 for v in ffrange):
+                roles.append("ff")
+        else:
+            roles = ["ctrl"]
+        for role in roles:
+            channels.append(
+                {
+                    "index": index,
+                    "actuator": name,
+                    "role": role,
+                    "unit": _ROLE_UNITS.get(role, ""),
+                }
+            )
+            index += 1
+    if index != model.nu:
+        for channel in channels:
+            channel.setdefault("schema_note", f"arity sum {index} != nu {model.nu}")
+    return channels
 
 
 def summarize_cn(detail: dict[str, Any]) -> str:
