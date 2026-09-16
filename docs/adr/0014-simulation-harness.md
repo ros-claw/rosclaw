@@ -369,3 +369,23 @@ ROSClaw 已经具备相当多 MuJoCo 底层能力：`sim/api.py` 的最小编程
      严重受限 iterations 预算（CG 收敛不足）。
    - A10 接入后 compare 语义闭环：kp=400 持续饱和 → verification
      FAIL → Pareto 排除（物理诚实胜过 rmse 更小）。
+
+## 补充：MH11 HarnessBench v1 与真实 Agent 验收（2026-09-16，0916 优化 §五-§十一）
+
+1. **`rosclaw sim` CLI 是 Native Agent 触达 Harness 的产品面**：
+   SimulationRuntime 的 JSON 投影（13 子命令），与 MCP sim_* 同一
+   权威不另造实现；stdout 纯 JSON、失败结构化错误、--root 默认
+   cwd（HarnessBench 独立 workspace 下 store 落在会话目录内）。
+2. **HarnessBench v1（benchmarks/harnessbench/）**：U/R/E/H 四类
+   任务；prompt 零答案泄漏（只说任务与交付契约）；独立
+   workspace staging——Agent 看不到 tests/oracle/golden answer。
+3. **Oracle 在 Agent session 之外**：只看环境结局——store 血缘链
+   （修复必须是原模型的 patch 派生，"另起炉灶"拒绝）、默认
+   AuditPolicy 复算、trace qpos 独立重算（不走指标管线）、
+   strict replay；answer.json 只用于 false_success 交叉检测。
+4. **A/B 纪律**：A=原生 pi CLI（mujoco+python+bash，无 sim 工具）、
+   B=rosclaw chat+sim CLI；同模型/同 prompt/同任务/同 settle
+   判据；关键指标 verified_success↑、false_success→0、glue_code↓。
+5. **真实验收留痕**：每次运行独立 HOME+workspace；无 key 一律
+   NOT_RUN 不合成冒充；API 瞬时故障（provider stall）记
+   infra_failure 入分母，不计入能力失败。
