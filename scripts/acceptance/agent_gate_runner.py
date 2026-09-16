@@ -311,13 +311,13 @@ def _oracle(scenario: str, run, gate_dir: Path) -> dict:
         }
 
     if kind == "g09":
-        # 取消闭环：账本存在 CANCELLED 终结；被取消 operation 不得
-        # 出现迟到的 SUCCEEDED 翻转。
+        # 取消闭环：账本存在 CANCELLED 终结；迟到翻转证据 =
+        # SUCCEEDED 且带 cancel_reason（账本防护下不应存在）。
         ledger = _operations_ledger(root)
         cancelled = [op for op in ledger if op.get("state") == "CANCELLED"]
         late_success = [
             op for op in ledger
-            if op.get("state") == "SUCCEEDED" and op.get("cancelled_first")
+            if op.get("state") == "SUCCEEDED" and op.get("cancel_reason")
         ]
         ok = bool(cancelled) and not late_success
         return {
@@ -386,10 +386,25 @@ def _is_obstacle(series_entry) -> bool:
 
 
 def _operations_ledger(root: Path) -> list[dict]:
-    """操作账本（rosclaw home 下的 operations 记录）。"""
+    """操作账本——权威源是 agentd 的 missions.db operations 表
+    （sqlite），不是文件（G09 run1 实证：文件 glob 全空误判）。
+    JSON/JSONL 形态保留兼容。"""
     import json as _json
+    import sqlite3
 
     ops: list[dict] = []
+    for db_path in root.rglob("missions.db"):
+        try:
+            conn = sqlite3.connect(str(db_path))
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT operation_id, task_id, state, cancel_reason, "
+                "failure_code FROM operations"
+            ).fetchall()
+            ops.extend(dict(r) for r in rows)
+            conn.close()
+        except sqlite3.Error:
+            continue
     for path in root.rglob("operations*.json*"):
         try:
             doc = _json.loads(path.read_text(encoding="utf-8", errors="replace"))
@@ -399,16 +414,6 @@ def _operations_ledger(root: Path) -> list[dict]:
             ops.extend(o for o in doc if isinstance(o, dict))
         elif isinstance(doc, dict):
             ops.append(doc)
-    for path in root.rglob("*.jsonl"):
-        if "operation" not in path.name and "ledger" not in path.name:
-            continue
-        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
-            try:
-                entry = _json.loads(line)
-            except ValueError:
-                continue
-            if isinstance(entry, dict):
-                ops.append(entry)
     return ops
 
 
@@ -468,6 +473,34 @@ def _run_interactive(run, spec: dict, python: str) -> None:
         if grew and files:
             break
         time.sleep(2.0)
+    if "cancel" in spec:
+        # G09 前提：operation 必须先在账本注册（sqlite 权威——G09
+        # run1 实证抢在注册前发停=测不到传播链）。等不到如实记
+        # INVALID（不判产品 FAIL——前提没造成）。
+        import sqlite3 as _sq
+
+        op_deadline = time.monotonic() + 180
+        registered = False
+        while time.monotonic() < op_deadline:
+            for db in (run.tmp_path / "rh").rglob("missions.db"):
+                try:
+                    conn = _sq.connect(str(db))
+                    count = conn.execute(
+                        "SELECT COUNT(*) FROM operations"
+                    ).fetchone()[0]
+                    conn.close()
+                    if count > 0:
+                        registered = True
+                        break
+                except _sq.Error:
+                    pass
+            if registered:
+                break
+            time.sleep(2.0)
+        if not registered:
+            raise RuntimeError(
+                "G09 前提未造成：180s 内无 operation 注册（任务未开工）"
+            )
     run.steer_time = time.time()
     time.sleep(5.0)  # 让 operation 先注册（G09 账本判定前提）
     run.session.send((spec.get("steer") or spec.get("cancel")) + "\r")
