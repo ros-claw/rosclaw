@@ -18,7 +18,9 @@ from pathlib import Path
 from hatchling.builders.hooks.plugin.interface import BuildHookInterface
 
 _PACKAGES = ("rosclaw-agent", "rosclaw-tui")
-_ITEMS = ("dist", "package.json", "package-lock.json")
+# patches/：postinstall 补丁器是运行时依赖（G-1a——wheel 首跑
+# bootstrap 的 npm ci 会执行 postinstall，缺 patches/ 即死）。
+_ITEMS = ("dist", "package.json", "package-lock.json", "patches")
 
 
 class JsStageHook(BuildHookInterface):
@@ -42,6 +44,9 @@ class JsStageHook(BuildHookInterface):
             return
         for pkg in _PACKAGES:
             for item in _ITEMS:
+                # patches/ 等可选件按存在性注入（rosclaw-tui 无补丁器）。
+                if not (stage / pkg / item).exists():
+                    continue
                 build_data["force_include"][
                     f"dist/js-stage/{pkg}/{item}"
                 ] = f"rosclaw/js_stage/{pkg}/{item}"
