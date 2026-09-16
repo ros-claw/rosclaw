@@ -193,22 +193,33 @@ def _wait_settled(session, workspace: Path, settle_timeout: float, *, prompt: st
     不把 API 瞬时故障算成 Agent 能力失败）。"""
     deadline = time.monotonic() + settle_timeout
     started = time.monotonic()
-    last_len = -1
+    with session._lock:
+        baseline_len = len(session.output)
+    last_len = baseline_len
     quiet_since = time.monotonic()
     retries = 0
-    scanned = 0
+    scanned = baseline_len
+    activity_seen = False
+    activity_baseline = baseline_len  # 8s 宽限后再定基线（排除 prompt 回显）
     while time.monotonic() < deadline:
+        now = time.monotonic()
         with session._lock:
             current = len(session.output)
             output = bytes(session.output)
+        if now - started > 8 and activity_baseline == baseline_len and current > baseline_len:
+            # 宽限后仍有增长：把 8s 处的长度当活动基线（之前的多半是回显）。
+            activity_baseline = current
         if current != last_len:
             last_len = current
-            quiet_since = time.monotonic()
+            quiet_since = now
+            if now - started > 8 and current > activity_baseline:
+                activity_seen = True
+                activity_baseline = current
         # provider 自动取消检测（增量扫描新输出）。
-        if prompt is not None and retries < 2 and len(output) > scanned:
+        if retries < 2 and len(output) > scanned:
             chunk = output[scanned:]
             scanned = len(output)
-            if b"Operation aborted" in chunk or "已取消本次请求".encode() in chunk:
+            if prompt is not None and (b"Operation aborted" in chunk or "已取消本次请求".encode() in chunk):
                 retries += 1
                 quiet_since = time.monotonic()
                 session.send(prompt + "\r")
@@ -216,6 +227,18 @@ def _wait_settled(session, workspace: Path, settle_timeout: float, *, prompt: st
                 continue
         else:
             scanned = len(output)
+        # 零活动 stall：发送后 120s 无任何输出增长 = 请求卡死在
+        # API 慢波次（实测 native pi 无 30s 看门狗，45s 安静地板会
+        # 把"还没收到首 token"误判成收束）——重发而非判失败。
+        if prompt is not None and not activity_seen and time.monotonic() - started > 120:
+            if retries >= 2:
+                raise AssertionError("INFRA_STALL: 两次重发后仍无模型活动（API 不可用波次）")
+            retries += 1
+            started = time.monotonic()
+            quiet_since = time.monotonic()
+            session.send(prompt + "\r")
+            time.sleep(2.0)
+            continue
         try:
             newest = max(
                 (p.stat().st_mtime for p in workspace.rglob("*") if p.is_file()),
@@ -224,7 +247,12 @@ def _wait_settled(session, workspace: Path, settle_timeout: float, *, prompt: st
         except OSError:
             newest = time.time()
         files_quiet = time.time() - newest > 15
-        if time.monotonic() - quiet_since > 20 and files_quiet and time.monotonic() - started > 45:
+        if (
+            activity_seen
+            and time.monotonic() - quiet_since > 20
+            and files_quiet
+            and time.monotonic() - started > 45
+        ):
             return retries
         time.sleep(1.0)
     raise AssertionError(f"回合 {settle_timeout}s 未收束（见 PTY 日志）")
