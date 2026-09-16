@@ -80,7 +80,7 @@ def exec_joint_target(backend, model, data, interaction: dict[str, Any], payload
         )
     target = payload.get("target")
     if not isinstance(target, (int, float)) or isinstance(target, bool) or not math.isfinite(target):
-        raise ValueError(f"INTERACTION_PAYLOAD_INVALID: target must be a finite number")
+        raise ValueError("INTERACTION_PAYLOAD_INVALID: target must be a finite number")
     duration = float(payload.get("duration_s", 0.5))
     adr = int(model.jnt_qposadr[joint_id])
     before = float(data.qpos[adr])
