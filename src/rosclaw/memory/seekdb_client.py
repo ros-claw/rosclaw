@@ -1553,6 +1553,7 @@ class SeekDBSQLStore(StructuredStore):
         connect_timeout: float = 5.0,
         read_timeout: float = 10.0,
         write_timeout: float = 10.0,
+        unix_socket: str | None = None,
     ):
         parsed = urlparse(url)
         if parsed.scheme not in self._SUPPORTED_SCHEMES:
@@ -1560,7 +1561,7 @@ class SeekDBSQLStore(StructuredStore):
                 "SeekDB server URL must use mysql://, mysql+pymysql://, or seekdb://; "
                 "port 2881 is not an HTTP API"
             )
-        if not parsed.hostname:
+        if not parsed.hostname and not unix_socket:
             raise ValueError("SeekDB server URL must include a hostname")
 
         database = parsed.path.lstrip("/") or "rosclaw"
@@ -1571,6 +1572,11 @@ class SeekDBSQLStore(StructuredStore):
         self._user = unquote(parsed.username or "root")
         self._password = unquote(parsed.password or "")
         self._database = database
+        # PR-SDB-140-5 (P0-7): 1.4 local-runtime connection_options() may
+        # hand back a Unix socket instead of host/port — never drop it and
+        # fall through to a default TCP endpoint (that would be an instance
+        # identity error: we'd silently talk to whatever owns :2881).
+        self._unix_socket = unix_socket
         self._connect_timeout = connect_timeout
         self._read_timeout = read_timeout
         self._write_timeout = write_timeout
@@ -1592,8 +1598,6 @@ class SeekDBSQLStore(StructuredStore):
             ) from exc
 
         kwargs: dict[str, Any] = {
-            "host": self._host,
-            "port": self._port,
             "user": self._user,
             "password": self._password,
             "charset": "utf8mb4",
@@ -1603,6 +1607,12 @@ class SeekDBSQLStore(StructuredStore):
             "write_timeout": int(self._write_timeout),
             "cursorclass": pymysql.cursors.DictCursor,
         }
+        if self._unix_socket:
+            # Local-runtime attach: the socket IS the instance identity.
+            kwargs["unix_socket"] = self._unix_socket
+        else:
+            kwargs["host"] = self._host
+            kwargs["port"] = self._port
         if database is not None:
             kwargs["database"] = database
         return pymysql.connect(**kwargs)

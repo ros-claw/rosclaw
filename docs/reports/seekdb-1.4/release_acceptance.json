@@ -1,0 +1,40 @@
+{
+  "program": "ROSClaw SeekDB 1.4.0 Release Hardening & Production Acceptance",
+  "date": "2026-09-16",
+  "engine": "seekdb 1.4.0 (5.7.25-OceanBase seekdb-v1.4.0.0, wire-verified)",
+  "sdk": "pyseekdb 1.4.0.post1",
+  "server_mode": "PRODUCTION VALIDATED",
+  "local_runtime": "PREVIEW x86_64 only (Gate H2 in CI)",
+  "gates": {
+    "engine_1_4_real": "PASS",
+    "sdk_post1_pin": "PASS",
+    "package_checksum": "PASS",
+    "startup_identity": "PASS (runtime.json + /proc cmdline + ppid==1 daemon check)",
+    "no_false_ready": "PASS (stamp written only after SQL+version proof; L7)",
+    "correct_stop": "PASS (identity-verified SIGTERM; AMBIGUOUS refuses; PID-reuse refuses)",
+    "t0_t15": "PASS (16/16, post1 SDK)",
+    "historical_251": "PASS",
+    "storage_regression": "PASS (265 passed on PR branch)",
+    "migration_parity": "PASS (416/416 + Gate H1 fixture)",
+    "rollback_point": "PASS (1.3 source untouched, fully usable)",
+    "metadata_bm25_vector_hybrid": "PASS",
+    "w2r": "PASS (metadata 3.0ms / bm25 3.1ms / vector 57.6ms p95)",
+    "concurrent_rw": "PASS (1w1r/1w4r/2w8r zero lost/dup, 30s + 60min lanes)",
+    "sigterm": "PASS (identity-verified graceful stop)",
+    "sigkill_recovery": "PASS (marker + 416 rows + 35k corpus survive)",
+    "soak_60min": "PASS (1w4r 63,361 + 2w8r 127,578 writes, 0 lost/dup/error)",
+    "memory_thread_fd_stability": "PASS (reclaim to ~750-770MiB idle tail, threads/fds flat)",
+    "x86_real_engine": "PASS via Gate H1 CI (ubuntu-24.04 amd64)",
+    "arm_real_engine": "PASS (this Jetson, full program)",
+    "clean_wheel_install": "PASS (rosclaw-1.2.0[seekdb] -> pyseekdb==1.4.0.post1)",
+    "qwen_multilingual_e2e": "PASS (64 docs/24 queries; vector+hybrid 1.0/1.0/1.0)",
+    "medium_workload_35k": "PASS (14.3 rows/s load, legs healthy, restart persistence)",
+    "network_exposure_check": "PASS (doctor BIND_OK fails loud on wide bind without opt-in)",
+    "full_rosclaw_regression": "PASS (CI full regression per PR)"
+  },
+  "notes": [
+    "1.4.0 binary has no bind-address option; wide bind is loud via doctor, firewall recommended for single-node",
+    "upstream 166MiB idle figure is cold+tuned; our gate is no-monotonic-growth + reclaim, which passes",
+    "4h soak lane: tool supports --duration-s; scheduled as nightly/milestone, not this release"
+  ]
+}

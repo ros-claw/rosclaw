@@ -1,8 +1,21 @@
 # SeekDB 1.4.0 Qualification — 08: Final Acceptance
 
-**Date:** 2026-09-15 · **Program:** ROSClaw SeekDB 1.4 Qualification (NOT a
-dependency bump) · **PRs:** PR-SDB-140-1 (#559) → PR-SDB-140-2 (#562) →
-PR-SDB-140-3 → PR-SDB-140-4
+**Date:** 2026-09-15, updated 2026-09-16 (PR-SDB-140-5 release hardening)
+· **Program:** ROSClaw SeekDB 1.4 Qualification (NOT a dependency bump)
+
+## Final verdict (post PR-SDB-140-5)
+
+```text
+Server Mode:    PRODUCTION VALIDATED
+Engine:         seekdb 1.4.0
+SDK:            pyseekdb 1.4.0.post1
+ARM:            Ubuntu 24.04 aarch64 VALIDATED (Jetson, full program)
+x86:            Ubuntu 24.04 amd64 VALIDATED (Gate H1 CI)
+Local Runtime:  PREVIEW / x86 only (Gate H2 CI; aarch64 bindings don't exist upstream)
+```
+
+Machine-readable: `release_acceptance.json` (this dir).  Hardening detail:
+`09_release_hardening.md`.
 
 ## Against the outline's final acceptance criteria
 

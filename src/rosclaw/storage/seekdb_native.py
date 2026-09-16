@@ -202,15 +202,23 @@ class SeekDBRetrievalStore(StructuredStore):
         password: str = "",
         database: str = "rosclaw",
         protocol: str | None = None,
+        unix_socket: str | None = None,
     ):
-        if path is None and host is None:
-            raise ValueError("SeekDBRetrievalStore requires either path (embedded) or host (server)")
+        if path is None and host is None and unix_socket is None:
+            raise ValueError(
+                "SeekDBRetrievalStore requires either path (embedded) or host (server)"
+            )
         self._path = path
         self._host = host
         self._port = port
         self._user = user
         self._password = password
         self._database = database
+        # PR-SDB-140-5 (P0-7): 1.4 local-runtime connection_options() may be
+        # a Unix socket, not host/port.  It is the instance's identity —
+        # carried through to the client, never dropped for a default TCP
+        # endpoint.
+        self._unix_socket = unix_socket
         self._client: Any | None = None
         self._client_stack: ExitStack | None = None
         self._collections: dict[str, Any] = {}
@@ -231,16 +239,28 @@ class SeekDBRetrievalStore(StructuredStore):
                 self._ensure_database(admin)
             client_context = pyseekdb.Client(path=self._path, database=self._database)
         else:
+            # When the runtime gave us a Unix socket, pymysql uses it and
+            # host is cosmetic — pyseekdb passes **kwargs to pymysql.
+            socket_kwargs: dict[str, Any] = {}
+            conn_host = self._host
+            if self._unix_socket:
+                socket_kwargs["unix_socket"] = self._unix_socket
+                conn_host = conn_host or "localhost"
             with pyseekdb.AdminClient(
-                host=self._host, port=self._port, user=self._user, password=self._password
+                host=conn_host,
+                port=self._port,
+                user=self._user,
+                password=self._password,
+                **socket_kwargs,
             ) as admin:
                 self._ensure_database(admin)
             client_context = pyseekdb.Client(
-                host=self._host,
+                host=conn_host,
                 port=self._port,
                 user=self._user,
                 password=self._password,
                 database=self._database,
+                **socket_kwargs,
             )
         stack = ExitStack()
         try:
@@ -770,8 +790,16 @@ class SeekDBServerRetrievalStore(SeekDBRetrievalStore):
         user: str = "root",
         password: str = "",
         database: str = "rosclaw",
+        unix_socket: str | None = None,
     ):
-        super().__init__(host=host, port=port, user=user, password=password, database=database)
+        super().__init__(
+            host=host,
+            port=port,
+            user=user,
+            password=password,
+            database=database,
+            unix_socket=unix_socket,
+        )
 
 
 # ADR-0010 compatibility aliases (PR-DF-01): pre-rename names.
