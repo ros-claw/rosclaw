@@ -1,3 +1,4 @@
+-- backend: sqlite
 -- P0-C（0824 总纲 §6.1/§19.P0-C）：Conversation/Task 分离。
 -- 每条输入先落 user_inputs（不立即创建 Task）；首个 effectful
 -- call 经 ensure_task_for_effect 原子建 task 并回写 task_id。

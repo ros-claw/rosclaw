@@ -1,3 +1,4 @@
+-- backend: sqlite
 -- PR-H2（ADR-0012，总纲 v2 §9.2）：Task Kernel schema——
 -- 一个用户目标 = 一个 root task = 一个 workspace = 一个 active
 -- primary Harness Session。task_execution/work_order/job 语义不再

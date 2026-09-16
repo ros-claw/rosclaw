@@ -242,3 +242,35 @@ def test_rows_as_dicts_handles_tuple_rows() -> None:
         {"version": "001", "applied_at": 1.0, "checksum": "abc"},
         {"version": "002", "applied_at": 2.0, "checksum": "def"},
     ]
+
+
+def test_suffixed_migrations_must_carry_backend_marker() -> None:
+    """PR-SDB-140-2: a ``*_sqlite.sql`` / ``*_mysql.sql`` filename without a
+    first-line ``-- backend:`` marker defaults to "all" and LEAKS onto the
+    other engine — 013's ``receipt_id TEXT PRIMARY KEY`` broke the seekdb
+    1.4.0 server's table bootstrap (MySQL error 1167: TEXT can't be a key).
+
+    Every migration file must carry an explicit first-line marker
+    (``sqlite`` / ``mysql`` / ``all``) — "unmarked means all" was the bug
+    class; "all" must now be a deliberate declaration.
+    """
+    migrations_dir = Path(__file__).parents[2] / "src" / "rosclaw" / "storage" / "migrations"
+    offenders: list[str] = []
+    for path in sorted(migrations_dir.glob("*.sql")):
+        name = path.name
+        first_line = path.read_text(encoding="utf-8").splitlines()[0]
+        import re as _re
+
+        match = _re.match(r"^--\s*backend:\s*(\w+)", first_line)
+        suffix_backend = (
+            "sqlite" if name.endswith("_sqlite.sql")
+            else "mysql" if name.endswith("_mysql.sql")
+            else None
+        )
+        if match is None:
+            offenders.append(f"{name} (no marker)")
+        elif suffix_backend is not None and match.group(1).lower() != suffix_backend:
+            offenders.append(f"{name} (marker {match.group(1)!r} != suffix {suffix_backend!r})")
+        elif suffix_backend is None and match.group(1).lower() not in ("all", "sqlite", "mysql"):
+            offenders.append(f"{name} (unknown target {match.group(1)!r})")
+    assert not offenders, f"migrations leaking across engines (missing/wrong marker): {offenders}"

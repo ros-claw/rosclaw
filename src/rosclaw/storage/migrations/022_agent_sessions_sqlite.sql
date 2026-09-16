@@ -1,3 +1,4 @@
+-- backend: sqlite
 -- 022：SessionCatalogV1（总纲 WP-P0-2）——产品级会话索引。
 -- 标题/摘要/Robot/Mode/Task 状态/最近活动/成本/归档/lineage。
 -- 红线：这些是产品检索投影，不得塞进安全用的 pi_session_bindings。

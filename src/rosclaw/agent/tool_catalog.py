@@ -48,12 +48,30 @@ P0_CAPABILITY_TOOLS: tuple[str, ...] = (
     "cancel_skill_job",
 )
 
+# MuJoCo Simulation Harness tools (PR-MH6, ADR-0014, 规格 §25/§26):
+# Agent 原生物理实验面；全部 <= S1，usable_for_real_execution=false。
+P0_SIM_TOOLS: tuple[str, ...] = (
+    "sim_get_capabilities",
+    "sim_load_model",
+    "sim_inspect_model",
+    "sim_patch_model",
+    "sim_snapshot",
+    "sim_observe",
+    "sim_rollout",
+    "sim_audit",
+    "sim_compare",
+    "sim_render",
+    "sim_branch_experiment",
+    "sim_compile_world",
+)
+
 P0_AGENT_MCP_TOOLS: tuple[str, ...] = (
     P0_CORE_TOOLS
     + P0_BODY_CONTEXT_TOOLS
     + P0_CONTROL_PLANE_TOOLS
     + P0_PRODUCT_TOOLS
     + P0_CAPABILITY_TOOLS
+    + P0_SIM_TOOLS
 )
 
 MCP_TOOL_SAFETY_LEVELS: dict[str, str] = {
@@ -70,6 +88,20 @@ MCP_TOOL_SAFETY_LEVELS: dict[str, str] = {
     "validate_trajectory": "S2_VALIDATED_PLAN",
     "sandbox_run": "S1_SIMULATION_ONLY",
     "emergency_stop": "S4_EMERGENCY",
+    # MuJoCo Simulation Harness（规格 §26）：只读 S0，写/跑/审 S1；
+    # 永不生成 REAL permit。
+    "sim_get_capabilities": "S0_READ_ONLY",
+    "sim_inspect_model": "S0_READ_ONLY",
+    "sim_observe": "S0_READ_ONLY",
+    "sim_compare": "S0_READ_ONLY",
+    "sim_load_model": "S1_SIMULATION_ONLY",
+    "sim_patch_model": "S1_SIMULATION_ONLY",
+    "sim_snapshot": "S1_SIMULATION_ONLY",
+    "sim_rollout": "S1_SIMULATION_ONLY",
+    "sim_audit": "S1_SIMULATION_ONLY",
+    "sim_render": "S1_SIMULATION_ONLY",
+    "sim_branch_experiment": "S1_SIMULATION_ONLY",
+    "sim_compile_world": "S1_SIMULATION_ONLY",
     "get_runtime_status": "S0_READ_ONLY",
     "request_action": "S3_GUARDED_ACTION",
     "request_guarded_action": "S3_GUARDED_ACTION",

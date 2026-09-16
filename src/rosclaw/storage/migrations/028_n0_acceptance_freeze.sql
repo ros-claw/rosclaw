@@ -1,3 +1,4 @@
+-- backend: sqlite
 -- 028: PR-N0 假成功熔断——证据 provenance + 用户接受。
 --
 -- artifacts.producer：登记来源（'kernel:<pipeline>' = 受信管道内

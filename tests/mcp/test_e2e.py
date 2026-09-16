@@ -142,6 +142,56 @@ P0_TOOL_CALLS: list[tuple[str, dict[str, Any]]] = [
     ("invoke_capability", {"capability_id": "environment.install.ros"}),
     ("get_skill_job", {"job_id": "job-e2e-nonexistent"}),
     ("cancel_skill_job", {"job_id": "job-e2e-nonexistent"}),
+    # MuJoCo Simulation Harness（PR-MH6）：capabilities/load 在 e2e
+    # 工作区真实成功；其余引用不存在的 ref，fail closed 出诚实错误信封。
+    ("sim_get_capabilities", {}),
+    ("sim_load_model", {"asset_ref": "arm.xml"}),
+    ("sim_inspect_model", {"model_ref": "simmdl_0000000000000000"}),
+    (
+        "sim_patch_model",
+        {
+            "model_ref": "simmdl_0000000000000000",
+            "patches": [
+                {
+                    "op": "set",
+                    "target": {"type": "joint", "name": "j1"},
+                    "field": "damping",
+                    "value": 1.0,
+                }
+            ],
+        },
+    ),
+    ("sim_snapshot", {"model_ref": "simmdl_0000000000000000"}),
+    (
+        "sim_observe",
+        {
+            "model_ref": "simmdl_0000000000000000",
+            "state_ref": "simsta_0000000000000000",
+            "channels": ["joint_positions"],
+        },
+    ),
+    (
+        "sim_rollout",
+        {"model_ref": "simmdl_0000000000000000", "controller": {"hold": True}, "steps": 10},
+    ),
+    ("sim_audit", {"model_ref": "simmdl_0000000000000000"}),
+    ("sim_compare", {"receipt_refs": ["simexp_0000000000000000", "simexp_1111111111111111"]}),
+    ("sim_render", {"trace_ref": "simtrc_0000000000000000", "width": 160, "height": 120}),
+    (
+        "sim_branch_experiment",
+        {
+            "model_ref": "simmdl_0000000000000000",
+            "branches": [{"name": "b0", "patches": []}],
+            "controller": {"hold": True},
+            "steps": 10,
+        },
+    ),
+    (
+        "sim_compile_world",
+        # 非法 worldspec → fail closed（空 worldspec 仅 schema_version 合法，
+        # 不能用作反例——实测空世界可编译）。
+        {"worldspec": {"schema_version": "rosclaw.sim.worldspec.v0"}, "name": "e2e"},
+    ),
 ]
 
 EXPECTED_TOOLS = set(P0_AGENT_MCP_TOOLS)
@@ -150,6 +200,16 @@ EXPECTED_ERROR_TOOLS = {
     "invoke_capability",
     "get_skill_job",
     "cancel_skill_job",
+    "sim_inspect_model",
+    "sim_patch_model",
+    "sim_snapshot",
+    "sim_observe",
+    "sim_rollout",
+    "sim_audit",
+    "sim_compare",
+    "sim_render",
+    "sim_branch_experiment",
+    "sim_compile_world",
 }
 
 
@@ -162,6 +222,22 @@ def _prepare_server_workspace(tmp_path: Path) -> tuple[Path, Path]:
         robot="ur5e",
         name="sim_ur5e",
         mode="single",
+    )
+    # PR-MH6：SimulationRuntime 默认任务根在 $ROSCLAW_HOME/sim_tasks/agent，
+    # 放一个最小 MJCF 供 sim_load_model 在 e2e 中真实加载。
+    sim_task_root = rosclaw_home / "sim_tasks" / "agent"
+    sim_task_root.mkdir(parents=True)
+    (sim_task_root / "arm.xml").write_text(
+        """<mujoco model="tiny">
+  <worldbody>
+    <body name="base" pos="0 0 0.5">
+      <joint name="j1" type="hinge" axis="0 1 0"/>
+      <geom name="g" type="capsule" size="0.05 0.2" mass="1.0"/>
+    </body>
+  </worldbody>
+</mujoco>
+""",
+        encoding="utf-8",
     )
     return project_root, rosclaw_home
 

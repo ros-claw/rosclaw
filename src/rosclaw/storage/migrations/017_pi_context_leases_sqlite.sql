@@ -1,3 +1,4 @@
+-- backend: sqlite
 -- 017：ValidatedContextLeaseV1（四审 HOTFIX-1，P0-4A）
 -- agentd 签发的短期具身上下文准入证——action propose/execute 必须
 -- 出示有效 lease；context fetch 失败/TTL 到期/session 切换立即失效。

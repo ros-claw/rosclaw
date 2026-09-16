@@ -1,0 +1,111 @@
+{
+  "engine": "engine_1_3_embedded",
+  "target": "/tmp/bench_emb_1",
+  "corpus_size": 400,
+  "started_at": 1789429064.73675,
+  "startup_s": 3.509,
+  "idle": {
+    "rss_mb": 1439.3,
+    "threads": 154,
+    "fds": 17,
+    "cpu_pct": 53.5
+  },
+  "write": {
+    "single_upsert": {
+      "n": 50,
+      "p50_ms": 62.29,
+      "p95_ms": 66.3119,
+      "p99_ms": 488.0234,
+      "mean_ms": 70.929,
+      "throughput_rows_s": 14.1
+    },
+    "batch_32": {
+      "n": 4,
+      "p50_ms": 2592.5038,
+      "p95_ms": 3141.1577,
+      "p99_ms": 3141.1577,
+      "mean_ms": 2728.3497,
+      "throughput_rows_s": 11.7
+    },
+    "batch_256": {
+      "n": 2,
+      "p50_ms": 10067.8034,
+      "p95_ms": 17794.5831,
+      "p99_ms": 17794.5831,
+      "mean_ms": 13931.1932,
+      "throughput_rows_s": 14.4
+    },
+    "batch_1024": {
+      "n": 1,
+      "p50_ms": 26397.7811,
+      "p95_ms": 26397.7811,
+      "p99_ms": 26397.7811,
+      "mean_ms": 26397.7811,
+      "throughput_rows_s": 15.2
+    }
+  },
+  "query": {
+    "metadata_filter": {
+      "n": 20,
+      "p50_ms": 0.1891,
+      "p95_ms": 0.3022,
+      "p99_ms": 2.2033,
+      "mean_ms": 0.299
+    },
+    "bm25": {
+      "n": 20,
+      "p50_ms": 7.7977,
+      "p95_ms": 8.5076,
+      "p99_ms": 17.0491,
+      "mean_ms": 8.3028
+    },
+    "vector": {
+      "n": 20,
+      "p50_ms": 56.2706,
+      "p95_ms": 56.507,
+      "p99_ms": 58.3032,
+      "mean_ms": 56.3869
+    },
+    "hybrid_rrf": {
+      "n": 20,
+      "p50_ms": 74.7825,
+      "p95_ms": 75.1065,
+      "p99_ms": 79.3738,
+      "mean_ms": 75.0365
+    }
+  },
+  "w2r": {
+    "metadata": {
+      "n": 5,
+      "p50_ms": 2.4296,
+      "p95_ms": 2.4401,
+      "p99_ms": 2.4401,
+      "mean_ms": 2.4081,
+      "visible_fraction": 1.0
+    },
+    "bm25": {
+      "n": 5,
+      "p50_ms": 9.0489,
+      "p95_ms": 9.0984,
+      "p99_ms": 9.0984,
+      "mean_ms": 9.0162,
+      "visible_fraction": 1.0
+    },
+    "vector": {
+      "n": 5,
+      "p50_ms": 56.3527,
+      "p95_ms": 56.505,
+      "p99_ms": 56.505,
+      "mean_ms": 56.3549,
+      "visible_fraction": 1.0
+    }
+  },
+  "recall": {
+    "probe_hits": 5,
+    "nonempty": true
+  },
+  "restart_persistence": {
+    "ok": true
+  },
+  "_reconnected_note": "benchmark store closed; reconnect for more"
+}
