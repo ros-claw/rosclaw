@@ -109,15 +109,15 @@ class SimulationRuntime:
         steps: int | None = None,
         seed: int = 0,
         task_predicates: list[dict[str, Any]] | None = None,
+        parallel: bool = True,
     ) -> dict[str, Any]:
-        """高层参数实验原语（PR-MH9，0915 §七）：
-        base model + base state + patches[] → N branches → 显式状态移植
-        → rollout（每分支一个 SimulationReceipt）。
+        """高层参数实验原语（PR-MH9/MH14）：
+        base model + base state + patches[] → N branches → rollout。
 
-        Agent 不需要碰 transplant_state 底层细节；fork/移植/rollout
-        一次结构化调用完成。branches: [{"name"?, "patches": [...]}]，
-
-        空 patches 为对照分支。
+        parallel=True 时同构分支走 `mujoco.rollout` 原生批量多线程
+        （CPU batch，与权威 truth 同域）；异构自动回退串行并记录
+        execution。branches: [{"name"?, "patches": [...]}]，空 patches
+        为对照分支。
         """
         from rosclaw.sim.backends.mujoco.rollout import DEFAULT_BUDGETS
 
@@ -128,9 +128,10 @@ class SimulationRuntime:
                 f"SIM_BUDGET_EXCEEDED: branch count {len(branches)} > "
                 f"{DEFAULT_BUDGETS['max_branch_count']}"
             )
-        base_state = state_ref or self._backend.initial_state(model_ref)
+        base_state = state_ref or self._backend.initial_state_v2(model_ref)
         fork = self._backend.fork_state(model_ref, base_state, len(branches))
-        receipts = []
+
+        target_refs = []
         for index, branch in enumerate(branches):
             if not isinstance(branch, dict):
                 raise ValueError(f"BRANCH_INVALID: branches[{index}] must be a mapping")
@@ -141,23 +142,75 @@ class SimulationRuntime:
                 if patched_ref is None:
                     raise ValueError("MODEL_PATCH_INVALID: patch produced no new model ref")
                 target_ref = patched_ref
-            branch_state = self._backend.transplant_state(target_ref, base_state)
-            receipts.append(
-                self._backend.run_experiment(
-                    target_ref,
-                    state_ref=branch_state,
+            target_refs.append(target_ref)
+
+        execution = "serial"
+        batch_results = None
+        if parallel:
+            try:
+                batch_results = self._backend.rollout_batch(
+                    target_refs,
                     controller=controller,
                     duration_s=duration_s,
                     steps=steps,
-                    seed=seed,
-                    task_predicates=task_predicates,
-                ).to_canonical_dict()
-            )
+                )
+                execution = "batch_parallel"
+            except ValueError as exc:
+                if "BATCH_NOT_HOMOGENEOUS" not in str(exc):
+                    raise
+                batch_results = None  # 异构回退串行
+
+        receipts = []
+        for index, target_ref in enumerate(target_refs):
+            branch_state = self._backend.transplant_state(target_ref, base_state)
+            if batch_results is not None:
+                batch_result = batch_results[index]
+                # 批量轨迹已有；审计与任务判定照常（指标为轨迹子集）。
+                audit_result = self._backend.audit(target_ref, trace_ref=batch_result["trace_ref"])
+                task_success = None
+                if task_predicates is not None:
+                    channels = sorted({p["channel"] for p in task_predicates})
+                    observations = self._backend.observe(
+                        target_ref, batch_result["final_state_ref"], channels
+                    ).values
+                    from rosclaw.sim.experiment.predicates import evaluate_predicates
+
+                    verdicts = evaluate_predicates(observations, task_predicates)
+                    task_success = all(v["ok"] for v in verdicts)
+                receipts.append(
+                    {
+                        "model_ref": target_ref,
+                        "trace_ref": batch_result["trace_ref"],
+                        "final_state_ref": batch_result["final_state_ref"],
+                        "states_digest": batch_result["states_digest"],
+                        "steps": batch_result["steps"],
+                        "audit_ref": audit_result.audit_ref,
+                        "physical_audit_pass": audit_result.status == "PASS",
+                        "task_success": task_success,
+                        "metrics_mode": "batch_trajectory",
+                        "execution": execution,
+                        "trust_level": "SIMULATED",
+                        "usable_for_real_execution": False,
+                    }
+                )
+            else:
+                receipts.append(
+                    self._backend.run_experiment(
+                        target_ref,
+                        state_ref=branch_state,
+                        controller=controller,
+                        duration_s=duration_s,
+                        steps=steps,
+                        seed=seed,
+                        task_predicates=task_predicates,
+                    ).to_canonical_dict()
+                )
         return {
             "fork_ref": fork["fork_ref"],
             "base_state_ref": base_state,
             "receipts": receipts,
             "count": len(receipts),
+            "execution": execution,
         }
 
     def compile_world(self, worldspec: dict[str, Any], *, name: str = "world") -> dict[str, Any]:

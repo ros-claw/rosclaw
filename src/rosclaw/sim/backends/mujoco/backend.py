@@ -31,6 +31,7 @@ from rosclaw.contracts.common import canonical_json, content_hash
 from rosclaw.sim.audit.context import AuditContext
 from rosclaw.sim.audit.engine import run_checks
 from rosclaw.sim.audit.policy import STRICT_POLICY, AuditPolicy
+from rosclaw.sim.backends.mujoco import batch as batch_mod
 from rosclaw.sim.backends.mujoco import interact as interact_mod
 from rosclaw.sim.backends.mujoco import observe as observe_mod
 from rosclaw.sim.backends.mujoco import rollout as rollout_mod
@@ -281,7 +282,10 @@ class MujocoBackend:
         """从同一状态分叉 N 个实验分支；branch 初始 digest 必然一致。"""
         manifest = self._manifest(model_ref)
         snap = self.store.get(state_ref)
-        if not isinstance(snap, dict) or snap.get("kind") != "state_snapshot":
+        if not isinstance(snap, dict) or snap.get("kind") not in (
+            "state_snapshot",
+            "state_snapshot_v2",
+        ):
             raise ValueError(f"REF_NOT_FOUND: {state_ref!r} is not a state snapshot")
         if snap.get("model_digest") != self._model_digest(manifest):
             raise ValueError("CROSS_MODEL_REF: fork base state does not belong to model")
@@ -510,6 +514,115 @@ class MujocoBackend:
     @staticmethod
     def _structural_signature_str(model) -> str:  # noqa: ANN001
         return content_hash("simsig", MujocoBackend._structural_signature(model))
+
+    # -- 并行批次 rollout（MH14，0916 §十七-§十九） ----------------------------
+
+    def rollout_batch(
+        self,
+        model_refs: list[str],
+        *,
+        controller: dict[str, Any],
+        duration_s: float | None = None,
+        steps: int | None = None,
+        budgets: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        """homogeneous 模型批量 rollout（mujoco.rollout 原生多线程）。
+
+        CPU batch 优先于 MJX：与权威 CPU truth 同域。返回每分支
+        {trace_ref, final_state_ref, states_digest, steps, execution}。
+        """
+        import numpy as np
+
+        if not isinstance(model_refs, list) or not model_refs:
+            raise ValueError("BATCH_EMPTY: model_refs must be a non-empty list")
+        manifests = [self._manifest(ref) for ref in model_refs]
+        models = []
+        for manifest in manifests:
+            spec = self._spec_from_manifest(manifest)
+            model, _ = self._compile_smoke(spec)
+            models.append(model)
+        batch_mod.check_homogeneous(models)  # BATCH_NOT_HOMOGENEOUS
+
+        plan = rollout_mod.validate_controller(
+            controller, models[0].nu, channels=self._control_schema(models[0], manifests[0])
+        )
+        resolved_steps = rollout_mod.resolve_steps(
+            controller, steps=steps, duration_s=duration_s, timestep=float(models[0].opt.timestep)
+        )
+        merged = {**rollout_mod.DEFAULT_BUDGETS, **(budgets or {})}
+        if resolved_steps > merged["max_steps"]:
+            raise ValueError(f"SIM_BUDGET_EXCEEDED: steps {resolved_steps} > {merged['max_steps']}")
+
+        if plan["kind"] == "ctrl_series":
+            ctrl_rows = np.asarray(plan["rows"], dtype=float)
+        else:
+            row = (
+                np.zeros(models[0].nu)
+                if plan["kind"] == "hold"
+                else np.asarray(plan["values"], dtype=float)
+            )
+            ctrl_rows = np.tile(row, (resolved_steps, 1))
+
+        state_trajs, _ = batch_mod.run_batch(models, ctrl_rows=ctrl_rows)
+        stride = max(1, -(-resolved_steps // merged["max_record_points"]))
+
+        results = []
+        for ref, manifest, model, full_traj in zip(
+            model_refs, manifests, models, state_trajs, strict=True
+        ):
+            states = batch_mod.trajectory_to_states(
+                model, full_traj[::stride], ctrl_rows, record_stride=stride
+            )
+            # 与串行记录对齐：前置初始状态行（rollout 轨迹只含步后状态）。
+            data0 = batch_mod.initial_vectors([model])[0]
+            states.insert(
+                0,
+                {
+                    "t": float(data0[0]),
+                    "qpos": [float(v) for v in data0[1 : 1 + model.nq]],
+                    "qvel": [float(v) for v in data0[1 + model.nq : 1 + model.nq + model.nv]],
+                    "ctrl": [float(v) for v in ctrl_rows[0]],
+                },
+            )
+            digest = rollout_mod.states_digest(states)
+            record = {
+                "kind": "simulation_trace",
+                "model_ref": ref,
+                "model_digest": self._model_digest(manifest),
+                "seed": 0,
+                "controller": controller,
+                "steps": resolved_steps,
+                "timestep_s": float(model.opt.timestep),
+                "duration_s": float(full_traj[-1][0]),
+                "states_digest": digest,
+                "states": states,
+            }
+            if len(canonical_json(record).encode("utf-8")) > merged["max_trace_bytes"]:
+                raise ValueError(f"SIM_BUDGET_EXCEEDED: trace bytes > {merged['max_trace_bytes']}")
+            trace_ref = self.store.put("traces", record)
+
+            import mujoco
+
+            data = mujoco.MjData(model)
+            mujoco.mj_setState(
+                model,
+                data,
+                np.asarray(full_traj[-1], dtype=np.float64),
+                mujoco.mjtState.mjSTATE_FULLPHYSICS,
+            )
+            mujoco.mj_forward(model, data)
+            final_state_ref = self.capture_and_store_v2(ref, model, data)
+            results.append(
+                {
+                    "model_ref": ref,
+                    "trace_ref": trace_ref,
+                    "final_state_ref": final_state_ref,
+                    "states_digest": digest,
+                    "steps": resolved_steps,
+                    "execution": "batch_parallel",
+                }
+            )
+        return results
 
     # -- 可执行交互（MH12，0916 §十二-§十四） ----------------------------------
 
