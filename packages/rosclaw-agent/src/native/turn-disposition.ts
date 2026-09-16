@@ -24,6 +24,12 @@ export interface PersistedInput {
 		owner?: string;
 		task_id?: string;
 		suppress_model_turn?: boolean;
+		/** G-4（0916 三审 B-2）：自然语言停止的级联报告——
+		 *  停止了多少在途 operation / task 是否落 CANCELLED。 */
+		cancel_report?: {
+			operations_cancelled?: number;
+			task_cancelled?: boolean;
+		};
 	};
 }
 

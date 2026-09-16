@@ -494,6 +494,37 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			const autoTask = (persisted as { auto_task?: { task_id?: string } })
 				.auto_task;
 			if (suppressModelTurn(persisted)) {
+				// G-4（0916 三审 B-2）：自然语言停止的确定性级联
+				// 回声——用户必须看见停了多少（不只" handled 不投递"）。
+				const cancelReport = (
+					persisted as {
+						turn_disposition?: {
+							cancel_report?: {
+								operations_cancelled?: number;
+								task_cancelled?: boolean;
+							};
+						};
+					}
+				).turn_disposition?.cancel_report;
+				if (cancelReport) {
+					const stopped = cancelReport.operations_cancelled ?? 0;
+					pi.sendMessage(
+						{
+							customType: "rosclaw.user_directive",
+							content: text,
+							display: true,
+							details: { owner: "TASK_ROUTER", kind: "nl_stop" },
+						},
+						{ triggerTurn: false },
+					);
+					latestCtx?.ui.notify(
+						`已停止——后台操作 ${stopped} 个落 CANCELLED`
+						+ (cancelReport.task_cancelled ? "，任务已取消" : "")
+						+ "（迟到完成不会翻转账本）",
+						"info",
+					);
+					return { action: "handled" as const };
+				}
 				// 0901 P0-4（硬 Gate A）：解释性追问 → EXPLAIN_HANDLER
 				// 只读确定性回答（从 TaskOutcome 直接呈现——零模型
 				// 回合、零新 task/trace/artifact、零仿真）。
@@ -1173,10 +1204,40 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			center.noteProviderOk();
 			return undefined;
 		});
+		// G-4（0916 三审 B-2）：Esc/Ctrl-C 中断级联标记——pi 内部
+		// abort 只停模型回合，后台 operation（渲染/仿真子进程）照跑。
+		// watchdog 的停滞 abort 不是用户中断（不级联——后台操作与
+		// Provider 停滞无关，继续跑是对的）。
+		let watchdogAbortedTurn = false;
 		pi.on("message_end", async (event) => {
 			// PR-H7（§8.4）：provider 错误分类——403 配额≠鉴权错误；
 			// 稳定错误码 + 用户可理解说明 + 恢复动作（task 可继续）。
 			const msg = event.message as { role?: string; stopReason?: string; errorMessage?: string };
+			if (msg.role === "assistant" && msg.stopReason === "aborted") {
+				if (watchdogAbortedTurn) {
+					watchdogAbortedTurn = false;
+				} else {
+					// 用户 Esc/Ctrl-C：级联停本会话活跃 task 的在途
+					// operation（账本 CANCELLED + 进程组 killpg）。
+					try {
+						const missionId = options.active.current.missionId;
+						const sessionRef = options.active.current.sessionId;
+						const res = (await center.call("pi.session.interrupt", {
+							mission_id: missionId ?? "",
+							session_ref: sessionRef ?? "",
+						})) as { ok?: boolean; operations_cancelled?: number };
+						const stopped = res?.operations_cancelled ?? 0;
+						if (res?.ok && stopped > 0) {
+							latestCtx?.ui.notify(
+								`已中断——后台操作已停 ${stopped} 个（账本 CANCELLED）`,
+								"info",
+							);
+						}
+					} catch {
+						// 级联失败不掩盖中断本身（回合已停）。
+					}
+				}
+			}
 			if (msg.role === "assistant" && (msg.stopReason === "error" || msg.errorMessage)) {
 				const raw = String(msg.errorMessage ?? "");
 				const classified = classifyModelError(raw);
@@ -1229,6 +1290,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				// 不得宣称"已取消"（假取消文案）；诚实提示手动中断。
 				if (latestCtx && !latestCtx.isIdle()) {
 					if (typeof latestCtx.abort === "function") {
+						watchdogAbortedTurn = true; // G-4：非用户中断，不级联
 						latestCtx.abort();
 					} else if (latestCtx.hasUI) {
 						latestCtx.ui.notify(
