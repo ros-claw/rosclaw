@@ -282,3 +282,32 @@ ROSClaw 已经具备相当多 MuJoCo 底层能力：`sim/api.py` 的最小编程
    调用，Agent 不碰 transplant 底层）与 `sim_compile_world`
    （WorldSpec→validation→能力绑定→compile）加入 P0_SIM_TOOLS
    （S1，全组 ≤S1 不变）。
+
+## 补充：MH10 State & Control Semantics v2（2026-09-16，0916 优化文档）
+
+1. **状态真权归 MuJoCo**：不再人工维护"完整状态字段列表"。
+   authoritative snapshot = `mjSTATE_INTEGRATION`（含 history /
+   plugin_state / eq_active / userdata / warmstart），经
+   `mj_getState/mj_setState` 存取；`mj_setState` 后立即 `mj_forward`
+   重建派生量（延迟传感器从 history buffer 恢复读数——S10-01
+   实证：v1 partial 恢复延迟读数归零，v2 精确一致）。
+2. **Fidelity 分级**：FULL_INTEGRATION / FULL_PHYSICS /
+   LEGACY_PARTIAL；v1 手工字段快照自动标 LEGACY_PARTIAL。
+   strict replay 只有 FULL_INTEGRATION 允许 `RAW_EXACT`，
+   LEGACY_PARTIAL 最多 `SEMANTIC`——旧证据不升级为强证据。
+3. **存储形态**：元数据 JSON（state_spec/size/digest/结构签名/
+   preview 小数组）+ float64 向量独立 blob（内容寻址幂等）。
+4. **Control Schema**：一个 actuator ≠ 一个 ctrl scalar（3.12 PID
+   多输入 pos/vel/ff）。inspect 输出 `control_channels`（arity 从
+   来源 MjSpec 推导，总和与 nu 一致性校验）；`position_targets`
+   只允许全单输入模型，否则 `CONTROLLER_SCHEMA_MISMATCH`；
+   新增 `setpoints` 按名寻址控制器。所有按 nu 遍历执行器的代码
+   （inspect/结构签名/legacy model_inspect）改以 `trnid` 行数为准。
+5. **MH10b MjVfs 实证结论**：3.13.0 绑定中
+   `MjSpec.from_file/from_string(vfs=)` 对 meshdir 资产**不解析
+   VFS**（实测 Error opening file）；VFS 仅在
+   `MjModel.from_xml_path(name, vfs=)` 完整工作。故 MjSpec 资产面
+   继续 `assets=`（3.13 实测零弃用警告），绑定支持后随版本迁移。
+   便携工件走 `spec.assets` 填充 + `to_zip/from_zip`——
+   `export_model_mjz` 输出自包含 .mjz（31MB mesh 嵌入，
+   跨机器 from_zip 直接编译）。

@@ -37,7 +37,9 @@ class ModelInspection:
     def to_dict(self) -> dict[str, Any]:
         return {
             "model_digest": self.model_digest,
-            "nq": self.nq, "nv": self.nv, "nu": self.nu,
+            "nq": self.nq,
+            "nv": self.nv,
+            "nu": self.nu,
             "joints": self.joints,
             "actuators": self.actuators,
             "sensors": self.sensors,
@@ -65,33 +67,45 @@ def inspect_mjcf(path: Path | str) -> ModelInspection:
 
     joints: list[dict[str, Any]] = []
     for i in range(model.njnt):
-        joints.append({
-            "name": mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_JOINT, i) or f"joint_{i}",
-            "type": _JOINT_TYPES.get(int(model.jnt_type[i]), str(int(model.jnt_type[i]))),
-            "qpos_addr": int(model.jnt_qposadr[i]),
-            "dof_addr": int(model.jnt_dofadr[i]),
-        })
+        joints.append(
+            {
+                "name": mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_JOINT, i) or f"joint_{i}",
+                "type": _JOINT_TYPES.get(int(model.jnt_type[i]), str(int(model.jnt_type[i]))),
+                "qpos_addr": int(model.jnt_qposadr[i]),
+                "dof_addr": int(model.jnt_dofadr[i]),
+            }
+        )
 
     actuators: list[dict[str, Any]] = []
-    for i in range(model.nu):
+    # 注意：3.12+ PID 多输入执行器下 nu（ctrl 维）≠ 执行器个数，
+    # 遍历必须以 trnid 行数为准（单输入模型 shape[0] == nu，行为不变）。
+    for i in range(model.actuator_trnid.shape[0]):
         joint_id = int(model.actuator_trnid[i][0])
         joint_name = (
-            mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_JOINT, joint_id)
-            if joint_id >= 0 else ""
+            mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_JOINT, joint_id) if joint_id >= 0 else ""
         )
-        actuators.append({
-            "name": mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_ACTUATOR, i) or f"actuator_{i}",
-            "joint": joint_name or f"joint_{joint_id}",
-            "ctrlrange": [float(model.actuator_ctrlrange[i][0]),
-                          float(model.actuator_ctrlrange[i][1])],
-        })
+        actuators.append(
+            {
+                "name": mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_ACTUATOR, i)
+                or f"actuator_{i}",
+                "joint": joint_name or f"joint_{joint_id}",
+                "ctrlrange": [
+                    float(model.actuator_ctrlrange[i][0]),
+                    float(model.actuator_ctrlrange[i][1]),
+                ],
+            }
+        )
 
     sensors: list[dict[str, Any]] = []
     for i in range(model.nsensor):
-        sensors.append({
-            "name": mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_SENSOR, i) or f"sensor_{i}",
-            "type": str(mujoco.mjtSensor(model.sensor_type[i]).name).removeprefix("mjSENS_").lower(),
-        })
+        sensors.append(
+            {
+                "name": mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_SENSOR, i) or f"sensor_{i}",
+                "type": str(mujoco.mjtSensor(model.sensor_type[i]).name)
+                .removeprefix("mjSENS_")
+                .lower(),
+            }
+        )
 
     cameras = [
         mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_CAMERA, i) or f"camera_{i}"
@@ -108,9 +122,15 @@ def inspect_mjcf(path: Path | str) -> ModelInspection:
 
     return ModelInspection(
         model_digest=digest,
-        nq=int(model.nq), nv=int(model.nv), nu=int(model.nu),
-        joints=joints, actuators=actuators, sensors=sensors,
-        cameras=cameras, sites=sites, gripper=gripper,
+        nq=int(model.nq),
+        nv=int(model.nv),
+        nu=int(model.nu),
+        joints=joints,
+        actuators=actuators,
+        sensors=sensors,
+        cameras=cameras,
+        sites=sites,
+        gripper=gripper,
     )
 
 

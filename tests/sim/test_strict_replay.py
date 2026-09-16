@@ -24,7 +24,7 @@ def test_strict_replay_verified(loaded_backend) -> None:
     receipt = backend.run_experiment(ref.model_ref, controller={"hold": True}, duration_s=0.05)
     report = backend.strict_replay(receipt.receipt_ref)
     assert report["verified"] is True
-    assert report["mode"] == "raw"
+    assert report["mode"] == "RAW_EXACT"
     assert report["receipt_ref"] == receipt.receipt_ref
 
 
@@ -71,7 +71,7 @@ def test_replay_semantic_match_within_tolerance(loaded_backend) -> None:
     forged = _forge(backend, {**payload, "states_digest": "sha256:" + "f" * 64})
     report = backend.strict_replay(forged)
     assert report["verified"] is True
-    assert report["mode"] == "semantic"
+    assert report["mode"] == "SEMANTIC"
 
 
 def test_replay_missing_receipt(loaded_backend) -> None:

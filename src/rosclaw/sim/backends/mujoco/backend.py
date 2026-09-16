@@ -33,7 +33,7 @@ from rosclaw.sim.audit.engine import run_checks
 from rosclaw.sim.audit.policy import STRICT_POLICY, AuditPolicy
 from rosclaw.sim.backends.mujoco import observe as observe_mod
 from rosclaw.sim.backends.mujoco import rollout as rollout_mod
-from rosclaw.sim.backends.mujoco import state
+from rosclaw.sim.backends.mujoco import state, state_v2
 from rosclaw.sim.backends.mujoco.inspect import inspect_model_full
 from rosclaw.sim.backends.mujoco.patch import apply_patches
 from rosclaw.sim.backends.mujoco.rollout import DEFAULT_BUDGETS
@@ -106,12 +106,9 @@ class MujocoBackend:
         body_description: dict[str, Any] | None = None,
     ) -> ModelReference:
         """从 XML 文本装载模型（WorldSpec 编译产物 / patch 之外的生成源）。"""
-        import mujoco
+        import mujoco  # noqa: F401 —— backend_version 需要
 
-        try:
-            spec = mujoco.MjSpec.from_string(xml_text, assets=assets or None)
-        except Exception as exc:
-            raise ValueError(f"MODEL_COMPILE_FAILED: {exc}") from exc
+        spec = _spec_from_xml_assets(xml_text, assets or {})
         warnings = self._compile_with_warnings(spec)
 
         asset_refs: dict[str, str] = {}
@@ -195,12 +192,9 @@ class MujocoBackend:
 
     def patch_model(self, model_ref: str, patches: list[dict[str, Any]]) -> ModelPatchResult:
         """MjSpec 结构化补丁：apply → compile → 新 manifest（母模型不动）。"""
-        import mujoco
 
         manifest = self._manifest(model_ref)
-        spec = mujoco.MjSpec.from_string(
-            manifest["mjcf_xml"], assets=self._load_assets(manifest) or None
-        )
+        spec = _spec_from_xml_assets(manifest["mjcf_xml"], self._load_assets(manifest))
         apply_patches(spec, patches)  # MODEL_PATCH_INVALID / TARGET_NOT_FOUND / FIELD_UNSUPPORTED
         self._compile_with_warnings(spec)  # 失败 MODEL_COMPILE_FAILED，母模型分毫不动
 
@@ -368,10 +362,131 @@ class MujocoBackend:
                     mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_ACTUATOR, i) or f"actuator_{i}",
                     int(model.actuator_trnid[i][0]),
                 )
-                for i in range(model.nu)
+                for i in range(model.actuator_trnid.shape[0])
             ],
             "nmocap": int(model.nmocap),
         }
+
+    def _control_schema(self, model, manifest: dict[str, Any]) -> list[dict[str, Any]]:  # noqa: ANN001
+        """ctrl 通道语义（MH10）：从来源 MjSpec 推导。"""
+        from rosclaw.sim.backends.mujoco.inspect import _control_channels
+
+        spec = self._spec_from_manifest(manifest)
+        return _control_channels(model, spec)
+
+    # -- 便携模型工件（MH10b，0916 §4.3） -------------------------------------
+
+    def export_model_mjz(self, model_ref: str) -> dict[str, Any]:
+        """导出 .mjz 便携模型工件（spec.assets 填充 + to_zip，
+        from_zip 自包含编译——跨机器证据/Hub/benchmark/replay 用）。"""
+        import tempfile
+
+        manifest = self._manifest(model_ref)
+        spec = self._spec_from_manifest(manifest)
+        spec.assets = self._load_assets(manifest)
+        with tempfile.NamedTemporaryFile(suffix=".mjz", delete=False) as tmp:
+            spec.to_zip(tmp.name)
+            blob = Path(tmp.name).read_bytes()
+        artifact_ref = self.store.put("models", blob)
+        return {
+            "artifact_ref": artifact_ref,
+            "format": "mjz",
+            "size_bytes": len(blob),
+            "model_ref": model_ref,
+            "model_digest": self._model_digest(manifest),
+        }
+
+    # -- 状态 v2：mjSTATE_INTEGRATION 真值（MH10，0916 §二） --------------------
+
+    def state_fidelity(self, state_ref: str) -> str:
+        """快照保真度：FULL_INTEGRATION / FULL_PHYSICS / LEGACY_PARTIAL。"""
+        snap = self.store.get(state_ref)
+        if not isinstance(snap, dict):
+            raise ValueError(f"REF_NOT_FOUND: {state_ref!r}")
+        if snap.get("kind") == "state_snapshot_v2":
+            return snap["fidelity"]
+        if snap.get("kind") == "state_snapshot":
+            return state_v2.FIDELITY_LEGACY_PARTIAL
+        raise ValueError(f"REF_NOT_FOUND: {state_ref!r} is not a state snapshot")
+
+    def capture_and_store_v2(
+        self,
+        model_ref: str,
+        model,  # noqa: ANN001
+        data,  # noqa: ANN001
+        *,
+        fidelity: str = state_v2.FIDELITY_FULL_INTEGRATION,
+    ) -> str:
+        """mj_getState 捕获 + 元数据 JSON 与 float64 blob 分离落盘。"""
+        manifest = self._manifest(model_ref)
+        vector, spec_value = state_v2.capture_state_v2(model, data, fidelity=fidelity)
+        blob = vector.tobytes()
+        blob_ref = self.store.put("states", blob)
+        meta = {
+            "kind": "state_snapshot_v2",
+            "schema_version": "rosclaw.sim.state.v2",
+            "model_ref": model_ref,
+            "model_digest": self._model_digest(manifest),
+            "state_spec": state_v2.spec_name(spec_value),
+            "state_spec_value": spec_value,
+            "state_size": len(vector),
+            "state_vector_ref": blob_ref,
+            "state_digest": "sha256:" + hashlib.sha256(blob).hexdigest(),
+            "structural_signature": self._structural_signature_str(model),
+            "fidelity": fidelity,
+            # preview（小数组便利字段；真值在 state_vector_ref blob）
+            "time": float(data.time),
+            "qpos": [float(v) for v in data.qpos],
+            "qvel": [float(v) for v in data.qvel],
+            "ctrl": [float(v) for v in data.ctrl],
+        }
+        return self.store.put("states", meta)
+
+    def initial_state_v2(
+        self,
+        model_ref: str,
+        *,
+        fidelity: str = state_v2.FIDELITY_FULL_INTEGRATION,
+    ) -> str:
+        """模型的 v2 初始状态（qpos0 + mj_forward）快照，确定性幂等。"""
+        import mujoco
+
+        manifest = self._manifest(model_ref)
+        spec = self._spec_from_manifest(manifest)
+        model, _ = self._compile_smoke(spec)
+        data = mujoco.MjData(model)
+        mujoco.mj_forward(model, data)
+        return self.capture_and_store_v2(model_ref, model, data, fidelity=fidelity)
+
+    def restore_state_v2(self, model_ref: str, state_ref: str):  # noqa: ANN202
+        """v2 恢复（v1 快照走 legacy 路径，fidelity 由 state_fidelity 判定）。"""
+        import numpy as np
+
+        snap = self.store.get(state_ref)
+        if not isinstance(snap, dict):
+            raise ValueError(f"REF_NOT_FOUND: {state_ref!r}")
+        if snap.get("kind") != "state_snapshot_v2":
+            return self.restore_state(model_ref, state_ref)  # LEGACY_PARTIAL 路径
+        manifest = self._manifest(model_ref)
+        if snap["model_digest"] != self._model_digest(manifest):
+            raise ValueError(
+                f"CROSS_MODEL_REF: state {state_ref!r} does not belong to {model_ref!r}"
+            )
+        blob = self.store.get(snap["state_vector_ref"])
+        if not isinstance(blob, bytes):
+            raise ValueError(f"STORE_DIGEST_MISMATCH: state vector {snap['state_vector_ref']!r}")
+        vector = np.frombuffer(blob, dtype=np.float64).copy()
+        spec = self._spec_from_manifest(manifest)
+        model, _ = self._compile_smoke(spec)
+        import mujoco
+
+        data = mujoco.MjData(model)
+        state_v2.apply_state_v2(model, data, vector, snap["state_spec_value"])
+        return model, data
+
+    @staticmethod
+    def _structural_signature_str(model) -> str:  # noqa: ANN001
+        return content_hash("simsig", MujocoBackend._structural_signature(model))
 
     # -- 实验：rollout / observe（MH3，规格 §15/§16） -------------------------
 
@@ -393,14 +508,16 @@ class MujocoBackend:
             raise ValueError(f"ROLLOUT_SEED_INVALID: {seed!r}")
         manifest = self._manifest(model_ref)
         if state_ref is not None:
-            model, data = self.restore_state(model_ref, state_ref)
+            model, data = self.restore_state_v2(model_ref, state_ref)
         else:
             spec = self._spec_from_manifest(manifest)
             model, _ = self._compile_smoke(spec)
             data = mujoco.MjData(model)
             mujoco.mj_forward(model, data)
 
-        plan = rollout_mod.validate_controller(controller, model.nu)
+        plan = rollout_mod.validate_controller(
+            controller, model.nu, channels=self._control_schema(model, manifest)
+        )
         resolved_steps = rollout_mod.resolve_steps(
             controller, steps=steps, duration_s=duration_s, timestep=float(model.opt.timestep)
         )
@@ -425,7 +542,7 @@ class MujocoBackend:
         if len(canonical_json(record).encode("utf-8")) > merged["max_trace_bytes"]:
             raise ValueError(f"SIM_BUDGET_EXCEEDED: trace bytes > {merged['max_trace_bytes']}")
         trace_ref = self.store.put("traces", record)
-        final_state_ref = self.capture_and_store(model_ref, model, data)
+        final_state_ref = self.capture_and_store_v2(model_ref, model, data)
 
         request_digest = content_hash(
             "simrol",
@@ -455,7 +572,7 @@ class MujocoBackend:
         """语义化有界观测（规格 §16）。"""
         if not isinstance(channels, list) or not channels:
             raise ValueError("OBSERVE_CHANNELS_REQUIRED: channels must be a non-empty list")
-        model, data = self.restore_state(model_ref, state_ref)
+        model, data = self.restore_state_v2(model_ref, state_ref)
         manifest = self._manifest(model_ref)
         values = observe_mod.observe_channels(model, data, channels)
         return ObservationResult(
@@ -606,7 +723,7 @@ class MujocoBackend:
             policy=policy,
             trace_record=trace_record,
             state_ref=state_ref,
-            restore_fn=lambda sr: self.restore_state(model_ref, sr),
+            restore_fn=lambda sr: self.restore_state_v2(model_ref, sr),
         )
         outcome = run_checks(ctx, checks)
 
@@ -674,15 +791,17 @@ class MujocoBackend:
 
         manifest = self._manifest(model_ref)
         if state_ref is not None:
-            model, data = self.restore_state(model_ref, state_ref)
+            model, data = self.restore_state_v2(model_ref, state_ref)
         else:
             spec = self._spec_from_manifest(manifest)
             model, _ = self._compile_smoke(spec)
             data = mujoco.MjData(model)
             mujoco.mj_forward(model, data)
-        initial_state_ref = self.capture_and_store(model_ref, model, data)
+        initial_state_ref = self.capture_and_store_v2(model_ref, model, data)
 
-        plan = rollout_mod.validate_controller(controller, model.nu)
+        plan = rollout_mod.validate_controller(
+            controller, model.nu, channels=self._control_schema(model, manifest)
+        )
         resolved_steps = rollout_mod.resolve_steps(
             controller, steps=steps, duration_s=duration_s, timestep=float(model.opt.timestep)
         )
@@ -712,7 +831,7 @@ class MujocoBackend:
         if len(canonical_json(record).encode("utf-8")) > merged["max_trace_bytes"]:
             raise ValueError(f"SIM_BUDGET_EXCEEDED: trace bytes > {merged['max_trace_bytes']}")
         trace_ref = self.store.put("traces", record)
-        final_state_ref = self.capture_and_store(model_ref, model, data)
+        final_state_ref = self.capture_and_store_v2(model_ref, model, data)
 
         metrics = collector.finalize(
             timestep=float(model.opt.timestep), duration_s=float(data.time)
@@ -830,11 +949,14 @@ class MujocoBackend:
         if not isinstance(trace_record, dict):
             raise ValueError(f"REF_NOT_FOUND: {payload['trace_ref']!r} is not a simulation trace")
         controller = trace_record["controller"]
+        fidelity = self.state_fidelity(payload["initial_state_ref"])
         try:
-            model, data = self.restore_state(payload["model_ref"], payload["initial_state_ref"])
+            model, data = self.restore_state_v2(payload["model_ref"], payload["initial_state_ref"])
         except ValueError as exc:
             raise ValueError(f"REPLAY_STATE_MISMATCH: {exc}") from exc
-        plan = rollout_mod.validate_controller(controller, model.nu)
+        plan = rollout_mod.validate_controller(
+            controller, model.nu, channels=self._control_schema(model, manifest)
+        )
         tracked = [
             (i, int(model.jnt_qposadr[int(model.actuator_trnid[i][0])]))
             for i in range(model.nu)
@@ -845,7 +967,15 @@ class MujocoBackend:
             model, data, plan=plan, steps=int(payload["steps"]), visit=collector.visit
         )
         if rollout_mod.states_digest(states) == payload["states_digest"]:
-            return {"verified": True, "mode": "raw", "receipt_ref": receipt_ref}
+            # 0916 §二.5：只有 FULL_INTEGRATION 状态允许 RAW_EXACT；
+            # LEGACY_PARTIAL 最多 SEMANTIC——旧证据不升级为强证据。
+            mode = "RAW_EXACT" if fidelity == state_v2.FIDELITY_FULL_INTEGRATION else "SEMANTIC"
+            return {
+                "verified": True,
+                "mode": mode,
+                "state_fidelity": fidelity,
+                "receipt_ref": receipt_ref,
+            }
 
         metrics = collector.finalize(
             timestep=float(model.opt.timestep), duration_s=float(data.time)
@@ -856,7 +986,12 @@ class MujocoBackend:
         if _metrics_close(metrics, payload["metrics"]) and verification_status == payload.get(
             "verification_status", "NOT_EVALUATED"
         ):
-            return {"verified": True, "mode": "semantic", "receipt_ref": receipt_ref}
+            return {
+                "verified": True,
+                "mode": "SEMANTIC",
+                "state_fidelity": fidelity,
+                "receipt_ref": receipt_ref,
+            }
         raise ValueError("REPLAY_PHYSICS_DIVERGED: raw states and semantic metrics both mismatch")
 
     def _replay_verification_status(
@@ -915,14 +1050,7 @@ class MujocoBackend:
         return assets
 
     def _spec_from_manifest(self, manifest: dict[str, Any]):  # noqa: ANN202
-        import mujoco
-
-        try:
-            return mujoco.MjSpec.from_string(
-                manifest["mjcf_xml"], assets=self._load_assets(manifest) or None
-            )
-        except Exception as exc:
-            raise ValueError(f"MODEL_COMPILE_FAILED: {exc}") from exc
+        return _spec_from_xml_assets(manifest["mjcf_xml"], self._load_assets(manifest))
 
     @staticmethod
     def _compile_with_warnings(spec) -> list[str]:  # noqa: ANN001
@@ -1070,3 +1198,21 @@ frames[0].save(
     append_images=frames[1:], duration=80, loop=0,
 )
 """
+
+
+def _spec_from_xml_assets(xml_text: str, assets: dict[str, bytes]):  # noqa: ANN202
+    """MjSpec 从 XML+资产构建（MH10b 实证结论）。
+
+    3.13.0 绑定实证：`MjSpec.from_file/from_string(vfs=)` 对 meshdir
+    资产**不解析 VFS**（Error opening file）；VFS 仅在
+    `MjModel.from_xml_path(name, vfs=)` 完整工作，`.mjz` 便携工件经
+    `spec.assets` 填充 + `to_zip/from_zip` 往返自包含。因此 MjSpec
+    资产面继续使用 `assets=`（3.13 实测零弃用警告），MjVfs 绑定
+    支持后随版本迁移（ADR-0014 MH10b 段）。
+    """
+    import mujoco
+
+    try:
+        return mujoco.MjSpec.from_string(xml_text, assets=assets or None)
+    except Exception as exc:
+        raise ValueError(f"MODEL_COMPILE_FAILED: {exc}") from exc
