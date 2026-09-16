@@ -71,6 +71,18 @@ def _a_leg_python() -> str:
     )
     if probe.returncode != 0:
         raise RuntimeError("A_LEG_ENV_CONTAMINATED: clean venv 里能 import rosclaw")
+    # pi 启动依赖 fd/ripgrep——干净 PATH 里缺失时 pi 会现场从
+    # GitHub 下载（本机 GitHub 直连不可达 → startup 永远卡
+    # "still in progress"，prompt 被启动竞态吞掉；v2/v3/v4
+    # 三连 45s 假 FAIL 的真根因）。从系统 PATH 预置 symlink。
+    import shutil as _shutil
+
+    for tool in ("fd", "rg"):
+        source = _shutil.which(tool)
+        if source:
+            link = _A_LEG_VENV / "bin" / tool
+            if not link.exists():
+                link.symlink_to(source)
     return str(python)
 
 
