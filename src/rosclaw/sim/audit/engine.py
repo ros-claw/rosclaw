@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from rosclaw.sim.audit import contact, determinism, dynamics, geometry
+from rosclaw.sim.audit import contact, determinism, dynamics, geometry, limits
 from rosclaw.sim.audit.context import AuditContext
 
 #: check 注册表（规格 §17/§18 第一批 + ROSClaw 基础扩展）。
@@ -24,6 +24,15 @@ CHECKS: dict[str, Callable[[AuditContext], dict[str, Any]]] = {
     "A18_reset_determinism": determinism.a18_reset_determinism,
     "A19_replay_determinism": determinism.a19_replay_determinism,
     "A20_state_model_mismatch": determinism.a20_state_model_mismatch,
+    "A09_actuator_saturation": limits.a09_actuator_saturation,
+    "A10_force_limit": limits.a10_force_limit,
+    "A11_velocity_limit": limits.a11_velocity_limit,
+    "A12_acceleration_spike": limits.a12_acceleration_spike,
+    "A14_peak_contact_force": limits.a14_peak_contact_force,
+    "A21_sensor_validity": limits.a21_sensor_validity,
+    "A22_frame_convention": limits.a22_frame_convention,
+    "A23_solver_sensitivity": limits.a23_solver_sensitivity,
+    "A24_timestep_sensitivity": limits.a24_timestep_sensitivity,
 }
 
 
@@ -56,6 +65,7 @@ def run_checks(ctx: AuditContext, checks: list[str] | None = None) -> dict[str, 
         for warning in outcome.get("warnings", []):
             warnings.append({"check": name, **warning})
 
+    # NOT_EVALUATED 中性：不进 FAIL/WARN（无声明限值的 body 不被误判）。
     statuses = {outcome["status"] for outcome in results.values()}
     if "FAIL" in statuses or "ERROR" in statuses:
         status = "FAIL"

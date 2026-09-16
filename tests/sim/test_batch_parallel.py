@@ -53,7 +53,6 @@ SIBLING_ARM = """<mujoco model="sibling_arm">
 """
 
 
-
 @pytest.fixture
 def backend(tmp_path):
     from rosclaw.sim.backends.mujoco.backend import MujocoBackend
@@ -65,8 +64,18 @@ def backend(tmp_path):
 
 def _kp_patches(kp: float):
     return [
-        {"op": "set", "target": {"type": "actuator", "name": "shoulder_servo"}, "field": "kp", "value": kp},
-        {"op": "set", "target": {"type": "actuator", "name": "elbow_servo"}, "field": "kp", "value": kp},
+        {
+            "op": "set",
+            "target": {"type": "actuator", "name": "shoulder_servo"},
+            "field": "kp",
+            "value": kp,
+        },
+        {
+            "op": "set",
+            "target": {"type": "actuator", "name": "elbow_servo"},
+            "field": "kp",
+            "value": kp,
+        },
     ]
 
 

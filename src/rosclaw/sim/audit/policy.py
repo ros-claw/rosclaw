@@ -42,6 +42,10 @@ class AuditPolicy:
     energy_explosion_factor: float = 100.0
     #: 能量爆炸绝对阈值（防零除）。
     energy_explosion_abs: float = 1.0
+    #: 执行器饱和步数占比阈值（A09）。
+    saturation_ratio: float = 0.2
+    #: solver/timestep 敏感性相对偏差阈值（A23/A24）。
+    sensitivity_rel: float = 1e-3
 
 
 STRICT_POLICY = AuditPolicy()

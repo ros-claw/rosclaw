@@ -32,7 +32,11 @@ def _experiment_at_kp(backend, ref, kp: float):
 def test_compare_metric_table_and_best(loaded_backend) -> None:
     backend, ref = loaded_backend
     weak = _experiment_at_kp(backend, ref, 10.0)
-    strong = _experiment_at_kp(backend, ref, 400.0)
+    # MH15 后语义：kp=400 时肩部力需求 160 超出 forcerange ±50，
+    # A10 持续饱和 FAIL → 被 Pareto 排除（诚实语义，不让饱和设计夺魁）。
+    # 本测试测 compare 机制本身，故 strong 取不饱和的 kp=100
+    # （力需求 40 < 50，audit PASS）。
+    strong = _experiment_at_kp(backend, ref, 100.0)
 
     result = backend.compare_experiments([weak.receipt_ref, strong.receipt_ref])
     assert result.schema_version == "rosclaw.sim.comparison_result.v1"
@@ -55,6 +59,10 @@ def test_compare_pareto_candidates(loaded_backend) -> None:
     # Pareto 候选 ⊆ 输入；best ∈ Pareto。
     assert set(result.pareto_refs) <= {a.receipt_ref, b.receipt_ref, c.receipt_ref}
     assert result.best_ref in result.pareto_refs
+    # MH15 语义锁定：kp=400 触发 A10 持续力饱和 → verification FAIL →
+    # 被 Pareto 排除（物理诚实胜过 rmse 更小）。
+    assert c.receipt_ref not in result.pareto_refs
+    assert result.best_ref == b.receipt_ref
 
 
 def test_compare_requires_two_refs(loaded_backend) -> None:
