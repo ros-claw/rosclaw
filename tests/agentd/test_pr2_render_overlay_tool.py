@@ -160,6 +160,43 @@ class TestEndToEndOverlay:
         assert result["overlays_applied"] == []
 
 
+class TestPerRenderReceipt:
+    def test_per_render_receipts_survive_multi_render(self, tmp_path: Path) -> None:
+        """0916 三审 X-2：同 trace 换相机双渲染时，单文件 receipt
+        互相覆盖会销毁第一个视频的 RenderRef 证据——per-render
+        receipt 必须各自落盘、可经 render_key 构造绑定到视频。"""
+        run = _make_trace(tmp_path)
+        trace_dir = tmp_path / "sim" / "traces" / run["trace_id"]
+        results = []
+        for camera in ("follow", "top"):
+            results.append(_registry(tmp_path)._execute_scene_render({
+                "trace_id": run["trace_id"],
+                "camera": camera,
+                "outputs": ["gif"],
+            }))
+        keys = [r["receipt"].get("render_key") for r in results]
+        assert all(keys), "receipt 必须带 render_key"
+        assert keys[0] != keys[1], "换相机必须产生不同 render_key"
+        for key, camera in zip(keys, ("follow", "top"), strict=True):
+            per = trace_dir / f"render_receipt-{key}.json"
+            assert per.exists(), f"per-render receipt 未落盘: {per.name}"
+            doc = json.loads(per.read_text(encoding="utf-8"))
+            assert doc["render_key"] == key
+            assert doc["camera"] == camera
+            assert doc["states_digest"].startswith("sha256:")
+            # 视频↔receipt 构造绑定：视频文件名含同一 render_key。
+            videos = list(trace_dir.glob(f"*-{key}-scene.gif"))
+            assert videos, f"无绑定视频: render_key={key}"
+        # 两次渲染读同一份 states——digest 一致（不重新仿真）。
+        first = json.loads(
+            (trace_dir / f"render_receipt-{keys[0]}.json").read_text(encoding="utf-8")
+        )
+        second = json.loads(
+            (trace_dir / f"render_receipt-{keys[1]}.json").read_text(encoding="utf-8")
+        )
+        assert first["states_digest"] == second["states_digest"]
+
+
 class TestAnimatedReveal:
     def test_reveal_cutoff_uses_original_sample_index(self) -> None:
         """animated 揭示按原始 sample index 截断——抽稀保持索引，

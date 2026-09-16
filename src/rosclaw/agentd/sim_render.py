@@ -1030,9 +1030,19 @@ def _render_impl(
         receipt["spec_digest"] = "sha256:" + hashlib.sha256(
             json.dumps(spec_doc, sort_keys=True).encode()
         ).hexdigest()
+    if render_key:
+        # 0916 三审 X-2：per-render 证据——同 trace 多渲染（换相机）
+        # 时单文件 receipt 互相覆盖，第一个视频的 RenderRef 证据被
+        # 销毁。每个 render_key 各存一份（视频文件名含 render_key，
+        # 构造性绑定 视频↔receipt↔spec_digest）。
+        receipt["render_key"] = render_key
     (trace_dir / "render_receipt.json").write_text(
         json.dumps(receipt, ensure_ascii=False, indent=1), encoding="utf-8"
     )
+    if render_key:
+        (trace_dir / f"render_receipt-{render_key}.json").write_text(
+            json.dumps(receipt, ensure_ascii=False, indent=1), encoding="utf-8"
+        )
     primary = artifacts.get("gif") or artifacts["mp4"]
     result = {
         "ok": True,

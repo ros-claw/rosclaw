@@ -90,64 +90,420 @@ def _run_one(scenario: str, run_idx: int, out_dir: Path) -> dict:
     return record
 
 
-def _oracle(scenario: str, run) -> dict:
-    """环境结局核验（不信模型自报）。
+def _trace_binding(root: Path) -> list[dict]:
+    """收集 per-render 绑定：视频↔render_key↔receipt↔trace（W04 keyed
+    命名构造绑定）。
 
-    产物可能在两处：工作区 ws（模型自写脚本产出）与 home 的
-    sim/traces + runs/<task>/outputs（内核渲染+交付登记）——首轮
-    实证：只搜 ws 会把真实成功误判 FAIL（模型走 simulation_render_
-    scene 产物全在 home 侧）。搜索根 = run.tmp_path（含 ws 与 home）。
+    返回 [{trace_id, render_key, receipt, videos, actual}]——每次渲染
+    一条。receipt 优先取 per-render 证据 render_receipt-{key}.json
+    （0916 起产品侧逐渲染落盘；旧现场回退单文件 receipt——其 camera
+    可能被后渲染覆盖，故相机差异另有像素级视觉判定）。states_digest
+    必须非空 sha256（None 永不得通过一致性）。
+    """
+    import json as _json
+    import re as _re
+
+    renders: list[dict] = []
+    for trace_dir in sorted(root.rglob("sim/traces/*")):
+        if not trace_dir.is_dir():
+            continue
+        trace_id = trace_dir.name
+        legacy_path = trace_dir / "render_receipt.json"
+        legacy = (
+            _json.loads(legacy_path.read_text(encoding="utf-8"))
+            if legacy_path.exists() else None
+        )
+        trace_json = trace_dir / "trace.json"
+        actual: list = []
+        if trace_json.exists():
+            actual = _json.loads(trace_json.read_text(encoding="utf-8")).get("actual") or []
+        by_key: dict[str, list[Path]] = {}
+        for p in sorted(trace_dir.iterdir()):
+            match = _re.match(
+                rf"{_re.escape(trace_id)}-([0-9a-f]+)-scene\.(mp4|gif)$", p.name,
+            )
+            if match:
+                by_key.setdefault(match.group(1), []).append(p)
+        for render_key, videos in by_key.items():
+            per_path = trace_dir / f"render_receipt-{render_key}.json"
+            receipt = (
+                _json.loads(per_path.read_text(encoding="utf-8"))
+                if per_path.exists() else legacy
+            )
+            if not receipt:
+                continue
+            states_digest = receipt.get("states_digest")
+            if not states_digest or not str(states_digest).startswith("sha256:"):
+                continue  # digest 缺失/None——此渲染不参与通过
+            renders.append({
+                "trace_id": trace_id,
+                "render_key": render_key,
+                "receipt": receipt,
+                "per_render_receipt": per_path.exists(),
+                "states_digest": str(states_digest),
+                "camera": str(receipt.get("camera", "")),
+                "videos": videos,
+                "actual": actual,
+            })
+    return renders
+
+
+def _extent(actual: list) -> tuple[float, float, float]:
+    """轨迹 xyz 三轴跨度（米）。"""
+    if not actual:
+        return (0.0, 0.0, 0.0)
+    xs = [p["x"] for p in actual]
+    ys = [p["y"] for p in actual]
+    zs = [p["z"] for p in actual]
+    return (
+        max(xs) - min(xs), max(ys) - min(ys), max(zs) - min(zs),
+    )
+
+
+def _trace_pixels_visible(video: Path) -> bool:
+    """overlay 轨迹色（红系 rgba≈(1.0,0.2,0.2)）在视频中段的像素
+    证据——宣称画了≠画面有（0914 mjv 米单位教训）。"""
+    import imageio.v3 as iio
+    import numpy as np
+
+    frames = [np.asarray(f) for f in iio.imiter(str(video))]
+    if len(frames) < 2:
+        return False
+    hits = 0
+    for frame in frames[len(frames) // 3 :]:
+        r = frame[:, :, 0].astype(int)
+        g = frame[:, :, 1].astype(int)
+        b = frame[:, :, 2].astype(int)
+        hits += int(((r > 150) & (r > g + 50) & (r > b + 50)).sum())
+    return hits > 200
+
+
+def _visual_difference(video_a: Path, video_b: Path) -> float:
+    """两视频中段帧平均像素差——相机差异的环境真相（不信 receipt
+    的 camera 字段：旧现场单文件 receipt 被后渲染覆盖）。同相机
+    确定性重渲染 ≈0；换相机（follow vs top）远大于阈值。"""
+    import imageio.v3 as iio
+    import numpy as np
+
+    frames_a = [np.asarray(f) for f in iio.imiter(str(video_a))]
+    frames_b = [np.asarray(f) for f in iio.imiter(str(video_b))]
+    count = min(len(frames_a), len(frames_b))
+    if count < 2:
+        return 0.0
+    diffs: list[float] = []
+    for i in (count // 3, count // 2, (2 * count) // 3):
+        a = frames_a[i][:, :, :3].astype(int)
+        b = frames_b[i][:, :, :3].astype(int)
+        if a.shape != b.shape:
+            return float("inf")  # 分辨率都不同——必为不同渲染
+        diffs.append(float(np.abs(a - b).mean()))
+    return sum(diffs) / len(diffs)
+
+
+def _oracle(scenario: str, run) -> dict:
+    """环境结局核验（不信模型自报，不信终端文字——0916 三审重写）。
+
+    三审稿指摘的假绿根治：
+    - 一切一致性判定要求非空 states_digest（None 永远不得通过）；
+    - 视频必须经 W04 keyed 文件名与 trace 构造绑定；
+    - 物理语义从原始状态/轨迹数据重算，不从 session 文本判定；
+    - run root 是每 run 新建 mkdtemp 隔离目录——产物构造上属于
+      本 run（无历史 artifact 冒充面）。
+    """
+    root = run.tmp_path
+    renders = _trace_binding(root)
+    # 注：run root 是本 run 新建的 mkdtemp 隔离目录（含隔离 home）——
+    # 其中一切产物构造上属于本 run，无历史 artifact 冒充面。
+
+    if scenario == "U05":
+        # L 形折线 + 视频内实际轨迹：绑定视频的 receipt 画了
+        # actual_eef_trace（零 unfulfilled）；轨迹本身两轴非退化
+        # （L 不是点也不是单轴线段）；帧内有轨迹色像素。
+        good = [
+            r for r in renders
+            if "actual_eef_trace" in (r["receipt"].get("overlays_applied") or [])
+            and not (r["receipt"].get("overlays_unfulfilled") or [])
+            and r["videos"]
+        ]
+        if not good:
+            return {
+                "verdict": "FAIL",
+                "detail": f"无绑定且画轨迹的渲染（renders={len(renders)}）",
+            }
+        b = good[0]
+        dx, dy, _dz = _extent(b["actual"])
+        shape_ok = dx > 0.02 and dy > 0.02 and len(b["actual"]) >= 10
+        visible = _trace_pixels_visible(b["videos"][0])
+        ok = shape_ok and visible
+        return {
+            "verdict": "PASS" if ok else "FAIL",
+            "detail": (
+                f"trace={b['trace_id']} 两轴=({dx:.3f},{dy:.3f})m "
+                f"visible={visible} videos={len(b['videos'])}"
+            ),
+        }
+
+    if scenario == "U06":
+        # 同一 TraceRef 双渲染（换相机不重仿真）：同 trace ≥2 个
+        # render_key、states_digest 全部非空且一致（构造绑定=同
+        # trace 目录内渲染读同一份 states）；螺旋语义=z 跨度≥0.1m
+        # 且 xy 跨度≥0.05m；相机差异以像素级视觉差判定（不信
+        # receipt camera——旧现场单文件 receipt 被后渲染覆盖；
+        # per-render receipt 存在时额外核 camera 字段互异）；
+        # 至少一视频轨迹色像素可见。
+        by_trace: dict[str, list[dict]] = {}
+        for r in renders:
+            by_trace.setdefault(r["trace_id"], []).append(r)
+        for trace_id, trace_renders in by_trace.items():
+            if len(trace_renders) < 2:
+                continue
+            digests = {r["states_digest"] for r in trace_renders}
+            actual = trace_renders[0]["actual"]
+            dx, dy, dz = _extent(actual)
+            helix_ok = dz >= 0.1 and (dx >= 0.05 or dy >= 0.05)
+            if len(digests) != 1 or not helix_ok:
+                continue
+            pair = trace_renders[0], trace_renders[1]
+            video_a = next(
+                (v for v in pair[0]["videos"] if v.suffix == ".gif"),
+                pair[0]["videos"][0],
+            )
+            video_b = next(
+                (v for v in pair[1]["videos"] if v.suffix == ".gif"),
+                pair[1]["videos"][0],
+            )
+            visual = _visual_difference(video_a, video_b)
+            if visual < 10.0:
+                continue  # 视觉无差异——同相机重渲染不算换相机
+            if (
+                pair[0]["per_render_receipt"] and pair[1]["per_render_receipt"]
+                and pair[0]["camera"] == pair[1]["camera"]
+            ):
+                continue  # per-render 证据在场时 camera 字段必须互异
+            if not _trace_pixels_visible(video_a):
+                continue
+            return {
+                "verdict": "PASS",
+                "detail": (
+                    f"trace={trace_id} 同 digest 双渲染 "
+                    f"visual_diff={visual:.1f} dz={dz:.3f}m "
+                    f"cameras={sorted({r['camera'] for r in trace_renders})}"
+                ),
+            }
+        return {
+            "verdict": "FAIL",
+            "detail": (
+                f"无'同 trace 双相机'证据（traces={len(by_trace)} "
+                f"renders={len(renders)}）"
+            ),
+        }
+
+    # U10：三个独立 rollout（不同阻尼）从原始状态序列重算衰减——
+    # 终端文字（含提示词自带的 0.02/0.1/0.3/衰减字样）一律不作证据。
+    series = _collect_damping_series(root)
+    if len(series) < 3:
+        return {
+            "verdict": "FAIL",
+            "detail": f"可用阻尼序列仅 {len(series)} 组（需 3 组独立 rollout）",
+        }
+    decays: dict[float, float] = {}
+    for damping, angles in series.items():
+        decays[damping] = _amplitude_decay(angles)
+    ordered = sorted(decays.items())
+    # 物理单调：阻尼越大衰减率越小（峰值比衰减更快）。
+    monotone = all(
+        ordered[i][1] < ordered[i - 1][1] for i in range(1, len(ordered))
+    )
+    distinct = len({round(v, 6) for v in decays.values()}) == len(decays)
+    ok = monotone and distinct
+    return {
+        "verdict": "PASS" if ok else "FAIL",
+        "detail": (
+            f"衰减率(小→大阻尼)={[f'{d}:{r:.4f}' for d, r in ordered]} "
+            f"单调={monotone} 互异={distinct}"
+        ),
+    }
+
+
+def _collect_damping_series(root: Path) -> dict[float, list[float]]:
+    """从运行现场收集 (阻尼→摆角时间序列)——只认原始物理数据。
+
+    两形态：内核 trajectory_states.json（qpos[0] 摆角 + 同 trace
+    MJCF/元数据里的 damping 值）；模型自写 CSV/JSON（列含 damping
+    或文件名标阻尼 + 时间+角度列）。三者独立 rollout 才计数——
+    同一文件切三段/同一 damping 重复只算一组。
     """
     import json as _json
 
-    root = run.tmp_path
-    videos = sorted(root.rglob("*.mp4")) + sorted(root.rglob("*.gif"))
-    receipts = sorted(root.rglob("render_receipt.json"))
-    overlays_ok = False
-    unfulfilled: list = []
-    for rp in receipts:
-        doc = _json.loads(rp.read_text(encoding="utf-8"))
-        applied = doc.get("overlays_applied") or []
-        unfulfilled.extend(doc.get("overlays_unfulfilled") or [])
-        if "actual_eef_trace" in applied:
-            overlays_ok = True
-    if scenario == "U05":
-        ok = bool(videos) and overlays_ok and not unfulfilled
-        return {
-            "verdict": "PASS" if ok else "FAIL",
-            "detail": (
-                f"videos={len(videos)} overlays_ok={overlays_ok} "
-                f"unfulfilled={unfulfilled[:2]}"
-            ),
-        }
-    if scenario == "U06":
-        # 顶视图复用同一 trace（不重新仿真）：≥2 渲染 receipt 且
-        # states_digest 一致。
-        digests = {
-            _json.loads(rp.read_text(encoding="utf-8")).get("states_digest")
-            for rp in receipts
-        }
-        ok = (
-            len(videos) >= 2 and overlays_ok and len(digests) == 1
-            and not unfulfilled
+    series: dict[float, list[float]] = {}
+    # 内核形态：trajectory_states.json + 邻近 MJCF/元数据 damping。
+    for states_path in root.rglob("trajectory_states.json"):
+        payload = _json.loads(states_path.read_text(encoding="utf-8"))
+        states = payload.get("states") or []
+        if len(states) < 50:
+            continue
+        damping = _find_damping_near(states_path)
+        if damping is None:
+            continue
+        angles = [float(s["qpos"][0]) for s in states]
+        if damping not in series:
+            series[damping] = angles
+    # 模型自写形态：CSV（damping 列或文件名）与 JSON（damping 键）。
+    for csv_path in root.rglob("*.csv"):
+        damping, angles = _angles_from_csv(csv_path)
+        if damping is not None and len(angles) >= 50 and damping not in series:
+            series[damping] = angles
+    for json_path in root.rglob("*.json"):
+        damping, angles = _angles_from_json(json_path)
+        if damping is not None and len(angles) >= 50 and damping not in series:
+            series[damping] = angles
+    # npz 形态：单文件多键（q_<阻尼>）或每阻尼一文件（theta 数组）。
+    for npz_path in root.rglob("*.npz"):
+        for damping, angles in _series_from_npz(npz_path):
+            if damping is not None and len(angles) >= 50 and damping not in series:
+                series[damping] = angles
+    return series
+
+
+def _series_from_npz(path: Path) -> list[tuple[float | None, list[float]]]:
+    import re as _re
+
+    import numpy as np
+
+    name_match = _re.search(
+        r"(?:damping|damp|阻尼|_d)([_=-]?[0-9]+(?:\.[0-9]+)?)", path.name,
+    )
+    file_damping = float(name_match.group(1)) if name_match else None
+    found: list[tuple[float | None, list[float]]] = []
+    try:
+        archive = np.load(str(path))
+    except Exception:
+        return found  # 坏文件不当证据也不炸 oracle
+    for key in archive.files:
+        key_match = _re.match(
+            r"(?:q|theta|angle|qpos)(?:_([0-9]+(?:\.[0-9]+)?))?$", key,
         )
-        return {
-            "verdict": "PASS" if ok else "FAIL",
-            "detail": (
-                f"videos={len(videos)} receipts={len(receipts)} "
-                f"digests={len(digests)} overlays_ok={overlays_ok}"
-            ),
-        }
-    # U10：数据文件 + 结论含三种阻尼的衰减比较（数据可重算）。
-    csvs = sorted(root.rglob("*.csv")) + sorted(root.rglob("*.json"))
-    session_text = run.session.clean.decode("utf-8", errors="replace")
-    has_three = all(d in session_text for d in ("0.02", "0.1", "0.3"))
-    monotone = ("单调" in session_text) or ("衰减" in session_text)
-    ok = bool(csvs) and has_three and monotone
-    return {
-        "verdict": "PASS" if ok else "FAIL",
-        "detail": f"data_files={len(csvs)} three_dampings={has_three}",
-    }
+        if not key_match:
+            continue
+        array = archive[key]
+        if array.ndim != 1 or array.size < 50:
+            continue
+        damping = float(key_match.group(1)) if key_match.group(1) else file_damping
+        found.append((damping, [float(v) for v in array]))
+    return found
+
+
+def _find_damping_near(states_path: Path) -> float | None:
+    """trace 邻近文件（MJCF/trace.json/元数据）里的 damping 值——
+    从数据声明取，不从提示词取。"""
+    import json as _json
+    import re
+
+    candidates = [states_path.parent / "trace.json", *sorted(states_path.parent.glob("*.xml"))]
+    for path in candidates:
+        if not path.exists():
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        match = re.search(r'damping["\s:=]+([0-9]+(?:\.[0-9]+)?)', text)
+        if match:
+            return float(match.group(1))
+        # trace.json 的 spec/参数段。
+        try:
+            doc = _json.loads(text)
+        except ValueError:
+            continue
+        for key in ("damping", "joint_damping"):
+            if key in doc:
+                return float(doc[key])
+        spec = doc.get("spec") or {}
+        if "damping" in spec:
+            return float(spec["damping"])
+    return None
+
+
+def _angles_from_csv(path: Path) -> tuple[float | None, list[float]]:
+    import contextlib
+    import csv
+    import re as _re
+
+    damping: float | None = None
+    name_match = _re.search(r"(?:damping|damp|阻尼|_d)[_=-]?([0-9]+(?:\.[0-9]+)?)", path.name)
+    if name_match:
+        damping = float(name_match.group(1))
+    angles: list[float] = []
+    try:
+        with path.open(encoding="utf-8", errors="replace") as fh:
+            reader = csv.DictReader(fh)
+            if reader.fieldnames is None:
+                return (None, [])
+            angle_col = next(
+                (c for c in reader.fieldnames
+                 if c.strip().lower().startswith(("theta", "angle"))
+                 or "qpos" in c.strip().lower()
+                 or c.strip().lower() == "q"),
+                None,
+            )
+            damp_col = next(
+                (c for c in reader.fieldnames if "damp" in c.lower()), None,
+            )
+            for row in reader:
+                if angle_col is None:
+                    break
+                try:
+                    angles.append(float(row[angle_col]))
+                except (TypeError, ValueError):
+                    continue
+                if damping is None and damp_col:
+                    with contextlib.suppress(TypeError, ValueError):
+                        damping = float(row[damp_col])
+    except (OSError, csv.Error):
+        return (None, [])
+    return (damping, angles)
+
+
+def _angles_from_json(path: Path) -> tuple[float | None, list[float]]:
+    import json as _json
+
+    try:
+        doc = _json.loads(path.read_text(encoding="utf-8", errors="replace"))
+    except ValueError:
+        return (None, [])
+    if not isinstance(doc, dict):
+        return (None, [])
+    damping = doc.get("damping")
+    series_raw = None
+    for key in ("theta", "angle", "angles", "qpos", "series"):
+        value = doc.get(key)
+        if isinstance(value, list) and value:
+            series_raw = value
+            break
+    if series_raw is None and isinstance(doc.get("states"), list):
+        series_raw = [
+            s.get("qpos", [None])[0] if isinstance(s, dict) else None
+            for s in doc["states"]
+        ]
+    if damping is None and "params" in doc and isinstance(doc["params"], dict):
+        damping = doc["params"].get("damping")
+    if series_raw is None or damping is None:
+        return (None, [])
+    try:
+        return (float(damping), [float(v) for v in series_raw if v is not None])
+    except (TypeError, ValueError):
+        return (None, [])
+
+
+def _amplitude_decay(angles: list[float]) -> float:
+    """衰减率 = 第三峰/第二峰（从序列重算——不读理论值）。"""
+    peaks: list[float] = []
+    prev_vel = 0.0
+    for i in range(1, len(angles)):
+        vel = angles[i] - angles[i - 1]
+        if prev_vel > 0 >= vel or prev_vel < 0 <= vel:
+            peaks.append(abs(angles[i]))
+        prev_vel = vel
+    if len(peaks) >= 3 and peaks[1] > 1e-9:
+        return float(peaks[2] / peaks[1])
+    return 1.0
 
 
 def _rescore(out_dir: Path) -> list[dict]:
