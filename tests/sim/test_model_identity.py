@@ -25,8 +25,12 @@ def _binary_stl(scale: float) -> bytes:
     for a, b, c in faces:
         body += struct.pack(
             "<12fH",
-            0.0, 0.0, 1.0,
-            *verts[a], *verts[b], *verts[c],
+            0.0,
+            0.0,
+            1.0,
+            *verts[a],
+            *verts[b],
+            *verts[c],
             0,
         )
     return b"\0" * 80 + struct.pack("<I", len(faces)) + body

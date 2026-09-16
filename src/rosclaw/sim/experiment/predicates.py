@@ -32,9 +32,7 @@ def evaluate_predicates(
             continue
         if "inside" in predicate:
             box = predicate["inside"]
-            ok = all(
-                lo <= v <= hi for v, lo, hi in zip(value, box["min"], box["max"], strict=True)
-            )
+            ok = all(lo <= v <= hi for v, lo, hi in zip(value, box["min"], box["max"], strict=True))
             results.append({"predicate": predicate, "ok": bool(ok), "value": value})
         else:
             near = predicate["near"]

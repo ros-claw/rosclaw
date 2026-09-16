@@ -137,7 +137,10 @@ class SimulationRuntime:
             patches = branch.get("patches", [])
             target_ref = model_ref
             if patches:
-                target_ref = self._backend.patch_model(model_ref, patches).new_model_ref
+                patched_ref = self._backend.patch_model(model_ref, patches).new_model_ref
+                if patched_ref is None:
+                    raise ValueError("MODEL_PATCH_INVALID: patch produced no new model ref")
+                target_ref = patched_ref
             branch_state = self._backend.transplant_state(target_ref, base_state)
             receipts.append(
                 self._backend.run_experiment(
