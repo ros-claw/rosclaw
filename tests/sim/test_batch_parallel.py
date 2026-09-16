@@ -81,13 +81,13 @@ def test_batch_trajectory_matches_serial(backend) -> None:
     assert len(batch_results) == 3
     assert all(r["execution"] == "batch_parallel" for r in batch_results)
 
-    for ref_i, batch_result in zip(refs, batch_results):
+    for ref_i, batch_result in zip(refs, batch_results, strict=True):
         serial = b.rollout(ref_i, controller={"position_targets": [0.4, 0.1]}, steps=100)
         serial_states = b.store.get(serial.trace_ref)["states"]
         batch_states = b.store.get(batch_result["trace_ref"])["states"]
         # 采样点一一对应，qpos 逐步一致。
         assert len(serial_states) == len(batch_states)
-        for s_serial, s_batch in zip(serial_states, batch_states):
+        for s_serial, s_batch in zip(serial_states, batch_states, strict=True):
             assert s_serial["qpos"] == pytest.approx(s_batch["qpos"], abs=1e-9)
             assert s_serial["ctrl"] == pytest.approx(s_batch["ctrl"], abs=1e-9)
 
@@ -96,7 +96,7 @@ def test_batch_final_state_matches_serial(backend) -> None:
     b, ref = backend
     refs = [ref.model_ref, b.patch_model(ref.model_ref, _kp_patches(100.0)).new_model_ref]
     batch_results = b.rollout_batch(refs, controller={"position_targets": [0.3, 0.0]}, steps=80)
-    for ref_i, batch_result in zip(refs, batch_results):
+    for ref_i, batch_result in zip(refs, batch_results, strict=True):
         serial = b.rollout(ref_i, controller={"position_targets": [0.3, 0.0]}, steps=80)
         serial_final = b.store.get(serial.final_state_ref)
         batch_final = b.store.get(batch_result["final_state_ref"])

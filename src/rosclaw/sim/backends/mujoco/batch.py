@@ -11,7 +11,6 @@ truth 同域、无需 CPU/GPU agreement、更易 strict replay）。
 
 from __future__ import annotations
 
-import math
 from typing import Any
 
 import numpy as np
@@ -80,10 +79,7 @@ def run_batch(
     check_homogeneous(models)
     datas = [mujoco.MjData(model) for model in models]
     initial = initial_vectors(models)
-    if ctrl_rows.ndim == 2:
-        ctrl = ctrl_rows[np.newaxis, :, :]
-    else:
-        ctrl = ctrl_rows
+    ctrl = ctrl_rows[np.newaxis, :, :] if ctrl_rows.ndim == 2 else ctrl_rows
     try:
         state_traj, sensordata_traj = rollout_lib.rollout(models, datas, initial, ctrl)
     except ValueError as exc:
