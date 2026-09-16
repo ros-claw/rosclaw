@@ -578,7 +578,15 @@ def _chat_pi(home: Path, args: argparse.Namespace) -> int:
     import threading
     import time
 
-    runtime = _find_pi_agent_entry()
+    from rosclaw.agentd.pi_entry import JsRuntimeBootstrapError
+
+    try:
+        runtime = _find_pi_agent_entry(bootstrap=True)
+    except JsRuntimeBootstrapError as exc:
+        # G-1a：wheel 干净安装首跑 npm ci bootstrap——失败给完整
+        # 原因与手动命令（不再抛 "Cannot find package" 死胡同）。
+        print(str(exc), file=sys.stderr)
+        return 2
     if runtime is None:
         print(
             "Native Agent 需要 Node ≥22.19 且已构建 packages/rosclaw-agent"

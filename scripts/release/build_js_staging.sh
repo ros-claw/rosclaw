@@ -40,6 +40,9 @@ for pkg in rosclaw-tui rosclaw-agent; do
   mkdir -p "$STAGE/$pkg"
   cp -r "$WORK/$pkg/dist" "$WORK/$pkg/package.json" \
         "$WORK/$pkg/package-lock.json" "$STAGE/$pkg/"
+  # postinstall 补丁器是运行时依赖（G-1a：wheel 首跑 bootstrap 的
+  # npm ci 会执行 postinstall——缺 patches/ 即死）。
+  [ ! -d "$WORK/$pkg/patches" ] || cp -r "$WORK/$pkg/patches" "$STAGE/$pkg/"
   # 测试文件不是运行内容——不进 staging（wheel/tar 是发布物；
   # 体积 + 测试夹具字符串会误触秘密扫描）。
   rm -rf "$STAGE/$pkg/dist/test"
