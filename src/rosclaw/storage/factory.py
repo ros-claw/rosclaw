@@ -121,15 +121,18 @@ class StoreFactory:
             chosen = mapped
 
         if chosen == "local_runtime":
-            # The 1.4 background-process embedded path.  Lifecycle is owned by
-            # SeekDBLocalRuntime; storage semantics stay in the store adapter.
-            # Fail closed when the bindings wheel is unavailable (aarch64
-            # today) — never silently fall back to another backend.
-            from rosclaw.storage.seekdb_runtime import SeekDBLocalRuntime
+            # The 1.4 background-process embedded path (PREVIEW, x86_64 only
+            # today).  PR-SDB-140-5 (P0-7/8/9): the store is a composition
+            # that OWNS the runtime lifecycle — no orphaned runtime, no
+            # dropped unix_socket, attach instead of fail when another
+            # process already owns the instance.
+            from rosclaw.storage.seekdb_runtime import (
+                LocalRuntimeStructuredStore,
+                LocalRuntimeUnavailableError,
+                SeekDBLocalRuntime,
+            )
 
             if not SeekDBLocalRuntime.available():
-                from rosclaw.storage.seekdb_runtime import LocalRuntimeUnavailableError
-
                 raise LocalRuntimeUnavailableError(
                     "ROSCLAW_SEEKDB_MODE=local_runtime but the 'seekdb' bindings "
                     "package is unavailable on this platform (1.4.0.dev2 ships "
@@ -141,22 +144,8 @@ class StoreFactory:
                     "local_runtime requires seekdb_path (or ROSCLAW_SEEKDB_PATH) "
                     "for the runtime's db directory."
                 )
-            runtime = SeekDBLocalRuntime(rt_dir)
-            runtime.recover_if_crashed()
-            info = runtime.start()
-            options = info.connection_options
-            from rosclaw.storage.seekdb_native import SeekDBServerRetrievalStore
-
-            logger.info(
-                "Knowledge store backend: local_runtime (%s, pid=%s)",
-                rt_dir,
-                info.pid,
-            )
-            return SeekDBServerRetrievalStore(
-                host=options.get("host", "127.0.0.1"),
-                port=int(options.get("port", 2881)),
-                database=(options.get("database") or "rosclaw"),
-            )
+            logger.info("Knowledge store backend: local_runtime (%s)", rt_dir)
+            return LocalRuntimeStructuredStore(rt_dir)
 
         if chosen == "http":
             raise ValueError(

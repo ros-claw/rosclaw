@@ -1,0 +1,127 @@
+# Gate H — SeekDB 1.4 REAL engine gates (PR-SDB-140-5, P0-10/P0-11).
+#
+# Gate G (data-flywheel-gate.yml) proves pyseekdb/pylibseekdb embedded
+# compatibility.  Gate H proves the things only a real 1.4 engine proves,
+# on ubuntu-24.04 amd64:
+#
+#   H1 — Server mode: install the pinned 1.4.0 deb (SHA256-verified), start
+#        with instance identity, doctor, lifecycle adversarial tests L1-L10,
+#        W2R smoke, migration fixture, graceful shutdown.
+#   H2 — Local runtime: the NEW seekdb==1.4.0.dev2 bindings, real engine
+#        process over a real unix socket — open, four query legs, multi-
+#        process attach, close, reopen, persistence.  No mocks.
+name: SeekDB 1.4 Engine Gate
+
+on:
+  pull_request:
+    paths:
+      - "scripts/seekdb/**"
+      - "src/rosclaw/storage/**"
+      - "src/rosclaw/memory/seekdb_client.py"
+      - "tests/integration/seekdb/**"
+      - "tests/storage/**"
+      - "validation/seekdb/**"
+      - ".github/workflows/seekdb-engine-gate.yml"
+  push:
+    branches: [main]
+
+jobs:
+  # ------------------------------------------------------------------ H1
+  gate-h1-server:
+    name: Gate H1 — SeekDB Engine 1.4 Server (amd64)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      # The 1.4.0 binary has no bind-address option (always 0.0.0.0 —
+      # verified on the rig; devname=lo does not constrain the SQL port).
+      # Ephemeral CI runner: wide bind is acceptable and explicitly opted in.
+      ROSCLAW_SEEKDB_ALLOW_WIDE_BIND: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install rosclaw + deps
+        run: uv pip install -e ".[dev,seekdb]" --system
+
+      - name: Install pinned SeekDB 1.4.0 deb (SHA256-verified)
+        run: sudo -n true 2>/dev/null; scripts/seekdb/install_1_4.sh
+
+      - name: Start engine with instance identity
+        run: scripts/seekdb/start_1_4.sh
+
+      - name: Version proof (wire protocol)
+        run: |
+          python3 - <<'PY'
+          import pymysql
+          conn = pymysql.connect(host="127.0.0.1", port=2881, user="root", password="")
+          cur = conn.cursor()
+          cur.execute("SELECT VERSION()")
+          v = cur.fetchone()[0]
+          print("engine:", v)
+          assert "seekdb-v1.4.0" in v, v
+          PY
+
+      - name: Doctor (identity-separated checks)
+        run: scripts/seekdb/doctor.sh
+
+      - name: Lifecycle adversarial tests L1-L10 (real engines, scratch homes)
+        run: pytest tests/integration/seekdb/test_lifecycle_identity.py -q -m integration
+
+      - name: W2R smoke + small benchmark on the real server
+        run: |
+          python validation/seekdb/benchmarks/seekdb_benchmark.py \
+            --seekdb-url "mysql://root@127.0.0.1:2881/gate_h1" \
+            --engine-label gate_h1_amd64 \
+            --workdir "$RUNNER_TEMP/bench_h1" \
+            --corpus 50 --single-writes 5 --query-reps 5 --w2r-reps 10
+
+      - name: Migration fixture (sqlite -> server -> parity)
+        run: |
+          python - <<'PY'
+          import json, tempfile
+          from rosclaw.memory.seekdb_client import SeekDBSQLStore
+          from rosclaw.storage.migrate import StoreMigrator
+
+          tmp = tempfile.mkdtemp()
+          from rosclaw.memory.seekdb_client import SQLiteStructuredStore
+          src = SQLiteStructuredStore(f"{tmp}/src.sqlite")
+          src.connect()
+          src.insert("memory_items", {"id": "mig1", "memory_type": "episode", "robot_id": "h1",
+                                      "document": "gate h1 migration fixture"})
+          manifest = StoreMigrator(src).dump(f"{tmp}/dump")
+          src.disconnect()
+
+          dst = SeekDBSQLStore("mysql://root@127.0.0.1:2881/gate_h1_migrated")
+          dst.connect()
+          StoreMigrator(dst).restore(f"{tmp}/dump")
+          parity = StoreMigrator.parity(manifest, dst)
+          dst.disconnect()
+          print(json.dumps(parity, indent=1))
+          assert parity["ok"], parity
+          PY
+
+      - name: Graceful shutdown (identity-verified stop)
+        run: scripts/seekdb/stop.sh
+
+  # ------------------------------------------------------------------ H2
+  gate-h2-local-runtime:
+    name: Gate H2 — SeekDB 1.4 Local Runtime (x86_64 bindings, no mocks)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install rosclaw + pinned local-runtime bindings
+        run: |
+          uv pip install -e ".[dev,seekdb]" --system
+          uv pip install "seekdb==1.4.0.dev2" --system
+
+      - name: Local-runtime E2E (real engine process, real socket)
+        run: pytest tests/integration/seekdb/test_local_runtime_e2e.py -q -m integration

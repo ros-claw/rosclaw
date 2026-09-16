@@ -42,6 +42,10 @@ class LocalRuntimeInfo:
     started_at: float
     connection_options: dict[str, Any]
     version: str | None
+    # PR-SDB-140-5 (P0-9): who owns the engine lifecycle.  The OWNER started
+    # it and closes it; ATTACHERS share its connection options and must never
+    # start a second engine nor close the owner's.
+    role: str = "owner"
 
 
 class LocalRuntimeUnavailableError(RuntimeError):
@@ -55,6 +59,7 @@ class SeekDBLocalRuntime:
         self._db_dir = Path(db_dir).resolve()
         self._instance: Any | None = None
         self._info: LocalRuntimeInfo | None = None
+        self._role = "owner"
 
     # ------------------------------------------------------------------
     # availability
@@ -131,6 +136,72 @@ class SeekDBLocalRuntime:
             self._info.version,
         )
         return self._info
+
+    # ------------------------------------------------------------------
+    # shared-instance semantics (PR-SDB-140-5, P0-9)
+    # ------------------------------------------------------------------
+
+    @property
+    def role(self) -> str:
+        return self._role
+
+    def has_live_owner(self) -> bool:
+        """True when the lock records a live engine pid for this dir.
+
+        The recorded pid is the ENGINE's, never the client process's, so a
+        live pid means the instance is owned (by us or another process) and
+        the correct move is attach, not a second start.
+        """
+        lock = self._read_lock()
+        if lock is None:
+            return False
+        pid = lock.get("pid")
+        return bool(pid) and _pid_alive(int(pid))
+
+    def attach(self) -> LocalRuntimeInfo:
+        """Attach to a live owner WITHOUT starting or owning the engine.
+
+        The attacher shares the recorded connection options; close() on an
+        attacher releases only local state — the owner's engine keeps
+        running and its lock stays in place.
+        """
+        if self._info is not None:
+            return self._info
+        lock = self._read_lock()
+        pid = (lock or {}).get("pid")
+        if not lock or not pid or not _pid_alive(int(pid)):
+            raise RuntimeError(
+                f"no live seekdb local runtime to attach at {self._db_dir} "
+                f"(lock {'missing' if lock is None else 'stale'})"
+            )
+        self._role = "attacher"
+        self._info = LocalRuntimeInfo(
+            db_dir=str(self._db_dir),
+            pid=int(pid),
+            started_at=float(lock.get("started_at") or 0.0),
+            connection_options=dict(lock.get("connection_options") or {}),
+            version=lock.get("version"),
+            role="attacher",
+        )
+        logger.info("seekdb local runtime attached: dir=%s owner pid=%s", self._db_dir, pid)
+        return self._info
+
+    def start_or_attach(self) -> LocalRuntimeInfo:
+        """Owner when no live runtime exists, attacher when one does."""
+        if self._info is not None:
+            return self._info
+        if self.has_live_owner():
+            return self.attach()
+        self.recover_if_crashed()
+        return self.start()
+
+    def release(self) -> None:
+        """Attacher detach: drop local state; the engine is NOT closed."""
+        if self._role != "attacher":
+            self.close()
+            return
+        self._info = None
+        logger.info("seekdb local runtime detached (engine left running): dir=%s", self._db_dir)
 
     def health(self) -> dict[str, Any]:
         """Health probe: instance open, lock present, pid alive."""
@@ -223,6 +294,139 @@ def _pid_alive(pid: int) -> bool:
         return True
     except OSError:
         return False
+
+
+# ---------------------------------------------------------------------------
+# P0-8: composition — the store OWNS the runtime lifecycle
+# ---------------------------------------------------------------------------
+
+from rosclaw.memory.seekdb_client import StructuredStore  # noqa: E402
+
+
+class LocalRuntimeStructuredStore(StructuredStore):
+    """StructuredStore over a 1.4 local runtime, owning its lifecycle.
+
+    Composition, not attachment-by-side-effect (PR-SDB-140-5, P0-8):
+
+        LocalRuntimeStructuredStore
+          ├── SeekDBLocalRuntime   (engine lifecycle: start/attach/close)
+          └── inner StructuredStore (storage semantics, built from the
+                                     runtime's REAL connection options)
+
+    connect:    runtime start-or-attach → inner store built from the actual
+                connection_options (host/port OR unix_socket, never dropped)
+                → inner.connect()
+    disconnect: inner.disconnect() → owner: runtime.close(); attacher:
+                runtime.release() (the owner's engine keeps running).
+    """
+
+    def __init__(self, db_dir: str | Path, *, database: str = "rosclaw"):
+        self._runtime = SeekDBLocalRuntime(db_dir)
+        self._database = database
+        self._inner: Any | None = None
+
+    # -- lifecycle (the point of the composition) ---------------------------
+
+    def connect(self) -> None:
+        if self._inner is not None:
+            return
+        self._runtime.recover_if_crashed()
+        info = self._runtime.start_or_attach()
+        self._inner = self._build_inner(info.connection_options)
+        try:
+            self._inner.connect()
+        except BaseException:
+            self._inner = None
+            if self._runtime.role == "attacher":
+                self._runtime.release()
+            else:
+                self._runtime.close()
+            raise
+        logger.info(
+            "LocalRuntimeStructuredStore connected (%s, role=%s, pid=%s)",
+            self._runtime._db_dir,
+            self._runtime.role,
+            info.pid,
+        )
+
+    def _build_inner(self, options: dict[str, Any]) -> Any:
+        from rosclaw.storage.seekdb_native import SeekDBServerRetrievalStore
+
+        socket_path = options.get("unix_socket") or options.get("socket")
+        host = options.get("host") or "127.0.0.1"
+        port = int(options.get("port") or 2881)
+        user = options.get("user") or "root"
+        if socket_path:
+            # The socket IS the instance identity (P0-7) — never fall through
+            # to a default host:port behind its back.  pyseekdb passes
+            # **kwargs to pymysql, and pymysql prefers unix_socket when set.
+            return SeekDBServerRetrievalStore(
+                host="localhost",
+                user=user,
+                database=self._database,
+                unix_socket=str(socket_path),
+            )
+        return SeekDBServerRetrievalStore(
+            host=host,
+            port=port,
+            user=user,
+            database=self._database,
+        )
+
+    def is_connected(self) -> bool:
+        return self._inner is not None and self._inner.is_connected()
+
+    def disconnect(self) -> None:
+        inner, self._inner = self._inner, None
+        try:
+            if inner is not None:
+                inner.disconnect()
+        finally:
+            if self._runtime.role == "attacher":
+                self._runtime.release()
+            else:
+                self._runtime.close()
+
+    # -- storage semantics: delegate to the inner store ----------------------
+
+    def _require_inner(self) -> Any:
+        if self._inner is None:
+            raise RuntimeError("LocalRuntimeStructuredStore is not connected")
+        return self._inner
+
+    def insert(self, table: str, record: dict) -> str:
+        return self._require_inner().insert(table, record)
+
+    def query(
+        self, table: str, filters: dict | None = None, order_by: str | None = None, limit: int = 100
+    ) -> list[dict]:
+        return self._require_inner().query(table, filters, order_by, limit)
+
+    def update(self, table: str, record_id: str, updates: dict) -> bool:
+        return self._require_inner().update(table, record_id, updates)
+
+    def count(self, table: str, filters: dict | None = None) -> int:
+        return self._require_inner().count(table, filters)
+
+    def delete(self, table: str, record_id: str) -> bool:
+        return self._require_inner().delete(table, record_id)
+
+    def delete_where(self, table: str, filters: dict) -> int:
+        return self._require_inner().delete_where(table, filters)
+
+    def __getattr__(self, name: str) -> Any:
+        # retrieval-plane extras (fulltext_search / similar / hybrid_search…)
+        # delegate when the inner store provides them.
+        if name.startswith("_"):
+            raise AttributeError(name)
+        inner = self.__dict__.get("_inner")
+        if inner is not None and hasattr(inner, name):
+            return getattr(inner, name)
+        raise AttributeError(name)
+
+    @property
+    def runtime(self) -> SeekDBLocalRuntime:
+        return self._runtime
 
 
 def _pid_from_options(options: dict[str, Any]) -> int | None:

@@ -81,7 +81,9 @@ def _reader(url: str, duration_s: float, q: mp.Queue) -> None:
         store.disconnect()
 
 
-def run_lane(url: str, writers: int, readers: int, duration_s: float, period_s: float) -> dict[str, Any]:
+def run_lane(
+    url: str, writers: int, readers: int, duration_s: float, period_s: float
+) -> dict[str, Any]:
     # per-lane isolation: clear the matrix's rows so final_count reflects
     # THIS lane (lanes run sequentially on one database)
     from rosclaw.memory.seekdb_client import SeekDBSQLStore
@@ -146,8 +148,18 @@ def main() -> int:
     p.add_argument("--seekdb-url", required=True)
     p.add_argument("--duration-s", type=float, default=60.0)
     p.add_argument("--period-s", type=float, default=0.05, help="writer period")
+    p.add_argument(
+        "--lanes", default=None, help="comma list like 1w1r,2w8r — default all of 1w1r/1w4r/2w8r"
+    )
     p.add_argument("--report", default=None)
     args = p.parse_args()
+
+    lanes = LANES
+    if args.lanes:
+        lanes = []
+        for spec in args.lanes.split(","):
+            w, _, r = spec.partition("w")
+            lanes.append((int(w), int(r.rstrip("r"))))
 
     # isolate the matrix's rows from anything else in the target database
     from rosclaw.memory.seekdb_client import SeekDBSQLStore
@@ -158,7 +170,7 @@ def main() -> int:
     store.disconnect()
 
     results = []
-    for writers, readers in LANES:
+    for writers, readers in lanes:
         print(f"lane {writers}w{readers}r running ({args.duration_s}s)...", flush=True)
         results.append(run_lane(args.seekdb_url, writers, readers, args.duration_s, args.period_s))
         print(
