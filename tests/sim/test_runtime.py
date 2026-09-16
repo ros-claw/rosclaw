@@ -124,6 +124,7 @@ def test_branch_experiment_high_level(runtime) -> None:
         ],
         controller={"position_targets": [0.4, 0.2]},
         duration_s=1.0,
+        parallel=False,  # 本例验证 SimulationReceipt 全链（批量为轻收据形态）
     )
     assert result["count"] == 3
     assert result["fork_ref"].startswith("simexp_")
