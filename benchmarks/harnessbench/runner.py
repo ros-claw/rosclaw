@@ -183,19 +183,39 @@ def stage_workspace(base: Path, task_id: str) -> Path:
     return base
 
 
-def _wait_settled(session, workspace: Path, settle_timeout: float) -> None:
+def _wait_settled(session, workspace: Path, settle_timeout: float, *, prompt: str | None = None) -> int:
     """等回合收束：输出静止 ≥20s 且工作区文件静止 ≥15s
-    （driver.AgentRun 同款判据——两侧同标准）。"""
+    （driver.AgentRun 同款判据——两侧同标准）。
+
+    provider 首 token 30s 无响应会自动取消请求（实测两例）——
+    检测到取消标记且传了 prompt 就自动重发（最多 2 次，
+    返回重发次数计入 infra_retries；这是产品自身的"可重发"语义，
+    不把 API 瞬时故障算成 Agent 能力失败）。"""
     deadline = time.monotonic() + settle_timeout
     started = time.monotonic()
     last_len = -1
     quiet_since = time.monotonic()
+    retries = 0
+    scanned = 0
     while time.monotonic() < deadline:
         with session._lock:
             current = len(session.output)
+            output = bytes(session.output)
         if current != last_len:
             last_len = current
             quiet_since = time.monotonic()
+        # provider 自动取消检测（增量扫描新输出）。
+        if prompt is not None and retries < 2 and len(output) > scanned:
+            chunk = output[scanned:]
+            scanned = len(output)
+            if b"Operation aborted" in chunk or "已取消本次请求".encode() in chunk:
+                retries += 1
+                quiet_since = time.monotonic()
+                session.send(prompt + "\r")
+                time.sleep(2.0)
+                continue
+        else:
+            scanned = len(output)
         try:
             newest = max(
                 (p.stat().st_mtime for p in workspace.rglob("*") if p.is_file()),
@@ -205,7 +225,7 @@ def _wait_settled(session, workspace: Path, settle_timeout: float) -> None:
             newest = time.time()
         files_quiet = time.time() - newest > 15
         if time.monotonic() - quiet_since > 20 and files_quiet and time.monotonic() - started > 45:
-            return
+            return retries
         time.sleep(1.0)
     raise AssertionError(f"回合 {settle_timeout}s 未收束（见 PTY 日志）")
 
@@ -271,7 +291,7 @@ def run_leg(
             session_dir = run.home / "agent" / "sessions"
 
         session.send(prompt + "\r")
-        _wait_settled(session, work, settle_timeout)
+        record["infra_retries"] = _wait_settled(session, work, settle_timeout, prompt=prompt)
     finally:
         record["wall_time_s"] = round(time.monotonic() - started, 1)
         if session is not None:
