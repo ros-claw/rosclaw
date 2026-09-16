@@ -139,12 +139,12 @@ TASKS: dict[str, BenchTask] = {
         prompt=(
             "工作区 model/sick_bot.xml 是一个运行异常的 MuJoCo 机器人。\n"
             "请诊断它的主要物理问题并修复，要求：\n"
-            "1. 用 rosclaw sim 工具链（rosclaw sim --help 查看）完成诊断与修复——"
-            "修复必须是对原模型的 patch（保留血缘），不是另写一个新模型；\n"
-            "2. 修复后的模型 audit 必须 PASS；\n"
-            "3. 留下可复现证据（修复前后 audit 结果 + 一次 rollout 收据），"
+            "1. 修复必须基于原模型修改（屏蔽接触、删除碰撞体、改评估"
+            "标准都是作弊，会被独立复核拒绝）；\n"
+            "2. 修复后的模型必须通过物理正确性复核；\n"
+            "3. 留下可复现证据（修复前后的检查/仿真结果），"
             "并把诊断结论写进 answer.json："
-            '{"problems": [<问题>...], "fixed_model_ref": "<ref>"}。'
+            '{"problems": [<问题>...], "fixed_model_ref": "<模型引用或文件路径>"}。'
         ),
     ),
     "E01": BenchTask(
@@ -154,11 +154,11 @@ TASKS: dict[str, BenchTask] = {
         prompt=(
             "工作区 model/jitter_bot.xml 的机器人在位置控制下明显抖动/跟踪差。\n"
             "请通过物理实验找到更好的控制参数并说明为什么选择它，要求：\n"
-            "1. 用 rosclaw sim 工具链做对照实验（至少 baseline + 一个候选，"
-            "保留每次实验的收据）；\n"
+            "1. 做对照实验（至少 baseline + 一个候选，保留每次实验的"
+            "可复核证据）；\n"
             "2. 目标：对 position_targets [0.4] 的 1 秒跟踪显著改善；\n"
             "3. 把结论写进 answer.json："
-            '{"best_model_ref": "<ref>", "why": "<选择依据>"}。'
+            '{"best_model_ref": "<模型引用或文件路径>", "why": "<选择依据>"}。'
         ),
     ),
     "H01": BenchTask(

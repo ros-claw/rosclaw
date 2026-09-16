@@ -38,6 +38,84 @@ _B_TOOL_HINT = (
 )
 _A_TOOL_HINT = "\n\n环境里有 Python（含 mujoco/numpy）与 bash。没有专用仿真工具链——一切自己动手。"
 
+#: A 侧干净 venv（无 rosclaw 包——A 条件的本质就是没有 Harness；
+#: 首轮 pilot 实证：venv python 自带 rosclaw 时 A 组会自己发现
+#: `rosclaw sim` 并用 113 次 patch——那不是 A 条件）。
+_A_LEG_VENV = REPO / ".venv-harnessbench-a"
+
+
+def _a_leg_python() -> str:
+    """A 侧干净 python（mujoco/numpy/imageio，**无 rosclaw**）。
+
+    不存在则创建（gitignored .venv-*）；干净性断言失败即诚实
+    报错——不把含 rosclaw 的解释器当 A 条件冒充。
+    """
+    import subprocess
+    import venv
+
+    python = _A_LEG_VENV / "bin" / "python"
+    if not python.exists():
+        venv.create(_A_LEG_VENV, with_pip=True)
+        subprocess.run(
+            [str(python), "-m", "pip", "install", "-q", "mujoco", "numpy", "imageio"],
+            check=True,
+            timeout=600,
+        )
+    probe = subprocess.run(
+        [
+            str(python),
+            "-c",
+            "import importlib.util, sys; sys.exit(1 if importlib.util.find_spec('rosclaw') else 0)",
+        ],
+        check=False,
+    )
+    if probe.returncode != 0:
+        raise RuntimeError("A_LEG_ENV_CONTAMINATED: clean venv 里能 import rosclaw")
+    return str(python)
+
+
+def _prepare_a_leg_env(workdir: Path) -> dict:
+    """A 组原生 pi：同一模型同一 key（apiKey 只写 $ENV 引用——key
+    绝不落盘）；PATH = 干净 python（无 rosclaw）+ node + 系统。"""
+    import shutil
+
+    agent_dir = workdir / ".pi-agent"
+    agent_dir.mkdir(parents=True, exist_ok=True)
+    (agent_dir / "settings.json").write_text(
+        json.dumps({"defaultProvider": "kimi-code", "defaultModel": "k3"}),
+        encoding="utf-8",
+    )
+    (agent_dir / "models.json").write_text(
+        json.dumps(
+            {
+                "providers": {
+                    "kimi-code": {
+                        "name": "kimi-code",
+                        "baseUrl": "https://api.kimi.com/coding/v1",
+                        "api": "openai-completions",
+                        "apiKey": "$ROSCLAW_KIMI_API_KEY",
+                        "models": [
+                            {
+                                "id": "k3",
+                                "name": "Kimi K3",
+                                "contextWindow": 262144,
+                                "maxTokens": 16384,
+                            }
+                        ],
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    _a_leg_python()
+    env = dict(os.environ)
+    env["PI_CODING_AGENT_DIR"] = str(agent_dir)
+    node_path = shutil.which("node")
+    node_bin = str(Path(node_path).parent) if node_path else "/usr/local/bin"
+    env["PATH"] = f"{_A_LEG_VENV / 'bin'}:{node_bin}:/usr/local/bin:/usr/bin:/bin"
+    return env
+
 
 def has_model_key() -> bool:
     return any(
@@ -45,12 +123,15 @@ def has_model_key() -> bool:
     )
 
 
-def _count_session_stats(session_dir: Path) -> tuple[int, int]:
-    """pi session JSONL → (工具调用数, 模型写的代码字节数)。"""
+def _count_session_stats(session_dir: Path) -> tuple[int, int, int]:
+    """pi session JSONL → (工具调用数, write/edit 字节数, bash 内联
+    python 行数)——heredoc 胶水也是胶水（首轮 pilot 实证：A 组用
+    bash heredoc 跑 python 时 write/edit 计数为 0）。"""
     tool_calls = 0
     glue_bytes = 0
+    bash_python_loc = 0
     if not session_dir.is_dir():
-        return 0, 0
+        return 0, 0, 0
     for f in session_dir.glob("**/*.jsonl"):
         for line in f.read_text(encoding="utf-8", errors="replace").splitlines():
             try:
@@ -63,10 +144,14 @@ def _count_session_stats(session_dir: Path) -> tuple[int, int]:
                     continue
                 if block.get("type") == "toolCall":
                     tool_calls += 1
+                    args = block.get("arguments") or block.get("input") or {}
                     if block.get("name") in ("write", "edit"):
-                        args = block.get("arguments") or block.get("input") or {}
                         glue_bytes += len(str(args.get("content", args.get("newText", ""))))
-    return tool_calls, glue_bytes
+                    if block.get("name") == "bash":
+                        command = str(args.get("command", ""))
+                        if "python" in command or "mujoco" in command:
+                            bash_python_loc += len(command.splitlines())
+    return tool_calls, glue_bytes, bash_python_loc
 
 
 def _code_loc(workspace: Path) -> dict[str, int]:
@@ -159,13 +244,13 @@ def run_leg(
     session_dir: Path | None = None
     try:
         if leg == "A":
-            from scripts.ab_compare import _find_native_pi_cli, _prepare_native_pi_env
+            from scripts.ab_compare import _find_native_pi_cli
 
             pi_entry = _find_native_pi_cli()
             assert pi_entry is not None, "A 组需要原生 pi CLI"
             session = PtySession(
                 [pi_entry],
-                _prepare_native_pi_env(work),
+                _prepare_a_leg_env(work),
                 cwd=work,
                 log_path=work / "pty.log",
             )
@@ -194,11 +279,15 @@ def run_leg(
                 session.stop()
 
     if session_dir is not None:
-        record["tool_calls"], record["glue_bytes"] = _count_session_stats(session_dir)
+        (
+            record["tool_calls"],
+            record["glue_bytes"],
+            record["bash_python_loc"],
+        ) = _count_session_stats(session_dir)
     record.update(_code_loc(work))
 
-    # Oracle 独立判定（环境结局，不信自报）。
-    verdict = oracle.judge(task_id, work)
+    # Oracle 独立判定（环境结局，不信自报；A/B 证据通道分侧）。
+    verdict = oracle.judge(task_id, work, leg=leg)
     record["oracle"] = verdict
     record["verdict"] = (
         "VERIFIED"
@@ -231,6 +320,7 @@ def aggregate(records: list[dict[str, Any]]) -> dict[str, Any]:
             "wall_time_s_median": sorted(r["wall_time_s"] for r in rows)[total // 2],
             "tool_calls_median": sorted(r["tool_calls"] for r in rows)[total // 2],
             "glue_bytes_median": sorted(r["glue_bytes"] for r in rows)[total // 2],
+            "bash_python_loc_median": sorted(r.get("bash_python_loc", 0) for r in rows)[total // 2],
             "python_loc_median": sorted(r["python_loc"] for r in rows)[total // 2],
             "xml_loc_median": sorted(r["xml_loc"] for r in rows)[total // 2],
         }
