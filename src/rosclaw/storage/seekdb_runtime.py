@@ -120,7 +120,25 @@ class SeekDBLocalRuntime:
         started = time.time()
         self._instance = seekdb.open(str(self._db_dir))
         options = dict(self._instance.connection_options())
-        pid = _pid_from_options(options) or _first_pid_listening(options)
+        pid = (
+            _pid_from_options(options)
+            or _first_pid_listening(options)
+            or _pid_for_db_dir(self._db_dir)
+        )
+        if pid is None:
+            # P0-1 class rule: a runtime we cannot identify is not usable —
+            # ownership, attach, and crash recovery all key off this pid.
+            try:
+                close = getattr(self._instance, "close", None)
+                if callable(close):
+                    close()
+            finally:
+                self._instance = None
+            raise RuntimeError(
+                f"could not resolve the engine pid for local runtime at "
+                f"{self._db_dir} (no pid in connection options, none "
+                f"listening on its port, no process rooted at the db dir)"
+            )
         self._info = LocalRuntimeInfo(
             db_dir=str(self._db_dir),
             pid=pid,
@@ -451,3 +469,22 @@ def _first_pid_listening(options: dict[str, Any]) -> int | None:
         return int(out[0]) if out else None
     except Exception:  # noqa: BLE001
         return None
+
+
+def _pid_for_db_dir(db_dir: Path) -> int | None:
+    """Resolve the engine process rooted at this db dir by /proc cmdline.
+
+    The socket-only (unix_socket) case has no port to scan; the engine
+    process still carries the db dir in its cmdline/environment footprint.
+    """
+    target = str(db_dir).encode()
+    for pid in (p for p in os.listdir("/proc") if p.isdigit()):
+        try:
+            with open(f"/proc/{pid}/cmdline", "rb") as fh:
+                cmd = fh.read()
+            comm = Path(f"/proc/{pid}/comm").read_text().strip()
+            if "seekdb" in comm and target in cmd:
+                return int(pid)
+        except (OSError, PermissionError):
+            continue
+    return None

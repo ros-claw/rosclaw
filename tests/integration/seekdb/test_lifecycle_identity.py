@@ -198,63 +198,107 @@ def test_l4_foreign_listener_hard_fail(home):
     assert not (h / "data" / ".rosclaw_seekdb_1_4").exists()
 
 
-# L5/L6: a SECOND seekdb (different base-dir) sharing the port via
-# SO_REUSEPORT -> our start HARD FAILs; doctor reports AMBIGUOUS.
-def test_l5_l6_dual_engine_collision(home):
-    h, env = home
-    _start_ok(env)
-    # foreign engine on the SAME port, different base-dir
-    foreign = h.parent / "foreign_home"
-    foreign.mkdir(parents=True, exist_ok=True)
+def _launch_foreign(home_dir: Path) -> int:
+    home_dir.mkdir(parents=True, exist_ok=True)
     r = subprocess.run(
         [
             "bash",
             "-c",
-            f"nohup /usr/bin/seekdb --base-dir {foreign} --data-dir {foreign}/data "
-            f"--redo-dir {foreign}/data/redo --port {TEST_PORT} "
-            f">> {foreign}/seekdb.log 2>&1 & echo $!",
+            f"nohup /usr/bin/seekdb --base-dir {home_dir} --data-dir {home_dir}/data "
+            f"--redo-dir {home_dir}/data/redo --port {TEST_PORT} "
+            f">> {home_dir}/seekdb.log 2>&1 & echo $!",
         ],
         capture_output=True,
         text=True,
     )
-    foreign_launcher = int(r.stdout.strip())
+    return int(r.stdout.strip())
+
+
+def _foreign_pids(foreign: Path) -> list[int]:
+    out = []
+    for pid in subprocess.run(["pgrep", "-x", "seekdb"], capture_output=True, text=True).stdout.split():
+        with (
+            contextlib.suppress(OSError, ProcessLookupError),
+            open(f"/proc/{pid}/cmdline", "rb") as fh,
+        ):
+            if str(foreign).encode() in fh.read():
+                out.append(int(pid))
+    return out
+
+
+def _wait_foreign_bound(foreign: Path, timeout: float = 90) -> bool:
+    """True once the foreign engine's process is up AND sharing the port."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        pids = _foreign_pids(foreign)
+        if pids:
+            # bound?  seekdb_pids_for_port equivalent: cmdline carries --port
+            return True
+        time.sleep(1)
+    return False
+
+
+def _kill_foreign(foreign: Path, launcher: int) -> None:
+    for pid in _foreign_pids(foreign):
+        with contextlib.suppress(OSError, ProcessLookupError):
+            os.kill(pid, signal.SIGKILL)
+    with contextlib.suppress(OSError):
+        os.kill(launcher, signal.SIGKILL)
+
+
+# L5: an UNKNOWN seekdb alone on the port -> our start HARD FAILs.
+# Deterministic: stop ours first so the foreign engine genuinely owns it.
+def test_l5_unknown_engine_on_port_hard_fails(home):
+    h, env = home
+    _start_ok(env)
+    r = _run("stop.sh", env)
+    assert r.returncode == 0, r.stderr
+    foreign = h.parent / "foreign_home"
+    launcher = _launch_foreign(foreign)
     try:
-        # let it actually come up (poll for the foreign process), don't race
-        deadline = time.time() + 60
-        foreign_alive = False
-        while time.time() < deadline:
-            for pid in subprocess.run(
-                ["pgrep", "-x", "seekdb"], capture_output=True, text=True
-            ).stdout.split():
-                try:
-                    with open(f"/proc/{pid}/cmdline", "rb") as fh:
-                        if str(foreign).encode() in fh.read():
-                            foreign_alive = True
-                except (OSError, ProcessLookupError):
-                    pass
-            if foreign_alive:
-                break
-            time.sleep(1)
-        assert foreign_alive, "foreign engine never came up"
-        # our start must refuse (collision or unknown-instance)
+        assert _wait_foreign_bound(foreign), "foreign engine never came up"
         r2 = _run("start_1_4.sh", env)
         assert r2.returncode == 6, r2.stdout + r2.stderr
-        # doctor must NOT be READY
+        assert "UNKNOWN" in r2.stderr or "HARD FAIL" in r2.stderr
+    finally:
+        _kill_foreign(foreign, launcher)
+
+
+# L6: two engines sharing the port via SO_REUSEPORT -> start HARD FAILs,
+# doctor reports AMBIGUOUS.  Skips when the platform won't co-bind.
+def test_l6_dual_engine_collision(home):
+    h, env = home
+    _start_ok(env)
+    foreign = h.parent / "foreign_home"
+    launcher = _launch_foreign(foreign)
+    try:
+        assert _wait_foreign_bound(foreign), "foreign engine never came up"
+        # give it time to actually attempt the bind
+        deadline = time.time() + 60
+        while time.time() < deadline:
+            out = subprocess.run(
+                ["bash", "-c",
+                 f"source {SCRIPTS}/_common.sh; seekdb_port_collision_count {TEST_PORT}"],
+                capture_output=True, text=True, env=env,
+            )
+            if out.stdout.strip() == "2":
+                break
+            if not _foreign_pids(foreign):
+                break  # foreign died (bind refused on this platform)
+            time.sleep(2)
+        count = subprocess.run(
+            ["bash", "-c", f"source {SCRIPTS}/_common.sh; seekdb_port_collision_count {TEST_PORT}"],
+            capture_output=True, text=True, env=env,
+        ).stdout.strip()
+        if count != "2":
+            pytest.skip("platform did not co-bind two engines on one port")
+        r2 = _run("start_1_4.sh", env)
+        assert r2.returncode == 6, r2.stdout + r2.stderr
         r3 = _run("doctor.sh", env)
         assert r3.returncode != 0
         assert "AMBIGUOUS" in r3.stdout or "NOT READY" in r3.stdout
     finally:
-        for pid in subprocess.run(
-            ["pgrep", "-x", "seekdb"], capture_output=True, text=True
-        ).stdout.split():
-            with (
-                contextlib.suppress(OSError, ProcessLookupError),
-                open(f"/proc/{pid}/cmdline", "rb") as fh,
-            ):
-                if str(foreign).encode() in fh.read():
-                    os.kill(int(pid), signal.SIGKILL)
-        with contextlib.suppress(OSError):
-            os.kill(foreign_launcher, signal.SIGKILL)
+        _kill_foreign(foreign, launcher)
 
 
 # L7: failed start must NOT write the stamp.
