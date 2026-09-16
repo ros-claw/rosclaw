@@ -200,6 +200,8 @@ def test_l4_foreign_listener_hard_fail(home):
 
 def _launch_foreign(home_dir: Path) -> int:
     home_dir.mkdir(parents=True, exist_ok=True)
+    (home_dir / "data").mkdir(exist_ok=True)
+    (home_dir / "log").mkdir(exist_ok=True)
     r = subprocess.run(
         [
             "bash",
@@ -227,13 +229,18 @@ def _foreign_pids(foreign: Path) -> list[int]:
 
 
 def _wait_foreign_bound(foreign: Path, timeout: float = 90) -> bool:
-    """True once the foreign engine's process is up AND sharing the port."""
+    """True once the foreign engine's process is up AND answering SQL.
+
+    Process-visible is not enough (the launcher appears before the engine
+    binds, and a failed init dies quietly) — require the SQL port to answer."""
     deadline = time.time() + timeout
     while time.time() < deadline:
-        pids = _foreign_pids(foreign)
-        if pids:
-            # bound?  seekdb_pids_for_port equivalent: cmdline carries --port
-            return True
+        if _foreign_pids(foreign):
+            try:
+                with socket.create_connection(("127.0.0.1", int(TEST_PORT)), timeout=2):
+                    return True
+            except OSError:
+                pass
         time.sleep(1)
     return False
 

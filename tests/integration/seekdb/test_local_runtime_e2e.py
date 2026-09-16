@@ -12,6 +12,7 @@ from __future__ import annotations
 import multiprocessing as mp
 import os
 import time
+from pathlib import Path
 
 import pytest
 
@@ -30,14 +31,22 @@ def _attach_probe(db_dir: str, q: mp.Queue) -> None:
     try:
         from rosclaw.storage.seekdb_runtime import LocalRuntimeStructuredStore
 
-        store = LocalRuntimeStructuredStore(db_dir)
+        store = LocalRuntimeStructuredStore(db_dir, database="h2_e2e")
         store.connect()
         role = store.runtime.role
         n = store.count("memory_items", {"robot_id": "h2_bot"})
+        # diagnostics for CI: what did the lock say, what pid did we see
+        import json
+
+        lock = {}
+        try:
+            lock = json.loads((Path(db_dir) / "runtime.lock.json").read_text())
+        except Exception as exc:  # noqa: BLE001
+            lock = {"read_error": str(exc)}
         store.disconnect()
-        q.put(("ok", role, n))
+        q.put(("ok", role, n, {"lock_pid": lock.get("pid"), "self_pid": os.getpid()}))
     except Exception as exc:  # noqa: BLE001
-        q.put(("error", f"{type(exc).__name__}: {exc}", -1))
+        q.put(("error", f"{type(exc).__name__}: {exc}", -1, {}))
 
 
 def test_local_runtime_real_e2e(tmp_path):
