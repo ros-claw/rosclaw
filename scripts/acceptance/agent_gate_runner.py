@@ -259,10 +259,20 @@ def _oracle(scenario: str, run, gate_dir: Path) -> dict:
 
     if kind == "g06":
         series = _iter_named_series(root / "ws")
-        za = next((s for s in series if "box_a" in s[0] and ("z" in s[0] or s[0].endswith("_2"))), None)
-        zb = next((s for s in series if "box_b" in s[0] and ("z" in s[0] or s[0].endswith("_2"))), None)
-        xa = next((s for s in series if "box_a" in s[0] and ("x" in s[0] or s[0].endswith("_0"))), None)
-        xb = next((s for s in series if "box_b" in s[0] and ("x" in s[0] or s[0].endswith("_0"))), None)
+        # 命名形态随实证扩展：box_a/box_b、a_/b_ 前缀、boxa/boxb、
+        # ax/az/bx/bz 裸列名（G06 run2/3 实证）。
+        def _is_a(name: str) -> bool:
+            return ("box_a" in name or "boxa" in name
+                    or name.startswith("a_")
+                    or name in ("ax", "ay", "az"))
+        def _is_b(name: str) -> bool:
+            return ("box_b" in name or "boxb" in name
+                    or name.startswith("b_")
+                    or name in ("bx", "by", "bz"))
+        za = next((s for s in series if _is_a(s[0]) and ("z" in s[0] or s[0].endswith("_2"))), None)
+        zb = next((s for s in series if _is_b(s[0]) and ("z" in s[0] or s[0].endswith("_2"))), None)
+        xa = next((s for s in series if _is_a(s[0]) and ("x" in s[0] or s[0].endswith("_0"))), None)
+        xb = next((s for s in series if _is_b(s[0]) and ("x" in s[0] or s[0].endswith("_0"))), None)
         if not all([za, zb]):
             return {"verdict": "FAIL", "detail": "缺 box_a/box_b 的 z 序列"}
         tail = lambda v: sum(v[-10:]) / 10.0  # noqa: E731
@@ -276,17 +286,36 @@ def _oracle(scenario: str, run, gate_dir: Path) -> dict:
 
     if kind == "g07":
         series = _iter_named_series(root / "ws")
-        path_x = next((s for s in series if s[0].endswith(("_x", "_0")) and not _is_obstacle(s)), None)
-        path_y = next((s for s in series if s[0].endswith(("_y", "_1")) and not _is_obstacle(s)), None)
+        # 命名形态：*_x/_y、eef_x_m/eef_y_m、path_x、qpos_0/1——
+        # 障碍物/时间/距离列排除。
+        def _is_path_x(s) -> bool:
+            n = s[0]
+            return (("_x" in n or n.endswith("_0")) and "eef" in n
+                    or n.startswith(("x", "path_x", "pos_x"))
+                    or ("_x" in n and not _is_obstacle(s)
+                        and "dist" not in n and "clear" not in n))
+        def _is_path_y(s) -> bool:
+            n = s[0]
+            return (("_y" in n or n.endswith("_1")) and "eef" in n
+                    or n.startswith(("y", "path_y", "pos_y"))
+                    or ("_y" in n and not _is_obstacle(s)
+                        and "dist" not in n and "clear" not in n))
+        path_x = next((s for s in series if _is_path_x(s)), None)
+        path_y = next((s for s in series if _is_path_y(s)), None)
         if not path_x or not path_y:
             return {"verdict": "FAIL", "detail": "缺路径 x/y 序列"}
         xs, ys = path_x[2], path_y[2]
-        reached = abs(xs[-1] - 0.4) < 0.06
+        final_at_b = abs(xs[-1] - 0.4) < 0.06
+        passed_b = min(abs(x - 0.4) for x in xs) < 0.06
         min_dist = min(((x - 0.2) ** 2 + y**2) ** 0.5 for x, y in zip(xs, ys, strict=False))
-        ok = reached and min_dist > 0.05
+        ok = final_at_b and min_dist > 0.05
         return {
             "verdict": "PASS" if ok else "FAIL",
-            "detail": f"到达B={reached}（末x={xs[-1]:.3f}）最近距障碍={min_dist * 100:.1f}cm",
+            "detail": (
+                f"终态在B={final_at_b}（末x={xs[-1]:.3f}"
+                + ("" if final_at_b else f"，{'途经B未停' if passed_b else '未达B'}")
+                + f"）最近距障碍={min_dist * 100:.1f}cm"
+            ),
         }
 
     if kind == "g08":
