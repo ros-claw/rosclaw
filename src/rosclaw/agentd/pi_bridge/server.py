@@ -16,16 +16,39 @@ import asyncio
 import contextlib
 import json
 import os
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from rosclaw.agentd.operator_socket import MAX_REQUEST_BYTES, _peer_credentials
+from rosclaw.agentd.pi_bridge.session_binding import BindingError, SessionBindingStore
+from rosclaw.task_kernel.service import TASK_ACTIVE
 
 if TYPE_CHECKING:
     from rosclaw.agentd.service import AgentService
 
-from rosclaw.agentd.pi_bridge.session_binding import BindingError, SessionBindingStore
-from rosclaw.task_kernel.service import TASK_ACTIVE
+
+# G-4（0916 三审 B-2）：自然语言停止指令词表。判定还要叠加
+# 短消息 + 有活跃 task/在途 operation（见 pi.input.persist）——
+# 长文本里的"取消"是任务内容不是控制指令（不误伤）。
+_STOP_INTENT_RE = re.compile(
+    r"(停下来|停下|停止|别做了?|不要再?做|取消吧|取消任务|取消|"
+    r"\bstop\b|\bcancel\b)",
+    re.IGNORECASE,
+)
+
+
+def _match_stop_intent(text: str) -> bool:
+    """停止词必须**构成消息主体**（覆盖率≥50% 且 ≤20 字）——
+    "取消订单接口怎么设计"里的"取消"是任务内容不是指令。"""
+    stripped = text.strip()
+    if len(stripped) > 20:
+        return False
+    matches = list(_STOP_INTENT_RE.finditer(stripped))
+    if not matches:
+        return False
+    covered = sum(m.end() - m.start() for m in matches)
+    return covered >= len(stripped) * 0.5
 
 
 def default_pi_bridge_socket(home: Path | None = None) -> Path:
@@ -603,6 +626,32 @@ class PiBridgeServer:
                     "sim_policy": sim_policy,
                 },
             }
+        if method == "pi.session.interrupt":
+            # G-4（0916 三审 B-2）：Esc/Ctrl-C 中断级联——pi 内部
+            # abort 只停模型回合，后台 operation（渲染/仿真子进程）
+            # 照跑。此处停本会话活跃 task 的在途 operation（子进程
+            # 组随 OperationManager.killpg 全灭）。语义分级：Esc=
+            # 中断（task 不落 CANCELLED——用户可 steer 继续）；
+            # 放弃是 NL-stop/pi.task.cancel 的事。
+            kernel = service._task_kernel
+            active = kernel.active_task_for_session(
+                str(params.get("mission_id", "")),
+                str(params.get("session_ref", "")),
+            )
+            cancelled = 0
+            if active is not None:
+                conn = service._store.connection
+                running = conn.execute(
+                    "SELECT operation_id FROM operations WHERE state IN "
+                    "('QUEUED','ADMITTED','RUNNING','DEGRADED') AND task_id = ?",
+                    (str(active.get("task_id", "")),),
+                ).fetchall()
+                for row in running:
+                    await service._operation_manager.cancel(
+                        str(row["operation_id"]), reason="user_interrupt"
+                    )
+                    cancelled += 1
+            return {"ok": True, "operations_cancelled": cancelled}
         if method == "pi.task.cancel":
             # PR-H9：TaskKernel 权威（终态不可逆由 transition 保证）。
             task_id = str(params.get("task_id", ""))
@@ -613,7 +662,24 @@ class PiBridgeServer:
             service._task_kernel.transition(
                 task_id, "CANCELLED", reason="user_cancel"
             )
-            return {"ok": True, "task_id": task_id, "state": "CANCELLED"}
+            # G-4（0916 三审 B-2）：取消必须级联到该 task 的在途
+            # operation——此前 task 落 CANCELLED 但子进程照跑（孤儿
+            # 占用 GPU/渲染槽；迟到 SUCCEEDED 虽被账本拒，进程是真
+            # 的）。复用 service.cancel 的 SQL 形态（按 task 过滤）。
+            conn = service._store.connection
+            running = conn.execute(
+                "SELECT operation_id FROM operations WHERE state IN "
+                "('QUEUED','ADMITTED','RUNNING','DEGRADED') AND task_id = ?",
+                (task_id,),
+            ).fetchall()
+            for row in running:
+                await service._operation_manager.cancel(
+                    str(row["operation_id"]), reason="user_cancel"
+                )
+            return {
+                "ok": True, "task_id": task_id, "state": "CANCELLED",
+                "operations_cancelled": len(running),
+            }
         if method == "pi.doctor.task":
             # 七审 PR-SEVEN-5：task readiness（/doctor task <goal>）。
             return await service.doctor_task(str(params.get("goal", "")))
@@ -1069,6 +1135,51 @@ class PiBridgeServer:
             # recipe 只作显式 demo，不再拦截用户对话。TurnDisposition
             # 恒为 PI_CONVERSATION + suppress=false（协议字段保留以
             # 兼容版本倾斜，语义已是常量）。
+            # G-4（0916 三审 B-2）唯一例外：自然语言**停止**——"停
+            # 下来/别做了/取消"不是任务内容而是控制指令，指望模型
+            # 志愿调 process_stop 不可靠（且它自己的回合还在跑）。
+            # 判定收紧：短消息 + 停止词 + 会话确有活跃 task/在途
+            # operation（任务描述里含"取消"二字的长文本不误伤）。
+            stop_hit = _match_stop_intent(text)
+            if stop_hit:
+                active = kernel.active_task_for_session(
+                    str(params.get("mission_id", "")),
+                    str(params.get("session_ref", "")),
+                )
+                conn = service._store.connection
+                running = conn.execute(
+                    "SELECT operation_id, task_id FROM operations WHERE state IN "
+                    "('QUEUED','ADMITTED','RUNNING','DEGRADED') AND task_id IN "
+                    "(SELECT task_id FROM tasks WHERE mission_id = ?)",
+                    (str(params.get("mission_id", "")),),
+                ).fetchall()
+                if active is not None or running:
+                    cancelled_ops = 0
+                    for row in running:
+                        await service._operation_manager.cancel(
+                            str(row["operation_id"]), reason="user_nl_stop"
+                        )
+                        cancelled_ops += 1
+                    task_id = ""
+                    if active is not None:
+                        task_id = str(active.get("task_id", ""))
+                        kernel.transition(
+                            task_id, "CANCELLED", reason="user_nl_stop"
+                        )
+                    out["turn_disposition"] = {
+                        "input_id": str(
+                            record.get("input_id", "")
+                            or params.get("message_id", "")
+                        ),
+                        "owner": "TASK_ROUTER",
+                        "task_id": task_id,
+                        "suppress_model_turn": True,
+                        "cancel_report": {
+                            "operations_cancelled": cancelled_ops,
+                            "task_cancelled": bool(task_id),
+                        },
+                    }
+                    return out
             out["turn_disposition"] = {
                 "input_id": str(
                     record.get("input_id", "")

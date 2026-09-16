@@ -351,13 +351,16 @@ class OperationManager:
             return
         proc = self._procs.pop(operation_id, None)
         if proc is not None and proc.returncode is None:
-            with contextlib.suppress(ProcessLookupError):
-                proc.send_signal(signal.SIGTERM)
+            # G-4（0916 三审 B-2）：杀整个进程组不只是 sh 包装——
+            # start_new_session=True 让 pgid==pid，孙子进程（渲染/
+            # 仿真/xvfb-run）原来在取消后成孤儿继续跑。
+            with contextlib.suppress(ProcessLookupError, PermissionError):
+                os.killpg(proc.pid, signal.SIGTERM)
             try:
                 await asyncio.wait_for(proc.wait(), timeout=5)
             except TimeoutError:
-                with contextlib.suppress(ProcessLookupError):
-                    proc.kill()
+                with contextlib.suppress(ProcessLookupError, PermissionError):
+                    os.killpg(proc.pid, signal.SIGKILL)
         await self._record_terminal(operation_id, "CANCELLED",
                                     failure_code=reason)
 
