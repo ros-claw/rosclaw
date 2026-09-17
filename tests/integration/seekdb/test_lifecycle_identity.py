@@ -137,6 +137,22 @@ def home(tmp_path):
                     os.kill(int(pid), signal.SIGKILL)
         except (OSError, ProcessLookupError):
             pass
+    _wait_port_closed()
+
+
+def _wait_port_closed(timeout: float = 60) -> None:
+    """Deterministic inter-test barrier: the port must be CLOSED before the
+    next test starts — a dying engine can still hold the listener while its
+    /proc entry is already unreadable (CI L9 race: correct HARD FAIL on a
+    'non-seekdb' listener that was the previous test's engine mid-shutdown).
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            with socket.create_connection(("127.0.0.1", int(TEST_PORT)), timeout=1):
+                time.sleep(1)
+        except OSError:
+            return
 
 
 def _start_ok(env) -> None:
