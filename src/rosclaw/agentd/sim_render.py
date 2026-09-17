@@ -15,8 +15,11 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
+import os
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -27,6 +30,49 @@ if TYPE_CHECKING:
 
 #: 探测顺序（经验证的最小到最简）。
 _BACKEND_ORDER = ("egl", "osmesa", "xvfb")
+
+# ---------------------------------------------------------------------------
+# G-4b（0916 三审 B-2b）：同步渲染子进程注册表。
+#
+# scene_render 是同步工具调用——渲染子进程不是 operation（账本
+# 无记录），取消传播（Esc/NL-stop/会话中断）必须能终止它：
+# 注册表 + killpg（子进程 start_new_session 独立 pgid）。
+_ACTIVE_RENDER_PROCS: dict[int, subprocess.Popen] = {}
+
+
+def _track_render_proc(proc: subprocess.Popen) -> None:
+    _ACTIVE_RENDER_PROCS[proc.pid] = proc
+
+
+def _untrack_render_proc(proc: subprocess.Popen) -> None:
+    _ACTIVE_RENDER_PROCS.pop(proc.pid, None)
+
+
+def _kill_proc_group(proc: subprocess.Popen) -> None:
+    with contextlib.suppress(ProcessLookupError, PermissionError):
+        os.killpg(proc.pid, signal.SIGTERM)
+
+
+def kill_active_renders() -> int:
+    """取消传播到同步渲染子进程——终止全部在途渲染组，返回终止数。
+
+    已退出的进程只清注册不重复杀；SIGTERM（渲染在帧循环里随时
+    可死，无需 grace——不产出的帧就是没产出，receipt 不落即无
+    假证据）。"""
+    killed = 0
+    for pid, proc in list(_ACTIVE_RENDER_PROCS.items()):
+        if proc.poll() is None:
+            _kill_proc_group(proc)
+            killed += 1
+        _ACTIVE_RENDER_PROCS.pop(pid, None)
+    return killed
+
+
+def has_active_renders() -> bool:
+    """有在途同步渲染（NL-stop 触发条件之一——渲染忙=有活可停）。"""
+    return any(
+        proc.poll() is None for proc in _ACTIVE_RENDER_PROCS.values()
+    )
 
 _PROBE_SNIPPET = (
     "import os,mujoco;"
@@ -369,14 +415,29 @@ def _render_attempt(
         argv = [shutil.which("xvfb-run") or "xvfb-run", "-a", *argv]
     else:
         env = dict(os.environ, MUJOCO_GL=backend)
-    proc = subprocess.run(argv, env=env, capture_output=True, timeout=600)
+    # G-4b（0916 三审 B-2b）：渲染子进程独立会话 + 注册表——同步
+    # 渲染不是 operation（无账本），取消传播（Esc/NL-stop）经
+    # kill_active_renders 终止（不再孤儿跑完 10 分钟）。
+    # start_new_session：独立 pgid——killpg 只灭渲染组不碰 agentd。
+    proc = subprocess.Popen(
+        argv, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        start_new_session=True,
+    )
+    _track_render_proc(proc)
+    try:
+        stdout, stderr = proc.communicate(timeout=600)
+    except subprocess.TimeoutExpired:
+        _kill_proc_group(proc)
+        stdout, stderr = proc.communicate()
+    finally:
+        _untrack_render_proc(proc)
     if not result_path.exists():
-        if proc.returncode != 0:
-            tail = proc.stderr.decode(errors="replace")[-300:]
+        if proc.returncode not in (0, None):
+            tail = (stderr or b"").decode(errors="replace")[-300:]
             raise ValueError(f"RENDER_FAILED: 子进程渲染失败: {tail}")
         raise ValueError(
             "RENDER_RESULT_MISSING: 子进程 rc=0 但未写 result 文件"
-            f"（stdout 尾部: {proc.stdout.decode(errors='replace')[-200:]!r}）"
+            f"（stdout 尾部: {(stdout or b'').decode(errors='replace')[-200:]!r}）"
         )
     try:
         result = json.loads(result_path.read_text(encoding="utf-8"))

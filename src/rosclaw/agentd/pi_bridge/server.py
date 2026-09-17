@@ -651,7 +651,17 @@ class PiBridgeServer:
                         str(row["operation_id"]), reason="user_interrupt"
                     )
                     cancelled += 1
-            return {"ok": True, "operations_cancelled": cancelled}
+            # G-4b：同步渲染子进程也要停（渲染不是 operation——
+            # 注册表是唯一追踪；G09 实证模型走同步 scene_render，
+            # 只停 operation 时渲染孤儿跑完全程）。
+            from rosclaw.agentd.sim_render import kill_active_renders
+
+            renders_killed = kill_active_renders()
+            return {
+                "ok": True,
+                "operations_cancelled": cancelled,
+                "renders_killed": renders_killed,
+            }
         if method == "pi.task.cancel":
             # PR-H9：TaskKernel 权威（终态不可逆由 transition 保证）。
             task_id = str(params.get("task_id", ""))
@@ -1142,6 +1152,10 @@ class PiBridgeServer:
             # operation（任务描述里含"取消"二字的长文本不误伤）。
             stop_hit = _match_stop_intent(text)
             if stop_hit:
+                from rosclaw.agentd.sim_render import (
+                    has_active_renders as _has_active_renders,
+                )
+
                 active = kernel.active_task_for_session(
                     str(params.get("mission_id", "")),
                     str(params.get("session_ref", "")),
@@ -1153,7 +1167,7 @@ class PiBridgeServer:
                     "(SELECT task_id FROM tasks WHERE mission_id = ?)",
                     (str(params.get("mission_id", "")),),
                 ).fetchall()
-                if active is not None or running:
+                if active is not None or running or _has_active_renders():
                     cancelled_ops = 0
                     for row in running:
                         await service._operation_manager.cancel(
@@ -1166,6 +1180,11 @@ class PiBridgeServer:
                         kernel.transition(
                             task_id, "CANCELLED", reason="user_nl_stop"
                         )
+                    # G-4b：同步渲染子进程同停（注册表追踪——
+                    # 不在 operation 账本的渲染不再是取消盲区）。
+                    from rosclaw.agentd.sim_render import kill_active_renders
+
+                    renders_killed = kill_active_renders()
                     out["turn_disposition"] = {
                         "input_id": str(
                             record.get("input_id", "")
@@ -1176,6 +1195,7 @@ class PiBridgeServer:
                         "suppress_model_turn": True,
                         "cancel_report": {
                             "operations_cancelled": cancelled_ops,
+                            "renders_killed": renders_killed,
                             "task_cancelled": bool(task_id),
                         },
                     }

@@ -508,6 +508,9 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				).turn_disposition?.cancel_report;
 				if (cancelReport) {
 					const stopped = cancelReport.operations_cancelled ?? 0;
+					const rendersKilled = (
+						cancelReport as { renders_killed?: number }
+					).renders_killed ?? 0;
 					pi.sendMessage(
 						{
 							customType: "rosclaw.user_directive",
@@ -519,10 +522,17 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 					);
 					latestCtx?.ui.notify(
 						`已停止——后台操作 ${stopped} 个落 CANCELLED`
+						+ (rendersKilled > 0 ? `，渲染进程 ${rendersKilled} 个已终止` : "")
 						+ (cancelReport.task_cancelled ? "，任务已取消" : "")
 						+ "（迟到完成不会翻转账本）",
 						"info",
 					);
+					// G-4b：在途回合也要中止——同步渲染的模型回合不被
+					// abort 会等到超时（服务端已杀渲染进程，回合应
+					// 立即结束而不是空转）。M8 教训：abort 是可选链。
+					if (latestCtx && !latestCtx.isIdle() && typeof latestCtx.abort === "function") {
+						latestCtx.abort();
+					}
 					return { action: "handled" as const };
 				}
 				// 0901 P0-4（硬 Gate A）：解释性追问 → EXPLAIN_HANDLER
