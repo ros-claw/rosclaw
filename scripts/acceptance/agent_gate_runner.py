@@ -568,6 +568,13 @@ def _run_interactive(run, spec: dict, python: str) -> None:
                     continue
                 if any(marker in p.name for marker in _render_evidence):
                     return True
+            # 模型自写脚本渲染（bash→mujoco）：视频落 ws——run1
+            # 实证 ur5e_*_640x360.mp4 不匹配内核 scene 命名。
+            for p in run.ws.rglob("*"):
+                if not p.is_file() or p.stat().st_mtime < session_start:
+                    continue
+                if p.suffix in (".mp4", ".gif"):
+                    return True
             return False
 
         op_deadline = time.monotonic() + 600
