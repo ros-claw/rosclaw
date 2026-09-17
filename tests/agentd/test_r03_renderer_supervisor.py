@@ -57,7 +57,11 @@ def _make_trace(home: Path) -> dict:
 
 
 def _fake_run_factory(behaviors):
-    """按 argv 行为表伪造 subprocess.run（结构化协议故障注入）。"""
+    """按 argv 行为表伪造 subprocess（结构化协议故障注入）。
+
+    G-4b 后渲染走 Popen(start_new_session) + communicate()，
+    探测仍走 subprocess.run——双 API 共享同一行为队列。
+    """
     calls: list[list] = []
 
     class Proc:
@@ -65,6 +69,40 @@ def _fake_run_factory(behaviors):
             self.returncode = rc
             self.stdout = out
             self.stderr = err
+
+    class FakePopen:
+        def __init__(self, argv, action, **_kw):
+            self.argv = argv
+            self._action = action
+            self.pid = 900000 + len(calls)
+            self.returncode = None
+
+        def poll(self):
+            return self.returncode
+
+        def communicate(self, timeout=None):
+            kind = self._action[0]
+            if kind == "render_ok":
+                result_path = Path(self.argv[self.argv.index("--result") + 1])
+                payload = self._action[1]
+                result_path.parent.mkdir(parents=True, exist_ok=True)
+                result_path.write_text(json.dumps(payload), encoding="utf-8")
+                noise = self._action[2] if len(self._action) > 2 else b""
+                self.returncode = 0
+                return noise, b""
+            if kind == "render_silent":
+                self.returncode = 0
+                return b"", b""  # rc=0 但无 result（事故原型）
+            if kind == "render_corrupt":
+                result_path = Path(self.argv[self.argv.index("--result") + 1])
+                result_path.parent.mkdir(parents=True, exist_ok=True)
+                result_path.write_text("{not json", encoding="utf-8")
+                self.returncode = 0
+                return b"", b""
+            if kind == "render_rc_fail":
+                self.returncode = 1
+                return b"", b"GL crashed badly"
+            raise AssertionError(f"unknown fake behavior {self._action}")
 
     def fake_run(argv, **kwargs):
         calls.append(argv)
@@ -75,25 +113,16 @@ def _fake_run_factory(behaviors):
             return Proc(0, b"OK")
         if kind == "probe_fail":
             return Proc(1, b"", b"no display")
-        if kind == "render_ok":
-            # 结构化协议：写 result 文件（argv 约定含 --result）。
-            result_path = Path(argv[argv.index("--result") + 1])
-            payload = action[1]
-            result_path.parent.mkdir(parents=True, exist_ok=True)
-            result_path.write_text(json.dumps(payload), encoding="utf-8")
-            noise = action[2] if len(action) > 2 else b""
-            return Proc(0, noise, b"")
-        if kind == "render_silent":
-            return Proc(0, b"", b"")  # rc=0 但无 result（事故原型）
-        if kind == "render_corrupt":
-            result_path = Path(argv[argv.index("--result") + 1])
-            result_path.parent.mkdir(parents=True, exist_ok=True)
-            result_path.write_text("{not json", encoding="utf-8")
-            return Proc(0, b"", b"")
-        if kind == "render_rc_fail":
-            return Proc(1, b"", b"GL crashed badly")
         raise AssertionError(f"unknown fake behavior {action}")
 
+    def fake_popen(argv, **kwargs):
+        calls.append(argv)
+        idx = len(calls) - 1
+        action = behaviors[min(idx, len(behaviors) - 1)]
+        return FakePopen(argv, action)
+
+    fake_run.calls = calls
+    fake_run.popen = fake_popen
     return fake_run, calls
 
 
@@ -112,7 +141,9 @@ class TestStructuredIPC:
             ("probe_ok",), ("render_silent",),
         ])
         original = sim_render.subprocess.run
+        original_popen = sim_render.subprocess.Popen
         sim_render.subprocess.run = fake  # type: ignore[assignment]
+        sim_render.subprocess.Popen = fake.popen  # type: ignore[assignment]
         try:
             with pytest.raises(ValueError, match="RENDER_RESULT_MISSING"):
                 sim_render.render_scene_trace(
@@ -120,6 +151,7 @@ class TestStructuredIPC:
                 )
         finally:
             sim_render.subprocess.run = original  # type: ignore[assignment]
+            sim_render.subprocess.Popen = original_popen  # type: ignore[assignment]
 
     def test_noisy_stdout_does_not_corrupt_result(
         self, tmp_path: Path
@@ -142,13 +174,16 @@ class TestStructuredIPC:
             ("render_ok", payload, b"WARNING: libGL noise\nOK"),
         ])
         original = sim_render.subprocess.run
+        original_popen = sim_render.subprocess.Popen
         sim_render.subprocess.run = fake  # type: ignore[assignment]
+        sim_render.subprocess.Popen = fake.popen  # type: ignore[assignment]
         try:
             result = sim_render.render_scene_trace(
                 tmp_path, trace["trace_id"],
             )
         finally:
             sim_render.subprocess.run = original  # type: ignore[assignment]
+            sim_render.subprocess.Popen = original_popen  # type: ignore[assignment]
         assert result["ok"] is True
         assert result["artifact"]["frames"] == 60
 
@@ -162,12 +197,15 @@ class TestStructuredIPC:
             ("probe_ok",), ("render_corrupt",),
         ])
         original = sim_render.subprocess.run
+        original_popen = sim_render.subprocess.Popen
         sim_render.subprocess.run = fake  # type: ignore[assignment]
+        sim_render.subprocess.Popen = fake.popen  # type: ignore[assignment]
         try:
             with pytest.raises(ValueError, match="RENDER_RESULT_CORRUPT"):
                 sim_render.render_scene_trace(tmp_path, trace["trace_id"])
         finally:
             sim_render.subprocess.run = original  # type: ignore[assignment]
+            sim_render.subprocess.Popen = original_popen  # type: ignore[assignment]
 
     def test_incomplete_result_stable_error(self, tmp_path: Path) -> None:
         from rosclaw.agentd import sim_render
@@ -179,7 +217,9 @@ class TestStructuredIPC:
             ("probe_ok",), ("render_ok", {"ok": True}),
         ])
         original = sim_render.subprocess.run
+        original_popen = sim_render.subprocess.Popen
         sim_render.subprocess.run = fake  # type: ignore[assignment]
+        sim_render.subprocess.Popen = fake.popen  # type: ignore[assignment]
         try:
             with pytest.raises(
                 ValueError, match="RENDER_RESULT_INCOMPLETE"
@@ -187,6 +227,7 @@ class TestStructuredIPC:
                 sim_render.render_scene_trace(tmp_path, trace["trace_id"])
         finally:
             sim_render.subprocess.run = original  # type: ignore[assignment]
+            sim_render.subprocess.Popen = original_popen  # type: ignore[assignment]
 
     def test_rc_nonzero_render_failed(self, tmp_path: Path) -> None:
         from rosclaw.agentd import sim_render
@@ -198,12 +239,15 @@ class TestStructuredIPC:
             ("probe_ok",), ("render_rc_fail",),
         ])
         original = sim_render.subprocess.run
+        original_popen = sim_render.subprocess.Popen
         sim_render.subprocess.run = fake  # type: ignore[assignment]
+        sim_render.subprocess.Popen = fake.popen  # type: ignore[assignment]
         try:
             with pytest.raises(ValueError, match="RENDER_FAILED"):
                 sim_render.render_scene_trace(tmp_path, trace["trace_id"])
         finally:
             sim_render.subprocess.run = original  # type: ignore[assignment]
+            sim_render.subprocess.Popen = original_popen  # type: ignore[assignment]
 
 
 class TestBackendFallbackOnce:
@@ -230,13 +274,16 @@ class TestBackendFallbackOnce:
             ("render_ok", payload),     # osmesa render 成功
         ])
         original = sim_render.subprocess.run
+        original_popen = sim_render.subprocess.Popen
         sim_render.subprocess.run = fake  # type: ignore[assignment]
+        sim_render.subprocess.Popen = fake.popen  # type: ignore[assignment]
         try:
             result = sim_render.render_scene_trace(
                 tmp_path, trace["trace_id"],
             )
         finally:
             sim_render.subprocess.run = original  # type: ignore[assignment]
+            sim_render.subprocess.Popen = original_popen  # type: ignore[assignment]
         assert result["ok"] is True
         renders = [c for c in calls if "--result" in c]
         assert len(renders) <= 2, f"降级超过一次: {len(renders)}"
@@ -253,7 +300,9 @@ class TestBackendFallbackOnce:
             ("probe_fail",), ("probe_fail",), ("probe_fail",),
         ])
         original = sim_render.subprocess.run
+        original_popen = sim_render.subprocess.Popen
         sim_render.subprocess.run = fake  # type: ignore[assignment]
+        sim_render.subprocess.Popen = fake.popen  # type: ignore[assignment]
         try:
             with pytest.raises(
                 ValueError, match="RENDER_BACKEND_UNAVAILABLE|RENDER_FAILED"
@@ -261,6 +310,7 @@ class TestBackendFallbackOnce:
                 sim_render.render_scene_trace(tmp_path, trace["trace_id"])
         finally:
             sim_render.subprocess.run = original  # type: ignore[assignment]
+            sim_render.subprocess.Popen = original_popen  # type: ignore[assignment]
 
 
 class TestSceneContentFromSpec:
