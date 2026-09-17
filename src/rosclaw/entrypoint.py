@@ -43,6 +43,14 @@ def _dispatch(argv: list[str]) -> int:
     if inspected is not None:
         return inspected
 
+    # MH11：`rosclaw sim`——SimulationRuntime 的 JSON CLI 投影
+    # （Agent/脚本/operator 的仿真触达面，与 MCP sim_* 同一权威）。
+    from rosclaw.sim.cli import dispatch_sim_argv
+
+    sim_result = dispatch_sim_argv(argv)
+    if sim_result is not None:
+        return sim_result
+
     from rosclaw.operator.cli import dispatch_operator_argv
 
     result = dispatch_operator_argv(argv)

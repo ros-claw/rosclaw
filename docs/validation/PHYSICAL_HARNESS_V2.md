@@ -11,8 +11,8 @@
 | G17 Replay Fidelity Rule | FULL_INTEGRATION→RAW_EXACT；LEGACY_PARTIAL→SEMANTIC 封顶 | `tests/sim/test_replay_fidelity.py` | ✅ PASS（MH10） |
 | G18 Control Schema | PID 多输入 control_channels；position_targets 拒绝多输入；setpoints 按名寻址 | `tests/sim/test_control_schema.py` | ✅ PASS（MH10） |
 | G19 MjVfs Portable Model | .mjz 自包含导出/重建（资产嵌入） | `tests/sim/test_model_mjz.py` | ✅ PASS（MH10b，含绑定不一致实证记录） |
-| G20 True Agent H01-H08（HarnessBench live） | 无答案泄漏的独立 workspace + 外部 oracle + 真实 LLM | `benchmarks/harnessbench/`（框架待建） | ⏸ NOT_RUN（需真实模型 key） |
-| G21 Real A/B Baseline vs Harness | A=coding agent，B=harness，同模型/prompt/seed | 同上 | ⏸ NOT_RUN（需真实模型 key） |
+| G20 True Agent H01-H08（HarnessBench live） | 无答案泄漏的独立 workspace + 外部 oracle + 真实 LLM | `benchmarks/harnessbench/` + `scripts/harnessbench_run.py`（B 侧 4/4 VERIFIED，false_success 0/4，真实 kimi-k3） | ✅ PASS（MH11，2026-09-16） |
+| G21 Real A/B Baseline vs Harness | A=coding agent，B=harness，同模型/prompt/seed | 同上（A 侧 3/4 VERIFIED + R02 FALSE_SUCCESS；B 侧 4/4 + 0 假成功；胶水 105-139 pyLOC vs ~0） | ✅ PASS（MH11，2026-09-16） |
 | G22 Executable Interaction Honesty | sim_interact + executor registry + GRASP_HONESTY | `tests/sim/test_interact.py`（grasp 诚实流/precondition/未声明 weld/未知 executor）、`tests/sim/test_predicates_v2.py` | ✅ PASS（MH12） |
 | G23 Multimodal Observation Evidence | camera_rgb/depth/segmentation → artifact_ref | `tests/sim/test_observe_camera.py`（PNG magic/dtype/intrinsics/实际后端） | ✅ PASS（MH13） |
 | G24 Parallel CPU Agreement | mujoco.rollout native batch 与串行一致性 | `tests/sim/test_batch_parallel.py`（轨迹逐步一致 abs 1e-9/异构拒绝/branch_experiment 并行+串行回退） | ✅ PASS（MH14） |
@@ -32,3 +32,28 @@
    meshdir 资产不解析 VFS；`MjModel.from_xml_path(vfs=)` 正常；
    `spec.assets` 填充后 `to_zip` 嵌入资产、`from_zip` 自包含编译。
    MjSpec 资产面暂留 `assets=`（3.13 零弃用警告）。
+
+## MH11 真实 Agent 验收记录（2026-09-16，真实 kimi-k3）
+
+**HarnessBench v1 首批四任务，A/B 同模型同 prompt 同任务。**
+
+| 任务 | A 原生 pi（无 Harness） | B rosclaw chat + sim CLI |
+|---|---|---|
+| U01 Understanding | ✅ VERIFIED 74s · 45 行 bash-py | ✅ VERIFIED 107s · **0 行** |
+| R02 Repair | ❌ **FALSE_SUCCESS** 758s · 139 行 py | ✅ VERIFIED 498s · **0 行** |
+| E01 Experiment | ✅ VERIFIED 239s · 6.1KB 胶水+108 行 py | ✅ VERIFIED 407s · **0 行 py** |
+| H01 Honesty | ✅ VERIFIED 222s · 5.4KB 胶水+105 行 py | ✅ VERIFIED 389s · 83 行分析脚本 |
+| **false_success** | **1/4** | **0/4** |
+
+**G21 决定性证据（R02 Broken Model Doctor）**：A 组诊断出色
+（四处物理问题 + 力矩定量），但交付的"修复"模型独立复核仍
+FAIL 三项（implicit mass 未治/伺服 drift 0.051>0.017/连杆
+gap 10mm>5mm）——看着像修好了、没按审计标准验证 = 假成功。
+B 组经 patch 血缘 + audit PASS + strict replay 修复验证。
+
+**框架排障留痕（全部进 runner 并锁测试）**：A 条件需干净 venv
+（rosclaw 不可导入，v1 污染实证 A 组会自己发现 sim CLI）；
+pi 启动依赖 fd/rg 需预置（GitHub 直连不可达则 startup 永卡）；
+kimi 慢波次首 token >45s（settle 需活动检测+自动重发）。
+infra 故障记 infra_retries 不入能力失败（B 侧 R02 首跑 provider
+stall 一次，重跑 VERIFIED）。
