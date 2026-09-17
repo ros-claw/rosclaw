@@ -30,6 +30,11 @@ _FROZEN_PUBLIC = frozenset({
     "render_scene_trace",
     "restore_frame_state",
     "select_frame_indices",
+    # 例外（ADR-0015 §2 维护性修改——取消传播契约保持，不是新仿
+    # 真能力）：G-4b 同步渲染取消注册表（CI 实证本门禁先抓到了
+    # 它们——门禁按设计工作，此处带理由登记豁免）。
+    "has_active_renders",
+    "kill_active_renders",
 })
 
 
