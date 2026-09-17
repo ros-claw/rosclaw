@@ -5,6 +5,64 @@ All notable changes to ROSClaw will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-09-17
+
+Internal Alpha 发布节点：0914 审计修复轨道 + MuJoCo Harness 轨道 +
+三审 backlog（B-1~B-6）全部闭环（18 PR，merge truth 机器复核）。
+
+### Added
+
+- **真实 Agent Gate**（`scripts/acceptance/agent_gate_runner.py`）：
+  干净 wheel 安装、10 个未见任务 ×3 真实 K3 验收（29/30）；
+  环境结局 oracle（per-render 证据绑定 / 相机差异像素级判定 /
+  物理结论从原始序列重算——不信终端文字不信模型自报）。
+- **Harness 资格认证器**（`scripts/acceptance/harness_qualification.py`）：
+  EGL/OSMesa/Xvfb 逐后端真实单帧渲染 + rollout 动力学闭环，
+  机器生成资格矩阵（Jetson aarch64 实证 QUALIFIED）。
+- **MuJoCo Harness**（MH 轨道）：SimulationRuntime + MujocoBackend
+  原生仿真内核（状态真权归 MuJoCo、Control Schema、多模态观测、
+  并行批次实验、HarnessBench v1 + `rosclaw sim` CLI）。
+- **取消传播闭环**：Esc/Ctrl-C/自然语言停止 → operation + 同步渲染
+  子进程（注册表 + killpg）+ 模型回合全停；迟到成功不得翻转
+  CANCELLED（账本防护）。
+- **chat 自动登录流**：未配置时 TTY 确认写默认配置直接进 chat
+  （/login 会话内完成）。
+- **setup status `--probe`**：显式联网模型探测（默认本地-only）。
+
+### Fixed
+
+- **wheel JS 运行时闭包**（G-1a）：wheel 内嵌 js_stage 无
+  node_modules，干净安装 `rosclaw chat` 即死——首跑 npm ci
+  bootstrap（lock digest 幂等、filelock 防并发、
+  JS_RUNTIME_BOOTSTRAP_FAILED 诚实报错带手动命令）。
+- **验收 oracle 假绿根治**（X-2）：U10 提示词回显可过 / U06
+  None digest 冒充一致性 / U05 无视频↔trace 绑定——全部根治；
+  per-render receipt（同 trace 多渲染不再互覆盖销毁 RenderRef
+  证据）。
+- **渲染取消传播**：同步渲染子进程不再在取消后孤儿跑完全程。
+- **轨迹 overlay 三年假可见**：mjv_connector 线宽单位误解
+  （米≠像素）——1.6m 胶囊自遮蔽相机；5mm + 帧像素证据。
+- **取消传播进程组**：killpg 灭整个进程组（孙子渲染/仿真进程
+  不再孤儿）。
+- Kimi 403 分类三义区分：配额耗尽（QUOTA_EXHAUSTED）/并发限流
+  （RATE_LIMITED）/真凭据失败（AUTH_FAILED）——关键词优先于
+  状态码。
+- rosclaw-tui Ctrl-C 取消死链（/v2/missions/:id/cancel 404 →
+  真实路由）。
+
+### Changed
+
+- **单一仿真栈**（ADR-0015）：SimulationRuntime 为唯一仿真内核；
+  `src/rosclaw/agentd/sim_render.py` 降级 deprecated 适配层（公开函数集合
+  机器冻结——防分叉门禁）。
+- setup status 默认本地-only——看状态不再烧模型 API 调用。
+
+### Governance
+
+- **merge truth 机器生成**（`scripts/acceptance/merge_truth.py`）：
+  合并状态只信 GitHub API——#546 误记事件根治（update-branch
+  被接受≠合并完成）；有未合并 PR 时 rc=1 可作报告定稿门禁。
+
 ## [Unreleased] - 2026-06-21
 
 ### Added

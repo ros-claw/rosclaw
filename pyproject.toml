@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "rosclaw"
-version = "1.2.0"
+version = "1.3.0"
 description = "Trustworthy Physical Execution Runtime and Control Plane for Embodied Agents"
 readme = "README.md"
 license = {text = "MIT"}
