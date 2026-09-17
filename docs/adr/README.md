@@ -19,5 +19,6 @@
 | [0012](0012-native-harness-backend.md) | ROSClaw owns Native Runtime; Pi is default Harness Backend（Native 直干，Worker 退出默认链） | Accepted |
 | [0013](0013-harness-backend-default-and-certification.md) | Harness Backend 默认与认证路线——用户无 engine 面（调整方案"ADR-0012A"，amends 0012） | Accepted |
 | [0014](0014-simulation-harness.md) | Simulation Harness 架构冻结——MuJoCo 不是 Harness Backend | Accepted |
+| [0015](0015-single-simulation-stack.md) | 单一仿真栈——SimulationRuntime 为唯一仿真内核（agentd/sim_render 降级 deprecated 适配层） | Accepted |
 
 依据文档：《ROSClaw Native Agent、Worker Fabric 与多机器人 Team Fabric 实施总纲 v1.0》（2026-08-01）。
