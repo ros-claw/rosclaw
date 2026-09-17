@@ -98,14 +98,17 @@ SCENARIOS: dict[str, dict] = {
         "oracle": "g08",
     },
     "G09": {
-        # 12 连渲染（约 2880 帧，20 分钟级）——任务时长逼出后台
-        # Operation（G09 run1 实证：300 帧任务模型 3 分钟内同步
-        # 完成，取消前提根本造不出来）。"不用等我"自然引导后台化，
-        # 不点名工具（工具选择本身就是被测面）。
+        # 预置现成轨迹（真实前次 rollout 的 trace——模型跳过推理
+        # 直接进 12 连渲染；G09 四轮实证：让模型自己仿真+渲染时，
+        # 推理阶段 10 分钟无渲染活动，取消前提窗口根本等不到）。
+        "provision_trace": {
+            "donor": "/tmp/agent-gate/g02_run1/rh/rh/sim/traces/trace_6bd251d5a49b",
+            "trace_id": "trace_6bd251d5a49b",
+        },
         "prompt": (
-            "做一组 12 连渲染：同一条机械臂空间曲线轨迹，12 个不同"
-            "相机角度各渲一个 240 帧视频（合计 2880 帧，估计要跑 20"
-            " 分钟以上）。开始干吧，不用等我。"
+            "trace_6bd251d5a49b 这条轨迹已经仿真好了（**不要重新"
+            "仿真**）——用它渲染 12 个不同相机角度的视频（每个 240"
+            " 帧，12 连渲染工作量不小）。开始干吧，不用等我。"
         ),
         "cancel": "停下来，不要做了。",
         "oracle": "g09",
@@ -490,6 +493,22 @@ def _run_one(scenario: str, run_idx: int, out_dir: Path, python: str) -> dict:
         "wall_time_s": 0.0, "interventions": 0, "detail": "",
     }
     spec = SCENARIOS[scenario]
+    provision = spec.get("provision_trace")
+    if provision:
+        # 预置现成轨迹（真实前次 rollout——取消目标从第一轮渲染
+        # 起就在飞，不等模型推理阶段）。
+        import shutil as _shutil
+
+        donor = Path(provision["donor"])
+        dest = run.tmp_path / "rh" / "rh" / "sim" / "traces" / provision["trace_id"]
+        dest.mkdir(parents=True, exist_ok=True)
+        for name in (
+            "trace.json", "trajectory_states.json", "trace.csv",
+            "metrics.json", "trajectory_request.json",
+        ):
+            src = donor / name
+            if src.exists():
+                _shutil.copy2(src, dest / name)
     try:
         if "steer" in spec or "cancel" in spec:
             _run_interactive(run, spec, python)
@@ -514,26 +533,42 @@ def _run_interactive(run, spec: dict, python: str) -> None:
         log_path=run.tmp_path / "pty.log",
     )
     run.session.expect(b"ROSClaw Native Agent", timeout=120)
+    # 会话启动基线——预置的 trace 不算"活动"（G09 五轮实证：预置
+    # 文件让 files=True 瞬间成立，停止在模型开工前就发出去了）。
+    session_start = time.time()
     run.session.send(spec["prompt"] + "\r")
-    # 等任务真的动起来（工作区有文件落盘或输出持续增长）再介入——
+    # 等任务真的动起来（输出增长 + 基线后有新落盘）再介入——
     # 抢在 Agent 开工前介入测的不是 steer/cancel 传播。
     deadline = time.monotonic() + 600
     baseline = len(run.session.output)
     while time.monotonic() < deadline:
         grew = len(run.session.output) > baseline + 200
-        files = any(run.ws.rglob("*")) or any(
-            (run.tmp_path / "rh").rglob("sim/traces/*")
+        new_files = any(
+            p.is_file() and p.stat().st_mtime >= session_start
+            for p in run.ws.rglob("*")
         )
-        if grew and files:
+        if grew and new_files:
             break
         time.sleep(2.0)
     if "cancel" in spec:
         # G09 前提（双路径现实）：operation 注册（后台路径）**或**
-        # 渲染活动起步（同步渲染路径——sim/traces 目录出现/视频
-        # 开始产出/渲染 spec 落盘）。三轮实证：模型对渲染任务走
-        # 同步 scene_render 不入 operation 账本。等不到如实记
-        # INVALID（不判产品 FAIL——前提没造成）。
+        # 渲染活动起步（同步渲染路径——基线后新出现的渲染证据：
+        # 渲染 spec/receipt/场景视频——预置 trace 不算）。等不到
+        # 如实记 INVALID（不判产品 FAIL——前提没造成）。
         import sqlite3 as _sq
+
+        _render_evidence = (
+            "-tool-render-spec.json", "render_receipt", "-scene.gif",
+            "-scene.mp4", "-scene-result.json",
+        )
+
+        def _render_activity() -> bool:
+            for p in (run.tmp_path / "rh").rglob("*"):
+                if not p.is_file() or p.stat().st_mtime < session_start:
+                    continue
+                if any(marker in p.name for marker in _render_evidence):
+                    return True
+            return False
 
         op_deadline = time.monotonic() + 600
         registered = False
@@ -552,11 +587,7 @@ def _run_interactive(run, spec: dict, python: str) -> None:
                     pass
             if registered:
                 break
-            # 同步渲染活动：trace 目录/渲染 spec/视频任一出现。
-            traces = list((run.tmp_path / "rh").rglob("sim/traces/*"))
-            specs = list((run.tmp_path / "rh").rglob("*render-spec*.json"))
-            videos = list((run.tmp_path / "rh").rglob("*.mp4"))
-            if traces or specs or videos:
+            if _render_activity():
                 registered = True
                 break
             time.sleep(2.0)
