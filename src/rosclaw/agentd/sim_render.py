@@ -1,5 +1,14 @@
 """原生离线场景渲染（WP-3，0823 审计 §四.WP-3）。
 
+.. deprecated:: ADR-0015（2026-09-16，三审 B-4）
+   本模块是 **deprecated 适配层**——`rosclaw.sim`（SimulationRuntime
+   + MujocoBackend）是唯一仿真内核；本模块只允许维护性修改
+   （bug 修复/契约保持），公开函数集合冻结（tests/agentd/
+   test_g6_single_sim_stack.py 机器门禁）。新仿真能力一律进
+   `src/rosclaw/sim/`。其承载的产品契约（RenderSpec/overlays/
+   per-render receipt/相机取景/渲染幂等 key）按 ADR-0015 §收敛
+   路线迁往新栈 render 面后，本模块物理退役。
+
 `simulation.render` 是 ROSClaw 正式能力，不是模型自写脚本：
 
 - canonical MJCF（Sandbox/Resource Resolver 链）；
