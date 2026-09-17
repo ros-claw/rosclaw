@@ -5,7 +5,10 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=_common.sh
 . "$HERE/_common.sh"
 
-SDK_VER="$(python3 -c 'import importlib.metadata as m; print(m.version("pyseekdb"))' 2>/dev/null || echo "unknown")"
+PYBIN="python3"
+REPO_ROOT="$(cd "$HERE/../.." && pwd)"
+[ -x "$REPO_ROOT/.venv/bin/python" ] && PYBIN="$REPO_ROOT/.venv/bin/python"
+SDK_VER="$("$PYBIN" -c 'import importlib.metadata as m; print(m.version("pyseekdb"))' 2>/dev/null || echo "unknown")"
 
 echo "seekdb $SEEKDB_ENGINE_VERSION server status"
 echo "mode:      server"
