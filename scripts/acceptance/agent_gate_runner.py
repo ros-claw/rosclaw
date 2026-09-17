@@ -345,19 +345,39 @@ def _oracle(scenario: str, run, gate_dir: Path) -> dict:
         }
 
     if kind == "g09":
-        # 取消闭环：账本存在 CANCELLED 终结；迟到翻转证据 =
-        # SUCCEEDED 且带 cancel_reason（账本防护下不应存在）。
+        # 取消闭环（G-4+G-4b 后双路径）：
+        # - operation 路径：账本 CANCELLED + 无迟到翻转（SUCCEEDED
+        #   且带 cancel_reason = 翻转证据）；
+        # - 同步渲染路径（模型走 scene_render 不入账本——三轮实证）：
+        #   停后 30s 内**不再产新视频** + session 有停止回声
+        #   （已停止/CANCELLED/终止）+ 无迟到翻转。
         ledger = _operations_ledger(root)
         cancelled = [op for op in ledger if op.get("state") == "CANCELLED"]
         late_success = [
             op for op in ledger
             if op.get("state") == "SUCCEEDED" and op.get("cancel_reason")
         ]
-        ok = bool(cancelled) and not late_success
+        stop_time = getattr(run, "steer_time", 0.0)
+        session_text = run.session.clean.decode("utf-8", errors="replace") if run.session else ""
+        videos_after = [
+            p for p in root.rglob("*.mp4")
+            if p.stat().st_mtime > stop_time + 30
+        ] + [
+            p for p in root.rglob("*.gif")
+            if p.stat().st_mtime > stop_time + 30
+        ]
+        stop_echo = any(
+            marker in session_text
+            for marker in ("已停止", "CANCELLED", "已终止", "取消")
+        )
+        op_path_ok = bool(cancelled)
+        sync_path_ok = not videos_after and stop_echo
+        ok = (op_path_ok or sync_path_ok) and not late_success
         return {
             "verdict": "PASS" if ok else "FAIL",
             "detail": (
                 f"CANCELLED={len(cancelled)} 迟到翻转={len(late_success)} "
+                f"停后新视频={len(videos_after)} 停止回声={stop_echo} "
                 f"账本={len(ledger)}"
             ),
         }
