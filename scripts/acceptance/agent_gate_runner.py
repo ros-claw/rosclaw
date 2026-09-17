@@ -528,12 +528,14 @@ def _run_interactive(run, spec: dict, python: str) -> None:
             break
         time.sleep(2.0)
     if "cancel" in spec:
-        # G09 前提：operation 必须先在账本注册（sqlite 权威——G09
-        # run1 实证抢在注册前发停=测不到传播链）。等不到如实记
+        # G09 前提（双路径现实）：operation 注册（后台路径）**或**
+        # 渲染活动起步（同步渲染路径——sim/traces 目录出现/视频
+        # 开始产出/渲染 spec 落盘）。三轮实证：模型对渲染任务走
+        # 同步 scene_render 不入 operation 账本。等不到如实记
         # INVALID（不判产品 FAIL——前提没造成）。
         import sqlite3 as _sq
 
-        op_deadline = time.monotonic() + 180
+        op_deadline = time.monotonic() + 600
         registered = False
         while time.monotonic() < op_deadline:
             for db in (run.tmp_path / "rh").rglob("missions.db"):
@@ -550,10 +552,17 @@ def _run_interactive(run, spec: dict, python: str) -> None:
                     pass
             if registered:
                 break
+            # 同步渲染活动：trace 目录/渲染 spec/视频任一出现。
+            traces = list((run.tmp_path / "rh").rglob("sim/traces/*"))
+            specs = list((run.tmp_path / "rh").rglob("*render-spec*.json"))
+            videos = list((run.tmp_path / "rh").rglob("*.mp4"))
+            if traces or specs or videos:
+                registered = True
+                break
             time.sleep(2.0)
         if not registered:
             raise RuntimeError(
-                "G09 前提未造成：180s 内无 operation 注册（任务未开工）"
+                "G09 前提未造成：600s 内无 operation/渲染活动（任务未开工）"
             )
     run.steer_time = time.time()
     time.sleep(5.0)  # 让 operation 先注册（G09 账本判定前提）
