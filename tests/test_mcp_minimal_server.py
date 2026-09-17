@@ -117,8 +117,10 @@ class TestSystemToolHandlers:
 
         server = ROSClawMinimalMCPServer()
         result = await server._handle_system_tool("system.get_version", {})
+        from rosclaw import __version__
+
         assert result["name"] == "rosclaw"
-        assert result["version"] == "1.2.0"
+        assert result["version"] == __version__
         assert result["status"] == "ready"
 
     @pytest.mark.asyncio

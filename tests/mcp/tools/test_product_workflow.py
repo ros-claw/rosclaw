@@ -25,7 +25,9 @@ def _payload(raw: str) -> dict:
 async def test_product_status_and_demo_catalog_are_discoverable() -> None:
     status = _payload(await get_product_status())
     assert status["ok"] is True
-    assert status["data"]["product_status"]["release"]["version"] == "1.2.0"
+    from rosclaw import __version__
+
+    assert status["data"]["product_status"]["release"]["version"] == __version__
     assert status["usable_for_real_execution"] is False
 
     demos = _payload(await list_product_demos())
