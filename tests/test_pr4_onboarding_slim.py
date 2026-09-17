@@ -33,22 +33,15 @@ class TestSetupStatusGoalAware:
 
     def test_sim_chat_goal_needs_only_model(self, tmp_path, monkeypatch, capsys) -> None:
         """SIM 聊天目标：model 就绪即"当前目标已就绪"——integration/
-        operator/robot_kit 等可选不计入未完成（高级配置归详细页）。"""
+        operator/robot_kit 等可选不计入未完成（高级配置归详细页）。
+
+        G-2（0916 三审 B-5）后默认本地判定：配置+凭据存在即 READY
+        （不再依赖联网 probe——联网是 --probe 显式发起）。"""
         monkeypatch.setenv("ROSCLAW_HOME", str(tmp_path))
-        # 写好模型配置（内置 kimi-coding 即就绪态；probe 打桩为可用——
-        # 状态判定依赖真实探测，单测环境无 engine）。
-        from rosclaw.agentd import onboarding
-        from rosclaw.agentd.models.gateway import ModelProbeResult
+        monkeypatch.setenv("KIMI_API_KEY", "sk-test-pr4")
         from rosclaw.agentd.onboarding import configure_model
 
-        async def _probe(home, *, deep=False):
-            return ModelProbeResult(
-                reachable=True, chat_ok=True, tool_call_ok=True,
-                auth_configured=True,
-            )
-
         configure_model(tmp_path, "kimi-code")
-        monkeypatch.setattr(onboarding, "probe_home", _probe)
         args = type("A", (), {"json": False})()
         rc = setup_cli._cmd_status(args)
         out = capsys.readouterr().out

@@ -350,9 +350,9 @@ def _collect_damping_series(root: Path) -> dict[float, list[float]]:
             series[damping] = angles
     # 模型自写形态：CSV（damping 列或文件名）与 JSON（damping 键）。
     for csv_path in root.rglob("*.csv"):
-        damping, angles = _angles_from_csv(csv_path)
-        if damping is not None and len(angles) >= 50 and damping not in series:
-            series[damping] = angles
+        for damping, angles in _angles_from_csv(csv_path):
+            if damping is not None and len(angles) >= 50 and damping not in series:
+                series[damping] = angles
     for json_path in root.rglob("*.json"):
         damping, angles = _angles_from_json(json_path)
         if damping is not None and len(angles) >= 50 and damping not in series:
@@ -371,9 +371,11 @@ def _series_from_npz(path: Path) -> list[tuple[float | None, list[float]]]:
     import numpy as np
 
     name_match = _re.search(
-        r"(?:damping|damp|阻尼|_d)([_=-]?[0-9]+(?:\.[0-9]+)?)", path.name,
+        r"(?:damping|damp|阻尼|_d)[_=-]?([0-9]+(?:[.p][0-9]+)?)", path.name,
     )
-    file_damping = float(name_match.group(1)) if name_match else None
+    file_damping = (
+        float(name_match.group(1).replace("p", ".")) if name_match else None
+    )
     found: list[tuple[float | None, list[float]]] = []
     try:
         archive = np.load(str(path))
@@ -421,21 +423,30 @@ def _find_damping_near(states_path: Path) -> float | None:
     return None
 
 
-def _angles_from_csv(path: Path) -> tuple[float | None, list[float]]:
+def _angles_from_csv(path: Path) -> list[tuple[float | None, list[float]]]:
+    """CSV → [(damping, 摆角序列)]。
+
+    形态：每阻尼一文件（文件名 d0.02/d0p02 或 damping 列单值）；
+    单文件多阻尼（damping 列多值——按列值拆分成独立 rollout，
+    G03 run3 实证）。"""
     import contextlib
     import csv
     import re as _re
 
     damping: float | None = None
-    name_match = _re.search(r"(?:damping|damp|阻尼|_d)[_=-]?([0-9]+(?:\.[0-9]+)?)", path.name)
+    # 文件名阻尼形态：d0.02 / d0p02（p=小数点，G03 run1 实证）。
+    name_match = _re.search(
+        r"(?:damping|damp|阻尼|_d)[_=-]?([0-9]+(?:[.p][0-9]+)?)", path.name,
+    )
     if name_match:
-        damping = float(name_match.group(1))
+        damping = float(name_match.group(1).replace("p", "."))
     angles: list[float] = []
+    by_damping: dict[float, list[float]] = {}
     try:
         with path.open(encoding="utf-8", errors="replace") as fh:
             reader = csv.DictReader(fh)
             if reader.fieldnames is None:
-                return (None, [])
+                return []
             angle_col = next(
                 (c for c in reader.fieldnames
                  if c.strip().lower().startswith(("theta", "angle"))
@@ -450,15 +461,22 @@ def _angles_from_csv(path: Path) -> tuple[float | None, list[float]]:
                 if angle_col is None:
                     break
                 try:
-                    angles.append(float(row[angle_col]))
+                    value = float(row[angle_col])
                 except (TypeError, ValueError):
                     continue
-                if damping is None and damp_col:
+                angles.append(value)
+                if damp_col:
                     with contextlib.suppress(TypeError, ValueError):
-                        damping = float(row[damp_col])
+                        row_damping = float(row[damp_col])
+                        by_damping.setdefault(row_damping, []).append(value)
     except (OSError, csv.Error):
-        return (None, [])
-    return (damping, angles)
+        return []
+    # 多阻尼单文件：拆分优先于整文件单值（每个阻尼一组独立序列）。
+    if len(by_damping) >= 2:
+        return sorted(by_damping.items())
+    if damping is None and by_damping:
+        damping = next(iter(by_damping))
+    return [(damping, angles)]
 
 
 def _angles_from_json(path: Path) -> tuple[float | None, list[float]]:

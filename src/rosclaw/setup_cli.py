@@ -39,13 +39,50 @@ def _home() -> Path:
 # ---------------------------------------------------------------- 状态探测
 
 
-def _model_status(home: Path) -> dict:
-    """模型配置状态（复用 agentd onboarding 的探测，不重新实现）。
+def _model_status(home: Path, *, probe: bool = False) -> dict:
+    """模型配置状态。
 
-    R0-7 状态格：TOOL_READY/CHAT_READY/DEGRADED 都算"已配置
-    可用"（DEGRADED 是对话可用、工具自检退化——不是
-    NEEDS_SETUP）；UNCONFIGURED/AUTH_READY 才是配置缺口。
+    G-2（0916 三审 B-5）：默认**本地-only**——配置存在性（单源）
+    + 凭据存在性（env/auth.json，只看存在不验证），绝不发起联网
+    探测（看状态不烧模型 API）。probe=True 才走 doctor 全探测。
     """
+    if not probe:
+        try:
+            from rosclaw.agentd.onboarding import read_pi_model_config
+            from rosclaw.agentd.pi_config import credential_source_report
+
+            model = read_pi_model_config(home)
+            if model is None:
+                return {
+                    "state": "NEEDS_SETUP",
+                    "detail": "未配置模型——`rosclaw setup model`",
+                }
+            # 凭据按已配置 provider 判定（别家 key 不算数——
+            # kimi 配置 + 只有 anthropic key 仍是 NEEDS_SETUP；
+            # kimi-code/kimi-coding 是同一内置服务的两个名字）。
+            provider_aliases = {model.provider}
+            if model.provider in ("kimi-code", "kimi-coding"):
+                provider_aliases = {"kimi-code", "kimi-coding"}
+            cred = any(
+                e.get("source") in ("env", "pi-auth-file")
+                and e.get("provider") in provider_aliases
+                for e in credential_source_report(home)
+            )
+            if not cred:
+                return {
+                    "state": "NEEDS_SETUP",
+                    "provider": model.provider,
+                    "model": model.model,
+                    "detail": "已配置但无凭据——chat 内 /login 或设环境变量",
+                }
+            return {
+                "state": "READY",
+                "provider": model.provider,
+                "model": model.model,
+                "detail": "已配置+凭据在（本地检查——未联网验证；--probe 联网探测）",
+            }
+        except Exception as exc:  # noqa: BLE001 - 状态探测不崩向导
+            return {"state": "NEEDS_SETUP", "detail": f"local check failed: {exc}"[:120]}
     try:
         from rosclaw.agentd.onboarding import doctor
 
@@ -162,10 +199,10 @@ def _language_status(home: Path) -> dict:
         return {"state": "NEEDS_SETUP", "detail": str(exc)[:120]}
 
 
-def _collect_status(home: Path) -> dict:
+def _collect_status(home: Path, *, probe: bool = False) -> dict:
     return {
         "schema_version": "rosclaw.setup.status.v1",
-        "model": _model_status(home),
+        "model": _model_status(home, probe=probe),
         "body": _body_status(home),
         "robot_kit": _robot_kit_status(home),
         "operator": _operator_status(home),
@@ -181,7 +218,10 @@ def _collect_status(home: Path) -> dict:
 
 def _cmd_status(args: argparse.Namespace) -> int:
     home = _home()
-    status = _collect_status(home)
+    # G-2（0916 三审 B-5）：默认本地-only（不发起联网探测——看
+    # 状态不烧模型 API）；--probe 显式联网（doctor 分级探测）。
+    probe = bool(getattr(args, "probe", False))
+    status = _collect_status(home, probe=probe)
     if args.json:
         print(json.dumps(status, ensure_ascii=False, indent=2))
         return 0
@@ -455,6 +495,11 @@ def dispatch_setup_argv(argv: list[str]) -> int | None:
     if sub == "status":
         parser = argparse.ArgumentParser(prog="rosclaw setup status")
         parser.add_argument("--json", action="store_true")
+        # G-2：默认本地-only；--probe 显式发起联网模型探测。
+        parser.add_argument(
+            "--probe", action="store_true",
+            help="联网探测模型可用性（默认本地检查——不发起模型 API 调用）",
+        )
         return _cmd_status(parser.parse_args(rest))
     if sub == "model":
         parser = argparse.ArgumentParser(prog="rosclaw setup model")

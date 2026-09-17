@@ -123,7 +123,10 @@ export class AgentClient {
 	}
 
 	cancelTurn(missionId: string): Promise<unknown> {
-		return this.request("POST", `/v2/missions/${missionId}/cancel`, {});
+		// G-4（0916 三审 B-2）：/v2/missions/:id/cancel 路由在
+		// agentd 不存在（死链 404）——指向真实路由（service.py
+		// POST /missions/{id}/cancel → 级联取消全部在途 operation）。
+		return this.request("POST", `/missions/${missionId}/cancel`, {});
 	}
 
 	capabilities(missionId: string): Promise<{ commands: CommandSpec[] }> {
