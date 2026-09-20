@@ -45,6 +45,12 @@ def inspect_model_full(model, *, model_digest: str = "", spec=None) -> dict[str,
         # 单 dof 关节（hinge/slide）的阻尼落在 dof_damping。
         if entry["type"] in ("hinge", "slide"):
             entry["damping"] = float(model.dof_damping[dof_addr])
+            # Motor inertia/friction may be inherited from MJCF defaults or
+            # changed after compilation. A visual asset and a deployment
+            # scene can have identical joint names but different dynamics.
+            # Report actual values; zero armature is not inherently invalid.
+            entry["armature"] = float(model.dof_armature[dof_addr])
+            entry["frictionloss"] = float(model.dof_frictionloss[dof_addr])
         joints_detail.append(entry)
 
     actuators_detail: list[dict[str, Any]] = []
@@ -129,6 +135,10 @@ def inspect_model_full(model, *, model_digest: str = "", spec=None) -> dict[str,
                 else "",
                 "pos": [float(v) for v in model.body_pos[i]],
                 "quat": [float(v) for v in model.body_quat[i]],
+                "mass": float(model.body_mass[i]),
+                "inertia": [float(v) for v in model.body_inertia[i]],
+                "inertial_pos": [float(v) for v in model.body_ipos[i]],
+                "inertial_quat": [float(v) for v in model.body_iquat[i]],
             }
         )
 
@@ -197,6 +207,9 @@ def inspect_model_full(model, *, model_digest: str = "", spec=None) -> dict[str,
         "integrator": str(mujoco.mjtIntegrator(opt.integrator).name).removeprefix("mjINT_").lower(),
         "iterations": int(opt.iterations),
         "ls_iterations": int(opt.ls_iterations),
+        "gravity": [float(v) for v in opt.gravity],
+        "tolerance": float(opt.tolerance),
+        "ls_tolerance": float(opt.ls_tolerance),
     }
 
     detail: dict[str, Any] = {
