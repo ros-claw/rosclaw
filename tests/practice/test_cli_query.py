@@ -174,6 +174,10 @@ def test_cli_query_body_cognition(capsys, monkeypatch, tmp_path):
 
 
 def test_cli_query_episodes(capsys, monkeypatch, tmp_path):
+    # This case deliberately omits --seekdb-path. Exercise default-path
+    # resolution in an isolated home, never the operator's existing ledger.
+    monkeypatch.setenv("ROSCLAW_HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("ROSCLAW_SEEKDB_URL", raising=False)
     seekdb_path = str(tmp_path / "seekdb.sqlite")
     with tempfile.TemporaryDirectory() as tmp:
         _ingest_session(tmp, seekdb_path)
