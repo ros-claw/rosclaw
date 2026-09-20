@@ -77,6 +77,7 @@ class ResearchCampaign:
     development_snapshot_hash: str | None
     retention_snapshot_hash: str | None
     sealed_commitment: str | None
+    feedback_teacher_contract_hash: str | None = None
 
     def __post_init__(self) -> None:
         _name(self.campaign_id)
@@ -99,6 +100,8 @@ class ResearchCampaign:
             _hash(value)
         if len(set(known_hashes)) != len(known_hashes):
             raise ValueError("training, development, retention and sealed identities must differ")
+        if self.feedback_teacher_contract_hash is not None:
+            _hash(self.feedback_teacher_contract_hash)
 
     @property
     def banks_bound(self) -> bool:
@@ -115,7 +118,12 @@ class ResearchCampaign:
 
     @property
     def campaign_hash(self) -> str:
-        return canonical_hash(asdict(self))
+        payload = asdict(self)
+        # Existing campaigns did not require a feedback teacher. Preserve their
+        # identities; opting in creates a new, explicitly bound campaign.
+        if self.feedback_teacher_contract_hash is None:
+            payload.pop("feedback_teacher_contract_hash")
+        return canonical_hash(payload)
 
 
 def research_budget_available(
@@ -168,6 +176,7 @@ class ResearchObservation:
     # recover known feasible examples? Unknown is not an implicit pass.
     # Kept after evidence_hashes to preserve existing positional construction.
     oracle_assay_pass: bool | None = None
+    feedback_teacher_pass: bool | None = None
 
     def __post_init__(self) -> None:
         values = tuple(v for k, v in asdict(self).items() if k != "evidence_hashes")
@@ -264,6 +273,7 @@ class ResearchRoute(StrEnum):
     STOP_FAMILY = "STOP_FAMILY"
     SEARCH_OR_ASSAY = "SEARCH_OR_ASSAY"
     ACTION_SPACE_OR_ENVIRONMENT = "ACTION_SPACE_OR_ENVIRONMENT"
+    TEACHER_OR_CONTROL = "TEACHER_OR_CONTROL"
     REPRESENTATION_OR_DAGGER = "REPRESENTATION_OR_DAGGER"
     CREDIT_OR_ON_POLICY = "CREDIT_OR_ON_POLICY"
     COVERAGE_OR_CURRICULUM = "COVERAGE_OR_CURRICULUM"
@@ -311,7 +321,14 @@ def route_research(
         else:
             reason = "oracle_failure_requires_assay_controls"
     elif observation.oracle_pass is True:
-        if observation.imitation_pass is False:
+        if observation.feedback_teacher_pass is False:
+            route, reason = ResearchRoute.TEACHER_OR_CONTROL, "feedback_teacher_failed"
+        elif (
+            campaign.feedback_teacher_contract_hash is not None
+            and observation.feedback_teacher_pass is not True
+        ):
+            reason = "feedback_teacher_evidence_required_before_student"
+        elif observation.imitation_pass is False:
             route, reason = ResearchRoute.REPRESENTATION_OR_DAGGER, "imitation_failed"
         elif observation.imitation_pass is True:
             if observation.closed_loop_pass is False:

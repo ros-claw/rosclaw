@@ -1,4 +1,4 @@
-from dataclasses import replace
+from dataclasses import asdict, replace
 
 import pytest
 
@@ -179,6 +179,60 @@ def test_assay_requires_typed_upstream_evidence(value):
 def test_assay_judgment_without_evidence_is_rejected():
     with pytest.raises(ValueError):
         ResearchObservation(oracle_assay_pass=True)
+
+
+@pytest.mark.parametrize("teacher_pass", [None, False, True])
+def test_teacher_requirement_precedes_student_and_team_claims(teacher_pass):
+    required = replace(campaign(), feedback_teacher_contract_hash=h("teacher-exam"))
+    observation = ResearchObservation(
+        True,
+        True,
+        True,
+        True,
+        True,
+        True,
+        True,
+        (h("receipt"),),
+        feedback_teacher_pass=teacher_pass,
+    )
+    decision = route_research(required, observation)
+    expected = {
+        None: ResearchRoute.NEED_EVIDENCE,
+        False: ResearchRoute.TEACHER_OR_CONTROL,
+        True: ResearchRoute.TEAM_INTEGRATION,
+    }[teacher_pass]
+    assert decision.route is expected
+    assert not decision.training_authorized and not decision.promotion_authorized
+
+
+def test_known_failed_teacher_is_not_ignored_by_legacy_campaign():
+    decision = route_research(
+        campaign(),
+        ResearchObservation(
+            oracle_pass=True,
+            imitation_pass=False,
+            feedback_teacher_pass=False,
+            evidence_hashes=(h("failed-teacher"),),
+        ),
+    )
+    assert decision.route is ResearchRoute.TEACHER_OR_CONTROL
+
+
+def test_teacher_requirement_changes_identity_but_preserves_old_campaign_hash():
+    original = campaign()
+    legacy = asdict(original)
+    legacy.pop("feedback_teacher_contract_hash")
+    assert original.campaign_hash == canonical_hash(legacy)
+    assert (
+        replace(original, feedback_teacher_contract_hash=h("teacher")).campaign_hash
+        != original.campaign_hash
+    )
+    with pytest.raises(ValueError):
+        replace(original, feedback_teacher_contract_hash="unbound")
+    with pytest.raises(ValueError):
+        ResearchObservation(feedback_teacher_pass=False)
+    with pytest.raises(ValueError):
+        ResearchObservation(feedback_teacher_pass=1, evidence_hashes=(h("receipt"),))
 
 
 def test_plateau_is_latched_and_family_rename_does_not_erase_it():

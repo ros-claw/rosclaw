@@ -34,7 +34,17 @@ to `SEARCH_OR_ASSAY`: first investigate whether the declared optimizer and
 measurement setup can recover known feasible examples. An unknown assay leaves
 a failed oracle at `NEED_EVIDENCE`; only explicitly passing controls allow that
 negative result to route to action-space or environment diagnosis.
-Successful oracle with failed imitation
+For teacher-dependent campaigns, bind `feedback_teacher_contract_hash` before
+the experiment. This pins the downstream teacher-qualification contract, not a
+hardware permit or a hand-picked trajectory. With a successful oracle, an
+unknown `feedback_teacher_pass` stays at `NEED_EVIDENCE`; a failed feedback
+teacher routes to `TEACHER_OR_CONTROL`, before imitation or team claims. Even a
+legacy campaign cannot ignore an explicitly failed teacher. A campaign that
+opts into this requirement has a new identity; existing campaigns with no
+teacher requirement keep their previous hashes. Authenticating the teacher's
+causal state inputs, execution semantics and exam results remains upstream.
+
+Successful oracle (and required teacher) with failed imitation
 routes to representation/DAgger; successful imitation with failed closed-loop
 performance routes to credit/on-policy work. A development/blind gap routes to
 coverage/curriculum. Team integration requires all individual-stage judgments,
