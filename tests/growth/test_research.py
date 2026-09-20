@@ -88,7 +88,11 @@ def test_completely_unmaterialized_campaign_does_not_invent_hashes():
 @pytest.mark.parametrize(
     "values,expected",
     [
-        ({"oracle_pass": False}, ResearchRoute.ACTION_SPACE_OR_ENVIRONMENT),
+        ({"oracle_pass": False}, ResearchRoute.NEED_EVIDENCE),
+        (
+            {"oracle_pass": False, "oracle_assay_pass": True},
+            ResearchRoute.ACTION_SPACE_OR_ENVIRONMENT,
+        ),
         ({"oracle_pass": True, "imitation_pass": False}, ResearchRoute.REPRESENTATION_OR_DAGGER),
         (
             {"oracle_pass": True, "imitation_pass": True, "closed_loop_pass": False},
@@ -127,6 +131,54 @@ def test_team_integration_requires_all_individual_gates():
         route_research(campaign(), replace(observation, blind_pass=None)).route
         is ResearchRoute.NEED_EVIDENCE
     )
+
+
+@pytest.mark.parametrize("oracle_pass", [None, False, True])
+def test_failed_assay_routes_to_search_before_interpreting_capability(oracle_pass):
+    result = route_research(
+        campaign(),
+        ResearchObservation(
+            oracle_pass=oracle_pass,
+            oracle_assay_pass=False,
+            evidence_hashes=(h("authenticated-controls"),),
+        ),
+    )
+    assert result.route is ResearchRoute.SEARCH_OR_ASSAY
+    assert result.reason == "oracle_assay_controls_failed"
+    assert not result.training_authorized and not result.promotion_authorized
+
+
+def test_unknown_assay_does_not_establish_a_capacity_failure():
+    result = route_research(
+        campaign(), ResearchObservation(oracle_pass=False, evidence_hashes=(h("exam"),))
+    )
+    assert result.route is ResearchRoute.NEED_EVIDENCE
+    assert result.reason == "oracle_failure_requires_assay_controls"
+
+
+def test_assay_does_not_hide_retention_failure_or_latched_plateau():
+    observation = ResearchObservation(
+        oracle_pass=False,
+        oracle_assay_pass=False,
+        retention_pass=False,
+        evidence_hashes=(h("controls"), h("retention")),
+    )
+    assert route_research(campaign(), observation).route is ResearchRoute.STABILITY_PLASTICITY
+    assert (
+        route_research(campaign(), observation, tuple(experiment(i) for i in range(3))).route
+        is ResearchRoute.STOP_FAMILY
+    )
+
+
+@pytest.mark.parametrize("value", [0, 1, "passed", float("nan")])
+def test_assay_requires_typed_upstream_evidence(value):
+    with pytest.raises(ValueError):
+        ResearchObservation(oracle_assay_pass=value, evidence_hashes=(h("controls"),))
+
+
+def test_assay_judgment_without_evidence_is_rejected():
+    with pytest.raises(ValueError):
+        ResearchObservation(oracle_assay_pass=True)
 
 
 def test_plateau_is_latched_and_family_rename_does_not_erase_it():

@@ -164,6 +164,10 @@ class ResearchObservation:
     retention_pass: bool | None = None
     individual_skill_pass: bool | None = None
     evidence_hashes: tuple[str, ...] = ()
+    # Independent assay controls: can this declared search/evaluation setup
+    # recover known feasible examples? Unknown is not an implicit pass.
+    # Kept after evidence_hashes to preserve existing positional construction.
+    oracle_assay_pass: bool | None = None
 
     def __post_init__(self) -> None:
         values = tuple(v for k, v in asdict(self).items() if k != "evidence_hashes")
@@ -258,6 +262,7 @@ def detect_plateau(
 class ResearchRoute(StrEnum):
     NEED_EVIDENCE = "NEED_EVIDENCE"
     STOP_FAMILY = "STOP_FAMILY"
+    SEARCH_OR_ASSAY = "SEARCH_OR_ASSAY"
     ACTION_SPACE_OR_ENVIRONMENT = "ACTION_SPACE_OR_ENVIRONMENT"
     REPRESENTATION_OR_DAGGER = "REPRESENTATION_OR_DAGGER"
     CREDIT_OR_ON_POLICY = "CREDIT_OR_ON_POLICY"
@@ -295,11 +300,16 @@ def route_research(
         route, reason = ResearchRoute.STOP_FAMILY, plateau.reason
     elif observation.retention_pass is False:
         route, reason = ResearchRoute.STABILITY_PLASTICITY, "retention_failed"
+    elif observation.oracle_assay_pass is False:
+        route, reason = ResearchRoute.SEARCH_OR_ASSAY, "oracle_assay_controls_failed"
     elif observation.oracle_pass is False:
-        route, reason = (
-            ResearchRoute.ACTION_SPACE_OR_ENVIRONMENT,
-            "oracle_failed_within_declared_budget",
-        )
+        if observation.oracle_assay_pass is True:
+            route, reason = (
+                ResearchRoute.ACTION_SPACE_OR_ENVIRONMENT,
+                "oracle_failed_within_declared_budget",
+            )
+        else:
+            reason = "oracle_failure_requires_assay_controls"
     elif observation.oracle_pass is True:
         if observation.imitation_pass is False:
             route, reason = ResearchRoute.REPRESENTATION_OR_DAGGER, "imitation_failed"

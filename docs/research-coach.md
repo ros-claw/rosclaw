@@ -29,8 +29,12 @@ Growth suggests the next research direction without authorizing execution.
 ## Routing
 
 STOP_FAMILY takes precedence over further research in that family. Retention
-failure routes to stability/plasticity work. Low oracle capability routes to
-action-space or environment diagnosis; successful oracle with failed imitation
+failure routes to stability/plasticity work. Failed oracle assay controls route
+to `SEARCH_OR_ASSAY`: first investigate whether the declared optimizer and
+measurement setup can recover known feasible examples. An unknown assay leaves
+a failed oracle at `NEED_EVIDENCE`; only explicitly passing controls allow that
+negative result to route to action-space or environment diagnosis.
+Successful oracle with failed imitation
 routes to representation/DAgger; successful imitation with failed closed-loop
 performance routes to credit/on-policy work. A development/blind gap routes to
 coverage/curriculum. Team integration requires all individual-stage judgments,
@@ -40,6 +44,16 @@ Missing observations remain unknown. They are not converted into failed skills
 or successful gates. A bounded failed oracle is not proof of physical
 impossibility. The caller must validate raw evidence and authenticated event
 ordering before using these pure contracts.
+
+`ResearchObservation.oracle_assay_pass` is an upstream, evidence-backed judgment,
+not a score inferred here. The downstream experiment must predeclare the control
+population, matching conditions, search budget and acceptance rule, and verify
+the original receipts. A hand-picked successful trajectory does not certify a
+random searcher's sensitivity, and a failed search is not an impossibility
+proof. Explicitly failed controls also block later-stage routing even if a
+caller supplies an apparently passing oracle score. STOP and retention failure
+retain their precedence. This field adds no optimizer, task-specific threshold,
+training permission or automatic activation path.
 
 ## One-use sealed bookkeeping
 
