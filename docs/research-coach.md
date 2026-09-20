@@ -15,7 +15,10 @@ Growth suggests the next research direction without authorizing execution.
   It is a pure preflight, not a concurrent reservation. Actual leases and
   durable execution accounting remain the existing `DreamScheduler`'s job.
 - `ResearchCampaign` binds the four distinct train/development/retention/sealed
-  identities. Different hashes alone do not prove the datasets are disjoint.
+  identities. Unmaterialized banks may explicitly remain `None` during planning;
+  do not invent a commitment to make the constructor pass. Sealed consumption
+  and the team-integration route require all four bindings. Different hashes
+  alone do not prove the datasets are disjoint.
 - `PlateauSignal` requires three consecutive, known blind non-improvements
   under the same mechanism and evaluator. Unknown blind results do not count;
   reused bank commitments and duplicate experiment evidence are rejected.

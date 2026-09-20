@@ -73,10 +73,10 @@ class ResearchCampaign:
     hypothesis: ResearchHypothesis
     family: ExperimentFamily
     budget: ResearchBudget
-    train_snapshot_hash: str
-    development_snapshot_hash: str
-    retention_snapshot_hash: str
-    sealed_commitment: str
+    train_snapshot_hash: str | None
+    development_snapshot_hash: str | None
+    retention_snapshot_hash: str | None
+    sealed_commitment: str | None
 
     def __post_init__(self) -> None:
         _name(self.campaign_id)
@@ -94,10 +94,24 @@ class ResearchCampaign:
             self.retention_snapshot_hash,
             self.sealed_commitment,
         )
-        for value in hashes:
+        known_hashes = tuple(value for value in hashes if value is not None)
+        for value in known_hashes:
             _hash(value)
-        if len(set(hashes)) != 4:
+        if len(set(known_hashes)) != len(known_hashes):
             raise ValueError("training, development, retention and sealed identities must differ")
+
+    @property
+    def banks_bound(self) -> bool:
+        """Unknown banks stay unknown; planning must not fabricate commitments."""
+        return all(
+            value is not None
+            for value in (
+                self.train_snapshot_hash,
+                self.development_snapshot_hash,
+                self.retention_snapshot_hash,
+                self.sealed_commitment,
+            )
+        )
 
     @property
     def campaign_hash(self) -> str:
@@ -295,7 +309,7 @@ def route_research(
             elif observation.closed_loop_pass is True:
                 if observation.development_pass is True and observation.blind_pass is False:
                     route, reason = ResearchRoute.COVERAGE_OR_CURRICULUM, "development_blind_gap"
-                elif all(
+                elif campaign.banks_bound and all(
                     v is True
                     for v in (
                         observation.development_pass,

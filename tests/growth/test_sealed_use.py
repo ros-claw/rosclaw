@@ -44,6 +44,22 @@ def consume(ledger, value=None, **changes):
     )
 
 
+@pytest.mark.parametrize(
+    "field",
+    [
+        "train_snapshot_hash",
+        "development_snapshot_hash",
+        "retention_snapshot_hash",
+        "sealed_commitment",
+    ],
+)
+def test_unbound_bank_rejected_before_consumption(tmp_path, field):
+    with SealedUseLedger(tmp_path / "state", source_checkout=tmp_path / "source") as ledger:
+        with pytest.raises(ValueError, match="bound"):
+            consume(ledger, replace(campaign(), **{field: None}))
+        assert consume(ledger)  # rejection did not consume a different or null identity
+
+
 def test_crash_recovery_cannot_reopen_same_bank_for_another_candidate(tmp_path):
     root = tmp_path / "state"
     with SealedUseLedger(root, source_checkout=tmp_path / "source") as ledger:

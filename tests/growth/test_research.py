@@ -55,6 +55,37 @@ def test_unknown_is_not_failure_or_permission():
 
 
 @pytest.mark.parametrize(
+    "field",
+    [
+        "train_snapshot_hash",
+        "development_snapshot_hash",
+        "retention_snapshot_hash",
+        "sealed_commitment",
+    ],
+)
+def test_planning_can_record_absent_bank_but_cannot_reach_team_gate(field):
+    pending = replace(campaign(), **{field: None})
+    assert not pending.banks_bound
+    observation = ResearchObservation(True, True, True, True, True, True, True, (h("receipt"),))
+    decision = route_research(pending, observation)
+    assert decision.route is ResearchRoute.NEED_EVIDENCE
+    assert not decision.training_authorized and not decision.promotion_authorized
+
+
+def test_completely_unmaterialized_campaign_does_not_invent_hashes():
+    pending = replace(
+        campaign(),
+        train_snapshot_hash=None,
+        development_snapshot_hash=None,
+        retention_snapshot_hash=None,
+        sealed_commitment=None,
+    )
+    assert not pending.banks_bound
+    assert route_research(pending, ResearchObservation()).route is ResearchRoute.NEED_EVIDENCE
+    assert pending.campaign_hash != campaign().campaign_hash
+
+
+@pytest.mark.parametrize(
     "values,expected",
     [
         ({"oracle_pass": False}, ResearchRoute.ACTION_SPACE_OR_ENVIRONMENT),

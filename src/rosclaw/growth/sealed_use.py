@@ -66,6 +66,8 @@ class SealedUseLedger:
             if self._closed or self._failed:
                 raise RuntimeError("sealed-use ledger is closed or failed")
             campaign.__post_init__()
+            if not campaign.banks_bound or campaign.sealed_commitment is None:
+                raise ValueError("all research banks must be bound before sealed consumption")
             for value in (
                 candidate_hash,
                 evaluation_hash,
