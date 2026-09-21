@@ -431,3 +431,21 @@ ROSClaw 已经具备相当多 MuJoCo 底层能力：`sim/api.py` 的最小编程
    字典序是坑，packaging.version 才可靠）；模型库注册表
    mm.get() 自带 git oid + asset sha256（内容承诺直接可用）；
    meshdir 资产经既有 _assets_from_file 捕获路径直接入库。
+
+## 补充：MH18 Backend Fidelity Gate + GPU candidate CPU agreement（2026-09-21，0916 优化 §二十八-§三十）
+
+1. **GPU = exploration，CPU = authoritative verification**（原则
+   早已冻结，本段落地其门）：任何 MJCF 不得直接丢给 Warp——
+   `acceleration_compatibility(model_ref)` 静态分级 CPU_ONLY /
+   MJX_JAX_COMPATIBLE / MJX_WARP_COMPATIBLE + 具体原因。
+2. **检查项只收录官方文档限制**（PGS/noslip/plugins/flexcomp/
+   muscle/custom sensor/Euler-only integrator），每条 reason 注明
+   依据，不过度想象；本机无 jax/warp → GPU 执行面诚实
+   NOT_RUN（分级是静态分析不依赖 GPU）。
+3. **GPU candidate 必须 CPU agreement**：top-K 候选经 CPU 重放
+   复核末态，一致才 PROMOTE；分歧存 counterexample
+   （experiments 分区，rosclaw.sim.counterexample.v1）——
+   §三十：GPU/CPU disagreement 本身是有价值数据，不扔。
+4. **实证记录**：muscle actuator 必须挂 tendon（joint 直连
+   lengthrange 不收敛）；solver/noslip_iterations/integrator 是
+   `<option>` 属性不是子元素（schema 实证）。

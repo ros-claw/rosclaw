@@ -246,6 +246,10 @@ class SimulationRuntime:
         out = self._backend.scaffold_eurdf_from_menagerie(model_name, Path(out_dir))
         return {"scaffold_dir": str(out), "capability_default": "UNDECLARED"}
 
+    def acceleration_compatibility(self, model_ref: str) -> dict[str, Any]:
+        """Backend Fidelity Gate（MH18 §二十九）。"""
+        return self._backend.acceleration_compatibility(model_ref)
+
     def record_dataset(self, model_ref: str, sequences: list[dict[str, Any]]) -> dict[str, Any]:
         """录制 SysID 数据集（MH17，内容寻址幂等）。"""
         dataset_ref = self._backend.record_dataset(model_ref, sequences=sequences)

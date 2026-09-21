@@ -19,6 +19,7 @@ SimulationRuntime 的 JSON 投影——Native Agent / 脚本 / operator 的
     rosclaw sim [--root PATH] compile-world --spec J|@file [--name N]
     rosclaw sim [--root PATH] interact <model_ref> <state_ref>
                 --interaction J|@file [--payload J|@file]
+    rosclaw sim [--root PATH] acceleration-compatibility <model_ref>
     rosclaw sim [--root PATH] load-menagerie <name> [--entry E]
     rosclaw sim [--root PATH] scaffold-menagerie <name> --out <dir>
     rosclaw sim [--root PATH] record-dataset <model_ref> --sequences J|@file
@@ -58,6 +59,7 @@ _SUBCOMMANDS = (
     "sysid",
     "load-menagerie",
     "scaffold-menagerie",
+    "acceleration-compatibility",
 )
 
 
@@ -150,6 +152,9 @@ def _build_parser() -> argparse.ArgumentParser:
     scaffold.add_argument("model_name")
     scaffold.add_argument("--out", required=True)
 
+    accel = sub.add_parser("acceleration-compatibility")
+    accel.add_argument("model_ref")
+
     render = sub.add_parser("render")
     render.add_argument("trace_ref")
     render.add_argument("--camera", default=None)
@@ -212,6 +217,8 @@ def _execute(args: argparse.Namespace) -> dict[str, Any]:
             _json_arg(args.interaction),
             _json_arg(args.payload) if args.payload else None,
         )
+    if cmd == "acceleration-compatibility":
+        return runtime.acceleration_compatibility(args.model_ref)
     if cmd == "load-menagerie":
         return runtime.load_menagerie(args.model_name, entry=args.entry)
     if cmd == "scaffold-menagerie":
