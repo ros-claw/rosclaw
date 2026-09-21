@@ -144,25 +144,43 @@ class SimulationRuntime:
                 target_ref = patched_ref
             target_refs.append(target_ref)
 
+        # MH20-A：先 transplant 到各分支模型，再决定执行路径——
+        # 并行与串行必须从同一批 branch state 起跑（修复前 parallel
+        # 从默认初态起跑，caller 传非初始 state_ref 时语义分裂）。
+        branch_states = [
+            self._backend.transplant_state(target_ref, base_state) for target_ref in target_refs
+        ]
+
         execution = "serial"
+        fallback_reason = ""
         batch_results = None
         if parallel:
             try:
                 batch_results = self._backend.rollout_batch(
                     target_refs,
                     controller=controller,
+                    state_refs=branch_states,
                     duration_s=duration_s,
                     steps=steps,
                 )
                 execution = "batch_parallel"
             except ValueError as exc:
-                if "BATCH_NOT_HOMOGENEOUS" not in str(exc):
+                message = str(exc)
+                if not any(
+                    code in message
+                    for code in (
+                        "BATCH_NOT_HOMOGENEOUS",
+                        "BATCH_SEMANTICS_INCOMPATIBLE",
+                        "BATCH_STATE_FIDELITY_REQUIRED",
+                    )
+                ):
                     raise
-                batch_results = None  # 异构回退串行
+                fallback_reason = message.split(":", 1)[0]  # 异构/语义/保真回退串行
+                batch_results = None
 
         receipts = []
         for index, target_ref in enumerate(target_refs):
-            branch_state = self._backend.transplant_state(target_ref, base_state)
+            branch_state = branch_states[index]
             if batch_results is not None:
                 batch_result = batch_results[index]
                 # 批量轨迹已有；审计与任务判定照常（指标为轨迹子集）。
@@ -211,6 +229,7 @@ class SimulationRuntime:
             "receipts": receipts,
             "count": len(receipts),
             "execution": execution,
+            "serial_fallback_reason": fallback_reason,
         }
 
     def compile_world(self, worldspec: dict[str, Any], *, name: str = "world") -> dict[str, Any]:

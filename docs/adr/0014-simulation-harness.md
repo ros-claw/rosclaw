@@ -471,3 +471,27 @@ ROSClaw 已经具备相当多 MuJoCo 底层能力：`sim/api.py` 的最小编程
    importlib find_spec 在命名空间阴影下抛 ValueError 而非返回
    None（CI 实证 rclpy.__spec__ 未设）——能力探测一律防御
    封装，损坏状态按不可导入（与 #547 GL 探测同族教训）。
+
+## 补充：MH20-A Parallel State Semantics（2026-09-21，讨论总纲 §3-§6）
+
+1. **P0 实证修复**：branch_experiment(parallel=True) 的 rollout_batch
+   从未收到 caller base_state——从默认初态起跑（serial 却
+   transplant+state_ref）→ 两条路径语义分裂。修复：先 transplant
+   到各分支模型，再以 state_refs 驱动 native batch（并行与串行
+   同一实验起点，B01 非零 qpos/qvel、B02 时间连续性、B04 delay
+   history、B05 PID act 全部 batch==serial 1e-9）。
+2. **BatchStateCompatibility**：eq_active 是物理状态（约束激活，
+   ∈ INTEGRATION-only）——native batch FULLPHYSICS 初值无法承载
+   → BATCH_STATE_FIDELITY_REQUIRED 诚实串行回退（B03）；
+   warmstart/ctrl/sensordata/qacc 是求解脚手架或派生量（实测对
+   轨迹零影响），不算物理保真损失。
+3. **BatchCompatibilitySignature 语义扩展**：timestep/integrator/
+   solver/gain/bias 类型纳入签名——500 steps × dt=0.002 与
+   × dt=0.001 不是同一实验 → BATCH_SEMANTICS_INCOMPATIBLE 诚实
+   串行回退（B06）；回退原因记入 serial_fallback_reason。
+4. **实证记录**：mjtState 位段——FULLPHYSICS=8223 含
+   TIME/QPOS/QVEL/ACT/HISTORY/PLUGIN（delay history 可批量承载），
+   INTEGRATION=16383 增 WARMSTART/USER（eq_active 在 USER）；
+   warmstart 对 Euler 单摆轨迹零影响（实测 0.0 over 80 steps）；
+   run_experiment 的 tracked 循环 range(model.nu) 对 PID 多槽
+   越界（MH10 遗留，B05 复现后修）。
