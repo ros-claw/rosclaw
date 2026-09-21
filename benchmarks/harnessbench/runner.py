@@ -86,38 +86,52 @@ def _a_leg_python() -> str:
     return str(python)
 
 
-def _prepare_a_leg_env(workdir: Path) -> dict:
+def _prepare_a_leg_env(workdir: Path, profile: dict[str, Any] | None = None) -> dict:
     """A 组原生 pi：同一模型同一 key（apiKey 只写 $ENV 引用——key
-    绝不落盘）；PATH = 干净 python（无 rosclaw）+ node + 系统。"""
+    绝不落盘）；PATH = 干净 python（无 rosclaw）+ node + 系统。
+    profile=None → kimi-k3（与 B 侧默认同参）；否则本地档案。"""
     import shutil
 
     agent_dir = workdir / ".pi-agent"
     agent_dir.mkdir(parents=True, exist_ok=True)
+    if profile is None:
+        provider_block = {
+            "name": "kimi-code",
+            "baseUrl": "https://api.kimi.com/coding/v1",
+            "api": "openai-completions",
+            "apiKey": "$ROSCLAW_KIMI_API_KEY",
+            "models": [
+                {
+                    "id": "k3",
+                    "name": "Kimi K3",
+                    "contextWindow": 262144,
+                    "maxTokens": 16384,
+                }
+            ],
+        }
+        default_provider, default_model = "kimi-code", "k3"
+    else:
+        provider_block = {
+            "name": profile["provider"],
+            "baseUrl": profile["base_url"],
+            "api": "openai-completions",
+            "apiKey": profile["api_key"],
+            "models": [
+                {
+                    "id": profile["model"],
+                    "name": profile["model"],
+                    "contextWindow": profile["context_window"],
+                    "maxTokens": profile["max_tokens"],
+                }
+            ],
+        }
+        default_provider, default_model = profile["provider"], profile["model"]
     (agent_dir / "settings.json").write_text(
-        json.dumps({"defaultProvider": "kimi-code", "defaultModel": "k3"}),
+        json.dumps({"defaultProvider": default_provider, "defaultModel": default_model}),
         encoding="utf-8",
     )
     (agent_dir / "models.json").write_text(
-        json.dumps(
-            {
-                "providers": {
-                    "kimi-code": {
-                        "name": "kimi-code",
-                        "baseUrl": "https://api.kimi.com/coding/v1",
-                        "api": "openai-completions",
-                        "apiKey": "$ROSCLAW_KIMI_API_KEY",
-                        "models": [
-                            {
-                                "id": "k3",
-                                "name": "Kimi K3",
-                                "contextWindow": 262144,
-                                "maxTokens": 16384,
-                            }
-                        ],
-                    }
-                }
-            }
-        ),
+        json.dumps({"providers": {default_provider: provider_block}}),
         encoding="utf-8",
     )
     _a_leg_python()
@@ -127,12 +141,6 @@ def _prepare_a_leg_env(workdir: Path) -> dict:
     node_bin = str(Path(node_path).parent) if node_path else "/usr/local/bin"
     env["PATH"] = f"{_A_LEG_VENV / 'bin'}:{node_bin}:/usr/local/bin:/usr/bin:/bin"
     return env
-
-
-def has_model_key() -> bool:
-    return any(
-        os.environ.get(v) for v in ("ROSCLAW_KIMI_API_KEY", "KIMI_API_KEY", "MOONSHOT_API_KEY")
-    )
 
 
 def _count_session_stats(session_dir: Path) -> tuple[int, int, int]:
@@ -164,6 +172,81 @@ def _count_session_stats(session_dir: Path) -> tuple[int, int, int]:
                         if "python" in command or "mujoco" in command:
                             bash_python_loc += len(command.splitlines())
     return tool_calls, glue_bytes, bash_python_loc
+
+
+#: 模型档案（0916 §十一：资格认证至少两个模型，防 prompt
+#: overfit——Harness 只对一个模型有效就不是真价值）。
+#: None = 默认 kimi-k3（走 _prepare_home 既有路径）。
+MODEL_PROFILES: dict[str, dict[str, Any] | None] = {
+    "kimi-k3": None,
+    "deepseekv4": {
+        "provider": "local-vllm",
+        "model": "deepseekv4",
+        "base_url": "http://10.10.217.108:30456/v1",
+        "api_key": "EMPTY",  # 本地 vllm 不校验；非真实 secret
+        "context_window": 131072,
+        "max_tokens": 16384,
+    },
+}
+
+
+def has_model_key(model: str = "kimi-k3") -> bool:
+    profile = MODEL_PROFILES.get(model)
+    if profile is not None:
+        return True  # 本地档案无需远端 key
+    return any(
+        os.environ.get(v) for v in ("ROSCLAW_KIMI_API_KEY", "KIMI_API_KEY", "MOONSHOT_API_KEY")
+    )
+
+
+def _prepare_home_with_profile(home: Path, profile: dict[str, Any]) -> tuple[Path, dict[str, str]]:
+    """本地模型档案的 B 侧 HOME（与 _prepare_home 同构，provider
+    指向本地 OpenAI 兼容端点；无 key 要求）。"""
+    (home / "run").mkdir(parents=True, exist_ok=True)
+    (home / "config.yaml").write_text(
+        "agent:\n  enabled: true\n  default_profile: embodied_default\n"
+        "models:\n  backend: legacy\n  profiles:\n    embodied_default:\n"
+        f"      provider: local\n      model: {profile['model']}\n"
+        f"      base_url: {profile['base_url']}\n"
+        "      api_key_ref: \"\"\n"
+        "      capabilities: [llm.chat, llm.structured_decision, llm.tool_use]\n",
+        encoding="utf-8",
+    )
+    (home / "agent").mkdir(parents=True, exist_ok=True)
+    (home / "agent" / "settings.json").write_text(
+        json.dumps(
+            {"defaultProvider": profile["provider"], "defaultModel": profile["model"]}
+        ),
+        encoding="utf-8",
+    )
+    (home / "agent" / "models.json").write_text(
+        json.dumps(
+            {
+                "providers": {
+                    profile["provider"]: {
+                        "name": profile["provider"],
+                        "baseUrl": profile["base_url"],
+                        "api": "openai-completions",
+                        "apiKey": profile["api_key"],
+                        "models": [
+                            {
+                                "id": profile["model"],
+                                "name": profile["model"],
+                                "contextWindow": profile["context_window"],
+                                "maxTokens": profile["max_tokens"],
+                            }
+                        ],
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    env = dict(os.environ, ROSCLAW_HOME=str(home), TERM="xterm")
+    venv_bin = Path(sys.executable).parent
+    env["PATH"] = str(venv_bin) + ":" + env.get("PATH", "")
+    env["VIRTUAL_ENV"] = str(venv_bin.parent)
+    return home, env
 
 
 def _code_loc(workspace: Path) -> dict[str, int]:
@@ -277,13 +360,19 @@ def run_leg(
     run_idx: int,
     *,
     settle_timeout: float = 1200.0,
+    model: str = "kimi-k3",
 ) -> dict[str, Any]:
-    """跑一侧一次：A=pi CLI（无扩展）；B=rosclaw chat（sim CLI）。"""
+    """跑一侧一次：A=pi CLI（无扩展）；B=rosclaw chat（sim CLI）。
+    model 取 MODEL_PROFILES 键（§十一 多模型资格认证）。"""
     sys.path.insert(0, str(REPO))
     from tests.agentd.test_product_journey import PtySession
 
+    if model not in MODEL_PROFILES:
+        raise ValueError(f"BENCH_MODEL_UNKNOWN: {model!r}（支持 {sorted(MODEL_PROFILES)}）")
+    profile = MODEL_PROFILES[model]
+
     task = TASKS[task_id]
-    work = out_root / f"{leg.lower()}_{task_id.lower()}_run{run_idx}"
+    work = out_root / f"{leg.lower()}_{task_id.lower()}_{model}_run{run_idx}"
     stage_workspace(work, task_id)
     hint = _B_TOOL_HINT if leg == "B" else _A_TOOL_HINT
     prompt = task.prompt + hint
@@ -293,6 +382,7 @@ def run_leg(
         "leg": leg,
         "task_id": task_id,
         "category": task.category,
+        "model": model,
         "run": run_idx,
         "wall_time_s": 0.0,
         "tool_calls": 0,
@@ -310,12 +400,22 @@ def run_leg(
             assert pi_entry is not None, "A 组需要原生 pi CLI"
             session = PtySession(
                 [pi_entry],
-                _prepare_a_leg_env(work),
+                _prepare_a_leg_env(work, profile),
                 cwd=work,
                 log_path=work / "pty.log",
             )
             session.expect(b"ctrl+o to show full startup help", timeout=120)
             session_dir = work / ".pi-agent" / "sessions"
+        elif profile is not None:
+            home, home_env = _prepare_home_with_profile(work / "rh", profile)
+            session = PtySession(
+                [sys.executable, "-m", "rosclaw.entrypoint", "chat"],
+                home_env,
+                cwd=work,
+                log_path=work / "pty.log",
+            )
+            session.expect(b"ROSClaw Native Agent", timeout=120)
+            session_dir = home / "agent" / "sessions"
         else:
             from tests.eval.agent_tier import driver
 
