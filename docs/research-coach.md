@@ -95,3 +95,29 @@ tested. They do not yet drive an end-to-end task campaign or automatically stop
 external training jobs. Existing Dream, Growth, safety and promotion gates are
 not bypassed. Soccer-specific thresholds, states, scenes, policy classes and
 data stay in the downstream application.
+
+## Seen-bank milestones are not learning gates
+
+`growth.seen_milestone` provides a task-neutral paired comparison for an
+intermediate research milestone. `SeenMilestoneContract` binds the complete
+ordered case identities, exact reference-positive anchors, minimum safe-success
+count, bank identity, evaluator and both complete execution contracts. These
+execution identities must include interventions, not just neural weights.
+
+`evaluate_seen_milestone` requires one typed, independently replayed outcome per
+declared source case. Duplicate/missing cases, changed fallback outcomes, mixed
+execution/bank/evaluator lineage, or a different reference-positive identity set
+are rejected. An improved total cannot hide a lost positive anchor or any unsafe
+candidate case. Row order does not affect report identity; evidence changes do.
+
+The only positive conclusion is `SEEN_MILESTONE_MET`. This does not certify
+receipt truth, chronology, an oracle, teacher, student, blind evaluation or task
+readiness. The caller must freeze the contract before evaluating and authenticate
+the underlying evidence. Training and promotion fields remain false, with a
+SIM_ONLY ceiling. The function neither opens a bank nor schedules any task.
+
+Applications keep their own population constraints and numerical targets. A
+downstream application may compare its already authenticated domain report
+against this generic arithmetic without importing its simulator, robot model,
+roles or success definition into Core. Research routing and all existing safety
+and learning gates remain separate.
