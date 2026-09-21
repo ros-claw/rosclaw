@@ -412,3 +412,22 @@ ROSClaw 已经具备相当多 MuJoCo 底层能力：`sim/api.py` 的最小编程
    逐关节 `<joint>_qpos/<joint>_qvel`；CLI stdout 纯度须强制
    （scipy 迭代报告会直接 print 到 stdout——执行期重定向
    stderr，JSON 独占 stdout）。
+
+## 补充：MH16 Menagerie 正式接入（2026-09-21，0916 优化 §二十四）
+
+1. **官方 mujoco_menagerie package（锁次版本
+   >=2026.9.0,<2026.10）**——绝不自动"最新版下载"；ModelSource
+   扩展为 task / eurdf / menagerie。
+2. **provenance 五元组全部记录**：provider=menagerie、
+   package_version、model_revision（git oid）、asset_digest、
+   license、entry_point——每个导入的模型都能精确回答"这是
+   哪个库哪个版本的哪个模型"。内容寻址幂等：同名同 ref。
+3. **Menagerie 模型 ≠ 能力声明（§24.3）**：导入默认
+   capability=UNDECLARED（不是 AVAILABLE 也不是 UNPROVEN）；
+   `scaffold_eurdf_from_menagerie` 生成 e-URDF 声明脚手架
+   （capabilities.yaml UNDECLARED 起步 + semantic.yaml 骨架），
+   声明→证明绑定走 MH9 既有机制。
+4. **实证记录**：日历版本必须语义比较（'2026.10' < '2026.9.0'
+   字典序是坑，packaging.version 才可靠）；模型库注册表
+   mm.get() 自带 git oid + asset sha256（内容承诺直接可用）；
+   meshdir 资产经既有 _assets_from_file 捕获路径直接入库。

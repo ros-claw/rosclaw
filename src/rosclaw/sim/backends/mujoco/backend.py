@@ -1384,6 +1384,91 @@ class MujocoBackend:
             raise ValueError(f"MODEL_NOT_FOUND: {model_ref!r} is not a model manifest")
         return manifest
 
+    def load_menagerie(self, model_name: str, *, entry: str | None = None) -> ModelReference:
+        """Menagerie 正式接入（MH16，0916 §二十四）：官方
+        mujoco_menagerie package（锁版本）导入模型到不可变 store。
+
+        §24.2 绝不自动"最新版下载"——provenance 五元组全部记录：
+        provider/package_version/model_revision/git oid/asset_digest/
+        license。内容寻址幂等：同名同 ref。
+        """
+        try:
+            import mujoco_menagerie as mm
+        except ImportError as exc:
+            raise ValueError(
+                "MODEL_SOURCE_UNAVAILABLE: mujoco-menagerie 未安装（pyproject 已 pin）"
+            ) from exc
+
+        try:
+            robot = mm.get(model_name)
+        except Exception as exc:  # UnknownRobotError 及其族
+            raise ValueError(f"MODEL_NOT_FOUND: menagerie 无此模型 {model_name!r}") from exc
+
+        entry_name = entry or robot.default_model
+        xml_path = robot.path() / f"{entry_name}.xml"
+        if not xml_path.is_file():
+            raise ValueError(
+                f"MODEL_NOT_FOUND: {model_name!r} 无 entry point {entry_name!r}"
+                f"（可用 {[e.name for e in robot.entry_points]}）"
+            )
+        ref = self.load_model_xml(
+            xml_path.read_text(encoding="utf-8"),
+            source={
+                "kind": "menagerie",
+                "provider": "menagerie",
+                "package_version": str(mm.__version__),
+                "model_name": model_name,
+                "model_revision": str(robot.oid),
+                "asset_digest": str(robot.sha256),
+                "license": str(robot.license),
+                "entry_point": entry_name,
+            },
+            assets=self._assets_from_file(xml_path),
+        )
+        return ref.model_copy(
+            update={"runtime_capabilities": self.capabilities().to_canonical_dict()}
+        )
+
+    def scaffold_eurdf_from_menagerie(self, model_name: str, out_dir: Path) -> Path:
+        """§24.3：从 menagerie 模型生成 e-URDF 声明脚手架——
+        能力一律 UNDECLARED 起步（声明→证明绑定走既有 MH9 机制，
+        Menagerie 模型不自动获得能力语义）。"""
+        import shutil
+
+        try:
+            import mujoco_menagerie as mm
+        except ImportError as exc:
+            raise ValueError("MODEL_SOURCE_UNAVAILABLE: mujoco-menagerie 未安装") from exc
+        try:
+            robot = mm.get(model_name)
+        except Exception as exc:
+            raise ValueError(f"MODEL_NOT_FOUND: menagerie 无此模型 {model_name!r}") from exc
+
+        out_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(robot.path(), out_dir, dirs_exist_ok=True)
+        (out_dir / "capabilities.yaml").write_text(
+            "# e-URDF scaffold（MH16 §24.3）：从 menagerie 导入。\n"
+            "# 所有能力默认 UNDECLARED——能力语义必须由 ROSClaw 显式声明，\n"
+            "# 并经 MuJoCo 模型证明（声明→证明绑定，MH9 机制）。\n"
+            f"# 来源: menagerie {model_name} @ {robot.oid}（license: {robot.license}）\n"
+            "capabilities:\n"
+            "  # 示例（取消注释并按模型真相填写后才算声明）：\n"
+            "  # - name: grasp\n"
+            "  #   required_hardware: [gripper]\n"
+            "  #   status: UNDECLARED\n"
+            "  - name: grasp\n"
+            "    status: UNDECLARED\n",
+            encoding="utf-8",
+        )
+        (out_dir / "semantic.yaml").write_text(
+            "# 语义骨架（MH16 §24.3）：affordance 链接 UNDECLARED。\n"
+            f"# 来源: menagerie {model_name} @ {robot.oid}\n"
+            "links: {}\n"
+            "affordances: {}\n",
+            encoding="utf-8",
+        )
+        return out_dir
+
     def record_dataset(self, model_ref: str, *, sequences: list[dict[str, Any]]) -> str:
         """录制 SysID 数据集（MH17）：每序列 = 初始状态 + 受控 rollout
         trace。内容寻址幂等（同参数重录同 ref）。

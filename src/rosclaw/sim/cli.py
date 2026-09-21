@@ -19,6 +19,8 @@ SimulationRuntime 的 JSON 投影——Native Agent / 脚本 / operator 的
     rosclaw sim [--root PATH] compile-world --spec J|@file [--name N]
     rosclaw sim [--root PATH] interact <model_ref> <state_ref>
                 --interaction J|@file [--payload J|@file]
+    rosclaw sim [--root PATH] load-menagerie <name> [--entry E]
+    rosclaw sim [--root PATH] scaffold-menagerie <name> --out <dir>
     rosclaw sim [--root PATH] record-dataset <model_ref> --sequences J|@file
     rosclaw sim [--root PATH] sysid --spec J|@file
     rosclaw sim [--root PATH] render <trace_ref> [--camera N]
@@ -54,6 +56,8 @@ _SUBCOMMANDS = (
     "render",
     "record-dataset",
     "sysid",
+    "load-menagerie",
+    "scaffold-menagerie",
 )
 
 
@@ -138,6 +142,14 @@ def _build_parser() -> argparse.ArgumentParser:
     sysid = sub.add_parser("sysid")
     sysid.add_argument("--spec", required=True)
 
+    menagerie = sub.add_parser("load-menagerie")
+    menagerie.add_argument("model_name")
+    menagerie.add_argument("--entry", default=None)
+
+    scaffold = sub.add_parser("scaffold-menagerie")
+    scaffold.add_argument("model_name")
+    scaffold.add_argument("--out", required=True)
+
     render = sub.add_parser("render")
     render.add_argument("trace_ref")
     render.add_argument("--camera", default=None)
@@ -200,6 +212,10 @@ def _execute(args: argparse.Namespace) -> dict[str, Any]:
             _json_arg(args.interaction),
             _json_arg(args.payload) if args.payload else None,
         )
+    if cmd == "load-menagerie":
+        return runtime.load_menagerie(args.model_name, entry=args.entry)
+    if cmd == "scaffold-menagerie":
+        return runtime.scaffold_menagerie(args.model_name, args.out)
     if cmd == "record-dataset":
         return runtime.record_dataset(args.model_ref, _json_arg(args.sequences))
     if cmd == "sysid":

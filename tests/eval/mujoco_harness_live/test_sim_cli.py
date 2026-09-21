@@ -289,3 +289,18 @@ def test_sysid_via_cli(tmp_path) -> None:
     assert receipt["verdict"] == "IMPROVED"
     assert receipt["parameters_after"]["hinge_damping"] == pytest.approx(0.3, abs=0.05)
     assert receipt["holdout_improvement"] > 0.5
+
+
+def test_load_menagerie_via_cli(tmp_path) -> None:
+    """MH16 Agent 面：load-menagerie + scaffold 全走 CLI。"""
+    pytest.importorskip("mujoco_menagerie", reason="mujoco-menagerie not installed")
+    code, loaded = _cli(tmp_path, "load-menagerie", "dynamixel_2r")
+    assert code == 0
+    assert loaded["model_ref"].startswith("simmdl_")
+    assert loaded["source"]["kind"] == "menagerie"
+    assert loaded["source"]["package_version"]
+    assert loaded["source"]["license"]
+    code, scaffold = _cli(
+        tmp_path, "scaffold-menagerie", "dynamixel_2r", "--out", str(tmp_path / "sc")
+    )
+    assert code == 0 and scaffold["capability_default"] == "UNDECLARED"
