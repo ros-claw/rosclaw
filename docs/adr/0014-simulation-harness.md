@@ -511,3 +511,29 @@ ROSClaw 已经具备相当多 MuJoCo 底层能力：`sim/api.py` 的最小编程
 3. **位置角色解析**：PID 多输入 = "pos"；普通单输入执行器的
    唯一通道 = "ctrl"（其位置目标语义）——resolve_position_role
    二级解析，都没有即 CONTROLLER_SCHEMA_MISMATCH（绝不猜槽位）。
+
+## 补充：MH20-C Grasp Honesty v2（2026-09-21，讨论总纲 §8-§11）
+
+1. **证据三级**：PROXIMITY_ASSISTED_ATTACH / CONTACT /
+   LOAD_BEARING_CONTACT——靠近 ≠ 接触 ≠ 承重抓取。默认
+   constraint_attach 必须 CONTACT 级（data.contact 实际 pair +
+   contact_count/max_penetration/normal_force 记录）；proximity
+   abstraction 必须显式声明降级命名，否则
+   INTERACTION_NO_CONTACT_EVIDENCE。
+2. **relative_body_pose**：pos = R1^T(p2-p1)，quat =
+   inverse(q1)⊗q2——world-frame body2 quat 不是相对朝向（红测试：
+   body1 yaw=90° body2 yaw=120° → rel yaw=30°，attach 无
+   orientation snap）。
+3. **eq_data 布局（3.13 实测）**：anchor[0:3] / pos[3:6] /
+   quat[6:10] / torquescale[10]——旧代码 [0:3]=pos [3:7]=identity
+   [7:11]=quat 全错。set_weld_relpose 是唯一 helper：写布局 →
+   mj_setConst → eq_active → mj_forward（官方 Safe with
+   mj_setConst 纪律），其他模块不散落布局知识。
+4. **release 证据只看 payload**：linear/angular velocity + COM
+   displacement + z（Evidence 必须指向它声称证明的对象）——
+   不看全局 max qvel（其他关节加速假阳性）。
+5. **实证记录**：equality weld 默认 eq_active=1（fixture 必须
+   active="false" 起始，否则整个 attach 语义被默认激活吃掉——
+   探针 equilibrium 异常追出的根因）；位置伺服重力下垂
+   g/kp（kp=200 下垂 5.15cm——fixture 设计必须算平衡不是算目标）；
+   3.13 MjData 无 eq_err 属性（物理验证改测共动漂移）。

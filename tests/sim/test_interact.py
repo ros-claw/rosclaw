@@ -127,7 +127,10 @@ def test_grasp_honest_flow(backend) -> None:
     )
     assert r2["constraint_assisted_grasp"] is True
     assert r2["outcome"]["measured_relpose"]["pos"]
-    assert r2["outcome"]["min_distance_m"] < 0.05
+    # v2（MH20-C）：真接触证据（contact pair + 法向力），不再看
+    # geom 距离阈值。
+    assert r2["outcome"]["evidence_level"] == "CONTACT"
+    assert r2["outcome"]["contact_evidence"]["contact_count"] >= 1
 
     # 3. 提升 palm——cube 应被 weld 带着上升（不能偷偷 teleport）。
     damped = b.patch_model(
@@ -167,7 +170,7 @@ def test_attach_precondition_failed_without_contact(backend) -> None:
 
     mujoco.mj_forward(model, data)
     far_state = b.capture_and_store_v2(ref.model_ref, model, data)
-    with pytest.raises(ValueError, match="INTERACTION_PRECONDITION_FAILED"):
+    with pytest.raises(ValueError, match="INTERACTION_NO_CONTACT_EVIDENCE"):
         b.interact(
             ref.model_ref,
             far_state,

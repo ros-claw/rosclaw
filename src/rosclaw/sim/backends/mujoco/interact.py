@@ -157,11 +157,83 @@ def exec_gripper_motion(backend, model, data, interaction: dict[str, Any], paylo
     }
 
 
+def relative_body_pose(pos1, quat1, pos2, quat2):  # noqa: ANN001, ANN202
+    """body2 在 body1 坐标系下的相对位姿（MH20-C §9）。
+
+    pos = R1^T (p2 - p1)；quat = inverse(q1) ⊗ q2——world-frame
+    body2 quat 不是相对朝向（body1 旋转即错）。
+    """
+    import mujoco
+
+    rotation = np.zeros(9)
+    mujoco.mju_quat2Mat(rotation, np.asarray(quat1, dtype=float))
+    rel_pos = rotation.reshape(3, 3).T @ (np.asarray(pos2, dtype=float) - np.asarray(pos1, dtype=float))
+    q1 = np.asarray(quat1, dtype=float)
+    q1_inv = np.array([q1[0], -q1[1], -q1[2], -q1[3]])
+    rel_quat = np.zeros(4)
+    mujoco.mju_mulQuat(rel_quat, q1_inv, np.asarray(quat2, dtype=float))
+    return rel_pos, rel_quat
+
+
+def contact_evidence_between(model, data, body1_id: int, body2_id: int) -> dict[str, Any]:  # noqa: ANN001
+    """两 body 间的真实接触证据（MH20-C §8.2）：contact 对数量、
+    最深穿透、法向力合计、是否持续。"""
+    import mujoco
+
+    count = 0
+    min_dist = float("inf")
+    max_penetration = 0.0
+    normal_force_total = 0.0
+    force6 = np.zeros(6)
+    for index in range(data.ncon):
+        contact = data.contact[index]
+        bodies = (int(model.geom_bodyid[contact.geom1]), int(model.geom_bodyid[contact.geom2]))
+        if set(bodies) != {body1_id, body2_id}:
+            continue
+        count += 1
+        dist = float(contact.dist)
+        min_dist = min(min_dist, dist)
+        max_penetration = max(max_penetration, -dist)
+        mujoco.mj_contactForce(model, data, index, force6)
+        normal_force_total += abs(float(force6[0]))
+    return {
+        "contact_count": count,
+        "min_distance_m": min_dist if count else None,
+        "max_penetration_m": max_penetration,
+        "normal_force": normal_force_total,
+    }
+
+
+def set_weld_relpose(model, data, eq_id: int, rel_pos, rel_quat) -> None:  # noqa: ANN001
+    """写 weld relpose 的唯一 helper（MH20-C §10）。
+
+    eq_data 布局（3.13 实测）：anchor[0:3] / pos[3:6] / quat[6:10] /
+    torquescale[10]——anchor 与 torquescale 不动。官方对 eq_data
+    运行时修改标记 Safe with mj_setConst：写后必须 mj_setConst →
+    eq_active → mj_forward（不让其他模块散落布局知识）。"""
+    import mujoco
+
+    model.eq_data[eq_id, 3:6] = np.asarray(rel_pos, dtype=float)
+    model.eq_data[eq_id, 6:10] = np.asarray(rel_quat, dtype=float)
+    mujoco.mj_setConst(model, data)
+    data.eq_active[eq_id] = 1
+    mujoco.mj_forward(model, data)
+
+
+#: 证据三级（MH20-C §8.1）：靠近 ≠ 接触 ≠ 承重抓取。
+EVIDENCE_PROXIMITY = "PROXIMITY_ASSISTED_ATTACH"
+EVIDENCE_CONTACT = "CONTACT"
+EVIDENCE_LOAD_BEARING = "LOAD_BEARING_CONTACT"
+
+
 def exec_constraint_attach(backend, model, data, interaction: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:  # noqa: ANN001
-    """constraint_attach（GRASP_HONESTY §十四）：
-    contact evidence → capability check → measured relative transform →
-    activate weld（必须预先在模型中声明 equality weld），标记
-    constraint_assisted_grasp=true。
+    """constraint_attach（GRASP_HONESTY v2 §8-§10）：
+    **真接触证据**（data.contact 实际 pair）→ capability check →
+    measured relative pose（含正确相对四元数）→ set_weld_relpose
+    （mj_setConst）→ activate weld。
+
+    默认要求 CONTACT 级证据；proximity abstraction 必须显式声明
+    evidence_level=PROXIMITY_ASSISTED_ATTACH（诚实降级命名）。
     """
     import mujoco
 
@@ -178,38 +250,51 @@ def exec_constraint_attach(backend, model, data, interaction: dict[str, Any], pa
     body1 = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_BODY, body1_id)
     body2 = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_BODY, body2_id)
 
-    # 接触/近距证据：两 body 的 geom 间最小距离。
-    geoms1 = [g for g in range(model.ngeom) if int(model.geom_bodyid[g]) == body1_id]
-    geoms2 = [g for g in range(model.ngeom) if int(model.geom_bodyid[g]) == body2_id]
-    min_dist = min(
-        (
-            float(mujoco.mj_geomDistance(model, data, g1, g2, 0.5, None))
-            for g1 in geoms1
-            for g2 in geoms2
-        ),
-        default=float("inf"),
-    )
-    attach_threshold = float(payload.get("attach_threshold_m", 0.01))
-    if min_dist > attach_threshold:
-        raise ValueError(
-            f"INTERACTION_PRECONDITION_FAILED: {body1}↔{body2} min distance "
-            f"{min_dist:.4f}m > {attach_threshold}m——无接触证据不得 attach"
+    evidence = contact_evidence_between(model, data, body1_id, body2_id)
+    requested_level = payload.get("evidence_level")
+    if evidence["contact_count"] >= 1:
+        evidence_level = EVIDENCE_CONTACT
+    else:
+        # 无真实接触：仅当显式声明 proximity abstraction 才允许，
+        # 且仍要求近距（geom 最小距离 ≤ attach_threshold）。
+        if requested_level != EVIDENCE_PROXIMITY:
+            raise ValueError(
+                f"INTERACTION_NO_CONTACT_EVIDENCE: {body1}↔{body2} 无实际接触对"
+                "（proximity ≠ contact；proximity abstraction 需显式声明"
+                " evidence_level=PROXIMITY_ASSISTED_ATTACH）"
+            )
+        geoms1 = [g for g in range(model.ngeom) if int(model.geom_bodyid[g]) == body1_id]
+        geoms2 = [g for g in range(model.ngeom) if int(model.geom_bodyid[g]) == body2_id]
+        min_dist = min(
+            (
+                float(mujoco.mj_geomDistance(model, data, g1, g2, 0.5, None))
+                for g1 in geoms1
+                for g2 in geoms2
+            ),
+            default=float("inf"),
         )
+        attach_threshold = float(payload.get("attach_threshold_m", 0.01))
+        if min_dist > attach_threshold:
+            raise ValueError(
+                f"INTERACTION_PRECONDITION_FAILED: {body1}↔{body2} min distance "
+                f"{min_dist:.4f}m > {attach_threshold}m——proximity attach 也需近距"
+            )
+        evidence["proximity_min_distance_m"] = min_dist
+        evidence_level = EVIDENCE_PROXIMITY
 
-    # 实测相对位姿（body2 在 body1 坐标系）。
-    rotation = np.asarray(data.xmat[body1_id], dtype=float).reshape(3, 3)
-    rel_pos = rotation.T @ (np.asarray(data.xpos[body2_id]) - np.asarray(data.xpos[body1_id]))
-    rel_quat = np.asarray(data.xquat[body2_id], dtype=float)  # 简化：保持 body2 当前朝向
-
-    model.eq_data[eq_id, 0:3] = rel_pos
-    model.eq_data[eq_id, 3:7] = [1.0, 0.0, 0.0, 0.0]
-    model.eq_data[eq_id, 7:11] = rel_quat
-    data.eq_active[eq_id] = 1
-    mujoco.mj_forward(model, data)
+    # 实测相对位姿（位置与朝向都在 body1 坐标系——§9）。
+    rel_pos, rel_quat = relative_body_pose(
+        np.asarray(data.xpos[body1_id], dtype=float),
+        np.asarray(data.xquat[body1_id], dtype=float),
+        np.asarray(data.xpos[body2_id], dtype=float),
+        np.asarray(data.xquat[body2_id], dtype=float),
+    )
+    set_weld_relpose(model, data, eq_id, rel_pos, rel_quat)
     return {
         "weld": weld_name,
         "bodies": [body1, body2],
-        "min_distance_m": min_dist,
+        "evidence_level": evidence_level,
+        "contact_evidence": evidence,
         "measured_relpose": {
             "pos": [float(v) for v in rel_pos],
             "quat": [float(v) for v in rel_quat],
@@ -219,8 +304,9 @@ def exec_constraint_attach(backend, model, data, interaction: dict[str, Any], pa
 
 
 def exec_constraint_release(backend, model, data, interaction: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:  # noqa: ANN001
-    """constraint_release：deactivate weld → step → 物体必须受重力响应
-    （GRASP_HONESTY：释放证据）。"""
+    """constraint_release：deactivate weld → step → **payload 自身**
+    必须有重力响应（MH20-C §11：Evidence 必须指向它声称证明的
+    对象——不看全局 max qvel，只看被释放 body 的速度/位移/高度）。"""
     import mujoco
 
     weld_name = payload.get("weld") or interaction.get("weld")
@@ -232,17 +318,33 @@ def exec_constraint_release(backend, model, data, interaction: dict[str, Any], p
             f"INTERACTION_NO_WELD_DECLARED: equality weld {weld_name!r} not declared in model"
         )
     body2_id = int(model.eq_obj2id[eq_id])
-    z_before = float(data.xpos[body2_id][2])
-    qvel_before = float(np.max(np.abs(data.qvel))) if data.qvel.size else 0.0
+    body2_name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_BODY, body2_id)
+    pos_before = np.asarray(data.xpos[body2_id], dtype=float).copy()
     data.eq_active[eq_id] = 0
     duration = float(payload.get("duration_s", 0.3))
     _step(model, data, duration)
-    z_after = float(data.xpos[body2_id][2])
-    qvel_after = float(np.max(np.abs(data.qvel))) if data.qvel.size else 0.0
-    gravity_response = (z_after < z_before - 1e-4) or (qvel_after > qvel_before + 1e-6)
+    pos_after = np.asarray(data.xpos[body2_id], dtype=float)
+    linear_velocity = float(
+        np.linalg.norm(np.asarray(data.cvel[body2_id][3:6], dtype=float))
+    )
+    angular_velocity = float(
+        np.linalg.norm(np.asarray(data.cvel[body2_id][0:3], dtype=float))
+    )
+    displacement = float(np.linalg.norm(pos_after - pos_before))
+    velocity_threshold = float(payload.get("velocity_threshold", 1e-3))
+    gravity_response = bool(
+        pos_after[2] < pos_before[2] - 1e-4
+        or linear_velocity > velocity_threshold
+        or angular_velocity > velocity_threshold
+        or displacement > 1e-4
+    )
     return {
         "weld": weld_name,
-        "z_before": z_before,
-        "z_after": z_after,
+        "target_body": body2_name,
+        "z_before": float(pos_before[2]),
+        "z_after": float(pos_after[2]),
+        "payload_linear_velocity": linear_velocity,
+        "payload_angular_velocity": angular_velocity,
+        "payload_displacement": displacement,
         "gravity_response": gravity_response,
     }
