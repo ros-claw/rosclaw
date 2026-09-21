@@ -1469,6 +1469,21 @@ class MujocoBackend:
         )
         return out_dir
 
+    def acceleration_compatibility(self, model_ref: str) -> dict[str, Any]:
+        """Backend Fidelity Gate（MH18 §二十九）：静态兼容性分级
+        CPU_ONLY / MJX_JAX_COMPATIBLE / MJX_WARP_COMPATIBLE + 原因。
+        GPU 执行面：本机无 jax/warp 时诚实 NOT_RUN（分级是静态
+        分析不依赖 GPU）。"""
+        from rosclaw.sim import acceleration
+
+        manifest = self._manifest(model_ref)
+        spec = self._spec_from_manifest(manifest)
+        model, _ = self._compile_smoke(spec)
+        result = acceleration.compatibility(model, manifest["mjcf_xml"])
+        result["model_ref"] = model_ref
+        result["gpu_execution"] = "NOT_RUN"  # 本机无 jax/warp（诚实留痕）
+        return result
+
     def record_dataset(self, model_ref: str, *, sequences: list[dict[str, Any]]) -> str:
         """录制 SysID 数据集（MH17）：每序列 = 初始状态 + 受控 rollout
         trace。内容寻址幂等（同参数重录同 ref）。
