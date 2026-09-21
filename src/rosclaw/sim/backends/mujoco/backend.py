@@ -1384,6 +1384,66 @@ class MujocoBackend:
             raise ValueError(f"MODEL_NOT_FOUND: {model_ref!r} is not a model manifest")
         return manifest
 
+    def record_dataset(self, model_ref: str, *, sequences: list[dict[str, Any]]) -> str:
+        """录制 SysID 数据集（MH17）：每序列 = 初始状态 + 受控 rollout
+        trace。内容寻址幂等（同参数重录同 ref）。
+
+        合成层从 truth 模型录制；真实层由 REAL 日志桥接为同一形态
+        （Digital Twin 管线 §二十六）。
+        """
+        import mujoco
+
+        manifest = self._manifest(model_ref)
+        spec = self._spec_from_manifest(manifest)
+        seq_records = []
+        for seq in sequences:
+            controller = seq.get("controller") or {"hold": True}
+            duration_s = seq.get("duration_s")
+            if duration_s is None or float(duration_s) <= 0:
+                raise ValueError("SYSID_DATASET_INVALID: duration_s 必须为正")
+            qpos0 = seq.get("qpos0")
+            model = spec.compile()
+            data = mujoco.MjData(model)
+            if qpos0 is not None:
+                if len(qpos0) != model.nq:
+                    raise ValueError(
+                        f"SYSID_DATASET_INVALID: qpos0 维度 {len(qpos0)} != nq {model.nq}"
+                    )
+                data.qpos[:] = [float(v) for v in qpos0]
+            mujoco.mj_forward(model, data)
+            state_ref = self.capture_and_store_v2(model_ref, model, data)
+            receipt = self.run_experiment(
+                model_ref,
+                state_ref=state_ref,
+                controller=controller,
+                duration_s=float(duration_s),
+                audit=False,
+            )
+            seq_records.append(
+                {
+                    "trace_ref": receipt.trace_ref,
+                    "initial_state_ref": receipt.initial_state_ref,
+                    "controller": controller,
+                    "duration_s": float(duration_s),
+                    "qpos0": [float(v) for v in qpos0] if qpos0 is not None else None,
+                }
+            )
+        dataset = {
+            "kind": "sysid_dataset",
+            "schema_version": "rosclaw.sim.dataset.v1",
+            "model_ref": model_ref,
+            "sequences": seq_records,
+        }
+        return self.store.put("traces", dataset)
+
+    def run_sysid(self, spec: dict[str, Any]) -> dict[str, Any]:
+        """System Identification（MH17）：算法核心复用官方
+        mujoco.sysid 工具箱；候选模型经 patch 血缘派生；holdout
+        独立复算后才允许 IMPROVED（§26.3）。"""
+        from rosclaw.sim import sysid
+
+        return sysid.run_sysid(self, spec)
+
     def _load_assets(self, manifest: dict[str, Any]) -> dict[str, bytes]:
         assets: dict[str, bytes] = {}
         for name, ref in manifest["assets"].items():

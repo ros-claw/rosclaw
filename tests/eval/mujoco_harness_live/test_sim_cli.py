@@ -235,3 +235,57 @@ def test_root_defaults_to_cwd(tmp_path) -> None:
     assert loaded["model_ref"].startswith("simmdl_")
     # store 落在 cwd 内（不污染 ~/.rosclaw）。
     assert (tmp_path / "sim").is_dir()
+
+
+PEND_BASE = """<mujoco model="pend_base">
+  <option timestep="0.002"/>
+  <worldbody>
+    <body name="rod" pos="0 0 0.5">
+      <joint name="hinge" type="hinge" axis="0 1 0" damping="0.01"/>
+      <geom name="rod_g" type="capsule" size="0.02 0.25" pos="0 0 -0.25" mass="1.0"/>
+    </body>
+  </worldbody>
+</mujoco>
+"""
+PEND_TRUTH = PEND_BASE.replace('damping="0.01"', 'damping="0.3"').replace(
+    'model="pend_base"', 'model="pend_truth"'
+)
+
+
+def test_sysid_via_cli(tmp_path) -> None:
+    """MH17 Agent 面：record-dataset → sysid 全走 CLI（G26 闭环的
+    产品形态——Agent 不需写一行 Python）。"""
+    (tmp_path / "base.xml").write_text(PEND_BASE, encoding="utf-8")
+    (tmp_path / "truth.xml").write_text(PEND_TRUTH, encoding="utf-8")
+
+    code, base = _cli(tmp_path, "load", "base.xml")
+    assert code == 0
+    code, truth = _cli(tmp_path, "load", "truth.xml")
+    assert code == 0
+
+    sequences = json.dumps(
+        [
+            {"controller": {"hold": True}, "duration_s": 1.0, "qpos0": [0.6]},
+            {"controller": {"hold": True}, "duration_s": 1.0, "qpos0": [-0.4]},
+            {"controller": {"hold": True}, "duration_s": 1.0, "qpos0": [0.9]},
+        ]
+    )
+    code, dataset = _cli(tmp_path, "record-dataset", truth["model_ref"], "--sequences", sequences)
+    assert code == 0 and dataset["dataset_ref"].startswith("simtrc_")
+
+    spec = json.dumps(
+        {
+            "schema_version": "rosclaw.sim.sysid_spec.v1",
+            "base_model_ref": base["model_ref"],
+            "dataset_ref": dataset["dataset_ref"],
+            "parameters": [{"type": "joint_damping", "joint": "hinge", "min": 0.01, "max": 2.0}],
+            "train_sequences": [0, 1],
+            "holdout_sequences": [2],
+        }
+    )
+    code, receipt = _cli(tmp_path, "sysid", "--spec", spec)
+    assert code == 0, receipt
+    assert receipt["schema_version"] == "rosclaw.sim.sysid_receipt.v1"
+    assert receipt["verdict"] == "IMPROVED"
+    assert receipt["parameters_after"]["hinge_damping"] == pytest.approx(0.3, abs=0.05)
+    assert receipt["holdout_improvement"] > 0.5
