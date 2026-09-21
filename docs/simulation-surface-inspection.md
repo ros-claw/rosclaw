@@ -1,33 +1,31 @@
-# Current-pose surface inspection
+# Private simulation surface inspection
 
-`rosclaw.sim.backends.mujoco.surface.surface_snapshot` is an experimental,
-simulation-only Python utility for a synchronous simulation owner. It is not
-an Agent hardware interface, a new MCP action, or a motion permit.
+`rosclaw.sim.backends.mujoco.surface.surface_snapshot` inspects explicit named
+geometry pairs on a private kinematic copy. It does not step the simulator,
+refresh live solver caches, mutate a body, choose actions, or authorize hardware.
+The simulation owner must serialize live stepping and model mutation around it.
 
-Pass a matching compiled MuJoCo model/data pair and up to 32 named geometry
-pairs. The utility copies pose and mocap values into private storage, refreshes
-only private kinematics, and queries native signed geometry distances. It does
-not step physics or refresh live derived geometry, contacts, solver warm-start,
-or forces. The caller must serialize stepping **and model mutation**; a final
-pose/time consistency check is diagnostic, not a concurrency lock.
+By default the v1 response retains signed surface distance and nearest points.
+Body origins are not substituted for collision surfaces. A native distance
+cutoff is `UNKNOWN`, not certified free space.
 
-```python
-from rosclaw.sim.backends.mujoco.surface import surface_snapshot
+Set `include_distance_jacobian=True` for the opt-in v2 response. Each supported
+nondegenerate pair adds `distance_jacobian_qvel`, a local tangent-space derivative:
+instantaneous signed-distance rate is approximately the vector dotted with
+MuJoCo's generalized velocity. The derivative includes both bodies. It is not
+a derivative with respect to raw quaternion components, a globally smooth
+gradient, a contact-force measurement, or a swept-clearance certificate.
 
-measurement = surface_snapshot(
-    model, simulation_data, (("end_effector_collision", "floor"),),
-    maximum_distance_m=1.0,
-)
-```
+Cutoff/unsupported results, near-zero distances and degenerate native segments
+return an unknown derivative, never a fabricated zero. The optional workload is
+bounded to 32 geometry pairs and 4096 velocity coordinates. Closest-feature
+switches can be nonsmooth; consumers must qualify their local approximation and
+retain physical replay and normal execution limits.
 
-`MEASURED` includes signed distance and the native closest-point segment.
-`UNKNOWN` returns no distance/segment when the native query hits its cutoff
-or does not support the pair. Unknown is never replaced by free space.
-These are geometry queries independent of collision-filter configuration;
-they do not certify physical contact, support loads, stability, swept motion,
-or real-robot clearance.
+Tests compare separated and penetrating sphere pairs and an articulated
+capsule/sphere pair against tangent finite differences. The articulated example
+also checks a contact-point derivative that a body-origin target would miss.
+Live state/cache noninterference and the default response remain tested.
 
-A high body origin does not prove its collision surface is clear: a tilted
-long end effector can have an elevated origin while still penetrating a plane.
-Tests cover this case, stale live caches, nonmutation, cutoff semantics,
-malformed identities/poses, and an interleaved-step rejection.
+This task-neutral helper contains no robot names, task rewards, football rules,
+optimizer, motor executor, promotion policy, or MCP hardware action path.
