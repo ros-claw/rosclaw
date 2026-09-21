@@ -230,6 +230,22 @@ class SimulationRuntime:
         """执行 typed interaction（官方 executor registry）。"""
         return self._backend.interact(model_ref, state_ref, interaction, payload)
 
+    def load_menagerie(self, model_name: str, entry: str | None = None) -> dict[str, Any]:
+        """Menagerie 导入（MH16 §二十四）：锁版本 + provenance 五元组。"""
+        ref = self._backend.load_menagerie(model_name, entry=entry)
+        return {
+            "model_ref": ref.model_ref,
+            "backend": ref.backend,
+            "source": self._backend.store.get(ref.model_ref)["source"],
+        }
+
+    def scaffold_menagerie(self, model_name: str, out_dir: str) -> dict[str, Any]:
+        """§24.3：e-URDF scaffold（能力 UNDECLARED 起步）。"""
+        from pathlib import Path
+
+        out = self._backend.scaffold_eurdf_from_menagerie(model_name, Path(out_dir))
+        return {"scaffold_dir": str(out), "capability_default": "UNDECLARED"}
+
     def record_dataset(self, model_ref: str, sequences: list[dict[str, Any]]) -> dict[str, Any]:
         """录制 SysID 数据集（MH17，内容寻址幂等）。"""
         dataset_ref = self._backend.record_dataset(model_ref, sequences=sequences)
