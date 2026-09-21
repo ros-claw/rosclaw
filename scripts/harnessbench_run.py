@@ -32,9 +32,19 @@ def main() -> int:
     parser.add_argument("--runs", type=int, default=1)
     parser.add_argument("--out", default="/tmp/harnessbench")
     parser.add_argument("--settle-timeout", type=float, default=1200.0)
+    parser.add_argument(
+        "--model",
+        default="kimi-k3",
+        help="模型档案（MODEL_PROFILES 键；0916 §十一 多模型资格认证）",
+    )
     args = parser.parse_args()
 
-    if not has_model_key():
+    from benchmarks.harnessbench.runner import MODEL_PROFILES
+
+    if args.model not in MODEL_PROFILES:
+        print(f"unknown model {args.model}; have {sorted(MODEL_PROFILES)}", file=sys.stderr)
+        return 2
+    if not has_model_key(args.model):
         print(
             json.dumps(
                 {
@@ -68,6 +78,7 @@ def main() -> int:
                         out_root,
                         run_idx,
                         settle_timeout=args.settle_timeout,
+                        model=args.model,
                     )
                 except Exception as exc:  # noqa: BLE001 —— 单次失败不拖垮矩阵
                     record = {
@@ -99,6 +110,7 @@ def main() -> int:
     report = {
         "schema_version": "rosclaw.harnessbench.v1",
         "out_root": str(out_root),
+        "model": args.model,
         "legs": legs,
         "tasks": task_ids,
         "runs_per_task": args.runs,
