@@ -467,4 +467,7 @@ ROSClaw 已经具备相当多 MuJoCo 底层能力：`sim/api.py` 的最小编程
    rclpy/mujoco_ros2_control 缺席即诚实 NOT_RUN。
 4. **实证记录**：观测/重放 trace 都是有界采样（stride =
    ceil(steps/max_record_points)），对齐必须按时间点 t 不能按
-   行号（1.0s/500 步的 trace 只有 251 行，行号对齐会假分歧）。
+   行号（1.0s/500 步的 trace 只有 251 行，行号对齐会假分歧）；
+   importlib find_spec 在命名空间阴影下抛 ValueError 而非返回
+   None（CI 实证 rclpy.__spec__ 未设）——能力探测一律防御
+   封装，损坏状态按不可导入（与 #547 GL 探测同族教训）。
