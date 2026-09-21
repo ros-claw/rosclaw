@@ -127,21 +127,31 @@ def shadow_compare(
     return report
 
 
+def _importable(module: str) -> bool:
+    """importlib 探测的防御封装——命名空间阴影会让 find_spec
+    抛 ValueError（CI 实证：ROS Jazzy 在场但 rclpy.__spec__ 未设），
+    损坏状态按不可导入处理（诚实 NOT_RUN，绝不误判 AVAILABLE）。"""
+    import importlib.util
+
+    try:
+        return importlib.util.find_spec(module) is not None
+    except (ValueError, ImportError):
+        return False
+
+
 def ros2_bridge_status() -> dict[str, Any]:
     """ROS2 桥接诚实状态（§三十一-§三十二）。
 
     rclpy/mujoco_ros2_control 缺席 → NOT_RUN（不假装桥接成功；
     ROS2 属 Runtime 集成层，Agent 面永远无 ROS publish 动词）。
     """
-    import importlib.util
-
-    if importlib.util.find_spec("rclpy") is None:
+    if not _importable("rclpy"):
         return {
             "status": "NOT_RUN",
             "available": False,
             "reason": "rclpy not importable in this environment (ROS2 setup not sourced)",
         }
-    if importlib.util.find_spec("mujoco_ros2_control") is None:
+    if not _importable("mujoco_ros2_control"):
         return {
             "status": "NOT_RUN",
             "available": False,

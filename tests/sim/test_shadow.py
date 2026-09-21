@@ -122,3 +122,23 @@ def test_ros2_bridge_honest_not_run(backend) -> None:
         pytest.skip("ROS2 环境在——live 桥接属另一 gate")
     assert status["status"] == "NOT_RUN"
     assert "rclpy" in status["reason"].lower() or "ros" in status["reason"].lower()
+
+
+def test_ros2_bridge_survives_broken_namespace(monkeypatch) -> None:
+    """CI 实证：ROS 在场但 rclpy 命名空间阴影（__spec__ 未设）时
+    find_spec 抛 ValueError——必须按不可导入处理不炸测试。"""
+    import importlib.util
+
+    from rosclaw.sim.shadow import ros2_bridge_status
+
+    original = importlib.util.find_spec
+
+    def broken_find_spec(name, package=None):
+        if name == "rclpy":
+            raise ValueError("rclpy.__spec__ is not set")
+        return original(name, package)
+
+    monkeypatch.setattr(importlib.util, "find_spec", broken_find_spec)
+    status = ros2_bridge_status()
+    assert status["status"] == "NOT_RUN"
+    assert status["available"] is False
