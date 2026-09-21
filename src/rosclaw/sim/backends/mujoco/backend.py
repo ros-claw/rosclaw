@@ -1484,6 +1484,15 @@ class MujocoBackend:
         result["gpu_execution"] = "NOT_RUN"  # 本机无 jax/warp（诚实留痕）
         return result
 
+    def shadow_compare(
+        self, model_ref: str, observation_trace_ref: str, **kwargs: Any
+    ) -> dict[str, Any]:
+        """Digital Shadow 比对（MH19 §三十三）：SIM 预测 vs REAL
+        观测 → MATCH/DIVERGED + SysID 校准建议。"""
+        from rosclaw.sim import shadow
+
+        return shadow.shadow_compare(self, model_ref, observation_trace_ref, **kwargs)
+
     def record_dataset(self, model_ref: str, *, sequences: list[dict[str, Any]]) -> str:
         """录制 SysID 数据集（MH17）：每序列 = 初始状态 + 受控 rollout
         trace。内容寻址幂等（同参数重录同 ref）。
