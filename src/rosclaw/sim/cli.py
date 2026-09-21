@@ -19,6 +19,8 @@ SimulationRuntime 的 JSON 投影——Native Agent / 脚本 / operator 的
     rosclaw sim [--root PATH] compile-world --spec J|@file [--name N]
     rosclaw sim [--root PATH] interact <model_ref> <state_ref>
                 --interaction J|@file [--payload J|@file]
+    rosclaw sim [--root PATH] record-dataset <model_ref> --sequences J|@file
+    rosclaw sim [--root PATH] sysid --spec J|@file
     rosclaw sim [--root PATH] render <trace_ref> [--camera N]
                 [--width W] [--height H] [--max-frames N]
 
@@ -50,6 +52,8 @@ _SUBCOMMANDS = (
     "compile-world",
     "interact",
     "render",
+    "record-dataset",
+    "sysid",
 )
 
 
@@ -127,6 +131,13 @@ def _build_parser() -> argparse.ArgumentParser:
     interact.add_argument("--interaction", required=True)
     interact.add_argument("--payload", default=None)
 
+    dataset = sub.add_parser("record-dataset")
+    dataset.add_argument("model_ref")
+    dataset.add_argument("--sequences", required=True)
+
+    sysid = sub.add_parser("sysid")
+    sysid.add_argument("--spec", required=True)
+
     render = sub.add_parser("render")
     render.add_argument("trace_ref")
     render.add_argument("--camera", default=None)
@@ -189,6 +200,10 @@ def _execute(args: argparse.Namespace) -> dict[str, Any]:
             _json_arg(args.interaction),
             _json_arg(args.payload) if args.payload else None,
         )
+    if cmd == "record-dataset":
+        return runtime.record_dataset(args.model_ref, _json_arg(args.sequences))
+    if cmd == "sysid":
+        return runtime.sysid(_json_arg(args.spec))
     if cmd == "render":
         return runtime.render(
             args.trace_ref,
@@ -226,8 +241,13 @@ def dispatch_sim_argv(argv: list[str]) -> int | None:
         return None
 
     args = _build_parser().parse_args(rest)
+    import contextlib
+
     try:
-        result = _execute(args)
+        # stdout 纯度是 CLI 契约：执行期库打印（scipy 迭代报告/
+        # mujoco 警告等）一律导去 stderr，结果 JSON 独占 stdout。
+        with contextlib.redirect_stdout(sys.stderr):
+            result = _execute(args)
     except (ValueError, KeyError, FileNotFoundError, json.JSONDecodeError) as exc:
         print(
             json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False),

@@ -17,7 +17,7 @@
 | G23 Multimodal Observation Evidence | camera_rgb/depth/segmentation → artifact_ref | `tests/sim/test_observe_camera.py`（PNG magic/dtype/intrinsics/实际后端） | ✅ PASS（MH13） |
 | G24 Parallel CPU Agreement | mujoco.rollout native batch 与串行一致性 | `tests/sim/test_batch_parallel.py`（轨迹逐步一致 abs 1e-9/异构拒绝/branch_experiment 并行+串行回退） | ✅ PASS（MH14） |
 | G25 Numerical Robustness | A23/A24（solver/timestep/discrete diagnostic） | `tests/sim/test_audit_limits.py`（A09-A14/A21-A24 红绿 + NOT_EVALUATED 中性） | ✅ PASS（MH15） |
-| G26 SysID Synthetic Recovery + Holdout | 合成数据参数恢复 + holdout 改进 | MH17 待做 | ⏸ NOT_RUN |
+| G26 SysID Synthetic Recovery + Holdout | 合成数据参数恢复 + holdout 改进 | `tests/sim/test_sysid.py`（恢复 0.01→0.3 精确/零运动 NOT_IDENTIFIABLE/越界 bounds_hit/血缘/幂等）+ `test_sim_cli.py::test_sysid_via_cli` | ✅ PASS（MH17） |
 
 ## MH10 实证记录（2026-09-16）
 

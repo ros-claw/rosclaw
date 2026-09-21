@@ -322,3 +322,63 @@ class SimulationEvidenceBundle(SimContract):
     capabilities_digest: str = ""
     trust_level: str = "SIMULATED"
     usable_for_real_execution: bool = False
+
+
+class SysIDParameter(SimContract):
+    """SysID 待识别参数（box bounds 必填——无界识别不接）。"""
+
+    HASH_PREFIX: ClassVar[str] = "sim"
+    schema_version: Literal["rosclaw.sim.sysid_parameter.v1"] = "rosclaw.sim.sysid_parameter.v1"
+
+    type: str = ""  # joint_damping | body_mass | geom_friction | actuator_kp
+    joint: str = ""
+    body: str = ""
+    geom: str = ""
+    actuator: str = ""
+    min: float = 0.0
+    max: float = 0.0
+
+
+class SysIDSpec(SimContract):
+    """SysID 任务规格（0916 §26.1）：基座模型 + 数据集 + 待识别
+    参数 + train/holdout 序列划分（holdout 必填——§26.3）。"""
+
+    SCHEMA: ClassVar[str] = "rosclaw.sim.sysid_spec.v1"
+    HASH_PREFIX: ClassVar[str] = "sim"
+    schema_version: Literal["rosclaw.sim.sysid_spec.v1"] = "rosclaw.sim.sysid_spec.v1"
+
+    base_model_ref: str = ""
+    dataset_ref: str = ""
+    parameters: list[dict[str, Any]] = []
+    train_sequences: list[int] = []
+    holdout_sequences: list[int] = []
+
+
+class SysIDReceipt(SimContract):
+    """SysID 收据（0916 §26.2）：train/holdout 双侧 residual +
+    参数前后值 + bounds_hit + identifiability + 候选模型血缘。
+
+    verdict: IMPROVED（holdout 显著改进才允许）| NO_IMPROVEMENT |
+    NOT_IDENTIFIABLE。永远 SIMULATED，永不生成 REAL permit。
+    """
+
+    SCHEMA: ClassVar[str] = "rosclaw.sim.sysid_receipt.v1"
+    HASH_PREFIX: ClassVar[str] = "sim"
+    schema_version: Literal["rosclaw.sim.sysid_receipt.v1"] = "rosclaw.sim.sysid_receipt.v1"
+
+    base_model_ref: str = ""
+    dataset_digest: str = ""
+    parameters_before: dict[str, float] = {}
+    parameters_after: dict[str, float] = {}
+    bounds_hit: list[str] = []
+    baseline_residual_train: float = 0.0
+    optimized_residual_train: float = 0.0
+    holdout_baseline_residual: float = 0.0
+    holdout_optimized_residual: float = 0.0
+    holdout_improvement: float = 0.0
+    identifiability_warning: bool = False
+    candidate_model_ref: str = ""
+    verdict: str = "NO_IMPROVEMENT"
+    receipt_ref: str = ""
+    trust_level: str = "SIMULATED"
+    usable_for_real_execution: bool = False

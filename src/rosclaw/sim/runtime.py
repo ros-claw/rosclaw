@@ -230,6 +230,16 @@ class SimulationRuntime:
         """执行 typed interaction（官方 executor registry）。"""
         return self._backend.interact(model_ref, state_ref, interaction, payload)
 
+    def record_dataset(self, model_ref: str, sequences: list[dict[str, Any]]) -> dict[str, Any]:
+        """录制 SysID 数据集（MH17，内容寻址幂等）。"""
+        dataset_ref = self._backend.record_dataset(model_ref, sequences=sequences)
+        return {"dataset_ref": dataset_ref, "sequences": len(sequences)}
+
+    def sysid(self, spec: dict[str, Any]) -> dict[str, Any]:
+        """System Identification（MH17）：官方 sysid 工具箱 +
+        holdout 独立复算（§26.3）→ SysIDReceipt。"""
+        return self._backend.run_sysid(spec)
+
     def render(
         self,
         trace_ref: str,

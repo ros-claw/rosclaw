@@ -389,3 +389,26 @@ ROSClaw 已经具备相当多 MuJoCo 底层能力：`sim/api.py` 的最小编程
 5. **真实验收留痕**：每次运行独立 HOME+workspace；无 key 一律
    NOT_RUN 不合成冒充；API 瞬时故障（provider stall）记
    infra_failure 入分母，不计入能力失败。
+
+## 补充：MH17 System Identification / Digital Twin（2026-09-16，0916 优化 §二十五-§二十六）
+
+1. **算法核心复用官方 mujoco.sysid 工具箱**（nonlinear least
+   squares + box bounds + batched rollout；观测通道 = qpos/qvel
+   状态信号，真实机器人日志同款形态）。ROSClaw 侧不做另一套
+   优化器——只做契约、血缘与诚实判定。
+2. **SysIDSpec/SysIDReceipt 契约**（rosclaw.sim.sysid_*.v1）：
+   参数 box bounds 必填（无界识别不接）；train/holdout 序列
+   划分必填（§26.3）。
+3. **候选模型经 patch 血缘派生**（同一套 set 白名单——识别参数
+   joint_damping/geom_friction/geom_mass/actuator_kp 与 patch
+   字段一一对应），绝不另起炉灶。
+4. **holdout 独立复算**：train fit 不算数；holdout 改进 <5% 即
+   NO_IMPROVEMENT 不升级 twin；观测通道退化（零运动）→ 残差
+   NaN → NOT_IDENTIFIABLE fail-closed；真值越界 → bounds_hit +
+   identifiability_warning，不假装收敛到真相。
+5. **实证记录**：单摆阻尼恢复 0.01 → 0.29999999999（train cost
+   1.08 → 1.1e-21，holdout improvement 1.0）；摆 geom COM 与
+   铰链重合时重力矩恒零（探针假不动的坑）；sysid 观测名是
+   逐关节 `<joint>_qpos/<joint>_qvel`；CLI stdout 纯度须强制
+   （scipy 迭代报告会直接 print 到 stdout——执行期重定向
+   stderr，JSON 独占 stdout）。
