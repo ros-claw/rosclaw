@@ -18,6 +18,12 @@
 | G24 Parallel CPU Agreement | mujoco.rollout native batch 与串行一致性 | `tests/sim/test_batch_parallel.py`（轨迹逐步一致 abs 1e-9/异构拒绝/branch_experiment 并行+串行回退） | ✅ PASS（MH14） |
 | G25 Numerical Robustness | A23/A24（solver/timestep/discrete diagnostic） | `tests/sim/test_audit_limits.py`（A09-A14/A21-A24 红绿 + NOT_EVALUATED 中性） | ✅ PASS（MH15） |
 | G26 SysID Synthetic Recovery + Holdout | 合成数据参数恢复 + holdout 改进 | `tests/sim/test_sysid.py`（恢复 0.01→0.3 精确/零运动 NOT_IDENTIFIABLE/越界 bounds_hit/血缘/幂等）+ `test_sim_cli.py::test_sysid_via_cli` | ✅ PASS（MH17） |
+| G27 Parallel State Semantics | branch parallel 与 serial 同一实验起点（transplant 先行 + state_refs 驱动 batch） | `tests/sim/test_batch_state_semantics.py` B01/B02/B04/B05（batch==serial 1e-9） | ✅ PASS（MH20-A） |
+| G28 Batch Semantic Compatibility | timestep/integrator/solver 签名 + eq_active 保真回退 | 同上 B03（eq_active→serial）/B06（timestep→BATCH_SEMANTICS_INCOMPATIBLE） | ✅ PASS（MH20-A） |
+| G29 ControlSchema Universal Routing | 所有执行路径只经 ControlMapper 写 ctrl | `tests/sim/test_control_routing.py` + `tests/architecture/test_no_raw_ctrl_business_write.py` | ✅ PASS（MH20-B） |
+| G30 Contact Evidence Honesty | PROXIMITY/CONTACT/LOAD_BEARING 三级；默认 attach 必须真接触对 | `tests/sim/test_grasp_honesty_v2.py`（proximity 拒绝/降级命名/真接触证据） | ✅ PASS（MH20-C） |
+| G31 Weld Relative Pose | q_rel=inv(q1)⊗q2 + eq_data 布局 + mj_setConst | 同上（yaw 90/120→rel 30 无 snap/布局/共动不漂） | ✅ PASS（MH20-C） |
+| G32 Release Target-specific Evidence | release 证据只看 payload（velocity/displacement/z） | 同上（payload 速度/位移/z 证据） | ✅ PASS（MH20-C） |
 
 ## MH10 实证记录（2026-09-16）
 

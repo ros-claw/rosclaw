@@ -179,7 +179,7 @@ def test_b03_eq_active_state_requires_serial(runtime) -> None:
         model_ref,
         snap["state_ref"],
         {"executor": "constraint_attach", "target": {"type": "equality", "name": "grip_weld"}},
-        {"weld": "grip_weld", "attach_threshold_m": 0.05},
+        {"weld": "grip_weld", "attach_threshold_m": 0.05, "evidence_level": "PROXIMITY_ASSISTED_ATTACH"},
     )
     eq_state = attached["state_ref"]
 
