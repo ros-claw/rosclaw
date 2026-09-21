@@ -522,6 +522,7 @@ class MujocoBackend:
         model_refs: list[str],
         *,
         controller: dict[str, Any],
+        state_refs: list[str] | None = None,
         duration_s: float | None = None,
         steps: int | None = None,
         budgets: dict[str, Any] | None = None,
@@ -530,18 +531,54 @@ class MujocoBackend:
 
         CPU batch 优先于 MJX：与权威 CPU truth 同域。返回每分支
         {trace_ref, final_state_ref, states_digest, steps, execution}。
+
+        MH20-A：state_refs（每分支 transplant 后的 v2 状态）成为正式
+        接口——并行与串行同一实验起点；INTEGRATION 尾部（USER/
+        WARMSTART，含 eq_active）非零即 BATCH_STATE_FIDELITY_REQUIRED
+        诚实回退串行，绝不为并行降低 state fidelity。
         """
         import numpy as np
 
         if not isinstance(model_refs, list) or not model_refs:
             raise ValueError("BATCH_EMPTY: model_refs must be a non-empty list")
+        if state_refs is not None and len(state_refs) != len(model_refs):
+            raise ValueError(
+                f"BATCH_STATE_COUNT_MISMATCH: {len(state_refs)} states != {len(model_refs)} models"
+            )
         manifests = [self._manifest(ref) for ref in model_refs]
         models = []
         for manifest in manifests:
             spec = self._spec_from_manifest(manifest)
             model, _ = self._compile_smoke(spec)
             models.append(model)
-        batch_mod.check_homogeneous(models)  # BATCH_NOT_HOMOGENEOUS
+        batch_mod.check_homogeneous(models)  # BATCH_NOT_HOMOGENEOUS / BATCH_SEMANTICS_INCOMPATIBLE
+
+        import mujoco
+
+        initial = None
+        if state_refs is not None:
+            fp_size = mujoco.mj_stateSize(models[0], mujoco.mjtState.mjSTATE_FULLPHYSICS)
+            vectors = []
+            for ref, state_ref in zip(model_refs, state_refs, strict=True):
+                meta = self.store.get(state_ref)
+                blob = self.store.get(meta["state_vector_ref"])
+                vector = np.frombuffer(blob, dtype=np.float64)
+                # MH20-A 保真规则：eq_active 是物理状态（约束激活），
+                # native batch 的 FULLPHYSICS 初值无法承载 → 诚实串行
+                # 回退。warmstart/ctrl/sensordata/qacc 是求解脚手架或
+                # 派生量（实测对轨迹零影响），不算物理保真损失。
+                _, state_data = self.restore_state_v2(ref, state_ref)
+                if np.any(np.asarray(state_data.eq_active, dtype=int) != 0):
+                    raise ValueError(
+                        "BATCH_STATE_FIDELITY_REQUIRED: state 含 eq_active=1"
+                        "（约束激活态 ∈ INTEGRATION-only）——native batch 无法无损承载"
+                    )
+                if len(vector) < fp_size:
+                    raise ValueError(
+                        f"BATCH_STATE_DIMENSION: state vector {len(vector)} < FULLPHYSICS {fp_size}"
+                    )
+                vectors.append(vector[:fp_size].copy())
+            initial = batch_mod.initial_vectors(models, vectors)
 
         plan = rollout_mod.validate_controller(
             controller, models[0].nu, channels=self._control_schema(models[0], manifests[0])
@@ -563,18 +600,18 @@ class MujocoBackend:
             )
             ctrl_rows = np.tile(row, (resolved_steps, 1))
 
-        state_trajs, _ = batch_mod.run_batch(models, ctrl_rows=ctrl_rows)
+        state_trajs, _ = batch_mod.run_batch(models, ctrl_rows=ctrl_rows, initial=initial)
         stride = max(1, -(-resolved_steps // merged["max_record_points"]))
 
         results = []
-        for ref, manifest, model, full_traj in zip(
-            model_refs, manifests, models, state_trajs, strict=True
+        for index, (ref, manifest, model, full_traj) in enumerate(
+            zip(model_refs, manifests, models, state_trajs, strict=True)
         ):
             states = batch_mod.trajectory_to_states(
                 model, full_traj[::stride], ctrl_rows, record_stride=stride
             )
             # 与串行记录对齐：前置初始状态行（rollout 轨迹只含步后状态）。
-            data0 = batch_mod.initial_vectors([model])[0]
+            data0 = initial[index] if initial is not None else batch_mod.initial_vectors([model])[0]
             states.insert(
                 0,
                 {
@@ -1151,7 +1188,9 @@ class MujocoBackend:
         )
         tracked = [
             (i, int(model.jnt_qposadr[int(model.actuator_trnid[i][0])]))
-            for i in range(model.nu)
+            # nu 是 ctrl 维不是执行器个数（MH10 实证；PID 多槽会越界——
+            # B05 复现）。
+            for i in range(model.actuator_trnid.shape[0])
             if int(model.actuator_trntype[i]) == int(mujoco.mjtTrn.mjTRN_JOINT)
         ]
         collector = _make_collector(model, data, plan, tracked)
@@ -1303,7 +1342,9 @@ class MujocoBackend:
         )
         tracked = [
             (i, int(model.jnt_qposadr[int(model.actuator_trnid[i][0])]))
-            for i in range(model.nu)
+            # nu 是 ctrl 维不是执行器个数（MH10 实证；PID 多槽会越界——
+            # B05 复现）。
+            for i in range(model.actuator_trnid.shape[0])
             if int(model.actuator_trntype[i]) == int(mujoco.mjtTrn.mjTRN_JOINT)
         ]
         collector = _make_collector(model, data, plan, tracked)
