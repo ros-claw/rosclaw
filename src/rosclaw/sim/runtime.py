@@ -250,6 +250,10 @@ class SimulationRuntime:
         """Backend Fidelity Gate（MH18 §二十九）。"""
         return self._backend.acceleration_compatibility(model_ref)
 
+    def shadow_compare(self, model_ref: str, observation_trace_ref: str) -> dict[str, Any]:
+        """Digital Shadow 比对（MH19 §三十三）。"""
+        return self._backend.shadow_compare(model_ref, observation_trace_ref)
+
     def record_dataset(self, model_ref: str, sequences: list[dict[str, Any]]) -> dict[str, Any]:
         """录制 SysID 数据集（MH17，内容寻址幂等）。"""
         dataset_ref = self._backend.record_dataset(model_ref, sequences=sequences)

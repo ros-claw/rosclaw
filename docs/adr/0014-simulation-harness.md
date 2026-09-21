@@ -449,3 +449,25 @@ ROSClaw 已经具备相当多 MuJoCo 底层能力：`sim/api.py` 的最小编程
 4. **实证记录**：muscle actuator 必须挂 tendon（joint 直连
    lengthrange 不收敛）；solver/noslip_iterations/integrator 是
    `<option>` 属性不是子元素（schema 实证）。
+
+## 补充：MH19 Digital Shadow（2026-09-21，0916 优化 §三十一-§三十三）
+
+1. **predict → act → observe → compare → calibrate 的 ROSClaw 侧
+   核心落地**：`shadow_compare(model_ref, observation_trace_ref)`
+   ——SIM 预测（同初值同控制器重放，按时间点对齐）vs REAL 观测
+   （日志/数据集 trace）→ SIM/REAL residual；MATCH/DIVERGED。
+2. **calibrate 接 SysID**：DIVERGED 即给出可直接消费的
+   SysIDSpec 建议（v1 参数族 = 全 joint damping——sim/real 最常见
+   分歧源；单序列观测诚实标注需补录划分 train/holdout）。实证
+   闭环：扰动观测 DIVERGED → run_sysid → 复比 MATCH（residual
+   降 >90%）。
+3. **边界（§三十二）**：Agent 永不直接 ROS publish——Agent 面
+   （sim CLI + P0_SIM_TOOLS）不含任何 ros/publish/cmd_vel 动词
+   （架构测试锁定）；ROS2 桥接属 Runtime 集成层，
+   rclpy/mujoco_ros2_control 缺席即诚实 NOT_RUN。
+4. **实证记录**：观测/重放 trace 都是有界采样（stride =
+   ceil(steps/max_record_points)），对齐必须按时间点 t 不能按
+   行号（1.0s/500 步的 trace 只有 251 行，行号对齐会假分歧）；
+   importlib find_spec 在命名空间阴影下抛 ValueError 而非返回
+   None（CI 实证 rclpy.__spec__ 未设）——能力探测一律防御
+   封装，损坏状态按不可导入（与 #547 GL 探测同族教训）。
