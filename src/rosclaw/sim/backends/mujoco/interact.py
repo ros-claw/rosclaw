@@ -62,29 +62,27 @@ def _step(model, data, seconds: float, *, visit=None) -> None:  # noqa: ANN001
 
 
 def exec_joint_target(backend, model, data, interaction: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:  # noqa: ANN001
-    """关节目标位：经该关节的 position 执行器（无执行器诚实拒绝）。"""
+    """关节目标位：经 ControlMapper 写 (actuator, pos) 槽位
+    （MH20-B——actuator 序号 ≠ ctrl 槽位，PID 多槽会错位）。"""
     import mujoco
+
+    from rosclaw.sim.backends.mujoco import control as control_mod
 
     joint_name = interaction["target"]["name"]
     joint_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, joint_name)
     if joint_id < 0:
         raise ValueError(f"INTERACTION_TARGET_NOT_FOUND: joint {joint_name!r}")
-    actuator_id = -1
-    for i in range(model.actuator_trnid.shape[0]):
-        if int(model.actuator_trnid[i][0]) == joint_id:
-            actuator_id = i
-            break
-    if actuator_id < 0:
-        raise ValueError(
-            f"CAPABILITY_UNAVAILABLE: joint {joint_name!r} has no actuator for joint_target"
-        )
+    spec = backend._spec_from_manifest(backend._manifest(interaction["_model_ref"]))
+    channel_map = control_mod.channel_map_for(model, spec)
     target = payload.get("target")
     if not isinstance(target, (int, float)) or isinstance(target, bool) or not math.isfinite(target):
         raise ValueError("INTERACTION_PAYLOAD_INVALID: target must be a finite number")
     duration = float(payload.get("duration_s", 0.5))
     adr = int(model.jnt_qposadr[joint_id])
     before = float(data.qpos[adr])
-    data.ctrl[actuator_id] = float(target)
+    control_mod.write_joint_target(
+        model, data, channel_map, joint_name=joint_name, value=float(target)
+    )
     _step(model, data, duration)
     after = float(data.qpos[adr])
     return {
@@ -96,44 +94,52 @@ def exec_joint_target(backend, model, data, interaction: dict[str, Any], payload
 
 
 def exec_actuator_setpoint(backend, model, data, interaction: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:  # noqa: ANN001
-    """执行器 setpoint（pos/vel/ff/ctrl，按 control schema 寻址）。"""
+    """执行器 setpoint（pos/vel/ff/ctrl，经 ControlMapper 按
+    control schema 寻址）。"""
+    from rosclaw.sim.backends.mujoco import control as control_mod
+
     actuator_name = interaction["target"]["name"]
     _joint_for_actuator(model, actuator_name)
     spec = backend._spec_from_manifest(backend._manifest(interaction["_model_ref"]))
-    from rosclaw.sim.backends.mujoco.inspect import _control_channels
-
-    channels = _control_channels(model, spec)
     channel_map = {
-        (c["actuator"], c["role"]): c["index"] for c in channels if c["actuator"] == actuator_name
+        key: slot for key, slot in control_mod.channel_map_for(model, spec).items() if key[0] == actuator_name
     }
     if not channel_map:
         raise ValueError(f"INTERACTION_TARGET_NOT_FOUND: no control channel for {actuator_name!r}")
     applied: dict[str, float] = {}
     for role, value in payload.get("setpoints", {}).items():
-        key = (actuator_name, role)
-        if key not in channel_map:
-            raise ValueError(f"CONTROLLER_SCHEMA_MISMATCH: no channel {actuator_name}:{role}")
-        if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(value):
-            raise ValueError(f"INTERACTION_PAYLOAD_INVALID: setpoint {role} must be finite")
-        data.ctrl[channel_map[key]] = float(value)
-        applied[role] = float(value)
+        applied[role] = control_mod.write_setpoint(
+            model, data, channel_map, actuator=actuator_name, role=role, value=value
+        )
     duration = float(payload.get("duration_s", 0.5))
     _step(model, data, duration)
     return {"applied": applied}
 
 
 def exec_gripper_motion(backend, model, data, interaction: dict[str, Any], payload: dict[str, Any], *, close: bool) -> dict[str, Any]:  # noqa: ANN001
-    """gripper_close / gripper_open：驱动夹爪执行器并记录接触证据。"""
+    """gripper_close / gripper_open：经 ControlMapper 驱动夹爪执行器
+    并记录接触证据（MH20-B——actuator 序号 ≠ ctrl 槽位）。"""
     import mujoco
 
+    from rosclaw.sim.backends.mujoco import control as control_mod
+
     actuator_name = interaction["target"]["name"]
-    actuator_id = _joint_for_actuator(model, actuator_name)
+    _joint_for_actuator(model, actuator_name)
+    spec = backend._spec_from_manifest(backend._manifest(interaction["_model_ref"]))
+    channel_map = control_mod.channel_map_for(model, spec)
     direction = payload.get("close_target" if close else "open_target")
     if direction is None:
         direction = 1.0 if close else 0.0
     if not isinstance(direction, (int, float)) or isinstance(direction, bool) or not math.isfinite(direction):
         raise ValueError("INTERACTION_PAYLOAD_INVALID: gripper target must be finite")
-    data.ctrl[actuator_id] = float(direction)
+    control_mod.write_setpoint(
+        model,
+        data,
+        channel_map,
+        actuator=actuator_name,
+        role=control_mod.resolve_position_role(channel_map, actuator_name),
+        value=float(direction),
+    )
     duration = float(payload.get("duration_s", 0.5))
     contacts: list[dict[str, Any]] = []
 

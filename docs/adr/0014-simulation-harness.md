@@ -495,3 +495,19 @@ ROSClaw 已经具备相当多 MuJoCo 底层能力：`sim/api.py` 的最小编程
    warmstart 对 Euler 单摆轨迹零影响（实测 0.0 over 80 steps）；
    run_experiment 的 tracked 循环 range(model.nu) 对 PID 多槽
    越界（MH10 遗留，B05 复现后修）。
+
+## 补充：MH20-B Universal ControlSchema Routing（2026-09-21，讨论总纲 §7/§十九）
+
+1. **ControlMapper 是唯一业务通道**（backends/mujoco/control.py）：
+   rollout / actuator_setpoint / joint_target / gripper_close /
+   gripper_open 全部经 (actuator, role) / joint 解析槽位后写
+   MjData.ctrl——业务模块禁止 `data.ctrl[...]`（architecture
+   test 永久锁定，adapter 白名单 rollout/control/backend）。
+2. **P0 实证**：exec_joint_target/exec_gripper_motion 曾把
+   actuator 序号当 ctrl 槽位（`data.ctrl[actuator_id]`）——
+   第一个执行器是 PID 时，第二个执行器的 joint_target 会写进
+   PID 的 vel 槽（ctrl[1]），物理语义全错；"第一个执行器恰好
+   是单输入时正确"是事故性正确。
+3. **位置角色解析**：PID 多输入 = "pos"；普通单输入执行器的
+   唯一通道 = "ctrl"（其位置目标语义）——resolve_position_role
+   二级解析，都没有即 CONTROLLER_SCHEMA_MISMATCH（绝不猜槽位）。
