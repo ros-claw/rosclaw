@@ -26,6 +26,9 @@
 | G32 Release Target-specific Evidence | release 证据只看 payload（velocity/displacement/z） | 同上（payload 速度/位移/z 证据） | ✅ PASS（MH20-C） |
 | G39 HarnessBench Task Family v2 | 八类 32 任务全部 oracle 判定（U/R/E/H/V/I/S/D） | `tests/eval/mujoco_harness_live/test_oracle_v2_synthetic.py`（20 例合成红绿） | ✅ PASS（MH23-A） |
 | G40 Adversarial False-success Defense | 假证据/无证据声称/照搬陈旧文档全部被 oracle 抓住 | 同上（claimed_without_evidence/blindly_trusted_stale_doc/lifted_without_honest_attach） | ✅ PASS（MH23-A） |
+| G46 Clean Wheel Install | build wheel → 干净 venv → pip install → `rosclaw sim` 冒烟 | `tests/sim/test_release_qualification.py::test_clean_wheel_install_smoke` | ✅ PASS（MH26） |
+| G47 Large-artifact Budget Honesty | store 单次显式预算覆盖（.mjz 512MB 声明）；默认 64MB 上限不被静默放宽 | `tests/sim/test_store.py::test_put_explicit_budget_override` + stretch_3 76.3MB mjz 导出实证 | ✅ PASS（MH26） |
+| G48 Representative Robot Matrix | 四类真实复杂度（xarm7/stretch_3/go2/g1）全链 load/inspect/state v2/audit/rollout/patch 血缘/mjz/strict replay | `tests/sim/test_release_qualification.py::test_representative_robot_full_chain`（4/4）+ `test_performance_baseline_recorded` | ✅ PASS（MH26） |
 
 ## MH10 实证记录（2026-09-16）
 

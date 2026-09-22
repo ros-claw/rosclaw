@@ -644,3 +644,23 @@ ROSClaw 已经具备相当多 MuJoCo 底层能力：`sim/api.py` 的最小编程
    走同一判据。
 3. **边界（§45）**：Agent 面永无 ros publish 动词——architecture
    test 永久锁定。
+## 补充：MH26 Release/Platform Qualification（2026-09-22，讨论总纲 §47-§52）
+
+1. **Representative Robot Matrix（§51/G48）**：四类真实复杂度
+   （fixed=xarm7 / mobile manipulator=stretch_3 / quadruped=go2 /
+   humanoid=g1）全链验证 load/inspect/state v2 精确往返/audit/
+   rollout/patch 血缘/mjz 导出/strict replay——Harness 资格不再只
+   由 tiny fixture 代表。freejoint 机器人 patch 测试选第一个
+   hinge/slide 关节（freejoint 不在 patch 白名单，架构决定）。
+2. **大工件预算诚实（G47）**：stretch_3 自包含 .mjz 实测
+   76,334,950 字节，超 SimStore 默认 64MB 上限——修法是
+   `SimStore.put(max_bytes=)` 单次显式预算覆盖 + `export_model_mjz`
+   声明 512MB 工件预算并写明理由，**不是**静默放宽全局上限；
+   默认上限与超覆盖拒绝均有回归测试。
+3. **Performance Baseline（§50）**：tiny/quadruped 两档记录 load/
+   inspect/snapshot/restore/rollout 耗时落 JSON——记录不硬 Gate，
+   仅宽松物理量级报警防病态退化。
+4. **Clean Wheel Install（§49/G46）**：build wheel → 干净 venv →
+   pip install → `rosclaw sim capabilities/load` 冒烟——发布物在
+   editable checkout 之外被真实验证。
+

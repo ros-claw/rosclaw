@@ -70,9 +70,19 @@ class SimStore:
     # -- 写入 ---------------------------------------------------------------
 
     def put(
-        self, partition: str, payload: dict[str, Any] | bytes, *, ref: str | None = None
+        self,
+        partition: str,
+        payload: dict[str, Any] | bytes,
+        *,
+        ref: str | None = None,
+        max_bytes: int | None = None,
     ) -> str:
-        """写入不可变对象并返回其 ref（同内容幂等）。"""
+        """写入不可变对象并返回其 ref（同内容幂等）。
+
+        max_bytes：显式单次预算覆盖（默认沿用 store 级策略 64MB）。
+        仅允许**调用方在代码中显式声明**的合法大工件路径使用
+        （如 .mjz 自包含模型导出，见 backend.export_model_mjz），
+        不是静默放宽全局上限的通道。"""
         if partition not in PARTITIONS:
             raise ValueError(f"STORE_PARTITION_UNKNOWN: {partition!r}")
 
@@ -85,8 +95,9 @@ class SimStore:
         else:
             raise ValueError(f"STORE_PAYLOAD_UNSUPPORTED: {type(payload).__name__}")
 
-        if len(data) > self._max_bytes:
-            raise ValueError(f"STORE_OBJECT_TOO_LARGE: {len(data)} > {self._max_bytes}")
+        budget = self._max_bytes if max_bytes is None else max_bytes
+        if len(data) > budget:
+            raise ValueError(f"STORE_OBJECT_TOO_LARGE: {len(data)} > {budget}")
 
         digest_hex = hashlib.sha256(data).hexdigest()
         if ref is None:

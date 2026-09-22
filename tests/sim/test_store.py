@@ -156,6 +156,19 @@ def test_oversized_object_fails(tmp_path) -> None:
         store.put("traces", {"payload": "x" * 1024})
 
 
+def test_put_explicit_budget_override(tmp_path) -> None:
+    """MH26：单次显式预算覆盖（.mjz 大工件通道）——超覆盖预算仍拒绝，
+    且 store 默认上限不被静默放宽。"""
+    store = SimStore(tmp_path, max_bytes=64)
+    ref = store.put("traces", {"payload": "x" * 1024}, max_bytes=4096)
+    assert store.get(ref)["payload"] == "x" * 1024
+    with pytest.raises(ValueError, match="STORE_OBJECT_TOO_LARGE"):
+        store.put("traces", {"payload": "y" * 8192}, max_bytes=4096)
+    # 默认上限依旧生效（未因覆盖被全局放宽）。
+    with pytest.raises(ValueError, match="STORE_OBJECT_TOO_LARGE"):
+        store.put("traces", {"payload": "z" * 1024})
+
+
 def test_invalid_partition_rejected(tmp_path) -> None:
     store = SimStore(tmp_path)
     with pytest.raises(ValueError, match="STORE_PARTITION_UNKNOWN"):
