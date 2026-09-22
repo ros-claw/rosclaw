@@ -216,6 +216,9 @@ def run_sysid(backend, spec: dict[str, Any]) -> dict[str, Any]:  # noqa: ANN001
         receipt_dict = receipt.to_canonical_dict()
         receipt_dict["receipt_ref"] = backend.store.put("experiments", receipt_dict)
         return receipt_dict
+    # §24 excitation 纪律在 NOT_IDENTIFIABLE 之后：零运动的诚实
+    # 负例要先走残差退化判定，数据泄漏检查只管"有运动但同激励"。
+    _excitation_check(dataset, train_idx + holdout_idx)
     baseline_cost = 0.5 * float(np.square(baseline_res).sum())
 
     opt_params, result = optimize.optimize(params, residual_fn, optimizer="scipy", verbose=False)
@@ -248,7 +251,11 @@ def run_sysid(backend, spec: dict[str, Any]) -> dict[str, Any]:  # noqa: ANN001
     identifiability_warning = bool(bounds_hit)
     improved = holdout_improvement >= _HOLDOUT_MIN_IMPROVEMENT
 
+    # MH22 §23：Jacobian 可识别性诊断（不只 bounds_hit）。
+    identifiability = _identifiability_diagnostics(result, opt_params)
+
     candidate_ref = ""
+    audit_status = "NOT_EVALUATED"
     if improved:
         patch_ops = [
             {
@@ -263,6 +270,37 @@ def run_sysid(backend, spec: dict[str, Any]) -> dict[str, Any]:  # noqa: ANN001
             for p in parameters
         ]
         candidate_ref = backend.patch_model(base_ref, patch_ops).new_model_ref
+        # MH22 §26 twin promotion 门：holdout 改进 + 可识别 +
+        # physical audit——"更拟合日志" ≠ "更好的物理模型"。
+        audit_status = backend.audit(candidate_ref).status
+
+    identifiable = identifiability["classification"] == "IDENTIFIABLE"
+    twin_candidate = bool(
+        improved and identifiable and audit_status in ("PASS", "WARN")
+    )
+    simulation_profile: dict[str, Any] = {}
+    if improved:
+        simulation_profile = {
+            "simulation": {
+                "mujoco": {
+                    "current_model_ref": base_ref,
+                    "calibration": {
+                        "candidate_model_ref": candidate_ref,
+                        "dataset_digest": str(dataset_digest),
+                        "method": "mujoco_sysid",
+                        "holdout_improvement": holdout_improvement,
+                        "parameters": {
+                            name: {
+                                "nominal": params_before[name],
+                                "identified": params_after[name],
+                                "confidence": identifiability["classification"],
+                            }
+                            for name in params_after
+                        },
+                    },
+                }
+            }
+        }
 
     from rosclaw.sim.contracts import SysIDReceipt
 
@@ -280,6 +318,13 @@ def run_sysid(backend, spec: dict[str, Any]) -> dict[str, Any]:  # noqa: ANN001
         holdout_optimized_residual=holdout_optimized,
         holdout_improvement=holdout_improvement,
         identifiability_warning=identifiability_warning,
+        identifiability=identifiability,
+        promotion={
+            "audit_status": audit_status,
+            "twin_candidate": twin_candidate,
+            "note": "TWIN_CANDIDATE 不自动覆盖 e-URDF——promotion 由 operator/policy 控制（§26）",
+        },
+        simulation_profile=simulation_profile,
         candidate_model_ref=candidate_ref,
         verdict="IMPROVED" if improved else "NO_IMPROVEMENT",
     )
@@ -301,3 +346,86 @@ def _current_value(spec_obj: Any, param: dict[str, Any]) -> float:  # noqa: ANN0
         return float(target.friction[0] if field == "friction" else target.mass)
     target = next(a for a in spec_obj.actuators if a.name == name)
     return float(target.gainprm[0])
+
+
+# ---------------------------------------------------------------- MH22 v2
+
+#: 相关性阈值（|corr|>0.95 = 参数对分不开）。
+_WEAK_CORRELATION = 0.95
+#: 条件数阈值（Jacobian 病态）。
+_ILL_CONDITIONED = 1e8
+
+
+def _identifiability_diagnostics(result, opt_params) -> dict[str, Any]:  # noqa: ANN001
+    """Jacobian 诊断（§23）：rank/condition/sensitivity/相关对——
+    不只看 bounds_hit。
+
+    实证锚点：自由摆 damping+mass 轨迹完美拟合但参数错
+    （0.19/0.95 vs 0.3/1.5）——Jacobian 两列近平行，必须被
+    WEAKLY_IDENTIFIABLE 逮住。
+    """
+    raw_jac = getattr(result, "jac", None)
+    jac = np.asarray(raw_jac, dtype=float) if raw_jac is not None else np.zeros((0, 0))
+    names = list(opt_params.keys())
+    n_params = len(names)
+    diagnostics: dict[str, Any] = {
+        "jacobian_rank": 0,
+        "condition_number": 0.0,
+        "parameter_sensitivity": {},
+        "weak_parameter_pairs": [],
+        "classification": "IDENTIFIABLE",
+    }
+    if jac.size == 0 or jac.ndim != 2 or jac.shape[1] != n_params:
+        diagnostics["classification"] = "NOT_IDENTIFIABLE"
+        diagnostics["note"] = "no_jacobian"
+        return diagnostics
+    column_norms = np.linalg.norm(jac, axis=0)
+    diagnostics["parameter_sensitivity"] = {
+        name: float(column_norms[i]) for i, name in enumerate(names)
+    }
+    if np.any(column_norms <= 1e-12):
+        # 某列零敏感——该参数对数据完全不可见。
+        diagnostics["classification"] = "NOT_IDENTIFIABLE"
+        diagnostics["note"] = "zero_sensitivity_parameter"
+        return diagnostics
+    # 列归一化后 SVD。
+    normalized = jac / column_norms
+    singulars = np.linalg.svd(normalized, compute_uv=False)
+    rank = int(np.sum(singulars > max(normalized.shape) * np.finfo(float).eps * singulars[0]))
+    diagnostics["jacobian_rank"] = rank
+    condition = float(singulars[0] / singulars[-1]) if singulars[-1] > 0 else float("inf")
+    diagnostics["condition_number"] = condition
+    # J^T J 归一化相关矩阵 → 弱相关对。
+    gram = normalized.T @ normalized
+    weak_pairs = []
+    for i in range(n_params):
+        for j in range(i + 1, n_params):
+            if abs(float(gram[i, j])) > _WEAK_CORRELATION:
+                weak_pairs.append(
+                    {"pair": [names[i], names[j]], "correlation": float(gram[i, j])}
+                )
+    diagnostics["weak_parameter_pairs"] = weak_pairs
+    if rank < n_params:
+        diagnostics["classification"] = "NOT_IDENTIFIABLE"
+    elif condition > _ILL_CONDITIONED or weak_pairs:
+        diagnostics["classification"] = "WEAKLY_IDENTIFIABLE"
+    return diagnostics
+
+
+def _excitation_check(dataset: dict[str, Any], indices: list[int]) -> None:
+    """§24 excitation 纪律：train+holdout 全部同激励同初值 =
+    数据泄漏（同一条轨迹切两半不算 holdout）。"""
+    seen = set()
+    for idx in indices:
+        seq = dataset["sequences"][idx]
+        key = (
+            str(seq.get("controller")),
+            tuple(seq.get("qpos0") or []),
+            float(seq.get("duration_s", 0)),
+        )
+        seen.add(key)
+    if len(seen) < 2 and len(indices) >= 2:
+        raise ValueError(
+            "EXCITATION_INSUFFICIENT: train/holdout 序列激励完全相同"
+            "（同轨迹切两半不算 holdout——不同初值/激励/负载才有效）"
+        )
