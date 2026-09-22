@@ -612,3 +612,18 @@ ROSClaw 已经具备相当多 MuJoCo 底层能力：`sim/api.py` 的最小编程
    states 分区 dict meta 与 bytes blob 共存（judge 必须类型
    过滤）；BenchTask/模型常量进 task_common（tasks ↔
    tasks_v2 互相 import 循环实证）。
+
+## 补充：MH24 GPU Semantic Agreement（2026-09-22，讨论总纲 §34-§38）
+
+1. **GPU live 诚实 NOT_RUN**：本机 NVIDIA GPU 在但 aarch64
+   cuda jaxlib 缺失（jax 回落 CPU）、mujoco.mjx/mujoco_warp
+   未装——G41/G42 留档 NOT_RUN，绝不假装 GPU qualified。
+2. **Semantic Agreement 门（§36）**：final qpos/qvel + 轨迹
+   检查点 + task_success（谓词）+ peak contact force +
+   tracking——起点终点一致但中间物理不同即 SEMANTIC_DIVERGENCE
+   （MH18 的 final-qpos 太弱实证）。
+3. **counterexample 语料（§38）**：分歧按 contact/solver/
+   friction/high_stiffness/constraint/state 分类落 experiments
+   分区——不扔，是 Backend Fidelity 研究数据。
+4. **门逻辑 CPU 可验证**："GPU-like"候选数据（CPU 产出）走同一
+   判据——真实 GPU 数据接入即同一语义门。
