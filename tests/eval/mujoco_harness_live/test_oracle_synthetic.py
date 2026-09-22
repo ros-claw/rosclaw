@@ -258,11 +258,22 @@ def test_h01_feasible_claim_with_real_evidence(tmp_path) -> None:
 def test_task_table_complete() -> None:
     """任务表四类齐全且首批任务可寻址（U/R/E/H）。"""
     categories = {task.category for task in TASKS.values()}
-    assert categories == {"understanding", "repair", "experiment", "honesty"}
-    for task_id in ("U01", "R02", "E01", "H01"):
+    # MH23-A：v2 八类全齐。
+    assert categories == {
+        "understanding",
+        "repair",
+        "experiment",
+        "honesty",
+        "vision",
+        "interaction",
+        "shadow",
+        "dynamic",
+    }
+    for task_id in TASKS:
         task = TASKS[task_id]
-        assert task.prompt and "answer.json" in task.prompt or task_id != "U01"
-        assert task.staged_files
+        assert task.prompt, f"{task_id} prompt 缺失"
+        assert task.staged_files, f"{task_id} staged_files 缺失"
+        assert task.oracle.get("kind"), f"{task_id} oracle.kind 缺失"
 
 
 # ---------------------------------------------------------------- A 侧证据通道
