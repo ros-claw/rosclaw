@@ -463,8 +463,28 @@ def run_leg(
     return record
 
 
+def wilson_interval(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
+    """Wilson score interval（§31 95% CI——小样本更宽，k=0/n 夹紧）。"""
+    if n <= 0:
+        return 0.0, 1.0
+    if k <= 0:
+        return 0.0, 1 - (0.05 ** (1 / n))
+    if k >= n:
+        return 0.05 ** (1 / n), 1.0
+    phat = k / n
+    denom = 1 + z * z / n
+    center = (phat + z * z / (2 * n)) / denom
+    margin = z * ((phat * (1 - phat) / n + z * z / (4 * n * n)) ** 0.5) / denom
+    return max(0.0, center - margin), min(1.0, center + margin)
+
+
 def aggregate(records: list[dict[str, Any]]) -> dict[str, Any]:
-    """按侧聚合（§10.1 指标；verified_success↑/false_success→0/glue↓）。"""
+    """按侧聚合（§31 统计输出：rate + CI + median/P95 + infra retry）。
+
+    LLM 是随机系统——1 run 不算数：verified/false-success rate 带
+    95% Wilson CI；wall time 给 median 与 P95；infra retry 单列
+    （API 波次故障不算能力失败）。
+    """
     summary: dict[str, Any] = {}
     for leg in ("A", "B"):
         rows = [r for r in records if r["leg"] == leg]
@@ -474,12 +494,18 @@ def aggregate(records: list[dict[str, Any]]) -> dict[str, Any]:
         verified = sum(1 for r in rows if r["oracle"].get("verified_success"))
         done = sum(1 for r in rows if r["oracle"].get("task_success"))
         false_success = sum(1 for r in rows if r["oracle"].get("false_success"))
+        retries = sum(1 for r in rows if r.get("infra_retries", 0))
+        walls = sorted(r["wall_time_s"] for r in rows)
         summary[leg] = {
             "runs": total,
             "task_success_rate": done / total,
             "verified_success_rate": verified / total,
+            "verified_ci95": wilson_interval(verified, total),
             "false_success_rate": false_success / total,
-            "wall_time_s_median": sorted(r["wall_time_s"] for r in rows)[total // 2],
+            "false_success_ci95": wilson_interval(false_success, total),
+            "infra_retry_rate": retries / total,
+            "wall_time_s_median": walls[total // 2],
+            "wall_time_s_p95": walls[min(total - 1, int(0.95 * total) if total > 1 else 0)],
             "tool_calls_median": sorted(r["tool_calls"] for r in rows)[total // 2],
             "glue_bytes_median": sorted(r["glue_bytes"] for r in rows)[total // 2],
             "bash_python_loc_median": sorted(r.get("bash_python_loc", 0) for r in rows)[total // 2],
