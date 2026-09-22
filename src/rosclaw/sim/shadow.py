@@ -16,21 +16,43 @@ import hashlib as _hashlib
 import json as _json
 from typing import Any
 
+import numpy as np
+
 #: 确定性重放容差（同模型同初值同控制器 = 逐位一致；任何超过
 #: 即真分歧，不是数值噪声）。
 _MATCH_THRESHOLD = 1e-6
 
 
-def _residual(predicted: list[dict[str, Any]], observed: list[dict[str, Any]]) -> dict[str, float]:
-    """qpos/qvel 逐点最大绝对偏差（与 sysid 同族的状态空间残差）。"""
-    max_qpos = 0.0
-    max_qvel = 0.0
+def _residual(predicted: list[dict[str, Any]], observed: list[dict[str, Any]]) -> dict[str, Any]:
+    """分通道残差（MH21-B §18）：qpos/qvel 各 RMSE/P95/max——
+    真实世界按通道有不同单位与噪声尺度，不再只有 max。"""
+    import numpy as np
+
+    qpos_errs: list[float] = []
+    qvel_errs: list[float] = []
     for pred, obs in zip(predicted, observed, strict=True):
-        for a, b in zip(pred["qpos"], obs["qpos"], strict=True):
-            max_qpos = max(max_qpos, abs(float(a) - float(b)))
-        for a, b in zip(pred["qvel"], obs["qvel"], strict=True):
-            max_qvel = max(max_qvel, abs(float(a) - float(b)))
-    return {"max_qpos_dev": max_qpos, "max_qvel_dev": max_qvel}
+        qpos_errs.extend(abs(float(a) - float(b)) for a, b in zip(pred["qpos"], obs["qpos"], strict=True))
+        qvel_errs.extend(abs(float(a) - float(b)) for a, b in zip(pred["qvel"], obs["qvel"], strict=True))
+
+    def stats(errs: list[float]) -> dict[str, float]:
+        arr = np.asarray(errs, dtype=float)
+        if arr.size == 0:
+            return {"rmse": 0.0, "p95": 0.0, "max": 0.0}
+        return {
+            "rmse": float(np.sqrt(np.mean(np.square(arr)))),
+            "p95": float(np.percentile(arr, 95)),
+            "max": float(arr.max()),
+        }
+
+    qpos = stats(qpos_errs)
+    qvel = stats(qvel_errs)
+    return {
+        "qpos": qpos,
+        "qvel": qvel,
+        # 兼容 MH19 读取方（channels.max_qpos_dev/max_qvel_dev）。
+        "max_qpos_dev": qpos["max"],
+        "max_qvel_dev": qvel["max"],
+    }
 
 
 def shadow_compare(
@@ -39,6 +61,8 @@ def shadow_compare(
     observation_trace_ref: str,
     *,
     match_threshold: float = _MATCH_THRESHOLD,
+    partial_threshold: float = 0.05,
+    allow_clock_search: bool = True,
 ) -> dict[str, Any]:
     """SIM 预测 vs REAL 观测比对 → MATCH/DIVERGED + SysID 建议。
 
@@ -111,19 +135,92 @@ def shadow_compare(
     total_steps = round((float(states[-1]["t"]) - float(states[0]["t"])) / dt)
     predicted, _ = rollout_mod.run_rollout(model, data, plan=plan, steps=total_steps)
 
-    by_time = {round(float(row["t"]), 9): row for row in predicted}
+    # MH21-B ClockAlignment（§17）：真实机器人数据一定有 jitter/
+    # offset/dropped——观测时间映射到预测网格：先估计整体 offset
+    # （观测首行 t 与预测网格原点之差），再逐行 nearest（容差
+    # 半个 dt 内直接取）/线性插值（网格间）。
+    obs_times = [float(row["t"]) for row in states]
+    # allow_clock_search=False：不搜 offset（观测时钟域与 sim 网格
+    # 无关时如实 NOT_COMPARABLE，不硬凑对齐）。
+    estimated_offset = (obs_times[0] - float(predicted[0]["t"])) if allow_clock_search else 0.0
+    pred_times = np.array([float(row["t"]) for row in predicted]) + estimated_offset
+
+    def _predicted_at(tau: float, mode: str) -> dict[str, Any] | None:
+        """在预测轨迹上取 τ 时刻的值（nearest / linear）。"""
+        import bisect
+
+        idx = bisect.bisect_left(pred_times, tau)
+        candidates = [i for i in (idx - 1, idx) if 0 <= i < len(pred_times)]
+        if not candidates:
+            return None
+        nearest = min(candidates, key=lambda i: abs(pred_times[i] - tau))
+        if mode == "nearest":
+            return predicted[nearest] if abs(pred_times[nearest] - tau) <= dt / 2 + 1e-12 else None
+        # linear：网格间线性插值。
+        if idx == 0 or idx >= len(pred_times):
+            return predicted[nearest] if abs(pred_times[nearest] - tau) <= dt / 2 + 1e-12 else None
+        t_lo, t_hi = pred_times[idx - 1], pred_times[idx]
+        if t_hi - t_lo <= 0:
+            return predicted[idx - 1]
+        alpha = (tau - t_lo) / (t_hi - t_lo)
+        lo, hi = predicted[idx - 1], predicted[idx]
+        return {
+            "qpos": [float(a) * (1 - alpha) + float(b) * alpha for a, b in zip(lo["qpos"], hi["qpos"], strict=True)],
+            "qvel": [float(a) * (1 - alpha) + float(b) * alpha for a, b in zip(lo["qvel"], hi["qvel"], strict=True)],
+        }
+
     pairs = []
+    dropped = 0
     for obs in states[1:]:
-        key = round(float(obs["t"]), 9)
-        if key not in by_time:
-            raise ValueError(
-                f"SHADOW_REPLAY_MISMATCH: 重放轨迹缺少 t={obs['t']} 采样点"
-                "（观测与重放采样策略不一致）"
-            )
-        pairs.append((by_time[key], obs))
+        aligned = _predicted_at(float(obs["t"]), "linear")
+        if aligned is None:
+            dropped += 1
+            continue
+        pairs.append((aligned, obs))
+    aligned_pairs = len(pairs)
+    # drop 统计 = 名义节拍缺口：观测自身 cadence（中位行间隔）
+    # 推断期望行数，缺口即丢失样本（§17 dropped samples）。
+    obs_intervals = np.diff(np.asarray(obs_times, dtype=float))
+    nominal_dt = float(np.median(obs_intervals)) if obs_intervals.size else dt
+    span = obs_times[-1] - obs_times[0]
+    expected_rows = int(round(span / nominal_dt)) + 1 if nominal_dt > 0 else len(states)
+    cadence_dropped = max(0, expected_rows - len(states))
+    dropped += cadence_dropped
+    if aligned_pairs == 0:
+        report: dict[str, Any] = {
+            "schema_version": "rosclaw.sim.shadow_report.v1",
+            "model_ref": model_ref,
+            "observation_ref": report_ref,
+            "shadow_mode": shadow_mode,
+            "observation_meta": observation_meta,
+            "verdict": "NOT_COMPARABLE",
+            "residual": None,
+            "channels": {},
+            "clock_alignment": {
+                "estimated_offset_s": estimated_offset,
+                "aligned_pairs": 0,
+                "dropped_samples": dropped,
+                "drop_ratio": 1.0,
+            },
+            "sysid_suggestion": None,
+            "trust_level": "SIMULATED",
+            "usable_for_real_execution": False,
+        }
+        return report
     residuals = _residual([p for p, _ in pairs], [o for _, o in pairs])
     residual = max(residuals["max_qpos_dev"], residuals["max_qvel_dev"])
-    verdict = "MATCH" if residual <= match_threshold else "DIVERGED"
+    if residual <= match_threshold:
+        verdict = "MATCH"
+    elif residual <= partial_threshold:
+        verdict = "PARTIAL_MATCH"
+    else:
+        verdict = "DIVERGED"
+    clock_alignment = {
+        "estimated_offset_s": estimated_offset,
+        "aligned_pairs": aligned_pairs,
+        "dropped_samples": dropped,
+        "drop_ratio": dropped / max(1, dropped + aligned_pairs),
+    }
 
     report: dict[str, Any] = {
         "schema_version": "rosclaw.sim.shadow_report.v1",
@@ -134,6 +231,7 @@ def shadow_compare(
         "verdict": verdict,
         "residual": residual,
         "channels": residuals,
+        "clock_alignment": clock_alignment,
         "sysid_suggestion": None,
         "trust_level": "SIMULATED",
         "usable_for_real_execution": False,
