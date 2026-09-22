@@ -553,3 +553,19 @@ ROSClaw 已经具备相当多 MuJoCo 底层能力：`sim/api.py` 的最小编程
    joint_order_in_trace 声明 + 按名重排为模型规范序
    （SH01 列置换实证）；schema 与模型不符即
    SHADOW_JOINT_SCHEMA_MISMATCH。
+
+## 补充：MH21-B ClockAlignment + Shadow Residual v2（2026-09-22，讨论总纲 §17-§19）
+
+1. **ClockAlignment**：真实机器人数据必有 jitter/offset/dropped——
+   观测时间映射到预测网格：estimated_offset（观测首行 t 与预测
+   原点差）+ 逐行 nearest/线性插值；记录 aligned_pairs/
+   dropped_samples/drop_ratio（drop 按名义节拍缺口统计）。
+   allow_clock_search=False 时零重叠 → NOT_COMPARABLE（不硬凑）。
+2. **Shadow Residual v2**：分通道 qpos/qvel 各 RMSE/P95/max
+   （真实世界按通道有不同单位与噪声尺度）；verdict 四级
+   MATCH/PARTIAL_MATCH/DIVERGED/NOT_COMPARABLE（PARTIAL =
+   偏差在容差带内，不是非黑即白）。
+3. **实证记录**：run_rollout 有界采样同源时按 t 对齐可行
+   （1.0s/500 步录 251 行）；观测 cadence 用中位行间隔估计；
+   位置伺服重力下垂 g/kp（kp=200 下垂 5.15cm——SH 测试
+   fixture 同样受影响）。
