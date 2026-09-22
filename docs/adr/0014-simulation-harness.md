@@ -569,3 +569,26 @@ ROSClaw 已经具备相当多 MuJoCo 底层能力：`sim/api.py` 的最小编程
    （1.0s/500 步录 251 行）；观测 cadence 用中位行间隔估计；
    位置伺服重力下垂 g/kp（kp=200 下垂 5.15cm——SH 测试
    fixture 同样受影响）。
+
+## 补充：MH22 SysID v2 / Twin Qualification（2026-09-22，讨论总纲 §20-§27）
+
+1. **多参数资格**：S21（damping+mass）/S23（kp+damping）联合识别；
+   参数类型 joint_damping/geom_friction/geom_mass/actuator_kp
+   （继续复用官方 mujoco.sysid，不重写优化器）。
+2. **Identifiability 诊断（§23）**：scipy OptimizeResult.jac →
+   列归一化 SVD 得 jacobian_rank/condition_number/
+   parameter_sensitivity + J^T J 归一化相关矩阵点名
+   weak_parameter_pairs（|corr|>0.95）；三级 IDENTIFIABLE/
+   WEAKLY_IDENTIFIABLE/NOT_IDENTIFIABLE——不只看 bounds_hit。
+   **实证锚点**：自由摆 damping+mass 轨迹完美拟合但参数错
+   （0.19/0.95 vs 0.3/1.5）——weak pair 逮住，不得晋升 twin。
+3. **噪声鲁棒（§25）**：1%/5% 乘性高斯噪声下恢复 0.3001/0.3005
+   （真值 0.3）——稳定且诚实。
+4. **excitation 纪律（§24）**：train/holdout 全部同激励同初值 =
+   数据泄漏 → EXCITATION_INSUFFICIENT；但零运动的诚实负例
+   （NOT_IDENTIFIABLE）先于 excitation 判定。
+5. **twin promotion 门（§26）**：holdout 改进 + IDENTIFIABLE +
+   physical audit（PASS/WARN）才 TWIN_CANDIDATE；绝不自动覆盖
+   e-URDF（promotion 由 operator/policy 控制）。receipt 带
+   SimulationProfile 块（§27 形状，候选/nominal/identified/
+   confidence）。

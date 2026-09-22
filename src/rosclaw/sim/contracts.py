@@ -382,6 +382,11 @@ class SysIDReceipt(SimContract):
     receipt_ref: str = ""
     trust_level: str = "SIMULATED"
     usable_for_real_execution: bool = False
+    # MH22：identifiability 诊断（§23）+ twin promotion 门（§26）+
+    # SimulationProfile（§27）。
+    identifiability: dict[str, Any] = {}
+    promotion: dict[str, Any] = {}
+    simulation_profile: dict[str, Any] = {}
 
 
 class ObservationTraceV2(SimContract):
