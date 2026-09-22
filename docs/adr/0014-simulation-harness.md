@@ -627,3 +627,20 @@ ROSClaw 已经具备相当多 MuJoCo 底层能力：`sim/api.py` 的最小编程
    分区——不扔，是 Backend Fidelity 研究数据。
 4. **门逻辑 CPU 可验证**："GPU-like"候选数据（CPU 产出）走同一
    判据——真实 GPU 数据接入即同一语义门。
+## 补充：MH25 ROS2 适配层 + fault fail-closed（2026-09-22，讨论总纲 §39-§46）
+
+1. **live bridge 诚实 NOT_RUN（实况留档不粉饰）**：binary
+   ros-jazzy-mujoco-ros2-control 的 apt 索引 404（索引过期）+
+   packages.ros.org 镜像本轮网络不可达；源码 main 分支 API
+   面向 Rolling（hardware_class_type/ResourceManagerParams）
+   与 Jazzy hardware_interface 不兼容——不拿 Rolling 源码硬凑
+   冒充 Jazzy 兼容。
+2. **适配层先行**：Ros2BridgeProtocol（exact-step/clock 不回退
+   无 generation 变化/joint 按名映射禁 positional zip/REAL
+   Log First 不给 action authority）+ FaultPolicy（controller
+   crash/graph loss/joint_state stale/clock stale/sensor stops/
+   bridge restart 全部 fail closed 不用旧状态）+
+   ObservationFreshness（stale 绝不算 live）——桥接入时直接
+   走同一判据。
+3. **边界（§45）**：Agent 面永无 ros publish 动词——architecture
+   test 永久锁定。
