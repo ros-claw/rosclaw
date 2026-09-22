@@ -208,15 +208,13 @@ def _prepare_home_with_profile(home: Path, profile: dict[str, Any]) -> tuple[Pat
         "models:\n  backend: legacy\n  profiles:\n    embodied_default:\n"
         f"      provider: local\n      model: {profile['model']}\n"
         f"      base_url: {profile['base_url']}\n"
-        "      api_key_ref: \"\"\n"
+        '      api_key_ref: ""\n'
         "      capabilities: [llm.chat, llm.structured_decision, llm.tool_use]\n",
         encoding="utf-8",
     )
     (home / "agent").mkdir(parents=True, exist_ok=True)
     (home / "agent" / "settings.json").write_text(
-        json.dumps(
-            {"defaultProvider": profile["provider"], "defaultModel": profile["model"]}
-        ),
+        json.dumps({"defaultProvider": profile["provider"], "defaultModel": profile["model"]}),
         encoding="utf-8",
     )
     (home / "agent" / "models.json").write_text(
@@ -278,7 +276,9 @@ def stage_workspace(base: Path, task_id: str) -> Path:
     return base
 
 
-def _wait_settled(session, workspace: Path, settle_timeout: float, *, prompt: str | None = None) -> int:
+def _wait_settled(
+    session, workspace: Path, settle_timeout: float, *, prompt: str | None = None
+) -> int:
     """等回合收束：输出静止 ≥20s 且工作区文件静止 ≥15s
     （driver.AgentRun 同款判据——两侧同标准）。
 
@@ -314,7 +314,9 @@ def _wait_settled(session, workspace: Path, settle_timeout: float, *, prompt: st
         if retries < 2 and len(output) > scanned:
             chunk = output[scanned:]
             scanned = len(output)
-            if prompt is not None and (b"Operation aborted" in chunk or "已取消本次请求".encode() in chunk):
+            if prompt is not None and (
+                b"Operation aborted" in chunk or "已取消本次请求".encode() in chunk
+            ):
                 retries += 1
                 quiet_since = time.monotonic()
                 session.send(prompt + "\r")

@@ -11,7 +11,7 @@
 | G17 Replay Fidelity Rule | FULL_INTEGRATION→RAW_EXACT；LEGACY_PARTIAL→SEMANTIC 封顶 | `tests/sim/test_replay_fidelity.py` | ✅ PASS（MH10） |
 | G18 Control Schema | PID 多输入 control_channels；position_targets 拒绝多输入；setpoints 按名寻址 | `tests/sim/test_control_schema.py` | ✅ PASS（MH10） |
 | G19 MjVfs Portable Model | .mjz 自包含导出/重建（资产嵌入） | `tests/sim/test_model_mjz.py` | ✅ PASS（MH10b，含绑定不一致实证记录） |
-| G20 True Agent H01-H08（HarnessBench live） | 无答案泄漏的独立 workspace + 外部 oracle + 真实 LLM | `benchmarks/harnessbench/` + `scripts/harnessbench_run.py`（B 侧 4/4 VERIFIED，false_success 0/4，真实 kimi-k3） | ✅ PASS（MH11，2026-09-16） |
+| G20 HarnessBench v1 Four-Class Live Qualification | 无答案泄漏的独立 workspace + 外部 oracle + 真实 LLM（U01/R02/E01/H01 四类，改名对齐 §28） | `benchmarks/harnessbench/` + `scripts/harnessbench_run.py`（B 侧 4/4 VERIFIED，false_success 0/4，真实 kimi-k3） | ✅ PASS（MH11，2026-09-16） |
 | G21 Real A/B Baseline vs Harness | A=coding agent，B=harness，同模型/prompt/seed | 同上（A 侧 3/4 VERIFIED + R02 FALSE_SUCCESS；B 侧 4/4 + 0 假成功；胶水 105-139 pyLOC vs ~0） | ✅ PASS（MH11，2026-09-16） |
 | G22 Executable Interaction Honesty | sim_interact + executor registry + GRASP_HONESTY | `tests/sim/test_interact.py`（grasp 诚实流/precondition/未声明 weld/未知 executor）、`tests/sim/test_predicates_v2.py` | ✅ PASS（MH12） |
 | G23 Multimodal Observation Evidence | camera_rgb/depth/segmentation → artifact_ref | `tests/sim/test_observe_camera.py`（PNG magic/dtype/intrinsics/实际后端） | ✅ PASS（MH13） |
@@ -24,6 +24,8 @@
 | G30 Contact Evidence Honesty | PROXIMITY/CONTACT/LOAD_BEARING 三级；默认 attach 必须真接触对 | `tests/sim/test_grasp_honesty_v2.py`（proximity 拒绝/降级命名/真接触证据） | ✅ PASS（MH20-C） |
 | G31 Weld Relative Pose | q_rel=inv(q1)⊗q2 + eq_data 布局 + mj_setConst | 同上（yaw 90/120→rel 30 无 snap/布局/共动不漂） | ✅ PASS（MH20-C） |
 | G32 Release Target-specific Evidence | release 证据只看 payload（velocity/displacement/z） | 同上（payload 速度/位移/z 证据） | ✅ PASS（MH20-C） |
+| G39 HarnessBench Task Family v2 | 八类 32 任务全部 oracle 判定（U/R/E/H/V/I/S/D） | `tests/eval/mujoco_harness_live/test_oracle_v2_synthetic.py`（20 例合成红绿） | ✅ PASS（MH23-A） |
+| G40 Adversarial False-success Defense | 假证据/无证据声称/照搬陈旧文档全部被 oracle 抓住 | 同上（claimed_without_evidence/blindly_trusted_stale_doc/lifted_without_honest_attach） | ✅ PASS（MH23-A） |
 
 ## MH10 实证记录（2026-09-16）
 

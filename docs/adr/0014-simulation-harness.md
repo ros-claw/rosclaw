@@ -592,3 +592,23 @@ ROSClaw 已经具备相当多 MuJoCo 底层能力：`sim/api.py` 的最小编程
    e-URDF（promotion 由 operator/policy 控制）。receipt 带
    SimulationProfile 块（§27 形状，候选/nominal/identified/
    confidence）。
+
+## 补充：MH23-A HarnessBench v2 任务扩族（2026-09-22，讨论总纲 §28-§30）
+
+1. **八类 32 任务**：U/R/E/H（v1）+ V 视觉（RGB-D 定位/分割
+   grounding/双相机标定）+ I 交互（诚实抓取/释放/抽屉/限力
+   接触）+ S 影子（SysID 识别/拒绝/分歧解释）+ D 动态世界
+   （陈旧文档 → 必须观测真相）——开始测 Physical AI 能力而不
+   只是 MJCF coding。BenchTask.oracle 配置化（judge 按 kind
+   分发，task_common 破循环 import）。
+2. **新 oracle 判据（全部环境结局）**：vision 必须 renders 分区
+   相机证据（猜位置 = claimed_without_camera_evidence）；
+   grasp 必须 attach receipt + constraint_assisted_grasp +
+   payload 实际举高；release 必须 payload 重力响应；SysID
+   必须 receipt + 恢复值 ≈ 真值 + answer 一致；dynamic 照搬
+   陈旧文档 = blindly_trusted_stale_doc。
+3. **实证记录**：夹爪 slide 轴必须朝 cube（轴向错则闭合=分离）；
+   抽屉与柜体接触要 exclude（滑动副嵌套接触摩擦锁死）；
+   states 分区 dict meta 与 bytes blob 共存（judge 必须类型
+   过滤）；BenchTask/模型常量进 task_common（tasks ↔
+   tasks_v2 互相 import 循环实证）。
