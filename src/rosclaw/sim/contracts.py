@@ -382,3 +382,30 @@ class SysIDReceipt(SimContract):
     receipt_ref: str = ""
     trust_level: str = "SIMULATED"
     usable_for_real_execution: bool = False
+
+
+class ObservationTraceV2(SimContract):
+    """观测轨迹 v2（MH21，讨论总纲 §14-§16）：REAL provenance
+    强制——evidence_domain 三态严格分离，SIMULATION 观测永远
+    不能产出 REAL_SHADOW_COMPARE 结论。
+
+    body_snapshot_hash = 观测侧身体结构签名（joint schema 的
+    canonical hash）——shadow_compare 对目标模型重算校验，
+    不符即 SHADOW_BODY_IDENTITY_MISMATCH。
+    """
+
+    SCHEMA: ClassVar[str] = "rosclaw.observation_trace.v2"
+    HASH_PREFIX: ClassVar[str] = "sim"
+    schema_version: Literal["rosclaw.observation_trace.v2"] = "rosclaw.observation_trace.v2"
+
+    evidence_domain: Literal["SIMULATION", "REPLAY", "HARDWARE_RECORDED"] = "SIMULATION"
+    body_id: str = ""
+    body_snapshot_hash: str = ""
+    source: dict[str, Any] = {}  # {type, robot, session}
+    joint_schema: list[dict[str, Any]] = []  # 模型规范序 [{joint, qpos_adr, dof_adr}]
+    clock: dict[str, Any] = {}  # {domain, epoch, time_offset_estimate}
+    calibration_ref: str = ""
+    channels: list[str] = []
+    trace_ref: str = ""
+    trust_level: str = "SIMULATED"
+    usable_for_real_execution: bool = False

@@ -1534,6 +1534,111 @@ class MujocoBackend:
 
         return shadow.shadow_compare(self, model_ref, observation_trace_ref, **kwargs)
 
+    def import_observation(
+        self,
+        trace_ref: str,
+        *,
+        evidence_domain: str,
+        body_id: str,
+        body_snapshot_hash: str,
+        source: dict[str, Any],
+        joint_schema: list[dict[str, Any]],
+        clock: dict[str, Any],
+        calibration_ref: str,
+        joint_order_in_trace: list[str] | None = None,
+        model_ref: str | None = None,
+    ) -> str:
+        """导入观测为 ObservationTraceV2（MH21 §14-§16）：provenance
+        全字段 + joint schema 按名校验（不按数组位置猜）+ trace
+        按名重排为模型规范序（joint_order_in_trace ≠ 模型序时）。
+
+        body_snapshot_hash 空 → 从观测源模型结构签名自动计算
+        （REAL 日志桥接时由记录侧给出并在此复核）。
+        """
+        from rosclaw.sim import shadow as shadow_mod
+        from rosclaw.sim.contracts import ObservationTraceV2
+
+        trace = self.store.get(trace_ref)
+        if not isinstance(trace, dict) or "states" not in trace:
+            raise ValueError(f"SHADOW_OBSERVATION_EMPTY: {trace_ref} 不是 trace")
+        source_model_ref = model_ref or trace.get("model_ref")
+        if not source_model_ref:
+            raise ValueError("OBSERVATION_INVALID: 缺 model_ref（无法校验 joint schema）")
+        manifest = self._manifest(source_model_ref)
+        spec = self._spec_from_manifest(manifest)
+        model, _ = self._compile_smoke(spec)
+
+        canonical_schema = shadow_mod.canonical_joint_schema(model)
+        model_joint_names = {entry["joint"] for entry in canonical_schema}
+        declared = {entry["joint"] for entry in joint_schema}
+        if not declared or not declared <= model_joint_names:
+            raise ValueError(
+                "SHADOW_JOINT_SCHEMA_MISMATCH: joint_schema 与模型不符"
+                f"（多余: {sorted(declared - model_joint_names)}）"
+            )
+
+        final_trace_ref = trace_ref
+        if joint_order_in_trace is not None and joint_order_in_trace != [
+            entry["joint"] for entry in canonical_schema if entry["joint"] in joint_order_in_trace
+        ]:
+            # 按名重排 trace 的 qpos/qvel 列（REAL joint state 顺序
+            # 常与模型不同——按名映射，不按数组位置猜）。
+            order_map = []
+            for name in joint_order_in_trace:
+                if name not in model_joint_names:
+                    raise ValueError(f"SHADOW_JOINT_SCHEMA_MISMATCH: trace 列 {name!r} 不在模型中")
+                order_map.append(
+                    next(e for e in canonical_schema if e["joint"] == name)
+                )
+            states = trace["states"]
+            reordered = []
+            for row in states:
+                qpos = row["qpos"]
+                qvel = row["qvel"]
+                new_qpos: list[float] = [0.0] * len(qpos)
+                new_qvel: list[float] = [0.0] * len(qvel)
+                src_qpos = 0
+                src_qvel = 0
+                for entry in order_map:
+                    dst_qpos = int(entry["qpos_adr"])
+                    dst_qvel = int(entry["dof_adr"])
+                    # 宽度推断：下一地址差（hinge/slide=1, free=7/6）。
+                    nq = len(qpos)
+                    nv = len(qvel)
+                    next_qpos = min(
+                        (e["qpos_adr"] for e in canonical_schema if e["qpos_adr"] > dst_qpos),
+                        default=nq,
+                    )
+                    next_dof = min(
+                        (e["dof_adr"] for e in canonical_schema if e["dof_adr"] > dst_qvel),
+                        default=nv,
+                    )
+                    w_qpos = next_qpos - dst_qpos
+                    w_dof = next_dof - dst_qvel
+                    new_qpos[dst_qpos : dst_qpos + w_qpos] = qpos[src_qpos : src_qpos + w_qpos]
+                    new_qvel[dst_qvel : dst_qvel + w_dof] = qvel[src_qvel : src_qvel + w_dof]
+                    src_qpos += w_qpos
+                    src_qvel += w_dof
+                reordered.append({**row, "qpos": new_qpos, "qvel": new_qvel})
+            new_trace = {**trace, "states": reordered}
+            final_trace_ref = self.store.put("traces", new_trace)
+
+        if not body_snapshot_hash:
+            body_snapshot_hash = shadow_mod.body_snapshot_hash(model)
+        observation = ObservationTraceV2(
+            backend="mujoco",
+            evidence_domain=evidence_domain,
+            body_id=body_id,
+            body_snapshot_hash=body_snapshot_hash,
+            source=source,
+            joint_schema=canonical_schema,
+            clock=clock,
+            calibration_ref=calibration_ref,
+            channels=["qpos", "qvel"],
+            trace_ref=final_trace_ref,
+        )
+        return self.store.put("traces", observation.to_canonical_dict() | {"kind": "observation_trace_v2"})
+
     def record_dataset(self, model_ref: str, *, sequences: list[dict[str, Any]]) -> str:
         """录制 SysID 数据集（MH17）：每序列 = 初始状态 + 受控 rollout
         trace。内容寻址幂等（同参数重录同 ref）。
