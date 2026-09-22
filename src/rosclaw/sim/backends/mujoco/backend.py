@@ -58,6 +58,10 @@ from rosclaw.sim.model_inspect import inspect_mjcf
 from rosclaw.sim.resolve import resolve_mjcf_source, source_kind_for
 from rosclaw.sim.store import SimStore
 
+#: .mjz 自包含导出工件的单次写入预算（MH26：stretch_3 实测 76.3MB，
+#: 超 store 默认 64MB——显式声明，非全局放宽）。
+_MJZ_MAX_BYTES = 512 * 1024 * 1024
+
 
 class MujocoBackend:
     """MuJoCo 物理仿真后端（phase-1：模型服务）。"""
@@ -405,7 +409,12 @@ class MujocoBackend:
 
     def export_model_mjz(self, model_ref: str) -> dict[str, Any]:
         """导出 .mjz 便携模型工件（spec.assets 填充 + to_zip，
-        from_zip 自包含编译——跨机器证据/Hub/benchmark/replay 用）。"""
+        from_zip 自包含编译——跨机器证据/Hub/benchmark/replay 用）。
+
+        预算策略（MH26 实证）：自包含 .mjz 内嵌全部 mesh/texture
+        资产，Menagerie 代表机器人（stretch_3 实测 76.3MB）合法
+        超过 store 默认 64MB 上限。此路径显式声明 512MB 单次预算
+        ——不是全局放宽，超 512MB 仍 STORE_OBJECT_TOO_LARGE。"""
         import tempfile
 
         manifest = self._manifest(model_ref)
@@ -414,7 +423,7 @@ class MujocoBackend:
         with tempfile.NamedTemporaryFile(suffix=".mjz", delete=False) as tmp:
             spec.to_zip(tmp.name)
             blob = Path(tmp.name).read_bytes()
-        artifact_ref = self.store.put("models", blob)
+        artifact_ref = self.store.put("models", blob, max_bytes=_MJZ_MAX_BYTES)
         return {
             "artifact_ref": artifact_ref,
             "format": "mjz",
@@ -1587,9 +1596,7 @@ class MujocoBackend:
             for name in joint_order_in_trace:
                 if name not in model_joint_names:
                     raise ValueError(f"SHADOW_JOINT_SCHEMA_MISMATCH: trace 列 {name!r} 不在模型中")
-                order_map.append(
-                    next(e for e in canonical_schema if e["joint"] == name)
-                )
+                order_map.append(next(e for e in canonical_schema if e["joint"] == name))
             states = trace["states"]
             reordered = []
             for row in states:
@@ -1637,7 +1644,9 @@ class MujocoBackend:
             channels=["qpos", "qvel"],
             trace_ref=final_trace_ref,
         )
-        return self.store.put("traces", observation.to_canonical_dict() | {"kind": "observation_trace_v2"})
+        return self.store.put(
+            "traces", observation.to_canonical_dict() | {"kind": "observation_trace_v2"}
+        )
 
     def record_dataset(self, model_ref: str, *, sequences: list[dict[str, Any]]) -> str:
         """录制 SysID 数据集（MH17）：每序列 = 初始状态 + 受控 rollout
