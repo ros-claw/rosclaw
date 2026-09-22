@@ -12,6 +12,8 @@ predict → act → observe → compare → calibrate 的 ROSClaw 侧核心：
 
 from __future__ import annotations
 
+import hashlib as _hashlib
+import json as _json
 from typing import Any
 
 #: 确定性重放容差（同模型同初值同控制器 = 逐位一致；任何超过
@@ -42,20 +44,53 @@ def shadow_compare(
 
     重放语义：从观测 trace 第 0 行状态出发、用观测的控制序列
     重放 len-1 步，与第 1..n-1 行逐点比对（同模型确定性重放
-    逐位一致——MATCH 容差 1e-6 是"真分歧"判据不是数值容差）。"""
+    逐位一致——MATCH 容差 1e-6 是"真分歧"判据不是数值容差）。
+
+    MH21 v2（讨论总纲 §15）：证据域强制——
+    - 观测是 ObservationTraceV2 且 HARDWARE_RECORDED →
+      REAL_SHADOW_COMPARE（身体身份 + joint schema 必须一致）；
+    - 其余（SIMULATION/REPLAY/裸 trace）→ SELF_TEST——
+      SIM 观测永远不能产出 REAL 结论（§3 SIM ≠ REAL）。
+    """
     import mujoco
 
     from rosclaw.sim.backends.mujoco import rollout as rollout_mod
 
+    manifest = backend._manifest(model_ref)
+    spec = backend._spec_from_manifest(manifest)
+    model, _ = backend._compile_smoke(spec)
+
     observation = backend.store.get(observation_trace_ref)
+    shadow_mode = "SELF_TEST"
+    observation_meta: dict[str, Any] = {}
+    report_ref = observation_trace_ref  # 报告指向观测记录本身（不解包）
+    if isinstance(observation, dict) and observation.get("kind") == "observation_trace_v2":
+        observation_meta = observation
+        domain = observation.get("evidence_domain", "SIMULATION")
+        if domain == "HARDWARE_RECORDED":
+            # 身体身份：观测侧结构签名 hash 与目标模型重算一致——
+            # 不符即"观测不是这个身体的"（SH05）。
+            if observation.get("body_snapshot_hash") != body_snapshot_hash(model):
+                raise ValueError(
+                    "SHADOW_BODY_IDENTITY_MISMATCH: observation 的 body_snapshot_hash "
+                    "与目标模型结构签名不符"
+                )
+            # joint schema：按名校验（不按数组位置猜——§16）。
+            schema_joints = {entry["joint"] for entry in observation.get("joint_schema", [])}
+            model_joints = {entry["joint"] for entry in canonical_joint_schema(model)}
+            if not schema_joints or not schema_joints <= model_joints:
+                raise ValueError(
+                    "SHADOW_JOINT_SCHEMA_MISMATCH: observation joint_schema 与模型不符"
+                    f"（多余: {sorted(schema_joints - model_joints)}）"
+                )
+            shadow_mode = "REAL_SHADOW_COMPARE"
+        observation_trace_ref = observation["trace_ref"]
+        observation = backend.store.get(observation_trace_ref)
+
     states = observation.get("states") or []
     if len(states) < 2:
         raise ValueError(f"SHADOW_OBSERVATION_EMPTY: {observation_trace_ref}")
     controller = observation.get("controller") or {"hold": True}
-
-    manifest = backend._manifest(model_ref)
-    spec = backend._spec_from_manifest(manifest)
-    model, _ = backend._compile_smoke(spec)
     data = mujoco.MjData(model)
     data.qpos[:] = [float(v) for v in states[0]["qpos"]]
     data.qvel[:] = [float(v) for v in states[0]["qvel"]]
@@ -93,7 +128,9 @@ def shadow_compare(
     report: dict[str, Any] = {
         "schema_version": "rosclaw.sim.shadow_report.v1",
         "model_ref": model_ref,
-        "observation_ref": observation_trace_ref,
+        "observation_ref": report_ref,
+        "shadow_mode": shadow_mode,
+        "observation_meta": observation_meta,
         "verdict": verdict,
         "residual": residual,
         "channels": residuals,
@@ -158,3 +195,38 @@ def ros2_bridge_status() -> dict[str, Any]:
             "reason": "mujoco_ros2_control not installed (ROS2 present but bridge missing)",
         }
     return {"status": "AVAILABLE", "available": True, "reason": "ros2_control bridge importable"}
+
+
+# ---------------------------------------------------------------- MH21 v2
+
+
+def body_snapshot_hash(model) -> str:  # noqa: ANN001, ANN202
+    """身体结构签名 hash（joint 名/类型/qpos/dof 地址）——
+    观测与模型比对的身份依据（不按数组位置猜）。"""
+    import mujoco
+
+    joints = [
+        (
+            mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_JOINT, i) or f"joint_{i}",
+            int(model.jnt_type[i]),
+            int(model.jnt_qposadr[i]),
+            int(model.jnt_dofadr[i]),
+        )
+        for i in range(model.njnt)
+    ]
+    canonical = _json.dumps(joints, separators=(",", ":"))
+    return "sha256:" + _hashlib.sha256(canonical.encode()).hexdigest()
+
+
+def canonical_joint_schema(model) -> list[dict[str, Any]]:  # noqa: ANN001
+    """模型规范 joint schema（id 序）。"""
+    import mujoco
+
+    return [
+        {
+            "joint": mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_JOINT, i) or f"joint_{i}",
+            "qpos_adr": int(model.jnt_qposadr[i]),
+            "dof_adr": int(model.jnt_dofadr[i]),
+        }
+        for i in range(model.njnt)
+    ]

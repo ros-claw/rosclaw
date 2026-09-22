@@ -537,3 +537,19 @@ ROSClaw 已经具备相当多 MuJoCo 底层能力：`sim/api.py` 的最小编程
    探针 equilibrium 异常追出的根因）；位置伺服重力下垂
    g/kp（kp=200 下垂 5.15cm——fixture 设计必须算平衡不是算目标）；
    3.13 MjData 无 eq_err 属性（物理验证改测共动漂移）。
+
+## 补充：MH21-A ObservationTraceV2 + Provenance 强制（2026-09-22，讨论总纲 §13-§16）
+
+1. **ObservationTraceV2 契约**（rosclaw.observation_trace.v2）：
+   evidence_domain（SIMULATION/REPLAY/HARDWARE_RECORDED）+
+   body_id + body_snapshot_hash（joint 结构签名）+ source +
+   joint_schema + clock + calibration_ref + channels + trace_ref——
+   "这个 JSON 是真机的"不是信任模型，provenance 是字段。
+2. **证据域强制**：SIMULATION trace 只能 SHADOW_SELF_TEST，
+   绝不输出 REAL_SHADOW_COMPARE；只有 HARDWARE_RECORDED 且
+   身体身份（结构签名 hash 重算一致）+ joint schema 按名校验
+   通过才可 REAL_SHADOW_COMPARE（SH05/SH06）。
+3. **joint 映射按名不按数组位置**：import_observation 支持
+   joint_order_in_trace 声明 + 按名重排为模型规范序
+   （SH01 列置换实证）；schema 与模型不符即
+   SHADOW_JOINT_SCHEMA_MISMATCH。
