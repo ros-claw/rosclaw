@@ -206,6 +206,41 @@ jobs:
           files: ./coverage.xml
           fail_ci_if_error: false
 
+  sim-cross-platform:
+    # G47 Cross-platform Qualification（MH26 PARTIAL → PASS）：sim
+    # harness 套件（含代表机器人矩阵 + 干净 wheel 冒烟）在 ubuntu x86_64
+    # 与 macOS（Apple Silicon）真跑——不只 aarch64 Linux 单平台证据。
+    name: Sim Cross-Platform (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ['3.11']
+    steps:
+      - uses: actions/checkout@v7.0.0
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v6.3.0
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.3.2
+        with:
+          version: 'latest'
+
+      - name: Install dependencies
+        run: uv pip install -e ".[dev]" --system
+
+      - name: Run sim harness suite
+        run: >-
+          pytest
+          tests/sim
+          tests/eval/mujoco_harness_live
+          -q
+          -m 'not integration and not deployment'
+
   full-regression:
     name: Full Regression (Python 3.11)
     runs-on: ubuntu-latest
