@@ -97,6 +97,30 @@ def test_set_body_pos_and_option_timestep(loaded) -> None:
     assert forearm["pos"][2] == pytest.approx(0.5)
 
 
+def test_set_geom_pos(loaded) -> None:
+    """geom.pos 入白名单（G39 live 试点实证：hidden_overlap 类修复
+    需要移动 geom——patch 白名单不含 geom.pos 时 R01 B 腿不可赢，
+    诚实 Agent 只能写文件 → 血缘拒绝 → 必然 false_success）。
+    加白后修复可经 patch 血缘表达。"""
+    backend, ref = loaded
+    patches = [
+        _patch(target={"type": "geom", "name": "base_geom"}, field="pos", value=[0.1, 0.0, 0.0])
+    ]
+    result = backend.patch_model(ref.model_ref, patches)
+    assert result.new_model_ref != ref.model_ref
+    parent = backend.store.get(result.new_model_ref)["parent_model_ref"]
+    assert parent == ref.model_ref  # 血缘可追溯（修复必须基于原模型）
+
+
+def test_set_geom_pos_invalid_shape(loaded) -> None:
+    backend, ref = loaded
+    with pytest.raises(ValueError, match="MODEL_PATCH_INVALID|MODEL_FIELD_UNSUPPORTED"):
+        backend.patch_model(
+            ref.model_ref,
+            [_patch(target={"type": "geom", "name": "base_geom"}, field="pos", value=[0.1, 0.2])],
+        )
+
+
 def test_patch_lineage_recorded(loaded) -> None:
     backend, ref = loaded
     patches = [_patch(value=2.5)]

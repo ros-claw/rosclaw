@@ -33,7 +33,6 @@ from fake_native_stack import BenchNativeStore, bench_provider_resolver
 from fixture_corpus import REGIME_CONTEXTS, TEST_SESSIONS, corpus, queries
 
 from rosclaw.how.selective import SelectiveInterventionPipeline
-from rosclaw.memory.seekdb_client import InMemoryKnowledgeStore
 from rosclaw.memory.regime import (
     ApplicabilityEnvelope,
     ApplicabilityStore,
@@ -41,6 +40,7 @@ from rosclaw.memory.regime import (
     empty_regime,
 )
 from rosclaw.memory.runtime_retrieval import build_retrieval_facade
+from rosclaw.memory.seekdb_client import InMemoryKnowledgeStore
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 

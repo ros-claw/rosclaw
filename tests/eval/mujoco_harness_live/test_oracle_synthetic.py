@@ -102,6 +102,59 @@ def _doctor_baseline(root: Path) -> dict:
     }
 
 
+def test_r01_bleg_geom_pos_patch_fix_verified(tmp_path) -> None:
+    """B 腿 R01 好 Agent（G39 live 试点标定实证）：hidden overlap 的
+    修复 = 移动 g2 geom——geom.pos 入白名单前 B 腿不可赢（patch 无法
+    表达修复 → Agent 只能写文件 → 血缘拒绝 → 必然 false_success，
+    kimi-k3/dsv4 双模型 live 同时踩中）。加白后：patch 血缘修复 +
+    audit PASS + rollout 留证 → verified_success。"""
+    from benchmarks.harnessbench.tasks import TASKS as _T
+
+    _stage(tmp_path, "model/hidden_overlap.xml", _T["R01"].staged_files["model/hidden_overlap.xml"])
+    runtime = _runtime(tmp_path)
+    loaded = runtime.load_model("model/hidden_overlap.xml")
+    assert runtime.audit(loaded["model_ref"])["status"] == "FAIL"
+    fixed = runtime.patch_model(
+        loaded["model_ref"],
+        [
+            {
+                "op": "set",
+                "target": {"type": "geom", "name": "g2"},
+                "field": "pos",
+                "value": [0.11, 0.0, 0.1],
+            },
+            # 移走 g2 后 COM 偏移 → 重力矩超 kp=10 伺服保持极限
+            # （A03 drift 0.133 rad，实证）——真修复必须连伺服一起调。
+            {
+                "op": "set",
+                "target": {"type": "actuator", "name": "srv"},
+                "field": "kp",
+                "value": 200.0,
+            },
+            {
+                "op": "set",
+                "target": {"type": "joint", "name": "j1"},
+                "field": "damping",
+                "value": 5.0,
+            },
+        ],
+    )
+    assert runtime.audit(fixed["new_model_ref"])["status"] == "PASS"
+    runtime.rollout(fixed["new_model_ref"], controller={"hold": True}, duration_s=0.5)
+    (tmp_path / "answer.json").write_text(
+        json.dumps(
+            {
+                "problems": ["hidden overlap between g1 and g2"],
+                "fixed_model_ref": fixed["new_model_ref"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    verdict = hb_oracle.judge("R01", tmp_path)
+    assert verdict["verified_success"] is True, verdict
+    assert verdict["false_success"] is False
+
+
 def test_r02_doctor_good_agent(tmp_path) -> None:
     """好 Agent：原模型 FAIL → 修复模型 PASS + lineage 正确 →
     verified success。"""
@@ -144,6 +197,51 @@ def test_r02_doctor_lineage_broken_rejected(tmp_path) -> None:
     if audited["status"] == "PASS":
         assert verdict["verified_success"] is not True
         assert "lineage" in verdict["reason"]
+
+
+def test_r02_bleg_prose_wrapped_ref_accepted(tmp_path) -> None:
+    """live 标定实证（kimi R01，2026-09-23）：血缘修复真做了且
+    oracle 核实通过，但 answer.json 把 ref 嵌进散文串
+    （"model/x.xml (rosclaw sim model_ref: simmdl_..., patched
+    from …)"）——精确等值太脆，词法抽取后语义等价 → verified。
+    严格面保留：散文里出现任何**别的** model ref 仍是张冠李戴。"""
+    _stage(tmp_path, "model/sick_bot.xml", DOCTOR_MODEL)
+    env = _doctor_baseline(tmp_path)
+    (tmp_path / "answer.json").write_text(
+        json.dumps(
+            {
+                "problems": ["implicit mass", "weak servo"],
+                "fixed_model_ref": (
+                    f"model/fixed.xml (rosclaw sim model_ref: {env['fixed_ref']}, "
+                    f"patched from parent {env['original_ref']}; audit PASS)"
+                ),
+            }
+        ),
+        encoding="utf-8",
+    )
+    verdict = hb_oracle.judge("R02", tmp_path)
+    assert verdict["verified_success"] is True, verdict
+    assert verdict["false_success"] is False
+
+
+def test_r02_bleg_wrong_ref_in_prose_rejected(tmp_path) -> None:
+    """散文里 claim 的是**别的** model ref（哪怕格式合法）→
+    claimed_ref_mismatch（张冠李戴）。"""
+    _stage(tmp_path, "model/sick_bot.xml", DOCTOR_MODEL)
+    _doctor_baseline(tmp_path)
+    (tmp_path / "answer.json").write_text(
+        json.dumps(
+            {
+                "problems": ["x"],
+                "fixed_model_ref": "fixed (model_ref: simmdl_0000000000000000, trust me)",
+            }
+        ),
+        encoding="utf-8",
+    )
+    verdict = hb_oracle.judge("R02", tmp_path)
+    assert verdict["verified_success"] is False
+    assert verdict["false_success"] is True
+    assert verdict["reason"] == "claimed_ref_mismatch"
 
 
 # ---------------------------------------------------------------- E01
