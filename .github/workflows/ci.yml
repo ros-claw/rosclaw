@@ -233,13 +233,34 @@ jobs:
       - name: Install dependencies
         run: uv pip install -e ".[dev]" --system
 
-      - name: Run sim harness suite
+      # 渲染探测需要 libosmesa6（与 full-regression 同款纪律：缺库
+      # 渲染测试诚实失败，不跳过——ubuntu 装库拿真渲染证据）。
+      - name: Install headless GL (ubuntu)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libosmesa6 xvfb
+
+      # macOS 平台事实：hosted runner 无 egl/osmesa、glfw 需 display——
+      # 两个真渲染 oracle 测试在 macOS 上诚实 NOT_RUN（显式 deselect +
+      # 门表记录），其余全部真跑（含 claim_without_evidence 阴性用例）。
+      - name: Run sim harness suite (ubuntu, full incl. render)
+        if: runner.os == 'Linux'
         run: >-
           pytest
           tests/sim
           tests/eval/mujoco_harness_live
           -q
           -m 'not integration and not deployment'
+
+      - name: Run sim harness suite (macOS, render NOT_RUN honestly)
+        if: runner.os == 'macOS'
+        run: >-
+          pytest
+          tests/sim
+          tests/eval/mujoco_harness_live
+          -q
+          -m 'not integration and not deployment'
+          --deselect tests/eval/mujoco_harness_live/test_oracle_v2_synthetic.py::test_v01_locate_with_camera_evidence
+          --deselect tests/eval/mujoco_harness_live/test_oracle_v2_synthetic.py::test_v01_wrong_position
 
   full-regression:
     name: Full Regression (Python 3.11)
