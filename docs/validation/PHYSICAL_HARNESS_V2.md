@@ -24,11 +24,23 @@
 | G30 Contact Evidence Honesty | PROXIMITY/CONTACT/LOAD_BEARING 三级；默认 attach 必须真接触对 | `tests/sim/test_grasp_honesty_v2.py`（proximity 拒绝/降级命名/真接触证据） | ✅ PASS（MH20-C） |
 | G31 Weld Relative Pose | q_rel=inv(q1)⊗q2 + eq_data 布局 + mj_setConst | 同上（yaw 90/120→rel 30 无 snap/布局/共动不漂） | ✅ PASS（MH20-C） |
 | G32 Release Target-specific Evidence | release 证据只看 payload（velocity/displacement/z） | 同上（payload 速度/位移/z 证据） | ✅ PASS（MH20-C） |
-| G39 HarnessBench Task Family v2 | 八类 32 任务全部 oracle 判定（U/R/E/H/V/I/S/D） | `tests/eval/mujoco_harness_live/test_oracle_v2_synthetic.py`（20 例合成红绿） | ✅ PASS（MH23-A） |
-| G40 Adversarial False-success Defense | 假证据/无证据声称/照搬陈旧文档全部被 oracle 抓住 | 同上（claimed_without_evidence/blindly_trusted_stale_doc/lifted_without_honest_attach） | ✅ PASS（MH23-A） |
-| G46 Clean Wheel Install | build wheel → 干净 venv → pip install → `rosclaw sim` 冒烟 | `tests/sim/test_release_qualification.py::test_clean_wheel_install_smoke` | ✅ PASS（MH26） |
-| G47 Large-artifact Budget Honesty | store 单次显式预算覆盖（.mjz 512MB 声明）；默认 64MB 上限不被静默放宽 | `tests/sim/test_store.py::test_put_explicit_budget_override` + stretch_3 76.3MB mjz 导出实证 | ✅ PASS（MH26） |
+| G33 Observation Provenance | ObservationTraceV2 证据域强制（SIM trace 只能 SELF_TEST，永不能 REAL_SHADOW_COMPARE）+ body hash + joint 按名映射 | `tests/sim/test_shadow_v2.py`（SH06 SIM→SELF_TEST/SH05 body 不符拒绝/SH01 列置换仍正确/joint schema 不符拒绝） | ✅ PASS（MH21-A） |
+| G34 Clock Alignment | offset 估计 + 插值对齐 + 异采样率可比 + 丢样有界核算 | `tests/sim/test_shadow_v2_clock.py`（SH02 +35ms 偏移/SH03 100Hz vs 500Hz/SH04 丢 10%） | ✅ PASS（MH21-B） |
+| G35 Shadow Multi-channel Residual | 分通道残差（rmse/p95/max）+ MATCH/PARTIAL_MATCH/DIVERGED/NOT_COMPARABLE 四级判定 | 同上 `test_residual_v2_per_channel` + `test_shadow_v2.py` | ✅ PASS（MH21-B） |
+| G36 SysID Multi-parameter | 多参数联合识别 + Jacobian 可识别性诊断（SVD rank/condition + 相关矩阵 weak pairs） | `tests/sim/test_sysid_v2.py`（S21 damping+mass 拟合好但参数错被 weak pair 逮住/S23 kp+damping 精确恢复 IDENTIFIABLE） | ✅ PASS（MH22） |
+| G37 SysID Noise Robustness | 1%/5% 乘性噪声下参数恢复 | 同上 `test_noise_robustness_1pct_5pct`（恢复 0.3001/0.3005，真值 0.3） | ✅ PASS（MH22） |
+| G38 Twin Physical Audit | twin promotion 门（holdout + IDENTIFIABLE + audit → TWIN_CANDIDATE，operator 控制，不自动覆盖 e-URDF） | 同上（S23 promotion 块 + excitation 全同激励拒绝 + 零运动 NOT_IDENTIFIABLE 优先） | ✅ PASS（MH22） |
+| G39 HarnessBench Statistical Qualification | 八类 32 任务全部 oracle 判定（U/R/E/H/V/I/S/D）+ wilson 区间统计聚合（verified_ci95/false_success_ci95/P95/infra_retry_rate） | `tests/eval/mujoco_harness_live/test_oracle_v2_synthetic.py`（20 例合成红绿）+ `test_statistical_adversarial.py::test_aggregate_rates_and_ci/test_wilson_interval_math` | ✅ PASS（MH23-A/B） |
+| G40 Adversarial False-success Defense | 假证据/无证据声称/照搬陈旧文档/改 audit policy/绕血缘/删碰撞体/伪成功 JSON 全部被抓住 | 同上 + `test_statistical_adversarial.py`（五个对抗用例） | ✅ PASS（MH23-A/B） |
+| G41 GPU Live Qualification | 真实 GPU 上 jax-cuda 跑 MJX/MJWarp 资格 | 本机 aarch64 无 cuda jaxlib、mjx/warp 未装 | ⛔ NOT_RUN（MH24 诚实留档，绝不假装 GPU qualified；`test_gpu_semantic.py::test_gpu_execution_status_honest_not_run` 锁定不输出 gpu_qualified） |
+| G42 GPU/CPU Semantic Agreement | final qpos/qvel + 轨迹检查点 + task_success + peak contact force 全语义比对；分歧分类落 counterexample 语料 | `tests/sim/test_gpu_semantic.py`（全字段一致 AGREEMENT/qvel 分歧 DIVERGENCE+落库/task_success 分歧/分类/门逻辑 CPU 可验证） | ✅ PASS（MH24，门逻辑；live 待 G41） |
+| G43 ROS2 Exact-step Agreement | 真桥 exact-step 与 sim 一致性 | binary apt 404（stale index）+ 源码 main 面向 Rolling 与 Jazzy 不兼容 | ⛔ NOT_RUN（MH25 诚实留档，机器可读原因；`test_ros2_bridge_status_honest`/`test_ros2_bridge_install_attempts_recorded` 锁定） |
+| G44 ROS2 Fault Isolation | 六类故障全部 fail_closed（use_stale_state=False） | `tests/sim/test_ros2_adapter.py::test_fault_injection_fail_closed` + `test_stale_observation_not_live` | ✅ PASS（MH25，适配层；live 待 G43） |
+| G45 REAL Log Provenance | real_log_first 规则（真实日志先于 sim 对齐）+ joint by=name 禁 positional zip + clock 无 generation change 不倒退 | `tests/sim/test_ros2_adapter.py::test_ros2_adapter_layer_protocol` | ✅ PASS（MH25，适配层） |
+| G46 Clean Wheel Install | build wheel → 干净 venv → pip install → `rosclaw sim` 冒烟 | `tests/sim/test_release_qualification.py::test_clean_wheel_install_smoke`（不标 slow——进 CI gate 全回归） | ✅ PASS（MH26） |
+| G47 Cross-platform Qualification | 多平台资格 | aarch64 Linux 实测全绿；macOS/x86_64/Windows 未跑 | 🔶 PARTIAL（MH26：本平台 PASS，跨平台 NOT_RUN 待做） |
 | G48 Representative Robot Matrix | 四类真实复杂度（xarm7/stretch_3/go2/g1）全链 load/inspect/state v2/audit/rollout/patch 血缘/mjz/strict replay | `tests/sim/test_release_qualification.py::test_representative_robot_full_chain`（4/4）+ `test_performance_baseline_recorded` | ✅ PASS（MH26） |
+| G49 Large-artifact Budget Honesty | store 单次显式预算覆盖（.mjz 512MB 声明）；默认 64MB 上限不被静默放宽 | `tests/sim/test_store.py::test_put_explicit_budget_override` + stretch_3 76.3MB mjz 导出实证 | ✅ PASS（MH26） |
 
 ## MH10 实证记录（2026-09-16）
 

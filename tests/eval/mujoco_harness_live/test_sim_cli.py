@@ -39,14 +39,22 @@ TINY_MJCF = """<mujoco model="tiny_arm">
 """
 
 
-def _cli(root: Path, *args: str) -> tuple[int, dict]:
-    """跑 CLI，返回 (exit_code, stdout_json)。stdout 必须是纯 JSON。"""
+def _cli(root: Path, *args: str, expect_ok: bool = True) -> tuple[int, dict]:
+    """跑 CLI，返回 (exit_code, stdout_json)。stdout 必须是纯 JSON。
+
+    expect_ok（默认）时非零退出即把 stderr/stdout 打进 assertion——
+    CI flake 复盘实证：只报 ``assert 1 == 0`` 而看不到原因的失败
+    无法归类。负路径测试传 ``expect_ok=False`` 自行断言。"""
     proc = subprocess.run(
         [sys.executable, "-m", "rosclaw.entrypoint", "sim", "--root", str(root), *args],
         capture_output=True,
         text=True,
         timeout=120,
     )
+    if expect_ok:
+        assert proc.returncode == 0, (
+            f"CLI {args} exit={proc.returncode}\nstderr:\n{proc.stderr[-2000:]}\nstdout:\n{proc.stdout[-2000:]}"
+        )
     payload = json.loads(proc.stdout) if proc.stdout.strip() else {}
     return proc.returncode, payload
 
@@ -191,10 +199,10 @@ def test_branch_experiment_via_cli(root) -> None:
 
 def test_structured_error(root) -> None:
     """失败 = 结构化错误（exit 1 + stderr JSON），绝不 traceback 糊屏。"""
-    code, out = _cli(root, "load", "ghost.xml")
+    code, out = _cli(root, "load", "ghost.xml", expect_ok=False)
     assert code == 1
     assert out == {}  # stdout 保持干净
-    code2, _ = _cli(root, "inspect", "simmdl_nonexistent000")
+    code2, _ = _cli(root, "inspect", "simmdl_nonexistent000", expect_ok=False)
     assert code2 == 1
 
 

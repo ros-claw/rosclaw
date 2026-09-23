@@ -652,7 +652,8 @@ ROSClaw 已经具备相当多 MuJoCo 底层能力：`sim/api.py` 的最小编程
    rollout/patch 血缘/mjz 导出/strict replay——Harness 资格不再只
    由 tiny fixture 代表。freejoint 机器人 patch 测试选第一个
    hinge/slide 关节（freejoint 不在 patch 白名单，架构决定）。
-2. **大工件预算诚实（G47）**：stretch_3 自包含 .mjz 实测
+   （门号以讨论总纲 canonical 为准：G47=Cross-platform，budget honesty 记 G49——初版门表误用 G47，审查修正。）
+2. **大工件预算诚实（G49）**：stretch_3 自包含 .mjz 实测
    76,334,950 字节，超 SimStore 默认 64MB 上限——修法是
    `SimStore.put(max_bytes=)` 单次显式预算覆盖 + `export_model_mjz`
    声明 512MB 工件预算并写明理由，**不是**静默放宽全局上限；
