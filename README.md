@@ -2,9 +2,13 @@
 
 # ROSClaw
 
-### Trustworthy Physical Execution Runtime and Control Plane for Embodied Agents
+### The Physical AI Runtime for Embodied Agents
 
-**Ground actions to a body, fail closed, execute with evidence, and return an auditable receipt.**
+## Give AI a Body. Let Experience Drive Evolution.
+
+**Any Agent. Any Body. One Runtime.**
+
+**Act → Verify → Remember → Evolve**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.11--3.13-3776AB?logo=python)](https://www.python.org/)
@@ -13,9 +17,24 @@
 [![MCP](https://img.shields.io/badge/Protocol-MCP-8A2BE2)](https://modelcontextprotocol.io/)
 [![Status](https://img.shields.io/badge/Status-Alpha-orange)](https://github.com/ros-claw/rosclaw)
 
-[Website](https://rosclaw.io) · [Quick Start](QUICKSTART.md) · [Architecture](ARCHITECTURE.md) · [Docs](docs/) · [Contact](mailto:ai@rosclaw.io)
+[Website](https://rosclaw.io) · [Quick Start](QUICKSTART.md) · [Architecture](ARCHITECTURE.md) · [Docs](docs/) · [中文](README.zh.md) · [Contact](mailto:ai@rosclaw.io)
 
 </div>
+
+ROSClaw connects **AI agents and the physical world**. It turns agent intent
+into governed action, then makes verified physical experience available to
+memory, reusable skills, and evaluated improvement. Codex, Claude Code,
+Hermes, OpenClaw, VLAs, and ROSClaw's Native Agent can be clients above it; ROS 2,
+MCP, simulators, vendor SDKs, and robots connect below it.
+
+```text
+Any Agent → ROSClaw → Any Body
+             │
+             └── Act → Verify → Remember → Evolve
+```
+
+> **AI can reason. ROSClaw gives reasoning a governed path into the physical
+> world—and gives verified experience a path back into intelligence.**
 
 ```bash
 curl -sSL https://rosclaw.io/get | bash
@@ -36,18 +55,27 @@ rosclaw doctor --level verified
 
 ## What is ROSClaw?
 
-ROSClaw is not another agent framework, a replacement for ROS 2, or a thin
-LLM-to-ROS wrapper.
-
-ROSClaw is a **trustworthy physical execution runtime and control plane for
-embodied agents**. Codex, Claude Code, OpenClaw, VLA services, and other agents
-are northbound clients. ROS 2, MCP, vendor SDKs, simulators, and robot
-controllers are southbound systems.
+ROSClaw is the **Physical AI Runtime for Embodied Agents**: a bidirectional
+runtime between intelligence and the physical world. It turns intent into
+governed physical action, and verified physical experience into reusable
+knowledge. It complements agent frameworks and ROS 2 rather than replacing
+either. The Native Agent is one optional northbound client.
 
 Its canonical action path binds intent to a body and capability, applies policy
 and authorization, arbitrates physical resources, dispatches to a driver, and
 returns an evidence-bearing `ExecutionReceipt`. Memory and self-evolution are
-asynchronous consumers of that evidence, not substitutes for it.
+asynchronous, evaluated consumers of that evidence, not substitutes for it.
+
+### One Runtime. Two Loops.
+
+| Intelligence → Physical world | Physical world → Intelligence |
+|---|---|
+| Intent → Body → Capability → Authority → Action | Observation → Verification → Episode → Memory → Skill → Evolution |
+
+The execution path is governed by the runtime. Practice, memory, and skill
+evolution build on recorded outcomes; changes still require validation and
+promotion. [Current maturity](#current-maturity) distinguishes proven paths
+from experimental work.
 
 ### Current maturity
 
@@ -271,6 +299,9 @@ Dashboard endpoints.
 ---
 
 ## Hub & Assets
+
+**Teach Once. Embody Anywhere.** Skills capture reusable behavior; a new body
+still requires capability matching and validation before execution.
 
 The generic ROSClaw Hub is a **Physical-AI developer asset pipeline** for
 skills, providers, hardware MCP servers, digital twins, and cognitive wikis.

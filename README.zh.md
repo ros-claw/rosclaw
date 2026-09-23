@@ -2,9 +2,13 @@
 
 # ROSClaw
 
-### 面向具身 Agent 的可信物理执行运行时与控制平面
+### 面向具身智能体的 Physical AI Runtime
 
-**将动作绑定到身体，失败时关闭，凭证据执行，并返回可审计回执。**
+## 赋予 AI 身体，让实践驱动进化。
+
+**任意智能体 · 任意本体 · 一个运行时**
+
+**行动 → 验证 → 记忆 → 进化**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.11--3.13-3776AB?logo=python)](https://www.python.org/)
@@ -17,6 +21,20 @@
 
 </div>
 
+ROSClaw 连接 **AI 智能体与物理世界**：向下把意图转化为受控的物理行动，
+向上把经过验证的物理实践沉淀为可复用的知识，并为记忆、技能和能力改进提供依据。
+Codex、Claude Code、Hermes、OpenClaw、VLA 和 ROSClaw Native Agent 都可以作为上层入口；
+ROS 2、MCP、仿真器、厂商 SDK 与机器人在下层接入。
+
+```text
+任意智能体 → ROSClaw → 任意本体
+               │
+               └── 行动 → 验证 → 记忆 → 进化
+```
+
+> **AI 可以思考。ROSClaw 让智能受控地进入物理世界，也让经过验证的实践
+> 回到智能成长的循环中。**
+
 ```bash
 curl -sSL https://rosclaw.io/get | bash
 rosclaw firstboot --yes --profile offline --no-telemetry
@@ -27,11 +45,17 @@ rosclaw doctor --level verified
 
 ## ROSClaw 是什么？
 
-ROSClaw 不是另一个 Agent Framework，不是 ROS 2 的替代品，也不是简单的“大模型调用 ROS”工具。
+ROSClaw 是**面向具身智能体的 Physical AI Runtime**：连接智能与物理世界的双向运行时。它向下把意图变成受控行动，向上把经过验证的实践变成可复用经验。它与 Agent Framework、ROS 2 协作；Native Agent 是一种可选的上层智能入口。
 
-ROSClaw 是**面向具身 Agent 的可信物理执行运行时与控制平面**。Codex、Claude Code、OpenClaw、VLA 服务等是可替换的北向客户端；ROS 2、MCP、厂商 SDK、仿真器和机器人控制器是南向系统。
+它的统一动作路径把意图绑定到 Body 和 Capability，执行策略与授权检查，仲裁物理资源，向 Driver 分发，并返回带证据等级的 `ExecutionReceipt`。Memory 与技能演化路径异步消费、评估这些证据，不能代替执行证据。
 
-它的统一动作路径把意图绑定到 Body 和 Capability，执行策略与授权检查，仲裁物理资源，向 Driver 分发，并返回带证据等级的 `ExecutionReceipt`。Memory 和自进化模块异步消费这些证据，不能代替执行证据。
+### 一个运行时，两个闭环
+
+| 智能 → 物理世界 | 物理世界 → 智能成长 |
+|---|---|
+| 意图 → 本体 → 能力 → 权限 → 执行 | 观测 → 验证 → 实践 → 记忆 → 技能 → 进化 |
+
+执行由运行时治理；实践、记忆与技能改进建立在记录和验证的结果上，变更仍需评估与晋升。下方[当前成熟度](#当前成熟度)区分已验证能力与实验性工作。
 
 ### 当前成熟度
 
@@ -225,6 +249,8 @@ RH56 的生产 Robot Integration/Worker 迁移仍待完成。详见
 ---
 
 ## Hub 与资产
+
+**一次传授，处处具身。** Skill 承载可复用行为；切换本体仍须完成能力匹配与执行前验证。
 
 通用 ROSClaw Hub 当前是面向开发者的物理 AI 资产流水线，用于管理 Skill、Provider、
 硬件 MCP Server、数字孪生和认知 Wiki。它已具备完整 Payload 哈希、Ed25519 分离签名、
