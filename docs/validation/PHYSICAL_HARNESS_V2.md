@@ -38,7 +38,7 @@
 | G44 ROS2 Fault Isolation | 六类故障全部 fail_closed（use_stale_state=False） | `tests/sim/test_ros2_adapter.py::test_fault_injection_fail_closed` + `test_stale_observation_not_live` | ✅ PASS（MH25，适配层；live 待 G43） |
 | G45 REAL Log Provenance | real_log_first 规则（真实日志先于 sim 对齐）+ joint by=name 禁 positional zip + clock 无 generation change 不倒退 | `tests/sim/test_ros2_adapter.py::test_ros2_adapter_layer_protocol` | ✅ PASS（MH25，适配层） |
 | G46 Clean Wheel Install | build wheel → 干净 venv → pip install → `rosclaw sim` 冒烟 | `tests/sim/test_release_qualification.py::test_clean_wheel_install_smoke`（不标 slow——进 CI gate 全回归） | ✅ PASS（MH26） |
-| G47 Cross-platform Qualification | 多平台资格 | aarch64 Linux 实测全绿；macOS/x86_64/Windows 未跑 | 🔶 PARTIAL（MH26：本平台 PASS，跨平台 NOT_RUN 待做） |
+| G47 Cross-platform Qualification | 多平台资格 | aarch64 Linux 本地全绿 + CI `sim-cross-platform` matrix：ubuntu-latest x86_64 全真跑（libosmesa6 渲染证据）、macos-latest 全跑（两个真渲染 oracle 用例显式 deselect——hosted runner 无 egl/osmesa、glfw 需 display，平台事实诚实记录）；Windows 未跑 | ✅ PASS（2026-09-23：aarch64 + x86_64 Linux + macOS；macOS 渲染 NOT_RUN、Windows NOT_RUN 留档） |
 | G48 Representative Robot Matrix | 四类真实复杂度（xarm7/stretch_3/go2/g1）全链 load/inspect/state v2/audit/rollout/patch 血缘/mjz/strict replay | `tests/sim/test_release_qualification.py::test_representative_robot_full_chain`（4/4）+ `test_performance_baseline_recorded` | ✅ PASS（MH26） |
 | G49 Large-artifact Budget Honesty | store 单次显式预算覆盖（.mjz 512MB 声明）；默认 64MB 上限不被静默放宽 | `tests/sim/test_store.py::test_put_explicit_budget_override` + stretch_3 76.3MB mjz 导出实证 | ✅ PASS（MH26） |
 
