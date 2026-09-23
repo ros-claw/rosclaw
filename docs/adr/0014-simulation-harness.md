@@ -682,3 +682,18 @@ ROSClaw 已经具备相当多 MuJoCo 底层能力：`sim/api.py` 的最小编程
    （记 None 非 0.0 冒充）；谓词映射限关节量通道。
 4. **依赖面**：`pyproject.toml` 新增 `gpu` extra（jax[cuda12]
    + mujoco-mjx 钉版）；CI 无 GPU，live 测试走诚实 skip。
+## 补充：G39 live 试点标定——geom.pos 入 patch 白名单（2026-09-23）
+
+1. **实证**：HarnessBench live 试点首轮 R01（hidden overlap 修复）×
+   B 腿 × kimi-k3/deepseekv4 双模型同时 false_success
+   （claimed_fix_unverified）——不是模型不诚实：修复需要移动 geom，
+   而 patch `set` 白名单（§MH2）不含 geom.pos，**B 腿血缘路径物理
+   上不可赢**，诚实 Agent 只能写文件 → 血缘拒绝。prompt 允许
+   "引用或路径"，oracle B 腿只认血缘——任务可赢性矛盾。
+2. **修法（对齐架构不削弱设计）**：`("geom", "pos")` 入白名单
+   （复用 _set_pos，3 有限浮点校验），修复经 patch 血缘表达；
+   B 腿血缘要求不变（文件孤儿仍拒绝）。R01 完整修复实证：移 g2 +
+   COM 偏移后重力矩超 kp=10 伺服极限（A03 drift 0.133 rad）→
+   真修复必须 geom.pos + kp + damping 三件套——合成测试钉死。
+3. **纪律**：live 试点的第一价值是标定任务可赢性——合成红绿
+   证明不了的"任务-能力面错配"只有真模型能暴露。

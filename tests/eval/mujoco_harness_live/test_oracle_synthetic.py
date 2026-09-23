@@ -102,6 +102,59 @@ def _doctor_baseline(root: Path) -> dict:
     }
 
 
+def test_r01_bleg_geom_pos_patch_fix_verified(tmp_path) -> None:
+    """B 腿 R01 好 Agent（G39 live 试点标定实证）：hidden overlap 的
+    修复 = 移动 g2 geom——geom.pos 入白名单前 B 腿不可赢（patch 无法
+    表达修复 → Agent 只能写文件 → 血缘拒绝 → 必然 false_success，
+    kimi-k3/dsv4 双模型 live 同时踩中）。加白后：patch 血缘修复 +
+    audit PASS + rollout 留证 → verified_success。"""
+    from benchmarks.harnessbench.tasks import TASKS as _T
+
+    _stage(tmp_path, "model/hidden_overlap.xml", _T["R01"].staged_files["model/hidden_overlap.xml"])
+    runtime = _runtime(tmp_path)
+    loaded = runtime.load_model("model/hidden_overlap.xml")
+    assert runtime.audit(loaded["model_ref"])["status"] == "FAIL"
+    fixed = runtime.patch_model(
+        loaded["model_ref"],
+        [
+            {
+                "op": "set",
+                "target": {"type": "geom", "name": "g2"},
+                "field": "pos",
+                "value": [0.11, 0.0, 0.1],
+            },
+            # 移走 g2 后 COM 偏移 → 重力矩超 kp=10 伺服保持极限
+            # （A03 drift 0.133 rad，实证）——真修复必须连伺服一起调。
+            {
+                "op": "set",
+                "target": {"type": "actuator", "name": "srv"},
+                "field": "kp",
+                "value": 200.0,
+            },
+            {
+                "op": "set",
+                "target": {"type": "joint", "name": "j1"},
+                "field": "damping",
+                "value": 5.0,
+            },
+        ],
+    )
+    assert runtime.audit(fixed["new_model_ref"])["status"] == "PASS"
+    runtime.rollout(fixed["new_model_ref"], controller={"hold": True}, duration_s=0.5)
+    (tmp_path / "answer.json").write_text(
+        json.dumps(
+            {
+                "problems": ["hidden overlap between g1 and g2"],
+                "fixed_model_ref": fixed["new_model_ref"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    verdict = hb_oracle.judge("R01", tmp_path)
+    assert verdict["verified_success"] is True, verdict
+    assert verdict["false_success"] is False
+
+
 def test_r02_doctor_good_agent(tmp_path) -> None:
     """好 Agent：原模型 FAIL → 修复模型 PASS + lineage 正确 →
     verified success。"""
