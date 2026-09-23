@@ -245,7 +245,7 @@ def evaluate_gpu_candidates_semantic(
             "diverged_fields": agreement["diverged_fields"],
             "gpu_payload": {
                 key: candidate[key]
-                for key in ("gpu_final_qpos", "gpu_final_qvel", "gpu_checkpoints", "gpu_task_success", "gpu_peak_contact_force")
+                for key in ("gpu_final_qpos", "gpu_final_qvel", "gpu_checkpoints", "gpu_task_success", "gpu_peak_contact_force", "gpu_runtime")
                 if key in candidate
             },
             "cpu_trace_ref": cpu_receipt.trace_ref,
@@ -307,3 +307,110 @@ def gpu_execution_status() -> dict[str, Any]:
             "gpu_qualified": False,
         }
     return {"status": "AVAILABLE", "gpu_qualified": True, "devices": [str(d) for d in devices]}
+
+
+def run_mjx_candidate(
+    backend,  # noqa: ANN001
+    model_ref: str,
+    *,
+    controller: dict[str, Any],
+    steps: int,
+    task_predicates: list[dict[str, Any]] | None = None,
+    name: str = "mjx_live",
+) -> dict[str, Any]:
+    """真实 MJX GPU 候选产出（MH24 §36 live 数据面，G41/G42）。
+
+    诚实纪律：GPU 执行面不可用 → ``NOT_RUN``（结构化 reason，不抛
+    裸异常）；真跑则记录 runtime 指纹（jax/mujoco 版本、devices、
+    x64 精度标志）进 candidate.gpu_runtime。controller 与 CPU
+    rollout 走同一个 validate_controller（形状 fail-closed 一致）；
+    position_targets/setpoints 常量 ctrl、ctrl_series 逐行、hold
+    不动——与 CPU 路径逐语义对齐（rollout.py 实证）。
+
+    peak_contact_force 记 None（MJX 接触力通道未接——门跳过 None
+    字段，绝不拿 0.0 冒充实测）。
+    """
+    status = gpu_execution_status()
+    if status["status"] != "AVAILABLE":
+        return {
+            "status": "NOT_RUN",
+            "reason": status.get("reason", "gpu execution unavailable"),
+            "name": name,
+        }
+
+    import jax
+    import jax.numpy as jnp
+    import mujoco
+    from mujoco import mjx
+
+    from rosclaw.sim.backends.mujoco import rollout as rollout_mod
+    from rosclaw.sim.experiment.predicates import evaluate_predicates
+
+    # 与 CPU float64 权威面对齐（须在创建 jax 数组前）。
+    jax.config.update("jax_enable_x64", True)
+
+    manifest = backend._manifest(model_ref)
+    spec = backend._spec_from_manifest(manifest)
+    spec.assets = backend._load_assets(manifest)
+    model = spec.compile()
+    plan = rollout_mod.validate_controller(
+        controller, model.nu, channels=backend._control_schema(model, manifest)
+    )
+
+    mx = mjx.put_model(model)
+    data = mujoco.MjData(model)
+    mujoco.mj_forward(model, data)
+    dx = mjx.put_data(model, data)
+
+    def _ctrl_values(step: int) -> list[float] | None:
+        if plan["kind"] == "hold":
+            return None
+        if plan["kind"] in ("position_targets", "setpoints"):
+            return plan["values"]
+        return plan["rows"][step] if step < len(plan["rows"]) else None
+
+    step_fn = jax.jit(mjx.step)
+    checkpoint_step = steps // 2
+    checkpoints: list[dict[str, Any]] = []
+    for step in range(steps):
+        values = _ctrl_values(step)
+        if values is not None:
+            dx = dx.replace(ctrl=jnp.asarray(values))
+        dx = step_fn(mx, dx)
+        # 与 CPU trace 对齐：states[k] = 第 k 步后的状态（states[0]=初始）。
+        if step + 1 == checkpoint_step:
+            checkpoints.append({"step": step + 1, "qpos": [float(v) for v in dx.qpos]})
+
+    final_qpos = [float(v) for v in dx.qpos]
+    final_qvel = [float(v) for v in dx.qvel]
+
+    gpu_task_success: bool | None = None
+    if task_predicates is not None:
+        # 与 CPU 同谓词函数；通道映射限关节量（joint-only 模型，
+        # 其他通道需一般化映射——本面不支持时诚实不传谓词）。
+        observations = {"joint_positions": final_qpos, "joint_velocities": final_qvel}
+        verdicts = evaluate_predicates(observations, task_predicates)
+        gpu_task_success = all(v["ok"] for v in verdicts)
+
+    runtime = {
+        "backend": "mjx",
+        "jax_version": str(jax.__version__),
+        "mujoco_version": str(mujoco.__version__),
+        "devices": [str(d) for d in jax.devices()],
+        "x64": True,
+    }
+    candidate: dict[str, Any] = {
+        "name": name,
+        "patches": [],
+        "gpu_controller": controller,
+        "gpu_steps": int(steps),
+        "gpu_final_qpos": final_qpos,
+        "gpu_final_qvel": final_qvel,
+        "gpu_checkpoints": checkpoints,
+        "gpu_task_success": gpu_task_success,
+        "gpu_peak_contact_force": None,
+        "gpu_runtime": runtime,
+    }
+    if task_predicates is not None:
+        candidate["task_predicates"] = task_predicates
+    return {"status": "RAN", "candidate": candidate, "runtime": runtime}

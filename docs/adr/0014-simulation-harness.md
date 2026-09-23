@@ -665,3 +665,20 @@ ROSClaw 已经具备相当多 MuJoCo 底层能力：`sim/api.py` 的最小编程
    pip install → `rosclaw sim capabilities/load` 冒烟——发布物在
    editable checkout 之外被真实验证。
 
+
+## 补充：MH24-live GPU Live Qualification 达成（2026-09-23，G41/G42 live）
+
+1. **环境事实变更**：jax 0.10.2 cuda12 plugin 起提供官方 aarch64
+   wheel——GB10（CUDA 13.0 驱动）实测 `jax[cuda12]==0.10.2` +
+   `mujoco-mjx==3.13.0`（与 harness mujoco 3.13.x pin 一致）可用，
+   mjx.step GPU 真跑。MH24 的"aarch64 无 cuda jaxlib"留档被环境
+   证伪，`gpu_execution_status()` 探测为唯一事实源（旧测试硬编码
+   NOT_RUN 假设已改为探测一致性断言）。
+2. **live 证据**：tiny_arm 伺服跟踪 100 步，MJX（jax_enable_x64
+   与 CPU float64 权威面对齐）与 CPU 全字段零分歧
+   SEMANTIC_AGREEMENT → promoted。证据：`docs/reports/gpu-mjx/`。
+3. **诚实边界**：CPU strict replay 仍是唯一权威验证面（决策 #8
+   不变）；MJWarp 未装仍 NOT_RUN；peak_contact_force 通道未接
+   （记 None 非 0.0 冒充）；谓词映射限关节量通道。
+4. **依赖面**：`pyproject.toml` 新增 `gpu` extra（jax[cuda12]
+   + mujoco-mjx 钉版）；CI 无 GPU，live 测试走诚实 skip。
