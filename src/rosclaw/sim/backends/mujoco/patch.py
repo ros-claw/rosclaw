@@ -20,9 +20,13 @@ _TARGET_COLLECTIONS = {
     "actuator": "actuators",
     "body": "bodies",
     "camera": "cameras",
+    "keyframe": "keys",
 }
 
 #: P0 白名单（规格 §12.3.1）：(target_type, field)。
+#: keyframe.qpos 实证动机（2026-09-23，HarnessBench live 标定第四例）：
+#: R03 keyframe 落态穿透修复必须改 key.qpos——不入白名单则 B 腿血缘
+#: 路径物理不可赢（kimi-k3 live 踩中，claim 即 rejected 证据自留）。
 SET_WHITELIST: frozenset[tuple[str, str]] = frozenset(
     {
         ("joint", "damping"),
@@ -39,6 +43,7 @@ SET_WHITELIST: frozenset[tuple[str, str]] = frozenset(
         ("body", "quat"),
         ("camera", "pos"),
         ("camera", "quat"),
+        ("keyframe", "qpos"),
         ("option", "timestep"),
         ("option", "integrator"),
     }
@@ -146,6 +151,15 @@ def _set_ctrlrange(element, value: Any) -> None:  # noqa: ANN001, ANN202
     element.ctrlrange[:] = _ordered_pair(value, "actuator.ctrlrange")
 
 
+def _set_keyframe_qpos(element, value: Any) -> None:  # noqa: ANN001, ANN202
+    """key.qpos 全向量替换：长度必须恰等于 keyframe 既有维度（=模型
+    nq），分量有限。部分长度拒绝——不猜语义（free joint 的 7 元
+    四元数段完整性由调用方负责）。"""
+    vec = _finite_vec(value, "keyframe.qpos", (len(element.qpos),))
+    # 实证：MjDoubleVec 不支持切片赋值（TypeError），属性整体赋值可行。
+    element.qpos = vec
+
+
 def _set_pos(element, value: Any) -> None:  # noqa: ANN001, ANN202
     element.pos[:] = _finite_vec(value, "body/camera.pos", (3,))
 
@@ -205,6 +219,7 @@ _SET_APPLIERS = {
     ("body", "quat"): _set_quat,
     ("camera", "pos"): _set_pos,
     ("camera", "quat"): _set_quat,
+    ("keyframe", "qpos"): _set_keyframe_qpos,
 }
 
 

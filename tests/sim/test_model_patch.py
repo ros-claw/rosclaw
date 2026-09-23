@@ -121,6 +121,99 @@ def test_set_geom_pos_invalid_shape(loaded) -> None:
         )
 
 
+_BAD_RESET_MJCF = """<mujoco model="bad_reset">
+  <worldbody>
+    <geom name="floor" type="plane" size="5 5 0.1"/>
+    <body name="ball" pos="0 0 0.5">
+      <freejoint name="f"/>
+      <geom name="g" type="sphere" size="0.05" mass="0.5"/>
+    </body>
+  </worldbody>
+  <keyframe>
+    <key name="home" qpos="0 0 0.02 1 0 0 0"/>
+  </keyframe>
+</mujoco>
+"""
+
+
+def test_set_keyframe_qpos_roundtrip(tmp_path) -> None:
+    """keyframe.qpos 入白名单（HarnessBench live 标定第四例实证
+    2026-09-23：R03 keyframe 落态穿透修复必须改 key.qpos，不入白
+    名单则 B 腿血缘路径物理不可赢——kimi-k3 live 踩中并自留
+    MODEL_FIELD_UNSUPPORTED 拒绝证据）。加白后修复可经 patch 血缘
+    表达且编译后 key_qpos 生效。"""
+    from rosclaw.sim.backends.mujoco.backend import MujocoBackend
+
+    (tmp_path / "bad_reset.xml").write_text(_BAD_RESET_MJCF, encoding="utf-8")
+    backend = MujocoBackend(tmp_path)
+    ref = backend.load_model("bad_reset.xml")
+
+    fixed = [0.0, 0.0, 0.06, 1.0, 0.0, 0.0, 0.0]
+    result = backend.patch_model(
+        ref.model_ref,
+        [
+            _patch(
+                target={"type": "keyframe", "name": "home"},
+                field="qpos",
+                value=fixed,
+            )
+        ],
+    )
+    assert result.ok and result.new_model_ref != ref.model_ref
+    # 血缘可追溯。
+    assert backend.store.get(result.new_model_ref)["parent_model_ref"] == ref.model_ref
+    # 编译后 keyframe 落态真改（z 0.02 → 0.06，穿透消除）。
+    import mujoco
+
+    manifest = backend.store.get(result.new_model_ref)
+    model = mujoco.MjModel.from_xml_string(manifest["mjcf_xml"])
+    key_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_KEY, "home")
+    assert model.key_qpos[key_id][2] == pytest.approx(0.06)
+
+
+def test_set_keyframe_qpos_wrong_length_rejected(tmp_path) -> None:
+    """key.qpos 长度必须恰等于 keyframe 维度（=nq）——部分长度拒绝，
+    不猜语义。"""
+    from rosclaw.sim.backends.mujoco.backend import MujocoBackend
+
+    (tmp_path / "bad_reset.xml").write_text(_BAD_RESET_MJCF, encoding="utf-8")
+    backend = MujocoBackend(tmp_path)
+    ref = backend.load_model("bad_reset.xml")
+    with pytest.raises(ValueError, match="MODEL_PATCH_INVALID"):
+        backend.patch_model(
+            ref.model_ref,
+            [
+                _patch(
+                    target={"type": "keyframe", "name": "home"},
+                    field="qpos",
+                    value=[0.0, 0.0, 0.06],  # 3 != 7
+                )
+            ],
+        )
+    with pytest.raises(ValueError, match="MODEL_PATCH_INVALID"):
+        backend.patch_model(
+            ref.model_ref,
+            [
+                _patch(
+                    target={"type": "keyframe", "name": "home"},
+                    field="qpos",
+                    value=[0.0, 0.0, float("nan"), 1.0, 0.0, 0.0, 0.0],
+                )
+            ],
+        )
+    with pytest.raises(ValueError, match="MODEL_TARGET_NOT_FOUND"):
+        backend.patch_model(
+            ref.model_ref,
+            [
+                _patch(
+                    target={"type": "keyframe", "name": "nonexistent"},
+                    field="qpos",
+                    value=[0.0] * 7,
+                )
+            ],
+        )
+
+
 def test_patch_lineage_recorded(loaded) -> None:
     backend, ref = loaded
     patches = [_patch(value=2.5)]

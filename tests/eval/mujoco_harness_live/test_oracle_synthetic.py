@@ -155,6 +155,55 @@ def test_r01_bleg_geom_pos_patch_fix_verified(tmp_path) -> None:
     assert verdict["false_success"] is False
 
 
+def test_r03_bleg_keyframe_qpos_patch_fix_verified(tmp_path) -> None:
+    """B 腿 R03 好 Agent（live 标定第四例实证 2026-09-23）：bad_reset
+    的修复 = keyframe.qpos（落态穿透）+ body.pos（下落冲击穿透）
+    两件套——keyframe.qpos 不入白名单时 B 腿血缘路径物理不可赢
+    （kimi-k3 live 踩中，自留 MODEL_FIELD_UNSUPPORTED 拒绝证据后
+    仍被判 claimed_fix_unverified）。加白后：patch 血缘修复 +
+    audit PASS + rollout 留证 → verified_success。"""
+    from benchmarks.harnessbench.tasks import TASKS as _T
+
+    _stage(tmp_path, "model/bad_reset.xml", _T["R03"].staged_files["model/bad_reset.xml"])
+    runtime = _runtime(tmp_path)
+    loaded = runtime.load_model("model/bad_reset.xml")
+    assert runtime.audit(loaded["model_ref"])["status"] == "FAIL"
+    fixed = runtime.patch_model(
+        loaded["model_ref"],
+        [
+            # keyframe 落态 z 0.02 → 0.05（球半径 0.05，恰好零穿透）
+            {
+                "op": "set",
+                "target": {"type": "keyframe", "name": "home"},
+                "field": "qpos",
+                "value": [0.0, 0.0, 0.05, 1.0, 0.0, 0.0, 0.0],
+            },
+            # 起点高度 0.5 → 0.05（贴地，消除下落冲击穿透——A06 实证
+            # 0.5m 下落 -0.018m 穿透，贴地静置 -0.00037m 过阈值）
+            {
+                "op": "set",
+                "target": {"type": "body", "name": "ball"},
+                "field": "pos",
+                "value": [0.0, 0.0, 0.05],
+            },
+        ],
+    )
+    assert runtime.audit(fixed["new_model_ref"])["status"] == "PASS"
+    runtime.rollout(fixed["new_model_ref"], controller={"hold": True}, duration_s=0.5)
+    (tmp_path / "answer.json").write_text(
+        json.dumps(
+            {
+                "problems": ["keyframe home qpos z=0.02 初始穿透（半径 0.05）"],
+                "fixed_model_ref": fixed["new_model_ref"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    verdict = hb_oracle.judge("R03", tmp_path)
+    assert verdict["verified_success"] is True, verdict
+    assert verdict["false_success"] is False
+
+
 def test_r02_doctor_good_agent(tmp_path) -> None:
     """好 Agent：原模型 FAIL → 修复模型 PASS + lineage 正确 →
     verified success。"""
