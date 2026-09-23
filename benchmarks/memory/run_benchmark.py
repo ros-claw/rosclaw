@@ -31,11 +31,11 @@ from evaluate import (  # noqa: E402  # noqa: E402
     reciprocal_rank,
 )
 
-from rosclaw.memory.seekdb_client import SQLiteKnowledgeStore  # noqa: E402
 from rosclaw.memory.index import EmbeddingIndexManager  # noqa: E402
 from rosclaw.memory.models import MemoryItem  # noqa: E402
 from rosclaw.memory.repository import MemoryRepository  # noqa: E402
 from rosclaw.memory.retrieval import MemoryQuery, MemoryRetriever  # noqa: E402
+from rosclaw.memory.seekdb_client import SQLiteKnowledgeStore  # noqa: E402
 from rosclaw.storage.vector import SQLiteVectorStore, TfidfEmbedder  # noqa: E402
 
 
