@@ -126,14 +126,21 @@ def test_counterexample_corpus_classification(backend) -> None:
     assert all(c in ("contact", "solver", "friction", "high_stiffness", "constraint", "state") for c in categories)
 
 
-def test_gpu_execution_status_honest_not_run() -> None:
-    """本机 GPU 执行面诚实状态：jax-cuda 缺失/mjx/warp 未装
-    → NOT_RUN（不假装 GPU qualified）。"""
+def test_gpu_execution_status_probe_consistent() -> None:
+    """GPU 执行面状态与实际探测一致（不硬编码机器假设）：
+
+    2026-09-23 起本机（GB10 aarch64 + jax 0.10.2 cuda12 +
+    mujoco-mjx 3.13.0）探测为 AVAILABLE——旧测试假设"本机永远
+    NOT_RUN"已被真实环境证伪。不变量：gpu_qualified=True 只在
+    status=AVAILABLE 时出现；NOT_RUN 必须带 reason。
+    """
     from rosclaw.sim.acceleration import gpu_execution_status
 
     status = gpu_execution_status()
-    assert status["status"] in ("NOT_RUN", "AVAILABLE_CPU_BACKEND")
-    if status["status"] == "NOT_RUN":
-        assert status["reason"]
-    # 绝不输出 GPU_QUALIFIED（本机无 cuda jaxlib）。
-    assert status.get("gpu_qualified") is not True
+    assert status["status"] in ("NOT_RUN", "AVAILABLE_CPU_BACKEND", "AVAILABLE")
+    if status["status"] == "AVAILABLE":
+        assert status["gpu_qualified"] is True
+        assert status["devices"]
+    else:
+        assert status.get("reason")
+        assert status.get("gpu_qualified") is not True

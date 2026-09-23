@@ -1,0 +1,60 @@
+{
+  "kind": "gpu_live_qualification",
+  "date": "2026-09-23T05:29:12.888415+00:00",
+  "host": {
+    "machine": "aarch64",
+    "gpu": "NVIDIA GB10",
+    "driver": "580.159.03",
+    "cuda_driver": "13.0"
+  },
+  "execution_status": {
+    "status": "AVAILABLE",
+    "gpu_qualified": true,
+    "devices": [
+      "cuda:0"
+    ]
+  },
+  "runtime": {
+    "backend": "mjx",
+    "jax_version": "0.10.2",
+    "mujoco_version": "3.13.0",
+    "devices": [
+      "cuda:0"
+    ],
+    "x64": true
+  },
+  "case": {
+    "model": "tiny_arm (2 hinge + 2 position servos, contact-free)",
+    "controller": {
+      "position_targets": [
+        0.4,
+        0.2
+      ]
+    },
+    "steps": 100,
+    "task_predicates": [
+      {
+        "channel": "joint_positions",
+        "joint_in_range": {
+          "index": 0,
+          "min": 0.3,
+          "max": 0.5
+        }
+      }
+    ]
+  },
+  "mjx_final_qpos": [
+    0.44191151350914276,
+    0.2147019847117232
+  ],
+  "mjx_task_success": true,
+  "verdict": {
+    "status": "SEMANTIC_AGREEMENT",
+    "diverged_fields": []
+  },
+  "promoted": [
+    "tiny_arm_servo_track"
+  ],
+  "counterexamples": [],
+  "authoritative_note": "CPU strict replay 永远是权威验证面（ADR-0014 #8）；GPU 只做探索/候选产出。"
+}

@@ -95,6 +95,16 @@ seekdb = [
     # Matrix source of truth: src/rosclaw/storage/seekdb_compat.py
     "pyseekdb==1.4.0.post1",
 ]
+gpu = [
+    # MJX GPU live 候选产出（MH24 G41/G42，ADR-0014 #8：GPU 只做探索
+    # 加速/候选产出，CPU strict replay 永远是权威验证面）。
+    # 2026-09-23 GB10 aarch64（CUDA 13.0 驱动）实测：jax 0.10.2
+    # cuda12 plugin 有官方 aarch64 wheel，mujoco-mjx 3.13.0 与 harness
+    # 的 mujoco 3.13.x pin 一致；jax_enable_x64=True 下与 CPU 权威面
+    # 1e-6 容差 SEMANTIC_AGREEMENT。
+    "jax[cuda12]==0.10.2",
+    "mujoco-mjx>=3.13,<3.14",
+]
 embedding = [
     # Qwen3 CrossEncoder prompt support landed in sentence-transformers 5.4.
     "sentence-transformers>=5.4,<6",
