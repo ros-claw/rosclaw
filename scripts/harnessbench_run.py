@@ -21,7 +21,12 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
-from benchmarks.harnessbench.runner import aggregate, has_model_key, run_leg  # noqa: E402
+from benchmarks.harnessbench.runner import (  # noqa: E402
+    aggregate,
+    error_record,
+    has_model_key,
+    run_leg,
+)
 from benchmarks.harnessbench.tasks import TASKS  # noqa: E402
 
 
@@ -81,24 +86,9 @@ def main() -> int:
                         model=args.model,
                     )
                 except Exception as exc:  # noqa: BLE001 —— 单次失败不拖垮矩阵
-                    record = {
-                        "leg": leg,
-                        "task_id": task_id,
-                        "run": run_idx,
-                        "verdict": "ERROR",
-                        "error": str(exc)[:300],
-                        "oracle": {
-                            "task_success": False,
-                            "verified_success": False,
-                            "false_success": False,
-                            "reason": "runner_error",
-                        },
-                        "wall_time_s": 0.0,
-                        "tool_calls": 0,
-                        "glue_bytes": 0,
-                        "python_loc": 0,
-                        "xml_loc": 0,
-                    }
+                    # RunInfraError 携带部分记录：stall 跑的真实 wall_time
+                    # 落账（live 实证：1200s stall 记 0.0 污染聚合统计）。
+                    record = error_record(exc, leg, task_id, run_idx, model=args.model)
                 records.append(record)
                 print(f"  → {record['verdict']} ({record['wall_time_s']}s)", flush=True)
                 (out_root / "results.json").write_text(

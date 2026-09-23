@@ -17,6 +17,7 @@ glue_code↓ 三个最关键）。
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import sys
@@ -28,6 +29,55 @@ from benchmarks.harnessbench import oracle
 from benchmarks.harnessbench.tasks import TASKS
 
 REPO = Path(__file__).resolve().parents[2]
+
+
+class RunInfraError(AssertionError):
+    """infra 层失败（stall/未收束/启动失败），携带部分记录。
+
+    live 实证（2026-09-23）：stall 跑真实烧了 1200s+ 却落
+    wall_time_s=0.0，聚合 median/P95 被假零污染。异常必须带着
+    真实耗时与已收集指标走。
+    """
+
+    def __init__(self, message: str, partial: dict[str, Any]) -> None:
+        super().__init__(message)
+        self.partial = partial
+
+
+def error_record(
+    exc: Exception, leg: str, task_id: str, run_idx: int, *, model: str | None = None
+) -> dict[str, Any]:
+    """单次失败记录：RunInfraError 保留部分记录（真实 wall_time 等），
+    其他异常从零起——verdict/oracle 恒为诚实 ERROR/runner_error。"""
+    record: dict[str, Any] = dict(exc.partial) if isinstance(exc, RunInfraError) else {}
+    record.update(
+        {
+            "leg": leg,
+            "task_id": task_id,
+            "run": run_idx,
+            "verdict": "ERROR",
+            "error": str(exc)[:300],
+            "oracle": {
+                "task_success": False,
+                "verified_success": False,
+                "false_success": False,
+                "reason": "runner_error",
+            },
+        }
+    )
+    if model is not None:
+        record.setdefault("model", model)
+    for key, default in (
+        ("wall_time_s", 0.0),
+        ("tool_calls", 0),
+        ("glue_bytes", 0),
+        ("bash_python_loc", 0),
+        ("python_loc", 0),
+        ("xml_loc", 0),
+        ("infra_retries", 0),
+    ):
+        record.setdefault(key, default)
+    return record
 
 #: B 侧提示追加（A/B 公平：双方都知道自己有什么工具）。
 _B_TOOL_HINT = (
@@ -434,10 +484,23 @@ def run_leg(
 
         session.send(prompt + "\r")
         record["infra_retries"] = _wait_settled(session, work, settle_timeout, prompt=prompt)
+    except Exception as exc:
+        # stall/未收束/启动失败：保留已收集指标（真实 wall_time 由
+        # finally 填入），包成 RunInfraError 让调用方落诚实 ERROR 记录。
+        if session_dir is not None:
+            with contextlib.suppress(Exception):
+                (
+                    record["tool_calls"],
+                    record["glue_bytes"],
+                    record["bash_python_loc"],
+                ) = _count_session_stats(session_dir)
+        with contextlib.suppress(Exception):
+            record.update(_code_loc(work))
+        raise RunInfraError(str(exc), record) from exc
     finally:
         record["wall_time_s"] = round(time.monotonic() - started, 1)
         if session is not None:
-            with __import__("contextlib").suppress(Exception):
+            with contextlib.suppress(Exception):
                 session.stop()
 
     if session_dir is not None:
