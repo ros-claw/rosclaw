@@ -199,6 +199,51 @@ def test_r02_doctor_lineage_broken_rejected(tmp_path) -> None:
         assert "lineage" in verdict["reason"]
 
 
+def test_r02_bleg_prose_wrapped_ref_accepted(tmp_path) -> None:
+    """live 标定实证（kimi R01，2026-09-23）：血缘修复真做了且
+    oracle 核实通过，但 answer.json 把 ref 嵌进散文串
+    （"model/x.xml (rosclaw sim model_ref: simmdl_..., patched
+    from …)"）——精确等值太脆，词法抽取后语义等价 → verified。
+    严格面保留：散文里出现任何**别的** model ref 仍是张冠李戴。"""
+    _stage(tmp_path, "model/sick_bot.xml", DOCTOR_MODEL)
+    env = _doctor_baseline(tmp_path)
+    (tmp_path / "answer.json").write_text(
+        json.dumps(
+            {
+                "problems": ["implicit mass", "weak servo"],
+                "fixed_model_ref": (
+                    f"model/fixed.xml (rosclaw sim model_ref: {env['fixed_ref']}, "
+                    f"patched from parent {env['original_ref']}; audit PASS)"
+                ),
+            }
+        ),
+        encoding="utf-8",
+    )
+    verdict = hb_oracle.judge("R02", tmp_path)
+    assert verdict["verified_success"] is True, verdict
+    assert verdict["false_success"] is False
+
+
+def test_r02_bleg_wrong_ref_in_prose_rejected(tmp_path) -> None:
+    """散文里 claim 的是**别的** model ref（哪怕格式合法）→
+    claimed_ref_mismatch（张冠李戴）。"""
+    _stage(tmp_path, "model/sick_bot.xml", DOCTOR_MODEL)
+    _doctor_baseline(tmp_path)
+    (tmp_path / "answer.json").write_text(
+        json.dumps(
+            {
+                "problems": ["x"],
+                "fixed_model_ref": "fixed (model_ref: simmdl_0000000000000000, trust me)",
+            }
+        ),
+        encoding="utf-8",
+    )
+    verdict = hb_oracle.judge("R02", tmp_path)
+    assert verdict["verified_success"] is False
+    assert verdict["false_success"] is True
+    assert verdict["reason"] == "claimed_ref_mismatch"
+
+
 # ---------------------------------------------------------------- E01
 
 

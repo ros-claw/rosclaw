@@ -16,11 +16,33 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
 
 from rosclaw.sim.runtime import SimulationRuntime
+
+#: claim 文本里的 model ref 词法抽取（live 实证：模型会把 ref 嵌进
+#: 散文串，精确等值太脆——但出现血缘闭包外的 ref 仍是张冠李戴）。
+_CLAIM_MODEL_REF_RE = re.compile(r"simmdl_[0-9a-f]{16}")
+
+
+def _lineage_closure(backend, ref: str, *, max_depth: int = 64) -> set[str]:  # noqa: ANN001
+    """ref 及其全部祖先（沿 parent_model_ref；环/缺失 fail-safe 截断）。"""
+    closure = {ref}
+    current = ref
+    for _ in range(max_depth):
+        try:
+            manifest = backend.store.get(current)
+        except (ValueError, FileNotFoundError, KeyError):
+            break
+        parent = manifest.get("parent_model_ref") if isinstance(manifest, dict) else None
+        if not parent or parent in closure:
+            break
+        closure.add(parent)
+        current = parent
+    return closure
 
 #: doctor/scientist 的修复/候选模型血缘必须追溯到的原始模型文件名。
 _ORIGINALS = {"R02": "model/sick_bot.xml", "E01": "model/jitter_bot.xml"}
@@ -222,6 +244,12 @@ def _judge_repair(root: Path, original_asset: str) -> dict[str, Any]:
         reason="ok",
     )
     if claimed_ref and claimed_ref != verified_candidate:
+        # 精确不等 → 词法抽取（live 标定实证：模型把 ref 嵌进散文
+        # 串）。claim 里的全部 model ref 都落在 verified 血缘闭包内
+        # （含父系陈述）即语义等价；出现闭包外的 ref 仍是造假/张冠李戴。
+        tokens = set(_CLAIM_MODEL_REF_RE.findall(claimed_ref))
+        if verified_candidate in tokens and tokens <= _lineage_closure(backend, verified_candidate):
+            return verdict
         # 报告的 ref 与环境核实的不一致——报告造假或张冠李戴。
         verdict["task_success"] = False
         verdict["verified_success"] = False
