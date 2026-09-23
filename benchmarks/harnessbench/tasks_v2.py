@@ -349,7 +349,11 @@ V2_TASKS: dict[str, BenchTask] = {
         task_id="R03",
         category="repair",
         staged_files={"model/bad_reset.xml": R03_MODEL},
-        oracle={"kind": "repair", "original_asset": "model/bad_reset.xml"},
+        oracle={
+            "kind": "repair_reset",
+            "original_asset": "model/bad_reset.xml",
+            "keyframe": "home",
+        },
         prompt=(
             "工作区 model/bad_reset.xml 的 keyframe reset 落态异常。\n"
             "请诊断并修复。修复必须基于原模型修改；留可复核证据；"

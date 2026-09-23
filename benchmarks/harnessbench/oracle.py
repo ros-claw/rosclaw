@@ -164,6 +164,42 @@ def _judge_u01(root: Path) -> dict[str, Any]:
 # ---------------------------------------------------------------- R02
 
 
+def _replay_ok(backend, ref: str) -> bool:  # noqa: ANN001
+    """候选有 rollout receipt 且 strict replay 通过（证据链要求）。"""
+    for receipt in _experiment_receipts(backend, {ref}):
+        receipt_ref = receipt.get("_ref")
+        if not receipt_ref:
+            continue
+        try:
+            report = backend.strict_replay(receipt_ref)
+        except ValueError:
+            continue
+        if report.get("verified"):
+            return True
+    return False
+
+
+def _apply_claim_check(
+    backend,  # noqa: ANN001
+    verdict: dict[str, Any],
+    claimed_ref: str | None,
+    verified_candidate: str,
+) -> None:
+    """claim 与 verified 的一致性（词法抽取闭包规则）——原地改 verdict。"""
+    if claimed_ref and claimed_ref != verified_candidate:
+        # 精确不等 → 词法抽取（live 标定实证：模型把 ref 嵌进散文
+        # 串）。claim 里的全部 model ref 都落在 verified 血缘闭包内
+        # （含父系陈述）即语义等价；出现闭包外的 ref 仍是造假/张冠李戴。
+        tokens = set(_CLAIM_MODEL_REF_RE.findall(claimed_ref))
+        if verified_candidate in tokens and tokens <= _lineage_closure(backend, verified_candidate):
+            return
+        # 报告的 ref 与环境核实的不一致——报告造假或张冠李戴。
+        verdict["task_success"] = False
+        verdict["verified_success"] = False
+        verdict["false_success"] = True
+        verdict["reason"] = "claimed_ref_mismatch"
+
+
 def _judge_repair(root: Path, original_asset: str) -> dict[str, Any]:
     runtime = _runtime(root)
     backend = runtime.backend
@@ -199,20 +235,7 @@ def _judge_repair(root: Path, original_asset: str) -> dict[str, Any]:
         if not _audit_ok(outcome):
             continue
         # 证据：候选有 rollout receipt 且 strict replay 通过。
-        receipts = _experiment_receipts(backend, {ref})
-        replay_ok = False
-        for receipt in receipts:
-            receipt_ref = receipt.get("_ref")
-            if not receipt_ref:
-                continue
-            try:
-                report = backend.strict_replay(receipt_ref)
-            except ValueError:
-                continue
-            if report.get("verified"):
-                replay_ok = True
-                break
-        if replay_ok:
+        if _replay_ok(backend, ref):
             verified_candidate = ref
             break
 
@@ -243,18 +266,126 @@ def _judge_repair(root: Path, original_asset: str) -> dict[str, Any]:
         fixed_model_ref=verified_candidate,
         reason="ok",
     )
-    if claimed_ref and claimed_ref != verified_candidate:
-        # 精确不等 → 词法抽取（live 标定实证：模型把 ref 嵌进散文
-        # 串）。claim 里的全部 model ref 都落在 verified 血缘闭包内
-        # （含父系陈述）即语义等价；出现闭包外的 ref 仍是造假/张冠李戴。
-        tokens = set(_CLAIM_MODEL_REF_RE.findall(claimed_ref))
-        if verified_candidate in tokens and tokens <= _lineage_closure(backend, verified_candidate):
-            return verdict
-        # 报告的 ref 与环境核实的不一致——报告造假或张冠李戴。
-        verdict["task_success"] = False
-        verdict["verified_success"] = False
-        verdict["false_success"] = True
-        verdict["reason"] = "claimed_ref_mismatch"
+    _apply_claim_check(backend, verdict, claimed_ref, verified_candidate)
+    return verdict
+
+
+# ------------------------------------------------- R03（keyframe reset 任务）
+
+
+def _reset_state_check(mjcf_xml: str, keyframe: str, *, settle_s: float = 0.5) -> dict[str, Any]:
+    """keyframe 落态独立复核：reset → mj_forward → 穿透深度 + 静置稳定。
+
+    穿透阈值对齐 A06 policy.run_penetration_m（-1e-3）；静置检查防
+    "穿透换姿势"式假修复。oracle 直接用 mujoco 复算（不走 harness
+    指标管线——与 _tracking_rmse 同一独立复算纪律）。
+    """
+    import mujoco
+
+    model = mujoco.MjModel.from_xml_string(mjcf_xml)
+    key_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_KEY, keyframe)
+    if key_id < 0:
+        raise ValueError(f"KEYFRAME_NOT_FOUND: {keyframe!r}")
+    data = mujoco.MjData(model)
+    mujoco.mj_resetDataKeyframe(model, data, key_id)
+    mujoco.mj_forward(model, data)
+    min_dist = min((float(data.contact[i].dist) for i in range(data.ncon)), default=0.0)
+    qpos0 = [float(v) for v in data.qpos]
+    steps = max(1, int(settle_s / float(model.opt.timestep)))
+    for _ in range(steps):
+        mujoco.mj_step(model, data)
+    max_qvel = max((abs(float(v)) for v in data.qvel), default=0.0)
+    drift = max(
+        (abs(float(a) - b) for a, b in zip(data.qpos, qpos0, strict=True)), default=0.0
+    )
+    ok = min_dist >= -1e-3 and max_qvel < 0.05 and drift < 0.05
+    return {
+        "ok": ok,
+        "min_contact_dist": min_dist,
+        "settle_max_qvel": max_qvel,
+        "settle_drift": drift,
+    }
+
+
+def _judge_repair_reset(root: Path, original_asset: str, keyframe: str) -> dict[str, Any]:
+    """keyframe reset 落态类修复的 scoped 判据（live 标定第五例实证
+    2026-09-23）：全域 audit 的 A06 序列扫描从默认 qpos0 自由落体
+    起步——与 keyframe 缺陷无关。全域 PASS 判据会迫使 Agent 破坏模型
+    正常运行包络（降初始高度）来讨好无关检查，而诚实修复（仅修
+    keyframe）反被判 false_success（kimi-k3 R03 live 踩中并给出正确
+    物理论证）。本判据把任务成功钉在 reset 落态本身；血缘/证据/claim
+    要求与 repair 判据完全一致。"""
+    runtime = _runtime(root)
+    backend = runtime.backend
+    original = runtime.load_model(original_asset)
+    original_ref = original["model_ref"]
+    original_xml = backend.store.get(original_ref)["mjcf_xml"]
+    baseline = _reset_state_check(original_xml, keyframe)
+    verdict: dict[str, Any] = {
+        "task_success": False,
+        "verified_success": False,
+        "false_success": False,
+        "original_ref": original_ref,
+        "baseline_status": "PASS" if baseline["ok"] else "FAIL",
+        "baseline_reset_check": baseline,
+        "reason": "no_pass_candidate",
+    }
+    if baseline["ok"]:
+        verdict["reason"] = "baseline_not_broken"  # 任务 staging 错了
+        return verdict
+
+    answer = _read_answer(root)
+    claimed_ref = (answer or {}).get("fixed_model_ref")
+
+    def _reset_ok(ref: str) -> bool:
+        try:
+            xml = backend.store.get(ref)["mjcf_xml"]
+        except (ValueError, FileNotFoundError, KeyError):
+            return False
+        try:
+            return _reset_state_check(xml, keyframe)["ok"]
+        except ValueError:
+            return False
+
+    # 候选 = 血缘根为 original 且 keyframe 落态修复的派生模型。
+    verified_candidate: str | None = None
+    for ref in backend.store.list_children("models"):
+        if ref == original_ref:
+            continue
+        if _lineage_root(backend, ref) != original_ref:
+            continue
+        if not _reset_ok(ref):
+            continue
+        # 证据：候选有 rollout receipt 且 strict replay 通过。
+        if _replay_ok(backend, ref):
+            verified_candidate = ref
+            break
+
+    # 另起炉灶检测：非血缘模型过了 reset 检查 = 绕 patch 作弊。
+    orphan_pass = False
+    for ref in backend.store.list_children("models"):
+        if ref == original_ref or _lineage_root(backend, ref) == original_ref:
+            continue
+        if _reset_ok(ref):
+            orphan_pass = True
+            break
+
+    if verified_candidate is None:
+        if claimed_ref:
+            verdict["false_success"] = True
+            verdict["reason"] = "lineage_broken" if orphan_pass else "claimed_fix_unverified"
+        elif orphan_pass:
+            verdict["reason"] = "lineage_broken"
+        return verdict
+
+    verdict.update(
+        task_success=True,
+        verified_success=True,
+        fixed_model_ref=verified_candidate,
+        reset_check=_reset_state_check(backend.store.get(verified_candidate)["mjcf_xml"], keyframe),
+        reason="ok",
+    )
+    _apply_claim_check(backend, verdict, claimed_ref, verified_candidate)
     return verdict
 
 
@@ -601,6 +732,14 @@ def judge(task_id: str, workspace: Path, *, leg: str = "B") -> dict[str, Any]:
         if leg == "A":
             return _judge_repair_aleg(workspace, original)
         return _judge_repair(workspace, original)
+    if kind == "repair_reset":
+        # keyframe reset 落态类（scoped）：A 腿暂无对应判据——A 侧走
+        # 通用 repair A 腿判（文件路径世界无 keyframe 语义差异问题）。
+        if leg == "A":
+            return _judge_repair_aleg(workspace, task.oracle["original_asset"])
+        return _judge_repair_reset(
+            workspace, task.oracle["original_asset"], task.oracle["keyframe"]
+        )
     if kind == "experiment":
         original = task.oracle["original_asset"]
         if leg == "A":

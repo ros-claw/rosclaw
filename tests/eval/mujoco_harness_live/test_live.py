@@ -78,6 +78,10 @@ def test_b_hint_carries_lineage_citation_contract() -> None:
 
     assert "血缘" in _B_TOOL_HINT and "model_ref" in _B_TOOL_HINT
     assert "不采信" in _B_TOOL_HINT or "不被采信" in _B_TOOL_HINT
+    # 证据格式契约（live 标定第六例实证）：回执承载 + strict replay
+    # 可复放；自写脚本测量不采信——不告知则诚实 Agent 用自写脚本
+    # 验证而留不下可复放证据（kimi-k3 R03 踩中）。
+    assert "回执" in _B_TOOL_HINT and "replay" in _B_TOOL_HINT
     assert "血缘" not in _A_TOOL_HINT
 
 

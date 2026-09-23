@@ -697,3 +697,21 @@ ROSClaw 已经具备相当多 MuJoCo 底层能力：`sim/api.py` 的最小编程
    真修复必须 geom.pos + kp + damping 三件套——合成测试钉死。
 3. **纪律**：live 试点的第一价值是标定任务可赢性——合成红绿
    证明不了的"任务-能力面错配"只有真模型能暴露。
+
+## 补充：G39 live 标定第四例——keyframe.qpos 入 patch 白名单（2026-09-23）
+
+1. **实证**：HarnessBench 类别试点 R03（keyframe reset 落态穿透）×
+   B 腿 × kimi-k3 → claimed_fix_unverified。模型诊断正确并尝试
+   patch keyframe，实测 MODEL_FIELD_UNSUPPORTED（自留拒绝证据
+   evidence/02_patch_cli_rejection.txt）——修复需改 key.qpos，
+   白名单不含则 B 腿血缘路径物理不可赢（同 R01 geom.pos 同型）。
+2. **修法**：`("keyframe", "qpos")` 入白名单 + `keys` 集合寻址
+   （MjSpec 实证：`spec.keyframes` 不存在，是 `spec.keys`；
+   MjDoubleVec 不支持切片赋值，属性整体赋值可行）。校验：长度
+   恰等于 keyframe 维度（=nq）+ 分量有限；部分长度拒绝不猜语义。
+3. **R03 真修复两件套实证**：keyframe z→0.05（半径 0.05 恰好零
+   穿透）+ body z 0.5→0.05（消除下落冲击穿透：A06 实证 0.5m 下落
+   -0.018m vs 贴地静置 -0.00037m，阈值 -1e-3）→ audit PASS。
+   合成钉死：R03 B 腿 patch 血缘修复 verified_success。
+4. **MjSpec 绑定实证**：`MjSpec.keys`（非 keyframes）；key.qpos
+   属性赋值即编译生效。
