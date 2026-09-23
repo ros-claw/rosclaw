@@ -36,6 +36,15 @@ Any Agent → ROSClaw → Any Body
 > **AI can reason. ROSClaw gives reasoning a governed path into the physical
 > world—and gives verified experience a path back into intelligence.**
 
+<div align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/brand/institutions/rd-lockup-dark.png">
+  <img src="assets/brand/institutions/rd-lockup-light.png" width="900" alt="Research and Development: Tongji University and Shanghai Research Institute for Intelligent Autonomous Systems (SRIAS)">
+</picture>
+<br>
+<a href="https://www.tongji.edu.cn/">Tongji University</a> · <a href="https://srias.tongji.edu.cn/">SRIAS</a>
+</div>
+
 ```bash
 curl -sSL https://rosclaw.io/get | bash
 rosclaw firstboot --yes --profile offline --no-telemetry
