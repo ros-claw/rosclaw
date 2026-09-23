@@ -173,10 +173,12 @@ def test_performance_baseline_recorded(backend, tmp_path) -> None:
     assert "load_ms" in baseline
 
 
-@pytest.mark.slow
 def test_clean_wheel_install_smoke(tmp_path) -> None:
     """§49/G46：build wheel → 干净 venv → pip install →
-    rosclaw sim capabilities + load/rollout 冒烟。"""
+    rosclaw sim capabilities + load/rollout 冒烟。
+
+    不标 slow：G46 是发布门，必须进 CI gate 全回归（gate 跑
+    -m 'not slow'，标 slow = 永远只有本地证据——审查实证）。"""
     import json
     import subprocess
     import sys
