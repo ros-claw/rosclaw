@@ -88,6 +88,8 @@ _B_TOOL_HINT = (
     "修复类任务：fixed_model_ref 必须填 patch 血缘链上的模型引用"
     "（rosclaw sim patch/branch-experiment 返回的 model_ref）——"
     "另写文件再 load 的模型不在血缘内，oracle 不采信。"
+    "可复核证据须由工具链回执承载（audit/rollout/experiment 的"
+    "回执引用，strict replay 可复放）——自写脚本测的数字不被采信。"
 )
 _A_TOOL_HINT = "\n\n环境里有 Python（含 mujoco/numpy）与 bash。没有专用仿真工具链——一切自己动手。"
 

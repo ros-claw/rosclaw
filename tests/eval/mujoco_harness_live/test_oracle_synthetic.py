@@ -156,39 +156,34 @@ def test_r01_bleg_geom_pos_patch_fix_verified(tmp_path) -> None:
 
 
 def test_r03_bleg_keyframe_qpos_patch_fix_verified(tmp_path) -> None:
-    """B 腿 R03 好 Agent（live 标定第四例实证 2026-09-23）：bad_reset
-    的修复 = keyframe.qpos（落态穿透）+ body.pos（下落冲击穿透）
-    两件套——keyframe.qpos 不入白名单时 B 腿血缘路径物理不可赢
-    （kimi-k3 live 踩中，自留 MODEL_FIELD_UNSUPPORTED 拒绝证据后
-    仍被判 claimed_fix_unverified）。加白后：patch 血缘修复 +
-    audit PASS + rollout 留证 → verified_success。"""
+    """B 腿 R03 好 Agent（live 标定第五例实证 2026-09-23）：诚实修复
+    = 仅修 keyframe.qpos（z 0.02→0.05 消除落态穿透）——不改模型正常
+    运行包络。scoped repair_reset 判据钉在 reset 落态本身（全域
+    audit 的 A06 从 qpos0 自由落体起步，与 keyframe 缺陷无关——
+    kimi-k3 live 被全域判据误判 false_success 并给出正确物理论证）。
+
+    钉死链：血缘 patch + reset 落态复核 + rollout 留证 + replay →
+    verified_success。"""
     from benchmarks.harnessbench.tasks import TASKS as _T
 
     _stage(tmp_path, "model/bad_reset.xml", _T["R03"].staged_files["model/bad_reset.xml"])
     runtime = _runtime(tmp_path)
     loaded = runtime.load_model("model/bad_reset.xml")
-    assert runtime.audit(loaded["model_ref"])["status"] == "FAIL"
+    # 基线：keyframe 落态穿透（z=0.02 < 半径 0.05）。
+    baseline_verdict = hb_oracle.judge("R03", tmp_path)
+    assert baseline_verdict["baseline_status"] == "FAIL"
+    assert baseline_verdict["baseline_reset_check"]["min_contact_dist"] < -1e-3
     fixed = runtime.patch_model(
         loaded["model_ref"],
         [
-            # keyframe 落态 z 0.02 → 0.05（球半径 0.05，恰好零穿透）
             {
                 "op": "set",
                 "target": {"type": "keyframe", "name": "home"},
                 "field": "qpos",
                 "value": [0.0, 0.0, 0.05, 1.0, 0.0, 0.0, 0.0],
             },
-            # 起点高度 0.5 → 0.05（贴地，消除下落冲击穿透——A06 实证
-            # 0.5m 下落 -0.018m 穿透，贴地静置 -0.00037m 过阈值）
-            {
-                "op": "set",
-                "target": {"type": "body", "name": "ball"},
-                "field": "pos",
-                "value": [0.0, 0.0, 0.05],
-            },
         ],
     )
-    assert runtime.audit(fixed["new_model_ref"])["status"] == "PASS"
     runtime.rollout(fixed["new_model_ref"], controller={"hold": True}, duration_s=0.5)
     (tmp_path / "answer.json").write_text(
         json.dumps(
@@ -202,7 +197,40 @@ def test_r03_bleg_keyframe_qpos_patch_fix_verified(tmp_path) -> None:
     verdict = hb_oracle.judge("R03", tmp_path)
     assert verdict["verified_success"] is True, verdict
     assert verdict["false_success"] is False
+    assert verdict["reset_check"]["ok"] is True
 
+
+def test_r03_bleg_unfixed_or_orphan_still_rejected(tmp_path) -> None:
+    """红侧钉死：没修（只有基线模型）claim → false_success
+    （claimed_fix_unverified）；另写文件孤儿过 reset 检查 + claim
+    指向它 → lineage_broken。"""
+    from benchmarks.harnessbench.tasks import TASKS as _T
+
+    _stage(tmp_path, "model/bad_reset.xml", _T["R03"].staged_files["model/bad_reset.xml"])
+    runtime = _runtime(tmp_path)
+    loaded = runtime.load_model("model/bad_reset.xml")
+    (tmp_path / "answer.json").write_text(
+        json.dumps({"problems": ["penetration"], "fixed_model_ref": loaded["model_ref"]}),
+        encoding="utf-8",
+    )
+    verdict = hb_oracle.judge("R03", tmp_path)
+    assert verdict["verified_success"] is False
+    assert verdict["false_success"] is True
+    assert verdict["reason"] == "claimed_fix_unverified"
+
+    # 孤儿：另写修复文件 load（无血缘）+ claim 指向它 → lineage_broken。
+    orphan_xml = _T["R03"].staged_files["model/bad_reset.xml"].replace(
+        'qpos="0 0 0.02 1 0 0 0"', 'qpos="0 0 0.05 1 0 0 0"'
+    )
+    _stage(tmp_path, "fixed/bad_reset_fixed.xml", orphan_xml)
+    orphan = runtime.load_model("fixed/bad_reset_fixed.xml")
+    (tmp_path / "answer.json").write_text(
+        json.dumps({"problems": ["penetration"], "fixed_model_ref": orphan["model_ref"]}),
+        encoding="utf-8",
+    )
+    verdict = hb_oracle.judge("R03", tmp_path)
+    assert verdict["false_success"] is True
+    assert verdict["reason"] == "lineage_broken", verdict
 
 def test_r02_doctor_good_agent(tmp_path) -> None:
     """好 Agent：原模型 FAIL → 修复模型 PASS + lineage 正确 →
