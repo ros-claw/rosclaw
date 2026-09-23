@@ -65,6 +65,22 @@ def test_task_workspace_isolation(tmp_path) -> None:
         assert not forbidden, f"{task_id} workspace 泄漏: {forbidden}"
 
 
+def test_b_hint_carries_lineage_citation_contract() -> None:
+    """B 侧提示必须写明引用契约（live 标定第三例实证 2026-09-23）：
+
+    kimi-k3 R01 修复工作真实完成（血缘 patch + audit PASS + replay ok），
+    但 answer.json 引用了另写文件 load 的孤儿 ref——任务 prompt 写
+    "引用或路径"而 B 腿 oracle 只认血缘，诱导性张冠李戴
+    （claimed_ref_mismatch false_success）。提示必须告知：填 patch
+    血缘链上的 model_ref，文件孤儿不采信。A 侧提示不得含（无此机制）。
+    """
+    from benchmarks.harnessbench.runner import _A_TOOL_HINT, _B_TOOL_HINT
+
+    assert "血缘" in _B_TOOL_HINT and "model_ref" in _B_TOOL_HINT
+    assert "不采信" in _B_TOOL_HINT or "不被采信" in _B_TOOL_HINT
+    assert "血缘" not in _A_TOOL_HINT
+
+
 @pytest.mark.integration
 def test_live_smoke_u01_b_leg(tmp_path) -> None:
     """真实冒烟（integration，operator 手动跑）：B 侧 U01 一次。

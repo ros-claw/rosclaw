@@ -85,6 +85,9 @@ _B_TOOL_HINT = (
     "（capabilities/load/inspect/patch/rollout/observe/audit/"
     "branch-experiment/compare/compile-world/render，JSON 接口，"
     "默认以当前目录为任务根）。"
+    "修复类任务：fixed_model_ref 必须填 patch 血缘链上的模型引用"
+    "（rosclaw sim patch/branch-experiment 返回的 model_ref）——"
+    "另写文件再 load 的模型不在血缘内，oracle 不采信。"
 )
 _A_TOOL_HINT = "\n\n环境里有 Python（含 mujoco/numpy）与 bash。没有专用仿真工具链——一切自己动手。"
 
