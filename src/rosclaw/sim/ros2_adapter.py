@@ -84,12 +84,22 @@ class ObservationFreshness:
 
 
 def bridge_install_notes() -> dict[str, Any]:
-    """安装实况留档（诚实过程证据，不粉饰）。"""
+    """安装实况留档（诚实过程证据，不粉饰）。
+
+    2026-09-23 更新：binary ros-jazzy-mujoco-ros2-control 0.1.1 已装通
+    （tuna 镜像；MH25 时 stale index 404 已解除），G43 exact-step
+    agreement live PASS（docs/reports/ros2-bridge/01）。下列
+    not_run_reasons 为 MH25 当时的历史留档，现状以 G43 门表为准。
+    """
     notes: dict[str, Any] = {
         "binary_apt_available": _importable("mujoco_ros2_control"),
         "jazzy_branch_exists": False,
         "rclpy_importable": _importable("rclpy"),
         "not_run_reasons": [],
+        "resolution_2026_09_23": (
+            "binary 0.1.1 经 tuna 镜像装通；G43 live AGREEMENT（单摆 "
+            "500 步 qpos/qvel 逐位一致）——见 docs/reports/ros2-bridge/01"
+        ),
     }
     if not notes["rclpy_importable"]:
         notes["not_run_reasons"].append(

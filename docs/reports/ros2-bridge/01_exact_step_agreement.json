@@ -1,0 +1,26 @@
+{
+  "gate": "G43",
+  "bridge_mujoco_version": "3.12.0 (ros-jazzy-mujoco-vendor)",
+  "rosclaw_mujoco_version": "3.13.0",
+  "steps": 500,
+  "tolerance_rad": 0.001,
+  "verdict": "AGREEMENT",
+  "notes": [],
+  "bridge_pid": 2101194,
+  "bridge_node": "/mujoco_ros2_control_node",
+  "broadcaster": "active",
+  "reset_response_tail": "ree_joints=[]))\n\nresponse:\nmujoco_ros2_control_msgs.srv.ResetWorld_Response(success=True, message=\"Successfully reset the MuJoCo world to the 'swing' state.\")\n\n",
+  "step_response_tail": "ing request: mujoco_ros2_control_msgs.srv.StepSimulation_Request(steps=500)\n\nresponse:\nmujoco_ros2_control_msgs.srv.StepSimulation_Response(success=True, message='Completed 500 simulation step(s).')\n\n",
+  "bridge_final": {
+    "qpos": 0.8359684472717589,
+    "qvel": -0.981779901850038
+  },
+  "native_final": {
+    "qpos": 0.8359684472717589,
+    "qvel": -0.981779901850038
+  },
+  "final_abs_diff": {
+    "qpos": 0.0,
+    "qvel": 0.0
+  }
+}
