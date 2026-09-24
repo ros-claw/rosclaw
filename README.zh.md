@@ -35,6 +35,15 @@ ROS 2、MCP、仿真器、厂商 SDK 与机器人在下层接入。
 > **AI 可以思考。ROSClaw 让智能受控地进入物理世界，也让经过验证的实践
 > 回到智能成长的循环中。**
 
+<div align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/brand/institutions/rd-lockup-dark.png">
+  <img src="assets/brand/institutions/rd-lockup-light.png" width="900" alt="研发单位：同济大学与上海自主智能无人系统科学中心">
+</picture>
+<br>
+<a href="https://www.tongji.edu.cn/">同济大学</a> · <a href="https://srias.tongji.edu.cn/">上海自主智能无人系统科学中心</a>
+</div>
+
 ```bash
 curl -sSL https://rosclaw.io/get | bash
 rosclaw firstboot --yes --profile offline --no-telemetry
