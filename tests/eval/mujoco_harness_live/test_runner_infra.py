@@ -92,3 +92,18 @@ def test_run_leg_stall_raises_with_real_wall_time(tmp_path, monkeypatch) -> None
     # 交给 error_record 后真实耗时不被抹零。
     record = error_record(excinfo.value, "B", "U01", 1, model="deepseekv4")
     assert record["wall_time_s"] == partial["wall_time_s"]
+
+
+def test_recoverable_failure_markers() -> None:
+    """provider 失败标记覆盖（live 实证 2026-09-23 D02）：kimi 超时
+    波次必须触发重发，正常文本不误触。"""
+    from benchmarks.harnessbench.runner import _is_recoverable_failure
+
+    assert _is_recoverable_failure(b"Error: Request timed out. ")
+    assert _is_recoverable_failure(b"Error: Retry failed after 1 attempts: Request timed out.")
+    assert _is_recoverable_failure(b"Operation aborted")
+    assert _is_recoverable_failure("已取消本次请求".encode())
+    # 正常输出/模型散文里的英文单词不误触
+    assert not _is_recoverable_failure(b"working... analysing trace")
+    assert not _is_recoverable_failure("超时重试是常见策略".encode())
+    assert not _is_recoverable_failure(b"")

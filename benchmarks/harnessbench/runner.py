@@ -88,6 +88,8 @@ _B_TOOL_HINT = (
     "修复类任务：fixed_model_ref 必须填 patch 血缘链上的模型引用"
     "（rosclaw sim patch/branch-experiment 返回的 model_ref）——"
     "另写文件再 load 的模型不在血缘内，oracle 不采信。"
+    "可复核证据须由工具链回执承载（audit/rollout/experiment 的"
+    "回执引用，strict replay 可复放）——自写脚本测的数字不被采信。"
 )
 _A_TOOL_HINT = "\n\n环境里有 Python（含 mujoco/numpy）与 bash。没有专用仿真工具链——一切自己动手。"
 
@@ -329,6 +331,21 @@ def stage_workspace(base: Path, task_id: str) -> Path:
     return base
 
 
+def _is_recoverable_failure(chunk: bytes) -> bool:
+    """可恢复 provider 失败标记（增量 PTY 输出扫描）——命中即重发
+    prompt（产品自身的"可重发"语义，API 瞬时故障不算能力失败）。
+
+    live 实证（2026-09-23 D02）：kimi 慢波次 "Request timed out /
+    Retry failed after 1 attempts" 后会话空转等输入，不重发则整轮
+    按 FAIL 记账（infra 波次冒充能力失败）。"""
+    return (
+        b"Operation aborted" in chunk
+        or "已取消本次请求".encode() in chunk
+        or b"Retry failed" in chunk
+        or b"Request timed out" in chunk
+    )
+
+
 def _wait_settled(
     session, workspace: Path, settle_timeout: float, *, prompt: str | None = None
 ) -> int:
@@ -363,12 +380,14 @@ def _wait_settled(
             if now - started > 8 and current > activity_baseline:
                 activity_seen = True
                 activity_baseline = current
-        # provider 自动取消检测（增量扫描新输出）。
+        # provider 自动取消/失败检测（增量扫描新输出）。
         if retries < 2 and len(output) > scanned:
             chunk = output[scanned:]
             scanned = len(output)
-            if prompt is not None and (
-                b"Operation aborted" in chunk or "已取消本次请求".encode() in chunk
+            if (
+                prompt is not None
+                and not (workspace / "answer.json").exists()  # 已完成回合不重发
+                and _is_recoverable_failure(chunk)
             ):
                 retries += 1
                 quiet_since = time.monotonic()
