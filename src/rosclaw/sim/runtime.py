@@ -195,8 +195,46 @@ class SimulationRuntime:
 
                     verdicts = evaluate_predicates(observations, task_predicates)
                     task_success = all(v["ok"] for v in verdicts)
+                # 并行分支同样落盘 canonical simulation_receipt 并返回
+                # receipt_ref——否则 sim compare 无法链式消费分支结果
+                # (compare_experiments 要求 store 内 kind==simulation_receipt)。
+                manifest = self._backend._manifest(target_ref)
+                payload = {
+                    "kind": "simulation_receipt",
+                    "schema_version": "rosclaw.sim.receipt.v1",
+                    "backend": "mujoco",
+                    "backend_version": manifest["backend_version"],
+                    "model_ref": target_ref,
+                    "model_digest": self._backend._model_digest(manifest),
+                    "initial_state_ref": branch_state,
+                    "trace_ref": batch_result["trace_ref"],
+                    "final_state_ref": batch_result["final_state_ref"],
+                    "seed": seed,
+                    "steps": batch_result["steps"],
+                    "success": task_success,
+                    "simulation_valid": True,
+                    "physical_audit_pass": audit_result.status == "PASS",
+                    "task_success": task_success,
+                    "verification_status": (
+                        "FAIL" if audit_result.status == "FAIL"
+                        else ("NOT_EVALUATED" if task_predicates is None
+                              else ("PASS" if task_success else "FAIL"))
+                    ),
+                    "metrics": {},
+                    "metrics_mode": "batch_trajectory",
+                    "audit_ref": audit_result.audit_ref,
+                    "artifacts": [],
+                    "states_digest": batch_result["states_digest"],
+                    "execution": execution,
+                    "branch": branches[index].get("name") or f"b{index}",
+                    "trust_level": "SIMULATED",
+                    "usable_for_real_execution": False,
+                }
+                receipt_ref = self._backend.store.put("experiments", payload)
                 receipts.append(
                     {
+                        "receipt_ref": receipt_ref,
+                        "branch": payload["branch"],
                         "model_ref": target_ref,
                         "trace_ref": batch_result["trace_ref"],
                         "final_state_ref": batch_result["final_state_ref"],
@@ -212,17 +250,17 @@ class SimulationRuntime:
                     }
                 )
             else:
-                receipts.append(
-                    self._backend.run_experiment(
-                        target_ref,
-                        state_ref=branch_state,
-                        controller=controller,
-                        duration_s=duration_s,
-                        steps=steps,
-                        seed=seed,
-                        task_predicates=task_predicates,
-                    ).to_canonical_dict()
-                )
+                serial_receipt = self._backend.run_experiment(
+                    target_ref,
+                    state_ref=branch_state,
+                    controller=controller,
+                    duration_s=duration_s,
+                    steps=steps,
+                    seed=seed,
+                    task_predicates=task_predicates,
+                ).to_canonical_dict()
+                serial_receipt["branch"] = branches[index].get("name") or f"b{index}"
+                receipts.append(serial_receipt)
         return {
             "fork_ref": fork["fork_ref"],
             "base_state_ref": base_state,
