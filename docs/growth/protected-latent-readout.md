@@ -26,3 +26,17 @@ mandatory. `training_only=true`, `hardware_authorized=false`, and
 
 Tests: `pytest tests/growth/test_anchor_plane.py`; use an isolated
 `ROSCLAW_HOME` for surrounding Practice tests instead of migrating user state.
+
+## Stable advantage weights
+
+`rosclaw.growth.advantage_weights.statewise_advantage_weights` is a second
+optional training helper. An absolute upper clip on exp((R-V)/T) can give a
+near-success and a high-quality success identical weights when V is low.
+The helper uses exp((R-max_state R)/T), algebraically equivalent to subtracting
+the maximum advantage **within identical observed states** before exponentiation.
+It preserves within-state return ordering and does not use episode/task IDs.
+The lower exponent floor is -64; inputs and state-value consistency are checked.
+Statewise balancing changes weighting across states, so this is an AWR-inspired
+learner tool, not an exact reproduction of the original global objective.
+It gives no physical evidence or policy authority. Tests cover reward-rank
+preservation, baseline/batch-order invariance, finite inputs and overflow.
