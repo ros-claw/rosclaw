@@ -205,7 +205,8 @@ def test_clean_wheel_install_smoke(tmp_path) -> None:
     subprocess.run(
         [str(python), "-m", "pip", "install", "-q", str(wheels[0]), "mujoco>=3.13,<3.14", "numpy"],
         check=True,
-        capture_output=True,
+        # Keep pip errors visible in pytest/CI. Capturing without displaying
+        # stderr left a macOS wheel-install failure with only exit status 2.
         timeout=900,
     )
     work = tmp_path / "smoke"
