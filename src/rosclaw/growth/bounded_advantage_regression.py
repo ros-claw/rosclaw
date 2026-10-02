@@ -181,16 +181,16 @@ def _fit(
     weights: Any,
     config: AdvantageRegressionConfig,
 ) -> dict[str, Any]:
-    w = [torch.nn.Parameter(torch.tensor(v[0], dtype=torch.float64)) for v in layers]
-    b = [torch.nn.Parameter(torch.tensor(v[1], dtype=torch.float64)) for v in layers]
+    w = [torch.nn.Parameter(torch.tensor(v[0], dtype=torch.float64, device="cpu")) for v in layers]
+    b = [torch.nn.Parameter(torch.tensor(v[1], dtype=torch.float64, device="cpu")) for v in layers]
     parameters = w + b
     optimizer = torch.optim.Adam(parameters, lr=config.learning_rate)
     inp, frozen_base, frozen_gate, desired, noise, marginal_noise, importance = [
-        torch.tensor(v, dtype=torch.float64)
+        torch.tensor(v, dtype=torch.float64, device="cpu")
         for v in (x, base, gate[:, None], action, innovation[:, None], marginal[:, None], weights)
     ]
-    first_mask = torch.tensor(resets[:, None])
-    prev_action = torch.tensor(np.roll(action, 1, axis=0), dtype=torch.float64)
+    first_mask = torch.tensor(resets[:, None], device="cpu")
+    prev_action = torch.tensor(np.roll(action, 1, axis=0), dtype=torch.float64, device="cpu")
 
     def mean() -> Any:
         hidden = inp

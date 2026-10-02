@@ -122,3 +122,15 @@ def test_torch_host_settings_and_rng_restored_even_on_failure(monkeypatch):
     assert torch.get_num_threads() == threads
     assert torch.are_deterministic_algorithms_enabled() == deterministic
     assert torch.is_deterministic_algorithms_warn_only_enabled() == warn_only
+
+
+def test_reference_fitter_ignores_and_preserves_host_default_device():
+    torch = pytest.importorskip("torch")
+    previous = torch.get_default_device()
+    try:
+        torch.set_default_device("meta")
+        learned = regression.fit_advantage_residual(**batch())
+        assert learned["completed_optimizer_steps"] > 0
+        assert torch.get_default_device().type == "meta"
+    finally:
+        torch.set_default_device(previous)
