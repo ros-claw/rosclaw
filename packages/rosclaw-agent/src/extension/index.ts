@@ -250,6 +250,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 		});
 		pi.on("session_start", async (_event, ctx) => {
 			latestCtx = ctx;
+			if (ctx.model) center.noteModel(ctx.model.name ?? ctx.model.id);
 			operationWatcher.start();
 			// PR-N5D：无静态 allowlist——启动即把激活面钉回
 			// MODEL_TOOL_NAMES（+已物化名，digest 变化后重钉）。
@@ -1209,7 +1210,8 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 		// /activity 账本；PROVIDER_PAUSED 进 Header/readiness；模型
 		// 切换或下次成功复位（恢复同一 turn，不重建任务）。
 		const providerGate = new ProviderErrorGate();
-		pi.on("model_select", async () => {
+		pi.on("model_select", async (_event, ctx) => {
+			if (ctx.model) center.noteModel(ctx.model.name ?? ctx.model.id);
 			providerGate.onModelSwitch();
 			center.noteProviderOk();
 			return undefined;
