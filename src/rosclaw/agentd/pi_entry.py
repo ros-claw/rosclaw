@@ -261,3 +261,16 @@ def find_tui_runtime(*, bootstrap: bool = False) -> tuple[str, str] | None:
     if not entry or not Path(entry).exists():
         return None
     return node, entry
+
+
+def node_runtime_env(source: dict[str, str]) -> dict[str, str]:
+    """Honor configured HTTP proxies in Node's native fetch (Node 24+).
+
+    Preserve an explicit NODE_USE_ENV_PROXY=0 and leave unproxied setups alone.
+    Older Node releases ignore the flag; no proxy URL or secret is logged.
+    """
+    env = dict(source)
+    if any(env.get(key) for key in ("https_proxy", "HTTPS_PROXY", "http_proxy", "HTTP_PROXY")):
+        env.setdefault("NODE_USE_ENV_PROXY", "1")
+        env.setdefault("NO_PROXY", "127.0.0.1,localhost,::1")
+    return env

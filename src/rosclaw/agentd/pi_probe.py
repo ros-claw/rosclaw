@@ -43,7 +43,7 @@ async def pi_probe_home(home: Path, *, deep: bool = False) -> ModelProbeResult:
             "不可用——重新安装或构建发布包",
         )
     node, entry = located
-    env = dict(os.environ, ROSCLAW_HOME=str(home))
+    env = pi_entry.node_runtime_env(dict(os.environ, ROSCLAW_HOME=str(home)))
     argv = [node, str(entry), "--probe"]
     if deep:
         argv.append("--deep")

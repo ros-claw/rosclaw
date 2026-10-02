@@ -132,3 +132,14 @@ class TestEntryResolution:
         assert not fake_wheel["runtime_root"].exists(), (
             "诊断面不得触发 npm/写盘（doctor 本地-only）"
         )
+
+
+def test_node_proxy_env_honors_operator_settings():
+    original = {"https_proxy": "http://127.0.0.1:8080"}
+    assert pi_entry.node_runtime_env(original)["NODE_USE_ENV_PROXY"] == "1"
+    assert "NODE_USE_ENV_PROXY" not in original
+    assert (
+        pi_entry.node_runtime_env({**original, "NODE_USE_ENV_PROXY": "0"})["NODE_USE_ENV_PROXY"]
+        == "0"
+    )
+    assert "NODE_USE_ENV_PROXY" not in pi_entry.node_runtime_env({})

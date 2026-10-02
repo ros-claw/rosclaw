@@ -30,6 +30,14 @@ export interface ClassifiedModelError {
  *  不靠模型猜。 */
 export function classifyModelError(raw: string): ClassifiedModelError {
 	const text = raw.toLowerCase();
+	if (/operation aborted|request (aborted|cancelled|canceled)|aborterror/.test(text)) {
+		return {
+			code: "MODEL_REQUEST_CANCELLED",
+			explanation: "模型请求已取消",
+			recovery: "重新发送消息继续",
+			taskRecoverable: true,
+		};
+	}
 	// 顺序敏感：quota 在 generic 403/auth 之前。
 	if (
 		/usage limit|quota|billing|access_terminated|membership|402/.test(text)
@@ -85,7 +93,7 @@ export function classifyModelError(raw: string): ClassifiedModelError {
 			taskRecoverable: true,
 		};
 	}
-	if (/econnreset|etimedout|enotfound|network|unavailable|502|503|504/.test(text)) {
+	if (/econnreset|etimedout|enotfound|network|unavailable|fetch failed|connection error|timed? out|timeout|502|503|504/.test(text)) {
 		return {
 			code: "PROVIDER_UNAVAILABLE",
 			explanation: "provider 暂不可达",

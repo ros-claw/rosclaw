@@ -730,6 +730,9 @@ def _chat_pi(home: Path, args: argparse.Namespace) -> int:
         ROSCLAW_HOME=str(home),
         ROSCLAW_PRODUCT_VERSION=_product_version,
     )
+    from rosclaw.agentd.pi_entry import node_runtime_env
+
+    env = node_runtime_env(env)
     try:
         return _sp.call(argv, env=env)  # noqa: S603 - fixed entry
     except KeyboardInterrupt:

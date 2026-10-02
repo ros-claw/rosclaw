@@ -1,6 +1,6 @@
 # ROSClaw 上游薄补丁（NA-FIX-3，规格 §5/§23.4）
 
-目标包：`@earendil-works/pi-coding-agent@0.83.0`（commit 588915ec）。
+目标包：`@earendil-works/pi-coding-agent@1.0.0`（commit a13d35a742c6ef8462812a28fbe1d8c8b7431c32）。
 预算：< 60 LOC。只加通用扩展点，不 fork AgentLoop/Provider/Session 格式。
 
 ## patch-01：AppIdentity / resumeCommandFormatter

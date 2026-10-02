@@ -18,6 +18,8 @@ export class PiHarnessSession implements HarnessSession {
 	readonly sessionRef: HarnessSessionRef;
 	readonly cwd: string;
 	private readonly _session: AgentSession;
+	private _closed = false;
+	private readonly _eventWaiters = new Set<() => void>();
 
 	constructor(session: AgentSession, cwd: string) {
 		this._session = session;
@@ -44,7 +46,6 @@ export class PiHarnessSession implements HarnessSession {
 		// 简单拉模式：subscribe 收集到队列，调用方按节奏消费。
 		const queue: HarnessEvent[] = [];
 		let notify: (() => void) | undefined;
-		let done = false;
 		const unsubscribe = this._session.subscribe((event) => {
 			const mapped = mapPiEvent(event as { type?: string } & Record<string, unknown>);
 			if (mapped) {
@@ -53,19 +54,23 @@ export class PiHarnessSession implements HarnessSession {
 			}
 		});
 		try {
-			while (!done) {
+			while (!this._closed) {
 				if (!queue.length) {
 					await new Promise<void>((resolve) => {
-						notify = resolve;
-						// 无事件时的兜底轮询（adapter 边界，避免永久挂起）。
-						setTimeout(resolve, 250);
+						const wake = () => {
+							clearTimeout(timer);
+							this._eventWaiters.delete(wake);
+							resolve();
+						};
+						const timer = setTimeout(wake, 250);
+						notify = wake;
+						this._eventWaiters.add(wake);
 					});
 					notify = undefined;
 					continue;
 				}
 				const next = queue.shift();
 				if (next) yield next;
-				if (next?.type === "session.idle") done = false; // 保持流开着
 			}
 		} finally {
 			unsubscribe();
@@ -82,15 +87,11 @@ export class PiHarnessSession implements HarnessSession {
 	}
 
 	async setModel(model: { provider: string; model: string }): Promise<void> {
-		// ModelRegistry 在运行时装配——经 session 的 modelRegistry 解析。
-		const registry = (this._session as unknown as {
-			modelRegistry?: { find(provider: string, id: string): unknown };
-		}).modelRegistry;
-		const found = registry?.find(model.provider, model.model);
+		const found = this._session.modelRuntime.getModel(model.provider, model.model);
 		if (!found) {
 			throw new Error(`MODEL_NOT_FOUND: ${model.provider}/${model.model}`);
 		}
-		await this._session.setModel(found as never);
+		await this._session.setModel(found);
 	}
 
 	async setThinking(level: string): Promise<void> {
@@ -109,14 +110,18 @@ export class PiHarnessSession implements HarnessSession {
 	}
 
 	async close(): Promise<void> {
+		if (this._closed) return;
+		this._closed = true;
+		for (const wake of this._eventWaiters) wake();
+		await this._session.abort();
 		this._session.dispose();
 	}
 }
 
 /** Pi 私有事件 → HarnessEvent（唯一映射点）。 */
-function mapPiEvent(event: { type?: string } & Record<string, unknown>): HarnessEvent | undefined {
+export function mapPiEvent(event: { type?: string } & Record<string, unknown>): HarnessEvent | undefined {
 	const turnId = String(event.turnId ?? "");
-	const callId = String(event.callId ?? event.id ?? "");
+	const callId = String(event.toolCallId ?? event.callId ?? event.id ?? "");
 	switch (event.type) {
 		case "turn_start":
 			return { type: "turn.started", turnId };
@@ -127,8 +132,18 @@ function mapPiEvent(event: { type?: string } & Record<string, unknown>): Harness
 			}
 			return undefined;
 		}
-		case "message_end":
+		case "message_end": {
+			const message = event.message as { role?: string; stopReason?: string; errorMessage?: string } | undefined;
+			if (message?.role !== "assistant") return undefined;
+			if (message.stopReason === "aborted") return { type: "turn.cancelled", turnId };
+			if (message.stopReason === "error") return {
+				type: "turn.failed", turnId,
+				error: { code: "PROVIDER_UNAVAILABLE", message: message.errorMessage ?? "Model request failed", retryable: true },
+			};
 			return { type: "assistant.completed", turnId, messageId: String(event.messageId ?? "") };
+		}
+		case "agent_end":
+			return { type: "session.idle" };
 		case "tool_execution_start":
 			return { type: "tool.started", callId, tool: String(event.toolName ?? ""), args: event.args };
 		case "tool_execution_update":

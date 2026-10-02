@@ -84,6 +84,8 @@ export interface WorkspacePackOptions {
 	bashLogPath?: string;
 	/** 显式默认超时（运营配置；默认无定时器）。 */
 	defaultBashTimeoutMs?: number;
+	/** Visible heartbeat while a foreground command is running. */
+	bashProgressIntervalMs?: number;
 	/** rosclaw home（P0-6：沙箱内遮蔽其 agent/agentd/run——凭据/
 	 *  控制 token/bridge socket 不经 shell 可达，治理不可绕过）。 */
 	rosclawHome?: string;
@@ -243,35 +245,69 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 				const child = spawn(spawnCmd, spawnArgs, {
 					cwd: effectiveCwd,
 					env: scrubbedEnv,
-					signal: signal ?? undefined,
+					detached: process.platform !== "win32",
 				});
 				let buf = "";
 				let timedOut = false;
+				let aborted = false;
+				let settled = false;
+				let timer: NodeJS.Timeout | null = null;
+				let killTimer: NodeJS.Timeout | null = null;
+				const killTree = (sig: NodeJS.Signals) => {
+					try {
+						if (process.platform !== "win32" && child.pid) process.kill(-child.pid, sig);
+						else child.kill(sig);
+					} catch (err) {
+						if ((err as NodeJS.ErrnoException).code !== "ESRCH") child.kill(sig);
+					}
+				};
+				const cancel = () => {
+					if (settled) return;
+					aborted = true;
+					killTree("SIGTERM");
+					killTimer = setTimeout(() => killTree("SIGKILL"), 1000);
+				};
+				const progress = setInterval(() => {
+					try {
+						onUpdate?.({
+							content: [{ type: "text", text: `${degradedMarker}running wall=${Date.now() - started}ms; Esc cancels the command and its children.\n${buf.slice(-4096)}` }],
+							details: { running: true },
+						});
+					} catch { /* UI failure must not orphan the command. */ }
+				}, options.bashProgressIntervalMs ?? 15_000);
+				const finish = (text: string) => {
+					if (settled) return;
+					settled = true;
+					if (timer) clearTimeout(timer);
+					if (killTimer) clearTimeout(killTimer);
+					clearInterval(progress);
+					signal?.removeEventListener("abort", cancel);
+					resolvePromise(text);
+				};
 				child.stdout?.on("data", (d) => {
 					if (buf.length < MAX_OUTPUT_BYTES) buf += d.toString();
 				});
 				child.stderr?.on("data", (d) => {
 					if (buf.length < MAX_OUTPUT_BYTES) buf += d.toString();
 				});
-				let timer: NodeJS.Timeout | null = null;
 				if (timeoutMs !== null) {
 					timer = setTimeout(() => {
 						timedOut = true;
-						child.kill("SIGKILL");
+						killTree("SIGKILL");
 					}, timeoutMs);
 				}
 				child.on("close", (code) => {
-					if (timer) clearTimeout(timer);
+					// A shell can exit before a child that ignores SIGTERM. Clean
+					// the process group before releasing the tool's cancellation.
+					if (aborted || timedOut) killTree("SIGKILL");
 					const head = `exit=${code ?? "signal"} wall=${Date.now() - started}ms`
-						+ (timedOut ? " TIMEOUT(explicit)" : "");
-					resolvePromise(
-						`${degradedMarker}${head}\n${buf.slice(0, MAX_OUTPUT_BYTES)}`,
-					);
+						+ (timedOut ? " TIMEOUT(explicit)" : "")
+						+ (aborted ? " ABORTED" : "");
+					finish(`${degradedMarker}${head}\n${buf.slice(0, MAX_OUTPUT_BYTES)}`);
 				});
-				child.on("error", (err) => {
-					if (timer) clearTimeout(timer);
-					resolvePromise(`spawn error: ${err.message}`);
-				});
+				child.on("error", (err) => finish(`spawn error: ${err.message}`));
+				signal?.addEventListener("abort", cancel, { once: true });
+				if (signal?.aborted) cancel();
 			});
 			if (options.bashLogPath) {
 				try {
