@@ -71,3 +71,13 @@ test("user cancellation clears provider pause without suggesting a model switch"
 	assert.doesNotMatch(result.cardText, /model|模型调用失败|配额/);
 	assert.equal(result.activity?.code, "MODEL_REQUEST_CANCELLED");
 });
+
+test("live OpenAI websocket restart is recoverable provider disconnect, not unknown", () => {
+	for (const raw of ["WebSocket closed 1012", "WebSocket closed 1006", "socket hang up"]) {
+		const error = classifyModelError(raw);
+		assert.equal(error.code, "PROVIDER_UNAVAILABLE");
+		assert.ok(error.taskRecoverable);
+		assert.match(error.recovery, /重新发送/);
+		assert.doesNotMatch(error.recovery, /自动重试中/);
+	}
+});

@@ -500,3 +500,18 @@ or host errors instead of claiming success. All 26 related command/UI checks,
 seven PI dependency-boundary tests and TS build pass. A separate real TUI
 command-only smoke correctly resolves a missing session without TypeError;
 formal session history and physical jobs are untouched.
+
+The formal native session later recorded a real `WebSocket closed 1012` at
+09:24:05 UTC. The protocol registry assigns 1012 to Service Restart
+([IANA WebSocket registry](https://www.iana.org/assignments/websocket)); the
+close code alone does not establish which service or network hop restarted.
+ROSClaw incorrectly rendered MODEL_UNKNOWN, and generic action BLOCKED
+caused pure-SIM footer Operator Offline despite no operator reason. Both
+counterexamples fail before repair. WebSocket disconnects now classify as
+recoverable PROVIDER_UNAVAILABLE with a fresh-message recovery action,
+without asserting an automatic retry. Pure-SIM unrelated blockage no longer
+implies operator involvement; REAL, READY operator and explicit OPERATOR
+reason behavior remain. Related model-error/UI regressions and TS build pass.
+The same native task continued from its queued source-review message,
+with all files and prior physical evidence preserved; no physical operation
+was active or cancelled. Formal code reload is deferred until idle.

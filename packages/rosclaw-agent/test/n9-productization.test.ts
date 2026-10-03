@@ -183,3 +183,11 @@ test("PI compatibility: /switch reports successful host switch", async () => {
 	} as never);
 	assert.match(notice, /已切换到会话 abc1/);
 });
+
+test("pure simulation provider blockage does not imply operator is required", async () => {
+	const { renderOperator } = await import("../src/ui/product-state.js");
+	const blocked = { mode: "SIMULATION", operator: "OFFLINE", action_readiness: { state: "BLOCKED", reason_codes: ["PROVIDER_UNAVAILABLE"] } } as never;
+	assert.doesNotMatch(renderOperator(blocked, "en-US"), /Offline|Operator/);
+	const actualOperator = { mode: "SIMULATION", operator: "OFFLINE", action_readiness: { state: "BLOCKED", reason_codes: ["OPERATOR_OFFLINE"] } } as never;
+	assert.match(renderOperator(actualOperator, "en-US"), /Offline/);
+});

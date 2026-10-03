@@ -93,6 +93,16 @@ export function classifyModelError(raw: string): ClassifiedModelError {
 			taskRecoverable: true,
 		};
 	}
+	// A live OpenAI stream closed with 1012 (service-restart close code).
+	// A disconnected request needs a fresh message, not an invented retry claim.
+	if (/websocket.*(?:clos(?:e|ed|ure)|disconnect)|socket hang up/.test(text)) {
+		return {
+			code: "PROVIDER_UNAVAILABLE",
+			explanation: "provider 连接已中断",
+			recovery: "重新发送消息继续；持续失败检查网络或 /model 换模型",
+			taskRecoverable: true,
+		};
+	}
 	if (/econnreset|etimedout|enotfound|network|unavailable|fetch failed|connection error|timed? out|timeout|502|503|504/.test(text)) {
 		return {
 			code: "PROVIDER_UNAVAILABLE",
