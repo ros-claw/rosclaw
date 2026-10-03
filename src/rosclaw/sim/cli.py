@@ -129,7 +129,21 @@ def _build_parser() -> argparse.ArgumentParser:
     rollout.add_argument("--seed", type=int, default=0)
     rollout.add_argument("--predicates", default=None)
 
-    observe = sub.add_parser("observe")
+    observe = sub.add_parser(
+        "observe",
+        description="Read bounded semantic channels from a model-bound state.",
+        epilog=(
+            'Example --channels: ["joint_positions","body_pose:cube","contact_summary"]\n'
+            "Channels: joint_positions, joint_velocities, joint_forces, actuator_force, "
+            "com, energy, body_pose:NAME, body_velocity:NAME, site_pose:NAME, "
+            "sensor:NAME, contact_summary, contact_pairs, contact_force.\n"
+            "body_pose quat is wxyz; site_pose quat is xyzw. "
+            "body_velocity returns raw MuJoCo cvel (angular then linear), "
+            "not a freejoint qvel slice. Unknown names/channels are rejected. "
+            "Payload accepts JSON or @file."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     observe.add_argument("model_ref")
     observe.add_argument("state_ref")
     observe.add_argument("--channels", required=True)

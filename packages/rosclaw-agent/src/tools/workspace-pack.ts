@@ -151,7 +151,10 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 		description:
 			"Run a shell command in the project workspace. Guarded: no sudo/system " +
 			"modification, no device writes, daemon credentials and ROS/DDS channels " +
-			"are stripped from the child environment. No default wall-clock kill.",
+			"are stripped from the child environment. No default wall-clock kill. " +
+			"Set timeout_sec for exploratory searches and network commands. " +
+			"Prefer scoped rg/rg --files searches excluding node_modules and .venv " +
+			"over recursive grep across parent workspaces. Use CLI --help for payload schemas.",
 		parameters: Type.Object({
 			command: Type.String({ description: "要执行的 shell 命令" }),
 			timeout_sec: Type.Optional(Type.Number({ description: "显式超时（秒）——不填则无定时器" })),

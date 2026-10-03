@@ -41,6 +41,11 @@ needed. A successful compaction event alone does not prove summary correctness.
   active, and tool execution does not count as provider inactivity.
 - Show supported patch and controller payload examples in simulation CLI help,
   including unsupported online policy callbacks.
+- Show observation channels, JSON examples and the existing quaternion/raw
+  velocity representations in `sim observe --help`. H01's extended run ended
+  during unbounded recursive searches for channel names across the parent
+  workspace. The Bash tool now recommends scoped ripgrep and explicit timeouts;
+  this guidance does not guarantee compliance or change the no-default-kill policy.
 - Add a native `kimi-coding` HarnessBench profile using `anthropic-messages`.
   Both comparison legs use the same profile settings and an environment key
   reference; credentials are not written to generated model configuration.
