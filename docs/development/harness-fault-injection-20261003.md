@@ -47,3 +47,21 @@ Raw red and green logs are retained locally under
 `experiments/harness_audit_20261003/framework_fault_injection` in the tennis
 workspace. Model rate limiting, physical control quality and arbitrary detached
 daemon descendants are outside these fixtures' demonstrated scope.
+
+## Explicit workspace isolation
+
+Concurrent native Kimi evaluation exposed the distinction between launching
+inside a git subtree and explicitly choosing it as the task workspace. Default
+startup intentionally selects the enclosing git root; isolated evaluations must
+pass `chat --workspace <fixture-root>` and validate the resolved root before
+scoring. Samples that ran in the enclosing tennis repository remain invalid for
+isolated capability scoring.
+
+A separate reproduced defect affected explicit subdirectories: the frozen
+task context kept the requested directory, but startup persistence widened it to
+the enclosing repository. This caused `/workspace show` and later restored
+bindings to disagree with the tools' actual root. Exact startup bindings now
+skip git normalization; automatic git-root startup and ordinary legacy binding
+retain their existing behavior. The new exact-directory persistence regression
+was red before the fix; all 15 workspace/context/scratch-root tests pass after
+the fix. This does not make SIM tool-layer-only mode an OS security sandbox.
