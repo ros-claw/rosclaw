@@ -210,6 +210,23 @@ class ArtifactStore:
         episode_id: str | None,
         metadata: dict[str, Any] | None,
     ) -> ArtifactRecord:
+        """Serialize artifact validation, payload write, and manifest update."""
+        parent = self.manifest_path(session_id, episode_id).parent
+        with self._durability.transaction(parent):
+            return self._write_and_register_locked(
+                path, artifact_id, artifact_type, data, session_id, episode_id, metadata
+            )
+
+    def _write_and_register_locked(
+        self,
+        path: Path,
+        artifact_id: str,
+        artifact_type: str,
+        data: bytes,
+        session_id: str,
+        episode_id: str | None,
+        metadata: dict[str, Any] | None,
+    ) -> ArtifactRecord:
         """Atomically write *data* to *path* if its checksum is new, then register."""
         self._durability.ensure_directory(path.parent)
         sha256 = hashlib.sha256(data).hexdigest()

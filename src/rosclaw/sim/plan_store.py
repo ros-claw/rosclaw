@@ -54,6 +54,10 @@ class PersistentPlanStore:
         )
 
     def put(self, trajectory: dict, summary: str) -> dict:
+        with self._durability.transaction(self._dir):
+            return self._put_locked(trajectory, summary)
+
+    def _put_locked(self, trajectory: dict, summary: str) -> dict:
         # 九审 §17.3：随机实例 ID + digest 内容寻址分离。
         import uuid as _uuid
 
@@ -61,6 +65,7 @@ class PersistentPlanStore:
         plan_id = f"plan_{_uuid.uuid4().hex[:16]}"
         existing = self._read(plan_id)
         if existing is not None:
+            self._durability.sync_file(self._path(plan_id))
             return existing
         # 容量：驱逐最旧。
         records = sorted(
@@ -96,7 +101,7 @@ class PersistentPlanStore:
                 "trajectory": record,
                 "summary": record.get("summary", ""),
                 "created_at": self._now(),
-                "status": "PLANNED",
+                "status": record.get("status", "PLANNED"),
             }
         return record
 
@@ -116,8 +121,10 @@ class PersistentPlanStore:
         return record
 
     def consume(self, plan_id: str) -> None:
-        record = self._read(plan_id)
-        if record is not None:
+        # get_for_execute is a read-only snapshot, not an execution claim.
+        # Only this atomic status-check + durable consume may authorize once.
+        with self._durability.transaction(self._dir):
+            record = self.get_for_execute(plan_id)
             record["status"] = "CONSUMED"
             self._write(record)
 
@@ -129,5 +136,7 @@ class PersistentPlanStore:
         return None
 
     def clear(self) -> None:
-        for path in self._dir.glob("plan_*.json"):
-            path.unlink(missing_ok=True)
+        with self._durability.transaction(self._dir):
+            for path in self._dir.glob("plan_*.json"):
+                path.unlink(missing_ok=True)
+            self._durability.sync_directory(self._dir)

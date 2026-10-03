@@ -429,3 +429,36 @@ intent is published from a stale scan. The actual threaded fixture is RED to
 GREEN; already conflicting intents remain fail closed without deletion.
 The broadened Practice/store/ref/patch/failure/state/typed-plan cohort passes
 294 tests with nine skips, plus source mypy/Ruff/diff checks.
+
+
+## Cooperative transactions are separate from durable writes
+
+Two real multiprocessing fixtures forced the first writer to pause immediately
+before mutation. Both Plan processes read a PLANNED snapshot, then both
+`consume` calls acknowledged; for Practice both artifact writes acknowledged
+but the last manifest replaced the other writer's entry. Atomic replacement
+and fsync alone do not enforce single use or protect read/modify/write updates.
+
+A stable regular-file `.rosclaw-transaction.lock` now serializes cooperating
+transactions. It is separate from namespace registration directory flocks,
+never replaced, and rejects symlink destinations. Practice holds the same
+session/episode manifest transaction through checksum validation, payload
+write, and manifest update. Plan consume re-reads status and TTL under its
+transaction lock before durably recording CONSUMED; put/capacity and clear
+share the same lock, and clear synchronizes deletions. `get_for_execute` remains
+a read-only snapshot, not an execution claim. The existing executor invokes
+its action only after consume succeeds; exactly one cooperating consume may
+acknowledge. Native raw-plan compatibility now also preserves CONSUMED.
+
+After a post-rename sync failure, consumption raises and leaves its conservative
+CONSUMED record: no execution is authorized by the failed acknowledgement and
+a later reader cannot reset it to PLANNED. This provides at-most-once guarded
+consumption, not exactly-once physical execution or a cross-file transaction
+across unrelated stores. External writers ignoring the cooperative lock are
+outside this transaction guarantee.
+
+Both actual process RED fixtures pass; additional tests cover native raw-plan
+single use, missing consume, durable clear, symlink locks, and valid Practice
+updates. The full affected Practice/evidence/store/ref/patch/failure/state and
+typed-plan cohort passes 301 checks with nine skips and one existing dependency
+warning. Ruff, four-file source mypy, and diff checks pass.

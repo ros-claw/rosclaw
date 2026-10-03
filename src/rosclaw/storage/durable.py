@@ -10,7 +10,10 @@ from __future__ import annotations
 import fcntl
 import hashlib
 import os
+import stat
 import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 from rosclaw.contracts.common import canonical_json
@@ -162,3 +165,30 @@ class DurableNamespace:
         except BaseException:
             Path(temporary).unlink(missing_ok=True)
             raise
+
+    @contextmanager
+    def transaction(self, directory: Path) -> Iterator[None]:
+        """Serialize cooperating read/modify/write operations on a stable inode.
+
+        This lock is separate from directory-registration flocks and is never
+        replaced; locking the replaced payload inode would not serialize peers.
+        """
+        self.assert_owned(directory)
+        self.ensure_directory(directory)
+        lock = directory / ".rosclaw-transaction.lock"
+        self.assert_owned(lock)
+        fd = os.open(lock, os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+        try:
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                raise ValueError("DURABLE_LOCK_INVALID: lock is not a regular file")
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            os.fsync(fd)
+            self._sync_directory(directory)
+            yield
+        finally:
+            os.close(fd)
+
+    def sync_directory(self, directory: Path) -> None:
+        self.assert_owned(directory)
+        self.ensure_directory(directory)
+        self._sync_directory(directory)
