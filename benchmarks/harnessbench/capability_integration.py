@@ -260,7 +260,7 @@ for _index, _direction in enumerate(
         _prompt += "The supplied envelope is invalid; retain the failure without repairing the input or claiming recording success."
     else:
         if _index == 11:
-            _prompt += "After recording, remove timestamp_ns from the FIRST physical_feedback_event payload in raw/events.jsonl (only this deliberate corruption is authorized), preserving all other recorded files. "
+            _prompt += "After recording, remove timestamp_ns from the FIRST physical_feedback_event top-level event envelope in raw/events.jsonl (timestamp_ns is outside its nested payload object) (only this deliberate corruption is authorized), preserving all other recorded files. "
         _prompt += "Use 'practice verify practice_rh56_minimal_loop --data-root practice-data --strict --json', save stdout verify.json and exit status verify_exitcode.txt. Preserve the original fixture."
     INTEGRATION_TASKS[_id] = BenchTask(
         task_id=_id,

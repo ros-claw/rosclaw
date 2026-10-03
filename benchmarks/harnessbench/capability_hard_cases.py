@@ -106,7 +106,7 @@ HARD_CASES = [
     ),
     (
         "vln_landmark_temporal_staleness",
-        "Only observations age<=100ms in current room eligible. Need unique red door otherwise clarify. Return eligible_ids,decision.",
+        "Only observations age<=100ms in current room eligible. Need unique red door otherwise clarify. Return eligible_ids,decision. decision must be exactly execute when one eligible candidate remains, otherwise exactly clarify.",
         {
             "now_ms": 1000,
             "room": "A",

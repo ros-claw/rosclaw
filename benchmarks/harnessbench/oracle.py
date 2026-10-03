@@ -1044,6 +1044,18 @@ def judge(task_id: str, workspace: Path, *, leg: str = "B") -> dict[str, Any]:
         return _judge_understanding(
             workspace, task.oracle.get("answer_fields") or ["dofs"], task.staged_files,
         )
+    if kind == "dynamic_repair":
+        if leg != "B":
+            return {"task_success": False, "verified_success": False, "false_success": False,
+                    "reason": "native_trace_evidence_unavailable_on_A"}
+        from benchmarks.harnessbench.dynamic_oracle import judge_dynamic_repair
+        return judge_dynamic_repair(workspace, task)
+    if kind == "timestep_experiment":
+        if leg != "B":
+            return {"task_success": False, "verified_success": False, "false_success": False,
+                    "reason": "native_trace_evidence_unavailable_on_A"}
+        from benchmarks.harnessbench.dynamic_oracle import judge_timestep
+        return judge_timestep(workspace, task)
     if kind == "repair":
         original = task.oracle["original_asset"]
         if leg == "A":
