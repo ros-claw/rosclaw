@@ -714,3 +714,22 @@ success rate of 1/16 do not establish robust, standard-tennis, 29DOF, visual or
 dual-LLM physical adversarial capability. ROSClaw's next authorized step is
 read-only support/center-of-mass diagnosis of frozen failures before proposing
 one further bounded control experiment.
+
+ROSClaw completed that saved-record diagnostic for all eight failed cases.
+Its G1 subtree mass sum includes the experimental racket (32.3569 kg), and
+pre-solver contacts are paired with the previous recorded post-state. Foot
+collision primitives are four 5 mm spheres per side; their projections are a
+union of disks, distinct from the convex hull of positively loaded contact points.
+Empty, point or line support sets have no signed area-polygon margin.
+Independent body-mass COM calculations and OpenCV geometric checks corroborate
+all 364 sparse/key-event samples; full-row primary-PD bearing counts and peak
+requested/applied torque ratios are independently recomputed. This independent
+check does not repeat the producer's full-row first-exit/minimum-margin search.
+In the default-from-rest records, the reported first COM projection exit occurs
+at 0.504–0.505 seconds and precedes the 0.949-second pitch health failure.
+Peak actual G1 joint-force ratios are below 0.383 there, and below 0.429 in the
+captured-posture PD windows. No saturation is observed in those windows; this
+does not establish the cause of falling or validate a balance controller.
+The independent receipt is `stand_support_readonly_v1_3ae7c4b554c3_independent.json`,
+SHA256 `5dadf298fb7064edd4ef73fcc74b3b250b8f1961798616e5a77387fb67843466`.
+No new physics step, NN call, control experiment or successful task is implied.
