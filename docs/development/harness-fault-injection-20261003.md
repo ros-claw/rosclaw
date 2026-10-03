@@ -462,3 +462,22 @@ single use, missing consume, durable clear, symlink locks, and valid Practice
 updates. The full affected Practice/evidence/store/ref/patch/failure/state and
 typed-plan cohort passes 301 checks with nine skips and one existing dependency
 warning. Ruff, four-file source mypy, and diff checks pass.
+
+
+## Stop feedback preserves actual terminal operation state
+
+A live audit observed `process_stop` claiming cancellation after the operation
+had already SUCCEEDED; its durable ledger correctly remained SUCCEEDED. Two
+private fixtures ran real exit-0 and exit-17 processes to terminal states and
+reproduced the false CANCELLED tool result. The bridge now returns the existing
+terminal state with an already-completed/failed/lost/cancelled explanation and
+performs no new cancellation or ledger event for a terminal operation. After
+an active cancel request it reads the actual ledger again: CANCELING means a
+request awaiting confirmation, and a completion that won the race retains its
+actual terminal state. Unconfirmed active state is a retryable error, not a
+successful cancellation claim.
+
+The two real process RED cases and five state/race fixtures pass. The affected
+operation/cancel/tool-bridge cohort passes 46 checks with two preexisting
+subprocess event-loop cleanup warnings; Ruff, source mypy and diff checks pass.
+The original live operation and its ledger were never modified by this repair.

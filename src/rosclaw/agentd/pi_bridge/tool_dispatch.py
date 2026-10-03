@@ -921,17 +921,50 @@ class PiToolDispatcher:
         )
 
     async def _process_stop(self, request: PiToolRequestV1) -> PiToolResultV1:
+        from rosclaw.task_kernel.operation_manager import OPERATION_TERMINAL
+
         operation_id = str(request.arguments.get("operation_id", ""))
-        op = self._service._operation_manager.get(operation_id)
+        manager = self._service._operation_manager
+        op = manager.get(operation_id)
         if not op:
             raise ToolBridgeError("NOT_FOUND", "unknown operation")
-        await self._service._operation_manager.cancel(
-            operation_id, reason="model_request"
-        )
+        already_terminal = str(op["state"]) in OPERATION_TERMINAL
+        if not already_terminal:
+            await manager.cancel(operation_id, reason="model_request")
+            op = manager.get(operation_id)
+            if not op:
+                raise ToolBridgeError("NOT_FOUND", "operation disappeared after cancel request")
+        state = str(op["state"])
+        if state in OPERATION_TERMINAL:
+            if state == "CANCELLED" and not already_terminal:
+                summary = f"operation {operation_id} 已取消（账本先行）"
+            else:
+                labels = {
+                    "SUCCEEDED": "已完成",
+                    "FAILED": "已失败",
+                    "CANCELLED": "已处于取消终态",
+                    "LOST": "已失联（结局不可证实）",
+                }
+                summary = (
+                    f"operation {operation_id} {labels[state]}（{state}）；无需取消，原终态保持"
+                )
+            return PiToolResultV1(
+                request_id=request.request_id, ok=True, status=state, summary=summary
+            )
+        if state == "CANCELING":
+            return PiToolResultV1(
+                request_id=request.request_id,
+                ok=True,
+                status=state,
+                summary=f"operation {operation_id} 已请求取消，等待终态确认",
+            )
         return PiToolResultV1(
             request_id=request.request_id,
-            ok=True, status="CANCELLED",
-            summary=f"operation {operation_id} 已取消（账本先行）",
+            ok=False,
+            status=state,
+            summary=f"operation {operation_id} 取消未确认；当前账本状态 {state}",
+            error_code="CANCEL_NOT_CONFIRMED",
+            retryable=True,
         )
 
     async def _request_action(self, request: PiToolRequestV1) -> PiToolResultV1:
