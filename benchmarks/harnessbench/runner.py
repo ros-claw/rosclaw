@@ -685,7 +685,17 @@ def run_leg(
     record.update(_code_loc(work))
 
     # Oracle 独立判定（环境结局，不信自报；A/B 证据通道分侧）。
-    verdict = oracle.judge(task_id, work, leg=leg)
+    record["model_turn_completed"] = True
+    oracle_started = time.monotonic()
+    try:
+        verdict = oracle.judge(task_id, work, leg=leg)
+    except Exception as exc:
+        # A completed real model trial must retain its cost when the external
+        # oracle itself crashes. An oracle bug is not a zero-second model run.
+        record["failure_phase"] = "oracle"
+        raise RunInfraError(str(exc), record) from exc
+    finally:
+        record["oracle_wall_time_s"] = round(time.monotonic() - oracle_started, 3)
     record["oracle"] = verdict
     record["verdict"] = (
         "VERIFIED"
