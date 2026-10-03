@@ -258,6 +258,22 @@ def runtime_validation_ok(trace: dict, receipt: dict) -> bool:
     if not isinstance(validation, dict) or validation.get("status") != "PASS":
         return False
     counts = validation.get("warning_counts")
+    states = trace.get("states", [])
+    if len(states) < 2:
+        return False
+    initial, final = states[0]["t"], states[-1]["t"]
+    elapsed = final-initial
+    if type(validation.get("steps_checked")) is not int:
+        return False
+    for key, expected in {
+        "initial_time": initial, "final_time": final,
+        "actual_elapsed_s": elapsed, "expected_elapsed_s": receipt["steps"]*trace["timestep_s"],
+    }.items():
+        value = validation.get(key)
+        if type(value) not in (int,float) or not math.isfinite(value) or not math.isclose(
+            value,expected,abs_tol=1e-8
+        ):
+            return False
     return (
         validation.get("method") == "serial_each_step"
         and validation.get("steps_checked") == receipt.get("steps")
@@ -288,6 +304,33 @@ def runtime_validation_ok(trace: dict, receipt: dict) -> bool:
         and receipt.get("runtime_validation") == validation
     )
 
+
+
+def initial_state_equal(backend, first_receipt: dict, second_receipt: dict) -> bool:
+    """Bind complete native integration vectors, including time/velocity/control."""
+    try:
+        metas = [backend.store.get(r["initial_state_ref"]) for r in (first_receipt,second_receipt)]
+        if any(
+            not isinstance(m,dict) or m.get("kind") != "state_snapshot_v2"
+            or m.get("fidelity") != "FULL_INTEGRATION"
+            for m in metas
+        ):
+            return False
+        if any(metas[0].get(k) != metas[1].get(k) for k in (
+            "state_spec_value","state_size","structural_signature"
+        )):
+            return False
+        blobs = [backend.store.get(m["state_vector_ref"]) for m in metas]
+        return (
+            all(isinstance(blob,bytes) for blob in blobs)
+            and all(
+                m.get("state_digest") == "sha256:"+hashlib.sha256(blob).hexdigest()
+                for m,blob in zip(metas,blobs,strict=True)
+            )
+            and blobs[0] == blobs[1]
+        )
+    except (KeyError,TypeError,ValueError):
+        return False
 
 def _runtime_parts(root: Path, task, asset: str):
     from benchmarks.harnessbench import oracle
@@ -359,6 +402,7 @@ def judge_dynamic_repair(root: Path, task) -> dict:
             ):
                 continue
             initial_matches = candidate_trace["states"][0]["qpos"] == before["initial_qpos"]
+                and initial_state_equal(backend,baseline_receipt,candidate_receipt)
             errors = [
                 (float(s["qpos"][0]) - float(target[0])) ** 2 for s in after["selected_states"]
             ]
@@ -415,7 +459,10 @@ def convergence(coarse: dict, fine: dict) -> float:
     qc = np.asarray([s["qpos"][:3] for s in coarse["states"]], dtype=float)
     qf = np.asarray([s["qpos"][:3] for s in fine["states"]], dtype=float)
     overlap = (tc >= tf[0]) & (tc <= min(tf[-1], tc[-1]))
-    if overlap.sum() < 10 or min(tc[-1], tf[-1]) < 1.0:
+    if (
+        overlap.sum() < 10 or min(tc[-1],tf[-1])-max(tc[0],tf[0]) < 1.0-1e-8
+        or tc[-1]-tc[0] < 1.0-1e-8 or tf[-1]-tf[0] < 1.0-1e-8
+    ):
         raise ValueError("paired trace lacks common physical-time coverage")
     if max(np.diff(tc)) > 0.005 + 1e-10 or max(np.diff(tf)) > 0.005 + 1e-10:
         raise ValueError("paired trace is undersampled for convergence evidence")
@@ -464,7 +511,8 @@ def judge_timestep(root: Path, task) -> dict:
                 continue
             if (
                 coarse.get("controller") != fine.get("controller")
-                or coarse["states"][0]["qpos"] != fine["states"][0]["qpos"]
+                or coarse["states"][0] != fine["states"][0]
+                or not initial_state_equal(backend,coarse_receipt,fine_receipt)
             ):
                 continue
             a, b = trace_stats(coarse, coarse_receipt), trace_stats(fine, fine_receipt)
@@ -487,6 +535,16 @@ def judge_timestep(root: Path, task) -> dict:
         for p in pairs
     ]
     if not baseline or not candidate:
+        return verdict
+    baseline = [
+        pair for pair in baseline if initial_state_equal(
+            backend,
+            next(r for ref,r,_ in records if ref == pair[2]),
+            next(r for ref,r,_ in records if ref == candidate[0][2]),
+        )
+    ]
+    if not baseline:
+        verdict["reason"] = "baseline_candidate_initial_state_mismatch"
         return verdict
     baseline_error = max(p[1] for p in baseline)
     best = min(candidate, key=lambda p: p[1])

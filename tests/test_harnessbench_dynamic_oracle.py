@@ -89,6 +89,10 @@ def test_missing_or_nonzero_warning_evidence_not_promoted():
         "status": "PASS",
         "method": "serial_each_step",
         "steps_checked": 250,
+        "initial_time": 0,
+        "final_time": 1,
+        "actual_elapsed_s": 1,
+        "expected_elapsed_s": 1,
         "time_continuity_checked": True,
         "warning_counts": [0] * 7,
         "schema_version": "rosclaw.sim.runtime_validation.v1",
@@ -251,3 +255,58 @@ def test_failed_partial_requires_actual_time_or_warning_and_source_binding():
     assert failed_baseline_stats(forged, receipt) is None
     receipt["action_digest"] = "wrong"
     assert failed_baseline_stats(trace, receipt) is None
+
+
+def test_nonzero_absolute_time_does_not_make_short_pair_one_second():
+    a, b = _trace(0.002, offset=2), _trace(0.001, offset=2)
+    a["states"] = a["states"][:11]
+    b["states"] = b["states"][:21]
+    with pytest.raises(ValueError, match="coverage"):
+        convergence(a, b)
+
+
+def test_validation_time_and_bool_steps_must_bind_actual_trace():
+    trace = _trace()
+    receipt = _receipt(trace)
+    validation = {
+        "status": "PASS",
+        "steps_checked": True,
+        "initial_time": 0,
+        "final_time": 100,
+        "actual_elapsed_s": 100,
+        "expected_elapsed_s": 1,
+    }
+    trace["runtime_validation"] = validation
+    receipt["runtime_validation"] = copy.deepcopy(validation)
+    assert not runtime_validation_ok(trace, receipt)
+
+
+def test_full_initial_vector_velocity_time_and_control_not_just_qpos():
+    from types import SimpleNamespace
+    from benchmarks.harnessbench.dynamic_oracle import initial_state_equal
+
+    values = {}
+    for ref, blob in [
+        ("a", b"same"),
+        ("b", b"same"),
+        ("changed_qvel", b"velocity"),
+        ("changed_time", b"time"),
+        ("changed_ctrl", b"control"),
+    ]:
+        values[ref] = {
+            "kind": "state_snapshot_v2",
+            "fidelity": "FULL_INTEGRATION",
+            "state_spec_value": 16383,
+            "state_size": 18,
+            "structural_signature": "signature",
+            "state_vector_ref": ref + "_blob",
+            "state_digest": "sha256:" + hashlib.sha256(blob).hexdigest(),
+            "qpos": [0],
+        }
+        values[ref + "_blob"] = blob
+    backend = SimpleNamespace(store=SimpleNamespace(get=values.__getitem__))
+    assert initial_state_equal(backend, {"initial_state_ref": "a"}, {"initial_state_ref": "b"})
+    for key in ("changed_qvel", "changed_time", "changed_ctrl"):
+        assert not initial_state_equal(
+            backend, {"initial_state_ref": "a"}, {"initial_state_ref": key}
+        )
