@@ -237,3 +237,20 @@ Other cases cover independent observers, terminal cleanup, cancellation,
 shutdown, failed UI/log callbacks, native hook wiring and existing compact
 task/artifact anchors. This improves observability; it does not claim to
 resolve or identify a genuinely stalled summarization request.
+
+## Native batch sample alignment
+
+The native batch trajectory contains post-step rows. Downsampling with
+`full_traj[::stride]` previously recorded steps 1, 3, ..., 499 for a 500-step
+run with stride 2. Serial sampling records steps 2, 4, ..., 500, and the
+batch final snapshot already contained step 500. Batch trace samples now
+use the same step indices as serial execution and always retain the true
+terminal row. Each sampled control row uses that actual step index. Trace
+duration subtracts the actual initial clock, including restored keyframes.
+
+Six red cases used changing open-loop controls with 5, 6 and 500 steps and
+initial clocks 0 and 2 seconds. All six now match serial timestamps,
+positions, velocities and controls; the final sampled state equals the
+actual final snapshot. The related batch/state/initializer/validity cohort
+passes 43 checks. No serial per-step warning telemetry is attributed to
+native batch execution.
