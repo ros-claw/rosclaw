@@ -411,7 +411,11 @@ class PracticeRecorder(RuntimeConsumer):
         )
 
         self._finalize_runtime_session(
-            outcome, reward=reward, duration_ms=duration_ms, event_count=event_count
+            outcome,
+            reward=reward,
+            duration_ms=duration_ms,
+            event_count=event_count,
+            failure_labels=failure_labels,
         )
 
     def _finalize_runtime_session(

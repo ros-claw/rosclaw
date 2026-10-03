@@ -154,6 +154,25 @@ def test_actual_practice_fixture_pipeline(tmp_path, task_id, monkeypatch, capsys
     _transcript(tmp_path, commands)
     result = judge_integration(task_id, tmp_path)
     assert result["verified_success"], result
+    if task_id != "CI10":
+        episode_path = tmp_path / "practice-data/sessions/practice_rh56_minimal_loop/episode.json"
+        episode = json.loads(episode_path.read_text())
+        for field, wrong in (
+            ("outcome", "FABRICATED_SUCCESS"),
+            ("reward", 12345),
+            ("failure_labels", ["wrong"]),
+        ):
+            damaged = dict(episode, **{field: wrong})
+            episode_path.write_text(json.dumps(damaged))
+            assert not judge_integration(task_id, tmp_path)["verified_success"]
+            episode_path.write_text(json.dumps(episode))
+        raw = tmp_path / "practice-data/sessions/practice_rh56_minimal_loop/raw/events.jsonl"
+        intact = raw.read_text()
+        events = [json.loads(line) for line in intact.splitlines()]
+        events[0]["source"] = "fabricated_sensor"
+        raw.write_text("\\n".join(json.dumps(event) for event in events))
+        assert not judge_integration(task_id, tmp_path)["verified_success"]
+        raw.write_text(intact)
     # A written claim without actual session calls is never integration evidence.
     (tmp_path / "rh/agent/sessions/unit-test-not-real-agent.jsonl").unlink()
     assert not judge_integration(task_id, tmp_path)["verified_success"]
@@ -166,3 +185,22 @@ def test_graph_cases_do_not_stage_private_projections():
         set(t.staged_files) <= {"graph.json", "fixture.json", "input.json"}
         for t in INTEGRATION_TASKS.values()
     )
+
+
+def test_cli_proof_accepts_real_path_variables_without_echo_false_positive():
+    from benchmarks.harnessbench.capability_integration import _has_cli
+
+    for command in (
+        "V=/opt/a/.venv/bin; $V/rosclaw ros compile --graph graph.json",
+        'CLI=/opt/a/.venv/bin/rosclaw; "$CLI" ros compile --graph graph.json',
+        "/opt/a/.venv/bin/rosclaw ros compile --graph graph.json",
+        "/opt/a/.venv/bin/python -m rosclaw.entrypoint ros compile --graph graph.json",
+    ):
+        assert _has_cli([command], "ros compile")
+    for command in (
+        "echo 'rosclaw ros compile --graph graph.json'",
+        "printf 'rosclaw ros compile --graph graph.json'",
+        "python -c 'print(\"rosclaw ros compile\")'",
+        "write answer.json rosclaw ros compile",
+    ):
+        assert not _has_cli([command], "ros compile")

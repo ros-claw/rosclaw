@@ -99,3 +99,22 @@ synthetic data and labelled FIXTURE_ONLY. A saved ROS1/ROS2 graph is not transpo
 discovery. Installed Jazzy schemas are present on this host, but these tasks do
 not open DDS, instantiate ROS nodes, or infer live support. Direct multimodal
 VLA/VLN inference and physical navigation remain outside the evidence scope.
+
+### Strict Practice metadata and CLI-call interpretation
+
+Independent review strengthened CI09/CI11/CI12 from record counts to exact
+original event semantics, sequence order, body/task/session binding, and durable
+outcome/reward/failure-label preservation in all three metadata products. This
+exposed a real recorder bug: practice.stop read explicit failure labels but
+omitted them when calling finalization, losing the labels in episode, manifest,
+and v2 summary. The strengthened grader failed three fixture pipelines before
+the one-argument recorder fix; subsequent relevant tests pass, including
+metadata/source mutations.
+
+The original CLI-call recognizer missed actual absolute/path-variable invocations
+such as $V/rosclaw and "$CLI", although the frozen CI01/CI02 artifacts were
+correct. A bounded shell-token parser now resolves plain path assignments without
+executing the shell, accepts the actual CLI argv, and rejects echo/printf/print
+mentions. Frozen failures remain unchanged; separate regrade evidence records
+the lexical oracle error. A native session command is an evidence lower bound,
+not a cryptographically trusted or tamper-proof execution receipt.
