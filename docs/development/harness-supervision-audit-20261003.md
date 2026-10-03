@@ -586,14 +586,20 @@ successful stand mode. The six complete session compactions have been reviewed;
 current failures are present in the retained suffix after the sixth prefix
 summary, and queued measurement corrections survive compaction.
 
-Independent compilation of the unchanged C5 XML exposes an actuator limitation:
-all twelve G1 leg motors have ctrl_limited=false and force_limited=false. Their
-[0,0] ranges are disabled metadata, not a zero-torque bound. M20's twelve leg
-motors have control ranges +/-76.4 and four wheels +/-21.6; both experimental
-paddle servos have control and force restrictions. These are compiled-model
-facts, not a hardware certification. The selected return and source-regression
-results remain scoped to the frozen simulation model; they do not prove G1
-hardware effort compliance. A proposed explicit stand-reference mode must first
-establish exact named-joint effort provenance and an executable bound contract;
-unchanged PD gains or an absent compiled limit cannot serve as that contract.
-Frozen source and old evidence are preserved rather than silently adding limits.
+The supervisor initially misinterpreted actuator-only limit flags: all twelve
+G1 leg motors have ctrl_limited=false and force_limited=false, but joint-level
+actuator-force limits ARE enabled. Complete compilation/introspection and
+independent comparison to committed upstream URDF bytes correct that inference.
+The twelve joint actuatorfrcrange bounds are +/-[88,139,88,139,50,50] Nm on each
+side, matching unitree_rl_gym@276801e46c5d433564f24658bac64f254b7d2d4b
+resources/robots/g1_description/g1_12dof.urdf. No world edit or extra guessed
+clip is required. M20's twelve leg motors have control ranges +/-76.4 and four
+wheels +/-21.6; both experimental paddle servos have control and force limits.
+A disabled [0,0] actuator range is neither a zero-torque bound nor proof that
+joint-level bounds are absent. Requested control, individual actuator force
+and final joint actuator-force values must be distinguished when the joint
+layer clamps their aggregate. These are source/model effort bounds, not a
+thermal or continuous-duty hardware certification. The proposed stand-reference
+candidate remains unexecuted pending source/execution review; original model
+and prior evidence stay frozen. The erroneous actuator-only inference is
+preserved in audit history and explicitly corrected here.
