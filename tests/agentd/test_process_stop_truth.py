@@ -31,6 +31,7 @@ async def test_completed_process_stop_preserves_ledger_and_reports_already_termi
             if manager.get(operation_id)["state"] == terminal:
                 break
             await asyncio.sleep(0.01)
+        await manager.wait(operation_id)
         before = manager.get(operation_id)
         assert before["state"] == terminal
         events_before = conn.execute("SELECT COUNT(*) FROM task_events").fetchone()[0]
@@ -47,6 +48,11 @@ async def test_completed_process_stop_preserves_ledger_and_reports_already_termi
         for driver in list(manager._drivers.values()):
             if not driver.done():
                 driver.cancel()
+        await asyncio.gather(*manager._drivers.values(), return_exceptions=True)
+        for process in list(manager._procs.values()):
+            if process.returncode is None:
+                process.kill()
+            await process.wait()
         conn.close()
 
 
