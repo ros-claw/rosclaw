@@ -206,7 +206,8 @@ def shadow_compare(
             "trust_level": "SIMULATED",
             "usable_for_real_execution": False,
         }
-        return report
+        receipt_ref = backend.store.put("experiments", report)
+        return {**report, "report_ref": receipt_ref}
     residuals = _residual([p for p, _ in pairs], [o for _, o in pairs])
     residual = max(residuals["max_qpos_dev"], residuals["max_qvel_dev"])
     if residual <= match_threshold:
@@ -259,7 +260,8 @@ def shadow_compare(
             "holdout_sequences": [],
             "note": "单序列观测不足以划分 train/holdout——请补录序列后填入索引（§26.3）",
         }
-    return report
+    receipt_ref = backend.store.put("experiments", report)
+    return {**report, "report_ref": receipt_ref}
 
 
 def _importable(module: str) -> bool:

@@ -137,7 +137,7 @@ def test_s03_uses_matching_observation_despite_unrelated_report(tmp_path):
     report = runtime.backend.shadow_compare(
         base["model_ref"], observations["sequences"][0]["trace_ref"],
     )
-    runtime.backend.store.put("experiments", report)
+    assert runtime.backend.store.get(report["report_ref"])["verdict"] == "DIVERGED"
     (work / "answer.json").write_text(json.dumps({
         "diverged": True, "cause": "damping", "evidence": "native shadow report",
     }))

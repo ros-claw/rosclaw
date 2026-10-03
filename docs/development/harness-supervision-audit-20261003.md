@@ -249,3 +249,15 @@ bound to the independently supplied observation traces. It searches for matching
 evidence rather than letting an unrelated report veto a later matching report.
 The observation-fixture and v2 oracle suites passed 36 tests. This scope overlaps
 earlier checks and must not be added to their totals.
+
+The first live OpenAI S03 trial exposed a further evidence integration defect:
+native `shadow_compare` returned a report without persisting it, while the oracle
+required an experiments-store receipt. The agent exported a correct DIVERGED
+report and damping-only MATCH controls. A separate immutable-workspace review
+recomputed its residual, 2.317650954935967, exactly against the independently
+supplied trace. The raw FALSE_SUCCESS is preserved alongside this independent
+verification, not silently replaced. Native shadow reports now persist as
+content-addressed experiment objects and return `report_ref`, including the
+NOT_COMPARABLE path. A test using the actual native API without manually
+inserting the report reproduced the missing receipt before repair. Shadow,
+clock, observation and oracle regression passed 53 tests (overlapping scopes).
