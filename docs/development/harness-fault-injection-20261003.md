@@ -417,3 +417,15 @@ pass 250 tests with nine skips and one existing dependency warning. Ruff, mypy
 (four source files), and diff checks pass. No historical receipts were rewritten.
 Legacy `sim/api.py` writes and other stores are outside this change's durability
 claim and still require separate review.
+
+
+A forced first-writer interleaving reproduced a registration race: an ancestor
+intent scan was stale after another writer registered its ancestor and created
+the namespace, so the delayed writer chose a second deeper anchor under a
+different lock. Both puts returned but future instances rejected the two
+anchors. The shared helper now re-scans under the selected directory flock and
+releases/reselects the original registered anchor if necessary. No second
+intent is published from a stale scan. The actual threaded fixture is RED to
+GREEN; already conflicting intents remain fail closed without deletion.
+The broadened Practice/store/ref/patch/failure/state/typed-plan cohort passes
+294 tests with nine skips, plus source mypy/Ruff/diff checks.

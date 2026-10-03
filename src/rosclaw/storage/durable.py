@@ -36,51 +36,67 @@ class DurableNamespace:
             + hashlib.sha256(str(namespace).encode()).hexdigest()
             + ".json"
         )
-        found = [
-            parent
-            for parent in (namespace, *namespace.parents)
-            if (parent / name).exists() or (parent / name).is_symlink()
-        ]
-        if len(found) > 1:
-            raise ValueError("STORE_DIRECTORY_INTENT_INVALID: multiple namespace anchors")
-        anchor = found[0] if found else namespace
-        if not found:
-            while not anchor.exists():
-                anchor = anchor.parent
-        expected = canonical_json(
-            {
-                "schema": f"rosclaw.{self._kind}.directory_intent.v1",
-                "namespace": str(namespace),
-                "anchor": str(anchor),
-            }
-        ).encode()
-        intent = anchor / name
-        directory_fd = os.open(anchor, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-        try:
-            fcntl.flock(directory_fd, fcntl.LOCK_EX)
-            if intent.exists() or intent.is_symlink():
-                if intent.is_symlink() or intent.read_bytes() != expected:
-                    raise ValueError("STORE_DIRECTORY_INTENT_INVALID: namespace intent differs")
-                fd = os.open(intent, os.O_RDONLY | os.O_NOFOLLOW)
-                try:
-                    os.fsync(fd)
-                finally:
-                    os.close(fd)
-            else:
-                fd, temporary = tempfile.mkstemp(dir=anchor, prefix=".tmp_sim_directory_")
-                try:
-                    with os.fdopen(fd, "wb") as output:
-                        output.write(expected)
-                        output.flush()
-                        os.fsync(output.fileno())
-                    os.replace(temporary, intent)
-                except BaseException:
-                    Path(temporary).unlink(missing_ok=True)
-                    raise
-            os.fsync(directory_fd)
-        finally:
-            os.close(directory_fd)
-        return anchor
+
+        def find_intents() -> list[Path]:
+            matches = [
+                parent
+                for parent in (namespace, *namespace.parents)
+                if (parent / name).exists() or (parent / name).is_symlink()
+            ]
+            if len(matches) > 1:
+                raise ValueError("STORE_DIRECTORY_INTENT_INVALID: multiple namespace anchors")
+            return matches
+
+        while True:
+            found = find_intents()
+            anchor = found[0] if found else namespace
+            if not found:
+                while not anchor.exists():
+                    anchor = anchor.parent
+            directory_fd = os.open(anchor, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            try:
+                fcntl.flock(directory_fd, fcntl.LOCK_EX)
+                # A writer may have published the original ancestor intent and
+                # created the namespace after our scan. Never register a second
+                # anchor under a different lock based on that stale scan.
+                current = find_intents()
+                if current and current[0] != anchor:
+                    continue  # finally releases this lock before choosing again
+                if found and not current:
+                    raise ValueError(
+                        "STORE_DIRECTORY_INTENT_INVALID: registered intent disappeared"
+                    )
+                expected = canonical_json(
+                    {
+                        "schema": f"rosclaw.{self._kind}.directory_intent.v1",
+                        "namespace": str(namespace),
+                        "anchor": str(anchor),
+                    }
+                ).encode()
+                intent = anchor / name
+                if intent.exists() or intent.is_symlink():
+                    if intent.is_symlink() or intent.read_bytes() != expected:
+                        raise ValueError("STORE_DIRECTORY_INTENT_INVALID: namespace intent differs")
+                    fd = os.open(intent, os.O_RDONLY | os.O_NOFOLLOW)
+                    try:
+                        os.fsync(fd)
+                    finally:
+                        os.close(fd)
+                else:
+                    fd, temporary = tempfile.mkstemp(dir=anchor, prefix=".tmp_sim_directory_")
+                    try:
+                        with os.fdopen(fd, "wb") as output:
+                            output.write(expected)
+                            output.flush()
+                            os.fsync(output.fileno())
+                        os.replace(temporary, intent)
+                    except BaseException:
+                        Path(temporary).unlink(missing_ok=True)
+                        raise
+                os.fsync(directory_fd)
+                return anchor
+            finally:
+                os.close(directory_fd)
 
     def ensure_directory(self, folder: Path) -> None:
         """Sync the registered chain before acknowledging any object ref."""

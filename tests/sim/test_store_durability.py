@@ -345,3 +345,55 @@ else:
             timeout=20,
         )
         assert result.returncode == 0, result.stderr
+
+
+def test_first_writer_registration_race_cannot_create_two_namespace_anchors(tmp_path, monkeypatch):
+    import hashlib
+    import threading
+    from pathlib import Path
+
+    task = tmp_path / "new1" / "new2" / "new3"
+    name = (
+        ".rosclaw-sim-directory-"
+        + hashlib.sha256(str(task.resolve()).encode()).hexdigest()
+        + ".json"
+    )
+    old_intent = tmp_path / name
+    scanned, proceed = threading.Event(), threading.Event()
+    real_exists = Path.exists
+
+    def exists(path):
+        answer = real_exists(path)
+        if (
+            path == old_intent
+            and threading.current_thread().name == "delayed"
+            and not scanned.is_set()
+        ):
+            assert not answer
+            scanned.set()
+            assert proceed.wait(10)
+        return answer
+
+    monkeypatch.setattr(Path, "exists", exists)
+    results, failures = [], []
+
+    def delayed():
+        try:
+            results.append(SimStore(task).put("models", {"model": "concurrent first writers"}))
+        except BaseException as error:
+            failures.append(error)
+
+    thread = threading.Thread(target=delayed, name="delayed")
+    thread.start()
+    try:
+        assert scanned.wait(10)
+        first = SimStore(task).put("models", {"model": "concurrent first writers"})
+    finally:
+        proceed.set()
+        thread.join(10)
+    assert not thread.is_alive()
+    assert not failures
+    assert results == [first]
+    intents = [parent / name for parent in (task, *task.parents) if real_exists(parent / name)]
+    assert intents == [old_intent]
+    assert SimStore(task).put("models", {"model": "concurrent first writers"}) == first
