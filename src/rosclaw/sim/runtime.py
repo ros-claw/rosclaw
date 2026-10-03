@@ -67,7 +67,10 @@ class SimulationRuntime:
             initialization = self._backend.store.get(ref)["initialization"]
             return {"state_ref": ref, "model_ref": model_ref, **initialization}
         if state_ref is None:
-            ref = self._backend.initial_state(model_ref)
+            # Public defaults must capture the authoritative integration state.
+            # Explicit legacy snapshots below retain their partial fidelity;
+            # their missing history/warmstart cannot be reconstructed honestly.
+            ref = self._backend.initial_state_v2(model_ref)
         else:
             snap = self._backend.store.get(state_ref)
             if not isinstance(snap, dict):
