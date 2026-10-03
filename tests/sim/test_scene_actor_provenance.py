@@ -316,3 +316,79 @@ def test_corrupted_captured_asset_rejected_by_content_addressing_before_signatur
     backend.store.resolve(original_asset).write_bytes(MESH.replace(b"v 1 0 0", b"v 1.2 0 0"))
     with pytest.raises(ValueError, match="STORE_DIGEST_MISMATCH"):
         verify_scene_actor_manifest(backend, world["actor_manifest_ref"])
+
+
+@pytest.mark.parametrize("source_kind", ["joint", "mesh", "site", "tendon", "catalog"])
+def test_initial_complete_mjb_binding_survives_fresh_python_process_without_steps(
+    tmp_path, monkeypatch, source_kind
+):
+    import hashlib
+    import json
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    from rosclaw.contracts.common import canonical_json
+    from rosclaw.runtime.eurdf_loader import _default_zoo_path
+
+    monkeypatch.setattr(mujoco, "mj_step", lambda *_: pytest.fail("roundtrip must not step"))
+    if source_kind == "mesh":
+        backend, world, _ = _simultaneously_mutated_mesh_models(tmp_path)
+    else:
+        backend = MujocoBackend(tmp_path)
+        if source_kind == "catalog":
+            if not (_default_zoo_path() / "ur5e/robot.mjcf.xml").exists():
+                pytest.skip("UR5 catalog source unavailable")
+            body = {"id": "arm", "kind": "eurdf", "ref": "ur5e"}
+        else:
+            xml = SOURCE
+            if source_kind == "site":
+                xml = xml.replace("</body>", '<site name="force" pos="0 0 0"/></body>').replace(
+                    '<motor name="drive" joint="axis" ctrllimited="true"\n ctrlrange="-1 1"/>',
+                    '<general name="drive" site="force" gear="0 0 1 0 0 0"/>',
+                )
+            elif source_kind == "tendon":
+                xml = xml.replace(
+                    "<actuator>",
+                    '<tendon><fixed name="coupling"><joint joint="axis" coef="1"/></fixed></tendon><actuator>',
+                ).replace('joint="axis" ctrllimited', 'tendon="coupling" ctrllimited')
+            (tmp_path / "source.xml").write_text(xml)
+            body = {"id": "local", "kind": "task", "ref": "source.xml"}
+        world = compile_world(backend, _t1_world(body_refs=[body]), name="fresh_process_binding")
+    proof = verify_scene_actor_manifest(backend, world["actor_manifest_ref"])
+    expected_digest = hashlib.sha256(canonical_json(proof).encode()).hexdigest()
+    worker = """
+import hashlib, json, sys
+import mujoco
+from rosclaw.contracts.common import canonical_json
+from rosclaw.sim.backends.mujoco.backend import MujocoBackend
+from rosclaw.sim.world.actors import verify_scene_actor_manifest
+
+def forbidden_step(*args, **kwargs):
+    raise AssertionError("fresh-process verification must not step")
+mujoco.mj_step = forbidden_step
+backend = MujocoBackend(sys.argv[1])
+proof = verify_scene_actor_manifest(backend, sys.argv[2])
+print(json.dumps({"proof_sha256": hashlib.sha256(canonical_json(proof).encode()).hexdigest(),
+                  "physics_steps": proof["physics_steps"],
+                  "scene_signature": proof["initial_compiled_signature"],
+                  "source_signatures": [a["source_initial_compiled_signature"] for a in proof["actors"]]}))
+"""
+    repo = Path(__file__).resolve().parents[2]
+    child = subprocess.run(
+        [sys.executable, "-c", worker, str(tmp_path), world["actor_manifest_ref"]],
+        cwd=repo,
+        env={**os.environ, "PYTHONPATH": str(repo / "src")},
+        text=True,
+        capture_output=True,
+        timeout=60,
+    )
+    assert child.returncode == 0, child.stdout + child.stderr
+    measured = json.loads(child.stdout.strip().splitlines()[-1])
+    assert measured["proof_sha256"] == expected_digest
+    assert measured["scene_signature"] == proof["initial_compiled_signature"]
+    assert measured["source_signatures"] == [
+        a["source_initial_compiled_signature"] for a in proof["actors"]
+    ]
+    assert measured["physics_steps"] == 0
