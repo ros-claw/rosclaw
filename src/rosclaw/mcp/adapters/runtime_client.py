@@ -392,10 +392,23 @@ class RuntimeClient:
             return self._fixture_payload({"ok": False, "note": "fixture mode; no patch applied"})
         return self._sim_call("sim_patch_model", self._sim().patch_model, model_ref, patches)
 
-    async def sim_snapshot(self, model_ref: str, state_ref: str | None = None) -> dict[str, Any]:
+    async def sim_snapshot(
+        self,
+        model_ref: str,
+        state_ref: str | None = None,
+        keyframe: str | None = None,
+        keyframe_ref: str | None = None,
+    ) -> dict[str, Any]:
         if self.fixture_mode:
             return self._fixture_payload({"state_ref": "simsta_fixture000000"})
-        return self._sim_call("sim_snapshot", self._sim().snapshot, model_ref, state_ref)
+        return self._sim_call(
+            "sim_snapshot",
+            self._sim().snapshot,
+            model_ref,
+            state_ref,
+            keyframe=keyframe,
+            keyframe_ref=keyframe_ref,
+        )
 
     async def sim_observe(
         self, model_ref: str, state_ref: str, channels: list[str]
@@ -413,6 +426,8 @@ class RuntimeClient:
         state_ref: str | None = None,
         seed: int = 0,
         task_predicates: list[dict[str, Any]] | None = None,
+        keyframe: str | None = None,
+        keyframe_ref: str | None = None,
     ) -> dict[str, Any]:
         if self.fixture_mode:
             return self._fixture_payload(
@@ -432,6 +447,8 @@ class RuntimeClient:
             state_ref=state_ref,
             seed=seed,
             task_predicates=task_predicates,
+            keyframe=keyframe,
+            keyframe_ref=keyframe_ref,
         )
 
     async def sim_audit(

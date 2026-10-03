@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from typing import Any, ClassVar, Literal, Self
 
+from pydantic import model_validator
+
 from rosclaw.contracts.common import ContractModel
 
 __all__ = [
@@ -161,9 +163,23 @@ class RolloutRequest(SimContract):
 
     model_ref: str = ""
     initial_state_ref: str | None = None
+    keyframe: str | None = None
+    keyframe_ref: str | None = None
     controller: dict[str, Any] = {}
     duration_s: float = 0.0
     seed: int = 0
+
+    @model_validator(mode="after")
+    def validate_initializer(self) -> Self:
+        if (
+            sum(
+                value is not None
+                for value in (self.initial_state_ref, self.keyframe, self.keyframe_ref)
+            )
+            > 1
+        ):
+            raise ValueError("INITIAL_STATE_AMBIGUOUS: choose one state or keyframe initializer")
+        return self
 
 
 class SimulationTrace(SimContract):
@@ -174,6 +190,8 @@ class SimulationTrace(SimContract):
     request_digest: str = ""
     model_ref: str = ""
     model_digest: str = ""
+    initial_state_ref: str = ""
+    initialization: dict[str, Any] = {}
     steps: int = 0
     timestep_s: float = 0.0
     states_digest: str = ""
