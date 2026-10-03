@@ -477,6 +477,7 @@ def test_task_table_complete() -> None:
         "shadow",
         "dynamic",
         "offline_contract",
+        "offline_integration",
     }
     for task_id in TASKS:
         task = TASKS[task_id]

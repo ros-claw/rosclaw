@@ -187,3 +187,7 @@ TASKS.update(V2_TASKS)
 from benchmarks.harnessbench.capability_matrix import CAPABILITY_TASKS  # noqa: E402
 
 TASKS.update(CAPABILITY_TASKS)
+
+from benchmarks.harnessbench.capability_integration import INTEGRATION_TASKS  # noqa: E402
+
+TASKS.update(INTEGRATION_TASKS)
