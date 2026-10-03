@@ -739,6 +739,12 @@ class MujocoBackend:
                     "states_digest": digest,
                     "steps": resolved_steps,
                     "execution": "batch_parallel",
+                    "recording": rollout_mod.recording_metadata(
+                        states,
+                        steps=resolved_steps,
+                        timestep=float(model.opt.timestep),
+                        initial_time=float(data0[0]),
+                    ),
                 }
             )
         return results
@@ -926,6 +932,12 @@ class MujocoBackend:
             initial_state_ref=initial_state_ref,
             initialization=initialization or {},
             runtime_validation=validation,
+            recording=rollout_mod.recording_metadata(
+                states,
+                steps=actual_steps,
+                timestep=float(model.opt.timestep),
+                initial_time=initial_time,
+            ),
             steps=actual_steps,
             timestep_s=float(model.opt.timestep),
             states_digest=digest,
@@ -1460,6 +1472,12 @@ class MujocoBackend:
             success=task_success,
             simulation_valid=simulation_valid,
             runtime_validation=validation,
+            recording=rollout_mod.recording_metadata(
+                states,
+                steps=actual_steps,
+                timestep=float(model.opt.timestep),
+                initial_time=initial_time,
+            ),
             physical_audit_pass=physical_audit_pass,
             task_success=task_success,
             verification_status=verification_status,

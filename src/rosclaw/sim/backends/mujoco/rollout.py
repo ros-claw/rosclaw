@@ -11,6 +11,7 @@ trace 与 final state 全部不可变落盘，同输入内容寻址幂等。
 from __future__ import annotations
 
 import hashlib
+import math
 import time
 from typing import Any
 
@@ -235,3 +236,59 @@ def run_rollout(
 
 def states_digest(states: list[dict[str, Any]]) -> str:
     return "sha256:" + hashlib.sha256(canonical_json(states).encode("utf-8")).hexdigest()
+
+
+def recording_metadata(
+    states: list[dict[str, Any]], *, steps: int, timestep: float, initial_time: float
+) -> dict[str, Any]:
+    """Describe actual saved samples without modifying the trace or integrator.
+
+    A record includes the initial sample as well as sampled post-step states.
+    The last gap may be shorter than the nominal stride. Misaligned or invalid
+    timestamps remain unknown rather than being labelled full-step recording.
+    """
+    result: dict[str, Any] = {
+        "total_steps": steps,
+        "saved_samples": len(states),
+        "sample_stride": None,
+        "full_step_recording": None,
+        "max_record_gap_steps": None,
+        "max_record_gap_s": None,
+        "includes_initial_state": None,
+    }
+    if not states or not math.isfinite(timestep) or timestep <= 0:
+        return result
+    indices = []
+    times = []
+    for sample in states:
+        time_value = sample.get("t")
+        if not isinstance(time_value, (int, float)) or not math.isfinite(time_value):
+            return result
+        relative_step = (time_value - initial_time) / timestep
+        if not math.isfinite(relative_step):
+            return result
+        index = round(relative_step)
+        if not math.isclose(relative_step, index, rel_tol=0, abs_tol=1e-6):
+            return result
+        if index < 0 or index > steps or (indices and index <= indices[-1]):
+            return result
+        indices.append(index)
+        times.append(float(time_value))
+    gaps = [b - a for a, b in zip(indices, indices[1:], strict=False)]
+    max_gap = max(gaps, default=0)
+    regular = bool(gaps) and all(gap == max_gap for gap in gaps[:-1])
+    result.update(
+        {
+            "sample_stride": max_gap if regular else None,
+            "full_step_recording": indices[0] == 0
+            and indices[-1] == steps
+            and len(indices) == steps + 1
+            and max_gap <= 1,
+            "max_record_gap_steps": max_gap,
+            "max_record_gap_s": max(
+                (b - a for a, b in zip(times, times[1:], strict=False)), default=0.0
+            ),
+            "includes_initial_state": indices[0] == 0,
+        }
+    )
+    return result

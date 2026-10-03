@@ -193,6 +193,8 @@ class SimulationTrace(SimContract):
     initial_state_ref: str = ""
     initialization: dict[str, Any] = {}
     runtime_validation: dict[str, Any] = {}
+    # Empty means unknown for old contracts; this describes saved evidence only.
+    recording: dict[str, Any] = {}
     steps: int = 0
     timestep_s: float = 0.0
     states_digest: str = ""
@@ -315,6 +317,8 @@ class SimulationReceipt(SimContract):
     success: bool | None = None  # ≡ task_success（兼容字段）
     simulation_valid: bool | None = None
     runtime_validation: dict[str, Any] = {}
+    # Empty means unknown for old contracts; this describes saved evidence only.
+    recording: dict[str, Any] = {}
     physical_audit_pass: bool | None = None
     task_success: bool | None = None
     verification_status: str = "NOT_EVALUATED"  # PASS | FAIL | NOT_EVALUATED

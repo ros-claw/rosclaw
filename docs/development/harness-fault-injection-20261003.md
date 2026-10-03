@@ -544,3 +544,29 @@ old state. Meshdir/assetdir, texturedir and hfield imports compile in fresh
 processes after source files are deleted. A task-local include is explicitly
 rejected. This does not claim the old structural snapshot signature contained
 mesh geometry, nor does it prove arbitrary plugin resource closure.
+
+### Public sampled-recording metadata (observational output)
+
+`SimulationTrace`, `SimulationReceipt`, and native batch branch results now
+expose `recording`: `total_steps`, `sample_stride`, `saved_samples`,
+`full_step_recording`, `max_record_gap_steps`, `max_record_gap_s`, and
+`includes_initial_state`. Counts include the initial sample. Gaps and stride
+are derived from actual saved timestamps relative to the real initial time
+and integrator timestep; a final shorter interval is allowed. Irregular grids
+have no single stride. Duplicated, nonfinite or off-grid timestamps yield
+unknown density rather than an invented full-step claim. An old contract
+without metadata defaults to `{}`, which also means unknown.
+
+This describes retained trace evidence. It does not change integration,
+per-step validation/metric collection, budgets, sampling, or replay. Existing
+raw trace `recording.max_record_points` configuration remains byte-for-byte
+the same; no derived metadata is written into the immutable trace or receipt
+payload, and their content-addressed refs remain unchanged. Public contract
+digests include the new output field as usual.
+
+Four fixtures first failed with missing public metadata. Full/stride-3/stride-5
+cases exercise serial, experiment receipt and native batch results at a
+nonzero initial time, including the shorter final gap and immutable raw-ref
+checks. Six missing/irregular/invalid timestamp fixtures prevent overclaims.
+Recording + sampling alignment + rollout + three replay suites: **46 PASS**.
+Ruff, mypy (three changed source files), and whitespace checks pass.
