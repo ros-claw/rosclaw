@@ -50,14 +50,39 @@ class SimulationRuntime:
     def patch_model(self, model_ref: str, patches: list[dict[str, Any]]) -> dict[str, Any]:
         return self._backend.patch_model(model_ref, patches).to_canonical_dict()
 
-    def snapshot(self, model_ref: str, state_ref: str | None = None) -> dict[str, Any]:
+    def snapshot(
+        self,
+        model_ref: str,
+        state_ref: str | None = None,
+        *,
+        keyframe: str | None = None,
+        keyframe_ref: str | None = None,
+    ) -> dict[str, Any]:
+        if sum(value is not None for value in (state_ref, keyframe, keyframe_ref)) > 1:
+            raise ValueError("INITIAL_STATE_AMBIGUOUS: select one state or keyframe initializer")
+        if keyframe is not None or keyframe_ref is not None:
+            ref = self._backend.initial_state_v2(
+                model_ref, keyframe=keyframe, keyframe_ref=keyframe_ref
+            )
+            initialization = self._backend.store.get(ref)["initialization"]
+            return {"state_ref": ref, "model_ref": model_ref, **initialization}
         if state_ref is None:
             ref = self._backend.initial_state(model_ref)
         else:
             snap = self._backend.store.get(state_ref)
             if not isinstance(snap, dict):
                 raise ValueError(f"REF_NOT_FOUND: {state_ref!r} is not a state snapshot")
-            ref = self._backend.snapshot_state(model_ref, snap)
+            if snap.get("kind") == "state_snapshot_v2":
+                model, data = self._backend.restore_state_v2(model_ref, state_ref)
+                ref = self._backend.capture_and_store_v2(
+                    model_ref,
+                    model,
+                    data,
+                    fidelity=snap["fidelity"],
+                    initialization=snap.get("initialization"),
+                )
+            else:
+                ref = self._backend.snapshot_state(model_ref, snap)
         return {"state_ref": ref, "model_ref": model_ref}
 
     def observe(self, model_ref: str, state_ref: str, channels: list[str]) -> dict[str, Any]:
@@ -71,12 +96,16 @@ class SimulationRuntime:
         duration_s: float | None = None,
         steps: int | None = None,
         state_ref: str | None = None,
+        keyframe: str | None = None,
+        keyframe_ref: str | None = None,
         seed: int = 0,
         task_predicates: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         return self._backend.run_experiment(
             model_ref,
             state_ref=state_ref,
+            keyframe=keyframe,
+            keyframe_ref=keyframe_ref,
             controller=controller,
             duration_s=duration_s,
             steps=steps,
@@ -216,9 +245,13 @@ class SimulationRuntime:
                     "physical_audit_pass": audit_result.status == "PASS",
                     "task_success": task_success,
                     "verification_status": (
-                        "FAIL" if audit_result.status == "FAIL"
-                        else ("NOT_EVALUATED" if task_predicates is None
-                              else ("PASS" if task_success else "FAIL"))
+                        "FAIL"
+                        if audit_result.status == "FAIL"
+                        else (
+                            "NOT_EVALUATED"
+                            if task_predicates is None
+                            else ("PASS" if task_success else "FAIL")
+                        )
                     ),
                     "metrics": {},
                     "metrics_mode": "batch_trajectory",

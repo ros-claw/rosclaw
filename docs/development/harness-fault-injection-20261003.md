@@ -135,3 +135,36 @@ then passed 461 checks with one skip and one deselection (163.42 s). Final
 shared-guard regression results are retained in the local audit directory. Ruff and
 eight-source-module mypy checks pass. A read-only independent frozen baseline
 review is saved as `framework_fault_injection/r04_frozen_baseline_validity_independent.json`.
+
+## Explicit keyframe initialization
+
+R03 live Kimi evaluation exposed a missing initializer: a keyframe could be
+repaired through structured model patches, but snapshot/rollout could not
+select that keyframe. Altering body placement was not an equivalent execution
+of the repaired home state; the old evaluation remains unchanged.
+
+`sim snapshot MODEL --keyframe NAME` and `sim rollout MODEL --keyframe NAME`
+now select the exact compiled name through actual `mj_resetDataKeyframe`,
+followed by forward computation. Snapshot returns a content-addressed
+`simkey_…` initializer reference. `--keyframe-ref REF` reuses that exact
+model-bound initializer; missing names, modified/foreign initializer records,
+cross-model references and competing state/keyframe selectors fail closed.
+Neither initialization nor proof creation patches body placement or steps
+physics. The default qpos0 initialization is unchanged.
+
+The initializer includes the compiled keyframe time, qpos, qvel, act, ctrl and
+mocap values plus model ref/digest. Full-integration state metadata retains its
+source; serial trace records include `initial_state_ref` and initialization
+lineage, and receipts point to that actual initial snapshot. Restoring the
+snapshot retains provenance and permits exact replay. Keyframe/snapshot clocks
+can start above zero: trace times remain absolute, while rollout/receipt metric
+duration is now the actual elapsed interval rather than the absolute end clock.
+The Python runtime, MCP client/tools and CLI expose the same selection rules.
+
+Seven initial regression cases were red before the implementation. Eight final
+cases cover actual MuJoCo reset equality, immutable reference reuse, default
+initialization, direct/resumed rollout lineage, exact replay, unknown/ambiguous
+selection, foreign model references, real CLI success/failure and native MCP
+client delegation. The relevant state/patch/CLI/MCP cohort has 78 passing tests;
+Ruff, formatting, eight-module mypy and diff checks pass. The tests use generic
+fixtures and do not implement a robot controller.

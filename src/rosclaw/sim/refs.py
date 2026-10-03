@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import re
 
-REF_RE = re.compile(r"^sim(mdl|sta|trc|obs|adt|rnd|exp|art)_[0-9a-f]{16}$")
+REF_RE = re.compile(r"^sim(mdl|sta|trc|obs|adt|rnd|exp|art|key)_[0-9a-f]{16}$")
 LEGACY_RE = re.compile(r"^(model|obs|op)_[0-9a-f]{16}$")
 
 KINDS: tuple[str, ...] = (
@@ -24,6 +24,7 @@ KINDS: tuple[str, ...] = (
     "simrnd",
     "simexp",
     "simart",
+    "simkey",
 )
 
 PREFIX_TO_PARTITION: dict[str, str] = {
@@ -35,6 +36,7 @@ PREFIX_TO_PARTITION: dict[str, str] = {
     "simrnd": "renders",
     "simexp": "experiments",
     "simart": "experiments",
+    "simkey": "states",
 }
 
 _DIGEST64_RE = re.compile(r"^[0-9a-f]{64}$")
