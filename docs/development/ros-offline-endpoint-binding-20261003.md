@@ -35,3 +35,19 @@ endpoint binding tests now cover offline provenance, legacy forged defaults,
 absent endpoints, explicit remote host/port preservation, source/runtime
 mismatch and a matching explicit static provider load. Broader connector
 verification excludes the live integration suite.
+
+## Explicit proxy routes
+
+Review of the endpoint parser found that reverse proxy paths/query strings had
+never been supported: the old string split interpreted `9443/rosbridge` as
+a port, or put a path into the hostname. The fail-closed binding initially
+rejected such URLs explicitly. The follow-up parser now retains websocket
+paths and queries, handles bracketed IPv6, and binds the entire route as well
+as scheme/host/port. A different path/query on the same host is a different
+graph binding. The root path and an omitted path are equivalent for binding.
+
+Eleven proxy/IPv6/invalid-URL fixtures failed against the old parser and now
+pass. Mock transport constructor tests preserve legitimate matching proxy
+routes and reject silent cross-route retargeting without opening a socket.
+Embedded username/password URLs and URL fragments are rejected. Explicit
+endpoints without a port retain the existing rosbridge default of 9090.

@@ -18,25 +18,42 @@ class RosbridgeEndpoint:
     port: int = 9090
     scheme: str = "ws"
     timeout_sec: float = 5.0
+    path: str = ""
+    query: str = ""
 
     @property
     def url(self) -> str:
-        return f"{self.scheme}://{self.host}:{self.port}"
+        host = f"[{self.host}]" if ":" in self.host and not self.host.startswith("[") else self.host
+        suffix = self.path + ("?" + self.query if self.query else "")
+        return f"{self.scheme}://{host}:{self.port}{suffix}"
 
     @classmethod
     def from_url(cls, url: str, timeout_sec: float = 5.0) -> RosbridgeEndpoint:
-        """Parse a rosbridge URL like ``ws://host:port``."""
-        scheme = "ws"
-        rest = url
-        if "://" in url:
-            scheme, rest = url.split("://", 1)
-        if ":" in rest:
-            host, port_str = rest.rsplit(":", 1)
-            port = int(port_str)
-        else:
-            host = rest
-            port = 9090
-        return cls(host=host, port=port, scheme=scheme, timeout_sec=timeout_sec)
+        """Parse an explicit websocket endpoint, preserving proxy route and IPv6."""
+        from urllib.parse import urlsplit
+
+        parsed = urlsplit(url if "://" in url else "ws://" + url)
+        if (
+            parsed.scheme not in {"ws", "wss"}
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.fragment
+        ):
+            raise ValueError(
+                "ROS_ENDPOINT_INVALID: ws/wss host URL required; embedded credentials are unsupported"
+            )
+        port = parsed.port if parsed.port is not None else 9090
+        if not 1 <= port <= 65535:
+            raise ValueError("ROS_ENDPOINT_INVALID: port must be 1..65535")
+        return cls(
+            host=parsed.hostname,
+            port=port,
+            scheme=parsed.scheme,
+            timeout_sec=timeout_sec,
+            path=parsed.path,
+            query=parsed.query,
+        )
 
 
 @dataclass
