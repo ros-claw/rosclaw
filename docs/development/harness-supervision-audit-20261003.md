@@ -600,6 +600,40 @@ joint-level bounds are absent. Requested control, individual actuator force
 and final joint actuator-force values must be distinguished when the joint
 layer clamps their aggregate. These are source/model effort bounds, not a
 thermal or continuous-duty hardware certification. The proposed stand-reference
-candidate remains unexecuted pending source/execution review; original model
-and prior evidence stay frozen. The erroneous actuator-only inference is
+candidate was subsequently executed under its predeclared four-attempt budget;
+original model and prior evidence stay frozen. The erroneous actuator-only inference is
 preserved in audit history and explicitly corrected here.
+
+The native stand-reference v3 experiment fails all four seeds (7/23/42/123).
+Each first 5,000 raw steps is byte exact against its original baseline. A live
+dual-foot support trigger switches at 5.215 seconds; measured joint posture
+becomes a PD reference over a 0.200-second blend with the original gains.
+Thereafter no new NN calls occur, and phase/hidden/cell states remain exact.
+Independent sequential replay of 261 actual calls per case, state-derived
+observations, full-qpos integration, PD requests and contact-frame transforms
+has zero error. Original applied joint-force caps hold throughout. The first
+health failure occurs at 6.331 or 6.332 seconds because G1 pitch exceeds 0.6
+radians, not because root height, numeric finiteness or torque bounds fail.
+No sustained readiness window exists (0/4). This specific candidate is rejected
+for duel use; it proves neither universal PD impossibility nor standing success.
+The deployment mode explicitly bypasses the official policy after switching;
+resume is not implemented or tested. The independent receipt is
+`g1_stand_reference_v3_c92d8571d3e8_independent.json`, SHA256
+`6c3edc9cc1d55d9d7ff1c869228a520d329ef2a2f19c4aa923b355ac42808008`.
+
+The framework A10 force audit previously ignored joint actuator-force caps,
+compared unrelated motor forces against one global minimum, missed an
+asymmetric negative endpoint, and falsely passed a declared joint-effort bound
+when transmission gear doubled the applied joint force. Multi-input PID also
+indexed actuator arrays using the control-input count and raised IndexError.
+Six real compiled generic hinge counterexamples (including aggregated motors
+on one limited joint) reproduce these failures against the previous commit.
+A10 now evaluates each actuator and scalar joint at its own bound, checks
+declared effort against actual `qfrc_actuator`, and collects maxima in the same
+executed sweep. Invalid effort declarations fail closed, zero effort is enforced,
+and a zero physical force endpoint does not label idle zero as saturation.
+Full model inspection exposes joint `actuatorfrclimited/actuatorfrcrange`.
+Fourteen new regression cases and the relevant existing audit/inspection/control
+tests pass together: **73 passed**, with Ruff and mypy on both source modules
+passing. These generic tests fix framework behavior; they do not run or author
+robot controllers and do not upgrade failed physical experiments to success.

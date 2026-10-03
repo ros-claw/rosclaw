@@ -128,43 +128,98 @@ def a09_actuator_saturation(ctx: AuditContext) -> dict[str, Any]:
 
 
 def a10_force_limit(ctx: AuditContext) -> dict[str, Any]:
-    """A10：max |actuator_force| 超过模型 forcerange 或 e-URDF
-    max_joint_effort（取更严者）。"""
+    """A10: per-actuator and joint-layer force saturation; declared joint effort.
+
+    Joint clamping applies to qfrc_actuator, not an individual actuator's
+    pre-transmission force. Bounds are never shared across unrelated channels.
+    """
+    import math
+
+    import mujoco
+
     model = ctx.model
-    safety = _safety_limits(ctx)
-    limits = [
-        float(model.actuator_forcerange[i][1])
-        for i in range(model.nu)
-        if model.actuator_forcelimited[i] and model.actuator_forcerange[i][1] > 0
-    ]
-    if safety and safety.get("force_limits", {}).get("max_joint_effort"):
-        limits.append(float(safety["force_limits"]["max_joint_effort"]))
-    if not limits:
+    safety = _safety_limits(ctx) or {}
+    raw_effort = (safety.get("force_limits") or {}).get("max_joint_effort")
+    effort = None
+    if raw_effort is not None:
+        try:
+            effort = float(raw_effort)
+        except (TypeError, ValueError):
+            effort = float("nan")
+        if not math.isfinite(effort) or effort < 0:
+            return {"status": "FAIL", "violations": [{"reason": "invalid_joint_effort_limit"}]}
+
+    bounds: list[dict[str, Any]] = []
+    # PID may have multiple controls per actuator. Force arrays use actuators.
+    for i in range(model.actuator_trnid.shape[0]):
+        if model.actuator_forcelimited[i]:
+            bounds.append(
+                {
+                    "layer": "actuator",
+                    "index": i,
+                    "name": mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_ACTUATOR, i),
+                    "range": [float(v) for v in model.actuator_forcerange[i]],
+                }
+            )
+    scalar_joints = [j for j in range(model.njnt) if int(model.jnt_type[j]) in (2, 3)]
+    joint_limited = getattr(model, "jnt_actfrclimited", None)
+    if joint_limited is not None:
+        for j in scalar_joints:
+            if joint_limited[j]:
+                bounds.append(
+                    {
+                        "layer": "joint",
+                        "index": j,
+                        "dof": int(model.jnt_dofadr[j]),
+                        "name": mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_JOINT, j),
+                        "range": [float(v) for v in model.jnt_actfrcrange[j]],
+                    }
+                )
+    if not bounds and effort is None:
         return {
             "status": "NOT_EVALUATED",
             "violations": [],
             "detail": {"reason": "no_force_limits_declared"},
         }
-    limit = min(limits)
+    if not bounds and not scalar_joints:
+        return {
+            "status": "NOT_EVALUATED",
+            "violations": [],
+            "detail": {"reason": "no_scalar_joint_force_channels"},
+        }
 
-    # forcerange 是物理裁剪——力"超过"限值不可能，真正的缺陷是
-    # 力被**持续钉在限值**（force saturation 掩盖跟踪失败）。
-    saturated_steps = 0
-    total_steps = 0
+    total_steps = saturated_steps = 0
+    max_force = max_joint_force = 0.0
+    exceeded: dict[int, float] = {}
+    nonfinite = False
 
     def visit(data, step) -> None:  # noqa: ANN001
-        nonlocal saturated_steps, total_steps
+        nonlocal total_steps, saturated_steps, max_force, max_joint_force, nonfinite
         total_steps += 1
-        for i in range(model.nu):
-            if model.actuator_forcelimited[i]:
-                actuator_limit = float(model.actuator_forcerange[i][1])
-                if actuator_limit > 0 and abs(float(data.actuator_force[i])) >= 0.999 * min(
-                    actuator_limit, limit
-                ):
-                    saturated_steps += 1
-                    break
+        if not (np.isfinite(data.actuator_force).all() and np.isfinite(data.qfrc_actuator).all()):
+            nonfinite = True
+            return
+        if data.actuator_force.size:
+            max_force = max(max_force, float(np.max(np.abs(data.actuator_force))))
+        hit = False
+        for bound in bounds:
+            value = float(
+                data.actuator_force[bound["index"]]
+                if bound["layer"] == "actuator"
+                else data.qfrc_actuator[bound["dof"]]
+            )
+            lo, hi = bound["range"]
+            # A zero endpoint at idle is not force saturation.
+            hit |= (abs(lo) > 1e-12 and value <= lo + abs(lo) * 0.001) or (
+                abs(hi) > 1e-12 and value >= hi - abs(hi) * 0.001
+            )
+        saturated_steps += int(hit)
+        for j in scalar_joints:
+            value = abs(float(data.qfrc_actuator[int(model.jnt_dofadr[j])]))
+            max_joint_force = max(max_joint_force, value)
+            if effort is not None and value > effort + 1e-9:
+                exceeded[j] = max(exceeded.get(j, 0.0), value)
 
-    metrics = _trace_or_hold_sweep(ctx, seconds=0.0)  # 取 ctrl/trace 形态
     ctrl = None
     seconds = 1.0
     if ctx.trace_record is not None:
@@ -175,29 +230,44 @@ def a10_force_limit(ctx: AuditContext) -> dict[str, Any]:
             ctrl = {"kind": "ctrl", "values": controller["position_targets"]}
         seconds = ctx.trace_record.get("steps", 1) * float(model.opt.timestep)
     ctx.sweep(seconds, visit, ctrl=ctrl)
-
-    max_force = metrics["max_actuator_force"]
     if total_steps == 0:
         return {"status": "NOT_EVALUATED", "violations": [], "detail": {"reason": "no_steps"}}
     ratio = saturated_steps / total_steps
-    violations = (
-        [
+    # Kept as a legacy summary only; never used to compare another channel.
+    magnitudes = [abs(v) for b in bounds for v in b["range"] if abs(v) > 1e-12]
+    if effort is not None:
+        magnitudes.append(effort)
+    limit = min(magnitudes) if magnitudes else None
+    violations: list[dict[str, Any]] = []
+    if ratio > ctx.policy.saturation_ratio:
+        violations.append(
             {
                 "saturated_ratio": ratio,
                 "limit": limit,
                 "max_actuator_force": max_force,
                 "reason": "force_saturation_persistent",
             }
-        ]
-        if ratio > ctx.policy.saturation_ratio
-        else []
+        )
+    violations.extend(
+        {
+            "joint": mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_JOINT, j),
+            "max_joint_actuator_force": value,
+            "limit": effort,
+            "reason": "joint_force_limit_exceeded",
+        }
+        for j, value in exceeded.items()
     )
+    if nonfinite:
+        violations.append({"reason": "force_non_finite"})
     return {
         "status": "FAIL" if violations else "PASS",
         "violations": violations,
         "saturated_ratio": ratio,
         "max_actuator_force": max_force,
+        "max_joint_actuator_force": max_joint_force,
         "limit": limit,
+        "per_channel_limits": bounds,
+        "safety_joint_effort_limit": effort,
     }
 
 

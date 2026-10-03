@@ -45,6 +45,10 @@ def inspect_model_full(model, *, model_digest: str = "", spec=None) -> dict[str,
         # 单 dof 关节（hinge/slide）的阻尼落在 dof_damping。
         if entry["type"] in ("hinge", "slide"):
             entry["damping"] = float(model.dof_damping[dof_addr])
+        # Joint-layer aggregate force bounds are distinct from actuator bounds.
+        if hasattr(model, "jnt_actfrclimited"):
+            entry["actuatorfrclimited"] = bool(model.jnt_actfrclimited[i])
+            entry["actuatorfrcrange"] = [float(v) for v in model.jnt_actfrcrange[i]]
         joints_detail.append(entry)
 
     actuators_detail: list[dict[str, Any]] = []
