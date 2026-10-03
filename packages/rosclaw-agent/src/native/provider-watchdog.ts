@@ -69,6 +69,7 @@ export class ProviderStallWatchdog {
 	/** 0914 PR-3：工具执行阶段计数（嵌套/连发工具安全）——
 	 *  >0 时 Provider 时钟暂停：工具运行不是 Provider 停滞。 */
 	private toolBusyCount = 0;
+	private lastStreamIdleNoticeAt = -Infinity;
 
 	constructor(options: ProviderStallWatchdogOptions) {
 		this.opts = { ...DEFAULTS, ...options } as Required<ProviderStallWatchdogOptions>;
@@ -82,6 +83,7 @@ export class ProviderStallWatchdog {
 		this.active = true;
 		this.sawContent = false;
 		this.abortedOnce = false;
+		this.lastStreamIdleNoticeAt = -Infinity;
 		this._armFirstToken();
 	}
 
@@ -164,6 +166,11 @@ export class ProviderStallWatchdog {
 		this.streamIdleTimers = [
 			setTimeout(() => {
 				if (!this.active || this.abortedOnce) return;
+				// Slow but live chunks can repeatedly cross the status threshold.
+				// Bound duplicate warnings; the independent abort timer stays armed.
+				const now = performance.now();
+				if (now - this.lastStreamIdleNoticeAt < 60_000) return;
+				this.lastStreamIdleNoticeAt = now;
 				try {
 					this.opts.notice(`模型暂未输出新内容（${seconds(this.opts.streamIdleStatusMs)}）——仍在等待 Provider，尚未取消…`);
 				} catch {

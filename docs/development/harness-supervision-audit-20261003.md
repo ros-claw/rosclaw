@@ -413,3 +413,27 @@ contract the selected G1 seed11 result remains three; none of the eight fresh
 attempts reaches three. This is a real generalization/measurement limitation,
 not a reason to omit the INIT failures from the denominator or relabel a net
 crossing as a completed rally. M21 remains NOT_DONE overall.
+
+A local comparison preflight found that the dedicated clean A Python still had
+MuJoCo 3.1.6 while B used 3.13.0. New A environments now pin mujoco/numpy/imageio
+to the running B versions; existing divergent or contaminated A environments fail
+before prompting the model. The isolated local A environment was aligned and
+verified to have no ROSClaw import. Two pre-repair red cases and 18 runner/profile
+regressions validate the guard and creation pins. A real native PI/OpenAI U02
+smoke then verified in 36.5s/six calls, with 26 inline Python lines; B's earlier
+same-task smoke used 23.0s/four calls. These are individual, differently timed
+smokes with equal library versions, not a statistical harness/model ranking.
+
+The live slow provider also repeatedly crossed the idle-notice threshold between
+real content chunks, flooding the chat history. Duplicate stream-idle notices are
+now limited to one per minute per turn. Actual first-token and stream-idle abort
+deadlines, tool/user pauses, and live-content renewal are unchanged. The new
+counterexample failed with three repeated notices; all 12 watchdog tests pass
+after repair, including unchanged cancellation. Formal work is not interrupted
+merely to reload this presentation repair.
+
+All 132 persisted assistant natural-language claim entries through session line
+1847 (23,577 characters) were reread alongside the full structural chronology.
+Historical all-PASS/self-score/policy-only and passive-upper-bound language is
+not adopted as independent acceptance; the corrected source/raw evidence and
+explicit selected-protocol limitations control the findings.

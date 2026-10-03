@@ -110,12 +110,15 @@ def _a_leg_python() -> str:
     """
     import subprocess
     import venv
+    from importlib.metadata import version
 
+    expected = {package: version(package) for package in ("mujoco", "numpy", "imageio")}
     python = _A_LEG_VENV / "bin" / "python"
     if not python.exists():
         venv.create(_A_LEG_VENV, with_pip=True)
         subprocess.run(
-            [str(python), "-m", "pip", "install", "-q", "mujoco", "numpy", "imageio"],
+            [str(python), "-m", "pip", "install", "-q"]
+            + [f"{package}=={installed}" for package, installed in expected.items()],
             check=True,
             timeout=600,
         )
@@ -123,12 +126,26 @@ def _a_leg_python() -> str:
         [
             str(python),
             "-c",
-            "import importlib.util, sys; sys.exit(1 if importlib.util.find_spec('rosclaw') else 0)",
+            "import importlib.util, json; from importlib.metadata import version; "
+            "print(json.dumps({'rosclaw_available': "
+            "importlib.util.find_spec('rosclaw') is not None, "
+            "'versions': {p: version(p) for p in ('mujoco','numpy','imageio')}}))",
         ],
         check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
     )
     if probe.returncode != 0:
+        raise RuntimeError("A_LEG_ENV_PROBE_FAILED: clean venv dependency probe failed")
+    observed = json.loads(probe.stdout)
+    if observed.get("rosclaw_available"):
         raise RuntimeError("A_LEG_ENV_CONTAMINATED: clean venv 里能 import rosclaw")
+    if observed.get("versions") != expected:
+        raise RuntimeError(
+            f"A_LEG_ENV_VERSION_MISMATCH: A={observed.get('versions')}, B={expected}; "
+            "align the dedicated A venv before running an A/B comparison"
+        )
     # pi 启动依赖 fd/ripgrep——干净 PATH 里缺失时 pi 会现场从
     # GitHub 下载（本机 GitHub 直连不可达 → startup 永远卡
     # "still in progress"，prompt 被启动竞态吞掉；v2/v3/v4

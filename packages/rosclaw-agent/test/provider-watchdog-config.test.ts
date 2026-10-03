@@ -31,3 +31,22 @@ test("notice and abort text reflect the actual configured timers", async () => {
   assert.ok(notices.some(text => text.includes("首 token 0.07s")));
  } finally { watchdog.turnEnded(); }
 });
+
+test("intermittent live content does not flood idle notices or disable abort", async () => {
+ const notices: string[] = [];
+ let canceled = 0;
+ const watchdog = new ProviderStallWatchdog({notice: text => notices.push(text),
+  stallAbort: () => { canceled++; }, firstTokenNoticeMs: 1000, firstTokenAbortMs: 2000,
+  streamIdleStatusMs: 20, streamIdleAbortMs: 120});
+ watchdog.turnStarted();
+ try {
+  for (let i = 0; i < 3; i++) {
+   watchdog.contentProgress();
+   await new Promise(resolve => setTimeout(resolve, 35));
+  }
+  assert.equal(notices.length, 1, "one slow live turn must not repeat the same warning each chunk");
+  assert.equal(canceled, 0);
+  await new Promise(resolve => setTimeout(resolve, 140));
+  assert.equal(canceled, 1, "rate-limiting notices must not delay stall cancellation");
+ } finally { watchdog.turnEnded(); }
+});

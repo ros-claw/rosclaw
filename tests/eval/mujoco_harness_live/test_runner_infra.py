@@ -267,3 +267,61 @@ def test_followup_user_message_invalidates_previous_stop(tmp_path):
     ]
     (p / "s.jsonl").write_text("\n".join(json.dumps(e) for e in entries) + "\n")
     assert not runner._session_turn_stopped(p, 0, 200)
+
+
+def test_clean_a_environment_rejects_different_physics_version(tmp_path, monkeypatch):
+    import json
+    import subprocess
+    from importlib.metadata import version
+    from types import SimpleNamespace
+
+    python = tmp_path / "bin" / "python"
+    python.parent.mkdir()
+    python.touch()
+    observed = {p: version(p) for p in ("mujoco", "numpy", "imageio")}
+    observed["mujoco"] = "3.1.6"  # Actual stale local A environment.
+    monkeypatch.setattr(runner, "_A_LEG_VENV", tmp_path)
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *a, **k: SimpleNamespace(
+            returncode=0,
+            stdout=json.dumps({"rosclaw_available": False, "versions": observed}),
+        ),
+    )
+    with pytest.raises(RuntimeError, match="A_LEG_ENV_VERSION_MISMATCH"):
+        runner._a_leg_python()
+
+
+def test_new_a_environment_pins_physics_versions_to_b(tmp_path, monkeypatch):
+    import json
+    import subprocess
+    import venv
+    from importlib.metadata import version
+    from types import SimpleNamespace
+
+    expected = {p: version(p) for p in ("mujoco", "numpy", "imageio")}
+    commands = []
+
+    def create(path, **kwargs):
+        (path / "bin").mkdir()
+        (path / "bin" / "python").touch()
+
+    def run(command, **kwargs):
+        commands.append(command)
+        return SimpleNamespace(
+            returncode=0,
+            stdout=json.dumps(
+                {
+                    "rosclaw_available": False,
+                    "versions": expected,
+                }
+            ),
+        )
+
+    monkeypatch.setattr(runner, "_A_LEG_VENV", tmp_path)
+    monkeypatch.setattr(venv, "create", create)
+    monkeypatch.setattr(subprocess, "run", run)
+    runner._a_leg_python()
+    install = next(c for c in commands if "install" in c)
+    assert all(f"{p}=={v}" in install for p, v in expected.items())
