@@ -52,3 +52,22 @@ are not agent successes; missing credentials must remain NOT_RUN. Preserve faile
 trials and record retries as new trials. A formula-probe PASS is useful component
 evidence, but cannot establish the upper limit of embodied control or a framework's
 whole-system reliability.
+
+## Explicit offline ROS files fail closed
+
+Inspection of the installed ROSClaw ROS connector found that a missing explicit
+`ros compile --graph PATH` or `--manifest PATH` silently selected live rosbridge
+discovery. This violated the declared offline mode and could turn a filename typo
+into a network wait. Invalid manifest JSON could also escape as a traceback, and
+an empty object could be accepted as an empty graph or unknown-body manifest.
+
+The fix keeps explicitly selected files authoritative: missing or malformed files
+return structured `ok:false` and exit code 1, without constructing a transport.
+Graph files require ROS1/ROS2 version plus object lists for topics/services/actions;
+manifest files require a named body and an object list of capabilities. Leaving
+both offline flags unspecified preserves the explicitly live discovery path.
+
+The focused tests initially recorded **17 failures / 4 passes** against the old
+implementation. After the fix, **44 focused tests passed**, including all four
+actual entrypoint/parser paths and a guarded test preserving the no-file live
+branch. No ROS node, DDS transport, physical driver, or hardware command was run.
