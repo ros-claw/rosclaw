@@ -1030,6 +1030,10 @@ def judge(task_id: str, workspace: Path, *, leg: str = "B") -> dict[str, Any]:
     if task is None or not task.oracle:
         raise ValueError(f"BENCH_TASK_UNKNOWN: {task_id!r}")
     kind = task.oracle["kind"]
+    if kind == "offline_cli_integration":
+        from benchmarks.harnessbench.capability_integration import judge_integration
+
+        return judge_integration(task_id, workspace)
     if kind == "offline_capability":
         from benchmarks.harnessbench.capability_matrix import judge_capability
 
