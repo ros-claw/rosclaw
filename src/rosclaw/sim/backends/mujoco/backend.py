@@ -452,6 +452,7 @@ class MujocoBackend:
         data,  # noqa: ANN001
         *,
         fidelity: str = state_v2.FIDELITY_FULL_INTEGRATION,
+        initialization: dict[str, Any] | None = None,
     ) -> str:
         """mj_getState 捕获 + 元数据 JSON 与 float64 blob 分离落盘。"""
         manifest = self._manifest(model_ref)
@@ -476,6 +477,8 @@ class MujocoBackend:
             "qvel": [float(v) for v in data.qvel],
             "ctrl": [float(v) for v in data.ctrl],
         }
+        if initialization is not None:
+            meta["initialization"] = initialization
         return self.store.put("states", meta)
 
     def initial_state_v2(
@@ -483,16 +486,54 @@ class MujocoBackend:
         model_ref: str,
         *,
         fidelity: str = state_v2.FIDELITY_FULL_INTEGRATION,
+        keyframe: str | None = None,
+        keyframe_ref: str | None = None,
     ) -> str:
         """模型的 v2 初始状态（qpos0 + mj_forward）快照，确定性幂等。"""
+        model, data, initialization = self._initial_data(
+            model_ref, keyframe=keyframe, keyframe_ref=keyframe_ref
+        )
+        return self.capture_and_store_v2(
+            model_ref, model, data, fidelity=fidelity, initialization=initialization
+        )
+
+    def _initial_data(
+        self,
+        model_ref: str,
+        *,
+        state_ref: str | None = None,
+        keyframe: str | None = None,
+        keyframe_ref: str | None = None,
+    ):  # noqa: ANN202
+        """Resolve one explicit initializer; never guess or fall back on failure."""
         import mujoco
 
+        if sum(value is not None for value in (state_ref, keyframe, keyframe_ref)) > 1:
+            raise ValueError(
+                "INITIAL_STATE_AMBIGUOUS: state_ref, keyframe and keyframe_ref are mutually exclusive"
+            )
+        if state_ref is not None:
+            model, data = self.restore_state_v2(model_ref, state_ref)
+            return model, data, self.store.get(state_ref).get("initialization")
         manifest = self._manifest(model_ref)
-        spec = self._spec_from_manifest(manifest)
-        model, _ = self._compile_smoke(spec)
+        model, _ = self._compile_smoke(self._spec_from_manifest(manifest))
         data = mujoco.MjData(model)
-        mujoco.mj_forward(model, data)
-        return self.capture_and_store_v2(model_ref, model, data, fidelity=fidelity)
+        initialization = None
+        if keyframe is not None or keyframe_ref is not None:
+            from rosclaw.sim.backends.mujoco.keyframe import reset_keyframe
+
+            initialization = reset_keyframe(
+                model,
+                data,
+                self.store,
+                model_ref=model_ref,
+                model_digest=self._model_digest(manifest),
+                name=keyframe,
+                ref=keyframe_ref,
+            )
+        else:
+            mujoco.mj_forward(model, data)
+        return model, data, initialization
 
     def restore_state_v2(self, model_ref: str, state_ref: str):  # noqa: ANN202
         """v2 恢复（v1 快照走 legacy 路径，fidelity 由 state_fidelity 判定）。"""
@@ -757,6 +798,8 @@ class MujocoBackend:
         model_ref: str,
         *,
         state_ref: str | None = None,
+        keyframe: str | None = None,
+        keyframe_ref: str | None = None,
         controller: dict[str, Any],
         duration_s: float | None = None,
         steps: int | None = None,
@@ -764,19 +807,18 @@ class MujocoBackend:
         budgets: dict[str, Any] | None = None,
     ) -> SimulationTrace:
         """有界 rollout：controller + 预算，trace 与终态不可变落盘。"""
-        import mujoco
 
         if not isinstance(seed, int) or isinstance(seed, bool) or seed < 0:
             raise ValueError(f"ROLLOUT_SEED_INVALID: {seed!r}")
         manifest = self._manifest(model_ref)
-        if state_ref is not None:
-            model, data = self.restore_state_v2(model_ref, state_ref)
-        else:
-            spec = self._spec_from_manifest(manifest)
-            model, _ = self._compile_smoke(spec)
-            data = mujoco.MjData(model)
-            mujoco.mj_forward(model, data)
+        model, data, initialization = self._initial_data(
+            model_ref, state_ref=state_ref, keyframe=keyframe, keyframe_ref=keyframe_ref
+        )
+        initial_state_ref = self.capture_and_store_v2(
+            model_ref, model, data, initialization=initialization
+        )
 
+        initial_time = float(data.time)
         plan = rollout_mod.validate_controller(
             controller, model.nu, channels=self._control_schema(model, manifest)
         )
@@ -791,13 +833,15 @@ class MujocoBackend:
         digest = rollout_mod.states_digest(states)
         record = {
             "kind": "simulation_trace",
+            "initial_state_ref": initial_state_ref,
+            **({"initialization": initialization} if initialization is not None else {}),
             "model_ref": model_ref,
             "model_digest": self._model_digest(manifest),
             "seed": seed,
             "controller": controller,
             "steps": actual_steps,
             "timestep_s": float(model.opt.timestep),
-            "duration_s": float(data.time),
+            "duration_s": float(data.time) - initial_time,
             "states_digest": digest,
             "states": states,
         }
@@ -811,6 +855,11 @@ class MujocoBackend:
             {
                 "model_ref": model_ref,
                 "state_ref": state_ref,
+                **(
+                    {"keyframe": keyframe, "keyframe_ref": keyframe_ref}
+                    if initialization is not None
+                    else {}
+                ),
                 "controller": controller,
                 "steps": resolved_steps,
                 "seed": seed,
@@ -823,6 +872,8 @@ class MujocoBackend:
             request_digest=request_digest,
             model_ref=model_ref,
             model_digest=self._model_digest(manifest),
+            initial_state_ref=initial_state_ref,
+            initialization=initialization or {},
             steps=actual_steps,
             timestep_s=float(model.opt.timestep),
             states_digest=digest,
@@ -1163,6 +1214,8 @@ class MujocoBackend:
         model_ref: str,
         *,
         state_ref: str | None = None,
+        keyframe: str | None = None,
+        keyframe_ref: str | None = None,
         controller: dict[str, Any],
         duration_s: float | None = None,
         steps: int | None = None,
@@ -1180,15 +1233,14 @@ class MujocoBackend:
         import mujoco
 
         manifest = self._manifest(model_ref)
-        if state_ref is not None:
-            model, data = self.restore_state_v2(model_ref, state_ref)
-        else:
-            spec = self._spec_from_manifest(manifest)
-            model, _ = self._compile_smoke(spec)
-            data = mujoco.MjData(model)
-            mujoco.mj_forward(model, data)
-        initial_state_ref = self.capture_and_store_v2(model_ref, model, data)
+        model, data, initialization = self._initial_data(
+            model_ref, state_ref=state_ref, keyframe=keyframe, keyframe_ref=keyframe_ref
+        )
+        initial_state_ref = self.capture_and_store_v2(
+            model_ref, model, data, initialization=initialization
+        )
 
+        initial_time = float(data.time)
         plan = rollout_mod.validate_controller(
             controller, model.nu, channels=self._control_schema(model, manifest)
         )
@@ -1210,13 +1262,15 @@ class MujocoBackend:
         digest = rollout_mod.states_digest(states)
         record = {
             "kind": "simulation_trace",
+            "initial_state_ref": initial_state_ref,
+            **({"initialization": initialization} if initialization is not None else {}),
             "model_ref": model_ref,
             "model_digest": self._model_digest(manifest),
             "seed": seed,
             "controller": controller,
             "steps": actual_steps,
             "timestep_s": float(model.opt.timestep),
-            "duration_s": float(data.time),
+            "duration_s": float(data.time) - initial_time,
             "states_digest": digest,
             "states": states,
         }
@@ -1226,7 +1280,7 @@ class MujocoBackend:
         final_state_ref = self.capture_and_store_v2(model_ref, model, data)
 
         metrics = collector.finalize(
-            timestep=float(model.opt.timestep), duration_s=float(data.time)
+            timestep=float(model.opt.timestep), duration_s=float(data.time) - initial_time
         )
 
         simulation_valid = True  # 发散在 run_rollout 已 fail closed
@@ -1272,7 +1326,7 @@ class MujocoBackend:
             "final_state_ref": final_state_ref,
             "seed": seed,
             "steps": actual_steps,
-            "simulation_time_s": float(data.time),
+            "simulation_time_s": float(data.time) - initial_time,
             "success": task_success,  # 兼容字段 ≡ task_success（0915 §三）
             "simulation_valid": simulation_valid,
             "physical_audit_pass": physical_audit_pass,
@@ -1346,6 +1400,7 @@ class MujocoBackend:
             model, data = self.restore_state_v2(payload["model_ref"], payload["initial_state_ref"])
         except ValueError as exc:
             raise ValueError(f"REPLAY_STATE_MISMATCH: {exc}") from exc
+        initial_time = float(data.time)
         plan = rollout_mod.validate_controller(
             controller, model.nu, channels=self._control_schema(model, manifest)
         )
@@ -1372,7 +1427,7 @@ class MujocoBackend:
             }
 
         metrics = collector.finalize(
-            timestep=float(model.opt.timestep), duration_s=float(data.time)
+            timestep=float(model.opt.timestep), duration_s=float(data.time) - initial_time
         )
         verification_status = self._replay_verification_status(
             model_ref=payload["model_ref"], model=model, data=data, payload=payload

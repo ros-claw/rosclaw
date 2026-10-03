@@ -38,6 +38,7 @@ def test_all_kinds_map_to_partitions() -> None:
         "simrnd": "renders",
         "simexp": "experiments",
         "simart": "experiments",
+        "simkey": "states",
     }
     for kind, partition in expected.items():
         assert partition_for(make_ref(kind, DIGEST64)) == partition

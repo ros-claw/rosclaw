@@ -262,9 +262,20 @@ async def _sim_patch_model(model_ref: str, patches: list[dict[str, Any]]) -> dic
     return await _client().sim_patch_model(model_ref, patches)
 
 
-async def _sim_snapshot(model_ref: str, state_ref: str | None = None) -> dict[str, Any]:
-    """Snapshot a full resumable physics state bound to the model digest."""
-    return await _client().sim_snapshot(model_ref, state_ref)
+async def _sim_snapshot(
+    model_ref: str,
+    state_ref: str | None = None,
+    keyframe: str | None = None,
+    keyframe_ref: str | None = None,
+) -> dict[str, Any]:
+    """Snapshot a model-bound state; select an exact keyframe name or simkey ref.
+
+    state_ref, keyframe and keyframe_ref are mutually exclusive. Named reset
+    uses actual mj_resetDataKeyframe; missing or foreign keyframes never fall back.
+    """
+    return await _client().sim_snapshot(
+        model_ref, state_ref, keyframe=keyframe, keyframe_ref=keyframe_ref
+    )
 
 
 async def _sim_observe(model_ref: str, state_ref: str, channels: list[str]) -> dict[str, Any]:
@@ -280,6 +291,8 @@ async def _sim_rollout(
     state_ref: str | None = None,
     seed: int = 0,
     task_predicates: list[dict[str, Any]] | None = None,
+    keyframe: str | None = None,
+    keyframe_ref: str | None = None,
 ) -> dict[str, Any]:
     """Run a bounded physics rollout; returns a SimulationReceipt (SIMULATED only).
 
@@ -294,6 +307,8 @@ async def _sim_rollout(
         state_ref=state_ref,
         seed=seed,
         task_predicates=task_predicates,
+        keyframe=keyframe,
+        keyframe_ref=keyframe_ref,
     )
 
 

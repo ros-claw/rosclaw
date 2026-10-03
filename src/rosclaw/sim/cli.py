@@ -118,7 +118,16 @@ def _build_parser() -> argparse.ArgumentParser:
 
     snapshot = sub.add_parser("snapshot")
     snapshot.add_argument("model_ref")
-    snapshot.add_argument("--state-ref", default=None)
+    snapshot_initial = snapshot.add_mutually_exclusive_group()
+    snapshot_initial.add_argument("--state-ref", default=None)
+    snapshot_initial.add_argument(
+        "--keyframe", default=None, help="Reset the exact named keyframe using mj_resetDataKeyframe"
+    )
+    snapshot_initial.add_argument(
+        "--keyframe-ref",
+        default=None,
+        help="Use an immutable model-bound simkey initializer reference",
+    )
 
     rollout = sub.add_parser(
         "rollout",
@@ -136,7 +145,12 @@ def _build_parser() -> argparse.ArgumentParser:
     rollout.add_argument("--controller", required=True)
     rollout.add_argument("--duration-s", type=float, default=None)
     rollout.add_argument("--steps", type=int, default=None)
-    rollout.add_argument("--state-ref", default=None)
+    rollout_initial = rollout.add_mutually_exclusive_group()
+    rollout_initial.add_argument("--state-ref", default=None)
+    rollout_initial.add_argument(
+        "--keyframe", default=None, help="Initialize from the exact named model keyframe"
+    )
+    rollout_initial.add_argument("--keyframe-ref", default=None)
     rollout.add_argument("--seed", type=int, default=0)
     rollout.add_argument("--predicates", default=None)
     rollout.add_argument(
@@ -240,7 +254,9 @@ def _execute(args: argparse.Namespace) -> dict[str, Any]:
     if cmd == "patch":
         return runtime.patch_model(args.model_ref, _json_arg(args.patches))
     if cmd == "snapshot":
-        return runtime.snapshot(args.model_ref, args.state_ref)
+        return runtime.snapshot(
+            args.model_ref, args.state_ref, keyframe=args.keyframe, keyframe_ref=args.keyframe_ref
+        )
     if cmd == "rollout":
         return runtime.rollout(
             args.model_ref,
@@ -248,6 +264,8 @@ def _execute(args: argparse.Namespace) -> dict[str, Any]:
             duration_s=args.duration_s,
             steps=args.steps,
             state_ref=args.state_ref,
+            keyframe=args.keyframe,
+            keyframe_ref=args.keyframe_ref,
             seed=args.seed,
             task_predicates=_json_arg(args.predicates) if args.predicates else None,
             **(
