@@ -481,3 +481,36 @@ The two real process RED cases and five state/race fixtures pass. The affected
 operation/cancel/tool-bridge cohort passes 46 checks with two preexisting
 subprocess event-loop cleanup warnings; Ruff, source mypy and diff checks pass.
 The original live operation and its ledger were never modified by this repair.
+
+
+## Legacy model-ref staging preserves XML bytes and original provenance
+
+Three filesystem/load RED cases reproduced legacy `sim/api.py` failures:
+different input directories sharing `robot.xml` changed the staged body behind
+an earlier `model_<digest>` ref, a zero-byte registry was silently rewritten,
+and imported XML/registry files were acknowledged without fsync barriers.
+New imports now stage XML under a digest-named file, validate existing registry
+and staged XML digest, and preserve the first exact registry bytes/provenance
+when an identical XML comes from another source. Source bytes changing during
+inspection reject the import before a ref is acknowledged. Existing damaged
+registry/XML/state bytes fail closed and remain unchanged.
+
+Legacy model, observation and operation JSON writes use the same registered
+namespace and cooperative transaction helper with file/replace/directory
+barriers. Operation IDs historically bind states rather than wall time: only
+a differing `wall_ms` may reuse the original frozen metadata, and every other
+field must match. Original wall time is never replaced or claimed as a fresh
+measurement. Legacy XML hashes still do not bind the full external asset
+bundle; these refs are not promoted to canonical strict experiment receipts.
+Legacy rendering/export durability is also outside this change's scope.
+
+Eleven load/filesystem fixtures pass, including corrupt input preservation,
+original-body retention, repeated-source provenance, and post-rename sync
+failure without acknowledgement. The broadened relevant evidence/store and
+W02/W03/step/eval cohort passes 95 checks with six skips and one deselection.
+The deselected preexisting W09 hinge-ball case commands motor controls 0.2 and
+triggers actual QACC warning index 5 at step 14. An independent unchanged
+HEAD copy of the old API reproduces the identical warning/step, so the new
+storage change does not cause it; the guard remains strict. Ruff, source mypy
+and diff checks pass. No original tennis source, historical receipts, or live
+operation was modified by these fixtures.

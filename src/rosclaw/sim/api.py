@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Any
 
 from rosclaw.sim.model_inspect import inspect_mjcf
+from rosclaw.storage.durable import DurableNamespace
 
 
 def load_model(
@@ -59,28 +60,92 @@ def load_model(
             )
     if not path.exists():
         raise ValueError(f"MODEL_NOT_FOUND: {path}")
+    data = path.read_bytes()
     info = inspect_mjcf(path)
+    if (path.read_bytes() != data
+            or info.model_digest != "sha256:" + hashlib.sha256(data).hexdigest()):
+        raise ValueError("LEGACY_INPUT_CHANGED: source XML changed during import")
+    owner = DurableNamespace(task_root, kind="legacy-sim")
     models_dir = task_root / "models"
-    models_dir.mkdir(parents=True, exist_ok=True)
-    staged = models_dir / path.name
-    if path.resolve() != staged.resolve():
-        shutil.copy2(path, staged)
+    owner.ensure_directory(models_dir)
     digest_short = info.model_digest.removeprefix("sha256:")[:16]
     model_ref = f"model_{digest_short}"
-    (models_dir / f"{model_ref}.json").write_text(json.dumps({
-        "model_ref": model_ref,
-        "path": str(staged),
-        "source_path": str(path),
-        **info.to_dict(),
-    }, ensure_ascii=False, indent=1), encoding="utf-8")
+    registry = models_dir / f"{model_ref}.json"
+    with owner.transaction(models_dir):
+        if registry.exists():
+            existing = _load_model_record(model_ref, task_root)
+            if existing.get("model_digest") != info.model_digest:
+                raise ValueError("LEGACY_STORE_IMMUTABLE: model reference differs")
+            owner.sync_file(Path(existing["path"]))
+            owner.sync_file(registry)
+            return model_ref, info.to_dict()
+        # Original basename staging made distinct model refs share mutable
+        # bytes. New imports bind each ref to its own digest-named XML file.
+        staged = models_dir / f"{model_ref}.mjcf.xml"
+        if staged.exists():
+            if staged.read_bytes() != data:
+                raise ValueError("LEGACY_STORE_IMMUTABLE: staged model bytes differ")
+            owner.sync_file(staged)
+        else:
+            owner.atomic_replace(staged, data)
+        payload = {
+            "model_ref": model_ref,
+            "path": str(staged),
+            "source_path": str(path),
+            **info.to_dict(),
+        }
+        owner.atomic_replace(registry, json.dumps(payload, ensure_ascii=False, indent=1).encode())
     return model_ref, info.to_dict()
 
 
 def _load_model_record(model_ref: str, task_root: Path) -> dict[str, Any]:
     record_path = task_root / "models" / f"{model_ref}.json"
+    owner = DurableNamespace(task_root, kind="legacy-sim")
+    owner.assert_owned(record_path)
     if not record_path.exists():
         raise ValueError(f"REF_NOT_FOUND: model {model_ref!r} 不在 task_root")
-    return json.loads(record_path.read_text(encoding="utf-8"))
+    try:
+        record = json.loads(record_path.read_text(encoding="utf-8"))
+        staged = Path(record["path"])
+        owner.assert_owned(staged)
+        digest = "sha256:" + hashlib.sha256(staged.read_bytes()).hexdigest()
+        if (
+            record.get("model_ref") != model_ref
+            or record.get("model_digest") != digest
+            or model_ref != "model_" + digest.removeprefix("sha256:")[:16]
+        ):
+            raise ValueError("LEGACY_STORE_CORRUPT: model reference digest differs")
+    except (OSError, UnicodeError, json.JSONDecodeError, KeyError, TypeError) as error:
+        raise ValueError("LEGACY_STORE_CORRUPT: existing model record unreadable") from error
+    return record
+
+
+def _write_legacy_json(
+    path: Path, payload: dict[str, Any], task_root: Path, *,
+    indent: int | None = None, retain_wall_time: bool = False,
+) -> None:
+    owner = DurableNamespace(task_root, kind="legacy-sim")
+    owner.ensure_directory(path.parent)
+    data = json.dumps(payload, ensure_ascii=False, indent=indent).encode()
+    with owner.transaction(path.parent):
+        if path.exists():
+            if path.read_bytes() != data:
+                # Legacy op IDs bind states, not wall-clock instrumentation.
+                # Keep the original metadata only when every other field matches.
+                try:
+                    existing = json.loads(path.read_text(encoding="utf-8"))
+                except (OSError, UnicodeError, json.JSONDecodeError) as error:
+                    raise ValueError("LEGACY_STORE_CORRUPT: existing legacy JSON unreadable") from error
+                stable_existing = (
+                    {key: value for key, value in existing.items() if key != "wall_ms"}
+                    if isinstance(existing, dict) else None
+                )
+                stable_payload = {key: value for key, value in payload.items() if key != "wall_ms"}
+                if not retain_wall_time or stable_existing != stable_payload:
+                    raise ValueError("LEGACY_STORE_IMMUTABLE: existing ref bytes differ; preserve original")
+            owner.sync_file(path)
+        else:
+            owner.atomic_replace(path, data)
 
 
 def observe(
@@ -136,17 +201,22 @@ def observe(
     obs_id = "obs_" + hashlib.sha256(
         json.dumps(out, sort_keys=True).encode()
     ).hexdigest()[:16]
-    (task_root / "models" / f"{obs_id}.json").write_text(
-        json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8",
-    )
+    _write_legacy_json(task_root / "models" / f"{obs_id}.json", out, task_root, indent=1)
     return obs_id
 
 
 def _load_state_record(state_ref: str, task_root: Path) -> dict[str, Any]:
     path = task_root / "models" / f"{state_ref}.json"
+    DurableNamespace(task_root, kind="legacy-sim").assert_owned(path)
     if not path.exists():
         raise ValueError(f"REF_NOT_FOUND: state {state_ref!r}")
-    return json.loads(path.read_text(encoding="utf-8"))
+    try:
+        record = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise ValueError("LEGACY_STORE_CORRUPT: existing state record unreadable") from error
+    if not isinstance(record, dict):
+        raise ValueError("LEGACY_STORE_CORRUPT: existing state record is not an object")
+    return record
 
 
 def _restore_initial_state(
@@ -271,9 +341,7 @@ def submit_simulation(
         ).hexdigest(),
         "states": states,
     }
-    (task_root / "models" / f"{op_id}.json").write_text(
-        json.dumps(payload, ensure_ascii=False), encoding="utf-8",
-    )
+    _write_legacy_json(task_root / "models" / f"{op_id}.json", payload, task_root, retain_wall_time=True)
     return op_id
 
 
