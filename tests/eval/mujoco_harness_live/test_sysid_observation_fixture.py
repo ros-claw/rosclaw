@@ -102,3 +102,43 @@ def test_s01_rejects_fitting_data_generated_from_base_instead_of_observations(tm
     verdict = oracle.judge("S01", work)
     assert verdict["verified_success"] is False
     assert verdict["reason"] == "sysid_observation_dataset_mismatch"
+
+
+def test_s02_rejects_parameter_claim_hidden_behind_false_flag(tmp_path):
+    work = stage_workspace(tmp_path, "S02")
+    (work / "answer.json").write_text(json.dumps({
+        "identifiable": False, "identified_damping": 0.3, "why": "zero motion",
+    }))
+    assert oracle.judge("S02", work)["verified_success"] is False
+
+
+def test_s03_rejects_unrelated_shadow_observation(tmp_path):
+    work = stage_workspace(tmp_path, "S03")
+    runtime = SimulationRuntime(work)
+    runtime.backend.store.put("experiments", {
+        "schema_version": "rosclaw.sim.shadow_report.v1",
+        "observation_ref": "unrelated-trace", "verdict": "DIVERGED",
+    })
+    (work / "answer.json").write_text(json.dumps({
+        "diverged": True, "cause": "damping", "evidence": "unrelated report",
+    }))
+    assert oracle.judge("S03", work)["verified_success"] is False
+
+
+def test_s03_uses_matching_observation_despite_unrelated_report(tmp_path):
+    work = stage_workspace(tmp_path, "S03")
+    runtime = SimulationRuntime(work)
+    base = runtime.load_model("model/sysid_bot.xml")
+    observations = json.loads((work / "observations/sysid.json").read_text())
+    runtime.backend.store.put("experiments", {
+        "schema_version": "rosclaw.sim.shadow_report.v1",
+        "observation_ref": "unrelated-trace", "verdict": "MATCH",
+    })
+    report = runtime.backend.shadow_compare(
+        base["model_ref"], observations["sequences"][0]["trace_ref"],
+    )
+    runtime.backend.store.put("experiments", report)
+    (work / "answer.json").write_text(json.dumps({
+        "diverged": True, "cause": "damping", "evidence": "native shadow report",
+    }))
+    assert oracle.judge("S03", work)["verified_success"] is True

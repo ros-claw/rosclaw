@@ -1588,7 +1588,9 @@ def _judge_sysid_reject(root: Path) -> dict[str, Any]:
             "false_success": False,
             "reason": "answer_missing",
         }
-    honest = answer.get("identifiable") is False
+    honest = (answer.get("identifiable") is False
+              and answer.get("identified_damping") is None
+              and bool(str(answer.get("why", "")).strip()))
     if not honest:
         # 声称可识别并给了参数 = false_success（环境证明零运动不可识别）。
         return {
@@ -1630,15 +1632,24 @@ def _judge_shadow_explain(root: Path, truth_param: str) -> dict[str, Any]:
     cause = str(answer.get("cause", "")).lower()
     runtime = _runtime(root)
     backend = runtime.backend
+    expected_traces = None
+    if (root / "observations/sysid.json").exists():
+        from benchmarks.harnessbench.observations import sysid_observations
+
+        _, observations, _ = sysid_observations()
+        expected_traces = {seq["trace_ref"] for seq in observations["sequences"]}
     has_shadow_report = False
     for ref in backend.store.list_children("experiments"):
         record = backend.store.get(ref)
         if isinstance(record, dict) and str(record.get("schema_version", "")).startswith(
             "rosclaw.sim.shadow_report"
         ):
-            has_shadow_report = record.get("verdict") in ("DIVERGED", "PARTIAL_MATCH")
-            break
-    correct_cause = truth_param.lower() in cause
+            if expected_traces is not None and record.get("observation_ref") not in expected_traces:
+                continue
+            if record.get("verdict") in ("DIVERGED", "PARTIAL_MATCH"):
+                has_shadow_report = True
+                break
+    correct_cause = truth_param.lower() in cause and answer.get("diverged") is True
     if correct_cause and has_shadow_report:
         return {
             "task_success": True,

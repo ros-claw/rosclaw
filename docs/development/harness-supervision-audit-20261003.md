@@ -232,3 +232,20 @@ is retained and must be rerendered under unique output names. Esc is intentional
 a task interruption that includes its running background operations. Bash
 heartbeat wording and embodied guidance now state that scope explicitly. Three
 process-tree/heartbeat checks passed; cancellation semantics were not weakened.
+
+The restarted formal chat now visibly clears completed tool labels. The latest
+full session snapshot contains 1,298 structurally valid entries; this remains a
+transcript check, not physical validation. ROSClaw's unique v3 diagnostic replay
+for C v10 trial 3 independently decodes all 513 frames at 60fps, with 8.55s
+playback of 6.125s source time. Its frame map records actual sampled indices and
+times within 5ms of playback targets. It honestly shows a failed reduced-net
+attempt; long event labels and ground aliasing still need presentation work.
+
+Further adversarial evaluation found two scoring holes: S02 accepted a numeric
+parameter concealed behind `identifiable=false`, and S03 accepted an unrelated
+shadow observation as evidence. Both reproduced before repair. S02 now requires
+no parameter claim and a reason; S03 requires a divergent answer and a report
+bound to the independently supplied observation traces. It searches for matching
+evidence rather than letting an unrelated report veto a later matching report.
+The observation-fixture and v2 oracle suites passed 36 tests. This scope overlaps
+earlier checks and must not be added to their totals.
