@@ -733,3 +733,55 @@ does not establish the cause of falling or validate a balance controller.
 The independent receipt is `stand_support_readonly_v1_3ae7c4b554c3_independent.json`,
 SHA256 `5dadf298fb7064edd4ef73fcc74b3b250b8f1961798616e5a77387fb67843466`.
 No new physics step, NN call, control experiment or successful task is implied.
+
+### Reboot recovery and current qualification boundaries
+
+After the host reboot, supervision resumed the original native session
+`01a0d23f-c59f-729d-8bb4-79f8e1b27d6b` and original task
+`task_1ff5e885ff654d709bef7920`, rather than creating a replacement physical
+task. The native process started from `bbc90404`, with actual PI 1.0.1 and
+Kimi as the primary model. Subsequent framework changes are not claimed to
+have been loaded into that already running process. The task remains RUNNING.
+The independent session snapshot at 2,976 entries passes structural checks;
+structural integrity does not certify physical claims.
+
+Reboot validation found 294 passing native tests with three skips, and 480
+passing simulation tests with one skip and one deselection. The simulation
+run predates the later storage and ROS endpoint repairs. Separate subsequent
+checks passed 77 keyframe/vision/dynamics oracle tests, 168 non-deployment ROS
+tests, and 251 shared-storage/Practice tests with nine skips. These overlapping
+counts must not be added together. A Docker ROS deployment attempt failed to
+fetch the upstream image metadata; its four setup errors are preserved as an
+infrastructure result, not converted into a passing live integration test.
+
+The interrupted E05 attempt contains twelve zero-byte JSON files and two
+zero-byte integration-state binary files. Preserve these artifacts and classify
+the attempt INTERRUPTED_NOT_GRADED. Existing readable component receipts do
+not recover the lost initial states or establish RAW_EXACT qualification.
+Storage repairs require file and directory durability before acknowledging a
+reference, verify immutable content on reuse, preserve corruption, and register
+the original directory boundary before creating nested paths. Fresh-instance
+and fresh-process retry tests cover that boundary. A forced writer interleaving
+also reproduced duplicate boundary registration; lock-time rescanning fixes it.
+This does not certify every writer on the platform or physical power-cut
+behavior on every filesystem.
+
+Native Kimi completed eight private-domain real ROS2 DDS interface directions:
+seven passed initially, and JointState passed after feedback. Keep the initial
+failure separately. An additional attempt used an invalid supervisor-selected
+domain and is excluded from model quality scoring. Real DDS observation plus
+offline graph compilation is not live ROSClaw rosbridge discovery. The offline
+endpoint repair prevents fixture graphs from silently selecting localhost:9090;
+explicit websocket endpoints retain and bind proxy paths, queries and IPv6.
+
+The new M22 target is a mobile M20 launcher and canonical 29-DoF G1 wrist-racket
+return over a standard net. Four native development executions of broad/2001
+failed and remain frozen. They are repeated development attempts, not four
+independent conditions. Review found a launch-force overwrite, premature impulse
+accounting, and incoming-ball events being used for return verification. Native
+Kimi is repairing these with synthetic checks before further bounded runs.
+Some earlier NPZ registrations point to empty files because NumPy appended a
+suffix to a temporary filename; matching an empty-file hash does not make that
+evidence valid. No current M22 full-return success is qualified. The independent
+inventory is `m22_reboot_first_four_native_attempts_readonly.json` under the local
+audit directory.
