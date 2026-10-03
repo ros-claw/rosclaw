@@ -71,3 +71,31 @@ The focused tests initially recorded **17 failures / 4 passes** against the old
 implementation. After the fix, **44 focused tests passed**, including all four
 actual entrypoint/parser paths and a guarded test preserving the no-file live
 branch. No ROS node, DDS transport, physical driver, or hardware command was run.
+
+## Native offline interface chains
+
+Twelve additional tasks (`CI01`–`CI12`) require calls to installed ROSClaw
+interfaces rather than returning a formula answer. Six saved ROS graph cases
+exercise graph compilation, persisted manifest loading, listing, capability
+inspection, and rejection of deliberately unsafe offline velocity proposals.
+They cover guarded commands, camera/laser artifacts, destructive services,
+navigation action contracts, namespace collisions, and ROS1 type preservation.
+Two negative cases require structured CLI rejection for invalid graphs and
+missing manifests. Four Practice cases require actual recording and strict
+verification of a valid fixture, ingestion rejection for a missing envelope,
+strict detection of deliberate raw-event corruption, and preservation of a
+failed trial's evidence without claiming physical success.
+
+The external grader binds the unchanged supplied input to the generated manifest,
+compilation JSON, listed capabilities and per-capability inspection JSON. It
+checks semantic risk/guard/artifact projections and actual native-session bash
+tool calls. A correct-looking answer or artifact without those interface calls
+is insufficient. Practice grading checks actual durable event records and strict
+verification/exit-code evidence. Unit-test transcripts are explicitly labelled
+as unit tests and are never counted as real model trials.
+
+These are real ROSClaw **offline interface integrations**, still backed by
+synthetic data and labelled FIXTURE_ONLY. A saved ROS1/ROS2 graph is not transport
+discovery. Installed Jazzy schemas are present on this host, but these tasks do
+not open DDS, instantiate ROS nodes, or infer live support. Direct multimodal
+VLA/VLN inference and physical navigation remain outside the evidence scope.
