@@ -228,6 +228,13 @@ shutdown, failed UI/log callbacks, native hook wiring and existing compact
 task/artifact anchors. This improves observability; it does not claim to
 resolve or identify a genuinely stalled summarization request.
 
+Each lifecycle record now has a unique compaction ID and captures the owning
+session/process at start. Parallel sessions and subsequent session replacement
+cannot relabel an earlier compaction's waiting or terminal events. The type-only
+public ExtensionAPI import carries an explicit HP2-COMPAT boundary rationale;
+it creates no PI session and accesses no private runtime. The complete native
+cohort passes 277 tests with three skips, including the HP2 structure gate.
+
 ## Native batch sample alignment
 
 The native batch trajectory contains post-step rows. Downsampling with

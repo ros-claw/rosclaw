@@ -676,6 +676,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 		});
 
 		registerCompactionObserver(pi, {
+			owner: () => ({ session_id: options.active.current.sessionId, pid: process.pid }),
 			notice: text => latestCtx?.ui.notify(text, "info"),
 			log: record => {
 				const dir = `${options.rosclawHome}/logs`;
