@@ -437,3 +437,29 @@ All 132 persisted assistant natural-language claim entries through session line
 Historical all-PASS/self-score/policy-only and passive-upper-bound language is
 not adopted as independent acceptance; the corrected source/raw evidence and
 explicit selected-protocol limitations control the findings.
+
+A fresh, physically executed controller comparison now has distinct measured
+behavior: geometry intercept A versus fixed-station B. At selected development
+seed11, A completes three reduced-court returns from each starting direction;
+B completes three from G1-start and one from M20-start. B's stored full-state
+qpos/qvel/ctrl/qfrc_actuator is exactly identical to the corresponding frozen
+station baselines. Independently integrated robot position/quaternion changes
+are continuous; A is actual motion, not merely a renamed strategy. A combines
+a forward receiving anchor, ballistic geometry prediction and a reference-speed
+cap, so this comparison cannot isolate predictor causality. The M20-start third
+return completes at an opponent in-court landing, not a third continuing volley
+reception. These are not two competing LLM decision-makers.
+
+The unchanged controller then executed all 16 predeclared development attempts:
+seeds7/23/42/123, both starting directions, both strategies. Eight INIT failures
+remain in the denominator. Independent all-ms contact/momentum, source/state
+hash and full-state checks pass; an independent additive completion audit uses
+the earliest OUT/force-positive landing/actual strong reception and requires
+connected actual opponent receptions between completed returns. A reaches
+three in 1/8 attempts; B in 0/8. Overall 1/16 is not a robustness PASS or a blind
+holdout result. Recorded per-axis command RMS has separate m/s and rad/s units,
+with flight duration; the legacy mixed-unit scalar is not energy. Original
+net-only verdicts remain unchanged alongside these stricter additive reports.
+ROSClaw authors and runs the physical controller; supervision only reconstructs
+recorded evidence. Clearer frozen video and an isolated experimental source
+review package remain in progress; no final physical acceptance is claimed.
