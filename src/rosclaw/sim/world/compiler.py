@@ -75,6 +75,7 @@ def compile_world(backend, worldspec: dict[str, Any], *, name: str = "world") ->
 
     assets: dict[str, bytes] = {}
     capabilities: dict[str, dict[str, Any]] = {}
+    scene_sources = []
     for body_ref in normalized["body_refs"]:
         robot_ref = backend.load_model(body_ref["ref"])
         robot_manifest = backend.store.get(robot_ref.model_ref)
@@ -84,6 +85,20 @@ def compile_world(backend, worldspec: dict[str, Any], *, name: str = "world") ->
         from rosclaw.sim.backends.mujoco.backend import _spec_from_xml_assets
 
         robot_spec = _spec_from_xml_assets(robot_manifest["mjcf_xml"], robot_assets)
+        scene_sources.append(
+            {
+                "body_ref": body_ref,
+                "source_model_ref": robot_ref.model_ref,
+                "source_model_digest": robot_ref.model_digest,
+                "prefix": f"{body_ref['id']}_",
+                "offsets": {
+                    "bodies": len(spec.bodies),
+                    "joints": len(spec.joints),
+                    "geoms": len(spec.geoms),
+                    "actuators": len(spec.actuators),
+                },
+            }
+        )
         frame = spec.worldbody.add_frame(pos=body_ref["pose"]["pos"], quat=body_ref["pose"]["quat"])
         spec.attach(robot_spec, frame=frame, prefix=f"{body_ref['id']}_")
         # attach 后 mesh 引用带 prefix（3.11 实测）；剥 prefix 按 basename
@@ -110,11 +125,16 @@ def compile_world(backend, worldspec: dict[str, Any], *, name: str = "world") ->
         spec.to_xml(),
         source={"kind": "worldspec", "ref": name},
         assets=assets,
-        extra_manifest={"worldspec": normalized},
+        extra_manifest={"worldspec": normalized, "scene_sources": scene_sources},
     )
+    from rosclaw.sim.world.actors import persist_scene_actor_manifest
+
+    actor_binding = persist_scene_actor_manifest(backend, result.model_ref)
     return {
         "model_ref": result.model_ref,
         "model_digest": result.model_digest,
+        "actor_manifest_ref": actor_binding["actor_manifest_ref"],
+        "simulation_scene": actor_binding["manifest"],
         "worldspec": normalized,
         "interaction_order": interaction_order(normalized["interaction_points"]),
         "interaction_points": normalized["interaction_points"],
