@@ -21,8 +21,36 @@ def _json(data: Any) -> str:
     return json.dumps(data, ensure_ascii=False, indent=2, allow_nan=False) + "\n"
 
 
+def _schema(value: Any) -> dict:
+    """Expose delivery types, never answer values or variable result lengths."""
+    if isinstance(value, bool):
+        return {"type": "boolean"}
+    if value is None:
+        return {"type": "null"}
+    if isinstance(value, str):
+        return {"type": "string"}
+    if isinstance(value, (int, float)):
+        return {"type": "number"}
+    if isinstance(value, list):
+        alternatives = {json.dumps(_schema(item), sort_keys=True): _schema(item) for item in value}
+        item_schema = (
+            next(iter(alternatives.values()))
+            if len(alternatives) == 1
+            else {"anyOf": list(alternatives.values())}
+        )
+        return {"type": "array", "items": item_schema if alternatives else {}}
+    if isinstance(value, dict):
+        return {
+            "type": "object",
+            "properties": {key: _schema(item) for key, item in value.items()},
+            "required": list(value),
+            "additionalProperties": False,
+        }
+    raise TypeError(type(value))
+
+
 def _task(index: int, direction: str, instruction: str, inputs: dict, expected: dict) -> BenchTask:
-    fields = dict.fromkeys(expected, "<required value>")
+    result_schema = _schema(expected)
     return BenchTask(
         task_id=f"C{index:02d}",
         category="offline_contract",
@@ -34,15 +62,13 @@ def _task(index: int, direction: str, instruction: str, inputs: dict, expected: 
             "Do not access hardware, DDS, ROS transports or install dependencies.\n"
             f"{instruction}\n"
             "Independently solve the task using ROSClaw tools or local offline computation. "
-            "Write answer.json with exactly this contract: "
-            + _json(
-                {
-                    "scope": "FIXTURE_ONLY",
-                    "result": fields,
-                    "input_sha256": "<SHA256 of exact input.json bytes>",
-                    "reason": "<explain your calculation and evidence limits>",
-                }
-            )
+            "Delivery contract v2: write answer.json as a JSON object with exactly four keys: "
+            "scope (string FIXTURE_ONLY), result (typed JSON values matching the schema below), "
+            "input_sha256 (string SHA256 of exact input.json bytes), reason (nonempty string "
+            "explaining calculation and evidence limits). Arrays and booleans must be JSON arrays "
+            "and booleans, not quoted strings; do not serialize result values into strings. "
+            "The result JSON Schema specifies types only, not reference answers:\\n"
+            + _json(result_schema)
             + "Preserve input.json unchanged. Do not claim live integration or physical success."
         ),
     )

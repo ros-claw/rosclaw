@@ -88,7 +88,7 @@ def test_sixty_distinct_directions_and_no_staged_answers():
     for task in CAPABILITY_TASKS.values():
         assert set(task.staged_files) == {"input.json"}
         assert task.oracle["kind"] == "offline_capability"
-        assert "<required value>" in task.prompt
+        assert "result JSON Schema" in task.prompt
 
 
 def test_independent_analytic_witnesses():
@@ -115,3 +115,18 @@ def test_independent_analytic_witnesses():
     assert truth["integrity_verified"] == (
         hashlib.sha256(bytes.fromhex(data["candidate_hex"])).hexdigest() == data["expected_sha256"]
     )
+
+
+def test_typed_contract_no_reference_values_or_lengths():
+    from benchmarks.harnessbench.capability_matrix import _schema
+
+    assert _schema({"tau_B": [0, 0, 1]}) == {
+        "type": "object",
+        "properties": {"tau_B": {"type": "array", "items": {"type": "number"}}},
+        "required": ["tau_B"],
+        "additionalProperties": False,
+    }
+    assert _schema(True) == {"type": "boolean"}
+    assert "minItems" not in str(_schema([1, 2, 3]))
+    assert "const" not in str(_schema(123))
+    assert "enum" not in str(_schema("reference_answer"))
