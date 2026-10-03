@@ -241,7 +241,12 @@ class SafetyContractCompiler:
     # ------------------------------------------------------------------
     @staticmethod
     def _finite_number(value: Any) -> bool:
-        return type(value) in (int, float) and math.isfinite(value)
+        if type(value) not in (int, float):
+            return False
+        try:
+            return math.isfinite(value)
+        except OverflowError:
+            return False
 
     @classmethod
     def _argument_shape_errors(cls, rule: SafetyRule, args: dict[str, Any]) -> list[str]:
