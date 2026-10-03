@@ -658,3 +658,59 @@ equilibrium input normalized by the compiled gain and constant/position bias;
 raw actuator length alone is insufficient. The follow-up corrects that case
 and checks positive fixed gain before division. The combined suite after this
 follow-up is **79 passed**, superseding (and overlapping) the 78-test snapshot.
+
+The original session was resumed normally at idle with no active operation, using
+the same task and session. Its formal process loads `cc256ef1` and PI 1.0.0;
+later documentation commits do not imply that a running process loaded a new
+binary. `/effort medium` was persisted before the next physical investigation.
+
+Sixteen pinned official source files were independently compared against their
+committed bytes. Training code has a continuing gait phase and unmasked contact
+reward at zero command, but the exact training run for the shipped G1 checkpoint
+is not identifiable. The examined local sources did not provide a separately
+verified compatible G1 standing policy. This is a scoped inventory, not proof
+that such policies do not exist. A licensed official default-reference leg subset
+was therefore tested by ROSClaw in four bounded, from-rest INIT-only trials.
+All four fail the G1 pitch health bound at 0.949 seconds, before readiness starts
+at five seconds. The default-reference ramp is degenerate because the initial
+joint positions already equal its target; no NN call or resume occurs. Independent
+full-record/PD/integration/force-limit checks pass, but duel acceptance is 0/4.
+The independent receipt is
+`official_default_reference_init_v1_911857e02b52_independent.json`, SHA256
+`1d7abb0c4df59780f0c90bc02788714628f5693533d21e75901d806bc5e8cf37`.
+
+The published frozen source package was then installed into a fresh Python 3.11
+environment with system site packages disabled. All 22 package dependencies pass
+the dependency check; isolated imports place all six direct dependencies in that
+environment. ROSClaw ran the frozen selected11 four-case configuration there.
+Independent full raw state and millisecond-record comparisons are byte identical
+to the previously accepted baseline, and completion verdicts remain A[3,3], B[3,1].
+The clean rollout receipt is
+`clean_selected11_f4531f63c505_exact_independent.json`, SHA256
+`5e78262830fdb0543008ed57397765f9802bed65f67d602c70f6fa47a596317d`.
+This is reproducibility of selected cases, not new blind or robustness evidence.
+Actual OpenGL rendering in the clean environment remains untested.
+
+ROSClaw also produced two offline H.264/yuv420p/faststart viewing derivatives of
+the existing frozen videos. Independent full decoding checks every display PTS
+against the originals, exactly i/60 for all 514 and 609 frames at 1600x900.
+An independent MP4 walk confirms avc1 and moov before mdat; paired full-frame
+decoding bounds the lossy compression error. Original video and timing hashes
+are unchanged, and all five registered derivative/timeline/receipt artifacts have
+matching hashes and sizes with intermediate progress roles. This is a video UX
+improvement with no new physics or rendered frames; OUT and the landing versus
+reception distinction remain visible. Independent receipt:
+`h264_viewcopies_555f69378e7d_independent.json`, SHA256
+`a2ff25cb5b2454101bfdfe44aa409882c291f38cd77387b9dc5bf9430d5e6b8d`.
+
+The full original session has been structurally audited through 2,590 entries,
+with 182 persisted natural-language assistant statements read in full. Seven
+complete compaction summaries and their retained-context boundaries were
+reviewed. The latest summary's older prefix is supplemented by retained entries
+2504–2588 containing the newer failed trial, clean reproduction and video work;
+old prefix statuses are not accepted as current state. The original task remains
+RUNNING/NOT_DONE. Selected low-net/perfect-state results and the development
+success rate of 1/16 do not establish robust, standard-tennis, 29DOF, visual or
+dual-LLM physical adversarial capability. ROSClaw's next authorized step is
+read-only support/center-of-mass diagnosis of frozen failures before proposing
+one further bounded control experiment.
