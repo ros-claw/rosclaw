@@ -13,6 +13,8 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
 
+from benchmarks.harnessbench.task_common import TIMESTEP_ACCEPTANCE
+
 
 def _canonical(value: Any) -> str:
     return json.dumps(
@@ -571,13 +573,17 @@ def convergence(coarse: dict, fine: dict) -> float:
     qf = np.asarray([s["qpos"][:3] for s in fine["states"]], dtype=float)
     overlap = (tc >= tf[0]) & (tc <= min(tf[-1], tc[-1]))
     if (
-        overlap.sum() < 10
-        or min(tc[-1], tf[-1]) - max(tc[0], tf[0]) < 1.0 - 1e-8
-        or tc[-1] - tc[0] < 1.0 - 1e-8
-        or tf[-1] - tf[0] < 1.0 - 1e-8
+        overlap.sum() < TIMESTEP_ACCEPTANCE["min_common_samples"]
+        or min(tc[-1], tf[-1]) - max(tc[0], tf[0])
+        < TIMESTEP_ACCEPTANCE["min_common_duration_s"] - 1e-8
+        or tc[-1] - tc[0] < TIMESTEP_ACCEPTANCE["min_common_duration_s"] - 1e-8
+        or tf[-1] - tf[0] < TIMESTEP_ACCEPTANCE["min_common_duration_s"] - 1e-8
     ):
         raise ValueError("paired trace lacks common physical-time coverage")
-    if max(np.diff(tc)) > 0.005 + 1e-10 or max(np.diff(tf)) > 0.005 + 1e-10:
+    if (
+        max(np.diff(tc)) > TIMESTEP_ACCEPTANCE["max_record_gap_s"] + 1e-10
+        or max(np.diff(tf)) > TIMESTEP_ACCEPTANCE["max_record_gap_s"] + 1e-10
+    ):
         raise ValueError("paired trace is undersampled for convergence evidence")
     indices = np.searchsorted(tf, tc[overlap])
     indices = np.clip(indices, 0, len(tf) - 1)
@@ -585,10 +591,30 @@ def convergence(coarse: dict, fine: dict) -> float:
     indices = np.where(
         np.abs(tf[previous] - tc[overlap]) < np.abs(tf[indices] - tc[overlap]), previous, indices
     )
-    matched = np.isclose(tf[indices], tc[overlap], rtol=0, atol=1e-8)
-    if matched.sum() < 10:
+    matched = np.isclose(
+        tf[indices], tc[overlap], rtol=0, atol=TIMESTEP_ACCEPTANCE["timestamp_match_tolerance_s"]
+    )
+    if matched.sum() < TIMESTEP_ACCEPTANCE["min_common_samples"]:
         raise ValueError("paired traces lack common recorded physical timestamps")
     return float(np.max(np.linalg.norm(qc[overlap][matched] - qf[indices[matched]], axis=1)))
+
+
+def timestep_targets_met(max_position_error_m: float, improvement_ratio: float) -> bool:
+    """Enforce the public maximum-distance and relative-improvement requirements."""
+    return (
+        math.isfinite(max_position_error_m)
+        and math.isfinite(improvement_ratio)
+        and 0 <= max_position_error_m <= TIMESTEP_ACCEPTANCE["max_position_error_m"]
+        and TIMESTEP_ACCEPTANCE["min_improvement_ratio"] <= improvement_ratio <= 1
+    )
+
+
+def timestep_duration_met(stats: dict) -> bool:
+    """Absolute simulation timestamps must never stand in for elapsed rollout time."""
+    return (
+        stats["end_time"] - stats["start_time"]
+        >= TIMESTEP_ACCEPTANCE["min_rollout_duration_s"] - 1e-8
+    )
 
 
 def judge_timestep(root: Path, task) -> dict:
@@ -602,6 +628,7 @@ def judge_timestep(root: Path, task) -> dict:
         "verified_success": False,
         "false_success": False,
         "reason": "paired_timestep_trace_evidence_missing",
+        "public_acceptance": TIMESTEP_ACCEPTANCE,
         "original_ref": original,
         "staged_file_modified": modified,
         "physics_steps_by_oracle": 0,
@@ -629,7 +656,11 @@ def judge_timestep(root: Path, task) -> dict:
             ):
                 continue
             a, b = trace_stats(coarse, coarse_receipt), trace_stats(fine, fine_receipt)
-            if not _valid_stats(a) or not _valid_stats(b):
+            if (
+                not _valid_stats(a)
+                or not _valid_stats(b)
+                or not all(timestep_duration_met(stats) for stats in (a, b))
+            ):
                 continue
             try:
                 error = convergence(coarse, fine)
@@ -670,7 +701,7 @@ def judge_timestep(root: Path, task) -> dict:
         improvement_ratio=improvement,
         model_body_preserved=True,
     )
-    if best[1] > 0.0005 or improvement < 0.3:
+    if not timestep_targets_met(best[1], improvement):
         verdict["reason"] = "candidate_not_converged_or_improved"
         return verdict
     receipt_by_ref = {ref: receipt for ref, receipt, _ in records}
