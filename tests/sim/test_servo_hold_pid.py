@@ -34,3 +34,11 @@ def test_position_servo_hold_respects_gear():
 def test_motor_is_not_classified_as_position_servo():
     result = a03_servo_hold(ctx('<motor joint="j"/>'))
     assert result["detail"]["note"] == "no_position_servos"
+
+
+def test_general_position_feedback_normalizes_control_gain():
+    result = a03_servo_hold(
+        ctx('<general joint="j" gainprm="5" biastype="affine" biasprm="0 -10 -2"/>')
+    )
+    assert result["status"] == "PASS"
+    assert result["max_angular_drift_rad"] == pytest.approx(0, abs=1e-12)

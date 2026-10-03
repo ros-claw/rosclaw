@@ -651,3 +651,10 @@ Five new compiled counterexamples fail before the fix and pass afterwards;
 the combined relevant suite is **78 passed** (including the prior 73, not an
 additional independent 78), with Ruff/mypy passing on the changed module.
 No G1 or M20 control implementation is changed by these framework tests.
+
+A sixth A03 counterexample covers general affine position feedback whose
+control gain differs from its position stiffness. Such a channel needs its
+equilibrium input normalized by the compiled gain and constant/position bias;
+raw actuator length alone is insufficient. The follow-up corrects that case
+and checks positive fixed gain before division. The combined suite after this
+follow-up is **79 passed**, superseding (and overlapping) the 78-test snapshot.

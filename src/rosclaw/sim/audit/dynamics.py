@@ -25,6 +25,10 @@ def a03_servo_hold(ctx: AuditContext) -> dict[str, Any]:
         in (int(mujoco.mjtGain.mjGAIN_FIXED), int(getattr(mujoco.mjtGain, "mjGAIN_PID", -1)))
         and int(model.actuator_biastype[i]) == int(mujoco.mjtBias.mjBIAS_AFFINE)
         and float(model.actuator_biasprm[i][1]) < 0
+        and (
+            int(model.actuator_gaintype[i]) == int(getattr(mujoco.mjtGain, "mjGAIN_PID", -1))
+            or float(model.actuator_gainprm[i][0]) > 0
+        )
     ]
     if not servos:
         return {"status": "PASS", "violations": [], "detail": {"note": "no_position_servos"}}
@@ -40,7 +44,15 @@ def a03_servo_hold(ctx: AuditContext) -> dict[str, Any]:
             if hasattr(model, "actuator_ctrladr")
             else actuator_id
         )
-        data.ctrl[ctrl_addr] = float(data.actuator_length[actuator_id])
+        target = float(data.actuator_length[actuator_id])
+        if int(model.actuator_gaintype[actuator_id]) == int(mujoco.mjtGain.mjGAIN_FIXED):
+            # General affine feedback can scale input differently from position
+            # stiffness: gain*ctrl + bias0 + bias1*length = 0 at rest.
+            bias = model.actuator_biasprm[actuator_id]
+            target = -(float(bias[0]) + float(bias[1]) * target) / float(
+                model.actuator_gainprm[actuator_id][0]
+            )
+        data.ctrl[ctrl_addr] = target
     mujoco.mj_forward(model, data)
 
     import math
