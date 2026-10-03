@@ -135,7 +135,7 @@ counts and artifacts; repository-wide pre-existing lint debt is not green.
 
 Validation completed: broad non-live regression 1,848 passed / 7 skipped /
 24 deselected; daemon/kernel/MCP boundary checks 370 passed / 1 skipped; main
-TypeScript package 249 passed / 3 skipped; independent TUI package 27 passed;
+TypeScript package 250 passed / 3 skipped; independent TUI package 27 passed;
 oracle repair/adversarial regression 59 passed. Some suites overlap; these are
 separate results, not an additive count of distinct tests. Configured mypy scope
 passed 121 files. Modified Python lint and `git diff --check` passed.
@@ -207,3 +207,15 @@ model-profile checks passed 37 (overlapping scopes). A new OpenAI S01 trial
 using the repaired fixture verified in 85.1s/13 tools, recovering
 0.3000000000000001. This is a new run with corrected inputs, not a rescore of
 the earlier run. Modified Python lint and whitespace checks passed.
+
+The corrected native Kimi S01 follow-up also verified in 330.3s/15 tools,
+recovering 0.2999999999999996. These single trials establish that both provider
+paths can use the repaired observation contract; they are not latency rankings.
+
+The formal UI retained `调用 bash/read` after the corresponding tool had already
+ended, misleadingly showing a command still running during the next model wait.
+Tool activity now tracks actual call IDs, clears completed/error calls, retains
+overlapping active calls, and resets on agent end. A real extension-event test
+first reproduced the stale label, then passed with the repair; the full main
+TypeScript suite passed 250 tests with 3 skips. A running Node process loads this
+change only after a safe restart; rebuilding files does not update its modules.

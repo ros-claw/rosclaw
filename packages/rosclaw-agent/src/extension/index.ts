@@ -1151,8 +1151,10 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 		let lastOutcome: (ActionResultData & { narrativeSeen?: boolean; conflictClaim?: string }) | null = null;
 		// PR-N9：结构化活动区——工具开始/结束驱动活动区文案
 		// （可审计事件，不是静态 Working… 也不是思维链）。
+		const activeToolCalls = new Map<string, string>();
 		pi.on("tool_execution_start", async (event, ctx) => {
 			if (!ctx.hasUI) return;
+			activeToolCalls.set(event.toolCallId, String(event.toolName ?? ""));
 			// WP-7：首个真实任务命名——工具活动是确定性信号。
 			autoNamer.noteToolActivity();
 			const autoName = autoNamer.name();
@@ -1170,7 +1172,14 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				}),
 			);
 		});
-		pi.on("tool_execution_end", async (event, _ctx) => {
+		pi.on("tool_execution_end", async (event, ctx) => {
+			activeToolCalls.delete(event.toolCallId);
+			if (ctx.hasUI) {
+				ctx.ui.setWorkingMessage(phaseWorkingMessage({
+					currentTool: [...activeToolCalls.values()].at(-1) ?? null,
+					operation: null,
+				}));
+			}
 			if (event.toolName === "process_start") {
 				// PR-H3：登记模型启动的 operation（终态后 followUp 一次）。
 				const text = JSON.stringify(event.result?.details ?? {}) + JSON.stringify(event.result?.content ?? []);
@@ -1347,8 +1356,10 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 		pi.on("tool_execution_end", async () => {
 			stallWatchdog.resumeFromTool();
 		});
-		pi.on("agent_end", async () => {
+		pi.on("agent_end", async (_event, ctx) => {
 			stallWatchdog.turnEnded();
+			activeToolCalls.clear();
+			if (ctx.hasUI) ctx.ui.setWorkingMessage(phaseWorkingMessage({ currentTool: null, operation: null }));
 		});
 		pi.on("turn_end", async () => {
 			stallWatchdog.turnEnded();
