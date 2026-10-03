@@ -165,3 +165,78 @@ class TestOutcomeContract:
         assert outcome["evidence"]["trust"] in (
             "EXPERIMENTAL", "QUALIFIED", "TRUSTED",
         )
+
+
+class TestIntermediateArtifacts:
+    def test_progress_does_not_close_task_and_final_can_follow(self, tmp_path):
+        from rosclaw.task_kernel.coordinator import TaskCoordinator
+
+        kernel, conn = _kernel(tmp_path)
+        task_id = _make_task(kernel, tmp_path)
+        path = tmp_path / 'checkpoint.md'
+        path.write_text('NOT_DONE')
+        kernel.register_artifact(
+            task_id=task_id, path=str(path), media_type='text/markdown',
+            metadata={'role': 'diagnostic_progress_report_NOT_DONE'},
+        )
+        coordinator = TaskCoordinator(kernel)
+        assert coordinator.consider(task_id) is None
+        assert kernel.get_task(task_id)['state'] == 'RUNNING'
+        assert conn.execute('SELECT COUNT(*) FROM verifications').fetchone()[0] == 0
+        assert conn.execute('SELECT COUNT(*) FROM task_outcomes').fetchone()[0] == 0
+        _register_file(kernel, tmp_path, task_id, 'final.txt')
+        outcome = coordinator.consider(task_id)
+        assert outcome['lifecycle'] == 'COMPLETED'
+        assert kernel.get_task(task_id)['state'] == 'SUCCEEDED'
+
+    def test_diagnostic_is_not_submitted_to_verifier(self, tmp_path):
+        from rosclaw.task_kernel.coordinator import TaskCoordinator
+
+        kernel, _ = _kernel(tmp_path)
+        task_id = _make_task(kernel, tmp_path)
+        path = tmp_path / 'failed.mp4'
+        path.write_bytes(b'failed attempt')
+        diagnostic = kernel.register_artifact(
+            task_id=task_id, path=str(path), media_type='video/mp4',
+            metadata={'role': 'diagnostic_failed_attempt'},
+        )
+        final = _register_file(kernel, tmp_path, task_id)
+        seen = []
+
+        def verify(_task, artifacts, _frozen):
+            seen.extend(a['artifact_id'] for a in artifacts)
+            return {'status': 'PASS'}
+
+        TaskCoordinator(kernel, verify_runner=verify).consider(task_id)
+        assert seen == [final['artifact_id']]
+        assert diagnostic['artifact_id'] not in seen
+
+    def test_progress_media_does_not_satisfy_required_delivery(self):
+        from rosclaw.task_kernel.deliverables import deliverable_verdict
+
+        result = deliverable_verdict(
+            [{'kind': 'robot_video', 'required': True}],
+            [{'media_type': 'video/mp4', 'metadata_json': json.dumps({
+                'role': 'progress_report', 'lineage': {'kind': 'robot_video'},
+            })}],
+        )
+        assert result['missing'] == ['robot_video']
+
+    def test_frozen_spec_does_not_make_progress_a_finish_signal(self, tmp_path, monkeypatch):
+        from rosclaw.task_kernel.coordinator import TaskCoordinator
+
+        kernel, _ = _kernel(tmp_path)
+        task_id = _make_task(kernel, tmp_path)
+        path = tmp_path / 'checkpoint.txt'
+        path.write_text('in progress')
+        kernel.register_artifact(
+            task_id=task_id, path=str(path), media_type='text/plain',
+            metadata={'role': 'progress_report'},
+        )
+        monkeypatch.setattr(kernel, 'get_acceptance_spec', lambda _task_id: {'required': True})
+
+        def must_not_verify(*_args):
+            raise AssertionError('Intermediate evidence invoked terminal verifier')
+
+        assert TaskCoordinator(kernel, verify_runner=must_not_verify).consider(task_id) is None
+        assert kernel.get_task(task_id)['state'] == 'RUNNING'

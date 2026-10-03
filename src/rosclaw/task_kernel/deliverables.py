@@ -16,6 +16,26 @@ from rosclaw.contracts.agent.task_spec import (
 )
 
 
+def artifact_is_intermediate(artifact: dict[str, Any]) -> bool:
+    """Explicit diagnostic/progress roles are evidence, not completion signals.
+
+    Role namespaces permit descriptive suffixes without inspecting file contents.
+    Unlabelled legacy artifacts retain their existing final-delivery semantics.
+    """
+    meta = artifact.get("metadata_json")
+    if isinstance(meta, str):
+        try:
+            meta = json.loads(meta or "{}")
+        except ValueError:
+            meta = {}
+    if not isinstance(meta, dict):
+        return False
+    role = str(meta.get("role") or "").strip().lower()
+    return role in ("diagnostic", "progress") or role.startswith(
+        ("diagnostic_", "progress_")
+    )
+
+
 def artifact_delivery_kind(artifact: dict[str, Any]) -> str:
     """产物的交付 kind（lineage.kind 权威；无血缘为 data——
     不可用于媒体交付断言）。"""
@@ -41,6 +61,7 @@ def deliverable_verdict(
     返回 {satisfied, missing, partial}：missing = required 但无对应
     kind 产物的 kind 列表；partial = 有 required 命中但也有缺失。
     """
+    artifacts = [a for a in artifacts if not artifact_is_intermediate(a)]
     present_kinds = {artifact_delivery_kind(a) for a in artifacts}
     satisfied: list[str] = []
     missing: list[str] = []
@@ -72,4 +93,4 @@ def deliverable_verdict(
     }
 
 
-__all__ = ["artifact_delivery_kind", "deliverable_verdict"]
+__all__ = ["artifact_delivery_kind", "artifact_is_intermediate", "deliverable_verdict"]

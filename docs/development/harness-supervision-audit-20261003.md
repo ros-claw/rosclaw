@@ -278,3 +278,27 @@ also exposed a UX defect: the public `role` parameter was silently dropped by
 the dispatcher. Registration now retains the role in metadata, alongside any
 post-terminal flags. The delivery lifecycle/coordinator suites passed 12 tests;
 the failing-before-repair test demonstrates the lost diagnostic role.
+
+Native ROSClaw engineering continuation switched to OpenAI within the same
+session and harness after a saved Kimi checkpoint. It repaired the collision
+exit-velocity measurement and produced four selected-seed samples with real
+velocity reversals, but zero net-clear/opponent-box returns. This is a supervised
+continuation with access to earlier evidence, not a blind provider comparison.
+
+A stage report explicitly labelled `diagnostic_progress_report_NOT_DONE` then
+incorrectly closed the unfinished M21 task, blocking subsequent process admission.
+The still-running old dispatcher lost the role, and Coordinator treated any
+artifact as a completion signal. Explicit `progress`/`progress_*` and
+`diagnostic`/`diagnostic_*` roles now bypass terminal verification and cannot
+satisfy final deliverables. They remain in the evidence ledger; a later final
+artifact can complete the same revision. Unlabelled legacy final-delivery behavior
+is preserved: this is not semantic validation of arbitrary Markdown goals.
+The observed mistaken r61 terminal transition is retained as historical evidence,
+not rewritten into a successful physical result.
+
+Coordinator also wrote outcome details into a nonexistent PiToolResultV1 field,
+then swallowed the exception after mutating task state. Final outcome dimensions
+now appear in the valid summary field so the model can see the transition.
+Regression covers role persistence across the actual wire path, subsequent
+admission, no premature verifier/outcome rows, frozen-spec progress, final
+completion and rejection of diagnostic media as a required deliverable.

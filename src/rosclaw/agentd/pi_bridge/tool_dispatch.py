@@ -446,7 +446,7 @@ class PiToolDispatcher:
         self, request: PiToolRequestV1, result: PiToolResultV1
     ) -> None:
         """P0-D：effectful 完成后的自动收尾评估——outcome 摘要附进
-        工具结果 details（模型看到结果，无需新回合）。"""
+        工具结果 summary（模型看到结果，无需新回合）。"""
         try:
             kernel = self._service._task_kernel
             task = kernel.latest_task_for(
@@ -458,13 +458,14 @@ class PiToolDispatcher:
 
             outcome = TaskCoordinator(kernel).consider(str(task["task_id"]))
             if outcome is not None:
-                details = dict(result.details or {})
-                details["task_outcome"] = {
-                    "lifecycle": outcome["lifecycle"],
-                    "verification": outcome["verification"],
-                    "delivery": outcome["delivery"],
-                }
-                result.details = details
+                # PiToolResultV1 has no `details` field. Writing it used to raise
+                # after finish_task had mutated the ledger, then get swallowed,
+                # hiding that lifecycle transition from the model.
+                result.summary += (
+                    f"；任务验收：lifecycle={outcome['lifecycle']}"
+                    f", verification={outcome['verification']}"
+                    f", delivery={outcome['delivery']}"
+                )
         except Exception:
             # 收尾评估失败不影响工具结果本身（下轮再评估）。
             return

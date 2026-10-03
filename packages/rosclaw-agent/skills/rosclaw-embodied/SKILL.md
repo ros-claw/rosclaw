@@ -109,6 +109,11 @@ Pi 是唯一大脑：理解用户目标、调查环境、组合通用原语、�
 
 ## 安全分层
 
+- 阶段报告/检查点登记必须用 `rosclaw_deliver(role="progress_report")`；
+  失败尝试视频用 `role="diagnostic_failed_attempt"`。`progress_`/
+  `diagnostic_` 角色保留证据，不触发任务完成，也不满足最终交付物。
+  目标尚未达成时不得把中间证据作为无角色或普通 report 最终交付。
+
 - SIM：物理原语工具 + 任务沙箱代码自动执行。
 - 真机动作：必须走 rosclaw_request_action 的 admission 链
   （rosclawd + permit + operator），任何其他路径都不是执行权威。

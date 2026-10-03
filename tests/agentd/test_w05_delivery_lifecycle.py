@@ -172,3 +172,55 @@ class TestAppendAfterTerminal:
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))
+
+
+async def test_progress_delivery_keeps_task_admission_open(tmp_path):
+    """Full wire path: persist role, skip finish, admit the next effect."""
+    import json
+
+    from rosclaw.agentd.pi_bridge.tool_dispatch import PiToolDispatcher
+
+    service, mission = await _setup(tmp_path)
+    try:
+        kernel = service._task_kernel
+        bound = kernel.bind_message(
+            mission_id=mission.mission_id, session_ref='pi_1',
+            backend_native_id='pi_1', message_id='msg_setup',
+            text='实现对打，先生成阶段检查点再继续实验',
+            cwd=str(tmp_path), body_id='',
+        )
+        path = tmp_path / 'progress.md'
+        path.write_text('NOT_DONE')
+        result = await PiToolDispatcher(service).execute(_request(
+            'rosclaw_deliver', mission=mission.mission_id, idem='progress_delivery',
+            lease=await _issue_lease(service, mission), arguments={
+                'path': str(path), 'media_type': 'text/markdown',
+                'role': 'diagnostic_progress_report_NOT_DONE',
+            },
+        ))
+        assert result.ok, result.summary
+        task_id = str(bound['task_id'])
+        assert kernel.get_task(task_id)['state'] == 'RUNNING'
+        assert '任务验收：' not in result.summary
+        row = kernel._conn.execute(
+            'SELECT metadata_json FROM artifacts WHERE task_id = ?', (task_id,),
+        ).fetchone()
+        assert json.loads(row['metadata_json'])['role'] == 'diagnostic_progress_report_NOT_DONE'
+        next_effect = kernel.ensure_task_for_effect(
+            mission_id=mission.mission_id, session_ref='pi_1',
+            backend_native_id='pi_1', cwd=str(tmp_path),
+        )
+        assert next_effect['task_id'] == task_id
+        assert next_effect['revision'] == bound['revision']
+        final_path = tmp_path / 'final.txt'
+        final_path.write_text('final result')
+        final_result = await PiToolDispatcher(service).execute(_request(
+            'rosclaw_deliver', mission=mission.mission_id, idem='final_delivery',
+            lease=await _issue_lease(service, mission),
+            arguments={'path': str(final_path), 'role': 'report'},
+        ))
+        assert final_result.ok, final_result.summary
+        assert kernel.get_task(task_id)['state'] == 'SUCCEEDED'
+        assert '任务验收：lifecycle=COMPLETED' in final_result.summary
+    finally:
+        await service.close()

@@ -26,7 +26,7 @@ export function buildProductPackTools(ctx: BridgeToolContext): ToolDefinition[] 
 			parameters: Type.Object({
 				path: Type.String({ description: "交付物路径（相对任务工作区或绝对）" }),
 				media_type: Type.Optional(Type.String()),
-				role: Type.Optional(Type.String({ description: "交付角色（如 report/plot）" })),
+				role: Type.Optional(Type.String({ description: "阶段报告用 progress_report，失败诊断用 diagnostic_failed_attempt；progress_/diagnostic_ 角色仅登记证据，不结束任务、不满足最终交付条件。最终交付用 report/plot 等角色。" })),
 			}),
 			async execute(_id, params, _signal, _onUpdate, _toolCtx) {
 				return await executeVia(ctx, "rosclaw_deliver", {

@@ -132,6 +132,17 @@ class TaskCoordinator:
                 (task_id, revision),
             ).fetchall()
         ]
+        from rosclaw.task_kernel.deliverables import artifact_is_intermediate
+
+        completion_artifacts = [
+            a for a in artifacts if not artifact_is_intermediate(a)
+        ]
+        # Checkpoints/failed-attempt media must not invoke finish_task (which
+        # mutates lifecycle), cache an outcome, or satisfy final deliverables.
+        # A later final artifact in this same revision can still trigger review.
+        if artifacts and not completion_artifacts:
+            return None
+        artifacts = completion_artifacts
         # 完成信号：有产物或有冻结验收——两者皆无说明任务还在
         # 进行（Coordinator 不替模型宣布开始）。
         if not artifacts and not self._kernel.get_acceptance_spec(task_id):
