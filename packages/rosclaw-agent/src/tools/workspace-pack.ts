@@ -154,7 +154,9 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 			"are stripped from the child environment. No default wall-clock kill. " +
 			"Set timeout_sec for exploratory searches and network commands. " +
 			"Prefer scoped rg/rg --files searches excluding node_modules and .venv " +
-			"over recursive grep across parent workspaces. Use CLI --help for payload schemas.",
+			"over recursive grep across parent workspaces. Use CLI --help for payload schemas. " +
+			"Chain dependent steps with && or explicit failure handling; pipefail alone " +
+			"does not stop later commands after an earlier patch or compile failure.",
 		parameters: Type.Object({
 			command: Type.String({ description: "要执行的 shell 命令" }),
 			timeout_sec: Type.Optional(Type.Number({ description: "显式超时（秒）——不填则无定时器" })),

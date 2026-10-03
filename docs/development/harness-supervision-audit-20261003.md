@@ -59,6 +59,11 @@ needed. A successful compaction event alone does not prove summary correctness.
 - Background-operation guidance permits independent remaining steps that do not
   modify the operation's inputs. Dependent work still waits for the automatic
   result notification; repeated polling and sleeping remain discouraged.
+- Rebuild the task/registered-artifact anchor after each distinct PI compaction
+  entry. Deduplicating solely by task/revision incorrectly skipped later
+  compactions, even though their summaries could omit an earlier anchor and
+  artifacts could have been registered without advancing the revision.
+  Duplicate delivery of the same entry still emits only one anchor.
 - Prefer the reported repair candidate before running the existing independent
   lineage, audit and strict replay gates. The oracle previously chose the first
   passing model in store order, falsely rejecting a later verified iteration.
@@ -119,7 +124,7 @@ counts and artifacts; repository-wide pre-existing lint debt is not green.
 
 Validation completed: broad non-live regression 1,848 passed / 7 skipped /
 24 deselected; daemon/kernel/MCP boundary checks 370 passed / 1 skipped; main
-TypeScript package 248 passed / 3 skipped; independent TUI package 27 passed;
+TypeScript package 249 passed / 3 skipped; independent TUI package 27 passed;
 oracle repair/adversarial regression 59 passed. Some suites overlap; these are
 separate results, not an additive count of distinct tests. Configured mypy scope
 passed 121 files. Modified Python lint and `git diff --check` passed.

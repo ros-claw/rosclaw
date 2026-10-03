@@ -10,7 +10,8 @@
  * - 锚消息进入会话历史 → 后续 compaction 的 summarizer 也会看到它，
  *   refs 跨多次 compact 传播；
  * - 无 task / 拉取失败 → 诚实 no-op（不编造 refs）；
- * - 同 task+revision 去重（连续 auto-compact 不刷屏）。
+ * - 同 compaction entry + task + revision 去重；新压缩必须重建锚，
+ *   即使 revision 未变，旧锚也可能已压掉，产物也可能新增。
  */
 
 interface KernelTask {
@@ -40,7 +41,10 @@ interface CompactAnchorDeps {
 }
 
 interface PiLike {
-	on(event: "session_compact", handler: (event: { reason?: string }) => Promise<void>): void;
+	on(event: "session_compact", handler: (event: {
+		reason?: string;
+		compactionEntry?: { id?: string };
+	}) => Promise<void>): void;
 	sendMessage(
 		message: { customType: string; content: string; display: boolean; details?: unknown },
 		options?: { triggerTurn?: boolean; deliverAs?: "steer" | "followUp" | "nextTurn" },
@@ -83,8 +87,9 @@ export function registerCompactAnchor(pi: PiLike, deps: CompactAnchorDeps): void
 			return; // 无 task/拉取失败——诚实 no-op
 		}
 		const task = latest.task as KernelTask;
-		const key = `${task.task_id}:${task.active_revision}`;
-		if (key === lastKey) {
+		const entryId = event.compactionEntry?.id;
+		const key = JSON.stringify([entryId, task.task_id, task.active_revision]);
+		if (entryId && key === lastKey) {
 			deps.log?.(`skip: dup anchor ${key}`);
 			return; // 同 key 去重
 		}
@@ -94,7 +99,6 @@ export function registerCompactAnchor(pi: PiLike, deps: CompactAnchorDeps): void
 		const artifacts = artifactResult.ok
 			? ((artifactResult.artifacts ?? []) as KernelArtifact[])
 			: [];
-		lastKey = key;
 		deps.log?.(`anchored: ${key} artifacts=${artifacts.length}`);
 		pi.sendMessage(
 			{
@@ -105,5 +109,6 @@ export function registerCompactAnchor(pi: PiLike, deps: CompactAnchorDeps): void
 			},
 			{ deliverAs: "nextTurn" },
 		);
+		lastKey = key;
 	});
 }

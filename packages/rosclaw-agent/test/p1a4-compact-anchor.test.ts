@@ -119,7 +119,7 @@ test("无 task → 诚实 no-op（不发空锚）", async () => {
 	assert.equal(pi.sent.length, 0);
 });
 
-test("同 key 锚去重（task+revision 未变不重复发）", async () => {
+test("同次 compaction 去重，但新 compaction 必须重新锚定未变的任务", async () => {
 	const pi = fakePi();
 	const { call } = fakeCall(TASK, ARTIFACTS);
 	registerCompactAnchor(pi as never, {
@@ -129,8 +129,10 @@ test("同 key 锚去重（task+revision 未变不重复发）", async () => {
 	});
 	const handler = pi.handlers.get("session_compact")!;
 	await handler(COMPACT_EVENT);
-	await handler({ ...COMPACT_EVENT, compactionEntry: { id: "entry_2" } });
+	await handler(COMPACT_EVENT);
 	assert.equal(pi.sent.length, 1);
+	await handler({ ...COMPACT_EVENT, compactionEntry: { id: "entry_2" } });
+	assert.equal(pi.sent.length, 2);
 	// revision 前进 → 新锚。
 	const { call: call2 } = fakeCall({ ...TASK, active_revision: 4 }, ARTIFACTS);
 	const pi2 = fakePi();
@@ -144,7 +146,25 @@ test("同 key 锚去重（task+revision 未变不重复发）", async () => {
 		...COMPACT_EVENT,
 		compactionEntry: { id: "entry_3" },
 	});
-	assert.equal(pi2.sent.length, 1);
+	assert.equal(pi2.sent.length, 2);
+});
+
+test("新 compaction 读取同 revision 后登记的产物", async () => {
+	const pi = fakePi();
+	let artifacts: unknown[] = [];
+	registerCompactAnchor(pi as never, {
+		call: (async (method: string) => method === "pi.kernel.latest"
+			? { ok: true, task: TASK }
+			: { ok: true, artifacts }) as never,
+		missionId: () => "m1",
+		sessionRef: () => "s1",
+	});
+	const handler = pi.handlers.get("session_compact")!;
+	await handler(COMPACT_EVENT);
+	artifacts = ARTIFACTS;
+	await handler({ ...COMPACT_EVENT, compactionEntry: { id: "entry_later" } });
+	assert.equal(pi.sent.length, 2);
+	assert.match((pi.sent[1].message as { content: string }).content, /art_2/);
 });
 
 test("kernel 拉取失败 → 不发锚（不编造 refs）", async () => {
