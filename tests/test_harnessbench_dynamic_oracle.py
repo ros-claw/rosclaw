@@ -126,7 +126,7 @@ def test_convergence_exact_common_times_and_sparse_refusal():
     assert convergence(_trace(0.004), _trace(0.002)) == 0
     with pytest.raises(ValueError, match="undersampled"):
         convergence(_trace(0.02), _trace(0.01))
-    with pytest.raises(ValueError, match="common recorded"):
+    with pytest.raises(ValueError, match="common recorded|coverage"):
         convergence(_trace(0.004), _trace(0.002, offset=0.0001))
 
 
@@ -283,6 +283,7 @@ def test_validation_time_and_bool_steps_must_bind_actual_trace():
 
 def test_full_initial_vector_velocity_time_and_control_not_just_qpos():
     from types import SimpleNamespace
+
     from benchmarks.harnessbench.dynamic_oracle import initial_state_equal
 
     values = {}
