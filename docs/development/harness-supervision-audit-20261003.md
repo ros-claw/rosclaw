@@ -637,3 +637,17 @@ Fourteen new regression cases and the relevant existing audit/inspection/control
 tests pass together: **73 passed**, with Ruff and mypy on both source modules
 passing. These generic tests fix framework behavior; they do not run or author
 robot controllers and do not upgrade failed physical experiments to success.
+
+Follow-up compiled tests expose a separate A03 servo-hold defect: multi-input
+PID crashes because the audit iterates control count over actuator arrays;
+ordinary geared position servos receive unscaled joint coordinates and drift
+under zero gravity; plain motors are incorrectly treated as position servos.
+A03 now identifies scalar joint position-feedback actuators, iterates actuator
+count, uses each compiled control address, and commands the actual initial
+actuator length. Fresh PID auxiliary velocity/feedforward inputs remain zero.
+This is consistent with MuJoCo's documented transmission-space position
+semantics ([XML reference](https://mujoco.readthedocs.io/en/3.4.0/XMLreference.html#actuator-general)).
+Five new compiled counterexamples fail before the fix and pass afterwards;
+the combined relevant suite is **78 passed** (including the prior 73, not an
+additional independent 78), with Ruff/mypy passing on the changed module.
+No G1 or M20 control implementation is changed by these framework tests.

@@ -17,9 +17,14 @@ def a03_servo_hold(ctx: AuditContext) -> dict[str, Any]:
     model = ctx.model
     servos = [
         i
-        for i in range(model.nu)
+        for i in range(model.actuator_trnid.shape[0])
         if int(model.actuator_trntype[i]) == int(mujoco.mjtTrn.mjTRN_JOINT)
-        and float(model.actuator_gainprm[i][0]) > 0
+        and int(model.jnt_type[int(model.actuator_trnid[i][0])])
+        in (int(mujoco.mjtJoint.mjJNT_HINGE), int(mujoco.mjtJoint.mjJNT_SLIDE))
+        and int(model.actuator_gaintype[i])
+        in (int(mujoco.mjtGain.mjGAIN_FIXED), int(getattr(mujoco.mjtGain, "mjGAIN_PID", -1)))
+        and int(model.actuator_biastype[i]) == int(mujoco.mjtBias.mjBIAS_AFFINE)
+        and float(model.actuator_biasprm[i][1]) < 0
     ]
     if not servos:
         return {"status": "PASS", "violations": [], "detail": {"note": "no_position_servos"}}
@@ -27,8 +32,15 @@ def a03_servo_hold(ctx: AuditContext) -> dict[str, Any]:
     data = ctx.fresh_data()
     qpos0 = np.asarray(data.qpos, dtype=float).copy()
     for actuator_id in servos:
-        joint_id = int(model.actuator_trnid[actuator_id][0])
-        data.ctrl[actuator_id] = qpos0[int(model.jnt_qposadr[joint_id])]
+        # PID may consume multiple inputs, shifting subsequent servo addresses.
+        # Position inputs target actuator length (includes transmission gear),
+        # not raw joint position. Fresh velocity/feedforward inputs remain zero.
+        ctrl_addr = (
+            int(model.actuator_ctrladr[actuator_id])
+            if hasattr(model, "actuator_ctrladr")
+            else actuator_id
+        )
+        data.ctrl[ctrl_addr] = float(data.actuator_length[actuator_id])
     mujoco.mj_forward(model, data)
 
     import math
