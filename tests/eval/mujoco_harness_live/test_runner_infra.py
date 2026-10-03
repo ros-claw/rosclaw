@@ -335,25 +335,30 @@ def test_a_environment_probe_does_not_inherit_checkout_namespace(tmp_path, monke
     from importlib.metadata import version
     from types import SimpleNamespace
 
-    clean = tmp_path / 'clean'
-    (clean / 'bin').mkdir(parents=True)
-    (clean / 'bin' / 'python').touch()
-    launcher = tmp_path / 'launcher'
-    (launcher / 'rosclaw').mkdir(parents=True)
+    clean = tmp_path / "clean"
+    (clean / "bin").mkdir(parents=True)
+    (clean / "bin" / "python").touch()
+    launcher = tmp_path / "launcher"
+    (launcher / "rosclaw").mkdir(parents=True)
     monkeypatch.chdir(launcher)
-    monkeypatch.setattr(runner, '_A_LEG_VENV', clean)
-    expected = {p: version(p) for p in ('mujoco', 'numpy', 'imageio')}
+    monkeypatch.setattr(runner, "_A_LEG_VENV", clean)
+    expected = {p: version(p) for p in ("mujoco", "numpy", "imageio")}
 
     def run(command, **kwargs):
         # Real local reproduction: inherited cwd exposes a PEP420 namespace.
-        cwd = kwargs.get('cwd', launcher)
-        return SimpleNamespace(returncode=0, stdout=json.dumps({
-            'rosclaw_available': (Path(cwd) / 'rosclaw').exists(),
-            'versions': expected,
-        }))
+        cwd = kwargs.get("cwd", launcher)
+        return SimpleNamespace(
+            returncode=0,
+            stdout=json.dumps(
+                {
+                    "rosclaw_available": (Path(cwd) / "rosclaw").exists(),
+                    "versions": expected,
+                }
+            ),
+        )
 
-    monkeypatch.setattr(subprocess, 'run', run)
-    assert runner._a_leg_python() == str(clean / 'bin' / 'python')
+    monkeypatch.setattr(subprocess, "run", run)
+    assert runner._a_leg_python() == str(clean / "bin" / "python")
 
 
 def test_a_environment_probe_still_rejects_real_contamination(tmp_path, monkeypatch):
@@ -362,13 +367,51 @@ def test_a_environment_probe_still_rejects_real_contamination(tmp_path, monkeypa
     from importlib.metadata import version
     from types import SimpleNamespace
 
-    (tmp_path / 'bin').mkdir()
-    (tmp_path / 'bin' / 'python').touch()
-    monkeypatch.setattr(runner, '_A_LEG_VENV', tmp_path)
-    expected = {p: version(p) for p in ('mujoco', 'numpy', 'imageio')}
-    monkeypatch.setattr(subprocess, 'run', lambda *a, **k: SimpleNamespace(
-        returncode=0,
-        stdout=json.dumps({'rosclaw_available': True, 'versions': expected}),
-    ))
-    with pytest.raises(RuntimeError, match='A_LEG_ENV_CONTAMINATED'):
+    (tmp_path / "bin").mkdir()
+    (tmp_path / "bin" / "python").touch()
+    monkeypatch.setattr(runner, "_A_LEG_VENV", tmp_path)
+    expected = {p: version(p) for p in ("mujoco", "numpy", "imageio")}
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *a, **k: SimpleNamespace(
+            returncode=0,
+            stdout=json.dumps({"rosclaw_available": True, "versions": expected}),
+        ),
+    )
+    with pytest.raises(RuntimeError, match="A_LEG_ENV_CONTAMINATED"):
         runner._a_leg_python()
+
+
+def test_oracle_exception_keeps_completed_native_turn_metrics(tmp_path, monkeypatch):
+    class Session:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def expect(self, *args, **kwargs):
+            pass
+
+        def send(self, *args):
+            pass
+
+        def stop(self):
+            pass
+
+    def broken_oracle(*args, **kwargs):
+        raise ValueError("CONTROLLER_INVALID: position_targets must have 0 entries")
+
+    ticks = iter([0.0, 91.2, 91.3, 91.5])
+    monkeypatch.setattr(runner.time, "monotonic", lambda: next(ticks))
+    monkeypatch.setattr("tests.agentd.test_product_journey.PtySession", Session)
+    monkeypatch.setattr(runner, "_wait_settled", lambda *args, **kwargs: 0)
+    monkeypatch.setattr(runner, "_count_session_stats", lambda *args: (31, 900, 4))
+    monkeypatch.setattr(runner.oracle, "judge", broken_oracle)
+    with pytest.raises(RunInfraError) as info:
+        run_leg("B", "U01", tmp_path, 1, model="kimi-coding")
+    record = error_record(info.value, "B", "U01", 1, model="kimi-coding")
+    assert record["wall_time_s"] == 91.2
+    assert record["tool_calls"] == 31
+    assert record["glue_bytes"] == 900
+    assert record["failure_phase"] == "oracle"
+    assert record["model_turn_completed"] is True
+    assert record["oracle_wall_time_s"] > 0
