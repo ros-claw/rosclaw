@@ -28,8 +28,10 @@ needed. A successful compaction event alone does not prove summary correctness.
   Updating the main agent's four packages had left this package on 0.85.1.
 - Run the `bash` tool with Bash and `pipefail`, including inside bubblewrap.
   Brace expansion and failures within a direct pipeline now follow the tool's
-  advertised shell contract. An explicitly nested `bash -c` still owns its own
-  shell options.
+  advertised shell contract. Enabled shell options are exported so an ordinary
+  nested `bash -c` also reports a failed `timeout | tail` pipeline; a shell can
+  still explicitly disable options. The M21 recording attempt reproduced this
+  masking bug: its 900s timeout was originally displayed as exit 0.
 - Reject an overlong `ROSCLAW_HOME` Unix socket path before kernel startup, with
   an actionable error. This does not add support for arbitrarily long homes.
 - Add bounded optional provider wait overrides, in milliseconds:

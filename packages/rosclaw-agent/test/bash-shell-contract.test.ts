@@ -15,5 +15,10 @@ test("bash tool supports brace expansion and reports pipeline failures", async (
   const failed = await bash.execute("pipe", {command: "exit_code=7; (exit $exit_code) | cat"}, undefined, undefined, {} as never);
   const failure = failed.content.filter(item => item.type === "text").map(item => (item as {text:string}).text).join("\n");
   assert.match(failure, /exit=7/);
+  const nested = await bash.execute("nested-timeout", {
+   command: "bash -c 'timeout 0.05 sleep 1 | tail -1'",
+  }, undefined, undefined, {} as never);
+  const nestedText = nested.content.filter(item => item.type === "text").map(item => (item as {text:string}).text).join("\n");
+  assert.match(nestedText, /exit=124/);
  } finally { await rm(root, {recursive: true, force: true}); }
 });

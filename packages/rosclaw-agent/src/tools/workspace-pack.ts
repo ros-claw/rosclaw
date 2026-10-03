@@ -220,8 +220,11 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 					+ "（风险已告知）]\n";
 			}
 			const output = await new Promise<string>((resolvePromise) => {
+				// Agent commands often explicitly nest `bash -c`. Export the enabled
+				// options so an inner pipeline cannot hide a failed timeout behind tail.
+				const shellCommand = `export SHELLOPTS\n${command}`;
 				let spawnCmd = "bash";
-				let spawnArgs = ["--noprofile", "--norc", "-o", "pipefail", "-c", command];
+				let spawnArgs = ["--noprofile", "--norc", "-o", "pipefail", "-c", shellCommand];
 				if (sandboxed && bwrap) {
 					spawnCmd = bwrap;
 					spawnArgs = [
@@ -239,7 +242,7 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 						"--unshare-net",
 						"--dev", "/dev", // 全新 devtmpfs——真设备不可见
 						"--chdir", effectiveCwd,
-						"bash", "--noprofile", "--norc", "-o", "pipefail", "-c", command,
+						"bash", "--noprofile", "--norc", "-o", "pipefail", "-c", shellCommand,
 					];
 				}
 				const child = spawn(spawnCmd, spawnArgs, {
