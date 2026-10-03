@@ -172,11 +172,16 @@ class CapabilityManifestCompiler:
 
         parsed = urlsplit(snapshot.endpoint)
         if parsed.scheme in {"ws", "wss"} and parsed.hostname:
+            from rosclaw.connectors.ros.transport.base import RosbridgeEndpoint
+
+            declared = RosbridgeEndpoint.from_url(snapshot.endpoint)
             endpoint = {
                 "transport": "rosbridge",
-                "host": parsed.hostname,
-                "port": parsed.port or 9090,
-                "scheme": parsed.scheme,
+                "host": declared.host,
+                "port": declared.port,
+                "scheme": declared.scheme,
+                "path": declared.path,
+                "query": declared.query,
                 "source_endpoint": snapshot.endpoint,
             }
         else:

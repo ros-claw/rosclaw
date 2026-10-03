@@ -505,33 +505,29 @@ class RosCapabilityProvider(Provider):
             raise ValueError("ROS_OFFLINE_MANIFEST: graph metadata has no live execution endpoint")
         if not self._endpoint_url:
             raise ValueError("ROS_ENDPOINT_REQUIRED: provide an explicit rosbridge endpoint")
-        from urllib.parse import urlsplit
-
-        parsed = urlsplit(self._endpoint_url)
-        if (
-            parsed.scheme not in {"ws", "wss"}
-            or not parsed.hostname
-            or parsed.username is not None
-            or parsed.password is not None
-            or parsed.path not in {"", "/"}
-            or parsed.query
-            or parsed.fragment
-        ):
-            raise ValueError("ROS_ENDPOINT_INVALID: explicit ws/wss host endpoint required")
+        endpoint = RosbridgeEndpoint.from_url(self._endpoint_url)
         if self._manifest is not None:
             source_endpoint = self._manifest.ros.get("endpoint")
             if source_endpoint:
                 source = RosbridgeEndpoint.from_url(source_endpoint)
-                requested = RosbridgeEndpoint.from_url(self._endpoint_url)
-                if (source.scheme, source.host, source.port) != (
-                    requested.scheme,
-                    requested.host,
-                    requested.port,
-                ):
+                source_binding = (
+                    source.scheme,
+                    source.host,
+                    source.port,
+                    source.path or "/",
+                    source.query,
+                )
+                requested_binding = (
+                    endpoint.scheme,
+                    endpoint.host,
+                    endpoint.port,
+                    endpoint.path or "/",
+                    endpoint.query,
+                )
+                if source_binding != requested_binding:
                     raise ValueError(
                         "ROS_ENDPOINT_BINDING_MISMATCH: re-discover the explicitly selected graph"
                     )
-        endpoint = RosbridgeEndpoint.from_url(self._endpoint_url)
         return RosbridgeTransport(endpoint=endpoint)
 
     def _manifest_is_offline(self) -> bool:
