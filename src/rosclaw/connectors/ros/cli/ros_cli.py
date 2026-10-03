@@ -53,6 +53,15 @@ def _load_json_or_yaml(path: Path) -> dict[str, Any]:
 def _load_manifest(path: str | Path) -> CapabilityManifest:
     """Load a CapabilityManifest from disk."""
     data = _load_json_or_yaml(Path(path))
+    if (
+        not isinstance(data, dict)
+        or not isinstance(data.get("robot_id"), str)
+        or not data["robot_id"]
+    ):
+        raise ValueError("manifest requires a nonempty robot_id")
+    capabilities = data.get("capabilities")
+    if not isinstance(capabilities, list) or any(not isinstance(cap, dict) for cap in capabilities):
+        raise ValueError("manifest capabilities must be a list of objects")
     return CapabilityManifest.from_dict(data)
 
 
@@ -61,6 +70,12 @@ def _load_graph(path: str | Path) -> Any:
     from rosclaw.connectors.ros.discovery.graph import RosGraphSnapshot
 
     data = _load_json_or_yaml(Path(path))
+    if not isinstance(data, dict) or data.get("ros_version") not in {"ros1", "ros2"}:
+        raise ValueError("graph requires ros_version ros1 or ros2")
+    for key in ("topics", "services", "actions"):
+        value = data.get(key)
+        if not isinstance(value, list) or any(not isinstance(item, dict) for item in value):
+            raise ValueError(f"graph {key} must be a list of objects")
     return RosGraphSnapshot.from_dict(data)
 
 
@@ -208,7 +223,7 @@ def cmd_ros_compile(args: argparse.Namespace) -> int:
     robot_id = args.robot_id
     graph_path = getattr(args, "graph", None)
     try:
-        if graph_path and Path(graph_path).exists():
+        if graph_path is not None:
             snapshot = _load_graph(graph_path)
         else:
             endpoint = args.endpoint
@@ -255,8 +270,13 @@ def cmd_ros_compile(args: argparse.Namespace) -> int:
 def _get_provider_manifest(args: argparse.Namespace) -> CapabilityManifest | None:
     """Return the compiled manifest from CLI flags, on-disk file, provider, or live discovery."""
     manifest_path = getattr(args, "manifest", None)
-    if manifest_path and Path(manifest_path).exists():
-        return _load_manifest(manifest_path)
+    if manifest_path is not None:
+        try:
+            return _load_manifest(manifest_path)
+        except (OSError, ValueError, TypeError, AttributeError) as exc:
+            raise ValueError(
+                f"Offline manifest {manifest_path!r} could not be loaded: {exc}"
+            ) from exc
     provider = getattr(args, "_ros_provider", None)
     if provider is not None:
         manifest = getattr(provider, "_manifest", None)
@@ -283,7 +303,10 @@ def _get_provider_manifest(args: argparse.Namespace) -> CapabilityManifest | Non
 
 def cmd_ros_list_capabilities(args: argparse.Namespace) -> int:
     """List compiled ROS capabilities."""
-    manifest = _get_provider_manifest(args)
+    try:
+        manifest = _get_provider_manifest(args)
+    except ValueError as exc:
+        return _maybe_json(args, {"ok": False, "error": str(exc)})
     if manifest is None:
         return _maybe_json(
             args,
@@ -311,7 +334,10 @@ def cmd_ros_list_capabilities(args: argparse.Namespace) -> int:
 def cmd_ros_inspect_capability(args: argparse.Namespace) -> int:
     """Inspect a single capability."""
     capability_id = args.capability_id
-    manifest = _get_provider_manifest(args)
+    try:
+        manifest = _get_provider_manifest(args)
+    except ValueError as exc:
+        return _maybe_json(args, {"ok": False, "error": str(exc)})
     if manifest is None:
         return _maybe_json(
             args,
@@ -359,7 +385,10 @@ def cmd_ros_validate_capability(args: argparse.Namespace) -> int:
             },
         )
 
-    manifest = _get_provider_manifest(args)
+    try:
+        manifest = _get_provider_manifest(args)
+    except ValueError as exc:
+        return _maybe_json(args, {"ok": False, "error": str(exc)})
     if manifest is None:
         return _maybe_json(
             args,
