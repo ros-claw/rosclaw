@@ -302,3 +302,17 @@ now appear in the valid summary field so the model can see the transition.
 Regression covers role persistence across the actual wire path, subsequent
 admission, no premature verifier/outcome rows, frozen-spec progress, final
 completion and rejection of diagnostic media as a required deliverable.
+
+The repaired live session registered a new Chinese `progress_report` artifact
+without completing M21; the subsequent eight-attempt contrast completed
+normally. Independent recorded-force/state/exit checks passed. Two G1 returns
+cleared the reduced net without contact and first landed on the opponent side;
+M20 had no net-clear return, and neither side reached the opponent's racket box.
+This is still NOT_DONE for the requested alternating rally.
+
+A separate reopening defect left current `accepted_at` and `terminal_reason`
+showing stale success after an unaccepted SUCCEEDED task was revised to RUNNING.
+Reopening now clears those current-status fields while retaining SUPERSEDED
+verification rows and the original revision outcome. A failing-before-repair
+regression demonstrates the stale timestamp; related lifecycle suites passed
+35 tests after repair (overlapping earlier scopes).

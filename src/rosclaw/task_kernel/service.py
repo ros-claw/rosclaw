@@ -234,6 +234,7 @@ class TaskKernel:
             )
             self._conn.execute(
                 "UPDATE tasks SET active_revision = ?, state = 'RUNNING', "
+                "accepted_at = NULL, terminal_reason = NULL, "
                 "updated_at = ? WHERE task_id = ?",
                 (revision, now, task_id),
             )

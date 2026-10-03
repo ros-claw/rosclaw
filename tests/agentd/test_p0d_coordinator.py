@@ -240,3 +240,31 @@ class TestIntermediateArtifacts:
 
         assert TaskCoordinator(kernel, verify_runner=must_not_verify).consider(task_id) is None
         assert kernel.get_task(task_id)['state'] == 'RUNNING'
+
+
+class TestReopenedTaskStatus:
+    def test_reopen_clears_current_success_fields_but_preserves_history(self, tmp_path):
+        from rosclaw.task_kernel.coordinator import TaskCoordinator
+
+        kernel, conn = _kernel(tmp_path)
+        task_id = _make_task(kernel, tmp_path)
+        _register_file(kernel, tmp_path, task_id)
+        coordinator = TaskCoordinator(kernel)
+        old_outcome = coordinator.consider(task_id)
+        before = kernel.get_task(task_id)
+        assert before['accepted_at'] and before['terminal_reason'] == 'verification_passed'
+        reopened = kernel.bind_message(
+            mission_id='mis_1', session_ref='s1', backend_native_id='s1',
+            message_id='correction_2', text='阶段产物，目标尚未达成，请继续',
+            cwd=str(tmp_path),
+        )
+        assert reopened['task_id'] == task_id
+        after = kernel.get_task(task_id)
+        assert after['state'] == 'RUNNING'
+        assert after['accepted_at'] is None
+        assert after['terminal_reason'] is None
+        row = conn.execute('SELECT status FROM verifications WHERE task_id = ?', (task_id,)).fetchone()
+        assert row['status'] == 'SUPERSEDED'
+        historical = conn.execute('SELECT outcome_json FROM task_outcomes WHERE task_id = ? AND revision = ?',
+                                  (task_id, before['active_revision'])).fetchone()
+        assert json.loads(historical['outcome_json']) == old_outcome
