@@ -7,6 +7,7 @@ that the runtime uses to decide ALLOW / MODIFY / BLOCK.
 from __future__ import annotations
 
 import copy
+import math
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -182,6 +183,15 @@ class SafetyContractCompiler:
         if rule.read_only and not rule.destructive:
             return SandboxDecision(decision="ALLOW", risk_score=0.0, reason="Read-only capability")
 
+        shape_errors = self._argument_shape_errors(rule, args)
+        if shape_errors:
+            return SandboxDecision(
+                decision="BLOCK",
+                risk_score=1.0,
+                reason="Invalid argument shape: use nested ROS fields and finite numeric values",
+                violated_constraints=shape_errors,
+            )
+
         violations: list[str] = []
         modified_args = dict(args)
 
@@ -229,6 +239,55 @@ class SafetyContractCompiler:
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+    @staticmethod
+    def _finite_number(value: Any) -> bool:
+        return type(value) in (int, float) and math.isfinite(value)
+
+    @classmethod
+    def _argument_shape_errors(cls, rule: SafetyRule, args: dict[str, Any]) -> list[str]:
+        """Distinguish omitted optional fields from malformed constrained values.
+
+        This validates only declared constraint paths, not an invented schema for
+        custom services. Dotted path notation belongs to the contract; proposal
+        messages must use nested objects, even when a flat alias has a safe value.
+        """
+        if not isinstance(args, dict):
+            return ["arguments_must_be_object"]
+        errors = []
+        for key in rule.constraints:
+            if "." in key and key in args:
+                errors.append(f"{key}: dotted proposal key is invalid; use nested objects")
+            current: Any = args
+            parts = key.split(".")
+            for index, part in enumerate(parts):
+                if not isinstance(current, dict):
+                    errors.append(f"{key}: parent field must be an object")
+                    break
+                if part not in current:
+                    break  # Omitted optional fields are not malformed numeric values.
+                current = current[part]
+                if index == len(parts) - 1 and not cls._finite_number(current):
+                    errors.append(f"{key}: requires a finite number (not bool/string/null)")
+        if rule.requires_stop_guard:
+            durations = []
+            for key in ("duration", "duration_sec", "max_duration_sec", "time"):
+                if key in args:
+                    value = args[key]
+                    if not cls._finite_number(value) or value < 0:
+                        errors.append(f"{key}: requires a finite nonnegative duration")
+                    else:
+                        durations.append(value)
+            linear = args.get("linear")
+            if isinstance(linear, dict) and "duration" in linear:
+                value = linear["duration"]
+                if not cls._finite_number(value) or value < 0:
+                    errors.append("linear.duration: requires a finite nonnegative duration")
+                else:
+                    durations.append(value)
+            if durations and any(value != durations[0] for value in durations[1:]):
+                errors.append("conflicting_duration_aliases")
+        return errors
+
     @staticmethod
     def _extract_duration(args: dict[str, Any]) -> float | None:
         for key in ("duration", "duration_sec", "max_duration_sec", "time"):
