@@ -8,6 +8,7 @@ per-data warning counters rather than changing process-global warning hooks.
 from __future__ import annotations
 
 import math
+from typing import Any
 
 import numpy as np
 
@@ -28,6 +29,57 @@ FINITE_FIELDS = (
     "xfrc_applied",
     "sensordata",
 )
+
+
+class SimulationDivergedError(ValueError):
+    """Rejected execution with bounded diagnostics, never a successful receipt."""
+
+    def __init__(self, message: str, diagnostic: dict[str, Any]) -> None:
+        super().__init__(message)
+        self.diagnostic = diagnostic
+
+
+def diagnostic_point(data) -> dict[str, Any]:  # noqa: ANN001
+    """JSON-safe actual failure data; truncation is explicit, not silently valid."""
+
+    def scalar(value: float) -> float | str:
+        number = float(value)
+        if math.isfinite(number):
+            return number
+        return "NaN" if math.isnan(number) else ("+Inf" if number > 0 else "-Inf")
+
+    result: dict[str, Any] = {
+        "t": scalar(data.time),
+        "warning_counts": [int(w.number) for w in data.warning],
+        "warning_lastinfo": [int(w.lastinfo) for w in data.warning],
+        "finite_fields": {},
+        "truncated_fields": {},
+    }
+    for field in FINITE_FIELDS:
+        values = np.asarray(getattr(data, field)).reshape(-1)
+        result["finite_fields"][field] = bool(np.isfinite(values).all())
+        result[field] = [scalar(v) for v in values[:4096]]
+        if values.size > 4096:
+            result["truncated_fields"][field] = {"recorded": 4096, "actual": int(values.size)}
+    return result
+
+
+def runtime_validation(data, *, steps: int, initial_time: float, timestep: float) -> dict[str, Any]:  # noqa: ANN001
+    """Call only after the serial guard has validated every executed step."""
+    return {
+        "schema_version": "rosclaw.sim.runtime_validation.v1",
+        "status": "PASS",
+        "method": "serial_each_step",
+        "steps_checked": steps,
+        "initial_time": initial_time,
+        "final_time": float(data.time),
+        "actual_elapsed_s": float(data.time) - initial_time,
+        "expected_elapsed_s": steps * timestep,
+        "warning_counts": [int(w.number) for w in data.warning],
+        "time_continuity_checked": True,
+        "per_step_warning_check": True,
+        "checked_finite_fields": list(FINITE_FIELDS),
+    }
 
 
 def validate_step_data(

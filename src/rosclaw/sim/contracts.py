@@ -192,6 +192,7 @@ class SimulationTrace(SimContract):
     model_digest: str = ""
     initial_state_ref: str = ""
     initialization: dict[str, Any] = {}
+    runtime_validation: dict[str, Any] = {}
     steps: int = 0
     timestep_s: float = 0.0
     states_digest: str = ""
@@ -313,6 +314,7 @@ class SimulationReceipt(SimContract):
     simulation_time_s: float = 0.0
     success: bool | None = None  # ≡ task_success（兼容字段）
     simulation_valid: bool | None = None
+    runtime_validation: dict[str, Any] = {}
     physical_audit_pass: bool | None = None
     task_success: bool | None = None
     verification_status: str = "NOT_EVALUATED"  # PASS | FAIL | NOT_EVALUATED
