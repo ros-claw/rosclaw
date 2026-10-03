@@ -168,9 +168,31 @@ class CapabilityManifestCompiler:
 
     def compile(self, snapshot: RosGraphSnapshot) -> CapabilityManifest:
         """Compile capabilities from a graph snapshot."""
+        from urllib.parse import urlsplit
+
+        parsed = urlsplit(snapshot.endpoint)
+        if parsed.scheme in {"ws", "wss"} and parsed.hostname:
+            endpoint = {
+                "transport": "rosbridge",
+                "host": parsed.hostname,
+                "port": parsed.port or 9090,
+                "scheme": parsed.scheme,
+                "source_endpoint": snapshot.endpoint,
+            }
+        else:
+            # Offline/DDS graph capture is discovery evidence, not an implicit
+            # rosbridge connection and never an execution endpoint.
+            endpoint = {
+                "transport": "offline",
+                "source_endpoint": snapshot.endpoint,
+                "execution_eligible": False,
+            }
         manifest = CapabilityManifest(
             robot_id=self.robot_id,
-            endpoint={"transport": "rosbridge", "host": "127.0.0.1", "port": 9090},
+            source="ros_graph_fixture"
+            if endpoint["transport"] == "offline"
+            else "ros_graph_discovery",
+            endpoint=endpoint,
             ros={
                 "version": snapshot.ros_version,
                 "distro": snapshot.distro,
