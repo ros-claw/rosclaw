@@ -699,6 +699,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 		// -- 全量 ROSClaw 命令（NA-FIX-6，P0-8：InputGuard 允许的必须真实注册） --
 		for (const [name, spec] of Object.entries(
 			buildCommandHandlers({
+				thinking: pi,
 				rosclawHome: options.rosclawHome,
 				active: options.active,
 				center,

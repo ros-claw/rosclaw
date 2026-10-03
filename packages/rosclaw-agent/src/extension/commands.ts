@@ -5,7 +5,7 @@
  * operatord 通道（模型/agentd/Pi session 全卡死也可触发）。
  */
 
-import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { defaultOperatorSocket, operatorCall } from "../bridge/operatord-client.js";
 import type { ActiveSessionContext } from "../session/active-context.js";
 import type { ProductStateCenter } from "../session/state-center.js";
@@ -21,6 +21,8 @@ export interface CommandDeps {
 	/** PR-SIX-5：UI/回答语言策略（/language 读写并持久化）。 */
 	locale: LocaleManager;
 	registeredToolNames: () => string[];
+	/** PI puts thinking controls on ExtensionAPI, not the command context. */
+	thinking?: Pick<ExtensionAPI, "setThinkingLevel" | "getThinkingLevel" | "getSettings">;
 }
 
 type Handler = (args: string, ctx: ExtensionCommandContext) => Promise<void>;
@@ -439,7 +441,7 @@ export function buildCommandHandlers(deps: CommandDeps): Record<string, { descri
 		},
 		effort: {
 			// PR-N9：/effort auto|low|medium|high——真实切换 reasoning
-			// effort（Pi thinking level 同映射），持久化在 settings。
+			// auto 恢复配置默认；PI API 仅改变当前会话，不冒称修改全局设置。
 			description: "推理强度 auto|low|medium|high",
 			handler: async (args, ctx) => {
 				const value = args.trim().toLowerCase();
@@ -448,9 +450,20 @@ export function buildCommandHandlers(deps: CommandDeps): Record<string, { descri
 					notify(ctx, "用法：/effort auto|low|medium|high", "warning");
 					return;
 				}
-				(ctx as unknown as { setThinkingLevel(l: string): void })
-					.setThinkingLevel(value);
-				notify(ctx, `推理强度已设为 ${value}`, "info");
+				const host = deps.thinking;
+				if (!host) {
+					notify(ctx, "当前宿主不提供推理强度接口，未变更", "warning");
+					return;
+				}
+				const settings = host.getSettings();
+				const modelDefault = ctx.model
+					? settings.modelThinkingLevels?.[`${ctx.model.provider}/${ctx.model.id}`]
+					: undefined;
+				const level = value === "auto"
+					? modelDefault ?? settings.defaultThinkingLevel ?? "medium"
+					: value as "low" | "medium" | "high";
+				host.setThinkingLevel(level);
+				notify(ctx, `推理强度 ${value} → ${host.getThinkingLevel()}（当前会话）`, "info");
 			},
 		},
 		sessions: {

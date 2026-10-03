@@ -35,10 +35,14 @@ test("N9: /effort 接受 auto|low|medium|high 并真实应用", async () => {
 		center: undefined as never,
 		locale: undefined as never,
 		registeredToolNames: () => [],
+		thinking: {
+			setThinkingLevel: (level) => { applied.push(level); },
+			getThinkingLevel: () => "high",
+			getSettings: () => ({}),
+		},
 	});
 	const ctx = {
 		ui: { notify: (msg: string) => { notified = msg; } },
-		setThinkingLevel: (level: string) => { applied.push(level); },
 	} as never;
 	await handlers.effort.handler("high", ctx);
 	assert.deepEqual(applied, ["high"]);
@@ -80,4 +84,55 @@ test("N9: Working… 被结构化阶段替代", async () => {
 	assert.match(opPhase, /730\/7307/);
 	// 无活动时回到默认。
 	assert.equal(phaseWorkingMessage({ currentTool: null, operation: null }), "Working…");
+});
+
+test("PI compatibility: /effort uses ExtensionAPI, command context has no setter", async () => {
+	const { buildCommandHandlers } = await import("../src/extension/commands.js");
+	const applied: string[] = [];
+	let notice = "";
+	const handlers = buildCommandHandlers({
+		rosclawHome: "/tmp/x", active: undefined as never, center: undefined as never,
+		locale: undefined as never, registeredToolNames: () => [],
+		thinking: {
+			setThinkingLevel: (level: string) => { applied.push(level); },
+			getThinkingLevel: () => "medium",
+			getSettings: () => ({ defaultThinkingLevel: "low", modelThinkingLevels: { "test/model": "high" } }),
+		},
+	} as never);
+	const ctx = { ui: { notify: (text: string) => { notice = text; } }, model: { provider: "test", id: "model" } } as never;
+	await handlers.effort.handler("medium", ctx);
+	assert.deepEqual(applied, ["medium"]);
+	assert.match(notice, /medium/);
+	await handlers.effort.handler("auto", ctx);
+	assert.deepEqual(applied, ["medium", "high"]);
+	assert.match(notice, /medium/, "report effective level after PI capability clamping");
+});
+
+test("PI compatibility: /effort auto restores configured default or medium, never auto", async () => {
+	const { buildCommandHandlers } = await import("../src/extension/commands.js");
+	for (const configured of ["low", undefined] as const) {
+		const applied: string[] = [];
+		const handlers = buildCommandHandlers({
+			rosclawHome: "/tmp/x", active: undefined as never, center: undefined as never,
+			locale: undefined as never, registeredToolNames: () => [],
+			thinking: {
+				setThinkingLevel: (level) => { applied.push(level); },
+				getThinkingLevel: () => "off",
+				getSettings: () => ({ defaultThinkingLevel: configured }),
+			},
+		});
+		let notice = "";
+		await handlers.effort.handler("auto", { ui: { notify: (s: string) => { notice = s; } } } as never);
+		assert.deepEqual(applied, [configured ?? "medium"]);
+		assert.match(notice, /→ off/, "clamped non-reasoning models report actual off");
+	}
+});
+
+test("PI compatibility: /effort without host does not claim success", async () => {
+	const { buildCommandHandlers } = await import("../src/extension/commands.js");
+	const handlers = buildCommandHandlers({ rosclawHome: "/tmp/x", active: undefined as never,
+		center: undefined as never, locale: undefined as never, registeredToolNames: () => [] });
+	let notice = "";
+	await handlers.effort.handler("high", { ui: { notify: (s: string) => { notice = s; } } } as never);
+	assert.match(notice, /未变更/);
 });

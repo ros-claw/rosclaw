@@ -476,3 +476,16 @@ U03 side independently verifies in 25.9s/four calls; repaired native PI A
 verifies in 26.4s/two calls (14 inline Python lines). Both persisted model
 identities are openai-codex/gpt-6.1-sol. Temporary OAuth files were removed
 from trial directories and excluded from durable evidence copies.
+
+A PI compatibility audit also found that `/effort` called a nonexistent
+`ExtensionCommandContext.setThinkingLevel`; the old unit fixture incorrectly
+invented that method. PI exposes it on ExtensionAPI, and `auto` is not a PI
+ThinkingLevel. A real-shaped context counterexample fails with TypeError.
+ROSClaw now injects the typed host API, restores per-model/global configured
+default (medium fallback) for auto, and reports the actual capability-clamped
+level. It changes the current session, not global settings. Missing host support
+reports no change. All 23 related command/UI regressions and TS build pass; a
+fresh real PI-backed ROSClaw TUI executes high → medium → auto with actual API
+readback and no model turn/network call. PI lazily creates no session JSONL for
+this command-only smoke, so no persistence claim is inferred. The formal active
+physical session remains on its previously loaded code until safe maintenance.
