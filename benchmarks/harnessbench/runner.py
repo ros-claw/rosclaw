@@ -290,9 +290,30 @@ def has_model_key(model: str = "kimi-k3") -> bool:
     )
 
 
+def _socket_safe_home(evidence_home: Path) -> Path:
+    """Keep durable evidence in place, bind sockets through a private short alias.
+
+    Unix socket limits apply to the supplied UTF-8 pathname, not its resolved
+    target. A unique 0700 alias directory keeps concurrent trials independent.
+    The alias is retained for replay; only its symlink lives in /tmp.
+    """
+    socket_path = evidence_home.absolute() / "run" / "pi-bridge.sock"
+    limit = 103 if sys.platform == "darwin" else 107
+    if len(os.fsencode(socket_path)) <= limit:
+        return evidence_home
+    import tempfile
+
+    evidence_home.mkdir(parents=True, exist_ok=True)
+    alias_dir = Path(tempfile.mkdtemp(prefix="rosclaw-hb-", dir="/tmp"))
+    alias = alias_dir / "rh"
+    alias.symlink_to(evidence_home.absolute(), target_is_directory=True)
+    return alias
+
+
 def _prepare_home_with_profile(home: Path, profile: dict[str, Any]) -> tuple[Path, dict[str, str]]:
     """本地模型档案的 B 侧 HOME（与 _prepare_home 同构，provider
     指向本地 OpenAI 兼容端点；无 key 要求）。"""
+    home = _socket_safe_home(home)
     (home / "run").mkdir(parents=True, exist_ok=True)
     (home / "config.yaml").write_text(
         "agent:\n  enabled: true\n  default_profile: embodied_default\n"
@@ -578,8 +599,17 @@ def run_leg(
             session_dir = work / ".pi-agent" / "sessions"
         elif profile is not None:
             home, home_env = _prepare_home_with_profile(work / "rh", profile)
+            record["runtime_home"] = str(home)
+            record["evidence_home"] = str(work / "rh")
             session = PtySession(
-                [sys.executable, "-m", "rosclaw.entrypoint", "chat"],
+                [
+                    sys.executable,
+                    "-m",
+                    "rosclaw.entrypoint",
+                    "chat",
+                    "--workspace",
+                    str(work.absolute()),
+                ],
                 home_env,
                 cwd=work,
                 log_path=work / "pty.log",
@@ -590,9 +620,20 @@ def run_leg(
             from tests.eval.agent_tier import driver
 
             run = driver.AgentRun(work, settle_timeout=settle_timeout)
-            home_env = run.env
+            home_env = dict(run.env)
+            home = _socket_safe_home(run.home)
+            home_env["ROSCLAW_HOME"] = str(home)
+            record["runtime_home"] = str(home)
+            record["evidence_home"] = str(run.home)
             session = PtySession(
-                [sys.executable, "-m", "rosclaw.entrypoint", "chat"],
+                [
+                    sys.executable,
+                    "-m",
+                    "rosclaw.entrypoint",
+                    "chat",
+                    "--workspace",
+                    str(work.absolute()),
+                ],
                 home_env,
                 cwd=work,
                 log_path=work / "pty.log",
