@@ -367,3 +367,30 @@ covers the older prefix through the progress-v5 period; the newer contrast,
 shallow INIT and v17 implementation records remain in the retained suffix.
 This boundary was independently checked against firstKeptEntryId, rather than
 mistaking an older-prefix summary for loss of the newer results.
+
+The station rearm repair was implemented by native ROSClaw: the old instantaneous
+outgoing-velocity check could miss departure while waiting for mechanical recovery.
+The repaired controller latches a real contact episode's departure, then checks
+actual hinge angle/velocity, separation and recovery time. Frozen independent
+review confirms three strict valid alternating returns for the G1-start seed11
+case, with a fourth contact whose return fails. The M20-start case remains at one
+strict return. All-ms ball continuity, contact-frame/sign transforms, momentum,
+state/mesh/source hashes and flight health pass. This is a selected, reduced-net,
+perfect-state, experimental-racket simulation result, not robust bilateral tennis.
+The corresponding independent report is
+`phaseC_v17_station_rearm_latch_cbcde1cc7ef6_independent.json` in the local audit directory.
+
+A live Kimi R03 trial was incorrectly recorded as an infra timeout: final assistant
+stop persisted 596.932s after session creation, within its 600s turn budget, but
+`_wait_settled` required another 20s of PTY quiet. The frozen answer and native
+patch/rollout/reset receipts independently verify successfully; original ERROR
+records remain unchanged with a separate reverification. HarnessBench now uses
+persisted final assistant stop (envelope persistence time, not generation-start
+time) for both A/B legs and waits for any native background operations. Old history,
+tool-use/results, partial follow-up writes, active operations and operations finished
+after the original deadline cannot close a trial. Retries reset the turn's lower
+bound without extending its deadline. Quiet fallback remains for legacy callers
+without session directories; an answer file or a completion claim cannot close
+new trials. Synthetic regression includes the near-deadline counterexample.
+A real native OpenAI U02 trial passed in 23.0s with four tool calls and no infra
+retry; this is a new smoke trial, not a model-ranking comparison to older timings.

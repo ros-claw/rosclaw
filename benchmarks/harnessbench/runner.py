@@ -20,8 +20,10 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import sqlite3
 import sys
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -78,6 +80,7 @@ def error_record(
     ):
         record.setdefault(key, default)
     return record
+
 
 #: B 侧提示追加（A/B 公平：双方都知道自己有什么工具）。
 _B_TOOL_HINT = (
@@ -364,17 +367,65 @@ def _is_recoverable_failure(chunk: bytes) -> bool:
     )
 
 
+def _session_turn_stopped(session_dir: Path, sent_at: float, deadline: float) -> bool:
+    """Read the persisted final assistant stop, never completion claims or PTY quiet.
+
+    Envelope timestamps record persistence, unlike message timestamps which can
+    record generation start. Partial writes, old turns and active native jobs
+    cannot complete a trial. This only closes the turn; the oracle scores it.
+    """
+    latest: tuple[float, dict[str, Any]] | None = None
+    try:
+        for path in session_dir.glob("**/*.jsonl"):
+            for line in path.read_text().splitlines():
+                entry = json.loads(line)
+                if entry.get("type") != "message":
+                    continue
+                stamp = datetime.fromisoformat(entry["timestamp"].replace("Z", "+00:00"))
+                timestamp = (stamp if stamp.tzinfo else stamp.replace(tzinfo=UTC)).timestamp()
+                if latest is None or timestamp >= latest[0]:
+                    latest = timestamp, entry.get("message", {})
+        if latest is None or not sent_at <= latest[0] <= deadline:
+            return False
+        message = latest[1]
+        if message.get("role") != "assistant" or message.get("stopReason") != "stop":
+            return False
+        if any(part.get("type") == "toolCall" for part in message.get("content", [])):
+            return False
+        db = session_dir.parent.parent / "agentd" / "missions.db"
+        if db.exists():
+            with sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=0.1) as conn:
+                for state, ended_at in conn.execute("SELECT state, ended_at FROM operations"):
+                    if state not in {"SUCCEEDED", "FAILED", "CANCELLED", "LOST"}:
+                        return False
+                    if ended_at:
+                        ended = datetime.fromisoformat(ended_at.replace("Z", "+00:00"))
+                        if (
+                            ended if ended.tzinfo else ended.replace(tzinfo=UTC)
+                        ).timestamp() > deadline:
+                            return False
+        return True
+    except (OSError, ValueError, KeyError, TypeError, sqlite3.Error):
+        return False
+
+
 def _wait_settled(
-    session, workspace: Path, settle_timeout: float, *, prompt: str | None = None
+    session,
+    workspace: Path,
+    settle_timeout: float,
+    *,
+    prompt: str | None = None,
+    session_dir: Path | None = None,
 ) -> int:
-    """等回合收束：输出静止 ≥20s 且工作区文件静止 ≥15s
-    （driver.AgentRun 同款判据——两侧同标准）。
+    """A/B 都优先采用会话的最终 stop 与后台作业终态；旧调用才用静默。
 
     provider 首 token 30s 无响应会自动取消请求（实测两例）——
     检测到取消标记且传了 prompt 就自动重发（最多 2 次，
     返回重发次数计入 infra_retries；这是产品自身的"可重发"语义，
     不把 API 瞬时故障算成 Agent 能力失败）。"""
     deadline = time.monotonic() + settle_timeout
+    sent_at = time.time()
+    wall_deadline = sent_at + settle_timeout
     started = time.monotonic()
     with session._lock:
         baseline_len = len(session.output)
@@ -384,8 +435,12 @@ def _wait_settled(
     scanned = baseline_len
     activity_seen = False
     activity_baseline = baseline_len  # 8s 宽限后再定基线（排除 prompt 回显）
-    while time.monotonic() < deadline:
+    while True:
         now = time.monotonic()
+        if session_dir is not None and _session_turn_stopped(session_dir, sent_at, wall_deadline):
+            return retries
+        if now >= deadline:
+            break
         with session._lock:
             current = len(session.output)
             output = bytes(session.output)
@@ -409,6 +464,7 @@ def _wait_settled(
             ):
                 retries += 1
                 quiet_since = time.monotonic()
+                sent_at = time.time()
                 session.send(prompt + "\r")
                 time.sleep(2.0)
                 continue
@@ -423,6 +479,7 @@ def _wait_settled(
             retries += 1
             started = time.monotonic()
             quiet_since = time.monotonic()
+            sent_at = time.time()
             session.send(prompt + "\r")
             time.sleep(2.0)
             continue
@@ -435,7 +492,8 @@ def _wait_settled(
             newest = time.time()
         files_quiet = time.time() - newest > 15
         if (
-            activity_seen
+            session_dir is None
+            and activity_seen
             and time.monotonic() - quiet_since > 20
             and files_quiet
             and time.monotonic() - started > 45
@@ -523,7 +581,9 @@ def run_leg(
             session_dir = run.home / "agent" / "sessions"
 
         session.send(prompt + "\r")
-        record["infra_retries"] = _wait_settled(session, work, settle_timeout, prompt=prompt)
+        record["infra_retries"] = _wait_settled(
+            session, work, settle_timeout, prompt=prompt, session_dir=session_dir
+        )
     except Exception as exc:
         # stall/未收束/启动失败：保留已收集指标（真实 wall_time 由
         # finally 填入），包成 RunInfraError 让调用方落诚实 ERROR 记录。

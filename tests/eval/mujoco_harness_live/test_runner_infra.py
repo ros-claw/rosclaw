@@ -8,6 +8,8 @@ RunInfraError 携带部分记录，error_record 保留真实指标。
 
 from __future__ import annotations
 
+from datetime import UTC
+
 import pytest
 
 from benchmarks.harnessbench import runner
@@ -76,9 +78,7 @@ def test_run_leg_stall_raises_with_real_wall_time(tmp_path, monkeypatch) -> None
     def _stall(*args, **kwargs):  # noqa: ANN002, ANN003, ANN202
         raise AssertionError("回合 1200.0s 未收束（见 PTY 日志）")
 
-    monkeypatch.setattr(
-        "tests.agentd.test_product_journey.PtySession", _FakeSession, raising=True
-    )
+    monkeypatch.setattr("tests.agentd.test_product_journey.PtySession", _FakeSession, raising=True)
     monkeypatch.setattr(runner, "_wait_settled", _stall)
 
     with pytest.raises(RunInfraError) as excinfo:
@@ -107,3 +107,163 @@ def test_recoverable_failure_markers() -> None:
     assert not _is_recoverable_failure(b"working... analysing trace")
     assert not _is_recoverable_failure("超时重试是常见策略".encode())
     assert not _is_recoverable_failure(b"")
+
+
+def test_terminal_stop_near_deadline_does_not_require_quiet(tmp_path, monkeypatch):
+    """A real final stop at 597s must not become a 600s infra timeout."""
+    import json
+    import threading
+    from datetime import datetime
+
+    clock = [0.0]
+    sessions = tmp_path / "rh" / "agent" / "sessions"
+    sessions.mkdir(parents=True)
+
+    class Session:
+        _lock = threading.Lock()
+        output = bytearray(b"prompt")
+
+    def sleep(seconds):
+        clock[0] += seconds
+        if clock[0] == 597:
+            entry = {
+                "type": "message",
+                "timestamp": datetime.fromtimestamp(1000 + clock[0], UTC).isoformat(),
+                "message": {"role": "assistant", "stopReason": "stop", "content": []},
+            }
+            (sessions / "test.jsonl").write_text(json.dumps(entry) + "\n")
+
+    monkeypatch.setattr(runner.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(runner.time, "time", lambda: 1000 + clock[0])
+    monkeypatch.setattr(runner.time, "sleep", sleep)
+    assert runner._wait_settled(Session(), tmp_path, 600, session_dir=sessions) == 0
+    assert clock[0] == 597
+
+
+@pytest.mark.parametrize("reason,role", [("toolUse", "assistant"), (None, "toolResult")])
+def test_terminal_detector_does_not_accept_tools(tmp_path, reason, role):
+    import json
+
+    p = tmp_path / "sessions"
+    p.mkdir()
+    (p / "s.jsonl").write_text(
+        json.dumps(
+            {
+                "type": "message",
+                "timestamp": "2026-10-03T06:16:42Z",
+                "message": {"role": role, "stopReason": reason},
+            }
+        )
+        + "\n"
+    )
+    assert not runner._session_turn_stopped(p, 0, float("inf"))
+
+
+def test_terminal_detector_rejects_old_history_and_late_stop(tmp_path):
+    import json
+
+    p = tmp_path / "sessions"
+    p.mkdir()
+    (p / "s.jsonl").write_text(
+        json.dumps(
+            {
+                "type": "message",
+                "timestamp": "1970-01-01T00:01:40Z",
+                "message": {"role": "assistant", "stopReason": "stop"},
+            }
+        )
+        + "\n"
+    )
+    assert not runner._session_turn_stopped(p, 101, 200)
+    assert not runner._session_turn_stopped(p, 0, 99)
+    assert runner._session_turn_stopped(p, 0, 100)
+
+
+def test_terminal_stop_waits_for_native_background_operation(tmp_path):
+    import json
+    import sqlite3
+
+    home = tmp_path / "rh"
+    p = home / "agent" / "sessions"
+    p.mkdir(parents=True)
+    (p / "s.jsonl").write_text(
+        json.dumps(
+            {
+                "type": "message",
+                "timestamp": "1970-01-01T00:01:40Z",
+                "message": {"role": "assistant", "stopReason": "stop"},
+            }
+        )
+        + "\n"
+    )
+    (home / "agentd").mkdir()
+    with sqlite3.connect(home / "agentd" / "missions.db") as conn:
+        conn.execute("CREATE TABLE operations (state TEXT, ended_at TEXT)")
+        conn.execute("INSERT INTO operations VALUES ('DEGRADED', NULL)")
+    assert not runner._session_turn_stopped(p, 0, 200)
+    with sqlite3.connect(home / "agentd" / "missions.db") as conn:
+        conn.execute("UPDATE operations SET state='SUCCEEDED'")
+    assert runner._session_turn_stopped(p, 0, 200)
+
+
+def test_terminal_detector_does_not_accept_partial_followup(tmp_path):
+    import json
+
+    p = tmp_path / "sessions"
+    p.mkdir()
+    (p / "s.jsonl").write_text(
+        json.dumps(
+            {
+                "type": "message",
+                "timestamp": "1970-01-01T00:01:40Z",
+                "message": {"role": "assistant", "stopReason": "stop"},
+            }
+        )
+        + '\n{"type":"message"'
+    )
+    assert not runner._session_turn_stopped(p, 0, 200)
+
+
+def test_background_finished_after_budget_is_not_accepted(tmp_path):
+    import json
+    import sqlite3
+
+    home = tmp_path / "rh"
+    p = home / "agent" / "sessions"
+    p.mkdir(parents=True)
+    (p / "s.jsonl").write_text(
+        json.dumps(
+            {
+                "type": "message",
+                "timestamp": "1970-01-01T00:01:40Z",
+                "message": {"role": "assistant", "stopReason": "stop"},
+            }
+        )
+        + "\n"
+    )
+    (home / "agentd").mkdir()
+    with sqlite3.connect(home / "agentd" / "missions.db") as conn:
+        conn.execute("CREATE TABLE operations (state TEXT, ended_at TEXT)")
+        conn.execute("INSERT INTO operations VALUES ('SUCCEEDED', '1970-01-01T00:03:21Z')")
+    assert not runner._session_turn_stopped(p, 0, 200)
+
+
+def test_followup_user_message_invalidates_previous_stop(tmp_path):
+    import json
+
+    p = tmp_path / "sessions"
+    p.mkdir()
+    entries = [
+        {
+            "type": "message",
+            "timestamp": "1970-01-01T00:01:40Z",
+            "message": {"role": "assistant", "stopReason": "stop"},
+        },
+        {
+            "type": "message",
+            "timestamp": "1970-01-01T00:01:41Z",
+            "message": {"role": "user", "content": []},
+        },
+    ]
+    (p / "s.jsonl").write_text("\n".join(json.dumps(e) for e in entries) + "\n")
+    assert not runner._session_turn_stopped(p, 0, 200)
