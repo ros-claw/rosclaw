@@ -317,6 +317,7 @@ V2_TASKS: dict[str, BenchTask] = {
             "请搞清楚它的控制通道结构（一个执行器可能占多个 ctrl 槽），"
             '并把答案写进 answer.json：{"control_channels": [{"actuator": ..., '
             '"role": ..., "index": ...}, ...]}\n'
+            "role 使用 pos/vel/ff/ctrl；index 为编译后 ctrl 向量中的整数索引。\n"
             "要求：答案必须来自编译后的真相核查。"
         ),
     ),

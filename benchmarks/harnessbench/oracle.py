@@ -1189,7 +1189,15 @@ def _judge_understanding(
                 and isinstance(c.get("role"), str) and type(c.get("index")) is int
                 for c in submitted
             )
-            given = sorted((c["actuator"], c["role"], c["index"]) for c in submitted) if valid else None
+            role_aliases = {
+                "position": "pos", "position setpoint": "pos", "position_setpoint": "pos",
+                "velocity": "vel", "velocity setpoint": "vel", "velocity_setpoint": "vel",
+                "feedforward": "ff", "feedforward input": "ff", "feedforward_input": "ff",
+            }
+            given = sorted(
+                (c["actuator"], role_aliases.get(c["role"].strip().lower(), c["role"].strip().lower()), c["index"])
+                for c in submitted
+            ) if valid else None
             ok = given == truth
         elif field == "sensors":
             truth = sorted(

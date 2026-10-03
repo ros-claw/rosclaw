@@ -588,3 +588,12 @@ def test_understanding_cannot_replace_input_model(tmp_path):
     path.write_text('<mujoco><worldbody/></mujoco>')
     _answer(tmp_path, {'sensors': []})
     assert not hb_oracle.judge('U03', tmp_path)['verified_success']
+
+
+def test_u02_accepts_unambiguous_setpoint_role_names(tmp_path):
+    _stage(tmp_path, 'U02')
+    _answer(tmp_path, {'control_channels': [
+        {'actuator': 'srv_pid', 'role': 'position setpoint', 'index': 0},
+        {'actuator': 'srv_pid', 'role': 'velocity setpoint', 'index': 1},
+    ]})
+    assert hb_oracle.judge('U02', tmp_path)['verified_success']

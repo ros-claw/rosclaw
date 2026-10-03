@@ -327,3 +327,19 @@ MuJoCo 3.13.0 installed headers were cross-checked against official mjmodel.h /
 mjtype.h. All 33 v2 synthetic oracle tests passed after these four red cases;
 existing physical receipt/shadow cases in this scope remain passing.
 The separate reopening/admission/terminal-authority suites passed 24 tests.
+
+The expanded live Kimi U02 trial independently measured correct control indices
+and physical setpoint semantics, but wrote "position setpoint" / "velocity
+setpoint" rather than undocumented oracle tokens pos/vel. Its original FAIL is
+retained; independent read-only reverification passes with explicit, finite
+synonym normalization. The prompt now documents canonical role values; swapped
+indices, missing types and modified models still fail. The updated synthetic
+oracle suite passed 34 tests. This interface repair does not count as a new
+successful model trial. The stream-idle notice also now says "waiting, not yet
+cancelled", avoiding the misleading claim of an interrupted stream before any
+cancellation occurred.
+
+Compiled PID truth uses control addresses/counts and signature bits described
+in the [official MuJoCo model header](https://github.com/google-deepmind/mujoco/blob/main/include/mujoco/mjmodel.h)
+and [input enum header](https://github.com/google-deepmind/mujoco/blob/main/include/mujoco/mjtype.h),
+checked against the installed 3.13.0 headers.

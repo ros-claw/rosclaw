@@ -165,7 +165,7 @@ export class ProviderStallWatchdog {
 			setTimeout(() => {
 				if (!this.active || this.abortedOnce) return;
 				try {
-					this.opts.notice(`模型生成中断流（${seconds(this.opts.streamIdleStatusMs)} 无新内容）——仍在等待 Provider…`);
+					this.opts.notice(`模型暂未输出新内容（${seconds(this.opts.streamIdleStatusMs)}）——仍在等待 Provider，尚未取消…`);
 				} catch {
 					// M8。
 				}
