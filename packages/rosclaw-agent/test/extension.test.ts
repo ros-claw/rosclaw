@@ -124,3 +124,9 @@ test("session lifecycle hooks registered (fork veto point)", async () => {
 	assert.ok(handlers.get("session_start"), "session_start");
 	assert.ok(handlers.get("session_before_fork"), "session_before_fork");
 });
+
+test("compaction lifecycle observes native start and failed terminal hooks", async () => {
+	const { allHandlers } = await collectHandlers();
+	assert.ok(allHandlers.get("session_before_compact"), "compaction start must not remain silent");
+	assert.ok(allHandlers.get("session_compact_failed"), "failure must disarm compaction observation");
+});

@@ -199,3 +199,31 @@ injected nonfinite acceleration and native CLI error references. The combined
 rollout/receipt/keyframe/contract/replay cohort passes; source mypy and Ruff pass.
 Inspect local `framework_fault_injection/runtime_failure_evidence` for immutable
 sample objects, the native error and the targeted regression transcript.
+
+## Compaction observability without speculative cancellation
+
+Installed PI 1.0 compaction uses its shared provider stream but only awaits
+the summary result. Session subscriptions do not receive summary token deltas;
+the existing turn watchdog is disarmed before automatic compaction. A long
+summary therefore cannot be diagnosed as a stalled stream merely from missing
+session entries. PI exposes distinct public start/success/failure hooks and
+the compaction AbortSignal. Its separate `abortCompaction()` API exists, but
+automatic cancellation requires actual stream progress evidence.
+
+ROSClaw now observes those public extension hooks. After 30 seconds it shows
+an elapsed waiting notice, then at most once per minute. The notice explicitly
+states that progress cannot currently determine a stopped request. The observer
+never cancels or changes the provider signal, summary, user goal or prepared
+session branch. Bounded lifecycle records are written to local
+`logs/compaction-lifecycle.log`; there is no `appendEntry` during prepared
+compaction. Success, failure, cancellation, session shutdown or replacement
+detach timers and AbortSignal listeners. Notification/log failures are isolated.
+
+A prior red extension test reproduced missing start/failure observation.
+Fifteen targeted native tests pass, including the installed PI's public
+`generateSummaryWithUsage` with a delayed deterministic provider stream,
+which completes without cancellation despite missing session token events.
+Other cases cover independent observers, terminal cleanup, cancellation,
+shutdown, failed UI/log callbacks, native hook wiring and existing compact
+task/artifact anchors. This improves observability; it does not claim to
+resolve or identify a genuinely stalled summarization request.

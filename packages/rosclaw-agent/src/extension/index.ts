@@ -36,6 +36,7 @@ import { InputController } from "../native/input-controller.js";
 import { OperationWatcher } from "../native/operation-watcher.js";
 import { suppressModelTurn } from "../native/turn-disposition.js";
 import { ProviderStallWatchdog, providerWatchdogTimingFromEnv } from "../native/provider-watchdog.js";
+import { registerCompactionObserver } from "../native/compaction-observer.js";
 import {
 	renderTerminalReply,
 	type TerminalOutcome,
@@ -674,6 +675,15 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			};
 		});
 
+		registerCompactionObserver(pi, {
+			notice: text => latestCtx?.ui.notify(text, "info"),
+			log: record => {
+				const dir = `${options.rosclawHome}/logs`;
+				mkdirSync(dir, { recursive: true });
+				appendFileSync(`${dir}/compaction-lifecycle.log`,
+					`${JSON.stringify({ at: new Date().toISOString(), ...record })}\n`);
+			},
+		});
 		// P1-A4（0824 总纲）：任何 compaction 完成后从内核权威账本把
 		// TaskRefs 锚回 LLM 上下文——compact 后 task/artifact refs 不丢。
 		registerCompactAnchor(pi as never, {
