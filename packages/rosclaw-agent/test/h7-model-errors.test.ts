@@ -54,4 +54,6 @@ test("二轮自审：403 并发限额 → PROVIDER_RATE_LIMITED（不是凭据/�
 test("timeouts and aborts are classified as recoverable", () => {
 	assert.equal(classifyModelError("Request timed out.").code, "PROVIDER_UNAVAILABLE");
 	assert.equal(classifyModelError("Operation aborted").code, "MODEL_REQUEST_CANCELLED");
+	assert.equal(classifyModelError("This operation was aborted").code, "MODEL_REQUEST_CANCELLED");
+	assert.equal(classifyModelError("The request was canceled").code, "MODEL_REQUEST_CANCELLED");
 });

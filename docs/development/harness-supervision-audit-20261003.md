@@ -51,6 +51,11 @@ needed. A successful compaction event alone does not prove summary correctness.
   reference; credentials are not written to generated model configuration.
 - Fix the PTY progress test to wait for an actual numbered progress line rather
   than matching the command echo containing `progress-step-$i`.
+- Recognize the actual PI cancellation wording, `This operation was aborted`,
+  as a recoverable cancellation rather than an unknown provider failure.
+- Background-operation guidance permits independent remaining steps that do not
+  modify the operation's inputs. Dependent work still waits for the automatic
+  result notification; repeated polling and sleeping remain discouraged.
 - Prefer the reported repair candidate before running the existing independent
   lineage, audit and strict replay gates. The oracle previously chose the first
   passing model in store order, falsely rejecting a later verified iteration.

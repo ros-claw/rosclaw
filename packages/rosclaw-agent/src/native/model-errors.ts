@@ -30,7 +30,7 @@ export interface ClassifiedModelError {
  *  不靠模型猜。 */
 export function classifyModelError(raw: string): ClassifiedModelError {
 	const text = raw.toLowerCase();
-	if (/operation aborted|request (aborted|cancelled|canceled)|aborterror/.test(text)) {
+	if (/(?:operation|request) (?:was )?(?:aborted|cancelled|canceled)|aborterror/.test(text)) {
 		return {
 			code: "MODEL_REQUEST_CANCELLED",
 			explanation: "模型请求已取消",
