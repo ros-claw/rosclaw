@@ -357,7 +357,9 @@ V2_TASKS: dict[str, BenchTask] = {
         },
         prompt=(
             "工作区 model/bad_reset.xml 的 keyframe reset 落态异常。\n"
-            "请诊断并修复。修复必须基于原模型修改；留可复核证据；"
+            "请诊断并修复。只允许原模型home keyframe.qpos的patch；不要改本体/重力/接触/默认初态。"
+            "用实际 --keyframe home 或model-bound keyframe_ref 初始化候选，actual rollout至少0.5秒，保留完整初态snapshot与runtime_validation。"
+            "默认qpos0的rollout不能替代home reset证据。候选receipt调用rosclaw sim strict-replay RECEIPT_REF，原生JSON报告保留tool stdout，必须RAW_EXACT。"
             'answer.json：{"problems": [...], "fixed_model_ref": "<引用或路径>"}。'
         ),
     ),
