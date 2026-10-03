@@ -5,10 +5,10 @@ import { generateSummaryWithUsage } from "@earendil-works/pi-coding-agent";
 import { CompactionObserver } from "../src/native/compaction-observer.js";
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-function fixture() {
+function fixture(owner?: () => { session_id?: string; pid?: number }) {
 	const notices: string[] = [];
 	const logs: Record<string, unknown>[] = [];
-	const observer = new CompactionObserver({ notice: t => notices.push(t), log: r => logs.push(r),
+	const observer = new CompactionObserver({ owner, notice: t => notices.push(t), log: r => logs.push(r),
 		firstNoticeMs: 10, repeatNoticeMs: 25 });
 	return { observer, notices, logs };
 }
@@ -58,14 +58,20 @@ test("abort observer detaches timers and distinguishes cancellation from failure
 });
 
 test("independent session observers retain their own deadlines and terminal state", async () => {
-	const a = fixture(); const b = fixture();
+	let currentSession = "session_a";
+	const a = fixture(() => ({ session_id: currentSession })); const b = fixture();
 	a.observer.started("threshold", new AbortController().signal);
+	currentSession = "replacement_session";
 	b.observer.started("manual", new AbortController().signal);
 	a.observer.ended("failed", "provider disconnected");
 	await wait(55);
 	assert.equal(a.notices.length, 0);
 	assert.ok(b.notices.length >= 1);
 	assert.equal(a.logs.at(-1)?.status, "failed");
+	assert.notEqual(a.logs[0].compaction_id, b.logs[0].compaction_id);
+	assert.ok(a.logs.every(record => record.compaction_id === a.logs[0].compaction_id));
+	assert.ok(a.logs.every(record => record.session_id === "session_a"));
+	assert.ok(b.logs.every(record => record.compaction_id === b.logs[0].compaction_id));
 	b.observer.ended("shutdown");
 	assert.equal(b.logs.at(-1)?.status, "shutdown");
 });
