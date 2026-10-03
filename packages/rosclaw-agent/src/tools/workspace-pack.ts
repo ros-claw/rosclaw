@@ -278,7 +278,7 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 				const progress = setInterval(() => {
 					try {
 						onUpdate?.({
-							content: [{ type: "text", text: `${degradedMarker}running wall=${Date.now() - started}ms; Esc cancels the command and its children.\n${buf.slice(-4096)}` }],
+							content: [{ type: "text", text: `${degradedMarker}running wall=${Date.now() - started}ms; Esc interrupts this task, including its running background operations.\n${buf.slice(-4096)}` }],
 							details: { running: true },
 						});
 					} catch { /* UI failure must not orphan the command. */ }

@@ -219,3 +219,16 @@ overlapping active calls, and resets on agent end. A real extension-event test
 first reproduced the stale label, then passed with the repair; the full main
 TypeScript suite passed 250 tests with 3 skips. A running Node process loads this
 change only after a safe restart; rebuilding files does not update its modules.
+
+A third native compaction completed from 256,982 input tokens, with a distinct
+task anchor at revision 44. Its main summary preserves the recent failures,
+but the split-turn appendix contains older progress. Durable evidence and the
+new task anchor must take precedence; compaction is not a semantic guarantee.
+
+During supervisor maintenance, Esc canceled the two active video operations.
+The kernel correctly recorded CANCELLED with `user_interrupt`; this was a
+supervisor interruption mistake, not a silent worker loss. Their partial output
+is retained and must be rerendered under unique output names. Esc is intentionally
+a task interruption that includes its running background operations. Bash
+heartbeat wording and embodied guidance now state that scope explicitly. Three
+process-tree/heartbeat checks passed; cancellation semantics were not weakened.
