@@ -35,6 +35,18 @@ wave is required to claim agent visual task success under this stronger
 contract. Observation evidence is inspectable execution evidence, not remote
 attestation against a hostile agent controlling the host filesystem.
 
+The fresh native Kimi wave exposed a public API gap that the original renderer
+fixtures did not cover: `SimulationRuntime.snapshot(model_ref)` still created
+a legacy v1 snapshot, while the low-level fixtures explicitly called
+`initial_state_v2`. Correct labels/raw pixels therefore lacked the required
+full initial-state binding. Both V02/V03 historical wave results are retained.
+The public default now captures actual FULL_INTEGRATION v2 state without a
+physics step. Explicit legacy input references remain LEGACY_PARTIAL; missing
+history is not fabricated. Three actual runtime/CLI/MCP regression cases
+failed against the old default and now pass, including public CLI
+load→snapshot→observe→independent pixel verification. Independent reset/forward
+and `mj_getState` reproduce the entire captured vector exactly.
+
 ## Composite body boundary
 
 The trusted embodied envelope is constructed from the mission's body binding
