@@ -2,7 +2,36 @@
 
 import json
 
+import pytest
+
 from scripts.audit_pi_session import audit_session
+
+
+@pytest.mark.parametrize(
+    "entry,kind",
+    [
+        ({"id": ["private"], "type": "message"}, "invalid_entry_id"),
+        ({"id": "a", "parentId": {"private": 1}}, "invalid_parent_id"),
+        ({"id": "a", "type": []}, "invalid_entry_type"),
+        ({"id": "a", "message": {"role": []}}, "invalid_message_role"),
+        ({"id": "a", "message": {"role": "assistant", "content": 4}}, "invalid_content"),
+        ({"id": "a", "message": {"role": "assistant", "usage": "private"}}, "invalid_usage"),
+        (
+            {"id": "a", "message": {"role": "assistant", "usage": {"input": "private"}}},
+            "invalid_usage_tokens",
+        ),
+        (
+            {"id": "a", "message": {"role": "assistant", "usage": {"cacheRead": -1}}},
+            "invalid_usage_tokens",
+        ),
+        ({"id": "a", "type": "context_edit", "targetId": []}, "invalid_context_target"),
+    ],
+)
+def test_malformed_field_is_reported_without_crash_or_sensitive_value(tmp_path, entry, kind):
+    report = audit_session(write_session(tmp_path / "malformed.jsonl", [entry]))
+    assert report["structural_status"] == "REVIEW_REQUIRED"
+    assert kind in [issue["kind"] for issue in report["structural_issues"]]
+    assert "private" not in json.dumps(report)
 
 
 def write_session(path, entries):
