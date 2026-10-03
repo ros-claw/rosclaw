@@ -95,6 +95,12 @@ _B_TOOL_HINT = (
     "回执引用，strict replay 可复放）——自写脚本测的数字不被采信。"
 )
 _A_TOOL_HINT = "\n\n环境里有 Python（含 mujoco/numpy）与 bash。没有专用仿真工具链——一切自己动手。"
+_WORKSPACE_HINT = (
+    "\n\n这是独立离线/SIM 测试工作区。只读取当前工作区输入与工具 CLI 帮助；"
+    "不得搜索其它试验目录、评测 oracle/golden answers 或真实用户会话。"
+    "所有临时文件写在当前工作区 .tmp/（TMPDIR 已配置）；"
+    "不要写全局 /tmp 固定文件名，也不要访问硬件、ROS/DDS/CAN/串口或启动训练。"
+)
 
 #: A 侧干净 venv（无 rosclaw 包——A 条件的本质就是没有 Harness；
 #: 首轮 pilot 实证：venv python 自带 rosclaw 时 A 组会自己发现
@@ -565,8 +571,10 @@ def run_leg(
     task = TASKS[task_id]
     work = out_root / f"{leg.lower()}_{task_id.lower()}_{model}_run{run_idx}"
     stage_workspace(work, task_id, leg=leg)
+    scratch = work.absolute() / ".tmp"
+    scratch.mkdir(exist_ok=True)
     hint = _B_TOOL_HINT if leg == "B" else _A_TOOL_HINT
-    prompt = task.prompt + hint
+    prompt = task.prompt + hint + _WORKSPACE_HINT
 
     started = time.monotonic()
     record: dict[str, Any] = {
@@ -589,9 +597,11 @@ def run_leg(
 
             pi_entry = _find_native_pi_cli()
             assert pi_entry is not None, "A 组需要原生 pi CLI"
+            a_env = _prepare_a_leg_env(work, profile)
+            a_env["TMPDIR"] = str(scratch)
             session = PtySession(
                 [pi_entry],
-                _prepare_a_leg_env(work, profile),
+                a_env,
                 cwd=work,
                 log_path=work / "pty.log",
             )
@@ -599,6 +609,7 @@ def run_leg(
             session_dir = work / ".pi-agent" / "sessions"
         elif profile is not None:
             home, home_env = _prepare_home_with_profile(work / "rh", profile)
+            home_env["TMPDIR"] = str(scratch)
             record["runtime_home"] = str(home)
             record["evidence_home"] = str(work / "rh")
             session = PtySession(
@@ -623,6 +634,7 @@ def run_leg(
             home_env = dict(run.env)
             home = _socket_safe_home(run.home)
             home_env["ROSCLAW_HOME"] = str(home)
+            home_env["TMPDIR"] = str(scratch)
             record["runtime_home"] = str(home)
             record["evidence_home"] = str(run.home)
             session = PtySession(

@@ -48,16 +48,17 @@ def test_native_launch_pins_trial_workspace_instead_of_enclosing_git_root(tmp_pa
     from benchmarks.harnessbench import runner
 
     launches = []
+    prompts = []
 
     class Session:
         def __init__(self, argv, env, cwd=None, log_path=None):
-            launches.append((argv, cwd))
+            launches.append((argv, cwd, env))
 
         def expect(self, *args, **kwargs):
             pass
 
         def send(self, *args):
-            pass
+            prompts.extend(args)
 
         def stop(self):
             pass
@@ -66,6 +67,9 @@ def test_native_launch_pins_trial_workspace_instead_of_enclosing_git_root(tmp_pa
     monkeypatch.setattr(runner, "_wait_settled", lambda *args, **kwargs: 0)
     monkeypatch.setattr(runner.oracle, "judge", lambda *args, **kwargs: {"verified_success": False})
     runner.run_leg("B", "U01", tmp_path, 1, model="kimi-coding")
-    argv, cwd = launches[0]
+    argv, cwd, env = launches[0]
     assert argv[argv.index("--workspace") + 1] == str(cwd.absolute())
     assert cwd == tmp_path / "b_u01_kimi-coding_run1"
+    assert env["TMPDIR"] == str(cwd.absolute() / ".tmp")
+    assert Path(env["TMPDIR"]).is_dir()
+    assert "所有临时文件写在当前工作区 .tmp/" in prompts[0]
