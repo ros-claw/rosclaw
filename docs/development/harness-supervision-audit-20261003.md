@@ -515,3 +515,43 @@ reason behavior remain. Related model-error/UI regressions and TS build pass.
 The same native task continued from its queued source-review message,
 with all files and prior physical evidence preserved; no physical operation
 was active or cancelled. Formal code reload is deferred until idle.
+
+
+By the source-package review boundary, the complete original JSONL contains
+2,193 entries and passes structural audit. All 152 assistant text claims have
+been read against available evidence, including ten new claims after entry
+2,017. Five compactions were reviewed; no additional compaction occurred in
+this suffix. Structural integrity is not an oracle for physics or every hidden
+reasoning statement.
+
+Native ROSClaw authored the isolated experimental source package and executed
+four fresh selected-seed closed loops. The supervisor independently verified
+all millisecond force/momentum/state and actual receiving/court completion,
+root integration, and direct old/new raw JSON equality without importing the
+producer comparison. A completion [3,3] and B [3,1] are selected-case results;
+the sixteen known development attempts remain A 1/8, B 0/8, with eight INIT
+failures. New package qpos/qvel/ctrl/actuator force and millisecond ball/contact/
+self-contact/root/actuation records are bit exact to their frozen counterparts.
+Forty-three runtime function/class AST nodes match their frozen sources.
+
+The supervisor repeated twelve package boundary tests, verified every SHA and
+size in the 44-file public source manifest, checked all 83 external asset SHAs,
+and verified the four independent receipt references. Only these source files,
+the manifest, small evidence summaries and license notices were committed.
+Large states, videos, meshes, weights, sessions and credentials stay outside
+Git. The reviewed source was pushed to ros-claw/rosclaw-tennis branch
+`audit/m21-embodied-harness-20261003` at
+`a6513e1c303dd0a1a734ecbd0cb7f2ea9e29c553`. Clean installation remains NOT_RUN;
+the measured existing Python environment is not claimed as a portable lock.
+The original tennis working branch and user changes were not staged.
+
+Both new oblique diagnostic films and their maps/timings (six artifacts) have
+registered SHA values independently checked. Every frame fully decodes; the
+projection oracle independently covers the compiled court and ball with at
+least 17.544 pixel margin. Videos show complete 1x and quarter-speed traces,
+explicit OUT endings, and the difference between third-shot landing and a
+fourth actual reception. They remain simplified 12DOF/perfect-state/low-net
+experimental paddle diagnostics, not standard tennis or two LLM strategists.
+The task remains RUNNING/NOT_DONE. The next native protocol targets initial
+stability with unchanged thresholds and retained failures, separate from the
+frozen baseline.
