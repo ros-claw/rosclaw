@@ -182,3 +182,8 @@ TASKS: dict[str, BenchTask] = {
 from benchmarks.harnessbench.tasks_v2 import V2_TASKS  # noqa: E402
 
 TASKS.update(V2_TASKS)
+
+# Offline robotics contracts: evidence remains fixture-only.
+from benchmarks.harnessbench.capability_matrix import CAPABILITY_TASKS  # noqa: E402
+
+TASKS.update(CAPABILITY_TASKS)
