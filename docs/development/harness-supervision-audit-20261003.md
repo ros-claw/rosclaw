@@ -139,3 +139,48 @@ TypeScript package 249 passed / 3 skipped; independent TUI package 27 passed;
 oracle repair/adversarial regression 59 passed. Some suites overlap; these are
 separate results, not an additive count of distinct tests. Configured mypy scope
 passed 121 files. Modified Python lint and `git diff --check` passed.
+
+## Native-provider comparison and physical review follow-up
+
+The Python onboarding gate previously recognized only Kimi, rejecting PI's
+built-in OpenAI providers before any model call. It now recognizes the actual
+`openai`/`openai-responses` and `openai-codex`/`openai-codex-responses` provider
+contracts. PI remains responsible for credentials and model availability.
+Kimi's diagnostic view matches its installed native Anthropic-compatible
+provider. Focused gate/engine tests passed 19 cases; separate credential and
+onboarding checks passed 22 cases (overlapping suites, not additive).
+
+With this repair, three native `openai-codex/gpt-6.1-sol` trials at a 600s
+budget independently verified U01 (57.1s/4 tools), E01 (117.1s/14 tools), and
+H01 (107.2s/12 tools). E01 reduced replay RMSE from 0.2642573 to 0.0653108.
+A native Kimi H01 follow-up using the updated tool guidance also verified in
+236.3s/22 tools. Earlier timeouts remain recorded. This is a small comparison
+under differing execution times and framework revisions, not a controlled
+model ranking. I01 is interaction/grasp/lift; S01 is system identification.
+Neither settled in its executed Kimi 600s follow-up. The expanded 48-task
+matrix remains planned, not fully executed. Temporary comparison credentials
+were removed; the formal chat keeps an access-only OAuth entry without a
+Codex refresh token and continues implementing the physical scene on Kimi.
+
+A second native compaction reduced the formal session from 267,270 input
+tokens. Its summary was semantically checked against the latest physical
+results, and a new compaction-entry-specific M21 task anchor was observed.
+Original history remains intact. This does not guarantee every field in a
+summary is current; the durable task and raw experiment evidence remain
+necessary sources of truth.
+
+Independent physical gates continue to reject unsupported successes. Stage A
+has three M20 locomotion passes, while G1 fails the strict stopping peak-speed
+gate. B v10 has 12 contacts/20 attempts and zero valid returns. B2 v19's claimed
+one return crosses the net plane at ball-center height 0.10747m, below its
+required 0.9475m: it is not a valid tennis return. Net collision was enabled;
+this observation alone does not prove why the low crossing occurred.
+
+C is an explicitly reduced 0.35m-net, close-range experiment, not standard
+tennis. The v3 full-state NDJSON segments passed hash, dimension, finite-value
+and time-continuity checks, but revealed invalid initialization: the M20 starts
+at x=5.179m in trial 0 and x=3.668m in trial 9 instead of the declared +1.7m.
+Its 17 paddle-contact episodes include repeated contacts with the same racket;
+the longest alternating-owner chain is one. These failures are frozen and
+have been sent back to ROSClaw for implementation repairs. No verified G1–M20
+rally or strategic multi-agent competition has been delivered at this point.
