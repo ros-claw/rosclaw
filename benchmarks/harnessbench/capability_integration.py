@@ -9,6 +9,7 @@ from __future__ import annotations
 import copy
 import json
 import re
+import shlex
 from pathlib import Path
 from typing import Any
 
@@ -177,7 +178,9 @@ INTEGRATION_TASKS: dict[str, BenchTask] = {}
 PRIVATE: dict[str, dict] = {}
 _COMMON = (
     "This is offline native ROSClaw interface integration; evidence scope FIXTURE_ONLY. "
-    "Use the installed ROSClaw CLI, preferably its pinned Python launcher, and CLI help if needed. "
+    "Use the full command entrypoint 'rosclaw ros compile' (not 'ros compile'); the installed "
+    "ROSClaw launcher is available on PATH. A pinned .venv/bin/python -m rosclaw.entrypoint "
+    "is equivalent. Use CLI help if needed. "
     "Do not construct Runtime, ROS/DDS transport, publish topics, register drivers, install packages, "
     "or access hardware. Preserve the supplied input file. Save full CLI JSON stdout to the named "
     "artifacts without fabricating or rewriting fields. Then write answer.json with "
@@ -289,10 +292,46 @@ def _native_commands(root: Path) -> list[str]:
 
 
 def _has_cli(commands: list[str], operation: str) -> bool:
-    # Require an actual shell tool call beginning with the CLI, rather than a
-    # write-tool answer claiming it ran. No trusted transport is opened here.
-    prefix = r"(?:^|[\n;&]|\bdo)\s*(?:env\s+\S+=\S+\s+)*(?:rosclaw|(?:\S*python\S*)\s+-m\s+rosclaw\.entrypoint)\s+"
-    return any(re.search(prefix + re.escape(operation) + r"(?:\s|$)", c.strip()) for c in commands)
+    """Recognize a CLI argv, including plain shell path-variable assignments.
+
+    This is evidence of a native tool call, not a tamper-proof execution receipt.
+    Never execute shell text or accept echo/print/write mentioning a CLI.
+    """
+    wanted = shlex.split(operation)
+    for command in commands:
+        variables: dict[str, str] = {}
+        for statement in re.split(r"[;\n]|&&|\|\|", command):
+            try:
+                words = shlex.split(statement.strip())
+            except ValueError:
+                continue
+            if not words:
+                continue
+            while words and re.match(r"^[A-Za-z_][A-Za-z_0-9]*=", words[0]):
+                key, value = words.pop(0).split("=", 1)
+                variables[key] = value
+            if not words:
+                continue
+            program = words[0]
+            for _ in range(4):
+                expanded = re.sub(
+                    r"\$\{([A-Za-z_][A-Za-z_0-9]*)\}|\$([A-Za-z_][A-Za-z_0-9]*)",
+                    lambda m, bound=variables: bound.get(m.group(1) or m.group(2), m.group(0)),
+                    program,
+                )
+                if expanded == program:
+                    break
+                program = expanded
+            basename = Path(program).name
+            if basename == "rosclaw" and words[1 : 1 + len(wanted)] == wanted:
+                return True
+            if (
+                re.fullmatch(r"python(?:[0-9]+(?:\.[0-9]+)?)?", basename)
+                and words[1:3] == ["-m", "rosclaw.entrypoint"]
+                and words[3 : 3 + len(wanted)] == wanted
+            ):
+                return True
+    return False
 
 
 def judge_integration(task_id: str, root: Path) -> dict:
@@ -388,7 +427,60 @@ def judge_integration(task_id: str, root: Path) -> dict:
                 )
                 events = [json.loads(line) for line in events_path.read_text().splitlines()]
                 # Inspect the actual durable event envelopes rather than self-reported counts.
-                checks["raw_record_exists"] = len(events) >= len(private["fixture"]["events"])
+                fixture = private["fixture"]
+                expected_events = copy.deepcopy(fixture["events"])
+                if task_id == "CI11":
+                    for expected_event in expected_events:
+                        if expected_event["event_type"] == "physical_feedback_event":
+                            del expected_event["timestamp_ns"]
+                            break
+                checks["raw_record_count"] = len(events) == len(expected_events)
+                checks["raw_original_event_semantics"] = len(events) == len(
+                    expected_events
+                ) and all(
+                    _equal({key: actual_event.get(key) for key in expected_event}, expected_event)
+                    for actual_event, expected_event in zip(events, expected_events, strict=True)
+                )
+                checks["raw_sequence_order"] = [e.get("sequence_id") for e in events] == list(
+                    range(1, len(events) + 1)
+                )
+                episode = json.loads((events_path.parent.parent / "episode.json").read_text())
+                import yaml
+
+                manifest = yaml.safe_load((events_path.parent.parent / "manifest.yaml").read_text())
+                summary_path = (
+                    root
+                    / "practice-data/sessions"
+                    / fixture["session_id"]
+                    / "episodes"
+                    / fixture["episode_id"]
+                    / "artifacts/summary"
+                    / f"summary_{fixture['episode_id']}.yaml"
+                )
+                summary = yaml.safe_load(summary_path.read_text())
+                for label, metadata in (
+                    ("episode", episode),
+                    ("manifest", manifest["status"]),
+                    ("summary", summary),
+                ):
+                    checks[f"{label}_outcome_preserved"] = (
+                        str(metadata.get("outcome", "")).upper() == fixture["outcome"]
+                    )
+                    reward = (
+                        metadata.get("reward")
+                        if label != "summary"
+                        else metadata.get("metrics", {}).get("reward")
+                    )
+                    checks[f"{label}_reward_preserved"] = _equal(reward, fixture["reward"])
+                    checks[f"{label}_failure_labels_preserved"] = (
+                        metadata.get("failure_labels") == fixture["failure_labels"]
+                    )
+                checks["body_task_session_preserved"] = (
+                    manifest.get("body_id") == fixture["body_id"]
+                    and manifest.get("session_id") == fixture["session_id"]
+                    and manifest.get("task", {}).get("task_id") == fixture["task_id"]
+                    and episode.get("event_count") == len(expected_events)
+                )
                 if task_id == "CI11":
                     checks["corruption_retained"] = any(
                         e.get("event_type") == "physical_feedback_event" and "timestamp_ns" not in e
