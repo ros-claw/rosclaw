@@ -941,7 +941,23 @@ class MujocoBackend:
             observe_mod.observe_channels(model, data, physics_channels) if physics_channels else {}
         )
         for channel in camera_channels:
-            values[channel] = self._observe_camera(manifest, model, data, channel)
+            values[channel] = {
+                **self._observe_camera(manifest, model, data, channel),
+                "model_ref": model_ref,
+                "model_digest": self._model_digest(manifest),
+                "state_ref": state_ref,
+            }
+            values[channel]["observation_manifest_ref"] = self.store.put(
+                "renders",
+                {
+                    "kind": "camera_observation",
+                    "schema_version": "rosclaw.sim.camera.v2",
+                    "channel": channel,
+                    **values[channel],
+                    "trust_level": "SIMULATED",
+                    "usable_for_real_execution": False,
+                },
+            )
 
         return ObservationResult(
             backend="mujoco",
@@ -980,7 +996,7 @@ class MujocoBackend:
             "mat": [float(v) for v in data.cam_xmat[camera_id]],
         }
 
-        gif_backend, artifact_ref, dtype = self._render_camera_frame_subprocess(
+        gif_backend, artifact_ref, dtype, raw_metadata = self._render_camera_frame_subprocess(
             manifest, model, data, kind=kind, camera_name=camera_name, width=width, height=height
         )
         return {
@@ -993,6 +1009,7 @@ class MujocoBackend:
             "extrinsics": extrinsics,
             "renderer_backend": gif_backend,
             "simulation_time": float(data.time),
+            **raw_metadata,
         }
 
     @staticmethod
@@ -1014,7 +1031,7 @@ class MujocoBackend:
         camera_name: str,
         width: int,
         height: int,
-    ) -> tuple[str, str, str]:
+    ) -> tuple[str, str, str, dict[str, Any]]:
         """单帧相机渲染（隔离子进程，egl→osmesa，绝不走 auto）。"""
         import json
         import subprocess
@@ -1034,8 +1051,13 @@ class MujocoBackend:
                 target = tmp_path / name
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(blob)
+            vector, state_spec = state_v2.capture_state_v2(model, data)
             request = {
                 "model_path": str(model_file),
+                "state_vector": vector.tolist(),
+                "state_spec": state_spec,
+                "raw_out": str(tmp_path / "raw.npy"),
+                "metadata_out": str(tmp_path / "raw_metadata.json"),
                 "state": {
                     "time": float(data.time),
                     "qpos": [float(v) for v in data.qpos],
@@ -1061,7 +1083,16 @@ class MujocoBackend:
                 )
                 if proc.returncode == 0 and (tmp_path / "frame.png").is_file():
                     artifact_ref = self.store.put("renders", (tmp_path / "frame.png").read_bytes())
-                    return candidate, artifact_ref, dtype_map[kind]
+                    metadata_file = tmp_path / "raw_metadata.json"
+                    raw_metadata = json.loads(metadata_file.read_text())
+                    if kind != "camera_rgb":
+                        raw_file = tmp_path / "raw.npy"
+                        if not raw_file.is_file():
+                            raise ValueError("SIM_CAMERA_RAW_MISSING: lossless artifact absent")
+                        raw_metadata["raw_artifact_ref"] = self.store.put(
+                            "renders", raw_file.read_bytes()
+                        )
+                    return candidate, artifact_ref, dtype_map[kind], raw_metadata
                 tail = (proc.stderr or "").strip().splitlines()
                 errors.append(f"{candidate}: {tail[-1] if tail else 'native crash'}")
             raise ValueError("SIM_RENDER_UNAVAILABLE: " + "; ".join(errors)) from None
@@ -2122,14 +2153,11 @@ from PIL import Image
 request = json.loads(open(sys.argv[2], encoding="utf-8").read())
 model = mujoco.MjModel.from_xml_path(request["model_path"])
 data = mujoco.MjData(model)
-state = request["state"]
-data.time = float(state["time"])
-for i, v in enumerate(state["qpos"]):
-    data.qpos[i] = v
-for i, v in enumerate(state["qvel"]):
-    data.qvel[i] = v
-for i, v in enumerate(state["ctrl"]):
-    data.ctrl[i] = v
+spec = mujoco.mjtState(request["state_spec"])
+vector = np.asarray(request["state_vector"],dtype=np.float64)
+if vector.size != mujoco.mj_stateSize(model,spec) or not np.isfinite(vector).all():
+    raise ValueError("SIM_CAMERA_STATE_INVALID")
+mujoco.mj_setState(model,data,vector,spec)
 mujoco.mj_forward(model, data)
 
 renderer = mujoco.Renderer(model, request["height"], request["width"])
@@ -2137,7 +2165,14 @@ renderer.update_scene(data, camera=request["camera"])
 kind = request["kind"]
 if kind == "camera_depth":
     renderer.enable_depth_rendering()
-    depth = np.asarray(renderer.render(), dtype=np.float64)
+    depth = np.asarray(renderer.render()).copy()
+    np.save(request["raw_out"],depth,allow_pickle=False)
+    metadata = {
+        "raw_format":"npy", "raw_dtype":str(depth.dtype), "raw_shape":list(depth.shape),
+        "raw_units":"metre", "raw_channels":["camera_forward_depth"],
+        "depth_definition":"distance_along_camera_forward_axis",
+        "artifact_semantics":"visualization_only", "view_encoding":"per_frame_normalized_uint16",
+    }
     finite = depth[np.isfinite(depth)]
     norm = np.zeros_like(depth)
     if finite.size:
@@ -2146,9 +2181,19 @@ if kind == "camera_depth":
     Image.fromarray((norm * 65535).astype(np.uint16), mode="I;16").save(request["out"])
 elif kind == "camera_segmentation":
     renderer.enable_segmentation_rendering()
-    seg = np.asarray(renderer.render())[:, :, 0].astype(np.uint8)
-    Image.fromarray(seg).save(request["out"])
+    seg = np.asarray(renderer.render(),dtype=np.int32).copy()
+    np.save(request["raw_out"],seg,allow_pickle=False)
+    metadata = {
+        "raw_format":"npy", "raw_dtype":str(seg.dtype), "raw_shape":list(seg.shape),
+        "raw_units":"categorical", "raw_channels":["object_id","object_type"],
+        "background":[-1,-1], "object_type_enum":"mujoco.mjtObj",
+        "artifact_semantics":"visualization_only", "view_encoding":"object_id_mod_256_uint8",
+    }
+    Image.fromarray(seg[:,:,0].astype(np.uint8)).save(request["out"])
 else:
     Image.fromarray(renderer.render()).save(request["out"])
+    metadata = {"artifact_semantics":"color_rgb","units":"uint8_srgb"}
+with open(request["metadata_out"],"w",encoding="utf-8") as handle:
+    json.dump(metadata,handle,allow_nan=False)
 renderer.close()
 """
