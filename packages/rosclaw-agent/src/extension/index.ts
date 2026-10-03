@@ -214,13 +214,14 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			},
 		});
 		pi.registerCommand("workspace", {
-			description: "项目 workspace：/workspace show | use <path> | recent",
+			description: "工作区：show 查看当前目录；use <path> 保存下次启动绑定；recent 查看历史",
 			handler: async (args, ctx) => {
 				const sub = args.trim();
 				if (!sub || sub === "show") {
-					const current = workspaceStore.current;
+					const current = options.taskContext.workspaceRoot;
+					const saved = workspaceStore.current;
 					notifyLeveled(ctx, 
-						current ? `当前 Project：${current}` : "未绑定 Project（从 git 仓库内启动自动绑定，或 /workspace use <path>）",
+						`当前会话工作区：${current}` + (saved && saved !== current ? `\n已保存绑定：${saved}（下次启动 chat 时，显式路径和当前 git 项目优先）` : ""),
 						"info",
 					);
 					return;
@@ -236,11 +237,8 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				const useMatch = sub.match(/^use\s+(.+)$/);
 				if (useMatch) {
 					try {
-						const bound = workspaceStore.bind(useMatch[1]);
-						(center.noteWorkspace?.bind(center) as ((d?: string) => void) | undefined)?.(
-							workspaceStore.displayName(),
-						);
-						notifyLeveled(ctx, `已绑定 Project：${bound}`, "info");
+						const bound = workspaceStore.bind(useMatch[1], { normalizeToGit: false });
+						notifyLeveled(ctx, `已保存工作区绑定：${bound}（下次启动 chat 时使用；显式路径和当前 git 项目优先）。\n当前会话仍在：${options.taskContext.workspaceRoot}`, "info");
 					} catch (err) {
 						notifyLeveled(ctx, `绑定失败：${(err as Error).message}`, "error");
 					}

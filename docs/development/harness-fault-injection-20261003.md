@@ -65,3 +65,13 @@ skip git normalization; automatic git-root startup and ordinary legacy binding
 retain their existing behavior. The new exact-directory persistence regression
 was red before the fix; all 15 workspace/context/scratch-root tests pass after
 the fix. This does not make SIM tool-layer-only mode an OS security sandbox.
+
+The interactive `/workspace use` command also saves the exact directory now.
+It does not perform a live context migration: tools and the current task remain
+bound to their frozen task root. Its message explicitly says the selection is
+for the next chat startup, subject to explicit path/current git-project priority,
+and states the current directory. `/workspace show` reports the actual task
+directory together with any different saved selection. The current header is
+not changed to imply a live switch. A new command regression checks the on-disk
+selection, frozen task root, header and both messages; 19 related tests pass.
+Atomic live workspace/task/session migration remains unimplemented.
