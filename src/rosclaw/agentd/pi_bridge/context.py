@@ -47,6 +47,7 @@ def build_embodied_context(service: AgentService, mission_id: str) -> EmbodiedCo
         generated_at=now.isoformat(),
         expires_at=(now + timedelta(seconds=ENVELOPE_TTL_SEC)).isoformat(),
         body={
+            "binding_scope": "mission_body",
             "body_id": mission.body_binding.body_id,
             "effective_body_hash": mission.body_binding.effective_body_hash,
             "summary": body.summary if body else "body unavailable (fail closed)",

@@ -163,6 +163,10 @@ class MujocoBackend:
         spec = self._spec_from_manifest(manifest)
         model, _ = self._compile_smoke(spec)
         detail = inspect_model_full(model, model_digest=self._model_digest(manifest), spec=spec)
+        if "scene_sources" in manifest:
+            from rosclaw.sim.world.actors import build_scene_actor_manifest
+
+            detail["simulation_scene"] = build_scene_actor_manifest(self, model_ref)
         return ModelInspection(
             backend="mujoco",
             backend_version=manifest["backend_version"],
