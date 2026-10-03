@@ -17,6 +17,7 @@ from rosclaw.growth.correlated_residual_gradient import (
     ResidualGradientConfig,
     conditional_means,
 )
+from rosclaw.growth.sample_weighting import sample_weight_receipt, validate_sample_weights
 
 
 @dataclass(frozen=True)
@@ -71,6 +72,7 @@ def fit_proposal_advantage_residual(
     advantages: Any,
     old_log_probability: Any,
     config: ProposalAdvantageRegressionConfig | None = None,
+    sample_weights: Any | None = None,
 ) -> dict[str, Any]:
     config = ProposalAdvantageRegressionConfig() if config is None else config
     if not isinstance(config, ProposalAdvantageRegressionConfig):
@@ -150,6 +152,13 @@ def fit_proposal_advantage_residual(
     if not np.allclose(density, old_logp, atol=1e-8, rtol=0):
         raise ValueError("declared actual conditional behavior likelihood required")
     weights = advantage_weights(importance, config)
+    weighting_receipt = None
+    if sample_weights is not None:
+        multipliers = validate_sample_weights(sample_weights, n)
+        weighting_receipt = sample_weight_receipt(multipliers)
+        if not np.all(multipliers == 1):
+            weights = weights * multipliers
+            weights = weights / weights.mean()
     import torch
 
     threads = torch.get_num_threads()
@@ -160,7 +169,7 @@ def fit_proposal_advantage_residual(
             torch.set_num_threads(4)
             torch.random.default_generator.manual_seed(config.seed)
             torch.use_deterministic_algorithms(True)
-            return _fit(
+            result = _fit(
                 torch,
                 original_layers,
                 x,
@@ -173,6 +182,9 @@ def fit_proposal_advantage_residual(
                 weights,
                 config,
             )
+            if weighting_receipt is not None:
+                result["sample_weighting"] = weighting_receipt
+            return result
     finally:
         torch.set_num_threads(threads)
         torch.use_deterministic_algorithms(deterministic, warn_only=warn_only)
