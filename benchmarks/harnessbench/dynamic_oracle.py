@@ -444,6 +444,15 @@ def judge_dynamic_repair(root: Path, task) -> dict:
     }
     original_xml = task.staged_files[task.oracle["original_asset"]]
     baselines = _records(backend, {original}, include_failures=True)
+    # Saved experiments contain earlier repair iterations too. Evaluate the
+    # reported model first, but never let an incomplete iteration terminate
+    # the search for a fully evidenced repair.
+    priority = {ref: i for i, ref in enumerate(oracle._candidate_refs(backend, claimed))}
+    candidate_records = sorted(
+        _records(backend, candidates),
+        key=lambda item: (priority.get(item[1]["model_ref"], len(priority)), item[0]),
+    )
+    rejected_candidates = []
     for baseline_ref, baseline_receipt, baseline_trace in baselines:
         target = baseline_trace.get("controller", {}).get("position_targets")
         if not isinstance(target, list) or len(target) != 1 or abs(float(target[0])) < 0.1:
@@ -465,7 +474,7 @@ def judge_dynamic_repair(root: Path, task) -> dict:
         )
         if not broken:
             continue
-        for candidate_ref, candidate_receipt, candidate_trace in _records(backend, candidates):
+        for candidate_ref, candidate_receipt, candidate_trace in candidate_records:
             if candidate_trace.get("controller") != baseline_trace.get("controller"):
                 continue
             model_ref = candidate_receipt["model_ref"]
@@ -517,13 +526,30 @@ def judge_dynamic_repair(root: Path, task) -> dict:
                     reason="candidate_runtime_validity_evidence_missing",
                     warning_evidence="NOT_RECORDED",
                 )
-                return verdict
+                rejected_candidates.append(
+                    {
+                        "receipt_ref": candidate_ref,
+                        "model_ref": model_ref,
+                        "reason": verdict["reason"],
+                    }
+                )
+                continue
             if not replay_verified(backend, root, candidate_ref, candidate_receipt):
                 verdict["reason"] = "candidate_native_raw_replay_evidence_missing"
-                return verdict
+                rejected_candidates.append(
+                    {
+                        "receipt_ref": candidate_ref,
+                        "model_ref": model_ref,
+                        "reason": verdict["reason"],
+                    }
+                )
+                continue
+            verdict.pop("warning_evidence", None)
+            verdict["rejected_candidate_evidence"] = rejected_candidates
             verdict.update(task_success=True, verified_success=True)
             oracle._apply_claim_check(backend, verdict, claimed, model_ref)
             return verdict
+    verdict["rejected_candidate_evidence"] = rejected_candidates
     return verdict
 
 
