@@ -653,13 +653,18 @@ class MujocoBackend:
 
         state_trajs, _ = batch_mod.run_batch(models, ctrl_rows=ctrl_rows, initial=initial)
         stride = max(1, -(-resolved_steps // merged["max_record_points"]))
+        # Native rows are post-step: zero-based row stride-1 is serial's
+        # first sampled stride step. Always retain the actual final row.
+        sample_indices = list(range(stride - 1, resolved_steps, stride))
+        if not sample_indices or sample_indices[-1] != resolved_steps - 1:
+            sample_indices.append(resolved_steps - 1)
 
         results = []
         for index, (ref, manifest, model, full_traj) in enumerate(
             zip(model_refs, manifests, models, state_trajs, strict=True)
         ):
             states = batch_mod.trajectory_to_states(
-                model, full_traj[::stride], ctrl_rows, record_stride=stride
+                model, full_traj[sample_indices], ctrl_rows[sample_indices], record_stride=1
             )
             # 与串行记录对齐：前置初始状态行（rollout 轨迹只含步后状态）。
             data0 = initial[index] if initial is not None else batch_mod.initial_vectors([model])[0]
@@ -681,7 +686,7 @@ class MujocoBackend:
                 "controller": controller,
                 "steps": resolved_steps,
                 "timestep_s": float(model.opt.timestep),
-                "duration_s": float(full_traj[-1][0]),
+                "duration_s": float(full_traj[-1][0]) - float(data0[0]),
                 "states_digest": digest,
                 "states": states,
             }
