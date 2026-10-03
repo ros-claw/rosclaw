@@ -55,3 +55,12 @@ metadata, and are not silently converted into WorldSpecs. Native ROSClaw/Kimi mu
 provide true source relationships for the M22 scene in a subsequent explicit
 registration path. Scene placement, task qualification, collision-free motion,
 robot calibration and tennis success remain separate validation obligations.
+
+Fresh Python-process roundtrip tests cover generic joint, actual mesh, SITE,
+TENDON and catalog UR5 attachments. Each child loads the persisted store and
+independently recompiles/verifies both initial complete MJB signatures, then
+compares the entire canonical proof digest with the parent's persisted proof.
+All five pass without any `mj_step`; the step entry point raises if invoked.
+This checks process-boundary signature stability rather than relying only on
+repeat compilation inside one Python process. No weak structural substitute is
+used when full compiled signature verification fails.
