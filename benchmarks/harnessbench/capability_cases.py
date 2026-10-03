@@ -286,7 +286,7 @@ CASES = [
     ),
     (
         "pid_control_address",
-        "Actuator starts ctrladr=2 with 3 channels [position,velocity,feedforward]. Return position_ctrl_indices from addresses; nu not actuator count.",
+        "Each actuator occupies ctrlnum channels beginning at ctrladr, ordered [position,velocity,feedforward] (truncate for fewer channels). Return position_ctrl_indices for ALL actuators in their listed order, including the actuator at ctrladr=0; nu is channel count, not actuator count.",
         {"actuators": [{"ctrladr": 0, "ctrlnum": 2}, {"ctrladr": 2, "ctrlnum": 3}], "nu": 5},
         {"position_ctrl_indices": [0, 2]},
     ),

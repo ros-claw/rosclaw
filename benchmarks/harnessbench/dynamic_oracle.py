@@ -29,51 +29,28 @@ def same_compiled_body(
 
     original = mujoco.MjModel.from_xml_string(original_xml)
     candidate = mujoco.MjModel.from_xml_string(candidate_xml)
-    scalars = ("nq", "nv", "nu", "nactuator", "nbody", "ngeom", "njnt", "ncam", "nsensordata")
-    if any(getattr(original, name) != getattr(candidate, name) for name in scalars):
-        return False
-    arrays = [
-        "body_parentid",
-        "body_mass",
-        "body_inertia",
-        "body_pos",
-        "body_quat",
-        "body_ipos",
-        "body_iquat",
-        "jnt_type",
-        "jnt_pos",
-        "jnt_axis",
-        "jnt_range",
-        "jnt_limited",
-        "jnt_actfrclimited",
-        "jnt_actfrcrange",
-        "dof_armature",
-        "dof_frictionloss",
-        "geom_type",
-        "geom_bodyid",
-        "geom_size",
-        "geom_pos",
-        "geom_quat",
-        "geom_contype",
-        "geom_conaffinity",
-        "geom_friction",
-        "geom_solref",
-        "geom_solimp",
-        "actuator_trnid",
-        "actuator_gear",
-        "actuator_ctrlrange",
-        "actuator_ctrllimited",
-        "actuator_forcerange",
-        "actuator_forcelimited",
-        "actuator_gaintype",
-        "actuator_biastype",
-    ]
-    if not allow_control:
-        arrays.extend(("dof_damping", "actuator_gainprm", "actuator_biasprm"))
-    else:
+
+    def public_values(owner, excluded):
+        # Compare every exposed numeric buffer/scalar, including compiled
+        # contact pairs, equality, meshes, actuator dynamics and option overrides.
+        # Methods/accessors are not data. New MuJoCo arrays are included by default.
+        result = {}
+        for key in dir(owner):
+            if key.startswith("_") or key in excluded:
+                continue
+            value = getattr(owner, key)
+            if isinstance(value, (np.ndarray, int, float, bool, str, bytes)):
+                result[key] = value
+        return result
+
+    allowed = {"dof_damping", "actuator_gainprm", "actuator_biasprm"} if allow_control else set()
+    if allow_control:
         gains, bias = candidate.actuator_gainprm, candidate.actuator_biasprm
         if (
-            np.any(gains[:, 0] <= 0)
+            np.any(~np.isfinite(gains))
+            or np.any(~np.isfinite(bias))
+            or np.any(~np.isfinite(candidate.dof_damping))
+            or np.any(gains[:, 0] <= 0)
             or np.any(candidate.dof_damping < 0)
             or not np.array_equal(gains[:, 1:], original.actuator_gainprm[:, 1:])
             or not np.array_equal(bias[:, 0], original.actuator_biasprm[:, 0])
@@ -81,33 +58,13 @@ def same_compiled_body(
             or not np.array_equal(bias[:, 1], -gains[:, 0])
         ):
             return False
-    arrays.append("qpos0")
-    option_fields = (
-        "gravity",
-        "wind",
-        "magnetic",
-        "density",
-        "viscosity",
-        "impratio",
-        "tolerance",
-        "ls_tolerance",
-        "noslip_tolerance",
-        "solver",
-        "iterations",
-        "ls_iterations",
-        "noslip_iterations",
-        "cone",
-        "jacobian",
-        "disableflags",
-        "enableflags",
-    )
-    return (
-        original.names == candidate.names
-        and all(np.array_equal(getattr(original, key), getattr(candidate, key)) for key in arrays)
-        and all(
-            np.array_equal(getattr(original.opt, key), getattr(candidate.opt, key))
-            for key in option_fields
-        )
+
+    def equal(a, b):
+        return a.keys() == b.keys() and all(np.array_equal(a[k], b[k]) for k in a)
+
+    return equal(public_values(original, allowed), public_values(candidate, allowed)) and equal(
+        public_values(original.opt, {"timestep", "integrator"}),
+        public_values(candidate.opt, {"timestep", "integrator"}),
     )
 
 
@@ -116,7 +73,42 @@ def trace_stats(trace: dict, receipt: dict, *, max_time: float | None = None) ->
     states = trace.get("states", [])
     if not isinstance(states, list) or len(states) < 2:
         raise ValueError("trace lacks recorded state sequence")
+    if any(
+        not isinstance(state, dict)
+        or type(state.get("t")) not in (int, float)
+        or not math.isfinite(state["t"])
+        or any(
+            not isinstance(state.get(key), list)
+            or any(type(v) not in (int, float) for v in state[key])
+            or len(state[key]) != len(states[0].get(key, []))
+            for key in ("qpos", "qvel", "ctrl")
+        )
+        for state in states
+    ):
+        raise ValueError("invalid typed state/time arrays")
     times = [float(state["t"]) for state in states]
+    dt: Any = trace.get("timestep_s")
+    steps = receipt.get("steps")
+    if type(dt) not in (int, float) or not math.isfinite(dt) or dt <= 0:
+        raise ValueError("invalid timestep")
+    if type(steps) is not int or steps <= 0:
+        raise ValueError("invalid receipt steps")
+    intervals = [(b - a) / dt for a, b in zip(times, times[1:], strict=False)]
+    integral_intervals = all(math.isclose(x, round(x), abs_tol=1e-7) for x in intervals)
+    # Legacy serial recording defaults to 250 points. A new public density
+    # budget must be preserved in trace metadata; infer no arbitrary jump allowance.
+    recording = trace.get("recording", {})
+    points = recording.get("max_record_points", 480) if isinstance(recording, dict) else 480
+    if type(points) is not int or not 1 <= points <= 100000:
+        raise ValueError("invalid recording density")
+    stride = max(1, math.ceil(steps / points))
+    if not recording and all(math.isclose(x, 1, abs_tol=1e-7) for x in intervals):
+        stride = 1  # Full dense trace proves no samples omitted without legacy budget metadata.
+    stride_bound = (
+        all(math.isclose(x, stride, abs_tol=1e-7) for x in intervals[:-1])
+        and 0 < intervals[-1] <= stride + 1e-7
+    )
+
     finite = all(
         math.isfinite(value)
         for state in states
@@ -124,7 +116,7 @@ def trace_stats(trace: dict, receipt: dict, *, max_time: float | None = None) ->
         for value in map(float, state[key])
     )
     monotonic = all(b > a for a, b in zip(times, times[1:], strict=False))
-    bound = max_time if max_time is not None else times[-1]
+    bound = times[0] + max_time if max_time is not None else times[-1]
     chosen = [state for state in states if float(state["t"]) <= bound + 1e-10]
     states_hash = "sha256:" + hashlib.sha256(_canonical(states).encode()).hexdigest()
     return {
@@ -134,13 +126,14 @@ def trace_stats(trace: dict, receipt: dict, *, max_time: float | None = None) ->
         "model_binding": trace.get("model_ref") == receipt.get("model_ref")
         and trace.get("model_digest") == receipt.get("model_digest"),
         "duration_binding": math.isclose(
-            times[-1], float(receipt.get("simulation_time_s", -1)), abs_tol=1e-8
+            times[-1] - times[0], float(receipt.get("simulation_time_s", -1)), abs_tol=1e-8
         ),
         "step_time_coverage": math.isclose(
             times[-1] - times[0],
             int(receipt.get("steps", -1)) * float(trace.get("timestep_s", -1)),
             abs_tol=1e-8,
         ),
+        "recording_grid_coverage": integral_intervals and stride_bound,
         "peak_qvel": max(abs(float(v)) for s in chosen for v in s["qvel"]),
         "start_time": times[0],
         "end_time": times[-1],
@@ -149,15 +142,100 @@ def trace_stats(trace: dict, receipt: dict, *, max_time: float | None = None) ->
     }
 
 
-def _records(backend, refs: set[str]) -> list[tuple[str, dict, dict]]:
+def _records(
+    backend, refs: set[str], *, include_failures: bool = False
+) -> list[tuple[str, dict, dict]]:
     result = []
     for ref in backend.store.list_children("experiments"):
         record = backend.store.get(ref)
         if isinstance(record, dict) and record.get("model_ref") in refs and record.get("trace_ref"):
             trace = backend.store.get(record["trace_ref"])
-            if isinstance(trace, dict):
+            if isinstance(trace, dict) and (
+                trace.get("kind") != "failed_simulation_trace" or include_failures
+            ):
                 result.append((ref, record, trace))
     return result
+
+
+def failed_baseline_stats(trace: dict, receipt: dict) -> dict | None:
+    """Verify preserved actual guard failure, not a producer's failure adjective."""
+    if (
+        receipt.get("kind") != "simulation_failure"
+        or trace.get("kind") != "failed_simulation_trace"
+        or receipt.get("failure_code") != "SIM_DIVERGED"
+        or receipt.get("outcome") != "FAILED"
+        or trace.get("outcome") != "FAILED"
+        or any(
+            receipt.get(k) != trace.get(k)
+            for k in (
+                "model_ref",
+                "model_digest",
+                "controller",
+                "action_digest",
+                "initial_state_ref",
+                "requested_steps",
+                "timestep_s",
+                "seed",
+            )
+        )
+    ):
+        return None
+    prefix = trace.get("valid_sampled_prefix")
+    point, last = trace.get("failure_point"), trace.get("last_valid_state")
+    step: Any = trace.get("failed_step")
+    dt: Any = trace.get("timestep_s")
+    if (
+        not isinstance(prefix, list)
+        or not prefix
+        or not isinstance(point, dict)
+        or not isinstance(last, dict)
+        or type(step) is not int
+        or not 1 <= step <= trace.get("requested_steps", 0)
+        or type(dt) not in (int, float)
+        or not math.isfinite(dt)
+        or dt <= 0
+    ):
+        return None
+    counts = point.get("warning_counts")
+    if (
+        not isinstance(counts, list)
+        or len(counts) != 7
+        or any(type(c) is not int or c < 0 for c in counts)
+    ):
+        return None
+    initial = prefix[0]
+    try:
+        expected = float(initial["t"]) + step * dt
+        actual = float(point["t"])
+        prior = float(last["t"])
+        time_bad = not math.isfinite(actual) or not math.isclose(actual, expected, abs_tol=1e-8)
+        fields = point.get("finite_fields", {})
+        nonfinite_bad = any(
+            status is False
+            and isinstance(point.get(key), list)
+            and any(value in ("NaN", "+Inf", "-Inf") for value in point[key])
+            for key, status in fields.items()
+        )
+        if not (
+            math.isclose(float(trace["expected_time"]), expected, abs_tol=1e-8)
+            and math.isclose(prior, float(initial["t"]) + (step - 1) * dt, abs_tol=1e-8)
+            and (any(counts) or time_bad or nonfinite_bad)
+        ):
+            return None
+        peak = max(abs(float(v)) for state in prefix + [last] for v in state["qvel"])
+        return {
+            "receipt_states_binding": True,
+            "model_binding": True,
+            "strictly_increasing_time": not time_bad,
+            "finite_recorded_arrays": not nonfinite_bad,
+            "peak_qvel": peak,
+            "failed_step": step,
+            "warning_counts": counts,
+            "initial_qpos": initial["qpos"],
+            "failure_evidence_verified": True,
+        }
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return None
 
 
 def _valid_stats(stats: dict) -> bool:
@@ -170,6 +248,7 @@ def _valid_stats(stats: dict) -> bool:
             "model_binding",
             "duration_binding",
             "step_time_coverage",
+            "recording_grid_coverage",
         )
     )
 
@@ -183,8 +262,28 @@ def runtime_validation_ok(trace: dict, receipt: dict) -> bool:
         validation.get("method") == "serial_each_step"
         and validation.get("steps_checked") == receipt.get("steps")
         and validation.get("time_continuity_checked") is True
+        and validation.get("schema_version") == "rosclaw.sim.runtime_validation.v1"
+        and validation.get("per_step_warning_check") is True
+        and set(validation.get("checked_finite_fields", []))
+        >= {
+            "qpos",
+            "qvel",
+            "qacc",
+            "qacc_warmstart",
+            "act",
+            "ctrl",
+            "actuator_force",
+            "qfrc_actuator",
+            "qfrc_constraint",
+            "qfrc_bias",
+            "qfrc_passive",
+            "qfrc_smooth",
+            "qfrc_applied",
+            "xfrc_applied",
+            "sensordata",
+        }
         and isinstance(counts, list)
-        and bool(counts)
+        and len(counts) == 7
         and all(type(count) is int and count == 0 for count in counts)
         and receipt.get("runtime_validation") == validation
     )
@@ -220,18 +319,25 @@ def judge_dynamic_repair(root: Path, task) -> dict:
         "physics_steps_by_oracle": 0,
     }
     original_xml = task.staged_files[task.oracle["original_asset"]]
-    baselines = _records(backend, {original})
+    baselines = _records(backend, {original}, include_failures=True)
     for baseline_ref, baseline_receipt, baseline_trace in baselines:
         target = baseline_trace.get("controller", {}).get("position_targets")
         if not isinstance(target, list) or len(target) != 1 or abs(float(target[0])) < 0.1:
             continue
-        before = trace_stats(baseline_trace, baseline_receipt, max_time=1.0)
+        if baseline_trace.get("kind") == "failed_simulation_trace":
+            before = failed_baseline_stats(baseline_trace, baseline_receipt)
+            if before is None:
+                continue
+        else:
+            before = trace_stats(baseline_trace, baseline_receipt, max_time=1.0)
+            before["initial_qpos"] = baseline_trace["states"][0]["qpos"]
         if not before["receipt_states_binding"] or not before["model_binding"]:
             continue
         broken = (
             not before["strictly_increasing_time"]
             or not before["finite_recorded_arrays"]
             or before["peak_qvel"] > 10000
+            or before.get("failure_evidence_verified") is True
         )
         if not broken:
             continue
@@ -248,13 +354,11 @@ def judge_dynamic_repair(root: Path, task) -> dict:
             after = trace_stats(candidate_trace, candidate_receipt, max_time=1.0)
             if (
                 not _valid_stats(after)
-                or after["end_time"] < 1.0 - 1e-8
+                or after["end_time"] - after["start_time"] < 1.0 - 1e-8
                 or after["peak_qvel"] > 100
             ):
                 continue
-            initial_matches = (
-                candidate_trace["states"][0]["qpos"] == baseline_trace["states"][0]["qpos"]
-            )
+            initial_matches = candidate_trace["states"][0]["qpos"] == before["initial_qpos"]
             errors = [
                 (float(s["qpos"][0]) - float(target[0])) ** 2 for s in after["selected_states"]
             ]
@@ -273,6 +377,8 @@ def judge_dynamic_repair(root: Path, task) -> dict:
                 candidate_ref=model_ref,
                 baseline_peak_qvel=before["peak_qvel"],
                 baseline_time_valid=before["strictly_increasing_time"],
+                baseline_failed_step=before.get("failed_step"),
+                baseline_warning_counts=before.get("warning_counts"),
                 candidate_peak_qvel=after["peak_qvel"],
                 candidate_first_second_rmse=rmse,
                 model_body_preserved=True,
@@ -301,7 +407,7 @@ def _option(xml: str) -> tuple[float, str]:
 
 
 def convergence(coarse: dict, fine: dict) -> float:
-    """Interpolate recorded positions onto coarse timestamps, no product metrics."""
+    """Compare positions at common recorded timestamps; never interpolate impacts."""
     import numpy as np
 
     tc = np.asarray([s["t"] for s in coarse["states"]], dtype=float)
@@ -315,6 +421,10 @@ def convergence(coarse: dict, fine: dict) -> float:
         raise ValueError("paired trace is undersampled for convergence evidence")
     indices = np.searchsorted(tf, tc[overlap])
     indices = np.clip(indices, 0, len(tf) - 1)
+    previous = np.maximum(indices - 1, 0)
+    indices = np.where(
+        np.abs(tf[previous] - tc[overlap]) < np.abs(tf[indices] - tc[overlap]), previous, indices
+    )
     matched = np.isclose(tf[indices], tc[overlap], rtol=0, atol=1e-8)
     if matched.sum() < 10:
         raise ValueError("paired traces lack common recorded physical timestamps")
