@@ -60,6 +60,10 @@ export class OperationWatcher {
 	private readonly tracked = new Map<string, string>(); // operation_id → task_id（注册后解析）
 	private readonly pending = new Set<string>(); // task_id 未解析的 operation
 	private readonly delivered = new Set<string>();
+	private readonly operations = new Map<string, Record<string, unknown>>();
+	/** Busy notifications stay retractable here, never in PI's follow-up queue. */
+	private readonly pendingTerminalOps = new Map<string, Record<string, unknown>>();
+	private readonly pendingProofs = new Map<string, Record<string, unknown>>();
 	private readonly seqByTask = new Map<string, number>();
 	private readonly lastLineByOp = new Map<string, string>();
 	/** R0-1.5：自动路由任务跟踪（task_id 集合——plan 进度 +
@@ -75,8 +79,47 @@ export class OperationWatcher {
 
 	/** 模型启动 operation 时登记（tool_execution_end: process_start）。 */
 	track(operationId: string): void {
-		if (!operationId || this.tracked.has(operationId)) return;
+		if (!operationId || this.tracked.has(operationId) || this.delivered.has(operationId)
+			|| this.pendingTerminalOps.has(operationId)) return;
 		this.pending.add(operationId);
+	}
+
+	/** ACK only finalized toolResult messages retained by the public PI agent. */
+	observeToolMessage(message: Record<string, unknown>): void {
+		if (message.role !== "toolResult" || message.isError === true
+			|| !["process_status", "process_output", "process_stop"].includes(String(message.toolName))) return;
+		this.observeToolResult((message.details ?? {}) as Record<string, unknown>);
+	}
+
+	/** A successful terminal status/output result has already reached this agent.
+	 * Match the authoritative operation identity, owning task and revision; a
+	 * partial output or failed read must not suppress a later terminal result. */
+	observeToolResult(result: Record<string, unknown>): void {
+		const op = result.operation as Record<string, unknown> | undefined;
+		if (result.ok !== true || !op || !TERMINAL_STATES.has(String(result.status))
+			|| op.state !== result.status) return;
+		const id = String(op.operation_id ?? "");
+		if (!id || (!this.pending.has(id) && !this.tracked.has(id)
+			&& !this.pendingTerminalOps.has(id))) return;
+		if (!this.operations.has(id)) {
+			this.pendingProofs.set(id, op);
+			return;
+		}
+		this.consumeTerminalProof(id, op);
+	}
+
+	private consumeTerminalProof(id: string, proof: Record<string, unknown>): void {
+		const known = this.operations.get(id);
+		const terminal = this.pendingTerminalOps.get(id);
+		if (!known || !proof.task_id || proof.task_id !== known.task_id
+			|| !Number.isInteger(proof.revision) || Number(proof.revision) < 0
+			|| Number(proof.revision) !== Number(known.revision ?? 0)
+			|| (terminal && terminal.state !== proof.state)) return;
+		this.delivered.add(id);
+		this.pending.delete(id);
+		this.tracked.delete(id);
+		this.pendingTerminalOps.delete(id);
+		this.clearWidget(this.deps.sink(), id);
 	}
 
 	/** R0-1.5：自动路由任务登记（输入路由执行——无 operation，
@@ -118,6 +161,12 @@ export class OperationWatcher {
 				if (!taskId) continue; // 桥暂不可知——下周期再试（不报假死）
 				this.pending.delete(operationId);
 				this.tracked.set(operationId, taskId);
+				this.operations.set(operationId, op);
+				const proof = this.pendingProofs.get(operationId);
+				if (proof) {
+					this.pendingProofs.delete(operationId);
+					this.consumeTerminalProof(operationId, proof);
+				}
 				if (TERMINAL_STATES.has(String(op.state ?? ""))) {
 					await this.handleTerminal(operationId, op);
 				}
@@ -130,7 +179,7 @@ export class OperationWatcher {
 	private async tick(): Promise<void> {
 		await this.resolvePending();
 		if (!this.tracked.size && !this.trackedTasks.size
-			&& !this.pendingTerminalTasks.size) return;
+			&& !this.pendingTerminalTasks.size && !this.pendingTerminalOps.size) return;
 		const sink = this.deps.sink();
 		// R0-1.5：op 任务与自动路由任务同一增量轮询（不重不漏）。
 		const taskIds = [
@@ -168,12 +217,16 @@ export class OperationWatcher {
 					if (label) this.upsertWidget(sink, operationId, label);
 				} else if (TERMINAL_EVENTS.has(event.event_type)) {
 					await this.handleTerminal(operationId, {
+						...this.operations.get(operationId),
 						operation_id: operationId,
 						task_id: taskId,
 						state: String(event.payload?.state ?? ""),
 					});
 				}
 			}
+		}
+		for (const [operationId, op] of [...this.pendingTerminalOps]) {
+			await this.handleTerminal(operationId, op);
 		}
 		// 空闲门控挂起 drain：流式中延迟的终态在空闲后独立呈现
 		// （seq 游标已前进——靠 pending 集合重试，不是重放事件）。
@@ -285,11 +338,12 @@ export class OperationWatcher {
 		operationId: string, op: Record<string, unknown>,
 	): Promise<void> {
 		if (this.delivered.has(operationId)) return;
-		this.delivered.add(operationId);
+		this.pendingTerminalOps.set(operationId, op);
 		this.pending.delete(operationId);
 		this.tracked.delete(operationId);
 		const sink = this.deps.sink();
 		this.clearWidget(sink, operationId);
+		if (!sink?.isIdle) return;
 		const state = String(op.state ?? "");
 		// WP-1（0823 审计 P0-3）：终态一致性——owning task 已终态
 		// （或 operation 属旧 revision）时，终态事件只更新账本和
@@ -303,7 +357,8 @@ export class OperationWatcher {
 					task_id: taskId,
 				});
 				const task = (taskResult.task ?? null) as Record<string, unknown> | null;
-				const taskState = String(task?.state ?? "");
+				if (!task || (task.task_id && task.task_id !== taskId)) return;
+				const taskState = String(task.state ?? "");
 				taskTerminal = task !== null && taskState !== "RUNNING"
 					&& taskState !== "CREATED" && taskState !== "WAITING_APPROVAL";
 				const opRevision = Number(op.revision ?? 0);
@@ -311,9 +366,13 @@ export class OperationWatcher {
 				staleRevision = opRevision > 0 && activeRevision > 0
 					&& opRevision !== activeRevision;
 			} catch {
-				taskTerminal = true; // 查询失败不赌——按终态处理（不触发回合）
+				return; // Preserve the reminder until ownership can be verified.
 			}
 		}
+		if (this.delivered.has(operationId)) return; // A tool result arrived during the await.
+		if (!this.deps.sink()?.isIdle) return;
+		this.delivered.add(operationId);
+		this.pendingTerminalOps.delete(operationId);
 		if (taskTerminal || staleRevision) {
 			sink?.notify?.(
 				`Operation ${state}（任务已${staleRevision ? "换 revision" : "终态"}——已存档，不再打扰）：${operationId.slice(0, 18)}…`,
@@ -325,17 +384,21 @@ export class OperationWatcher {
 			+ (op.failure_code ? `（${String(op.failure_code)}）` : "")
 			+ "。用 process_output 查看输出，然后在同一任务里继续（验证/修复/交付）。";
 		if (sink?.api) {
-			sink.api.sendMessage(
-				{
-					customType: "rosclaw.operation.result",
-					content,
-					display: false,
-					details: { operation_id: operationId, state },
-				},
-				sink.isIdle
-					? { triggerTurn: true }
-					: { triggerTurn: true, deliverAs: "followUp" },
-			);
+			try {
+				sink.api.sendMessage(
+					{
+						customType: "rosclaw.operation.result",
+						content,
+						display: false,
+						details: { operation_id: operationId, state },
+					},
+					{ triggerTurn: true },
+				);
+			} catch {
+				this.delivered.delete(operationId);
+				this.pendingTerminalOps.set(operationId, op);
+				return;
+			}
 		}
 		sink?.notify?.(`Operation ${state}：${operationId.slice(0, 18)}…`);
 	}

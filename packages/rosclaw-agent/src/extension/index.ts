@@ -1184,6 +1184,9 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				}),
 			);
 		});
+		pi.on("message_end", async (event) => {
+			operationWatcher.observeToolMessage(event.message as unknown as Record<string, unknown>);
+		});
 		pi.on("tool_execution_end", async (event, ctx) => {
 			activeToolCalls.delete(event.toolCallId);
 			if (ctx.hasUI) {
@@ -1194,9 +1197,12 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			}
 			if (event.toolName === "process_start") {
 				// PR-H3：登记模型启动的 operation（终态后 followUp 一次）。
-				const text = JSON.stringify(event.result?.details ?? {}) + JSON.stringify(event.result?.content ?? []);
-				const match = text.match(/op_[a-f0-9]+/);
-				if (match) operationWatcher.track(match[0]);
+				const details = (event.result?.details ?? {}) as Record<string, unknown>;
+				if (event.isError || details.ok === false) return;
+				const operation = details.operation as Record<string, unknown> | undefined;
+				const text = JSON.stringify(event.result?.content ?? []);
+				const id = String(operation?.operation_id ?? text.match(/op_[a-f0-9]+/)?.[0] ?? "");
+				if (id) operationWatcher.track(id);
 				return;
 			}
 			if (event.toolName !== "rosclaw_request_action") return;

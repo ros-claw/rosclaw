@@ -873,6 +873,7 @@ class PiToolDispatcher:
             request_id=request.request_id,
             ok=True,
             status="STARTED",
+            operation={key: op.get(key) for key in ("operation_id", "task_id", "revision", "state")},
             summary=(
                 f"Operation 已启动：{op['operation_id']}（后台运行）。"
                 "完成结果会自动推送给用户（OperationWatcher 一次性通知，含结果）。"
@@ -892,6 +893,7 @@ class PiToolDispatcher:
             request_id=request.request_id,
             ok=True,
             status=str(op["state"]),
+            operation={key: op.get(key) for key in ("operation_id", "task_id", "revision", "state")},
             summary=(
                 f"operation {op['operation_id']}: {op['state']}"
                 + (f"（{op['failure_code']}）" if op.get("failure_code") else "")
@@ -917,6 +919,7 @@ class PiToolDispatcher:
             request_id=request.request_id,
             ok=True,
             status=str(op["state"]),
+            operation={key: op.get(key) for key in ("operation_id", "task_id", "revision", "state")},
             summary="".join(lines[-tail:])[-3000:] or "（暂无输出）",
         )
 
@@ -949,7 +952,8 @@ class PiToolDispatcher:
                     f"operation {operation_id} {labels[state]}（{state}）；无需取消，原终态保持"
                 )
             return PiToolResultV1(
-                request_id=request.request_id, ok=True, status=state, summary=summary
+                request_id=request.request_id, ok=True, status=state, summary=summary,
+                operation={key: op.get(key) for key in ("operation_id", "task_id", "revision", "state")},
             )
         if state == "CANCELING":
             return PiToolResultV1(

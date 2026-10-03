@@ -35,11 +35,20 @@ async def test_completed_process_stop_preserves_ledger_and_reports_already_termi
         before = manager.get(operation_id)
         assert before["state"] == terminal
         events_before = conn.execute("SELECT COUNT(*) FROM task_events").fetchone()[0]
+        for name in ("status", "output"):
+            read = await getattr(dispatcher, f"_process_{name}")(
+                _request(f"rosclaw_process_{name}", arguments={"operation_id": operation_id})
+            )
+            assert read.operation == {
+                key: before[key] for key in ("operation_id", "task_id", "revision", "state")
+            }
+            assert read.status == terminal
         result = await dispatcher._process_stop(
             _request("rosclaw_process_stop", arguments={"operation_id": operation_id})
         )
         assert result.ok
         assert result.status == terminal
+        assert result.operation == read.operation
         assert "无需取消" in result.summary
         assert "已取消（账本先行）" not in result.summary
         assert manager.get(operation_id) == before

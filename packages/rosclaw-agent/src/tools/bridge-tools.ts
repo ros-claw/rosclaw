@@ -32,7 +32,7 @@ export async function executeVia(
 	ctx: BridgeToolContext,
 	toolName: string,
 	arguments_: Record<string, unknown>,
-) {
+): Promise<{ content: { type: "text"; text: string }[]; details: Record<string, unknown>; isError: boolean }> {
 	requestCounter += 1;
 	const state = ctx.active.current;
 	if (!state.missionId) {
@@ -58,8 +58,8 @@ export async function executeVia(
 		actor: { engine: "pi", process_id: process.pid, uid: process.getuid?.() ?? 0 },
 	};
 	const response = await ctx.center.call("pi.tools.execute", { request });
-	const result = (response.result ?? {}) as { ok?: boolean; summary?: string; error_code?: string };
-	const ok = response.ok === true;
+	const result = (response.result ?? {}) as Record<string, unknown> & { ok?: boolean; summary?: string; error_code?: string };
+	const ok = response.ok === true && result.ok !== false;
 	return {
 		content: [
 			{
@@ -69,7 +69,7 @@ export async function executeVia(
 					: `REJECTED [${result.error_code ?? response.code ?? "?"}]: ${String(response.error ?? result.summary ?? "")}`,
 			},
 		],
-		details: { ok, error_code: result.error_code ?? null },
+		details: { ...result, ok, error_code: result.error_code ?? null },
 		isError: !ok,
 	};
 }

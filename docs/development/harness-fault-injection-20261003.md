@@ -586,3 +586,45 @@ The characterization suite remains version 1; earlier real public PI compaction
 fixtures were already executed against installed 1.0.1. Existing W08 pin and
 lock-integrity assertions initially failed twice and now pass: **4 PASS**.
 This is not a new release-artifact qualification claim.
+
+### Consumed operation reminders no longer queue redundant model turns
+
+Read-only analysis of the formal session's entries 3188/3196/3202/3208/3212/3218
+found six distinct `rosclaw.operation.result` messages, not repeated delivery
+of a single operation after reboot. These operations were started in entries
+3062–3139. Several terminal results had already been consumed in that same
+run: FAILED status/output at 3096/3098, terminal status/output at 3129/3133 and
+3141/3145, and SUCCEEDED status at 3176. Nevertheless each completion was
+already queued using PI `deliverAs: followUp` while the agent remained busy.
+The queue drained only after the long agent turn ended, producing six separate
+reminder-driven turns and repeated NOT_DONE narratives. No historical entry,
+queued live message, operation or task state was changed by this audit.
+
+OperationWatcher now retains busy terminal reminders in its own pending map.
+Successful finalized `process_status`, `process_output` or terminal
+`process_stop` toolResult messages acknowledge only the matching operation,
+owning task and revision, removing the now-redundant reminder. ACK occurs on
+public `message_end`, after PI agent-core has retained the finalized toolResult
+in agent state, rather than early on `tool_execution_end`. Agentd supplies
+structured operation identity/status; the bridge preserves all result metadata
+and distinguishes inner result failure from a successful transport envelope.
+Process-start registration prefers the structured operation ID and keeps the
+old textual fallback for compatibility.
+
+Unconsumed reminders publish only at idle, with task/revision checked again.
+Running output, failed reads, unrelated messages and mismatched identity do
+not ACK. Interrupted publication or temporary ownership lookup failure retains
+the reminder for retry. Stop/start of the watcher leaves pending reminders
+intact. The watcher does not alter user queues or create fake tool results;
+its pending/delivery state remains in memory, with no new cross-process reboot
+or persistent delivery guarantee claimed.
+
+Eight initial private watcher fixtures failed before repair. The final eighteen
+fixtures include public PI 1.0.1 Agent runs aborted during both successful and
+failed terminal reads, with bounded local streams that honor abort signals,
+plus early-consumption and await-race cases. Real OperationManager fixtures
+verify backend terminal status/output identity and no ledger/event mutation.
+Terminal/toolbridge/cancel propagation Python cohort: **34 PASS** under
+unraisable-warning-as-error. Ruff and mypy for both changed Python sources pass.
+Full package build + Node suite against installed PI 1.0.1: **312 PASS,
+3 SKIP (315 total)**. No live process/session restart was required.

@@ -35,6 +35,7 @@ class PiToolResultV1(ContractModel):
     ok: bool
     status: str
     summary: str = ""
+    operation: dict[str, Any] | None = None
     decision_id: str | None = None
     mission_revision: int = 0
     context_revision: int = 0
