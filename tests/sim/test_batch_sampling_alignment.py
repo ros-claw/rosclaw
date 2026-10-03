@@ -38,3 +38,47 @@ def test_batch_recorded_samples_and_controls_match_serial_including_final(
     final = backend.store.get(batch["final_state_ref"])
     assert batch_trace["states"][-1]["t"] == final["time"]
     assert batch_trace["states"][-1]["qpos"] == final["qpos"]
+
+
+@pytest.mark.parametrize(
+    "controller",
+    [
+        {"hold": True},
+        {"ctrl_series": [[0.5], [0.8]]},
+        {"ctrl_series": [[step / 10] for step in range(10)]},
+    ],
+)
+def test_restored_control_and_requested_steps_are_actual_batch_execution(tmp_path, controller):
+    backend = MujocoBackend(tmp_path)
+    ref = backend.load_model_xml(
+        XML.replace('qpos=".1"', 'qpos=".1" ctrl=".4"'), source={"kind": "fixture"}
+    ).model_ref
+    state = backend.initial_state_v2(ref, keyframe="home")
+    serial = backend.rollout(ref, state_ref=state, controller=controller, steps=5)
+    batch = backend.rollout_batch([ref], state_refs=[state], controller=controller, steps=5)[0]
+    actual = backend.store.get(batch["trace_ref"])
+    expected = backend.store.get(serial.trace_ref)
+    assert len(actual["states"]) == len(expected["states"])
+    for a, e in zip(actual["states"], expected["states"], strict=True):
+        for field in ["t", "qpos", "qvel", "ctrl"]:
+            assert a[field] == pytest.approx(e[field])
+    assert backend.store.get(batch["final_state_ref"])["ctrl"] == actual["states"][-1]["ctrl"]
+
+
+def test_parallel_hold_uses_each_branches_actual_restored_control(tmp_path):
+    backend = MujocoBackend(tmp_path)
+    xml = XML.replace('qpos=".1"', 'qpos=".1" ctrl=".4"').replace(
+        "</keyframe>", '<key name="other" time="2" qpos=".1" ctrl=".8"/></keyframe>'
+    )
+    ref = backend.load_model_xml(xml, source={"kind": "fixture"}).model_ref
+    states = [backend.initial_state_v2(ref, keyframe=name) for name in ["home", "other"]]
+    results = backend.rollout_batch(
+        [ref, ref], state_refs=states, controller={"hold": True}, steps=5
+    )
+    for state, result in zip(states, results, strict=True):
+        serial = backend.rollout(ref, state_ref=state, controller={"hold": True}, steps=5)
+        batch_trace = backend.store.get(result["trace_ref"])
+        serial_trace = backend.store.get(serial.trace_ref)
+        for actual, expected in zip(batch_trace["states"], serial_trace["states"], strict=True):
+            for field in ["qpos", "qvel", "ctrl"]:
+                assert actual[field] == pytest.approx(expected[field])

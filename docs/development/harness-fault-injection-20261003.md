@@ -244,3 +244,17 @@ positions, velocities and controls; the final sampled state equals the
 actual final snapshot. The related batch/state/initializer/validity cohort
 passes 43 checks. No serial per-step warning telemetry is attributed to
 native batch execution.
+
+Further restored-control testing found that batch `hold` silently replaced
+caller control with zero, and a two-row `ctrl_series` with five requested steps
+only executed two steps while previously reporting five. Batch now preserves
+each branch's actual held control. Explicit steps truncate a longer series or
+continue its last row for a shorter series, matching serial behavior. Initial
+sample controls describe the restored state before the first series command;
+final snapshots retain the actual last executed control. No command semantics
+are inferred from a zero-filled temporary data object.
+
+The two original control/request cases were red. Additional cases verify a
+longer series and two independent branches holding different commands.
+The resulting ten sampling/control cases and related cohort pass 47 checks,
+with source mypy/Ruff and diff checks passing.
