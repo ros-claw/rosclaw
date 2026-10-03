@@ -592,6 +592,11 @@ class MujocoBackend:
 
         if not isinstance(model_refs, list) or not model_refs:
             raise ValueError("BATCH_EMPTY: model_refs must be a non-empty list")
+        merged = {**rollout_mod.DEFAULT_BUDGETS, **(budgets or {})}
+        if len(model_refs) > merged["max_branch_count"]:
+            raise ValueError(
+                f"SIM_BUDGET_EXCEEDED: branch count {len(model_refs)} > {merged['max_branch_count']}"
+            )
         if state_refs is not None and len(state_refs) != len(model_refs):
             raise ValueError(
                 f"BATCH_STATE_COUNT_MISMATCH: {len(state_refs)} states != {len(model_refs)} models"
@@ -640,9 +645,13 @@ class MujocoBackend:
         resolved_steps = rollout_mod.resolve_steps(
             controller, steps=steps, duration_s=duration_s, timestep=float(models[0].opt.timestep)
         )
-        merged = {**rollout_mod.DEFAULT_BUDGETS, **(budgets or {})}
         if resolved_steps > merged["max_steps"]:
             raise ValueError(f"SIM_BUDGET_EXCEEDED: steps {resolved_steps} > {merged['max_steps']}")
+        elapsed = resolved_steps * float(models[0].opt.timestep)
+        if elapsed > merged["max_duration_s"]:
+            raise ValueError(
+                f"SIM_BUDGET_EXCEEDED: duration {elapsed}s > {merged['max_duration_s']}s"
+            )
 
         if plan["kind"] == "ctrl_series":
             rows = np.asarray(plan["rows"], dtype=float)
