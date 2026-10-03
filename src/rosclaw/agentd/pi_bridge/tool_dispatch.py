@@ -766,18 +766,21 @@ class PiToolDispatcher:
                 f"artifact 不存在: {path}（已查会话目录 {session_cwd or '—'} "
                 f"与任务工作区 {task_ws}）",
             )
+        delivery_metadata: dict[str, object] = {}
+        role = request.arguments.get("role")
+        if isinstance(role, str) and role.strip():
+            delivery_metadata["role"] = role.strip()
+        if appended_post_terminal:
+            delivery_metadata.update(
+                appended_post_terminal=True,
+                task_state_at_registration=str(task["state"]),
+            )
         try:
             artifact = kernel.register_artifact(
                 task_id=task["task_id"], path=resolved,
                 media_type=str(request.arguments.get("media_type", "application/octet-stream")),
                 producer="model:rosclaw_artifact_register",
-                metadata=(
-                    {
-                        "appended_post_terminal": True,
-                        "task_state_at_registration": str(task["state"]),
-                    }
-                    if appended_post_terminal else None
-                ),
+                metadata=delivery_metadata or None,
             )
         except ValueError as exc:
             raise ToolBridgeError("ARTIFACT_MISSING", str(exc)) from exc

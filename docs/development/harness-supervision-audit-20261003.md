@@ -261,3 +261,20 @@ content-addressed experiment objects and return `report_ref`, including the
 NOT_COMPARABLE path. A test using the actual native API without manually
 inserting the report reproduced the missing receipt before repair. Shadow,
 clock, observation and oracle regression passed 53 tests (overlapping scopes).
+
+Fresh native S03 trials after the receipt repair verified for OpenAI in
+87.1s/11 tools and Kimi in 107.0s/15 tools. S02 also verified for both providers
+(107.2s/14 tools and 167.2s/27 tools respectively). The pre-repair Kimi S03
+diagnosis was independently reproduced against all three supplied traces and
+its damping-only repair; its original automated FALSE_SUCCESS remains intact.
+These are single trials at different revisions and times, not model rankings.
+The default mypy invocation passed 1,318 source files after the shadow repair.
+
+Both C v3 diagnostic videos completed and their six video/timing/frame-map
+artifacts were registered under the active M21 task. Trial 4 independently
+decoded all 801 frames at 60fps/13.35s; its checksums and <=5ms source sampling
+map matched. Neither clip establishes a successful rally. Artifact registration
+also exposed a UX defect: the public `role` parameter was silently dropped by
+the dispatcher. Registration now retains the role in metadata, alongside any
+post-terminal flags. The delivery lifecycle/coordinator suites passed 12 tests;
+the failing-before-repair test demonstrates the lost diagnostic role.

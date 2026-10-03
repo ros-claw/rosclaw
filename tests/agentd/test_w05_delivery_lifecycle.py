@@ -83,7 +83,7 @@ class TestAppendAfterTerminal:
                 "rosclaw_artifact_register", mission=mission.mission_id,
                 idem="w05_append_2",
                 lease=await _issue_lease(service, mission),
-                arguments={"path": str(f2)},
+                arguments={"path": str(f2), "role": "diagnostic_failed_attempt"},
             )
         )
         assert result.ok, result.summary
@@ -98,6 +98,7 @@ class TestAppendAfterTerminal:
         meta = json.loads(rows["metadata_json"] or "{}")
         assert meta.get("appended_post_terminal") is True, meta
         assert meta.get("task_state_at_registration") == "SUCCEEDED"
+        assert meta.get("role") == "diagnostic_failed_attempt"
         await service.close()
 
     async def test_late_request_does_not_auto_activate_revision(
