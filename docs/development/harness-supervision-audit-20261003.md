@@ -394,3 +394,22 @@ without session directories; an answer file or a completion claim cannot close
 new trials. Synthetic regression includes the near-deadline counterexample.
 A real native OpenAI U02 trial passed in 23.0s with four tool calls and no infra
 retry; this is a new smoke trial, not a model-ranking comparison to older timings.
+
+Recorded replay of that selected case now passes independent full decode,
+source-SHA/frame-map/time checks: 413 G1-start frames and 244 M20-start frames,
+60fps, actual 1x and 0.25x segments. Robots/ball and bounded event sidebars are
+clearer. The net is still edge-on; these are diagnostic clips, not final acceptance.
+A second independent pass ties stored full-state ball/root coordinates and
+velocities to the ms logs, derives the initial gate directly from qpos/qvel, and
+checks compiled ball mass/gravity against the force integration. Both cases pass.
+
+The predeclared fresh replication (seeds 7/23/42/123, both starting directions)
+completed all eight attempts, including four INIT failures. The original net-only
+contract reports three returns in G1 seed123, but its last shot exits the reduced
+court without reception or a bounce. An additive completion contract therefore
+requires actual opponent reception or the first opponent in-court bounce, while
+preserving the old fields and raw verdicts. Under that declared reduced-court
+contract the selected G1 seed11 result remains three; none of the eight fresh
+attempts reaches three. This is a real generalization/measurement limitation,
+not a reason to omit the INIT failures from the denominator or relabel a net
+crossing as a completed rally. M21 remains NOT_DONE overall.
