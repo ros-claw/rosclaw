@@ -1033,7 +1033,9 @@ def judge(task_id: str, workspace: Path, *, leg: str = "B") -> dict[str, Any]:
     if kind == "understanding":
         if task_id == "U01":
             return _judge_u01(workspace)
-        return _judge_understanding(workspace, task.oracle.get("answer_fields") or ["dofs"])
+        return _judge_understanding(
+            workspace, task.oracle.get("answer_fields") or ["dofs"], task.staged_files,
+        )
     if kind == "repair":
         original = task.oracle["original_asset"]
         if leg == "A":
@@ -1114,7 +1116,9 @@ def _answer(root: Path) -> dict[str, Any] | None:
     return _read_answer(root)
 
 
-def _judge_understanding(root: Path, fields: list[str]) -> dict[str, Any]:
+def _judge_understanding(
+    root: Path, fields: list[str], expected_files: dict[str, str] | None = None,
+) -> dict[str, Any]:
     """v2 understanding：answer_fields 可配（control_channels/sensors）。
     truth 从编译真相来，模型答错即失败（false_success=False）。"""
     answer = _answer(root)
@@ -1125,6 +1129,13 @@ def _judge_understanding(root: Path, fields: list[str]) -> dict[str, Any]:
             "false_success": False,
             "reason": "answer_missing",
         }
+    for rel, original in (expected_files or {}).items():
+        if rel.endswith(".xml") and (
+            not (root / rel).is_file()
+            or (root / rel).read_text(encoding="utf-8") != original
+        ):
+            return {"task_success": False, "verified_success": False,
+                    "false_success": False, "reason": "understanding_input_modified"}
     models = list((root / "model").glob("*.xml"))
     if not models:
         return {
@@ -1140,35 +1151,59 @@ def _judge_understanding(root: Path, fields: list[str]) -> dict[str, Any]:
     def names(obj, count):
         return [mujoco.mj_id2name(model, obj, i) or f"#{i}" for i in range(count)]
 
+    def control_channels():
+        # Independent compiled truth, not the product inspect helper. PID
+        # ctrl addresses/counts and input signature are compiler-owned facts.
+        channels = []
+        for actuator, name in enumerate(names(mujoco.mjtObj.mjOBJ_ACTUATOR, model.nactuator)):
+            address = int(model.actuator_ctrladr[actuator])
+            count = int(model.actuator_ctrlnum[actuator])
+            roles = ["ctrl"]
+            if model.actuator_gaintype[actuator] == mujoco.mjtGain.mjGAIN_PID:
+                signature = int(model.actuator_ctrlspec[actuator])
+                roles = [role for bit, role in (
+                    (mujoco.mjtCtrlInput.mjINPUT_POS, "pos"),
+                    (mujoco.mjtCtrlInput.mjINPUT_VEL, "vel"),
+                    (mujoco.mjtCtrlInput.mjINPUT_FF, "ff"),
+                ) if signature & int(bit)]
+            if len(roles) != count:
+                raise ValueError("unsupported compiled control signature")
+            channels.extend((name, role, address + i) for i, role in enumerate(roles))
+        return sorted(channels)
+
     checks = {
         "dofs": lambda: int(model.nv),
         "actuators": lambda: sorted(names(mujoco.mjtObj.mjOBJ_ACTUATOR, model.nu)),
         "sensors": lambda: sorted(names(mujoco.mjtObj.mjOBJ_SENSOR, model.nsensor)),
         "cameras": lambda: sorted(names(mujoco.mjtObj.mjOBJ_CAMERA, model.ncam)),
-        "control_channels": lambda: sorted(
-            (c["actuator"], c["role"])
-            for c in __import__(
-                "rosclaw.sim.backends.mujoco.inspect", fromlist=["_control_channels"]
-            )._control_channels(model, mujoco.MjSpec.from_file(str(models[0])))
-        ),
+        "control_channels": control_channels,
     }
     same = True
     detail = {}
     for field in fields:
         if field == "control_channels":
             truth = checks["control_channels"]()
-            given = sorted(
-                (c.get("actuator"), c.get("role")) for c in (answer.get("control_channels") or [])
+            submitted = answer.get("control_channels")
+            valid = isinstance(submitted, list) and all(
+                isinstance(c, dict) and isinstance(c.get("actuator"), str)
+                and isinstance(c.get("role"), str) and type(c.get("index")) is int
+                for c in submitted
             )
+            given = sorted((c["actuator"], c["role"], c["index"]) for c in submitted) if valid else None
             ok = given == truth
         elif field == "sensors":
-            truth_names = sorted(names(mujoco.mjtObj.mjOBJ_SENSOR, model.nsensor))
-            given = sorted(
-                s.get("name") for s in (answer.get("sensors") or []) if isinstance(s, dict)
+            truth = sorted(
+                (name, mujoco.mjtSensor(model.sensor_type[i]).name.removeprefix("mjSENS_").lower())
+                for i, name in enumerate(names(mujoco.mjtObj.mjOBJ_SENSOR, model.nsensor))
             )
-            if not given:  # 兼容 ["jp","jv"] 裸名单
-                given = sorted(answer.get("sensors") or [])
-            ok = given == truth_names
+            submitted = answer.get("sensors")
+            valid = isinstance(submitted, list) and all(
+                isinstance(s, dict) and isinstance(s.get("name"), str)
+                and isinstance(s.get("type"), str) for s in submitted
+            )
+            given = sorted((s["name"], s["type"].lower().removeprefix("mjsens_"))
+                           for s in submitted) if valid else None
+            ok = given == truth
         else:
             truth = checks[field]() if field in checks else None
             given = answer.get(field)

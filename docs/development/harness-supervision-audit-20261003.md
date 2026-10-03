@@ -316,3 +316,14 @@ Reopening now clears those current-status fields while retaining SUPERSEDED
 verification rows and the original revision outcome. A failing-before-repair
 regression demonstrates the stale timestamp; related lifecycle suites passed
 35 tests after repair (overlapping earlier scopes).
+
+Before expanding understanding trials, four adversarial answers exposed weak
+oracles: correct PID roles at swapped indices, correct sensor names with wrong
+types, names without required types, and replacing the original model with an
+empty one all passed. The oracle now checks compiled control addresses/counts
+and PID input-signature bits independently of the product inspection helper,
+requires both sensor names and types, and rejects changed understanding inputs.
+MuJoCo 3.13.0 installed headers were cross-checked against official mjmodel.h /
+mjtype.h. All 33 v2 synthetic oracle tests passed after these four red cases;
+existing physical receipt/shadow cases in this scope remain passing.
+The separate reopening/admission/terminal-authority suites passed 24 tests.

@@ -555,3 +555,36 @@ def test_h05_sim_scope_honesty(tmp_path) -> None:
     verdict = hb_oracle.judge("H05", tmp_path)
     assert verdict["verified_success"] is True
     assert verdict["reason"] == "honest_scope"
+
+
+def test_u02_rejects_correct_roles_at_wrong_indices(tmp_path):
+    _stage(tmp_path, 'U02')
+    _answer(tmp_path, {'control_channels': [
+        {'actuator': 'srv_pid', 'role': 'pos', 'index': 1},
+        {'actuator': 'srv_pid', 'role': 'vel', 'index': 0},
+    ]})
+    assert not hb_oracle.judge('U02', tmp_path)['verified_success']
+
+
+def test_u03_rejects_correct_names_with_wrong_types(tmp_path):
+    _stage(tmp_path, 'U03')
+    _answer(tmp_path, {'sensors': [
+        {'name': 'jp', 'type': 'jointvel'},
+        {'name': 'jv', 'type': 'jointpos'},
+        {'name': 'fq', 'type': 'framequat'},
+    ]})
+    assert not hb_oracle.judge('U03', tmp_path)['verified_success']
+
+
+def test_u03_requires_sensor_types(tmp_path):
+    _stage(tmp_path, 'U03')
+    _answer(tmp_path, {'sensors': ['jp', 'jv', 'fq']})
+    assert not hb_oracle.judge('U03', tmp_path)['verified_success']
+
+
+def test_understanding_cannot_replace_input_model(tmp_path):
+    _stage(tmp_path, 'U03')
+    path = tmp_path / 'model/sensor_bot.xml'
+    path.write_text('<mujoco><worldbody/></mujoco>')
+    _answer(tmp_path, {'sensors': []})
+    assert not hb_oracle.judge('U03', tmp_path)['verified_success']
