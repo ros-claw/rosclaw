@@ -1319,8 +1319,19 @@ def _vision_verdict(root: Path, judge, source_xml: str) -> dict[str, Any]:
             "false_success": False,
             "reason": "answer_missing",
         }
+    from benchmarks.harnessbench.vision_oracle import CameraRendererUnavailableError
+
     try:
         detail = judge(_runtime(root).backend, answer, source_xml)
+    except CameraRendererUnavailableError as exc:
+        return {
+            "task_success": False,
+            "verified_success": False,
+            "false_success": False,
+            "verification_status": "INFRASTRUCTURE_FAILURE",
+            "reason": str(exc),
+            "physics_steps_by_oracle": 0,
+        }
     except (KeyError, TypeError, ValueError, FileNotFoundError) as exc:
         return {
             "task_success": False,

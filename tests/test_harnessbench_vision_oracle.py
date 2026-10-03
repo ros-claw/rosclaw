@@ -124,3 +124,68 @@ def test_camera_manifest_counterexamples_fail_closed(observations, mutation):
     ref = backend.store.put("renders", altered)
     with pytest.raises(ValueError):
         judge_grounding(backend, {**grounding, "segmentation_manifest_ref": ref}, V02_MODEL)
+
+
+def test_public_camera_pins_renderer_despite_inherited_opengl_platform(tmp_path, monkeypatch):
+    from rosclaw.sim.runtime import SimulationRuntime
+
+    (tmp_path / "scene.xml").write_text(V02_MODEL)
+    runtime = SimulationRuntime(tmp_path)
+    model = runtime.load_model("scene.xml")["model_ref"]
+    state = runtime.snapshot(model)["state_ref"]
+    # Producer's declared renderer is EGL; the operator shell may select OSMesa.
+    monkeypatch.setenv("PYOPENGL_PLATFORM", "egl")
+    observed = runtime.observe(model, state, channels=["camera_segmentation:cam"])
+    ref = observed["values"]["camera_segmentation:cam"]["observation_manifest_ref"]
+    assert runtime.backend.store.get(ref)["renderer_backend"] == "egl"
+    monkeypatch.setenv("PYOPENGL_PLATFORM", "osmesa")
+    truth = verify_camera(
+        runtime.backend,
+        ref,
+        source_xml=V02_MODEL,
+        camera="cam",
+        body="blue_box",
+        kind="segmentation",
+    )
+    assert truth["pixel_count"] > 4
+
+
+def test_declared_renderer_unavailable_never_falls_back_or_blames_agent(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from benchmarks.harnessbench import oracle, vision_oracle
+
+    (tmp_path / "answer.json").write_text("{}")
+    requests = []
+
+    def unavailable(*args, **kwargs):
+        requests.append(kwargs["env"])
+        return SimpleNamespace(returncode=1, stderr=b"EGL unavailable")
+
+    monkeypatch.setattr(vision_oracle.subprocess, "run", unavailable)
+
+    def judge(*_):
+        return vision_oracle._independent_pixels(V02_MODEL, np.zeros(1), "cam", "blue_box", "egl")
+
+    verdict = oracle._vision_verdict(tmp_path, judge, V02_MODEL)
+    assert len(requests) == 1
+    assert requests[0]["MUJOCO_GL"] == requests[0]["PYOPENGL_PLATFORM"] == "egl"
+    assert verdict["verification_status"] == "INFRASTRUCTURE_FAILURE"
+    assert verdict["false_success"] is False and verdict["verified_success"] is False
+
+
+def test_renderer_worker_initial_state_mismatch_still_rejected_as_evidence_failure(monkeypatch):
+    from types import SimpleNamespace
+
+    from benchmarks.harnessbench import vision_oracle
+
+    monkeypatch.setattr(
+        vision_oracle.subprocess,
+        "run",
+        lambda *a, **k: SimpleNamespace(
+            returncode=1, stderr=b"OBSERVATION_NOT_ORIGINAL_INITIAL_STATE"
+        ),
+    )
+    with pytest.raises(ValueError, match="OBSERVATION_NOT_ORIGINAL_INITIAL_STATE") as error:
+        vision_oracle._independent_pixels(V02_MODEL, np.zeros(1), "cam", "blue_box", "egl")
+    assert not isinstance(error.value, vision_oracle.CameraRendererUnavailableError)
