@@ -64,8 +64,12 @@ json.dump(result, open(r["metadata"], "w"), allow_nan=False)
 """
 
 
-def _independent_pixels(xml, vector, camera, body):
-    """Each GL backend runs in its own process; unavailable rendering fails closed."""
+class CameraRendererUnavailableError(ValueError):
+    """Verifier infrastructure failure, without a model success/failure claim."""
+
+
+def _independent_pixels(xml, vector, camera, body, renderer):
+    """Pin the declared GL backend in its own process; never compare across renderers."""
     with tempfile.TemporaryDirectory(prefix="rosclaw_vision_oracle_") as temporary:
         root = Path(temporary)
         request = {
@@ -78,18 +82,34 @@ def _independent_pixels(xml, vector, camera, body):
         }
         path = root / "request.json"
         path.write_text(json.dumps(request, allow_nan=False))
-        for renderer in ("egl", "osmesa"):
+        if renderer not in {"egl", "osmesa"}:
+            raise ValueError("CAMERA_RENDERER_BINDING_INVALID")
+        try:
             completed = subprocess.run(
                 [sys.executable, "-c", _WORKER, str(path)],
-                env={**os.environ, "MUJOCO_GL": renderer},
+                env={**os.environ, "MUJOCO_GL": renderer, "PYOPENGL_PLATFORM": renderer},
                 capture_output=True,
                 timeout=60,
             )
-            if completed.returncode == 0:
-                with np.load(root / "pixels.npz", allow_pickle=False) as arrays:
-                    pixels = {key: arrays[key].copy() for key in arrays.files}
-                return pixels, json.loads((root / "metadata.json").read_text())
-        raise ValueError("INDEPENDENT_CAMERA_RENDER_FAILED")
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            raise CameraRendererUnavailableError(
+                "INDEPENDENT_CAMERA_RENDERER_UNAVAILABLE:" + renderer
+            ) from exc
+        if completed.returncode != 0:
+            for reason in (
+                "OBSERVATION_NOT_ORIGINAL_INITIAL_STATE",
+                "UNKNOWN_CAMERA_OR_TARGET",
+                "BENCH_TARGET_GEOM_AMBIGUOUS",
+                "TARGET_BEHIND_CAMERA",
+            ):
+                if reason.encode() in completed.stderr:
+                    raise ValueError(reason)
+            raise CameraRendererUnavailableError(
+                "INDEPENDENT_CAMERA_RENDERER_UNAVAILABLE:" + renderer
+            )
+        with np.load(root / "pixels.npz", allow_pickle=False) as arrays:
+            pixels = {key: arrays[key].copy() for key in arrays.files}
+        return pixels, json.loads((root / "metadata.json").read_text())
 
 
 def verify_camera(backend, manifest_ref, *, source_xml, camera, body, kind):
@@ -147,7 +167,11 @@ def verify_camera(backend, manifest_ref, *, source_xml, camera, body, kind):
     if state.get("state_spec_value") != int(mujoco.mjtState.mjSTATE_INTEGRATION):
         raise ValueError("CAMERA_STATE_SPEC_INVALID")
     pixels, metadata = _independent_pixels(
-        source_xml, np.frombuffer(blob, dtype=np.float64), camera, body
+        source_xml,
+        np.frombuffer(blob, dtype=np.float64),
+        camera,
+        body,
+        manifest.get("renderer_backend"),
     )
     raw = np.load(io.BytesIO(backend.store.get(manifest["raw_artifact_ref"])), allow_pickle=False)
     expected = pixels[kind]

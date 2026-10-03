@@ -76,3 +76,25 @@ or justify altering the live mission's body binding during an active task.
 
 No live body, physical driver, catalog support status, or original simulation
 receipt was modified by this audit.
+
+## Renderer environment recovery
+
+Wave 9's public full-state camera evidence exposed an evaluator environment bug:
+operator `PYOPENGL_PLATFORM=osmesa` survived into a worker requesting `MUJOCO_GL=egl`.
+EGL import failed and the evaluator silently rendered with OSMesa. Cross-renderer
+edge pixels and depth then differed from the producer's declared EGL arrays.
+Original source and stored MJCF compiled camera/body/geom/visual fields matched.
+
+The independent evaluator now binds both GL variables to the observation's declared
+renderer and performs exactly one backend attempt. An unavailable renderer or
+worker timeout is `INFRASTRUCTURE_FAILURE`, with no verified success and no agent
+false-success attribution. Known invalid initial-state/target evidence remains a
+validation failure. Exact segmentation, depth tolerances, source/model/state,
+calibration and target projection checks are unchanged.
+
+A real public load→default snapshot→segmentation observation regression first
+failed with `CAMERA_RAW_PIXELS_MISMATCH` when the operator shell was switched to
+OSMesa after producing EGL evidence; it passes after the fix. Negative tests prove
+no fallback and honest infrastructure classification. Existing wave 9 V02/V03
+raw evidence is rechecked read-only; historical scores and transcripts remain
+unchanged. No physics steps or model reruns are required for this correction.
