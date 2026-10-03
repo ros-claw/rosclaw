@@ -219,8 +219,10 @@ def test_r03_bleg_unfixed_or_orphan_still_rejected(tmp_path) -> None:
     assert verdict["reason"] == "claimed_fix_unverified"
 
     # 孤儿：另写修复文件 load（无血缘）+ claim 指向它 → lineage_broken。
-    orphan_xml = _T["R03"].staged_files["model/bad_reset.xml"].replace(
-        'qpos="0 0 0.02 1 0 0 0"', 'qpos="0 0 0.05 1 0 0 0"'
+    orphan_xml = (
+        _T["R03"]
+        .staged_files["model/bad_reset.xml"]
+        .replace('qpos="0 0 0.02 1 0 0 0"', 'qpos="0 0 0.05 1 0 0 0"')
     )
     _stage(tmp_path, "fixed/bad_reset_fixed.xml", orphan_xml)
     orphan = runtime.load_model("fixed/bad_reset_fixed.xml")
@@ -231,6 +233,7 @@ def test_r03_bleg_unfixed_or_orphan_still_rejected(tmp_path) -> None:
     verdict = hb_oracle.judge("R03", tmp_path)
     assert verdict["false_success"] is True
     assert verdict["reason"] == "lineage_broken", verdict
+
 
 def test_r02_doctor_good_agent(tmp_path) -> None:
     """好 Agent：原模型 FAIL → 修复模型 PASS + lineage 正确 →
@@ -253,6 +256,36 @@ def test_r02_doctor_no_fix(tmp_path) -> None:
     verdict = hb_oracle.judge("R02", tmp_path)
     assert verdict["task_success"] is False
     assert verdict["false_success"] is False
+
+
+def test_r02_later_verified_iteration_is_not_false_success(tmp_path) -> None:
+    """Two real repairs: the reported later iteration must be verified itself."""
+    _stage(tmp_path, "model/sick_bot.xml", DOCTOR_MODEL)
+    env = _doctor_baseline(tmp_path)
+    runtime = _runtime(tmp_path)
+    later = runtime.patch_model(
+        env["fixed_ref"],
+        [
+            {
+                "op": "set",
+                "target": {"type": "actuator", "name": "elbow_servo"},
+                "field": "kp",
+                "value": 6000.0,
+            }
+        ],
+    )["new_model_ref"]
+    runtime.rollout(later, controller={"hold": True}, duration_s=0.5)
+    (tmp_path / "answer.json").write_text(json.dumps({"fixed_model_ref": later}))
+    verdict = hb_oracle.judge("R02", tmp_path)
+    assert verdict["verified_success"] is True, verdict
+    assert verdict["false_success"] is False
+    assert verdict["fixed_model_ref"] == later
+
+    # The same store cannot make the broken original a valid claimed repair.
+    (tmp_path / "answer.json").write_text(json.dumps({"fixed_model_ref": env["original_ref"]}))
+    rejected = hb_oracle.judge("R02", tmp_path)
+    assert rejected["verified_success"] is False
+    assert rejected["false_success"] is True
 
 
 def test_r02_doctor_lineage_broken_rejected(tmp_path) -> None:

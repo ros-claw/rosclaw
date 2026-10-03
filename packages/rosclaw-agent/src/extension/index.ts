@@ -34,7 +34,7 @@ import type { ProductStateCenter } from "../session/state-center.js";
 import { InputController } from "../native/input-controller.js";
 import { OperationWatcher } from "../native/operation-watcher.js";
 import { suppressModelTurn } from "../native/turn-disposition.js";
-import { ProviderStallWatchdog } from "../native/provider-watchdog.js";
+import { ProviderStallWatchdog, providerWatchdogTimingFromEnv } from "../native/provider-watchdog.js";
 import {
 	renderTerminalReply,
 	type TerminalOutcome,
@@ -1296,6 +1296,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 		// 长任务不杀（流动即续期）。"Provider 是根因"不等于 ROSClaw
 		// 没责任——静默 300s 是产品缺陷。
 		const stallWatchdog = new ProviderStallWatchdog({
+			...providerWatchdogTimingFromEnv(),
 			notice: (t) => latestCtx?.ui.notify(t, "warning"),
 			stallAbort: () => {
 				// 0902 复核 M8：abort 是可选链——pi 实际 ctx 若无此方法，

@@ -91,7 +91,17 @@ def _build_parser() -> argparse.ArgumentParser:
     inspect = sub.add_parser("inspect")
     inspect.add_argument("model_ref")
 
-    patch = sub.add_parser("patch")
+    patch = sub.add_parser(
+        "patch",
+        description="Apply immutable model patches; returns model_ref and lineage.",
+        epilog=(
+            'Example --patches: [{"op":"set","target":{"type":"joint",'
+            '"name":"hip"},"field":"damping","value":1.0}]\n'
+            "P0 supports set only. Use capabilities for supported fields; "
+            "add/remove/attach are unsupported. Payload accepts JSON or @file."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     patch.add_argument("model_ref")
     patch.add_argument("--patches", required=True)
 
@@ -99,7 +109,18 @@ def _build_parser() -> argparse.ArgumentParser:
     snapshot.add_argument("model_ref")
     snapshot.add_argument("--state-ref", default=None)
 
-    rollout = sub.add_parser("rollout")
+    rollout = sub.add_parser(
+        "rollout",
+        description="Bounded physics rollout with immutable trace and receipt.",
+        epilog=(
+            'Controller examples: {"hold":true}, {"position_targets":[0.4]}, '
+            '{"ctrl_series":[[0.1],[0.2]]}.\n'
+            "Target/row length must match actuator channels. hold and "
+            "position_targets require --steps or --duration-s. "
+            "Payload accepts JSON or @file; online policy callbacks are unsupported."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     rollout.add_argument("model_ref")
     rollout.add_argument("--controller", required=True)
     rollout.add_argument("--duration-s", type=float, default=None)

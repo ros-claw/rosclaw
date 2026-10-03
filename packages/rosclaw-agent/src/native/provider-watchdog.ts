@@ -31,6 +31,33 @@ const DEFAULTS = {
 	streamIdleAbortMs: 45_000,
 };
 
+/** Optional longer waits for slow providers. Values are milliseconds,
+ * bounded to 1s..1h; invalid values retain the existing defaults. */
+export function providerWatchdogTimingFromEnv(
+	env: Record<string, string | undefined> = process.env,
+): Pick<Required<ProviderStallWatchdogOptions>,
+	"firstTokenNoticeMs" | "firstTokenAbortMs" | "streamIdleStatusMs" | "streamIdleAbortMs"> {
+	const read = (name: string, fallback: number): number => {
+		const raw = env[name];
+		if (!raw || !/^\d+$/.test(raw)) return fallback;
+		const value = Number(raw);
+		return Number.isSafeInteger(value) && value >= 1_000 && value <= 3_600_000
+			? value : fallback;
+	};
+	const firstTokenAbortMs = read("ROSCLAW_PROVIDER_FIRST_TOKEN_TIMEOUT_MS", DEFAULTS.firstTokenAbortMs);
+	const streamIdleAbortMs = read("ROSCLAW_PROVIDER_STREAM_IDLE_TIMEOUT_MS", DEFAULTS.streamIdleAbortMs);
+	return {
+		firstTokenNoticeMs: Math.min(DEFAULTS.firstTokenNoticeMs, firstTokenAbortMs / 3),
+		firstTokenAbortMs,
+		streamIdleStatusMs: Math.min(DEFAULTS.streamIdleStatusMs, streamIdleAbortMs / 3),
+		streamIdleAbortMs,
+	};
+}
+
+function seconds(ms: number): string {
+	return `${Number((ms / 1_000).toFixed(3))}s`;
+}
+
 export class ProviderStallWatchdog {
 	private readonly opts: Required<ProviderStallWatchdogOptions>;
 	private firstTokenTimers: ReturnType<typeof setTimeout>[] = [];
@@ -65,14 +92,14 @@ export class ProviderStallWatchdog {
 				if (!this.active || this.sawContent || this.userBusy || this.toolBusyCount > 0) return;
 				try {
 					this.opts.notice(
-						"模型响应迟滞（10s 无首个内容）——可能是 Provider 排队或网络慢；"
-						+ "30s 仍无响应将自动取消本次请求（可重发）",
+						`模型响应迟滞（${seconds(this.opts.firstTokenNoticeMs)} 无首个内容）——可能是 Provider 排队或网络慢；`
+						+ `${seconds(this.opts.firstTokenAbortMs)} 仍无响应将自动取消本次请求（可重发）`,
 					);
 				} catch {
 					// 通知失败不崩宿主（M8）。
 				}
 			}, this.opts.firstTokenNoticeMs),
-			setTimeout(() => this._stall("首 token 30s 无响应"), this.opts.firstTokenAbortMs),
+			setTimeout(() => this._stall(`首 token ${seconds(this.opts.firstTokenAbortMs)} 无响应`), this.opts.firstTokenAbortMs),
 		);
 	}
 
@@ -138,12 +165,12 @@ export class ProviderStallWatchdog {
 			setTimeout(() => {
 				if (!this.active || this.abortedOnce) return;
 				try {
-					this.opts.notice("模型生成中断流（15s 无新内容）——仍在等待 Provider…");
+					this.opts.notice(`模型生成中断流（${seconds(this.opts.streamIdleStatusMs)} 无新内容）——仍在等待 Provider…`);
 				} catch {
 					// M8。
 				}
 			}, this.opts.streamIdleStatusMs),
-			setTimeout(() => this._stall("流式 idle 45s"), this.opts.streamIdleAbortMs),
+			setTimeout(() => this._stall(`流式 idle ${seconds(this.opts.streamIdleAbortMs)}`), this.opts.streamIdleAbortMs),
 		];
 	}
 

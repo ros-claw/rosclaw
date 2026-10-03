@@ -169,7 +169,7 @@ def _prepare_a_leg_env(workdir: Path, profile: dict[str, Any] | None = None) -> 
         provider_block = {
             "name": profile["provider"],
             "baseUrl": profile["base_url"],
-            "api": "openai-completions",
+            "api": profile.get("api", "openai-completions"),
             "apiKey": profile["api_key"],
             "models": [
                 {
@@ -177,6 +177,7 @@ def _prepare_a_leg_env(workdir: Path, profile: dict[str, Any] | None = None) -> 
                     "name": profile["model"],
                     "contextWindow": profile["context_window"],
                     "maxTokens": profile["max_tokens"],
+                    "reasoning": profile.get("reasoning", False),
                 }
             ],
         }
@@ -234,6 +235,17 @@ def _count_session_stats(session_dir: Path) -> tuple[int, int, int]:
 #: None = 默认 kimi-k3（走 _prepare_home 既有路径）。
 MODEL_PROFILES: dict[str, dict[str, Any] | None] = {
     "kimi-k3": None,
+    "kimi-coding": {
+        "provider": "kimi-coding",
+        "model": "kimi-for-coding",
+        "base_url": "https://api.kimi.com/coding",
+        "api": "anthropic-messages",
+        "api_key": "$ROSCLAW_KIMI_API_KEY",
+        "required_env": "ROSCLAW_KIMI_API_KEY",
+        "context_window": 262144,
+        "max_tokens": 16384,
+        "reasoning": True,
+    },
     "deepseekv4": {
         "provider": "local-vllm",
         "model": "deepseekv4",
@@ -248,7 +260,8 @@ MODEL_PROFILES: dict[str, dict[str, Any] | None] = {
 def has_model_key(model: str = "kimi-k3") -> bool:
     profile = MODEL_PROFILES.get(model)
     if profile is not None:
-        return True  # 本地档案无需远端 key
+        required_env = profile.get("required_env")
+        return bool(os.environ.get(required_env)) if required_env else True
     return any(
         os.environ.get(v) for v in ("ROSCLAW_KIMI_API_KEY", "KIMI_API_KEY", "MOONSHOT_API_KEY")
     )
@@ -279,7 +292,7 @@ def _prepare_home_with_profile(home: Path, profile: dict[str, Any]) -> tuple[Pat
                     profile["provider"]: {
                         "name": profile["provider"],
                         "baseUrl": profile["base_url"],
-                        "api": "openai-completions",
+                        "api": profile.get("api", "openai-completions"),
                         "apiKey": profile["api_key"],
                         "models": [
                             {
@@ -287,6 +300,7 @@ def _prepare_home_with_profile(home: Path, profile: dict[str, Any]) -> tuple[Pat
                                 "name": profile["model"],
                                 "contextWindow": profile["context_window"],
                                 "maxTokens": profile["max_tokens"],
+                                "reasoning": profile.get("reasoning", False),
                             }
                         ],
                     }

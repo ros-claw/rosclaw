@@ -580,6 +580,19 @@ def _chat_pi(home: Path, args: argparse.Namespace) -> int:
 
     from rosclaw.agentd.pi_entry import JsRuntimeBootstrapError
 
+    # A long home cannot host pathname Unix sockets. Diagnose before starting
+    # the kernel thread; otherwise startup crashes and shutdown waits on a dead loop.
+    socket_path = home.absolute() / "run" / "pi-bridge.sock"
+    socket_limit = 103 if sys.platform == "darwin" else 107
+    if len(os.fsencode(socket_path)) > socket_limit:
+        print(
+            "ROSCLAW_HOME 路径过长，无法创建 Unix socket。"
+            "请将 ROSCLAW_HOME 设为较短的目录（例如 /tmp/rosclaw-test-home）；"
+            "路径限制按 UTF-8 字节计算。内核未启动。",
+            file=sys.stderr,
+        )
+        return 2
+
     try:
         runtime = _find_pi_agent_entry(bootstrap=True)
     except JsRuntimeBootstrapError as exc:

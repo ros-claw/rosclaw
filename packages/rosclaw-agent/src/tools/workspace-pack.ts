@@ -220,8 +220,8 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 					+ "（风险已告知）]\n";
 			}
 			const output = await new Promise<string>((resolvePromise) => {
-				let spawnCmd = "sh";
-				let spawnArgs = ["-c", command];
+				let spawnCmd = "bash";
+				let spawnArgs = ["--noprofile", "--norc", "-o", "pipefail", "-c", command];
 				if (sandboxed && bwrap) {
 					spawnCmd = bwrap;
 					spawnArgs = [
@@ -239,7 +239,7 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 						"--unshare-net",
 						"--dev", "/dev", // 全新 devtmpfs——真设备不可见
 						"--chdir", effectiveCwd,
-						"sh", "-c", command,
+						"bash", "--noprofile", "--norc", "-o", "pipefail", "-c", command,
 					];
 				}
 				const child = spawn(spawnCmd, spawnArgs, {
