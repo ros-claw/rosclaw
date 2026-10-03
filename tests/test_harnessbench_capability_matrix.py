@@ -10,7 +10,12 @@ from pathlib import Path
 import pytest
 
 from benchmarks.harnessbench.capability_cases import CASES
-from benchmarks.harnessbench.capability_matrix import CAPABILITY_TASKS, _equal, judge_capability
+from benchmarks.harnessbench.capability_matrix import (
+    CAPABILITY_TASKS,
+    CASE_BY_ID,
+    _equal,
+    judge_capability,
+)
 
 
 def _stage(root: Path, task_id: str) -> dict:
@@ -19,7 +24,7 @@ def _stage(root: Path, task_id: str) -> dict:
     (root / "input.json").write_text(content)
     answer = {
         "scope": "FIXTURE_ONLY",
-        "result": copy.deepcopy(CASES[int(task_id[1:]) - 1][3]),
+        "result": copy.deepcopy(CASE_BY_ID[task_id][3]),
         "input_sha256": hashlib.sha256(content.encode()).hexdigest(),
         "reason": "offline derivation",
     }
