@@ -282,3 +282,41 @@ Two red fixtures proved over-budget requests reached native batch execution;
 both now fail closed before that noninterruptible call. The relevant cohort
 passes 23 checks. Native C++ batch execution still does not expose per-step
 wall-clock cancellation; these preflight guards do not claim otherwise.
+
+
+## Public summary stream observation after host restart
+
+PI summary generation consumes `agent.streamFunction(...).result()` and emits
+no session token updates. A public stream tee now records the actual provider
+request start, first content, bounded progress notices, waiting phases, and
+terminal usage/reason. Records bind the original session ID and a unique
+request ID; they contain no prompt, token text, auth, or headers. Waiting notices
+never classify JSONL silence as a stall and never automatically abort a summary
+or the main agent. Ordinary turns return the original stream unchanged.
+
+The tee retains provider event order and object identity, the original request
+model/context/options/receiver, and the original cancellation signal. Public
+`end(result)` is a legitimate completion even without a terminal event. A closed
+stream without either terminal event or result, or a thrown/rejected provider,
+returns an explicit protocol error rather than hanging on `.result()`. Provider
+error/abort results and their measured usage remain unchanged; synthetic
+protocol failures label usage `NOT_RECORDED`. Logging failure is observational
+and cannot interrupt a request.
+
+Fifteen focused stream fixtures and four existing lifecycle fixtures pass on
+actual installed PI 1.0.1. Four use real public `createAgentSession` and
+`session.compact()` with isolated in-memory history and fixture auth, checking
+canonical history, request route/auth/header, legitimate result-only completion,
+provider error, malformed closure, and public `abortCompaction()`. The SDK writes
+the real compaction entry only on success; abort/failure never creates a fake
+summary. No loop fork, private method, branch rewrite, or summarization replacement
+is introduced. This worktree's historical manifest still pins 1.0.0; the isolated
+fixtures explicitly run via its existing dependency symlink to the main checked
+PI 1.0.1 installation. Integration must validate the current main manifest.
+
+The host reboot erased any unpersisted streaming preview. A previewed toolcall
+is not proof that a tool was executed. Recovery must compare the canonical
+assistant/tool-result journal, operation ledger, and target artifact; an absent
+assistant/tool result and absent target file are interrupted/unexecuted work,
+not a successful write. This stream observer does not invent tool results or
+reconstruct vanished previews.

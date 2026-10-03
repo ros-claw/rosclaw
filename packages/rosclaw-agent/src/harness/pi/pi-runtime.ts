@@ -28,7 +28,8 @@ import { SessionLeaseManager } from "../../session/lease-manager.js";
 import { ProductStateCenter } from "../../session/state-center.js";
 import { LocaleManager } from "../../i18n/locale.js";
 import { defaultOperatorSocket } from "../../bridge/operatord-client.js";
-import { readFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
+import { observeCompactionStream } from "./compaction-stream.js";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -316,6 +317,22 @@ export async function createRosclawRuntime(
 				customTools,
 			});
 			lateSession.session = result.session;
+			// Public PI summary streams do not emit session token events.
+			// Observe their real provider events without altering normal turns
+			// or automatically aborting the summary/main task.
+			result.session.agent.streamFunction = observeCompactionStream(
+				result.session.agent.streamFunction, {
+					enabled: () => result.session.isCompacting,
+					owner: () => ({ session_id: result.session.sessionId, pid: process.pid,
+						activity: "session_summary" }),
+					record: record => {
+						const dir = join(options.rosclawHome, "logs");
+						mkdirSync(dir, { recursive: true });
+						appendFileSync(join(dir, "compaction-stream.log"),
+							`${JSON.stringify({ at: new Date().toISOString(), ...record })}\n`);
+					},
+				},
+			);
 			return {
 				...result,
 				services,
