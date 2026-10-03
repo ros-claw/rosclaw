@@ -34,6 +34,7 @@ def contract(*, level=SafetyLevel.HIGH_RISK, stop=True):
     "bad",
     [
         {"linear.x": 999},
+        {"linear": {"x": 10**1000}},
         {"linear": 999},
         {"linear": None},
         {"linear": {"x": None}},
