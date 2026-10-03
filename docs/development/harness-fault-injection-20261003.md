@@ -168,3 +168,34 @@ selection, foreign model references, real CLI success/failure and native MCP
 client delegation. The relevant state/patch/CLI/MCP cohort has 78 passing tests;
 Ruff, formatting, eight-module mypy and diff checks pass. The tests use generic
 fixtures and do not implement a robot controller.
+
+## Actual execution validation and rejected partial evidence
+
+Serial rollout traces and experiment receipts now share `runtime_validation`
+(`rosclaw.sim.runtime_validation.v1`). Its `serial_each_step` method records
+actual warning counters, checked step count, initial/final clocks, expected and
+actual elapsed time, and the exact finite dynamics fields checked. Both time
+continuity and warning checks run at every step before metrics/sample collection.
+Historical objects remain unchanged; absent counters cannot imply zero warnings.
+Native batch does not claim this serial validation scope.
+
+Rejected serial execution keeps content-addressed `failed_simulation_trace`
+and `simulation_failure` objects. The error returns their `trace_ref` and
+`failure_ref`, including through the real CLI. They bind model/digest, actual
+controller/action digest, initial snapshot, seed, requested steps and timestep.
+Diagnostics retain failed step, expected time, actual failure arrays and warning
+counters, the sampled valid prefix, and the exact last valid integration state
+projected to time/qpos/qvel/ctrl. Failure arrays exceeding 4096 entries have
+explicit truncation metadata. Nonfinite numbers are JSON-safe strings with
+separate finite-field flags; they never become valid zeros or JSON NaN tokens.
+The record always declares FAILED and `simulation_valid=false`, without a
+successful simulation receipt. Audit and strict replay reject these failure kinds.
+
+The real unstable fixture fails at step 3 with BADQACC warning count 1,
+last valid time .004 and velocity above six million; the finite reset state is
+still rejected. Five new tests cover successful measured validation, both
+failed serial entry paths, immutable retries, rejection by audit/replay,
+injected nonfinite acceleration and native CLI error references. The combined
+rollout/receipt/keyframe/contract/replay cohort passes; source mypy and Ruff pass.
+Inspect local `framework_fault_injection/runtime_failure_evidence` for immutable
+sample objects, the native error and the targeted regression transcript.

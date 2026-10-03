@@ -17,7 +17,11 @@ from typing import Any
 import numpy as np
 
 from rosclaw.contracts.common import canonical_json
-from rosclaw.sim.backends.mujoco.step_validity import validate_step_data
+from rosclaw.sim.backends.mujoco.step_validity import (
+    SimulationDivergedError,
+    diagnostic_point,
+    validate_step_data,
+)
 
 DEFAULT_BUDGETS: dict[str, Any] = {
     "max_steps": 200_000,
@@ -176,7 +180,38 @@ def run_rollout(
             }
         )
 
-    validate_step_data(data, step=0)
+    integration = mujoco.mjtState.mjSTATE_INTEGRATION
+    last_valid = np.empty(mujoco.mj_stateSize(model, integration))
+
+    def _validate(step: int, expected_time: float | None = None) -> None:
+        try:
+            validate_step_data(
+                data, step=step, expected_time=expected_time, timestep=float(model.opt.timestep)
+            )
+        except ValueError as exc:
+            previous = None
+            if step > 0:
+                restored = mujoco.MjData(model)
+                mujoco.mj_setState(model, restored, last_valid, integration)
+                previous = {
+                    "t": float(restored.time),
+                    "qpos": restored.qpos.tolist(),
+                    "qvel": restored.qvel.tolist(),
+                    "ctrl": restored.ctrl.tolist(),
+                }
+            raise SimulationDivergedError(
+                str(exc),
+                {
+                    "failed_step": step,
+                    "expected_time": expected_time,
+                    "failure_point": diagnostic_point(data),
+                    "last_valid_state": previous,
+                    "valid_sampled_prefix": states,
+                },
+            ) from exc
+        mujoco.mj_getState(model, data, last_valid, integration)
+
+    _validate(0)
     _record()
     started = time.monotonic()
     for step in range(steps):
@@ -188,9 +223,7 @@ def run_rollout(
                 data.ctrl[i] = v
         expected_time = float(data.time) + float(model.opt.timestep)
         mujoco.mj_step(model, data)
-        validate_step_data(
-            data, step=step + 1, expected_time=expected_time, timestep=float(model.opt.timestep)
-        )
+        _validate(step + 1, expected_time)
         if visit is not None:
             visit(data, step)
         if (step + 1) % stride == 0 or step == steps - 1:
