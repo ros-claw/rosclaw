@@ -1225,7 +1225,9 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			// PR-H7（§8.4）：provider 错误分类——403 配额≠鉴权错误；
 			// 稳定错误码 + 用户可理解说明 + 恢复动作（task 可继续）。
 			const msg = event.message as { role?: string; stopReason?: string; errorMessage?: string };
-			if (msg.role === "assistant" && msg.stopReason === "aborted") {
+			const requestCancelled = msg.stopReason === "aborted"
+				|| Boolean(msg.errorMessage && classifyModelError(msg.errorMessage).code === "MODEL_REQUEST_CANCELLED");
+			if (msg.role === "assistant" && requestCancelled) {
 				if (watchdogAbortedTurn) {
 					watchdogAbortedTurn = false;
 				} else {
@@ -1263,8 +1265,13 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 					hasActiveTask, raw,
 				});
 				if (verdict.showCard) {
-					latestCtx?.ui.notify(verdict.cardText, "error");
-					center.noteProviderPaused(classified.code);
+					if (classified.code === "MODEL_REQUEST_CANCELLED") {
+						latestCtx?.ui.notify(verdict.cardText, "info");
+						center.noteProviderOk();
+					} else {
+						latestCtx?.ui.notify(verdict.cardText, "error");
+						center.noteProviderPaused(classified.code);
+					}
 				}
 				// 原始错误永远进账本（即使卡片被去重——/activity 可查）。
 				if (verdict.activity) {

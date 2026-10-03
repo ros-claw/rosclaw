@@ -53,6 +53,9 @@ needed. A successful compaction event alone does not prove summary correctness.
   than matching the command echo containing `progress-step-$i`.
 - Recognize the actual PI cancellation wording, `This operation was aborted`,
   as a recoverable cancellation rather than an unknown provider failure.
+  Cancellation clears provider-pause UI state without suggesting a model switch;
+  both PI abort stop reasons and SDK cancellation error messages invoke the
+  existing user-interruption cascade (watchdog aborts retain their exception).
 - Background-operation guidance permits independent remaining steps that do not
   modify the operation's inputs. Dependent work still waits for the automatic
   result notification; repeated polling and sleeping remain discouraged.
@@ -109,7 +112,7 @@ counts and artifacts; repository-wide pre-existing lint debt is not green.
 
 Validation completed: broad non-live regression 1,848 passed / 7 skipped /
 24 deselected; daemon/kernel/MCP boundary checks 370 passed / 1 skipped; main
-TypeScript package 247 passed / 3 skipped; independent TUI package 27 passed;
+TypeScript package 248 passed / 3 skipped; independent TUI package 27 passed;
 oracle repair/adversarial regression 59 passed. Some suites overlap; these are
 separate results, not an additive count of distinct tests. Configured mypy scope
 passed 121 files. Modified Python lint and `git diff --check` passed.

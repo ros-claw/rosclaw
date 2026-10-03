@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { classifyModelError } from "../src/native/model-errors.js";
+import { classifyModelError, ProviderErrorGate } from "../src/native/model-errors.js";
 
 test("H7: 403 配额耗尽 ≠ auth 错误", () => {
 	const err = classifyModelError(
@@ -56,4 +56,18 @@ test("timeouts and aborts are classified as recoverable", () => {
 	assert.equal(classifyModelError("Operation aborted").code, "MODEL_REQUEST_CANCELLED");
 	assert.equal(classifyModelError("This operation was aborted").code, "MODEL_REQUEST_CANCELLED");
 	assert.equal(classifyModelError("The request was canceled").code, "MODEL_REQUEST_CANCELLED");
+});
+
+test("user cancellation clears provider pause without suggesting a model switch", () => {
+	const gate = new ProviderErrorGate();
+	gate.onError(classifyModelError("fetch failed"), { hasActiveTask: true });
+	assert.equal(gate.pausedCode, "PROVIDER_UNAVAILABLE");
+	const result = gate.onError(classifyModelError("This operation was aborted"), {
+		hasActiveTask: true,
+		raw: "This operation was aborted",
+	});
+	assert.equal(gate.pausedCode, null);
+	assert.match(result.cardText, /同一任务/);
+	assert.doesNotMatch(result.cardText, /model|模型调用失败|配额/);
+	assert.equal(result.activity?.code, "MODEL_REQUEST_CANCELLED");
 });

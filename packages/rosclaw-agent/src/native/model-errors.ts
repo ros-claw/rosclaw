@@ -131,6 +131,14 @@ export class ProviderErrorGate {
 		cardText: string;
 		activity?: { code: string; raw: string };
 	} {
+		if (classified.code === "MODEL_REQUEST_CANCELLED") {
+			this.shown = null;
+			return {
+				showCard: true,
+				cardText: "当前请求已取消；发送消息可继续" + (opts.hasActiveTask ? "同一任务" : ""),
+				activity: { code: classified.code, raw: String(opts.raw ?? "").slice(0, 1000) },
+			};
+		}
 		if (this.shown === classified.code) {
 			return { showCard: false, cardText: "" };
 		}
