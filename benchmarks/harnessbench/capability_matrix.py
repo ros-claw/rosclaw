@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from benchmarks.harnessbench.capability_cases import CASES
+from benchmarks.harnessbench.capability_hard_cases import HARD_CASES
 from benchmarks.harnessbench.task_common import BenchTask
 
 
@@ -50,6 +51,20 @@ def _task(index: int, direction: str, instruction: str, inputs: dict, expected: 
 CAPABILITY_TASKS = {f"C{i:02d}": _task(i, *case) for i, case in enumerate(CASES, start=1)}
 
 
+CASE_BY_ID = {f"C{i:02d}": case for i, case in enumerate(CASES, 1)}
+for _index, _case in enumerate(HARD_CASES, 1):
+    _id = f"CX{_index:02d}"
+    _base = _task(_index, *_case)
+    CAPABILITY_TASKS[_id] = BenchTask(
+        task_id=_id,
+        category=_base.category,
+        prompt=_base.prompt,
+        staged_files=_base.staged_files,
+        oracle=_base.oracle,
+    )
+    CASE_BY_ID[_id] = _case
+
+
 def _equal(actual: Any, expected: Any) -> bool:
     """Reject NaN, coercion, bool-as-number, wrong dimensions and extra keys."""
     if isinstance(expected, bool) or expected is None or isinstance(expected, str):
@@ -77,7 +92,7 @@ def _equal(actual: Any, expected: Any) -> bool:
 
 def judge_capability(task_id: str, root: Path) -> dict[str, Any]:
     task = CAPABILITY_TASKS[task_id]
-    expected = CASES[int(task_id[1:]) - 1][3]
+    expected = CASE_BY_ID[task_id][3]
     original = task.staged_files["input.json"].encode()
     expected_hash = hashlib.sha256(original).hexdigest()
     checks: dict[str, bool] = {}
@@ -115,16 +130,18 @@ def public_manifest() -> dict:
         "schema_version": "rosclaw.capability_matrix.v1",
         "scope": "FIXTURE_ONLY",
         "live_integration": "NOT_RUN",
-        "task_count": len(CASES),
+        "task_count": len(CASE_BY_ID),
+        "base_task_count": len(CASES),
+        "composite_task_count": len(HARD_CASES),
         "cases": [
             {
-                "task_id": f"C{i:02d}",
+                "task_id": task_id,
                 "direction": case[0],
                 "trigger": case[2],
                 "contract": case[1],
                 "success": "semantic result, immutable-input SHA256, truthful scope",
                 "failure": "wrong value/type/shape, altered input, stale binding, unsupported live claim",
             }
-            for i, case in enumerate(CASES, 1)
+            for task_id, case in CASE_BY_ID.items()
         ],
     }
