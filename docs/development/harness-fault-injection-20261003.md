@@ -101,3 +101,42 @@ checks pass. No robot controller or physical rollout was authored here.
 The official [v1.0.1 release](https://github.com/earendil-works/pi/releases/tag/v1.0.1), published 2026-10-03, and npm latest were independently checked. Native agent dependencies and overrides, and the standalone TUI dependency, are pinned to 1.0.1. The upstream release removes its npm shrinkwrap, so ROSClaw keeps the regenerated application lockfile as the reproducibility boundary.
 
 Both actual upstream patch anchors apply without changing AgentLoop or session format. Full native build/tests passed: 272 passed, 3 skipped; standalone TUI: 27 passed. The initial run rejected the old hard-coded 1.0.0 pin assertion; the expected exact pin was updated and the complete suite rerun. Private raw logs are `pi101_native_all_tests.log`, `pi101_native_all_tests_green.log`, and `pi101_standalone_tui.log` in the supervision evidence directory. These are compatibility tests, not model or physical-success claims. Existing model trials remain frozen at their recorded 1.0.0 version. The formal ongoing session must reach a normal idle boundary before its runtime is changed.
+## Actual execution warnings and reset validity
+
+Frozen real Kimi R04 evidence exposed a false valid rollout: the requested
+500 steps at 0.002 s ended at 0.996 s, included two consecutive sampled
+timestamps at 0.004 s, reached recorded velocity 6,577,310.683550647 and
+silently changed the target control from 1 to 0. Nevertheless its receipt
+claimed both `simulation_valid` and `physical_audit_pass`. Those historical
+records remain unchanged and invalid; their warning counters were not recorded.
+
+Per-data guards now reject MuJoCo warnings, actual per-step time discontinuity
+and non-finite state, acceleration, control, force and sensor arrays. Warnings
+are inspected on each `MjData`; no global warning callback is installed, so
+independent parallel sessions do not share a warning hook. The shared guard
+applies to serial rollouts, interaction stepping, audit sweeps, servo holding,
+solver/timestep probes and the public Python simulation API. Native batch
+output is checked in full before downsampling, including warnings and time
+progression. Unstable/reset execution raises `SIM_DIVERGED` and cannot create
+a valid trace or success receipt. Invalid sensitivity probes remain explicit
+diagnostic warnings, with `simulation_invalid`, rather than a fabricated
+deviation computed from reset states.
+
+Trace audits also inspect executed motion: A15 rejects non-increasing sampled
+time, and A16 applies the configured velocity limit to supplied trace samples
+as well as the fresh-state hold probe. A safe zero-command hold therefore
+cannot hide an explosive executed tracking trace. Numerical validity and model
+audit remain distinct from task completion or robot/hardware safety.
+
+The original reset/finite-dynamics cohort had seven failing fixtures and one
+stable control; native batch and historical trace audit supplied two additional
+red cases. All 13 final targeted cases pass, covering actual solver reset,
+serial receipt rejection, native batch, interaction, audit sweep, public API,
+injected warning/time/acceleration/control/force faults, and stable nonzero-time
+initialization. An 80-test relevant cohort passed, followed by 460 broader
+simulation/API checks passing with one skip and one deselection. The final
+source, including the public-API regression and all finite force/sensor fields,
+then passed 461 checks with one skip and one deselection (163.42 s). Final
+shared-guard regression results are retained in the local audit directory. Ruff and
+eight-source-module mypy checks pass. A read-only independent frozen baseline
+review is saved as `framework_fault_injection/r04_frozen_baseline_validity_independent.json`.

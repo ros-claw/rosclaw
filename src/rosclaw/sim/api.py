@@ -233,12 +233,20 @@ def submit_simulation(
     steps = max(1, int(round(float(duration) / float(model.opt.timestep))))
     states: list[dict[str, Any]] = []
     started = time.monotonic()
+    from rosclaw.sim.backends.mujoco.step_validity import validate_step_data
+
+    validate_step_data(data, step=0)
     for step in range(steps):
         if ctrl_series:
             data.ctrl[:] = np.array(
                 ctrl_series[min(step, len(ctrl_series) - 1)], dtype=float,
             )
+        expected_time = float(data.time) + float(model.opt.timestep)
         mujoco.mj_step(model, data)
+        validate_step_data(
+            data, step=step + 1, expected_time=expected_time,
+            timestep=float(model.opt.timestep),
+        )
         states.append({
             "t": round(float(data.time), 6),
             "qpos": [round(float(v), 8) for v in data.qpos],

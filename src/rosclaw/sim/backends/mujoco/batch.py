@@ -15,6 +15,8 @@ from typing import Any
 
 import numpy as np
 
+from rosclaw.sim.backends.mujoco.step_validity import validate_step_data
+
 
 def check_homogeneous(models: list[Any]) -> None:
     """homogeneous 校验（MH20-A §6 升级版）。
@@ -116,10 +118,27 @@ def run_batch(
     datas = [mujoco.MjData(model) for model in models]
     initial_vectors_ = initial if initial is not None else initial_vectors(models)
     ctrl = ctrl_rows[np.newaxis, :, :] if ctrl_rows.ndim == 2 else ctrl_rows
+    if not np.isfinite(initial_vectors_).all() or not np.isfinite(ctrl).all():
+        raise ValueError("SIM_DIVERGED: non-finite batch initial state or control")
     try:
         state_traj, sensordata_traj = rollout_lib.rollout(models, datas, initial_vectors_, ctrl)
     except ValueError as exc:
         raise ValueError(f"BATCH_NOT_HOMOGENEOUS: {exc}") from exc
+    if not np.isfinite(state_traj).all() or not np.isfinite(sensordata_traj).all():
+        raise ValueError("SIM_DIVERGED: non-finite batch trajectory")
+    for index, (model, data) in enumerate(zip(models, datas, strict=True)):
+        validate_step_data(data, step=state_traj.shape[1])
+        # Check the complete native trajectory before downsampling. Native
+        # rollout may stop integrating after a warning and repeat finite rows.
+        times = state_traj[index, :, 0]
+        previous = np.concatenate(([initial_vectors_[index, 0]], times[:-1]))
+        expected = previous + float(model.opt.timestep)
+        tolerance = (
+            np.maximum(1e-12, 32 * np.abs(np.spacing(expected)))
+            + abs(float(model.opt.timestep)) * 1e-9
+        )
+        if np.any(np.abs(times - expected) > tolerance):
+            raise ValueError(f"SIM_DIVERGED: time discontinuity in batch branch {index}")
     return state_traj[:, ::record_stride, :], sensordata_traj
 
 
