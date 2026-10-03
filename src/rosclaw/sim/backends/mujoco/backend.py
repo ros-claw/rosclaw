@@ -23,6 +23,7 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import posixpath
+import xml.etree.ElementTree as ET
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -1693,6 +1694,7 @@ class MujocoBackend:
         manifest = self.store.get(model_ref)  # REF_NOT_FOUND / 篡改 fail closed
         if not isinstance(manifest, dict) or manifest.get("kind") != "model_manifest":
             raise ValueError(f"MODEL_NOT_FOUND: {model_ref!r} is not a model manifest")
+        _validate_asset_closure(manifest["mjcf_xml"], self._load_assets(manifest))
         return manifest
 
     def load_menagerie(self, model_name: str, *, entry: str | None = None) -> ModelReference:
@@ -2017,6 +2019,8 @@ class MujocoBackend:
         for dirname, elements in (
             (getattr(spec, "meshdir", "") or "", getattr(spec, "meshes", [])),
             (getattr(spec, "texturedir", "") or "", getattr(spec, "textures", [])),
+            ("", getattr(spec, "hfields", [])),
+            (getattr(spec, "meshdir", "") or "", getattr(spec, "skins", [])),
         ):
             for element in elements:
                 filename = getattr(element, "file", "") or ""
@@ -2038,11 +2042,13 @@ class MujocoBackend:
         相同 XML、不同 mesh 字节 → 不同 model_digest → state/trace/
         replay 绑定全部 fail closed（CROSS_MODEL_REF）。
         """
+        assets = self._load_assets(manifest)
+        _validate_asset_closure(manifest["mjcf_xml"], assets)
         payload = {
             "xml": hashlib.sha256(manifest["mjcf_xml"].encode("utf-8")).hexdigest(),
             "assets": sorted(
                 [name, hashlib.sha256(blob).hexdigest()]
-                for name, blob in self._load_assets(manifest).items()
+                for name, blob in assets.items()
             ),
         }
         return "sha256:" + hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
@@ -2129,6 +2135,39 @@ frames[0].save(
 """
 
 
+def _validate_asset_closure(xml_text: str, assets: dict[str, bytes]) -> None:
+    """Require every MJCF file dependency to be bound to captured bytes.
+
+    MuJoCo otherwise falls back to the host filesystem, even with assets={}.
+    Includes must be flattened by the producer; accepting an include blob does
+    not establish the transitive closure or the included compiler settings.
+    """
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError as exc:
+        raise ValueError(f"MODEL_COMPILE_FAILED: {exc}") from exc
+    compiler = root.find("compiler")
+    settings = compiler.attrib if compiler is not None else {}
+    for element in root.iter():
+        for attribute, filename in element.attrib.items():
+            if not filename or not (attribute == "file" or attribute.startswith("file")):
+                continue
+            if element.tag == "include" or element.tag not in {"mesh", "texture", "hfield", "skin"}:
+                raise ValueError(f"MODEL_ASSET_UNBOUND: unsupported {element.tag} file dependency")
+            directory = ""
+            if element.tag in {"mesh", "skin", "texture"}:
+                setting = "texturedir" if element.tag == "texture" else "meshdir"
+                directory = settings.get(setting, settings.get("assetdir", ""))
+            key = posixpath.join(directory, filename) if directory else filename
+            if (
+                posixpath.isabs(key)
+                or ".." in key.split("/")
+                or key not in assets
+                or not isinstance(assets[key], bytes)
+            ):
+                raise ValueError(f"MODEL_ASSET_UNBOUND: {element.tag} dependency {key!r}")
+
+
 def _spec_from_xml_assets(xml_text: str, assets: dict[str, bytes]):  # noqa: ANN202
     """MjSpec 从 XML+资产构建（MH10b 实证结论）。
 
@@ -2141,6 +2180,7 @@ def _spec_from_xml_assets(xml_text: str, assets: dict[str, bytes]):  # noqa: ANN
     """
     import mujoco
 
+    _validate_asset_closure(xml_text, assets)
     try:
         return mujoco.MjSpec.from_string(xml_text, assets=assets or None)
     except Exception as exc:

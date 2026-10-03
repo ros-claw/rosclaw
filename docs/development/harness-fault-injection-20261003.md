@@ -514,3 +514,33 @@ HEAD copy of the old API reproduces the identical warning/step, so the new
 storage change does not cause it; the guard remains strict. Ruff, source mypy
 and diff checks pass. No original tennis source, historical receipts, or live
 operation was modified by these fixtures.
+
+### Typed model external-file identity boundary (fresh-process proof)
+
+Actual private filesystem reproduction: `load_model_xml` accepted a valid MJCF
+whose mesh file was an absolute host path, with `assets={}`. Replacing the STL
+from scale 1 to scale 2 changed body inertia in a fresh Python process from
+`[.10, .0625, .0625]` to `[.40, .25, .25]`, while the model digest was identical
+and the old state restored successfully. Same-process compilation hid this
+fault because MuJoCo caches file assets. This proof involved compilation and
+state initialization only; no physical controller or live task was changed.
+
+The existing manifest schema remains unchanged. Before parsing/compiling,
+reading a model manifest, or calculating identity, every MJCF file dependency
+must now match captured asset bytes. Absolute/traversing paths, unsupported
+file-bearing elements, missing assets, and includes fail closed with
+`MODEL_ASSET_UNBOUND`. Includes require a producer to flatten their transitive
+closure before import; merely supplying an include XML blob is not a closure.
+Unsafe old manifests are rejected without rewriting or reconstructing them.
+The file importer also captures hfield and skin files alongside meshes/textures.
+
+Six new tests first failed against the old implementation (four preflight
+error-category cases, include acceptance, and a fresh-process old-manifest
+acceptance case). Positive tests use the worktree source explicitly in child
+processes, bypassing the shared editable installation. Captured mesh identity
+and inertia remain identical after source mutation; a newly imported mutated
+mesh has a different digest and actual fresh-process inertia, and rejects the
+old state. Meshdir/assetdir, texturedir and hfield imports compile in fresh
+processes after source files are deleted. A task-local include is explicitly
+rejected. This does not claim the old structural snapshot signature contained
+mesh geometry, nor does it prove arbitrary plugin resource closure.
