@@ -7,6 +7,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+# Public, shared task acceptance: prompts and grading use the same units.
+TIMESTEP_ACCEPTANCE = {
+    "max_position_error_m": 0.0005,
+    "min_improvement_ratio": 0.3,
+    "min_rollout_duration_s": 3.0,
+    "min_common_duration_s": 1.0,
+    "min_common_samples": 10,
+    "max_record_gap_s": 0.005,
+    "timestamp_match_tolerance_s": 1e-8,
+}
+
 
 @dataclass(frozen=True)
 class BenchTask:

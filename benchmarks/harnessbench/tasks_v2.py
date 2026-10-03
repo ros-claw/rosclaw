@@ -9,7 +9,12 @@ D 动态世界——开始测 Physical AI 能力而不只是 MJCF coding。
 
 from __future__ import annotations
 
-from benchmarks.harnessbench.task_common import DOCTOR_MODEL, SCIENTIST_MODEL, BenchTask
+from benchmarks.harnessbench.task_common import (
+    DOCTOR_MODEL,
+    SCIENTIST_MODEL,
+    TIMESTEP_ACCEPTANCE,
+    BenchTask,
+)
 
 # ---------------------------------------------------------------- 模型
 
@@ -464,6 +469,7 @@ V2_TASKS: dict[str, BenchTask] = {
         staged_files={"model/dt_fragile.xml": E05_MODEL},
         oracle={
             "kind": "timestep_experiment",
+            "acceptance": TIMESTEP_ACCEPTANCE,
             "original_asset": "model/dt_fragile.xml",
             "target": 0.0,
             "qpos_index": 2,
@@ -475,6 +481,11 @@ V2_TASKS: dict[str, BenchTask] = {
             "每条用相同空controller（此模型nu=0，不能position_targets[.4]）从相同初态实际跑3秒，"
             "用rosclaw sim rollout --max-record-points 10001保留密集步记录和runtime_validation。"
             "对最终候选dt与dt/2两个receipt分别调用rosclaw sim strict-replay RECEIPT_REF，原生JSON报告保留在tool stdout，必须RAW_EXACT。保存失败/成功记录，外部按共同物理时间重算convergence（不是复制audit A24自报标量）。"
+            f"公开验收：共同actual recorded timestamps上的前三个qpos位置坐标三维欧氏距离的最大值≤{TIMESTEP_ACCEPTANCE['max_position_error_m']}m（0.5mm），"
+            f"相对原配置的最大位置误差改善比例≥{TIMESTEP_ACCEPTANCE['min_improvement_ratio']:.0%}，改善=1-candidate_error/baseline_error；两项同时满足。"
+            f"dt/dt2每条实际时长≥{TIMESTEP_ACCEPTANCE['min_rollout_duration_s']}秒，每条记录相邻时间差≤{TIMESTEP_ACCEPTANCE['max_record_gap_s']}秒。"
+            f"共同物理时间覆盖≥{TIMESTEP_ACCEPTANCE['min_common_duration_s']}秒且至少{TIMESTEP_ACCEPTANCE['min_common_samples']}个共同记录点，"
+            f"匹配时间容差{TIMESTEP_ACCEPTANCE['timestamp_match_tolerance_s']}秒，不允许插值、不用RMSE或producer metric代替最大距离。"
             'answer.json：{"best_model_ref": "<引用或路径>", "why": "<依据>"}。'
         ),
     ),
