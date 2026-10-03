@@ -184,3 +184,26 @@ Its 17 paddle-contact episodes include repeated contacts with the same racket;
 the longest alternating-owner chain is one. These failures are frozen and
 have been sent back to ROSClaw for implementation repairs. No verified G1–M20
 rally or strategic multi-agent competition has been delivered at this point.
+
+Further OpenAI trials verified I01 in 167.1s/23 tools. The original S01 trial
+finished in 117.1s/18 tools and was scored FAIL for recovering 0.01 instead of
+0.3. Inspection exposed an invalid benchmark fixture: S01 supplied only the
+0.01 calibration model and no independent measured observations. Fitting data
+recorded from that same model correctly recovered 0.01 with NO_IMPROVEMENT.
+The original S01 results, including earlier Kimi timeouts, remain raw evidence
+but cannot be scored as identification-quality evidence.
+
+S01/S02/S03 staging now provides independent synthetic observations generated
+outside the agent workspace. The producer model/parameter values are withheld;
+both legs receive identical raw trajectories, and B receives native immutable
+dataset/trace/initial-state objects. S02 has actual zero-motion observations.
+The S01 oracle resolves the explicitly reported receipt and checks that it used
+the independently expected observation dataset, rejecting self-generated
+calibration data. The A-leg oracle for these tasks has not been qualified; raw
+observation parity does not establish a complete cross-leg comparison.
+
+Fixture/SysID/runner regression passed 49 tests; additional oracle/adversarial/
+model-profile checks passed 37 (overlapping scopes). A new OpenAI S01 trial
+using the repaired fixture verified in 85.1s/13 tools, recovering
+0.3000000000000001. This is a new run with corrected inputs, not a rescore of
+the earlier run. Modified Python lint and whitespace checks passed.

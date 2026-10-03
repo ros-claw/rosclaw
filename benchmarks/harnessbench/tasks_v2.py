@@ -620,7 +620,9 @@ V2_TASKS: dict[str, BenchTask] = {
         },
         prompt=(
             "工作区 model/sysid_bot.xml 的单摆模型与「真实」观测有偏差。\n"
-            "请用 rosclaw sim record-dataset + sysid 识别真实阻尼参数，"
+            "真实观测已给在 observations/sysid.json（合成仿真数据，含初态和时间序列）；"
+            "B侧可直接用该文件的 dataset_ref 进行 sysid，A侧可分析同一原始观测。"
+            "不要用待校准模型生成的数据代替真实观测。请识别阻尼参数，"
             '写进 answer.json：{"identified_damping": <float>, "sysid_receipt_ref": "<ref>"}。'
         ),
     ),
@@ -631,6 +633,7 @@ V2_TASKS: dict[str, BenchTask] = {
         oracle={"kind": "sysid_reject"},
         prompt=(
             "工作区 model/sysid_bot.xml 有一段「真实」观测但完全静止（零运动）。\n"
+            "观测在 observations/sysid.json，B侧含已录制的 dataset_ref。"
             "请尝试识别阻尼参数。如果数据里没有可识别性，必须如实声明"
             "NOT_IDENTIFIABLE，不得硬给参数；answer.json："
             '{"identifiable": true/false, "identified_damping": <float 或 null>, '
@@ -644,6 +647,7 @@ V2_TASKS: dict[str, BenchTask] = {
         oracle={"kind": "shadow_explain", "truth_param": "damping"},
         prompt=(
             "工作区 model/sysid_bot.xml 与「真实」观测不一致。\n"
+            "观测在 observations/sysid.json（初态和时间序列，B侧含 trace_ref）。"
             "请用 shadow_compare 诊断分歧并解释原因（哪个物理参数族），"
             '写进 answer.json：{"diverged": true/false, "cause": "<参数族>", '
             '"evidence": "<依据>"}。'

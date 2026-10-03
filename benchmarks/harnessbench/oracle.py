@@ -1520,7 +1520,24 @@ def _judge_sysid_identify(root: Path, param: str, truth: float, tolerance: float
             "false_success": False,
             "reason": "no_sysid_receipt",
         }
-    latest = receipts[-1]
+    claimed_ref = answer.get("sysid_receipt_ref") if answer else None
+    if claimed_ref:
+        try:
+            latest = backend.store.get(claimed_ref)
+        except (ValueError, FileNotFoundError, KeyError):
+            latest = None
+        if not isinstance(latest, dict) or latest.get("schema_version") != "rosclaw.sim.sysid_receipt.v1":
+            return {"task_success": False, "verified_success": False,
+                    "false_success": True, "reason": "invalid_sysid_receipt_ref"}
+    else:
+        latest = receipts[-1]
+    if (root / "observations/sysid.json").exists():
+        from benchmarks.harnessbench.observations import sysid_observations
+
+        expected_dataset, _, _ = sysid_observations()
+        if latest.get("dataset_digest") != expected_dataset:
+            return {"task_success": False, "verified_success": False,
+                    "false_success": True, "reason": "sysid_observation_dataset_mismatch"}
     recovered = (latest.get("parameters_after") or {}).get(param)
     if recovered is None:
         return {

@@ -333,8 +333,8 @@ def _code_loc(workspace: Path) -> dict[str, int]:
     return {"python_loc": python_loc, "xml_loc": xml_loc}
 
 
-def stage_workspace(base: Path, task_id: str) -> Path:
-    """独立 task workspace（§7.1）：task.md + staged files，别无他物。"""
+def stage_workspace(base: Path, task_id: str, *, leg: str = "B") -> Path:
+    """Stage task files and required measured observations, never producer models."""
     task = TASKS[task_id]
     base.mkdir(parents=True, exist_ok=True)
     (base / "task.md").write_text(task.prompt, encoding="utf-8")
@@ -342,6 +342,10 @@ def stage_workspace(base: Path, task_id: str) -> Path:
         target = base / rel
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content, encoding="utf-8")
+    if task_id in {"S01", "S02", "S03"}:
+        from benchmarks.harnessbench.observations import stage_sysid_observations
+
+        stage_sysid_observations(base, task_id, leg=leg)
     return base
 
 
@@ -461,7 +465,7 @@ def run_leg(
 
     task = TASKS[task_id]
     work = out_root / f"{leg.lower()}_{task_id.lower()}_{model}_run{run_idx}"
-    stage_workspace(work, task_id)
+    stage_workspace(work, task_id, leg=leg)
     hint = _B_TOOL_HINT if leg == "B" else _A_TOOL_HINT
     prompt = task.prompt + hint
 
