@@ -370,7 +370,7 @@ V2_TASKS: dict[str, BenchTask] = {
             "工作区 model/unstable_servo.xml 的伺服控制不稳定（发散）。\n"
             "请诊断并修复。修复必须基于原模型patch修改，仅允许伺服kp和joint damping变化。"
             "原模型请求至少1秒同一非零position_targets；如运行guard提前拒绝，保留返回failure_ref/trace_ref及first failure step证据即可。候选必须完成至少1秒actual rollout，"
-            "保存全部步（--max-record-points 10001）及实际runtime_validation。"
+            "保存全部步（--max-record-points 10001）及实际runtime_validation。候选receipt还需调用rosclaw sim strict-replay RECEIPT_REF，原生JSON报告保留在tool stdout（不要只自写报告），必须RAW_EXACT。"
             "审初始平衡姿态的hold不能替代非零目标动态证据；不要改本体/质量/重力/接触。"
             'answer.json：{"problems": [...], "fixed_model_ref": "<引用或路径>"}。'
         ),
@@ -472,7 +472,7 @@ V2_TASKS: dict[str, BenchTask] = {
             "保留原body/geoms/质量/惯量/重力/接触。原配置和最终候选各需要同integrator的dt与dt/2对照，"
             "每条用相同空controller（此模型nu=0，不能position_targets[.4]）从相同初态实际跑3秒，"
             "用rosclaw sim rollout --max-record-points 10001保留密集步记录和runtime_validation。"
-            "保存失败/成功记录，外部按共同物理时间重算convergence（不是复制audit A24自报标量）。"
+            "对最终候选dt与dt/2两个receipt分别调用rosclaw sim strict-replay RECEIPT_REF，原生JSON报告保留在tool stdout，必须RAW_EXACT。保存失败/成功记录，外部按共同物理时间重算convergence（不是复制audit A24自报标量）。"
             'answer.json：{"best_model_ref": "<引用或路径>", "why": "<依据>"}。'
         ),
     ),
