@@ -268,3 +268,10 @@ The two original control/request cases were red. Additional cases verify a
 longer series and two independent branches holding different commands.
 The resulting ten sampling/control cases and related cohort pass 47 checks,
 with source mypy/Ruff and diff checks passing.
+
+Direct batch callers now receive the same elapsed-duration preflight budget
+as serial callers, and branch-count rejection precedes model compilation.
+Two red fixtures proved over-budget requests reached native batch execution;
+both now fail closed before that noninterruptible call. The relevant cohort
+passes 23 checks. Native C++ batch execution still does not expose per-step
+wall-clock cancellation; these preflight guards do not claim otherwise.
