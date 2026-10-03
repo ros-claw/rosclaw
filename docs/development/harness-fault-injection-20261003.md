@@ -570,3 +570,19 @@ nonzero initial time, including the shorter final gap and immutable raw-ref
 checks. Six missing/irregular/invalid timestamp fixtures prevent overclaims.
 Recording + sampling alignment + rollout + three replay suites: **46 PASS**.
 Ruff, mypy (three changed source files), and whitespace checks pass.
+
+### PI provenance reconciled to the already installed 1.0.1 runtime
+
+All four `@earendil-works/pi-*` dependencies, overrides, package-lock entries,
+and actual installed package manifests are 1.0.1. Read-only `npm view` of each
+exact 1.0.1 package reports gitHead
+`a7229ddc21810d6245105978033b7df645ecc2f7`. The authoritative upstream metadata
+now records that version/source and actual package-lock SHA256
+`d52da2ca3aa9efd9fcfaf457d612194ce2b35ec82492b490e766be0e907271d7`.
+This corrects stale provenance; it performs no installation or live upgrade.
+The previous metadata recorded 1.0.0 / `a13d35a742c6ef8462812a28fbe1d8c8b7431c32`
+and lock SHA `d86c930f7689a090dfb0af954b0e074c74ee9009b266151ac5b397d4469d5785`.
+The characterization suite remains version 1; earlier real public PI compaction
+fixtures were already executed against installed 1.0.1. Existing W08 pin and
+lock-integrity assertions initially failed twice and now pass: **4 PASS**.
+This is not a new release-artifact qualification claim.
