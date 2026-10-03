@@ -10,8 +10,9 @@
  * 4. Pi 私有事件统一转 HarnessEvent（产品侧不 switch Pi 私有类型）。
  */
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { test } from "node:test";
 
 const SRC = new URL("../../src/", import.meta.url).pathname;  // dist/test → 包根/src
@@ -43,14 +44,18 @@ test("HP2 结构门：Pi import 只在 harness/pi/ 或 HP2-COMPAT 标记文件",
 		"未标记的 Pi import（迁入 harness/pi/ 或加 HP2-COMPAT 标记）");
 });
 
-test("HP2: createPiBackend().create() 真实工作", async () => {
+test("HP2: createPiBackend().create() 真实工作", async (t) => {
 	const { createPiBackend } = await import("../src/harness/pi/pi-backend.js");
 	const backend = createPiBackend();
+	const root = mkdtempSync(join(tmpdir(), "rosclaw-hp2-"));
+	const cwd = join(root, "workspace");
+	mkdirSync(cwd);
+	t.after(() => rmSync(root, { recursive: true, force: true }));
 	// 当前抛 HARNESS_CAPABILITY_MISSING（装配本体在 create-runtime）——
 	// 迁移后必须真实返回 HarnessSession。
 	const session = await backend.create({
-		cwd: "/tmp/hp2-probe",
-		backendOptions: { headless: true },
+		cwd,
+		backendOptions: { headless: true, rosclawHome: join(root, "rh") },
 	});
 	assert.equal(session.sessionRef.backendId, "pi");
 	assert.ok(session.sessionRef.nativeRef, "缺 nativeRef");
