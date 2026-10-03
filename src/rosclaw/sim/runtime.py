@@ -73,6 +73,7 @@ class SimulationRuntime:
         state_ref: str | None = None,
         seed: int = 0,
         task_predicates: list[dict[str, Any]] | None = None,
+        budgets: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         return self._backend.run_experiment(
             model_ref,
@@ -82,6 +83,7 @@ class SimulationRuntime:
             steps=steps,
             seed=seed,
             task_predicates=task_predicates,
+            **({"budgets": budgets} if budgets is not None else {}),
         ).to_canonical_dict()
 
     def audit(
@@ -216,9 +218,13 @@ class SimulationRuntime:
                     "physical_audit_pass": audit_result.status == "PASS",
                     "task_success": task_success,
                     "verification_status": (
-                        "FAIL" if audit_result.status == "FAIL"
-                        else ("NOT_EVALUATED" if task_predicates is None
-                              else ("PASS" if task_success else "FAIL"))
+                        "FAIL"
+                        if audit_result.status == "FAIL"
+                        else (
+                            "NOT_EVALUATED"
+                            if task_predicates is None
+                            else ("PASS" if task_success else "FAIL")
+                        )
                     ),
                     "metrics": {},
                     "metrics_mode": "batch_trajectory",
