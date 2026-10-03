@@ -95,3 +95,9 @@ check body mass, declarations, lineage, unrelated-patch behavior and mass/densit
 precedence. Five were red before the fix; all six now pass. The relevant patch,
 geometry and determinism cohort has 42 passing tests; Ruff and two-module mypy
 checks pass. No robot controller or physical rollout was authored here.
+
+## PI 1.0.1 isolated compatibility check
+
+The official [v1.0.1 release](https://github.com/earendil-works/pi/releases/tag/v1.0.1), published 2026-10-03, and npm latest were independently checked. Native agent dependencies and overrides, and the standalone TUI dependency, are pinned to 1.0.1. The upstream release removes its npm shrinkwrap, so ROSClaw keeps the regenerated application lockfile as the reproducibility boundary.
+
+Both actual upstream patch anchors apply without changing AgentLoop or session format. Full native build/tests passed: 272 passed, 3 skipped; standalone TUI: 27 passed. The initial run rejected the old hard-coded 1.0.0 pin assertion; the expected exact pin was updated and the complete suite rerun. Private raw logs are `pi101_native_all_tests.log`, `pi101_native_all_tests_green.log`, and `pi101_standalone_tui.log` in the supervision evidence directory. These are compatibility tests, not model or physical-success claims. Existing model trials remain frozen at their recorded 1.0.0 version. The formal ongoing session must reach a normal idle boundary before its runtime is changed.

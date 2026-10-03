@@ -1,12 +1,12 @@
 # ROSClaw 上游薄补丁（NA-FIX-3，规格 §5/§23.4）
 
-目标包：`@earendil-works/pi-coding-agent@1.0.0`（commit a13d35a742c6ef8462812a28fbe1d8c8b7431c32）。
+目标包：`@earendil-works/pi-coding-agent@1.0.1`（commit a7229ddc21810d6245105978033b7df645ecc2f7）。
 预算：< 60 LOC。只加通用扩展点，不 fork AgentLoop/Provider/Session 格式。
 
 ## patch-01：AppIdentity / resumeCommandFormatter
 
 - 位置：`dist/modes/interactive/interactive-mode.js` 的 `formatResumeCommand`
-- 内容：退出 resume 提示输出 `rosclaw chat --resume <id>`（绝不输出
+- 内容：退出提示输出 `rosclaw continue` 和 `rosclaw sessions`，不暴露内部 session id（绝不输出
   `pi --session` / `--session-dir`——用户必须经 ROSClaw runtime 恢复：
   agentd kernel + SessionBinding + lease + ResourcePolicy + 工具表）。
 
