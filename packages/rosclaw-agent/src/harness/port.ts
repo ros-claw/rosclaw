@@ -55,6 +55,8 @@ export type HarnessEvent =
 	| { type: "tool.failed"; callId: string; error: HarnessError }
 	| { type: "compaction.started" }
 	| { type: "compaction.completed"; snapshotRef?: string }
+	| { type: "compaction.cancelled" }
+	| { type: "compaction.failed"; error: HarnessError }
 	| { type: "turn.cancelled"; turnId: string }
 	| { type: "turn.failed"; turnId: string; error: HarnessError }
 	| { type: "session.idle" };

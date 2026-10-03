@@ -140,3 +140,9 @@ then passed 461 checks with one skip and one deselection (163.42 s). Final
 shared-guard regression results are retained in the local audit directory. Ruff and
 eight-source-module mypy checks pass. A read-only independent frozen baseline
 review is saved as `framework_fault_injection/r04_frozen_baseline_validity_independent.json`.
+
+## PI compaction event compatibility
+
+The installed 1.0.0 and 1.0.1 SDKs emit `compaction_start`/`compaction_end`; the ROSClaw adapter only recognized the older `auto_compaction_*` names. It also mapped aborted/error endings to completed. The adapter now accepts both names and emits separate failed/cancelled endings; an ending without a result cannot claim a saved summary. Two failing lifecycle cases were reproduced before repair and both pass afterward, alongside the two existing adapter contracts. Full native tests against actual isolated PI 1.0.1: 274 passed, 3 skipped. These event-contract checks do not claim that an ongoing compaction is deadlocked or authorize interrupting it.
+
+The formal eighth compaction completed normally. Its 256,553-token prefix preserved the corrected M22 objective and the public eight-case limit. Some prefix status was older (static analysis independent acceptance pending and task revision 101); the retained suffix starts at line 2755 and contains the independent static receipt at line 2769, while the authoritative task is revision 102. The full private summary and the independent boundary review are retained as `compaction_eighth_summary.txt` and `compaction_verification_eighth.json`. No session entries were rewritten.

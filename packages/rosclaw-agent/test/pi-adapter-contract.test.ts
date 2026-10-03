@@ -34,3 +34,15 @@ test("adapter uses Pi ModelRuntime and closes a pending event read", async () =>
 	await session.close();
 	assert.equal(aborts, 1);
 });
+
+for (const prefix of ["", "auto_"]) {
+	test(`PI ${prefix}compaction lifecycle preserves failures and cancellation`, () => {
+		assert.deepEqual(mapPiEvent({ type: `${prefix}compaction_start`, reason: "threshold" }), { type: "compaction.started" });
+		assert.deepEqual(mapPiEvent({ type: `${prefix}compaction_end`, result: { summary: "retained summary" }, aborted: false }), { type: "compaction.completed" });
+		assert.equal(mapPiEvent({ type: `${prefix}compaction_end`, aborted: true })?.type, "compaction.cancelled");
+		const failed = mapPiEvent({ type: `${prefix}compaction_end`, errorMessage: "provider unavailable", aborted: false });
+		assert.equal(failed?.type, "compaction.failed");
+		if (failed?.type === "compaction.failed") assert.equal(failed.error.message, "provider unavailable");
+		assert.equal(mapPiEvent({ type: `${prefix}compaction_end`, result: undefined, aborted: false })?.type, "compaction.failed");
+	});
+}

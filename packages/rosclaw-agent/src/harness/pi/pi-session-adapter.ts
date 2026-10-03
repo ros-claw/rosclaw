@@ -155,9 +155,16 @@ export function mapPiEvent(event: { type?: string } & Record<string, unknown>): 
 						error: { code: "PROVIDER_UNAVAILABLE", message: String(event.result ?? ""), retryable: false },
 					}
 				: { type: "tool.completed", callId, result: event.result };
+		case "compaction_start":
 		case "auto_compaction_start":
 			return { type: "compaction.started" };
+		case "compaction_end":
 		case "auto_compaction_end":
+			if (event.aborted === true) return { type: "compaction.cancelled" };
+			if (event.errorMessage || !event.result) return {
+				type: "compaction.failed",
+				error: { code: "PROVIDER_UNAVAILABLE", message: String(event.errorMessage ?? "Compaction returned no summary"), retryable: true },
+			};
 			return { type: "compaction.completed" };
 		default:
 			return undefined;
