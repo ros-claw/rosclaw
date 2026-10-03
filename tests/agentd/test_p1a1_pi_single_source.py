@@ -104,6 +104,20 @@ class TestConfigureModelSingleSource:
 
 
 class TestChatGateSingleSource:
+    @pytest.mark.parametrize("provider", ["openai-codex", "openai"])
+    def test_chat_gate_accepts_builtin_openai_without_custom_provider(
+        self, tmp_path: Path, monkeypatch, provider: str
+    ) -> None:
+        from rosclaw.agentd import cli as agentd_cli
+
+        agent = tmp_path / "agent"
+        agent.mkdir()
+        (agent / "settings.json").write_text(
+            json.dumps({"defaultProvider": provider, "defaultModel": "selected-model"})
+        )
+        monkeypatch.setattr(agentd_cli, "_chat_pi", lambda home, args: 0)
+        assert agentd_cli.main(["--home", str(tmp_path), "chat"]) == 0
+
     def test_chat_gate_accepts_pi_config_without_config_yaml(
         self, tmp_path: Path, monkeypatch
     ) -> None:

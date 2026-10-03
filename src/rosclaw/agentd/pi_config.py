@@ -110,9 +110,19 @@ def pi_model_configured(home: Path) -> bool:
 #  doctor/status 展示。新 provider 进内置目录时同步此表。
 BUILTIN_PROVIDER_VIEWS = {
     "kimi-coding": {
-        "base_url": "https://api.kimi.com/coding/v1",
-        "api": "openai-completions",
+        "base_url": "https://api.kimi.com/coding",
+        "api": "anthropic-messages",
         "api_key_ref": "env:KIMI_API_KEY",
+    },
+    "openai": {
+        "base_url": "https://api.openai.com/v1",
+        "api": "openai-responses",
+        "api_key_ref": "env:OPENAI_API_KEY",
+    },
+    "openai-codex": {
+        "base_url": "https://chatgpt.com/backend-api",
+        "api": "openai-codex-responses",
+        "api_key_ref": "",  # PI's built-in OAuth credential resolver.
     },
 }
 

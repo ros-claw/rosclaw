@@ -26,6 +26,12 @@ needed. A successful compaction event alone does not prove summary correctness.
 
 - Align the independently packaged `rosclaw-tui` PI dependency with 1.0.0.
   Updating the main agent's four packages had left this package on 0.85.1.
+- Recognize PI's built-in OpenAI and OpenAI Codex providers in Python's chat
+  configuration gate without requiring custom `models.json` entries. An actual
+  access-only OAuth comparison originally stalled at the Kimi onboarding prompt
+  before any model ran; after repair, native OpenAI U01 independently verified.
+  Align the Kimi diagnostic view with PI 1.0's actual `anthropic-messages` API
+  and endpoint. Authentication/reachability remain separate probe decisions.
 - Run the `bash` tool with Bash and `pipefail`, including inside bubblewrap.
   Brace expansion and failures within a direct pipeline now follow the tool's
   advertised shell contract. Enabled shell options are exported so an ordinary
@@ -90,6 +96,11 @@ The original oracle incorrectly reported `claimed_ref_mismatch` against the
 first iteration. Reverification of the unchanged answer and artifacts with the
 candidate-selection fix verified the reported second model. The original result
 and separate correction record are retained; this is not a new model run.
+
+Remaining 600s native Kimi trials independently verified V01 in 496.6s;
+I01 and S01 did not settle (602.7s and 602.6s, with 26 and 19 tool calls).
+These are separate reruns after guidance/configuration repairs, not replacements
+for the original short-budget failures or a controlled model ranking.
 
 The first benchmark also exposed the Unix socket path limit. Keep benchmark
 runtime homes short and copy completed file evidence to durable storage.
