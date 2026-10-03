@@ -320,3 +320,39 @@ assistant/tool-result journal, operation ledger, and target artifact; an absent
 assistant/tool result and absent target file are interrupted/unexecuted work,
 not a successful write. This stream observer does not invent tool results or
 reconstruct vanished previews.
+
+
+## SimStore durable acknowledgement after reboot evidence loss
+
+The reboot left content-addressed simulation JSON files empty although their
+refs had already been returned. The preexisting writer used a temporary file
+and `os.replace`, which ensured namespace atomicity but never synced file bytes
+or directory links. That is insufficient for an acknowledged object to survive
+a host power loss.
+
+`SimStore.put` now flushes and fsyncs the temporary JSON/binary file, atomically
+replaces its destination, then fsyncs the partition directory before returning
+its ref. Parent directory links, including newly created task/store/partition
+paths, are synced; retries also complete failed directory-creation barriers.
+A partition-directory advisory flock serializes cooperating writers across
+processes, including collision checks. It does not claim protection against an
+uncooperating process deliberately modifying the store. Existing same-content
+objects are never rewritten, but file and directory barriers are repeated
+before an idempotent acknowledgement. Same-ref alternate JSON/binary payload
+kinds fail closed rather than creating an ambiguous resolution.
+
+Empty/truncated/different existing bytes remain untouched and cannot be
+reconstructed by retry. `exists` requires a matching content digest; `resolve`
+checks path containment and digest before returning an artifact path. Legitimate
+empty binary payloads retain their actual digest semantics. A post-rename
+directory-sync failure raises without returning a ref and leaves its complete
+immutable object for a subsequent verified retry.
+
+The initial durability cohort was red with nine failures and two passes.
+After repair, 86 store/ref/model-patch/runtime-failure/state-restore checks pass.
+Fixtures cover both payload types in all six partitions, file/replace/directory
+failure injection, directory-creation retry, stale empty/truncated refs,
+idempotent barriers, concurrent writers and forced digest-prefix collision,
+and preservation of original bytes. Ruff, mypy and diff checks pass. These are
+filesystem fault-injection checks, not a claim to have repeated a physical
+power-cut test or to restore historical damaged evidence.

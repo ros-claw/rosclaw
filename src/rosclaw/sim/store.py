@@ -17,6 +17,7 @@ Maturity: experimental（ADR-0000 §4）。
 
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
 import os
@@ -114,25 +115,53 @@ class SimStore:
         target = self._root / partition / f"{ref}{suffix}"
         self._assert_inside(target)
 
-        if target.exists() or target.is_symlink():
-            if target.is_symlink():
-                raise ValueError(f"STORE_PATH_ESCAPE: {target} is a symlink")
-            existing = target.read_bytes()
-            if existing == data:
-                return ref  # 幂等
-            raise ValueError(f"STORE_IMMUTABLE_VIOLATION: {ref!r} exists with different content")
-
-        target.parent.mkdir(parents=True, exist_ok=True)
-        # 同目录临时文件 + os.replace 原子落盘。
-        fd, tmp_name = tempfile.mkstemp(dir=target.parent, prefix=".tmp_")
+        self._ensure_durable_directory(target.parent)
+        self._assert_inside(target)
+        # Cooperating writers lock the partition directory itself, avoiding a
+        # separate lock-file lifecycle and a check/replace overwrite race.
+        directory_fd = os.open(target.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         try:
-            with os.fdopen(fd, "wb") as fh:
-                fh.write(data)
-            os.replace(tmp_name, target)
-        except BaseException:
-            Path(tmp_name).unlink(missing_ok=True)
-            raise
-        return ref
+            fcntl.flock(directory_fd, fcntl.LOCK_EX)
+            other = target.with_suffix(".bin" if suffix == ".json" else ".json")
+            if other.exists() or other.is_symlink():
+                raise ValueError(
+                    f"STORE_IMMUTABLE_VIOLATION: {ref!r} exists with another payload type"
+                )
+            if target.exists() or target.is_symlink():
+                if target.is_symlink():
+                    raise ValueError(f"STORE_PATH_ESCAPE: {target} is a symlink")
+                existing = target.read_bytes()
+                if existing != data:
+                    raise ValueError(
+                        f"STORE_IMMUTABLE_VIOLATION: {ref!r} exists with different content"
+                    )
+                # A previous writer may have failed after rename but before
+                # directory fsync. An idempotent acknowledgement must complete
+                # both durability barriers, without changing existing bytes.
+                existing_fd = os.open(target, os.O_RDONLY | os.O_NOFOLLOW)
+                try:
+                    os.fsync(existing_fd)
+                finally:
+                    os.close(existing_fd)
+                os.fsync(directory_fd)
+                return ref
+
+            fd, tmp_name = tempfile.mkstemp(dir=target.parent, prefix=".tmp_")
+            try:
+                with os.fdopen(fd, "wb") as fh:
+                    fh.write(data)
+                    fh.flush()
+                    os.fsync(fh.fileno())
+                os.replace(tmp_name, target)
+                os.fsync(directory_fd)
+            except BaseException:
+                # Once rename succeeds the complete object remains immutable,
+                # even if directory fsync fails. Never erase/reconstruct it.
+                Path(tmp_name).unlink(missing_ok=True)
+                raise
+            return ref
+        finally:
+            os.close(directory_fd)  # also releases the advisory flock
 
     # -- 读取 ---------------------------------------------------------------
 
@@ -152,13 +181,14 @@ class SimStore:
             if is_legacy_ref(ref):
                 return (self._task_root / "models" / f"{ref}.json").is_file()
             return False
-        return self._candidate(ref).is_file()
+        return self.verify_digest(ref)
 
     def verify_digest(self, ref: str) -> bool:
         """重算内容与 ref 后缀比对；对象缺失或篡改返回 False。"""
         if classify(ref) != "sim":
             return False
         path = self._candidate(ref)
+        self._assert_inside(path)
         if not path.is_file() or path.is_symlink():
             return False
         _, hex16 = parse_ref(ref)
@@ -172,10 +202,12 @@ class SimStore:
                 raise ValueError(f"REF_NOT_FOUND: {ref!r}")
             return path
         path = self._candidate(ref)
+        self._assert_inside(path)
         if path.is_symlink():
             raise ValueError(f"STORE_PATH_ESCAPE: {path} is a symlink")
         if not path.is_file():
             raise ValueError(f"REF_NOT_FOUND: {ref!r}")
+        self._check_digest(ref, path.read_bytes())
         return path
 
     def list_children(self, partition: str) -> list[str]:
@@ -197,6 +229,26 @@ class SimStore:
         return refs
 
     # -- 内部 ---------------------------------------------------------------
+
+    def _ensure_durable_directory(self, folder: Path) -> None:
+        """Sync each newly created directory link before acknowledging objects."""
+        missing: list[Path] = []
+        cursor = folder
+        while not cursor.exists():
+            missing.append(cursor)
+            cursor = cursor.parent
+        for directory in reversed(missing):
+            directory.mkdir(exist_ok=True)
+        # Also sync existing links: a previous directory-creation sync may
+        # have failed, and merely seeing its directory on retry proves nothing.
+        parents = [directory.parent for directory in reversed(missing)]
+        parents.extend((self._task_root.parent, self._task_root, self._root))
+        for parent in dict.fromkeys(parents):
+            parent_fd = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            try:
+                os.fsync(parent_fd)
+            finally:
+                os.close(parent_fd)
 
     def _candidate(self, ref: str) -> Path:
         kind, _ = parse_ref(ref)  # 词法 fail closed
