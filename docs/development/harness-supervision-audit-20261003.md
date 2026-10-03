@@ -463,3 +463,16 @@ net-only verdicts remain unchanged alongside these stricter additive reports.
 ROSClaw authors and runs the physical controller; supervision only reconstructs
 recorded evidence. Clearer frozen video and an isolated experimental source
 review package remain in progress; no final physical acceptance is claimed.
+
+A further real A/B U03 trial exposed a launch-directory false positive: the
+clean A interpreter sees a PEP420 `rosclaw` namespace when its dependency probe
+inherits a parent containing the source checkout. A therefore failed before
+model startup despite having no installed ROSClaw. The probe now runs from the
+dedicated A venv directory; genuine import contamination and version divergence
+still fail closed. The namespace counterexample fails before repair, and 20
+runner/profile regressions, Ruff and module mypy pass after repair. Original
+startup ERROR is retained and excluded from model-quality scoring. The real B
+U03 side independently verifies in 25.9s/four calls; repaired native PI A
+verifies in 26.4s/two calls (14 inline Python lines). Both persisted model
+identities are openai-codex/gpt-6.1-sol. Temporary OAuth files were removed
+from trial directories and excluded from durable evidence copies.

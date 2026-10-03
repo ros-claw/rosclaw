@@ -131,6 +131,9 @@ def _a_leg_python() -> str:
             "importlib.util.find_spec('rosclaw') is not None, "
             "'versions': {p: version(p) for p in ('mujoco','numpy','imageio')}}))",
         ],
+        # Probe the dedicated environment rather than the launcher's cwd:
+        # a parent containing the checkout exposes a PEP420 rosclaw namespace.
+        cwd=_A_LEG_VENV,
         check=False,
         capture_output=True,
         text=True,

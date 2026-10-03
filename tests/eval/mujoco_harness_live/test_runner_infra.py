@@ -9,6 +9,7 @@ RunInfraError 携带部分记录，error_record 保留真实指标。
 from __future__ import annotations
 
 from datetime import UTC
+from pathlib import Path
 
 import pytest
 
@@ -325,3 +326,49 @@ def test_new_a_environment_pins_physics_versions_to_b(tmp_path, monkeypatch):
     runner._a_leg_python()
     install = next(c for c in commands if "install" in c)
     assert all(f"{p}=={v}" in install for p, v in expected.items())
+
+
+def test_a_environment_probe_does_not_inherit_checkout_namespace(tmp_path, monkeypatch):
+    """A launcher beside a rosclaw checkout must not look contaminated."""
+    import json
+    import subprocess
+    from importlib.metadata import version
+    from types import SimpleNamespace
+
+    clean = tmp_path / 'clean'
+    (clean / 'bin').mkdir(parents=True)
+    (clean / 'bin' / 'python').touch()
+    launcher = tmp_path / 'launcher'
+    (launcher / 'rosclaw').mkdir(parents=True)
+    monkeypatch.chdir(launcher)
+    monkeypatch.setattr(runner, '_A_LEG_VENV', clean)
+    expected = {p: version(p) for p in ('mujoco', 'numpy', 'imageio')}
+
+    def run(command, **kwargs):
+        # Real local reproduction: inherited cwd exposes a PEP420 namespace.
+        cwd = kwargs.get('cwd', launcher)
+        return SimpleNamespace(returncode=0, stdout=json.dumps({
+            'rosclaw_available': (Path(cwd) / 'rosclaw').exists(),
+            'versions': expected,
+        }))
+
+    monkeypatch.setattr(subprocess, 'run', run)
+    assert runner._a_leg_python() == str(clean / 'bin' / 'python')
+
+
+def test_a_environment_probe_still_rejects_real_contamination(tmp_path, monkeypatch):
+    import json
+    import subprocess
+    from importlib.metadata import version
+    from types import SimpleNamespace
+
+    (tmp_path / 'bin').mkdir()
+    (tmp_path / 'bin' / 'python').touch()
+    monkeypatch.setattr(runner, '_A_LEG_VENV', tmp_path)
+    expected = {p: version(p) for p in ('mujoco', 'numpy', 'imageio')}
+    monkeypatch.setattr(subprocess, 'run', lambda *a, **k: SimpleNamespace(
+        returncode=0,
+        stdout=json.dumps({'rosclaw_available': True, 'versions': expected}),
+    ))
+    with pytest.raises(RuntimeError, match='A_LEG_ENV_CONTAMINATED'):
+        runner._a_leg_python()
