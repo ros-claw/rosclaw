@@ -105,7 +105,14 @@ an intentionally separate mission rather than assuming prose changes identity.
 
 A native SeekDB pagination test inserting 2,300 records individually exceeded
 the diagnostic time budget inside its database upsert call. Its result remains
-unresolved, not PASS; targeted integration/performance investigation is needed.
+unresolved as an insertion/embedding performance result. A separate batch
+insertion diagnostic also spent its time in the default ONNX embedding function
+(`onnxruntime.InferenceSession.run`), so it does not establish a database
+pagination deadlock. The pagination test now seeds the real collection with
+explicit, dimension-matched fixture vectors, avoiding unrelated inference. Its
+2,300-row count/delete checks passed in 15.71s, including a filtered count and
+deletion of 1,150 rows across the 1,000-row page boundary. This verifies native
+pagination under these conditions; it does not resolve embedding throughput.
 Broad non-live regression excludes native SeekDB modules only after retaining
 this separate failure/performance evidence. Local reports contain exact run
 counts and artifacts; repository-wide pre-existing lint debt is not green.

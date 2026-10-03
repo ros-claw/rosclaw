@@ -125,8 +125,16 @@ def test_order_by_raises(store):
 
 
 def test_count_and_delete_where_paginate(store):
-    for i in range(2300):
-        store.insert("bulk", {"id": f"r{i:04d}", "grp": "x" if i % 2 else "y"})
+    # Exercise REAL database pagination independently of 2,300 repeated
+    # ONNX embedding calls. This test does not assess insertion/embedding
+    # throughput; the ordinary insert path is covered by the tests above.
+    collection = store._collection("bulk")
+    records = [{"id": f"r{i:04d}", "grp": "x" if i % 2 else "y"} for i in range(2300)]
+    collection.upsert(
+        ids=[record["id"] for record in records],
+        metadatas=records,
+        embeddings=[[0.0] * collection.dimension for _ in records],
+    )
     assert store.count("bulk", {"grp": "x"}) == 1150
     deleted = store.delete_where("bulk", {"grp": "x"})
     assert deleted == 1150
