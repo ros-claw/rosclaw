@@ -8,9 +8,10 @@
 from __future__ import annotations
 
 import json
-import os
 import time
 from pathlib import Path
+
+from rosclaw.storage.durable import DurableNamespace
 
 
 class PersistentPlanStore:
@@ -18,7 +19,8 @@ class PersistentPlanStore:
 
     def __init__(self, plans_dir: Path, *, ttl_s: float = 1800.0, capacity: int = 32) -> None:
         self._dir = plans_dir
-        self._dir.mkdir(parents=True, exist_ok=True)
+        self._durability = DurableNamespace(self._dir, kind="plan")
+        self._durability.ensure_directory(self._dir)
         self._ttl_s = ttl_s
         self._capacity = capacity
 
@@ -27,22 +29,29 @@ class PersistentPlanStore:
         return time.time()
 
     def _path(self, plan_id: str) -> Path:
-        return self._dir / f"{plan_id}.json"
+        path = self._dir / f"{plan_id}.json"
+        self._durability.assert_owned(path)
+        return path
 
     def _read(self, plan_id: str) -> dict | None:
         path = self._path(plan_id)
         if not path.exists():
             return None
         try:
-            return json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return None
+            record = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as error:
+            raise ValueError("PLAN_STORE_CORRUPT: existing record unreadable") from error
+        if not isinstance(record, dict):
+            raise ValueError("PLAN_STORE_CORRUPT: existing record is not an object")
+        return record
 
     def _write(self, record: dict) -> None:
         path = self._path(record["plan_id"])
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(record, ensure_ascii=False), encoding="utf-8")
-        os.replace(tmp, path)
+        if path.exists():
+            self._read(record["plan_id"])  # never replace a corrupt existing record
+        self._durability.atomic_replace(
+            path, json.dumps(record, ensure_ascii=False).encode("utf-8")
+        )
 
     def put(self, trajectory: dict, summary: str) -> dict:
         # 九审 §17.3：随机实例 ID + digest 内容寻址分离。
@@ -97,17 +106,11 @@ class PersistentPlanStore:
             path = self._path(plan_id)
             if path.exists():
                 raise ValueError(
-                    f"REF_FORMAT_UNKNOWN: plan {plan_id!r} 记录格式不可解码 "
-                    "(fail closed)"
+                    f"REF_FORMAT_UNKNOWN: plan {plan_id!r} 记录格式不可解码 (fail closed)"
                 )
-            raise ValueError(
-                f"REF_NOT_FOUND: plan_id {plan_id!r} 不在共享 PlanStore "
-                "(fail closed)"
-            )
+            raise ValueError(f"REF_NOT_FOUND: plan_id {plan_id!r} 不在共享 PlanStore (fail closed)")
         if record["status"] != "PLANNED":
-            raise ValueError(
-                f"plan {plan_id} already consumed — single-use (fail closed)"
-            )
+            raise ValueError(f"plan {plan_id} already consumed — single-use (fail closed)")
         if self._now() - float(record["created_at"]) > self._ttl_s:
             raise ValueError(f"plan {plan_id} expired (fail closed)")
         return record

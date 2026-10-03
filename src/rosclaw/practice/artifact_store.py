@@ -14,7 +14,6 @@ import hashlib
 import io
 import json
 import logging
-import os
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -22,6 +21,7 @@ from typing import Any
 import yaml
 
 from rosclaw.practice.storage.layout import PracticeLayout
+from rosclaw.storage.durable import DurableNamespace
 
 logger = logging.getLogger("rosclaw.practice.artifact_store")
 
@@ -58,6 +58,8 @@ class ArtifactStore:
 
     def __init__(self, base_dir: Path | str, layout: PracticeLayout | None = None):
         self._base_dir = Path(base_dir)
+        self._durability = DurableNamespace(self._base_dir, kind="practice")
+        self._durability.ensure_directory(self._base_dir)
         self._layout = layout or PracticeLayout(self._base_dir)
         self._layout.ensure_directories()
 
@@ -87,7 +89,7 @@ class ArtifactStore:
             )
         else:
             base = self._layout.sessions_dir / session_id / "artifacts" / artifact_type
-        base.mkdir(parents=True, exist_ok=True)
+        self._durability.ensure_directory(base)
         return base
 
     def manifest_path(self, session_id: str, episode_id: str | None = None) -> Path:
@@ -102,7 +104,7 @@ class ArtifactStore:
             )
         else:
             path = self._layout.sessions_dir / session_id / "artifact_manifest.yaml"
-        path.parent.mkdir(parents=True, exist_ok=True)
+        self._durability.ensure_directory(path.parent)
         return path
 
     def _artifact_path(
@@ -209,7 +211,7 @@ class ArtifactStore:
         metadata: dict[str, Any] | None,
     ) -> ArtifactRecord:
         """Atomically write *data* to *path* if its checksum is new, then register."""
-        path.parent.mkdir(parents=True, exist_ok=True)
+        self._durability.ensure_directory(path.parent)
         sha256 = hashlib.sha256(data).hexdigest()
         existing = self._lookup_existing(artifact_id, sha256, session_id, episode_id)
         if existing:
@@ -218,8 +220,19 @@ class ArtifactStore:
                 artifact_id,
                 sha256[:8],
             )
+            self._durability.sync_file(Path(existing.path))
+            self._durability.sync_file(self.manifest_path(session_id, episode_id))
             return existing
-        self._atomic_write(path, data)
+        manifest = self._load_manifest(session_id, episode_id)
+        registered = self._find_in_manifest(manifest, artifact_id)
+        if not registered and path.exists():
+            if path.read_bytes() != data:
+                raise ValueError(
+                    "ARTIFACT_CORRUPT: unregistered destination differs; preserve existing bytes"
+                )
+            self._durability.sync_file(path)
+        else:
+            self._atomic_write(path, data)
         return self._register(
             path,
             artifact_id,
@@ -231,15 +244,8 @@ class ArtifactStore:
             size_bytes=len(data),
         )
 
-    @staticmethod
-    def _atomic_write(path: Path, data: bytes) -> None:
-        """Write *data* to a temp file and atomically replace *path*."""
-        tmp = path.with_suffix(path.suffix + ".tmp")
-        with open(tmp, "wb") as f:
-            f.write(data)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp, path)
+    def _atomic_write(self, path: Path, data: bytes) -> None:
+        self._durability.atomic_replace(path, data)
 
     def _lookup_existing(
         self,
@@ -251,8 +257,13 @@ class ArtifactStore:
         """Return the existing artifact record if its checksum matches."""
         manifest = self._load_manifest(session_id, episode_id)
         existing = self._find_in_manifest(manifest, artifact_id)
-        if existing and existing.get("sha256") == sha256:
-            return ArtifactRecord(**existing)
+        if existing:
+            path = Path(existing["path"])
+            self._durability.assert_owned(path)
+            if not path.is_file() or self._compute_sha256(path) != existing.get("sha256"):
+                raise ValueError("ARTIFACT_CORRUPT: registered payload missing or checksum differs")
+            if existing.get("sha256") == sha256:
+                return ArtifactRecord(**existing)
         return None
 
     def _register(
@@ -314,10 +325,19 @@ class ArtifactStore:
             try:
                 with open(path, encoding="utf-8") as f:
                     loaded = yaml.safe_load(f)
-                    if isinstance(loaded, dict):
-                        return loaded
-            except Exception as e:
-                logger.warning("Failed to load manifest %s: %s", path, e)
+            except (OSError, UnicodeError, yaml.YAMLError) as error:
+                raise ValueError(
+                    "ARTIFACT_MANIFEST_CORRUPT: existing manifest unreadable"
+                ) from error
+            if (
+                not isinstance(loaded, dict)
+                or not isinstance(loaded.get("artifacts"), dict)
+                or loaded.get("schema_version") != self.SCHEMA_VERSION
+                or loaded.get("session_id") != session_id
+                or loaded.get("episode_id") != episode_id
+            ):
+                raise ValueError("ARTIFACT_MANIFEST_CORRUPT: invalid manifest envelope")
+            return loaded
         return {
             "schema_version": self.SCHEMA_VERSION,
             "session_id": session_id,
@@ -331,8 +351,9 @@ class ArtifactStore:
         path = self.manifest_path(session_id, episode_id)
         manifest["session_id"] = session_id
         manifest["episode_id"] = episode_id
-        with open(path, "w", encoding="utf-8") as f:
-            yaml.safe_dump(manifest, f, sort_keys=False, allow_unicode=True)
+        self._atomic_write(
+            path, yaml.safe_dump(manifest, sort_keys=False, allow_unicode=True).encode("utf-8")
+        )
 
     def _find_in_manifest(
         self, manifest: dict[str, Any], artifact_id: str

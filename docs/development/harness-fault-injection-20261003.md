@@ -383,3 +383,37 @@ by fresh-process retry, intent file/directory failure before mkdir, and corrupt
 intent preservation. Ruff, mypy and diff checks pass. These verify actual
 filesystem operations and injected I/O failures; they do not replace a physical
 power-cut test.
+
+
+## Practice artifacts and persistent plans use the same durable boundary
+
+Further filesystem-only review reproduced six failures: Practice returned a
+registered checksum without reading a damaged artifact, rebuilt empty/broken
+manifests, and saved its manifest using in-place truncation; PersistentPlanStore
+created/consumed records with unsynced bytes and could overwrite an unreadable
+UUID collision or silently skip a damaged consume.
+
+The verified immutable namespace registration is now shared in
+`rosclaw.storage.durable.DurableNamespace`. SimStore retains its exact existing
+intent format and barriers. Practice and Plan owners establish their own
+registered existing-ancestor boundary before creating their roots. Atomic
+mutable writes use unique temporary files, flush/file fsync, replace, and
+directory fsync; paths must remain in their owning namespace. Same-content
+Practice retries validate actual bytes and repeat file/manifest barriers.
+Registered checksum mismatches, unreadable manifests, and unregistered differing
+payloads fail closed and preserve existing bytes. Valid intentional Practice
+updates remain supported. Artifact and manifest are individually durable writes;
+this does not claim a cross-file transactional commit.
+
+Plans preserve corrupt bytes and reject damaged reads/consumption. If directory
+fsync fails after a CONSUMED record replaces its predecessor, the method raises
+without acknowledgement and preserves CONSUMED; a fresh owner never recreates
+PLANNED. A later valid retry may synchronize the existing state. Plan UUIDs
+remain random and existing envelope/raw-record compatibility is retained.
+
+The new six RED cases pass, with five additional failure/restart/boundary
+fixtures. Full Practice plus evidence, SimStore durability and typed-plan cohorts
+pass 250 tests with nine skips and one existing dependency warning. Ruff, mypy
+(four source files), and diff checks pass. No historical receipts were rewritten.
+Legacy `sim/api.py` writes and other stores are outside this change's durability
+claim and still require separate review.
