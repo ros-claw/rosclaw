@@ -607,18 +607,21 @@ class MujocoBackend:
         import mujoco
 
         initial = None
+        initial_controls = [np.zeros(model.nu) for model in models]
         if state_refs is not None:
             fp_size = mujoco.mj_stateSize(models[0], mujoco.mjtState.mjSTATE_FULLPHYSICS)
             vectors = []
-            for ref, state_ref in zip(model_refs, state_refs, strict=True):
+            for index, (ref, state_ref) in enumerate(zip(model_refs, state_refs, strict=True)):
                 meta = self.store.get(state_ref)
                 blob = self.store.get(meta["state_vector_ref"])
                 vector = np.frombuffer(blob, dtype=np.float64)
                 # MH20-A 保真规则：eq_active 是物理状态（约束激活），
                 # native batch 的 FULLPHYSICS 初值无法承载 → 诚实串行
-                # 回退。warmstart/ctrl/sensordata/qacc 是求解脚手架或
-                # 派生量（实测对轨迹零影响），不算物理保真损失。
+                # 回退。ctrl 必须独立保留：hold 继续 caller 的命令，
+                # ctrl_series 初始采样尚未执行首行命令。
+                # warmstart/sensordata/qacc 是求解脚手架或派生量。
                 _, state_data = self.restore_state_v2(ref, state_ref)
+                initial_controls[index] = np.asarray(state_data.ctrl).copy()
                 if np.any(np.asarray(state_data.eq_active, dtype=int) != 0):
                     raise ValueError(
                         "BATCH_STATE_FIDELITY_REQUIRED: state 含 eq_active=1"
@@ -642,13 +645,12 @@ class MujocoBackend:
             raise ValueError(f"SIM_BUDGET_EXCEEDED: steps {resolved_steps} > {merged['max_steps']}")
 
         if plan["kind"] == "ctrl_series":
-            ctrl_rows = np.asarray(plan["rows"], dtype=float)
+            rows = np.asarray(plan["rows"], dtype=float)
+            ctrl_rows = rows[np.minimum(np.arange(resolved_steps), len(rows) - 1)]
+        elif plan["kind"] == "hold":
+            ctrl_rows = np.asarray([np.tile(row, (resolved_steps, 1)) for row in initial_controls])
         else:
-            row = (
-                np.zeros(models[0].nu)
-                if plan["kind"] == "hold"
-                else np.asarray(plan["values"], dtype=float)
-            )
+            row = np.asarray(plan["values"], dtype=float)
             ctrl_rows = np.tile(row, (resolved_steps, 1))
 
         state_trajs, _ = batch_mod.run_batch(models, ctrl_rows=ctrl_rows, initial=initial)
@@ -663,8 +665,9 @@ class MujocoBackend:
         for index, (ref, manifest, model, full_traj) in enumerate(
             zip(model_refs, manifests, models, state_trajs, strict=True)
         ):
+            branch_controls = ctrl_rows[index] if ctrl_rows.ndim == 3 else ctrl_rows
             states = batch_mod.trajectory_to_states(
-                model, full_traj[sample_indices], ctrl_rows[sample_indices], record_stride=1
+                model, full_traj[sample_indices], branch_controls[sample_indices], record_stride=1
             )
             # 与串行记录对齐：前置初始状态行（rollout 轨迹只含步后状态）。
             data0 = initial[index] if initial is not None else batch_mod.initial_vectors([model])[0]
@@ -674,7 +677,14 @@ class MujocoBackend:
                     "t": float(data0[0]),
                     "qpos": [float(v) for v in data0[1 : 1 + model.nq]],
                     "qvel": [float(v) for v in data0[1 + model.nq : 1 + model.nq + model.nv]],
-                    "ctrl": [float(v) for v in ctrl_rows[0]],
+                    "ctrl": [
+                        float(v)
+                        for v in (
+                            initial_controls[index]
+                            if plan["kind"] in ("hold", "ctrl_series")
+                            else branch_controls[0]
+                        )
+                    ],
                 },
             )
             digest = rollout_mod.states_digest(states)
@@ -703,6 +713,7 @@ class MujocoBackend:
                 np.asarray(full_traj[-1], dtype=np.float64),
                 mujoco.mjtState.mjSTATE_FULLPHYSICS,
             )
+            data.ctrl[:] = branch_controls[-1]
             mujoco.mj_forward(model, data)
             final_state_ref = self.capture_and_store_v2(ref, model, data)
             results.append(
