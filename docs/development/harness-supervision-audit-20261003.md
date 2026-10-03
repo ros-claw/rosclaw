@@ -555,3 +555,45 @@ experimental paddle diagnostics, not standard tennis or two LLM strategists.
 The task remains RUNNING/NOT_DONE. The next native protocol targets initial
 stability with unchanged thresholds and retained failures, separate from the
 frozen baseline.
+
+
+Subsequent native INIT-only tests reject two proposed stability fixes. Four
+fixed-five-second baselines retain their original single-frame result (2/4),
+while four extended-wait cases (at most twelve seconds) achieve zero genuinely
+continuous 0.200-second windows. A sample count of 200 spaced one millisecond
+covers 199 milliseconds; acceptance uses elapsed timestamps and at least 201
+samples. An independently verified first-five-second raw prefix is byte exact.
+A separate four-case G1 outer-loop candidate retains full velocity damping and
+smooths the near-anchor position multiplier, but also yields 0/4 sustained
+readiness and higher lateral RMS (~0.0936 versus ~0.0868 m/s). It is rejected
+for duel use. Its complete 1 kHz numeric-array finite checks, all-qpos integration
+and actual command-formula reconstruction pass; valid records do not make a
+failed controller effective.
+
+A further native paired seed-23 measurement captures the actual neural-network
+input and return tensors through the original call, without extra inference or
+argument/result replacement. The initial draft reconstructed an observation
+and mislabeled it actual; supervision caught that before execution. Each final
+condition contains 330 actual calls, independently checked against state-derived
+47D observations and sequential replay of the pinned checkpoint (zero errors).
+The checkpoint is recurrent: forward updates hidden_state and cell_state buffers
+of shape [1,1,64]. The supervisor's first oracle incorrectly reused one network
+across two fresh cases, producing a false mismatch; fresh loading per case and
+ordered replay repairs the oracle. Zero three-axis motion references still
+produce changing 12D actions/targets and alternating recorded foot loads in the
+measured 1.6-second interval. This does not establish phase-only causality or a
+successful stand mode. The six complete session compactions have been reviewed;
+current failures are present in the retained suffix after the sixth prefix
+summary, and queued measurement corrections survive compaction.
+
+Independent compilation of the unchanged C5 XML exposes an actuator limitation:
+all twelve G1 leg motors have ctrl_limited=false and force_limited=false. Their
+[0,0] ranges are disabled metadata, not a zero-torque bound. M20's twelve leg
+motors have control ranges +/-76.4 and four wheels +/-21.6; both experimental
+paddle servos have control and force restrictions. These are compiled-model
+facts, not a hardware certification. The selected return and source-regression
+results remain scoped to the frozen simulation model; they do not prove G1
+hardware effort compliance. A proposed explicit stand-reference mode must first
+establish exact named-joint effort provenance and an executable bound contract;
+unchanged PD gains or an absent compiled limit cannot serve as that contract.
+Frozen source and old evidence are preserved rather than silently adding limits.
