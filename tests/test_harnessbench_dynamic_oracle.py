@@ -311,3 +311,75 @@ def test_full_initial_vector_velocity_time_and_control_not_just_qpos():
         assert not initial_state_equal(
             backend, {"initial_state_ref": "a"}, {"initial_state_ref": key}
         )
+
+
+def test_native_replay_requires_paired_tool_stdout_and_exact_bound_report(tmp_path):
+    from types import SimpleNamespace
+
+    from benchmarks.harnessbench.dynamic_oracle import replay_verified
+
+    receipt = {
+        "model_ref": "model",
+        "model_digest": "digest",
+        "trace_ref": "trace",
+        "initial_state_ref": "state",
+        "states_digest": "sha256:states",
+        "backend": "mujoco",
+        "backend_version": "version",
+    }
+    report = {
+        **receipt,
+        "kind": "strict_replay_report",
+        "verified": True,
+        "mode": "RAW_EXACT",
+        "state_fidelity": "FULL_INTEGRATION",
+        "receipt_ref": "receipt",
+        "replayed_states_digest": "sha256:states",
+    }
+    backend = SimpleNamespace(
+        store=SimpleNamespace(
+            list_children=lambda _: ["report"],
+            get=lambda _: copy.deepcopy(report),
+        )
+    )
+    session = tmp_path / "rh/agent/sessions/session.jsonl"
+    session.parent.mkdir(parents=True)
+    call = {
+        "message": {
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "toolCall",
+                    "name": "bash",
+                    "id": "call",
+                    "arguments": {
+                        "command": "CLI=/venv/bin/rosclaw; $CLI sim --root /task strict-replay receipt"
+                    },
+                }
+            ],
+        }
+    }
+    result = {
+        "message": {
+            "role": "toolResult",
+            "toolCallId": "call",
+            "toolName": "bash",
+            "content": [
+                {
+                    "type": "text",
+                    "text": "exit=0\\n" + json.dumps({**report, "replay_ref": "report"}),
+                }
+            ],
+        }
+    }
+    session.write_text(json.dumps(call) + "\n" + json.dumps(result) + "\n")
+    assert replay_verified(backend, tmp_path, "receipt", receipt)
+    result["message"]["toolCallId"] = "unmatched"
+    session.write_text(json.dumps(call) + "\n" + json.dumps(result) + "\n")
+    assert not replay_verified(backend, tmp_path, "receipt", receipt)
+    result["message"]["toolCallId"] = "call"
+    call["message"]["content"][0]["arguments"]["command"] = "echo rosclaw sim strict-replay receipt"
+    session.write_text(json.dumps(call) + "\n" + json.dumps(result) + "\n")
+    assert not replay_verified(backend, tmp_path, "receipt", receipt)
+    report["mode"] = "SEMANTIC"
+    assert not replay_verified(backend, tmp_path, "receipt", receipt)

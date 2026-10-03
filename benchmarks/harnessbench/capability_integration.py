@@ -322,6 +322,11 @@ def _has_cli(commands: list[str], operation: str) -> bool:
                 if expanded == program:
                     break
                 program = expanded
+            # Simulation CLI's --root precedes its subcommand.
+            if len(words) >= 4 and words[1:3] == ["sim", "--root"]:
+                words = words[:2] + words[4:]
+            if len(words) >= 6 and words[1:5] == ["-m", "rosclaw.entrypoint", "sim", "--root"]:
+                words = words[:4] + words[6:]
             basename = Path(program).name
             if basename == "rosclaw" and words[1 : 1 + len(wanted)] == wanted:
                 return True

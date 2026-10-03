@@ -338,6 +338,81 @@ def initial_state_equal(backend, first_receipt: dict, second_receipt: dict) -> b
         return False
 
 
+def replay_verified(backend, root: Path, receipt_ref: str, receipt: dict) -> bool:
+    """Require a persisted RAW_EXACT report and a paired native tool response.
+
+    Session transcript pairing provides inspectable execution evidence. It is not
+    cryptographic attestation of a hostile agent or host filesystem.
+    """
+    from benchmarks.harnessbench.capability_integration import _has_cli
+
+    reports = {}
+    for ref in backend.store.list_children("audits"):
+        report = backend.store.get(ref)
+        if not isinstance(report, dict) or report.get("kind") != "strict_replay_report":
+            continue
+        if (
+            report.get("verified") is True
+            and report.get("mode") == "RAW_EXACT"
+            and report.get("state_fidelity") == "FULL_INTEGRATION"
+            and report.get("receipt_ref") == receipt_ref
+            and all(
+                report.get(k) == receipt.get(k)
+                for k in (
+                    "model_ref",
+                    "model_digest",
+                    "trace_ref",
+                    "initial_state_ref",
+                    "states_digest",
+                    "backend",
+                    "backend_version",
+                )
+            )
+            and report.get("replayed_states_digest") == receipt.get("states_digest")
+        ):
+            reports[ref] = report
+    if not reports:
+        return False
+    decoder = json.JSONDecoder()
+    for session in (root / "rh/agent/sessions").glob("**/*.jsonl"):
+        calls = {}
+        for line in session.read_text().splitlines():
+            message = json.loads(line).get("message", {})
+            if not isinstance(message, dict):
+                continue
+            for part in message.get("content", []):
+                if not isinstance(part, dict) or part.get("type") != "toolCall":
+                    continue
+                name, args = part.get("name"), part.get("arguments", {})
+                called = (
+                    name == "bash" and _has_cli([args.get("command", "")], "sim strict-replay")
+                ) or (name == "sim_strict_replay" and args.get("receipt_ref") == receipt_ref)
+                if called:
+                    calls[part.get("id")] = name
+            if (
+                message.get("role") != "toolResult"
+                or message.get("isError") is True
+                or message.get("toolCallId") not in calls
+            ):
+                continue
+            for part in message.get("content", []):
+                if not isinstance(part, dict) or part.get("type") != "text":
+                    continue
+                text = part.get("text", "")
+                for index, ch in enumerate(text):
+                    if ch != "{":
+                        continue
+                    try:
+                        body, _ = decoder.raw_decode(text[index:])
+                    except ValueError:
+                        continue
+                    if isinstance(body, dict) and body.get("replay_ref") in reports:
+                        ref = body["replay_ref"]
+                        if body == {**reports[ref], "replay_ref": ref}:
+                            return True
+    return False
+
+
 def _runtime_parts(root: Path, task, asset: str):
     from benchmarks.harnessbench import oracle
 
@@ -442,6 +517,9 @@ def judge_dynamic_repair(root: Path, task) -> dict:
                     reason="candidate_runtime_validity_evidence_missing",
                     warning_evidence="NOT_RECORDED",
                 )
+                return verdict
+            if not replay_verified(backend, root, candidate_ref, candidate_receipt):
+                verdict["reason"] = "candidate_native_raw_replay_evidence_missing"
                 return verdict
             verdict.update(task_success=True, verified_success=True)
             oracle._apply_claim_check(backend, verdict, claimed, model_ref)
@@ -577,6 +655,11 @@ def judge_timestep(root: Path, task) -> dict:
         verdict.update(
             reason="candidate_runtime_validity_evidence_missing", warning_evidence="NOT_RECORDED"
         )
+        return verdict
+    if any(
+        not replay_verified(backend, root, ref, receipt_by_ref[ref]) for ref in (best[2], best[3])
+    ):
+        verdict["reason"] = "candidate_native_raw_replay_evidence_missing"
         return verdict
     verdict.update(
         task_success=True, verified_success=True, reason="independent_timestep_convergence_verified"
