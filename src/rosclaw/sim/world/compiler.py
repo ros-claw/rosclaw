@@ -85,11 +85,15 @@ def compile_world(backend, worldspec: dict[str, Any], *, name: str = "world") ->
         from rosclaw.sim.backends.mujoco.backend import _spec_from_xml_assets
 
         robot_spec = _spec_from_xml_assets(robot_manifest["mjcf_xml"], robot_assets)
+        from rosclaw.sim.world.actors import compiled_model_signature
+
+        source_signature = compiled_model_signature(robot_spec.compile())
         scene_sources.append(
             {
                 "body_ref": body_ref,
                 "source_model_ref": robot_ref.model_ref,
                 "source_model_digest": robot_ref.model_digest,
+                "source_initial_compiled_signature": source_signature,
                 "prefix": f"{body_ref['id']}_",
                 "offsets": {
                     "bodies": len(spec.bodies),
@@ -121,11 +125,20 @@ def compile_world(backend, worldspec: dict[str, Any], *, name: str = "world") ->
     # 无假 affordance（§24）：grasp 要求声明+证明都成立的夹爪。
     check_body_capability(normalized["interaction_points"], capabilities=capabilities)
 
+    from rosclaw.sim.backends.mujoco.backend import _spec_from_xml_assets
+    from rosclaw.sim.world.actors import compiled_model_signature
+
+    scene_xml = spec.to_xml()
+    scene_signature = compiled_model_signature(_spec_from_xml_assets(scene_xml, assets).compile())
     result = backend.load_model_xml(
-        spec.to_xml(),
+        scene_xml,
         source={"kind": "worldspec", "ref": name},
         assets=assets,
-        extra_manifest={"worldspec": normalized, "scene_sources": scene_sources},
+        extra_manifest={
+            "worldspec": normalized,
+            "scene_sources": scene_sources,
+            "initial_compiled_signature": scene_signature,
+        },
     )
     from rosclaw.sim.world.actors import persist_scene_actor_manifest
 

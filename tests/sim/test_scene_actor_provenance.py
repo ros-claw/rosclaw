@@ -7,7 +7,12 @@ import mujoco
 import pytest
 
 from rosclaw.sim.backends.mujoco.backend import MujocoBackend
-from rosclaw.sim.world.actors import build_scene_actor_manifest, verify_scene_actor_manifest
+from rosclaw.sim.world.actors import (
+    _compile,
+    build_scene_actor_manifest,
+    compiled_model_signature,
+    verify_scene_actor_manifest,
+)
 from rosclaw.sim.world.compiler import compile_world
 from tests.sim.test_worldspec import _t1_world
 
@@ -122,6 +127,8 @@ def test_actual_recompiled_scene_physics_or_motor_owner_change_rejected(scene, m
     else:
         xml.find('.//actuator/*[@name="G1_drive"]').set("joint", "M20_axis")
     altered["mjcf_xml"] = ET.tostring(xml, encoding="unicode")
+    # Even a forged fresh initial signature cannot legitimize changed source physics/ownership.
+    altered["initial_compiled_signature"] = compiled_model_signature(_compile(backend, altered))
     ref = backend.store.put("models", altered)
     with pytest.raises(ValueError, match="SCENE_ACTOR_(PHYSICS_MISMATCH|ACTUATOR_OWNER_INVALID)"):
         build_scene_actor_manifest(backend, ref)
@@ -211,3 +218,101 @@ def test_loading_scene_and_registering_provenance_preserves_actual_mission_and_t
             await service.close()
 
     asyncio.run(check())
+
+
+@pytest.mark.parametrize("transmission", ["site", "tendon"])
+def test_previously_valid_nonjoint_worldspec_compilation_retains_explicit_unqualified_binding(
+    tmp_path, transmission
+):
+    if transmission == "site":
+        xml = SOURCE.replace("</body>", '<site name="force" pos="0 0 0"/></body>').replace(
+            '<motor name="drive" joint="axis" ctrllimited="true"\n ctrlrange="-1 1"/>',
+            '<general name="drive" site="force" gear="0 0 1 0 0 0"/>',
+        )
+    else:
+        xml = SOURCE.replace(
+            "<actuator>",
+            '<tendon><fixed name="coupling"><joint joint="axis" coef="1"/></fixed></tendon><actuator>',
+        ).replace('joint="axis" ctrllimited', 'tendon="coupling" ctrllimited')
+    # Actual MuJoCo accepts the unchanged XML before provenance is introduced.
+    source_model = mujoco.MjModel.from_xml_string(xml)
+    assert source_model.nu == 1
+    (tmp_path / "nonjoint.xml").write_text(xml)
+    backend = MujocoBackend(tmp_path)
+    world = compile_world(
+        backend,
+        _t1_world(body_refs=[{"id": "local", "kind": "task", "ref": "nonjoint.xml"}]),
+        name="existing_nonjoint",
+    )
+    proof = verify_scene_actor_manifest(backend, world["actor_manifest_ref"])
+    actor = proof["actors"][0]
+    assert actor["physical_authority"] == "NONE"
+    assert actor["actuator_binding_qualification"] == "NOT_QUALIFIED"
+    assert actor["source_binding_verified"] is False
+    assert actor["actuators"][0]["ownership_status"] == "NOT_QUALIFIED"
+    assert "scene_joint_index" not in actor["actuators"][0]
+    assert backend.inspect_model(world["model_ref"]).nu == 1
+
+
+MESH = b"""v 0 0 0
+v 1 0 0
+v 0 1 0
+v 0 0 1
+f 1 3 2
+f 1 2 4
+f 1 4 3
+f 2 3 4
+"""
+
+
+def _simultaneously_mutated_mesh_models(tmp_path):
+    xml = SOURCE.replace(
+        "<worldbody>", '<asset><mesh name="shape" file="shape.obj"/></asset><worldbody>'
+    ).replace('type="sphere" size="0.1"', 'type="mesh" mesh="shape"')
+    (tmp_path / "source.xml").write_text(xml)
+    (tmp_path / "shape.obj").write_bytes(MESH)
+    backend = MujocoBackend(tmp_path)
+    world = compile_world(
+        backend,
+        _t1_world(body_refs=[{"id": "local", "kind": "task", "ref": "source.xml"}]),
+        name="mesh_bound_source",
+    )
+    altered = copy.deepcopy(backend.store.get(world["model_ref"]))
+    seed = altered["scene_sources"][0]
+    source = copy.deepcopy(backend.store.get(seed["source_model_ref"]))
+    modified = backend.store.put("models", MESH.replace(b"v 1 0 0", b"v 1.2 0 0"))
+    source["assets"] = dict.fromkeys(source["assets"], modified)
+    source_ref = backend.store.put("models", source)
+    seed["source_model_ref"] = source_ref
+    seed["source_model_digest"] = backend._model_digest(source)
+    altered["assets"] = dict.fromkeys(altered["assets"], modified)
+    return backend, world, altered
+
+
+@pytest.mark.parametrize("signature_guard", ["scene", "source"])
+def test_both_current_source_and_scene_mesh_changes_cannot_replace_initial_compiled_binding(
+    tmp_path, signature_guard
+):
+    backend, world, altered = _simultaneously_mutated_mesh_models(tmp_path)
+    original = backend.store.get(world["actor_manifest_ref"])
+    assert original["initial_compiled_signature"]["format"] == "mjb"
+    if signature_guard == "source":
+        # Independently exercise source's original compiled signature after a forged scene pin.
+        altered["initial_compiled_signature"] = compiled_model_signature(_compile(backend, altered))
+    ref = backend.store.put("models", altered)
+    expected = "INITIAL_COMPILED" if signature_guard == "scene" else "SOURCE_COMPILED"
+    with pytest.raises(ValueError, match="SCENE_ACTOR_" + expected + "_SIGNATURE_MISMATCH"):
+        build_scene_actor_manifest(backend, ref)
+    # Existing registered proof retains its original refs and immutable captured asset blobs.
+    assert verify_scene_actor_manifest(backend, world["actor_manifest_ref"]) == original
+
+
+def test_corrupted_captured_asset_rejected_by_content_addressing_before_signature_comparison(
+    tmp_path,
+):
+    backend, world, _ = _simultaneously_mutated_mesh_models(tmp_path)
+    original = backend.store.get(world["model_ref"])
+    original_asset = next(iter(original["assets"].values()))
+    backend.store.resolve(original_asset).write_bytes(MESH.replace(b"v 1 0 0", b"v 1.2 0 0"))
+    with pytest.raises(ValueError, match="STORE_DIGEST_MISMATCH"):
+        verify_scene_actor_manifest(backend, world["actor_manifest_ref"])

@@ -15,6 +15,18 @@ SCENE_ACTOR_MEDIA_TYPE = "application/vnd.rosclaw.sim.scene-actors+json"
 SCHEMA_VERSION = "rosclaw.sim.scene_actors.v1"
 
 
+def compiled_model_signature(model):
+    """Digest complete MuJoCo MJB, including compiled mesh/texture/heightfield arrays."""
+    buffer = np.zeros(mujoco.mj_sizeModel(model), dtype=np.uint8)
+    mujoco.mj_saveModel(model, buffer=buffer)
+    return {
+        "format": "mjb",
+        "backend_version": str(mujoco.__version__),
+        "sha256": hashlib.sha256(buffer.tobytes()).hexdigest(),
+        "size_bytes": len(buffer),
+    }
+
+
 def _compile(backend, manifest):
     from rosclaw.sim.backends.mujoco.backend import _spec_from_xml_assets
 
@@ -84,6 +96,9 @@ def build_scene_actor_manifest(backend, model_ref: str) -> dict[str, Any]:
     ):
         raise ValueError("SCENE_ACTOR_SOURCES_MISSING")
     scene = _compile(backend, manifest)
+    scene_signature = compiled_model_signature(scene)
+    if manifest.get("initial_compiled_signature") != scene_signature:
+        raise ValueError("SCENE_ACTOR_INITIAL_COMPILED_SIGNATURE_MISMATCH")
     actors = []
     claimed_body_ids, claimed_joint_ids, claimed_motor_ids = set(), set(), set()
     for seed, body_ref in zip(seeds, world["body_refs"], strict=True):
@@ -108,6 +123,9 @@ def build_scene_actor_manifest(backend, model_ref: str) -> dict[str, Any]:
             ):
                 raise ValueError("SCENE_ACTOR_CATALOG_SOURCE_MISMATCH")
         source = _compile(backend, source_manifest)
+        source_signature = compiled_model_signature(source)
+        if seed.get("source_initial_compiled_signature") != source_signature:
+            raise ValueError("SCENE_ACTOR_SOURCE_COMPILED_SIGNATURE_MISMATCH")
         prefix, offsets = seed["prefix"], seed["offsets"]
         bodies = _index_map(
             source,
@@ -151,6 +169,7 @@ def build_scene_actor_manifest(backend, model_ref: str) -> dict[str, Any]:
                 != body_map[int(source.geom_bodyid[row["source_index"]])]
             ):
                 raise ValueError("SCENE_ACTOR_GEOM_OWNER_INVALID")
+        unqualified_motors = []
         for row in motors:
             original_id, attached_id = row["source_index"], row["scene_index"]
             transmission = int(source.actuator_trntype[original_id])
@@ -158,7 +177,15 @@ def build_scene_actor_manifest(backend, model_ref: str) -> dict[str, Any]:
                 int(mujoco.mjtTrn.mjTRN_JOINT),
                 int(mujoco.mjtTrn.mjTRN_JOINTINPARENT),
             }:
-                raise ValueError("SCENE_ACTOR_TRANSMISSION_UNSUPPORTED")
+                row.update(
+                    transmission_type=transmission,
+                    source_transmission_ids=source.actuator_trnid[original_id].tolist(),
+                    scene_transmission_ids=scene.actuator_trnid[attached_id].tolist(),
+                    ownership_status="NOT_QUALIFIED",
+                    qualification_reason="UNSUPPORTED_TRANSMISSION",
+                )
+                unqualified_motors.append(row["scene_index"])
+                continue
             original_joint = int(source.actuator_trnid[original_id, 0])
             attached_joint = int(scene.actuator_trnid[attached_id, 0])
             if (
@@ -167,6 +194,7 @@ def build_scene_actor_manifest(backend, model_ref: str) -> dict[str, Any]:
             ):
                 raise ValueError("SCENE_ACTOR_ACTUATOR_OWNER_INVALID")
             row.update(
+                ownership_status="VERIFIED_SAME_ACTOR",
                 source_joint_index=original_joint,
                 scene_joint_index=attached_joint,
                 transmission_type=transmission,
@@ -268,6 +296,7 @@ def build_scene_actor_manifest(backend, model_ref: str) -> dict[str, Any]:
                 "source": source_manifest["source"],
                 "source_model_ref": seed["source_model_ref"],
                 "source_model_digest": seed["source_model_digest"],
+                "source_initial_compiled_signature": source_signature,
                 "source_dimensions": {
                     "nq": source.nq,
                     "nv": source.nv,
@@ -284,7 +313,11 @@ def build_scene_actor_manifest(backend, model_ref: str) -> dict[str, Any]:
                 "geoms": geoms,
                 "actuators": motors,
                 "dofs": dofs,
-                "source_binding_verified": True,
+                "source_binding_verified": not unqualified_motors,
+                "actuator_binding_qualification": "NOT_QUALIFIED"
+                if unqualified_motors
+                else "VERIFIED",
+                "unqualified_actuator_indices": unqualified_motors,
                 "source_binding_semantics": "source-binding-with-declared-rounding",
                 "numeric_tolerances": {
                     "body_inertia": {"rtol": 1e-6, "atol": 1e-12},
@@ -301,6 +334,7 @@ def build_scene_actor_manifest(backend, model_ref: str) -> dict[str, Any]:
         "binding_scope": "simulation_scene",
         "model_ref": model_ref,
         "model_digest": backend._model_digest(manifest),
+        "initial_compiled_signature": scene_signature,
         "backend": "mujoco",
         "backend_version": str(mujoco.__version__),
         "actors": actors,

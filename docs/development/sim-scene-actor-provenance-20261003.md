@@ -32,8 +32,24 @@ scene inertia/mass/axis/friction/control-cap changes and cross-actor motor owner
 An actual catalog UR5 attachment confirms the declared rounding and compatibility.
 These fixtures are not Unitree models or tennis controllers.
 
-This minimal version handles WorldSpec attachments with joint or joint-in-parent
-actuator transmissions. Unsupported transmission types fail closed. Imported
+Joint and joint-in-parent actuator ownership are qualified by actual indices.
+Other transmission types retain previously valid WorldSpec compilation, but expose
+ownership NOT_QUALIFIED/UNSUPPORTED_TRANSMISSION, no invented joint owner, and actor
+source_binding_verified=false. Partial provenance never grants physical authority.
+The initial source and serialized scene MjModels are separately pinned by complete
+MJB SHA256, size and backend version. Recompilation must match both captured
+signatures, including compiled mesh/texture/heightfield arrays, before any mapping
+is returned. Metadata cannot quietly bind a changed current source and changed
+current scene to the original compiled model. Existing registered proof continues
+to reference immutable original model/asset objects; raw blob corruption is also
+rejected by SimStore content addressing.
+
+Compatibility tests first reproduced two real SITE/TENDON regressions: native XML
+compiled successfully but initial provenance threw UNSUPPORTED_TRANSMISSION.
+They now compile and expose honest partial qualification. A read-only frozen
+794443b4 verifier accepted simultaneously changed source and scene mesh assets
+(new content refs/digests, same declared actor); the new initial source/scene
+signature tests reject this. All checks run with zero physics steps. Imported
 external composite worlds do not acquire actor bindings merely from names or
 metadata, and are not silently converted into WorldSpecs. Native ROSClaw/Kimi must
 provide true source relationships for the M22 scene in a subsequent explicit
