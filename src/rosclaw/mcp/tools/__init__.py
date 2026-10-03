@@ -293,6 +293,7 @@ async def _sim_rollout(
     task_predicates: list[dict[str, Any]] | None = None,
     keyframe: str | None = None,
     keyframe_ref: str | None = None,
+    max_record_points: int | None = None,
 ) -> dict[str, Any]:
     """Run a bounded physics rollout; returns a SimulationReceipt (SIMULATED only).
 
@@ -309,7 +310,13 @@ async def _sim_rollout(
         task_predicates=task_predicates,
         keyframe=keyframe,
         keyframe_ref=keyframe_ref,
+        **({"max_record_points": max_record_points} if max_record_points is not None else {}),
     )
+
+
+async def _sim_strict_replay(receipt_ref: str) -> dict[str, Any]:
+    """Replay actual recorded physics; reports RAW_EXACT vs SEMANTIC explicitly."""
+    return await _client().sim_strict_replay(receipt_ref)
 
 
 async def _sim_audit(
@@ -826,6 +833,7 @@ sim_patch_model = _tool_wrapper("sim_patch_model", _sim_patch_model)
 sim_snapshot = _tool_wrapper("sim_snapshot", _sim_snapshot)
 sim_observe = _tool_wrapper("sim_observe", _sim_observe)
 sim_rollout = _tool_wrapper("sim_rollout", _sim_rollout)
+sim_strict_replay = _tool_wrapper("sim_strict_replay", _sim_strict_replay)
 sim_audit = _tool_wrapper("sim_audit", _sim_audit)
 sim_compare = _tool_wrapper("sim_compare", _sim_compare)
 sim_render = _tool_wrapper("sim_render", _sim_render)
@@ -903,6 +911,7 @@ P0_TOOLS: list[ToolFunc] = [
     sim_snapshot,
     sim_observe,
     sim_rollout,
+    sim_strict_replay,
     sim_audit,
     sim_compare,
     sim_render,

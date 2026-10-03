@@ -708,6 +708,7 @@ class MujocoBackend:
                 "duration_s": float(full_traj[-1][0]) - float(data0[0]),
                 "states_digest": digest,
                 "states": states,
+                "recording": {"max_record_points": merged["max_record_points"]},
             }
             if len(canonical_json(record).encode("utf-8")) > merged["max_trace_bytes"]:
                 raise ValueError(f"SIM_BUDGET_EXCEEDED: trace bytes > {merged['max_trace_bytes']}")
@@ -888,6 +889,7 @@ class MujocoBackend:
             "duration_s": float(data.time) - initial_time,
             "states_digest": digest,
             "states": states,
+            "recording": {"max_record_points": merged["max_record_points"]},
         }
         if len(canonical_json(record).encode("utf-8")) > merged["max_trace_bytes"]:
             raise ValueError(f"SIM_BUDGET_EXCEEDED: trace bytes > {merged['max_trace_bytes']}")
@@ -1335,6 +1337,7 @@ class MujocoBackend:
             "duration_s": float(data.time) - initial_time,
             "states_digest": digest,
             "states": states,
+            "recording": {"max_record_points": merged["max_record_points"]},
         }
         if len(canonical_json(record).encode("utf-8")) > merged["max_trace_bytes"]:
             raise ValueError(f"SIM_BUDGET_EXCEEDED: trace bytes > {merged['max_trace_bytes']}")
@@ -1458,6 +1461,17 @@ class MujocoBackend:
         trace_record = self.store.get(payload["trace_ref"])
         if not isinstance(trace_record, dict):
             raise ValueError(f"REF_NOT_FOUND: {payload['trace_ref']!r} is not a simulation trace")
+        recording = trace_record.get("recording", {})
+        if not isinstance(recording, dict):
+            raise ValueError("REPLAY_RECORDING_INVALID: recording must be an object")
+        points = recording.get(
+            "max_record_points", rollout_mod.DEFAULT_BUDGETS["max_record_points"]
+        )
+        if type(points) is not int or not 1 <= points <= 100000:
+            raise ValueError(
+                "REPLAY_RECORDING_INVALID: max_record_points must be integer 1..100000"
+            )
+        replay_budgets = {"max_record_points": points}
         controller = trace_record["controller"]
         fidelity = self.state_fidelity(payload["initial_state_ref"])
         try:
@@ -1477,18 +1491,25 @@ class MujocoBackend:
         ]
         collector = _make_collector(model, data, plan, tracked)
         states, _ = rollout_mod.run_rollout(
-            model, data, plan=plan, steps=int(payload["steps"]), visit=collector.visit
+            model,
+            data,
+            plan=plan,
+            steps=int(payload["steps"]),
+            budgets=replay_budgets,
+            visit=collector.visit,
         )
         if rollout_mod.states_digest(states) == payload["states_digest"]:
             # 0916 §二.5：只有 FULL_INTEGRATION 状态允许 RAW_EXACT；
             # LEGACY_PARTIAL 最多 SEMANTIC——旧证据不升级为强证据。
             mode = "RAW_EXACT" if fidelity == state_v2.FIDELITY_FULL_INTEGRATION else "SEMANTIC"
-            return {
-                "verified": True,
-                "mode": mode,
-                "state_fidelity": fidelity,
-                "receipt_ref": receipt_ref,
-            }
+            return self._save_replay_report(
+                receipt_ref,
+                payload,
+                states,
+                mode=mode,
+                fidelity=fidelity,
+                recording=replay_budgets,
+            )
 
         metrics = collector.finalize(
             timestep=float(model.opt.timestep), duration_s=float(data.time) - initial_time
@@ -1499,13 +1520,47 @@ class MujocoBackend:
         if _metrics_close(metrics, payload["metrics"]) and verification_status == payload.get(
             "verification_status", "NOT_EVALUATED"
         ):
-            return {
-                "verified": True,
-                "mode": "SEMANTIC",
-                "state_fidelity": fidelity,
-                "receipt_ref": receipt_ref,
-            }
+            return self._save_replay_report(
+                receipt_ref,
+                payload,
+                states,
+                mode="SEMANTIC",
+                fidelity=fidelity,
+                recording=replay_budgets,
+            )
         raise ValueError("REPLAY_PHYSICS_DIVERGED: raw states and semantic metrics both mismatch")
+
+    def _save_replay_report(
+        self,
+        receipt_ref: str,
+        payload: dict[str, Any],
+        states: list[dict[str, Any]],
+        *,
+        mode: str,
+        fidelity: str,
+        recording: dict[str, Any],
+    ) -> dict[str, Any]:
+        report = {
+            "kind": "strict_replay_report",
+            "schema_version": "rosclaw.sim.strict_replay.v1",
+            "verified": True,
+            "mode": mode,
+            "state_fidelity": fidelity,
+            "receipt_ref": receipt_ref,
+            "model_ref": payload["model_ref"],
+            "model_digest": payload["model_digest"],
+            "trace_ref": payload["trace_ref"],
+            "initial_state_ref": payload["initial_state_ref"],
+            "states_digest": payload["states_digest"],
+            "replayed_states_digest": rollout_mod.states_digest(states),
+            "backend": payload["backend"],
+            "backend_version": payload["backend_version"],
+            "recording": recording,
+            "trust_level": "SIMULATED",
+            "usable_for_real_execution": False,
+        }
+        ref = self.store.put("audits", report)
+        return {**report, "replay_ref": ref}
 
     def _replay_verification_status(
         self, *, model_ref: str, model, data, payload: dict[str, Any]

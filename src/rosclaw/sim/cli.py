@@ -60,6 +60,7 @@ _SUBCOMMANDS = (
     "patch",
     "snapshot",
     "rollout",
+    "strict-replay",
     "observe",
     "audit",
     "branch-experiment",
@@ -159,6 +160,11 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Saved trace point budget (1..100000); other runtime budgets unchanged",
     )
+
+    replay = sub.add_parser(
+        "strict-replay", help="Replay an immutable receipt; report exact fidelity and mode"
+    )
+    replay.add_argument("receipt_ref")
 
     observe = sub.add_parser(
         "observe",
@@ -274,6 +280,8 @@ def _execute(args: argparse.Namespace) -> dict[str, Any]:
                 else {}
             ),
         )
+    if cmd == "strict-replay":
+        return runtime.strict_replay(args.receipt_ref)
     if cmd == "observe":
         return runtime.observe(args.model_ref, args.state_ref, _csv(args.channels) or [])
     if cmd == "audit":
