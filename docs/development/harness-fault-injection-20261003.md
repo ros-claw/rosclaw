@@ -95,3 +95,43 @@ check body mass, declarations, lineage, unrelated-patch behavior and mass/densit
 precedence. Five were red before the fix; all six now pass. The relevant patch,
 geometry and determinism cohort has 42 passing tests; Ruff and two-module mypy
 checks pass. No robot controller or physical rollout was authored here.
+
+## Actual execution warnings and reset validity
+
+Frozen real Kimi R04 evidence exposed a false valid rollout: the requested
+500 steps at 0.002 s ended at 0.996 s, included two consecutive sampled
+timestamps at 0.004 s, reached recorded velocity 6,577,310.683550647 and
+silently changed the target control from 1 to 0. Nevertheless its receipt
+claimed both `simulation_valid` and `physical_audit_pass`. Those historical
+records remain unchanged and invalid; their warning counters were not recorded.
+
+Per-data guards now reject MuJoCo warnings, actual per-step time discontinuity
+and non-finite state, acceleration, control, force and sensor arrays. Warnings
+are inspected on each `MjData`; no global warning callback is installed, so
+independent parallel sessions do not share a warning hook. The shared guard
+applies to serial rollouts, interaction stepping, audit sweeps, servo holding,
+solver/timestep probes and the public Python simulation API. Native batch
+output is checked in full before downsampling, including warnings and time
+progression. Unstable/reset execution raises `SIM_DIVERGED` and cannot create
+a valid trace or success receipt. Invalid sensitivity probes remain explicit
+diagnostic warnings, with `simulation_invalid`, rather than a fabricated
+deviation computed from reset states.
+
+Trace audits also inspect executed motion: A15 rejects non-increasing sampled
+time, and A16 applies the configured velocity limit to supplied trace samples
+as well as the fresh-state hold probe. A safe zero-command hold therefore
+cannot hide an explosive executed tracking trace. Numerical validity and model
+audit remain distinct from task completion or robot/hardware safety.
+
+The original reset/finite-dynamics cohort had seven failing fixtures and one
+stable control; native batch and historical trace audit supplied two additional
+red cases. All 13 final targeted cases pass, covering actual solver reset,
+serial receipt rejection, native batch, interaction, audit sweep, public API,
+injected warning/time/acceleration/control/force faults, and stable nonzero-time
+initialization. An 80-test relevant cohort passed, followed by 460 broader
+simulation/API checks passing with one skip and one deselection. The final
+source, including the public-API regression and all finite force/sensor fields,
+then passed 461 checks with one skip and one deselection (163.42 s). Final
+shared-guard regression results are retained in the local audit directory. Ruff and
+eight-source-module mypy checks pass. A read-only independent frozen baseline
+review is saved as `framework_fault_injection/r04_frozen_baseline_validity_independent.json`.

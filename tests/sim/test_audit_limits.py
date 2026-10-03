@@ -291,7 +291,10 @@ def test_a24_timestep_fragility_warn(fixture_backend) -> None:
     result = backend.audit(ref.model_ref, checks=["A24_timestep_sensitivity"])
     check = result.checks["A24_timestep_sensitivity"]
     assert check["status"] == "WARN"
-    assert check["timestep_deviation"] > 1e-3
+    # A warning/reset invalidates the numerical comparison itself; do not
+    # fabricate a deviation from the solver's finite reset state.
+    assert check["warnings"][0]["reason"] == "NUMERICAL_FRAGILITY"
+    assert check["warnings"][0]["simulation_invalid"].startswith("SIM_DIVERGED:")
 
 
 def test_a24_timestep_green(fixture_backend) -> None:

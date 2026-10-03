@@ -408,8 +408,14 @@ def _final_qpos_for_config(
     data = mujoco.MjData(model)
     mujoco.mj_forward(model, data)
     steps = max(1, round(0.5 / float(model.opt.timestep)))
-    for _ in range(steps):
+    from rosclaw.sim.backends.mujoco.step_validity import validate_step_data
+
+    for step in range(steps):
+        expected_time = float(data.time) + float(model.opt.timestep)
         mujoco.mj_step(model, data)
+        validate_step_data(
+            data, step=step + 1, expected_time=expected_time, timestep=float(model.opt.timestep)
+        )
     return [float(v) for v in data.qpos]
 
 
@@ -420,17 +426,26 @@ def a23_solver_sensitivity(ctx: AuditContext) -> dict[str, Any]:
 
     if ctx.spec is None:
         return {"status": "NOT_EVALUATED", "violations": [], "detail": {"reason": "no_spec"}}
-    base = _final_qpos_for_config(ctx)
-    deviations = {}
-    for solver in _SOLVER_PROBE:
-        base_solver = (
-            str(mujoco.mjtSolver(ctx.model.opt.solver).name).removeprefix("mjSOL_").lower()
-        )
-        if solver == base_solver:
-            continue
-        other = _final_qpos_for_config(ctx, solver=solver)
-        denom = max(1e-9, max(abs(v) for v in base))
-        deviations[solver] = max(abs(a - b) for a, b in zip(base, other, strict=True)) / denom
+    try:
+        base = _final_qpos_for_config(ctx)
+        deviations = {}
+        for solver in _SOLVER_PROBE:
+            base_solver = (
+                str(mujoco.mjtSolver(ctx.model.opt.solver).name).removeprefix("mjSOL_").lower()
+            )
+            if solver == base_solver:
+                continue
+            other = _final_qpos_for_config(ctx, solver=solver)
+            denom = max(1e-9, max(abs(v) for v in base))
+            deviations[solver] = max(abs(a - b) for a, b in zip(base, other, strict=True)) / denom
+    except ValueError as error:
+        if not str(error).startswith("SIM_DIVERGED:"):
+            raise
+        return {
+            "status": "WARN",
+            "violations": [],
+            "warnings": [{"reason": "ROBUSTNESS_WARNING", "simulation_invalid": str(error)}],
+        }
     import math
 
     sensitive = {
@@ -452,8 +467,17 @@ def a24_timestep_sensitivity(ctx: AuditContext) -> dict[str, Any]:
     """A24：dt vs dt/2 结果实质不同 → NUMERICAL_FRAGILITY（WARN）。
     discrete integrator 只能作为 diagnostic candidate，不能偷偷换
     integrator 宣布原方案成功。"""
-    base = _final_qpos_for_config(ctx)
-    finer = _final_qpos_for_config(ctx, timestep=float(ctx.model.opt.timestep) / 2)
+    try:
+        base = _final_qpos_for_config(ctx)
+        finer = _final_qpos_for_config(ctx, timestep=float(ctx.model.opt.timestep) / 2)
+    except ValueError as error:
+        if not str(error).startswith("SIM_DIVERGED:"):
+            raise
+        return {
+            "status": "WARN",
+            "violations": [],
+            "warnings": [{"reason": "NUMERICAL_FRAGILITY", "simulation_invalid": str(error)}],
+        }
     denom = max(1e-9, max(abs(v) for v in base))
     import math
 

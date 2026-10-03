@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from rosclaw.sim.audit.policy import STRICT_POLICY, AuditPolicy
+from rosclaw.sim.backends.mujoco.step_validity import validate_step_data
 
 
 @dataclass
@@ -43,7 +44,6 @@ class AuditContext:
         import math
 
         import mujoco
-        import numpy as np
 
         data = self.fresh_data()
         if ctrl and ctrl.get("kind") == "ctrl":
@@ -55,10 +55,19 @@ class AuditContext:
             if ctrl and ctrl.get("kind") == "ctrl_series" and step < len(ctrl["rows"]):
                 for i, v in enumerate(ctrl["rows"][step]):
                     data.ctrl[i] = v
+            expected_time = float(data.time) + float(self.model.opt.timestep)
             mujoco.mj_step(self.model, data)
-            if not (np.isfinite(data.qpos).all() and np.isfinite(data.qvel).all()):
+            try:
+                validate_step_data(
+                    data,
+                    step=step + 1,
+                    expected_time=expected_time,
+                    timestep=float(self.model.opt.timestep),
+                )
+            except ValueError as error:
                 out["diverged"] = True
                 out["diverged_step"] = step + 1
+                out["diverged_reason"] = str(error)
                 break
             visit(data, step)
         out["final"] = data

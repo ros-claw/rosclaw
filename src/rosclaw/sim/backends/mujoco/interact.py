@@ -20,6 +20,8 @@ from typing import Any
 
 import numpy as np
 
+from rosclaw.sim.backends.mujoco.step_validity import validate_step_data
+
 #: 官方 executor 注册表（WorldSpec 不允许 arbitrary Python）。
 EXECUTORS = (
     "joint_target",
@@ -53,15 +55,20 @@ def _step(model, data, seconds: float, *, visit=None) -> None:  # noqa: ANN001
     import mujoco
 
     steps = max(1, math.ceil(seconds / float(model.opt.timestep)))
+    validate_step_data(data, step=0)
     for step in range(steps):
+        expected_time = float(data.time) + float(model.opt.timestep)
         mujoco.mj_step(model, data)
-        if not (np.isfinite(data.qpos).all() and np.isfinite(data.qvel).all()):
-            raise ValueError(f"SIM_DIVERGED: non-finite state during interaction at step {step + 1}")
+        validate_step_data(
+            data, step=step + 1, expected_time=expected_time, timestep=float(model.opt.timestep)
+        )
         if visit is not None:
             visit(data, step)
 
 
-def exec_joint_target(backend, model, data, interaction: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:  # noqa: ANN001
+def exec_joint_target(
+    backend, model, data, interaction: dict[str, Any], payload: dict[str, Any]
+) -> dict[str, Any]:  # noqa: ANN001
     """关节目标位：经 ControlMapper 写 (actuator, pos) 槽位
     （MH20-B——actuator 序号 ≠ ctrl 槽位，PID 多槽会错位）。"""
     import mujoco
@@ -75,7 +82,11 @@ def exec_joint_target(backend, model, data, interaction: dict[str, Any], payload
     spec = backend._spec_from_manifest(backend._manifest(interaction["_model_ref"]))
     channel_map = control_mod.channel_map_for(model, spec)
     target = payload.get("target")
-    if not isinstance(target, (int, float)) or isinstance(target, bool) or not math.isfinite(target):
+    if (
+        not isinstance(target, (int, float))
+        or isinstance(target, bool)
+        or not math.isfinite(target)
+    ):
         raise ValueError("INTERACTION_PAYLOAD_INVALID: target must be a finite number")
     duration = float(payload.get("duration_s", 0.5))
     adr = int(model.jnt_qposadr[joint_id])
@@ -93,7 +104,9 @@ def exec_joint_target(backend, model, data, interaction: dict[str, Any], payload
     }
 
 
-def exec_actuator_setpoint(backend, model, data, interaction: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:  # noqa: ANN001
+def exec_actuator_setpoint(
+    backend, model, data, interaction: dict[str, Any], payload: dict[str, Any]
+) -> dict[str, Any]:  # noqa: ANN001
     """执行器 setpoint（pos/vel/ff/ctrl，经 ControlMapper 按
     control schema 寻址）。"""
     from rosclaw.sim.backends.mujoco import control as control_mod
@@ -102,7 +115,9 @@ def exec_actuator_setpoint(backend, model, data, interaction: dict[str, Any], pa
     _joint_for_actuator(model, actuator_name)
     spec = backend._spec_from_manifest(backend._manifest(interaction["_model_ref"]))
     channel_map = {
-        key: slot for key, slot in control_mod.channel_map_for(model, spec).items() if key[0] == actuator_name
+        key: slot
+        for key, slot in control_mod.channel_map_for(model, spec).items()
+        if key[0] == actuator_name
     }
     if not channel_map:
         raise ValueError(f"INTERACTION_TARGET_NOT_FOUND: no control channel for {actuator_name!r}")
@@ -116,7 +131,9 @@ def exec_actuator_setpoint(backend, model, data, interaction: dict[str, Any], pa
     return {"applied": applied}
 
 
-def exec_gripper_motion(backend, model, data, interaction: dict[str, Any], payload: dict[str, Any], *, close: bool) -> dict[str, Any]:  # noqa: ANN001
+def exec_gripper_motion(
+    backend, model, data, interaction: dict[str, Any], payload: dict[str, Any], *, close: bool
+) -> dict[str, Any]:  # noqa: ANN001
     """gripper_close / gripper_open：经 ControlMapper 驱动夹爪执行器
     并记录接触证据（MH20-B——actuator 序号 ≠ ctrl 槽位）。"""
     import mujoco
@@ -130,7 +147,11 @@ def exec_gripper_motion(backend, model, data, interaction: dict[str, Any], paylo
     direction = payload.get("close_target" if close else "open_target")
     if direction is None:
         direction = 1.0 if close else 0.0
-    if not isinstance(direction, (int, float)) or isinstance(direction, bool) or not math.isfinite(direction):
+    if (
+        not isinstance(direction, (int, float))
+        or isinstance(direction, bool)
+        or not math.isfinite(direction)
+    ):
         raise ValueError("INTERACTION_PAYLOAD_INVALID: gripper target must be finite")
     control_mod.write_setpoint(
         model,
@@ -167,7 +188,9 @@ def relative_body_pose(pos1, quat1, pos2, quat2):  # noqa: ANN001, ANN202
 
     rotation = np.zeros(9)
     mujoco.mju_quat2Mat(rotation, np.asarray(quat1, dtype=float))
-    rel_pos = rotation.reshape(3, 3).T @ (np.asarray(pos2, dtype=float) - np.asarray(pos1, dtype=float))
+    rel_pos = rotation.reshape(3, 3).T @ (
+        np.asarray(pos2, dtype=float) - np.asarray(pos1, dtype=float)
+    )
     q1 = np.asarray(quat1, dtype=float)
     q1_inv = np.array([q1[0], -q1[1], -q1[2], -q1[3]])
     rel_quat = np.zeros(4)
@@ -226,7 +249,9 @@ EVIDENCE_CONTACT = "CONTACT"
 EVIDENCE_LOAD_BEARING = "LOAD_BEARING_CONTACT"
 
 
-def exec_constraint_attach(backend, model, data, interaction: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:  # noqa: ANN001
+def exec_constraint_attach(
+    backend, model, data, interaction: dict[str, Any], payload: dict[str, Any]
+) -> dict[str, Any]:  # noqa: ANN001
     """constraint_attach（GRASP_HONESTY v2 §8-§10）：
     **真接触证据**（data.contact 实际 pair）→ capability check →
     measured relative pose（含正确相对四元数）→ set_weld_relpose
@@ -303,7 +328,9 @@ def exec_constraint_attach(backend, model, data, interaction: dict[str, Any], pa
     }
 
 
-def exec_constraint_release(backend, model, data, interaction: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:  # noqa: ANN001
+def exec_constraint_release(
+    backend, model, data, interaction: dict[str, Any], payload: dict[str, Any]
+) -> dict[str, Any]:  # noqa: ANN001
     """constraint_release：deactivate weld → step → **payload 自身**
     必须有重力响应（MH20-C §11：Evidence 必须指向它声称证明的
     对象——不看全局 max qvel，只看被释放 body 的速度/位移/高度）。"""
@@ -324,12 +351,8 @@ def exec_constraint_release(backend, model, data, interaction: dict[str, Any], p
     duration = float(payload.get("duration_s", 0.3))
     _step(model, data, duration)
     pos_after = np.asarray(data.xpos[body2_id], dtype=float)
-    linear_velocity = float(
-        np.linalg.norm(np.asarray(data.cvel[body2_id][3:6], dtype=float))
-    )
-    angular_velocity = float(
-        np.linalg.norm(np.asarray(data.cvel[body2_id][0:3], dtype=float))
-    )
+    linear_velocity = float(np.linalg.norm(np.asarray(data.cvel[body2_id][3:6], dtype=float)))
+    angular_velocity = float(np.linalg.norm(np.asarray(data.cvel[body2_id][0:3], dtype=float)))
     displacement = float(np.linalg.norm(pos_after - pos_before))
     velocity_threshold = float(payload.get("velocity_threshold", 1e-3))
     gravity_response = bool(

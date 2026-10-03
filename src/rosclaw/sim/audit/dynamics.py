@@ -7,6 +7,7 @@ from typing import Any
 import numpy as np
 
 from rosclaw.sim.audit.context import AuditContext
+from rosclaw.sim.backends.mujoco.step_validity import validate_step_data
 
 
 def a03_servo_hold(ctx: AuditContext) -> dict[str, Any]:
@@ -58,8 +59,18 @@ def a03_servo_hold(ctx: AuditContext) -> dict[str, Any]:
     import math
 
     steps = max(1, math.ceil(ctx.policy.servo_hold_s / float(model.opt.timestep)))
-    for _ in range(steps):
+    for step in range(steps):
+        expected_time = float(data.time) + float(model.opt.timestep)
         mujoco.mj_step(model, data)
+        try:
+            validate_step_data(
+                data, step=step + 1, expected_time=expected_time, timestep=float(model.opt.timestep)
+            )
+        except ValueError as error:
+            return {
+                "status": "FAIL",
+                "violations": [{"reason": "invalid_servo_simulation", "detail": str(error)}],
+            }
 
     violations: list[dict[str, Any]] = []
     max_linear = 0.0
@@ -184,6 +195,7 @@ def a15_nan_inf(ctx: AuditContext) -> dict[str, Any]:
     import math
 
     if ctx.trace_record is not None:
+        previous_time = None
         for index, snapshot in enumerate(ctx.trace_record.get("states", [])):
             for key in ("t", "qpos", "qvel", "ctrl"):
                 value = snapshot.get(key)
@@ -200,6 +212,13 @@ def a15_nan_inf(ctx: AuditContext) -> dict[str, Any]:
                                 }
                             ],
                         }
+            current_time = float(snapshot["t"])
+            if previous_time is not None and current_time <= previous_time:
+                return {
+                    "status": "FAIL",
+                    "violations": [{"reason": "trace_time_discontinuity", "state_index": index}],
+                }
+            previous_time = current_time
     result = _hold_sweep(ctx, min(0.5, ctx.policy.sweep_s))
     status = "FAIL" if result["diverged"] else "PASS"
     return {
@@ -216,6 +235,18 @@ def a16_physics_divergence(ctx: AuditContext) -> dict[str, Any]:
         violations.append({"reason": "nan_divergence"})
     if result["max_qvel"] > ctx.policy.max_qvel:
         violations.append({"reason": "qvel_explosion", "max_qvel": result["max_qvel"]})
+    if ctx.trace_record is not None:
+        trace_peak = max(
+            (
+                abs(float(value))
+                for snapshot in ctx.trace_record.get("states", [])
+                for value in snapshot.get("qvel", [])
+            ),
+            default=0.0,
+        )
+        if trace_peak > ctx.policy.max_qvel:
+            violations.append({"reason": "trace_qvel_explosion", "max_qvel": trace_peak})
+        result["max_qvel"] = max(result["max_qvel"], trace_peak)
     status = "FAIL" if violations else "PASS"
     return {"status": status, "violations": violations, "max_qvel": result["max_qvel"]}
 
