@@ -489,3 +489,14 @@ fresh real PI-backed ROSClaw TUI executes high → medium → auto with actual A
 readback and no model turn/network call. PI lazily creates no session JSONL for
 this command-only smoke, so no persistence claim is inferred. The formal active
 physical session remains on its previously loaded code until safe maintenance.
+
+The same PI audit found `/switch` using nonexistent instance
+`ctx.sessionManager.listAll`, plus ignoring `{cancelled:true}` from host
+switchSession. A real-shaped context fails with TypeError before repair.
+The command now uses the existing static PI session-list adapter and shared
+exact-ID/unique-prefix/title resolver, does not resolve an ambiguous prefix
+via an unrelated title, and respects cancelled switches. It reports lookup
+or host errors instead of claiming success. All 26 related command/UI checks,
+seven PI dependency-boundary tests and TS build pass. A separate real TUI
+command-only smoke correctly resolves a missing session without TypeError;
+formal session history and physical jobs are untouched.

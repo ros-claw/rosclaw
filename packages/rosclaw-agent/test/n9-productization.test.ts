@@ -136,3 +136,50 @@ test("PI compatibility: /effort without host does not claim success", async () =
 	await handlers.effort.handler("high", { ui: { notify: (s: string) => { notice = s; } } } as never);
 	assert.match(notice, /未变更/);
 });
+
+test("PI compatibility: /switch lists via adapter and respects cancelled switch", async () => {
+	const { buildCommandHandlers } = await import("../src/extension/commands.js");
+	let notice = "";
+	const switched: string[] = [];
+	const handlers = buildCommandHandlers({ rosclawHome: "/tmp/x", active: undefined as never,
+		center: undefined as never, locale: undefined as never, registeredToolNames: () => [],
+		listSessions: async () => [{ id: "abc123", path: "/tmp/session.jsonl", firstMessage: "hello" }],
+	} as never);
+	const ctx = { sessionManager: {}, ui: { notify: (s: string) => { notice = s; } },
+		switchSession: async (p: string) => { switched.push(p); return { cancelled: true }; },
+	} as never;
+	await handlers.switch.handler("abc", ctx);
+	assert.deepEqual(switched, ["/tmp/session.jsonl"]);
+	assert.match(notice, /取消/);
+	assert.doesNotMatch(notice, /已切换/);
+});
+
+test("PI compatibility: ambiguous session prefix does not fall back to title", async () => {
+	const { buildCommandHandlers } = await import("../src/extension/commands.js");
+	let notice = ""; let switches = 0;
+	const handlers = buildCommandHandlers({ rosclawHome: "/tmp/x", active: undefined as never,
+		center: undefined as never, locale: undefined as never, registeredToolNames: () => [],
+		listSessions: async () => [
+			{ id: "abc1", path: "/tmp/1", firstMessage: "" },
+			{ id: "abc2", path: "/tmp/2", firstMessage: "" },
+			{ id: "other", path: "/tmp/3", firstMessage: "abc" },
+		],
+	} as never);
+	await handlers.switch.handler("abc", { ui: { notify: (s: string) => { notice = s; } },
+		switchSession: async () => { switches++; return { cancelled: false }; },
+	} as never);
+	assert.equal(switches, 0); assert.match(notice, /不唯一/);
+});
+
+test("PI compatibility: /switch reports successful host switch", async () => {
+	const { buildCommandHandlers } = await import("../src/extension/commands.js");
+	let notice = "";
+	const handlers = buildCommandHandlers({ rosclawHome: "/tmp/x", active: undefined as never,
+		center: undefined as never, locale: undefined as never, registeredToolNames: () => [],
+		listSessions: async () => [{ id: "abc1", path: "/tmp/1", firstMessage: "" }],
+	} as never);
+	await handlers.switch.handler("abc1", { ui: { notify: (s: string) => { notice = s; } },
+		switchSession: async () => ({ cancelled: false }),
+	} as never);
+	assert.match(notice, /已切换到会话 abc1/);
+});

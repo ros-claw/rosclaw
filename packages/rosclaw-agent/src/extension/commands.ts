@@ -5,7 +5,8 @@
  * operatord 通道（模型/agentd/Pi session 全卡死也可触发）。
  */
 
-import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext, SessionInfo } from "@earendil-works/pi-coding-agent";
+import { resolveSessionQuery } from "../harness/pi/pi-resolve.js";
 import { defaultOperatorSocket, operatorCall } from "../bridge/operatord-client.js";
 import type { ActiveSessionContext } from "../session/active-context.js";
 import type { ProductStateCenter } from "../session/state-center.js";
@@ -23,6 +24,7 @@ export interface CommandDeps {
 	registeredToolNames: () => string[];
 	/** PI puts thinking controls on ExtensionAPI, not the command context. */
 	thinking?: Pick<ExtensionAPI, "setThinkingLevel" | "getThinkingLevel" | "getSettings">;
+	listSessions?: () => Promise<SessionInfo[]>;
 }
 
 type Handler = (args: string, ctx: ExtensionCommandContext) => Promise<void>;
@@ -489,33 +491,21 @@ export function buildCommandHandlers(deps: CommandDeps): Record<string, { descri
 					notify(ctx, "用法：/switch <id|前缀|标题>", "warning");
 					return;
 				}
-				const c = ctx as unknown as {
-					sessionManager: { listAll(dir: string): Promise<Array<{ id: string; path: string; name?: string; firstMessage: string }>> };
-					switchSession?(path: string): Promise<void>;
-				};
-				const sessionDir = `${deps.rosclawHome}/agent/sessions`;
-				const sessions = await c.sessionManager.listAll(sessionDir);
-				const hit = sessions.find((s) => s.id === query)
-					?? (sessions.filter((s) => s.id.startsWith(query)).length === 1
-						? sessions.find((s) => s.id.startsWith(query))
-						: undefined)
-					?? (sessions.filter(
-						(s) => (s.name ?? "").includes(query) || s.firstMessage.includes(query),
-					).length === 1
-						? sessions.find(
-							(s) => (s.name ?? "").includes(query) || s.firstMessage.includes(query),
-						)
-						: undefined);
-				if (!hit) {
-					notify(ctx, `会话 ${query} 不唯一或不存在——rosclaw sessions 查看全部`, "error");
+				if (!deps.listSessions) {
+					notify(ctx, "当前宿主不提供会话列表——用 rosclaw resume", "warning");
 					return;
 				}
-				if (!c.switchSession) {
-					notify(ctx, "当前运行模式不支持会话内切换——用 rosclaw resume", "warning");
-					return;
+				try {
+					const hit = resolveSessionQuery(query, await deps.listSessions());
+					if (!hit.ok) {
+						notify(ctx, `会话 ${query} 不唯一或不存在——rosclaw sessions 查看全部`, "error");
+						return;
+					}
+					const result = await ctx.switchSession(hit.path);
+					notify(ctx, result.cancelled ? "会话切换已取消" : `已切换到会话 ${hit.info.id}`, "info");
+				} catch (error) {
+					notify(ctx, `会话切换失败：${(error as Error).message}`, "error");
 				}
-				await c.switchSession(hit.path);
-				notify(ctx, `已切换到会话 ${hit.id}`, "info");
 			},
 		},
 		language: {
