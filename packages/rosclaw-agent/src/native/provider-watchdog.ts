@@ -133,7 +133,7 @@ export class ProviderStallWatchdog {
 	/** 对话框关闭——恢复计时（从当前状态重新武装）。 */
 	resumeFromUser(): void {
 		this.userBusy = false;
-		if (this.active && !this.abortedOnce) {
+		if (this.active && !this.abortedOnce && this.toolBusyCount === 0) {
 			if (this.sawContent) this._resetStreamIdle();
 			else this._armFirstToken();
 		}

@@ -224,7 +224,10 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 					+ "SIM 任务沙箱降级运行，凭据/控制面在 shell 可达"
 					+ "（风险已告知）]\n";
 			}
-			const output = await new Promise<string>((resolvePromise) => {
+			const result = await new Promise<{
+				output: string; exitCode: number | null; signal: NodeJS.Signals | null;
+				timedOut: boolean; aborted: boolean; spawnError?: string;
+			}>((resolvePromise) => {
 				// Agent commands often explicitly nest `bash -c`. Export the enabled
 				// options so an inner pipeline cannot hide a failed timeout behind tail.
 				const shellCommand = `export SHELLOPTS\n${command}`;
@@ -283,14 +286,14 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 						});
 					} catch { /* UI failure must not orphan the command. */ }
 				}, options.bashProgressIntervalMs ?? 15_000);
-				const finish = (text: string) => {
+				const finish = (text: string, exitCode: number | null, exitSignal: NodeJS.Signals | null, spawnError?: string) => {
 					if (settled) return;
 					settled = true;
 					if (timer) clearTimeout(timer);
 					if (killTimer) clearTimeout(killTimer);
 					clearInterval(progress);
 					signal?.removeEventListener("abort", cancel);
-					resolvePromise(text);
+					resolvePromise({ output: text, exitCode, signal: exitSignal, timedOut, aborted, ...(spawnError ? { spawnError } : {}) });
 				};
 				child.stdout?.on("data", (d) => {
 					if (buf.length < MAX_OUTPUT_BYTES) buf += d.toString();
@@ -304,19 +307,20 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 						killTree("SIGKILL");
 					}, timeoutMs);
 				}
-				child.on("close", (code) => {
+				child.on("close", (code, exitSignal) => {
 					// A shell can exit before a child that ignores SIGTERM. Clean
 					// the process group before releasing the tool's cancellation.
 					if (aborted || timedOut) killTree("SIGKILL");
 					const head = `exit=${code ?? "signal"} wall=${Date.now() - started}ms`
 						+ (timedOut ? " TIMEOUT(explicit)" : "")
 						+ (aborted ? " ABORTED" : "");
-					finish(`${degradedMarker}${head}\n${buf.slice(0, MAX_OUTPUT_BYTES)}`);
+					finish(`${degradedMarker}${head}\n${buf.slice(0, MAX_OUTPUT_BYTES)}`, code, exitSignal);
 				});
-				child.on("error", (err) => finish(`spawn error: ${err.message}`));
+				child.on("error", (err) => finish(`spawn error: ${err.message}`, null, null, err.message));
 				signal?.addEventListener("abort", cancel, { once: true });
 				if (signal?.aborted) cancel();
 			});
+			const { output, ...execution } = result;
 			if (options.bashLogPath) {
 				try {
 					mkdirSync(dirname(options.bashLogPath), { recursive: true });
@@ -327,7 +331,8 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 			}
 			return {
 				content: [{ type: "text" as const, text: output }],
-				details: { command: command.slice(0, 200) },
+				details: { command: command.slice(0, 200), ...execution },
+				isError: result.exitCode !== 0 || result.signal !== null || result.timedOut || result.aborted || result.spawnError !== undefined,
 			};
 		},
 	});
