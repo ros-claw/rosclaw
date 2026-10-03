@@ -184,7 +184,35 @@ def test_r03_bleg_keyframe_qpos_patch_fix_verified(tmp_path) -> None:
             },
         ],
     )
-    runtime.rollout(fixed["new_model_ref"], controller={"hold": True}, duration_s=0.5)
+    receipt = runtime.rollout(
+        fixed["new_model_ref"], keyframe="home", controller={"hold": True}, duration_s=0.5
+    )
+    report = runtime.strict_replay(receipt["receipt_ref"])
+    # Synthetic tool transcript, not a real Kimi execution claim.
+    sessions = tmp_path / "rh/agent/sessions"
+    sessions.mkdir(parents=True)
+    messages = [
+        {
+            "message": {
+                "content": [
+                    {
+                        "type": "toolCall",
+                        "id": "fixture",
+                        "name": "sim_strict_replay",
+                        "arguments": {"receipt_ref": receipt["receipt_ref"]},
+                    }
+                ]
+            }
+        },
+        {
+            "message": {
+                "role": "toolResult",
+                "toolCallId": "fixture",
+                "content": [{"type": "text", "text": json.dumps(report)}],
+            }
+        },
+    ]
+    (sessions / "fixture.jsonl").write_text("\n".join(json.dumps(message) for message in messages))
     (tmp_path / "answer.json").write_text(
         json.dumps(
             {

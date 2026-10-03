@@ -331,7 +331,7 @@ def _reset_state_check(mjcf_xml: str, keyframe: str, *, settle_s: float = 0.5) -
     mujoco.mj_forward(model, data)
     min_dist = min((float(data.contact[i].dist) for i in range(data.ncon)), default=0.0)
     qpos0 = [float(v) for v in data.qpos]
-    steps = max(1, int(settle_s / float(model.opt.timestep)))
+    steps = max(0, int(settle_s / float(model.opt.timestep)))
     for _ in range(steps):
         mujoco.mj_step(model, data)
     max_qvel = max((abs(float(v)) for v in data.qvel), default=0.0)
@@ -342,6 +342,8 @@ def _reset_state_check(mjcf_xml: str, keyframe: str, *, settle_s: float = 0.5) -
         "min_contact_dist": min_dist,
         "settle_max_qvel": max_qvel,
         "settle_drift": drift,
+        "settle_evidence": "INDEPENDENT_ROLLOUT" if steps else "NOT_RUN_BY_ORACLE",
+        "physics_steps": steps,
     }
 
 
@@ -357,7 +359,7 @@ def _judge_repair_reset(root: Path, task, original_asset: str, keyframe: str) ->
     backend = runtime.backend
     original_ref, staged_modified = _load_staged_original(root, task, original_asset)
     original_xml = backend.store.get(original_ref)["mjcf_xml"]
-    baseline = _reset_state_check(original_xml, keyframe)
+    baseline = _reset_state_check(original_xml, keyframe, settle_s=0)
     verdict: dict[str, Any] = {
         "task_success": False,
         "verified_success": False,
@@ -367,6 +369,7 @@ def _judge_repair_reset(root: Path, task, original_asset: str, keyframe: str) ->
         "baseline_reset_check": baseline,
         "staged_file_modified": staged_modified,
         "reason": "no_pass_candidate",
+        "physics_steps_by_oracle": 0,
     }
     if baseline["ok"]:
         verdict["reason"] = "baseline_not_broken"  # 任务 staging 错了
@@ -381,7 +384,7 @@ def _judge_repair_reset(root: Path, task, original_asset: str, keyframe: str) ->
         except (ValueError, FileNotFoundError, KeyError):
             return False
         try:
-            return _reset_state_check(xml, keyframe)["ok"]
+            return _reset_state_check(xml, keyframe, settle_s=0)["ok"]
         except ValueError:
             return False
 
@@ -394,8 +397,16 @@ def _judge_repair_reset(root: Path, task, original_asset: str, keyframe: str) ->
             continue
         if not _reset_ok(ref):
             continue
-        # 证据：候选有 rollout receipt 且 strict replay 通过。
-        if _replay_ok(backend, ref):
+        from benchmarks.harnessbench.keyframe_oracle import (
+            keyframe_only_patch,
+            keyframe_rollout_evidence,
+        )
+
+        candidate_xml = backend.store.get(ref)["mjcf_xml"]
+        if not keyframe_only_patch(original_xml, candidate_xml, keyframe):
+            continue
+        evidence = keyframe_rollout_evidence(backend, root, ref, keyframe)
+        if evidence is not None:
             verified_candidate = ref
             break
 
@@ -420,7 +431,8 @@ def _judge_repair_reset(root: Path, task, original_asset: str, keyframe: str) ->
         task_success=True,
         verified_success=True,
         fixed_model_ref=verified_candidate,
-        reset_check=_reset_state_check(backend.store.get(verified_candidate)["mjcf_xml"], keyframe),
+        reset_check=_reset_state_check(backend.store.get(verified_candidate)["mjcf_xml"], keyframe, settle_s=0),
+        keyframe_rollout_evidence=evidence,
         reason="ok",
     )
     _apply_claim_check(backend, verdict, claimed_ref, verified_candidate)
