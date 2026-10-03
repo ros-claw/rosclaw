@@ -170,6 +170,22 @@ class CapabilityManifestCompiler:
         """Compile capabilities from a graph snapshot."""
         from urllib.parse import urlsplit
 
+        for kind, interfaces, type_field in (
+            ("topic", snapshot.topics, "msg_type"),
+            ("service", snapshot.services, "srv_type"),
+            ("action", snapshot.actions, "action_type"),
+        ):
+            for interface in interfaces:
+                declared_type = getattr(interface, type_field)
+                if (
+                    not isinstance(declared_type, str)
+                    or not declared_type.strip()
+                    or declared_type != declared_type.strip()
+                ):
+                    raise ValueError(
+                        f"ROS_INTERFACE_TYPE_INVALID: {kind} {interface.name!r} requires {type_field}"
+                    )
+
         parsed = urlsplit(snapshot.endpoint)
         if parsed.scheme in {"ws", "wss"} and parsed.hostname:
             from rosclaw.connectors.ros.transport.base import RosbridgeEndpoint

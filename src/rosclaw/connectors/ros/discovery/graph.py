@@ -134,12 +134,19 @@ class RosGraphSnapshot:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> RosGraphSnapshot:
+        def interface_type(item: dict[str, Any], field: str) -> Any:
+            # Public discovery summaries use "type"; retain that explicit
+            # declaration rather than silently producing an empty interface.
+            if field in item and "type" in item and item[field] != item["type"]:
+                raise ValueError(f"ROS_INTERFACE_TYPE_CONFLICT: {item.get('name')!r} {field}")
+            return item[field] if field in item else item.get("type", "")
+
         topics = []
         for t in data.get("topics", []):
             topics.append(
                 RosTopicInfo(
                     name=t.get("name", ""),
-                    msg_type=t.get("msg_type", ""),
+                    msg_type=interface_type(t, "msg_type"),
                     publishers=t.get("publishers", []),
                     subscribers=t.get("subscribers", []),
                     hz_estimate=t.get("hz_estimate"),
@@ -153,7 +160,7 @@ class RosGraphSnapshot:
             services.append(
                 RosServiceInfo(
                     name=s.get("name", ""),
-                    srv_type=s.get("srv_type", ""),
+                    srv_type=interface_type(s, "srv_type"),
                     providers=s.get("providers", []),
                     request_schema=s.get("request_schema", {}),
                     response_schema=s.get("response_schema", {}),
@@ -165,7 +172,7 @@ class RosGraphSnapshot:
             actions.append(
                 RosActionInfo(
                     name=a.get("name", ""),
-                    action_type=a.get("action_type", ""),
+                    action_type=interface_type(a, "action_type"),
                     goal_schema=a.get("goal_schema", {}),
                     feedback_schema=a.get("feedback_schema", {}),
                     result_schema=a.get("result_schema", {}),
