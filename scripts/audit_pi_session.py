@@ -44,28 +44,41 @@ def audit_session(path: Path) -> dict[str, Any]:
             continue
         entries.append((line, entry))
         entry_id = entry.get("id")
-        if entry_id:
-            if entry_id in ids:
-                issues.append({"line": line, "kind": "duplicate_entry_id"})
-            parent = entry.get("parentId")
-            if parent and parent not in ids:
-                issues.append({"line": line, "kind": "missing_prior_parent"})
+        if entry_id is not None and (not isinstance(entry_id, str) or not entry_id):
+            issues.append({"line": line, "kind": "invalid_entry_id"})
+        elif entry_id and entry_id in ids:
+            issues.append({"line": line, "kind": "duplicate_entry_id"})
+        parent = entry.get("parentId")
+        if parent is not None and (not isinstance(parent, str) or not parent):
+            issues.append({"line": line, "kind": "invalid_parent_id"})
+        elif parent and parent not in ids:
+            issues.append({"line": line, "kind": "missing_prior_parent"})
+        if isinstance(entry_id, str) and entry_id:
             ids.add(entry_id)
         kind = entry.get("type", "unknown")
+        if not isinstance(kind, str):
+            issues.append({"line": line, "kind": "invalid_entry_type"})
+            kind = "unknown"
         types[kind] += 1
         if kind == "context_edit":
+            target = entry.get("targetId")
+            if not isinstance(target, str) or not target:
+                issues.append({"line": line, "kind": "invalid_context_target"})
             context_edits.append(
                 {
                     "line": line,
-                    "target_present": entry.get("targetId") in ids,
+                    "target_present": isinstance(target, str) and target in ids,
                     "replacement_removed": entry.get("replacement") is None,
                 }
             )
-        message = entry.get("message") or {}
+        message = entry.get("message", {})
         if not isinstance(message, dict):
             issues.append({"line": line, "kind": "invalid_message"})
             continue
         role = message.get("role")
+        if role is not None and not isinstance(role, str):
+            issues.append({"line": line, "kind": "invalid_message_role"})
+            role = None
         if role:
             roles[role] += 1
         if role == "user":
@@ -74,19 +87,30 @@ def audit_session(path: Path) -> dict[str, Any]:
             stops[str(message.get("stopReason", "unknown"))] += 1
             if message.get("stopReason") in ("error", "aborted"):
                 error_lines.append(line)
-            usage = message.get("usage") or {}
+            usage = message.get("usage", {})
+            if not isinstance(usage, dict):
+                issues.append({"line": line, "kind": "invalid_usage"})
+                usage = {}
+            token_counts = []
+            for field in ("input", "cacheRead", "cacheWrite"):
+                count = usage.get(field, 0)
+                if type(count) is not int or count < 0:
+                    issues.append({"line": line, "kind": "invalid_usage_tokens"})
+                    count = 0
+                token_counts.append(count)
             # Output is not part of the incoming context.
             max_context_tokens = max(
                 max_context_tokens,
-                int(usage.get("input", 0))
-                + int(usage.get("cacheRead", 0))
-                + int(usage.get("cacheWrite", 0)),
+                sum(token_counts),
             )
         if role == "toolResult":
             results[str(message.get("toolCallId", ""))].append(line)
-        content = message.get("content") or []
+        content = message.get("content", [])
         if isinstance(content, str):
             content = [{"type": "text", "text": content}]
+        if not isinstance(content, list):
+            issues.append({"line": line, "kind": "invalid_content"})
+            continue
         for block in content:
             if not isinstance(block, dict):
                 issues.append({"line": line, "kind": "non_object_content"})
