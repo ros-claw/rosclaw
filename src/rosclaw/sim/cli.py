@@ -41,6 +41,17 @@ import sys
 from pathlib import Path
 from typing import Any
 
+
+def _record_points(text: str) -> int:
+    try:
+        value = int(text)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("record points must be an integer") from exc
+    if not 1 <= value <= 100000:
+        raise argparse.ArgumentTypeError("record points must be between 1 and 100000")
+    return value
+
+
 #: 仿真 CLI 的入口集合（dispatch 命中判定用）。
 _SUBCOMMANDS = (
     "capabilities",
@@ -128,6 +139,12 @@ def _build_parser() -> argparse.ArgumentParser:
     rollout.add_argument("--state-ref", default=None)
     rollout.add_argument("--seed", type=int, default=0)
     rollout.add_argument("--predicates", default=None)
+    rollout.add_argument(
+        "--max-record-points",
+        type=_record_points,
+        default=None,
+        help="Saved trace point budget (1..100000); other runtime budgets unchanged",
+    )
 
     observe = sub.add_parser(
         "observe",
@@ -233,6 +250,11 @@ def _execute(args: argparse.Namespace) -> dict[str, Any]:
             state_ref=args.state_ref,
             seed=args.seed,
             task_predicates=_json_arg(args.predicates) if args.predicates else None,
+            **(
+                {"budgets": {"max_record_points": args.max_record_points}}
+                if args.max_record_points is not None
+                else {}
+            ),
         )
     if cmd == "observe":
         return runtime.observe(args.model_ref, args.state_ref, _csv(args.channels) or [])
