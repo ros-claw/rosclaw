@@ -24,3 +24,21 @@ of robot performance. A real-bank benchmark must separately report complete-quer
 coverage, observed equality, and timings before a caller adopts this optimization.
 Neither lookup equality nor local zero gates prove distributional retention,
 physical safety, or successful learning. No running experiment is hot-upgraded.
+
+## Saturation-aware optional index
+
+`RadiusIndexedAnchorKernelGuard` is a second opt-in implementation. Its exact
+tree query is bounded at 16 bandwidths: beyond that radius the original float64
+formula `-expm1(-d**2 / (2 * bandwidth**2))` already rounds to exactly one
+(exponent at most -128). No nearest anchor identity is needed for this saturated
+gate. Within the radius, the same coordinate-difference arithmetic, original
+zero tolerance, and ambiguous-tie fallback apply. This is not approximate nearest
+neighbour search, rounding, a larger bandwidth, or a new protection threshold.
+
+The motivation was a negative performance finding in a real-bank comparison:
+the unrestricted two-neighbour unique index accelerated novel training queries
+but slowed exact protected-anchor queries by searching for a distant second
+coordinate. Both categories must be benchmarked; faster novel queries alone are
+not sufficient for adoption. Synthetic radius tests include smooth gates,
+saturation boundaries and adjacent float values, nearby ties, single unique
+coordinates, optional dependency fallback, and bandwidths 1e-4 through 1000.
