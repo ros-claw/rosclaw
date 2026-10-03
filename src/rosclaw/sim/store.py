@@ -230,21 +230,82 @@ class SimStore:
 
     # -- 内部 ---------------------------------------------------------------
 
+    def _directory_intent_anchor(self) -> Path:
+        """Register an immutable namespace boundary before creating directories.
+
+        The intent lives in the first already existing ancestor. New instances
+        recover that exact boundary even when every new directory is visible
+        following a failed sync. The intent itself must be synced first.
+        """
+        namespace = self._task_root.resolve()
+        name = (
+            ".rosclaw-sim-directory-"
+            + hashlib.sha256(str(namespace).encode()).hexdigest()
+            + ".json"
+        )
+        found = [
+            parent
+            for parent in (namespace, *namespace.parents)
+            if (parent / name).exists() or (parent / name).is_symlink()
+        ]
+        if len(found) > 1:
+            raise ValueError("STORE_DIRECTORY_INTENT_INVALID: multiple namespace anchors")
+        anchor = found[0] if found else namespace
+        if not found:
+            while not anchor.exists():
+                anchor = anchor.parent
+        expected = canonical_json(
+            {
+                "schema": "rosclaw.sim.directory_intent.v1",
+                "namespace": str(namespace),
+                "anchor": str(anchor),
+            }
+        ).encode()
+        intent = anchor / name
+        directory_fd = os.open(anchor, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            fcntl.flock(directory_fd, fcntl.LOCK_EX)
+            if intent.exists() or intent.is_symlink():
+                if intent.is_symlink() or intent.read_bytes() != expected:
+                    raise ValueError("STORE_DIRECTORY_INTENT_INVALID: namespace intent differs")
+                fd = os.open(intent, os.O_RDONLY | os.O_NOFOLLOW)
+                try:
+                    os.fsync(fd)
+                finally:
+                    os.close(fd)
+            else:
+                fd, temporary = tempfile.mkstemp(dir=anchor, prefix=".tmp_sim_directory_")
+                try:
+                    with os.fdopen(fd, "wb") as output:
+                        output.write(expected)
+                        output.flush()
+                        os.fsync(output.fileno())
+                    os.replace(temporary, intent)
+                except BaseException:
+                    Path(temporary).unlink(missing_ok=True)
+                    raise
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+        return anchor
+
     def _ensure_durable_directory(self, folder: Path) -> None:
-        """Sync each newly created directory link before acknowledging objects."""
-        missing: list[Path] = []
-        cursor = folder
-        while not cursor.exists():
-            missing.append(cursor)
+        """Sync the registered chain before acknowledging any object ref."""
+        anchor = self._directory_intent_anchor()
+        absolute_folder = folder.resolve()
+        if absolute_folder != anchor and anchor not in absolute_folder.parents:
+            raise ValueError("STORE_DIRECTORY_INTENT_INVALID: partition outside registered anchor")
+        chain: list[Path] = []
+        cursor = absolute_folder
+        while cursor != anchor:
+            chain.append(cursor)
             cursor = cursor.parent
-        for directory in reversed(missing):
+        for directory in reversed(chain):
             directory.mkdir(exist_ok=True)
-        # Also sync existing links: a previous directory-creation sync may
-        # have failed, and merely seeing its directory on retry proves nothing.
-        parents = [directory.parent for directory in reversed(missing)]
-        parents.extend((self._task_root.parent, self._task_root, self._root))
-        for parent in dict.fromkeys(parents):
-            parent_fd = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        # Repeat all parent links, including after constructing a new SimStore.
+        # Scope never extends above the original registered existing ancestor.
+        for directory in reversed(chain):
+            parent_fd = os.open(directory.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
             try:
                 os.fsync(parent_fd)
             finally:

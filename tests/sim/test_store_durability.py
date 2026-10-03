@@ -18,6 +18,7 @@ def test_ack_requires_file_sync_then_atomic_replace_then_directory_sync(
 ):
     store = SimStore(tmp_path)
     (store.root / partition).mkdir(parents=True)
+    store.put(partition, {"prime": True})
     events = []
     real_sync, real_replace = os.fsync, os.replace
 
@@ -33,7 +34,7 @@ def test_ack_requires_file_sync_then_atomic_replace_then_directory_sync(
     monkeypatch.setattr(os, "replace", replace)
     ref = store.put(partition, payload)
     assert events[-3:] == ["file_sync", "replace", "directory_sync"]
-    assert all(event == "directory_sync" for event in events[:-3])
+    assert events[:-3].count("file_sync") == 1  # registered intent is synced on retry
     assert store.get(ref) == payload
 
 
@@ -103,7 +104,7 @@ def test_idempotent_ack_still_syncs_existing_content_and_parent(tmp_path, monkey
     monkeypatch.setattr(os, "fsync", sync)
     assert store.put("states", {"state": "valid"}) == ref
     assert synced[-2:] == ["file", "dir"]
-    assert all(event == "dir" for event in synced[:-2])
+    assert synced[:-2].count("file") == 1  # registered namespace intent
 
 
 def test_new_directory_links_are_synced_before_object_ack(tmp_path, monkeypatch):
@@ -193,3 +194,154 @@ def test_concurrent_digest_prefix_collision_preserves_first_bytes(tmp_path, monk
 
     target = tmp_path / "sim" / "models" / f"{ref}.json"
     assert target.read_bytes() == canonical_json({"writer": winners[0]}).encode()
+
+
+def test_deep_directory_creation_retry_retains_original_ancestor_barriers(tmp_path, monkeypatch):
+    store = SimStore(tmp_path / "new1" / "new2" / "new3")
+    real = os.fsync
+    with monkeypatch.context() as scoped:
+
+        def fail_first(fd):
+            if (
+                os.readlink(f"/proc/self/fd/{fd}") == str(tmp_path)
+                and (store.root / "models").is_dir()
+            ):
+                raise OSError("first ancestor sync failed")
+            real(fd)
+
+        scoped.setattr(os, "fsync", fail_first)
+        with pytest.raises(OSError, match="first ancestor sync failed"):
+            store.put("models", {"model": "deep retry"})
+    synced = []
+
+    def sync(fd):
+        if stat.S_ISDIR(os.fstat(fd).st_mode):
+            synced.append(os.readlink(f"/proc/self/fd/{fd}"))
+        real(fd)
+
+    monkeypatch.setattr(os, "fsync", sync)
+    ref = store.put("models", {"model": "deep retry"})
+    assert store.get(ref) == {"model": "deep retry"}
+    assert synced[-6:] == [
+        str(tmp_path),
+        str(tmp_path / "new1"),
+        str(tmp_path / "new1" / "new2"),
+        str(store.root.parent),
+        str(store.root),
+        str(store.root / "models"),
+    ]
+    assert str(tmp_path.parent) not in synced
+
+
+def test_new_instance_deep_retry_cannot_forget_original_ancestor_barriers(tmp_path, monkeypatch):
+    task_root = tmp_path / "new1" / "new2" / "new3"
+    store = SimStore(task_root)
+    real = os.fsync
+    with monkeypatch.context() as scoped:
+
+        def fail_after_creation(fd):
+            path = os.readlink(f"/proc/self/fd/{fd}")
+            if path == str(tmp_path) and (store.root / "models").is_dir():
+                raise OSError("original ancestor sync failed")
+            real(fd)
+
+        scoped.setattr(os, "fsync", fail_after_creation)
+        with pytest.raises(OSError, match="original ancestor sync failed"):
+            store.put("models", {"model": "new instance retry"})
+    synced = []
+
+    def sync(fd):
+        if stat.S_ISDIR(os.fstat(fd).st_mode):
+            synced.append(os.readlink(f"/proc/self/fd/{fd}"))
+        real(fd)
+
+    monkeypatch.setattr(os, "fsync", sync)
+    replacement = SimStore(task_root)
+    ref = replacement.put("models", {"model": "new instance retry"})
+    assert replacement.get(ref) == {"model": "new instance retry"}
+    assert str(tmp_path) in synced
+    assert str(tmp_path / "new1") in synced
+    assert str(tmp_path.parent) not in synced
+
+
+@pytest.mark.parametrize("failure", ["file", "directory"])
+def test_intent_sync_failure_precedes_directory_creation(tmp_path, monkeypatch, failure):
+    task = tmp_path / "uncreated" / "nested"
+    real = os.fsync
+    with monkeypatch.context() as scoped:
+
+        def fail(fd):
+            kind = "directory" if stat.S_ISDIR(os.fstat(fd).st_mode) else "file"
+            if kind == failure:
+                raise OSError("intent sync failure")
+            real(fd)
+
+        scoped.setattr(os, "fsync", fail)
+        with pytest.raises(OSError, match="intent sync failure"):
+            SimStore(task).put("traces", {"trace": "pending"})
+    assert not (tmp_path / "uncreated").exists()
+    replacement = SimStore(task)
+    ref = replacement.put("traces", {"trace": "pending"})
+    assert replacement.get(ref) == {"trace": "pending"}
+
+
+def test_corrupt_namespace_intent_is_not_reconstructed(tmp_path):
+    store = SimStore(tmp_path)
+    ref = store.put("models", {"model": "complete"})
+    target = store.resolve(ref)
+    original = target.read_bytes()
+    (intent,) = tmp_path.glob(".rosclaw-sim-directory-*.json")
+    intent.write_bytes(b"")
+    with pytest.raises(ValueError, match="STORE_DIRECTORY_INTENT_INVALID"):
+        SimStore(tmp_path).put("models", {"model": "complete"})
+    assert intent.read_bytes() == b""
+    assert target.read_bytes() == original
+
+
+def test_cross_process_retry_recovers_exact_registered_boundary(tmp_path):
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    task = tmp_path / "new1" / "new2" / "new3"
+    source = Path(__file__).resolve().parents[2] / "src"
+    script = """
+import os, stat, sys
+sys.path.insert(0, sys.argv[1])
+from pathlib import Path
+from rosclaw.sim.store import SimStore
+anchor, task = Path(sys.argv[2]), Path(sys.argv[3])
+store = SimStore(task)
+real = os.fsync
+synced = []
+def sync(fd):
+    path = os.readlink(f"/proc/self/fd/{fd}")
+    if stat.S_ISDIR(os.fstat(fd).st_mode):
+        synced.append(path)
+    if sys.argv[4] == "fail" and path == str(anchor) and (store.root / "models").is_dir():
+        raise OSError("injected ancestor sync failure")
+    real(fd)
+os.fsync = sync
+if sys.argv[4] == "fail":
+    try:
+        store.put("models", {"model": "cross process"})
+    except OSError:
+        assert (store.root / "models").is_dir()
+        assert not list((store.root / "models").glob("simmdl_*.json"))
+    else:
+        raise AssertionError("failure was acknowledged")
+else:
+    ref = store.put("models", {"model": "cross process"})
+    assert store.get(ref) == {"model": "cross process"}
+    assert str(anchor) in synced
+    assert str(anchor / "new1") in synced
+    assert str(anchor.parent) not in synced
+"""
+    for mode in ("fail", "retry"):
+        result = subprocess.run(
+            [sys.executable, "-c", script, str(source), str(tmp_path), str(task), mode],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        assert result.returncode == 0, result.stderr

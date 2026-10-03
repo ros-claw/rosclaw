@@ -356,3 +356,30 @@ idempotent barriers, concurrent writers and forced digest-prefix collision,
 and preservation of original bytes. Ruff, mypy and diff checks pass. These are
 filesystem fault-injection checks, not a claim to have repeated a physical
 power-cut test or to restore historical damaged evidence.
+
+
+A follow-up review found that a failed first ancestor sync after creating a
+multi-level task root was not retried fully: all paths were visible and the
+next missing-directory scan forgot the earlier ancestor. Both same-instance
+and fresh-instance injected fixtures were red. A temporary in-memory barrier
+map fixed only the former and was superseded before integration.
+
+SimStore now durably registers an immutable namespace directory intent in its
+first already existing ancestor **before creating any missing directories**.
+The exact namespace and anchor are canonical bytes in a namespace-hash-named
+file; file and ancestor-directory fsync must succeed first. A failed intent
+barrier therefore cannot leave a newly created unregistered directory chain.
+New instances/processes find and byte-validate the exact registered intent
+through read-only ancestor inspection, then repeat the whole parent-link sync
+chain from that original anchor to the object partition. No directory above
+the registered anchor is fsynced. Invalid or conflicting intents fail closed
+and their bytes are preserved. Registration establishes the namespace owner's
+existing ancestor as its trusted boundary; it does not infer historic losses
+or repair preexisting corrupt receipts.
+
+The 92-check store/ref/model-patch/runtime-failure/state-restore cohort passes,
+including two separate subprocesses for a failed deep-directory sync followed
+by fresh-process retry, intent file/directory failure before mkdir, and corrupt
+intent preservation. Ruff, mypy and diff checks pass. These verify actual
+filesystem operations and injected I/O failures; they do not replace a physical
+power-cut test.
