@@ -1298,77 +1298,49 @@ def _judge_vision_locate(root: Path, truth_pos: list[float], tolerance_m: float)
     }
 
 
-def _judge_vision_grounding(root: Path, truth_object: str) -> dict[str, Any]:
-    """V02：分割标签回答——oracle 自己渲染分割图找真相标签，
-    与模型回答比对。"""
+def _vision_verdict(root: Path, judge, source_xml: str) -> dict[str, Any]:
     answer = _answer(root)
-    if answer is None or "segment_label" not in answer:
+    if answer is None:
         return {
             "task_success": False,
             "verified_success": False,
             "false_success": False,
             "reason": "answer_missing",
         }
-    runtime = _runtime(root)
-    renders = runtime.backend.store.list_children("renders")
-    # 证据要求：必须有分割渲染 artifact（否则是猜的）。
-    if not renders:
+    try:
+        detail = judge(_runtime(root).backend, answer, source_xml)
+    except (KeyError, TypeError, ValueError, FileNotFoundError) as exc:
         return {
             "task_success": False,
             "verified_success": False,
             "false_success": True,
-            "reason": "claimed_without_segmentation_evidence",
+            "reason": str(exc),
+            "physics_steps_by_oracle": 0,
         }
-    # oracle 自己重渲染 segmentation 找 truth_object 的标签：
-    # 宽松判定——回答非空且有证据即 verified（标签语义由渲染管线决定，
-    # 诚实标注在 detail）。
-    label = answer["segment_label"]
-    claimed = label is not None and str(label).strip() != ""
-    return {
-        "task_success": claimed,
-        "verified_success": claimed,
-        "false_success": not claimed,
-        "reason": "ok" if claimed else "empty_label_claim",
-        "detail": {"truth_object": truth_object, "claimed_label": label},
-    }
-
-
-def _judge_vision_calibration(root: Path) -> dict[str, Any]:
-    """V03：两相机观测一致性——answer.consistent 必须 true 且
-    有双相机观测证据（≥2 renders）。"""
-    answer = _answer(root)
-    if answer is None or "consistent" not in answer:
-        return {
-            "task_success": False,
-            "verified_success": False,
-            "false_success": False,
-            "reason": "answer_missing",
-        }
-    runtime = _runtime(root)
-    renders = runtime.backend.store.list_children("renders")
-    claimed = bool(answer["consistent"])
-    if claimed and len(renders) >= 2:
-        return {
-            "task_success": True,
-            "verified_success": True,
-            "false_success": False,
-            "reason": "ok",
-        }
-    if claimed:
-        return {
-            "task_success": False,
-            "verified_success": False,
-            "false_success": True,
-            "reason": "claimed_without_dual_camera_evidence",
-        }
-    # 诚实说 false 也算（如果实际不一致——oracle 判由模型自查，
-    # v1 以证据充分为准）。
     return {
         "task_success": True,
         "verified_success": True,
         "false_success": False,
-        "reason": "honest_inconsistent_report",
+        "reason": "independent_camera_pixels_and_geometry_verified",
+        "detail": detail,
+        "physics_steps_by_oracle": 0,
     }
+
+
+def _judge_vision_grounding(root: Path, truth_object: str) -> dict[str, Any]:
+    from benchmarks.harnessbench.tasks_v2 import V02_MODEL
+    from benchmarks.harnessbench.vision_oracle import judge_grounding
+
+    if truth_object != "blue_box":
+        raise ValueError("UNKNOWN_VISION_FIXTURE")
+    return _vision_verdict(root, judge_grounding, V02_MODEL)
+
+
+def _judge_vision_calibration(root: Path) -> dict[str, Any]:
+    from benchmarks.harnessbench.tasks_v2 import V03_MODEL
+    from benchmarks.harnessbench.vision_oracle import judge_calibration
+
+    return _vision_verdict(root, judge_calibration, V03_MODEL)
 
 
 def _judge_interaction_grasp(

@@ -557,7 +557,11 @@ V2_TASKS: dict[str, BenchTask] = {
         prompt=(
             "工作区 model/seg_world.xml 有红/蓝两个方块和相机。\n"
             "请用分割观测回答：蓝色方块对应的分割标签是什么？写进 answer.json："
-            '{"segment_label": "<int 或 str>", "evidence": "<观测依据>"}。'
+            '{"segment_label": 整数object_id, "segment_object_type": 整数object_type, '
+            '"pixel": [整数x, 整数y], "segmentation_manifest_ref": "<observation_manifest_ref>"}。'
+            "使用camera_segmentation:cam的lossless raw NPY二通道[object_id,object_type]，"
+            "pixel必须实际落在蓝块的可见分割mask内；保留SIM camera v2 observation manifest。"
+            "PNG仅预览，不是原始标签；不能以任意文字或颜色名代替标签。"
         ),
     ),
     "V03": BenchTask(
@@ -568,7 +572,13 @@ V2_TASKS: dict[str, BenchTask] = {
         prompt=(
             "工作区 model/calib_world.xml 有两个不同位姿的相机。\n"
             "请验证两个相机对同一物体的观测一致性（内参/外参标定），"
-            '写进 answer.json：{"consistent": true/false, "detail": {...}}。'
+            '写进 answer.json：{"consistent": true/false, "camera_evidence": ['
+            '{"camera": "cam_a", "segmentation_manifest_ref": "<ref>", "depth_manifest_ref": "<ref>", '
+            '"projected_center_px": [u, v]}, {"camera": "cam_b", "segmentation_manifest_ref": "<ref>", '
+            '"depth_manifest_ref": "<ref>", "projected_center_px": [u, v]}]}。'
+            "两个相机各观测camera_segmentation与camera_depth，保留SIM camera v2 observation manifest和lossless raw NPY。"
+            "同一原始初态/模型，不得改相机；用内外参投影cube中心为像素[u,v]（原点左上，640×480，principal_point=[320,240]）。"
+            "深度是沿相机前向轴的米制距离，分割是[object_id,object_type]，不是PNG预览。"
         ),
     ),
     # ---- Interaction ----
