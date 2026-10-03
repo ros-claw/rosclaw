@@ -27,6 +27,16 @@ function makeRepo(): string {
 	return repo;
 }
 
+test("explicit workspace inside git remains the exact directory on persisted reload", async () => {
+	const repo = makeRepo();
+	const { WorkspaceStore, resolveStartupWorkspace } = await import("../src/session/workspace.js");
+	const home = mkdtempSync(join(tmpdir(), "rh-exact-ws-"));
+	const explicit = join(repo, "src/deep");
+	const bound = resolveStartupWorkspace(new WorkspaceStore(home), explicit, repo);
+	assert.equal(bound.bound, explicit);
+	assert.equal(new WorkspaceStore(home).current, explicit);
+});
+
 test("gitRootOf 归一 + bind/recent/持久化", async () => {
 	const repo = makeRepo();
 	const { gitRootOf } = await import("../src/session/workspace.js");

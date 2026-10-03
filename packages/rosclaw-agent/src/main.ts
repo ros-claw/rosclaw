@@ -142,7 +142,9 @@ async function main(): Promise<number> {
 	// 持久化绑定规则与旧 resolveStartupWorkspace 一致（explicit/git
 	// 会 bind；restored/default 不覆盖既有绑定）。
 	if (taskContext.workspaceSource === "explicit" || taskContext.workspaceSource === "git") {
-		workspaceStore.bind(taskContext.workspaceRoot);
+		// ActiveTaskContext already resolved automatic git roots. Persist the exact
+		// explicit task directory instead of widening it to its enclosing repo.
+		workspaceStore.bind(taskContext.workspaceRoot, { normalizeToGit: false });
 	}
 	const startupWs = { bound: workspaceStore.current, auto: taskContext.workspaceSource === "git" };
 	let initialSession: import("./harness/pi/pi-sessions.js").SessionManager | undefined;

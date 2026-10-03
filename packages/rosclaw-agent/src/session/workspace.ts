@@ -66,13 +66,13 @@ export class WorkspaceStore {
 	}
 
 	/** 绑定（/workspace use 或启动自动绑定）。返回规范化的绝对路径。 */
-	bind(path: string): string {
+	bind(path: string, options: { normalizeToGit?: boolean } = {}): string {
 		const abs = isAbsolute(path) ? resolve(path) : resolve(process.cwd(), path);
 		if (!existsSync(abs)) {
 			throw new Error(`路径不存在：${abs}`);
 		}
 		// git 目录自动归一到 repo root。
-		const root = gitRootOf(abs) ?? abs;
+		const root = options.normalizeToGit === false ? abs : (gitRootOf(abs) ?? abs);
 		this.state.current = root;
 		this.state.recent = [root, ...this.state.recent.filter((r) => r !== root)].slice(0, 10);
 		this.persist();
@@ -96,7 +96,7 @@ export function resolveStartupWorkspace(
 	cwd: string,
 ): { bound: string | null; auto: boolean } {
 	if (explicit) {
-		return { bound: store.bind(explicit), auto: false };
+		return { bound: store.bind(explicit, { normalizeToGit: false }), auto: false };
 	}
 	const repo = gitRootOf(cwd);
 	if (repo) {
