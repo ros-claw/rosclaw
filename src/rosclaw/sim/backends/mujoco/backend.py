@@ -37,8 +37,9 @@ from rosclaw.sim.backends.mujoco import observe as observe_mod
 from rosclaw.sim.backends.mujoco import rollout as rollout_mod
 from rosclaw.sim.backends.mujoco import state, state_v2
 from rosclaw.sim.backends.mujoco.inspect import inspect_model_full
-from rosclaw.sim.backends.mujoco.patch import apply_patches
+from rosclaw.sim.backends.mujoco.patch import apply_patches, serialize_patched_spec
 from rosclaw.sim.backends.mujoco.rollout import DEFAULT_BUDGETS
+from rosclaw.sim.backends.mujoco.step_validity import SimulationDivergedError, runtime_validation
 from rosclaw.sim.capabilities import probe_mujoco_capabilities
 from rosclaw.sim.contracts import (
     AuditResult,
@@ -206,7 +207,7 @@ class MujocoBackend:
 
         child = {
             **manifest,
-            "mjcf_xml": spec.to_xml(),
+            "mjcf_xml": serialize_patched_spec(spec, manifest["mjcf_xml"], patches),
             "parent_model_ref": model_ref,
             "patches": patches,
         }
@@ -606,18 +607,21 @@ class MujocoBackend:
         import mujoco
 
         initial = None
+        initial_controls = [np.zeros(model.nu) for model in models]
         if state_refs is not None:
             fp_size = mujoco.mj_stateSize(models[0], mujoco.mjtState.mjSTATE_FULLPHYSICS)
             vectors = []
-            for ref, state_ref in zip(model_refs, state_refs, strict=True):
+            for index, (ref, state_ref) in enumerate(zip(model_refs, state_refs, strict=True)):
                 meta = self.store.get(state_ref)
                 blob = self.store.get(meta["state_vector_ref"])
                 vector = np.frombuffer(blob, dtype=np.float64)
                 # MH20-A 保真规则：eq_active 是物理状态（约束激活），
                 # native batch 的 FULLPHYSICS 初值无法承载 → 诚实串行
-                # 回退。warmstart/ctrl/sensordata/qacc 是求解脚手架或
-                # 派生量（实测对轨迹零影响），不算物理保真损失。
+                # 回退。ctrl 必须独立保留：hold 继续 caller 的命令，
+                # ctrl_series 初始采样尚未执行首行命令。
+                # warmstart/sensordata/qacc 是求解脚手架或派生量。
                 _, state_data = self.restore_state_v2(ref, state_ref)
+                initial_controls[index] = np.asarray(state_data.ctrl).copy()
                 if np.any(np.asarray(state_data.eq_active, dtype=int) != 0):
                     raise ValueError(
                         "BATCH_STATE_FIDELITY_REQUIRED: state 含 eq_active=1"
@@ -641,24 +645,29 @@ class MujocoBackend:
             raise ValueError(f"SIM_BUDGET_EXCEEDED: steps {resolved_steps} > {merged['max_steps']}")
 
         if plan["kind"] == "ctrl_series":
-            ctrl_rows = np.asarray(plan["rows"], dtype=float)
+            rows = np.asarray(plan["rows"], dtype=float)
+            ctrl_rows = rows[np.minimum(np.arange(resolved_steps), len(rows) - 1)]
+        elif plan["kind"] == "hold":
+            ctrl_rows = np.asarray([np.tile(row, (resolved_steps, 1)) for row in initial_controls])
         else:
-            row = (
-                np.zeros(models[0].nu)
-                if plan["kind"] == "hold"
-                else np.asarray(plan["values"], dtype=float)
-            )
+            row = np.asarray(plan["values"], dtype=float)
             ctrl_rows = np.tile(row, (resolved_steps, 1))
 
         state_trajs, _ = batch_mod.run_batch(models, ctrl_rows=ctrl_rows, initial=initial)
         stride = max(1, -(-resolved_steps // merged["max_record_points"]))
+        # Native rows are post-step: zero-based row stride-1 is serial's
+        # first sampled stride step. Always retain the actual final row.
+        sample_indices = list(range(stride - 1, resolved_steps, stride))
+        if not sample_indices or sample_indices[-1] != resolved_steps - 1:
+            sample_indices.append(resolved_steps - 1)
 
         results = []
         for index, (ref, manifest, model, full_traj) in enumerate(
             zip(model_refs, manifests, models, state_trajs, strict=True)
         ):
+            branch_controls = ctrl_rows[index] if ctrl_rows.ndim == 3 else ctrl_rows
             states = batch_mod.trajectory_to_states(
-                model, full_traj[::stride], ctrl_rows, record_stride=stride
+                model, full_traj[sample_indices], branch_controls[sample_indices], record_stride=1
             )
             # 与串行记录对齐：前置初始状态行（rollout 轨迹只含步后状态）。
             data0 = initial[index] if initial is not None else batch_mod.initial_vectors([model])[0]
@@ -668,7 +677,14 @@ class MujocoBackend:
                     "t": float(data0[0]),
                     "qpos": [float(v) for v in data0[1 : 1 + model.nq]],
                     "qvel": [float(v) for v in data0[1 + model.nq : 1 + model.nq + model.nv]],
-                    "ctrl": [float(v) for v in ctrl_rows[0]],
+                    "ctrl": [
+                        float(v)
+                        for v in (
+                            initial_controls[index]
+                            if plan["kind"] in ("hold", "ctrl_series")
+                            else branch_controls[0]
+                        )
+                    ],
                 },
             )
             digest = rollout_mod.states_digest(states)
@@ -680,7 +696,7 @@ class MujocoBackend:
                 "controller": controller,
                 "steps": resolved_steps,
                 "timestep_s": float(model.opt.timestep),
-                "duration_s": float(full_traj[-1][0]),
+                "duration_s": float(full_traj[-1][0]) - float(data0[0]),
                 "states_digest": digest,
                 "states": states,
             }
@@ -697,6 +713,7 @@ class MujocoBackend:
                 np.asarray(full_traj[-1], dtype=np.float64),
                 mujoco.mjtState.mjSTATE_FULLPHYSICS,
             )
+            data.ctrl[:] = branch_controls[-1]
             mujoco.mj_forward(model, data)
             final_state_ref = self.capture_and_store_v2(ref, model, data)
             results.append(
@@ -825,14 +842,32 @@ class MujocoBackend:
         resolved_steps = rollout_mod.resolve_steps(
             controller, steps=steps, duration_s=duration_s, timestep=float(model.opt.timestep)
         )
-        states, actual_steps = rollout_mod.run_rollout(
-            model, data, plan=plan, steps=resolved_steps, budgets=budgets
+        try:
+            states, actual_steps = rollout_mod.run_rollout(
+                model, data, plan=plan, steps=resolved_steps, budgets=budgets
+            )
+        except SimulationDivergedError as exc:
+            self._persist_rollout_failure(
+                exc,
+                model_ref=model_ref,
+                manifest=manifest,
+                controller=controller,
+                initial_state_ref=initial_state_ref,
+                steps=resolved_steps,
+                timestep=float(model.opt.timestep),
+                seed=seed,
+            )
+            raise
+
+        validation = runtime_validation(
+            data, steps=actual_steps, initial_time=initial_time, timestep=float(model.opt.timestep)
         )
 
         merged = {**rollout_mod.DEFAULT_BUDGETS, **(budgets or {})}
         digest = rollout_mod.states_digest(states)
         record = {
             "kind": "simulation_trace",
+            "runtime_validation": validation,
             "initial_state_ref": initial_state_ref,
             **({"initialization": initialization} if initialization is not None else {}),
             "model_ref": model_ref,
@@ -874,6 +909,7 @@ class MujocoBackend:
             model_digest=self._model_digest(manifest),
             initial_state_ref=initial_state_ref,
             initialization=initialization or {},
+            runtime_validation=validation,
             steps=actual_steps,
             timestep_s=float(model.opt.timestep),
             states_digest=digest,
@@ -1255,13 +1291,30 @@ class MujocoBackend:
             if int(model.actuator_trntype[i]) == int(mujoco.mjtTrn.mjTRN_JOINT)
         ]
         collector = _make_collector(model, data, plan, tracked)
-        states, actual_steps = rollout_mod.run_rollout(
-            model, data, plan=plan, steps=resolved_steps, budgets=budgets, visit=collector.visit
+        try:
+            states, actual_steps = rollout_mod.run_rollout(
+                model, data, plan=plan, steps=resolved_steps, budgets=budgets, visit=collector.visit
+            )
+        except SimulationDivergedError as exc:
+            self._persist_rollout_failure(
+                exc,
+                model_ref=model_ref,
+                manifest=manifest,
+                controller=controller,
+                initial_state_ref=initial_state_ref,
+                steps=resolved_steps,
+                timestep=float(model.opt.timestep),
+                seed=seed,
+            )
+            raise
+        validation = runtime_validation(
+            data, steps=actual_steps, initial_time=initial_time, timestep=float(model.opt.timestep)
         )
         merged = {**rollout_mod.DEFAULT_BUDGETS, **(budgets or {})}
         digest = rollout_mod.states_digest(states)
         record = {
             "kind": "simulation_trace",
+            "runtime_validation": validation,
             "initial_state_ref": initial_state_ref,
             **({"initialization": initialization} if initialization is not None else {}),
             "model_ref": model_ref,
@@ -1329,6 +1382,7 @@ class MujocoBackend:
             "simulation_time_s": float(data.time) - initial_time,
             "success": task_success,  # 兼容字段 ≡ task_success（0915 §三）
             "simulation_valid": simulation_valid,
+            "runtime_validation": validation,
             "physical_audit_pass": physical_audit_pass,
             "task_success": task_success,
             "task_predicates": task_predicates,
@@ -1357,6 +1411,7 @@ class MujocoBackend:
             simulation_time_s=payload["simulation_time_s"],
             success=task_success,
             simulation_valid=simulation_valid,
+            runtime_validation=validation,
             physical_audit_pass=physical_audit_pass,
             task_success=task_success,
             verification_status=verification_status,
@@ -1482,6 +1537,62 @@ class MujocoBackend:
         ).with_digest()
 
     # -- 内部 ---------------------------------------------------------------
+
+    def _persist_rollout_failure(
+        self,
+        exc: SimulationDivergedError,
+        *,
+        model_ref: str,
+        manifest: dict[str, Any],
+        controller: dict[str, Any],
+        initial_state_ref: str,
+        steps: int,
+        timestep: float,
+        seed: int,
+    ) -> None:
+        """Keep rejected execution inspectable without issuing a valid receipt."""
+        binding = {
+            "model_ref": model_ref,
+            "model_digest": self._model_digest(manifest),
+            "initial_state_ref": initial_state_ref,
+            "controller": controller,
+            "action_digest": content_hash("simact", controller),
+            "requested_steps": steps,
+            "timestep_s": timestep,
+            "seed": seed,
+        }
+        message = str(exc)
+        trace = {
+            "kind": "failed_simulation_trace",
+            "schema_version": "rosclaw.sim.failed_trace.v1",
+            **binding,
+            **exc.diagnostic,
+            "outcome": "FAILED",
+            "simulation_valid": False,
+            "failure_code": "SIM_DIVERGED",
+            "failure_message": message,
+        }
+        trace_ref = self.store.put("traces", trace)
+        failure_ref = self.store.put(
+            "experiments",
+            {
+                "kind": "simulation_failure",
+                "schema_version": "rosclaw.sim.failure.v1",
+                "backend": "mujoco",
+                "backend_version": manifest["backend_version"],
+                **binding,
+                "trace_ref": trace_ref,
+                "outcome": "FAILED",
+                "simulation_valid": False,
+                "physical_audit_pass": None,
+                "task_success": None,
+                "failure_code": "SIM_DIVERGED",
+                "failure_message": message,
+                "trust_level": "SIMULATED",
+                "usable_for_real_execution": False,
+            },
+        )
+        exc.args = (f"{message}; failure_ref={failure_ref} trace_ref={trace_ref}",)
 
     def _manifest(self, model_ref: str) -> dict[str, Any]:
         manifest = self.store.get(model_ref)  # REF_NOT_FOUND / 篡改 fail closed
