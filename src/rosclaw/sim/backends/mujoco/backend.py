@@ -37,7 +37,7 @@ from rosclaw.sim.backends.mujoco import observe as observe_mod
 from rosclaw.sim.backends.mujoco import rollout as rollout_mod
 from rosclaw.sim.backends.mujoco import state, state_v2
 from rosclaw.sim.backends.mujoco.inspect import inspect_model_full
-from rosclaw.sim.backends.mujoco.patch import apply_patches
+from rosclaw.sim.backends.mujoco.patch import apply_patches, serialize_patched_spec
 from rosclaw.sim.backends.mujoco.rollout import DEFAULT_BUDGETS
 from rosclaw.sim.capabilities import probe_mujoco_capabilities
 from rosclaw.sim.contracts import (
@@ -206,7 +206,7 @@ class MujocoBackend:
 
         child = {
             **manifest,
-            "mjcf_xml": spec.to_xml(),
+            "mjcf_xml": serialize_patched_spec(spec, manifest["mjcf_xml"], patches),
             "parent_model_ref": model_ref,
             "patches": patches,
         }

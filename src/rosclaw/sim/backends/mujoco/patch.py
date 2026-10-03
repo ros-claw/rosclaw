@@ -12,6 +12,7 @@ P0 只开放 ``set`` 白名单；``add`` / ``remove`` / ``attach`` 显式
 from __future__ import annotations
 
 import math
+import xml.etree.ElementTree as ET
 from typing import Any
 
 _TARGET_COLLECTIONS = {
@@ -105,6 +106,58 @@ def _set_density(element, value: Any) -> None:  # noqa: ANN001, ANN202
     if density < 0:
         raise ValueError(f"MODEL_PATCH_INVALID: geom.density must be >= 0, got {density}")
     element.density = density
+    # MuJoCo gives explicit mass priority over density. Restore its unset
+    # sentinel so a density patch actually changes the geometry's mass.
+    element.mass = math.nan
+
+
+def serialize_patched_spec(spec, source_xml: str, patches: list[dict[str, Any]]) -> str:  # noqa: ANN001
+    """Keep explicit mass provenance when MjSpec elides default-equivalent values.
+
+    Never materialize implicit default density as authored evidence. Finite
+    MjSpec mass is an authored mass (possibly inherited from a declared default);
+    default density is restored only for source declarations or explicit patches.
+    All geometry identities must match the serializer's ordered spec elements.
+    """
+    serialized = ET.fromstring(spec.to_xml())
+    world = serialized.find("worldbody")
+    xml_geoms = list(world.iter("geom")) if world is not None else []
+    spec_geoms = list(spec.geoms)
+    if len(xml_geoms) != len(spec_geoms) or any(
+        xml_geom.get("name", "") != spec_geom.name
+        for xml_geom, spec_geom in zip(xml_geoms, spec_geoms, strict=True)
+    ):
+        raise ValueError("MODEL_COMPILE_FAILED: serialized geometry identities changed")
+
+    source_world = ET.fromstring(source_xml).find("worldbody")
+    source_geoms = list(source_world.iter("geom")) if source_world is not None else []
+    named_density = {
+        geom.get("name")
+        for geom in source_geoms
+        if geom.get("name") and geom.get("density") is not None
+    }
+    patched_density = {
+        patch["target"]["name"]
+        for patch in patches
+        if patch["target"].get("type") == "geom" and patch["field"] == "density"
+    }
+    # Anonymous source geoms can be aligned only when the full identity sequence
+    # is unchanged. Expanded include/replicate sources must not be guessed.
+    source_aligned = len(source_geoms) == len(spec_geoms) and all(
+        source_geom.get("name", "") == spec_geom.name
+        for source_geom, spec_geom in zip(source_geoms, spec_geoms, strict=True)
+    )
+    for index, (xml_geom, spec_geom) in enumerate(zip(xml_geoms, spec_geoms, strict=True)):
+        mass = float(spec_geom.mass)
+        if math.isfinite(mass):
+            xml_geom.set("mass", format(mass, ".17g"))
+        elif (
+            spec_geom.name in named_density
+            or spec_geom.name in patched_density
+            or (source_aligned and source_geoms[index].get("density") is not None)
+        ):
+            xml_geom.set("density", format(float(spec_geom.density), ".17g"))
+    return ET.tostring(serialized, encoding="unicode")
 
 
 def _set_rgba(element, value: Any) -> None:  # noqa: ANN001, ANN202

@@ -75,3 +75,23 @@ directory together with any different saved selection. The current header is
 not changed to imply a live switch. A new command regression checks the on-disk
 selection, frozen task root, header and both messages; 19 related tests pass.
 Atomic live workspace/task/session migration remains unimplemented.
+
+## Model patch mass provenance
+
+An actual Kimi repair attempt exposed MuJoCo 3.13 `MjSpec.to_xml()` eliding
+explicit mass/density when its physical value equals the compiler default.
+For a box of half-size 0.06 m, explicit mass 1.728 kg or density 1000 kg/m³
+was omitted after even an unrelated RGBA patch; `A02_explicit_mass` then
+rejected the descendant. Another fixture showed density patches were ineffective
+when a previous explicit mass remained, because MuJoCo gives mass precedence.
+
+Structured patch serialization now preserves finite authored mass and source-
+or patch-declared density, while leaving originally implicit default-density
+geometry implicit. Geometry identity/order must match the compiled spec; no
+guessing or globally adding density is used to silence A02. Setting density
+clears the old mass with MuJoCo's unset sentinel. Patch lineage and parent bytes
+remain unchanged. Six new fixtures independently recompile saved child XML and
+check body mass, declarations, lineage, unrelated-patch behavior and mass/density
+precedence. Five were red before the fix; all six now pass. The relevant patch,
+geometry and determinism cohort has 42 passing tests; Ruff and two-module mypy
+checks pass. No robot controller or physical rollout was authored here.
