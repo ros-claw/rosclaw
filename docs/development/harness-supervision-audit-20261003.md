@@ -343,3 +343,27 @@ Compiled PID truth uses control addresses/counts and signature bits described
 in the [official MuJoCo model header](https://github.com/google-deepmind/mujoco/blob/main/include/mujoco/mjmodel.h)
 and [input enum header](https://github.com/google-deepmind/mujoco/blob/main/include/mujoco/mjtype.h),
 checked against the installed 3.13.0 headers.
+
+PID inspection also exposed real product metadata defects on MuJoCo 3.13.0:
+proportional gain was reported as zero for a PID actuator, and the actuator after
+a multi-input PID read its range using the actuator ordinal instead of its
+compiled control address. Inspection now reports the correct PID gain, control
+address/count/per-channel ranges, and distinguishes actuator count from control
+channel count in the Chinese summary. A mixed PID/position test failed before
+repair; inspection/control/model-patch/scenario regression passed 38 tests.
+
+The new declared shallow/rising INIT protocol produced bilateral net-clear shots
+and actual receiver contacts; a center-plane projection can miss a real collision
+because the ball reverses before reaching that plane. Subsequent native ROSClaw
+two-sided station smoke produced two clean alternating contacts in each case.
+Independent review checked all-ms ball continuity and momentum, actual-owner
+contact/exit episodes, directional net/bounce links, hashes and full-state frames.
+Neither case establishes three contacts. One missed third swing has a recorded
+rearm-state defect; it is not evidence of a physical upper bound. Scene code and
+experiments remain authored by ROSClaw, not the supervisor.
+
+The fourth native automatic compaction completed from 256,111 tokens. Its summary
+covers the older prefix through the progress-v5 period; the newer contrast,
+shallow INIT and v17 implementation records remain in the retained suffix.
+This boundary was independently checked against firstKeptEntryId, rather than
+mistaking an older-prefix summary for loss of the newer results.

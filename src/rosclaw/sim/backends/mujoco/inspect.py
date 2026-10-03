@@ -55,12 +55,15 @@ def inspect_model_full(model, *, model_digest: str = "", spec=None) -> dict[str,
         biastype = mujoco.mjtBias(model.actuator_biastype[i])
         kp = 0.0
         kv = 0.0
-        if gaintype == mujoco.mjtGain.mjGAIN_FIXED:
+        if gaintype in (mujoco.mjtGain.mjGAIN_FIXED, mujoco.mjtGain.mjGAIN_PID):
             kp = float(model.actuator_gainprm[i][0])
             if kp == 0.0 and biastype == mujoco.mjtBias.mjBIAS_AFFINE:
                 kp = -float(model.actuator_biasprm[i][1])
         if biastype == mujoco.mjtBias.mjBIAS_AFFINE:
             kv = -float(model.actuator_biasprm[i][2])
+        # 3.13 ctrl ranges are indexed by control channel, not actuator.
+        ctrl_addr = int(model.actuator_ctrladr[i]) if hasattr(model, "actuator_ctrladr") else i
+        ctrl_count = int(model.actuator_ctrlnum[i]) if hasattr(model, "actuator_ctrlnum") else 1
         actuators_detail.append(
             {
                 "name": _name(model, mujoco.mjtObj.mjOBJ_ACTUATOR, i, f"actuator_{i}"),
@@ -71,8 +74,14 @@ def inspect_model_full(model, *, model_digest: str = "", spec=None) -> dict[str,
                 if joint_id >= 0
                 else "",
                 "ctrlrange": [
-                    float(model.actuator_ctrlrange[i][0]),
-                    float(model.actuator_ctrlrange[i][1]),
+                    float(model.actuator_ctrlrange[ctrl_addr][0]),
+                    float(model.actuator_ctrlrange[ctrl_addr][1]),
+                ],
+                "ctrl_addr": ctrl_addr,
+                "ctrl_count": ctrl_count,
+                "ctrlranges": [
+                    [float(v) for v in model.actuator_ctrlrange[j]]
+                    for j in range(ctrl_addr, ctrl_addr + ctrl_count)
                 ],
                 "forcerange": [
                     float(model.actuator_forcerange[i][0]),
@@ -207,6 +216,7 @@ def inspect_model_full(model, *, model_digest: str = "", spec=None) -> dict[str,
         "nq": int(model.nq),
         "nv": int(model.nv),
         "nu": int(model.nu),
+        "nactuator": int(model.actuator_trnid.shape[0]),
         "body_tree": _tree(0),
         "bodies": bodies,
         "joints_detail": joints_detail,
@@ -287,7 +297,8 @@ def summarize_cn(detail: dict[str, Any]) -> str:
     return (
         f"该模型有 {detail['njnt']} 个关节（{type_desc}），"
         f"{detail['nq']} 个广义坐标、{detail['nv']} 个自由度速度维、"
-        f"{detail['nu']} 个执行器；"
+        f"{detail.get('nactuator', len(detail['actuators_detail']))} 个执行器、"
+        f"{detail['nu']} 个控制通道；"
         f"{'有' if gripper else '无'}夹爪执行器；"
         f"相机：{cameras}；site：{sites}；"
         f"timestep={detail['options']['timestep']}，"

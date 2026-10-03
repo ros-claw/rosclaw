@@ -81,3 +81,23 @@ def test_setpoints_unknown_target_rejected(pid_backend) -> None:
         backend.rollout(
             ref.model_ref, controller={"setpoints": {"shoulder_pid": {"torque": 1.0}}}, steps=10
         )
+
+
+def test_pid_metadata_and_following_actuator_use_compiled_control_address(tmp_path):
+    from rosclaw.sim.backends.mujoco.backend import MujocoBackend
+
+    xml = PID_MODEL.replace(
+        'name="extra_pos" joint="shoulder" kp="5"',
+        'name="extra_pos" joint="shoulder" kp="5" ctrlrange="-.4 .4"',
+    )
+    (tmp_path / 'mixed.xml').write_text(xml)
+    backend = MujocoBackend(tmp_path)
+    ref = backend.load_model('mixed.xml')
+    detail = backend.inspect_model(ref.model_ref).detail
+    pid, extra = detail['actuators_detail']
+    assert pid['kp'] == pytest.approx(10)
+    assert pid['kv'] == pytest.approx(.5)
+    assert extra['ctrlrange'] == pytest.approx([-.4, .4])
+    assert detail['nactuator'] == 2 and detail['nu'] == 3
+    assert '2 个执行器' in detail['summary_cn']
+    assert '3 个控制通道' in detail['summary_cn']
