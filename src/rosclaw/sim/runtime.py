@@ -112,7 +112,7 @@ class SimulationRuntime:
             steps=steps,
             seed=seed,
             task_predicates=task_predicates,
-            **({"budgets": budgets} if budgets is not None else {}),
+            budgets=budgets,
         ).to_canonical_dict()
 
     def audit(
@@ -125,6 +125,10 @@ class SimulationRuntime:
         return self._backend.audit(
             model_ref, checks=checks, trace_ref=trace_ref
         ).to_canonical_dict()
+
+    def strict_replay(self, receipt_ref: str) -> dict[str, Any]:
+        """Replay the exact immutable receipt; RAW_EXACT and SEMANTIC stay distinct."""
+        return self._backend.strict_replay(receipt_ref)
 
     def compare(self, receipt_refs: list[str]) -> dict[str, Any]:
         return self._backend.compare_experiments(receipt_refs).to_canonical_dict()

@@ -21,6 +21,7 @@ EXPECTED_SIM_TOOLS = (
     "sim_snapshot",
     "sim_observe",
     "sim_rollout",
+    "sim_strict_replay",
     "sim_audit",
     "sim_compare",
     "sim_render",

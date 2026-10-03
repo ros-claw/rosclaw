@@ -428,6 +428,7 @@ class RuntimeClient:
         task_predicates: list[dict[str, Any]] | None = None,
         keyframe: str | None = None,
         keyframe_ref: str | None = None,
+        max_record_points: int | None = None,
     ) -> dict[str, Any]:
         if self.fixture_mode:
             return self._fixture_payload(
@@ -436,6 +437,14 @@ class RuntimeClient:
                     "usable_for_real_execution": False,
                     "note": "fixture mode; no physics was executed.",
                 }
+            )
+        if max_record_points is not None and (
+            type(max_record_points) is not int or not 1 <= max_record_points <= 100000
+        ):
+            self._unavailable(
+                "sim_rollout",
+                "max_record_points must be integer 1..100000",
+                code="SIM_RECORDING_INVALID",
             )
         return self._sim_call(
             "sim_rollout",
@@ -449,7 +458,23 @@ class RuntimeClient:
             task_predicates=task_predicates,
             keyframe=keyframe,
             keyframe_ref=keyframe_ref,
+            **(
+                {"budgets": {"max_record_points": max_record_points}}
+                if max_record_points is not None
+                else {}
+            ),
         )
+
+    async def sim_strict_replay(self, receipt_ref: str) -> dict[str, Any]:
+        if self.fixture_mode:
+            return self._fixture_payload(
+                {
+                    "verified": False,
+                    "replay_status": "NOT_RUN",
+                    "note": "fixture mode; no physics replay executed.",
+                }
+            )
+        return self._sim_call("sim_strict_replay", self._sim().strict_replay, receipt_ref)
 
     async def sim_audit(
         self,
