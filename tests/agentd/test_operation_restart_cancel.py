@@ -29,7 +29,7 @@ async def test_same_session_member_proof_failure_is_unresolved(ledger, monkeypat
     manager = OperationManager(None, conn)
     marker = root / 'member.pid'
     child = ('import os,time; from pathlib import Path; '
-             f'Path({str(marker)!r}).write_text(str(os.getpid())); time.sleep(60)')
+             f'p=Path({str(marker)!r}); tmp=p.with_suffix(".tmp"); tmp.write_text(str(os.getpid())); tmp.replace(p); time.sleep(60)')
     parent = f'import subprocess,sys,time; subprocess.Popen([sys.executable,"-c",{child!r}]); time.sleep(60)'
     op = await manager.start(task_id='t', attempt_id='', kind='process',
                              argv=[sys.executable, '-c', parent], cwd=str(root))
@@ -77,7 +77,7 @@ async def test_gnu_timeout_different_pgid_same_owned_session_stops(ledger, monke
     marker = root / 'timeout-child.pid'
     child = ('import os,signal,time; from pathlib import Path; '
              'signal.signal(signal.SIGTERM,signal.SIG_IGN); '
-             f'Path({str(marker)!r}).write_text(str(os.getpid())); time.sleep(60)')
+             f'p=Path({str(marker)!r}); tmp=p.with_suffix(".tmp"); tmp.write_text(str(os.getpid())); tmp.replace(p); time.sleep(60)')
     op = await first.start(task_id='t', attempt_id='', kind='process',
                            argv=[timeout, '-k', '10s', '-s', 'TERM', '60s',
                                  sys.executable, '-c', child], cwd=str(root))
@@ -216,7 +216,7 @@ async def test_recovered_group_child_ignoring_term_is_stopped_and_zombie_not_ali
     marker = root / 'child.json'
     child = ('import os,signal,time; from pathlib import Path; '
              'signal.signal(signal.SIGTERM,signal.SIG_IGN); '
-             f'Path({str(marker)!r}).write_text(str(os.getpid())); time.sleep(60)')
+             f'p=Path({str(marker)!r}); tmp=p.with_suffix(".tmp"); tmp.write_text(str(os.getpid())); tmp.replace(p); time.sleep(60)')
     parent = f'import subprocess,sys,time; subprocess.Popen([sys.executable,"-c",{child!r}]); time.sleep(60)'
     op = await first.start(task_id='t', attempt_id='', kind='process',
                            argv=[sys.executable, '-c', parent], cwd=str(root))
