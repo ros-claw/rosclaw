@@ -51,15 +51,23 @@ class TestProcessStartGuidance:
             idempotency_key="idem_pr3_start",
         )
         res = await disp._process_start(req)
-        summary = res.summary
-        assert "结束" in summary and "回合" in summary, (
-            f"summary 未指引结束回合: {summary}"
-        )
-        assert "推送" in summary or "通知" in summary
-        assert "轮询" in summary or "sleep" in summary.lower(), (
-            f"summary 未明确禁止轮询/sleep: {summary}"
-        )
-        await service.close()
+        try:
+            summary = res.summary
+            assert "结束" in summary and "回合" in summary, (
+                f"summary 未指引结束回合: {summary}"
+            )
+            assert "推送" in summary or "通知" in summary
+            assert "轮询" in summary or "sleep" in summary.lower(), (
+                f"summary 未明确禁止轮询/sleep: {summary}"
+            )
+        finally:
+            # start() returns before its observer runs. Reap this test's finite
+            # job before closing its DB/event loop; service.close() is not an
+            # operation-completion barrier (live operations support reattach).
+            try:
+                await service._operation_manager.wait(res.operation["operation_id"])
+            finally:
+                await service.close()
 
 
 class TestResumeReportOperations:
