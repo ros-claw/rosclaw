@@ -187,7 +187,7 @@ export class ProviderStallWatchdog {
 		// 0902 复核 M8：回调异常不得崩扩展宿主（setTimeout 回调里
 		// 裸调 = uncaught exception）。
 		try {
-			this.opts.notice(`Provider 无响应（${reason}）——已取消本次请求，可重发`);
+			this.opts.notice(`Provider 无响应（${reason}）——请求取消本次模型请求；取消是否完成以实际回合状态为准`);
 		} catch {
 			// 通知失败不阻断取消。
 		}

@@ -52,3 +52,30 @@ test("end while paused leaves no delayed resume cancellation", async () => {
 	wd.turnStarted(); wd.pauseForTool(); wd.pauseForUser(); wd.turnEnded(); wd.resumeFromUser(); wd.resumeFromTool();
 	await wait(90); assert.equal(aborts(), 0); assert.equal(notices.length, 0);
 });
+
+for (const mode of ["missing abort API", "abort callback throws"] as const) {
+	test(`stall notice describes a cancellation request when ${mode}`, async () => {
+		const notices: string[] = [];
+		let requests = 0;
+		const watchdog = new ProviderStallWatchdog({
+			notice: text => notices.push(text),
+			stallAbort: () => {
+				requests++;
+				if (mode === "abort callback throws") throw Error("abort transport unavailable");
+				// Contexts without abort can only request manual interruption.
+			},
+			firstTokenNoticeMs: 10, firstTokenAbortMs: 30,
+		});
+		watchdog.turnStarted();
+		try {
+			await wait(80);
+			assert.equal(requests, 1, "deadline must still attempt cancellation once");
+			const terminal = notices.find(text => text.startsWith("Provider 无响应"));
+			assert.ok(terminal, "stall deadline must remain visible");
+			assert.ok(!terminal.includes("已取消"), "unconfirmed cancellation cannot be reported as complete");
+			assert.ok(terminal.includes("请求取消"));
+			await wait(50);
+			assert.equal(requests, 1, "callback failure cannot start an abort loop");
+		} finally { watchdog.turnEnded(); }
+	});
+}
