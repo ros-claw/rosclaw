@@ -74,3 +74,13 @@ suite: 358 passed. The existing missing `asyncio_mode` pytest plugin warning
 remains. These are numerical tests, not native rollout qualification or a
 claim of improved robot control. Actual downstream trained models still need
 separate reference-parity evidence before use in simulation proposals.
+
+`bounded_response_proposal` is a separate numerical local-quadratic primitive:
+it accepts finite bounded response matrices, error vectors and objective
+weights, solves a regularized system and clips the numerical increment. A
+predicted cost regression is rejected back to zero. Every output explicitly
+denies physical validation, runtime execution, promotion and hardware
+authorization. State meaning, temporal slew limits, frozen-skill protection,
+actual model validity and physical replay belong downstream. No robot order,
+football rule or simulator is embedded. Seven focused tests pass; the complete
+Growth suite now has 365 passing tests, with the same existing plugin warning.
