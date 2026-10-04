@@ -8,6 +8,8 @@ No simulator, checkpoint, robot, activation, or executor is accessed here.
 
 from __future__ import annotations
 
+import os
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -29,9 +31,15 @@ class ProposalAdvantageRegressionConfig(ResidualGradientConfig):
     maximum_weight: float = 20.0
     maximum_mean_kl: float = 0.005
     execution_ceiling: str = "PROPOSAL_ONLY_NO_RUNTIME"
+    compute_device: str = "cpu"
 
     def validate(self) -> None:
         super().validate()
+        if (
+            type(self.compute_device) is not str
+            or re.fullmatch(r"cpu|cuda:[0-9]{1,2}", self.compute_device) is None
+        ):
+            raise ValueError("explicit bounded numeric compute device required")
         for name, lower, upper in (("temperature", 0.1, 5.0), ("maximum_weight", 1.0, 20.0)):
             value = getattr(self, name)
             if (
@@ -161,13 +169,26 @@ def fit_proposal_advantage_residual(
             weights = weights / weights.mean()
     import torch
 
+    devices = []
+    if config.compute_device != "cpu":
+        if os.environ.get("CUBLAS_WORKSPACE_CONFIG") not in {":4096:8", ":16:8"}:
+            raise ValueError(
+                "explicit deterministic cuBLAS configuration required before GPU fitting"
+            )
+        index = int(config.compute_device.split(":")[1])
+        if not torch.cuda.is_available() or index >= torch.cuda.device_count():
+            raise ValueError("requested numeric CUDA device unavailable")
+        devices = [index]
     threads = torch.get_num_threads()
     deterministic = torch.are_deterministic_algorithms_enabled()
     warn_only = torch.is_deterministic_algorithms_warn_only_enabled()
     try:
-        with torch.random.fork_rng(devices=[]):
+        with torch.random.fork_rng(devices=devices):
             torch.set_num_threads(4)
             torch.random.default_generator.manual_seed(config.seed)
+            if devices:
+                with torch.cuda.device(devices[0]):
+                    torch.cuda.manual_seed(config.seed)
             torch.use_deterministic_algorithms(True)
             result = _fit(
                 torch,
@@ -184,6 +205,9 @@ def fit_proposal_advantage_residual(
             )
             if weighting_receipt is not None:
                 result["sample_weighting"] = weighting_receipt
+            if devices:
+                result["compute_device"] = config.compute_device
+                result["cross_device_bit_identity_claimed"] = False
             return result
     finally:
         torch.set_num_threads(threads)
@@ -203,16 +227,17 @@ def _fit(
     weights: Any,
     config: ProposalAdvantageRegressionConfig,
 ) -> dict[str, Any]:
-    w = [torch.nn.Parameter(torch.tensor(v[0], dtype=torch.float64, device="cpu")) for v in layers]
-    b = [torch.nn.Parameter(torch.tensor(v[1], dtype=torch.float64, device="cpu")) for v in layers]
+    device = config.compute_device
+    w = [torch.nn.Parameter(torch.tensor(v[0], dtype=torch.float64, device=device)) for v in layers]
+    b = [torch.nn.Parameter(torch.tensor(v[1], dtype=torch.float64, device=device)) for v in layers]
     parameters = w + b
     optimizer = torch.optim.Adam(parameters, lr=config.learning_rate)
     inp, frozen_base, frozen_gate, desired, noise, marginal_noise, importance = [
-        torch.tensor(v, dtype=torch.float64, device="cpu")
+        torch.tensor(v, dtype=torch.float64, device=device)
         for v in (x, base, gate[:, None], action, innovation[:, None], marginal[:, None], weights)
     ]
-    first_mask = torch.tensor(resets[:, None], device="cpu")
-    prev_action = torch.tensor(np.roll(action, 1, axis=0), dtype=torch.float64, device="cpu")
+    first_mask = torch.tensor(resets[:, None], device=device)
+    prev_action = torch.tensor(np.roll(action, 1, axis=0), dtype=torch.float64, device=device)
 
     def mean() -> Any:
         hidden = inp
@@ -274,8 +299,8 @@ def _fit(
             break
     if len(history) == 1:
         raise ValueError("no actual advantage-regression update")
-    final = mean().detach().numpy()
-    old = original.numpy()
+    final = mean().detach().cpu().numpy()
+    old = original.cpu().numpy()
     ckl = float(
         np.mean(
             np.sum(
@@ -295,7 +320,10 @@ def _fit(
     return {
         "algorithm": "PROPOSAL_TRUST_REGION_ADVANTAGE_REGRESSION_V1",
         "layers": [
-            {"weight": weight.detach().numpy().tolist(), "bias": bias.detach().numpy().tolist()}
+            {
+                "weight": weight.detach().cpu().numpy().tolist(),
+                "bias": bias.detach().cpu().numpy().tolist(),
+            }
             for weight, bias in zip(w, b, strict=True)
         ],
         "execution_ceiling": config.execution_ceiling,
