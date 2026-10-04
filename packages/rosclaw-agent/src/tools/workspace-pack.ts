@@ -120,6 +120,8 @@ export function _sensitiveMasks(homeDir: string, rosclawHome?: string): string[]
 	return args;
 }
 
+class PathScopeError extends Error {}
+
 export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefinition[] {
 	const root = options.root;
 	const scrubbedEnv = scrubEnv(process.env);
@@ -136,14 +138,32 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 				lastErr = err as Error;
 			}
 		}
-		throw lastErr ?? new Error(`path escapes workspace: ${target}`);
+		throw new PathScopeError(lastErr?.message ?? `path escapes workspace: ${target}`);
 	};
 
-	const denied = (reason: string) => ({
+	const denied = (reason: string, diagnostic: Record<string, unknown> = {}) => ({
 		content: [{ type: "text" as const, text: `DENIED: ${reason}` }],
-		details: { error: "denied", reason } as Record<string, unknown>,
+		details: { error: "denied", reason, ...diagnostic } as Record<string, unknown>,
 		isError: true,
 	});
+
+
+	const fileDiagnostic = (target: string, resolvedTarget?: string) => ({
+		workspace_root: resolve(root),
+		requested_path: target,
+		...(resolvedTarget ? { resolved_target: resolvedTarget } : {}),
+		allowed_roots: [root, ...(options.extraRoots?.() ?? [])].map(r => resolve(r)),
+		// Lexical attempts only: a denied symlink is not an authorized target.
+		attempted_targets: [root, ...(options.extraRoots?.() ?? [])].map(r => resolve(r, target)),
+	});
+	const fileFailure = (err: unknown, target: string, resolvedTarget?: string) => {
+		const diagnostic = fileDiagnostic(target, resolvedTarget);
+		const code = err instanceof PathScopeError ? "PATH_SCOPE_DENIED" : "FILE_IO_ERROR";
+		return denied(`${code}: ${(err as Error).message}; workspace_root=${diagnostic.workspace_root}; `
+			+ `target=${resolvedTarget ?? diagnostic.attempted_targets.join(", ")}. `
+			+ "Shell cd does not change the file-tool root. Read access does not grant write/edit scope.",
+			{ code, ...diagnostic });
+	};
 
 	const bashTool = defineTool({
 		name: "bash",
@@ -353,7 +373,9 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 	const writeTool = defineTool({
 		name: "write",
 		label: "write (workspace)",
-		description: "Create/overwrite a file inside the project workspace (path-checked).",
+		description: "Create/overwrite a file inside the project workspace (path-checked). " +
+			"Relative paths are tried under the session workspace root then allowed task roots, not an earlier read path or shell cd. " +
+			"Use an explicit allowed target; read access does not grant write scope.",
 		parameters: Type.Object({
 			path: Type.String(),
 			content: Type.String(),
@@ -361,8 +383,9 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 		async execute(_id, params) {
 			// P0-C：首个 effectful call 的原子 admission。
 			await options.beforeEffect?.();
+			let p: string | undefined;
 			try {
-				const p = resolveAllowed(String(params.path));
+				p = resolveAllowed(String(params.path));
 				// 0903（§4.4）：产品核心源码只读——普通任务不得修改
 				// 正在运行的产品（改产品走开发流程：clone+PR）。
 				if (isProductSourcePath(p)) {
@@ -379,7 +402,7 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 					details: { path: p },
 				};
 			} catch (err) {
-				return denied((err as Error).message);
+				return fileFailure(err, String(params.path), p);
 			}
 		},
 	});
@@ -389,7 +412,8 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 		label: "edit (workspace)",
 		description:
 			"Replace exact text in a file inside the project workspace " +
-			"(path-checked; oldText must match exactly once).",
+			"(path-checked; oldText must match exactly once). Relative paths use the session " +
+			"workspace root then allowed task roots, not an earlier read path or shell cd. Read access does not grant edit scope.",
 		parameters: Type.Object({
 			path: Type.String(),
 			oldText: Type.String(),
@@ -398,8 +422,9 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 		async execute(_id, params) {
 			// P0-C：首个 effectful call 的原子 admission。
 			await options.beforeEffect?.();
+			let p: string | undefined;
 			try {
-				const p = resolveAllowed(String(params.path));
+				p = resolveAllowed(String(params.path));
 				if (isProductSourcePath(p)) {
 					return denied(
 						"拒绝编辑：目标是正在运行的 ROSClaw 产品核心源码（§4.4）"
@@ -410,7 +435,12 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 				const oldText = String(params.oldText);
 				const occurrences = text.split(oldText).length - 1;
 				if (occurrences !== 1) {
-					return denied(`oldText 出现 ${occurrences} 次（必须恰好 1 次）`);
+					const code = occurrences === 0 ? "EDIT_OLD_TEXT_NOT_FOUND" : "EDIT_OLD_TEXT_NOT_UNIQUE";
+					return denied(`${code}: oldText 出现 ${occurrences} 次（必须恰好 1 次）; `
+						+ `workspace_root=${resolve(root)}; resolved_target=${p}. `
+						+ "Shell cd does not change the file-tool root. Read this exact target before retrying; "
+						+ "an earlier absolute read may refer to a different file.",
+						{ code, occurrences, ...fileDiagnostic(String(params.path), p) });
 				}
 				writeFileSync(p, text.replace(oldText, String(params.newText)), "utf-8");
 				return {
@@ -418,7 +448,7 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 					details: { path: p },
 				};
 			} catch (err) {
-				return denied((err as Error).message);
+				return fileFailure(err, String(params.path), p);
 			}
 		},
 	});
