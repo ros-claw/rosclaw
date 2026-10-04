@@ -628,3 +628,39 @@ Terminal/toolbridge/cancel propagation Python cohort: **34 PASS** under
 unraisable-warning-as-error. Ruff and mypy for both changed Python sources pass.
 Full package build + Node suite against installed PI 1.0.1: **312 PASS,
 3 SKIP (315 total)**. No live process/session restart was required.
+
+## Current terminal reasons and task revision boundaries (2026-10-04)
+
+Read-only production inspection found RUNNING tasks whose current
+`terminal_reason` still said `verification_passed`. This inspection does not
+establish which historical transition originally populated either live row.
+The source-level retention mechanism is independently reproducible: ordinary
+transitions used `COALESCE` to preserve an old reason on empty input, while an
+active task revision updated its revision without clearing the reason.
+
+The private file-backed SQLite fixtures reproduce persisted legacy values and
+exercise real TaskKernel transitions/input transactions. The initial 21 cases
+produced **19 FAIL, 2 PASS** before the fix. Active transitions now clear the
+current terminal reason; their explanations remain in immutable state-change
+events. Entering a terminal state stores only that transition's explicit
+reason (empty means unknown, not an inherited success). A new active revision
+also clears the current reason. No database migration or retroactive cleanup
+is performed: existing live rows change only through future legitimate task
+transitions/input revisions after deployment.
+
+BLOCKED is still terminal under the actual TaskKernel state machine. Its own
+reason supports TaskCoordinator's failure reconstruction; attempts to resume
+it via generic `transition(..., RUNNING)` remain rejected. Successful tasks
+still reopen through the existing user-correction transaction. Tests retain
+old events byte-for-byte and revision outcome JSON unchanged, verify BLOCKED
+outcome replay, and preserve message-id idempotency and waiting task state.
+Historical outcome rows used in the revision preservation fixtures are
+explicit private sentinels, not claimed production verification receipts.
+An additional public-transition fixture checks that a waiting explanation
+cannot become the reason for a later unexplained failure.
+
+Validation: **22 new fixtures PASS; 50 PASS** for the combined task kernel,
+terminal-reason replay, verifier, no-false-success and terminal-authority
+cohort, with unraisable warnings treated as errors. Ruff and source mypy pass.
+No live task/session/database/queue was modified or notified. This task-only
+patch does not add new evidence about runtime operation-notification ACKs.

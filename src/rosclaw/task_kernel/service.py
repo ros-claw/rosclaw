@@ -286,7 +286,8 @@ class TaskKernel:
                  revised_spec.model_dump_json(), now),
             )
             self._conn.execute(
-                "UPDATE tasks SET active_revision = ?, updated_at = ? "
+                "UPDATE tasks SET active_revision = ?, terminal_reason = NULL, "
+                "updated_at = ? "
                 "WHERE task_id = ?",
                 (revision, now, active["task_id"]),
             )
@@ -452,10 +453,14 @@ class TaskKernel:
         now = datetime.now(UTC).isoformat()
         self._conn.execute(
             "UPDATE tasks SET state = ?, updated_at = ?, "
-            "terminal_reason = COALESCE(NULLIF(?, ''), terminal_reason), "
+            "terminal_reason = ?, "
             "accepted_at = CASE WHEN ? = 'SUCCEEDED' THEN ? ELSE accepted_at END "
             "WHERE task_id = ?",
-            (state, now, reason, state, now if state == "SUCCEEDED" else "",
+            # Current terminal evidence belongs only to this transition. Active
+            # reasons remain in task.state_changed events, not terminal_reason.
+            # Empty terminal reasons must not inherit a previous success/block.
+            (state, now, (reason or None) if state in TASK_TERMINAL else None,
+             state, now if state == "SUCCEEDED" else "",
              task_id),
         )
         self._emit(task_id, "task.state_changed",
