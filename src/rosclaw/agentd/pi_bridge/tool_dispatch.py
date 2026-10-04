@@ -879,10 +879,13 @@ class PiToolDispatcher:
             operation={key: op.get(key) for key in ("operation_id", "task_id", "revision", "state")},
             summary=(
                 f"Operation 已启动：{op['operation_id']}（后台运行）。"
-                "完成结果会自动推送给用户（OperationWatcher 一次性通知，含结果）。"
-                "不要 sleep 等待或反复 process_output 轮询。"
+                "有限作业的未消费终态结果会在同任务/revision仍活跃时自动触发继续。"
+                "不要 sleep 等待或无界 process_output 轮询。"
                 "若任务还有不依赖此结果、且不会修改该操作输入的步骤，可继续实施；"
-                "若后续步骤依赖此结果，请结束回合并告知用户正在后台执行。"
+                "若有限作业的后续步骤依赖进程终止，请结束回合并告知用户后台执行中。"
+                "常驻服务没有自动 startup/ready 通知；启动/RUNNING/stdout本身不证明就绪。"
+                "请在原任务时限内用有界 process_status/process_output 与实际服务观测验证就绪，"
+                "然后在当前回合继续依赖的启动/测试步骤，不要等服务终止。"
             ),
         )
 
