@@ -19,6 +19,7 @@ Operation ≠ Worker：无模型的确定性执行过程（仿真 rollout、渲�
 from __future__ import annotations
 
 import asyncio
+import codecs
 import json
 import logging
 import os
@@ -40,7 +41,7 @@ OPERATION_TERMINAL = frozenset({"SUCCEEDED", "FAILED", "CANCELLED", "LOST"})
 
 _LOG = logging.getLogger("rosclaw.operation_manager")
 
-#: 单行输出事件的最大字节（防爆 task_events）。
+#: 每次输出读取的最大字节（事件有界，不依赖生产者换行）。
 _MAX_OUTPUT_CHUNK = 4000
 
 #: pid-watcher 轮询间隔（reattach 后等进程消失）。
@@ -160,15 +161,18 @@ class OperationManager:
         → 进程退出 → 终态（账本优先于一切）。"""
         self._transition(operation_id, "RUNNING", event=None)
         assert proc.stdout is not None
+        decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
         try:
             while True:
-                line = await proc.stdout.readline()
-                if not line:
+                chunk = await proc.stdout.read(_MAX_OUTPUT_CHUNK)
+                text = decoder.decode(chunk, final=not chunk)
+                if chunk:
+                    self._touch(operation_id, task_id)
+                if text:
+                    self._emit(task_id, "operation.output", {"text": text},
+                               operation_id=operation_id, attempt_id=attempt_id)
+                if not chunk:
                     break
-                text = line.decode(errors="replace")[:_MAX_OUTPUT_CHUNK]
-                self._touch(operation_id, task_id)
-                self._emit(task_id, "operation.output", {"text": text},
-                           operation_id=operation_id, attempt_id=attempt_id)
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001 - 读失败是数据
