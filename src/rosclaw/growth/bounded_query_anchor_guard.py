@@ -12,6 +12,7 @@ from typing import Any
 import numpy as np
 
 from rosclaw.growth.anchor_kernel import AnchorKernelGuard
+from rosclaw.growth.domain_anchor_bank import DomainAnchorGuard
 
 
 class BoundedQueryAnchorGuard(AnchorKernelGuard):
@@ -26,7 +27,7 @@ class BoundedQueryAnchorGuard(AnchorKernelGuard):
         ):
             raise ValueError("finite aligned frozen observation required")
         if self._tree is None:
-            return super().gate(values)
+            return AnchorKernelGuard.gate(self, values)
         distance, index = self._tree.query(
             values, k=1, eps=0.0, distance_upper_bound=16 * self.bandwidth
         )
@@ -38,3 +39,10 @@ class BoundedQueryAnchorGuard(AnchorKernelGuard):
         if distance_squared <= 1e-20:
             return 0.0
         return float(-np.expm1(-distance_squared / (2 * self.bandwidth**2)))
+
+
+class BoundedQueryDomainAnchorGuard(DomainAnchorGuard):
+    """Preserve the full domain bank API/provenance with opt-in bounded queries."""
+
+    def gate(self, latent: Any) -> float:
+        return BoundedQueryAnchorGuard.gate(self, latent)

@@ -2,7 +2,11 @@ import numpy as np
 import pytest
 
 from rosclaw.growth.anchor_kernel import AnchorKernelGuard
-from rosclaw.growth.bounded_query_anchor_guard import BoundedQueryAnchorGuard
+from rosclaw.growth.bounded_query_anchor_guard import (
+    BoundedQueryAnchorGuard,
+    BoundedQueryDomainAnchorGuard,
+)
+from rosclaw.growth.domain_anchor_bank import DomainAnchorGuard, build_domain_anchor_bank
 
 
 @pytest.mark.parametrize("accelerated", [False, True])
@@ -42,3 +46,35 @@ def test_all_rows_retained_and_extreme_small_difference_not_pruned():
     assert fast.gate(query) == reference.gate(query)
     assert len(fast.to_dict()["anchors"]) == 100
     assert fast.to_dict()["promotion_authorized"] is False
+
+
+def test_multidomain_bank_api_and_duplicate_provenance_are_unchanged():
+    bank = build_domain_anchor_bank(
+        [
+            {
+                "domain_id": d,
+                "source_evidence_hash": "sha256:" + "a" * 64,
+                "context_ids": ["same-context"],
+                "context_rows": [2],
+                "observations": [[0, 1], [0, 1]],
+            }
+            for d in ("cpu", "gpu")
+        ],
+        parent_hash="sha256:" + "b" * 64,
+        encoder_hash="sha256:" + "c" * 64,
+    )
+    reference = DomainAnchorGuard(bank)
+    fast = BoundedQueryDomainAnchorGuard(bank)
+    assert fast.bank() == reference.bank() == bank
+    assert fast.bank_hash == reference.bank_hash
+    assert fast.to_dict() == reference.to_dict()
+    np.testing.assert_array_equal(
+        fast.gates([[0, 1], [0.1, 1], [1000, 1000]]),
+        reference.gates([[0, 1], [0.1, 1], [1000, 1000]]),
+    )
+    fast._tree = None
+    reference._tree = None
+    np.testing.assert_array_equal(
+        fast.gates([[0, 1], [0.1, 1], [1000, 1000]]),
+        reference.gates([[0, 1], [0.1, 1], [1000, 1000]]),
+    )
