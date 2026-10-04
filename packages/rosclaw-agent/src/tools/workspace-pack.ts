@@ -259,6 +259,10 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 					detached: process.platform !== "win32",
 				});
 				let buf = "";
+				// Keep final-result truncation unchanged, but do not freeze live
+				// progress once that first-output buffer has reached its cap.
+				let liveTail = "";
+				let lastOutputAt = started;
 				let timedOut = false;
 				let aborted = false;
 				let settled = false;
@@ -280,9 +284,16 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 				};
 				const progress = setInterval(() => {
 					try {
+						const now = Date.now();
+						const elapsedMs = Math.max(0, now - started);
+						const outputQuietMs = Math.max(0, now - lastOutputAt);
+						const timeoutRemainingMs = timeoutMs === null ? null : Math.max(0, timeoutMs - elapsedMs);
+						const deadline = timeoutRemainingMs === null
+							? "no timeout set"
+							: `timeout remaining=${(timeoutRemainingMs / 1000).toFixed(1)}s`;
 						onUpdate?.({
-							content: [{ type: "text", text: `${degradedMarker}running wall=${Date.now() - started}ms; Esc interrupts this task, including its running background operations.\n${buf.slice(-4096)}` }],
-							details: { running: true },
+							content: [{ type: "text", text: `${degradedMarker}running wall=${elapsedMs}ms; output quiet=${(outputQuietMs / 1000).toFixed(1)}s; ${deadline}; Esc interrupts this task, including its running background operations.\n${liveTail}` }],
+							details: { running: true, elapsedMs, outputQuietMs, timeoutRemainingMs },
 						});
 					} catch { /* UI failure must not orphan the command. */ }
 				}, options.bashProgressIntervalMs ?? 15_000);
@@ -295,12 +306,14 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 					signal?.removeEventListener("abort", cancel);
 					resolvePromise({ output: text, exitCode, signal: exitSignal, timedOut, aborted, ...(spawnError ? { spawnError } : {}) });
 				};
-				child.stdout?.on("data", (d) => {
-					if (buf.length < MAX_OUTPUT_BYTES) buf += d.toString();
-				});
-				child.stderr?.on("data", (d) => {
-					if (buf.length < MAX_OUTPUT_BYTES) buf += d.toString();
-				});
+				const collectOutput = (d: Buffer) => {
+					const text = d.toString();
+					if (buf.length < MAX_OUTPUT_BYTES) buf += text;
+					liveTail = (liveTail + text).slice(-4096);
+					lastOutputAt = Date.now();
+				};
+				child.stdout?.on("data", collectOutput);
+				child.stderr?.on("data", collectOutput);
 				if (timeoutMs !== null) {
 					timer = setTimeout(() => {
 						timedOut = true;
