@@ -21,12 +21,14 @@ export function buildProductPackTools(ctx: BridgeToolContext): ToolDefinition[] 
 				"Deliver a file you created with normal file tools (really read + " +
 				"hashed + registered — idempotent: re-delivering the same file " +
 				"returns the same ArtifactRef). Capability-produced artifacts " +
-				"register automatically; the Task Coordinator finalizes the task " +
+				"register automatically. Choose an explicit role: progress_/diagnostic_ " +
+				"register evidence and keep the task open (including SOURCE_ONLY work); " +
+				"report/plot and other final roles trigger Task Coordinator acceptance. " +
 				"— you do NOT call any finish/close tool.",
 			parameters: Type.Object({
 				path: Type.String({ description: "交付物路径（相对任务工作区或绝对）" }),
 				media_type: Type.Optional(Type.String()),
-				role: Type.Optional(Type.String({ description: "阶段报告用 progress_report，失败诊断用 diagnostic_failed_attempt；progress_/diagnostic_ 角色仅登记证据，不结束任务、不满足最终交付条件。最终交付用 report/plot 等角色。" })),
+				role: Type.String({ minLength: 1, description: "必须明确交付意图：阶段/source-only 报告用 progress_report，失败诊断用 diagnostic_failed_attempt；progress_/diagnostic_ 角色仅登记证据并保持任务。仅最终交付用 report/plot 等角色，会触发任务验收。" }),
 			}),
 			async execute(_id, params, _signal, _onUpdate, _toolCtx) {
 				return await executeVia(ctx, "rosclaw_deliver", {

@@ -64,7 +64,7 @@ class _GhostFake:
                 "call_op": ("call_write", "write",
                             {"path": "note.txt", "content": "wp1\n"}),
                 "call_write": ("call_art", "rosclaw_deliver",
-                               {"path": "note.txt"}),
+                               {"path": "note.txt", "role": "report"}),
             }.get(call_id)
             if nxt is not None:
                 frames = _tool_call_frames(nxt[0], nxt[1], json.dumps(nxt[2]))

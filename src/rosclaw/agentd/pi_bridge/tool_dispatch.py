@@ -604,6 +604,15 @@ class PiToolDispatcher:
         # 幂等交付入口（普通文件工具创建的交付物）；capability 产物
         # 自动登记不走模型。
         if name == "rosclaw_deliver":
+            role = request.arguments.get("role")
+            if not isinstance(role, str) or not role.strip():
+                raise ToolBridgeError(
+                    "DELIVERY_ROLE_REQUIRED",
+                    "role 必须明确：阶段/source-only 证据用 progress_report，"
+                    "失败诊断用 diagnostic_failed_attempt；progress_/diagnostic_ "
+                    "仅登记证据并保持任务。只有最终交付才用 report/plot 等角色，"
+                    "这些角色会触发任务验收。",
+                )
             # P0-C：deliver 也是 effectful——无任务史时首个
             # effectful call 原子 admission（在 _artifact_register
             # 内按需触发）；W05 §9.2：有任务史时不预绑定——终态

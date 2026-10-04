@@ -97,7 +97,7 @@ class _CompactJourneyFake:
             if call_id == "call_write":
                 frames = _tool_call_frames(
                     "call_art", "rosclaw_deliver",
-                    json.dumps({"path": "report.txt", "media_type": "text/plain"}),
+                    json.dumps({"path": "report.txt", "media_type": "text/plain", "role": "report"}),
                 )
                 frames.append(b"data: [DONE]\n\n")
                 return b"".join(frames)

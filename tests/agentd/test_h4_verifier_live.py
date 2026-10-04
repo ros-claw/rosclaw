@@ -68,7 +68,7 @@ class _VerifierFake:
                 # P0-D：幂等 deliver（模型面唯一交付入口）。
                 frames = _tool_call_frames(
                     "call_deliver", "rosclaw_deliver",
-                    json.dumps({"path": "hello.txt"}),
+                    json.dumps({"path": "hello.txt", "role": "report"}),
                 )
                 frames.append(b"data: [DONE]\n\n")
                 return b"".join(frames)

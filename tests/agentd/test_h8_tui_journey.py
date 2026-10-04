@@ -69,7 +69,7 @@ class _FullJourneyFake:
                 ),
                 "call_op": (
                     "call_art", "rosclaw_deliver",
-                    {"path": "report.txt", "media_type": "text/plain"},
+                    {"path": "report.txt", "media_type": "text/plain", "role": "report"},
                 ),
             }.get(call_id)
             if nxt is not None:
