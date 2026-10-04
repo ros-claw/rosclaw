@@ -38,6 +38,16 @@ class McpToolOutcomeUnconfirmedError(ValidationError):
         )
 
 
+class McpCloseUnresolvedError(ValidationError):
+    """Another loop owns a session; no cross-loop teardown was attempted."""
+
+    code = "MCP_CLOSE_UNRESOLVED"
+
+
+class McpClientClosedError(ValidationError):
+    code = "MCP_CLIENT_CLOSED"
+
+
 def _safe_errlog():
     # MCP stdio spawn 的 errlog 必须有 fileno（捕获环境下
     # sys.stderr 是替身对象）。
@@ -65,13 +75,57 @@ def _safe_errlog():
     return open(os.devnull, "w")  # noqa: SIM115 - 进程级常量生命周期
 
 
+class _OwnedMcpSession:
+    """Enter and exit task-bound SDK contexts in one lifecycle task."""
+
+    def __init__(self, command: str, args: tuple[str, ...], env: dict | None) -> None:
+        self.loop = asyncio.get_running_loop()
+        self.ready: asyncio.Future[Any] = self.loop.create_future()
+        self.stop = asyncio.Event()
+        self.task = asyncio.create_task(self._run(command, args, env))
+
+    async def _run(self, command: str, args: tuple[str, ...], env: dict | None) -> None:
+        from contextlib import AsyncExitStack
+
+        from mcp import ClientSession, StdioServerParameters
+        from mcp.client.stdio import stdio_client
+
+        try:
+            async with AsyncExitStack() as stack:
+                params = StdioServerParameters(command=command, args=list(args), env=env or None)
+                read, write = await stack.enter_async_context(
+                    stdio_client(params, errlog=_safe_errlog())
+                )
+                session = await stack.enter_async_context(ClientSession(read, write))
+                await session.initialize()
+                self.ready.set_result(session)
+                await self.stop.wait()
+        except asyncio.CancelledError:
+            if not self.ready.done():
+                self.ready.cancel()
+            raise
+        except Exception as exc:
+            if not self.ready.done():
+                self.ready.set_exception(exc)
+                return  # initializer receives the original failure, not an unobserved task error
+            raise  # cleanup failure stays observable; cancellation is not swallowed
+
+    async def aclose(self) -> None:
+        if asyncio.get_running_loop() is not self.loop:
+            raise McpCloseUnresolvedError("MCP session must close on its owning event loop")
+        self.stop.set()
+        await asyncio.shield(self.task)
+
+
 class PersistentMcpClient:
     def __init__(self, *, command: str, args: tuple[str, ...], env: dict | None = None) -> None:
         self._command = command
         self._args = args
         self._env = env
         self._locks: dict[int, asyncio.Lock] = {}
-        self._sessions: dict[int, tuple[Any, Any]] = {}  # loop id -> (session, exit_stack)
+        self._sessions: dict[int, tuple[Any, Any]] = {}  # loop id -> (session, lifecycle owner)
+        self._owners: dict[int, _OwnedMcpSession] = {}
+        self._closing = False
 
     def _loop_key(self) -> int:
         try:
@@ -85,32 +139,18 @@ class PersistentMcpClient:
         return self._locks[key]
 
     async def _ensure(self) -> Any:
+        if self._closing:
+            raise McpClientClosedError("MCP client is closing; create a new client to reconnect")
         key = self._loop_key()
         entry = self._sessions.get(key)
         if entry is not None:
             return entry[0]
-        from contextlib import AsyncExitStack
-
-        from mcp import ClientSession, StdioServerParameters
-        from mcp.client.stdio import stdio_client
-
-        params = StdioServerParameters(
-            command=self._command, args=list(self._args), env=self._env or None
-        )
-        stack = AsyncExitStack()
-        try:
-            # pytest/捕获环境的 sys.stderr 无 fileno——anyio spawn 需要
-            # 真 fd，否则 UnsupportedOperation: fileno（静默 quarantine
-            # 的隐蔽根因）。
-            read, write = await stack.enter_async_context(
-                stdio_client(params, errlog=_safe_errlog())
-            )
-            session = await stack.enter_async_context(ClientSession(read, write))
-            await session.initialize()
-        except Exception:
-            await stack.aclose()
-            raise
-        self._sessions[key] = (session, stack)
+        owner = self._owners.get(key)
+        if owner is None:
+            owner = _OwnedMcpSession(self._command, self._args, self._env)
+            self._owners[key] = owner
+        session = await asyncio.shield(owner.ready)
+        self._sessions[key] = (session, owner)
         return session
 
     async def call_tool(self, tool_name: str, arguments: dict[str, Any]) -> str:
@@ -156,13 +196,25 @@ class PersistentMcpClient:
             return list(listed.tools)
 
     async def _reset(self, key: int) -> None:
-        entry = self._sessions.pop(key, None)
-        if entry is not None:
-            from contextlib import suppress
-
-            with suppress(Exception):
-                await entry[1].aclose()
+        entry = self._sessions.get(key)
+        owner = self._owners.get(key)
+        lifecycle = owner or (entry[1] if entry is not None else None)
+        if lifecycle is not None:
+            await lifecycle.aclose()
+            self._sessions.pop(key, None)
+            self._owners.pop(key, None)
 
     async def close(self) -> None:
-        for key in list(self._sessions):
-            await self._reset(key)
+        loop = asyncio.get_running_loop()
+        # Preflight before touching any Event or Task. We do not marshal live
+        # SDK teardown across threads/loops or silently discard those entries.
+        if (
+            any(key != id(loop) for key in set(self._sessions) | set(self._owners))
+            or any(owner.loop is not loop for owner in self._owners.values())
+            or any(key not in self._owners for key in self._sessions)
+        ):
+            raise McpCloseUnresolvedError("MCP sessions on another loop require owner-loop cleanup")
+        self._closing = True
+        for key in set(self._sessions) | set(self._owners):
+            async with self._lock_for(key):
+                await self._reset(key)

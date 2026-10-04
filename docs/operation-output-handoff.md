@@ -47,3 +47,16 @@ startup and a wait on the terminal status do not wait for log EOF. Closed writer
 are drained synchronously. A confirmed cancellation proves the recorded owned
 session stopped, not that a descendant in a different session stopped. No
 additional signalling authority is inferred from its pending log descriptor.
+
+Connected MCP stdio sessions use a dedicated lifecycle task for initialization
+and cleanup of the SDK's task-bound AnyIO contexts. Shared service cleanup asks
+that owner to exit and awaits it; it never exits a caller's cancel scope from a
+different task. A cancelled close caller leaves this cleanup running. This is a
+same-event-loop connection lifecycle contract, not persistent handoff of MCP
+servers or confirmation that an interrupted tool effect stopped. Transport loss
+after dispatch remains unconfirmed and is never automatically replayed.
+
+MCP client shutdown waits for its same-loop call lock, then rejects new calls
+with `MCP_CLIENT_CLOSED`; reconnect requires a new client. A session owned by
+another loop causes `MCP_CLOSE_UNRESOLVED` before touching any owner event/task
+or discarding its registry entry. Cross-loop/thread shutdown is unsupported.
