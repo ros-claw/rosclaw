@@ -18,7 +18,8 @@ export function buildProcessTools(ctx: BridgeToolContext): ToolDefinition[] {
 			label: "Process Start",
 			description:
 				"Start a long-running process as an Operation (returns operation_id " +
-				"immediately). For finite jobs (builds, simulations, renders, long tests), " +
+				"immediately). The command runs unchanged via sh -c; Bash syntax requires " +
+				"an explicit bash -c invocation. For finite jobs (builds, simulations, renders, long tests), " +
 				"end your turn when waiting for termination: an unconsumed terminal " +
 				"result triggers continuation while the owning task/revision remains active. " +
 				"For long-lived services, there is NO automatic startup/ready notification. " +
@@ -29,12 +30,12 @@ export function buildProcessTools(ctx: BridgeToolContext): ToolDefinition[] {
 				"Do not sleep or poll without a bound. For quick commands use bash instead. " +
 				"For an authorized isolated ROS fixture, discover the installed setup/overlay " +
 				"and compatible interpreter; do not assume the ROS environment is inherited. " +
-				"Invoke Bash explicitly for setup.bash (the managed wrapper may be sh). " +
+				"Invoke Bash explicitly for setup.bash (the command shell is sh). " +
 				"If nounset is enabled, disable it only while sourcing ROS setup, exit on " +
 				"source failure, then restore the prior option. Preserve the authorized " +
 				"domain/namespace; this guidance grants no ROS graph or hardware authority.",
 			parameters: Type.Object({
-				command: Type.String({ description: "要后台运行的 shell 命令" }),
+				command: Type.String({ description: "由 sh -c 原样执行的后台命令；Bash 语法须显式调用 bash -c" }),
 			}),
 			async execute(_id, params, _signal, _onUpdate, _toolCtx) {
 				return await executeVia(ctx, "rosclaw_process_start", {

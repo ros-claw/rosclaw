@@ -879,6 +879,7 @@ class PiToolDispatcher:
             operation={key: op.get(key) for key in ("operation_id", "task_id", "revision", "state")},
             summary=(
                 f"Operation 已启动：{op['operation_id']}（后台运行）。"
+                "command 由 sh -c 原样执行；Bash 语法必须显式调用 bash -c。"
                 "有限作业的未消费终态结果会在同任务/revision仍活跃时自动触发继续。"
                 "不要 sleep 等待或无界 process_output 轮询。"
                 "若任务还有不依赖此结果、且不会修改该操作输入的步骤，可继续实施；"
@@ -887,7 +888,7 @@ class PiToolDispatcher:
                 "请在原任务时限内用有界 process_status/process_output 与实际服务观测验证就绪，"
                 "然后在当前回合继续依赖的启动/测试步骤，不要等服务终止。"
                 "已授权的隔离 ROS 实验需发现安装的 setup/overlay 和兼容解释器，不假定继承 ROS 环境。"
-                "setup.bash 应显式用 Bash 执行（托管外层可能是 sh）；若已启用 nounset，"
+                "setup.bash 应显式用 Bash 执行（command 的 shell 是 sh）；若已启用 nounset，"
                 "仅在 source ROS setup 期间临时关闭，source 失败则退出，再恢复原选项。"
                 "保留授权的 domain/namespace；此提示不新增 ROS 图或硬件权限。"
             ),
