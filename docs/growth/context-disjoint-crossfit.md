@@ -30,3 +30,18 @@ This is a terminal MC/ridge critic, not bootstrapped TD, recurrent return
 redistribution, online actor-critic, or RUDDER. The first application is a
 read-only comparison of existing frozen learning signals; any actual training
 requires a new declared objective and independent physical retention tests.
+
+## Derived numeric failure boundary
+
+Finite inputs do not guarantee finite matrix products or normalization. The
+critic rejects derived overflow, invalid operations, nonfinite outputs and
+unsolvable linear systems instead of returning NaN/Inf readouts. Numeric
+features and returns are converted to float64 before regression so accepted
+integer features cannot silently wrap during covariance multiplication. Four
+additional tests cover feature/return overflow, integer-versus-float prediction
+equality and solver failure. Existing float64 equations and held-out prediction
+independence remain unchanged.
+
+This source change defines a new critic source hash. Existing frozen learning
+experiments remain on their original source, and their receipts/checkpoints
+must not be relabeled as using this hardening.

@@ -56,6 +56,33 @@ def context_crossfit_advantages(
         raise ValueError("aligned complete whole-context critic data required")
     if any(not np.all(reward[group == g] == reward[group == g][0]) for g in np.unique(group)):
         raise ValueError("one authenticated terminal return per trajectory required")
+    try:
+        with np.errstate(over="raise", invalid="raise", divide="raise"):
+            result = _fit_context_advantages(
+                np.asarray(phi, dtype=np.float64),
+                phase,
+                group,
+                np.asarray(reward, dtype=np.float64),
+                contexts,
+            )
+    except (FloatingPointError, np.linalg.LinAlgError) as error:
+        raise ValueError("derived context critic must remain finite and solvable") from error
+    if not all(
+        np.isfinite(result[k]).all()
+        for k in (
+            "advantages",
+            "critic_readout",
+            "crossfit_predictions",
+            "target_mean",
+            "target_scale",
+        )
+    ):
+        raise ValueError("derived context critic must remain finite and solvable")
+    return result
+
+
+def _fit_context_advantages(phi: Any, phase: Any, group: Any, reward: Any, contexts: Any) -> Any:
+    n, d = phi.shape
     labels, inverse = np.unique(contexts, return_inverse=True)
     folds = inverse % 4
     sample_folds = folds[group]

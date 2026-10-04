@@ -88,3 +88,29 @@ def test_rejects_missing_phase_support_in_a_fold():
     data[1][data[-1][data[2]] % 4 == 0] = 0
     with pytest.raises(ValueError, match="every phase"):
         fit(data)
+
+
+@pytest.mark.parametrize("field", [0, 3])
+def test_finite_inputs_with_derived_overflow_rejected(field):
+    data = list(batch())
+    data[field] = np.full_like(data[field], 1e308)
+    with pytest.raises(ValueError, match="finite"):
+        fit(data)
+
+
+def test_integer_features_do_not_silently_overflow_covariance():
+    data = list(batch())
+    data[0] = (data[0] * 10000000000).astype(np.int64)
+    integer = fit(data)
+    data[0] = data[0].astype(np.float64)
+    floating = fit(data)
+    np.testing.assert_array_equal(integer["crossfit_predictions"], floating["crossfit_predictions"])
+
+
+def test_singular_numeric_solver_rejected(monkeypatch):
+    def fail(*args, **kwargs):
+        raise np.linalg.LinAlgError("fixture failure")
+
+    monkeypatch.setattr(np.linalg, "solve", fail)
+    with pytest.raises(ValueError, match="solvable"):
+        fit(batch())
