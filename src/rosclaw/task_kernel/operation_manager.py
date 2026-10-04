@@ -702,13 +702,25 @@ class OperationManager:
         loop = asyncio.get_running_loop()
 
         def _marshal(fn):
+            def _apply(*cb_args):
+                # A listener may have queued this before preserve-only close.
+                # Recheck on the database-owning loop immediately before use.
+                if self._closing:
+                    return
+                fn(*cb_args)
+
             def _wrapped(*cb_args):
+                # Closed managers have no authority to apply late updates.
+                if self._closing:
+                    return
                 try:
-                    loop.call_soon_threadsafe(fn, *cb_args)
+                    loop.call_soon_threadsafe(_apply, *cb_args)
                 except RuntimeError:
-                    # 事件循环已关（测试相位）——同步执行；连接为
-                    # check_same_thread=False 时安全。生产路径 loop 恒活。
-                    fn(*cb_args)
+                    # Loop shutdown is not permission to write SQLite from a
+                    # listener thread, even for check_same_thread=False stores.
+                    _LOG.debug(
+                        "Ignoring Action callback after owning loop closed (%s)", operation_id
+                    )
 
             return _wrapped
 

@@ -60,3 +60,11 @@ MCP client shutdown waits for its same-loop call lock, then rejects new calls
 with `MCP_CLIENT_CLOSED`; reconnect requires a new client. A session owned by
 another loop causes `MCP_CLOSE_UNRESOLVED` before touching any owner event/task
 or discarding its registry entry. Cross-loop/thread shutdown is unsupported.
+
+Completed Action callbacks check the manager's close state before scheduling
+and again when applying a queued update on the owning loop. After close they
+cannot read or modify SQLite, terminal results or stop evidence. Callbacks whose
+owning loop has closed are ignored; listener threads never use a synchronous
+SQLite fallback. This protects mock/production callback scheduling boundaries,
+not an implemented shutdown handshake for active DDS Actions: active Actions
+still cause preserve-only service close to report unresolved.

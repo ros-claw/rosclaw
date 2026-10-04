@@ -64,12 +64,17 @@ class FakeActionClient:
         self._result_cb = None
 
     def send_goal(
-        self, *, action: str, action_type: str, args: dict, goal_id: str,
-        on_feedback, on_result,
+        self,
+        *,
+        action: str,
+        action_type: str,
+        args: dict,
+        goal_id: str,
+        on_feedback,
+        on_result,
     ) -> None:
         self.sent_goals.append(
-            {"action": action, "action_type": action_type,
-             "args": args, "goal_id": goal_id}
+            {"action": action, "action_type": action_type, "args": args, "goal_id": goal_id}
         )
         self._feedback_cb = on_feedback
         self._result_cb = on_result
@@ -89,25 +94,26 @@ SUCCEEDED, CANCELED, ABORTED = 4, 5, 6
 
 
 class TestActionOperationLifecycle:
-    def _start(self, conn, client):
+    async def _start(self, conn, client):
         mgr = OperationManager(None, conn)
 
         async def run():
             return await mgr.start_action(
-                task_id="task_1", attempt_id="",
+                task_id="task_1",
+                attempt_id="",
                 action="/fibonacci",
                 action_type="action_tutorials_interfaces/action/Fibonacci",
                 args={"order": 5},
                 client=client,
             )
 
-        return mgr, asyncio.run(run())
+        return mgr, await run()
 
-    def test_send_goal_registers_operation(self, tmp_path: Path) -> None:
+    async def test_send_goal_registers_operation(self, tmp_path: Path) -> None:
         conn = _conn(tmp_path)
         _task(conn)
         client = FakeActionClient()
-        mgr, op = self._start(conn, client)
+        mgr, op = await self._start(conn, client)
         assert len(client.sent_goals) == 1
         goal = client.sent_goals[0]
         assert goal["action"] == "/fibonacci"
@@ -118,50 +124,54 @@ class TestActionOperationLifecycle:
         assert "operation.queued" in types
         assert "operation.admitted" in types
 
-    def test_feedback_becomes_progress(self, tmp_path: Path) -> None:
+    async def test_feedback_becomes_progress(self, tmp_path: Path) -> None:
         conn = _conn(tmp_path)
         _task(conn)
         client = FakeActionClient()
-        mgr, op = self._start(conn, client)
+        mgr, op = await self._start(conn, client)
         client.emit_feedback({"sequence": [0, 1, 1]})
+        await asyncio.sleep(0)  # apply listener update on the live owning loop
         row = mgr.get(op["operation_id"])
         progress = json.loads(row["progress_json"])
         assert progress, "feedback 未落成 progress"
         assert "operation.progress" in _events(conn)
 
-    def test_result_succeeded_completes(self, tmp_path: Path) -> None:
+    async def test_result_succeeded_completes(self, tmp_path: Path) -> None:
         conn = _conn(tmp_path)
         _task(conn)
         client = FakeActionClient()
-        mgr, op = self._start(conn, client)
+        mgr, op = await self._start(conn, client)
         client.emit_result(SUCCEEDED, {"sequence": [0, 1, 1, 2, 3]})
+        await asyncio.sleep(0)  # apply listener update on the live owning loop
         row = mgr.get(op["operation_id"])
         assert row["state"] == "SUCCEEDED"
         assert row["result_ref"], "缺 result_ref"
         assert "operation.completed" in _events(conn)
 
-    def test_result_aborted_fails(self, tmp_path: Path) -> None:
+    async def test_result_aborted_fails(self, tmp_path: Path) -> None:
         conn = _conn(tmp_path)
         _task(conn)
         client = FakeActionClient()
-        mgr, op = self._start(conn, client)
+        mgr, op = await self._start(conn, client)
         client.emit_result(ABORTED, {})
+        await asyncio.sleep(0)  # apply listener update on the live owning loop
         row = mgr.get(op["operation_id"])
         assert row["state"] == "FAILED"
 
-    def test_cancel_handshake(self, tmp_path: Path) -> None:
+    async def test_cancel_handshake(self, tmp_path: Path) -> None:
         conn = _conn(tmp_path)
         _task(conn)
         client = FakeActionClient()
-        mgr, op = self._start(conn, client)
+        mgr, op = await self._start(conn, client)
 
         async def cancel():
             await mgr.cancel(op["operation_id"], reason="user-stop")
 
-        asyncio.run(cancel())
+        await cancel()
         assert client.cancelled == [op["goal_id"]], "cancel_goal 未发"
         # result(CANCELED) 到达 → CANCELLED 终态。
         client.emit_result(CANCELED, {})
+        await asyncio.sleep(0)  # apply listener update on the live owning loop
         row = mgr.get(op["operation_id"])
         assert row["state"] == "CANCELLED"
         assert row["cancel_reason"] == "user-stop"
@@ -169,33 +179,34 @@ class TestActionOperationLifecycle:
         assert "operation.canceling" in types
         assert "operation.cancelled" in types
 
-    def test_two_hour_action_never_killed(self, tmp_path: Path) -> None:
+    async def test_two_hour_action_never_killed(self, tmp_path: Path) -> None:
         """验收：持续 feedback 的长 Action——sweep 永不 kill（无默认
         wall-clock kill）。"""
         conn = _conn(tmp_path)
         _task(conn)
         client = FakeActionClient()
-        mgr, op = self._start(conn, client)
+        mgr, op = await self._start(conn, client)
 
         async def run():
             for _ in range(5):
                 client.emit_feedback({"sequence": [0, 1]})
+                await asyncio.sleep(0)  # apply listener update on the live owning loop
                 await mgr.sweep_liveness(stale_after_s=1.0)
                 row = mgr.get(op["operation_id"])
                 assert row["state"] in ("RUNNING", "ADMITTED")
             return op["operation_id"]
 
-        op_id = asyncio.run(run())
+        op_id = await run()
         assert mgr.get(op_id)["state"] not in OPERATION_TERMINAL
 
-    def test_restart_marks_action_lost_honestly(self, tmp_path: Path) -> None:
+    async def test_restart_marks_action_lost_honestly(self, tmp_path: Path) -> None:
         """ros2_action 无 pid——重启不可证实 → LOST（不假装存活）。"""
         conn = _conn(tmp_path)
         _task(conn)
         client = FakeActionClient()
-        mgr, op = self._start(conn, client)
+        mgr, op = await self._start(conn, client)
         mgr2 = OperationManager(None, conn)
-        report = asyncio.run(mgr2.recover_on_boot())
+        report = await mgr2.recover_on_boot()
         row = mgr2.get(op["operation_id"])
         assert row["state"] == "LOST"
         assert report["lost"] >= 1
