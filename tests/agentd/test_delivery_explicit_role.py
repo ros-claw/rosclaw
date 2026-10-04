@@ -28,6 +28,25 @@ async def test_missing_delivery_intent_never_admits_or_reads(tmp_path, arguments
         await service.close()
 
 
+@pytest.mark.parametrize("role", ["null", "1", "true", "false", "unknown", " 1 "])
+async def test_pi_normalized_unknown_role_never_reaches_registration(tmp_path, monkeypatch, role):
+    service, mission = await _setup(tmp_path)
+    try:
+        dispatcher = PiToolDispatcher(service)
+        async def forbidden_register(request):
+            pytest.fail("PI-normalized ambiguous role reached registration")
+        monkeypatch.setattr(dispatcher, "_artifact_register", forbidden_register)
+        result = await dispatcher.execute(_request(
+            "rosclaw_deliver", mission=mission.mission_id, idem="normalized_role",
+            lease=await _issue_lease(service, mission),
+            arguments={"path": str(tmp_path / "source.json"), "role": role},
+        ))
+        assert not result.ok and result.error_code == "DELIVERY_ROLE_INVALID"
+        assert service._task_kernel.latest_task_for(mission.mission_id, "pi_1") is None
+    finally:
+        await service.close()
+
+
 async def test_omitted_role_does_not_finish_source_only_task(tmp_path):
     service, mission = await _setup(tmp_path)
     try:
@@ -47,5 +66,30 @@ async def test_omitted_role_does_not_finish_source_only_task(tmp_path):
         assert result.error_code == "DELIVERY_ROLE_REQUIRED"
         assert kernel.get_task(str(bound["task_id"]))["state"] == "RUNNING"
         assert kernel._conn.execute("SELECT COUNT(*) FROM artifacts").fetchone()[0] == 0
+    finally:
+        await service.close()
+
+
+@pytest.mark.parametrize("role,expected_state", [
+    ("report", "SUCCEEDED"), ("plot", "SUCCEEDED"), ("image", "SUCCEEDED"),
+    ("video", "SUCCEEDED"), ("data", "SUCCEEDED"),
+    ("progress", "RUNNING"), ("diagnostic", "RUNNING"),
+    ("diagnostic_progress_report_NOT_DONE", "RUNNING"),
+    (" Progress_阶段证据 ", "RUNNING"),
+])
+async def test_explicit_role_actual_wire_task_lifecycle(tmp_path, role, expected_state):
+    """An empty acceptance contract tests delivery intent, not physical success."""
+    service, mission = await _setup(tmp_path)
+    try:
+        path = tmp_path / "delivery.txt"
+        path.write_text("source evidence")
+        result = await PiToolDispatcher(service).execute(_request(
+            "rosclaw_deliver", mission=mission.mission_id, idem="explicit_role",
+            lease=await _issue_lease(service, mission),
+            arguments={"path": str(path), "role": role},
+        ))
+        assert result.ok, result.summary
+        task = service._task_kernel.latest_task_for(mission.mission_id, "pi_1")
+        assert task["state"] == expected_state
     finally:
         await service.close()

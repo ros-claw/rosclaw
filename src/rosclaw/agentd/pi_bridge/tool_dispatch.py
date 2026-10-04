@@ -613,6 +613,18 @@ class PiToolDispatcher:
                     "仅登记证据并保持任务。只有最终交付才用 report/plot 等角色，"
                     "这些角色会触发任务验收。",
                 )
+            from rosclaw.task_kernel.deliverables import artifact_is_intermediate
+
+            final_roles = {"report", "plot", "image", "video", "data"}
+            if role.strip().lower() not in final_roles and not artifact_is_intermediate(
+                {"metadata_json": {"role": role}}
+            ):
+                raise ToolBridgeError(
+                    "DELIVERY_ROLE_INVALID",
+                    "未知交付角色：阶段证据只用 progress/diagnostic 或其带下划线后缀，"
+                    "最终交付只用 report/plot/image/video/data。"
+                    "不能以 null、数字、布尔值或未知字符串表达最终交付意图。",
+                )
             # P0-C：deliver 也是 effectful——无任务史时首个
             # effectful call 原子 admission（在 _artifact_register
             # 内按需触发）；W05 §9.2：有任务史时不预绑定——终态
