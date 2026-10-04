@@ -219,12 +219,13 @@ class TrajectoryVerifier:
                 "未能验证（fail closed）"
             ]
         try:
-            img = Image.open(gif)
-            n_frames = int(getattr(img, "n_frames", 1))
-            img.seek(max(0, n_frames // 2))
-            import numpy as np
+            with Image.open(gif) as img:
+                n_frames = int(getattr(img, "n_frames", 1))
+                img.seek(max(0, n_frames // 2))
+                import numpy as np
 
-            arr = np.asarray(img.convert("L"), dtype=float)
+                with img.convert("L") as gray:
+                    arr = np.asarray(gray, dtype=float)
         except Exception:
             return [f"MEDIA_UNDECODABLE: {gif.name} 不是可解码的图像"]
         failures: list[str] = []
