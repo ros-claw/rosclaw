@@ -1,0 +1,59 @@
+# Explicit proposal trust-region regression
+
+`rosclaw.growth.proposal_advantage_regression` is a task-neutral numerical
+research primitive. It does not execute, activate, approve, or register a policy.
+Its only execution ceiling is `PROPOSAL_ONLY_NO_RUNTIME`.
+
+## Motivation and boundary
+
+The existing bounded advantage regression retains its fixed 0.005 KL contract.
+It and every existing motor-model validator are unchanged. An explicitly larger
+proposal budget must not be represented as a legacy-approved motor model.
+
+The new API permits `maximum_mean_kl` from 0.005 to 0.5. The budget bounds both
+full-batch conditional AR KL and marginal KL, not trajectory risk, unseen-state
+behavior, physical stability, or skill retention. Both KL values are checked
+again after optimization. The line-search acceptance margin is 98% of the
+declared budget; at the default, the original literal 0.0049 is retained to avoid
+floating-point changes to legacy numerical behavior.
+
+The objective remains AWR-inspired marginal action likelihood plus conditional
+KL regularization. It is not TD-lambda AWR, online actor-critic, or iid PPO.
+Conditional behavior likelihood, episode boundaries, frozen gates, finite
+inputs, residual caps, and optional Torch dependency retain their original
+checks. No simulator, checkpoint transport, hardware dependency, or activation
+authority is added.
+
+## Using the primitive
+
+```python
+from rosclaw.growth.proposal_advantage_regression import (
+    ProposalAdvantageRegressionConfig,
+    fit_proposal_advantage_residual,
+)
+
+config = ProposalAdvantageRegressionConfig(maximum_mean_kl=0.05)
+# Supply independently validated arrays using the same causal batch contract
+# as bounded_advantage_regression; this function does not validate physics.
+proposal = fit_proposal_advantage_residual(config=config, **batch)
+assert proposal["runtime_execution_authorized"] is False
+```
+
+Any downstream simulation experiment needs a distinct, sealed proposal model,
+explicit provenance and budget, unchanged actuator/physics limits, real native
+rollouts and independent audits. Physical skill retention must be tested rather
+than inferred from a KL number. A larger budget can produce worse behavior.
+Nothing here qualifies a candidate for runtime or real hardware.
+
+## Verified locally
+
+- Default configuration matches legacy outputs, weights, and loss history
+  exactly; only algorithm identity and explicit proposal metadata differ.
+- A synthetic, density-consistent larger-action batch uses a larger declared
+  budget while preserving both bounds and zero-gate protected outputs.
+- Tests reject invalid budgets, runtime execution ceilings, changed behavior
+  likelihoods, nonfinite inputs, invalid gates and reset masks.
+- Torch RNG, thread count and deterministic settings are restored on failure.
+
+These are numerical unit tests, not evidence of improved football, universal
+retention, or end-to-end physical safety.
