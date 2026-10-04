@@ -8,6 +8,11 @@ asyncio/anyio 的流是 loop-bound：HTTP server loop 与 CLI/测试 loop 可能
 调用自动获得本 loop 的独立会话（状态一致性由 SIM 身体侧的同参数快照
 语义保证：limo-sim 这类快照式 server 每进程独立，但观测/执行在同一
 loop 内永远同进程）。
+
+Only connection initialization can retry automatically, before dispatch. Once
+call_tool begins, transport loss leaves the tool's effect unconfirmed: discard
+the transport and require state reconciliation rather than replay. Cancellation
+still propagates unchanged; it is not evidence that a remote effect was stopped.
 """
 
 from __future__ import annotations
@@ -17,6 +22,20 @@ import os
 from typing import Any
 
 from rosclaw.contracts.common import ValidationError
+
+
+class McpToolOutcomeUnconfirmedError(ValidationError):
+    """Dispatch began, but no tool result was received; reconcile before retry."""
+
+    code = "MCP_TOOL_OUTCOME_UNCONFIRMED"
+
+    def __init__(self, tool_name: str) -> None:
+        self.tool_name = tool_name
+        super().__init__(
+            f"mcp tool {tool_name}: OUTCOME_UNCONFIRMED after dispatch; "
+            "the tool may have executed. No automatic replay was attempted. "
+            "Reconcile the operation/state before choosing whether to retry."
+        )
 
 
 def _safe_errlog():
@@ -99,19 +118,31 @@ class PersistentMcpClient:
         async with self._lock_for(key):
             try:
                 session = await self._ensure()
-                result = await session.call_tool(tool_name, arguments)
             except ValidationError:
                 raise
-            except Exception as exc:  # noqa: BLE001 - 连接断开：重置后重试一次
+            except Exception:  # noqa: BLE001 - no tool has been dispatched
                 await self._reset(key)
                 try:
                     session = await self._ensure()
-                    result = await session.call_tool(tool_name, arguments)
-                except Exception as exc2:  # noqa: BLE001
+                except ValidationError:
+                    raise
+                except Exception as exc:  # noqa: BLE001
                     raise ValidationError(
-                        f"mcp call {tool_name} failed after reconnect: "
-                        f"{type(exc2).__name__}: {exc2}"
+                        f"mcp connection failed before tool dispatch after one reconnect: "
+                        f"{type(exc).__name__}"
                     ) from exc
+            try:
+                result = await session.call_tool(tool_name, arguments)
+            except ValidationError:
+                raise
+            except Exception as exc:  # noqa: BLE001 - dispatched outcome is unknown
+                # Reset only the transport, never replay the potentially effective call.
+                # Cleanup failure must not replace the original ambiguous outcome.
+                from contextlib import suppress
+
+                with suppress(Exception):
+                    await self._reset(key)
+                raise McpToolOutcomeUnconfirmedError(tool_name) from exc
             if result.isError:
                 text = " ".join(getattr(b, "text", "") for b in result.content).strip()
                 raise ValidationError(f"mcp tool {tool_name} error: {text or 'unknown'}")
