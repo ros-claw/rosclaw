@@ -96,12 +96,23 @@ def performance_graph(model: RosSystemModel, *, now: datetime | None = None) -> 
                     )
     copy_bytes = 0 if fresh and evidence.get("copy_trace_complete") is True else None
     if fresh:
+        trace_valid = True
         events = evidence.get("copy_events", [])
         if not isinstance(events, list):
             events = []
             copy_bytes = None
+            trace_valid = False
         for event in events:
-            if not isinstance(event, dict):
+            if (
+                not isinstance(event, dict)
+                or event.get("direction") not in {"HtoD", "DtoH", "DtoD", "HtoH"}
+                or not isinstance(event.get("source"), str)
+                or not event["source"].strip()
+                or type(event.get("bytes")) is not int
+                or event["bytes"] <= 0
+            ):
+                copy_bytes = None
+                trace_valid = False
                 continue
             if (
                 event.get("direction") in {"HtoD", "DtoH"}
@@ -117,6 +128,8 @@ def performance_graph(model: RosSystemModel, *, now: datetime | None = None) -> 
                         "event": event,
                     }
                 )
+        if not trace_valid:
+            copy_bytes = None
     observed_checks = evidence.get("validation_checks", {}) if fresh else {}
     if not isinstance(observed_checks, dict):
         observed_checks = {}

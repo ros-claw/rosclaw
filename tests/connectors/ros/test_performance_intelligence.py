@@ -72,7 +72,18 @@ def test_malformed_optional_observations_do_not_claim_zero_copy():
     assert graph.optimization_verified is False
 
 
-@pytest.mark.parametrize("events", [None, "invalid", {"bytes": 4096}])
+@pytest.mark.parametrize(
+    "events",
+    [
+        None,
+        "invalid",
+        {"bytes": 4096},
+        [None],
+        [{}],
+        [{"source": "trace", "direction": "HtoD", "bytes": True}],
+        [{"source": "", "direction": "HtoD", "bytes": 4096}],
+    ],
+)
 def test_malformed_trace_is_unknown_even_when_completeness_flag_is_true(events):
     graph = performance_graph(
         system(

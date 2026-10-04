@@ -53,6 +53,7 @@ def main():
     )
     session = None
     operator = None
+    operator_log = None
     try:
         deadline = time.monotonic() + 30
         while not (root / "daemon_ready.json").exists():
@@ -86,6 +87,7 @@ def main():
             env=env,
             check=True,
         )
+        operator_log = (root / "operator.log").open("w")
         operator = subprocess.Popen(
             [
                 sys.executable,
@@ -98,7 +100,7 @@ def main():
                 "--no-human-presence-check",
             ],
             env=env,
-            stdout=(root / "operator.log").open("w"),
+            stdout=operator_log,
             stderr=subprocess.STDOUT,
         )
         session = PtySession(
@@ -177,6 +179,7 @@ def main():
                 ).fetchone()
                 if not task or task[0] != "SUCCEEDED":
                     raise RuntimeError("existing TaskKernel is not SUCCEEDED")
+                receipt_db.close()
                 session.send("/quit\r")
                 time.sleep(3)
                 db = sqlite3.connect(home / "agentd/missions.db")
@@ -200,6 +203,7 @@ def main():
                     )
                 ]
                 (root / "usage.json").write_text(json.dumps(usage, indent=2) + "\n")
+                db.close()
                 native_session = max(
                     (home / "agent/sessions").glob("*.jsonl"), key=lambda p: p.stat().st_mtime
                 )
@@ -216,7 +220,12 @@ def main():
                 (root / "sdk-usage.json").write_text(json.dumps(measured, indent=2) + "\n")
                 print(
                     json.dumps(
-                        {"status": "PASS", "model_turns": len(usage), "approvals": approvals}
+                        {
+                            "status": "PASS",
+                            "model_turns": len(measured),
+                            "core_metered_turns": len(usage),
+                            "approvals": approvals,
+                        }
                     ),
                     flush=True,
                 )
@@ -255,6 +264,8 @@ def main():
             daemon.kill()
             daemon.wait()
         log.close()
+        if operator_log:
+            operator_log.close()
 
 
 if __name__ == "__main__":

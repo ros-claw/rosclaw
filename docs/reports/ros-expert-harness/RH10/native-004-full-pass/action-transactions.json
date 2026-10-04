@@ -1,0 +1,29 @@
+[
+  {
+    "action_id": "act_4f8a13f1862343878f779d7c",
+    "capability_id": "localization.set_initial_pose",
+    "state": "COMPLETED",
+    "mode": "SIMULATION",
+    "body_hash": "510c836df556cde9d2e8b2fb25675aebec086234ec7177014724b0938d6aff3f",
+    "created_at": "2026-10-04T23:04:22.288928+00:00",
+    "completed_at": "2026-10-04T23:04:27.711666+00:00"
+  },
+  {
+    "action_id": "act_9a6f9c101e5f48c6a0380bb8",
+    "capability_id": "coverage.execute",
+    "state": "COMPLETED",
+    "mode": "SIMULATION",
+    "body_hash": "510c836df556cde9d2e8b2fb25675aebec086234ec7177014724b0938d6aff3f",
+    "created_at": "2026-10-04T23:04:47.562272+00:00",
+    "completed_at": "2026-10-04T23:15:08.567359+00:00"
+  },
+  {
+    "action_id": "act_957c692304a8444baaea58d1",
+    "capability_id": "ros.expert.remember",
+    "state": "COMPLETED",
+    "mode": "SIMULATION",
+    "body_hash": "510c836df556cde9d2e8b2fb25675aebec086234ec7177014724b0938d6aff3f",
+    "created_at": "2026-10-04T23:15:20.001420+00:00",
+    "completed_at": "2026-10-04T23:15:30.706361+00:00"
+  }
+]

@@ -309,6 +309,7 @@ class TestReceiptContract:
 @pytest.mark.parametrize("verified", [True, False])
 async def test_receipt_artifacts_enter_existing_task_registry_only_after_verification(tmp_path, monkeypatch, verified):
     import hashlib
+
     import rosclaw.agentd.action_dispatch as dispatch
 
     service, mission, operator, server, sock = await _setup_with_operatord(tmp_path)

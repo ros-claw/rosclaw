@@ -1,0 +1,23 @@
+Starting >>> cuda_buffer_backend
+[0.123s] WARNING:colcon.colcon_core.shell:The following packages are in the workspace but haven't been built:
+- cuda_buffer
+They are being used from the following locations instead:
+- /opt/ros/lyrical
+To suppress this warning ignore these packages in the workspace:
+--packages-ignore cuda_buffer
+[Processing: cuda_buffer_backend]
+Finished <<< cuda_buffer_backend [53.3s]
+
+Summary: 1 package finished [53.4s]
+build/cuda_buffer_backend/Testing/20261004-2320/Test.xml: 9 tests, 0 errors, 0 failures, 0 skipped
+build/cuda_buffer_backend/test_results/cuda_buffer_backend/test_cuda_buffer_backend.gtest.xml: 2 tests, 0 errors, 0 failures, 0 skipped
+build/cuda_buffer_backend/test_results/cuda_buffer_backend/test_cuda_image_cpu_fallback_fastrtps_launch.xunit.xml: 2 tests, 0 errors, 0 failures, 0 skipped
+build/cuda_buffer_backend/test_results/cuda_buffer_backend/test_cuda_image_gpu_pipeline_fastrtps_launch.xunit.xml: 2 tests, 0 errors, 0 failures, 0 skipped
+build/cuda_buffer_backend/test_results/cuda_buffer_backend/test_cuda_image_inter_pubsub_fastrtps_launch.xunit.xml: 2 tests, 0 errors, 0 failures, 0 skipped
+build/cuda_buffer_backend/test_results/cuda_buffer_backend/test_cuda_image_intra_pubsub_fastrtps_launch.xunit.xml: 2 tests, 0 errors, 0 failures, 0 skipped
+build/cuda_buffer_backend/test_results/cuda_buffer_backend/test_cuda_image_mixed_no_duplicate_fastrtps_launch.xunit.xml: 2 tests, 0 errors, 0 failures, 0 skipped
+build/cuda_buffer_backend/test_results/cuda_buffer_backend/test_cuda_image_mixed_pubsub_fastrtps_launch.xunit.xml: 2 tests, 0 errors, 0 failures, 0 skipped
+build/cuda_buffer_backend/test_results/cuda_buffer_backend/test_cuda_image_multi_pub_fastrtps_launch.xunit.xml: 2 tests, 0 errors, 0 failures, 0 skipped
+build/cuda_buffer_backend/test_results/cuda_buffer_backend/test_cuda_image_multiprocess_fastrtps_launch.xunit.xml: 2 tests, 0 errors, 0 failures, 0 skipped
+
+Summary: 27 tests, 0 errors, 0 failures, 0 skipped

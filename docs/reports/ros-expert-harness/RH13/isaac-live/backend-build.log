@@ -1,0 +1,30 @@
+[0.118s] WARNING:colcon.colcon_core.package_selection:Some selected packages are already built in one or more underlay workspaces:
+	'cuda_buffer_backend_msgs' is in: /opt/ros/lyrical
+If a package in a merged underlay workspace is overridden and it installs headers, then all packages in the overlay must sort their include directories by workspace order. Failure to do so may result in build failures or undefined behavior at run time.
+If the overridden package is used by another package in any underlay, then the overriding package in the overlay must be API and ABI compatible or undefined behavior at run time may occur.
+
+If you understand the risks and want to override a package anyways, add the following to the command line:
+	--allow-overriding cuda_buffer_backend_msgs
+
+This may be promoted to an error in a future release of colcon-override-check.
+Starting >>> cuda_buffer_backend_msgs
+--- stderr: cuda_buffer_backend_msgs
+CMake Warning:
+  Manually-specified variables were not used by the project:
+
+    CUDAToolkit_ROOT
+
+
+---
+Finished <<< cuda_buffer_backend_msgs [7.13s]
+Starting >>> cuda_buffer_backend
+[7.256s] WARNING:colcon.colcon_core.shell:The following packages are in the workspace but haven't been built:
+- cuda_buffer
+They are being used from the following locations instead:
+- /opt/ros/lyrical
+To suppress this warning ignore these packages in the workspace:
+--packages-ignore cuda_buffer
+Finished <<< cuda_buffer_backend [19.7s]
+
+Summary: 2 packages finished [26.9s]
+  1 package had stderr output: cuda_buffer_backend_msgs

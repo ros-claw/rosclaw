@@ -4,7 +4,7 @@
 
 **Overall status: PARTIAL; full acceptance and merge remain pending.** Work is isolated in `feat/ros-expert-harness-v1`, based on `origin/main` (`0e0d8e45`). The original checkout remains unchanged. The read-only expert foundation now has a real Jazzy/Gazebo/Nav2 fixture, daemon-owned simulation execution, independent physics observations, active Native context collection, native ROS1 introspection and source-backed KNOW/HOW consultation.
 
-The normal Gazebo cleaning acceptance **passed at 98.0425% independent coverage, zero collisions, complete observations and zero trace gaps** in 626.64 seconds within a 900-second budget. The canonical daemon receipt is COMPLETED / SIMULATION / TASK_VERIFIED; existing Memory persisted success and Practice closed with SUCCESS. [Archived acceptance](RH10/gazebo-normal-008/acceptance.json) includes exact artifact hashes, coverage mask, trajectory and receipts. Earlier failures at 97.04%, 97.68% and transport timeouts are retained. This scripted black-box run is not autonomous model evidence. Native single-input acceptance and a dynamic-obstacle complete mission are being rerun after fixing the long-execution RPC timeout. No empirical agent advantage or hardware verification is claimed. A PR has not yet been merged.
+The normal Gazebo cleaning acceptance **passed at 98.0425% independent coverage, zero collisions, complete observations and zero trace gaps** in 626.64 seconds within a 900-second budget. The canonical daemon receipt is COMPLETED / SIMULATION / TASK_VERIFIED; existing Memory persisted success and Practice closed with SUCCESS. [Archived acceptance](RH10/gazebo-normal-008/acceptance.json) includes exact artifact hashes, coverage mask, trajectory and receipts. Earlier failures at 97.04%, 97.68% and transport timeouts are retained. This scripted black-box run is not autonomous model evidence. Actual `gpt-6.1-sol` Native single-input acceptance now passed at **98.0145%**, zero physics contacts and complete observations after a 20-second dynamic obstacle. Three independent operator approvals led to canonical localization, coverage and Memory completion, Practice SUCCESS and the existing TaskKernel SUCCEEDED. [Complete model-run evidence](RH10/native-004-full-pass/acceptance.json) includes exact artifacts, SDK usage and kernel artifact registration. No empirical agent advantage or hardware verification is claimed. Draft [PR #617](https://github.com/ros-claw/rosclaw/pull/617) is open; it has not yet been merged.
 
 Existing RH00–RH15 evidence records the foundation. Later acceptance work and commands are under `integrations/ros_probe/acceptance`; live artifacts are retained in the isolated `/tmp/ros-expert-acceptance` workspace until selected, redacted evidence is archived. Older machine-readable foundation summaries describe their own earlier runs and are not current physical acceptance results.
 
@@ -38,7 +38,7 @@ English/Chinese navigation and complete-cleaning intents select source-linked ex
 
 Existing Python ContextCompiler source adapters remain supported. The active Pi envelope now receives an opt-in compact ROS observation summary, snapshot hash/time and readiness. A bounded read-only connector subprocess owns ROS introspection; Agentd itself opens no ROS/DDS connection. Static interface declarations come from the existing compiled Body and must match its mission-bound hash; runtime observations do not overwrite Body.
 
-A real Native SDK/PTy journey delivered live Jazzy observations to the model prompt using a deterministic fake model. A separate actual `gpt-6.1-sol` preflight returned the expected response. These prove prompt delivery and model availability separately; autonomous cleaning by the actual model remains pending.
+A real Native SDK/PTy journey delivered live Jazzy observations to the model prompt using a deterministic fake model. A separate actual `gpt-6.1-sol` preflight returned the expected response. The later actual-model journey selected observation, localization, coverage and Memory tools itself and completed the existing root task. Its eight SDK turns are separately metered; the existing Core model_usage table has no Native SDK token records, so it must not be used as a zero-token claim.
 
 ## 9. Nav2 Integration
 
@@ -56,13 +56,13 @@ Mission verification requires canonical matching receipts that bind the exact in
 
 ## 11. Dynamic Obstacle Tests
 
-Offline tests prove fixed-denominator accounting, bounded per-cell recovery attempts, idempotent action IDs and temporary-block waiting. They do not measure obstacle avoidance, recovery timing or collisions. A 20-second passive obstacle injection in Gazebo recorded zero contacts, a closest robot-center distance of 0.392 m to the obstacle box and brief observed pauses before acknowledged removal. That Native episode later failed at the communication boundary and is not a full-mission PASS. A complete dynamic-obstacle Native rerun is in progress; multiple successful repeats and a second Body are pending.
+Offline tests prove fixed-denominator accounting, bounded per-cell recovery attempts, idempotent action IDs and temporary-block waiting. They do not measure obstacle avoidance, recovery timing or collisions. A 20-second passive obstacle injection in Gazebo recorded zero contacts, a closest robot-center distance of 0.392 m to the obstacle box and brief observed pauses before acknowledged removal. That Native episode later failed at the communication boundary and is not a full-mission PASS. Native003 subsequently passed the coverage subtest at 98.0705% but did not call Memory, so its root task remained RUNNING and the full episode is PARTIAL. Native004 passed the complete dynamic-obstacle mission at 98.0145% and closed Memory, Practice and TaskKernel. Multiple complete repeats and a second Body are pending.
 
 ## 12. Fault Injection
 
 Fixture replay covers all 26 fault codes, including TF, stale sensors, QoS, lifecycle, obstacle-source and clock faults. Real Jazzy DDS introspection observes synthetic incompatible QoS and inactive lifecycle. Actual Nav2 cleaning runs exposed heartbeat RPC contention, shared receive/send lock starvation and deadline failures; targeted regressions cover the repaired transport behavior. The latest timed-out episode returned a terminal daemon receipt and recorded Practice FAILURE.
 
-Gazebo contact-observer injection now physically intersects the stationary robot, observes non-floor contact count 0→1 and removes the actor with acknowledgement. The initial misplaced injection failed to create a contact and is not counted as success. Dynamic full-mission acceptance, pause/disconnect/observer-loss safety and daemon restart during coverage remain pending.
+Gazebo contact-observer injection now physically intersects the stationary robot, observes non-floor contact count 0→1 and removes the actor with acknowledgement. The initial misplaced injection failed to create a contact and is not counted as success. Live mid-motion daemon SIGKILL, a two-second clock pause/resume and rosbridge SIGKILL now passed independent three-second standstill measurements, cleaning disabled and zero contacts. Pause/disconnect receipts are FAILED; SIGKILL has no terminal receipt and is not represented as canonical completion. The first bridge test is retained as FAIL because the fixture supervisor also stopped independent observation; the repeat explicitly kept physics alive. Observer-loss and restart safety remain pending. [Fault evidence](RH12/live-safety/).
 
 ## 13. ROS1 Compatibility
 
@@ -70,26 +70,25 @@ A native ROS1 read-only probe runs against a real Noetic master in a disposable 
 
 ## 14. Isaac ROS Integration
 
-Source-backed Isaac ROS 5.0 option analysis and performance topology now exist. They preserve UNKNOWN for absent PID/backend/copy/lifetime evidence and never claim measured optimization from topology alone. Official Isaac ROS 5.0 targets ROS2 Lyrical and native rosidl::Buffer CUDA IPC; this fixture's Jazzy stack is incompatible. Live Isaac/GPU transport, lifetime, copying, before/after performance and Isaac Sim cleaning remain NOT_RUN. See [integration prerequisites](../../ISAAC_ROS_INTEGRATION.md).
+Source-backed Isaac ROS 5.0 option analysis and performance topology now exist. They preserve UNKNOWN for absent PID/backend/copy/lifetime evidence and never claim measured optimization from topology alone. Official Isaac ROS 5.0 targets ROS2 Lyrical and native rosidl::Buffer CUDA IPC; this fixture's Jazzy stack is incompatible. An official digest-pinned ARM64 FastOS image now runs on GB10/CUDA13.0 in an owned Lyrical container. Official cuda_buffer_backend 0.1.2 source was built against that runtime; nine native test targets (18 individual cases) passed, including multiprocess CUDA transport, GPU relay and CPU fallback. Three full-HD 20Hz comparisons per backend each received 300/300 content-validated frames: CUDA IPC median latency 0.605–0.667ms versus CPU fallback 16.33–22.82ms. The failed 50Hz CPU case (286/300) is retained. Subscriber pixel validation performs a DtoH copy, and no complete copy profiler trace exists; full zero-copy and cleaning-performance claims remain unsupported. Isaac Sim cleaning remains NOT_RUN. [GPU evidence](RH13/isaac-live/source-lock.json). See [integration prerequisites](../../ISAAC_ROS_INTEGRATION.md).
 
 ## 15. Memory / KNOW / HOW
 
-Existing EventBus and RosPracticeAdapter record system/diagnosis/verification observations. Memory preserves observed/failure outcomes instead of defaulting them to success. The daemon memory executor replays canonical bound mission evidence and requires persistence into existing Memory before it returns success; that physical success path remains unaccepted.
+Existing EventBus and RosPracticeAdapter record system/diagnosis/verification observations. Memory preserves observed/failure outcomes instead of defaulting them to success. The daemon memory executor replays canonical bound mission evidence and requires persistence into existing Memory before it returns success; both the scripted and actual-model SIM success paths are accepted. The actual-model Memory artifact was registered by the existing task coordinator and closed the root task.
 
 The new ROS knowledge projection uses the existing modern KnowledgeFacade, ReferenceContextV2 and HowAdviceRequestV2. Actual pinned upstream coverage source was ingested by the existing research pipeline into a separate seekdb_embedded KNOW store; it returned **3 sourced reference items** and non-abstaining advisory HOW output. No new database implementation, motion authority or automatic rule promotion was added. Verified physical feedback, memory reuse latency and contribution A/B remain pending.
 
 ## 16. Safety Audit
 
-Core imports remain ROS-free. Native probes use only observation RPCs (GetState/ListParameters/GetParameters) and diagnostic publication. Active Native context delegates observation to a bounded read-only connector worker. All fixture motor commands pass through daemon-owned Nav2 execution and a 1.5-second monotonic deadman; expiry disables cleaning and publishes zero velocity, even if the simulation clock pauses. Actual pause/orphan acceptance is still required.
+Core imports remain ROS-free. Native probes use only observation RPCs (GetState/ListParameters/GetParameters) and diagnostic publication. Active Native context delegates observation to a bounded read-only connector worker. All fixture motor commands pass through daemon-owned Nav2 execution and a 1.5-second monotonic deadman; expiry disables cleaning and publishes zero velocity, even if the simulation clock pauses. Actual pause/orphan/disconnect acceptance now passed. An additional official controller watchdog is being accepted for the separate failure of the fixture observer itself.
 
 Compiled Body hash matching, SIM-only executor registration, fixed service/action endpoints, serialized motion, strict observer freshness/completeness and immediate contact rejection are enforced. Generic SetBool does not imply a cleaning actuator; typed Body binding plus fresh independent state is required. Readiness never grants REAL authority. Normal end-to-end zero-collision SIM cleaning is accepted; additional live fault scenarios remain pending.
 
 ## 17. Test Matrix
 
-The latest completed broad CI selection used `-n4 --dist loadfile -m 'not slow and not integration and not deployment and not perf_serial'`: **7984 passed, 91 skipped, zero failures**, 439.22 seconds. It predates the latest full-duplex transport, Body readiness, probe worker and Native action-deadline changes; a final rerun is required after those stabilize.
+The latest correct isolated Python CI selection used `python -m pytest -n8 --dist loadfile -m 'not slow and not integration and not deployment and not perf_serial'`: **8025 passed, 91 skipped, zero failures**, 272.67 seconds. Four additional malformed copy-event cases subsequently passed in the focused performance/receipt suite (23 passed). Native Node tests passed with 240 passed, 3 skipped. Counts overlap and must not be summed.
 
-The isolated installed product journey passed in clean and contaminated-PYTHONPATH cases. Native Node tests reported 238 passed, 3 skipped. Real Pi prompt delivery through the read-only worker passed; native ROS1 and Jazzy DDS introspection passed within their stated synthetic-publisher domains. The current ROS-focused suite reported 234 passed before the latest additional binding tests; the latest targeted binding suite reported 33 passed. Counts overlap and must not be summed.
-
+GitHub Python 3.11/3.12/3.13, type checks, Node tests, Cross-UID boundary/operator E2E, installed product journey and remaining completed checks passed. Lint found a test import ordering defect, now fixed locally. The latest local installed journey failed before the first fake-model reply with Connection error in the proxy-contaminated test environment; this is retained and requires an isolated retry.
 Historical baseline/CI failures remain in earlier reports and logs, including wrong shared environment/import origin, fake-model proxy routing and release-build races. Repository-wide formatting still contains unrelated baseline violations; changed-file lint is checked separately.
 
 ## 18. Benchmark Results
@@ -102,16 +101,16 @@ No empirical superiority claim is supported. The implementation exposes structur
 
 ## 20. Known Limitations
 
-Normal scripted cleaning is accepted. Complete dynamic-obstacle recovery, repeated missions, second Body transfer, autonomous actual-model operation and empirical A/B are not yet accepted. Existing TaskGraph stages are proposals rather than executed TaskKernel stage evidence. Isaac live deployment and ROS1 physical navigation are absent. Modern KNOW/HOW reference retrieval works, but verified physical feedback and memory latency comparisons remain unfinished.
+Normal scripted and autonomous actual-model dynamic-obstacle cleaning are accepted. Repeated complete missions, second Body transfer and empirical A/B are not yet accepted. Existing TaskGraph stages are proposals rather than executed TaskKernel stage evidence. Isaac live deployment and ROS1 physical navigation are absent. Modern KNOW/HOW reference retrieval works, but verified physical feedback and memory latency comparisons remain unfinished.
 
 Observations are integrity-hashed rather than authenticated. Cleaning effectiveness represents an explicitly simulated attachment, not real dirt removal. Fixed-grid cell centers and configured geometry define the coverage metric; physical hardware promotion is disabled. Contact pipeline completeness and failure cleanup have implementation and targeted tests, but require additional live fault runs.
 
 ## 21. Remaining Work
 
-1. Repeat the accepted >=98% zero-contact cleaning through the actual Native model with dynamic-obstacle injection and canonical receipt, mask, trajectory, verification artifact, Practice and Memory persistence.
+1. Repeat the accepted Native full loop after the additional controller-watchdog change and archive its independent fault-stop proof.
 2. Complete dynamic obstruction/withdrawal, disconnect/lease/clock/observer faults, repeated runs and second-Body transfer.
-3. Execute the actual Native Agent model from the single cleaning request through trusted capability discovery, operator approval, daemon action and verified completion.
+3. Extend live fault categories and unknown-Body solution provisioning beyond the preinstalled golden fixture.
 4. Close modern KNOW/HOW feedback and measure memory contribution; run same-model Codex/ROSClaw cases through existing Darwin contracts.
-5. Validate required ROS1/Isaac live gates, finish final checks, archive redacted evidence, create the PR, address CI/review issues and merge only after the mandatory gates pass.
+5. Validate required ROS1/Isaac live gates, finish final checks, archive redacted evidence, address PR #617 CI/review issues and merge only after the mandatory gates pass.
 
 This report records ongoing work. It must not be presented as completion of the full implementation plan or MVP acceptance.

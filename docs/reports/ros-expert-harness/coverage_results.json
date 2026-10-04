@@ -1,18 +1,17 @@
 {
   "schema_version": "rosclaw.ros_coverage_acceptance.v1",
-  "status": "NORMAL_SIMULATION_PASS",
+  "status": "NATIVE_SIMULATION_FULL_LOOP_PASS",
   "v1_done": false,
   "simulation_verified": true,
   "hardware_verified": false,
-  "coverage_ratio": 0.9804250559284117,
+  "coverage_ratio": 0.9801454138702461,
   "collision_count": 0,
-  "completion_time_seconds": 626.637479,
-  "dynamic_obstacle_recovery": null,
+  "completion_time_seconds": 616.009736,
+  "dynamic_obstacle_recovery": true,
   "canonical_receipts": [
-    "RH10/gazebo-normal-008/golden-coverage.receipt.json",
-    "RH10/gazebo-normal-008/golden-remember.receipt.json"
+    "RH10/native-004-full-pass/canonical-receipts.json"
   ],
-  "reason": "Normal black-box daemon execution passed; actual-model and dynamic full-mission acceptance remain in progress.",
+  "reason": "Actual gpt-6.1-sol chose observer, localization, coverage and Memory from a single cleaning input. Dynamic 20-second obstacle, >=98% independent coverage, zero physics contacts, three canonical completed receipts, Practice SUCCESS and TaskKernel SUCCEEDED. Full plan research/transfer gates remain pending.",
   "offline_calculation": {
     "evidence_domain": "synthetic_trace",
     "blocked": {

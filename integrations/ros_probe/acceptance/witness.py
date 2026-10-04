@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import rclpy
-from geometry_msgs.msg import PoseWithCovarianceStamped, Twist
+from geometry_msgs.msg import PoseWithCovarianceStamped, Twist, TwistStamped
 from nav_msgs.msg import OccupancyGrid
 from nav_msgs.msg import Path as NavPath
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
@@ -47,7 +47,12 @@ class Witness(Node):
         self.trace = Path("/evidence/witness.jsonl").open("a", buffering=1)  # noqa: SIM115 - node lifecycle closes it
         self.publisher = self.create_publisher(String, "/rosclaw_sim/observation", 10)
         self.cleaning_state = self.create_publisher(Bool, "/rosclaw_sim/cleaning_state", 10)
-        self.velocity = self.create_publisher(Twist, "/cmd_vel", 10)
+        self.controller_watchdog = self.declare_parameter("controller_watchdog", False).value
+        self.velocity = self.create_publisher(
+            TwistStamped if self.controller_watchdog else Twist,
+            "/drive_controller/cmd_vel" if self.controller_watchdog else "/cmd_vel",
+            10,
+        )
         self.control_callbacks = MutuallyExclusiveCallbackGroup()
         self.wall_clock = Clock(clock_type=ClockType.STEADY_TIME)
         self.create_subscription(TFMessage, "/rosclaw_sim/ground_truth", self.observe, 20)
@@ -162,6 +167,15 @@ class Witness(Node):
 
     def command(self, message):
         if time.monotonic() < self.lease:
+            self.publish_velocity(message)
+
+    def publish_velocity(self, message):
+        if self.controller_watchdog:
+            stamped = TwistStamped()
+            stamped.header.stamp = self.get_clock().now().to_msg()
+            stamped.twist = message
+            self.velocity.publish(stamped)
+        else:
             self.velocity.publish(message)
 
     def observe(self, message):
@@ -183,7 +197,7 @@ class Witness(Node):
                 self.get_logger().warning(
                     f"Cleaning disabled by expired daemon lease: overdue={now - self.lease:.3f}s"
                 )
-            self.velocity.publish(Twist())
+            self.publish_velocity(Twist())
             self.cleaning = False
         self.cleaning_state.publish(Bool(data=self.cleaning))
         if self.pose is None:
@@ -232,7 +246,7 @@ def main():
         executor.spin()
     finally:
         executor.shutdown()
-        node.velocity.publish(Twist())
+        node.publish_velocity(Twist())
         node.trace.close()
         node.destroy_node()
         rclpy.shutdown()

@@ -1,0 +1,11 @@
+[
+  {
+    "artifact_id": "art_672ffa20053d4b298cf26e69",
+    "task_id": "task_7e69b77547714ba58f7b8017",
+    "path": "/tmp/ros-expert-acceptance/native-004/actions/rosevidence_377bb3f8805821ef52d93118f2e8f7ab211ebe15a7cfd44a10487bc932127081.verification.json",
+    "sha256": "6a9dff49010b4b18bf25cb8a58949479c085ab407e41e3b40b3fa08008baec8c",
+    "size_bytes": 65539,
+    "producer": "kernel:capability:ros.expert.remember",
+    "metadata_json": "{}"
+  }
+]

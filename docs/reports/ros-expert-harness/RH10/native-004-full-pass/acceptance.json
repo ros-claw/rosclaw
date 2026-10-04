@@ -1,0 +1,90 @@
+{
+  "status": "PASS",
+  "evidence_domain": "SIMULATION",
+  "autonomous_model": "gpt-6.1-sol",
+  "single_task_input": "完成整个房间清扫。",
+  "operator_approvals": 3,
+  "coverage_ratio": 0.9801454138702461,
+  "safety": {
+    "collision_count": 0,
+    "observation_complete": true,
+    "source": "gazebo_contacts_and_ground_truth_geometry"
+  },
+  "canonical_final_states": [
+    "COMPLETED",
+    "COMPLETED",
+    "COMPLETED"
+  ],
+  "task_kernel_states": [
+    "SUCCEEDED"
+  ],
+  "memory_step": "COMPLETED",
+  "practice_outcome": "SUCCESS",
+  "dynamic_obstacle_zero_contacts": true,
+  "started_at": "2026-10-04T23:04:52.532904Z",
+  "finished_at": "2026-10-04T23:15:08.542640Z",
+  "model_turns": 8,
+  "hardware_verified": false,
+  "files": [
+    {
+      "file": "action-transactions.json",
+      "sha256": "4ef17cef4983e7de503d1a066f2d93b3b6650662037fca149d30e5f7477f3876"
+    },
+    {
+      "file": "body.json",
+      "sha256": "9d79cef391f38af38fa8a8ea5b2ac9890528791e699d9497c90b7fe486b71b4d"
+    },
+    {
+      "file": "canonical-receipts.json",
+      "sha256": "140476162d15e7c066b015152034838ed5039e029cdba7c6170f422fc124b2bc"
+    },
+    {
+      "file": "coverage-mask.json",
+      "sha256": "eb3dab65add667afb4cf78900db8a5cf629cede01513c92b7fd4eafc812b28c5"
+    },
+    {
+      "file": "dynamic_fault.json",
+      "sha256": "ff8b3c93062ce92a44eee02397e9ba310f3956cfc93cacc44e34d72a1169bb4c"
+    },
+    {
+      "file": "execution_config.json",
+      "sha256": "72340087e299c1a9e5d0dcbe3d02b5c0df3d2f46abfc8869ec6c049bb7ab7522"
+    },
+    {
+      "file": "measured_map.json",
+      "sha256": "4cbe10fb5666e05d051037244a0b8916fe1276f70477c157a4338877d6c65db4"
+    },
+    {
+      "file": "model-events.json",
+      "sha256": "d6a8066a8d75404afac2cb190f5890eed797f43b17f6b2eed0d427cfe858f5a7"
+    },
+    {
+      "file": "practice-episode.json",
+      "sha256": "d49ffdf605984e395c64ac04c13856f2ac98d6982421648be9ecd04dc315751c"
+    },
+    {
+      "file": "practice-manifest.yaml",
+      "sha256": "8706d22a98802de2aa1c8b3f4c166c446cf90b812e1170ff803442db0885f7dd"
+    },
+    {
+      "file": "registered-artifacts.json",
+      "sha256": "314fce128193d7d06e236cec9073bfb2c186f2baaba1664f965f7d2d8ec1c2b9"
+    },
+    {
+      "file": "rosevidence_377bb3f8805821ef52d93118f2e8f7ab211ebe15a7cfd44a10487bc932127081.json.gz",
+      "uncompressed_sha256": "434d29f18bc5bc90dde95d56efe9a89142ac8515405241b6ec7059ea58599436"
+    },
+    {
+      "file": "rosevidence_377bb3f8805821ef52d93118f2e8f7ab211ebe15a7cfd44a10487bc932127081.verification.json",
+      "sha256": "6a9dff49010b4b18bf25cb8a58949479c085ab407e41e3b40b3fa08008baec8c"
+    },
+    {
+      "file": "sdk-usage.json",
+      "sha256": "4a53a1d26f396f6e94916d30d99481da5f56db8f5830b51059984c4af3ad314f"
+    },
+    {
+      "file": "task-kernel.json",
+      "sha256": "eaaad7c863e25b79abdee5c53d092abfa4c839f3b4be63a39b91203d036cfa54"
+    }
+  ]
+}

@@ -15,6 +15,7 @@ RUN if [ -n "$APT_PROXY" ]; then \
       ros-jazzy-navigation2 ros-jazzy-nav2-bringup ros-jazzy-nav2-minimal-tb3-sim \
       ros-jazzy-fields2cover ros-jazzy-rosbridge-server ros-jazzy-rosbridge-library \
       ros-jazzy-tf-transformations ros-jazzy-diagnostic-msgs libgdal-dev \
+      ros-jazzy-gz-ros2-control ros-jazzy-diff-drive-controller ros-jazzy-joint-state-broadcaster \
       python3-colcon-common-extensions python3-venv python3-pip && \
     dpkg-query -W > /opt/ros-expert-package-lock.txt
 COPY opennav_coverage /ws/src/opennav_coverage

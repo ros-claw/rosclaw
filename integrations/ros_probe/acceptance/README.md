@@ -13,7 +13,7 @@ mkdir -p /tmp/ros-expert-run/golden
 docker run --rm --name ros-expert-golden -p 19090:9090 \
   -v "$PWD:/workspace:ro" -v /tmp/ros-expert-run/golden:/evidence \
   rosclaw/ros-expert-jazzy:acceptance \
-  python3 /workspace/integrations/ros_probe/acceptance/stack.py
+  bash -c 'source /opt/ros/jazzy/setup.bash && source /ws/install/setup.bash && python3 /workspace/integrations/ros_probe/acceptance/stack.py'
 ```
 
 The stack writes its measured map and actual robot URDF into the owned evidence

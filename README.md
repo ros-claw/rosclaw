@@ -109,7 +109,7 @@ roadmap disguised as completed work.
 | Repository-wide real robot execution | **Revalidation pending** | RH56 has developer-run physical evidence, but independent hardware and Agent black-box acceptance are still pending; no repository-wide real-ready claim is made. |
 <!-- product-status:end -->
 
-ROS Expert Harness adds runtime system modeling, diagnostics, typed Body readiness and independent mission verification. An isolated Jazzy/Gazebo/Nav2 cleaning mission passed **98.04% coverage with zero physics contacts**, with canonical SIM receipts and existing Memory/Practice persistence. Actual-model Native, dynamic-obstacle completion and controlled Agent A/B acceptance are still being completed. See [implementation evidence](docs/reports/ros-expert-harness/FINAL_IMPLEMENTATION_REPORT.md).
+ROS Expert Harness adds runtime system modeling, diagnostics, typed Body readiness and independent mission verification. An isolated Jazzy/Gazebo/Nav2 cleaning mission passed **98.04% coverage with zero physics contacts**, with canonical SIM receipts and existing Memory/Practice persistence. Actual-model Native single-input cleaning also passed at **98.01%**, with a dynamic obstacle, canonical Memory receipt, Practice SUCCESS and TaskKernel SUCCEEDED. Controlled Agent A/B acceptance remains pending. See [implementation evidence](docs/reports/ros-expert-harness/FINAL_IMPLEMENTATION_REPORT.md).
 
 The core package supports Python 3.11 through 3.13. The isolated LeRobot 0.6 runtime and
 the bundled RH56 reference-policy plugin require Python 3.12+.

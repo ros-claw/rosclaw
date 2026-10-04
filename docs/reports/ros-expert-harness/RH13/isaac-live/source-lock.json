@@ -1,0 +1,15 @@
+{
+  "image": "nvcr.io/nvidia/isaac/ros:isaac_ros_1742a70509cba44cb1943ab200bbece1-arm64-fastos",
+  "digest": "sha256:05933b23aaef00ff9dba48232dbe44f85ab1f48468401502b6b19f291616e8de",
+  "backend_repository": "https://github.com/ros2/rosidl_buffer_backends",
+  "backend_commit": "7e723061d03b347bedea69009b003f33e9b53314",
+  "backend_version": "0.1.2",
+  "ros_distro": "lyrical",
+  "cuda_version": "13.0",
+  "gpu": "NVIDIA GB10",
+  "driver": "580.159.03",
+  "execution_domain": 201,
+  "official_test_targets_passed": 9,
+  "individual_test_cases_passed": 18,
+  "zero_copy_verified": false
+}

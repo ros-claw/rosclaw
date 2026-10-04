@@ -1,5 +1,6 @@
 """Launch a small real Gazebo/Nav2/opennav simulation acceptance stack."""
 
+import argparse
 import json
 import os
 import signal
@@ -15,7 +16,7 @@ ROOT = Path(__file__).resolve().parent
 OUTPUT = Path("/evidence")
 
 
-def prepare():
+def prepare(controller_watchdog=False):
     OUTPUT.mkdir(exist_ok=True)
     sim = Path(get_package_share_directory("nav2_minimal_tb3_sim"))
     (OUTPUT / "robot.urdf").write_bytes((sim / "urdf/turtlebot3_waffle.urdf").read_bytes())
@@ -27,6 +28,10 @@ def prepare():
     )
     tree = ET.fromstring(robot)
     model = tree.find("model")
+    if controller_watchdog:
+        from controller import configure
+
+        configure(model, OUTPUT)
     contact_topics = []
     for link in model.findall("link"):
         for sensor in link.findall("sensor"):
@@ -160,6 +165,12 @@ def prepare():
         p["inflation_layer"].update(inflation_radius=0.27, cost_scaling_factor=5.0)
     (OUTPUT / "nav2.yaml").write_text(yaml.safe_dump(params))
     bridge = yaml.safe_load((sim / "configs/turtlebot3_waffle_bridge.yaml").read_text())
+    if controller_watchdog:
+        bridge = [
+            entry
+            for entry in bridge
+            if entry.get("topic_name") not in {"cmd_vel", "odom", "tf", "joint_states"}
+        ]
     bridge.extend(
         {
             "ros_topic_name": t,
@@ -186,13 +197,20 @@ def prepare():
 
 
 def main():
-    sim = prepare()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--fault-acceptance", action="store_true")
+    parser.add_argument("--controller-watchdog", action="store_true")
+    args = parser.parse_args()
+    prepare(args.controller_watchdog)
     children = []
+    labels = {}
+    exited = set()
 
     def start(name, argv):
         log = (OUTPUT / f"{name}.log").open("w")
         p = subprocess.Popen(argv, stdout=log, stderr=subprocess.STDOUT)
         children.append(p)
+        labels[p] = name
         return p
 
     try:
@@ -243,10 +261,25 @@ def main():
                 "-p",
                 "use_sim_time:=true",
                 "-p",
-                "robot_description:=" + (sim / "urdf/turtlebot3_waffle.urdf").read_text(),
+                "robot_description:=" + (OUTPUT / "robot.urdf").read_text(),
             ],
         )
         start("nav2", ["ros2", "launch", str(ROOT / "nav2_launch.py")])
+        if args.controller_watchdog:
+            subprocess.run(
+                [
+                    "ros2",
+                    "run",
+                    "controller_manager",
+                    "spawner",
+                    "joint_state_broadcaster",
+                    "drive_controller",
+                    "--controller-manager-timeout",
+                    "30",
+                ],
+                check=True,
+                timeout=40,
+            )
         start(
             "coverage",
             [
@@ -299,12 +332,29 @@ def main():
         )
         start(
             "witness",
-            ["python3", str(ROOT / "witness.py"), "--ros-args", "-p", "use_sim_time:=true"],
+            [
+                "python3",
+                str(ROOT / "witness.py"),
+                "--ros-args",
+                "-p",
+                "use_sim_time:=true",
+                "-p",
+                f"controller_watchdog:={'true' if args.controller_watchdog else 'false'}",
+            ],
         )
         start("probe", ["python3", str(ROOT.parent / "ros2/probe.py")])
         while True:
             for p in children:
                 if p.poll() is not None:
+                    if args.fault_acceptance and labels[p] in {"rosbridge", "rosapi", "probe"}:
+                        if p not in exited:
+                            exited.add(p)
+                            with (OUTPUT / "fixture_process_failures.jsonl").open("a") as trace:
+                                trace.write(
+                                    json.dumps({"process": labels[p], "exit_code": p.returncode})
+                                    + "\n"
+                                )
+                        continue
                     raise RuntimeError(f"stack process exited: {p.args}")
             time.sleep(1)
     finally:

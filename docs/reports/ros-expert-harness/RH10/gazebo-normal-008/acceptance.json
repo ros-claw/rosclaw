@@ -75,8 +75,8 @@
       "sha256": "4c20d8a989958a07c2c3f844b186e9de125989fe1f610698c0c7cc1294b9b69d"
     },
     {
-      "file": "trajectory.json",
-      "sha256": "d93bca7ae09f7a808620f0f3eed06724614f8e92c7ae8ffcfad5ef5dee2f6b84"
+      "file": "trajectory.json.gz",
+      "uncompressed_sha256": "d93bca7ae09f7a808620f0f3eed06724614f8e92c7ae8ffcfad5ef5dee2f6b84"
     }
   ]
 }
