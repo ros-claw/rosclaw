@@ -81,25 +81,45 @@ class _OwnedMcpSession:
     def __init__(self, command: str, args: tuple[str, ...], env: dict | None) -> None:
         self.loop = asyncio.get_running_loop()
         self.ready: asyncio.Future[Any] = self.loop.create_future()
+        # A caller may cancel its shielded wait before shutdown supplies the
+        # typed initialization outcome. Retrieving it prevents orphan warnings
+        # without changing what any waiting caller receives.
+        self.ready.add_done_callback(
+            lambda future: None if future.cancelled() else future.exception()
+        )
+        self.initialized = False
+        self.initialization_stop_requested = False
+        self._initialization_scope: Any | None = None
         self.stop = asyncio.Event()
         self.task = asyncio.create_task(self._run(command, args, env))
 
     async def _run(self, command: str, args: tuple[str, ...], env: dict | None) -> None:
         from contextlib import AsyncExitStack
 
+        import anyio
         from mcp import ClientSession, StdioServerParameters
         from mcp.client.stdio import stdio_client
 
         try:
-            async with AsyncExitStack() as stack:
-                params = StdioServerParameters(command=command, args=list(args), env=env or None)
-                read, write = await stack.enter_async_context(
-                    stdio_client(params, errlog=_safe_errlog())
-                )
-                session = await stack.enter_async_context(ClientSession(read, write))
-                await session.initialize()
-                self.ready.set_result(session)
-                await self.stop.wait()
+            if self.initialization_stop_requested:
+                return  # close arrived before this owner started; no child was spawned
+            # Level-triggered cancellation must remain active through SDK
+            # context teardown. A one-shot Task.cancel can be consumed by an
+            # inner SDK scope, leaving its subprocess wait unbounded here.
+            with anyio.CancelScope() as scope:
+                self._initialization_scope = scope
+                async with AsyncExitStack() as stack:
+                    params = StdioServerParameters(
+                        command=command, args=list(args), env=env or None
+                    )
+                    read, write = await stack.enter_async_context(
+                        stdio_client(params, errlog=_safe_errlog())
+                    )
+                    session = await stack.enter_async_context(ClientSession(read, write))
+                    await session.initialize()
+                    self.initialized = True
+                    self.ready.set_result(session)
+                    await self.stop.wait()
         except asyncio.CancelledError:
             if not self.ready.done():
                 self.ready.cancel()
@@ -109,10 +129,26 @@ class _OwnedMcpSession:
                 self.ready.set_exception(exc)
                 return  # initializer receives the original failure, not an unobserved task error
             raise  # cleanup failure stays observable; cancellation is not swallowed
+        finally:
+            self._initialization_scope = None
+
+    def stop_initialization(self) -> None:
+        if self.initialized or self.task.done() or self.initialization_stop_requested:
+            return
+        if asyncio.get_running_loop() is not self.loop:
+            raise McpCloseUnresolvedError("MCP initialization belongs to another event loop")
+        self.initialization_stop_requested = True
+        if not self.ready.done():
+            self.ready.set_exception(
+                McpClientClosedError("MCP client closed during initialization")
+            )
+        if self._initialization_scope is not None:
+            self._initialization_scope.cancel()  # only its same-loop owner before tool dispatch
 
     async def aclose(self) -> None:
         if asyncio.get_running_loop() is not self.loop:
             raise McpCloseUnresolvedError("MCP session must close on its owning event loop")
+        self.stop_initialization()
         self.stop.set()
         await asyncio.shield(self.task)
 
@@ -215,6 +251,11 @@ class PersistentMcpClient:
         ):
             raise McpCloseUnresolvedError("MCP sessions on another loop require owner-loop cleanup")
         self._closing = True
+        # Pending initialization holds the per-loop call lock. Publish a typed
+        # closed result and stop its owner before waiting for that lock, avoiding
+        # deadlock without cancelling a dispatched tool call.
+        for owner in self._owners.values():
+            owner.stop_initialization()
         for key in set(self._sessions) | set(self._owners):
             async with self._lock_for(key):
                 await self._reset(key)

@@ -68,3 +68,12 @@ owning loop has closed are ignored; listener threads never use a synchronous
 SQLite fallback. This protects mock/production callback scheduling boundaries,
 not an implemented shutdown handshake for active DDS Actions: active Actions
 still cause preserve-only service close to report unresolved.
+
+If MCP initialization has not published a session, close supplies
+`MCP_CLIENT_CLOSED` to its waiting callers and cancels only that same-loop owner's
+initialization scope before acquiring the call lock. Level-triggered AnyIO scope
+cancellation remains active through SDK context cleanup, so a non-responsive
+stdio initializer cannot hold that lock waiting for a reply. An externally
+cancelled caller still receives cancellation. Initialized/dispatched sessions
+retain their call-lock and unconfirmed-outcome/no-replay rules. This owned SDK
+connection cleanup does not signal independent durable process operations.
