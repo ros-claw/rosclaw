@@ -826,7 +826,8 @@ class AgentService:
                 import logging
 
                 logging.getLogger("rosclaw.conformance").warning(
-                    "plan-ref conformance probe failed", exc_info=True,
+                    "plan-ref conformance probe failed",
+                    exc_info=True,
                 )
         body_id = mission.body_binding.body_id if mission is not None else ""
         mode = mission.mode.value if mission is not None else "SIMULATION"
@@ -956,7 +957,8 @@ class AgentService:
             (mission_id,),
         ).fetchall()
         return await self._operation_manager.cancel_many(
-            [str(row["operation_id"]) for row in running], reason="user_cancel",
+            [str(row["operation_id"]) for row in running],
+            reason="user_cancel",
         )
 
     # ------------------------------------------------------------------
@@ -1459,7 +1461,24 @@ class AgentService:
         self._op_maintenance_task = asyncio.create_task(_sweep_loop())
 
     async def close(self) -> None:
+        # Caller cancellation does not cancel shared cleanup. Later closes on
+        # the same loop join it; completed teardown does not touch SQLite twice.
+        task = getattr(self, "_close_task", None)
+        if task is None:
+            task = asyncio.create_task(self._close_preserving_operations())
+            self._close_task = task
+        try:
+            await asyncio.shield(task)
+        except Exception:
+            if getattr(self, "_close_task", None) is task:
+                self._close_task = None  # unresolved preflight can be retried
+            raise
 
+    async def _close_preserving_operations(self) -> None:
+        # Preflight before maintenance/socket teardown: legacy PIPE and active
+        # DDS actions have no safe transparent handoff; leave resources open.
+        self._operation_manager.preflight_handoff()
+        await self._operation_manager.close()
         maintenance = getattr(self, "_op_maintenance_task", None)
         if maintenance is not None:
             # A concurrent/later close must join cleanup, not cancel its finally
