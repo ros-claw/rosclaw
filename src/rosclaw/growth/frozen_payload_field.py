@@ -60,3 +60,42 @@ class FrozenPayloadField:
             "stripped_document": stripped,
         }
         return {**value, "envelope_hash": canonical_hash(value)}
+
+    def restore(self, envelope: Any, key: str) -> dict[str, Any]:
+        """Restore only this cached payload after complete envelope validation.
+
+        This is persistence math, not a policy validator or trust grant.
+        Returned fields and payload are freshly owned ordinary dictionaries.
+        A caller must still validate any policy and its execution commitment.
+        """
+        if (
+            type(envelope) is not dict
+            or set(envelope)
+            != {
+                "schema",
+                "location",
+                "payload_hash",
+                "logical_document_hash",
+                "stripped_document",
+                "envelope_hash",
+            }
+            or type(key) is not str
+            or not 1 <= len(key) <= 128
+            or envelope["schema"] != SCHEMA
+            or envelope["location"] != [key]
+            or envelope["payload_hash"] != self.payload_hash
+            or self.payload_hash != "sha256:" + hashlib.sha256(self._payload_bytes).hexdigest()
+            or type(envelope["stripped_document"]) is not dict
+        ):
+            raise ValueError("complete envelope for the immutable cached payload required")
+        unsigned = {k: v for k, v in envelope.items() if k != "envelope_hash"}
+        if canonical_hash(unsigned) != envelope["envelope_hash"]:
+            raise ValueError("cached payload envelope seal changed")
+        stripped = json.loads(_bytes(envelope["stripped_document"]))
+        if stripped.get(key) != {MARKER: self.payload_hash}:
+            raise ValueError("exact single cached payload marker required")
+        fields = {k: v for k, v in stripped.items() if k != key}
+        if self.document_hash(fields, key) != envelope["logical_document_hash"]:
+            raise ValueError("complete cached logical document hash changed")
+        fields[key] = json.loads(self._payload_bytes)
+        return fields
