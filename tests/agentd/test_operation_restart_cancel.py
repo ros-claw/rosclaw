@@ -372,3 +372,56 @@ async def test_legacy_cancelled_row_does_not_claim_physical_stop_or_mutate_histo
         assert manager.events_since('t', 0) == events
     finally:
         await _cleanup(proc, [manager])
+
+
+@pytest.mark.asyncio
+async def test_db_reopen_identity_mismatch_preserves_pending_cancel_and_sweep_truth(ledger):
+    from rosclaw.task_kernel.operation_manager import OperationCancellationUnresolvedError
+
+    conn, root = ledger
+    first = OperationManager(None, conn)
+    op = await first.start(task_id='t', attempt_id='', kind='process',
+                           argv=[sys.executable, '-c', 'import time;time.sleep(60)'], cwd=str(root))
+    proc = first._procs[op['operation_id']]
+    reopened = None
+    second = None
+    try:
+        driver = first._drivers[op['operation_id']]
+        driver.cancel()
+        await asyncio.gather(driver, return_exceptions=True)
+        proof = json.loads(op['process_identity_json'])
+        proof['start_ticks'] += 1
+        conn.execute('UPDATE operations SET process_identity_json=? WHERE operation_id=?',
+                     (json.dumps(proof), op['operation_id']))
+        with pytest.raises(OperationCancellationUnresolvedError):
+            await first.cancel(op['operation_id'])
+        conn.commit()
+        reopened = sqlite3.connect(root / 'private.db')
+        reopened.row_factory = sqlite3.Row
+        second = OperationManager(None, reopened)
+        assert second.get(op['operation_id'])['state'] == 'CANCELING'
+        assert (await second.recover_on_boot())['unresolved'] == 1
+        for threshold in (0, 86400):
+            await second.sweep_liveness(stale_after_s=threshold)
+            row = second.get(op['operation_id'])
+            assert row['state'] == 'CANCELING'
+            assert row['failure_code'] == 'CANCEL_STOP_UNCONFIRMED'
+        assert second._pid_alive(proc.pid)
+        types = [e['event_type'] for e in second.events_since('t', 0)]
+        assert 'operation.recovery_unresolved' in types
+        assert 'operation.resumed' not in types and 'operation.cancelled' not in types
+    finally:
+        await _cleanup(proc, [first] + ([second] if second else []))
+        if reopened is not None:
+            reopened.close()
+
+
+@pytest.mark.asyncio
+async def test_cancel_many_unknown_id_is_safe_no_success_count_or_events(ledger):
+    conn, _ = ledger
+    manager = OperationManager(None, conn)
+    before = manager.events_since('t', 0)
+    assert manager.get('not_a_real_operation') == {}
+    report = await manager.cancel_many(['not_a_real_operation'])
+    assert report['operations_cancelled'] == 0
+    assert manager.events_since('t', 0) == before

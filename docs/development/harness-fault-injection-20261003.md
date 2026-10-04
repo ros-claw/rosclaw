@@ -815,3 +815,16 @@ Ruff, mypy for all five changed Python sources, and diff checks pass. Two old
 synthetic RUNNING/pid=0 cascade fixtures now honestly assert unresolved cleanup;
 three restart fixtures now await private process/driver cleanup in their
 own running loop rather than leaking transports after `asyncio.run` closes.
+
+Root review addendum: a static concern that identity-mismatch recovery might
+change pending CANCELING to DEGRADED/RUNNING was tested against the original
+`2544d331` implementation. Two new private fixtures passed before the explicit
+branch change: a committed DB reopen with mismatched start ticks retained
+CANCELING and `CANCEL_STOP_UNCONFIRMED` through both stale/fresh liveness sweeps,
+without signals or resume/terminal events; cancelling an unknown ID returned
+zero cancelled count and added no events. The existing `_transition` terminal/
+CANCELING guard already prevented the suspected overwrite, so this is not
+reported as a newly reproduced bug. Recovery now also skips that transition
+explicitly for readability. Final lifecycle fixtures: **24 PASS**; combined
+related cohort: **102 PASS** under unraisable-warning-as-error, with Ruff/mypy
+and diff checks passing.

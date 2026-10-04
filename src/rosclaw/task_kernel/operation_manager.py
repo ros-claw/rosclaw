@@ -527,7 +527,10 @@ class OperationManager:
                             "UPDATE operations SET failure_code = 'PROCESS_IDENTITY_UNVERIFIED' "
                             "WHERE operation_id = ?", (op_id,),
                         )
-                    self._transition(op_id, "DEGRADED", event=None)
+                        self._transition(op_id, "DEGRADED", event=None)
+                    # Existing CANCELING and its unresolved-stop code remain
+                    # intact. The general transition guard also protects this;
+                    # recovery must never reclassify it as heartbeat-resumable.
                     self._emit(str(row["task_id"]), "operation.recovery_unresolved",
                                {"pid": pid, "stop_confirmed": False,
                                 "code": "PROCESS_IDENTITY_UNVERIFIED"}, operation_id=op_id)
