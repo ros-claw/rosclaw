@@ -27,7 +27,7 @@ def grouped_terminal_credit(
         or contexts.dtype.kind not in "iu"
         or not 4 <= len(contexts) <= 4096
         or not np.isfinite(reward).all()
-        or np.max(np.abs(reward)) > 1e6
+        or np.max(np.abs(reward.astype(np.float64))) > 1e6
         or np.any(contexts < 0)
         or not np.array_equal(np.unique(groups), np.arange(len(contexts)))
         or not 2 <= len(np.unique(contexts)) <= 128

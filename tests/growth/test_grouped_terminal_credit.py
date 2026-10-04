@@ -62,6 +62,7 @@ def test_constant_returns_have_zero_finite_credit_without_learning_claim():
     [
         "nan",
         "large",
+        "minimum_signed_integer",
         "different_row_return",
         "float_groups",
         "bool_contexts",
@@ -76,6 +77,8 @@ def test_incomplete_or_malformed_terminal_batch_rejected(fault):
         reward[0] = np.nan
     elif fault == "large":
         reward[:] = 1e7
+    elif fault == "minimum_signed_integer":
+        reward = np.full(reward.shape, np.iinfo(np.int64).min, dtype=np.int64)
     elif fault == "different_row_return":
         reward[0] += 0.1
     elif fault == "float_groups":
