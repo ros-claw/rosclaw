@@ -1,0 +1,5 @@
+{
+  "artifact": "../../RH03/evidence/live_probe.json",
+  "domain": "synthetic_ros_graph",
+  "note": "Reference to recorded artifact; this index is not independent measurement evidence."
+}

@@ -1,0 +1,227 @@
+{
+  "evidence_domain": "fixture_replay",
+  "scenarios": {
+    "normal": {
+      "schema_version": "rosclaw.ros_diagnosis.v1",
+      "snapshot_id": "rossys_d8809ca2121e22f2e8dc6f41f626e6fcbce5874091f958da77b52d3242833a68",
+      "snapshot_hash": "rossnap_d8809ca2121e22f2e8dc6f41f626e6fcbce5874091f958da77b52d3242833a68",
+      "profile": "all",
+      "status": "HEALTHY",
+      "unknown_checks": [],
+      "issues": []
+    },
+    "tf_missing": {
+      "schema_version": "rosclaw.ros_diagnosis.v1",
+      "snapshot_id": "rossys_79273df098cedf9f3588e0b7bba7416d4df76ba5350ba94dcafee0831fbd394c",
+      "snapshot_hash": "rossnap_79273df098cedf9f3588e0b7bba7416d4df76ba5350ba94dcafee0831fbd394c",
+      "profile": "all",
+      "status": "BLOCKED",
+      "unknown_checks": [],
+      "issues": [
+        {
+          "issue_code": "ROS_TF_001",
+          "severity": "blocking",
+          "evidence": [
+            {
+              "source": "rossys_79273df098cedf9f3588e0b7bba7416d4df76ba5350ba94dcafee0831fbd394c",
+              "observation": {
+                "parent": "map",
+                "child": "odom"
+              },
+              "timestamp": "2026-10-03T00:00:00+00:00"
+            }
+          ],
+          "confidence": 1.0,
+          "hypotheses": [],
+          "next_checks": [
+            "Inspect transform publishers."
+          ],
+          "recommended_repairs": [
+            "Inspect transform publishers."
+          ],
+          "runtime_mutation_required": false
+        }
+      ]
+    },
+    "sensor_stale": {
+      "schema_version": "rosclaw.ros_diagnosis.v1",
+      "snapshot_id": "rossys_41ae2db17c237a50913028ad75d16f380df086adb46f6cab93842b20863d0968",
+      "snapshot_hash": "rossnap_41ae2db17c237a50913028ad75d16f380df086adb46f6cab93842b20863d0968",
+      "profile": "all",
+      "status": "BLOCKED",
+      "unknown_checks": [],
+      "issues": [
+        {
+          "issue_code": "ROS_TOPIC_002",
+          "severity": "blocking",
+          "evidence": [
+            {
+              "source": "rossys_41ae2db17c237a50913028ad75d16f380df086adb46f6cab93842b20863d0968",
+              "observation": {
+                "source": "fixture:received_samples",
+                "captured_at": "2026-10-03T00:00:00Z",
+                "topic": "/scan",
+                "rate_hz": 10.0,
+                "jitter_ms": 0.0,
+                "last_message_age_ms": 2000.0,
+                "publisher_count": 1,
+                "subscriber_count": 1
+              },
+              "timestamp": "2026-10-03T00:00:00+00:00"
+            }
+          ],
+          "confidence": 1.0,
+          "hypotheses": [],
+          "next_checks": [
+            "Inspect sensor freshness and upstream health."
+          ],
+          "recommended_repairs": [
+            "Inspect sensor freshness and upstream health."
+          ],
+          "runtime_mutation_required": false
+        }
+      ]
+    },
+    "qos_fault": {
+      "schema_version": "rosclaw.ros_diagnosis.v1",
+      "snapshot_id": "rossys_8aca135c5111e753fdd4fa8094333aaf50ee10cfb644b349d51812abf6c7f7a7",
+      "snapshot_hash": "rossnap_8aca135c5111e753fdd4fa8094333aaf50ee10cfb644b349d51812abf6c7f7a7",
+      "profile": "all",
+      "status": "BLOCKED",
+      "unknown_checks": [],
+      "issues": [
+        {
+          "issue_code": "ROS_QOS_001",
+          "severity": "blocking",
+          "evidence": [
+            {
+              "source": "rossys_8aca135c5111e753fdd4fa8094333aaf50ee10cfb644b349d51812abf6c7f7a7",
+              "observation": {
+                "publisher": {
+                  "topic": "/scan",
+                  "kind": "publisher",
+                  "reliability": "BEST_EFFORT"
+                },
+                "subscriber": {
+                  "topic": "/scan",
+                  "kind": "subscriber",
+                  "reliability": "RELIABLE"
+                }
+              },
+              "timestamp": "2026-10-03T00:00:00+00:00"
+            }
+          ],
+          "confidence": 1.0,
+          "hypotheses": [],
+          "next_checks": [
+            "Inspect requested/offered QoS compatibility."
+          ],
+          "recommended_repairs": [
+            "Inspect requested/offered QoS compatibility."
+          ],
+          "runtime_mutation_required": false
+        }
+      ]
+    },
+    "lifecycle_fault": {
+      "schema_version": "rosclaw.ros_diagnosis.v1",
+      "snapshot_id": "rossys_bb1d95c98fbbc9c98ad781ade1cea015be9efbacf675bd06cb8033c38df3df54",
+      "snapshot_hash": "rossnap_bb1d95c98fbbc9c98ad781ade1cea015be9efbacf675bd06cb8033c38df3df54",
+      "profile": "all",
+      "status": "BLOCKED",
+      "unknown_checks": [],
+      "issues": [
+        {
+          "issue_code": "ROS_LIFECYCLE_001",
+          "severity": "blocking",
+          "evidence": [
+            {
+              "source": "rossys_bb1d95c98fbbc9c98ad781ade1cea015be9efbacf675bd06cb8033c38df3df54",
+              "observation": {
+                "source": "fixture:get_state",
+                "captured_at": "2026-10-03T00:00:00Z",
+                "name": "/planner_server",
+                "state": "INACTIVE"
+              },
+              "timestamp": "2026-10-03T00:00:00+00:00"
+            }
+          ],
+          "confidence": 1.0,
+          "hypotheses": [],
+          "next_checks": [
+            "Inspect lifecycle manager configuration; activation requires guarded execution."
+          ],
+          "recommended_repairs": [
+            "Inspect lifecycle manager configuration; activation requires guarded execution."
+          ],
+          "runtime_mutation_required": false
+        }
+      ]
+    },
+    "costmap_fault": {
+      "schema_version": "rosclaw.ros_diagnosis.v1",
+      "snapshot_id": "rossys_304bde85b9d336a1552be39176bd952454527cca33ff1c4910225249807fff18",
+      "snapshot_hash": "rossnap_304bde85b9d336a1552be39176bd952454527cca33ff1c4910225249807fff18",
+      "profile": "all",
+      "status": "BLOCKED",
+      "unknown_checks": [],
+      "issues": [
+        {
+          "issue_code": "NAV2_COSTMAP_001",
+          "severity": "blocking",
+          "evidence": [
+            {
+              "source": "rossys_304bde85b9d336a1552be39176bd952454527cca33ff1c4910225249807fff18",
+              "observation": {
+                "obstacle_source_configured": false
+              },
+              "timestamp": "2026-10-03T00:00:00+00:00"
+            }
+          ],
+          "confidence": 1.0,
+          "hypotheses": [],
+          "next_checks": [
+            "Inspect costmap observation_sources configuration."
+          ],
+          "recommended_repairs": [
+            "Inspect costmap observation_sources configuration."
+          ],
+          "runtime_mutation_required": false
+        }
+      ]
+    },
+    "sim_time_fault": {
+      "schema_version": "rosclaw.ros_diagnosis.v1",
+      "snapshot_id": "rossys_369f2b11a59c401fe25ca86fb118b086f3b908d0ee31087abc97abea2b0c61c3",
+      "snapshot_hash": "rossnap_369f2b11a59c401fe25ca86fb118b086f3b908d0ee31087abc97abea2b0c61c3",
+      "profile": "all",
+      "status": "BLOCKED",
+      "unknown_checks": [],
+      "issues": [
+        {
+          "issue_code": "ROS_TIME_001",
+          "severity": "blocking",
+          "evidence": [
+            {
+              "source": "rossys_369f2b11a59c401fe25ca86fb118b086f3b908d0ee31087abc97abea2b0c61c3",
+              "observation": {
+                "/amcl": false,
+                "/controller_server": true
+              },
+              "timestamp": "2026-10-03T00:00:00+00:00"
+            }
+          ],
+          "confidence": 1.0,
+          "hypotheses": [],
+          "next_checks": [
+            "Align use_sim_time in reviewed launch configuration."
+          ],
+          "recommended_repairs": [
+            "Align use_sim_time in reviewed launch configuration."
+          ],
+          "runtime_mutation_required": false
+        }
+      ]
+    }
+  }
+}

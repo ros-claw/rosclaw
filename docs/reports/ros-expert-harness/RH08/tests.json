@@ -1,0 +1,8 @@
+{
+  "stage": "RH08",
+  "status": "NOT_RUN",
+  "primary_evidence": "../coverage_results.json",
+  "test_summary": "../final_test_summary.json",
+  "v1_acceptance": false,
+  "note": "No NavigateToPose sent. Pinned simulation stack and daemon bindings absent."
+}

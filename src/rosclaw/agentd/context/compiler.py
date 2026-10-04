@@ -105,6 +105,22 @@ class ContextCompiler:
         context_id: str | None = None,
     ) -> EmbodiedContextBundleV1:
         src = self._sources
+        ros_model = src.extra.get("ros_system_model")
+        if ros_model is not None:
+            from rosclaw.connectors.ros.context.compiler import augment_sources
+            from rosclaw.connectors.ros.intelligence import RosSystemModel
+
+            if not isinstance(ros_model, RosSystemModel):
+                raise CompilationError("ROS source must be a validated RosSystemModel")
+            if ros_model.robot_id != mission.body_binding.body_id:
+                raise CompilationError("ROS snapshot robot does not match mission Body")
+            if ros_model.snapshot_hash != ros_model.compute_snapshot_hash():
+                raise CompilationError("ROS snapshot changed after capture")
+            if not -100 <= ros_model.age_ms(now) <= self._self_max_age_ms:
+                raise StaleSourceError(
+                    "ROS observations are stale or future-dated; refresh required"
+                )
+            src = augment_sources(src, ros_model, now=now)
 
         # L1 — body truth. Missing/unhash-matched/uncalibrated fails closed.
         body = src.body.get_body(mission.body_binding.body_id)
@@ -308,15 +324,11 @@ class ContextCompiler:
                 continue
             if _PERMISSION_RANK[cap.permission] < _PERMISSION_RANK[existing.permission]:
                 by_name[cap.name] = cap
-        admitted = [
-            c for c in by_name.values() if c.permission in {"granted", "operator_only"}
-        ]
+        admitted = [c for c in by_name.values() if c.permission in {"granted", "operator_only"}]
         # Context-only physical contracts are never model-callable, but must be
         # visible so REQUEST_APPROVAL/REQUEST_ACTION can use exact Pack schemas.
         # Reserve the front of the bounded layer for those contracts.
-        admitted.sort(
-            key=lambda c: (-c.priority, c.permission != "operator_only", c.name)
-        )
+        admitted.sort(key=lambda c: (-c.priority, c.permission != "operator_only", c.name))
         return admitted[: self._dynamic_tool_limit]
 
     def _mission_summary(self, mission: MissionSessionV1, graph: TaskGraphV1) -> str:

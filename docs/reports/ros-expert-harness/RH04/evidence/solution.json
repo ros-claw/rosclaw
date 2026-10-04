@@ -1,0 +1,146 @@
+{
+  "schema_version": "rosclaw.ros_solution.v1",
+  "task_class": "complete_area_cleaning",
+  "snapshot_id": "rossys_d8809ca2121e22f2e8dc6f41f626e6fcbce5874091f958da77b52d3242833a68",
+  "available": [
+    "navigation.navigate_to_pose",
+    "localization.pose_estimate",
+    "mapping.occupancy_map",
+    "state.odometry",
+    "sensing.lidar"
+  ],
+  "missing": [
+    "coverage.compute_path",
+    "coverage.execute",
+    "coverage.verify",
+    "safety.collision_monitor",
+    "cleaning.enable",
+    "cleaning.disable"
+  ],
+  "blocked": [],
+  "unknown": [],
+  "recommended": [
+    {
+      "id": "opennav_coverage",
+      "framework": "nav2",
+      "provides": [
+        "coverage.compute_path",
+        "coverage.execute"
+      ],
+      "requires": [
+        "navigation.navigate_to_pose",
+        "cleaning_footprint",
+        "coverage_polygon"
+      ],
+      "supported_ros": [
+        "ros2"
+      ],
+      "supported_distros": [
+        "humble",
+        "jazzy"
+      ],
+      "version_selection": {
+        "humble": "humble-v2",
+        "jazzy": "jazzy-v2"
+      },
+      "dependency": "Fields2Cover-v2.0.0",
+      "hardware_requirements": [
+        "mobile_base"
+      ],
+      "conflicts": [],
+      "preferred_when": [
+        "complete_area_cleaning"
+      ],
+      "avoid_when": [
+        "unvalidated_polygon_or_footprint"
+      ],
+      "validation_probes": [
+        "coverage_server_lifecycle",
+        "action_types",
+        "independent_coverage_verification"
+      ],
+      "official_source": "https://github.com/open-navigation/opennav_coverage",
+      "maturity": "external_component_not_live_verified_here",
+      "reason": "Provides missing task semantics; reuse existing runtime."
+    },
+    {
+      "id": "nav2_collision_monitor",
+      "framework": "nav2",
+      "provides": [
+        "safety.collision_monitor"
+      ],
+      "requires": [
+        "sensing.lidar"
+      ],
+      "supported_ros": [
+        "ros2"
+      ],
+      "supported_distros": [
+        "humble",
+        "jazzy"
+      ],
+      "hardware_requirements": [
+        "mobile_base"
+      ],
+      "conflicts": [],
+      "preferred_when": [
+        "dynamic_obstacles"
+      ],
+      "avoid_when": [
+        "missing_fresh_sensors"
+      ],
+      "validation_probes": [
+        "lifecycle",
+        "obstacle_stop_evidence"
+      ],
+      "official_source": "https://docs.nav2.org/configuration/packages/collision_monitor/configuring-collision-monitor-node.html",
+      "maturity": "software_guard_not_safety_certification",
+      "reason": "Provides missing task semantics; reuse existing runtime."
+    },
+    {
+      "id": "rosclaw_coverage_verifier",
+      "framework": "rosclaw",
+      "provides": [
+        "coverage.verify"
+      ],
+      "requires": [
+        "measured_trajectory",
+        "cleaning_footprint",
+        "independent_collision_evidence"
+      ],
+      "supported_ros": [
+        "ros1",
+        "ros2"
+      ],
+      "supported_distros": [
+        "noetic",
+        "humble",
+        "jazzy"
+      ],
+      "hardware_requirements": [],
+      "conflicts": [],
+      "preferred_when": [
+        "complete_area_cleaning"
+      ],
+      "avoid_when": [
+        "missing_execution_evidence"
+      ],
+      "validation_probes": [
+        "coverage_mask",
+        "missed_regions",
+        "receipt_binding"
+      ],
+      "official_source": "https://github.com/ros-claw/rosclaw",
+      "maturity": "offline_verifier",
+      "reason": "Provides missing task semantics; reuse existing runtime."
+    }
+  ],
+  "alternatives": [],
+  "body_requirements": [
+    "cleaning_footprint",
+    "coverage_polygon",
+    "exclusion_zones"
+  ],
+  "execution_entry": "request_action",
+  "configured": false
+}

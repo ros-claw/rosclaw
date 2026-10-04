@@ -1,0 +1,29 @@
+{
+  "recorded_at": "2026-10-03T23:54:50.078693+00:00",
+  "platform": "Linux-6.17.0-1021-nvidia-aarch64-with-glibc2.39",
+  "machine": "aarch64",
+  "host_ros_python": "3.12.3",
+  "ros_distro": "jazzy",
+  "packages": {
+    "rclpy": "/opt/ros/jazzy",
+    "nav2_bringup": null,
+    "nav2_msgs": null,
+    "opennav_coverage": null,
+    "opennav_coverage_msgs": null,
+    "rosbridge_server": null,
+    "ros_gz_sim": null,
+    "gazebo_ros": null
+  },
+  "binaries": {
+    "ros2": "/opt/ros/jazzy/bin/ros2",
+    "gz": "/opt/ros/jazzy/opt/gz_tools_vendor/bin/gz",
+    "gazebo": null,
+    "docker": "/usr/bin/docker"
+  },
+  "evidence_domain": "environment_inventory",
+  "physical_execution": false,
+  "gazebo_tools_commands": [
+    "sdf"
+  ],
+  "gazebo_sim_command_available": false
+}

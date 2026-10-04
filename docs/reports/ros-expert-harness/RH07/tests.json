@@ -1,0 +1,8 @@
+{
+  "stage": "RH07",
+  "status": "PARTIAL",
+  "primary_evidence": "../new_features.xml",
+  "test_summary": "../final_test_summary.json",
+  "v1_acceptance": false,
+  "note": "Opt-in Python source integration; active Pi automatic collection and Native Agent acceptance pending."
+}

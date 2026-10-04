@@ -112,6 +112,11 @@ def serve(
         annotations, meta = _tool_hints(tool_func.__name__)
         mcp.add_tool(tool_func, annotations=annotations, meta=meta)
 
+    if os.environ.get("ROSCLAW_ROS_EXPERT", "").lower() in {"1", "true", "yes", "on"}:
+        from rosclaw.connectors.ros.mcp.tools import register_ros_expert_tools
+
+        register_ros_expert_tools(mcp)
+
     logger.info("Starting ROSClaw P0 MCP server (%s:%s via %s)", host, port, transport)
     # FastMCP.run accepts "stdio", "sse", or "streamable-http"; map the CLI
     # convenience name "http" to the official streamable HTTP transport.

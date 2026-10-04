@@ -1,0 +1,174 @@
+{
+  "schema_version": "rosclaw.ros_probe.v1",
+  "captured_at": "2026-10-03T00:00:00+00:00",
+  "environment": {
+    "ros_generation": "ros2",
+    "distro": "jazzy"
+  },
+  "graph": {
+    "ros_version": "ros2",
+    "distro": "jazzy",
+    "endpoint": "fixture://nav2",
+    "captured_at": "2026-10-03T00:00:00+00:00",
+    "topics": [
+      {
+        "name": "/scan",
+        "msg_type": "sensor_msgs/msg/LaserScan"
+      },
+      {
+        "name": "/odom",
+        "msg_type": "nav_msgs/msg/Odometry"
+      },
+      {
+        "name": "/map",
+        "msg_type": "nav_msgs/msg/OccupancyGrid"
+      },
+      {
+        "name": "/amcl_pose",
+        "msg_type": "geometry_msgs/msg/PoseWithCovarianceStamped"
+      }
+    ],
+    "nodes": [
+      {
+        "name": "/planner_server"
+      },
+      {
+        "name": "/controller_server"
+      },
+      {
+        "name": "/bt_navigator"
+      },
+      {
+        "name": "/amcl"
+      }
+    ],
+    "services": [],
+    "actions": [
+      {
+        "name": "/navigate_to_pose",
+        "action_type": "nav2_msgs/action/NavigateToPose"
+      }
+    ],
+    "params": []
+  },
+  "signals": [
+    {
+      "source": "fixture:received_samples",
+      "captured_at": "2026-10-03T00:00:00+00:00",
+      "topic": "/scan",
+      "rate_hz": 10,
+      "jitter_ms": 0,
+      "last_message_age_ms": 20,
+      "publisher_count": 1,
+      "subscriber_count": 1
+    },
+    {
+      "source": "fixture:received_samples",
+      "captured_at": "2026-10-03T00:00:00+00:00",
+      "topic": "/odom",
+      "rate_hz": 10,
+      "jitter_ms": 0,
+      "last_message_age_ms": 20,
+      "publisher_count": 1,
+      "subscriber_count": 1
+    },
+    {
+      "source": "fixture:received_samples",
+      "captured_at": "2026-10-03T00:00:00+00:00",
+      "topic": "/map",
+      "rate_hz": 10,
+      "jitter_ms": 0,
+      "last_message_age_ms": 20,
+      "publisher_count": 1,
+      "subscriber_count": 1
+    },
+    {
+      "source": "fixture:received_samples",
+      "captured_at": "2026-10-03T00:00:00+00:00",
+      "topic": "/amcl_pose",
+      "rate_hz": 10,
+      "jitter_ms": 0,
+      "last_message_age_ms": 20,
+      "publisher_count": 1,
+      "subscriber_count": 1
+    }
+  ],
+  "transforms": [
+    {
+      "source": "fixture:tf",
+      "captured_at": "2026-10-03T00:00:00+00:00",
+      "parent": "map",
+      "child": "odom",
+      "static": false,
+      "age_ms": 20
+    },
+    {
+      "source": "fixture:tf",
+      "captured_at": "2026-10-03T00:00:00+00:00",
+      "parent": "odom",
+      "child": "base_link",
+      "static": false,
+      "age_ms": 20
+    },
+    {
+      "source": "fixture:tf",
+      "captured_at": "2026-10-03T00:00:00+00:00",
+      "parent": "base_link",
+      "child": "laser",
+      "static": true,
+      "age_ms": null
+    }
+  ],
+  "lifecycle": [
+    {
+      "source": "fixture:get_state",
+      "captured_at": "2026-10-03T00:00:00+00:00",
+      "name": "/planner_server",
+      "state": "ACTIVE"
+    },
+    {
+      "source": "fixture:get_state",
+      "captured_at": "2026-10-03T00:00:00+00:00",
+      "name": "/controller_server",
+      "state": "ACTIVE"
+    },
+    {
+      "source": "fixture:get_state",
+      "captured_at": "2026-10-03T00:00:00+00:00",
+      "name": "/bt_navigator",
+      "state": "ACTIVE"
+    },
+    {
+      "source": "fixture:get_state",
+      "captured_at": "2026-10-03T00:00:00+00:00",
+      "name": "/amcl",
+      "state": "ACTIVE"
+    }
+  ],
+  "qos": {
+    "supported": true,
+    "endpoints": []
+  },
+  "navigation": {
+    "localization_ready": true,
+    "costmaps_fresh": true,
+    "obstacle_source_configured": true,
+    "collision_monitor_ready": true
+  },
+  "observations": {
+    "node_use_sim_time": {
+      "/amcl": true,
+      "/controller_server": true
+    },
+    "clock_advancing": true
+  },
+  "completeness": {
+    "graph": true,
+    "tf": true,
+    "qos": true,
+    "lifecycle": true,
+    "signals": true,
+    "time": true
+  },
+  "errors": []
+}

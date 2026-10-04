@@ -1,0 +1,433 @@
+{
+  "schema_version": "rosclaw.ros_expert_test_summary.v1",
+  "generated_at": "2026-10-04T00:04:21.540996+00:00",
+  "overall_status": "PARTIAL",
+  "v1_done": false,
+  "counts_are_per_run_not_additive": true,
+  "runs": {
+    "targeted_baseline": {
+      "status": "PASS",
+      "junit": "RH00/evidence/baseline.xml",
+      "log": "RH00/evidence/baseline.log",
+      "passed": 121,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0,
+      "collected_in_junit": 121,
+      "seconds": 11.352,
+      "timestamp": "2026-10-03T22:58:51.975416+00:00",
+      "failures": [],
+      "error_details": []
+    },
+    "initial_full_baseline_interrupted": {
+      "status": "FAIL",
+      "junit": "RH00/evidence/full_baseline.xml",
+      "log": "RH00/evidence/full_baseline.log",
+      "passed": 2,
+      "failed": 8,
+      "errors": 0,
+      "skipped": 7,
+      "collected_in_junit": 17,
+      "seconds": 702.802,
+      "timestamp": "2026-10-03T22:59:03.525263+00:00",
+      "failures": [
+        {
+          "test": "tests.acceptance.u_matrix.test_u01_u04_config.TestU01FreshHomeLoginFlow::test_u01_config_chat_doctor_consistency",
+          "message": "AssertionError: init rc=1（期望 (0, 2)）: 模型已配置：openai-compat / fake-k3\n  凭据引用：env:U_FAKE_KEY（值只在环境变量）\n  推理强度：high（/effort 可改）\n  探测（便宜档）：UNCONFIGURED\n  未就绪：PI_ENGINE_MISSING: node>=22.19 或 rosclaw-agent dist 不可用——重新安装或构建发布包\n   \n  模型尚未通过便宜探测。这是诚实状态，不是假成功；请检查 key/endpoint 后重试 `rosclaw agent doctor`。\n  \nassert 1 in (0, 2)\n +  where 1 = CompletedProcess(args=['/tmp/pytest-of-nvidia/pytest-91/u_install0/prefix/bin/rosclaw', 'agentd', 'init', '--provider'...sclaw-agent dist 不可用——重新安装或构建发布包\\n', stderr='\\n模型尚未通过便宜探测。这是诚实状态，不是假成功；请检查 key/endpoint 后重试 `rosclaw agent doctor`。\\n').returncode"
+        },
+        {
+          "test": "tests.acceptance.u_matrix.test_u01_u04_config.TestU02LegacyEnvAndCustomPreserved::test_u02_repeat_migration_preserves_custom",
+          "message": "AssertionError: init rc=1（期望 (0, 2)）: 模型已配置：openai-compat / fake-k3\n  凭据引用：env:U_FAKE_KEY（值只在环境变量）\n  推理强度：high（/effort 可改）\n  探测（便宜档）：UNCONFIGURED\n  未就绪：PI_ENGINE_MISSING: node>=22.19 或 rosclaw-agent dist 不可用——重新安装或构建发布包\n   \n  模型尚未通过便宜探测。这是诚实状态，不是假成功；请检查 key/endpoint 后重试 `rosclaw agent doctor`。\n  \nassert 1 in (0, 2)\n +  where 1 = CompletedProcess(args=['/tmp/pytest-of-nvidia/pytest-91/u_install0/prefix/bin/rosclaw', 'agentd', 'init', '--provider'...sclaw-agent dist 不可用——重新安装或构建发布包\\n', stderr='\\n模型尚未通过便宜探测。这是诚实状态，不是假成功；请检查 key/endpoint 后重试 `rosclaw agent doctor`。\\n').returncode"
+        },
+        {
+          "test": "tests.acceptance.u_matrix.test_u01_u04_config.TestU03ErrorClassification::test_u03_wrong_key_quota_ratelimit[wrong_key-AUTH_READY-AUTH]",
+          "message": "AssertionError: wrong_key: UNCONFIGURED（PI_ENGINE_MISSING: node>=22.19 或 rosclaw-agent dist 不可用——重新安装或构建发布包）\nassert 'UNCONFIGURED' == 'AUTH_READY'\n  \n  - AUTH_READY\n  + UNCONFIGURED"
+        },
+        {
+          "test": "tests.acceptance.u_matrix.test_u01_u04_config.TestU03ErrorClassification::test_u03_wrong_key_quota_ratelimit[quota-AUTH_READY-QUOTA]",
+          "message": "AssertionError: quota: UNCONFIGURED（PI_ENGINE_MISSING: node>=22.19 或 rosclaw-agent dist 不可用——重新安装或构建发布包）\nassert 'UNCONFIGURED' == 'AUTH_READY'\n  \n  - AUTH_READY\n  + UNCONFIGURED"
+        },
+        {
+          "test": "tests.acceptance.u_matrix.test_u01_u04_config.TestU03ErrorClassification::test_u03_wrong_key_quota_ratelimit[rate_limited-AUTH_READY-RATE]",
+          "message": "AssertionError: rate_limited: UNCONFIGURED（PI_ENGINE_MISSING: node>=22.19 或 rosclaw-agent dist 不可用——重新安装或构建发布包）\nassert 'UNCONFIGURED' == 'AUTH_READY'\n  \n  - AUTH_READY\n  + UNCONFIGURED"
+        },
+        {
+          "test": "tests.acceptance.u_matrix.test_u01_u04_config.TestU03ErrorClassification::test_u03_offline_keeps_config",
+          "message": "AssertionError: init rc=1（期望 (0, 2)）: 模型已配置：openai-compat / fake-k3\n  凭据引用：env:U_FAKE_KEY（值只在环境变量）\n  推理强度：high（/effort 可改）\n  探测（便宜档）：UNCONFIGURED\n  未就绪：PI_ENGINE_MISSING: node>=22.19 或 rosclaw-agent dist 不可用——重新安装或构建发布包\n   \n  模型尚未通过便宜探测。这是诚实状态，不是假成功；请检查 key/endpoint 后重试 `rosclaw agent doctor`。\n  \nassert 1 in (0, 2)\n +  where 1 = CompletedProcess(args=['/tmp/pytest-of-nvidia/pytest-91/u_install0/prefix/bin/rosclaw', 'agentd', 'init', '--provider'...sclaw-agent dist 不可用——重新安装或构建发布包\\n', stderr='\\n模型尚未通过便宜探测。这是诚实状态，不是假成功；请检查 key/endpoint 后重试 `rosclaw agent doctor`。\\n').returncode"
+        },
+        {
+          "test": "tests.acceptance.u_matrix.test_u01_u04_config.TestU04ProviderSwitchAndThinking::test_u04_switch_and_thinking_persist",
+          "message": "AssertionError: init rc=1（期望 (0, 2)）: 模型已配置：openai-compat / fake-a\n  凭据引用：env:U_KEY_A（值只在环境变量）\n  推理强度：high（/effort 可改）\n  探测（便宜档）：UNCONFIGURED\n  未就绪：PI_ENGINE_MISSING: node>=22.19 或 rosclaw-agent dist 不可用——重新安装或构建发布包\n   \n  模型尚未通过便宜探测。这是诚实状态，不是假成功；请检查 key/endpoint 后重试 `rosclaw agent doctor`。\n  \nassert 1 in (0, 2)\n +  where 1 = CompletedProcess(args=['/tmp/pytest-of-nvidia/pytest-91/u_install0/prefix/bin/rosclaw', 'agentd', 'init', '--provider'...sclaw-agent dist 不可用——重新安装或构建发布包\\n', stderr='\\n模型尚未通过便宜探测。这是诚实状态，不是假成功；请检查 key/endpoint 后重试 `rosclaw agent doctor`。\\n').returncode"
+        },
+        {
+          "test": "tests.acceptance.u_matrix.test_u07_u09_lifecycle.TestU07LongBackgroundOperation::test_u07_no_idle_kill_and_single_completion",
+          "message": "AssertionError: PTY 超时未等到 b'\\xe6\\xb8\\xb2\\xe6\\x9f\\x93\\xe5\\xb7\\xb2\\xe5\\x9c\\xa8\\xe5\\x90\\x8e\\xe5\\x8f\\xb0\\xe6\\x89\\xa7\\xe8\\xa1\\x8c'；已收输出尾部: b'etrying (1/1) in 1s... (escape to cancel)\\x1b[39m                                   \\x1b[0m\\x1b]8;;\\x07\\x1b[?2026l\\x1b[3B\\x1b[1G\\x1b[?25l\\x1b[?2026h\\x1b[3A\\r\\x1b[2K \\x1b[38;5;226m\\xe2\\xa0\\xb8\\x1b[39m \\x1b[38;5;244mRetrying (1/1) in 1s... (escape to cancel)\\x1b[39m                                   \\x1b[0m\\x1b]8;;\\x07\\x1b[?2026l\\x1b[3B\\x1b[1G\\x1b[?25l\\x1b[?2026h\\x1b[3A\\r\\x1b[2K \\x1b[38;5;226m\\xe2\\xa0\\xbc\\x1b[39m \\x1b[38;5;244mRetrying (1/1) in 1s... (escape to cancel)\\x1b[39m                                   \\x1b[0m\\x1b]8;;\\x07\\x1b[?2026l\\x1b[3B\\x1b[1G\\x1b[?25l\\x1b[?2026h\\x1b[3A\\r\\x1b[2K\\x1b[38;5;239m\\xe2\\x94\\x80\\xe2\\x94\\x80 \\x1b[39m\\xe2\\xa0\\x8b \\x1b[38;5;239mWorking\\xe2\\x80\\xa6\\x1b[39m\\x1b[38;5;239m \\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\x1b[39m\\x1b[0m\\x1b]8;;\\x07\\r\\r\\n\\x1b[2K\\x1b[7m \\x1b[0m                                                                               \\x1b[0m\\x1b]8;;\\x07\\r\\r\\n\\x1b[2K\\x1b[38;5;239m\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\x1b[39m\\x1b[0m\\x1b]8;;\\x07\\r\\r\\n\\x1b[2K \\x1b[38;5;241mFake K3 \\xc2\\xb7 Simulation \\xc2\\xb7 Operator Offline\\x1b[39m                                        \\x1b[0m\\x1b]8;;\\x07\\r\\r\\n\\x1b[2K\\r\\r\\n\\x1b[2K\\x1b[2A\\x1b[?2026l\\x1b[2A\\x1b[1G\\x1b[?25l\\x1b[?2026h\\x1b[1A\\r\\x1b[2K\\x1b[38;5;239m\\xe2\\x94\\x80\\xe2\\x94\\x80 \\x1b[39m\\xe2\\xa0\\x99 \\x1b[38;5;239mWorking\\xe2\\x80\\xa6\\x1b[39m\\x1b[38;5;239m \\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\x1b[39m\\x1b[0m\\x1b]8;;\\x07\\x1b[?2026l\\x1b[1B\\x1b[1G\\x1b[?25l\\x1b[?2026h\\x1b[1A\\r\\x1b[2K\\x1b[38;5;239m\\xe2\\x94\\x80\\xe2\\x94\\x80 \\x1b[39m\\xe2\\xa0\\xb9 \\x1b[38;5;239mWorking\\xe2\\x80\\xa6\\x1b[39m\\x1b[38;5;239m \\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\x1b[39m\\x1b[0m\\x1b]8;;\\x07\\x1b[?2026l\\x1b[1B\\x1b[1G\\x1b[?25l\\x1b[?2026h\\x1b[2A\\r\\x1b[2K\\x1b]133;A\\x07\\x1b[0m\\x1b]8;;\\x07\\r\\r\\n\\x1b[2K\\x1b]133;B\\x07\\x1b]133;C\\x07 \\x1b[38;5;167mError: Connection error.\\x1b[39m                                                       \\x1b[0m\\x1b]8;;\\x07\\r\\r\\n\\x1b[2K\\x1b[0m\\x1b]8;;\\x07\\r\\r\\n\\x1b[2K \\x1b[38;5;167mError: Retry failed after 1 attempts: Connection error.\\x1b[39m                        \\x1b[0m\\x1b]8;;\\x07\\r\\r\\n\\x1b[2K\\x1b[0m\\x1b]8;;\\x07\\r\\r\\n\\x1b[2K\\x1b[38;5;239m\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\x1b[39m\\x1b[0m\\x1b]8;;\\x07\\r\\r\\n\\x1b[2K\\x1b[7m \\x1b[0m                                                                               \\x1b[0m\\x1b]8;;\\x07\\r\\r\\n\\x1b[2K\\x1b[38;5;239m\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\xe2\\x94\\x80\\x1b[39m\\x1b[0m\\x1b]8;;\\x07\\r\\r\\n\\x1b[2K \\x1b[38;5;241mFake K3 \\xc2\\xb7 Simulation \\xc2\\xb7 Operator Offline\\x1b[39m                                        \\x1b[0m\\x1b]8;;\\x07\\x1b[?2026l\\x1b[2A\\x1b[1G\\x1b[?25l'"
+        }
+      ],
+      "error_details": [],
+      "complete": false
+    },
+    "new_features": {
+      "status": "PASS",
+      "junit": "new_features.xml",
+      "log": "new_features.log",
+      "passed": 61,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0,
+      "collected_in_junit": 61,
+      "seconds": 0.348,
+      "timestamp": "2026-10-04T00:03:34.721230+00:00",
+      "failures": [],
+      "error_details": []
+    },
+    "affected_final": {
+      "status": "PASS",
+      "junit": "final_affected.xml",
+      "log": "final_affected.log",
+      "passed": 387,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 11,
+      "collected_in_junit": 398,
+      "seconds": 45.542,
+      "timestamp": "2026-10-03T23:51:57.097050+00:00",
+      "failures": [],
+      "error_details": []
+    },
+    "body_self_contracts": {
+      "status": "PASS",
+      "junit": "broad_contracts.xml",
+      "log": "broad_contracts.log",
+      "passed": 263,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 5,
+      "collected_in_junit": 268,
+      "seconds": 8.717,
+      "timestamp": "2026-10-03T23:32:51.088578+00:00",
+      "failures": [],
+      "error_details": []
+    },
+    "ci_initial": {
+      "status": "FAIL",
+      "junit": "ci_regression.xml",
+      "log": "ci_regression.log",
+      "passed": 7897,
+      "failed": 12,
+      "errors": 0,
+      "skipped": 112,
+      "collected_in_junit": 8021,
+      "seconds": 471.908,
+      "timestamp": "2026-10-03T23:38:30.742985+00:00",
+      "failures": [
+        {
+          "test": "tests.product.test_status_truthfulness::test_readme_capability_matrices_match_status_source",
+          "message": "AssertionError: assert '<!-- product...tatus:end -->' == '<!-- product...tatus:end -->'\n  \n  Skipping 4054 identical leading characters in diff, use -v to show\n    imed. |\n  + | ROS Expert Harness | **Offline intelligence + native probe verified** | System model, deterministic diagnostics, semantic readiness, solution resolution, TaskGraph proposals and independent coverage calculations. Jazzy probe tested against synthetic DDS sensors/TF/lifecycle/QoS. Nav2/Gazebo complete cleaning, dynamic-obstacle acceptance and same-model Agent A/B are **NOT_RUN**. See [implementation evidence](docs/reports/ros-expert-harness/FINAL_IMPLEMENTATION_REPORT.md). |\n    | Mobile base cont...\n  \n  ...Full output truncated (3 lines hidden), use '-vv' to show"
+        },
+        {
+          "test": "tests.storage.test_storage_unification.TestOutboxAndMigrationsTogether::test_migration_runner_baseline_idempotent",
+          "message": "AssertionError: assert '001' in []"
+        },
+        {
+          "test": "tests.test_firewall_modes.TestFirewallAllowMode::test_safe_action_allow",
+          "message": "AssertionError: assert 'BLOCK' == 'ALLOW'\n  \n  - ALLOW\n  + BLOCK"
+        },
+        {
+          "test": "tests.test_firewall_modes.TestFirewallBlockMode::test_self_collision_block",
+          "message": "AssertionError: assert 'self_collision' in ['joint_limits_unavailable']\n +  where ['joint_limits_unavailable'] = Decision(action='BLOCK', is_allowed=False, risk_score=1.0, predicted_collision=False, reason='Static gate blocked: joi...play_id='sandbox://replay/8694545ead8c', modified_action=None, validation_type='STATIC_POLICY', physics_executed=False).violated_constraints"
+        },
+        {
+          "test": "tests.test_firewall_modes.TestFirewallModifyMode::test_joint_limit_modify",
+          "message": "AssertionError: assert 'BLOCK' == 'MODIFY'\n  \n  - MODIFY\n  + BLOCK"
+        },
+        {
+          "test": "tests.test_firewall_modes.TestFirewallModifyMode::test_pfl_force_modify",
+          "message": "AssertionError: assert 'BLOCK' == 'MODIFY'\n  \n  - MODIFY\n  + BLOCK"
+        },
+        {
+          "test": "tests.test_firewall_modes.TestFirewallRequireConfirmationMode::test_low_risk_confirmation",
+          "message": "AssertionError: assert 'BLOCK' == 'MODIFY'\n  \n  - MODIFY\n  + BLOCK"
+        },
+        {
+          "test": "tests.test_firewall_modes.TestFirewallEventPublishingAllModes::test_block_publishes_event",
+          "message": "assert 0 == 1\n +  where 0 = len([])"
+        },
+        {
+          "test": "tests.test_firewall_modes.TestFirewallEventPublishingAllModes::test_modify_publishes_event",
+          "message": "assert 0 == 1\n +  where 0 = len([])"
+        },
+        {
+          "test": "tests.test_firewall_modes.TestFirewallEventPublishingAllModes::test_allow_no_event",
+          "message": "assert False is True"
+        },
+        {
+          "test": "tests.test_docs_assets::test_referenced_files_exist[md_file0]",
+          "message": "AssertionError: README.md references missing files: ['docs/reports/ros-expert-harness/FINAL_IMPLEMENTATION_REPORT.md']\nassert not ['docs/reports/ros-expert-harness/FINAL_IMPLEMENTATION_REPORT.md']"
+        },
+        {
+          "test": "tests.test_docs_assets::test_referenced_files_exist[md_file1]",
+          "message": "AssertionError: README.zh.md references missing files: ['docs/reports/ros-expert-harness/FINAL_IMPLEMENTATION_REPORT.md']\nassert not ['docs/reports/ros-expert-harness/FINAL_IMPLEMENTATION_REPORT.md']"
+        }
+      ],
+      "error_details": []
+    },
+    "ci_unmodified_baseline": {
+      "status": "FAIL",
+      "junit": "ci_baseline.xml",
+      "log": "ci_baseline.log",
+      "passed": 7837,
+      "failed": 1,
+      "errors": 0,
+      "skipped": 112,
+      "collected_in_junit": 7950,
+      "seconds": 457.926,
+      "timestamp": "2026-10-03T23:51:07.023697+00:00",
+      "failures": [
+        {
+          "test": "tests.sim.test_release_qualification::test_clean_wheel_install_smoke",
+          "message": "subprocess.CalledProcessError: Command '['git', 'rev-parse', '--show-toplevel']' returned non-zero exit status 128."
+        }
+      ],
+      "error_details": [],
+      "complete": true
+    },
+    "ci_final": {
+      "status": "PASS",
+      "junit": "ci_final.xml",
+      "log": "ci_final.log",
+      "passed": 7912,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 112,
+      "collected_in_junit": 8024,
+      "seconds": 471.666,
+      "timestamp": "2026-10-03T23:54:18.487204+00:00",
+      "failures": [],
+      "error_details": [],
+      "complete": true,
+      "note": "The final additional KNOW/HOW fixture test was run afterward in the new_features suite; production code was unchanged."
+    },
+    "ci_failure_isolation": {
+      "status": "PASS",
+      "junit": "ci_failure_isolation.xml",
+      "log": "ci_failure_isolation.log",
+      "passed": 38,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0,
+      "collected_in_junit": 38,
+      "seconds": 2.328,
+      "timestamp": "2026-10-03T23:54:19.614489+00:00",
+      "failures": [],
+      "error_details": []
+    },
+    "baseline_failure_isolation": {
+      "status": "PASS",
+      "junit": "baseline_known_failures.xml",
+      "log": "baseline_known_failures.log",
+      "passed": 20,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0,
+      "collected_in_junit": 20,
+      "seconds": 1.862,
+      "timestamp": "2026-10-03T23:50:39.116267+00:00",
+      "failures": [],
+      "error_details": []
+    },
+    "unrestricted_parallel_interrupted": {
+      "status": "FAIL",
+      "junit": "full_unit_regression.xml",
+      "log": "full_unit_regression.log",
+      "passed": 2491,
+      "failed": 3,
+      "errors": 4,
+      "skipped": 84,
+      "collected_in_junit": 2582,
+      "seconds": 150.509,
+      "timestamp": "2026-10-03T23:34:28.531545+00:00",
+      "failures": [
+        {
+          "test": "tests.agentd.test_ddzj_r11_hello_journey.TestPiDrawsLettersViaWaypoints::test_hello_letters_not_a_star",
+          "message": "AssertionError: WARNING: Building wheel for rosclaw failed: [Errno 2] No such file or directory: '/home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/dist/rosclaw-1.3.0-linux-arm64/vendor/wheels'\n  \n  [notice] A new release of pip is available: 26.0.1 -> 26.2.1\n  [notice] To update, run: /home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/.venv/bin/python -m pip install --upgrade pip\n  ERROR: Failed to build one or more wheels\n  FAIL: rosclaw wheel 构建失败，拒绝产出。\n  \nassert 1 == 0\n +  where 1 = CompletedProcess(args=['bash', '/home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/scripts/build_release.sh'], ret.../bin/python -m pip install --upgrade pip\\nERROR: Failed to build one or more wheels\\nFAIL: rosclaw wheel 构建失败，拒绝产出。\\n\").returncode"
+        },
+        {
+          "test": "tests.agentd.test_pna10_release.TestReleaseGate::test_build_info_and_bundled_node",
+          "message": "AssertionError: ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n          File \"/tmp/pip-build-env-wze3lrgr/overlay/lib/python3.11/site-packages/hatchling/build.py\", line 58, in build_wheel\n            return os.path.basename(next(builder.build(directory=wheel_directory, versions=[\"standard\"])))\n                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n          File \"/tmp/pip-build-env-wze3lrgr/overlay/lib/python3.11/site-packages/hatchling/builders/plugin/interface.py\", line 166, in build\n            artifact = version_api[version](directory, **build_data)\n                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n          File \"/tmp/pip-build-env-wze3lrgr/overlay/lib/python3.11/site-packages/hatchling/builders/wheel.py\", line 528, in build_standard\n            for included_file in self.recurse_included_files():\n          File \"/tmp/pip-build-env-wze3lrgr/overlay/lib/python3.11/site-packages/hatchling/builders/plugin/interface.py\", line 188, in recurse_included_files\n            yield from self.recurse_forced_files(self.config.get_force_include())\n          File \"/tmp/pip-build-env-wze3lrgr/overlay/lib/python3.11/site-packages/hatchling/builders/plugin/interface.py\", line 248, in recurse_forced_files\n            raise FileNotFoundError(msg)\n        FileNotFoundError: Forced include not found: /home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/dist/js-stage/rosclaw-agent/dist\n        [end of output]\n    \n    note: This error originates from a subprocess, and is likely not a problem with pip.\n  \n  [notice] A new release of pip is available: 26.0.1 -> 26.2.1\n  [notice] To update, run: /home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/.venv/bin/python -m pip install --upgrade pip\n  error: metadata-generation-failed\n  \n  × Encountered error while generating package metadata.\n  ╰─> from file:///home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw\n  \n  note: This is an issue with the package mentioned above, not pip.\n  hint: See above for details.\n  FAIL: rosclaw wheel 构建失败，拒绝产出。\n  \nassert 1 == 0\n +  where 1 = CompletedProcess(args=['bash', '/home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/scripts/build_release.sh'], ret...s an issue with the package mentioned above, not pip.\\nhint: See above for details.\\nFAIL: rosclaw wheel 构建失败，拒绝产出。\\n').returncode"
+        },
+        {
+          "test": "tests.agentd.test_pna10_release.TestReleaseGate::test_installed_artifact_pty_quit_clean",
+          "message": "AssertionError: rm: cannot remove '/home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/dist/.js-build/rosclaw-agent/node_modules/yaml': Directory not empty\n  rm: cannot remove '/home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/dist/.js-build/rosclaw-agent/node_modules/openai/resources': Directory not empty\n  \nassert 1 == 0\n +  where 1 = CompletedProcess(args=['bash', '/home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/scripts/build_release.sh'], ret...ce/rosclaw/rosclaw_harness/rosclaw/dist/.js-build/rosclaw-agent/node_modules/openai/resources': Directory not empty\\n\").returncode"
+        }
+      ],
+      "error_details": [
+        {
+          "test": "tests.agentd.test_hf5_4_action_result_ui.TestActionResultUi::test_rejected_tool_cannot_render_completed_action_status",
+          "message": "failed on setup with \"AssertionError: \nassert 254 == 0\n +  where 254 = CompletedProcess(args=['bash', '/home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/scripts/build_release.sh'], returncode=254, stdout='==> building rosclaw-1.3.0-linux-arm64\\n', stderr='').returncode\""
+        },
+        {
+          "test": "tests.agentd.test_hf5_4_action_result_ui.TestActionResultUi::test_model_lie_is_visibly_overridden_by_kernel_outcome",
+          "message": "failed on setup with \"AssertionError: \nassert 254 == 0\n +  where 254 = CompletedProcess(args=['bash', '/home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/scripts/build_release.sh'], returncode=254, stdout='==> building rosclaw-1.3.0-linux-arm64\\n', stderr='').returncode\""
+        },
+        {
+          "test": "tests.agentd.test_hf5_4_action_result_ui.TestActionResultUi::test_false_completion_not_written_to_mission_success_or_memory",
+          "message": "failed on setup with \"AssertionError: \nassert 254 == 0\n +  where 254 = CompletedProcess(args=['bash', '/home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/scripts/build_release.sh'], returncode=254, stdout='==> building rosclaw-1.3.0-linux-arm64\\n', stderr='').returncode\""
+        },
+        {
+          "test": "tests.agentd.test_hf5_4_action_result_ui.TestActionResultUi::test_next_physical_step_not_started_after_false_completion",
+          "message": "failed on setup with \"AssertionError: \nassert 254 == 0\n +  where 254 = CompletedProcess(args=['bash', '/home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/scripts/build_release.sh'], returncode=254, stdout='==> building rosclaw-1.3.0-linux-arm64\\n', stderr='').returncode\""
+        }
+      ],
+      "complete": false
+    },
+    "install_concurrent_invalid": {
+      "status": "FAIL",
+      "junit": "install_acceptance_retest.xml",
+      "log": "install_acceptance_retest.log",
+      "passed": 0,
+      "failed": 0,
+      "errors": 1,
+      "skipped": 0,
+      "collected_in_junit": 1,
+      "seconds": 42.024,
+      "timestamp": "2026-10-03T23:34:27.372114+00:00",
+      "failures": [],
+      "error_details": [
+        {
+          "test": "tests.acceptance.u_matrix.test_u01_u04_config.TestU01FreshHomeLoginFlow::test_u01_config_chat_doctor_consistency",
+          "message": "failed on setup with \"AssertionError: WARNING: Building wheel for rosclaw failed: [Errno 2] No such file or directory: '/home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/dist/rosclaw-1.3.0-linux-arm64/vendor/wheels'\n  \n  [notice] A new release of pip is available: 26.0.1 -> 26.2.1\n  [notice] To update, run: /home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/.venv/bin/python -m pip install --upgrade pip\n  ERROR: Failed to build one or more wheels\n  FAIL: rosclaw wheel 构建失败，拒绝产出。\n  \nassert 1 == 0\n +  where 1 = CompletedProcess(args=['bash', '/home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/scripts/build_release.sh'], ret.../bin/python -m pip install --upgrade pip\\nERROR: Failed to build one or more wheels\\nFAIL: rosclaw wheel 构建失败，拒绝产出。\\n\").returncode\""
+        }
+      ],
+      "valid_for_regression": false,
+      "reason": "Concurrent release builds raced over a shared dist directory; replaced by serial retest."
+    },
+    "install_serial": {
+      "status": "FAIL",
+      "junit": "install_acceptance_serial.xml",
+      "log": "install_acceptance_serial.log",
+      "passed": 0,
+      "failed": 1,
+      "errors": 0,
+      "skipped": 0,
+      "collected_in_junit": 1,
+      "seconds": 157.807,
+      "timestamp": "2026-10-03T23:51:55.894988+00:00",
+      "failures": [
+        {
+          "test": "tests.acceptance.u_matrix.test_u01_u04_config.TestU01FreshHomeLoginFlow::test_u01_config_chat_doctor_consistency",
+          "message": "AssertionError: init rc=1（期望 (0, 2)）: 模型已配置：openai-compat / fake-k3\n  凭据引用：env:U_FAKE_KEY（值只在环境变量）\n  推理强度：high（/effort 可改）\n  探测（便宜档）：UNCONFIGURED\n  未就绪：PI_ENGINE_MISSING: node>=22.19 或 rosclaw-agent dist 不可用——重新安装或构建发布包\n   \n  模型尚未通过便宜探测。这是诚实状态，不是假成功；请检查 key/endpoint 后重试 `rosclaw agent doctor`。\n  \nassert 1 in (0, 2)\n +  where 1 = CompletedProcess(args=['/tmp/pytest-of-nvidia/pytest-143/u_install0/prefix/bin/rosclaw', 'agentd', 'init', '--provider...sclaw-agent dist 不可用——重新安装或构建发布包\\n', stderr='\\n模型尚未通过便宜探测。这是诚实状态，不是假成功；请检查 key/endpoint 后重试 `rosclaw agent doctor`。\\n').returncode"
+        }
+      ],
+      "error_details": []
+    },
+    "baseline_hello_retest": {
+      "status": "FAIL",
+      "junit": "baseline_hello_retest.xml",
+      "log": "baseline_hello_retest.log",
+      "passed": 0,
+      "failed": 1,
+      "errors": 0,
+      "skipped": 0,
+      "collected_in_junit": 1,
+      "seconds": 155.38,
+      "timestamp": "2026-10-03T23:38:32.418564+00:00",
+      "failures": [
+        {
+          "test": "tests.agentd.test_ddzj_r11_hello_journey.TestPiDrawsLettersViaWaypoints::test_hello_letters_not_a_star",
+          "message": "AssertionError: PTY 超时未等到 b'ROSClaw Native Agent'；已收输出尾部: b'Native Agent \\xe9\\x9c\\x80\\xe8\\xa6\\x81 Node \\xe2\\x89\\xa522.19 \\xe4\\xb8\\x94\\xe5\\xb7\\xb2\\xe6\\x9e\\x84\\xe5\\xbb\\xba packages/rosclaw-agent\\xef\\xbc\\x88\\xe5\\x8f\\x91\\xe5\\xb8\\x83\\xe5\\x8c\\x85\\xe8\\x87\\xaa\\xe5\\xb8\\xa6\\xef\\xbc\\x9b\\xe6\\xba\\x90\\xe7\\xa0\\x81\\xe7\\x8e\\xaf\\xe5\\xa2\\x83\\xe5\\x85\\x88 npm ci && npm run build\\xef\\xbc\\x89\\xe3\\x80\\x82\\r\\n'"
+        }
+      ],
+      "error_details": []
+    },
+    "baseline_wheel_with_git": {
+      "status": "PASS",
+      "junit": "baseline_wheel_vcs.xml",
+      "log": "baseline_wheel_vcs.log",
+      "passed": 1,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0,
+      "collected_in_junit": 1,
+      "seconds": 83.749,
+      "timestamp": "2026-10-04T00:00:58.180706+00:00",
+      "failures": [],
+      "error_details": []
+    },
+    "final_documentation": {
+      "status": "PASS",
+      "passed": 18,
+      "failed": 0,
+      "skipped": 0,
+      "seconds": 0.265,
+      "junit": "final_documentation.xml",
+      "log": "final_documentation.log"
+    }
+  },
+  "checks": {
+    "repository_ruff": {
+      "status": "PASS",
+      "log": "ruff_repository.log"
+    },
+    "changed_file_format": {
+      "status": "PASS",
+      "log": "format_changed.log"
+    },
+    "repository_format": {
+      "status": "BASELINE_FAILURE",
+      "log": "format_repository.log",
+      "baseline_log": "format_baseline_archive.log",
+      "note": "Baseline has 609 unformatted files; final changed files checked separately."
+    },
+    "focused_existing_types": {
+      "status": "PASS",
+      "log": "mypy.log"
+    },
+    "new_module_types": {
+      "status": "PASS",
+      "log": "mypy_expert.log"
+    },
+    "python_compilation": {
+      "status": "PASS",
+      "log": "compileall.log"
+    },
+    "js_staging": {
+      "status": "PASS",
+      "log": "js_staging.log",
+      "note": "Build success alone does not imply installed native agent runtime acceptance."
+    },
+    "native_dds_probe": {
+      "status": "PASS",
+      "evidence_domain": "synthetic_ros_graph",
+      "artifact": "RH03/evidence/live_probe.json",
+      "nav2_acceptance": "NOT_RUN"
+    },
+    "source_diff_whitespace": {
+      "status": "PASS",
+      "note": "Raw pytest/JUnit failure output is preserved byte-for-byte and excluded from whitespace checks."
+    }
+  },
+  "ci_baseline_comparison": {
+    "baseline_commit": "0e0d8e45",
+    "same_ci_selection": true,
+    "baseline_archive_has_no_git_metadata": true,
+    "baseline_vcs_sensitive_test_retested_separately": true,
+    "matching_failed_test_ids": [],
+    "new_failed_test_ids": [],
+    "baseline_only_failed_test_ids": [
+      "tests.sim.test_release_qualification::test_clean_wheel_install_smoke"
+    ],
+    "status": "COMPARED",
+    "note": "Initial CI storage/firewall failures did not recur in final CI or isolation, so no cause is asserted. Baseline archive wheel test failed due absent Git metadata; the unchanged commit was retested in a real worktree."
+  },
+  "required_unrun_gates": [
+    "Nav2 NavigateToPose via rosclawd",
+    "Gazebo complete coverage >=98% with independent zero-collision observations",
+    "Dynamic obstacle and runtime fault acceptance",
+    "Repeated missions and second Body",
+    "Native Agent automatic context and durable memory",
+    "Live ROS1",
+    "Isaac ROS",
+    "Same-model A/B and Darwin"
+  ]
+}

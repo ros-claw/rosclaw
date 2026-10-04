@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="155.380" timestamp="2026-10-03T23:38:32.418564+00:00" hostname="spark-291e"><testcase classname="tests.agentd.test_ddzj_r11_hello_journey.TestPiDrawsLettersViaWaypoints" name="test_hello_letters_not_a_star" time="155.232"><failure message="AssertionError: PTY 超时未等到 b'ROSClaw Native Agent'；已收输出尾部: b'Native Agent \xe9\x9c\x80\xe8\xa6\x81 Node \xe2\x89\xa522.19 \xe4\xb8\x94\xe5\xb7\xb2\xe6\x9e\x84\xe5\xbb\xba packages/rosclaw-agent\xef\xbc\x88\xe5\x8f\x91\xe5\xb8\x83\xe5\x8c\x85\xe8\x87\xaa\xe5\xb8\xa6\xef\xbc\x9b\xe6\xba\x90\xe7\xa0\x81\xe7\x8e\xaf\xe5\xa2\x83\xe5\x85\x88 npm ci &amp;&amp; npm run build\xef\xbc\x89\xe3\x80\x82\r\n'">self = &lt;tests.agentd.test_ddzj_r11_hello_journey.TestPiDrawsLettersViaWaypoints object at 0xfa62213bf710&gt;
+tmp_path = PosixPath('/tmp/pytest-of-nvidia/pytest-135/test_hello_letters_not_a_star0')
+
+    def test_hello_letters_not_a_star(self, tmp_path: Path) -&gt; None:
+        fake = FakeModelServer(log_path=tmp_path / "fake-requests.jsonl")
+        fake.fake = _HiModel()  # type: ignore[assignment]
+        fake.server.RequestHandlerClass.fake = fake.fake  # type: ignore[attr-defined]
+        prefix, _root = _build_and_install(tmp_path)
+        home, env, rosclaw = _prepare_installed_chat(tmp_path, fake, prefix)
+        try:
+            with _hidden_source_checkout():
+                session = PtySession(
+                    [str(rosclaw), "chat"], env,
+                    log_path=tmp_path / "pty-hi.log",
+                )
+                try:
+&gt;                   session.expect(b"ROSClaw Native Agent", timeout=60)
+
+tests/agentd/test_ddzj_r11_hello_journey.py:163: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = &lt;tests.agentd.test_product_journey.PtySession object at 0xfa621ef4a390&gt;
+marker = b'ROSClaw Native Agent', timeout = 60, after = 0
+
+    def expect(self, marker: bytes, timeout: float = 60.0, *, after: int = 0) -&gt; bytes:
+        # 七审 PR-SEVEN-7：after 偏移——同一标记（如授权卡）在一次
+        # 会话里出现多次时，只匹配 after 之后的新内容。
+        deadline = time.monotonic() + timeout
+        while time.monotonic() &lt; deadline:
+            with self._lock:
+                if marker in self.clean[after:]:
+                    return self.clean
+            if self.proc.poll() is not None:
+                with self._lock:
+                    if marker in self.clean[after:]:
+                        return self.clean
+                break
+            time.sleep(0.1)
+        with self._lock:
+            tail = self.output[-3000:]
+&gt;       raise AssertionError(f"PTY 超时未等到 {marker!r}；已收输出尾部: {tail!r}")
+E       AssertionError: PTY 超时未等到 b'ROSClaw Native Agent'；已收输出尾部: b'Native Agent \xe9\x9c\x80\xe8\xa6\x81 Node \xe2\x89\xa522.19 \xe4\xb8\x94\xe5\xb7\xb2\xe6\x9e\x84\xe5\xbb\xba packages/rosclaw-agent\xef\xbc\x88\xe5\x8f\x91\xe5\xb8\x83\xe5\x8c\x85\xe8\x87\xaa\xe5\xb8\xa6\xef\xbc\x9b\xe6\xba\x90\xe7\xa0\x81\xe7\x8e\xaf\xe5\xa2\x83\xe5\x85\x88 npm ci &amp;&amp; npm run build\xef\xbc\x89\xe3\x80\x82\r\n'
+
+tests/agentd/test_product_journey.py:798: AssertionError</failure></testcase></testsuite></testsuites>

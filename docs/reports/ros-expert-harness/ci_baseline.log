@@ -1,0 +1,275 @@
+bringing up nodes...
+bringing up nodes...
+
+........................................................................ [  0%]
+........................................................................ [  1%]
+........................................................................ [  2%]
+........................................................................ [  3%]
+........................................................................ [  4%]
+........................................................................ [  5%]
+........................................................................ [  6%]
+........................................................................ [  7%]
+........................................................................ [  8%]
+........................................................................ [  9%]
+........................................................................ [  9%]
+........................................................................ [ 10%]
+........................................................................ [ 11%]
+........................................................................ [ 12%]
+........................................................................ [ 13%]
+........................................................................ [ 14%]
+........................................................................ [ 15%]
+........................................................................ [ 16%]
+........................................................................ [ 17%]
+........................................................................ [ 18%]
+........................................................................ [ 19%]
+........................................................................ [ 19%]
+........................................................................ [ 20%]
+........................................................................ [ 21%]
+........................................................................ [ 22%]
+........................................................................ [ 23%]
+........................................................................ [ 24%]
+............................................s........................... [ 25%]
+........................................................................ [ 26%]
+.......s................................................................ [ 27%]
+........................................................................ [ 28%]
+........................................................................ [ 29%]
+...................................................................s.... [ 29%]
+........................................................................ [ 30%]
+........................................................................ [ 31%]
+........................................................................ [ 32%]
+........................................................................ [ 33%]
+........................................................................ [ 34%]
+........................................................................ [ 35%]
+........................................................................ [ 36%]
+...............................................ss....................... [ 37%]
+........................................................................ [ 38%]
+........................................................................ [ 38%]
+........................................................................ [ 39%]
+........................................................................ [ 40%]
+........................................................................ [ 41%]
+........................................................................ [ 42%]
+........................................................................ [ 43%]
+........................................................................ [ 44%]
+........................................................................ [ 45%]
+........................................................................ [ 46%]
+........................................................................ [ 47%]
+..................ssssss...............................................s [ 48%]
+s....................................................................... [ 48%]
+........................................................................ [ 49%]
+........................................................................ [ 50%]
+.........................................s.............................. [ 51%]
+..............s..............................s.......................... [ 52%]
+......................sssssssssss....................................... [ 53%]
+........................................................................ [ 54%]
+........................................................................ [ 55%]
+........................................................................ [ 56%]
+...............................................................ss....... [ 57%]
+........................................................................ [ 58%]
+........................................................................ [ 58%]
+........................................................................ [ 59%]
+........................................................................ [ 60%]
+............sssssssss................................................... [ 61%]
+........................................................................ [ 62%]
+........................................................................ [ 63%]
+........................................................................ [ 64%]
+................................................................sssssss. [ 65%]
+........................................................................ [ 66%]
+................s....................................................... [ 67%]
+............ssssssss.................................................... [ 67%]
+...............................s........................................ [ 68%]
+........................................................................ [ 69%]
+........................................................................ [ 70%]
+........................................................................ [ 71%]
+........................................................................ [ 72%]
+....................................................................ssss [ 73%]
+sss...........................................................s......... [ 74%]
+........................................................................ [ 75%]
+........................................................................ [ 76%]
+........................................................................ [ 77%]
+..........................................................s............. [ 77%]
+........................................................................ [ 78%]
+...................s.................................................... [ 79%]
+........................................................................ [ 80%]
+.....................................................................F.. [ 81%]
+........................................................................ [ 82%]
+........................................................................ [ 83%]
+..............................s......................................... [ 84%]
+........................................................................ [ 85%]
+........ssss............................................................ [ 86%]
+........................................................................ [ 87%]
+......................................s................s................ [ 87%]
+........................................................................ [ 88%]
+........................................................................ [ 89%]
+........................................................................ [ 90%]
+........................................................................ [ 91%]
+...................s.................................................... [ 92%]
+........................................................................ [ 93%]
+............s........................................................... [ 94%]
+........................................................................ [ 95%]
+.......................................sss.............................. [ 96%]
+........................................................................ [ 96%]
+.....................ss..........................................ss..... [ 97%]
+.......ssssss........................................................... [ 98%]
+.................................ssssss.ss..ss.ss..s......s.....sss..... [ 99%]
+.......s...............                                                  [100%]
+=================================== FAILURES ===================================
+________________________ test_clean_wheel_install_smoke ________________________
+[gw1] linux -- Python 3.11.15 /home/nvidia/workspace/rosclaw/rosclaw_agent/rosclaw/.venv/bin/python
+
+tmp_path = PosixPath('/tmp/pytest-of-nvidia/pytest-142/popen-gw1/test_clean_wheel_install_smoke0')
+
+    def test_clean_wheel_install_smoke(tmp_path) -> None:
+        """§49/G46：build wheel → 干净 venv → pip install →
+        rosclaw sim capabilities + load/rollout 冒烟。
+    
+        不标 slow：G46 是发布门，必须进 CI gate 全回归（gate 跑
+        -m 'not slow'，标 slow = 永远只有本地证据——审查实证）。"""
+        import json
+        import subprocess
+        import sys
+        import venv
+    
+>       repo = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=True
+        ).stdout.strip()
+
+tests/sim/test_release_qualification.py:187: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+input = None, capture_output = True, timeout = None, check = True
+popenargs = (['git', 'rev-parse', '--show-toplevel'],)
+kwargs = {'text': True, 'stdout': -1, 'stderr': -1}
+
+    def run(*popenargs,
+            input=None, capture_output=False, timeout=None, check=False, **kwargs):
+        """Run command with arguments and return a CompletedProcess instance.
+    
+        The returned instance will have attributes args, returncode, stdout and
+        stderr. By default, stdout and stderr are not captured, and those attributes
+        will be None. Pass stdout=PIPE and/or stderr=PIPE in order to capture them,
+        or pass capture_output=True to capture both.
+    
+        If check is True and the exit code was non-zero, it raises a
+        CalledProcessError. The CalledProcessError object will have the return code
+        in the returncode attribute, and output & stderr attributes if those streams
+        were captured.
+    
+        If timeout is given, and the process takes too long, a TimeoutExpired
+        exception will be raised.
+    
+        There is an optional argument "input", allowing you to
+        pass bytes or a string to the subprocess's stdin.  If you use this argument
+        you may not also use the Popen constructor's "stdin" argument, as
+        it will be used internally.
+    
+        By default, all communication is in bytes, and therefore any "input" should
+        be bytes, and the stdout and stderr will be bytes. If in text mode, any
+        "input" should be a string, and stdout and stderr will be strings decoded
+        according to locale encoding, or by "encoding" if set. Text mode is
+        triggered by setting any of text, encoding, errors or universal_newlines.
+    
+        The other arguments are the same as for the Popen constructor.
+        """
+        if input is not None:
+            if kwargs.get('stdin') is not None:
+                raise ValueError('stdin and input arguments may not both be used.')
+            kwargs['stdin'] = PIPE
+    
+        if capture_output:
+            if kwargs.get('stdout') is not None or kwargs.get('stderr') is not None:
+                raise ValueError('stdout and stderr arguments may not be used '
+                                 'with capture_output.')
+            kwargs['stdout'] = PIPE
+            kwargs['stderr'] = PIPE
+    
+        with Popen(*popenargs, **kwargs) as process:
+            try:
+                stdout, stderr = process.communicate(input, timeout=timeout)
+            except TimeoutExpired as exc:
+                process.kill()
+                if _mswindows:
+                    # Windows accumulates the output in a single blocking
+                    # read() call run on child threads, with the timeout
+                    # being done in a join() on those threads.  communicate()
+                    # _after_ kill() is required to collect that and add it
+                    # to the exception.
+                    exc.stdout, exc.stderr = process.communicate()
+                else:
+                    # POSIX _communicate already populated the output so
+                    # far into the TimeoutExpired exception.
+                    process.wait()
+                raise
+            except:  # Including KeyboardInterrupt, communicate handled that.
+                process.kill()
+                # We don't call process.wait() as .__exit__ does that for us.
+                raise
+            retcode = process.poll()
+            if check and retcode:
+>               raise CalledProcessError(retcode, process.args,
+                                         output=stdout, stderr=stderr)
+E               subprocess.CalledProcessError: Command '['git', 'rev-parse', '--show-toplevel']' returned non-zero exit status 128.
+
+/home/nvidia/.local/share/uv/python/cpython-3.11.15-linux-aarch64-gnu/lib/python3.11/subprocess.py:571: CalledProcessError
+=============================== warnings summary ===============================
+../../home/nvidia/workspace/rosclaw/rosclaw_agent/rosclaw/.venv/lib/python3.11/site-packages/jieba/_compat.py:18
+../../home/nvidia/workspace/rosclaw/rosclaw_agent/rosclaw/.venv/lib/python3.11/site-packages/jieba/_compat.py:18
+../../home/nvidia/workspace/rosclaw/rosclaw_agent/rosclaw/.venv/lib/python3.11/site-packages/jieba/_compat.py:18
+../../home/nvidia/workspace/rosclaw/rosclaw_agent/rosclaw/.venv/lib/python3.11/site-packages/jieba/_compat.py:18
+  /home/nvidia/workspace/rosclaw/rosclaw_agent/rosclaw/.venv/lib/python3.11/site-packages/jieba/_compat.py:18: DeprecationWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html
+    import pkg_resources
+
+tests/sim/test_worldspec.py::test_compile_with_robot_attach
+  /tmp/ros-expert-baseline-0e0d8e45/src/rosclaw/sim/world/compiler.py:110: UserWarning: Attach conflict when attaching 'ur5e', policy is 'warning'
+  integrator: parent has 0 (default), child has 3, keeping parent value
+    spec.to_xml(),
+
+tests/agentd/test_p1b1_operation_v2.py::TestRestartRecovery::test_dead_pid_with_exitcode_applies_terminal
+tests/daemon/test_cli.py::test_daemon_status_fast_path_returns_json
+tests/mcp/test_body_p0_tools.py::test_validate_body_action_forbidden
+  /home/nvidia/workspace/rosclaw/rosclaw_agent/rosclaw/.venv/lib/python3.11/site-packages/_pytest/unraisableexception.py:67: PytestUnraisableExceptionWarning: Exception ignored in: <function BaseSubprocessTransport.__del__ at 0xeafaa26a99e0>
+  
+  Traceback (most recent call last):
+    File "/home/nvidia/.local/share/uv/python/cpython-3.11.15-linux-aarch64-gnu/lib/python3.11/asyncio/base_subprocess.py", line 126, in __del__
+      self.close()
+    File "/home/nvidia/.local/share/uv/python/cpython-3.11.15-linux-aarch64-gnu/lib/python3.11/asyncio/base_subprocess.py", line 104, in close
+      proto.pipe.close()
+    File "/home/nvidia/.local/share/uv/python/cpython-3.11.15-linux-aarch64-gnu/lib/python3.11/asyncio/unix_events.py", line 566, in close
+      self._close(None)
+    File "/home/nvidia/.local/share/uv/python/cpython-3.11.15-linux-aarch64-gnu/lib/python3.11/asyncio/unix_events.py", line 590, in _close
+      self._loop.call_soon(self._call_connection_lost, exc)
+    File "/home/nvidia/.local/share/uv/python/cpython-3.11.15-linux-aarch64-gnu/lib/python3.11/asyncio/base_events.py", line 762, in call_soon
+      self._check_closed()
+    File "/home/nvidia/.local/share/uv/python/cpython-3.11.15-linux-aarch64-gnu/lib/python3.11/asyncio/base_events.py", line 520, in _check_closed
+      raise RuntimeError('Event loop is closed')
+  RuntimeError: Event loop is closed
+  
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+    warnings.warn(pytest.PytestUnraisableExceptionWarning(msg))
+
+tests/storage/test_versioned_collections.py: 12 warnings
+tests/storage/test_versioned_projection.py: 8 warnings
+tests/memory/v2/test_cli.py: 2 warnings
+tests/memory/v2/runtime_retrieval/test_integration_engine.py: 3 warnings
+  /tmp/ros-expert-baseline-0e0d8e45/src/rosclaw/storage/versioned_collections.py:275: DeprecationWarning: Configuration is deprecated. Please use Schema instead.
+    config = pyseekdb.Configuration(
+
+tests/provider/test_openai_compat_streaming.py: 16 warnings
+  /home/nvidia/workspace/rosclaw/rosclaw_agent/rosclaw/.venv/lib/python3.11/site-packages/aiohttp/web_urldispatcher.py:192: DeprecationWarning: Bare functions are deprecated, use async ones
+    warnings.warn(
+
+tests/sim/test_sysid.py::test_g26_unidentifiable_is_honest
+  /home/nvidia/workspace/rosclaw/rosclaw_agent/rosclaw/.venv/lib/python3.11/site-packages/mujoco/sysid/_src/signal_modifier.py:325: RuntimeWarning: invalid value encountered in divide
+    return residual / (np.linalg.norm(measured_data, axis=0) / np.sqrt(2))
+
+tests/agentd/test_eight8_checkpoint.py::TestContextCheckpoint::test_checkpoint_from_authoritative_store
+tests/agentd/test_eight8_checkpoint.py::TestContextCheckpoint::test_checkpoint_after_kernel_finish
+tests/agentd/test_eight8_checkpoint.py::TestTaskListAndTrace::test_task_list
+tests/agentd/test_eight8_checkpoint.py::TestTaskListAndTrace::test_task_trace
+  /home/nvidia/.local/share/uv/python/cpython-3.11.15-linux-aarch64-gnu/lib/python3.11/subprocess.py:1885: RuntimeWarning: os.fork() was called. os.fork() is incompatible with multithreaded code, and JAX is multithreaded, so this will likely lead to a deadlock.
+    self.pid = _fork_exec(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/sim/test_release_qualification.py::test_clean_wheel_install_smoke
+1 failed, 7837 passed, 112 skipped, 54 warnings in 460.98s (0:07:40)

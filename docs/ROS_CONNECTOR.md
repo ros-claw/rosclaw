@@ -185,3 +185,7 @@ The ROS connector is a first-class citizen of the ROSClaw grounding plane:
 
 To enable the integration when constructing a provider, pass `event_bus`,
 `knowledge_interface`, and/or `seekdb_client` in the manifest `extra` dict.
+
+## ROS Expert Harness extension
+
+The existing connector now supports [system modeling and expert diagnostics](ROS_EXPERT_HARNESS.md), [semantic readiness and solution resolution](ROS_CAPABILITY_RESOLUTION.md), and [independent cleaning coverage calculations](ROS_COVERAGE_CLEANING.md). Legacy IDs and dry-run boundaries remain compatible. The optional native sidecar improves observations without adding ROS dependencies to core. The canonical server can expose only the four new read-only tools using ROSCLAW_ROS_EXPERT=1. Nav2/Gazebo task acceptance remains NOT_RUN.

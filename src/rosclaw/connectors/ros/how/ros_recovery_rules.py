@@ -83,3 +83,19 @@ def seed_ros_recovery_rules(seekdb_client: Any) -> int:
             # Best-effort seeding; ignore duplicates or missing table.
             pass
     return inserted
+
+
+def diagnostic_intervention(issue: dict[str, Any]) -> dict[str, Any]:
+    """Evidence-bearing read-only intervention proposal for existing HOW users."""
+    if not issue.get("issue_code") or not issue.get("evidence"):
+        raise ValueError("an intervention requires diagnostic code and evidence")
+    return {
+        "condition": issue["issue_code"],
+        "evidence": issue["evidence"],
+        "next_checks": issue.get("next_checks", []),
+        "recommended_repairs": issue.get("recommended_repairs", []),
+        "success_count": 0,
+        "failure_count": 0,
+        "runtime_mutation_required": False,
+        "execution_entry": "request_action",
+    }

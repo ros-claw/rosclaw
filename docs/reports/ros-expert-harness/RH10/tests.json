@@ -1,0 +1,8 @@
+{
+  "stage": "RH10",
+  "status": "PARTIAL",
+  "primary_evidence": "../RH04/evidence/coverage_results.json",
+  "test_summary": "../final_test_summary.json",
+  "v1_acceptance": false,
+  "note": "Independent trace calculations and bounded recovery proposals tested. Actual >=98%/zero-collision gate NOT_RUN."
+}

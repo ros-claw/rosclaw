@@ -140,3 +140,11 @@ pytest tests/practice -q
 
 Use the repo skill at `.agents/skills/rosclaw/SKILL.md` for deeper CLI,
 Practice evidence, MCP, and agent-framework workflows.
+
+## ROS Expert Harness
+
+- Read-only engineering: `ros inspect-system`, `ros diagnose`, `ros resolve`, `ros context`, `ros mission plan` through the pinned CLI. Use a temporary ROSCLAW_HOME for smoke tests.
+- Optional canonical MCP extension: `ROSCLAW_ROS_EXPERT=1` adds four read-only composite tools; it grants no ROS write access.
+- Keep source/time/hash/completeness visible. Historical snapshots are not live state. Graph inference does not replace Body/e-URDF truth.
+- Physical actions still require rosclawd request_action. A synthetic coverage mask or successful action is not mission verification.
+- Native DDS fixture acceptance is not Nav2/Gazebo cleaning acceptance. Current live coverage and A/B gates are NOT_RUN; see docs/reports/ros-expert-harness/FINAL_IMPLEMENTATION_REPORT.md.

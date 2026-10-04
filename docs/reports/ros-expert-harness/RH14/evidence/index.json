@@ -1,0 +1,5 @@
+{
+  "artifact": "../../benchmark_results.json",
+  "domain": "not_run",
+  "note": "Reference to recorded artifact; this index is not independent measurement evidence."
+}

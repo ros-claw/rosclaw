@@ -1,0 +1,8 @@
+{
+  "stage": "RH03",
+  "status": "PARTIAL",
+  "primary_evidence": "../RH03/evidence/live_probe.json",
+  "test_summary": "../final_test_summary.json",
+  "v1_acceptance": false,
+  "note": "Real Jazzy DDS synthetic graph proves rates, TF, lifecycle, QoS and action type discovery. Live Nav2 readiness remains unknown."
+}

@@ -1,0 +1,22 @@
+{
+  "body_id": "fixture_base",
+  "body_hash": "fixture-only",
+  "body_type": "differential_drive_mobile_base",
+  "frames": {
+    "map": "map",
+    "odom": "odom",
+    "base": "base_link"
+  },
+  "sensors": [
+    {
+      "frame": "laser"
+    }
+  ],
+  "required_topics": [
+    "/scan",
+    "/odom"
+  ],
+  "minimum_rates": {
+    "/scan": 5
+  }
+}

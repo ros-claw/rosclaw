@@ -1,0 +1,17 @@
+bringing up nodes...
+bringing up nodes...
+
+.........................................sss............................ [ 26%]
+........................................................................ [ 53%]
+........................................................................ [ 80%]
+..........................ss........................                     [100%]
+=============================== warnings summary ===============================
+tests/body/test_cross_module_references.py::test_uri_resolves_to_same_hash
+tests/body/test_body_entrypoint_unification.py::test_init_and_create_generate_same_core_files
+tests/body/test_capability_management.py::test_disable_capability_updates_body_yaml_and_logs_event
+tests/body/test_fleet_compatibility.py::test_fleet_status_cli_json_output
+  /home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/.venv/lib/python3.11/site-packages/jieba/_compat.py:18: DeprecationWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html
+    import pkg_resources
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+263 passed, 5 skipped, 4 warnings in 8.73s

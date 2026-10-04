@@ -1,0 +1,31 @@
+{
+  "schema_version": "rosclaw.ros_expert_benchmark.v1",
+  "status": "NOT_RUN",
+  "same_model": null,
+  "same_budget": null,
+  "codex": {
+    "success_rate": null,
+    "token_usage": null,
+    "tool_calls": null,
+    "time_seconds": null
+  },
+  "rosclaw": {
+    "success_rate": null,
+    "token_usage": null,
+    "tool_calls": null,
+    "time_seconds": null
+  },
+  "relative_gain": null,
+  "darwin": "NOT_RUN",
+  "research_questions": {
+    "Q1": "UNANSWERED",
+    "Q2": "UNANSWERED",
+    "Q3": "UNANSWERED",
+    "Q4": "UNANSWERED",
+    "Q5": "UNANSWERED",
+    "Q6": "UNANSWERED",
+    "Q7": "UNANSWERED",
+    "Q8": "UNANSWERED"
+  },
+  "reason": "No controlled external-agent A/B experiment; fixtures are not comparative evidence."
+}

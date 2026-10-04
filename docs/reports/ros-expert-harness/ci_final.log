@@ -1,0 +1,200 @@
+bringing up nodes...
+bringing up nodes...
+
+........................................................................ [  0%]
+........................................................................ [  1%]
+........................................................................ [  2%]
+........................................................................ [  3%]
+........................................................................ [  4%]
+........................................................................ [  5%]
+........................................................................ [  6%]
+........................................................................ [  7%]
+........................................................................ [  8%]
+........................................................................ [  8%]
+........................................................................ [  9%]
+........................................................................ [ 10%]
+........................................................................ [ 11%]
+........................................................................ [ 12%]
+........................................................................ [ 13%]
+........................................................................ [ 14%]
+........................................................................ [ 15%]
+........................................................................ [ 16%]
+........................................................................ [ 17%]
+........................................................................ [ 17%]
+........................................................................ [ 18%]
+........................................................................ [ 19%]
+........................................................................ [ 20%]
+........................................................................ [ 21%]
+........................................................................ [ 22%]
+........................................................................ [ 23%]
+........................................................................ [ 24%]
+........................................................................ [ 25%]
+........................................................................ [ 26%]
+........................................................................ [ 26%]
+..........s....s........................................................ [ 27%]
+........................................................................ [ 28%]
+........................................................................ [ 29%]
+..........................s............................................. [ 30%]
+........................................................................ [ 31%]
+........................................................................ [ 32%]
+........................................................................ [ 33%]
+........................................................................ [ 34%]
+........................................................................ [ 35%]
+........................................................................ [ 35%]
+........................................................................ [ 36%]
+............................................................ss.......... [ 37%]
+........................................................................ [ 38%]
+........................................................................ [ 39%]
+........................................................................ [ 40%]
+........................................................................ [ 41%]
+........................................................................ [ 42%]
+........................................................................ [ 43%]
+........................................................................ [ 44%]
+........................................................................ [ 44%]
+........................................................................ [ 45%]
+........................................................................ [ 46%]
+........................................................................ [ 47%]
+..................ssssss................................................ [ 48%]
+.......ss............................................................... [ 49%]
+........................................................................ [ 50%]
+........................................................................ [ 51%]
+........................................s............................... [ 52%]
+................s..............................s........................ [ 52%]
+.......................sssssssssss...................................... [ 53%]
+........................................................................ [ 54%]
+........................................................................ [ 55%]
+........................................................................ [ 56%]
+..........................................................ss............ [ 57%]
+........................................................................ [ 58%]
+........................................................................ [ 59%]
+........................................................................ [ 60%]
+........................................................................ [ 61%]
+....................sssssssss........................................... [ 61%]
+........................................................................ [ 62%]
+........................................................................ [ 63%]
+........................................................................ [ 64%]
+.....................................................................sss [ 65%]
+ssss.................................................................... [ 66%]
+..................s..................................................... [ 67%]
+.......ssssssss......................................................... [ 68%]
+......................s................................................. [ 69%]
+........................................................................ [ 70%]
+........................................................................ [ 70%]
+........................................................................ [ 71%]
+........................................................................ [ 72%]
+......................................................................ss [ 73%]
+sssss.............................................s..................... [ 74%]
+........................................................................ [ 75%]
+........................................................................ [ 76%]
+........................................................................ [ 77%]
+......................................................s................. [ 78%]
+........................................................................ [ 79%]
+....................s................................................... [ 79%]
+........................................................................ [ 80%]
+........................................................................ [ 81%]
+........................................................................ [ 82%]
+........................................................................ [ 83%]
+................................s....................................... [ 84%]
+........................................................................ [ 85%]
+......ssss.............................................................. [ 86%]
+........................................................................ [ 87%]
+....................................s................s.................. [ 88%]
+........................................................................ [ 88%]
+........................................................................ [ 89%]
+........................................................................ [ 90%]
+........................................................................ [ 91%]
+.................s...................................................... [ 92%]
+........................................................................ [ 93%]
+............s........................................................sss [ 94%]
+........................................................................ [ 95%]
+........................................................................ [ 96%]
+........................................................................ [ 96%]
+...................ss.............................................ss.... [ 97%]
+........ssssss.......................................................... [ 98%]
+................................ssssssss.ss..ss......s......s.....sss... [ 99%]
+.............s......./home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/.venv/lib/python3.11/site-packages/_pytest/unraisableexception.py:67: PytestUnraisableExceptionWarning: Exception ignored in: <function BaseSubprocessTransport.__del__ at 0xe52315e1d760>
+
+Traceback (most recent call last):
+  File "/home/nvidia/.local/share/uv/python/cpython-3.11.15-linux-aarch64-gnu/lib/python3.11/asyncio/base_subprocess.py", line 126, in __del__
+    self.close()
+  File "/home/nvidia/.local/share/uv/python/cpython-3.11.15-linux-aarch64-gnu/lib/python3.11/asyncio/base_subprocess.py", line 104, in close
+    proto.pipe.close()
+  File "/home/nvidia/.local/share/uv/python/cpython-3.11.15-linux-aarch64-gnu/lib/python3.11/asyncio/unix_events.py", line 566, in close
+    self._close(None)
+  File "/home/nvidia/.local/share/uv/python/cpython-3.11.15-linux-aarch64-gnu/lib/python3.11/asyncio/unix_events.py", line 590, in _close
+    self._loop.call_soon(self._call_connection_lost, exc)
+  File "/home/nvidia/.local/share/uv/python/cpython-3.11.15-linux-aarch64-gnu/lib/python3.11/asyncio/base_events.py", line 762, in call_soon
+    self._check_closed()
+  File "/home/nvidia/.local/share/uv/python/cpython-3.11.15-linux-aarch64-gnu/lib/python3.11/asyncio/base_events.py", line 520, in _check_closed
+    raise RuntimeError('Event loop is closed')
+RuntimeError: Event loop is closed
+
+Enable tracemalloc to get traceback where the object was allocated.
+See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+  warnings.warn(pytest.PytestUnraisableExceptionWarning(msg))
+....                                                [100%]
+=============================== warnings summary ===============================
+.venv/lib/python3.11/site-packages/jieba/_compat.py:18
+.venv/lib/python3.11/site-packages/jieba/_compat.py:18
+.venv/lib/python3.11/site-packages/jieba/_compat.py:18
+.venv/lib/python3.11/site-packages/jieba/_compat.py:18
+  /home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/.venv/lib/python3.11/site-packages/jieba/_compat.py:18: DeprecationWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html
+    import pkg_resources
+
+tests/sim/test_worldspec.py::test_compile_with_robot_attach
+  /home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/src/rosclaw/sim/world/compiler.py:110: UserWarning: Attach conflict when attaching 'ur5e', policy is 'warning'
+  integrator: parent has 0 (default), child has 3, keeping parent value
+    spec.to_xml(),
+
+tests/agentd/test_p1b1_operation_v2.py::TestRestartRecovery::test_dead_pid_with_exitcode_applies_terminal
+tests/agentd/test_p1b1_operation_v2.py::TestRestartRecovery::test_dead_pid_without_exitcode_is_honest_lost
+tests/integrations/test_lerobot_cli.py::test_setup_lerobot_dry_run
+  /home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/.venv/lib/python3.11/site-packages/_pytest/unraisableexception.py:67: PytestUnraisableExceptionWarning: Exception ignored in: <function BaseSubprocessTransport.__del__ at 0xf11cad4f5760>
+  
+  Traceback (most recent call last):
+    File "/home/nvidia/.local/share/uv/python/cpython-3.11.15-linux-aarch64-gnu/lib/python3.11/asyncio/base_subprocess.py", line 126, in __del__
+      self.close()
+    File "/home/nvidia/.local/share/uv/python/cpython-3.11.15-linux-aarch64-gnu/lib/python3.11/asyncio/base_subprocess.py", line 104, in close
+      proto.pipe.close()
+    File "/home/nvidia/.local/share/uv/python/cpython-3.11.15-linux-aarch64-gnu/lib/python3.11/asyncio/unix_events.py", line 566, in close
+      self._close(None)
+    File "/home/nvidia/.local/share/uv/python/cpython-3.11.15-linux-aarch64-gnu/lib/python3.11/asyncio/unix_events.py", line 590, in _close
+      self._loop.call_soon(self._call_connection_lost, exc)
+    File "/home/nvidia/.local/share/uv/python/cpython-3.11.15-linux-aarch64-gnu/lib/python3.11/asyncio/base_events.py", line 762, in call_soon
+      self._check_closed()
+    File "/home/nvidia/.local/share/uv/python/cpython-3.11.15-linux-aarch64-gnu/lib/python3.11/asyncio/base_events.py", line 520, in _check_closed
+      raise RuntimeError('Event loop is closed')
+  RuntimeError: Event loop is closed
+  
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+    warnings.warn(pytest.PytestUnraisableExceptionWarning(msg))
+
+tests/storage/test_versioned_collections.py: 12 warnings
+tests/storage/test_versioned_projection.py: 8 warnings
+tests/memory/v2/test_cli.py: 2 warnings
+tests/memory/v2/runtime_retrieval/test_integration_engine.py: 3 warnings
+  /home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/src/rosclaw/storage/versioned_collections.py:275: DeprecationWarning: Configuration is deprecated. Please use Schema instead.
+    config = pyseekdb.Configuration(
+
+tests/provider/test_openai_compat_streaming.py: 16 warnings
+  /home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/.venv/lib/python3.11/site-packages/aiohttp/web_urldispatcher.py:192: DeprecationWarning: Bare functions are deprecated, use async ones
+    warnings.warn(
+
+tests/sim/test_sysid.py::test_g26_unidentifiable_is_honest
+  /home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/.venv/lib/python3.11/site-packages/mujoco/sysid/_src/signal_modifier.py:325: RuntimeWarning: invalid value encountered in divide
+    return residual / (np.linalg.norm(measured_data, axis=0) / np.sqrt(2))
+
+tests/agentd/test_eight8_checkpoint.py::TestContextCheckpoint::test_checkpoint_from_authoritative_store
+tests/agentd/test_eight8_checkpoint.py::TestContextCheckpoint::test_checkpoint_after_kernel_finish
+tests/agentd/test_eight8_checkpoint.py::TestTaskListAndTrace::test_task_list
+tests/agentd/test_eight8_checkpoint.py::TestTaskListAndTrace::test_task_trace
+tests/agentd/test_wp03_resume_report.py::TestResumeReport::test_completed_task_session_report
+tests/product/test_ddzj_r02_star_demo.py::TestStarDemoRegistry::test_star_demo_objective_facts_only
+tests/agentd/test_pr3_long_task_recovery.py::TestProcessStartGuidance::test_summary_guides_turn_end_no_polling
+tests/agentd/test_pr3_long_task_recovery.py::TestResumeReportOperations::test_report_lists_terminal_operations_with_artifacts
+  /home/nvidia/.local/share/uv/python/cpython-3.11.15-linux-aarch64-gnu/lib/python3.11/subprocess.py:1885: RuntimeWarning: os.fork() was called. os.fork() is incompatible with multithreaded code, and JAX is multithreaded, so this will likely lead to a deadlock.
+    self.pid = _fork_exec(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+7912 passed, 112 skipped, 58 warnings in 476.59s (0:07:56)

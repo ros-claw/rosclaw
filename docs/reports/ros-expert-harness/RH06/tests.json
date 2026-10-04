@@ -1,0 +1,8 @@
+{
+  "stage": "RH06",
+  "status": "PARTIAL",
+  "primary_evidence": "../RH04/evidence/solution.json",
+  "test_summary": "../final_test_summary.json",
+  "v1_acceptance": false,
+  "note": "Source-linked catalog and English/Chinese intent resolution; real package install/build/configuration pending."
+}

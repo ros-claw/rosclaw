@@ -1,0 +1,3 @@
+[WARN] [1791071925.633144723] [fixture.synthetic_sensor]: New subscription discovered on topic '/fixture/scan', requesting incompatible QoS. No messages will be sent to it. Last incompatible policy: RELIABILITY
+[WARN] [1791071925.633560165] [fixture.synthetic_sensor]: New publisher discovered on topic '/fixture/scan', offering incompatible QoS. No messages will be received from it. Last incompatible policy: RELIABILITY
+Native read-only probe: measured rate, TF, lifecycle and QoS PASS

@@ -1,0 +1,176 @@
+{
+  "schema_version": "rosclaw.ros_probe.v1",
+  "captured_at": "2026-10-03T23:11:01.170021+00:00",
+  "environment": {
+    "ros_generation": "ros2",
+    "distro": "jazzy",
+    "rmw": null,
+    "domain_id": "173",
+    "overlays": [
+      "/opt/ros/jazzy"
+    ],
+    "use_sim_time": false
+  },
+  "graph": {
+    "topics": [
+      {
+        "name": "/parameter_events",
+        "msg_type": "rcl_interfaces/msg/ParameterEvent",
+        "types": [
+          "rcl_interfaces/msg/ParameterEvent"
+        ],
+        "publishers": [
+          "/rosclaw_readonly_probe"
+        ],
+        "subscribers": []
+      },
+      {
+        "name": "/rosclaw_probe/snapshot",
+        "msg_type": "std_msgs/msg/String",
+        "types": [
+          "std_msgs/msg/String"
+        ],
+        "publishers": [
+          "/rosclaw_readonly_probe"
+        ],
+        "subscribers": []
+      },
+      {
+        "name": "/rosclaw_probe/status",
+        "msg_type": "std_msgs/msg/String",
+        "types": [
+          "std_msgs/msg/String"
+        ],
+        "publishers": [
+          "/rosclaw_readonly_probe"
+        ],
+        "subscribers": []
+      },
+      {
+        "name": "/rosout",
+        "msg_type": "rcl_interfaces/msg/Log",
+        "types": [
+          "rcl_interfaces/msg/Log"
+        ],
+        "publishers": [
+          "/rosclaw_readonly_probe"
+        ],
+        "subscribers": []
+      }
+    ],
+    "nodes": [
+      {
+        "name": "/rosclaw_readonly_probe",
+        "namespace": "/"
+      }
+    ],
+    "actions": [],
+    "services": [
+      {
+        "name": "/rosclaw_probe/refresh",
+        "srv_type": "std_srvs/srv/Trigger"
+      },
+      {
+        "name": "/rosclaw_readonly_probe/describe_parameters",
+        "srv_type": "rcl_interfaces/srv/DescribeParameters"
+      },
+      {
+        "name": "/rosclaw_readonly_probe/get_parameter_types",
+        "srv_type": "rcl_interfaces/srv/GetParameterTypes"
+      },
+      {
+        "name": "/rosclaw_readonly_probe/get_parameters",
+        "srv_type": "rcl_interfaces/srv/GetParameters"
+      },
+      {
+        "name": "/rosclaw_readonly_probe/get_type_description",
+        "srv_type": "type_description_interfaces/srv/GetTypeDescription"
+      },
+      {
+        "name": "/rosclaw_readonly_probe/list_parameters",
+        "srv_type": "rcl_interfaces/srv/ListParameters"
+      },
+      {
+        "name": "/rosclaw_readonly_probe/set_parameters",
+        "srv_type": "rcl_interfaces/srv/SetParameters"
+      },
+      {
+        "name": "/rosclaw_readonly_probe/set_parameters_atomically",
+        "srv_type": "rcl_interfaces/srv/SetParametersAtomically"
+      }
+    ]
+  },
+  "signals": [],
+  "transforms": [],
+  "lifecycle": [],
+  "qos": {
+    "supported": true,
+    "endpoints": [
+      {
+        "topic": "/parameter_events",
+        "node": "/rosclaw_readonly_probe",
+        "kind": "publisher",
+        "reliability": "RELIABLE",
+        "durability": "VOLATILE",
+        "history": "UNKNOWN",
+        "depth": 0,
+        "deadline_ns": 9223372036854775807,
+        "lifespan_ns": 9223372036854775807,
+        "liveliness": "AUTOMATIC"
+      },
+      {
+        "topic": "/rosclaw_probe/snapshot",
+        "node": "/rosclaw_readonly_probe",
+        "kind": "publisher",
+        "reliability": "RELIABLE",
+        "durability": "TRANSIENT_LOCAL",
+        "history": "UNKNOWN",
+        "depth": 0,
+        "deadline_ns": 9223372036854775807,
+        "lifespan_ns": 9223372036854775807,
+        "liveliness": "AUTOMATIC"
+      },
+      {
+        "topic": "/rosclaw_probe/status",
+        "node": "/rosclaw_readonly_probe",
+        "kind": "publisher",
+        "reliability": "RELIABLE",
+        "durability": "VOLATILE",
+        "history": "UNKNOWN",
+        "depth": 0,
+        "deadline_ns": 9223372036854775807,
+        "lifespan_ns": 9223372036854775807,
+        "liveliness": "AUTOMATIC"
+      },
+      {
+        "topic": "/rosout",
+        "node": "/rosclaw_readonly_probe",
+        "kind": "publisher",
+        "reliability": "RELIABLE",
+        "durability": "TRANSIENT_LOCAL",
+        "history": "UNKNOWN",
+        "depth": 0,
+        "deadline_ns": 9223372036854775807,
+        "lifespan_ns": 10000000000,
+        "liveliness": "AUTOMATIC"
+      }
+    ],
+    "incompatible_pairs": []
+  },
+  "navigation": {},
+  "observations": {
+    "node_use_sim_time": {
+      "/rosclaw_readonly_probe": false
+    },
+    "clock_advancing": null
+  },
+  "completeness": {
+    "graph": true,
+    "qos": true,
+    "signals": true,
+    "tf": false,
+    "lifecycle": false,
+    "time": true
+  },
+  "errors": []
+}

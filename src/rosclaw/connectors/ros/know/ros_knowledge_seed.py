@@ -49,3 +49,39 @@ def seed_ros_capabilities(knowledge_interface: Any, robot_id: str, capabilities:
         except Exception:
             pass
     return inserted
+
+
+def seed_ros_system(knowledge_interface: Any, model: Any, *, now=None) -> int:
+    """Seed evidence-qualified semantic facts using the existing KNOW interface.
+
+    Readiness and requirements retain provenance; no interface-exists claim is
+    promoted to an available physical capability.
+    """
+    from rosclaw.connectors.ros.resolver import resolve_capabilities
+
+    inserted = 0
+    for capability in resolve_capabilities(model, now=now):
+        semantic = capability["semantic_id"]
+        interface = capability.get("interface")
+        if interface is None:
+            continue
+        triples = [
+            (model.robot_id, "has_ros_interface", interface["name"]),
+            (semantic, "implemented_by", interface.get("action_type") or interface.get("msg_type")),
+        ]
+        triples.extend((semantic, "requires", name) for name in capability["requirements"])
+        if capability["status"] == "AVAILABLE":
+            triples.append((model.robot_id, "has_capability", semantic))
+        for subject, predicate, obj in triples:
+            from rosclaw.contracts.common import content_hash
+
+            knowledge_interface.add_triple(
+                triple_id=content_hash("rostriple", [model.snapshot_id, subject, predicate, obj]),
+                subject=subject,
+                predicate=predicate,
+                obj=obj,
+                confidence=1.0,
+                source=f"ros_expert:{model.snapshot_id}:readiness={capability['status']}",
+            )
+            inserted += 1
+    return inserted

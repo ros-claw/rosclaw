@@ -1,0 +1,330 @@
+bringing up nodes...
+bringing up nodes...
+
+........................................................................ [  0%]
+.........................................................s.............. [  1%]
+........................................................................ [  2%]
+........................................................................ [  3%]
+........................................................................ [  4%]
+........................................................................ [  5%]
+........................................................................ [  6%]
+........................................................................ [  7%]
+..s..sssssssssssssssssssssssss.......................................... [  8%]
+........................................................................ [  8%]
+..............................s...............................ssssss.... [  9%]
+........................................................................ [ 10%]
+........................................................................ [ 11%]
+........................................................................ [ 12%]
+...........ssssssssss................................................... [ 13%]
+.............................s.......................................... [ 14%]
+...................................................s.................... [ 15%]
+........................................................................ [ 16%]
+...................s.................................................... [ 16%]
+..............................................................ssss...... [ 17%]
+....................s....ssssss.........F............................... [ 18%]
+..............................ss...............................s........ [ 19%]
+........................................................................ [ 20%]
+........................................................................ [ 21%]
+.................................................................s...... [ 22%]
+...................s...........................................sss...... [ 23%]
+...ss................................................................... [ 24%]
+......ss................................................s............... [ 25%]
+.......s.............s.................................................. [ 25%]
+........................................................................ [ 26%]
+....................F.F................................................. [ 27%]
+..............s......................................................... [ 28%]
+........................................................................ [ 29%]
+........................................................................ [ 30%]
+............................................................EEEE........ [ 31%]
+...............s.....................ss............
+==================================== ERRORS ====================================
+_ ERROR at setup of TestActionResultUi.test_rejected_tool_cannot_render_completed_action_status _
+[gw0] linux -- Python 3.11.15 /home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/.venv/bin/python
+
+self = <tests.agentd.test_hf5_4_action_result_ui.TestActionResultUi object at 0xfd3b4b2ddc90>
+tmp_path_factory = TempPathFactory(_given_basetemp=PosixPath('/tmp/pytest-of-nvidia/pytest-132/popen-gw0'), _trace=<pluggy._tracing.TagTr...0a350>, _basetemp=PosixPath('/tmp/pytest-of-nvidia/pytest-132/popen-gw0'), _retention_count=3, _retention_policy='all')
+
+    @pytest.fixture(scope="class")
+    def journey(self, tmp_path_factory: pytest.TempPathFactory):
+        tmp_path = tmp_path_factory.mktemp("hf5_4")
+        fake = _LieTwiceServer(log_path=tmp_path / "fake-requests.jsonl")
+>       prefix, _root = _build_and_install(tmp_path)
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/agentd/test_hf5_4_action_result_ui.py:126: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+tmp_path = PosixPath('/tmp/pytest-of-nvidia/pytest-132/popen-gw0/hf5_40')
+
+    def _build_and_install(tmp_path: Path) -> tuple[Path, Path]:
+        env = dict(os.environ, ROSCLAW_SIGNING_HOME=str(tmp_path / "signing"))
+        result = subprocess.run(
+            ["bash", str(BUILD)], cwd=REPO, capture_output=True, text=True, timeout=1800, env=env
+        )
+>       assert result.returncode == 0, result.stderr[-1500:]
+E       AssertionError: 
+E       assert 254 == 0
+E        +  where 254 = CompletedProcess(args=['bash', '/home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/scripts/build_release.sh'], returncode=254, stdout='==> building rosclaw-1.3.0-linux-arm64\n', stderr='').returncode
+
+tests/agentd/test_product_journey.py:637: AssertionError
+_ ERROR at setup of TestActionResultUi.test_model_lie_is_visibly_overridden_by_kernel_outcome _
+[gw0] linux -- Python 3.11.15 /home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/.venv/bin/python
+
+self = <tests.agentd.test_hf5_4_action_result_ui.TestActionResultUi object at 0xfd3b4b2ddc90>
+tmp_path_factory = TempPathFactory(_given_basetemp=PosixPath('/tmp/pytest-of-nvidia/pytest-132/popen-gw0'), _trace=<pluggy._tracing.TagTr...0a350>, _basetemp=PosixPath('/tmp/pytest-of-nvidia/pytest-132/popen-gw0'), _retention_count=3, _retention_policy='all')
+
+    @pytest.fixture(scope="class")
+    def journey(self, tmp_path_factory: pytest.TempPathFactory):
+        tmp_path = tmp_path_factory.mktemp("hf5_4")
+        fake = _LieTwiceServer(log_path=tmp_path / "fake-requests.jsonl")
+>       prefix, _root = _build_and_install(tmp_path)
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/agentd/test_hf5_4_action_result_ui.py:126: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+tmp_path = PosixPath('/tmp/pytest-of-nvidia/pytest-132/popen-gw0/hf5_40')
+
+    def _build_and_install(tmp_path: Path) -> tuple[Path, Path]:
+        env = dict(os.environ, ROSCLAW_SIGNING_HOME=str(tmp_path / "signing"))
+        result = subprocess.run(
+            ["bash", str(BUILD)], cwd=REPO, capture_output=True, text=True, timeout=1800, env=env
+        )
+>       assert result.returncode == 0, result.stderr[-1500:]
+E       AssertionError: 
+E       assert 254 == 0
+E        +  where 254 = CompletedProcess(args=['bash', '/home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/scripts/build_release.sh'], returncode=254, stdout='==> building rosclaw-1.3.0-linux-arm64\n', stderr='').returncode
+
+tests/agentd/test_product_journey.py:637: AssertionError
+_ ERROR at setup of TestActionResultUi.test_false_completion_not_written_to_mission_success_or_memory _
+[gw0] linux -- Python 3.11.15 /home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/.venv/bin/python
+
+self = <tests.agentd.test_hf5_4_action_result_ui.TestActionResultUi object at 0xfd3b4b2ddc90>
+tmp_path_factory = TempPathFactory(_given_basetemp=PosixPath('/tmp/pytest-of-nvidia/pytest-132/popen-gw0'), _trace=<pluggy._tracing.TagTr...0a350>, _basetemp=PosixPath('/tmp/pytest-of-nvidia/pytest-132/popen-gw0'), _retention_count=3, _retention_policy='all')
+
+    @pytest.fixture(scope="class")
+    def journey(self, tmp_path_factory: pytest.TempPathFactory):
+        tmp_path = tmp_path_factory.mktemp("hf5_4")
+        fake = _LieTwiceServer(log_path=tmp_path / "fake-requests.jsonl")
+>       prefix, _root = _build_and_install(tmp_path)
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/agentd/test_hf5_4_action_result_ui.py:126: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+tmp_path = PosixPath('/tmp/pytest-of-nvidia/pytest-132/popen-gw0/hf5_40')
+
+    def _build_and_install(tmp_path: Path) -> tuple[Path, Path]:
+        env = dict(os.environ, ROSCLAW_SIGNING_HOME=str(tmp_path / "signing"))
+        result = subprocess.run(
+            ["bash", str(BUILD)], cwd=REPO, capture_output=True, text=True, timeout=1800, env=env
+        )
+>       assert result.returncode == 0, result.stderr[-1500:]
+E       AssertionError: 
+E       assert 254 == 0
+E        +  where 254 = CompletedProcess(args=['bash', '/home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/scripts/build_release.sh'], returncode=254, stdout='==> building rosclaw-1.3.0-linux-arm64\n', stderr='').returncode
+
+tests/agentd/test_product_journey.py:637: AssertionError
+_ ERROR at setup of TestActionResultUi.test_next_physical_step_not_started_after_false_completion _
+[gw0] linux -- Python 3.11.15 /home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/.venv/bin/python
+
+self = <tests.agentd.test_hf5_4_action_result_ui.TestActionResultUi object at 0xfd3b4b2ddc90>
+tmp_path_factory = TempPathFactory(_given_basetemp=PosixPath('/tmp/pytest-of-nvidia/pytest-132/popen-gw0'), _trace=<pluggy._tracing.TagTr...0a350>, _basetemp=PosixPath('/tmp/pytest-of-nvidia/pytest-132/popen-gw0'), _retention_count=3, _retention_policy='all')
+
+    @pytest.fixture(scope="class")
+    def journey(self, tmp_path_factory: pytest.TempPathFactory):
+        tmp_path = tmp_path_factory.mktemp("hf5_4")
+        fake = _LieTwiceServer(log_path=tmp_path / "fake-requests.jsonl")
+>       prefix, _root = _build_and_install(tmp_path)
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/agentd/test_hf5_4_action_result_ui.py:126: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+tmp_path = PosixPath('/tmp/pytest-of-nvidia/pytest-132/popen-gw0/hf5_40')
+
+    def _build_and_install(tmp_path: Path) -> tuple[Path, Path]:
+        env = dict(os.environ, ROSCLAW_SIGNING_HOME=str(tmp_path / "signing"))
+        result = subprocess.run(
+            ["bash", str(BUILD)], cwd=REPO, capture_output=True, text=True, timeout=1800, env=env
+        )
+>       assert result.returncode == 0, result.stderr[-1500:]
+E       AssertionError: 
+E       assert 254 == 0
+E        +  where 254 = CompletedProcess(args=['bash', '/home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/scripts/build_release.sh'], returncode=254, stdout='==> building rosclaw-1.3.0-linux-arm64\n', stderr='').returncode
+
+tests/agentd/test_product_journey.py:637: AssertionError
+=================================== FAILURES ===================================
+_________ TestPiDrawsLettersViaWaypoints.test_hello_letters_not_a_star _________
+[gw0] linux -- Python 3.11.15 /home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/.venv/bin/python
+
+self = <tests.agentd.test_ddzj_r11_hello_journey.TestPiDrawsLettersViaWaypoints object at 0xfd3b4b7f57d0>
+tmp_path = PosixPath('/tmp/pytest-of-nvidia/pytest-132/popen-gw0/test_hello_letters_not_a_star0')
+
+    def test_hello_letters_not_a_star(self, tmp_path: Path) -> None:
+        fake = FakeModelServer(log_path=tmp_path / "fake-requests.jsonl")
+        fake.fake = _HiModel()  # type: ignore[assignment]
+        fake.server.RequestHandlerClass.fake = fake.fake  # type: ignore[attr-defined]
+>       prefix, _root = _build_and_install(tmp_path)
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/agentd/test_ddzj_r11_hello_journey.py:154: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+tmp_path = PosixPath('/tmp/pytest-of-nvidia/pytest-132/popen-gw0/test_hello_letters_not_a_star0')
+
+    def _build_and_install(tmp_path: Path) -> tuple[Path, Path]:
+        env = dict(os.environ, ROSCLAW_SIGNING_HOME=str(tmp_path / "signing"))
+        result = subprocess.run(
+            ["bash", str(BUILD)], cwd=REPO, capture_output=True, text=True, timeout=1800, env=env
+        )
+>       assert result.returncode == 0, result.stderr[-1500:]
+E       AssertionError: WARNING: Building wheel for rosclaw failed: [Errno 2] No such file or directory: '/home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/dist/rosclaw-1.3.0-linux-arm64/vendor/wheels'
+E         
+E         [notice] A new release of pip is available: 26.0.1 -> 26.2.1
+E         [notice] To update, run: /home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/.venv/bin/python -m pip install --upgrade pip
+E         ERROR: Failed to build one or more wheels
+E         FAIL: rosclaw wheel 构建失败，拒绝产出。
+E         
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['bash', '/home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/scripts/build_release.sh'], ret.../bin/python -m pip install --upgrade pip\nERROR: Failed to build one or more wheels\nFAIL: rosclaw wheel 构建失败，拒绝产出。\n").returncode
+
+tests/agentd/test_product_journey.py:637: AssertionError
+_______________ TestReleaseGate.test_build_info_and_bundled_node _______________
+[gw1] linux -- Python 3.11.15 /home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/.venv/bin/python
+
+self = <tests.agentd.test_pna10_release.TestReleaseGate object at 0xe73d47328f10>
+tmp_path = PosixPath('/tmp/pytest-of-nvidia/pytest-132/popen-gw1/test_build_info_and_bundled_no0')
+
+    def test_build_info_and_bundled_node(self, tmp_path: Path) -> None:
+>       root = _build(tmp_path)
+               ^^^^^^^^^^^^^^^^
+
+tests/agentd/test_pna10_release.py:41: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+tmp_path = PosixPath('/tmp/pytest-of-nvidia/pytest-132/popen-gw1/test_build_info_and_bundled_no0')
+
+    def _build(tmp_path: Path) -> Path:
+        env = dict(os.environ, ROSCLAW_SIGNING_HOME=str(tmp_path / "signing"))
+        result = subprocess.run(
+            ["bash", str(BUILD)], cwd=REPO, capture_output=True, text=True, timeout=1800, env=env
+        )
+>       assert result.returncode == 0, result.stderr[-2000:]
+E       AssertionError: ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E                 File "/tmp/pip-build-env-wze3lrgr/overlay/lib/python3.11/site-packages/hatchling/build.py", line 58, in build_wheel
+E                   return os.path.basename(next(builder.build(directory=wheel_directory, versions=["standard"])))
+E                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E                 File "/tmp/pip-build-env-wze3lrgr/overlay/lib/python3.11/site-packages/hatchling/builders/plugin/interface.py", line 166, in build
+E                   artifact = version_api[version](directory, **build_data)
+E                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E                 File "/tmp/pip-build-env-wze3lrgr/overlay/lib/python3.11/site-packages/hatchling/builders/wheel.py", line 528, in build_standard
+E                   for included_file in self.recurse_included_files():
+E                 File "/tmp/pip-build-env-wze3lrgr/overlay/lib/python3.11/site-packages/hatchling/builders/plugin/interface.py", line 188, in recurse_included_files
+E                   yield from self.recurse_forced_files(self.config.get_force_include())
+E                 File "/tmp/pip-build-env-wze3lrgr/overlay/lib/python3.11/site-packages/hatchling/builders/plugin/interface.py", line 248, in recurse_forced_files
+E                   raise FileNotFoundError(msg)
+E               FileNotFoundError: Forced include not found: /home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/dist/js-stage/rosclaw-agent/dist
+E               [end of output]
+E           
+E           note: This error originates from a subprocess, and is likely not a problem with pip.
+E         
+E         [notice] A new release of pip is available: 26.0.1 -> 26.2.1
+E         [notice] To update, run: /home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/.venv/bin/python -m pip install --upgrade pip
+E         error: metadata-generation-failed
+E         
+E         × Encountered error while generating package metadata.
+E         ╰─> from file:///home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw
+E         
+E         note: This is an issue with the package mentioned above, not pip.
+E         hint: See above for details.
+E         FAIL: rosclaw wheel 构建失败，拒绝产出。
+E         
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['bash', '/home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/scripts/build_release.sh'], ret...s an issue with the package mentioned above, not pip.\nhint: See above for details.\nFAIL: rosclaw wheel 构建失败，拒绝产出。\n').returncode
+
+tests/agentd/test_pna10_release.py:29: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  asyncio:unix_events.py:1420 Loop <_UnixSelectorEventLoop running=False closed=True debug=False> that handles pid 320993 is closed
+____________ TestReleaseGate.test_installed_artifact_pty_quit_clean ____________
+[gw1] linux -- Python 3.11.15 /home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/.venv/bin/python
+
+self = <tests.agentd.test_pna10_release.TestReleaseGate object at 0xe73d473292d0>
+tmp_path = PosixPath('/tmp/pytest-of-nvidia/pytest-132/popen-gw1/test_installed_artifact_pty_qu0')
+
+    def test_installed_artifact_pty_quit_clean(self, tmp_path: Path) -> None:
+        """安装产物在 PTY 中启动 → 显示 ROSClaw 品牌 → /quit 退出无孤儿。"""
+>       root = _build(tmp_path)
+               ^^^^^^^^^^^^^^^^
+
+tests/agentd/test_pna10_release.py:63: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+tmp_path = PosixPath('/tmp/pytest-of-nvidia/pytest-132/popen-gw1/test_installed_artifact_pty_qu0')
+
+    def _build(tmp_path: Path) -> Path:
+        env = dict(os.environ, ROSCLAW_SIGNING_HOME=str(tmp_path / "signing"))
+        result = subprocess.run(
+            ["bash", str(BUILD)], cwd=REPO, capture_output=True, text=True, timeout=1800, env=env
+        )
+>       assert result.returncode == 0, result.stderr[-2000:]
+E       AssertionError: rm: cannot remove '/home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/dist/.js-build/rosclaw-agent/node_modules/yaml': Directory not empty
+E         rm: cannot remove '/home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/dist/.js-build/rosclaw-agent/node_modules/openai/resources': Directory not empty
+E         
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['bash', '/home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/scripts/build_release.sh'], ret...ce/rosclaw/rosclaw_harness/rosclaw/dist/.js-build/rosclaw-agent/node_modules/openai/resources': Directory not empty\n").returncode
+
+tests/agentd/test_pna10_release.py:29: AssertionError
+=============================== warnings summary ===============================
+.venv/lib/python3.11/site-packages/jieba/_compat.py:18
+.venv/lib/python3.11/site-packages/jieba/_compat.py:18
+.venv/lib/python3.11/site-packages/jieba/_compat.py:18
+.venv/lib/python3.11/site-packages/jieba/_compat.py:18
+  /home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/.venv/lib/python3.11/site-packages/jieba/_compat.py:18: DeprecationWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html
+    import pkg_resources
+
+tests/agentd/test_p1b1_operation_v2.py::TestRestartRecovery::test_dead_pid_with_exitcode_applies_terminal
+tests/agentd/test_p1b3_ros2_action.py::TestActionOperationLifecycle::test_send_goal_registers_operation
+tests/agentd/test_pr2_render_overlay_tool.py::TestDispatchConstructsSpec::test_overlays_reach_renderer
+  /home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/.venv/lib/python3.11/site-packages/_pytest/unraisableexception.py:67: PytestUnraisableExceptionWarning: Exception ignored in: <function BaseSubprocessTransport.__del__ at 0xe73dbaa19760>
+  
+  Traceback (most recent call last):
+    File "/home/nvidia/.local/share/uv/python/cpython-3.11.15-linux-aarch64-gnu/lib/python3.11/asyncio/base_subprocess.py", line 126, in __del__
+      self.close()
+    File "/home/nvidia/.local/share/uv/python/cpython-3.11.15-linux-aarch64-gnu/lib/python3.11/asyncio/base_subprocess.py", line 104, in close
+      proto.pipe.close()
+    File "/home/nvidia/.local/share/uv/python/cpython-3.11.15-linux-aarch64-gnu/lib/python3.11/asyncio/unix_events.py", line 566, in close
+      self._close(None)
+    File "/home/nvidia/.local/share/uv/python/cpython-3.11.15-linux-aarch64-gnu/lib/python3.11/asyncio/unix_events.py", line 590, in _close
+      self._loop.call_soon(self._call_connection_lost, exc)
+    File "/home/nvidia/.local/share/uv/python/cpython-3.11.15-linux-aarch64-gnu/lib/python3.11/asyncio/base_events.py", line 762, in call_soon
+      self._check_closed()
+    File "/home/nvidia/.local/share/uv/python/cpython-3.11.15-linux-aarch64-gnu/lib/python3.11/asyncio/base_events.py", line 520, in _check_closed
+      raise RuntimeError('Event loop is closed')
+  RuntimeError: Event loop is closed
+  
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+    warnings.warn(pytest.PytestUnraisableExceptionWarning(msg))
+
+tests/agentd/test_hf5_4_action_result_ui.py::TestActionResultUi::test_rejected_tool_cannot_render_completed_action_status
+  /home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/.venv/lib/python3.11/site-packages/_pytest/fixtures.py:1313: PytestRemovedIn10Warning: Class-scoped fixture defined as instance method is deprecated.
+  Instance attributes set in this fixture will NOT be visible to test methods,
+  as each test gets a new instance while the fixture runs only once per class.
+  Use @classmethod decorator and set attributes on cls instead.
+  See https://docs.pytest.org/en/stable/deprecations.html#class-scoped-fixture-as-instance-method
+    fixturefunc = resolve_fixture_function(fixturedef, request)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/agentd/test_ddzj_r11_hello_journey.py::TestPiDrawsLettersViaWaypoints::test_hello_letters_not_a_star
+FAILED tests/agentd/test_pna10_release.py::TestReleaseGate::test_build_info_and_bundled_node
+FAILED tests/agentd/test_pna10_release.py::TestReleaseGate::test_installed_artifact_pty_quit_clean
+ERROR tests/agentd/test_hf5_4_action_result_ui.py::TestActionResultUi::test_rejected_tool_cannot_render_completed_action_status
+ERROR tests/agentd/test_hf5_4_action_result_ui.py::TestActionResultUi::test_model_lie_is_visibly_overridden_by_kernel_outcome
+ERROR tests/agentd/test_hf5_4_action_result_ui.py::TestActionResultUi::test_false_completion_not_written_to_mission_success_or_memory
+ERROR tests/agentd/test_hf5_4_action_result_ui.py::TestActionResultUi::test_next_physical_step_not_started_after_false_completion
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! KeyboardInterrupt !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+/home/nvidia/.local/share/uv/python/cpython-3.11.15-linux-aarch64-gnu/lib/python3.11/threading.py:331: KeyboardInterrupt
+(to show a full traceback on KeyboardInterrupt use --full-trace)
+3 failed, 2487 passed, 84 skipped, 8 warnings, 4 errors in 150.53s (0:02:30)

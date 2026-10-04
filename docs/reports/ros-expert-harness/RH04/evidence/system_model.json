@@ -1,0 +1,218 @@
+{
+  "schema_version": "rosclaw.ros_system_model.v1",
+  "robot_id": "fixture_base",
+  "snapshot_id": "rossys_d8809ca2121e22f2e8dc6f41f626e6fcbce5874091f958da77b52d3242833a68",
+  "snapshot_hash": "rossnap_d8809ca2121e22f2e8dc6f41f626e6fcbce5874091f958da77b52d3242833a68",
+  "captured_at": "2026-10-03T00:00:00Z",
+  "environment": {
+    "ros_generation": "ros2",
+    "distro": "jazzy"
+  },
+  "body": {
+    "body_id": "fixture_base",
+    "body_hash": "fixture-only",
+    "body_type": "differential_drive_mobile_base",
+    "frames": {
+      "map": "map",
+      "odom": "odom",
+      "base": "base_link"
+    },
+    "sensors": [
+      {
+        "frame": "laser"
+      }
+    ],
+    "required_topics": [
+      "/scan",
+      "/odom"
+    ],
+    "minimum_rates": {
+      "/scan": 5
+    }
+  },
+  "graph": {
+    "ros_version": "ros2",
+    "distro": "jazzy",
+    "endpoint": "fixture://nav2",
+    "captured_at": "2026-10-03T00:00:00+00:00",
+    "topics": [
+      {
+        "name": "/scan",
+        "msg_type": "sensor_msgs/msg/LaserScan"
+      },
+      {
+        "name": "/odom",
+        "msg_type": "nav_msgs/msg/Odometry"
+      },
+      {
+        "name": "/map",
+        "msg_type": "nav_msgs/msg/OccupancyGrid"
+      },
+      {
+        "name": "/amcl_pose",
+        "msg_type": "geometry_msgs/msg/PoseWithCovarianceStamped"
+      }
+    ],
+    "nodes": [
+      {
+        "name": "/planner_server"
+      },
+      {
+        "name": "/controller_server"
+      },
+      {
+        "name": "/bt_navigator"
+      },
+      {
+        "name": "/amcl"
+      }
+    ],
+    "services": [],
+    "actions": [
+      {
+        "name": "/navigate_to_pose",
+        "action_type": "nav2_msgs/action/NavigateToPose"
+      }
+    ],
+    "params": []
+  },
+  "signals": [
+    {
+      "source": "fixture:received_samples",
+      "captured_at": "2026-10-03T00:00:00Z",
+      "topic": "/scan",
+      "rate_hz": 10.0,
+      "jitter_ms": 0.0,
+      "last_message_age_ms": 20.0,
+      "publisher_count": 1,
+      "subscriber_count": 1
+    },
+    {
+      "source": "fixture:received_samples",
+      "captured_at": "2026-10-03T00:00:00Z",
+      "topic": "/odom",
+      "rate_hz": 10.0,
+      "jitter_ms": 0.0,
+      "last_message_age_ms": 20.0,
+      "publisher_count": 1,
+      "subscriber_count": 1
+    },
+    {
+      "source": "fixture:received_samples",
+      "captured_at": "2026-10-03T00:00:00Z",
+      "topic": "/map",
+      "rate_hz": 10.0,
+      "jitter_ms": 0.0,
+      "last_message_age_ms": 20.0,
+      "publisher_count": 1,
+      "subscriber_count": 1
+    },
+    {
+      "source": "fixture:received_samples",
+      "captured_at": "2026-10-03T00:00:00Z",
+      "topic": "/amcl_pose",
+      "rate_hz": 10.0,
+      "jitter_ms": 0.0,
+      "last_message_age_ms": 20.0,
+      "publisher_count": 1,
+      "subscriber_count": 1
+    }
+  ],
+  "transforms": [
+    {
+      "source": "fixture:tf",
+      "captured_at": "2026-10-03T00:00:00Z",
+      "parent": "map",
+      "child": "odom",
+      "static": false,
+      "age_ms": 20.0
+    },
+    {
+      "source": "fixture:tf",
+      "captured_at": "2026-10-03T00:00:00Z",
+      "parent": "odom",
+      "child": "base_link",
+      "static": false,
+      "age_ms": 20.0
+    },
+    {
+      "source": "fixture:tf",
+      "captured_at": "2026-10-03T00:00:00Z",
+      "parent": "base_link",
+      "child": "laser",
+      "static": true,
+      "age_ms": null
+    }
+  ],
+  "lifecycle": [
+    {
+      "source": "fixture:get_state",
+      "captured_at": "2026-10-03T00:00:00Z",
+      "name": "/planner_server",
+      "state": "ACTIVE"
+    },
+    {
+      "source": "fixture:get_state",
+      "captured_at": "2026-10-03T00:00:00Z",
+      "name": "/controller_server",
+      "state": "ACTIVE"
+    },
+    {
+      "source": "fixture:get_state",
+      "captured_at": "2026-10-03T00:00:00Z",
+      "name": "/bt_navigator",
+      "state": "ACTIVE"
+    },
+    {
+      "source": "fixture:get_state",
+      "captured_at": "2026-10-03T00:00:00Z",
+      "name": "/amcl",
+      "state": "ACTIVE"
+    }
+  ],
+  "qos": {
+    "supported": true,
+    "endpoints": []
+  },
+  "navigation": {
+    "localization_ready": true,
+    "costmaps_fresh": true,
+    "obstacle_source_configured": true,
+    "collision_monitor_ready": true
+  },
+  "observations": {
+    "node_use_sim_time": {
+      "/amcl": true,
+      "/controller_server": true
+    },
+    "clock_advancing": true
+  },
+  "inference": {
+    "topic_roles": [
+      {
+        "topic": "/scan",
+        "semantic_role": "sensing.lidar",
+        "evidence_class": "inferred"
+      },
+      {
+        "topic": "/odom",
+        "semantic_role": "state.odometry",
+        "evidence_class": "inferred"
+      },
+      {
+        "topic": "/map",
+        "semantic_role": "mapping.occupancy_map",
+        "evidence_class": "inferred"
+      }
+    ]
+  },
+  "completeness": {
+    "graph": true,
+    "tf": true,
+    "qos": true,
+    "lifecycle": true,
+    "signals": true,
+    "time": true
+  },
+  "errors": []
+}

@@ -1,0 +1,8 @@
+{
+  "stage": "RH15",
+  "status": "NOT_RUN",
+  "primary_evidence": "../benchmark_results.json",
+  "test_summary": "../final_test_summary.json",
+  "v1_acceptance": false,
+  "note": "No controlled same-model experiment; research questions remain unanswered."
+}
