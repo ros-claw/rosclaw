@@ -225,6 +225,26 @@ def write_pi_model_config(
         "contextWindow": context_window,
         "maxTokens": max_tokens,
     }
+    # Preserve an explicit capability declaration only for the identical route.
+    # A model name (even a builtin name) does not establish a custom endpoint's
+    # capabilities. Model-level overrides also participate in route identity.
+    prior_models = [
+        m for m in (entry.get("models") or []) if isinstance(m, dict) and m.get("id") == model
+    ]
+    if len(prior_models) == 1 and entry.get("baseUrl") == base_url and entry.get("api") == api:
+        prior = prior_models[0]
+        declared_input = prior.get("input")
+        if (
+            prior.get("baseUrl", base_url) == base_url
+            and prior.get("api", api) == api
+            and isinstance(declared_input, list)
+            and declared_input
+            and all(
+                isinstance(value, str) and value in {"text", "image"} for value in declared_input
+            )
+            and len(set(declared_input)) == len(declared_input)
+        ):
+            model_entry["input"] = list(declared_input)
     existing = [
         m for m in (entry.get("models") or []) if isinstance(m, dict) and m.get("id") != model
     ]
