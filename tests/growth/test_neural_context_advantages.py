@@ -59,7 +59,16 @@ def test_neural_mc_keeps_complete_disjoint_predictions_and_no_authority(fitted):
 
 @pytest.mark.parametrize(
     "fault",
-    ["partial", "swapped", "train_count", "normalization", "authority", "chosen_on_holdout"],
+    [
+        "partial",
+        "swapped",
+        "train_count",
+        "normalization",
+        "authority",
+        "chosen_on_holdout",
+        "bool_context",
+        "no_update",
+    ],
 )
 def test_reject_incomplete_leaked_or_authorizing_fit(fitted, fault):
     results = copy.deepcopy(fitted[-1])
@@ -73,6 +82,10 @@ def test_reject_incomplete_leaked_or_authorizing_fit(fitted, fault):
         results[0]["model"]["input_mean"][0] += 0.1
     elif fault == "authority":
         results[0]["hardware_authorized"] = True
+    elif fault == "bool_context":
+        results[0]["held_out_contexts"] = [False]
+    elif fault == "no_update":
+        results[0]["optimizer_updates"] = 0
     else:
         results[0]["hyperparameters_chosen_on_holdout"] = True
     with pytest.raises(ValueError):

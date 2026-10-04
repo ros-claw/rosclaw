@@ -47,11 +47,17 @@ def neural_context_advantages(
         train = ~test
         if (
             type(fitted) is not dict
+            or any(
+                type(fitted.get(k)) is not list or any(type(v) is not int for v in fitted[k])
+                for k in ("held_out_contexts", "train_contexts")
+            )
             or fitted.get("held_out_contexts") != held
             or fitted.get("train_contexts") != labels[~np.isin(labels, held)].tolist()
             or fitted.get("train_rows") != int(train.sum())
             or fitted.get("held_out_rows") != int(test.sum())
             or fitted.get("algorithm") != "CONTEXT_DISJOINT_SUPERVISED_MLP_NOT_RL"
+            or type(fitted.get("optimizer_updates")) is not int
+            or not 1 <= fitted["optimizer_updates"] <= 25000000
             or fitted.get("input_normalization_training_contexts_only") is not True
             or fitted.get("hyperparameters_chosen_on_holdout") is not False
             or fitted.get("motor_policy_updates") != 0
