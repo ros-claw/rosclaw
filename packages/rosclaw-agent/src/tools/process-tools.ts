@@ -26,7 +26,13 @@ export function buildProcessTools(ctx: BridgeToolContext): ToolDefinition[] {
 				"process_status/process_output and actual service observations to verify " +
 				"readiness under the existing task deadline, then continue dependent " +
 				"startup/test steps in the current turn; do not wait for service termination. " +
-				"Do not sleep or poll without a bound. For quick commands use bash instead.",
+				"Do not sleep or poll without a bound. For quick commands use bash instead. " +
+				"For an authorized isolated ROS fixture, discover the installed setup/overlay " +
+				"and compatible interpreter; do not assume the ROS environment is inherited. " +
+				"Invoke Bash explicitly for setup.bash (the managed wrapper may be sh). " +
+				"If nounset is enabled, disable it only while sourcing ROS setup, exit on " +
+				"source failure, then restore the prior option. Preserve the authorized " +
+				"domain/namespace; this guidance grants no ROS graph or hardware authority.",
 			parameters: Type.Object({
 				command: Type.String({ description: "要后台运行的 shell 命令" }),
 			}),

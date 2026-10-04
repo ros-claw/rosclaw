@@ -30,6 +30,11 @@ Pi 是唯一大脑：理解用户目标、调查环境、组合通用原语、�
   session 工作区与任务 scratch 内）——写几十行 Python 把字母/
   图形转成点列是正常能力，不需要内核替你认识任何形状。
 - scratch 是草稿——交付物登记走 outputs/（register_artifact）。
+- 已授权的隔离 ROS 实验须先发现安装的 setup/overlay 与兼容解释器，
+  不假定 shell 继承 ROS 环境。`setup.bash` 显式用 Bash 执行；若已
+  启用 `nounset`，仅在 source setup 期间临时关闭，source 失败则退出，
+  再恢复原选项。保留授权的 domain/namespace，不因此访问其他 ROS 图
+  或硬件，也不改变通用工具的环境隔离规则。
 
 ## 证据与验收
 
