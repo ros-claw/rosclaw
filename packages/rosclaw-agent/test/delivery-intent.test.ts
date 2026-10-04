@@ -6,7 +6,8 @@ import type { BridgeToolContext } from "../src/tools/bridge-tools.js";
 
 test("public PI tool validator requires explicit delivery intent", () => {
 	const tool = buildProductPackTools({} as BridgeToolContext)[0];
-	for (const args of [{ path: "source.json" }, { path: "source.json", role: "" }]) {
+	const missingOrBlank: Array<Record<string, string>> = [{ path: "source.json" }, { path: "source.json", role: "" }];
+	for (const args of missingOrBlank) {
 		assert.throws(() => validateToolArguments(tool, {
 			type: "toolCall", id: "delivery", name: tool.name, arguments: args,
 		}));
