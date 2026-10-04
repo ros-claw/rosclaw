@@ -458,3 +458,49 @@ async def test_invalid_utf8_boundary_still_bounds_event_text(tmp_path):
     )
     await manager.close()
     conn.close()
+
+
+@pytest.mark.asyncio
+async def test_terminal_escaped_writer_recovery_and_wait_do_not_block_startup(tmp_path):
+    from rosclaw.task_kernel.process_identity import ProcessIdentity
+
+    ledger = tmp_path / "ledger.db"
+    pidfile = tmp_path / "escaped_pid"
+    conn = database(ledger)
+    manager = OperationManager(None, conn)
+    code = (
+        "import os,time,pathlib; child=os.fork();\n"
+        "if child==0:\n"
+        " os.setsid();pathlib.Path(" + repr(str(pidfile)) + ").write_text(str(os.getpid()));"
+        'time.sleep(2);os.write(1,"中🎾LATE".encode());os._exit(0)\n'
+        "else:\n time.sleep(5)\n"
+    )
+    op = await manager.start(
+        task_id="t", attempt_id="", kind="process", argv=[sys.executable, "-c", code]
+    )
+    oid = op["operation_id"]
+    for _ in range(100):
+        if pidfile.exists():
+            break
+        await asyncio.sleep(0.01)
+    escaped = ProcessIdentity.capture(int(pidfile.read_text()))
+    owner = ProcessIdentity.parse(manager.get(oid)["process_identity_json"])
+    assert escaped and owner and escaped.sid != owner.sid
+    await manager.cancel(oid, reason="private-owned-fixture")
+    await manager.close()
+    conn.close()
+    conn = database(ledger)
+    recovered = OperationManager(None, conn)
+    report = await asyncio.wait_for(recovered.recover_on_boot(), 0.25)
+    assert report["terminal_output_pending"] == 1
+    assert report["terminal_output_drained"] == 0
+    assert escaped.matches(), "handoff/recovery must not signal escaped writer"
+    final = await asyncio.wait_for(recovered.wait(oid), 0.25)
+    assert final["state"] == "CANCELLED"
+    assert not recovered.stop_confirmation_missing(final)
+    await asyncio.wait_for(asyncio.shield(recovered._drivers[oid]), 4)
+    assert text(recovered) == "中🎾LATE"
+    assert recovered.get(oid)["state"] == "CANCELLED"
+    assert json.loads(recovered.get(oid)["output_checkpoint_json"])["finalized"]
+    await recovered.close()
+    conn.close()

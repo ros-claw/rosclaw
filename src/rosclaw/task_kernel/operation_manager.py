@@ -752,6 +752,11 @@ class OperationManager:
 
     async def wait(self, operation_id: str, *, timeout: float = 60.0) -> dict:
         """等终态（测试/短操作同步点——不是轮询生产路径）。"""
+        row = self.get(operation_id)
+        if row.get("state") in OPERATION_TERMINAL:
+            # A confirmed owned-session stop does not imply EOF from writers
+            # outside that session. Terminal status never waits for their logs.
+            return row
         driver = self._drivers.get(operation_id)
         if driver is not None:
             await asyncio.wait_for(asyncio.shield(driver), timeout=timeout)
@@ -971,6 +976,7 @@ class OperationManager:
             "lost": 0,
             "unresolved": 0,
             "terminal_output_drained": 0,
+            "terminal_output_pending": 0,
         }
         rows = self._conn.execute(
             "SELECT * FROM operations "
@@ -984,6 +990,24 @@ class OperationManager:
                 if row["state"] in OPERATION_TERMINAL:
                     try:
                         if json.loads(row["output_checkpoint_json"]).get("finalized") is True:
+                            continue
+                        stream, _ = self._open_spool(dict(row))
+                        with stream:
+                            writers_closed = self._writers_closed(stream.fileno())
+                        if not writers_closed:
+                            self._emit(
+                                str(row["task_id"]),
+                                "operation.output_pending",
+                                {
+                                    "scope": "spool_observation",
+                                    "terminal_state": row["state"],
+                                    "output_finalized": False,
+                                    "additional_stop_authority": False,
+                                },
+                                operation_id=op_id,
+                            )
+                            self._drivers[op_id] = asyncio.create_task(self._drive_spool(op_id))
+                            report["terminal_output_pending"] += 1
                             continue
                         await self._drive_spool(op_id)
                         finished = json.loads(self.get(op_id)["output_checkpoint_json"])[

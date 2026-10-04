@@ -40,3 +40,10 @@ SQLite follows the store's durability settings, and the launcher does not fsync
 each producer write. This is not a power-loss durability guarantee or an OS
 sandbox. Producers deliberately unlocking their inherited descriptor or opening
 independent writers violate the inherited-output completion contract.
+
+A terminal operation with an inherited writer still open reports
+`terminal_output_pending` during recovery and observes output in the background;
+startup and a wait on the terminal status do not wait for log EOF. Closed writers
+are drained synchronously. A confirmed cancellation proves the recorded owned
+session stopped, not that a descendant in a different session stopped. No
+additional signalling authority is inferred from its pending log descriptor.
