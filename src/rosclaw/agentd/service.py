@@ -1462,7 +1462,12 @@ class AgentService:
 
         maintenance = getattr(self, "_op_maintenance_task", None)
         if maintenance is not None:
-            maintenance.cancel()
+            # A concurrent/later close must join cleanup, not cancel its finally
+            # block a second time. Keep SQLite open until the sweep has settled.
+            if not maintenance.done() and not maintenance.cancelling():
+                maintenance.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await maintenance
             self._op_maintenance_task = None
         # 六审 §7：产品 supervisor 管理的 operatord 随 service 终止。
         managed = getattr(self, "_managed_operator", None)
