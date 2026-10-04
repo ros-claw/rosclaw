@@ -31,7 +31,7 @@ from typing import Any
 from rosclaw.contracts.common import new_id
 from rosclaw.task_kernel.process_identity import (
     ProcessIdentity,
-    group_members,
+    session_members,
     signal_owned_members,
 )
 
@@ -373,11 +373,11 @@ class OperationManager:
         # Across restart, a numeric PID alone never authorizes signaling.
         if proc is not None and proc.returncode is not None:
             try:
-                stopped = identity is not None and not group_members(identity)
+                stopped = identity is not None and not session_members(identity)
             except (OSError, ValueError):
                 stopped = False
         else:
-            stopped = await self._stop_owned_group(identity, int(row.get("pid") or 0))
+            stopped = await self._stop_owned_session(identity, int(row.get("pid") or 0))
         if not stopped:
             self._conn.execute(
                 "UPDATE operations SET failure_code = ? WHERE operation_id = ?",
@@ -392,22 +392,23 @@ class OperationManager:
         self._procs.pop(operation_id, None)
         self._emit(row["task_id"], "operation.process_stopped",
                    {"operation_id": operation_id, "stop_confirmed": True,
-                    "pid": int(row.get("pid") or 0)}, operation_id=operation_id)
+                    "pid": int(row.get("pid") or 0), "scope": "owned_session",
+                    "sid": identity.sid}, operation_id=operation_id)
         await self._record_terminal(operation_id, "CANCELLED",
                                     failure_code=reason)
 
-    async def _stop_owned_group(self, identity: ProcessIdentity | None, pid: int) -> bool:
+    async def _stop_owned_session(self, identity: ProcessIdentity | None, pid: int) -> bool:
         if identity is None or identity.pid != pid or not identity.matches():
             return False
         try:
-            members = group_members(identity)
+            members = session_members(identity)
             if not identity.matches():
                 return False
             if not signal_owned_members(members, signal.SIGTERM):
                 return False
             for phase in range(2):
                 deadline = asyncio.get_running_loop().time() + _CANCEL_GRACE_S
-                while group_members(identity):
+                while session_members(identity):
                     if asyncio.get_running_loop().time() >= deadline:
                         break
                     await asyncio.sleep(0.02)
@@ -418,7 +419,7 @@ class OperationManager:
                     # exact captured kernel birth identities allow escalation;
                     # an uncaptured/reused PID never authorizes signaling.
                     if any(not any(known.same_birth(member) for known in members)
-                           for member in group_members(identity)):
+                           for member in session_members(identity)):
                         return False
                     if not signal_owned_members(members, signal.SIGKILL):
                         return False

@@ -73,11 +73,12 @@ class ProcessIdentity:
         )
 
 
-def group_members(identity: ProcessIdentity) -> list[ProcessIdentity]:
-    """Snapshot live members of this proved group/session; zombies are not live.
+def session_members(identity: ProcessIdentity) -> list[ProcessIdentity]:
+    """Snapshot live members of this proved owned session; zombies are not live.
 
     Called only after leader proof. Failure to inspect a relevant member is
-    unresolved, not evidence that the group is empty.
+    unresolved, not evidence that the session is empty. Foreground tools such
+    as GNU timeout may create another process group without leaving the session.
     """
     members = []
     for path in Path('/proc').iterdir():
@@ -90,10 +91,10 @@ def group_members(identity: ProcessIdentity) -> list[ProcessIdentity]:
         except OSError as exc:
             raise ValueError('process membership inspection unavailable') from exc
         try:
-            state, pgid, sid = fields[0], int(fields[2]), int(fields[3])
+            state, sid = fields[0], int(fields[3])
         except (IndexError, ValueError) as exc:
             raise ValueError('process membership inspection malformed') from exc
-        if pgid != identity.pgid or sid != identity.sid or state in ('Z', 'X'):
+        if sid != identity.sid or state in ('Z', 'X'):
             continue
         member = ProcessIdentity.capture(int(path.name))
         if member is None:
@@ -105,13 +106,18 @@ def group_members(identity: ProcessIdentity) -> list[ProcessIdentity]:
                 except FileNotFoundError:
                     continue
                 if state not in ('Z', 'X'):
-                    raise ValueError('live group member identity unavailable')
+                    raise ValueError('live session member identity unavailable')
             continue
-        if (member.uid != identity.uid or member.boot_id != identity.boot_id
+        if (member.sid != identity.sid or member.uid != identity.uid or member.boot_id != identity.boot_id
                 or member.start_ticks < identity.start_ticks):
-            raise ValueError('group ownership changed')
+            raise ValueError('session ownership changed')
         members.append(member)
     return members
+
+
+def group_members(identity: ProcessIdentity) -> list[ProcessIdentity]:
+    """Compatibility name: cleanup now covers the entire proved owned session."""
+    return session_members(identity)
 
 
 def _pidfd_open(pid: int) -> int:

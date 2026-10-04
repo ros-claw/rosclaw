@@ -5,6 +5,7 @@ import asyncio
 import contextlib
 import json
 import os
+import shutil
 import signal
 import sqlite3
 import sys
@@ -14,6 +15,111 @@ import pytest
 
 from rosclaw.storage.migrations import MigrationRunner
 from rosclaw.task_kernel.operation_manager import OperationManager
+
+
+@pytest.mark.parametrize('field', ['sid', 'uid', 'boot_id', 'start_ticks'])
+@pytest.mark.asyncio
+async def test_same_session_member_proof_failure_is_unresolved(ledger, monkeypatch, field):
+    from dataclasses import replace
+
+    from rosclaw.task_kernel.operation_manager import OperationCancellationUnresolvedError
+    from rosclaw.task_kernel.process_identity import ProcessIdentity
+
+    conn, root = ledger
+    manager = OperationManager(None, conn)
+    marker = root / 'member.pid'
+    child = ('import os,time; from pathlib import Path; '
+             f'Path({str(marker)!r}).write_text(str(os.getpid())); time.sleep(60)')
+    parent = f'import subprocess,sys,time; subprocess.Popen([sys.executable,"-c",{child!r}]); time.sleep(60)'
+    op = await manager.start(task_id='t', attempt_id='', kind='process',
+                             argv=[sys.executable, '-c', parent], cwd=str(root))
+    proc = manager._procs[op['operation_id']]
+    try:
+        for _ in range(200):
+            if marker.exists():
+                break
+            await asyncio.sleep(0.01)
+        pid = int(marker.read_text())
+        capture = ProcessIdentity.capture
+        original = capture(pid)
+        leader = ProcessIdentity.parse(op['process_identity_json'])
+        assert original is not None and leader is not None
+        value = (leader.start_ticks - 1 if field == 'start_ticks' else
+                 'wrong-boot' if field == 'boot_id' else getattr(original, field) + 1)
+
+        def corrupted_capture(cls, candidate):
+            result = capture(candidate)
+            return replace(result, **{field: value}) if candidate == pid and result else result
+
+        monkeypatch.setattr(ProcessIdentity, 'capture', classmethod(corrupted_capture))
+        with pytest.raises(OperationCancellationUnresolvedError):
+            await manager.cancel(op['operation_id'])
+        assert manager._pid_alive(pid) and manager._pid_alive(proc.pid)
+        assert manager.get(op['operation_id'])['state'] == 'CANCELING'
+        assert not any(e['event_type'] == 'operation.process_stopped'
+                       for e in manager.events_since('t', 0))
+    finally:
+        await _cleanup(proc, [manager])
+
+
+@pytest.mark.parametrize('recovered', [False, True])
+@pytest.mark.asyncio
+async def test_gnu_timeout_different_pgid_same_owned_session_stops(ledger, monkeypatch, recovered):
+    import rosclaw.task_kernel.operation_manager as module
+    from rosclaw.task_kernel.process_identity import ProcessIdentity, signal_owned_members
+
+    timeout = shutil.which('timeout')
+    if timeout is None:
+        pytest.skip('GNU timeout required')
+    monkeypatch.setattr(module, '_CANCEL_GRACE_S', 0.1)
+    conn, root = ledger
+    first, second = OperationManager(None, conn), OperationManager(None, conn)
+    marker = root / 'timeout-child.pid'
+    child = ('import os,signal,time; from pathlib import Path; '
+             'signal.signal(signal.SIGTERM,signal.SIG_IGN); '
+             f'Path({str(marker)!r}).write_text(str(os.getpid())); time.sleep(60)')
+    op = await first.start(task_id='t', attempt_id='', kind='process',
+                           argv=[timeout, '-k', '10s', '-s', 'TERM', '60s',
+                                 sys.executable, '-c', child], cwd=str(root))
+    proc = first._procs[op['operation_id']]
+    unrelated = await asyncio.create_subprocess_exec(
+        sys.executable, '-c', 'import time; time.sleep(60)', start_new_session=True,
+    )
+    unrelated_identity = ProcessIdentity.capture(unrelated.pid)
+    captured = []
+    try:
+        for _ in range(200):
+            if marker.exists():
+                break
+            await asyncio.sleep(0.01)
+        assert marker.exists()
+        child_identity = ProcessIdentity.capture(int(marker.read_text()))
+        leader = ProcessIdentity.parse(op['process_identity_json'])
+        assert child_identity is not None and leader is not None
+        assert child_identity.sid == leader.sid and child_identity.pgid != leader.pgid
+        # Keep exact private identities for fixture cleanup even against old code.
+        for path in Path('/proc').iterdir():
+            if path.name.isdecimal():
+                identity = ProcessIdentity.capture(int(path.name))
+                if identity is not None and identity.sid == leader.sid:
+                    captured.append(identity)
+        manager = second if recovered else first
+        if recovered:
+            driver = first._drivers[op['operation_id']]
+            driver.cancel()
+            await asyncio.gather(driver, return_exceptions=True)
+            assert (await second.recover_on_boot())['reattached'] == 1
+        await asyncio.wait_for(manager.cancel(op['operation_id']), 2)
+        assert manager.get(op['operation_id'])['state'] == 'CANCELLED'
+        assert not manager._pid_alive(child_identity.pid), 'CANCELLED left same-SID timeout child alive'
+        assert all(not manager._pid_alive(identity.pid) for identity in captured)
+        assert unrelated_identity is not None and unrelated_identity.matches()
+    finally:
+        signal_owned_members(captured, signal.SIGKILL)
+        if unrelated_identity is not None:
+            signal_owned_members([unrelated_identity], signal.SIGKILL)
+        await asyncio.wait_for(unrelated.wait(), 5)
+        await _cleanup(proc, [first, second])
 
 
 @pytest.fixture
