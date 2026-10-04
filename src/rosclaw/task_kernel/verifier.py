@@ -5,6 +5,8 @@
 - acceptance.required_files（task workspace 内路径限定）；
 - acceptance.run.argv（结构化、解释器白名单、无凭据 env、workspace
   限定——继承十六审 GUARDED_VERIFIER 纪律）；
+- acceptance.source_packet（显式启用：声明源码字节 + canonical 前置入口，
+  不代表物理验收或完整运行依赖闭包）；
 - 零检查 = 绝不 PASS（ACCEPTANCE_MISSING）。
 """
 
@@ -38,9 +40,21 @@ def verify_artifacts(conn_artifacts: list[dict], workspace: Path) -> list[str]:
 
 
 def verify_acceptance(acceptance: dict, workspace: Path) -> tuple[int, list[str]]:
-    """acceptance 结构化检查（required_files + run.argv）。"""
+    """结构化验收；source_packet 可选绑定声明文件与实际前置 CLI。"""
     checks = 0
     failures: list[str] = []
+    # Explicit opt-in only: ordinary JSON artifacts remain opaque. The reference
+    # is frozen in acceptance, not supplied by a model during task_finish.
+    source_packet_enabled = "source_packet" in acceptance
+    if source_packet_enabled:
+        from rosclaw.task_kernel.source_packet import verify_source_packet
+
+        checks += 1
+        failures += verify_source_packet(
+            acceptance["source_packet"], acceptance.get("run"), workspace,
+        )
+        if failures:
+            return checks, failures  # Never execute an invalid source packet.
     for rel in acceptance.get("required_files") or []:
         checks += 1
         candidate = (workspace / str(rel)).resolve()
@@ -87,6 +101,11 @@ def verify_acceptance(acceptance: dict, workspace: Path) -> tuple[int, list[str]
                         )
                 except subprocess.TimeoutExpired:
                     failures.append(f"验收测试超时({timeout}s)")
+    if source_packet_enabled:
+        # A successful child must not mutate the pinned preparation sources.
+        failures += verify_source_packet(
+            acceptance["source_packet"], acceptance.get("run"), workspace,
+        )
     return checks, failures
 
 

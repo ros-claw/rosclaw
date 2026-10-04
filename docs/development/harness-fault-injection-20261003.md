@@ -664,3 +664,83 @@ terminal-reason replay, verifier, no-false-success and terminal-authority
 cohort, with unraisable warnings treated as errors. Ruff and source mypy pass.
 No live task/session/database/queue was modified or notified. This task-only
 patch does not add new evidence about runtime operation-notification ACKs.
+
+## Opt-in source packet and canonical preflight binding (2026-10-04)
+
+Session review through line 3714 found repeated preparation claims with stale
+nested canonical hashes, READY changed after manifest freeze, and helper tests
+passing while the actual CLI failed. These are preparation/provenance gaps,
+not evidence of physical success or a stalled PI stream. Typed simulation
+receipts already bind model/state/action/trace references; generic TaskKernel
+artifact verification correctly checks registered artifact bytes, but does not
+interpret arbitrary JSON as a recursive source manifest.
+
+A private counterexample reproduced all three gaps: every declared file hash
+was initially correct, an intentionally stale nested entry hash remained,
+a helper child exited 0 while the actual CLI exited 1 with NameError, and the
+opaque manifest's generic verdict was PASS. Editing READY without editing the
+manifest still left the opaque verdict PASS. The raw counterexample receipt
+was exclusively created, flushed/file-fsynced and parent-directory-fsynced at
+`experiments/harness_audit_20261003/source_packet_counterexample_20261004_v1.json`
+in the tennis workspace (SHA256
+`35d204a5b086f90630a170012253eec4d7bacbfb078f3de8126a6c8c75b5f68e`).
+Opaque JSON deliberately retains its existing interpretation after this patch.
+
+The new strict `SourcePacketV1` and `SourcePacketRefV1` opt in via **frozen
+TaskKernel acceptance**, not finish-time model metadata:
+
+```python
+kernel.set_acceptance(task_id, {
+    "source_packet": {"path": "packet.json", "sha256": packet_sha256},
+    "run": {"argv": ["python3", "driver.py", "--preflight"], "timeout_sec": 30},
+})
+```
+
+`packet.json` has these required fields (hashes are lowercase 64-hex SHA256):
+
+```json
+{
+  "schema_version": "rosclaw.source_packet.v1",
+  "scope": "source_preflight_only",
+  "closure_kind": "declared_files",
+  "files": {
+    "driver.py": {"sha256": "<driver SHA256>", "size_bytes": 123},
+    "READY.md": {"sha256": "<READY SHA256>", "size_bytes": 456}
+  },
+  "canonical_entry": {"path": "driver.py", "sha256": "<same driver SHA256>"},
+  "preflight_argv": ["python3", "driver.py", "--preflight"]
+}
+```
+
+Missing/unknown schemas, fields, malformed hashes, duplicate JSON keys and
+invalid references fail closed. Entry path/hash must match `files`; the frozen
+acceptance argv must exactly match the packet argv and directly execute that
+Python entry file. Invalid packets never launch a child. All declared files
+are checked before and after the real bounded child process; child failure,
+timeout, source mutation or READY drift prevents a successful verdict.
+Paths must be canonical workspace-relative paths, with no symlink components,
+absolute paths or traversal. Bounds are 1 MiB packet JSON, 256 files, 512 MiB
+per file and 1 GiB total declared bytes; large files are streamed when hashing.
+The explicit timeout must be finite and positive, at most 600 seconds. Finalize
+READY first, then create a new packet filename; refer to its version/name in
+READY rather than introduce a self-hashing cycle. The packet cannot list itself.
+
+This is an additive kernel API, not a new agent tool or automatic READY text
+interceptor. Existing arbitrary JSON/legacy acceptance are untouched. This
+scope validates **declared bytes and the preparation entrypoint only**: it does
+not discover imports/external dependencies, pin the installed interpreter,
+provide hostile-host isolation or an immutable runtime snapshot, forbid
+physics calls, verify controller semantics, prove a zero-step claim, or grant
+physical execution permission. External assets must be explicitly copied and
+declared under the workspace to be covered; ambient dependencies remain
+unknown. Successful preparation still requires separate runtime/physics gates
+and supervisor authorization. Cooperative before/after checks do not prove
+absence of an adversarial transient mutation during execution.
+
+Initial fixtures: **19 FAIL, 3 PASS** before repair. Final source-packet cohort:
+**39 PASS**, including actual subprocess NameError/timeout, no-execution on
+invalid binding, source mutation, path/size/schema bounds, and real TaskKernel
+frozen-acceptance integration. Combined related task regression: **89 PASS**
+under unraisable-warning-as-error. Ruff, source mypy and diff checks pass. No
+formal runtime/session, physical source, original result or live database was
+modified, and no physical qualification is claimed.
