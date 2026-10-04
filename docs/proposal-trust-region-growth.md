@@ -57,3 +57,20 @@ Nothing here qualifies a candidate for runtime or real hardware.
 
 These are numerical unit tests, not evidence of improved football, universal
 retention, or end-to-end physical safety.
+
+## Source-pinned prediction-only inference
+
+`CompiledContextPrediction` is a generic optional compilation surface for the
+existing context-disjoint predictor. The unchanged full reference validates a
+private model copy before immutable numeric arrays are allocated. Each query
+checks bounded copied features, finite intermediates, input alignment and both
+dependency source hashes. No training, simulator, policy, motor transport or
+activation interface is introduced; Torch is not imported by compilation.
+
+Tests compare original and compiled predictions exactly for multiple batch
+sizes, preserve caller ownership, reject nonfinite/type/authority forgeries,
+and reject source drift. Targeted prediction tests: 15 passed; complete Growth
+suite: 358 passed. The existing missing `asyncio_mode` pytest plugin warning
+remains. These are numerical tests, not native rollout qualification or a
+claim of improved robot control. Actual downstream trained models still need
+separate reference-parity evidence before use in simulation proposals.
