@@ -113,6 +113,7 @@ class _FakeServer:
 
     def close(self) -> None:
         self.server.shutdown()
+        self.server.server_close()
 
 
 def _prepare_home(tmp_path: Path, base_url: str) -> tuple[Path, dict[str, str]]:
