@@ -1,0 +1,18 @@
+{
+  "status": "PARTIAL",
+  "coverage_subtest": "PASS",
+  "coverage_ratio": 0.9807046979865772,
+  "canonical_final_state": "COMPLETED",
+  "collision_count": 0,
+  "evidence_domain": "SIMULATION",
+  "autonomous_model": "gpt-6.1-sol",
+  "single_task_input": "完成整个房间清扫。",
+  "dynamic_obstacle_zero_contacts": true,
+  "memory_step": "NOT_CALLED",
+  "task": {
+    "task_id": "task_b6c16c43e39a4137b97864d5",
+    "root_goal": "完成整个房间清扫。",
+    "state": "RUNNING"
+  },
+  "hardware_verified": false
+}

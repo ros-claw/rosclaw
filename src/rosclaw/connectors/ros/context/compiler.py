@@ -23,7 +23,11 @@ def compile_agent_summary(model: RosSystemModel, *, now: datetime | None = None)
     ]
     lines.extend(f"{c['semantic_id']}={c['status']}" for c in caps)
     lines.extend(
-        f"issue={i['issue_code']} severity={i['severity']}" for i in diagnosis["issues"][:20]
+        f"issue={i['issue_code']} severity={i['severity']}"
+        for i in sorted(
+            diagnosis["issues"],
+            key=lambda issue: (issue["severity"] != "blocking", issue["issue_code"]),
+        )[:20]
     )
     lines.append("Physical effects require request_action → rosclawd → verified receipt.")
     return "\n".join(lines)

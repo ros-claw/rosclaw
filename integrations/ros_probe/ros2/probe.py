@@ -29,6 +29,7 @@ from std_srvs.srv import Trigger
 
 PROBE_TOPIC = "/rosclaw_probe/snapshot"
 READ_TYPES = {
+    "std_msgs/msg/Bool",
     "tf2_msgs/msg/TFMessage",
     "sensor_msgs/msg/LaserScan",
     "sensor_msgs/msg/Image",
@@ -57,6 +58,7 @@ class ReadOnlyProbe(Node):
         self.errors = []
         self.clock_values = deque(maxlen=20)
         self.packages = sorted(get_packages_with_prefixes())
+        self.localization_observations = {}
         self.publisher = self.create_publisher(
             String, PROBE_TOPIC, QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
         )
@@ -79,7 +81,15 @@ class ReadOnlyProbe(Node):
             ):
                 continue
             qos = QoSProfile(depth=20, reliability=ReliabilityPolicy.BEST_EFFORT)
-            if topic.endswith("/tf_static"):
+            endpoints = self.get_publishers_info_by_topic(topic)
+            latched = topic.endswith("/tf_static") or (
+                topic == "/map"
+                and endpoints
+                and all(
+                    p.qos_profile.durability == DurabilityPolicy.TRANSIENT_LOCAL for p in endpoints
+                )
+            )
+            if latched:
                 qos = QoSProfile(depth=100, durability=DurabilityPolicy.TRANSIENT_LOCAL)
             try:
                 self.subscriptions_by_topic[topic] = self.create_subscription(
@@ -143,6 +153,12 @@ class ReadOnlyProbe(Node):
                         "voxel_layer.observation_sources",
                         "global_frame",
                         "robot_base_frame",
+                        "transform_tolerance",
+                        "cmd_vel_in_topic",
+                        "cmd_vel_out_topic",
+                        "polygons",
+                        "observation_sources",
+                        "scan.topic",
                     }
                 ]
                 if parameter_request.names:
@@ -155,14 +171,26 @@ class ReadOnlyProbe(Node):
                 for key, value in zip(request.names, response.values, strict=True):
                     if value.type == 1:
                         values[key] = value.bool_value
+                    elif value.type == 3:
+                        values[key] = value.double_value
                     elif value.type == 4:
                         values[key] = value.string_value
+                    elif value.type == 9:
+                        values[key] = list(value.string_array_value)
                 self.parameters[node_name] = values
 
         future.add_done_callback(completed)
 
     def observe(self, topic, message):
         self.samples.setdefault(topic, deque(maxlen=200)).append(time.monotonic())
+        if hasattr(message, "pose") and hasattr(message.pose, "covariance"):
+            covariance = message.pose.covariance
+            self.localization_observations[topic] = {
+                "source": topic,
+                "captured_at": utc_now(),
+                "position_variance": max(covariance[0], covariance[7]),
+                "yaw_variance": covariance[35],
+            }
         if hasattr(message, "clock"):
             self.clock_values.append(message.clock.sec + message.clock.nanosec / 1e9)
         if hasattr(message, "transforms"):
@@ -231,6 +259,18 @@ class ReadOnlyProbe(Node):
                     {
                         "topic": topic,
                         "source": "native:monotonic_receive",
+                        "max_age_ms": 2000 if topic.endswith("/costmap") else 1000,
+                        "freshness_policy": "latched"
+                        if topic.endswith("/tf_static")
+                        or (
+                            topic == "/map"
+                            and pubs
+                            and all(
+                                p.qos_profile.durability == DurabilityPolicy.TRANSIENT_LOCAL
+                                for p in pubs
+                            )
+                        )
+                        else "stream",
                         "captured_at": stamp,
                         "rate_hz": 1 / statistics.mean(intervals) if intervals else None,
                         "jitter_ms": statistics.pstdev(intervals) * 1000 if intervals else None,
@@ -272,8 +312,37 @@ class ReadOnlyProbe(Node):
                 None if edge["static"] or ros_now is None else (ros_now - edge["stamp_sec"]) * 1000
             )
             edge.pop("stamp_sec", None)
+            if edge["parent"] == "map" and edge["child"] == "odom":
+                tolerances = [
+                    p["transform_tolerance"]
+                    for n, p in self.parameters.items()
+                    if n.endswith("/amcl")
+                    and isinstance(p.get("transform_tolerance"), (int, float))
+                ]
+                if len(tolerances) == 1 and 0 <= tolerances[0] <= 5:
+                    edge["future_tolerance_ms"] = 100 + tolerances[0] * 1000
             transforms.append(edge)
         nav = {}
+        localization = list(self.localization_observations.values())
+        if localization:
+            nav["localization_ready"] = any(
+                row["position_variance"] <= 0.25
+                and row["yaw_variance"] <= 0.25
+                and signals
+                and any(
+                    s["topic"] == row["source"]
+                    and s["last_message_age_ms"] is not None
+                    and s["last_message_age_ms"] <= 2000
+                    for s in signals
+                )
+                for row in localization
+            )
+        costmaps = [s for s in signals if s["topic"].endswith("/costmap")]
+        if costmaps:
+            nav["costmaps_fresh"] = all(
+                s["last_message_age_ms"] is not None and s["last_message_age_ms"] <= 2000
+                for s in costmaps
+            )
         sources = [p for n, p in self.parameters.items() if "costmap" in n]
         if sources:
             nav["obstacle_source_configured"] = all(
@@ -321,13 +390,14 @@ class ReadOnlyProbe(Node):
                 "package_inventory": self.packages,
                 "node_parameters": self.parameters,
                 "clock_advancing": len(set(self.clock_values)) > 1 if self.clock_values else None,
+                "localization_quality": localization,
             },
             "completeness": {
                 "graph": True,
                 "qos": True,
                 "signals": True,
                 "tf": any(t.endswith("/tf") for t in self.subscriptions_by_topic),
-                "lifecycle": not self.pending,
+                "lifecycle": bool(self.lifecycle_states),
                 "time": bool(observed_times),
             },
             "errors": self.errors[-50:],

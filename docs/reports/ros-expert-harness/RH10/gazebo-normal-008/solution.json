@@ -1,0 +1,105 @@
+{
+  "schema_version": "rosclaw.ros_solution.v1",
+  "task_class": "complete_area_cleaning",
+  "snapshot_id": "rossys_374b46b2c6f13e18b9690e8a7294a90202ce0aa8d00366f2fcaefbc6a9ff9af0",
+  "available": [
+    "mapping.occupancy_map",
+    "state.odometry",
+    "sensing.lidar"
+  ],
+  "missing": [
+    "coverage.verify",
+    "safety.collision_monitor",
+    "cleaning.enable",
+    "cleaning.disable"
+  ],
+  "blocked": [
+    "navigation.navigate_to_pose",
+    "coverage.compute_path",
+    "coverage.execute"
+  ],
+  "unknown": [
+    "localization.pose_estimate"
+  ],
+  "recommended": [
+    {
+      "id": "nav2_collision_monitor",
+      "framework": "nav2",
+      "provides": [
+        "safety.collision_monitor"
+      ],
+      "requires": [
+        "sensing.lidar"
+      ],
+      "supported_ros": [
+        "ros2"
+      ],
+      "supported_distros": [
+        "humble",
+        "jazzy"
+      ],
+      "hardware_requirements": [
+        "mobile_base"
+      ],
+      "conflicts": [],
+      "preferred_when": [
+        "dynamic_obstacles"
+      ],
+      "avoid_when": [
+        "missing_fresh_sensors"
+      ],
+      "validation_probes": [
+        "lifecycle",
+        "obstacle_stop_evidence"
+      ],
+      "official_source": "https://docs.nav2.org/configuration/packages/collision_monitor/configuring-collision-monitor-node.html",
+      "maturity": "software_guard_not_safety_certification",
+      "reason": "Provides missing task semantics; reuse existing runtime."
+    },
+    {
+      "id": "rosclaw_coverage_verifier",
+      "framework": "rosclaw",
+      "provides": [
+        "coverage.verify"
+      ],
+      "requires": [
+        "measured_trajectory",
+        "cleaning_footprint",
+        "independent_collision_evidence"
+      ],
+      "supported_ros": [
+        "ros1",
+        "ros2"
+      ],
+      "supported_distros": [
+        "noetic",
+        "humble",
+        "jazzy"
+      ],
+      "hardware_requirements": [],
+      "conflicts": [],
+      "preferred_when": [
+        "complete_area_cleaning"
+      ],
+      "avoid_when": [
+        "missing_execution_evidence"
+      ],
+      "validation_probes": [
+        "coverage_mask",
+        "missed_regions",
+        "receipt_binding"
+      ],
+      "official_source": "https://github.com/ros-claw/rosclaw",
+      "maturity": "offline_verifier",
+      "reason": "Provides missing task semantics; reuse existing runtime."
+    }
+  ],
+  "alternatives": [],
+  "body_requirements": [
+    "cleaning_footprint",
+    "coverage_polygon",
+    "exclusion_zones"
+  ],
+  "execution_entry": "request_action",
+  "configured": false
+}

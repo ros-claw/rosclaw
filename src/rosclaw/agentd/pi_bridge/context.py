@@ -39,7 +39,7 @@ def build_embodied_context(service: AgentService, mission_id: str) -> EmbodiedCo
             "safe_radius_m": [_SAFE_RADIUS[0], _SAFE_RADIUS[1]],
             "safe_z_m": [_SAFE_Z[0], _SAFE_Z[1]],
             "note": "规划器硬校验边界——waypoints 越界即拒；"
-                    "实时末端位姿用 ur5e.get_end_effector_pose",
+            "实时末端位姿用 ur5e.get_end_effector_pose",
         }
     envelope = EmbodiedContextEnvelopeV1(
         mission_id=mission_id,
@@ -75,8 +75,11 @@ def build_embodied_context(service: AgentService, mission_id: str) -> EmbodiedCo
             if e.type.value == "receipt.received"
         ][-3:],
         workers=[
-            {"work_order_id": task["task_id"], "assigned_to": "primary_session",
-             "status": task["state"]}
+            {
+                "work_order_id": task["task_id"],
+                "assigned_to": "primary_session",
+                "status": task["state"],
+            }
             for task in service._task_kernel.list_tasks(mission_id)
         ][:10],
         pending_approvals=[
@@ -106,6 +109,11 @@ def build_embodied_context(service: AgentService, mission_id: str) -> EmbodiedCo
         },
         freshness={"generated_at": now.isoformat(), "ttl_sec": ENVELOPE_TTL_SEC},
     )
+    from rosclaw.connectors.ros.context.native import native_ros_observations
+
+    ros_observations = native_ros_observations(service, mission, body)
+    if ros_observations is not None:
+        envelope.self_state["ros_observations"] = ros_observations
     envelope.hash = envelope_hash(envelope)
     return envelope
 

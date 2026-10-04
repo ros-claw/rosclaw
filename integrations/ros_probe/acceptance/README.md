@@ -1,0 +1,70 @@
+# ROS Expert simulation acceptance
+
+This disposable fixture uses official Jazzy Gazebo/Nav2 packages and pinned
+opennav_coverage. The robot model comes from the installed Nav2 simulation
+package; its cleaner is an explicit simulated attachment. No REAL executor is
+registered. No host APT or ROS dependency replacement is required.
+
+Build from the repository root:
+
+```bash
+.venv/bin/python integrations/ros_probe/acceptance/build.py
+mkdir -p /tmp/ros-expert-run/golden
+docker run --rm --name ros-expert-golden -p 19090:9090 \
+  -v "$PWD:/workspace:ro" -v /tmp/ros-expert-run/golden:/evidence \
+  rosclaw/ros-expert-jazzy:acceptance \
+  python3 /workspace/integrations/ros_probe/acceptance/stack.py
+```
+
+The stack writes its measured map and actual robot URDF into the owned evidence
+directory. For a fresh episode, restart only this owned container. Wait for the
+native probe, Nav2 lifecycle nodes and independent contact streams to be ready.
+In another terminal:
+
+```bash
+PYTHONPATH=src .venv/bin/python integrations/ros_probe/acceptance/run.py \
+  --directory /tmp/ros-expert-run/golden --mission-timeout 900
+```
+
+`run.py` starts a separate rosclawd, requests actions through the existing MCP
+wrapper, and saves canonical localization, coverage and memory receipts. Nav2
+plans the coverage and connecting paths. Repairs use measured missed cells;
+only stamped Gazebo poses with the cleaning state enabled contribute coverage.
+The fixed denominator is computed from the measured map and configured geometry.
+Contact-stream or ground-truth loss fails the mission. Coverage must reach 98%
+with zero contacts and no trajectory gaps. Failure artifacts and failed Practice
+episodes are retained, rather than converted into successful receipts.
+
+For actual-model Native acceptance, use `run.py --prepare-only` in a new owned
+directory, configure its `home/config.yaml` with `native_tools.py` as the SIM-only
+MCP source, and provision the existing Native model settings/authentication in
+that isolated home. Do not commit credentials. Use the same model/provider and
+budget for any comparison. With the repository's development test dependencies
+and Node build installed:
+
+```bash
+PYTHONPATH=src .venv/bin/python integrations/ros_probe/acceptance/native.py \
+  --directory /tmp/ros-expert-run/native
+```
+
+The runner sends only “完成整个房间清扫。” and acts as the explicitly configured
+SIM test operator for exact independent authorization cards. The model chooses
+the observer, localization, coverage and memory calls; MCP physical function
+bodies cannot execute them. The runner requires canonical Memory completion and
+existing TaskKernel success, and saves safe SDK token usage separately from
+Core usage accounting. A failed independent artifact fails the journey.
+
+During a mission, a passive temporary obstacle can be injected only clear of
+the independently observed robot:
+
+```bash
+docker exec ros-expert-golden bash -c \
+  'source /opt/ros/jazzy/setup.bash && python3 /workspace/integrations/ros_probe/acceptance/faults.py dynamic --x -0.8 --y -0.8 --dwell 20'
+```
+
+The obstacle's creation/removal and independent observations are recorded.
+This local zero-contact subtest is not a complete-mission PASS: coverage,
+canonical receipts, Practice, Memory and TaskKernel must still complete.
+
+Accepted and failed evidence is documented in
+[the implementation report](../../../docs/reports/ros-expert-harness/FINAL_IMPLEMENTATION_REPORT.md).

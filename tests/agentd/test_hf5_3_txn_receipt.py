@@ -303,3 +303,42 @@ class TestReceiptContract:
         await operatord.stop()
         await agent_server.stop()
         await service.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("verified", [True, False])
+async def test_receipt_artifacts_enter_existing_task_registry_only_after_verification(tmp_path, monkeypatch, verified):
+    import hashlib
+    import rosclaw.agentd.action_dispatch as dispatch
+
+    service, mission, operator, server, sock = await _setup_with_operatord(tmp_path)
+    artifact = tmp_path / "mission-verification.json"
+    artifact.write_text('{"verification_status":"PASS"}\n')
+    original = dispatch.request_action
+
+    async def with_artifact(service, decision, *, mode, principal):
+        result = await original(service, decision, mode=mode, principal=principal)
+        result.artifacts = [str(artifact)]
+        if not verified:
+            result.terminal_receipt = False
+        return result
+
+    monkeypatch.setattr(dispatch, "request_action", with_artifact)
+    try:
+        admission, context, card = await _propose(service, mission, idem="artifact-receipt")
+        await _approve(service, mission, sock, card["approval_id"])
+        result = await admission.execute(card["approval_id"], request=context, caller_pid=1, caller_uid=1000)
+        assert result["executed"] is verified
+        if verified:
+            assert len(result["artifact_refs"]) == 1
+            ref = result["artifact_refs"][0]
+            assert ref["path"] == str(artifact)
+            assert ref["digest"] == hashlib.sha256(artifact.read_bytes()).hexdigest()
+            assert result["task_outcome"] is not None
+        else:
+            assert result["artifact_refs"] == []
+            assert result["task_outcome"] is None
+    finally:
+        await operator.stop()
+        await server.stop()
+        await service.close()

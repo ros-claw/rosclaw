@@ -17,6 +17,8 @@ class Observation(BaseModel):
 
 
 class Signal(Observation):
+    freshness_policy: Literal["stream", "latched"] = "stream"
+    max_age_ms: float = Field(1000, gt=0, le=60000)
     topic: str
     rate_hz: float | None = Field(None, ge=0)
     jitter_ms: float | None = Field(None, ge=0)
@@ -30,6 +32,7 @@ class Transform(Observation):
     child: str
     static: bool = False
     age_ms: float | None = None  # Negative means future-dated in ROS clock domain.
+    future_tolerance_ms: float = Field(100, ge=100, le=5100)
 
 
 class Lifecycle(Observation):
@@ -66,9 +69,10 @@ class RosSystemModel(ContractModel):
         return self
 
     def compute_snapshot_hash(self) -> str:
-        return content_hash(
-            "rossnap", self.model_dump(mode="json", exclude={"snapshot_hash", "snapshot_id"})
-        )
+        payload = self.to_dict()
+        payload.pop("snapshot_hash", None)
+        payload.pop("snapshot_id", None)
+        return content_hash("rossnap", payload)
 
     def seal(self) -> RosSystemModel:
         self.snapshot_hash = self.compute_snapshot_hash()
@@ -86,4 +90,14 @@ class RosSystemModel(ContractModel):
         return (now - self.captured_at).total_seconds() * 1000
 
     def to_dict(self) -> dict[str, Any]:
-        return self.model_dump(mode="json")
+        payload = self.model_dump(mode="json")
+        # Optional v1 additions preserve previously sealed snapshots when the
+        # original stream/future-timestamp defaults apply.
+        for signal in payload["signals"]:
+            for key, default in {"freshness_policy": "stream", "max_age_ms": 1000}.items():
+                if signal[key] == default:
+                    signal.pop(key)
+        for edge in payload["transforms"]:
+            if edge["future_tolerance_ms"] == 100:
+                edge.pop("future_tolerance_ms")
+        return payload

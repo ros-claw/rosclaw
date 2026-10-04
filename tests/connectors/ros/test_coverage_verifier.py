@@ -123,6 +123,19 @@ def test_recovery_waits_for_obstacle_and_has_bounded_idempotent_attempts():
     assert queue.propose()["dispatched"] is False
 
 
+def test_exhausted_cell_does_not_exhaust_unattempted_connected_cells():
+    from rosclaw.connectors.ros.mission.recovery import MissedRegionRecovery
+
+    verifier = CoverageVerifier(**grid())
+    recovery = MissedRegionRecovery(verifier, max_attempts=1)
+    recovery.record_attempt([0], action_id="repair_0")
+    proposal = recovery.propose()["ready"][0]
+    assert proposal["cells"] == list(range(1, 100))
+    assert proposal["area_m2"] == pytest.approx(99 * verifier.resolution**2)
+    assert proposal["retry_count"] == 0
+    assert verifier.result()["coverage_ratio"] == 0
+
+
 def test_stationary_sampling_does_not_inflate_overlap():
     verifier = CoverageVerifier(**grid())
     for step in range(20):
@@ -180,3 +193,30 @@ def test_mission_requires_exact_independent_binding_and_preserves_domain(mode, d
     altered = verify_mission(evidence, daemon=daemon)
     assert altered["verification_status"] == "NOT_VERIFIED"
     assert altered["success"] is False
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("width", True),
+        ("height", 10.5),
+        ("resolution", True),
+        ("accessible_cells", [True]),
+        ("origin", (0, 0, 0)),
+    ],
+)
+def test_untyped_coverage_geometry_cannot_become_evidence(field, value):
+    with pytest.raises(ValueError):
+        CoverageVerifier(**{**grid(), field: value})
+
+
+def test_self_crossing_polygon_with_nonzero_signed_area_is_rejected():
+    with pytest.raises(ValueError, match="intersect"):
+        CoverageVerifier(**{**grid(), "cleaning_polygon": [(0, 0), (3, 2), (0, 2), (2, 0)]})
+
+
+def test_string_cleaning_state_does_not_count_as_enabled():
+    verifier = CoverageVerifier(**grid())
+    with pytest.raises(ValueError, match="boolean"):
+        verifier.observe(CleaningPose(0.5, 0.5, 0, 0, "false"), frame_id="map")
+    assert verifier.result()["coverage_ratio"] == 0

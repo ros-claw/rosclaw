@@ -1,0 +1,202 @@
+[
+  {
+    "provider": "openai-codex",
+    "model": "gpt-6.1-sol",
+    "usage": {
+      "input": 3292,
+      "output": 56,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "reasoning": 0,
+      "totalTokens": 3348,
+      "cost": {
+        "input": 0.006584,
+        "output": 0.0005600000000000001,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "total": 0.007143999999999999
+      }
+    },
+    "stopReason": "toolUse"
+  },
+  {
+    "provider": "openai-codex",
+    "model": "gpt-6.1-sol",
+    "usage": {
+      "input": 4035,
+      "output": 17,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "reasoning": 0,
+      "totalTokens": 4052,
+      "cost": {
+        "input": 0.008069999999999999,
+        "output": 0.00017,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "total": 0.008239999999999999
+      }
+    },
+    "stopReason": "toolUse"
+  },
+  {
+    "provider": "openai-codex",
+    "model": "gpt-6.1-sol",
+    "usage": {
+      "input": 6140,
+      "output": 63,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "reasoning": 0,
+      "totalTokens": 6203,
+      "cost": {
+        "input": 0.01228,
+        "output": 0.00063,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "total": 0.01291
+      }
+    },
+    "stopReason": "toolUse"
+  },
+  {
+    "provider": "openai-codex",
+    "model": "gpt-6.1-sol",
+    "usage": {
+      "input": 256,
+      "output": 17,
+      "cacheRead": 6016,
+      "cacheWrite": 0,
+      "reasoning": 0,
+      "totalTokens": 6289,
+      "cost": {
+        "input": 0.000512,
+        "output": 0.00017,
+        "cacheRead": 0.0006016000000000001,
+        "cacheWrite": 0,
+        "total": 0.0012836000000000002
+      }
+    },
+    "stopReason": "toolUse"
+  },
+  {
+    "provider": "openai-codex",
+    "model": "gpt-6.1-sol",
+    "usage": {
+      "input": 2309,
+      "output": 38,
+      "cacheRead": 6144,
+      "cacheWrite": 0,
+      "reasoning": 0,
+      "totalTokens": 8491,
+      "cost": {
+        "input": 0.004618,
+        "output": 0.00038,
+        "cacheRead": 0.0006144000000000001,
+        "cacheWrite": 0,
+        "total": 0.0056124
+      }
+    },
+    "stopReason": "toolUse"
+  },
+  {
+    "provider": "openai-codex",
+    "model": "gpt-6.1-sol",
+    "usage": {
+      "input": 233,
+      "output": 163,
+      "cacheRead": 8320,
+      "cacheWrite": 0,
+      "reasoning": 10,
+      "totalTokens": 8716,
+      "cost": {
+        "input": 0.000466,
+        "output": 0.0016300000000000002,
+        "cacheRead": 0.0008320000000000001,
+        "cacheWrite": 0,
+        "total": 0.002928
+      }
+    },
+    "stopReason": "toolUse"
+  },
+  {
+    "provider": "openai-codex",
+    "model": "gpt-6.1-sol",
+    "usage": {
+      "input": 337,
+      "output": 63,
+      "cacheRead": 8448,
+      "cacheWrite": 0,
+      "reasoning": 0,
+      "totalTokens": 8848,
+      "cost": {
+        "input": 0.000674,
+        "output": 0.00063,
+        "cacheRead": 0.0008448,
+        "cacheWrite": 0,
+        "total": 0.0021488
+      }
+    },
+    "stopReason": "toolUse"
+  },
+  {
+    "provider": "openai-codex",
+    "model": "gpt-6.1-sol",
+    "usage": {
+      "input": 251,
+      "output": 19,
+      "cacheRead": 8704,
+      "cacheWrite": 0,
+      "reasoning": 0,
+      "totalTokens": 8974,
+      "cost": {
+        "input": 0.000502,
+        "output": 0.00019,
+        "cacheRead": 0.0008704000000000001,
+        "cacheWrite": 0,
+        "total": 0.0015624
+      }
+    },
+    "stopReason": "toolUse"
+  },
+  {
+    "provider": "openai-codex",
+    "model": "gpt-6.1-sol",
+    "usage": {
+      "input": 385,
+      "output": 56,
+      "cacheRead": 8832,
+      "cacheWrite": 0,
+      "reasoning": 13,
+      "totalTokens": 9273,
+      "cost": {
+        "input": 0.00077,
+        "output": 0.0005600000000000001,
+        "cacheRead": 0.0008832000000000001,
+        "cacheWrite": 0,
+        "total": 0.0022132000000000002
+      }
+    },
+    "stopReason": "toolUse"
+  },
+  {
+    "provider": "openai-codex",
+    "model": "gpt-6.1-sol",
+    "usage": {
+      "input": 230,
+      "output": 53,
+      "cacheRead": 9088,
+      "cacheWrite": 0,
+      "reasoning": 0,
+      "totalTokens": 9371,
+      "cost": {
+        "input": 0.00045999999999999996,
+        "output": 0.0005300000000000001,
+        "cacheRead": 0.0009088000000000001,
+        "cacheWrite": 0,
+        "total": 0.0018988
+      }
+    },
+    "stopReason": "stop"
+  }
+]

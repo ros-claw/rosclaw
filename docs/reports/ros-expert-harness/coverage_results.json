@@ -1,15 +1,18 @@
 {
   "schema_version": "rosclaw.ros_coverage_acceptance.v1",
-  "status": "NOT_RUN",
+  "status": "NORMAL_SIMULATION_PASS",
   "v1_done": false,
-  "simulation_verified": false,
+  "simulation_verified": true,
   "hardware_verified": false,
-  "coverage_ratio": null,
-  "collision_count": null,
-  "completion_time_seconds": null,
+  "coverage_ratio": 0.9804250559284117,
+  "collision_count": 0,
+  "completion_time_seconds": 626.637479,
   "dynamic_obstacle_recovery": null,
-  "canonical_receipts": [],
-  "reason": "No Nav2/Gazebo coverage mission, independent collision observer or daemon coverage executor was executed.",
+  "canonical_receipts": [
+    "RH10/gazebo-normal-008/golden-coverage.receipt.json",
+    "RH10/gazebo-normal-008/golden-remember.receipt.json"
+  ],
+  "reason": "Normal black-box daemon execution passed; actual-model and dynamic full-mission acceptance remain in progress.",
   "offline_calculation": {
     "evidence_domain": "synthetic_trace",
     "blocked": {

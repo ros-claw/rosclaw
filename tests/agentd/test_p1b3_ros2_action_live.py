@@ -77,14 +77,14 @@ class FakeRosbridgeActionServer:
             # cancel 可在执行中到达。
             async for raw in ws:
                 msg = json.loads(raw)
-                if msg.get("op") == "send_goal":
+                if msg.get("op") == "send_action_goal":
                     self.goals.append(msg)
                     goal_id = msg["id"]
                     order = int(msg.get("args", {}).get("order", 3))
                     running[goal_id] = asyncio.create_task(
                         fibonacci(ws, goal_id, order)
                     )
-                elif msg.get("op") == "cancel_goal":
+                elif msg.get("op") == "cancel_action_goal":
                     goal_id = str(msg.get("id", ""))
                     self.cancelled.append(goal_id)
                     task = running.pop(goal_id, None)

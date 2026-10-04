@@ -41,6 +41,7 @@ class RosbridgeTransport:
         self.endpoint = endpoint or RosbridgeEndpoint()
         self._ws: Any | None = None
         self._lock = threading.RLock()
+        self._receive_lock = threading.Lock()
         self._max_retries = max(0, max_retries)
         self._dry_run = dry_run
         self._closed = False
@@ -131,6 +132,8 @@ class RosbridgeTransport:
             return conn
 
         with self._lock:
+            if self._closed or self._ws is None:
+                return RosTransportResult(ok=False, error="transport is closed")
             try:
                 payload = json.dumps(message)
             except (TypeError, ValueError) as exc:
@@ -155,11 +158,18 @@ class RosbridgeTransport:
         if not conn.ok:
             return conn
 
-        with self._lock:
+        # A blocking read must not hold the connection/write lock: action
+        # listeners otherwise starve goal dispatch and cancellation. The
+        # websocket is full duplex; keep exactly one response reader instead.
+        with self._receive_lock:
             actual_timeout = timeout_sec if timeout_sec is not None else self.endpoint.timeout_sec
+            with self._lock:
+                if self._closed or self._ws is None:
+                    return RosTransportResult(ok=False, error="transport is closed")
+                websocket = self._ws
             try:
-                self._ws.settimeout(actual_timeout)
-                raw = self._ws.recv()
+                websocket.settimeout(actual_timeout)
+                raw = websocket.recv()
             except Exception as exc:
                 import websocket as _ws_lib
 
@@ -169,7 +179,9 @@ class RosbridgeTransport:
                     return RosTransportResult(ok=True, data=None, raw=None)
                 error = f"Receive failed after {actual_timeout}s: {exc}"
                 logger.warning(error)
-                self._invalidate()
+                with self._lock:
+                    if self._ws is websocket:
+                        self._invalidate()
                 return RosTransportResult(ok=False, error=error, raw=str(exc))
 
             try:
@@ -207,22 +219,47 @@ class RosbridgeTransport:
             )
 
         last_error: str | None = None
+        deadline = time.monotonic() + (
+            timeout_sec if timeout_sec is not None else self.endpoint.timeout_sec
+        )
         for _attempt in range(self._max_retries + 1):
+            if time.monotonic() >= deadline:
+                last_error = "rosbridge request deadline expired"
+                break
             send_result = self.send(message)
             if not send_result.ok:
                 last_error = send_result.error
                 self._invalidate()
                 continue
 
-            deadline = timeout_sec if timeout_sec is not None else self.endpoint.timeout_sec
             for _ in range(10):  # bounded spin on unsolicited messages
-                recv_result = self.receive(timeout_sec=deadline)
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    last_error = "rosbridge request deadline expired"
+                    break
+                recv_result = self.receive(timeout_sec=remaining)
                 if not recv_result.ok:
                     last_error = recv_result.error
                     self._invalidate()
                     break
                 data = recv_result.data or {}
                 if data.get("id") == request_id:
+                    if data.get("op") == "status" and data.get("level") == "error":
+                        return RosTransportResult(
+                            ok=False,
+                            error=str(data.get("msg", "rosbridge rejected request")),
+                            data=data,
+                            request_id=request_id,
+                        )
+                    if message.get("op") == "call_service" and data.get("op") != "service_response":
+                        continue
+                    if data.get("result") is False:
+                        return RosTransportResult(
+                            ok=False,
+                            error=str(data.get("values", "ROS service failed")),
+                            data=data,
+                            request_id=request_id,
+                        )
                     return RosTransportResult(
                         ok=True,
                         data=data,

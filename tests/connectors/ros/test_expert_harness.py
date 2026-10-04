@@ -72,6 +72,27 @@ def test_healthy_and_interface_only_readiness(healthy):
     assert not nav(healthy)["usable_for_real_execution"]
 
 
+def test_initial_pose_command_is_not_a_continuous_localization_sensor(healthy):
+    from rosclaw.connectors.ros.intelligence.system_model import Signal
+
+    healthy.graph["topics"].append({
+        "name": "/robot/initialpose",
+        "msg_type": "geometry_msgs/msg/PoseWithCovarianceStamped",
+        "publishers": [], "subscribers": ["/robot/amcl"],
+    })
+    healthy.signals.append(Signal(
+        source="native", captured_at=NOW, topic="/robot/initialpose",
+        publisher_count=0, subscriber_count=1, last_message_age_ms=30000,
+    ))
+    assert diagnose(healthy, now=NOW)["status"] == "HEALTHY"
+    assert nav(healthy)["status"] == "AVAILABLE"
+    # An actual estimator stream still requires its publisher and freshness.
+    pose = next(s for s in healthy.signals if s.topic.endswith("amcl_pose"))
+    pose.publisher_count = 0
+    assert "ROS_TOPIC_004" in {i["issue_code"] for i in diagnose(healthy, now=NOW)["issues"]}
+    assert nav(healthy)["status"] == "BLOCKED"
+
+
 FAULTS = [
     ("ROS_TF_001", lambda m: setattr(m, "transforms", m.transforms[1:])),
     ("ROS_TF_002", lambda m: setattr(m, "transforms", [m.transforms[0], m.transforms[2]])),

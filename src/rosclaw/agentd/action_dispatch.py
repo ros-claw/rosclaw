@@ -12,7 +12,7 @@ daemon consent plane / daemon action channel → receipt 事件落账。
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
@@ -34,6 +34,7 @@ class HandlerOutcome:
     terminal_receipt: bool = False
     evidence_ref: str | None = None
     error_code: str | None = None
+    artifacts: list[str] = field(default_factory=list)
 
 
 def _verification_summary(verification: dict) -> str:
@@ -292,11 +293,15 @@ async def request_action(
                     "也没有自行授权。"
                 )
             )
+        catalog = getattr(service, "_tool_catalog", None)
+        descriptor = catalog.get(capability) if catalog is not None else None
+        timeout_sec = min(3600.0, max(30.0, descriptor.timeout_ms / 1000)) if descriptor is not None else 30.0
         outcome = await channel.request_nonreal_action(
             capability_id=capability,
             arguments=arguments,
             grant_id=grant.grant_id,
             execution_mode=mode,
+            timeout_sec=timeout_sec,
         )
     except ActionChannelError as exc:
         return HandlerOutcome(text=f"动作派发/回执校验失败（fail closed）：{exc}")
@@ -313,17 +318,22 @@ async def request_action(
         return HandlerOutcome(
             text=(
                 f"动作已提交但未达验证标准（state={outcome.state}, "
-                f"trust={outcome.trust_level}）。提交不等于完成——不报告为成功。"
-            )
+                f"trust={outcome.trust_level}, action_id={outcome.action_id}）。"
+                "提交不等于完成——不报告为成功。"
+            ),
+            evidence_ref=f"receipt://{outcome.action_id}",
+            error_code="ACTION_NOT_VERIFIED",
         )
     return HandlerOutcome(
         text=(
             f"动作已在 {mode} 完成并经回执验证："
-            f"action_id={outcome.action_id[:20]}…, trust_level={outcome.trust_level}。"
+            f"action_id={outcome.action_id}, final_state={outcome.state}, "
+            f"trust_level={outcome.trust_level}。"
             "非 REAL 证据不可用于证明真实物理执行；grant 已消费。"
         ),
         terminal_receipt=True,
         evidence_ref=f"receipt://{outcome.action_id}",
+        artifacts=list((outcome.receipt.get("receipt") or {}).get("artifacts") or []),
     )
 
 

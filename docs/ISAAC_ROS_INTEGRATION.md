@@ -1,5 +1,27 @@
-# Isaac ROS integration status
+# Isaac ROS 5 intelligence and evidence boundary
 
-Deferred until the ROS2/Nav2/Gazebo complete coverage Golden Task passes. This change adds no Isaac ROS provider, native GPU transport instrumentation, rosidl::Buffer migration, cuVSLAM/nvblox wiring or Nsight benchmark. No Isaac ROS version support is claimed.
+The read-only `rosclaw ros performance` command now builds a sealed performance
+graph from a ROS system snapshot. Node buffer backends and process boundaries
+remain UNKNOWN without fresh sourced measurements. CPU/CUDA transitions are
+inferences; measured copy events are reported separately. Missing, stale or
+malformed traces do not become zero-copy evidence. A topology snapshot never
+claims a verified before/after optimization.
 
-Next work must verify the currently supported official NVIDIA release, ROS distro, buffer backend/transport APIs and package compatibility, then compare accelerated solutions with the working Nav2 baseline. A CUDA-capable machine alone must not force an accelerated solution. CPU↔GPU copies and fallback paths require measured profiling evidence before claiming optimization. Isaac Sim acceptance and performance results are NOT_RUN.
+Four source-backed Isaac ROS 5 options are exposed: cuVSLAM, nvblox, TensorRT
+inference and CUDA buffer transport. Compatibility and runtime measurements are
+separate. A working CPU navigation task does not automatically select or install
+these options. The current Jazzy acceptance fixture is incompatible with the
+official 5.0 ROS target and correctly reports BLOCKED.
+
+Sources reviewed on 2026-10-04:
+
+- [Official 5.0 platform requirements](https://nvidia-isaac-ros.github.io/v/release-5.0/getting_started/index.html): ROS 2 Lyrical; DGX Spark is a supported platform with its own software requirements.
+- [CUDA buffer backend](https://nvidia-isaac-ros.github.io/concepts/rosidl_buffer/cuda_buffer_backend.html): native `rosidl::BufferBackend` storage and same-host compatible CUDA IPC transport.
+- [NITROS migration](https://nvidia-isaac-ros.github.io/concepts/rosidl_buffer/nitros_migration.html): the 5.0 transport path must not be described using obsolete NITROS assumptions.
+
+Live Isaac package execution, process transport/fallback/lifetime probes,
+Nsight traces, measured before/after optimization and Isaac Sim acceptance are
+NOT_RUN. GPU presence on the host does not prove a usable GPU in the ROS
+container. These pending gates require a separate compatible disposable
+container and measured workload; no host package replacement is part of this
+implementation.

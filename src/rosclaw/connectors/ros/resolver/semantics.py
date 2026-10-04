@@ -21,3 +21,10 @@ SEMANTIC_TYPES = {
 
 def semantic_id(ros_type: str) -> str | None:
     return SEMANTIC_TYPES.get(ros_type)
+
+
+def is_initial_pose_command(interface: dict) -> bool:
+    """AMCL's typed initial-pose input is an event, not a pose-estimate stream."""
+    return interface.get("name", "").rsplit("/", 1)[-1] == "initialpose" and interface.get(
+        "msg_type"
+    ) in {"geometry_msgs/msg/PoseWithCovarianceStamped", "geometry_msgs/PoseWithCovarianceStamped"}

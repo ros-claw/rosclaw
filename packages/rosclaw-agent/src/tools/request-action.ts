@@ -14,7 +14,7 @@ import type { BridgeToolContext } from "./bridge-tools.js";
 
 const AWAIT_TIMEOUT_MS = 330_000;
 
-export function buildRequestActionTool(ctx: BridgeToolContext) {
+export function buildRequestActionTool(ctx: BridgeToolContext, snapshotDigest?: string) {
 	return defineTool({
 		name: "rosclaw_request_action",
 		label: "ROSClaw Request Action",
@@ -74,6 +74,7 @@ export function buildRequestActionTool(ctx: BridgeToolContext) {
 			};
 			const proposed = await ctx.center.call("pi.action.propose", {
 				...requestContext,
+				...(snapshotDigest ? { snapshot_digest: snapshotDigest } : {}),
 				capability_id: String(params.capability_id),
 				arguments: params.arguments ?? {},
 				expected_effect: String(params.expected_effect ?? params.capability_id),

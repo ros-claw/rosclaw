@@ -165,3 +165,78 @@ def test_rosbridge_real_connection_fails_without_server():
     result = transport.connect()
     assert not result.ok
     assert "Failed to connect" in result.error or "websocket-client" in result.error
+
+
+def test_request_deadline_is_not_multiplied_by_empty_receives_and_retries(monkeypatch):
+    from rosclaw.connectors.ros.transport import rosbridge
+
+    clock = [0.0]
+    monkeypatch.setattr(rosbridge.time, "monotonic", lambda: clock[0])
+    transport = RosbridgeTransport(max_retries=2)
+    monkeypatch.setattr(transport, "send", lambda _: RosTransportResult(ok=True))
+    waits = []
+
+    def receive(timeout_sec):
+        waits.append(timeout_sec)
+        clock[0] += timeout_sec
+        return RosTransportResult(ok=True)
+
+    monkeypatch.setattr(transport, "receive", receive)
+    result = transport.request({"op": "call_service", "service": "/foo"}, timeout_sec=0.3)
+    assert not result.ok
+    assert "deadline" in result.error
+    assert waits == [pytest.approx(0.3)]
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        {"op": "status", "level": "error", "msg": "rejected"},
+        {"op": "service_response", "result": False, "values": "rejected"},
+    ],
+)
+def test_service_protocol_rejection_is_not_an_acknowledgement(monkeypatch, reply):
+    transport = RosbridgeTransport()
+    monkeypatch.setattr(transport, "send", lambda _: RosTransportResult(ok=True))
+    monkeypatch.setattr(
+        transport, "receive", lambda **_: RosTransportResult(ok=True, data={"id": "r", **reply})
+    )
+    result = transport.request({"op": "call_service", "id": "r"})
+    assert not result.ok
+    assert "rejected" in result.error
+
+
+def test_blocking_listener_does_not_starve_goal_or_cancel_writes():
+    import threading
+
+    entered = threading.Event()
+    released = threading.Event()
+    sent_during_receive = []
+
+    class DuplexSocket:
+        connected = True
+
+        def settimeout(self, _):
+            pass
+
+        def recv(self):
+            entered.set()
+            released.wait(1)
+            released.set()
+            return "{}"
+
+        def send(self, _):
+            sent_during_receive.append(not released.is_set())
+            released.set()
+
+    transport = RosbridgeTransport()
+    transport._ws = DuplexSocket()
+    reader = threading.Thread(target=transport.receive)
+    reader.start()
+    try:
+        assert entered.wait(1)
+        assert transport.send({"op": "cancel_action_goal", "id": "goal"}).ok
+        assert sent_during_receive == [True]
+    finally:
+        released.set()
+        reader.join(2)

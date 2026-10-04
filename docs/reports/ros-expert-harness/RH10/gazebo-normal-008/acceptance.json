@@ -1,0 +1,82 @@
+{
+  "status": "PASS",
+  "evidence_domain": "SIMULATION",
+  "coverage_ratio": 0.9804250559284117,
+  "collision": {
+    "collision_count": 0,
+    "observation_complete": true,
+    "source": "gazebo_contacts_and_ground_truth_geometry"
+  },
+  "receipt_state": "COMPLETED",
+  "evidence_level": "TASK_VERIFIED",
+  "started_at": "2026-10-04T21:47:36.430644Z",
+  "finished_at": "2026-10-04T21:58:03.068123Z",
+  "configured_timeout_sec": 900,
+  "repair_goals": 26,
+  "memory_outcome": "success",
+  "practice_outcome": "SUCCESS",
+  "hardware_verified": false,
+  "autonomous_llm": false,
+  "files": [
+    {
+      "file": "body.json",
+      "sha256": "4a03973a84af0e425a5c87da837a1e43ed05457d7d46b0277fecc11dc8049abe"
+    },
+    {
+      "file": "execution_config.json",
+      "sha256": "e8975e00d3b1253c556c3641b93eac0b754eb65e70d9580557bfdbc067885e57"
+    },
+    {
+      "file": "measured_map.json",
+      "sha256": "4cbe10fb5666e05d051037244a0b8916fe1276f70477c157a4338877d6c65db4"
+    },
+    {
+      "file": "snapshot.json",
+      "sha256": "4b6c5401f2e708ed67e88c3d6f7b678293e2fdf7154229549f164a92c70d06eb"
+    },
+    {
+      "file": "solution.json",
+      "sha256": "c5a928f45f547100e260fa5ab39ff8007dbd79cc895df19f27e42e745caf203f"
+    },
+    {
+      "file": "task_graph.json",
+      "sha256": "9523137307a39eb8916b3850da761964341adfb42b7171d39b54f65719d89681"
+    },
+    {
+      "file": "golden-localize.receipt.json",
+      "sha256": "2900d9f42d5e4e4a06c08caa62631e1264b02cc28be2b0b3d07a3273abaf0987"
+    },
+    {
+      "file": "golden-coverage.receipt.json",
+      "sha256": "35b1a4d515b427408d7f9929b21b14c068e6e01f6355fc0d4904d00fd77da8c5"
+    },
+    {
+      "file": "golden-remember.receipt.json",
+      "sha256": "1867cf10bc457e9a9c4a084c3ed178a7149d9353c83c02642d6e2c8b19b589d4"
+    },
+    {
+      "file": "rosevidence_0e0c13aa95e765a20b0c60bffc23aed61a1a3712a1e8099feeee6c927c777638.verification.json",
+      "uncompressed_sha256": "bdd09c797fa2ac00e01404ed455286d0c116060da6755e4976ae23b3a808cb37"
+    },
+    {
+      "file": "rosevidence_0e0c13aa95e765a20b0c60bffc23aed61a1a3712a1e8099feeee6c927c777638.json.gz",
+      "uncompressed_sha256": "518ff0fdf6a0b4f5a2d039ac08af73c06587fdbf47dcd8071d475d002e4c271b"
+    },
+    {
+      "file": "practice-episode.json",
+      "sha256": "b0b7c18cc577eb29e4a868e81c7f9e3489629772bfb838e3ad6e771b5ff144fc"
+    },
+    {
+      "file": "practice-manifest.yaml",
+      "sha256": "03cc39a38b512d286e3ed13352172467f2d5a8243d647884bab5fcd74ce07aa8"
+    },
+    {
+      "file": "coverage-mask.json",
+      "sha256": "4c20d8a989958a07c2c3f844b186e9de125989fe1f610698c0c7cc1294b9b69d"
+    },
+    {
+      "file": "trajectory.json",
+      "sha256": "d93bca7ae09f7a808620f0f3eed06724614f8e92c7ae8ffcfad5ef5dee2f6b84"
+    }
+  ]
+}

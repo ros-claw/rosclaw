@@ -49,6 +49,10 @@ class CoverageVerifier:
         max_trace_gap_sec: float = 1.0,
         max_speed_mps: float = 2.0,
     ):
+        if type(width) is not int or type(height) is not int:
+            raise ValueError("grid dimensions must be integers")
+        if len(origin) != 2 or any(len(point) != 2 for point in cleaning_polygon):
+            raise ValueError("coverage coordinates must have two components")
         numeric = [
             resolution,
             *origin,
@@ -56,7 +60,7 @@ class CoverageVerifier:
             max_speed_mps,
             *(coordinate for p in cleaning_polygon for coordinate in p),
         ]
-        if not all(math.isfinite(n) for n in numeric):
+        if not all(type(n) in (int, float) and math.isfinite(n) for n in numeric):
             raise ValueError("coverage geometry must be finite")
         if width <= 0 or height <= 0 or resolution <= 0 or len(cleaning_polygon) < 3:
             raise ValueError("positive grid dimensions and a cleaning polygon are required")
@@ -65,7 +69,9 @@ class CoverageVerifier:
         self.width, self.height, self.resolution = width, height, resolution
         self.origin, self.frame_id = origin, frame_id
         self.accessible = set(accessible_cells)
-        if not self.accessible or any(i < 0 or i >= width * height for i in self.accessible):
+        if not self.accessible or any(
+            type(i) is not int or i < 0 or i >= width * height for i in self.accessible
+        ):
             raise ValueError("accessible cells must be nonempty and inside the grid")
         area = (
             abs(
@@ -80,6 +86,39 @@ class CoverageVerifier:
         )
         if area <= 0:
             raise ValueError("cleaning polygon must have nonzero area")
+        edges = list(
+            zip(cleaning_polygon, cleaning_polygon[1:] + cleaning_polygon[:1], strict=True)
+        )
+
+        def orientation(a, b, c):
+            return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+
+        def on_segment(a, b, p):
+            return (
+                abs(orientation(a, b, p)) < 1e-10
+                and min(a[0], b[0]) <= p[0] <= max(a[0], b[0])
+                and min(a[1], b[1]) <= p[1] <= max(a[1], b[1])
+            )
+
+        for index, (a, b) in enumerate(edges):
+            if a == b:
+                raise ValueError("cleaning polygon contains a zero-length edge")
+            for other, (c, d) in enumerate(edges[index + 1 :], index + 1):
+                if other == index + 1 or (index == 0 and other == len(edges) - 1):
+                    continue
+                crosses = (
+                    orientation(a, b, c) * orientation(a, b, d) < 0
+                    and orientation(c, d, a) * orientation(c, d, b) < 0
+                )
+                if crosses or any(
+                    (
+                        on_segment(a, b, c),
+                        on_segment(a, b, d),
+                        on_segment(c, d, a),
+                        on_segment(c, d, b),
+                    )
+                ):
+                    raise ValueError("cleaning polygon must not intersect itself")
         self.polygon = cleaning_polygon
         self.max_gap, self.max_speed = max_trace_gap_sec, max_speed_mps
         self.radius = max(math.hypot(x, y) for x, y in cleaning_polygon)
@@ -95,9 +134,14 @@ class CoverageVerifier:
         self.temporary_blocked = set(cells)
 
     def observe(self, pose: CleaningPose, *, frame_id: str) -> None:
+        if type(pose.cleaning_enabled) is not bool:
+            raise ValueError("cleaning state must be an observed boolean")
         if frame_id != self.frame_id:
             raise ValueError("trajectory and grid frame mismatch")
-        if not all(math.isfinite(v) for v in (pose.x, pose.y, pose.yaw, pose.time_sec)):
+        if not all(
+            type(v) in (int, float) and math.isfinite(v)
+            for v in (pose.x, pose.y, pose.yaw, pose.time_sec)
+        ):
             raise ValueError("trajectory values must be finite")
         previous = self.previous
         if previous is not None and pose.time_sec <= previous.time_sec:

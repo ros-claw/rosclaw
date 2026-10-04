@@ -187,4 +187,13 @@ def context_hash_of(envelope: Any) -> str:
     self_state = payload.get("self_state")
     if isinstance(self_state, dict):
         self_state.pop("turn_in_flight", None)
+        ros = self_state.get("ros_observations")
+        if isinstance(ros, dict):
+            # Raw capture hashes/times change on every read. Admission still
+            # binds current readiness/Body/blocking issues: changing any of
+            # those invalidates the lease. The envelope retains the complete
+            # observation identity and fresh timestamps for prompt evidence.
+            self_state["ros_observations"] = ros.get("admission_facts", {
+                "status": ros.get("status", "UNKNOWN"),
+            })
     return hashlib.sha256(canonical_dumps(payload).encode()).hexdigest()[:32]

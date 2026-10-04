@@ -28,6 +28,15 @@ function baseResult(): ContextFetchResult {
 }
 
 describe("WP-8 active_run 上下文渲染", () => {
+	it("ROS observation summary reaches the native prompt without action authority", () => {
+		const result = baseResult();
+		(result.envelope as unknown as Record<string, unknown>).self_state = {
+			ros_observations: { status: "OBSERVED", summary: "Nav2 lifecycle ACTIVE; map latched", authorization: false },
+		};
+		const rendered = renderTrustedContext(result);
+		assert.match(rendered, /Nav2 lifecycle ACTIVE; map latched/);
+		assert.match(rendered, /no action authority/);
+	});
 	it("有活跃任务：task_run 行含运行目录与四区纪律", () => {
 		const result = baseResult();
 		result.activeRun = {

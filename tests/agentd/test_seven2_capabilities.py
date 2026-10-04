@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from tests.agentd.test_pi_tool_bridge import _setup
 
 
@@ -119,4 +121,44 @@ class TestReadinessV2:
         assert "ROBOT_KIT_INCOMPLETE" in codes, (
             f"动作能力为 0 时缺 kit blocker: {codes}"
         )
+        await service.close()
+
+
+
+@pytest.mark.parametrize("running, registered, expected", [
+    (True, ["fixture.clean:SIMULATION"], True),
+    (True, ["fixture.clean:REAL"], False),
+    (True, [], False),
+    (False, ["fixture.clean:SIMULATION"], False),
+])
+async def test_daemon_registered_actions_are_discoverable_without_local_executor(
+    tmp_path, running, registered, expected
+):
+    from types import SimpleNamespace
+
+    from rosclaw.agentd.pi_bridge.server import PiBridgeServer
+    from rosclaw.contracts.agent.tool import ExecutionClass, ToolDescriptorV2
+
+    service, mission = await _setup(tmp_path)
+    await service._ensure_mcp_discovered()
+    service._tool_catalog.register(ToolDescriptorV2(
+        tool_id="fixture.clean", source="mcp:fixture", execution_class=ExecutionClass.PHYSICAL_ACTION,
+        model_callable=False, requires_exact_action_grant=True,
+        required_body_types=[mission.body_binding.body_id], supported_modes=["SIMULATION"],
+        input_schema={"type": "object", "additionalProperties": False},
+    ))
+    service._daemon_client = SimpleNamespace(get_runtime_status=lambda: {
+        "running": running, "registered_executors": registered,
+    })
+    try:
+        bridge = PiBridgeServer(service, tmp_path / "run" / "pi-bridge.sock")
+        result = await bridge._dispatch("user:local:1000", 1, "pi.capabilities", {
+            "token": service.control_token, "mission_id": mission.mission_id,
+        })
+        assert ("fixture.clean" in [c["capability_id"] for c in result["action_capabilities"]]) is expected
+        if not expected:
+            row = next(c for c in result["excluded"] if c["capability_id"] == "fixture.clean")
+            assert row["reason"] == "EXECUTOR_FOR_BODY_UNAVAILABLE"
+    finally:
+        service._daemon_client = None
         await service.close()

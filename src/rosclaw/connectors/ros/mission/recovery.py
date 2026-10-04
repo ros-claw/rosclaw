@@ -15,18 +15,33 @@ class MissedRegionRecovery:
     def propose(self) -> dict:
         ready, deferred, exhausted = [], [], []
         for region in self.verifier.missed_regions():
-            retries = max((self.attempts.get(cell, 0) for cell in region["cells"]), default=0)
+            eligible = [
+                cell for cell in region["cells"] if self.attempts.get(cell, 0) < self.max_attempts
+            ]
+            retries = min((self.attempts.get(cell, 0) for cell in region["cells"]), default=0)
             item = {
                 **region,
                 "retry_count": retries,
                 "execution_entry": "request_action",
                 "requires": ["coverage.compute_path", "coverage.execute", "coverage.verify"],
             }
-            if retries >= self.max_attempts:
+            if not eligible:
                 exhausted.append(item)
             elif region["deferred"]:
                 deferred.append(item)
             else:
+                item["cells"] = eligible
+                item["area_m2"] = len(eligible) * self.verifier.resolution**2
+                item["centroid"] = [
+                    self.verifier.origin[0]
+                    + sum(i % self.verifier.width + 0.5 for i in eligible)
+                    / len(eligible)
+                    * self.verifier.resolution,
+                    self.verifier.origin[1]
+                    + sum(i // self.verifier.width + 0.5 for i in eligible)
+                    / len(eligible)
+                    * self.verifier.resolution,
+                ]
                 ready.append(item)
         return {
             "ready": ready,

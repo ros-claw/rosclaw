@@ -617,7 +617,7 @@ def add_ros_subparser(subparsers: argparse._SubParsersAction) -> argparse.Argume
     )
     _add_common(stop_parser)
 
-    for command in ("inspect-system", "diagnose", "resolve", "context", "mission"):
+    for command in ("inspect-system", "diagnose", "resolve", "context", "mission", "performance"):
         expert_parser = ros_subparsers.add_parser(command, help=f"ROS Expert Harness: {command}")
         _add_common(expert_parser)
         expert_parser.add_argument("--snapshot", help="Replay a sealed RosSystemModel JSON")
@@ -651,7 +651,7 @@ def add_ros_subparser(subparsers: argparse._SubParsersAction) -> argparse.Argume
 def dispatch_ros_command(args: argparse.Namespace) -> int:
     """Dispatch the selected ``ros`` subcommand."""
     cmd = getattr(args, "ros_command", None)
-    if cmd in {"inspect-system", "diagnose", "resolve", "context", "mission"}:
+    if cmd in {"inspect-system", "diagnose", "resolve", "context", "mission", "performance"}:
         return cmd_ros_expert(args)
     if cmd == "ping":
         return cmd_ros_ping(args)
@@ -700,6 +700,10 @@ def cmd_ros_expert(args: argparse.Namespace) -> int:
         command = args.ros_command
         if command == "inspect-system":
             result = {"system": model.to_dict(), "capabilities": resolve_capabilities(model)}
+        elif command == "performance":
+            from rosclaw.connectors.ros.intelligence.performance import performance_graph
+
+            result = performance_graph(model).model_dump(mode="json")
         elif command == "diagnose":
             result = diagnose(model, profile=args.profile)
         elif command == "resolve":
@@ -717,6 +721,20 @@ def cmd_ros_expert(args: argparse.Namespace) -> int:
                 else json.dumps(result.get("system", result), indent=2)
             )
             Path(args.output).write_text(artifact + "\n", encoding="utf-8")
+        if command == "performance" and not args.json:
+            result = {
+                "snapshot_id": result["snapshot_id"],
+                "graph_hash": result["graph_hash"],
+                "node_count": len(result["nodes"]),
+                "edge_count": len(result["edges"]),
+                "unknown_backend_count": sum(
+                    n["buffer_backend"] == "UNKNOWN" for n in result["nodes"]
+                ),
+                "findings": result["findings"][:20],
+                "validation_checks": result["validation_checks"],
+                "optimization_verified": result["optimization_verified"],
+                "output_path": args.output,
+            }
         return _maybe_json(args, {"ok": True, "action": command, **result})
     except (ValueError, OSError, ConnectionError, TimeoutError) as exc:
         return _maybe_json(args, {"ok": False, "action": args.ros_command, "error": str(exc)})

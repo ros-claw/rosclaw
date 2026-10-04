@@ -10,7 +10,8 @@
  * 4. Pi 私有事件统一转 HarnessEvent（产品侧不 switch Pi 私有类型）。
  */
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readdirSync, readFileSync, statSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
@@ -48,13 +49,18 @@ test("HP2: createPiBackend().create() 真实工作", async () => {
 	const backend = createPiBackend();
 	// 当前抛 HARNESS_CAPABILITY_MISSING（装配本体在 create-runtime）——
 	// 迁移后必须真实返回 HarnessSession。
-	const session = await backend.create({
-		cwd: "/tmp/hp2-probe",
-		backendOptions: { headless: true },
-	});
-	assert.equal(session.sessionRef.backendId, "pi");
-	assert.ok(session.sessionRef.nativeRef, "缺 nativeRef");
-	await session.close();
+	const cwd = mkdtempSync(join(tmpdir(), "hp2-probe-"));
+	try {
+		const session = await backend.create({
+			cwd,
+			backendOptions: { headless: true },
+		});
+		assert.equal(session.sessionRef.backendId, "pi");
+		assert.ok(session.sessionRef.nativeRef, "缺 nativeRef");
+		await session.close();
+	} finally {
+		rmSync(cwd, { recursive: true, force: true });
+	}
 });
 
 test("HP2: 能力声明来自运行时 probe，不硬编码", async () => {

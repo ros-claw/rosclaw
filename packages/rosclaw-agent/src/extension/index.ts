@@ -625,6 +625,23 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			};
 		});
 
+		// A long SIM action can outlive its context lease. Refresh observations
+		// after its receipt, before the next tool; never reuse the consumed grant.
+		pi.on("tool_execution_end", async (event) => {
+			if (event.toolName !== "rosclaw_request_action" && !event.toolName.startsWith("propose_")) return;
+			const state = options.active.current;
+			if (state.mode !== "SIMULATION" || !state.missionId) return;
+			const fetched = await fetchEmbodiedContext(
+				options.rosclawHome, state.missionId, state.sessionId,
+				(_home, method, params) => center.call(method, params),
+			);
+			if (!fetched.stale && fetched.envelope) {
+				options.active.applyEnvelope(fetched.envelope, fetched.contextLeaseId);
+			} else {
+				options.active.markContextStale(fetched.note);
+			}
+		});
+
 		// -- 每轮注入最新具身上下文（PNA-2，规格 §14.2） ---------------------------
 		pi.on("before_agent_start", async (event, ctx) => {
 			// PR-N5D：回合开始前刷新物化工具面（digest 未变则零成本）。
@@ -981,7 +998,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 		// 降级授权卡退役（不再有 AWAITING_SHELL_APPROVAL 相位）。
 		pi.on("tool_execution_update", async (event, ctx) => {
 			if (
-				(event.toolName !== "rosclaw_request_action")
+				(event.toolName !== "rosclaw_request_action" && !event.toolName.startsWith("propose_"))
 				|| !ctx.hasUI
 			) return;
 			const details = (event.partialResult?.details ?? {}) as {

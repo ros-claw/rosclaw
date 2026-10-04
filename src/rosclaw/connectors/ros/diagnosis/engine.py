@@ -66,7 +66,7 @@ def diagnose(
     age = model.age_ms(now)
     if age > max_age_ms or age < -100:
         add("ROS_GRAPH_001", "time", {"snapshot_age_ms": age}, "Refresh the read-only snapshot.")
-    for error in model.errors:
+    for error in dict.fromkeys(model.errors):
         add("ROS_ENV_001", "sensors", error, "Inspect the failed probe read.", "warning")
 
     frames = model.body.get("frames", {})
@@ -96,7 +96,7 @@ def diagnose(
                     edge.model_dump(mode="json"),
                     "Inspect TF timestamp and rate.",
                 )
-            if edge.age_ms < -100:
+            if edge.age_ms < -edge.future_tolerance_ms:
                 add(
                     "ROS_TIME_002",
                     "time",
@@ -130,9 +130,20 @@ def diagnose(
             add(
                 "ROS_TOPIC_001", "sensors", {"topic": expected}, "Inspect required topic publisher."
             )
+    from rosclaw.connectors.ros.resolver.semantics import is_initial_pose_command
+
+    command_topics = {
+        topic["name"] for topic in model.graph.get("topics", []) if is_initial_pose_command(topic)
+    }
     for signal in model.signals:
+        if signal.topic in command_topics:
+            continue
         data = signal.model_dump(mode="json")
-        if signal.last_message_age_ms is not None and signal.last_message_age_ms > 1000:
+        if (
+            signal.freshness_policy != "latched"
+            and signal.last_message_age_ms is not None
+            and signal.last_message_age_ms > signal.max_age_ms
+        ):
             add("ROS_TOPIC_002", "sensors", data, "Inspect sensor freshness and upstream health.")
         min_rate = model.body.get("minimum_rates", {}).get(signal.topic)
         if min_rate is not None and signal.rate_hz is not None and signal.rate_hz < min_rate:

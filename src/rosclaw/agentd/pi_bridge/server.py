@@ -729,6 +729,18 @@ class PiBridgeServer:
             actions: list[dict[str, Any]] = []
             excluded: list[dict[str, Any]] = []
             sim_executor_sources = set(service._sim_executors.keys())
+            daemon_executors: set[str] = set()
+            daemon_client = getattr(service, "_daemon_client", None)
+            if daemon_client is not None:
+                try:
+                    runtime_status = await asyncio.to_thread(daemon_client.get_runtime_status)
+                    if runtime_status.get("running") is True:
+                        daemon_executors = {
+                            item for item in runtime_status.get("registered_executors", [])
+                            if isinstance(item, str)
+                        }
+                except Exception:  # noqa: BLE001 - unavailable daemon remains MISSING
+                    pass
             for descriptor in service._tool_catalog.list():
                 cls = descriptor.execution_class.value
                 # N5E：观测/计算桶也查隔离——被隔离的进 excluded
@@ -788,6 +800,7 @@ class PiBridgeServer:
                 executor_state = (
                     "READY"
                     if descriptor.source in sim_executor_sources
+                    or f"{descriptor.tool_id}:{mission.mode.value}" in daemon_executors
                     else "MISSING"
                 )
                 entry = {
@@ -951,6 +964,14 @@ class PiBridgeServer:
                 "mission_archived": service.mission_archived(binding.mission_id),
             }
         if method == "pi.action.propose":
+            snapshot_digest = str(params.get("snapshot_digest", ""))
+            if snapshot_digest:
+                mission = service.get_mission(str(params.get("mission_id", "")))
+                if mission is None:
+                    return {"ok": False, "code": "MISSION_NOT_FOUND", "error": "unknown mission"}
+                if snapshot_digest != service.capability_snapshot(mission).digest:
+                    return {"ok": False, "code": "CAPABILITY_SNAPSHOT_CHANGED",
+                            "error": "capability registry changed; refresh the tool snapshot"}
             # P0-NA-10：唯一 admission path——完整请求上下文是建卡前提。
             from rosclaw.agentd.pi_bridge.action_admission import (
                 ActionAdmissionService,

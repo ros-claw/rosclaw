@@ -1014,7 +1014,7 @@ class ActionAdmissionService:
         # 从事件负载读取（不再假设 receipt_id == action_id）。无独立
         # receipt_id 的旧 daemon 路径按 action_id 兜底匹配。
         receipt_ok = False
-        if terminal_bool and receipt_id:
+        if receipt_id:
             events = service.events_replay(stored.mission_id, limit=50)
             for e in events:
                 if e.type.value != "receipt.received":
@@ -1024,13 +1024,13 @@ class ActionAdmissionService:
                     matched = payload.get("receipt_id") == receipt_id
                 else:
                     matched = payload.get("action_id") == receipt_id
-                if (
-                    matched
-                    and payload.get("final_state") == "COMPLETED"
-                    and payload.get("verified") is True
-                ):
+                if matched:
                     action_id = str(payload.get("action_id") or "")
-                    receipt_ok = bool(action_id)
+                    receipt_ok = (
+                        bool(action_id)
+                        and payload.get("final_state") == "COMPLETED"
+                        and payload.get("verified") is True
+                    )
                     break
         executed = terminal_bool and receipt_ok
         if terminal_bool and not receipt_ok:
@@ -1044,6 +1044,30 @@ class ActionAdmissionService:
             txn = txns.transition(txn.txn_id, "COMPLETED")
         else:
             txn = txns.transition(txn.txn_id, "FAILED")
+        artifact_refs = []
+        task_outcome = None
+        if executed and outcome.artifacts:
+            # Reuse capability artifact registration and the existing task
+            # coordinator. Only exact, verified daemon receipts reach here.
+            from types import SimpleNamespace
+
+            from rosclaw.agentd.pi_bridge.tool_dispatch import _auto_register_artifacts
+            from rosclaw.task_kernel.coordinator import TaskCoordinator
+
+            artifact_request = SimpleNamespace(
+                mission_id=stored.mission_id, pi_session_id=request.pi_session_id,
+                arguments={"capability_id": capability_id}, tool_name="rosclaw_request_action",
+            )
+            artifact_refs = _auto_register_artifacts(service, artifact_request, {
+                "artifacts": {
+                    str(index): {"path": path}
+                    for index, path in enumerate(outcome.artifacts)
+                    if isinstance(path, str)
+                },
+            })
+            task = service._task_kernel.latest_task_for(stored.mission_id, request.pi_session_id)
+            if artifact_refs and task:
+                task_outcome = TaskCoordinator(service._task_kernel).consider(str(task["task_id"]))
         # ExecutionOutcomeV1（P0-4F/5E）：全 ID 链，不是 bool+文本。
         return {
             "schema_version": "rosclaw.execution_outcome.v1",
@@ -1059,6 +1083,8 @@ class ActionAdmissionService:
             "terminal_receipt": terminal_bool,
             "verified": executed,
             "evidence_ref": outcome.evidence_ref,
+            "artifact_refs": artifact_refs,
+            "task_outcome": task_outcome,
             "summary": outcome.text[:4000],
             "error_code": (
                 None if executed else (outcome.error_code or "ACTION_FAILED")
