@@ -218,19 +218,23 @@ class TaskKernel:
             # 是修订文本——旧 revision 的 spec 不被覆盖）。
             from rosclaw.task_kernel.task_spec import compile_task_spec
 
+            acceptance_json, acceptance_spec_json, acceptance_spec_id = (
+                self._acceptance_for_revision(task_id, revision)
+            )
             revised_spec = compile_task_spec(
                 task_id=task_id, revision=revision, goal_text=text,
                 body_id=str(active["body_id"] or ""),
                 mode=str(active["mode"] or "SIMULATION"),
-                acceptance_spec_id="",
+                acceptance_spec_id=acceptance_spec_id,
                 language=str(active["locale"] or "") if active["locale"] != "auto" else "",
             )
             self._conn.execute(
                 "INSERT INTO task_revisions (task_id, revision, "
-                "user_message_id, goal_delta, task_spec_json, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
+                "user_message_id, goal_delta, task_spec_json, acceptance_json, "
+                "acceptance_spec_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (task_id, revision, message_id, text,
-                 revised_spec.model_dump_json(), now),
+                 revised_spec.model_dump_json(), acceptance_json,
+                 acceptance_spec_json, now),
             )
             self._conn.execute(
                 "UPDATE tasks SET active_revision = ?, state = 'RUNNING', "
@@ -268,22 +272,26 @@ class TaskKernel:
             # 无法路由——TASK_SPEC_MISSING）。
             from rosclaw.task_kernel.task_spec import compile_task_spec
 
+            acceptance_json, acceptance_spec_json, acceptance_spec_id = (
+                self._acceptance_for_revision(str(active["task_id"]), revision)
+            )
             revised_spec = compile_task_spec(
                 task_id=str(active["task_id"]), revision=revision,
                 goal_text=text,
                 body_id=str(active["body_id"] or ""),
                 mode=str(active["mode"] or "SIMULATION"),
-                acceptance_spec_id="",
+                acceptance_spec_id=acceptance_spec_id,
                 language=(
                     str(active["locale"] or "") if active["locale"] != "auto" else ""
                 ),
             )
             self._conn.execute(
                 "INSERT INTO task_revisions (task_id, revision, "
-                "user_message_id, goal_delta, task_spec_json, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
+                "user_message_id, goal_delta, task_spec_json, acceptance_json, "
+                "acceptance_spec_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (str(active["task_id"]), revision, message_id, text,
-                 revised_spec.model_dump_json(), now),
+                 revised_spec.model_dump_json(), acceptance_json,
+                 acceptance_spec_json, now),
             )
             self._conn.execute(
                 "UPDATE tasks SET active_revision = ?, terminal_reason = NULL, "
@@ -1056,6 +1064,32 @@ class TaskKernel:
         ).fetchone()
         return bool(row and row["c"] > 0)
 
+    def _acceptance_for_revision(
+        self, task_id: str, revision: int,
+    ) -> tuple[str, str, str]:
+        """Carry the same root's explicit contract, with a fresh revision spec.
+
+        Read the latest contract, including explicit replacements. New roots
+        never call this helper; empty legacy contracts remain unspecified.
+        """
+        from rosclaw.task_kernel.acceptance import compile_acceptance
+
+        row = self._conn.execute(
+            "SELECT acceptance_json, acceptance_spec_json FROM task_revisions "
+            "WHERE task_id = ? AND revision = ?",
+            (task_id, revision - 1),
+        ).fetchone()
+        if row is None:
+            raise ValueError("previous task revision missing")
+        raw = str(row["acceptance_json"] or "{}")
+        acceptance = json.loads(raw)
+        if not acceptance and not row["acceptance_spec_json"]:
+            return raw, "", ""
+        spec = compile_acceptance(
+            task_id=task_id, revision=revision, task_default=acceptance,
+        )
+        return raw, json.dumps(spec.to_canonical_dict(), ensure_ascii=False), spec.spec_id
+
     def set_acceptance(self, task_id: str, acceptance: dict) -> None:
         """验收条件在任务创建/修订时冻结（PR-N0）——finish 不接受
         模型临时传入的新规则。PR-N8：同时编译并冻结
@@ -1079,6 +1113,16 @@ class TaskKernel:
              json.dumps(spec.to_canonical_dict(), ensure_ascii=False),
              task_id, revision),
         )
+        # Explicit replacement must also update the current TaskSpec reference;
+        # later continuations must not advertise the superseded contract ID.
+        task_spec = self.get_task_spec(task_id)
+        if task_spec is not None:
+            task_spec["acceptance_spec_id"] = spec.spec_id
+            self._conn.execute(
+                "UPDATE task_revisions SET task_spec_json = ? "
+                "WHERE task_id = ? AND revision = ?",
+                (json.dumps(task_spec, ensure_ascii=False), task_id, revision),
+            )
         self._emit(task_id, "acceptance.frozen",
                    {"revision": revision, "spec_id": spec.spec_id})
 
