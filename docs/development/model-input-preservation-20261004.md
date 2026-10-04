@@ -49,5 +49,7 @@ preservation and resolved model metadata, not successful endpoint image handling
 Scope limits: the existing setup writer also reconstructs other model fields
 (such as explicit reasoning/compatibility settings); this patch deliberately
 does not broaden preservation to those fields. The separate `apiKey: ""`
-custom-provider configuration is rejected by PI 1.0.2's schema and remains a
-recorded, unresolved issue. Neither limitation is concealed by the input fix.
+custom-provider configuration was rejected by PI 1.0.2's schema and was left
+unresolved in this input-only commit. Its subsequent narrowly scoped repair is
+recorded in [model-optional-key-20261004.md](model-optional-key-20261004.md).
+Neither limitation is concealed by the input fix.

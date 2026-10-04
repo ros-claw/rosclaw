@@ -258,8 +258,10 @@ def write_pi_model_config(
     )
     if api_key_json:
         entry["apiKey"] = api_key_json
-    elif "apiKey" not in entry:
-        entry["apiKey"] = ""
+    elif entry.get("apiKey") == "":
+        # PI accepts an omitted key, but rejects an empty string. Omission
+        # does not authenticate the provider or make its models available.
+        entry.pop("apiKey")
     providers[provider] = entry
     _write_json(agent_dir / "models.json", models_doc)
     return PiModelConfig(
