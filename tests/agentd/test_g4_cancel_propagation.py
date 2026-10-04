@@ -126,11 +126,14 @@ class TestNlStopCascade:
         assert disposition["suppress_model_turn"] is True
         assert disposition["owner"] == "TASK_ROUTER"
         report = disposition["cancel_report"]
-        assert report["operations_cancelled"] == 1
+        # Legacy synthetic RUNNING has no owned process identity: never
+        # report physical stop merely because the user requested cancellation.
+        assert report["operations_cancelled"] == 0
+        assert report["operations_unresolved"] == ["op_nl_1"]
         row = conn.execute(
             "SELECT state FROM operations WHERE operation_id = 'op_nl_1'",
         ).fetchone()
-        assert row["state"] == "CANCELLED"
+        assert row["state"] == "CANCELING"
 
     async def test_task_content_with_cancel_word_not_intercepted(
         self, tmp_path: Path,
@@ -187,9 +190,11 @@ class TestTaskCancelCascade:
             "user:local:1000", 1, "pi.task.cancel",
             {"token": service.control_token, "task_id": task_id},
         )
-        assert result.get("ok"), result
-        assert result["operations_cancelled"] == 1
+        assert result["ok"] is False
+        assert result["code"] == "CANCEL_STOP_UNCONFIRMED"
+        assert result["operations_cancelled"] == 0
+        assert result["operations_unresolved"] == ["op_cascade_1"]
         row = conn.execute(
             "SELECT state FROM operations WHERE operation_id = 'op_cascade_1'",
         ).fetchone()
-        assert row["state"] == "CANCELLED"
+        assert row["state"] == "CANCELING"

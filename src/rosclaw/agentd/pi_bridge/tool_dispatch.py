@@ -663,12 +663,15 @@ class PiToolDispatcher:
                 summary=json.dumps({"hits": hits}, ensure_ascii=False),
             )
         if name == "rosclaw_fail_safe":
-            await service.cancel(request.mission_id)
+            report = await service.cancel(request.mission_id)
             return PiToolResultV1(
                 request_id=request.request_id,
-                ok=True,
-                status="COMPLETED",
-                summary="fail-safe: 当前回合已请求取消；E-Stop 请走独立 operator 路径",
+                ok=bool(report["ok"]),
+                status="COMPLETED" if report["ok"] else "CANCELING",
+                error_code=report["code"],
+                retryable=not report["ok"],
+                summary=("fail-safe: 当前回合已请求取消；E-Stop 请走独立 operator 路径"
+                         if report["ok"] else "取消请求已记录，存在停止未确认的 operation；需要核实归属后清理"),
             )
         raise ToolBridgeError("TOOL_UNKNOWN", f"unhandled tool {name!r}")
 
@@ -924,7 +927,10 @@ class PiToolDispatcher:
         )
 
     async def _process_stop(self, request: PiToolRequestV1) -> PiToolResultV1:
-        from rosclaw.task_kernel.operation_manager import OPERATION_TERMINAL
+        from rosclaw.task_kernel.operation_manager import (
+            OPERATION_TERMINAL,
+            OperationCancellationUnresolvedError,
+        )
 
         operation_id = str(request.arguments.get("operation_id", ""))
         manager = self._service._operation_manager
@@ -932,15 +938,35 @@ class PiToolDispatcher:
         if not op:
             raise ToolBridgeError("NOT_FOUND", "unknown operation")
         already_terminal = str(op["state"]) in OPERATION_TERMINAL
+        if already_terminal and op.get("provider") == "process" and manager.stop_confirmation_missing(op):
+            return PiToolResultV1(
+                request_id=request.request_id, ok=False, status=str(op["state"]),
+                summary="账本为取消终态，但缺实际进程停止证据；原终态保持，需要显式核实/清理",
+                error_code=OperationCancellationUnresolvedError.code, retryable=True,
+                operation={key: op.get(key) for key in ("operation_id", "task_id", "revision", "state")},
+            )
         if not already_terminal:
-            await manager.cancel(operation_id, reason="model_request")
+            try:
+                await manager.cancel(operation_id, reason="model_request")
+            except OperationCancellationUnresolvedError:
+                op = manager.get(operation_id)
+                return PiToolResultV1(
+                    request_id=request.request_id, ok=False, status="CANCELING",
+                    summary="取消请求已记录；进程归属或实际停止未确认，不能声称已停止，需要显式核实/清理",
+                    error_code=OperationCancellationUnresolvedError.code, retryable=True,
+                    operation={key: op.get(key) for key in ("operation_id", "task_id", "revision", "state")},
+                )
             op = manager.get(operation_id)
             if not op:
                 raise ToolBridgeError("NOT_FOUND", "operation disappeared after cancel request")
         state = str(op["state"])
         if state in OPERATION_TERMINAL:
             if state == "CANCELLED" and not already_terminal:
-                summary = f"operation {operation_id} 已取消（账本先行）"
+                summary = (
+                    f"operation {operation_id} 已确认受管进程停止（CANCELLED）"
+                    if op.get("provider") == "process"
+                    else f"operation {operation_id} 已取消（账本先行）"
+                )
             else:
                 labels = {
                     "SUCCEEDED": "已完成",

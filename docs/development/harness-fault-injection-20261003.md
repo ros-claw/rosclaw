@@ -744,3 +744,74 @@ frozen-acceptance integration. Combined related task regression: **89 PASS**
 under unraisable-warning-as-error. Ruff, source mypy and diff checks pass. No
 formal runtime/session, physical source, original result or live database was
 modified, and no physical qualification is claimed.
+
+## Managed process cancellation after manager restart (2026-10-04)
+
+A native private MoveIt exercise exposed a real lifecycle gap: a new
+OperationManager had no `_procs` entry, so its normal `cancel` wrote CANCELLED
+while the previously managed foreground fixture was still alive. The operator
+retained that original state/events and separately confirmed ownership before
+cleanup; none of those original artifacts were changed by this patch.
+
+An independent private real-sleep reproduction against frozen root
+`29d599aec91ecb2c6331d91680ab4b2adaeb7677` also observed CANCELLED with
+`post_cancel_actual_alive=true`. Its exclusively created receipt was file and
+parent-directory fsynced:
+`operation_restart_cancel_private_red_20261004_v1.json` in the tennis audit
+workspace, SHA256
+`923178114bc4fbcbf6601489941e95ccafef4029a8b11cdb3eadc6125ae134ba`.
+Its private fixture was then actually stopped and awaited; no main process,
+peer fixture, live database or physical application was used for reproduction.
+
+Migration 040 adds `operations.process_identity_json`, default empty for
+legacy rows. New independent-session launches record PID, start ticks, PGID,
+SID, UID, boot ID, cwd and command SHA256. The identity contains no argv or
+environment plaintext. Reattach requires the recorded leader identity to
+match and PGID=SID=PID; numeric PID liveness alone never authorizes adoption.
+Unknown/changed identities produce DEGRADED plus `operation.recovery_unresolved`
+and are not silently resumed by a fresh heartbeat. An already persisted
+CANCELING request resumes actual stopping only when ownership is proved.
+
+Cancellation snapshots proved group members and signals exact kernel pidfds,
+first TERM and then KILL after a bounded grace period if needed. This prevents
+signals from targeting a reused numeric PID/PGID. Children may exec/change cwd
+while retaining their proved kernel birth/group identity. Uncaptured live
+members prevent unproved escalation. A process is CANCELLED only after there
+are no live, non-zombie members in the declared group/session; a kernel
+`operation.process_stopped` event records that confirmation. The machine's uv
+CPython lacks Python pidfd bindings, but its glibc public pidfd APIs were
+actually tested; the stdlib ctypes adapter uses those named APIs without
+architecture syscall numbers. If neither API is available or signaling or
+inspection is denied, cleanup remains unconfirmed.
+
+Unproved stop keeps CANCELING, records `operation.cancel_unresolved`, and
+raises `OperationCancellationUnresolvedError` with typed code
+`CANCEL_STOP_UNCONFIRMED`. Process-stop, fail-safe, PI op/task/interrupt/NL-stop
+cascades and the mission REST cancel endpoint convert this to explicit typed
+failure/partial reports rather than a 500 or inflated cancelled count. Task
+cancellation can still cancel the user's goal while reporting unresolved
+process cleanup separately. Legacy CANCELLED process rows with a PID but no
+confirmed-stop event retain every historical row/event unchanged; a renewed
+stop request reports missing stop evidence instead of manufacturing success.
+ROS action cancellation ACK/grace and terminal protection are unchanged.
+
+Scope: new, proved Linux independent-session processes only. This does not
+adopt arbitrary detached/escaped processes, reconstruct legacy ownership,
+guarantee hostile-host isolation, or provide automatic cleanup of unproved
+new members. Such cases require explicit ownership verification/cleanup.
+The actual MissionStore uses autocommit WAL with synchronous=NORMAL; this
+patch tests ordinary process/manager restarts, not hard-power durability.
+Missing ownership after a crash fails closed. No original legacy bytes,
+ledger history, model/controller or physics budget was repaired or rewritten.
+
+Validation: the initial real cross-manager case failed before repair;
+**22 new fixtures PASS**, including an actual owner process exit and new DB
+connection, real child ignoring TERM/zombie handling, start-tick/boot/UID/
+PGID/SID/cwd/command mismatch, an unrelated live numeric-PID target, failed
+pidfd signaling, four control surfaces, unresolved legacy cancellation and
+private identity-secret checks. Combined related operation/action/bridge/
+storage cohort: **100 PASS** in 28.72s under unraisable-warning-as-error.
+Ruff, mypy for all five changed Python sources, and diff checks pass. Two old
+synthetic RUNNING/pid=0 cascade fixtures now honestly assert unresolved cleanup;
+three restart fixtures now await private process/driver cleanup in their
+own running loop rather than leaking transports after `asyncio.run` closes.

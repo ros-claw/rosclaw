@@ -941,7 +941,7 @@ class AgentService:
             "journal_events": len(self._store.events(mission_id)),
         }
 
-    async def cancel(self, mission_id: str) -> None:
+    async def cancel(self, mission_id: str) -> dict:
         """fail-safe/用户取消（PR-H9）：事件落账 + 取消该 Mission 全部
         RUNNING operation（旧 AgentLoop 回合取消已随 H9 删除——回合
         归 Harness 主会话，取消走 Harness 的 Esc/steer）。"""
@@ -950,12 +950,14 @@ class AgentService:
         await self._events.append(mission_id, AgentEventType.TURN_CANCEL_REQUESTED, {})
         conn = self._store.connection
         running = conn.execute(
-            "SELECT operation_id FROM operations WHERE state = 'RUNNING' AND "
+            "SELECT operation_id FROM operations WHERE state IN "
+            "('QUEUED','ADMITTED','RUNNING','DEGRADED','CANCELING') AND "
             "task_id IN (SELECT task_id FROM tasks WHERE mission_id = ?)",
             (mission_id,),
         ).fetchall()
-        for row in running:
-            await self._operation_manager.cancel(str(row["operation_id"]))
+        return await self._operation_manager.cancel_many(
+            [str(row["operation_id"]) for row in running], reason="user_cancel",
+        )
 
     # ------------------------------------------------------------------
     # 批次 B：UI 控制面（命令/快照/归档/重命名）
@@ -1835,8 +1837,8 @@ def create_app(service: AgentService):
 
     @app.post("/missions/{mission_id}/cancel")
     async def cancel(mission_id: str) -> dict:
-        await service.cancel(mission_id)
-        return {"cancelled": True}
+        report = await service.cancel(mission_id)
+        return {"cancelled": report["ok"], **report}
 
     @app.get("/approvals/pending")
     async def approvals_pending(mission_id: str | None = None) -> list[dict]:

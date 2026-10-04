@@ -11,15 +11,14 @@ Operation ≠ Worker：无模型的确定性执行过程（仿真 rollout、渲�
   last_seq+1 重放，不重不漏）；
 - **没有默认 wall-clock kill**：deadline 是任务语义、lease 是控制权、
   liveness timeout 只标 DEGRADED（§12.2）——sweep 永不杀进程；
-- 重启恢复（reattach-or-LOST）：pid 活 → reattach（DEGRADED +
-  pid-watcher）；pid 死 + exitcode 文件 → 应用真实终态；否则诚实
-  LOST（绝不把僵尸行留在 RUNNING）。
+- 重启恢复：持久身份匹配的活 pid → reattach；旧/未知身份保留
+  DEGRADED + 未确认事件，不接管任意同号 PID；pid 死 + exitcode
+  文件 → 应用真实终态，否则诚实 LOST。
 """
 
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import json
 import logging
 import os
@@ -30,6 +29,11 @@ from pathlib import Path
 from typing import Any
 
 from rosclaw.contracts.common import new_id
+from rosclaw.task_kernel.process_identity import (
+    ProcessIdentity,
+    group_members,
+    signal_owned_members,
+)
 
 #: 终态集合（不可逆）。LOST：重启后无法证实结局的诚实终态。
 OPERATION_TERMINAL = frozenset({"SUCCEEDED", "FAILED", "CANCELLED", "LOST"})
@@ -41,6 +45,17 @@ _MAX_OUTPUT_CHUNK = 4000
 
 #: pid-watcher 轮询间隔（reattach 后等进程消失）。
 _WATCH_POLL_S = 2.0
+_CANCEL_GRACE_S = 5.0
+
+
+class OperationCancellationUnresolvedError(RuntimeError):
+    """Cancellation was requested, but owned process stop is not confirmed."""
+
+    code = "CANCEL_STOP_UNCONFIRMED"
+
+    def __init__(self, operation_id: str) -> None:
+        self.operation_id = operation_id
+        super().__init__(self.code)
 
 
 def _now() -> str:
@@ -101,9 +116,10 @@ class OperationManager:
         self._transition(operation_id, "ADMITTED",
                          event="operation.admitted",
                          payload={"pid": proc.pid, "argv": argv[:5]})
+        identity = ProcessIdentity.capture(proc.pid)
         self._conn.execute(
-            "UPDATE operations SET pid = ? WHERE operation_id = ?",
-            (proc.pid, operation_id),
+            "UPDATE operations SET pid = ?, process_identity_json = ? WHERE operation_id = ?",
+            (proc.pid, identity.to_json() if identity else "", operation_id),
         )
         self._drivers[operation_id] = asyncio.create_task(
             self._drive(operation_id, task_id, attempt_id, proc)
@@ -319,6 +335,8 @@ class OperationManager:
         """
         row = self.get(operation_id)
         if not row or row["state"] in OPERATION_TERMINAL:
+            if row and self.stop_confirmation_missing(row):
+                raise OperationCancellationUnresolvedError(operation_id)
             return
         now = _now()
         self._conn.execute(
@@ -349,20 +367,92 @@ class OperationManager:
                     operation_id, exc_info=True,
                 )
             return
-        proc = self._procs.pop(operation_id, None)
-        if proc is not None and proc.returncode is None:
-            # G-4（0916 三审 B-2）：杀整个进程组不只是 sh 包装——
-            # start_new_session=True 让 pgid==pid，孙子进程（渲染/
-            # 仿真/xvfb-run）原来在取消后成孤儿继续跑。
-            with contextlib.suppress(ProcessLookupError, PermissionError):
-                os.killpg(proc.pid, signal.SIGTERM)
+        proc = self._procs.get(operation_id)
+        identity = ProcessIdentity.parse(str(row.get("process_identity_json") or ""))
+        # The current process handle can confirm an already-reaped short child.
+        # Across restart, a numeric PID alone never authorizes signaling.
+        if proc is not None and proc.returncode is not None:
             try:
-                await asyncio.wait_for(proc.wait(), timeout=5)
-            except TimeoutError:
-                with contextlib.suppress(ProcessLookupError, PermissionError):
-                    os.killpg(proc.pid, signal.SIGKILL)
+                stopped = identity is not None and not group_members(identity)
+            except (OSError, ValueError):
+                stopped = False
+        else:
+            stopped = await self._stop_owned_group(identity, int(row.get("pid") or 0))
+        if not stopped:
+            self._conn.execute(
+                "UPDATE operations SET failure_code = ? WHERE operation_id = ?",
+                (OperationCancellationUnresolvedError.code, operation_id),
+            )
+            self._emit(row["task_id"], "operation.cancel_unresolved",
+                       {"operation_id": operation_id, "code": OperationCancellationUnresolvedError.code,
+                        "stop_confirmed": False}, operation_id=operation_id)
+            raise OperationCancellationUnresolvedError(operation_id)
+        if proc is not None:
+            await proc.wait()
+        self._procs.pop(operation_id, None)
+        self._emit(row["task_id"], "operation.process_stopped",
+                   {"operation_id": operation_id, "stop_confirmed": True,
+                    "pid": int(row.get("pid") or 0)}, operation_id=operation_id)
         await self._record_terminal(operation_id, "CANCELLED",
                                     failure_code=reason)
+
+    async def _stop_owned_group(self, identity: ProcessIdentity | None, pid: int) -> bool:
+        if identity is None or identity.pid != pid or not identity.matches():
+            return False
+        try:
+            members = group_members(identity)
+            if not identity.matches():
+                return False
+            if not signal_owned_members(members, signal.SIGTERM):
+                return False
+            for phase in range(2):
+                deadline = asyncio.get_running_loop().time() + _CANCEL_GRACE_S
+                while group_members(identity):
+                    if asyncio.get_running_loop().time() >= deadline:
+                        break
+                    await asyncio.sleep(0.02)
+                else:
+                    return True
+                if phase == 0:
+                    # TERM may kill the wrapper while a child ignores it. Only
+                    # exact captured kernel birth identities allow escalation;
+                    # an uncaptured/reused PID never authorizes signaling.
+                    if any(not any(known.same_birth(member) for known in members)
+                           for member in group_members(identity)):
+                        return False
+                    if not signal_owned_members(members, signal.SIGKILL):
+                        return False
+            return False
+        except (OSError, ValueError, NotImplementedError):
+            return False
+
+    async def cancel_many(self, operation_ids: list[str], *, reason: str = "user") -> dict:
+        """Typed partial cancellation report; never count unresolved stops."""
+        cancelled = 0
+        unresolved = []
+        for operation_id in operation_ids:
+            before = self.get(operation_id)
+            try:
+                await self.cancel(operation_id, reason=reason)
+            except OperationCancellationUnresolvedError:
+                unresolved.append(operation_id)
+            else:
+                cancelled += (before.get("state") not in OPERATION_TERMINAL
+                              and self.get(operation_id).get("state") == "CANCELLED")
+        return {"ok": not unresolved, "operations_cancelled": cancelled,
+                "operations_unresolved": unresolved,
+                "code": OperationCancellationUnresolvedError.code if unresolved else ""}
+
+    def stop_confirmation_missing(self, row: dict) -> bool:
+        """Legacy CANCELLED is a ledger fact, not retrospective stop evidence."""
+        if (row.get("state") != "CANCELLED" or row.get("provider") != "process"
+                or not row.get("pid")):
+            return False
+        return self._conn.execute(
+            "SELECT 1 FROM task_events WHERE operation_id = ? "
+            "AND event_type = 'operation.process_stopped' LIMIT 1",
+            (row["operation_id"],),
+        ).fetchone() is None
 
     async def _cancel_grace(
         self, operation_id: str, reason: str, grace_s: float = 5.0
@@ -381,10 +471,12 @@ class OperationManager:
         degraded = resumed = 0
         now = datetime.now(UTC).timestamp()
         rows = self._conn.execute(
-            "SELECT operation_id, task_id, state, heartbeat_at FROM operations "
+            "SELECT operation_id, task_id, state, heartbeat_at, failure_code FROM operations "
             "WHERE state IN ('QUEUED', 'ADMITTED', 'RUNNING', 'DEGRADED')",
         ).fetchall()
         for row in rows:
+            if row["failure_code"] == "PROCESS_IDENTITY_UNVERIFIED":
+                continue  # Unverified recovery is not a heartbeat-based resume.
             heartbeat = datetime.fromisoformat(str(row["heartbeat_at"])).timestamp()
             stale = (now - heartbeat) > stale_after_s
             if stale and row["state"] != "DEGRADED":
@@ -406,13 +498,13 @@ class OperationManager:
     async def recover_on_boot(self) -> dict:
         """agentd 重启后的 operation 对账。
 
-        - pid 活 → reattach（DEGRADED + pid-watcher 等退出）；
+        - pid 活且持久身份一致 → reattach；无法证明归属则 unresolved；
         - pid 死 + exitcode 文件 → 应用真实终态；
         - 否则 → 诚实 LOST（事件留痕，绝不留僵尸 RUNNING）。
         """
-        report = {"reattached": 0, "terminated": 0, "lost": 0}
+        report = {"reattached": 0, "terminated": 0, "lost": 0, "unresolved": 0}
         rows = self._conn.execute(
-            "SELECT operation_id, task_id, pid, exitcode_path FROM operations "
+            "SELECT * FROM operations "
             "WHERE state IN ('QUEUED', 'ADMITTED', 'RUNNING', 'DEGRADED', "
             "'CANCELING')",
         ).fetchall()
@@ -428,6 +520,27 @@ class OperationManager:
                 report["terminated"] += 1
                 continue
             if pid > 0 and self._pid_alive(pid):
+                identity = ProcessIdentity.parse(str(row["process_identity_json"] or ""))
+                if identity is None or identity.pid != pid or not identity.matches():
+                    if row["state"] != "CANCELING":
+                        self._conn.execute(
+                            "UPDATE operations SET failure_code = 'PROCESS_IDENTITY_UNVERIFIED' "
+                            "WHERE operation_id = ?", (op_id,),
+                        )
+                    self._transition(op_id, "DEGRADED", event=None)
+                    self._emit(str(row["task_id"]), "operation.recovery_unresolved",
+                               {"pid": pid, "stop_confirmed": False,
+                                "code": "PROCESS_IDENTITY_UNVERIFIED"}, operation_id=op_id)
+                    report["unresolved"] += 1
+                    continue
+                if row["state"] == "CANCELING":
+                    try:
+                        await self.cancel(op_id, reason=str(row["cancel_reason"] or "user"))
+                    except OperationCancellationUnresolvedError:
+                        report["unresolved"] += 1
+                    else:
+                        report["terminated"] += 1
+                    continue
                 self._transition(op_id, "DEGRADED",
                                  event="operation.reattached",
                                  payload={"pid": pid})
@@ -449,7 +562,8 @@ class OperationManager:
     ) -> None:
         """reattach 后的 pid-watcher：等进程消失 → exitcode 定终态
         （无 exitcode = 诚实 LOST——退出码不可考）。"""
-        while self._pid_alive(pid):
+        identity = ProcessIdentity.parse(str(self.get(operation_id).get("process_identity_json") or ""))
+        while identity is not None and identity.pid == pid and identity.matches():
             exitcode = self._read_exitcode(exitcode_path)
             if exitcode is not None:
                 break

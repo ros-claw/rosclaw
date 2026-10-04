@@ -630,7 +630,7 @@ class PiBridgeServer:
             # G-4（0916 三审 B-2）：Esc/Ctrl-C 中断级联——pi 内部
             # abort 只停模型回合，后台 operation（渲染/仿真子进程）
             # 照跑。此处停本会话活跃 task 的在途 operation（子进程
-            # 组随 OperationManager.killpg 全灭）。语义分级：Esc=
+            # 组由 OperationManager 核验身份并确认停止）。语义分级：Esc=
             # 中断（task 不落 CANCELLED——用户可 steer 继续）；
             # 放弃是 NL-stop/pi.task.cancel 的事。
             kernel = service._task_kernel
@@ -639,18 +639,18 @@ class PiBridgeServer:
                 str(params.get("session_ref", "")),
             )
             cancelled = 0
+            report = {"ok": True, "operations_unresolved": [], "code": ""}
             if active is not None:
                 conn = service._store.connection
                 running = conn.execute(
                     "SELECT operation_id FROM operations WHERE state IN "
-                    "('QUEUED','ADMITTED','RUNNING','DEGRADED') AND task_id = ?",
+                    "('QUEUED','ADMITTED','RUNNING','DEGRADED','CANCELING') AND task_id = ?",
                     (str(active.get("task_id", "")),),
                 ).fetchall()
-                for row in running:
-                    await service._operation_manager.cancel(
-                        str(row["operation_id"]), reason="user_interrupt"
-                    )
-                    cancelled += 1
+                report = await service._operation_manager.cancel_many(
+                    [str(row["operation_id"]) for row in running], reason="user_interrupt",
+                )
+                cancelled = report["operations_cancelled"]
             # G-4b：同步渲染子进程也要停（渲染不是 operation——
             # 注册表是唯一追踪；G09 实证模型走同步 scene_render，
             # 只停 operation 时渲染孤儿跑完全程）。
@@ -658,7 +658,7 @@ class PiBridgeServer:
 
             renders_killed = kill_active_renders()
             return {
-                "ok": True,
+                **report,
                 "operations_cancelled": cancelled,
                 "renders_killed": renders_killed,
             }
@@ -679,17 +679,13 @@ class PiBridgeServer:
             conn = service._store.connection
             running = conn.execute(
                 "SELECT operation_id FROM operations WHERE state IN "
-                "('QUEUED','ADMITTED','RUNNING','DEGRADED') AND task_id = ?",
+                "('QUEUED','ADMITTED','RUNNING','DEGRADED','CANCELING') AND task_id = ?",
                 (task_id,),
             ).fetchall()
-            for row in running:
-                await service._operation_manager.cancel(
-                    str(row["operation_id"]), reason="user_cancel"
-                )
-            return {
-                "ok": True, "task_id": task_id, "state": "CANCELLED",
-                "operations_cancelled": len(running),
-            }
+            report = await service._operation_manager.cancel_many(
+                [str(row["operation_id"]) for row in running], reason="user_cancel",
+            )
+            return {**report, "task_id": task_id, "state": "CANCELLED"}
         if method == "pi.doctor.task":
             # 七审 PR-SEVEN-5：task readiness（/doctor task <goal>）。
             return await service.doctor_task(str(params.get("goal", "")))
@@ -1163,17 +1159,14 @@ class PiBridgeServer:
                 conn = service._store.connection
                 running = conn.execute(
                     "SELECT operation_id, task_id FROM operations WHERE state IN "
-                    "('QUEUED','ADMITTED','RUNNING','DEGRADED') AND task_id IN "
+                    "('QUEUED','ADMITTED','RUNNING','DEGRADED','CANCELING') AND task_id IN "
                     "(SELECT task_id FROM tasks WHERE mission_id = ?)",
                     (str(params.get("mission_id", "")),),
                 ).fetchall()
                 if active is not None or running or _has_active_renders():
-                    cancelled_ops = 0
-                    for row in running:
-                        await service._operation_manager.cancel(
-                            str(row["operation_id"]), reason="user_nl_stop"
-                        )
-                        cancelled_ops += 1
+                    cancel_report = await service._operation_manager.cancel_many(
+                        [str(row["operation_id"]) for row in running], reason="user_nl_stop",
+                    )
                     task_id = ""
                     if active is not None:
                         task_id = str(active.get("task_id", ""))
@@ -1194,7 +1187,7 @@ class PiBridgeServer:
                         "task_id": task_id,
                         "suppress_model_turn": True,
                         "cancel_report": {
-                            "operations_cancelled": cancelled_ops,
+                            **cancel_report,
                             "renders_killed": renders_killed,
                             "task_cancelled": bool(task_id),
                         },
@@ -1506,10 +1499,9 @@ class PiBridgeServer:
             op = service._operation_manager.get(str(params.get("operation_id", "")))
             return {"ok": bool(op), "operation": op}
         if method == "pi.op.cancel":
-            await service._operation_manager.cancel(
-                str(params.get("operation_id", ""))
+            return await service._operation_manager.cancel_many(
+                [str(params.get("operation_id", ""))],
             )
-            return {"ok": True}
         if method == "pi.kernel.events":
             # seq 重放（断线从 last_seq+1——不重不漏）。
             events = service._operation_manager.events_since(

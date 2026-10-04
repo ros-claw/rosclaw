@@ -22,11 +22,11 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import inspect
 import json
 import os
 import sqlite3
-import time
 from pathlib import Path
 
 from rosclaw.task_kernel.operation_manager import (
@@ -224,54 +224,79 @@ class TestLiveness:
 
 
 class TestRestartRecovery:
-    def _start_op(self, conn: sqlite3.Connection, argv: list[str]) -> dict:
+    @staticmethod
+    async def _start_op(conn, argv):
         mgr = OperationManager(None, conn)
-        return asyncio.run(
-            mgr.start(task_id="task_1", attempt_id="", kind="process", argv=argv)
-        )
+        op = await mgr.start(task_id="task_1", attempt_id="", kind="process", argv=argv)
+        proc = mgr._procs[op["operation_id"]]
+        driver = mgr._drivers[op["operation_id"]]
+        driver.cancel()
+        await asyncio.gather(driver, return_exceptions=True)
+        return mgr, op, proc
+
+    @staticmethod
+    async def _cleanup(proc, mgr2):
+        if proc.returncode is None:
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(proc.pid, 9)
+        await asyncio.wait_for(proc.wait(), 5)
+        for driver in mgr2._drivers.values():
+            driver.cancel()
+        await asyncio.gather(*mgr2._drivers.values(), return_exceptions=True)
 
     def test_reattach_when_pid_alive(self, tmp_path: Path) -> None:
         conn = _conn(tmp_path)
         _task(conn)
-        op = self._start_op(conn, ["sh", "-c", "sleep 30"])
-        # 模拟重启：新 manager（内存驱动全丢），sweep 恢复。
-        mgr2 = OperationManager(None, conn)
-        report = asyncio.run(mgr2.recover_on_boot())
-        row = mgr2.get(op["operation_id"])
-        assert row["state"] != "LOST", "活 pid 被误判 LOST"
-        assert report["reattached"] >= 1
-        os.kill(int(row["pid"]), 15)  # 清理
+
+        async def run():
+            _, op, proc = await self._start_op(conn, ["sh", "-c", "sleep 30"])
+            mgr2 = OperationManager(None, conn)
+            try:
+                report = await mgr2.recover_on_boot()
+                assert mgr2.get(op["operation_id"])["state"] != "LOST"
+                assert report["reattached"] >= 1
+                await mgr2.cancel(op["operation_id"])
+            finally:
+                await self._cleanup(proc, mgr2)
+        asyncio.run(run())
 
     def test_dead_pid_with_exitcode_applies_terminal(self, tmp_path: Path) -> None:
         conn = _conn(tmp_path)
         _task(conn)
-        op = self._start_op(conn, ["sh", "-c", "exit 3"])
-        time.sleep(0.5)  # 进程已退出（exitcode 文件应由 wrapper 写）
-        mgr2 = OperationManager(None, conn)
-        asyncio.run(mgr2.recover_on_boot())
-        row = mgr2.get(op["operation_id"])
-        assert row["state"] == "FAILED"
-        assert "exit_3" in (row["failure_code"] or "")
+
+        async def run():
+            _, op, proc = await self._start_op(conn, ["sh", "-c", "exit 3"])
+            mgr2 = OperationManager(None, conn)
+            try:
+                await proc.wait()
+                await mgr2.recover_on_boot()
+                row = mgr2.get(op["operation_id"])
+                assert row["state"] == "FAILED"
+                assert "exit_3" in (row["failure_code"] or "")
+            finally:
+                await self._cleanup(proc, mgr2)
+        asyncio.run(run())
 
     def test_dead_pid_without_exitcode_is_honest_lost(self, tmp_path: Path) -> None:
         conn = _conn(tmp_path)
         _task(conn)
-        op = self._start_op(conn, ["sh", "-c", "sleep 30"])
-        op_id = op["operation_id"]
-        pid = int(op["pid"])
-        os.kill(pid, 9)
-        time.sleep(0.3)
-        # 删掉 exitcode（模拟 agentd 被杀时进程也被杀、无退出记录）。
-        for candidate in tmp_path.rglob(f"*{op_id}*exit*"):
-            candidate.unlink()
-        mgr2 = OperationManager(None, conn)
-        report = asyncio.run(mgr2.recover_on_boot())
-        row = mgr2.get(op_id)
-        assert row["state"] == "LOST"
-        assert report["lost"] >= 1
-        types = [e["type"] for e in _events(conn)]
-        assert "operation.lost" in types
-        assert "LOST" in OPERATION_TERMINAL
+
+        async def run():
+            _, op, proc = await self._start_op(conn, ["sh", "-c", "sleep 30"])
+            mgr2 = OperationManager(None, conn)
+            try:
+                os.killpg(proc.pid, 9)
+                await proc.wait()
+                for candidate in tmp_path.rglob(f"*{op['operation_id']}*exit*"):
+                    candidate.unlink()
+                report = await mgr2.recover_on_boot()
+                assert mgr2.get(op["operation_id"])["state"] == "LOST"
+                assert report["lost"] >= 1
+                assert "operation.lost" in [e["type"] for e in _events(conn)]
+                assert "LOST" in OPERATION_TERMINAL
+            finally:
+                await self._cleanup(proc, mgr2)
+        asyncio.run(run())
 
 
 class TestWaitOperationRemoved:
