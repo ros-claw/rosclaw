@@ -1,0 +1,102 @@
+[
+  {
+    "model": "gpt-6.1-sol",
+    "provider": "openai-codex",
+    "usage": {
+      "input": 3030,
+      "output": 56,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "reasoning": 0,
+      "totalTokens": 3086,
+      "cost": {
+        "input": 0.006059999999999999,
+        "output": 0.0005600000000000001,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "total": 0.006619999999999999
+      }
+    },
+    "stopReason": "toolUse"
+  },
+  {
+    "model": "gpt-6.1-sol",
+    "provider": "openai-codex",
+    "usage": {
+      "input": 3773,
+      "output": 17,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "reasoning": 0,
+      "totalTokens": 3790,
+      "cost": {
+        "input": 0.007546,
+        "output": 0.00017,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "total": 0.007716
+      }
+    },
+    "stopReason": "toolUse"
+  },
+  {
+    "model": "gpt-6.1-sol",
+    "provider": "openai-codex",
+    "usage": {
+      "input": 299,
+      "output": 17,
+      "cacheRead": 3584,
+      "cacheWrite": 0,
+      "reasoning": 0,
+      "totalTokens": 3900,
+      "cost": {
+        "input": 0.000598,
+        "output": 0.00017,
+        "cacheRead": 0.00035840000000000004,
+        "cacheWrite": 0,
+        "total": 0.0011264
+      }
+    },
+    "stopReason": "toolUse"
+  },
+  {
+    "model": "gpt-6.1-sol",
+    "provider": "openai-codex",
+    "usage": {
+      "input": 1100,
+      "output": 126,
+      "cacheRead": 2944,
+      "cacheWrite": 0,
+      "reasoning": 29,
+      "totalTokens": 4170,
+      "cost": {
+        "input": 0.0021999999999999997,
+        "output": 0.00126,
+        "cacheRead": 0.0002944,
+        "cacheWrite": 0,
+        "total": 0.0037543999999999998
+      }
+    },
+    "stopReason": "toolUse"
+  },
+  {
+    "model": "gpt-6.1-sol",
+    "provider": "openai-codex",
+    "usage": {
+      "input": 366,
+      "output": 55,
+      "cacheRead": 3840,
+      "cacheWrite": 0,
+      "reasoning": 0,
+      "totalTokens": 4261,
+      "cost": {
+        "input": 0.000732,
+        "output": 0.00055,
+        "cacheRead": 0.000384,
+        "cacheWrite": 0,
+        "total": 0.0016660000000000002
+      }
+    },
+    "stopReason": "stop"
+  }
+]

@@ -1,0 +1,40 @@
+{
+  "status": "PASS",
+  "evidence_domain": "GPU_FIXTURE",
+  "captured_at": "2026-10-05T00:40:01.347316+00:00",
+  "received_validated_frames": 300,
+  "warmup_validated_frames": 1,
+  "input_header_bound_output_pixels_validated": true,
+  "content_and_backend_validated": true,
+  "output_buffer_backend": "CUDA",
+  "copy_trace_complete": false,
+  "zero_copy_verified": false,
+  "hardware_motion": false,
+  "files": [
+    {
+      "file": "resize-008-resize_component.log.gz",
+      "sha256": "13595c0815e3ab6e3f8a900be3a5784d54c0497564ce051ea9ebda45d5c50bf7",
+      "uncompressed_sha256": "6446df66dd2005a2db8b52b64384f212fe066f2477bfbb79a4653a07d13169b7"
+    },
+    {
+      "file": "resize-008-resize_publisher.log.gz",
+      "sha256": "11d26b2eea7d22b479138b490d5cee94cd10a761c288c74f7f36587a881dc698",
+      "uncompressed_sha256": "ddcf10253ff27624a9c78a77a994fb3f0ac287199323599d0905c45370008bf3"
+    },
+    {
+      "file": "resize-008-resize_subscriber.log.gz",
+      "sha256": "9de3080f0a20e89ba880ba9e4a82cff620a1b66fd9e206f7c857eccf13072ae7",
+      "uncompressed_sha256": "3fb68288c0321fde6358d581a0d0cd4e50385b438a4dc716370cd160c235bd84"
+    },
+    {
+      "file": "resize-008.json.gz",
+      "sha256": "c132f1cfb7843fb5c48056ef936d0382f39e5eabee0767ed6118e80606a0c028",
+      "uncompressed_sha256": "205e141b73a2551468288ae605e2770d131614097ab44e2aaf85c7914fc13a5a"
+    },
+    {
+      "file": "resize-008.log.gz",
+      "sha256": "81eecdc6eabac47bc40b6527fb3635ab838d1485226d4cfa0d35006d33cdc236",
+      "uncompressed_sha256": "26a6282c8e2e415018d65642ac9ea24446f53f9b665c3a4ed8dde52d9cdce59f"
+    }
+  ]
+}

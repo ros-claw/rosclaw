@@ -1,0 +1,76 @@
+{
+  "image": "ros:jazzy-ros-base-noble",
+  "architecture": "arm64",
+  "manifest_digest": "sha256:ec00a06df4f573a86e4336c4585940f7f614646ef22675ace1b3e14ee0a82cb3",
+  "manifest": {
+    "schemaVersion": 2,
+    "mediaType": "application/vnd.oci.image.manifest.v1+json",
+    "config": {
+      "mediaType": "application/vnd.oci.image.config.v1+json",
+      "digest": "sha256:c3c5545ce25528f70a63f266924b40c80e95bf8e27c233f4108f4d5fda5c0eb4",
+      "size": 5398
+    },
+    "layers": [
+      {
+        "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+        "digest": "sha256:90812e242c93750dbd37ce847c7d3db62c2c53035367d1d89c61184f168f5d37",
+        "size": 28940087
+      },
+      {
+        "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+        "digest": "sha256:67678ff0249d2d6f797f1e59d0f94f273e3a087280667f828ab393d60f9c8bb7",
+        "size": 683516
+      },
+      {
+        "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+        "digest": "sha256:dfd9c25488505afd3615c12ca0586cc6b2711036abeffbbba50fc0e876adb3ce",
+        "size": 8990784
+      },
+      {
+        "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+        "digest": "sha256:47eab992b03775030af3f4a2c503e795df95cd8cf0396e42661c47d2a71e0eef",
+        "size": 94951
+      },
+      {
+        "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+        "digest": "sha256:a5682617504ebb80773d2faf85a796d24b412518cb98adf6d3c5758052dd114f",
+        "size": 115378667
+      },
+      {
+        "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+        "digest": "sha256:cea7a1574b6b3a62efd1d75d62c70003738971f623f93b34f0eebcfaba401b13",
+        "size": 198
+      },
+      {
+        "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+        "digest": "sha256:e1464792e2dcc03bfcc4a380f2db85d23190b68d3f2d80095dbdcc86f468cd9a",
+        "size": 105678958
+      },
+      {
+        "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+        "digest": "sha256:e4b84fc58bc29d30ded586d328dcac888b1f355f7ee068dd61a3501e21c5ee18",
+        "size": 425551
+      },
+      {
+        "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+        "digest": "sha256:3e4fe4a81959604b7aaa16fad152b936d65b546181d567296beebb24b37fe277",
+        "size": 2671
+      },
+      {
+        "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+        "digest": "sha256:4acb301d1f70c1439fe8ce12b4d688a40872e15ba3c5b2325b832afc6cc90a06",
+        "size": 27194796
+      }
+    ],
+    "annotations": {
+      "com.docker.official-images.bashbrew.arch": "arm64v8",
+      "org.opencontainers.image.base.digest": "sha256:8f687fdf084482819aa7dab48c3887331edd0d3687b219951fdb66c418316ab1",
+      "org.opencontainers.image.base.name": "ros:jazzy-ros-core-noble",
+      "org.opencontainers.image.created": "2026-10-02T02:29:57Z",
+      "org.opencontainers.image.revision": "0038f1c3a11aa0fc573d698b39ab5c204aad5a40",
+      "org.opencontainers.image.source": "https://github.com/osrf/docker_images.git#0038f1c3a11aa0fc573d698b39ab5c204aad5a40:ros/jazzy/ubuntu/noble/ros-base",
+      "org.opencontainers.image.url": "https://hub.docker.com/_/ros",
+      "org.opencontainers.image.version": "jazzy-ros-base"
+    }
+  }
+}

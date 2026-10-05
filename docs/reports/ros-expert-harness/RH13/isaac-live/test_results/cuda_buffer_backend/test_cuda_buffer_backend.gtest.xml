@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites tests="2" failures="0" disabled="0" errors="0" time="0." timestamp="2026-10-04T23:20:10.522" name="AllTests">
+  <testsuite name="CudaBufferBackendTest" tests="2" failures="0" disabled="0" skipped="0" errors="0" time="0." timestamp="2026-10-04T23:20:10.522">
+    <testcase name="BackendTypeName" file="/buffer-source/cuda_buffer_backend/cuda_buffer_backend/test/test_cuda_buffer_backend.cpp" line="38" status="run" result="completed" time="0." timestamp="2026-10-04T23:20:10.522" classname="cuda_buffer_backend.CudaBufferBackendTest" />
+    <testcase name="OnDiscoveringEndpointWithoutCudaSupport" file="/buffer-source/cuda_buffer_backend/cuda_buffer_backend/test/test_cuda_buffer_backend.cpp" line="43" status="run" result="completed" time="0." timestamp="2026-10-04T23:20:10.522" classname="cuda_buffer_backend.CudaBufferBackendTest" />
+  </testsuite>
+</testsuites>

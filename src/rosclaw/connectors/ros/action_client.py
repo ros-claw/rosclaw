@@ -58,14 +58,16 @@ class Ros2ActionClient:
             self._goals[goal_id] = action
             self._feedback_cbs[goal_id] = on_feedback
             self._result_cbs[goal_id] = on_result
-        result = self._transport.send({
-            "op": "send_goal",
-            "action": action,
-            "action_type": action_type,
-            "args": args,
-            "feedback": True,
-            "id": goal_id,
-        })
+        result = self._transport.send(
+            {
+                "op": "send_action_goal",
+                "action": action,
+                "action_type": action_type,
+                "args": args,
+                "feedback": True,
+                "id": goal_id,
+            }
+        )
         if not result.is_ok:
             with self._lock:
                 self._goals.pop(goal_id, None)
@@ -78,11 +80,13 @@ class Ros2ActionClient:
         """请求取消（终态由 action_result(CANCELED) 确认）。"""
         with self._lock:
             action = self._goals.get(goal_id, "")
-        self._transport.send({
-            "op": "cancel_goal",
-            "action": action,
-            "id": goal_id,
-        })
+        self._transport.send(
+            {
+                "op": "cancel_action_goal",
+                "action": action,
+                "id": goal_id,
+            }
+        )
 
     def close(self) -> None:
         self._closed = True
@@ -94,7 +98,8 @@ class Ros2ActionClient:
             if self._listener is not None and self._listener.is_alive():
                 return
             self._listener = threading.Thread(
-                target=self._listen_loop, daemon=True,
+                target=self._listen_loop,
+                daemon=True,
                 name="ros2-action-listener",
             )
             self._listener.start()
@@ -126,9 +131,21 @@ class Ros2ActionClient:
                     self._goals.pop(goal_id, None)
                 if callback is not None:
                     values = data.get("values") or {}
-                    status = int(values.get("status", 0))
+                    if not isinstance(values, dict):
+                        values = {"error": str(values)}
+                    # Current protocol carries status beside values. Older
+                    # rosbridge releases wrap the GetResult response in values.
                     try:
-                        callback(status, dict(values.get("result") or values))
+                        status = int(data.get("status", values.get("status", STATUS_ABORTED)))
+                    except (ValueError, TypeError):
+                        status = STATUS_ABORTED
+                    if data.get("result") is False and status == STATUS_SUCCEEDED:
+                        status = STATUS_ABORTED
+                    payload = values.get("result", values) if "status" in values else values
+                    if not isinstance(payload, dict):
+                        payload = {"error": str(payload)}
+                    try:
+                        callback(status, dict(payload))
                     except Exception:  # noqa: BLE001
                         logger.debug("result callback error", exc_info=True)
 

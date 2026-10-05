@@ -1,0 +1,11 @@
+[
+  {
+    "task_id": "task_7e69b77547714ba58f7b8017",
+    "mission_id": "mis_d21e9ffda77345caaea98ae1",
+    "root_goal": "完成整个房间清扫。",
+    "state": "SUCCEEDED",
+    "terminal_reason": "verification_passed",
+    "created_at": "2026-10-04T23:04:14.213212+00:00",
+    "updated_at": "2026-10-04T23:15:30.707845+00:00"
+  }
+]

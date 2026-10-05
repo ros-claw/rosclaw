@@ -1,0 +1,8 @@
+{
+  "stage": "RH02",
+  "status": "COMPONENT_VERIFIED",
+  "primary_evidence": "../final_affected.xml",
+  "test_summary": "../final_test_summary.json",
+  "v1_acceptance": false,
+  "note": "Existing transport/discovery extended; bounded read-only sidecar topic with cleanup. Live rosbridge acceptance pending."
+}

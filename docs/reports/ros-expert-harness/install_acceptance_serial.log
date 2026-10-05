@@ -1,0 +1,60 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+______ TestU01FreshHomeLoginFlow.test_u01_config_chat_doctor_consistency _______
+
+self = <tests.acceptance.u_matrix.test_u01_u04_config.TestU01FreshHomeLoginFlow object at 0xeca9db576c10>
+installed = PosixPath('/tmp/pytest-of-nvidia/pytest-143/u_install0/prefix')
+tmp_path = PosixPath('/tmp/pytest-of-nvidia/pytest-143/test_u01_config_chat_doctor_co0')
+
+    def test_u01_config_chat_doctor_consistency(self, installed: Path, tmp_path: Path) -> None:
+        """U01：全新 HOME，init（= /login 同一配置流程的脚本化入口）
+        → doctor 一致 → 重启后再 doctor 仍一致；无需额外环境变量操作；
+        秘密不进日志。"""
+        started = time.monotonic()
+        fake = FakeProvider("ok")
+        home = tmp_path / "h1"
+        try:
+>           _init_compat(installed, home, fake, "U_FAKE_KEY")
+
+tests/acceptance/u_matrix/test_u01_u04_config.py:72: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+prefix = PosixPath('/tmp/pytest-of-nvidia/pytest-143/u_install0/prefix')
+home = PosixPath('/tmp/pytest-of-nvidia/pytest-143/test_u01_config_chat_doctor_co0/h1')
+fake = <tests.acceptance.u_matrix.harness.FakeProvider object at 0xeca9d9f041d0>
+key_env = 'U_FAKE_KEY', probe_ok = True
+
+    def _init_compat(
+        prefix: Path, home: Path, fake: FakeProvider, key_env: str,
+        *, probe_ok: bool = True,
+    ) -> None:
+        """init 写配置+探测。probe_ok=False（U03 坏 provider）时 rc=1
+        是**正确**结果（配置已写、探测如实失败——不是配置错误）。"""
+        proc = run_cli(
+            prefix,
+            ["agentd", "init", "--provider", "openai-compat",
+             "--base-url", fake.base_url, "--model", fake.model,
+             "--api-key-ref", f"env:{key_env}"],
+            env_extra=_env(home, **{key_env: "sk-fake-u"}),
+            timeout=300,
+        )
+        expected = (0, 2) if probe_ok else (1,)
+>       assert proc.returncode in expected, (
+            f"init rc={proc.returncode}（期望 {expected}）: "
+            f"{proc.stdout[-300:]} {proc.stderr[-300:]}"
+        )
+E       AssertionError: init rc=1（期望 (0, 2)）: 模型已配置：openai-compat / fake-k3
+E         凭据引用：env:U_FAKE_KEY（值只在环境变量）
+E         推理强度：high（/effort 可改）
+E         探测（便宜档）：UNCONFIGURED
+E         未就绪：PI_ENGINE_MISSING: node>=22.19 或 rosclaw-agent dist 不可用——重新安装或构建发布包
+E          
+E         模型尚未通过便宜探测。这是诚实状态，不是假成功；请检查 key/endpoint 后重试 `rosclaw agent doctor`。
+E         
+E       assert 1 in (0, 2)
+E        +  where 1 = CompletedProcess(args=['/tmp/pytest-of-nvidia/pytest-143/u_install0/prefix/bin/rosclaw', 'agentd', 'init', '--provider...sclaw-agent dist 不可用——重新安装或构建发布包\n', stderr='\n模型尚未通过便宜探测。这是诚实状态，不是假成功；请检查 key/endpoint 后重试 `rosclaw agent doctor`。\n').returncode
+
+tests/acceptance/u_matrix/test_u01_u04_config.py:57: AssertionError
+=========================== short test summary info ============================
+FAILED tests/acceptance/u_matrix/test_u01_u04_config.py::TestU01FreshHomeLoginFlow::test_u01_config_chat_doctor_consistency
+1 failed in 157.82s (0:02:37)

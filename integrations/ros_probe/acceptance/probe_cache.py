@@ -1,0 +1,95 @@
+"""Deterministic native-producer cache regressions; no Node or DDS connection.
+
+Run with ROS-host Python after sourcing ROS, to exercise actual message types
+and probe code. This is a regression test, not a live observation acceptance.
+"""
+
+import json
+import sys
+import time
+from collections import deque
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "ros2"))
+from probe import GetState, ReadOnlyProbe  # noqa: E402
+
+
+def main():
+    now = time.monotonic()
+    old = (datetime.now(UTC) - timedelta(seconds=6)).isoformat()
+    fixture = SimpleNamespace(
+        parameters={"/amcl": {"use_sim_time": True}},
+        parameter_received={"/amcl": now - 6},
+        parameter_captured_at={"/amcl": old},
+        lifecycle_states={"/amcl": {"name": "/amcl", "state": "ACTIVE", "captured_at": old}},
+        clock_readings=deque([(now - 6, 1.0), (now - 5, 2.0)]),
+        clock_values=deque([1.0, 2.0]),
+        get_topic_names_and_types=lambda: [],
+        get_node_names_and_namespaces=lambda: [],
+        get_service_names_and_types=lambda: [],
+        get_fully_qualified_name=lambda: "/probe_test",
+        get_clock=lambda: SimpleNamespace(now=lambda: SimpleNamespace(nanoseconds=0)),
+        get_parameter=lambda _: SimpleNamespace(value=True),
+        edges={},
+        localization_observations={},
+        subscriptions_by_topic={},
+        packages=[],
+        errors=[],
+        pending={},
+        clients_by_name={},
+    )
+    snapshot = ReadOnlyProbe.snapshot(fixture)
+    assert snapshot["observations"]["node_parameters"] == {}
+    assert snapshot["observations"]["parameter_captured_at"]["/amcl"] == old
+    assert snapshot["lifecycle"][0]["state"] == "UNKNOWN"
+    assert snapshot["lifecycle"][0]["last_observed_state"] == "ACTIVE"
+    assert snapshot["lifecycle"][0]["captured_at"] == old
+    assert not snapshot["completeness"]["lifecycle"]
+    assert not snapshot["completeness"]["time"]
+    assert snapshot["observations"]["clock_advancing"] is False
+
+    # A delayed old callback must neither erase a newer RPC nor refresh cache.
+    callbacks = []
+    old_future = SimpleNamespace(add_done_callback=callbacks.append)
+    client = SimpleNamespace(service_is_ready=lambda: True, call_async=lambda _: old_future)
+    name = "/amcl/get_state"
+    fixture.clients_by_name[name] = client
+    ReadOnlyProbe.read_rpc(fixture, name, GetState, GetState.Request())
+    newer_future = object()
+    fixture.pending[name] = (newer_future, now)
+    callbacks[0](old_future)
+    assert fixture.pending[name][0] is newer_future
+    assert fixture.lifecycle_states["/amcl"]["captured_at"] == old
+
+    # Fresh reads restore knowledge while preserving original capture times.
+    fixture.parameter_received["/amcl"] = time.monotonic()
+    fresh = datetime.now(UTC).isoformat()
+    fixture.lifecycle_states["/amcl"]["captured_at"] = fresh
+    with patch("probe.get_action_server_names_and_types_by_node", return_value=[]):
+        snapshot = ReadOnlyProbe.snapshot(fixture)
+    assert snapshot["observations"]["node_use_sim_time"] == {"/amcl": True}
+    assert snapshot["lifecycle"][0]["state"] == "ACTIVE"
+    assert snapshot["lifecycle"][0]["captured_at"] == fresh
+    print(
+        json.dumps(
+            {
+                "status": "PASS",
+                "evidence_class": "deterministic_regression",
+                "dds_connections": 0,
+                "cases": [
+                    "expired_parameters",
+                    "expired_lifecycle",
+                    "historical_clock",
+                    "late_rpc_identity",
+                    "fresh_read_recovery",
+                ],
+            }
+        )
+    )
+
+
+if __name__ == "__main__":
+    main()

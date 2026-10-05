@@ -1,0 +1,16 @@
+{
+  "status": "FAIL",
+  "input_width": 1920,
+  "input_height": 1080,
+  "output_width": 480,
+  "output_height": 270,
+  "received_validated_frames": 0,
+  "content_and_backend_validated": false,
+  "output_buffer_backend": "CUDA",
+  "component": "nvidia::isaac_ros::image_proc::ResizeNode",
+  "input_and_processor_and_subscriber_separate_processes": true,
+  "latency_samples_ms": [],
+  "copy_trace_complete": false,
+  "zero_copy_verified": false,
+  "hardware_motion": false
+}

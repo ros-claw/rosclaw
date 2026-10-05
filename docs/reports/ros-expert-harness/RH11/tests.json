@@ -1,0 +1,8 @@
+{
+  "stage": "RH11",
+  "status": "PARTIAL",
+  "primary_evidence": "../diagnostic_results.json",
+  "test_summary": "../final_test_summary.json",
+  "v1_acceptance": false,
+  "note": "Offline fault/blocked-cell checks only; no live dynamic avoidance acceptance."
+}

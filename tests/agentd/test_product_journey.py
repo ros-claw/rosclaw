@@ -729,6 +729,13 @@ class PtySession:
                  cwd: Path | None = None) -> None:
         import pty as _pty
 
+        if env.get("FAKE_JOURNEY_KEY"):
+            # Loopback fake-model servers must be contacted directly.
+            env = dict(env)
+            for proxy in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"):
+                env.pop(proxy,None)
+            env["NO_PROXY"] = "127.0.0.1,localhost,::1"
+
         self.master, slave = _pty.openpty()
         # CI 失败诊断（五审 Gate Evidence）：PTY 全量输出落盘——超时
         # 断言只有尾部 3000 字节，完整输出是定位 CI-only 失败的唯一证据。

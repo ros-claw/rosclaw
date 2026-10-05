@@ -110,7 +110,7 @@ class TestOperationProgressWidget:
             session.expect("已在后台启动 operation".encode(), timeout=180)
             # operation 运行期间（~3.6s 总时长内）widget 原位渲染输出
             # 行——progress-step-1 或 2 必须先于完成通知可见。
-            session.expect(b"progress-step-", timeout=60)
+            session.expect(b"progress-step-1", timeout=60)
             seen = bytes(session.output)
             match = re.search(rb"progress-step-(\d)", seen)
             assert match, "运行期间未见任何输出行（widget 未渲染）"

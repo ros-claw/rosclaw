@@ -12,6 +12,14 @@ from pathlib import Path
 def dispatch_operatord_argv(argv: list[str]) -> int | None:
     if argv[:1] != ["operatord"]:
         return None
+    if "--help" in argv or "-h" in argv:
+        print(
+            "用法: rosclaw operatord <enroll|register-daemon|list-daemon|revoke-daemon|start|status> "
+            "[--home DIR]\n"
+            "enroll: create an operator identity; register-daemon: register its public key; "
+            "start: run the independent operator service [--no-human-presence-check]."
+        )
+        return 0
     if len(argv) < 2:
         print(
             "用法: rosclaw operatord <enroll|register-daemon|list-daemon|revoke-daemon|start|status> [--home DIR]",

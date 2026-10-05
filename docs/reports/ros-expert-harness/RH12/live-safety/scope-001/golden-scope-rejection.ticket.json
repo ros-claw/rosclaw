@@ -1,0 +1,30 @@
+{
+  "action_id": "golden-scope-rejection",
+  "state": "QUEUED",
+  "scheduler_state": "QUEUED",
+  "final_state": null,
+  "error_code": null,
+  "execution_mode": "SIMULATION",
+  "body_id": "ros_expert_base",
+  "capability_id": "coverage.execute",
+  "submitted_at": "2026-10-05T01:14:30.129738Z",
+  "started_at": null,
+  "finished_at": null,
+  "session_id": "golden-scope-rejection",
+  "orphan_policy": "STOP_ON_CLIENT_LOSS",
+  "action_lease": {
+    "ttl_ms": 10000,
+    "renew_interval_ms": 3000,
+    "last_renewed_at": "2026-10-05T01:14:30.129735Z",
+    "expires_at": "2026-10-05T01:14:40.129735Z",
+    "active": true
+  },
+  "receipt": null,
+  "daemon_peer": {
+    "pid": 2376981,
+    "uid": 1000,
+    "gid": 1000
+  },
+  "trust_level": "UNVERIFIED",
+  "usable_for_real_execution": false
+}

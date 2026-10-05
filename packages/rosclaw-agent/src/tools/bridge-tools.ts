@@ -49,6 +49,7 @@ export async function executeVia(
 		mission_id: state.missionId,
 		// P0-7：携带已验证 envelope 的精确 revision/body/mode。
 		context_revision: state.contextRevision,
+		context_lease_id: state.contextLeaseId ?? "",
 		body_hash: state.bodyHash ?? "",
 		mode: state.mode,
 		tool_name: toolName,

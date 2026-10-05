@@ -1,0 +1,32 @@
+{
+  "schema_version": "practice.episode.v1",
+  "practice_id": "gazebo-room-cleaning",
+  "session_id": "517012e1-089d-4593-9f77-104470750240",
+  "robot_id": "ros_expert_base",
+  "robot_type": null,
+  "task": {
+    "task_id": null,
+    "task_name": null,
+    "skill_id": null
+  },
+  "sources": {},
+  "start_time": "2026-10-05T00:41:36.743371Z",
+  "end_time": "2026-10-05T00:53:43.445311Z",
+  "duration_ms": 726365.554176,
+  "outcome": "SUCCESS",
+  "reward": null,
+  "event_count": 8,
+  "failure_labels": [],
+  "artifacts": {
+    "events_jsonl": "/tmp/ros-expert-acceptance/native-010/practice/sessions/gazebo-room-cleaning/raw/events.jsonl",
+    "mcap": "/tmp/ros-expert-acceptance/native-010/practice/sessions/gazebo-room-cleaning/raw/events.mcap",
+    "timeline_jsonl": "/tmp/ros-expert-acceptance/native-010/practice/sessions/gazebo-room-cleaning/timeline.jsonl",
+    "manifest": "/tmp/ros-expert-acceptance/native-010/practice/sessions/gazebo-room-cleaning/manifest.yaml",
+    "frames": "/tmp/ros-expert-acceptance/native-010/practice/sessions/gazebo-room-cleaning/frames",
+    "artifacts": "/tmp/ros-expert-acceptance/native-010/practice/sessions/gazebo-room-cleaning/artifacts",
+    "provider": "/tmp/ros-expert-acceptance/native-010/practice/sessions/gazebo-room-cleaning/provider",
+    "sandbox": "/tmp/ros-expert-acceptance/native-010/practice/sessions/gazebo-room-cleaning/sandbox",
+    "runtime": "/tmp/ros-expert-acceptance/native-010/practice/sessions/gazebo-room-cleaning/runtime",
+    "metrics": "/tmp/ros-expert-acceptance/native-010/practice/sessions/gazebo-room-cleaning/metrics"
+  }
+}

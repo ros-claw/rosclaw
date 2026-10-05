@@ -194,6 +194,7 @@ path = "scripts/hatch_js_stage_hook.py"
 [tool.hatch.build.targets.sdist]
 include = [
     "/src",
+    "/integrations/ros_probe",
     "/tests",
     "/docs",
     "/bin",

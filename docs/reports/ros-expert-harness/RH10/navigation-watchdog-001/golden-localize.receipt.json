@@ -1,0 +1,183 @@
+{
+  "action_id": "golden-localize",
+  "receipt": {
+    "schema_version": "rosclaw.receipt.v1",
+    "action_id": "golden-localize",
+    "trace_id": "trace_eee4fc921b794ebfbeb2c7f2",
+    "mode": "SIMULATION",
+    "execution_mode": "SIMULATION",
+    "body_id": "ros_expert_base",
+    "body_snapshot_hash": "510c836df556cde9d2e8b2fb25675aebec086234ec7177014724b0938d6aff3f",
+    "capability_id": "localization.set_initial_pose",
+    "policy_decision": {
+      "allowed": true,
+      "reason": "configured_gazebo_only"
+    },
+    "authorization_decision": {},
+    "resource_lease": {
+      "lease_id": "lease_0a29790a48754e3aac2e239145ce4161",
+      "resource_id": "ros_expert_base",
+      "action_id": "golden-localize",
+      "acquired_at": "2026-10-04T23:36:47.653966Z",
+      "exclusive": true
+    },
+    "simulation_result": {
+      "has_physics": true,
+      "engine": "gazebo"
+    },
+    "dispatch_result": {
+      "accepted": true,
+      "owner": "daemon_ros_expert_gazebo"
+    },
+    "driver_ack": null,
+    "acknowledgement_stage": "TASK_VERIFIED",
+    "observations": [
+      {
+        "x": -5.6931226418184556e-05,
+        "y": 1.2126391810387272e-09,
+        "yaw": -5.568972291686508e-09,
+        "time_sec": 32.63,
+        "captured_at": "2026-10-04T23:36:48.031672+00:00",
+        "cleaning_enabled": false,
+        "lease_remaining_sec": -93124.902716139,
+        "lease_updates": 0,
+        "localization": {
+          "x": 0.0007971380591703781,
+          "y": 0.0003874860367619893,
+          "yaw": -0.0013847537212658132,
+          "frame_id": "map",
+          "source": "amcl_pose",
+          "captured_at": "2026-10-04T23:36:48.012329+00:00",
+          "time_sec": 32.55,
+          "covariance": [
+            9.406191044687077e-05,
+            3.4094232795450993e-06,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            3.4094232795450985e-06,
+            0.00010197143733020149,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            9.777871841682943e-05
+          ]
+        },
+        "evidence_domain": "GAZEBO_PHYSICS",
+        "collision_count": 0,
+        "geometry_collision_count": 0,
+        "physics_collision_count": 0,
+        "collision_source": "gazebo_contacts_and_ground_truth_geometry",
+        "observation_complete": true,
+        "contact_stream_ages_ms": {
+          "/rosclaw_sim/contacts/wheel_left_link": 9.339614000055008,
+          "/rosclaw_sim/contacts/wheel_right_link": 9.264157997677103,
+          "/rosclaw_sim/contacts/caster_back_right_link": 9.216749996994622,
+          "/rosclaw_sim/contacts/caster_back_left_link": 9.172236997983418
+        }
+      }
+    ],
+    "verification_result": {
+      "initial_pose_source": "configured_fixture_spawn",
+      "localization_error_m": 0.0008863264150771041
+    },
+    "final_state": "COMPLETED",
+    "evidence_level": "TASK_VERIFIED",
+    "evidence_domain": "SIMULATION",
+    "verified": true,
+    "valid_for_promotion": false,
+    "trust_level": "SIMULATED",
+    "usable_for_real_execution": false,
+    "artifacts": [],
+    "errors": [],
+    "transitions": [
+      {
+        "state": "PROPOSED",
+        "at": "2026-10-04T23:36:47.653680Z",
+        "reason": "action_submitted"
+      },
+      {
+        "state": "REQUEST_ACCEPTED",
+        "at": "2026-10-04T23:36:47.653682Z",
+        "reason": "request_accepted"
+      },
+      {
+        "state": "GROUNDED",
+        "at": "2026-10-04T23:36:47.653937Z",
+        "reason": "executor_resolved"
+      },
+      {
+        "state": "WAITING_RESOURCE",
+        "at": "2026-10-04T23:36:47.653939Z",
+        "reason": "ros_expert_base"
+      },
+      {
+        "state": "SCHEDULED",
+        "at": "2026-10-04T23:36:47.653976Z",
+        "reason": "lease_acquired"
+      },
+      {
+        "state": "POLICY_VALIDATED",
+        "at": "2026-10-04T23:36:48.045467Z",
+        "reason": "policy_allowed"
+      },
+      {
+        "state": "SIMULATION_VALIDATED",
+        "at": "2026-10-04T23:36:48.045473Z",
+        "reason": "physics_simulation_completed"
+      },
+      {
+        "state": "COMMAND_DISPATCHED",
+        "at": "2026-10-04T23:36:48.045475Z",
+        "reason": "command_dispatched"
+      },
+      {
+        "state": "EFFECT_OBSERVED",
+        "at": "2026-10-04T23:36:48.045481Z",
+        "reason": "effect_observed"
+      },
+      {
+        "state": "TASK_VERIFIED",
+        "at": "2026-10-04T23:36:48.045482Z",
+        "reason": "predicate_verified"
+      },
+      {
+        "state": "COMPLETED",
+        "at": "2026-10-04T23:36:48.045484Z",
+        "reason": "executor_completed"
+      }
+    ],
+    "started_at": "2026-10-04T23:36:47.653654Z",
+    "finished_at": "2026-10-04T23:36:48.045501Z"
+  },
+  "daemon_peer": {
+    "pid": 2142063,
+    "uid": 1000,
+    "gid": 1000
+  }
+}

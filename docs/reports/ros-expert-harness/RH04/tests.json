@@ -1,0 +1,8 @@
+{
+  "stage": "RH04",
+  "status": "COMPONENT_VERIFIED",
+  "primary_evidence": "../RH04/evidence/diagnostic_results.json",
+  "test_summary": "../final_test_summary.json",
+  "v1_acceptance": false,
+  "note": "26 deterministic codes and six fixture fault scenarios; live Nav2 faults pending."
+}

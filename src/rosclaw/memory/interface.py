@@ -357,6 +357,7 @@ class MemoryInterface(LifecycleMixin):
             event_type=payload.get("event_type", "unknown"),
             instruction=instruction,
             duration_sec=payload.get("duration_sec", 0.0),
+            outcome=payload.get("outcome", "success"),
             metadata=payload,
         )
 

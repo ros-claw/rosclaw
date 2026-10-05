@@ -1115,7 +1115,10 @@ class RuntimeClient:
                 "INVALID_EXECUTION_MODE",
                 f"Unsupported execution mode {execution_mode!r}.",
             ) from exc
-        if mode not in {ExecutionMode.SHADOW, ExecutionMode.REAL}:
+        allowed_modes = {ExecutionMode.SHADOW, ExecutionMode.REAL}
+        if os.environ.get("ROSCLAW_ROS_EXPERT") == "1":
+            allowed_modes.add(ExecutionMode.SIMULATION)
+        if mode not in allowed_modes:
             raise MCPError(
                 "INVALID_EXECUTION_MODE",
                 "request_action accepts only SHADOW or REAL; use sandbox tools for simulation.",

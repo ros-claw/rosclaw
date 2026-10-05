@@ -1,0 +1,15 @@
+{
+  "status": "FAIL",
+  "evidence_domain": "SIMULATION",
+  "canonical_final_state": "FAILED",
+  "failure": "recovery independent observer is incomplete or saw collision",
+  "artifact": "rosevidence_df707b968d6a269942eca63806770f77723d3e1baed3de567574c16e06868c81.failed.json.gz",
+  "uncompressed_sha256": "8c457f1a67e41a7030e6a31a7c0a9fb71300b17c41e61a7c056b6d037a3e9fd5",
+  "model_false_completion_claim": true,
+  "fixes": [
+    "Require exact canonical COMPLETED/TASK_VERIFIED/verified=true receipt with Body, capability and mode binding",
+    "Expose exact action ID to the model",
+    "Refresh SIM context after physical action settlement"
+  ],
+  "hardware_verified": false
+}

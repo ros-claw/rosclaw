@@ -7,8 +7,8 @@
  *
  * 规则（测试钉住）：
  * - direct → 精确工具（input_schema 原样成为 parameters）；
- * - propose_only → propose_<slug>，走 admission 链（rosclaw_execute
- *   wire）——物理效应原始 executor 永不直接暴露；
+ * - propose_only → propose_<slug>，复用 request_action 的 admission、
+ *   授权 UI 与回执续接——物理效应原始 executor 永不直接暴露；
  * - excluded 不产生工具（原因经 rosclaw inspect capability 可查）；
  * - wire 仍走内核验证链（pi.tools.execute），capability_id 钉住 +
  *   携带 snapshot digest（registry 变了 → CAPABILITY_SNAPSHOT_CHANGED，
@@ -19,6 +19,7 @@ import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 
 import type { BridgeToolContext } from "./bridge-tools.js";
+import { buildRequestActionTool } from "./request-action.js";
 import { displayLabelFor, summarizeToolResultText } from "../ui/tool-display.js";
 
 export interface SnapshotActiveTool {
@@ -69,6 +70,14 @@ export function materializeCapabilityTools(
 			// Record<string, unknown> 猜参数。
 			parameters: entry.input_schema as never,
 			async execute(_id, params, _signal, _onUpdate, _ctx2) {
+				if (entry.exposure === "propose_only") {
+					// Reuse the production approval UI and receipt continuation.
+					// A physical capability is never executed by its MCP body.
+					return buildRequestActionTool(ctx, digest).execute(
+						_id, { capability_id: capabilityId, arguments: params as Record<string, unknown> },
+						_signal, _onUpdate, _ctx2,
+					);
+				}
 				const state = ctx.active.current;
 				if (!state.missionId) {
 					return {
@@ -84,6 +93,7 @@ export function materializeCapabilityTools(
 					pi_session_id: state.sessionId,
 					mission_id: state.missionId,
 					context_revision: state.contextRevision,
+					context_lease_id: state.contextLeaseId ?? "",
 					body_hash: state.bodyHash ?? "",
 					mode: state.mode,
 					tool_name: wireName,

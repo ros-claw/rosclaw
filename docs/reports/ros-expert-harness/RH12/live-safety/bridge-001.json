@@ -1,0 +1,289 @@
+{
+  "case": "bridge_kill",
+  "evidence_domain": "SIMULATION",
+  "status": "FAIL",
+  "localization_receipt": {
+    "action_id": "fault-localize",
+    "receipt": {
+      "schema_version": "rosclaw.receipt.v1",
+      "action_id": "fault-localize",
+      "trace_id": "trace_3c732773a69c485ea7e36a40",
+      "mode": "SIMULATION",
+      "execution_mode": "SIMULATION",
+      "body_id": "ros_expert_base",
+      "body_snapshot_hash": "510c836df556cde9d2e8b2fb25675aebec086234ec7177014724b0938d6aff3f",
+      "capability_id": "localization.set_initial_pose",
+      "policy_decision": {
+        "allowed": true,
+        "reason": "configured_gazebo_only"
+      },
+      "authorization_decision": {},
+      "resource_lease": {
+        "lease_id": "lease_59bebea21b5044d2b5eeeb365e82c95b",
+        "resource_id": "ros_expert_base",
+        "action_id": "fault-localize",
+        "acquired_at": "2026-10-04T23:24:51.770216Z",
+        "exclusive": true
+      },
+      "simulation_result": {
+        "has_physics": true,
+        "engine": "gazebo"
+      },
+      "dispatch_result": {
+        "accepted": true,
+        "owner": "daemon_ros_expert_gazebo"
+      },
+      "driver_ack": null,
+      "acknowledgement_stage": "TASK_VERIFIED",
+      "observations": [
+        {
+          "x": 1.1469173755495723e-08,
+          "y": -1.9572652055799132e-10,
+          "yaw": 3.484641950911627e-12,
+          "time_sec": 2.7,
+          "captured_at": "2026-10-04T23:24:52.175422+00:00",
+          "cleaning_enabled": false,
+          "lease_remaining_sec": -92409.046537814,
+          "lease_updates": 0,
+          "localization": {
+            "x": 0.0004900200769276335,
+            "y": 0.00021917099255200386,
+            "yaw": -0.0012211137070893077,
+            "frame_id": "map",
+            "source": "amcl_pose",
+            "captured_at": "2026-10-04T23:24:52.077085+00:00",
+            "time_sec": 2.55,
+            "covariance": [
+              9.781339664282451e-05,
+              5.588632183727426e-07,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              5.588632183727417e-07,
+              9.192847250597837e-05,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              9.799687514700826e-05
+            ]
+          },
+          "evidence_domain": "GAZEBO_PHYSICS",
+          "collision_count": 0,
+          "geometry_collision_count": 0,
+          "physics_collision_count": 0,
+          "collision_source": "gazebo_contacts_and_ground_truth_geometry",
+          "observation_complete": true,
+          "contact_stream_ages_ms": {
+            "/rosclaw_sim/contacts/caster_back_left_link": 0.19692900241352618,
+            "/rosclaw_sim/contacts/wheel_left_link": 0.12404800509102643,
+            "/rosclaw_sim/contacts/wheel_right_link": 0.057168013881891966,
+            "/rosclaw_sim/contacts/caster_back_right_link": 0.012928008800372481
+          }
+        }
+      ],
+      "verification_result": {
+        "initial_pose_source": "configured_fixture_spawn",
+        "localization_error_m": 0.0005368012665487987
+      },
+      "final_state": "COMPLETED",
+      "evidence_level": "TASK_VERIFIED",
+      "evidence_domain": "SIMULATION",
+      "verified": true,
+      "valid_for_promotion": false,
+      "trust_level": "SIMULATED",
+      "usable_for_real_execution": false,
+      "artifacts": [],
+      "errors": [],
+      "transitions": [
+        {
+          "state": "PROPOSED",
+          "at": "2026-10-04T23:24:51.770073Z",
+          "reason": "action_submitted"
+        },
+        {
+          "state": "REQUEST_ACCEPTED",
+          "at": "2026-10-04T23:24:51.770074Z",
+          "reason": "request_accepted"
+        },
+        {
+          "state": "GROUNDED",
+          "at": "2026-10-04T23:24:51.770204Z",
+          "reason": "executor_resolved"
+        },
+        {
+          "state": "WAITING_RESOURCE",
+          "at": "2026-10-04T23:24:51.770205Z",
+          "reason": "ros_expert_base"
+        },
+        {
+          "state": "SCHEDULED",
+          "at": "2026-10-04T23:24:51.770222Z",
+          "reason": "lease_acquired"
+        },
+        {
+          "state": "POLICY_VALIDATED",
+          "at": "2026-10-04T23:24:52.199401Z",
+          "reason": "policy_allowed"
+        },
+        {
+          "state": "SIMULATION_VALIDATED",
+          "at": "2026-10-04T23:24:52.199405Z",
+          "reason": "physics_simulation_completed"
+        },
+        {
+          "state": "COMMAND_DISPATCHED",
+          "at": "2026-10-04T23:24:52.199406Z",
+          "reason": "command_dispatched"
+        },
+        {
+          "state": "EFFECT_OBSERVED",
+          "at": "2026-10-04T23:24:52.199410Z",
+          "reason": "effect_observed"
+        },
+        {
+          "state": "TASK_VERIFIED",
+          "at": "2026-10-04T23:24:52.199411Z",
+          "reason": "predicate_verified"
+        },
+        {
+          "state": "COMPLETED",
+          "at": "2026-10-04T23:24:52.199412Z",
+          "reason": "executor_completed"
+        }
+      ],
+      "started_at": "2026-10-04T23:24:51.770049Z",
+      "finished_at": "2026-10-04T23:24:52.199423Z"
+    },
+    "daemon_peer": {
+      "pid": 2130732,
+      "uid": 1000,
+      "gid": 1000
+    }
+  },
+  "ticket": {
+    "action_id": "fault-coverage",
+    "state": "QUEUED",
+    "scheduler_state": "QUEUED",
+    "final_state": null,
+    "error_code": null,
+    "execution_mode": "SIMULATION",
+    "body_id": "ros_expert_base",
+    "capability_id": "coverage.execute",
+    "submitted_at": "2026-10-04T23:24:52.277321Z",
+    "started_at": null,
+    "finished_at": null,
+    "session_id": "fault-coverage",
+    "orphan_policy": "STOP_ON_CLIENT_LOSS",
+    "action_lease": {
+      "ttl_ms": 10000,
+      "renew_interval_ms": 3000,
+      "last_renewed_at": "2026-10-04T23:24:52.277316Z",
+      "expires_at": "2026-10-04T23:25:02.277316Z",
+      "active": true
+    },
+    "receipt": null,
+    "daemon_peer": {
+      "pid": 2130732,
+      "uid": 1000,
+      "gid": 1000
+    },
+    "trust_level": "UNVERIFIED",
+    "usable_for_real_execution": false
+  },
+  "before": {
+    "x": 0.04754530575025526,
+    "y": -0.04552190418957517,
+    "yaw": -0.8733653092119307,
+    "time_sec": 5.98,
+    "captured_at": "2026-10-04T23:24:55.472822+00:00",
+    "cleaning_enabled": true,
+    "lease_remaining_sec": 1.3028972980100662,
+    "lease_updates": 25,
+    "localization": {
+      "x": 0.013344065447861373,
+      "y": -0.03237722671916214,
+      "yaw": -0.8481227560412775,
+      "frame_id": "map",
+      "source": "amcl_pose",
+      "captured_at": "2026-10-04T23:24:55.368354+00:00",
+      "time_sec": 5.9,
+      "covariance": [
+        0.0012852113464094535,
+        -0.0007939394742978565,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        -0.0007939394742978565,
+        0.0008528121851754882,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0019140183773080123
+      ]
+    },
+    "evidence_domain": "GAZEBO_PHYSICS",
+    "collision_count": 0,
+    "geometry_collision_count": 0,
+    "physics_collision_count": 0,
+    "collision_source": "gazebo_contacts_and_ground_truth_geometry",
+    "observation_complete": true,
+    "contact_stream_ages_ms": {
+      "/rosclaw_sim/contacts/caster_back_left_link": 5.800228987936862,
+      "/rosclaw_sim/contacts/wheel_left_link": 5.949429993052036,
+      "/rosclaw_sim/contacts/wheel_right_link": 5.886229992029257,
+      "/rosclaw_sim/contacts/caster_back_right_link": 5.842774000484496
+    }
+  },
+  "injected_at": "2026-10-04T23:24:55.491354+00:00",
+  "error": "fresh complete independent observation required"
+}

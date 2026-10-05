@@ -1,0 +1,407 @@
+bringing up nodes...
+bringing up nodes...
+
+........................................................................ [  0%]
+........................................................................ [  1%]
+........................................................................ [  2%]
+........................................................................ [  3%]
+........................................................................ [  4%]
+........................................................................ [  5%]
+........................................................................ [  6%]
+........................................................................ [  7%]
+........................................................................ [  8%]
+........................................................................ [  8%]
+........................................................................ [  9%]
+........................................................................ [ 10%]
+........................................................................ [ 11%]
+........................................................................ [ 12%]
+........................................................................ [ 13%]
+........................................................................ [ 14%]
+........................................................................ [ 15%]
+........................................................................ [ 16%]
+........................................................................ [ 17%]
+........................................................................ [ 17%]
+........................................................................ [ 18%]
+........................................................................ [ 19%]
+........................................................................ [ 20%]
+........................................................................ [ 21%]
+........................................................................ [ 22%]
+........................................................................ [ 23%]
+........................................................................ [ 24%]
+........................................................................ [ 25%]
+........................................................................ [ 26%]
+........................................................................ [ 26%]
+.......s......s......................................................... [ 27%]
+........................................................................ [ 28%]
+........................................................................ [ 29%]
+.......................................................s................ [ 30%]
+........................................................................ [ 31%]
+........................................................................ [ 32%]
+........................................................................ [ 33%]
+........................................................................ [ 34%]
+........................................................................ [ 35%]
+........................................................................ [ 35%]
+........................................................................ [ 36%]
+........................................................................ [ 37%]
+........................................................................ [ 38%]
+....................................................................ss.. [ 39%]
+........................................................................ [ 40%]
+........................................................................ [ 41%]
+........................................................................ [ 42%]
+........................................................................ [ 43%]
+........................................................................ [ 44%]
+........................................................................ [ 44%]
+........................................................................ [ 45%]
+........................................................................ [ 46%]
+........................................................................ [ 47%]
+.............ssssss..................................................... [ 48%]
+.....................................................ss................. [ 49%]
+........................................................................ [ 50%]
+........................................................................ [ 51%]
+............................................s........................... [ 52%]
+.................s...............................s...................... [ 53%]
+.........................sssssssssss.................................... [ 53%]
+........................................................................ [ 54%]
+........................................................................ [ 55%]
+........................................................................ [ 56%]
+...................................................ss................... [ 57%]
+...............................F........................................ [ 58%]
+...................F......FF.FF.FFFF.................................... [ 59%]
+........................................................................ [ 60%]
+........................................................................ [ 61%]
+...................sssssssss............................................ [ 61%]
+........................................................................ [ 62%]
+........................................................................ [ 63%]
+........................................................................ [ 64%]
+...............................................................sssssss.. [ 65%]
+........................................................................ [ 66%]
+...............s........................................................ [ 67%]
+...........ssssssss..................................................... [ 68%]
+.....................s.................................................. [ 69%]
+.............................................FF......................... [ 70%]
+........................................................................ [ 70%]
+........................................................................ [ 71%]
+........................................................................ [ 72%]
+....................................................................ssss [ 73%]
+sss................................................s.................... [ 74%]
+........................................................................ [ 75%]
+........................................................................ [ 76%]
+........................................................................ [ 77%]
+.........................................................s.............. [ 78%]
+........................................................................ [ 79%]
+.......................s................................................ [ 79%]
+........................................................................ [ 80%]
+........................................................................ [ 81%]
+........................................................................ [ 82%]
+........................................................................ [ 83%]
+.........................................s.............................. [ 84%]
+........................................................................ [ 85%]
+.....ssss............................................................... [ 86%]
+........................................................................ [ 87%]
+.................................s...............................s...... [ 88%]
+........................................................................ [ 88%]
+........................................................................ [ 89%]
+........................................................................ [ 90%]
+........................................................................ [ 91%]
+...............s........................................................ [ 92%]
+........................................................................ [ 93%]
+............s.....................................................sss... [ 94%]
+........................................................................ [ 95%]
+........................................................................ [ 96%]
+........................................................................ [ 97%]
+.................ss........................................ss........... [ 97%]
+.ssssss................................................................. [ 98%]
+...........................ssssssss.ss..ss.........s.............ss..... [ 99%]
+.ss..s................                                                   [100%]
+=================================== FAILURES ===================================
+_____________ test_readme_capability_matrices_match_status_source ______________
+[gw1] linux -- Python 3.11.15 /home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/.venv/bin/python
+
+    def test_readme_capability_matrices_match_status_source() -> None:
+        status = load_product_status()
+        for filename, language in (("README.md", "en"), ("README.zh.md", "zh")):
+            text = (REPOSITORY_ROOT / filename).read_text(encoding="utf-8")
+>           assert extract_readme_matrix(text) == render_readme_matrix(status, language)
+E           AssertionError: assert '<!-- product...tatus:end -->' == '<!-- product...tatus:end -->'
+E             
+E             Skipping 4054 identical leading characters in diff, use -v to show
+E               imed. |
+E             + | ROS Expert Harness | **Offline intelligence + native probe verified** | System model, deterministic diagnostics, semantic readiness, solution resolution, TaskGraph proposals and independent coverage calculations. Jazzy probe tested against synthetic DDS sensors/TF/lifecycle/QoS. Nav2/Gazebo complete cleaning, dynamic-obstacle acceptance and same-model Agent A/B are **NOT_RUN**. See [implementation evidence](docs/reports/ros-expert-harness/FINAL_IMPLEMENTATION_REPORT.md). |
+E               | Mobile base cont...
+E             
+E             ...Full output truncated (3 lines hidden), use '-vv' to show
+
+tests/product/test_status_truthfulness.py:104: AssertionError
+__ TestOutboxAndMigrationsTogether.test_migration_runner_baseline_idempotent ___
+[gw2] linux -- Python 3.11.15 /home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/.venv/bin/python
+
+self = <tests.storage.test_storage_unification.TestOutboxAndMigrationsTogether object at 0xe367e6a15450>
+tmp_path = PosixPath('/tmp/pytest-of-nvidia/pytest-134/popen-gw2/test_migration_runner_baseline0')
+
+>   ???
+E   AssertionError: assert '001' in []
+
+/home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/tests/storage/test_storage_unification.py:93: AssertionError
+_________________ TestFirewallAllowMode.test_safe_action_allow _________________
+[gw2] linux -- Python 3.11.15 /home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/.venv/bin/python
+
+self = <tests.test_firewall_modes.TestFirewallAllowMode object at 0xe367e64c1410>
+
+>   ???
+E   AssertionError: assert 'BLOCK' == 'ALLOW'
+E     
+E     - ALLOW
+E     + BLOCK
+
+/home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/tests/test_firewall_modes.py:15: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  rosclaw.sandbox.sandbox_api:sandbox_api.py:105 No robot model directory for 'ur5e'.
+_______________ TestFirewallBlockMode.test_self_collision_block ________________
+[gw2] linux -- Python 3.11.15 /home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/.venv/bin/python
+
+self = <tests.test_firewall_modes.TestFirewallBlockMode object at 0xe367e64b9c90>
+
+>   ???
+E   AssertionError: assert 'self_collision' in ['joint_limits_unavailable']
+E    +  where ['joint_limits_unavailable'] = Decision(action='BLOCK', is_allowed=False, risk_score=1.0, predicted_collision=False, reason='Static gate blocked: joi...play_id='sandbox://replay/8694545ead8c', modified_action=None, validation_type='STATIC_POLICY', physics_executed=False).violated_constraints
+
+/home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/tests/test_firewall_modes.py:30: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  rosclaw.sandbox.sandbox_api:sandbox_api.py:105 No robot model directory for 'ur5e'.
+________________ TestFirewallModifyMode.test_joint_limit_modify ________________
+[gw2] linux -- Python 3.11.15 /home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/.venv/bin/python
+
+self = <tests.test_firewall_modes.TestFirewallModifyMode object at 0xe367e64c1c10>
+
+>   ???
+E   AssertionError: assert 'BLOCK' == 'MODIFY'
+E     
+E     - MODIFY
+E     + BLOCK
+
+/home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/tests/test_firewall_modes.py:47: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  rosclaw.sandbox.sandbox_api:sandbox_api.py:105 No robot model directory for 'ur5e'.
+_________________ TestFirewallModifyMode.test_pfl_force_modify _________________
+[gw2] linux -- Python 3.11.15 /home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/.venv/bin/python
+
+self = <tests.test_firewall_modes.TestFirewallModifyMode object at 0xe367e64c1f50>
+
+>   ???
+E   AssertionError: assert 'BLOCK' == 'MODIFY'
+E     
+E     - MODIFY
+E     + BLOCK
+
+/home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/tests/test_firewall_modes.py:62: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  rosclaw.sandbox.sandbox_api:sandbox_api.py:105 No robot model directory for 'ur5e'.
+________ TestFirewallRequireConfirmationMode.test_low_risk_confirmation ________
+[gw2] linux -- Python 3.11.15 /home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/.venv/bin/python
+
+self = <tests.test_firewall_modes.TestFirewallRequireConfirmationMode object at 0xe367e64c2790>
+
+>   ???
+E   AssertionError: assert 'BLOCK' == 'MODIFY'
+E     
+E     - MODIFY
+E     + BLOCK
+
+/home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/tests/test_firewall_modes.py:84: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  rosclaw.sandbox.sandbox_api:sandbox_api.py:105 No robot model directory for 'ur5e'.
+________ TestFirewallEventPublishingAllModes.test_block_publishes_event ________
+[gw2] linux -- Python 3.11.15 /home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/.venv/bin/python
+
+self = <tests.test_firewall_modes.TestFirewallEventPublishingAllModes object at 0xe367e64c2c90>
+
+>   ???
+E   assert 0 == 1
+E    +  where 0 = len([])
+
+/home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/tests/test_firewall_modes.py:103: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  rosclaw.sandbox.sandbox_api:sandbox_api.py:105 No robot model directory for 'ur5e'.
+WARNING  rosclaw.sandbox.runtime_adapter:runtime_adapter.py:104 Sandbox physics unavailable: No robot model directory for 'ur5e'.
+_______ TestFirewallEventPublishingAllModes.test_modify_publishes_event ________
+[gw2] linux -- Python 3.11.15 /home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/.venv/bin/python
+
+self = <tests.test_firewall_modes.TestFirewallEventPublishingAllModes object at 0xe367e64c3250>
+
+>   ???
+E   assert 0 == 1
+E    +  where 0 = len([])
+
+/home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/tests/test_firewall_modes.py:117: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  rosclaw.sandbox.sandbox_api:sandbox_api.py:105 No robot model directory for 'ur5e'.
+WARNING  rosclaw.sandbox.runtime_adapter:runtime_adapter.py:104 Sandbox physics unavailable: No robot model directory for 'ur5e'.
+___________ TestFirewallEventPublishingAllModes.test_allow_no_event ____________
+[gw2] linux -- Python 3.11.15 /home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/.venv/bin/python
+
+self = <tests.test_firewall_modes.TestFirewallEventPublishingAllModes object at 0xe367e64c3810>
+
+>   ???
+E   assert False is True
+
+/home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/tests/test_firewall_modes.py:130: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  rosclaw.sandbox.sandbox_api:sandbox_api.py:105 No robot model directory for 'ur5e'.
+WARNING  rosclaw.sandbox.runtime_adapter:runtime_adapter.py:104 Sandbox physics unavailable: No robot model directory for 'ur5e'.
+____________________ test_referenced_files_exist[md_file0] _____________________
+[gw1] linux -- Python 3.11.15 /home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/.venv/bin/python
+
+md_file = PosixPath('/home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/README.md')
+
+    @pytest.mark.parametrize("md_file", _markdown_files())
+    def test_referenced_files_exist(md_file: Path) -> None:
+        if not md_file.exists():
+            pytest.skip(f"{md_file.name} does not exist")
+        text = md_file.read_text(encoding="utf-8")
+        missing = []
+        for rel_path in _extract_relative_paths(text):
+            # Root-level MCP config files and the generated agent context snapshot
+            # are local agent/runtime state and are intentionally ignored by
+            # .gitignore.
+            if rel_path in {".mcp.json", "mcp.json", ".rosclaw/agent/context.snapshot.json"}:
+                continue
+            # Skip generated output directories
+            if rel_path.startswith("generated/") or rel_path.startswith("./generated/"):
+                continue
+            # Skip glob patterns (e.g. test_*.py)
+            if "*" in rel_path:
+                continue
+            # Skip absolute or user-home paths; these are not project-relative
+            if rel_path.startswith(("~/", "/")):
+                continue
+            target = PROJECT_ROOT / rel_path
+            if not target.exists():
+                missing.append(rel_path)
+>       assert not missing, f"{md_file.name} references missing files: {missing}"
+E       AssertionError: README.md references missing files: ['docs/reports/ros-expert-harness/FINAL_IMPLEMENTATION_REPORT.md']
+E       assert not ['docs/reports/ros-expert-harness/FINAL_IMPLEMENTATION_REPORT.md']
+
+tests/test_docs_assets.py:62: AssertionError
+____________________ test_referenced_files_exist[md_file1] _____________________
+[gw1] linux -- Python 3.11.15 /home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/.venv/bin/python
+
+md_file = PosixPath('/home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/README.zh.md')
+
+    @pytest.mark.parametrize("md_file", _markdown_files())
+    def test_referenced_files_exist(md_file: Path) -> None:
+        if not md_file.exists():
+            pytest.skip(f"{md_file.name} does not exist")
+        text = md_file.read_text(encoding="utf-8")
+        missing = []
+        for rel_path in _extract_relative_paths(text):
+            # Root-level MCP config files and the generated agent context snapshot
+            # are local agent/runtime state and are intentionally ignored by
+            # .gitignore.
+            if rel_path in {".mcp.json", "mcp.json", ".rosclaw/agent/context.snapshot.json"}:
+                continue
+            # Skip generated output directories
+            if rel_path.startswith("generated/") or rel_path.startswith("./generated/"):
+                continue
+            # Skip glob patterns (e.g. test_*.py)
+            if "*" in rel_path:
+                continue
+            # Skip absolute or user-home paths; these are not project-relative
+            if rel_path.startswith(("~/", "/")):
+                continue
+            target = PROJECT_ROOT / rel_path
+            if not target.exists():
+                missing.append(rel_path)
+>       assert not missing, f"{md_file.name} references missing files: {missing}"
+E       AssertionError: README.zh.md references missing files: ['docs/reports/ros-expert-harness/FINAL_IMPLEMENTATION_REPORT.md']
+E       assert not ['docs/reports/ros-expert-harness/FINAL_IMPLEMENTATION_REPORT.md']
+
+tests/test_docs_assets.py:62: AssertionError
+=============================== warnings summary ===============================
+.venv/lib/python3.11/site-packages/jieba/_compat.py:18
+.venv/lib/python3.11/site-packages/jieba/_compat.py:18
+.venv/lib/python3.11/site-packages/jieba/_compat.py:18
+.venv/lib/python3.11/site-packages/jieba/_compat.py:18
+  /home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/.venv/lib/python3.11/site-packages/jieba/_compat.py:18: DeprecationWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html
+    import pkg_resources
+
+tests/sim/test_worldspec.py::test_compile_with_robot_attach
+  /home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/src/rosclaw/sim/world/compiler.py:110: UserWarning: Attach conflict when attaching 'ur5e', policy is 'warning'
+  integrator: parent has 0 (default), child has 3, keeping parent value
+    spec.to_xml(),
+
+tests/agentd/test_p1b1_operation_v2.py::TestRestartRecovery::test_dead_pid_without_exitcode_is_honest_lost
+tests/daemon/test_cli.py::test_daemon_status_fast_path_returns_json
+tests/test_firstboot.py::TestFirstbootNonInteractive::test_firstboot_disables_mcp
+  /home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/.venv/lib/python3.11/site-packages/_pytest/unraisableexception.py:67: PytestUnraisableExceptionWarning: Exception ignored in: <function BaseSubprocessTransport.__del__ at 0xe6d3a1219760>
+  
+  Traceback (most recent call last):
+    File "/home/nvidia/.local/share/uv/python/cpython-3.11.15-linux-aarch64-gnu/lib/python3.11/asyncio/base_subprocess.py", line 126, in __del__
+      self.close()
+    File "/home/nvidia/.local/share/uv/python/cpython-3.11.15-linux-aarch64-gnu/lib/python3.11/asyncio/base_subprocess.py", line 104, in close
+      proto.pipe.close()
+    File "/home/nvidia/.local/share/uv/python/cpython-3.11.15-linux-aarch64-gnu/lib/python3.11/asyncio/unix_events.py", line 566, in close
+      self._close(None)
+    File "/home/nvidia/.local/share/uv/python/cpython-3.11.15-linux-aarch64-gnu/lib/python3.11/asyncio/unix_events.py", line 590, in _close
+      self._loop.call_soon(self._call_connection_lost, exc)
+    File "/home/nvidia/.local/share/uv/python/cpython-3.11.15-linux-aarch64-gnu/lib/python3.11/asyncio/base_events.py", line 762, in call_soon
+      self._check_closed()
+    File "/home/nvidia/.local/share/uv/python/cpython-3.11.15-linux-aarch64-gnu/lib/python3.11/asyncio/base_events.py", line 520, in _check_closed
+      raise RuntimeError('Event loop is closed')
+  RuntimeError: Event loop is closed
+  
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+    warnings.warn(pytest.PytestUnraisableExceptionWarning(msg))
+
+tests/storage/test_versioned_collections.py: 12 warnings
+tests/storage/test_versioned_projection.py: 8 warnings
+tests/memory/v2/test_cli.py: 2 warnings
+tests/memory/v2/runtime_retrieval/test_integration_engine.py: 3 warnings
+  /home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/src/rosclaw/storage/versioned_collections.py:275: DeprecationWarning: Configuration is deprecated. Please use Schema instead.
+    config = pyseekdb.Configuration(
+
+tests/provider/test_openai_compat_streaming.py: 16 warnings
+  /home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/.venv/lib/python3.11/site-packages/aiohttp/web_urldispatcher.py:192: DeprecationWarning: Bare functions are deprecated, use async ones
+    warnings.warn(
+
+tests/sim/test_sysid.py::test_g26_unidentifiable_is_honest
+  /home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/.venv/lib/python3.11/site-packages/mujoco/sysid/_src/signal_modifier.py:325: RuntimeWarning: invalid value encountered in divide
+    return residual / (np.linalg.norm(measured_data, axis=0) / np.sqrt(2))
+
+tests/agentd/test_pr3_long_task_recovery.py::TestResumeReportOperations::test_report_lists_terminal_operations_with_artifacts
+  /home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/.venv/lib/python3.11/site-packages/_pytest/unraisableexception.py:67: PytestUnraisableExceptionWarning: Exception ignored in: <function BaseSubprocessTransport.__del__ at 0xe736a7f91760>
+  
+  Traceback (most recent call last):
+    File "/home/nvidia/.local/share/uv/python/cpython-3.11.15-linux-aarch64-gnu/lib/python3.11/asyncio/base_subprocess.py", line 126, in __del__
+      self.close()
+    File "/home/nvidia/.local/share/uv/python/cpython-3.11.15-linux-aarch64-gnu/lib/python3.11/asyncio/base_subprocess.py", line 104, in close
+      proto.pipe.close()
+    File "/home/nvidia/.local/share/uv/python/cpython-3.11.15-linux-aarch64-gnu/lib/python3.11/asyncio/unix_events.py", line 566, in close
+      self._close(None)
+    File "/home/nvidia/.local/share/uv/python/cpython-3.11.15-linux-aarch64-gnu/lib/python3.11/asyncio/unix_events.py", line 590, in _close
+      self._loop.call_soon(self._call_connection_lost, exc)
+    File "/home/nvidia/.local/share/uv/python/cpython-3.11.15-linux-aarch64-gnu/lib/python3.11/asyncio/base_events.py", line 762, in call_soon
+      self._check_closed()
+    File "/home/nvidia/.local/share/uv/python/cpython-3.11.15-linux-aarch64-gnu/lib/python3.11/asyncio/base_events.py", line 520, in _check_closed
+      raise RuntimeError('Event loop is closed')
+  RuntimeError: Event loop is closed
+  
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+    warnings.warn(pytest.PytestUnraisableExceptionWarning(msg))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/product/test_status_truthfulness.py::test_readme_capability_matrices_match_status_source
+FAILED tests/storage/test_storage_unification.py::TestOutboxAndMigrationsTogether::test_migration_runner_baseline_idempotent
+FAILED tests/test_firewall_modes.py::TestFirewallAllowMode::test_safe_action_allow
+FAILED tests/test_firewall_modes.py::TestFirewallBlockMode::test_self_collision_block
+FAILED tests/test_firewall_modes.py::TestFirewallModifyMode::test_joint_limit_modify
+FAILED tests/test_firewall_modes.py::TestFirewallModifyMode::test_pfl_force_modify
+FAILED tests/test_firewall_modes.py::TestFirewallRequireConfirmationMode::test_low_risk_confirmation
+FAILED tests/test_firewall_modes.py::TestFirewallEventPublishingAllModes::test_block_publishes_event
+FAILED tests/test_firewall_modes.py::TestFirewallEventPublishingAllModes::test_modify_publishes_event
+FAILED tests/test_firewall_modes.py::TestFirewallEventPublishingAllModes::test_allow_no_event
+FAILED tests/test_docs_assets.py::test_referenced_files_exist[md_file0] - Ass...
+FAILED tests/test_docs_assets.py::test_referenced_files_exist[md_file1] - Ass...
+12 failed, 7897 passed, 112 skipped, 51 warnings in 472.01s (0:07:52)

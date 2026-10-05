@@ -56,6 +56,15 @@ class RosCapability:
     preferred: bool = True
     enabled: bool = True
     reason: str = ""
+    semantic_id: str | None = None
+    implementation_id: str | None = None
+    aliases: list[str] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        from rosclaw.connectors.ros.resolver.semantics import semantic_id
+
+        self.semantic_id = self.semantic_id or semantic_id(self.interface.msg_type)
+        self.implementation_id = self.implementation_id or self.id
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -82,6 +91,9 @@ class RosCapability:
             "preferred": self.preferred,
             "enabled": self.enabled,
             "reason": self.reason,
+            "semantic_id": self.semantic_id,
+            "implementation_id": self.implementation_id,
+            "aliases": self.aliases,
         }
 
     @classmethod
@@ -112,6 +124,9 @@ class RosCapability:
             preferred=data.get("preferred", True),
             enabled=data.get("enabled", True),
             reason=data.get("reason", ""),
+            semantic_id=data.get("semantic_id"),
+            implementation_id=data.get("implementation_id"),
+            aliases=data.get("aliases", []),
         )
 
 
@@ -426,6 +441,7 @@ class CapabilityManifestCompiler:
             else:
                 seen[new_id] = 1
             cap.id = new_id
+            cap.implementation_id = new_id
 
     # ------------------------------------------------------------------
     # Naming

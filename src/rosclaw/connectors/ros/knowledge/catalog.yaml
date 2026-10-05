@@ -1,0 +1,57 @@
+schema_version: rosclaw.ros_technology_catalog.v1
+reviewed_at: '2026-10-03'
+cards:
+  - id: nav2
+    framework: nav2
+    provides: [navigation.navigate_to_pose, navigation.navigate_through_poses, navigation.compute_path]
+    requires: [localization.pose_estimate, mapping.occupancy_map, state.odometry, sensing.lidar]
+    supported_ros: [ros2]
+    supported_distros: [humble, jazzy]
+    hardware_requirements: [mobile_base]
+    conflicts: []
+    preferred_when: [existing_nav2_stack]
+    avoid_when: [missing_localization]
+    validation_probes: [tf, lifecycle, signals, costmaps]
+    official_source: https://docs.nav2.org/
+    maturity: external_component_not_live_verified_here
+  - id: opennav_coverage
+    framework: nav2
+    provides: [coverage.compute_path, coverage.execute]
+    requires: [navigation.navigate_to_pose, cleaning_footprint, coverage_polygon]
+    supported_ros: [ros2]
+    supported_distros: [humble, jazzy]
+    version_selection: {humble: humble-v2, jazzy: jazzy-v2}
+    dependency: Fields2Cover-v2.0.0
+    hardware_requirements: [mobile_base]
+    conflicts: []
+    preferred_when: [complete_area_cleaning]
+    avoid_when: [unvalidated_polygon_or_footprint]
+    validation_probes: [coverage_server_lifecycle, action_types, independent_coverage_verification]
+    official_source: https://github.com/open-navigation/opennav_coverage
+    maturity: external_component_not_live_verified_here
+  - id: nav2_collision_monitor
+    framework: nav2
+    provides: [safety.collision_monitor]
+    requires: [sensing.lidar]
+    supported_ros: [ros2]
+    supported_distros: [humble, jazzy]
+    hardware_requirements: [mobile_base]
+    conflicts: []
+    preferred_when: [dynamic_obstacles]
+    avoid_when: [missing_fresh_sensors]
+    validation_probes: [lifecycle, obstacle_stop_evidence]
+    official_source: https://docs.nav2.org/configuration/packages/collision_monitor/configuring-collision-monitor-node.html
+    maturity: software_guard_not_safety_certification
+  - id: rosclaw_coverage_verifier
+    framework: rosclaw
+    provides: [coverage.verify]
+    requires: [measured_trajectory, cleaning_footprint, independent_collision_evidence]
+    supported_ros: [ros1, ros2]
+    supported_distros: [noetic, humble, jazzy]
+    hardware_requirements: []
+    conflicts: []
+    preferred_when: [complete_area_cleaning]
+    avoid_when: [missing_execution_evidence]
+    validation_probes: [coverage_mask, missed_regions, receipt_binding]
+    official_source: https://github.com/ros-claw/rosclaw
+    maturity: offline_verifier

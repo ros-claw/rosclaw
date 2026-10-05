@@ -226,11 +226,11 @@ class DaemonActionChannel:
         envelope: ActionEnvelope,
     ) -> ActionOutcome:
         """A submitted command is not a completed task — check the receipt."""
-        state = str(status.get("state", "UNKNOWN"))
+        scheduler_state = str(status.get("state", "UNKNOWN"))
         # daemon 返回 {"action_id":..., "receipt": {...}} 信封。
         inner = receipt.get("receipt") if isinstance(receipt.get("receipt"), dict) else receipt
         receipt_action_id = inner.get("action_id")
-        if receipt_action_id not in (None, action_id):
+        if receipt_action_id != action_id:
             raise ActionChannelError(
                 f"receipt action {receipt_action_id!r} "
                 f"!= requested {action_id!r} — not reporting as our action"
@@ -241,7 +241,18 @@ class DaemonActionChannel:
         expected_trust = (
             "SIMULATED" if envelope.execution_mode is ExecutionMode.SIMULATION else "VERIFIED"
         )
-        verified = state in ("FINISHED",) and trust == expected_trust
+        state = str(inner.get("final_state", "UNKNOWN"))
+        verified = (
+            scheduler_state == "FINISHED"
+            and state == "COMPLETED"
+            and trust == expected_trust
+            and inner.get("verified") is True
+            and inner.get("evidence_level") == EvidenceLevel.TASK_VERIFIED.value
+            and inner.get("body_id") == envelope.body_id
+            and inner.get("body_snapshot_hash") == envelope.body_snapshot_hash
+            and inner.get("capability_id") == envelope.capability_id
+            and inner.get("execution_mode") == envelope.execution_mode.value
+        )
         return ActionOutcome(
             action_id=action_id,
             state=state,

@@ -1,0 +1,18 @@
+[skip: anchor absent] patch-01b: retire pre-WP-P0-1 resume hint
+[applied] patch-01: rosclaw resume command formatter
+[applied] patch-02: builtin command policy guard
+[already retired] retire patch-03 (delete strip block)
+[already retired] retire patch-04 (restore upstream thinking replay)
+[already retired] retire patch-04 (restore upstream thinking replay)
+upstream patches applied
+copied prompt from /home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/dist/.js-build/rosclaw-agent/prompts/native_agent_v2.md
+copied skills
+copied effects.generated.json
+[skip: anchor absent] patch-01b: retire pre-WP-P0-1 resume hint
+[applied] patch-01: rosclaw resume command formatter
+[applied] patch-02: builtin command policy guard
+[already retired] retire patch-03 (delete strip block)
+[already retired] retire patch-04 (restore upstream thinking replay)
+[already retired] retire patch-04 (restore upstream thinking replay)
+upstream patches applied
+js staging ready: /home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/dist/js-stage

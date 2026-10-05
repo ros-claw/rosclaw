@@ -1,0 +1,8 @@
+{
+  "stage": "RH13",
+  "status": "PARTIAL",
+  "primary_evidence": "../new_features.xml",
+  "test_summary": "../final_test_summary.json",
+  "v1_acceptance": false,
+  "note": "MoveBase semantic/serialization fixture tests only; no ROS1 runtime."
+}

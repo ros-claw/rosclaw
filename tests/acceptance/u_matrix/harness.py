@@ -209,6 +209,10 @@ def run_cli(
 ) -> subprocess.CompletedProcess:
     """从正式安装前缀运行 rosclaw CLI（审计：从安装产物进入）。"""
     env = dict(os.environ)
+    # Installed acceptance must import the release, even when the invoking
+    # developer uses PYTHONPATH=src for an editable checkout.
+    env.pop("PYTHONPATH", None)
+    env.pop("PYTHONHOME", None)
     if env_extra:
         env.update(env_extra)
     env["PATH"] = f"{prefix / 'bin'}:{env.get('PATH', '')}"

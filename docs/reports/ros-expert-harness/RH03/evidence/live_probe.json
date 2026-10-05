@@ -1,0 +1,948 @@
+{
+  "status": "PASS",
+  "evidence_domain": "synthetic_ros_graph",
+  "nav2_acceptance": "NOT_RUN",
+  "snapshot": {
+    "schema_version": "rosclaw.ros_probe.v1",
+    "captured_at": "2026-10-03T23:58:49.622755+00:00",
+    "environment": {
+      "ros_generation": "ros2",
+      "distro": "jazzy",
+      "rmw": "rmw_fastrtps_cpp",
+      "domain_id": "173",
+      "overlays": [
+        "/opt/ros/jazzy"
+      ],
+      "use_sim_time": false,
+      "probe_use_sim_time": false
+    },
+    "graph": {
+      "topics": [
+        {
+          "name": "/fixture/fibonacci/_action/feedback",
+          "msg_type": "example_interfaces/action/Fibonacci_FeedbackMessage",
+          "types": [
+            "example_interfaces/action/Fibonacci_FeedbackMessage"
+          ],
+          "publishers": [
+            "/fixture/synthetic_sensor"
+          ],
+          "subscribers": []
+        },
+        {
+          "name": "/fixture/fibonacci/_action/status",
+          "msg_type": "action_msgs/msg/GoalStatusArray",
+          "types": [
+            "action_msgs/msg/GoalStatusArray"
+          ],
+          "publishers": [
+            "/fixture/synthetic_sensor"
+          ],
+          "subscribers": []
+        },
+        {
+          "name": "/fixture/planner_server/transition_event",
+          "msg_type": "lifecycle_msgs/msg/TransitionEvent",
+          "types": [
+            "lifecycle_msgs/msg/TransitionEvent"
+          ],
+          "publishers": [
+            "/fixture/planner_server"
+          ],
+          "subscribers": []
+        },
+        {
+          "name": "/fixture/scan",
+          "msg_type": "sensor_msgs/msg/LaserScan",
+          "types": [
+            "sensor_msgs/msg/LaserScan"
+          ],
+          "publishers": [
+            "/fixture/synthetic_sensor"
+          ],
+          "subscribers": [
+            "/fixture/synthetic_sensor",
+            "/rosclaw_readonly_probe"
+          ]
+        },
+        {
+          "name": "/parameter_events",
+          "msg_type": "rcl_interfaces/msg/ParameterEvent",
+          "types": [
+            "rcl_interfaces/msg/ParameterEvent"
+          ],
+          "publishers": [
+            "/fixture/synthetic_sensor",
+            "/fixture/planner_server",
+            "/rosclaw_readonly_probe"
+          ],
+          "subscribers": []
+        },
+        {
+          "name": "/rosclaw_probe/snapshot",
+          "msg_type": "std_msgs/msg/String",
+          "types": [
+            "std_msgs/msg/String"
+          ],
+          "publishers": [
+            "/rosclaw_readonly_probe"
+          ],
+          "subscribers": []
+        },
+        {
+          "name": "/rosclaw_probe/status",
+          "msg_type": "std_msgs/msg/String",
+          "types": [
+            "std_msgs/msg/String"
+          ],
+          "publishers": [
+            "/rosclaw_readonly_probe"
+          ],
+          "subscribers": []
+        },
+        {
+          "name": "/rosout",
+          "msg_type": "rcl_interfaces/msg/Log",
+          "types": [
+            "rcl_interfaces/msg/Log"
+          ],
+          "publishers": [
+            "/fixture/synthetic_sensor",
+            "/fixture/planner_server",
+            "/rosclaw_readonly_probe"
+          ],
+          "subscribers": []
+        },
+        {
+          "name": "/tf",
+          "msg_type": "tf2_msgs/msg/TFMessage",
+          "types": [
+            "tf2_msgs/msg/TFMessage"
+          ],
+          "publishers": [
+            "/fixture/synthetic_sensor"
+          ],
+          "subscribers": [
+            "/rosclaw_readonly_probe"
+          ]
+        }
+      ],
+      "nodes": [
+        {
+          "name": "/fixture/planner_server",
+          "namespace": "/fixture"
+        },
+        {
+          "name": "/rosclaw_readonly_probe",
+          "namespace": "/"
+        },
+        {
+          "name": "/fixture/synthetic_sensor",
+          "namespace": "/fixture"
+        }
+      ],
+      "actions": [
+        {
+          "name": "/fixture/fibonacci",
+          "action_type": "example_interfaces/action/Fibonacci"
+        }
+      ],
+      "services": [
+        {
+          "name": "/fixture/fibonacci/_action/cancel_goal",
+          "srv_type": "action_msgs/srv/CancelGoal"
+        },
+        {
+          "name": "/fixture/fibonacci/_action/get_result",
+          "srv_type": "example_interfaces/action/Fibonacci_GetResult"
+        },
+        {
+          "name": "/fixture/fibonacci/_action/send_goal",
+          "srv_type": "example_interfaces/action/Fibonacci_SendGoal"
+        },
+        {
+          "name": "/fixture/planner_server/change_state",
+          "srv_type": "lifecycle_msgs/srv/ChangeState"
+        },
+        {
+          "name": "/fixture/planner_server/describe_parameters",
+          "srv_type": "rcl_interfaces/srv/DescribeParameters"
+        },
+        {
+          "name": "/fixture/planner_server/get_available_states",
+          "srv_type": "lifecycle_msgs/srv/GetAvailableStates"
+        },
+        {
+          "name": "/fixture/planner_server/get_available_transitions",
+          "srv_type": "lifecycle_msgs/srv/GetAvailableTransitions"
+        },
+        {
+          "name": "/fixture/planner_server/get_parameter_types",
+          "srv_type": "rcl_interfaces/srv/GetParameterTypes"
+        },
+        {
+          "name": "/fixture/planner_server/get_parameters",
+          "srv_type": "rcl_interfaces/srv/GetParameters"
+        },
+        {
+          "name": "/fixture/planner_server/get_state",
+          "srv_type": "lifecycle_msgs/srv/GetState"
+        },
+        {
+          "name": "/fixture/planner_server/get_transition_graph",
+          "srv_type": "lifecycle_msgs/srv/GetAvailableTransitions"
+        },
+        {
+          "name": "/fixture/planner_server/get_type_description",
+          "srv_type": "type_description_interfaces/srv/GetTypeDescription"
+        },
+        {
+          "name": "/fixture/planner_server/list_parameters",
+          "srv_type": "rcl_interfaces/srv/ListParameters"
+        },
+        {
+          "name": "/fixture/planner_server/set_parameters",
+          "srv_type": "rcl_interfaces/srv/SetParameters"
+        },
+        {
+          "name": "/fixture/planner_server/set_parameters_atomically",
+          "srv_type": "rcl_interfaces/srv/SetParametersAtomically"
+        },
+        {
+          "name": "/fixture/synthetic_sensor/describe_parameters",
+          "srv_type": "rcl_interfaces/srv/DescribeParameters"
+        },
+        {
+          "name": "/fixture/synthetic_sensor/get_parameter_types",
+          "srv_type": "rcl_interfaces/srv/GetParameterTypes"
+        },
+        {
+          "name": "/fixture/synthetic_sensor/get_parameters",
+          "srv_type": "rcl_interfaces/srv/GetParameters"
+        },
+        {
+          "name": "/fixture/synthetic_sensor/get_type_description",
+          "srv_type": "type_description_interfaces/srv/GetTypeDescription"
+        },
+        {
+          "name": "/fixture/synthetic_sensor/list_parameters",
+          "srv_type": "rcl_interfaces/srv/ListParameters"
+        },
+        {
+          "name": "/fixture/synthetic_sensor/set_parameters",
+          "srv_type": "rcl_interfaces/srv/SetParameters"
+        },
+        {
+          "name": "/fixture/synthetic_sensor/set_parameters_atomically",
+          "srv_type": "rcl_interfaces/srv/SetParametersAtomically"
+        },
+        {
+          "name": "/rosclaw_probe/refresh",
+          "srv_type": "std_srvs/srv/Trigger"
+        },
+        {
+          "name": "/rosclaw_readonly_probe/describe_parameters",
+          "srv_type": "rcl_interfaces/srv/DescribeParameters"
+        },
+        {
+          "name": "/rosclaw_readonly_probe/get_parameter_types",
+          "srv_type": "rcl_interfaces/srv/GetParameterTypes"
+        },
+        {
+          "name": "/rosclaw_readonly_probe/get_parameters",
+          "srv_type": "rcl_interfaces/srv/GetParameters"
+        },
+        {
+          "name": "/rosclaw_readonly_probe/get_type_description",
+          "srv_type": "type_description_interfaces/srv/GetTypeDescription"
+        },
+        {
+          "name": "/rosclaw_readonly_probe/list_parameters",
+          "srv_type": "rcl_interfaces/srv/ListParameters"
+        },
+        {
+          "name": "/rosclaw_readonly_probe/set_parameters",
+          "srv_type": "rcl_interfaces/srv/SetParameters"
+        },
+        {
+          "name": "/rosclaw_readonly_probe/set_parameters_atomically",
+          "srv_type": "rcl_interfaces/srv/SetParametersAtomically"
+        }
+      ]
+    },
+    "signals": [
+      {
+        "topic": "/fixture/scan",
+        "source": "native:monotonic_receive",
+        "captured_at": "2026-10-03T23:58:49.622755+00:00",
+        "rate_hz": 19.999687122847288,
+        "jitter_ms": 0.4856962823068165,
+        "last_message_age_ms": 48.821211000358744,
+        "publisher_count": 1,
+        "subscriber_count": 2
+      },
+      {
+        "topic": "/tf",
+        "source": "native:monotonic_receive",
+        "captured_at": "2026-10-03T23:58:49.622755+00:00",
+        "rate_hz": 19.999809042848344,
+        "jitter_ms": 0.4860944870342699,
+        "last_message_age_ms": 48.74476199984201,
+        "publisher_count": 1,
+        "subscriber_count": 1
+      }
+    ],
+    "transforms": [
+      {
+        "parent": "base_link",
+        "child": "laser",
+        "static": false,
+        "source": "/tf",
+        "captured_at": "2026-10-03T23:58:49.574012+00:00",
+        "age_ms": 49.82948303222656
+      }
+    ],
+    "lifecycle": [
+      {
+        "name": "/fixture/planner_server",
+        "state": "INACTIVE",
+        "source": "/fixture/planner_server/get_state",
+        "captured_at": "2026-10-03T23:58:49.622553+00:00"
+      }
+    ],
+    "qos": {
+      "supported": true,
+      "endpoints": [
+        {
+          "topic": "/fixture/fibonacci/_action/feedback",
+          "node": "/fixture/synthetic_sensor",
+          "kind": "publisher",
+          "reliability": "RELIABLE",
+          "durability": "VOLATILE",
+          "history": "UNKNOWN",
+          "depth": 0,
+          "deadline_ns": 9223372036854775807,
+          "lifespan_ns": 9223372036854775807,
+          "liveliness": "AUTOMATIC"
+        },
+        {
+          "topic": "/fixture/fibonacci/_action/status",
+          "node": "/fixture/synthetic_sensor",
+          "kind": "publisher",
+          "reliability": "RELIABLE",
+          "durability": "TRANSIENT_LOCAL",
+          "history": "UNKNOWN",
+          "depth": 0,
+          "deadline_ns": 9223372036854775807,
+          "lifespan_ns": 9223372036854775807,
+          "liveliness": "AUTOMATIC"
+        },
+        {
+          "topic": "/fixture/planner_server/transition_event",
+          "node": "/fixture/planner_server",
+          "kind": "publisher",
+          "reliability": "RELIABLE",
+          "durability": "VOLATILE",
+          "history": "UNKNOWN",
+          "depth": 0,
+          "deadline_ns": 9223372036854775807,
+          "lifespan_ns": 9223372036854775807,
+          "liveliness": "AUTOMATIC"
+        },
+        {
+          "topic": "/fixture/scan",
+          "node": "/fixture/synthetic_sensor",
+          "kind": "publisher",
+          "reliability": "BEST_EFFORT",
+          "durability": "VOLATILE",
+          "history": "UNKNOWN",
+          "depth": 0,
+          "deadline_ns": 9223372036854775807,
+          "lifespan_ns": 9223372036854775807,
+          "liveliness": "AUTOMATIC"
+        },
+        {
+          "topic": "/fixture/scan",
+          "node": "/fixture/synthetic_sensor",
+          "kind": "subscriber",
+          "reliability": "RELIABLE",
+          "durability": "VOLATILE",
+          "history": "UNKNOWN",
+          "depth": 0,
+          "deadline_ns": 9223372036854775807,
+          "lifespan_ns": 9223372036854775807,
+          "liveliness": "AUTOMATIC"
+        },
+        {
+          "topic": "/fixture/scan",
+          "node": "/rosclaw_readonly_probe",
+          "kind": "subscriber",
+          "reliability": "BEST_EFFORT",
+          "durability": "VOLATILE",
+          "history": "UNKNOWN",
+          "depth": 0,
+          "deadline_ns": 9223372036854775807,
+          "lifespan_ns": 9223372036854775807,
+          "liveliness": "AUTOMATIC"
+        },
+        {
+          "topic": "/parameter_events",
+          "node": "/fixture/synthetic_sensor",
+          "kind": "publisher",
+          "reliability": "RELIABLE",
+          "durability": "VOLATILE",
+          "history": "UNKNOWN",
+          "depth": 0,
+          "deadline_ns": 9223372036854775807,
+          "lifespan_ns": 9223372036854775807,
+          "liveliness": "AUTOMATIC"
+        },
+        {
+          "topic": "/parameter_events",
+          "node": "/fixture/planner_server",
+          "kind": "publisher",
+          "reliability": "RELIABLE",
+          "durability": "VOLATILE",
+          "history": "UNKNOWN",
+          "depth": 0,
+          "deadline_ns": 9223372036854775807,
+          "lifespan_ns": 9223372036854775807,
+          "liveliness": "AUTOMATIC"
+        },
+        {
+          "topic": "/parameter_events",
+          "node": "/rosclaw_readonly_probe",
+          "kind": "publisher",
+          "reliability": "RELIABLE",
+          "durability": "VOLATILE",
+          "history": "UNKNOWN",
+          "depth": 0,
+          "deadline_ns": 9223372036854775807,
+          "lifespan_ns": 9223372036854775807,
+          "liveliness": "AUTOMATIC"
+        },
+        {
+          "topic": "/rosclaw_probe/snapshot",
+          "node": "/rosclaw_readonly_probe",
+          "kind": "publisher",
+          "reliability": "RELIABLE",
+          "durability": "TRANSIENT_LOCAL",
+          "history": "UNKNOWN",
+          "depth": 0,
+          "deadline_ns": 9223372036854775807,
+          "lifespan_ns": 9223372036854775807,
+          "liveliness": "AUTOMATIC"
+        },
+        {
+          "topic": "/rosclaw_probe/status",
+          "node": "/rosclaw_readonly_probe",
+          "kind": "publisher",
+          "reliability": "RELIABLE",
+          "durability": "VOLATILE",
+          "history": "UNKNOWN",
+          "depth": 0,
+          "deadline_ns": 9223372036854775807,
+          "lifespan_ns": 9223372036854775807,
+          "liveliness": "AUTOMATIC"
+        },
+        {
+          "topic": "/rosout",
+          "node": "/fixture/synthetic_sensor",
+          "kind": "publisher",
+          "reliability": "RELIABLE",
+          "durability": "TRANSIENT_LOCAL",
+          "history": "UNKNOWN",
+          "depth": 0,
+          "deadline_ns": 9223372036854775807,
+          "lifespan_ns": 10000000000,
+          "liveliness": "AUTOMATIC"
+        },
+        {
+          "topic": "/rosout",
+          "node": "/fixture/planner_server",
+          "kind": "publisher",
+          "reliability": "RELIABLE",
+          "durability": "TRANSIENT_LOCAL",
+          "history": "UNKNOWN",
+          "depth": 0,
+          "deadline_ns": 9223372036854775807,
+          "lifespan_ns": 10000000000,
+          "liveliness": "AUTOMATIC"
+        },
+        {
+          "topic": "/rosout",
+          "node": "/rosclaw_readonly_probe",
+          "kind": "publisher",
+          "reliability": "RELIABLE",
+          "durability": "TRANSIENT_LOCAL",
+          "history": "UNKNOWN",
+          "depth": 0,
+          "deadline_ns": 9223372036854775807,
+          "lifespan_ns": 10000000000,
+          "liveliness": "AUTOMATIC"
+        },
+        {
+          "topic": "/tf",
+          "node": "/fixture/synthetic_sensor",
+          "kind": "publisher",
+          "reliability": "RELIABLE",
+          "durability": "VOLATILE",
+          "history": "UNKNOWN",
+          "depth": 0,
+          "deadline_ns": 9223372036854775807,
+          "lifespan_ns": 9223372036854775807,
+          "liveliness": "AUTOMATIC"
+        },
+        {
+          "topic": "/tf",
+          "node": "/rosclaw_readonly_probe",
+          "kind": "subscriber",
+          "reliability": "BEST_EFFORT",
+          "durability": "VOLATILE",
+          "history": "UNKNOWN",
+          "depth": 0,
+          "deadline_ns": 9223372036854775807,
+          "lifespan_ns": 9223372036854775807,
+          "liveliness": "AUTOMATIC"
+        }
+      ],
+      "incompatible_pairs": [
+        {
+          "topic": "/fixture/scan",
+          "publisher": "/fixture/synthetic_sensor",
+          "subscriber": "/fixture/synthetic_sensor",
+          "reason": "ERROR: Best effort publisher and reliable subscription;"
+        }
+      ]
+    },
+    "navigation": {},
+    "observations": {
+      "node_use_sim_time": {
+        "/fixture/planner_server": false,
+        "/fixture/synthetic_sensor": false
+      },
+      "package_inventory": [
+        "ackermann_msgs",
+        "ackermann_steering_controller",
+        "action_msgs",
+        "action_tutorials_cpp",
+        "action_tutorials_interfaces",
+        "action_tutorials_py",
+        "actionlib_msgs",
+        "admittance_controller",
+        "ament_cmake",
+        "ament_cmake_auto",
+        "ament_cmake_copyright",
+        "ament_cmake_core",
+        "ament_cmake_cppcheck",
+        "ament_cmake_cpplint",
+        "ament_cmake_export_definitions",
+        "ament_cmake_export_dependencies",
+        "ament_cmake_export_include_directories",
+        "ament_cmake_export_interfaces",
+        "ament_cmake_export_libraries",
+        "ament_cmake_export_link_flags",
+        "ament_cmake_export_targets",
+        "ament_cmake_flake8",
+        "ament_cmake_gen_version_h",
+        "ament_cmake_gmock",
+        "ament_cmake_gtest",
+        "ament_cmake_include_directories",
+        "ament_cmake_libraries",
+        "ament_cmake_lint_cmake",
+        "ament_cmake_pep257",
+        "ament_cmake_pytest",
+        "ament_cmake_python",
+        "ament_cmake_ros",
+        "ament_cmake_target_dependencies",
+        "ament_cmake_test",
+        "ament_cmake_uncrustify",
+        "ament_cmake_version",
+        "ament_cmake_xmllint",
+        "ament_copyright",
+        "ament_cppcheck",
+        "ament_cpplint",
+        "ament_flake8",
+        "ament_index_cpp",
+        "ament_index_python",
+        "ament_lint",
+        "ament_lint_auto",
+        "ament_lint_cmake",
+        "ament_lint_common",
+        "ament_package",
+        "ament_pep257",
+        "ament_uncrustify",
+        "ament_xmllint",
+        "angles",
+        "bicycle_steering_controller",
+        "builtin_interfaces",
+        "chained_filter_controller",
+        "chomp_motion_planner",
+        "class_loader",
+        "common_interfaces",
+        "composition",
+        "composition_interfaces",
+        "console_bridge_vendor",
+        "control_msgs",
+        "control_toolbox",
+        "controller_interface",
+        "controller_manager",
+        "controller_manager_msgs",
+        "cv_bridge",
+        "demo_nodes_cpp",
+        "demo_nodes_cpp_native",
+        "demo_nodes_py",
+        "depthimage_to_laserscan",
+        "desktop",
+        "diagnostic_msgs",
+        "diagnostic_updater",
+        "diff_drive_controller",
+        "domain_coordinator",
+        "dummy_map_server",
+        "dummy_robot_bringup",
+        "dummy_sensors",
+        "effort_controllers",
+        "eigen3_cmake_module",
+        "eigen_stl_containers",
+        "example_interfaces",
+        "examples_rclcpp_minimal_action_client",
+        "examples_rclcpp_minimal_action_server",
+        "examples_rclcpp_minimal_client",
+        "examples_rclcpp_minimal_composition",
+        "examples_rclcpp_minimal_publisher",
+        "examples_rclcpp_minimal_service",
+        "examples_rclcpp_minimal_subscriber",
+        "examples_rclcpp_minimal_timer",
+        "examples_rclcpp_multithreaded_executor",
+        "examples_rclpy_executors",
+        "examples_rclpy_minimal_action_client",
+        "examples_rclpy_minimal_action_server",
+        "examples_rclpy_minimal_client",
+        "examples_rclpy_minimal_publisher",
+        "examples_rclpy_minimal_service",
+        "examples_rclpy_minimal_subscriber",
+        "fastrtps_cmake_module",
+        "filters",
+        "force_torque_sensor_broadcaster",
+        "forward_command_controller",
+        "generate_parameter_library",
+        "generate_parameter_library_py",
+        "geometric_shapes",
+        "geometry2",
+        "geometry_msgs",
+        "gpio_controllers",
+        "gps_sensor_broadcaster",
+        "gripper_controllers",
+        "gz_cmake_vendor",
+        "gz_math_vendor",
+        "gz_tools_vendor",
+        "gz_utils_vendor",
+        "hardware_interface",
+        "image_geometry",
+        "image_tools",
+        "image_transport",
+        "imu_sensor_broadcaster",
+        "interactive_markers",
+        "intra_process_demo",
+        "joint_limits",
+        "joint_state_broadcaster",
+        "joint_state_publisher",
+        "joint_state_publisher_gui",
+        "joint_trajectory_controller",
+        "joy",
+        "kdl_parser",
+        "keyboard_handler",
+        "kinematics_interface",
+        "laser_geometry",
+        "launch",
+        "launch_param_builder",
+        "launch_ros",
+        "launch_testing",
+        "launch_testing_ament_cmake",
+        "launch_testing_ros",
+        "launch_xml",
+        "launch_yaml",
+        "libcurl_vendor",
+        "liblz4_vendor",
+        "libstatistics_collector",
+        "libyaml_vendor",
+        "lifecycle",
+        "lifecycle_msgs",
+        "logging_demo",
+        "map_msgs",
+        "mcap_vendor",
+        "mecanum_drive_controller",
+        "message_filters",
+        "moveit_common",
+        "moveit_configs_utils",
+        "moveit_core",
+        "moveit_kinematics",
+        "moveit_msgs",
+        "moveit_planners",
+        "moveit_planners_chomp",
+        "moveit_planners_ompl",
+        "moveit_planners_stomp",
+        "moveit_ros_move_group",
+        "moveit_ros_occupancy_map_monitor",
+        "moveit_ros_planning",
+        "moveit_ros_planning_interface",
+        "moveit_ros_robot_interaction",
+        "moveit_ros_visualization",
+        "moveit_ros_warehouse",
+        "moveit_servo",
+        "moveit_simple_controller_manager",
+        "mujoco_ros2_control",
+        "mujoco_ros2_control_msgs",
+        "mujoco_ros2_control_plugins",
+        "mujoco_vendor",
+        "nav_msgs",
+        "object_recognition_msgs",
+        "octomap_msgs",
+        "omni_wheel_drive_controller",
+        "ompl",
+        "orocos_kdl_vendor",
+        "osqp_vendor",
+        "osrf_pycommon",
+        "pal_statistics",
+        "pal_statistics_msgs",
+        "parallel_gripper_controller",
+        "parameter_traits",
+        "pcl_conversions",
+        "pcl_msgs",
+        "pendulum_control",
+        "pendulum_msgs",
+        "pid_controller",
+        "pilz_industrial_motion_planner",
+        "pluginlib",
+        "point_cloud_transport",
+        "pose_broadcaster",
+        "position_controllers",
+        "pybind11_vendor",
+        "python_cmake_module",
+        "python_orocos_kdl_vendor",
+        "python_qt_binding",
+        "qt_dotgraph",
+        "qt_gui",
+        "qt_gui_cpp",
+        "qt_gui_py_common",
+        "quality_of_service_demo_cpp",
+        "quality_of_service_demo_py",
+        "random_numbers",
+        "range_sensor_broadcaster",
+        "rcl",
+        "rcl_action",
+        "rcl_interfaces",
+        "rcl_lifecycle",
+        "rcl_logging_interface",
+        "rcl_logging_spdlog",
+        "rcl_yaml_param_parser",
+        "rclcpp",
+        "rclcpp_action",
+        "rclcpp_components",
+        "rclcpp_lifecycle",
+        "rclpy",
+        "rcpputils",
+        "rcutils",
+        "realsense2_camera",
+        "realsense2_camera_msgs",
+        "realtime_tools",
+        "resource_retriever",
+        "rmw",
+        "rmw_dds_common",
+        "rmw_fastrtps_cpp",
+        "rmw_fastrtps_shared_cpp",
+        "rmw_implementation",
+        "rmw_implementation_cmake",
+        "robot_state_publisher",
+        "ros2_control",
+        "ros2_control_cmake",
+        "ros2_control_test_assets",
+        "ros2_controllers",
+        "ros2_controllers_test_nodes",
+        "ros2action",
+        "ros2bag",
+        "ros2cli",
+        "ros2cli_common_extensions",
+        "ros2component",
+        "ros2controlcli",
+        "ros2doctor",
+        "ros2interface",
+        "ros2launch",
+        "ros2lifecycle",
+        "ros2multicast",
+        "ros2node",
+        "ros2param",
+        "ros2pkg",
+        "ros2plugin",
+        "ros2run",
+        "ros2service",
+        "ros2topic",
+        "ros_base",
+        "ros_core",
+        "ros_environment",
+        "ros_workspace",
+        "rosbag2",
+        "rosbag2_compression",
+        "rosbag2_compression_zstd",
+        "rosbag2_cpp",
+        "rosbag2_interfaces",
+        "rosbag2_py",
+        "rosbag2_storage",
+        "rosbag2_storage_default_plugins",
+        "rosbag2_storage_mcap",
+        "rosbag2_storage_sqlite3",
+        "rosbag2_transport",
+        "rosgraph_msgs",
+        "rosidl_adapter",
+        "rosidl_cli",
+        "rosidl_cmake",
+        "rosidl_core_generators",
+        "rosidl_core_runtime",
+        "rosidl_default_generators",
+        "rosidl_default_runtime",
+        "rosidl_dynamic_typesupport",
+        "rosidl_dynamic_typesupport_fastrtps",
+        "rosidl_generator_c",
+        "rosidl_generator_cpp",
+        "rosidl_generator_py",
+        "rosidl_generator_rs",
+        "rosidl_generator_type_description",
+        "rosidl_parser",
+        "rosidl_pycommon",
+        "rosidl_runtime_c",
+        "rosidl_runtime_cpp",
+        "rosidl_runtime_py",
+        "rosidl_typesupport_c",
+        "rosidl_typesupport_cpp",
+        "rosidl_typesupport_fastrtps_c",
+        "rosidl_typesupport_fastrtps_cpp",
+        "rosidl_typesupport_interface",
+        "rosidl_typesupport_introspection_c",
+        "rosidl_typesupport_introspection_cpp",
+        "rpyutils",
+        "rqt_action",
+        "rqt_bag",
+        "rqt_bag_plugins",
+        "rqt_common_plugins",
+        "rqt_console",
+        "rqt_graph",
+        "rqt_gui",
+        "rqt_gui_cpp",
+        "rqt_gui_py",
+        "rqt_image_view",
+        "rqt_msg",
+        "rqt_plot",
+        "rqt_publisher",
+        "rqt_py_common",
+        "rqt_py_console",
+        "rqt_reconfigure",
+        "rqt_service_caller",
+        "rqt_shell",
+        "rqt_srv",
+        "rqt_topic",
+        "rttest",
+        "rviz2",
+        "rviz_assimp_vendor",
+        "rviz_common",
+        "rviz_default_plugins",
+        "rviz_ogre_vendor",
+        "rviz_rendering",
+        "sdformat_urdf",
+        "sdformat_vendor",
+        "sdl2_vendor",
+        "sensor_msgs",
+        "sensor_msgs_py",
+        "service_msgs",
+        "shape_msgs",
+        "spdlog_vendor",
+        "sqlite3_vendor",
+        "srdfdom",
+        "sros2",
+        "sros2_cmake",
+        "state_interfaces_broadcaster",
+        "statistics_msgs",
+        "std_msgs",
+        "std_srvs",
+        "steering_controllers_library",
+        "stereo_msgs",
+        "stomp",
+        "tango_icons_vendor",
+        "tcb_span",
+        "teleop_twist_joy",
+        "teleop_twist_keyboard",
+        "tf2",
+        "tf2_bullet",
+        "tf2_eigen",
+        "tf2_eigen_kdl",
+        "tf2_geometry_msgs",
+        "tf2_kdl",
+        "tf2_msgs",
+        "tf2_py",
+        "tf2_ros",
+        "tf2_ros_py",
+        "tf2_sensor_msgs",
+        "tf2_tools",
+        "tinyxml2_vendor",
+        "tl_expected",
+        "tlsf",
+        "tlsf_cpp",
+        "topic_monitor",
+        "tracetools",
+        "trajectory_msgs",
+        "transmission_interface",
+        "tricycle_controller",
+        "tricycle_steering_controller",
+        "turtlesim",
+        "type_description_interfaces",
+        "uncrustify_vendor",
+        "unique_identifier_msgs",
+        "ur",
+        "ur_calibration",
+        "ur_client_library",
+        "ur_controllers",
+        "ur_dashboard_msgs",
+        "ur_description",
+        "ur_moveit_config",
+        "ur_msgs",
+        "ur_robot_driver",
+        "urdf",
+        "urdf_parser_plugin",
+        "urdfdom_py",
+        "velocity_controllers",
+        "visualization_msgs",
+        "warehouse_ros",
+        "warehouse_ros_sqlite",
+        "xacro",
+        "yaml_cpp_vendor",
+        "zstd_vendor"
+      ],
+      "node_parameters": {
+        "/fixture/planner_server": {
+          "use_sim_time": false
+        },
+        "/fixture/synthetic_sensor": {
+          "use_sim_time": false
+        },
+        "/rosclaw_readonly_probe": {
+          "use_sim_time": false
+        }
+      },
+      "clock_advancing": null
+    },
+    "completeness": {
+      "graph": true,
+      "qos": true,
+      "signals": true,
+      "tf": true,
+      "lifecycle": false,
+      "time": true
+    },
+    "errors": []
+  },
+  "clock_selection_checks": {
+    "status": "PASS",
+    "evidence_domain": "synthetic_clock_inputs",
+    "simulated_tf_age_ms": 100,
+    "mixed_clock_tf_age": null
+  }
+}

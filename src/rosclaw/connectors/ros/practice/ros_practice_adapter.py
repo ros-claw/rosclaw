@@ -27,6 +27,9 @@ class RosPracticeAdapter(LifecycleMixin):
         "rosclaw.practice.event.created",
         "rosclaw.sandbox.episode.failed",
         "rosclaw.how.recovery_hint.generated",
+        "rosclaw.ros.verification.completed",
+        "rosclaw.ros.diagnosis.created",
+        "rosclaw.ros.system.snapshot.created",
     ]
 
     def __init__(self, event_bus: EventBus):
@@ -39,6 +42,9 @@ class RosPracticeAdapter(LifecycleMixin):
             "rosclaw.practice.event.created": self._on_practice_event_created,
             "rosclaw.sandbox.episode.failed": self._on_sandbox_episode_failed,
             "rosclaw.how.recovery_hint.generated": self._on_recovery_hint_generated,
+            "rosclaw.ros.verification.completed": self._on_expert_event,
+            "rosclaw.ros.diagnosis.created": self._on_expert_event,
+            "rosclaw.ros.system.snapshot.created": self._on_expert_event,
         }
         for topic, handler in self._handlers.items():
             self._event_bus.subscribe(topic, handler)
@@ -48,6 +54,23 @@ class RosPracticeAdapter(LifecycleMixin):
         for topic, handler in self._handlers.items():
             self._event_bus.unsubscribe(topic, handler)
         self._handlers.clear()
+
+    def _on_expert_event(self, event: Event) -> None:
+        payload = event.payload if isinstance(event.payload, dict) else {}
+        verification = payload.get("verification", {})
+        verified = verification.get("verification_status") == "PASS" and bool(
+            verification.get("execution_receipts")
+        )
+        outcome = "success" if verified else "observed"
+        self._publish_praxis_recorded(
+            {
+                **payload,
+                "result": payload,
+                "capability_id": "ros.expert",
+                "trace_id": payload.get("mission_id") or payload.get("snapshot_id", ""),
+            },
+            outcome=outcome,
+        )
 
     def _on_practice_event_created(self, event: Event) -> None:
         """Convert a successful ROS execution into a praxis.recorded event."""

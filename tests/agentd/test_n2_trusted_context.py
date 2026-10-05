@@ -124,6 +124,36 @@ def _prepare(tmp_path: Path, base_url: str) -> tuple[Path, Path, dict[str, str]]
 
 
 class TestTrustedContext:
+    @pytest.mark.integration
+    @pytest.mark.skipif(not os.getenv("ROSCLAW_TEST_ROS_ENDPOINT"), reason="live ROS endpoint required")
+    def test_native_ros_observations_reach_real_pi_prompt(self, tmp_path: Path) -> None:
+        import yaml
+
+        fake = _FakeServer()
+        home, workdir, env = _prepare(tmp_path, fake.base_url)
+        config_path = home / "config.yaml"
+        config = yaml.safe_load(config_path.read_text())
+        config["agent"]["ros_expert"] = {
+            "enabled": True, "endpoint": os.environ["ROSCLAW_TEST_ROS_ENDPOINT"],
+        }
+        config_path.write_text(yaml.safe_dump(config))
+        session = PtySession(
+            [sys.executable, "-m", "rosclaw.entrypoint", "chat"], env,
+            log_path=tmp_path / "pty-native-ros.log", cwd=workdir,
+        )
+        try:
+            session.expect(b"ROSClaw Native Agent", timeout=120)
+            session.send("查看当前 ROS 观测。\r")
+            session.expect("已收到。".encode(), timeout=180)
+            received = json.dumps(fake.fake.requests, ensure_ascii=False)
+            assert "ROS runtime observations (not Body truth or authorization)" in received
+            assert "snapshot_hash=rossnap_" in received
+            assert "environment=ros2 distro=jazzy" in received
+            assert "request_action" in received and "rosclawd" in received
+        finally:
+            session.stop()
+            fake.close()
+
     def test_context_file_and_bundled_skill_reach_model(self, tmp_path: Path) -> None:
         fake = _FakeServer()
         home, workdir, env = _prepare(tmp_path, fake.base_url)

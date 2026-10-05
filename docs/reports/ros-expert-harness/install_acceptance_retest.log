@@ -1,0 +1,39 @@
+E                                                                        [100%]
+==================================== ERRORS ====================================
+_ ERROR at setup of TestU01FreshHomeLoginFlow.test_u01_config_chat_doctor_consistency _
+
+tmp_path_factory = TempPathFactory(_given_basetemp=None, _trace=<pluggy._tracing.TagTracerSub object at 0xfe3edd3fd050>, _basetemp=PosixPath('/tmp/pytest-of-nvidia/pytest-131'), _retention_count=3, _retention_policy='all')
+
+    @pytest.fixture(scope="module")
+    def installed(tmp_path_factory) -> Path:
+        """正式安装前缀（wheel 构建+安装——模块一次）。"""
+        from tests.agentd.test_product_journey import _build_and_install
+    
+>       prefix, _root = _build_and_install(tmp_path_factory.mktemp("u_install"))
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/acceptance/u_matrix/test_u01_u04_config.py:32: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+tmp_path = PosixPath('/tmp/pytest-of-nvidia/pytest-131/u_install0')
+
+    def _build_and_install(tmp_path: Path) -> tuple[Path, Path]:
+        env = dict(os.environ, ROSCLAW_SIGNING_HOME=str(tmp_path / "signing"))
+        result = subprocess.run(
+            ["bash", str(BUILD)], cwd=REPO, capture_output=True, text=True, timeout=1800, env=env
+        )
+>       assert result.returncode == 0, result.stderr[-1500:]
+E       AssertionError: WARNING: Building wheel for rosclaw failed: [Errno 2] No such file or directory: '/home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/dist/rosclaw-1.3.0-linux-arm64/vendor/wheels'
+E         
+E         [notice] A new release of pip is available: 26.0.1 -> 26.2.1
+E         [notice] To update, run: /home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/.venv/bin/python -m pip install --upgrade pip
+E         ERROR: Failed to build one or more wheels
+E         FAIL: rosclaw wheel 构建失败，拒绝产出。
+E         
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['bash', '/home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/scripts/build_release.sh'], ret.../bin/python -m pip install --upgrade pip\nERROR: Failed to build one or more wheels\nFAIL: rosclaw wheel 构建失败，拒绝产出。\n").returncode
+
+tests/agentd/test_product_journey.py:637: AssertionError
+=========================== short test summary info ============================
+ERROR tests/acceptance/u_matrix/test_u01_u04_config.py::TestU01FreshHomeLoginFlow::test_u01_config_chat_doctor_consistency
+1 error in 42.07s

@@ -1,0 +1,13 @@
+........................................................................ [ 19%]
+........................................................................ [ 39%]
+................................ss..s................................... [ 59%]
+.........................ss...........................................s. [ 78%]
+........................................................................ [ 98%]
+.....                                                                    [100%]
+=============================== warnings summary ===============================
+tests/practice/test_cli_ingest_seekdb.py::test_cli_practice_ingest_seekdb
+  /home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/.venv/lib/python3.11/site-packages/jieba/_compat.py:18: DeprecationWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html
+    import pkg_resources
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+359 passed, 11 skipped, 10 deselected, 1 warning in 41.97s

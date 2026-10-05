@@ -617,6 +617,29 @@ def add_ros_subparser(subparsers: argparse._SubParsersAction) -> argparse.Argume
     )
     _add_common(stop_parser)
 
+    for command in ("inspect-system", "diagnose", "resolve", "context", "mission", "performance"):
+        expert_parser = ros_subparsers.add_parser(command, help=f"ROS Expert Harness: {command}")
+        _add_common(expert_parser)
+        expert_parser.add_argument("--snapshot", help="Replay a sealed RosSystemModel JSON")
+        expert_parser.add_argument("--graph", help="Saved RosGraphSnapshot JSON")
+        expert_parser.add_argument("--native", help="Native probe JSON capture")
+        expert_parser.add_argument("--body", help="Body binding JSON (never inferred from graph)")
+        expert_parser.add_argument(
+            "--deep", action="store_true", help="Require native sidecar observations"
+        )
+        expert_parser.add_argument("--output", help="Write derived artifact")
+        if command == "diagnose":
+            expert_parser.add_argument(
+                "--profile",
+                default="all",
+                choices=["all", "navigation", "tf", "qos", "sensors", "time"],
+            )
+        if command in {"resolve", "mission"}:
+            expert_parser.add_argument("--task", required=True)
+        if command == "mission":
+            expert_parser.add_argument("operation", choices=["plan"])
+            expert_parser.add_argument("--mission-id", default="ros_coverage_mission")
+
     return ros_parser
 
 
@@ -628,6 +651,8 @@ def add_ros_subparser(subparsers: argparse._SubParsersAction) -> argparse.Argume
 def dispatch_ros_command(args: argparse.Namespace) -> int:
     """Dispatch the selected ``ros`` subcommand."""
     cmd = getattr(args, "ros_command", None)
+    if cmd in {"inspect-system", "diagnose", "resolve", "context", "mission", "performance"}:
+        return cmd_ros_expert(args)
     if cmd == "ping":
         return cmd_ros_ping(args)
     elif cmd == "discover":
@@ -645,3 +670,71 @@ def dispatch_ros_command(args: argparse.Namespace) -> int:
     elif cmd == "emergency-stop":
         return cmd_ros_emergency_stop(args)
     return 1
+
+
+def cmd_ros_expert(args: argparse.Namespace) -> int:
+    from rosclaw.connectors.ros.context import compile_agent_summary
+    from rosclaw.connectors.ros.diagnosis import diagnose
+    from rosclaw.connectors.ros.expert import inspect_system, load_system
+    from rosclaw.connectors.ros.intelligence import build_system_model
+    from rosclaw.connectors.ros.mission import compile_mission
+    from rosclaw.connectors.ros.resolver import resolve_capabilities, resolve_task
+
+    try:
+        body = _load_json_or_yaml(Path(args.body)) if args.body else None
+        if args.snapshot:
+            model = load_system(_load_json_or_yaml(Path(args.snapshot)))
+        elif args.graph:
+            native = _load_json_or_yaml(Path(args.native)) if args.native else None
+            if args.deep and not native:
+                raise ValueError("deep replay requires --native")
+            model = build_system_model(
+                _load_graph(args.graph), robot_id=args.robot_id, body=body, native=native
+            )
+        else:
+            if args.native:
+                raise ValueError("--native requires --graph")
+            model = inspect_system(
+                endpoint=args.endpoint, robot_id=args.robot_id, deep=args.deep, body=body
+            )
+        command = args.ros_command
+        if command == "inspect-system":
+            result = {"system": model.to_dict(), "capabilities": resolve_capabilities(model)}
+        elif command == "performance":
+            from rosclaw.connectors.ros.intelligence.performance import performance_graph
+
+            result = performance_graph(model).model_dump(mode="json")
+        elif command == "diagnose":
+            result = diagnose(model, profile=args.profile)
+        elif command == "resolve":
+            result = resolve_task(model, args.task)
+        elif command == "mission":
+            result = compile_mission(model, args.task, mission_id=args.mission_id).model_dump(
+                mode="json"
+            )
+        else:
+            result = {"summary": compile_agent_summary(model)}
+        if args.output:
+            artifact = (
+                result["summary"]
+                if command == "context"
+                else json.dumps(result.get("system", result), indent=2)
+            )
+            Path(args.output).write_text(artifact + "\n", encoding="utf-8")
+        if command == "performance" and not args.json:
+            result = {
+                "snapshot_id": result["snapshot_id"],
+                "graph_hash": result["graph_hash"],
+                "node_count": len(result["nodes"]),
+                "edge_count": len(result["edges"]),
+                "unknown_backend_count": sum(
+                    n["buffer_backend"] == "UNKNOWN" for n in result["nodes"]
+                ),
+                "findings": result["findings"][:20],
+                "validation_checks": result["validation_checks"],
+                "optimization_verified": result["optimization_verified"],
+                "output_path": args.output,
+            }
+        return _maybe_json(args, {"ok": True, "action": command, **result})
+    except (ValueError, OSError, ConnectionError, TimeoutError) as exc:
+        return _maybe_json(args, {"ok": False, "action": args.ros_command, "error": str(exc)})

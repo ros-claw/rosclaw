@@ -169,11 +169,14 @@ export function renderTrustedContext(result: ContextFetchResult): string {
 		safe_radius_m?: number[]; safe_z_m?: number[];
 	};
 	const safety = env.safety as { mode?: string };
+	const ros = (env.self_state as Record<string, unknown> | undefined)?.ros_observations as
+		{ status?: string; summary?: string; error?: string } | undefined;
 	return (
 		"<ROSCLAW_TRUSTED_CONTEXT>\n" +
 		`mission: ${env.mission_id}  mode: ${safety.mode ?? ""}  revision: ${env.context_revision}\n` +
 		`body: ${body.body_id ?? ""} (hash ${String(body.effective_body_hash ?? "").slice(0, 16)})\n` +
 		`body_summary: ${body.summary ?? ""}\n` +
+		(ros ? `ROS observations (${ros.status ?? "UNKNOWN"}, no action authority):\n${ros.summary ?? ros.error ?? "unavailable"}\n` : "") +
 		// R1-2c：安全工作空间窗口（规划器硬校验同值）——Pi 摆
 		// waypoints 不猜边界；实时位姿走 get_end_effector_pose 工具。
 		(body.safe_radius_m && body.safe_z_m

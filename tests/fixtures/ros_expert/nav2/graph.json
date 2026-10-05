@@ -1,0 +1,46 @@
+{
+  "ros_version": "ros2",
+  "distro": "jazzy",
+  "endpoint": "fixture://nav2",
+  "captured_at": "2026-10-03T00:00:00+00:00",
+  "topics": [
+    {
+      "name": "/scan",
+      "msg_type": "sensor_msgs/msg/LaserScan"
+    },
+    {
+      "name": "/odom",
+      "msg_type": "nav_msgs/msg/Odometry"
+    },
+    {
+      "name": "/map",
+      "msg_type": "nav_msgs/msg/OccupancyGrid"
+    },
+    {
+      "name": "/amcl_pose",
+      "msg_type": "geometry_msgs/msg/PoseWithCovarianceStamped"
+    }
+  ],
+  "nodes": [
+    {
+      "name": "/planner_server"
+    },
+    {
+      "name": "/controller_server"
+    },
+    {
+      "name": "/bt_navigator"
+    },
+    {
+      "name": "/amcl"
+    }
+  ],
+  "services": [],
+  "actions": [
+    {
+      "name": "/navigate_to_pose",
+      "action_type": "nav2_msgs/action/NavigateToPose"
+    }
+  ],
+  "params": []
+}

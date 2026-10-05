@@ -472,3 +472,7 @@ ROSClaw 是研究基础设施，不能替代经过认证的工业安全系统。
 ## 许可证
 
 [MIT](LICENSE)
+
+## ROS Expert Harness 实施状态
+
+已实现 ROS 系统模型、确定性诊断、语义能力与就绪检查、方案选择、现有 TaskGraph 规划和独立覆盖率计算。Jazzy 只读 Probe 已通过合成 DDS 传感器/TF/Lifecycle/QoS 采集验收。Nav2/Gazebo 普通清扫已达到 98.04%；真实 gpt-6.1-sol 从单次清扫输入自主完成动态障碍场景，覆盖率 98.01%、零碰撞，并取得规范回执、Practice SUCCESS、Memory 持久化和 TaskKernel SUCCEEDED。同模型 A/B、跨 Body 和完整研究验收仍待完成，不能宣称全部方案 Done。见 [实施报告](docs/reports/ros-expert-harness/FINAL_IMPLEMENTATION_REPORT.md) 和 [使用文档](docs/ROS_EXPERT_HARNESS.md)。

@@ -1,0 +1,1 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="0" skipped="0" tests="1" time="83.749" timestamp="2026-10-04T00:00:58.180706+00:00" hostname="spark-291e"><testcase classname="tests.sim.test_release_qualification" name="test_clean_wheel_install_smoke" time="83.724" /></testsuite></testsuites>

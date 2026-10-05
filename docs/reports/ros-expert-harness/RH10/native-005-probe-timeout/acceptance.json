@@ -1,0 +1,7 @@
+{
+  "status": "FAIL",
+  "failure_stage": "probe-timeout",
+  "evidence_domain": "SIMULATION",
+  "false_completion_claim": false,
+  "whole_mission_verified": false
+}

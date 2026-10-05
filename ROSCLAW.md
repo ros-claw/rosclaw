@@ -147,3 +147,7 @@ robot transport, executor, serial device, or vendor SDK directly.
 ## Maintainer notes
 
 _Add operational notes here. They will be preserved across init runs._
+
+## ROS expert evidence boundary
+
+Use `ros inspect-system`, `ros diagnose`, `ros resolve`, `ros context`, and `ros mission plan` for read-only engineering. Deep inspection requires the optional native probe; absent evidence is UNKNOWN. ROS graph interfaces and semantic readiness do not confer Body truth or physical authority. Coverage calculations from supplied traces remain NOT_VERIFIED without independent canonical daemon receipt bindings. See [ROS Expert Harness](docs/ROS_EXPERT_HARNESS.md).

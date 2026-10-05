@@ -1,0 +1,376 @@
+"""Launch a small real Gazebo/Nav2/opennav simulation acceptance stack."""
+
+import argparse
+import json
+import os
+import signal
+import subprocess
+import time
+import xml.etree.ElementTree as ET
+from pathlib import Path
+
+import yaml
+from ament_index_python.packages import get_package_share_directory
+
+ROOT = Path(__file__).resolve().parent
+OUTPUT = Path("/evidence")
+
+
+def prepare(controller_watchdog=True):
+    OUTPUT.mkdir(exist_ok=True)
+    sim = Path(get_package_share_directory("nav2_minimal_tb3_sim"))
+    (OUTPUT / "robot.urdf").write_bytes((sim / "urdf/turtlebot3_waffle.urdf").read_bytes())
+    os.environ["GZ_SIM_RESOURCE_PATH"] = f"{sim / 'models'}:{sim.parent}:" + os.getenv(
+        "GZ_SIM_RESOURCE_PATH", ""
+    )
+    robot = subprocess.check_output(
+        ["xacro", str(sim / "urdf/gz_waffle.sdf.xacro"), "namespace:="], text=True
+    )
+    tree = ET.fromstring(robot)
+    model = tree.find("model")
+    if controller_watchdog:
+        from controller import configure
+
+        configure(model, OUTPUT)
+    contact_topics = []
+    for link in model.findall("link"):
+        for sensor in link.findall("sensor"):
+            if sensor.get("type") in {"camera", "depth", "depth_camera", "rgbd_camera"}:
+                link.remove(sensor)
+            elif sensor.get("type") == "gpu_lidar":
+                sensor.find("update_rate").text = "20"
+        collisions = link.findall("collision")
+        if collisions:
+            topic = "/rosclaw_sim/contacts/" + link.get("name")
+            contact_topics.append(topic)
+            sensor = ET.SubElement(link, "sensor", name="expert_contacts", type="contact")
+            ET.SubElement(sensor, "always_on").text = "true"
+            ET.SubElement(sensor, "update_rate").text = "20"
+            ET.SubElement(sensor, "topic").text = topic
+            contact = ET.SubElement(sensor, "contact")
+            for collision in collisions:
+                ET.SubElement(contact, "collision").text = collision.get("name")
+    (OUTPUT / "contact_topics.json").write_text(json.dumps(contact_topics))
+    plugin = ET.SubElement(
+        model,
+        "plugin",
+        filename="gz-sim-pose-publisher-system",
+        name="gz::sim::systems::PosePublisher",
+    )
+    for name, value in {
+        "publish_model_pose": "true",
+        "publish_link_pose": "false",
+        "use_pose_vector_msg": "true",
+        "update_frequency": "30",
+        "topic": "/rosclaw_sim/ground_truth",
+    }.items():
+        ET.SubElement(plugin, name).text = value
+    ET.ElementTree(tree).write(OUTPUT / "robot.sdf")
+    world = """<sdf version="1.9"><world name="ros_expert">
+      <physics name="physics" type="ignored"><max_step_size>0.01</max_step_size><real_time_factor>1</real_time_factor></physics>
+      <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>
+      <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"/>
+      <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"/>
+      <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors"><render_engine>ogre2</render_engine></plugin>
+      <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu"/>
+      <plugin filename="gz-sim-contact-system" name="gz::sim::systems::Contact"/>
+      <light name="sun" type="directional"><pose>0 0 10 0 0 0</pose><direction>-0.5 0.1 -0.9</direction></light>
+      <model name="floor"><static>true</static><link name="ground"><collision name="ground"><geometry><plane><normal>0 0 1</normal><size>20 20</size></plane></geometry></collision><visual name="ground"><geometry><plane><normal>0 0 1</normal><size>20 20</size></plane></geometry></visual></link></model>"""
+    for name, pose, size in [
+        ("east", "1.55 0 0.3 0 0 0", "0.1 3.2 0.6"),
+        ("west", "-1.55 0 0.3 0 0 0", "0.1 3.2 0.6"),
+        ("north", "0 1.55 0.3 0 0 0", "3.2 0.1 0.6"),
+        ("south", "0 -1.55 0.3 0 0 0", "3.2 0.1 0.6"),
+    ]:
+        world += f'<model name="{name}"><static>true</static><pose>{pose}</pose><link name="wall"><collision name="wall"><geometry><box><size>{size}</size></box></geometry></collision><visual name="wall"><geometry><box><size>{size}</size></box></geometry></visual></link></model>'
+    (OUTPUT / "world.sdf").write_text(world + "</world></sdf>")
+    width = 64
+    values = [
+        0 if abs((x + 0.5) * 0.05 - 1.6) >= 1.5 or abs((y + 0.5) * 0.05 - 1.6) >= 1.5 else 254
+        for y in range(width)
+        for x in range(width)
+    ]
+    (OUTPUT / "room.pgm").write_bytes(b"P5\n64 64\n255\n" + bytes(values))
+    (OUTPUT / "map.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "image": "room.pgm",
+                "resolution": 0.05,
+                "origin": [-1.6, -1.6, 0],
+                "negate": 0,
+                "occupied_thresh": 0.65,
+                "free_thresh": 0.25,
+            }
+        )
+    )
+    params = yaml.safe_load(
+        (Path(get_package_share_directory("nav2_bringup")) / "params/nav2_params.yaml").read_text()
+    )
+    demo = yaml.safe_load(
+        Path("/ws/src/opennav_coverage/opennav_coverage_demo/params/demo_params.yaml").read_text()
+    )
+    params["coverage_server"] = demo["coverage_server"]
+    params["collision_monitor"]["ros__parameters"].update(
+        cmd_vel_in_topic="/cmd_vel_smoothed", cmd_vel_out_topic="/nav_cmd_vel"
+    )
+    params["collision_monitor"]["ros__parameters"]["scan"]["topic"] = "/scan"
+    params["coverage_server"]["ros__parameters"].update(
+        robot_width=0.5, operation_width=0.45, default_headland_width=0.5, min_turning_radius=0.1
+    )
+    params["controller_server"]["ros__parameters"].update(
+        demo["controller_server"]["ros__parameters"]
+    )
+    params["controller_server"]["ros__parameters"]["FollowPath"].update(
+        desired_linear_vel=0.2,
+        lookahead_dist=0.1,
+        min_lookahead_dist=0.05,
+        max_lookahead_dist=0.15,
+        regulated_linear_scaling_min_speed=0.03,
+        regulated_linear_scaling_min_radius=0.3,
+        use_rotate_to_heading=True,
+        rotate_to_heading_min_angle=0.35,
+        use_velocity_scaled_lookahead_dist=False,
+        min_approach_linear_velocity=0.02,
+        approach_velocity_scaling_dist=0.15,
+    )
+    params["controller_server"]["ros__parameters"]["progress_checker"].update(
+        required_movement_radius=0.05, movement_time_allowance=30.0
+    )
+    params["controller_server"]["ros__parameters"]["general_goal_checker"].update(
+        xy_goal_tolerance=0.025, yaw_goal_tolerance=0.1
+    )
+    params["bt_navigator"]["ros__parameters"].update(
+        navigators=["navigate_to_pose", "navigate_through_poses", "navigate_complete_coverage"],
+        navigate_complete_coverage={"plugin": "opennav_coverage_navigator/CoverageNavigator"},
+        plugin_lib_names=demo["bt_navigator"]["ros__parameters"]["plugin_lib_names"],
+        default_coverage_bt_xml=get_package_share_directory("opennav_coverage_bt")
+        + "/behavior_trees/navigate_w_basic_complete_coverage_nav_to_start.xml",
+    )
+    params["amcl"]["ros__parameters"].update(
+        set_initial_pose=True,
+        initial_pose={"x": 0.0, "y": 0.0, "z": 0.0, "yaw": 0.0},
+        transform_tolerance=0.3,
+        update_min_d=0.02,
+        update_min_a=0.02,
+        alpha1=0.2,
+        alpha2=0.2,
+        alpha3=0.2,
+        alpha4=0.2,
+        sigma_hit=0.05,
+        max_beams=180,
+    )
+    for costmap in ["global_costmap", "local_costmap"]:
+        p = params[costmap][costmap]["ros__parameters"]
+        p.update(robot_radius=0.25, resolution=0.05, publish_frequency=2.0)
+        p["inflation_layer"].update(inflation_radius=0.27, cost_scaling_factor=5.0)
+    (OUTPUT / "nav2.yaml").write_text(yaml.safe_dump(params))
+    bridge = yaml.safe_load((sim / "configs/turtlebot3_waffle_bridge.yaml").read_text())
+    if controller_watchdog:
+        bridge = [
+            entry
+            for entry in bridge
+            if entry.get("topic_name") not in {"cmd_vel", "odom", "tf", "joint_states"}
+        ]
+    bridge.extend(
+        {
+            "ros_topic_name": t,
+            "gz_topic_name": "/world/ros_expert/model/turtlebot3_waffle/link/"
+            + t.rsplit("/", 1)[-1]
+            + "/sensor/expert_contacts/contact",
+            "ros_type_name": "ros_gz_interfaces/msg/Contacts",
+            "gz_type_name": "gz.msgs.Contacts",
+            "direction": "GZ_TO_ROS",
+        }
+        for t in contact_topics
+    )
+    bridge.append(
+        {
+            "ros_topic_name": "/rosclaw_sim/ground_truth",
+            "gz_topic_name": "/rosclaw_sim/ground_truth",
+            "ros_type_name": "tf2_msgs/msg/TFMessage",
+            "gz_type_name": "gz.msgs.Pose_V",
+            "direction": "GZ_TO_ROS",
+        }
+    )
+    (OUTPUT / "bridge.yaml").write_text(yaml.safe_dump(bridge))
+    return sim
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--fault-acceptance", action="store_true")
+    parser.add_argument(
+        "--controller-watchdog",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Require the bottom-level command timeout; disable only for explicit legacy fixture replay",
+    )
+    args = parser.parse_args()
+    prepare(args.controller_watchdog)
+    children = []
+    labels = {}
+    exited = set()
+
+    def start(name, argv):
+        log = (OUTPUT / f"{name}.log").open("w")
+        p = subprocess.Popen(argv, stdout=log, stderr=subprocess.STDOUT)
+        children.append(p)
+        labels[p] = name
+        return p
+
+    try:
+        start(
+            "gazebo", ["gz", "sim", "-r", "-s", "--headless-rendering", str(OUTPUT / "world.sdf")]
+        )
+        time.sleep(3)
+        subprocess.run(
+            [
+                "ros2",
+                "run",
+                "ros_gz_sim",
+                "create",
+                "-world",
+                "ros_expert",
+                "-file",
+                str(OUTPUT / "robot.sdf"),
+                "-name",
+                "turtlebot3_waffle",
+                "-z",
+                "0.05",
+            ],
+            check=True,
+            timeout=30,
+        )
+        start(
+            "bridge",
+            [
+                "ros2",
+                "run",
+                "ros_gz_bridge",
+                "parameter_bridge",
+                "--ros-args",
+                "-p",
+                f"config_file:={OUTPUT / 'bridge.yaml'}",
+                "-p",
+                "use_sim_time:=true",
+            ],
+        )
+        start(
+            "robot_state",
+            [
+                "ros2",
+                "run",
+                "robot_state_publisher",
+                "robot_state_publisher",
+                "--ros-args",
+                "-p",
+                "use_sim_time:=true",
+                "-p",
+                "robot_description:=" + (OUTPUT / "robot.urdf").read_text(),
+            ],
+        )
+        start("nav2", ["ros2", "launch", str(ROOT / "nav2_launch.py")])
+        if args.controller_watchdog:
+            subprocess.run(
+                [
+                    "ros2",
+                    "run",
+                    "controller_manager",
+                    "spawner",
+                    "joint_state_broadcaster",
+                    "drive_controller",
+                    "--controller-manager-timeout",
+                    "30",
+                ],
+                check=True,
+                timeout=40,
+            )
+        start(
+            "coverage",
+            [
+                "ros2",
+                "run",
+                "opennav_coverage",
+                "opennav_coverage",
+                "--ros-args",
+                "--params-file",
+                str(OUTPUT / "nav2.yaml"),
+                "-p",
+                "use_sim_time:=true",
+            ],
+        )
+        start(
+            "coverage_lifecycle",
+            [
+                "ros2",
+                "run",
+                "nav2_lifecycle_manager",
+                "lifecycle_manager",
+                "--ros-args",
+                "-r",
+                "__node:=coverage_lifecycle_manager",
+                "-p",
+                "use_sim_time:=true",
+                "-p",
+                "autostart:=true",
+                "-p",
+                "node_names:=['coverage_server']",
+            ],
+        )
+        start(
+            "rosbridge",
+            [
+                "ros2",
+                "run",
+                "rosbridge_server",
+                "rosbridge_websocket",
+                "--ros-args",
+                "-p",
+                "use_sim_time:=true",
+                "-p",
+                "port:=9090",
+            ],
+        )
+        start(
+            "rosapi",
+            ["ros2", "run", "rosapi", "rosapi_node", "--ros-args", "-p", "use_sim_time:=true"],
+        )
+        start(
+            "witness",
+            [
+                "python3",
+                str(ROOT / "witness.py"),
+                "--ros-args",
+                "-p",
+                "use_sim_time:=true",
+                "-p",
+                f"controller_watchdog:={'true' if args.controller_watchdog else 'false'}",
+            ],
+        )
+        start("probe", ["python3", str(ROOT.parent / "ros2/probe.py")])
+        while True:
+            for p in children:
+                if p.poll() is not None:
+                    if args.fault_acceptance and labels[p] in {"rosbridge", "rosapi", "probe"}:
+                        if p not in exited:
+                            exited.add(p)
+                            with (OUTPUT / "fixture_process_failures.jsonl").open("a") as trace:
+                                trace.write(
+                                    json.dumps({"process": labels[p], "exit_code": p.returncode})
+                                    + "\n"
+                                )
+                        continue
+                    raise RuntimeError(f"stack process exited: {p.args}")
+            time.sleep(1)
+    finally:
+        for p in children:
+            p.send_signal(signal.SIGINT)
+        for p in children:
+            try:
+                p.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                p.kill()
+
+
+if __name__ == "__main__":
+    main()

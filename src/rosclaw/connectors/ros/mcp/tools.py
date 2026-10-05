@@ -24,6 +24,7 @@ def register_ros_tools(
     mcp,
     runtime: Any | None = None,
     daemon_client: Any | None = None,
+    expert_only: bool = False,
 ) -> None:
     """Register ROS MCP tools with a FastMCP-like server object.
 
@@ -31,6 +32,101 @@ def register_ros_tools(
     """
 
     daemon = daemon_client or DaemonClient()
+    event_bus = getattr(runtime, "event_bus", None)
+
+    def expert_model(snapshot: dict | None, endpoint: str, robot_id: str, deep: bool):
+        from rosclaw.connectors.ros.expert import inspect_system, load_system
+
+        return (
+            load_system(snapshot)
+            if snapshot is not None
+            else inspect_system(
+                endpoint=endpoint, robot_id=robot_id, deep=deep, event_bus=event_bus
+            )
+        )
+
+    @mcp.tool(
+        description="Inspect robot ROS runtime with provenance; read-only, no physical authorization."
+    )
+    def ros_inspect_system(
+        endpoint: str = "ws://127.0.0.1:9090",
+        robot_id: str = "unknown",
+        deep: bool = False,
+        snapshot: dict | None = None,
+    ) -> dict:
+        from rosclaw.connectors.ros.context import compile_agent_summary
+        from rosclaw.connectors.ros.resolver import resolve_capabilities
+
+        try:
+            model = expert_model(snapshot, endpoint, robot_id, deep)
+            return {
+                "ok": True,
+                "system": model.to_dict(),
+                "summary": compile_agent_summary(model),
+                "capabilities": resolve_capabilities(model),
+                "source": "supplied_snapshot" if snapshot else "live_probe",
+            }
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    @mcp.tool(
+        description="Diagnose ROS failures using deterministic observation evidence; read-only."
+    )
+    def ros_diagnose_system(
+        endpoint: str = "ws://127.0.0.1:9090",
+        robot_id: str = "unknown",
+        profile: str = "all",
+        deep: bool = True,
+        snapshot: dict | None = None,
+    ) -> dict:
+        from rosclaw.connectors.ros.diagnosis import diagnose
+
+        try:
+            return {
+                "ok": True,
+                **diagnose(
+                    expert_model(snapshot, endpoint, robot_id, deep),
+                    profile=profile,
+                    event_bus=event_bus,
+                ),
+            }
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    @mcp.tool(
+        description="Resolve cleaning/navigation intent to semantic capabilities and mature ROS components; does not install or execute."
+    )
+    def ros_resolve_task(
+        task: str,
+        endpoint: str = "ws://127.0.0.1:9090",
+        robot_id: str = "unknown",
+        deep: bool = True,
+        snapshot: dict | None = None,
+    ) -> dict:
+        from rosclaw.connectors.ros.resolver import resolve_task
+
+        try:
+            return {
+                "ok": True,
+                **resolve_task(expert_model(snapshot, endpoint, robot_id, deep), task),
+            }
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    @mcp.tool(
+        description="Compute independent cleaning footprint coverage; mission PASS requires canonical daemon receipts bound to the exact independent evidence."
+    )
+    def ros_verify_mission(evidence: dict) -> dict:
+        from rosclaw.connectors.ros.verification.mission import verify_mission
+
+        try:
+            result = verify_mission(evidence, daemon=daemon, event_bus=event_bus)
+            return {"ok": True, **result}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc), "success": False}
+
+    if expert_only:
+        return
 
     @mcp.tool(
         description=(
@@ -278,6 +374,7 @@ def register_ros_tools(
                 "usable_for_real_execution": False,
                 "message": "Activate the certified physical E-stop immediately.",
             }
+
         except Exception as exc:
             return {
                 "ok": False,
@@ -290,3 +387,27 @@ def register_ros_tools(
                 "usable_for_real_execution": False,
                 "message": "Activate the certified physical E-stop immediately.",
             }
+
+
+def register_ros_expert_tools(mcp, daemon_client: Any | None = None) -> None:
+    """Attach only four read-only composite tools to the canonical MCP server."""
+    from mcp.types import ToolAnnotations
+
+    class ReadOnlyRegistrar:
+        def tool(self, description: str = ""):
+            def register(func):
+                mcp.add_tool(
+                    func,
+                    description=description,
+                    annotations=ToolAnnotations(
+                        readOnlyHint=True,
+                        destructiveHint=False,
+                        idempotentHint=True,
+                        openWorldHint=True,
+                    ),
+                )
+                return func
+
+            return register
+
+    register_ros_tools(ReadOnlyRegistrar(), daemon_client=daemon_client, expert_only=True)

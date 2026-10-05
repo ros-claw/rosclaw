@@ -53,7 +53,11 @@ async function collectHarness() {
 		leaseState: "NONE",
 		actionsAllowed: false,
 	});
-	const call = async () => ({ ok: false, error: "no bridge in test" });
+	const calls: string[] = [];
+	const call = async (_home: string, method: string) => {
+		calls.push(method);
+		return { ok: false, error: "no bridge in test" };
+	};
 	const coordinator = new AgentSessionCoordinator({
 		rosclawHome: "/tmp/rh-test",
 		active,
@@ -89,8 +93,18 @@ async function collectHarness() {
 			await handler(event, {});
 		}
 	};
-	return { emit, appended, entryRenderers };
+	return { emit, appended, entryRenderers, active, calls };
 }
+
+test("SIM action settlement refreshes its expired context and fails closed on probe failure", async () => {
+	const { emit, active, calls } = await collectHarness();
+	active.patch({ missionId: "mission", contextState: "FRESH", actionsAllowed: true });
+	await emit("tool_execution_end", { toolName: "propose_coverage__execute", result: { details: {} } });
+	assert.ok(calls.includes("pi.context"));
+	assert.equal(active.current.contextState, "STALE");
+	assert.equal(active.current.actionsAllowed, false);
+	assert.ok(!calls.includes("pi.action.execute"));
+});
 
 const LIE = "动作已执行，结构化回执已确认。";
 

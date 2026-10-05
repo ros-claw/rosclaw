@@ -1,0 +1,1 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="0" skipped="0" tests="1" time="208.084" timestamp="2026-10-04T23:40:25.354228+00:00" hostname="spark-291e"><testcase classname="tests.agentd.test_product_journey.TestProductJourney" name="test_full_journey_pty" time="207.969" /></testsuite></testsuites>

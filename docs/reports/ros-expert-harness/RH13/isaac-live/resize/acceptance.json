@@ -1,0 +1,68 @@
+{
+  "status": "PASS",
+  "accepted_run": "006-pass.json",
+  "frames": 300,
+  "rate_hz": 20,
+  "observed_output_dimensions": [
+    480,
+    270
+  ],
+  "input_dimensions": [
+    1920,
+    1080
+  ],
+  "upstream_component": "nvidia::isaac_ros::image_proc::ResizeNode",
+  "shared_cuda_pool_fix": "LD_PRELOAD of installed libcuda_buffer.so binds application component and backend plugin to one process-wide pool",
+  "cold_start_fix": "One real content/backend/geometry-validated frame before 20Hz publication; no stale descriptor accepted and upstream recycling interval unchanged",
+  "copy_trace_complete": false,
+  "zero_copy_verified": false,
+  "isaac_sim_cleaning_verified": false,
+  "hardware_verified": false,
+  "failed_runs_retained": [
+    "001-failed.json",
+    "002-failed.json",
+    "004-warmup-observer-failed.log"
+  ],
+  "files": [
+    {
+      "file": "001-failed.json",
+      "sha256": "e5c834080948ab94fc88fa8bcb27166fd6a70fb014ebf0872050f921ccc4ab9f"
+    },
+    {
+      "file": "002-failed-resize_component.log.gz",
+      "sha256": "1da1b52a5efc1222fb128d0e3f09e2e81d90df61a046aa12972610b6721b79c0"
+    },
+    {
+      "file": "002-failed-resize_subscriber.log.gz",
+      "sha256": "b2df381ffb0f22519173f449aaeee2997592dd38fb272f1552df763a1743b7a5"
+    },
+    {
+      "file": "002-failed.json",
+      "sha256": "0208863c1f118927d4f13949ddb9ee5cdacb2ae93e29971a938534a70e17a9f5"
+    },
+    {
+      "file": "003-cold-pass.json",
+      "sha256": "9932a3e0194d7211418e91f9abfc0ef566cf7fd64bf4fffe3662d129ac63fddd"
+    },
+    {
+      "file": "004-warmup-observer-failed.log",
+      "sha256": "86a019b169b9ad88733a6c7c29cd91b7dda4610922b8a86b239f13e1d120be38"
+    },
+    {
+      "file": "006-pass.json",
+      "sha256": "dd9fb5321b9afaba8ccd5df526a0783d9acebb6bdbed7ee398d6b95d43d9ecab"
+    },
+    {
+      "file": "resize-006-resize_component.log.gz",
+      "sha256": "eddbb6822047e44481e16b1c808f5f00369a9f3fbd288b98bfd41a09669c87ef"
+    },
+    {
+      "file": "resize-006-resize_publisher.log.gz",
+      "sha256": "acc4e44697b967c6b43631b1b7c44486e88961f6fdeb04dae999dfc21d301c17"
+    },
+    {
+      "file": "resize-006-resize_subscriber.log.gz",
+      "sha256": "28b40a8057e228c11368e4752bfb8475784fcfca11135b02108dfdd9f53f9038"
+    }
+  ]
+}

@@ -59,8 +59,11 @@ const SNAPSHOT = {
 
 function fakeCenter(captured: { calls: Array<{ method: string; params: unknown }> }) {
 	return {
+		async actionReadiness() { return { state: "READY", reason_codes: [] }; },
 		async call(method: string, params: unknown) {
 			captured.calls.push({ method, params });
+			if (method === "pi.action.propose") return { ok: true, card: { approval_id: "appr_1", display_hash: "display1", decision_authority: "POLICY_AUTO" } };
+			if (method === "pi.action.execute") return { ok: true, result: { executed: true, status: "COMPLETED", summary: "verified" } };
 			return {
 				ok: true, status: "COMPLETED",
 				summary: JSON.stringify({ status: "SUCCEEDED", value: { ok: true } }),
@@ -72,6 +75,7 @@ function fakeCenter(captured: { calls: Array<{ method: string; params: unknown }
 const FAKE_ACTIVE = {
 	current: {
 		sessionId: "s1", missionId: "m1", contextRevision: 1,
+		contextLeaseId: "ctxl_validated",
 		bodyId: "sim/ur5e", mode: "SIMULATION",
 	},
 	patch() {},
@@ -105,30 +109,32 @@ test("N5D: 物化工具 execute 钉住 capability_id 并携带 snapshot digest",
 	await plan.execute("c1", { shape: "star5" }, new AbortController().signal, async () => {}, {} as never);
 	assert.equal(captured.calls.length, 1);
 	const params = captured.calls[0].params as {
-		request: { tool_name: string; arguments: Record<string, unknown> };
+		request: { tool_name: string; context_lease_id: string; arguments: Record<string, unknown> };
 	};
 	// wire 仍走内核验证链（compute 路径），capability_id 钉住
 	assert.equal(params.request.tool_name, "rosclaw_compute");
+	assert.equal(params.request.context_lease_id, "ctxl_validated");
 	assert.equal(params.request.arguments.capability_id, "ur5e.plan_cartesian_path");
 	assert.equal(params.request.arguments.snapshot_digest, "sha256:abc123");
 	// 模型参数原样传递
 	assert.deepEqual(params.request.arguments.arguments, { shape: "star5" });
 });
 
-test("N5D: propose_ 工具走 admission 链（rosclaw_execute 管线）", async () => {
-	const { materializeCapabilityTools } = await import("../src/tools/materialize.js");
-	const captured: { calls: Array<{ method: string; params: unknown }> } = { calls: [] };
-	const tools = materializeCapabilityTools(SNAPSHOT, {
-		center: fakeCenter(captured), active: FAKE_ACTIVE, rosclawHome: "/tmp/x",
-	});
-	const propose = tools.find((t) => t.name === "propose_ur5e__move_joints");
-	assert.ok(propose);
-	await propose.execute("c1", { joints: [0, 0, 0, 0, 0, 0] }, new AbortController().signal, async () => {}, {} as never);
-	const params = captured.calls[0].params as {
-		request: { tool_name: string; arguments: Record<string, unknown> };
-	};
-	assert.equal(params.request.tool_name, "rosclaw_execute");
-	assert.equal(params.request.arguments.capability_id, "ur5e.move_joints");
+	test("N5D: propose_ reuses trusted approval and receipt continuation", async () => {
+ const { materializeCapabilityTools } = await import("../src/tools/materialize.js");
+ const captured: { calls: Array<{ method: string; params: unknown }> } = { calls: [] };
+ const tools = materializeCapabilityTools(SNAPSHOT, {
+  center: fakeCenter(captured), active: FAKE_ACTIVE, rosclawHome: "/tmp/x",
+ });
+ const propose = tools.find((t) => t.name === "propose_ur5e__move_joints");
+ assert.ok(propose);
+ const result = await propose.execute("c1", { joints: [0, 0, 0, 0, 0, 0] }, new AbortController().signal, async () => {}, {} as never);
+ assert.deepEqual(captured.calls.map(c => c.method), ["pi.action.propose", "pi.action.execute"]);
+ const params = captured.calls[0].params as Record<string, unknown>;
+ assert.equal(params.capability_id, "ur5e.move_joints");
+ assert.equal(params.context_lease_id, "ctxl_validated");
+ assert.equal(params.snapshot_digest, "sha256:abc123");
+ assert.equal((result.details as Record<string, unknown>).status, "COMPLETED");
 });
 
 test("N5D: rosclaw_compute/rosclaw_execute 退出模型面；R0-1.5 task 亦退出", () => {

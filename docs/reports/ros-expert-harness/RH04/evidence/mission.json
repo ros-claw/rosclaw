@@ -1,0 +1,577 @@
+{
+  "schema_version": "rosclaw.task_graph.v1",
+  "mission_id": "fixture_cleaning",
+  "revision": 0,
+  "nodes": [
+    {
+      "schema_version": "rosclaw.task_node.v1",
+      "task_id": "fixture_cleaning:precheck",
+      "mission_id": "fixture_cleaning",
+      "kind": "validate",
+      "goal": "Inspect readiness, body footprint, map and fresh evidence.",
+      "dependencies": [],
+      "inputs": {
+        "solution": {
+          "schema_version": "rosclaw.ros_solution.v1",
+          "task_class": "complete_area_cleaning",
+          "snapshot_id": "rossys_d8809ca2121e22f2e8dc6f41f626e6fcbce5874091f958da77b52d3242833a68",
+          "available": [
+            "navigation.navigate_to_pose",
+            "localization.pose_estimate",
+            "mapping.occupancy_map",
+            "state.odometry",
+            "sensing.lidar"
+          ],
+          "missing": [
+            "coverage.compute_path",
+            "coverage.execute",
+            "coverage.verify",
+            "safety.collision_monitor",
+            "cleaning.enable",
+            "cleaning.disable"
+          ],
+          "blocked": [],
+          "unknown": [],
+          "recommended": [
+            {
+              "id": "opennav_coverage",
+              "framework": "nav2",
+              "provides": [
+                "coverage.compute_path",
+                "coverage.execute"
+              ],
+              "requires": [
+                "navigation.navigate_to_pose",
+                "cleaning_footprint",
+                "coverage_polygon"
+              ],
+              "supported_ros": [
+                "ros2"
+              ],
+              "supported_distros": [
+                "humble",
+                "jazzy"
+              ],
+              "version_selection": {
+                "humble": "humble-v2",
+                "jazzy": "jazzy-v2"
+              },
+              "dependency": "Fields2Cover-v2.0.0",
+              "hardware_requirements": [
+                "mobile_base"
+              ],
+              "conflicts": [],
+              "preferred_when": [
+                "complete_area_cleaning"
+              ],
+              "avoid_when": [
+                "unvalidated_polygon_or_footprint"
+              ],
+              "validation_probes": [
+                "coverage_server_lifecycle",
+                "action_types",
+                "independent_coverage_verification"
+              ],
+              "official_source": "https://github.com/open-navigation/opennav_coverage",
+              "maturity": "external_component_not_live_verified_here",
+              "reason": "Provides missing task semantics; reuse existing runtime."
+            },
+            {
+              "id": "nav2_collision_monitor",
+              "framework": "nav2",
+              "provides": [
+                "safety.collision_monitor"
+              ],
+              "requires": [
+                "sensing.lidar"
+              ],
+              "supported_ros": [
+                "ros2"
+              ],
+              "supported_distros": [
+                "humble",
+                "jazzy"
+              ],
+              "hardware_requirements": [
+                "mobile_base"
+              ],
+              "conflicts": [],
+              "preferred_when": [
+                "dynamic_obstacles"
+              ],
+              "avoid_when": [
+                "missing_fresh_sensors"
+              ],
+              "validation_probes": [
+                "lifecycle",
+                "obstacle_stop_evidence"
+              ],
+              "official_source": "https://docs.nav2.org/configuration/packages/collision_monitor/configuring-collision-monitor-node.html",
+              "maturity": "software_guard_not_safety_certification",
+              "reason": "Provides missing task semantics; reuse existing runtime."
+            },
+            {
+              "id": "rosclaw_coverage_verifier",
+              "framework": "rosclaw",
+              "provides": [
+                "coverage.verify"
+              ],
+              "requires": [
+                "measured_trajectory",
+                "cleaning_footprint",
+                "independent_collision_evidence"
+              ],
+              "supported_ros": [
+                "ros1",
+                "ros2"
+              ],
+              "supported_distros": [
+                "noetic",
+                "humble",
+                "jazzy"
+              ],
+              "hardware_requirements": [],
+              "conflicts": [],
+              "preferred_when": [
+                "complete_area_cleaning"
+              ],
+              "avoid_when": [
+                "missing_execution_evidence"
+              ],
+              "validation_probes": [
+                "coverage_mask",
+                "missed_regions",
+                "receipt_binding"
+              ],
+              "official_source": "https://github.com/ros-claw/rosclaw",
+              "maturity": "offline_verifier",
+              "reason": "Provides missing task semantics; reuse existing runtime."
+            }
+          ],
+          "alternatives": [],
+          "body_requirements": [
+            "cleaning_footprint",
+            "coverage_polygon",
+            "exclusion_zones"
+          ],
+          "execution_entry": "request_action",
+          "configured": false
+        }
+      },
+      "constraints": {
+        "schema_version": "rosclaw.task_constraints.v1",
+        "body_id": "fixture_base",
+        "freshness_ms": 5000,
+        "risk_tier": "LOW",
+        "deadline": null
+      },
+      "required_capabilities": [],
+      "assignee": {
+        "schema_version": "rosclaw.task_assignee.v1",
+        "type": "native",
+        "id": null
+      },
+      "lease": {
+        "schema_version": "rosclaw.task_lease.v1",
+        "lease_id": null,
+        "expires_at": null
+      },
+      "verification": {
+        "schema_version": "rosclaw.task_verification.v1",
+        "schema_ref": null,
+        "verifier": null
+      },
+      "status": "PENDING",
+      "attempt": 0,
+      "max_attempts": 3,
+      "artifacts": [],
+      "trace_id": null
+    },
+    {
+      "schema_version": "rosclaw.task_node.v1",
+      "task_id": "fixture_cleaning:localize",
+      "mission_id": "fixture_cleaning",
+      "kind": "perceive",
+      "goal": "Observe localization and TF.",
+      "dependencies": [
+        "fixture_cleaning:precheck"
+      ],
+      "inputs": {
+        "snapshot_id": "rossys_d8809ca2121e22f2e8dc6f41f626e6fcbce5874091f958da77b52d3242833a68"
+      },
+      "constraints": {
+        "schema_version": "rosclaw.task_constraints.v1",
+        "body_id": "fixture_base",
+        "freshness_ms": 5000,
+        "risk_tier": "LOW",
+        "deadline": null
+      },
+      "required_capabilities": [
+        "localization.pose_estimate"
+      ],
+      "assignee": {
+        "schema_version": "rosclaw.task_assignee.v1",
+        "type": "native",
+        "id": null
+      },
+      "lease": {
+        "schema_version": "rosclaw.task_lease.v1",
+        "lease_id": null,
+        "expires_at": null
+      },
+      "verification": {
+        "schema_version": "rosclaw.task_verification.v1",
+        "schema_ref": null,
+        "verifier": null
+      },
+      "status": "PENDING",
+      "attempt": 0,
+      "max_attempts": 3,
+      "artifacts": [],
+      "trace_id": null
+    },
+    {
+      "schema_version": "rosclaw.task_node.v1",
+      "task_id": "fixture_cleaning:plan",
+      "mission_id": "fixture_cleaning",
+      "kind": "create_artifact",
+      "goal": "Compute coverage through the selected component.",
+      "dependencies": [
+        "fixture_cleaning:localize"
+      ],
+      "inputs": {
+        "snapshot_id": "rossys_d8809ca2121e22f2e8dc6f41f626e6fcbce5874091f958da77b52d3242833a68"
+      },
+      "constraints": {
+        "schema_version": "rosclaw.task_constraints.v1",
+        "body_id": "fixture_base",
+        "freshness_ms": 5000,
+        "risk_tier": "LOW",
+        "deadline": null
+      },
+      "required_capabilities": [
+        "coverage.compute_path"
+      ],
+      "assignee": {
+        "schema_version": "rosclaw.task_assignee.v1",
+        "type": "native",
+        "id": null
+      },
+      "lease": {
+        "schema_version": "rosclaw.task_lease.v1",
+        "lease_id": null,
+        "expires_at": null
+      },
+      "verification": {
+        "schema_version": "rosclaw.task_verification.v1",
+        "schema_ref": null,
+        "verifier": null
+      },
+      "status": "PENDING",
+      "attempt": 0,
+      "max_attempts": 3,
+      "artifacts": [],
+      "trace_id": null
+    },
+    {
+      "schema_version": "rosclaw.task_node.v1",
+      "task_id": "fixture_cleaning:clean",
+      "mission_id": "fixture_cleaning",
+      "kind": "request_action",
+      "goal": "Enable cleaning through rosclawd.",
+      "dependencies": [
+        "fixture_cleaning:plan"
+      ],
+      "inputs": {
+        "snapshot_id": "rossys_d8809ca2121e22f2e8dc6f41f626e6fcbce5874091f958da77b52d3242833a68"
+      },
+      "constraints": {
+        "schema_version": "rosclaw.task_constraints.v1",
+        "body_id": "fixture_base",
+        "freshness_ms": 5000,
+        "risk_tier": "HIGH",
+        "deadline": null
+      },
+      "required_capabilities": [
+        "cleaning.enable"
+      ],
+      "assignee": {
+        "schema_version": "rosclaw.task_assignee.v1",
+        "type": "native",
+        "id": null
+      },
+      "lease": {
+        "schema_version": "rosclaw.task_lease.v1",
+        "lease_id": null,
+        "expires_at": null
+      },
+      "verification": {
+        "schema_version": "rosclaw.task_verification.v1",
+        "schema_ref": null,
+        "verifier": null
+      },
+      "status": "PENDING",
+      "attempt": 0,
+      "max_attempts": 3,
+      "artifacts": [],
+      "trace_id": null
+    },
+    {
+      "schema_version": "rosclaw.task_node.v1",
+      "task_id": "fixture_cleaning:execute",
+      "mission_id": "fixture_cleaning",
+      "kind": "request_action",
+      "goal": "Execute coverage through rosclawd; observe obstacle handling.",
+      "dependencies": [
+        "fixture_cleaning:clean"
+      ],
+      "inputs": {
+        "snapshot_id": "rossys_d8809ca2121e22f2e8dc6f41f626e6fcbce5874091f958da77b52d3242833a68"
+      },
+      "constraints": {
+        "schema_version": "rosclaw.task_constraints.v1",
+        "body_id": "fixture_base",
+        "freshness_ms": 5000,
+        "risk_tier": "HIGH",
+        "deadline": null
+      },
+      "required_capabilities": [
+        "coverage.execute"
+      ],
+      "assignee": {
+        "schema_version": "rosclaw.task_assignee.v1",
+        "type": "native",
+        "id": null
+      },
+      "lease": {
+        "schema_version": "rosclaw.task_lease.v1",
+        "lease_id": null,
+        "expires_at": null
+      },
+      "verification": {
+        "schema_version": "rosclaw.task_verification.v1",
+        "schema_ref": null,
+        "verifier": null
+      },
+      "status": "PENDING",
+      "attempt": 0,
+      "max_attempts": 3,
+      "artifacts": [],
+      "trace_id": null
+    },
+    {
+      "schema_version": "rosclaw.task_node.v1",
+      "task_id": "fixture_cleaning:verify",
+      "mission_id": "fixture_cleaning",
+      "kind": "validate",
+      "goal": "Independently verify cleaning footprint coverage and collisions.",
+      "dependencies": [
+        "fixture_cleaning:execute"
+      ],
+      "inputs": {
+        "snapshot_id": "rossys_d8809ca2121e22f2e8dc6f41f626e6fcbce5874091f958da77b52d3242833a68"
+      },
+      "constraints": {
+        "schema_version": "rosclaw.task_constraints.v1",
+        "body_id": "fixture_base",
+        "freshness_ms": 5000,
+        "risk_tier": "LOW",
+        "deadline": null
+      },
+      "required_capabilities": [
+        "coverage.verify"
+      ],
+      "assignee": {
+        "schema_version": "rosclaw.task_assignee.v1",
+        "type": "native",
+        "id": null
+      },
+      "lease": {
+        "schema_version": "rosclaw.task_lease.v1",
+        "lease_id": null,
+        "expires_at": null
+      },
+      "verification": {
+        "schema_version": "rosclaw.task_verification.v1",
+        "schema_ref": null,
+        "verifier": "deterministic:ros_coverage"
+      },
+      "status": "PENDING",
+      "attempt": 0,
+      "max_attempts": 3,
+      "artifacts": [],
+      "trace_id": null
+    },
+    {
+      "schema_version": "rosclaw.task_node.v1",
+      "task_id": "fixture_cleaning:recover",
+      "mission_id": "fixture_cleaning",
+      "kind": "coordinate",
+      "goal": "Queue missed reachable regions; wait for temporary blocks to clear; bounded retries through request_action.",
+      "dependencies": [
+        "fixture_cleaning:verify"
+      ],
+      "inputs": {
+        "snapshot_id": "rossys_d8809ca2121e22f2e8dc6f41f626e6fcbce5874091f958da77b52d3242833a68"
+      },
+      "constraints": {
+        "schema_version": "rosclaw.task_constraints.v1",
+        "body_id": "fixture_base",
+        "freshness_ms": 5000,
+        "risk_tier": "LOW",
+        "deadline": null
+      },
+      "required_capabilities": [
+        "coverage.compute_path",
+        "coverage.execute"
+      ],
+      "assignee": {
+        "schema_version": "rosclaw.task_assignee.v1",
+        "type": "native",
+        "id": null
+      },
+      "lease": {
+        "schema_version": "rosclaw.task_lease.v1",
+        "lease_id": null,
+        "expires_at": null
+      },
+      "verification": {
+        "schema_version": "rosclaw.task_verification.v1",
+        "schema_ref": null,
+        "verifier": null
+      },
+      "status": "PENDING",
+      "attempt": 0,
+      "max_attempts": 3,
+      "artifacts": [],
+      "trace_id": null
+    },
+    {
+      "schema_version": "rosclaw.task_node.v1",
+      "task_id": "fixture_cleaning:disable",
+      "mission_id": "fixture_cleaning",
+      "kind": "request_action",
+      "goal": "Disable cleaning through rosclawd, including failure cleanup.",
+      "dependencies": [
+        "fixture_cleaning:recover"
+      ],
+      "inputs": {
+        "snapshot_id": "rossys_d8809ca2121e22f2e8dc6f41f626e6fcbce5874091f958da77b52d3242833a68"
+      },
+      "constraints": {
+        "schema_version": "rosclaw.task_constraints.v1",
+        "body_id": "fixture_base",
+        "freshness_ms": 5000,
+        "risk_tier": "HIGH",
+        "deadline": null
+      },
+      "required_capabilities": [
+        "cleaning.disable"
+      ],
+      "assignee": {
+        "schema_version": "rosclaw.task_assignee.v1",
+        "type": "native",
+        "id": null
+      },
+      "lease": {
+        "schema_version": "rosclaw.task_lease.v1",
+        "lease_id": null,
+        "expires_at": null
+      },
+      "verification": {
+        "schema_version": "rosclaw.task_verification.v1",
+        "schema_ref": null,
+        "verifier": null
+      },
+      "status": "PENDING",
+      "attempt": 0,
+      "max_attempts": 3,
+      "artifacts": [],
+      "trace_id": null
+    },
+    {
+      "schema_version": "rosclaw.task_node.v1",
+      "task_id": "fixture_cleaning:final",
+      "mission_id": "fixture_cleaning",
+      "kind": "validate",
+      "goal": "Require >=98% coverage, zero collisions and canonical receipts before completion.",
+      "dependencies": [
+        "fixture_cleaning:disable"
+      ],
+      "inputs": {
+        "snapshot_id": "rossys_d8809ca2121e22f2e8dc6f41f626e6fcbce5874091f958da77b52d3242833a68"
+      },
+      "constraints": {
+        "schema_version": "rosclaw.task_constraints.v1",
+        "body_id": "fixture_base",
+        "freshness_ms": 5000,
+        "risk_tier": "LOW",
+        "deadline": null
+      },
+      "required_capabilities": [
+        "coverage.verify"
+      ],
+      "assignee": {
+        "schema_version": "rosclaw.task_assignee.v1",
+        "type": "native",
+        "id": null
+      },
+      "lease": {
+        "schema_version": "rosclaw.task_lease.v1",
+        "lease_id": null,
+        "expires_at": null
+      },
+      "verification": {
+        "schema_version": "rosclaw.task_verification.v1",
+        "schema_ref": null,
+        "verifier": "deterministic:ros_coverage"
+      },
+      "status": "PENDING",
+      "attempt": 0,
+      "max_attempts": 3,
+      "artifacts": [],
+      "trace_id": null
+    },
+    {
+      "schema_version": "rosclaw.task_node.v1",
+      "task_id": "fixture_cleaning:remember",
+      "mission_id": "fixture_cleaning",
+      "kind": "create_artifact",
+      "goal": "Save snapshot, diagnosis and verified outcome through Practice/Memory.",
+      "dependencies": [
+        "fixture_cleaning:final"
+      ],
+      "inputs": {
+        "snapshot_id": "rossys_d8809ca2121e22f2e8dc6f41f626e6fcbce5874091f958da77b52d3242833a68"
+      },
+      "constraints": {
+        "schema_version": "rosclaw.task_constraints.v1",
+        "body_id": "fixture_base",
+        "freshness_ms": 5000,
+        "risk_tier": "LOW",
+        "deadline": null
+      },
+      "required_capabilities": [],
+      "assignee": {
+        "schema_version": "rosclaw.task_assignee.v1",
+        "type": "native",
+        "id": null
+      },
+      "lease": {
+        "schema_version": "rosclaw.task_lease.v1",
+        "lease_id": null,
+        "expires_at": null
+      },
+      "verification": {
+        "schema_version": "rosclaw.task_verification.v1",
+        "schema_ref": null,
+        "verifier": null
+      },
+      "status": "PENDING",
+      "attempt": 0,
+      "max_attempts": 3,
+      "artifacts": [],
+      "trace_id": null
+    }
+  ]
+}

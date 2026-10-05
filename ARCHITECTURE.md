@@ -191,3 +191,7 @@ HumanApprovalRequiredEvent
   "payload": {}
 }
 ```
+
+## ROS Expert Harness extension
+
+ROS runtime intelligence extends `connectors/ros`, using existing discovery/manifests, ContextCompiler source protocols, TaskGraphV1 and Practice/KNOW/HOW adapters. Optional native read-only probes stay outside Python core. Readiness never grants authorization; physical execution continues through rosclawd. See [ADR-0016](docs/adr/0016-ros-expert-harness-boundaries.md). No new runtime, safety system, memory store or agent framework is introduced. Live Nav2/coverage execution is not yet integrated.
