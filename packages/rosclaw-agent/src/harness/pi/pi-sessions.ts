@@ -4,6 +4,8 @@
  * 列出/续接与 InteractiveMode/print 模式的装配全部在本模块。
  */
 
+import { statSync } from "node:fs";
+
 import {
 	InteractiveMode,
 	SessionManager,
@@ -14,6 +16,8 @@ export { SessionManager };
 
 /** 打开既有 session（精确路径由调用方经 resolveSessionQuery 解析）。 */
 export function openPiSession(path: string, sessionDir: string): SessionManager {
+	const stat = statSync(path);
+	if (!stat.isFile() || stat.size === 0) throw new Error("NO_RECORDED_SESSION_AT_PATH");
 	return SessionManager.open(path, sessionDir);
 }
 
@@ -32,11 +36,29 @@ export function listAllPiSessions(
 	return SessionManager.listAll(sessionDir, onProgress);
 }
 
-export function continueRecentPiSession(
-	workspaceRoot: string,
+/** Select a recorded global continuation before workspace inference.
+ * The public SDK list excludes invalid session files. No match never creates a
+ * fresh UUID; callers can offer normal chat explicitly instead.
+ */
+export async function resolveContinuationTarget(sessionDir: string) {
+	const sessions = await SessionManager.listAll(sessionDir);
+	const latest = sessions[0];
+	if (!latest) return undefined;
+	if (!latest.id || !latest.cwd || !latest.path) throw new Error("INVALID_CONTINUATION_TARGET");
+	return { id: latest.id, path: latest.path, cwd: latest.cwd };
+}
+
+export async function continueRecentPiSession(
+	_workspaceRoot: string,
 	sessionDir: string,
-): SessionManager | undefined {
-	return SessionManager.continueRecent(workspaceRoot, sessionDir);
+): Promise<SessionManager | undefined> {
+	const target = await resolveContinuationTarget(sessionDir);
+	if (!target) return undefined;
+	const recorded = openPiSession(target.path, sessionDir);
+	if (recorded.getSessionId() !== target.id || recorded.getCwd() !== target.cwd) {
+		throw new Error("CONTINUATION_TARGET_CHANGED");
+	}
+	return recorded;
 }
 
 /** 交互模式（TUI）。 */
