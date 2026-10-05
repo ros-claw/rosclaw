@@ -13,6 +13,7 @@ from typing import Any
 import numpy as np
 
 from rosclaw.growth.causal_residual_memory import CausalResidualMemory
+from rosclaw.growth.staged_action_projection import staged_action_projection
 
 
 @dataclass(frozen=True)
@@ -53,6 +54,7 @@ def fit_recurrent_residual_imitation(
     targets: Any,
     training_weights: Any,
     config: RecurrentResidualImitationConfig,
+    action_projection: Any = None,
 ) -> dict[str, Any]:
     config.validate()
     memory = CausalResidualMemory(parameters)
@@ -81,8 +83,89 @@ def fit_recurrent_residual_imitation(
         raise ValueError("complete bounded aligned recurrent episode rows required")
     original_rows, positive_rows = weight.size, int(np.count_nonzero(weight > 0))
     original_episodes, horizon = x.shape[:2]
+    projection_arrays = None
+    projection_receipt = None
+    if action_projection is not None:
+        if type(action_projection) is not dict or set(action_projection) != {
+            "previous",
+            "lower",
+            "upper",
+            "executed_targets",
+            "cap",
+            "slew",
+            "raw_loss_weight",
+        }:
+            raise ValueError("complete explicit offline action projection required")
+        projection_arrays = [
+            np.asarray(action_projection[k])
+            for k in ("previous", "lower", "upper", "executed_targets")
+        ]
+        raw_loss_weight = action_projection["raw_loss_weight"]
+        if (
+            any(
+                v.shape != base.shape or v.dtype.kind not in "fiu" or not np.isfinite(v).all()
+                for v in projection_arrays
+            )
+            or type(raw_loss_weight) is not float
+            or not np.isfinite(raw_loss_weight)
+            or not 0.001 <= raw_loss_weight <= 1.0
+        ):
+            raise ValueError(
+                "aligned recorded action labels and positive latent auxiliary weight required"
+            )
+        projection_arrays = [np.array(v, dtype=np.float64, copy=True) for v in projection_arrays]
+        previous, lower, upper, executed_targets = projection_arrays
+        projected_teacher = staged_action_projection(
+            teacher,
+            previous,
+            lower,
+            upper,
+            cap=action_projection["cap"],
+            slew=action_projection["slew"],
+        )
+        if not np.allclose(projected_teacher, executed_targets, atol=1e-12, rtol=0):
+            raise ValueError(
+                "original latent teacher must reconstruct every recorded executed action"
+            )
+        encoded_projection = json.dumps(
+            {
+                **{
+                    k: v.tolist()
+                    for k, v in zip(
+                        ("previous", "lower", "upper", "executed_targets"),
+                        projection_arrays,
+                        strict=True,
+                    )
+                },
+                **{k: action_projection[k] for k in ("cap", "slew", "raw_loss_weight")},
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode()
+        projection_receipt = {
+            "schema": "rosclaw.growth.recurrent_executed_action_objective.v1",
+            "data_hash": "sha256:" + hashlib.sha256(encoded_projection).hexdigest(),
+            "projection_source_hash": "sha256:"
+            + hashlib.sha256(
+                Path(__file__).with_name("staged_action_projection.py").read_bytes()
+            ).hexdigest(),
+            "cap": action_projection["cap"],
+            "slew": action_projection["slew"],
+            "raw_loss_weight": raw_loss_weight,
+            "order": "CAP_TANH_THEN_SLEW_THEN_FINAL_BOX",
+            "all_original_rows_validated": original_rows,
+            "teacher_actions_reconstructed": True,
+            "teacher_forced_previous_actions_not_closed_loop_rollout": True,
+            "projection_labels_are_recurrent_inputs": False,
+            "physical_batch_verified": False,
+            "promotion_authorized": False,
+            "hardware_authorized": False,
+        }
     selected = weight.sum(axis=1) > 0
     x, base, gate, teacher, weight = [v[selected] for v in (x, base, gate, teacher, weight)]
+    if projection_arrays is not None:
+        projection_arrays = [v[selected] for v in projection_arrays]
     positive = weight > 0
     weight /= weight[weight > 0].mean()
     if not np.isfinite(weight).all() or np.any(weight[positive] <= 0):
@@ -118,6 +201,12 @@ def fit_recurrent_residual_imitation(
                 torch.tensor(v, dtype=torch.float64, device=config.compute_device)
                 for v in (x, base, gate, teacher, weight)
             ]
+            projected_tensors = None
+            if projection_arrays is not None:
+                projected_tensors = [
+                    torch.tensor(v, dtype=torch.float64, device=config.compute_device)
+                    for v in projection_arrays
+                ]
 
             def weighted_error(indices):
                 # Only current x and prior h enter each prediction. Teacher
@@ -138,9 +227,19 @@ def fit_recurrent_residual_imitation(
                     prediction = (
                         tb[indices, tick] + config.residual_cap * tg[indices, tick, None] * head
                     )
-                    error = error + torch.sum(
-                        torch.mean((prediction - tt[indices, tick]) ** 2, dim=1) * tw[indices, tick]
-                    )
+                    row_error = torch.mean((prediction - tt[indices, tick]) ** 2, dim=1)
+                    if projected_tensors is not None:
+                        prior, low, high, actual = [v[indices, tick] for v in projected_tensors]
+                        cap, slew = action_projection["cap"], action_projection["slew"]
+                        proposed = prior + torch.clamp(
+                            cap * torch.tanh(prediction) - prior, -slew, slew
+                        )
+                        projected = torch.minimum(torch.maximum(proposed, low), high)
+                        row_error = (
+                            torch.mean(((projected - actual) / cap) ** 2, dim=1)
+                            + action_projection["raw_loss_weight"] * row_error
+                        )
+                    error = error + torch.sum(row_error * tw[indices, tick])
                 return error, torch.sum(tw[indices])
 
             def full_loss():
@@ -191,7 +290,7 @@ def fit_recurrent_residual_imitation(
         torch.set_num_threads(threads)
         torch.use_deterministic_algorithms(deterministic, warn_only=warn_only)
     canonical = json.dumps(fitted, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
-    return {
+    result = {
         "algorithm": "DATASET_WEIGHTED_CAUSAL_RECURRENT_RESIDUAL_IMITATION_V1",
         "parameters": fitted,
         "fitted_parameters_hash": "sha256:" + hashlib.sha256(canonical).hexdigest(),
@@ -232,3 +331,6 @@ def fit_recurrent_residual_imitation(
         "promotion_authorized": False,
         "hardware_authorized": False,
     }
+    if projection_receipt is not None:
+        result["executed_action_objective"] = projection_receipt
+    return result
