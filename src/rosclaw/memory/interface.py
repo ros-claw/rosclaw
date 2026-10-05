@@ -542,14 +542,13 @@ class MemoryInterface(LifecycleMixin):
 
     @staticmethod
     def _tokenize(text: str) -> list[str]:
-        """Tokenize text for BM25/keyword matching.
-
-        Lowercases, splits on whitespace and punctuation, removes short tokens.
-        """
+        """Preserve legacy terms and add existing bilingual search expansion."""
         import re
 
+        from rosclaw.memory.tokenizer import expand_tokens, tokenize
+
         tokens = re.findall(r"[a-z0-9一-鿿]+", text.lower())
-        return [t for t in tokens if len(t) >= 2]
+        return list(dict.fromkeys(t for t in expand_tokens(tokens + tokenize(text)) if len(t) >= 2))
 
     def _invalidate_search_cache(self) -> None:
         """Bump cache version so the next semantic query rebuilds the index."""

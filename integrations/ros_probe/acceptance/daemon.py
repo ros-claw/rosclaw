@@ -16,6 +16,7 @@ from rosclaw.connectors.ros.practice import RosPracticeAdapter
 from rosclaw.connectors.ros.transport.base import RosbridgeEndpoint
 from rosclaw.connectors.ros.transport.rosbridge import RosbridgeTransport
 from rosclaw.core.runtime import Runtime, RuntimeConfig
+from rosclaw.daemon.ledger import DaemonLedger
 from rosclaw.daemon.server import RosclawDaemon
 from rosclaw.daemon.service import DaemonControlPlane
 from rosclaw.kernel import ExecutionMode
@@ -29,6 +30,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--directory", type=Path, required=True)
     parser.add_argument("--endpoint", default="ws://127.0.0.1:19090")
+    parser.add_argument("--persistent-ledger", action="store_true")
     args = parser.parse_args()
     root = args.directory.resolve()
     config = json.loads((root / "execution_config.json").read_text())
@@ -124,8 +126,10 @@ def main():
             runtime, evidence_directory=root / "actions", recorder_bus=recorder_bus
         ),
     )
+    state = root / "state" / ("persistent" if args.persistent_ledger else uuid.uuid4().hex)
+    ledger = DaemonLedger(state / "control.sqlite") if args.persistent_ledger else None
     daemon = RosclawDaemon(
-        service=DaemonControlPlane(runtime=runtime, state_dir=root / "state" / uuid.uuid4().hex),
+        service=DaemonControlPlane(runtime=runtime, state_dir=state, ledger=ledger),
         socket_path=root / "run/rosclawd.sock",
     )
     stopped = threading.Event()
@@ -162,6 +166,8 @@ def main():
         practice.stop()
         recorder.stop()
         runtime.stop()
+        if ledger is not None:
+            ledger.close()
 
 
 if __name__ == "__main__":

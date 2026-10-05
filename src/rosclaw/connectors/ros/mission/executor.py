@@ -286,7 +286,25 @@ class RosCoverageSimulationExecutor:
         """Bounded missed-cell goals; every connecting path is planned by Nav2."""
         recovery = MissedRegionRecovery(verifier)
         records, consumed = [], started
-        for index in range(60):
+        width, resolution = verifier.width, verifier.resolution
+        radius = math.ceil(verifier.radius / resolution)
+        cosine, sine = math.cos(math.pi / 4), math.sin(math.pi / 4)
+        polygon = [
+            (px * cosine - py * sine, px * sine + py * cosine) for px, py in verifier.polygon
+        ]
+        offsets = [
+            (dx, dy)
+            for dy in range(-radius, radius + 1)
+            for dx in range(-radius, radius + 1)
+            if point_in_polygon(dx * resolution, dy * resolution, polygon)
+        ]
+        # Keep the existing minimum for wide cleaners, but allow two footprint
+        # passes for smaller configured cleaners. The immutable action deadline
+        # and per-cell retry limit still bound every mission.
+        goal_budget = min(
+            240, max(60, 2 * math.ceil(len(verifier.accessible) / max(1, len(offsets))))
+        )
+        for index in range(goal_budget):
             samples = self.witness.since(consumed)
             consumed += len(samples)
             for sample in samples:
@@ -321,18 +339,6 @@ class RosCoverageSimulationExecutor:
             # Select a stopped cleaning footprint with the highest remaining
             # utility. This selects one repair goal, never a coverage path;
             # predicted cells do not enter the measured coverage accumulator.
-            width, resolution = verifier.width, verifier.resolution
-            radius = math.ceil(verifier.radius / resolution)
-            cosine, sine = math.cos(math.pi / 4), math.sin(math.pi / 4)
-            polygon = [
-                (px * cosine - py * sine, px * sine + py * cosine) for px, py in verifier.polygon
-            ]
-            offsets = [
-                (dx, dy)
-                for dy in range(-radius, radius + 1)
-                for dx in range(-radius, radius + 1)
-                if point_in_polygon(dx * resolution, dy * resolution, polygon)
-            ]
             remaining = set(missed)
             current = self.witness.fresh()
             best = (-1, -math.inf)
@@ -371,15 +377,15 @@ class RosCoverageSimulationExecutor:
             nearby = [
                 i
                 for i in missed
-                if math.hypot(
+                if point_in_polygon(
                     self.grid["origin"][0]
                     + (i % self.grid["width"] + 0.5) * self.grid["resolution"]
                     - center[0],
                     self.grid["origin"][1]
                     + (i // self.grid["width"] + 0.5) * self.grid["resolution"]
                     - center[1],
+                    polygon,
                 )
-                <= 0.39
             ]
             recovery.record_attempt(nearby or [cell], action_id=goal_id)
             records.append(

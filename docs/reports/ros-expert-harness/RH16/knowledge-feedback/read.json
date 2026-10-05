@@ -1,0 +1,48 @@
+{
+  "status": "PASS",
+  "phase": "read",
+  "evidence_domain": "DURABLE_FEEDBACK_LINKAGE",
+  "advice_contribution_verified": false,
+  "reference_pack_id": "reference_pack_ab5d3fc9f133e42ea9e4d6b8",
+  "feedback": {
+    "schema_version": "rosclaw.knowledge_usage_feedback.v1",
+    "feedback_id": "feedback_803b8b8441c83ffc5a4c245f",
+    "reference_pack_id": "reference_pack_ab5d3fc9f133e42ea9e4d6b8",
+    "advice_id": "advice_ad5b3caa65880895800e1f3d",
+    "knowledge_unit_id": "unit_8005017bedb4576427db65ff",
+    "presented": true,
+    "opened": false,
+    "used_by_agent": false,
+    "verdict": "unknown",
+    "reason": "Verified SIM episode; knowledge was disabled during execution. Advice contribution is unmeasured.",
+    "context_hash": "8509645ae5104ad66c53cfa48d80c0404999cc522baa8c7cb67c74302d82f46c",
+    "receipt_ref": "/tmp/ros-expert-acceptance/native-011/actions/rosevidence_cebf743061879e6a705d31f14bda0237b8b6fd22dfc7051d3c82850e8df63eb5.verification.json",
+    "practice_ref": "/tmp/ros-expert-acceptance/native-011/practice/sessions/gazebo-room-cleaning/episode.json",
+    "origin": "verifier",
+    "created_at": "2026-10-05T14:32:58.587355Z"
+  },
+  "governance": {
+    "schema_version": "rosclaw.feedback_governance.v1",
+    "governance_id": "feedback_governance_c3c06df4cce591f140ba",
+    "feedback_id": "feedback_803b8b8441c83ffc5a4c245f",
+    "reference_pack_id": "reference_pack_ab5d3fc9f133e42ea9e4d6b8",
+    "knowledge_unit_id": "unit_8005017bedb4576427db65ff",
+    "verdict": "unknown",
+    "queue": "manual_review",
+    "proposed_action": "manual_review_candidate",
+    "status": "pending_review",
+    "requires_human_review": true,
+    "automatic_mutation_allowed": false,
+    "rationale": "Unknown feedback requires manual triage and has no automatic ranking effect.",
+    "created_at": "2026-10-05T14:32:58.587355Z"
+  },
+  "events": [
+    {
+      "feedback_id": "feedback_803b8b8441c83ffc5a4c245f",
+      "reference_pack_id": "reference_pack_ab5d3fc9f133e42ea9e4d6b8",
+      "knowledge_unit_id": "unit_8005017bedb4576427db65ff",
+      "verdict": "unknown",
+      "status": "duplicate"
+    }
+  ]
+}

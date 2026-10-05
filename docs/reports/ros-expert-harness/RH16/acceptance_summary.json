@@ -1,0 +1,66 @@
+{
+  "schema_version": "rosclaw.extended_acceptance.v1",
+  "base_commit": "efa6f2abc661cb221c025d204462c8b0a22b1f47",
+  "original_runner_source_commit": "a54c83e3fc8d6e17a3d2cb4f1ca512e0cf299c00",
+  "bilingual_root_query_follow_up": "bilingual-root-query/acceptance.json",
+  "overall_plan_status": "PARTIAL",
+  "v1_done": false,
+  "hardware_verified": false,
+  "accepted_gates": {
+    "daemon_restart_same_authenticated_ledger": "PASS",
+    "old_session_and_action_lease_typed_rejection": "PASS",
+    "verified_mission_memory_retrieval_and_reopen": "PASS",
+    "knowledge_feedback_linkage_idempotency_process_restart": "PASS",
+    "explicit_cuda_three_process_activity": "PASS",
+    "second_distinct_vendor_body_compilation": "PASS"
+  },
+  "unaccepted_gates": {
+    "physical_second_body_transfer": "NOT_RUN",
+    "automatic_unknown_body_integration": "NOT_RUN",
+    "same_model_agent_ab": "NOT_RUN",
+    "causal_memory_or_knowledge_benefit": "NOT_RUN",
+    "complete_cuda_copy_trace": "UNIFIED_MEMORY_TRACE_UNSUPPORTED",
+    "zero_copy": "EXPLICIT_CPU_FALLBACK_AND_VALIDATION_COPIES",
+    "isaac_sim_cleaning": "NOT_RUN",
+    "ros1_physical_navigation": "NOT_RUN",
+    "real_robot": "NOT_AUTHORIZED"
+  },
+  "local_regression_runs": [
+    {
+      "passed": 474,
+      "skipped": 9,
+      "deselected": 10,
+      "seconds": 38.01
+    },
+    {
+      "passed": 192,
+      "seconds": 24.34
+    }
+  ],
+  "counts_are_per_run_not_additive": true,
+  "source_file_sha256": {
+    "src/rosclaw/connectors/ros/practice/ros_practice_adapter.py": "e3344eab7e2bd02f492a1eca9ab7ec153ad55baf5aed4de848e198772c0dd9e3",
+    "integrations/ros_probe/acceptance/fixture_body.py": "f7595385a518d8650e85478428d8107d74aecf7e9d803731fea32de22736631c",
+    "integrations/ros_probe/acceptance/probe_cache.py": "dde1a1e10365b10d924b5219198b922f05d49b8cd3654be180766faa85c36cdf",
+    "integrations/ros_probe/acceptance/knowledge.py": "6100ef81602b7e140ac9a26d96979562ddf584f7109c84a424d95bd2a526bc75",
+    "integrations/ros_probe/acceptance/nav2_launch.py": "3901ae0fc5308582bda2461f043bbde7c8436a9bd47711b7f77e5505b2a8fec4",
+    "integrations/ros_probe/acceptance/second_body_contract.py": "6ad28adf271e1d683edc00368c486c26f5fb2d722719713363860ce99b6be1d6",
+    "integrations/ros_probe/acceptance/isaac_transport.py": "d54766ebe5ba1915918f02ff1d16d4e68eebc2716c200b35fd732c878c27d9c9",
+    "integrations/ros_probe/acceptance/knowledge_feedback.py": "7e192e622b3b0bc4e49fccb3876c381bbda1c4619e1d56fc3e1025b230c2f4c4",
+    "integrations/ros_probe/acceptance/stack.py": "f2aca3d39dfc7cecea4d73f3b278583bc5c5eb6de62b43b0efcf0e8033917af0",
+    "integrations/ros_probe/acceptance/cuda_copy_trace.py": "a51913c4d298040e65d53ba0558fb632f6bf01b03d6508f3755f558ff42837d2",
+    "integrations/ros_probe/acceptance/native.py": "335d72144feb975451d1ce2229a0f6180a049206986649d494ff52107d47c678",
+    "integrations/ros_probe/acceptance/native_tools.py": "9ffee8706f1563d1298f3ceec8964bf718dfcad640bc9b2f4bfe36c0b016f8e8",
+    "integrations/ros_probe/acceptance/run.py": "e87a6a775945e14d552a55436b56d8f536c05dbd8c1cd19dae3f7be3efc9630a",
+    "integrations/ros_probe/acceptance/controller.py": "15facdaa12f93e53389b3ab207a910df02c8a63553cb6ba8772a99dbc7f165ec",
+    "integrations/ros_probe/acceptance/probe_pause.py": "c32233f69522834a826487d11d07db93b08936434026c247c6860db748ca2e56",
+    "integrations/ros_probe/acceptance/witness.py": "f52bd0e24ea8008537c7bfea71283e1de522e11b35f27bfe0eb8477224f38b10",
+    "integrations/ros_probe/acceptance/isaac_resize.py": "24e049899c276b4dfa51f5e4fb6a17246c9f29e1e1377a741413d354405816b8",
+    "integrations/ros_probe/acceptance/faults.py": "0ee8d4169cb9cc874c0e54dab491e7e1e9fccb8ab4014cc5aeb206f9bca9230e",
+    "integrations/ros_probe/acceptance/pose_observer.py": "c014a6a00417f0305fe682c98d21a88ae0305d0e386c40fbae0674aa20d0a06f",
+    "integrations/ros_probe/acceptance/daemon.py": "caa925a9cf82744e84aa61bdf1f90556143cebbd7770648b006dcba9a66d0cb5",
+    "integrations/ros_probe/acceptance/memory_reuse.py": "6931d1255795f050521c4b4a139639c6a3f24147ee066d1904c0283cfcb00bff",
+    "integrations/ros_probe/acceptance/safety.py": "91f10464a55c248244afecc474c9ffbdbb7e51450ce753b56e1235a5c0d59c01",
+    "integrations/ros_probe/acceptance/build.py": "9e5b5ab4983bd5d432ceb64561e7c6c994c91610f6c6c3c0d5ef01605f780fac"
+  }
+}

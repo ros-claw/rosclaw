@@ -665,3 +665,112 @@ def test_brief_physics_fault_remains_terminal_after_a_new_good_sample(bad):
     with pytest.raises(RuntimeError, match="during action"):
         witness.fresh()
     assert witness.since(2) == [bad, good]
+
+
+@pytest.mark.parametrize("half_width, expected_far_retries", [(0.175, 0), (0.275, 3)])
+def test_repair_retry_bookkeeping_uses_configured_cleaner_footprint(
+    tmp_path, monkeypatch, half_width, expected_far_retries
+):
+    """A Burger-size cleaner must not exhaust cells only a Waffle brush reaches."""
+    from rosclaw.connectors.ros.mission import executor as module
+    from rosclaw.connectors.ros.verification.coverage import CoverageVerifier
+
+    grid = {"width": 21, "resolution": 0.05, "origin": [-0.525, -0.525]}
+    verifier = CoverageVerifier(
+        width=21,
+        height=21,
+        resolution=0.05,
+        accessible_cells=list(range(441)),
+        origin=(-0.525, -0.525),
+        cleaning_polygon=[
+            (-half_width, -half_width),
+            (half_width, -half_width),
+            (half_width, half_width),
+            (-half_width, half_width),
+        ],
+    )
+    observed = []
+    original = module.MissedRegionRecovery
+
+    class ThreeAttemptsDoneError(Exception):
+        pass
+
+    class CapturedRecovery(original):
+        def record_attempt(self, cells, *, action_id):
+            super().record_attempt(cells, action_id=action_id)
+            observed.append(dict(self.attempts))
+            if len(observed) == 3:
+                raise ThreeAttemptsDoneError
+
+    monkeypatch.setattr(module, "MissedRegionRecovery", CapturedRecovery)
+    executor = module.RosCoverageSimulationExecutor(
+        owner="daemon_test",
+        client=None,
+        control=None,
+        witness=SimpleNamespace(since=lambda _: [], fresh=lambda: {"x": 0, "y": 0}),
+        output=tmp_path,
+        body_id="robot",
+        body_snapshot_hash="body",
+        grid=grid,
+        recovery_centers=[(0, 0)],
+    )
+    monkeypatch.setattr(executor, "_run_goal", lambda *a, **k: {"status": 6})
+    with pytest.raises(ThreeAttemptsDoneError):
+        executor._repair(verifier, 0, "coverage", 1)
+    # This cell is 0.30 m from the target: inside the old fixed 0.39 m retry
+    # radius, but outside the smaller body's rotated cleaning polygon.
+    assert observed[-1].get(10 * 21 + 16, 0) == expected_far_retries
+    assert observed[-1][10 * 21 + 10] == 3
+    assert verifier.result()["coverage_ratio"] == 0
+
+
+@pytest.mark.parametrize(
+    "half_width, cell_count, expected_goals", [(0.275, 100, 60), (0.01, 100, 200), (0.01, 200, 240)]
+)
+def test_repair_budget_scales_for_narrow_cleaner_without_crediting_plans(
+    tmp_path, monkeypatch, half_width, cell_count, expected_goals
+):
+    from rosclaw.connectors.ros.mission import executor as module
+    from rosclaw.connectors.ros.verification.coverage import CoverageVerifier
+
+    verifier = CoverageVerifier(
+        width=10,
+        height=cell_count // 10,
+        resolution=0.1,
+        accessible_cells=list(range(cell_count)),
+        cleaning_polygon=[
+            (-half_width, -half_width),
+            (half_width, -half_width),
+            (half_width, half_width),
+            (-half_width, half_width),
+        ],
+    )
+
+    class PendingRecovery:
+        attempts = {}
+
+        def __init__(self, verifier):
+            pass
+
+        def propose(self):
+            return {"ready": [{"cells": list(range(cell_count))}]}
+
+        def record_attempt(self, cells, *, action_id):
+            pass
+
+    monkeypatch.setattr(module, "MissedRegionRecovery", PendingRecovery)
+    executor = module.RosCoverageSimulationExecutor(
+        owner="daemon_test",
+        client=None,
+        control=None,
+        witness=SimpleNamespace(since=lambda _: [], fresh=lambda: {"x": 0, "y": 0}),
+        output=tmp_path,
+        body_id="robot",
+        body_snapshot_hash="body",
+        grid={"width": 10, "resolution": 0.1, "origin": [0, 0]},
+        recovery_centers=[(0.05, 0.05)],
+    )
+    monkeypatch.setattr(executor, "_run_goal", lambda *a, **k: {"status": 6})
+    records = executor._repair(verifier, 0, "coverage", 1)
+    assert len(records) == expected_goals
+    assert verifier.result()["coverage_ratio"] == 0

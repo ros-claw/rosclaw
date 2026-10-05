@@ -1,0 +1,1080 @@
+[
+  {
+    "capability_id": "localization.set_initial_pose",
+    "action_id": "act_1958e9ab997f4a69b9c66e95",
+    "receipt": {
+      "schema_version": "rosclaw.receipt.v1",
+      "action_id": "act_1958e9ab997f4a69b9c66e95",
+      "trace_id": "trace_5aabd889d2914bb3977823f6",
+      "mode": "SIMULATION",
+      "execution_mode": "SIMULATION",
+      "body_id": "ros_expert_base",
+      "body_snapshot_hash": "510c836df556cde9d2e8b2fb25675aebec086234ec7177014724b0938d6aff3f",
+      "capability_id": "localization.set_initial_pose",
+      "policy_decision": {
+        "allowed": true,
+        "reason": "configured_gazebo_only"
+      },
+      "authorization_decision": {},
+      "resource_lease": {
+        "lease_id": "lease_ba6fc1069c844aa3a34633486a1c0f75",
+        "resource_id": "ros_expert_base",
+        "action_id": "act_1958e9ab997f4a69b9c66e95",
+        "acquired_at": "2026-10-05T01:59:08.179603Z",
+        "exclusive": true
+      },
+      "simulation_result": {
+        "has_physics": true,
+        "engine": "gazebo"
+      },
+      "dispatch_result": {
+        "accepted": true,
+        "owner": "daemon_ros_expert_gazebo"
+      },
+      "driver_ack": null,
+      "acknowledgement_stage": "TASK_VERIFIED",
+      "observations": [
+        {
+          "x": -5.6931226418184556e-05,
+          "y": 1.2126391810387272e-09,
+          "yaw": -5.568972291686508e-09,
+          "time_sec": 40.51,
+          "captured_at": "2026-10-05T01:59:08.424812+00:00",
+          "cleaning_enabled": false,
+          "lease_remaining_sec": -101665.295911561,
+          "lease_updates": 0,
+          "localization": {
+            "x": 0.0004923194519152788,
+            "y": 0.00048407981788982195,
+            "yaw": -0.001277295217307978,
+            "frame_id": "map",
+            "source": "amcl_pose",
+            "captured_at": "2026-10-05T01:59:08.412180+00:00",
+            "time_sec": 40.5,
+            "covariance": [
+              9.852361295739309e-05,
+              2.346315884109673e-06,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              2.34631588410967e-06,
+              9.648022921230912e-05,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              9.412156687232137e-05
+            ]
+          },
+          "evidence_domain": "GAZEBO_PHYSICS",
+          "collision_count": 0,
+          "geometry_collision_count": 0,
+          "physics_collision_count": 0,
+          "collision_source": "gazebo_contacts_and_ground_truth_geometry",
+          "ground_truth_age_ms": 12.203846999909729,
+          "observation_complete": true,
+          "contact_stream_ages_ms": {
+            "/rosclaw_sim/contacts/caster_back_left_link": 2.1947009954601526,
+            "/rosclaw_sim/contacts/wheel_left_link": 2.3557579988846555,
+            "/rosclaw_sim/contacts/wheel_right_link": 2.2830529924249277,
+            "/rosclaw_sim/contacts/caster_back_right_link": 2.2373090032488108
+          }
+        }
+      ],
+      "verification_result": {
+        "initial_pose_source": "configured_fixture_spawn",
+        "localization_error_m": 0.0006904431278696339
+      },
+      "final_state": "COMPLETED",
+      "evidence_level": "TASK_VERIFIED",
+      "evidence_domain": "SIMULATION",
+      "verified": true,
+      "valid_for_promotion": false,
+      "trust_level": "SIMULATED",
+      "usable_for_real_execution": false,
+      "artifacts": [],
+      "errors": [],
+      "transitions": [
+        {
+          "state": "PROPOSED",
+          "at": "2026-10-05T01:59:08.179428Z",
+          "reason": "action_submitted"
+        },
+        {
+          "state": "REQUEST_ACCEPTED",
+          "at": "2026-10-05T01:59:08.179430Z",
+          "reason": "request_accepted"
+        },
+        {
+          "state": "GROUNDED",
+          "at": "2026-10-05T01:59:08.179588Z",
+          "reason": "executor_resolved"
+        },
+        {
+          "state": "WAITING_RESOURCE",
+          "at": "2026-10-05T01:59:08.179589Z",
+          "reason": "ros_expert_base"
+        },
+        {
+          "state": "SCHEDULED",
+          "at": "2026-10-05T01:59:08.179609Z",
+          "reason": "lease_acquired"
+        },
+        {
+          "state": "POLICY_VALIDATED",
+          "at": "2026-10-05T01:59:08.446399Z",
+          "reason": "policy_allowed"
+        },
+        {
+          "state": "SIMULATION_VALIDATED",
+          "at": "2026-10-05T01:59:08.446403Z",
+          "reason": "physics_simulation_completed"
+        },
+        {
+          "state": "COMMAND_DISPATCHED",
+          "at": "2026-10-05T01:59:08.446405Z",
+          "reason": "command_dispatched"
+        },
+        {
+          "state": "EFFECT_OBSERVED",
+          "at": "2026-10-05T01:59:08.446409Z",
+          "reason": "effect_observed"
+        },
+        {
+          "state": "TASK_VERIFIED",
+          "at": "2026-10-05T01:59:08.446410Z",
+          "reason": "predicate_verified"
+        },
+        {
+          "state": "COMPLETED",
+          "at": "2026-10-05T01:59:08.446411Z",
+          "reason": "executor_completed"
+        }
+      ],
+      "started_at": "2026-10-05T01:59:08.179407Z",
+      "finished_at": "2026-10-05T01:59:08.446420Z"
+    },
+    "daemon_peer": {
+      "pid": 2400538,
+      "uid": 1000,
+      "gid": 1000
+    }
+  },
+  {
+    "capability_id": "coverage.execute",
+    "action_id": "act_53551baba3f9405daf2c9c50",
+    "receipt": {
+      "schema_version": "rosclaw.receipt.v1",
+      "action_id": "act_53551baba3f9405daf2c9c50",
+      "trace_id": "trace_bcbc234de86d453c9104aa1f",
+      "mode": "SIMULATION",
+      "execution_mode": "SIMULATION",
+      "body_id": "ros_expert_base",
+      "body_snapshot_hash": "510c836df556cde9d2e8b2fb25675aebec086234ec7177014724b0938d6aff3f",
+      "capability_id": "coverage.execute",
+      "policy_decision": {
+        "allowed": true,
+        "reason": "configured_gazebo_only"
+      },
+      "authorization_decision": {},
+      "resource_lease": {
+        "lease_id": "lease_60b8c4d8261e4686a1015b9092f6527e",
+        "resource_id": "ros_expert_base",
+        "action_id": "act_53551baba3f9405daf2c9c50",
+        "acquired_at": "2026-10-05T01:59:18.006273Z",
+        "exclusive": true
+      },
+      "simulation_result": {
+        "has_physics": true,
+        "engine": "gazebo"
+      },
+      "dispatch_result": {
+        "accepted": true,
+        "owner": "daemon_ros_expert_gazebo"
+      },
+      "driver_ack": null,
+      "acknowledgement_stage": "TASK_VERIFIED",
+      "observations": [
+        {
+          "x": -0.4751773414509274,
+          "y": 1.1484603260999544,
+          "yaw": 0.6908186076394838,
+          "time_sec": 718.51,
+          "captured_at": "2026-10-05T02:10:26.624792+00:00",
+          "cleaning_enabled": true,
+          "lease_remaining_sec": 1.4902171260036994,
+          "lease_updates": 3182,
+          "localization": {
+            "x": -0.531015797479297,
+            "y": 1.1533850042662557,
+            "yaw": 0.7130136592505165,
+            "frame_id": "map",
+            "source": "amcl_pose",
+            "captured_at": "2026-10-05T02:10:26.616189+00:00",
+            "time_sec": 718.5,
+            "covariance": [
+              0.0010632239666321735,
+              0.0008777347380195537,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0008777347380195537,
+              0.0014062117708404387,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0033589977498550963
+            ]
+          },
+          "evidence_domain": "GAZEBO_PHYSICS",
+          "collision_count": 0,
+          "geometry_collision_count": 0,
+          "physics_collision_count": 0,
+          "collision_source": "gazebo_contacts_and_ground_truth_geometry",
+          "ground_truth_age_ms": 6.598364998353645,
+          "observation_complete": true,
+          "contact_stream_ages_ms": {
+            "/rosclaw_sim/contacts/caster_back_left_link": 6.356507001328282,
+            "/rosclaw_sim/contacts/wheel_left_link": 5.800326005555689,
+            "/rosclaw_sim/contacts/wheel_right_link": 6.457676005084068,
+            "/rosclaw_sim/contacts/caster_back_right_link": 6.402907005394809
+          }
+        }
+      ],
+      "verification_result": {
+        "mission_id": "mis_c11b32ebd4ee4798b59252cc",
+        "coverage_ratio": 0.9807046979865772,
+        "recovery_attempts": [
+          {
+            "goal_id": "act_53551baba3f9405daf2c9c50:repair:0",
+            "target": [
+              0.42500003017485133,
+              0.42500003017485133
+            ],
+            "result": {
+              "status": 4,
+              "result": {
+                "error_code": 0,
+                "error_msg": ""
+              }
+            },
+            "coverage_before": 0.03383668903803132
+          },
+          {
+            "goal_id": "act_53551baba3f9405daf2c9c50:repair:1",
+            "target": [
+              0.8750000368803739,
+              -0.02499997653067121
+            ],
+            "result": {
+              "status": 4,
+              "result": {
+                "error_code": 0,
+                "error_msg": ""
+              }
+            },
+            "coverage_before": 0.07913870246085011
+          },
+          {
+            "goal_id": "act_53551baba3f9405daf2c9c50:repair:2",
+            "target": [
+              0.42500003017485133,
+              -0.47499998323619375
+            ],
+            "result": {
+              "status": 4,
+              "result": {
+                "error_code": 0,
+                "error_msg": ""
+              }
+            },
+            "coverage_before": 0.1417785234899329
+          },
+          {
+            "goal_id": "act_53551baba3f9405daf2c9c50:repair:3",
+            "target": [
+              -0.07499997727572927,
+              -0.8749999891966582
+            ],
+            "result": {
+              "status": 4,
+              "result": {
+                "error_code": 0,
+                "error_msg": ""
+              }
+            },
+            "coverage_before": 0.18736017897091722
+          },
+          {
+            "goal_id": "act_53551baba3f9405daf2c9c50:repair:4",
+            "target": [
+              -0.5749999847263099,
+              -0.3749999817460776
+            ],
+            "result": {
+              "status": 4,
+              "result": {
+                "error_code": 0,
+                "error_msg": ""
+              }
+            },
+            "coverage_before": 0.23517897091722595
+          },
+          {
+            "goal_id": "act_53551baba3f9405daf2c9c50:repair:5",
+            "target": [
+              -0.9749999906867743,
+              0.12500002570450297
+            ],
+            "result": {
+              "status": 4,
+              "result": {
+                "error_code": 0,
+                "error_msg": ""
+              }
+            },
+            "coverage_before": 0.28439597315436244
+          },
+          {
+            "goal_id": "act_53551baba3f9405daf2c9c50:repair:6",
+            "target": [
+              -0.4249999824911357,
+              0.6250000331550836
+            ],
+            "result": {
+              "status": 4,
+              "result": {
+                "error_code": 0,
+                "error_msg": ""
+              }
+            },
+            "coverage_before": 0.3333333333333333
+          },
+          {
+            "goal_id": "act_53551baba3f9405daf2c9c50:repair:7",
+            "target": [
+              0.02500002421438685,
+              1.075000039860606
+            ],
+            "result": {
+              "status": 4,
+              "result": {
+                "error_code": 0,
+                "error_msg": ""
+              }
+            },
+            "coverage_before": 0.37276286353467564
+          },
+          {
+            "goal_id": "act_53551baba3f9405daf2c9c50:repair:8",
+            "target": [
+              0.7750000353902577,
+              1.075000039860606
+            ],
+            "result": {
+              "status": 4,
+              "result": {
+                "error_code": 0,
+                "error_msg": ""
+              }
+            },
+            "coverage_before": 0.4133109619686801
+          },
+          {
+            "goal_id": "act_53551baba3f9405daf2c9c50:repair:9",
+            "target": [
+              -0.8249999884516002,
+              1.1250000406056642
+            ],
+            "result": {
+              "status": 4,
+              "result": {
+                "error_code": 0,
+                "error_msg": ""
+              }
+            },
+            "coverage_before": 0.47007829977628635
+          },
+          {
+            "goal_id": "act_53551baba3f9405daf2c9c50:repair:10",
+            "target": [
+              -1.1249999929219485,
+              -0.724999986961484
+            ],
+            "result": {
+              "status": 4,
+              "result": {
+                "error_code": 0,
+                "error_msg": ""
+              }
+            },
+            "coverage_before": 0.5274049217002237
+          },
+          {
+            "goal_id": "act_53551baba3f9405daf2c9c50:repair:11",
+            "target": [
+              0.6750000339001416,
+              -1.1249999929219485
+            ],
+            "result": {
+              "status": 4,
+              "result": {
+                "error_code": 0,
+                "error_msg": ""
+              }
+            },
+            "coverage_before": 0.58417225950783
+          },
+          {
+            "goal_id": "act_53551baba3f9405daf2c9c50:repair:12",
+            "target": [
+              1.1750000413507222,
+              -0.6249999854713679
+            ],
+            "result": {
+              "status": 4,
+              "result": {
+                "error_code": 0,
+                "error_msg": ""
+              }
+            },
+            "coverage_before": 0.6370246085011185
+          },
+          {
+            "goal_id": "act_53551baba3f9405daf2c9c50:repair:13",
+            "target": [
+              -0.674999986216426,
+              -1.1749999936670066
+            ],
+            "result": {
+              "status": 4,
+              "result": {
+                "error_code": 0,
+                "error_msg": ""
+              }
+            },
+            "coverage_before": 0.6730984340044742
+          },
+          {
+            "goal_id": "act_53551baba3f9405daf2c9c50:repair:14",
+            "target": [
+              -1.1749999936670066,
+              0.7750000353902577
+            ],
+            "result": {
+              "status": 4,
+              "result": {
+                "error_code": 0,
+                "error_msg": ""
+              }
+            },
+            "coverage_before": 0.7144854586129754
+          },
+          {
+            "goal_id": "act_53551baba3f9405daf2c9c50:repair:15",
+            "target": [
+              1.1750000413507222,
+              0.6250000331550836
+            ],
+            "result": {
+              "status": 4,
+              "result": {
+                "error_code": 0,
+                "error_msg": ""
+              }
+            },
+            "coverage_before": 0.741331096196868
+          },
+          {
+            "goal_id": "act_53551baba3f9405daf2c9c50:repair:16",
+            "target": [
+              1.1750000413507222,
+              -1.1749999936670066
+            ],
+            "result": {
+              "status": 4,
+              "result": {
+                "error_code": 0,
+                "error_msg": ""
+              }
+            },
+            "coverage_before": 0.7824384787472036
+          },
+          {
+            "goal_id": "act_53551baba3f9405daf2c9c50:repair:17",
+            "target": [
+              -1.1749999936670066,
+              -1.1749999936670066
+            ],
+            "result": {
+              "status": 4,
+              "result": {
+                "error_code": 0,
+                "error_msg": ""
+              }
+            },
+            "coverage_before": 0.8207494407158836
+          },
+          {
+            "goal_id": "act_53551baba3f9405daf2c9c50:repair:18",
+            "target": [
+              1.1750000413507222,
+              1.1750000413507222
+            ],
+            "result": {
+              "status": 4,
+              "result": {
+                "error_code": 0,
+                "error_msg": ""
+              }
+            },
+            "coverage_before": 0.8593400447427293
+          },
+          {
+            "goal_id": "act_53551baba3f9405daf2c9c50:repair:19",
+            "target": [
+              -1.1749999936670066,
+              -0.1749999787658454
+            ],
+            "result": {
+              "status": 4,
+              "result": {
+                "error_code": 0,
+                "error_msg": ""
+              }
+            },
+            "coverage_before": 0.8766778523489933
+          },
+          {
+            "goal_id": "act_53551baba3f9405daf2c9c50:repair:20",
+            "target": [
+              -0.2749999802559615,
+              1.1750000413507222
+            ],
+            "result": {
+              "status": 4,
+              "result": {
+                "error_code": 0,
+                "error_msg": ""
+              }
+            },
+            "coverage_before": 0.9060402684563759
+          },
+          {
+            "goal_id": "act_53551baba3f9405daf2c9c50:repair:21",
+            "target": [
+              0.07500002495944491,
+              -1.1749999936670066
+            ],
+            "result": {
+              "status": 4,
+              "result": {
+                "error_code": 0,
+                "error_msg": ""
+              }
+            },
+            "coverage_before": 0.9110738255033557
+          },
+          {
+            "goal_id": "act_53551baba3f9405daf2c9c50:repair:22",
+            "target": [
+              -1.1749999936670066,
+              1.1750000413507222
+            ],
+            "result": {
+              "status": 4,
+              "result": {
+                "error_code": 0,
+                "error_msg": ""
+              }
+            },
+            "coverage_before": 0.9183445190156599
+          },
+          {
+            "goal_id": "act_53551baba3f9405daf2c9c50:repair:23",
+            "target": [
+              -0.2749999802559615,
+              -1.1749999936670066
+            ],
+            "result": {
+              "status": 4,
+              "result": {
+                "error_code": 0,
+                "error_msg": ""
+              }
+            },
+            "coverage_before": 0.9340044742729307
+          },
+          {
+            "goal_id": "act_53551baba3f9405daf2c9c50:repair:24",
+            "target": [
+              0.37500002942979327,
+              1.1750000413507222
+            ],
+            "result": {
+              "status": 4,
+              "result": {
+                "error_code": 0,
+                "error_msg": ""
+              }
+            },
+            "coverage_before": 0.941834451901566
+          },
+          {
+            "goal_id": "act_53551baba3f9405daf2c9c50:repair:25",
+            "target": [
+              0.37500002942979327,
+              -1.1749999936670066
+            ],
+            "result": {
+              "status": 4,
+              "result": {
+                "error_code": 0,
+                "error_msg": ""
+              }
+            },
+            "coverage_before": 0.9446308724832215
+          },
+          {
+            "goal_id": "act_53551baba3f9405daf2c9c50:repair:26",
+            "target": [
+              1.1750000413507222,
+              0.07500002495944491
+            ],
+            "result": {
+              "status": 4,
+              "result": {
+                "error_code": 0,
+                "error_msg": ""
+              }
+            },
+            "coverage_before": 0.9516219239373602
+          },
+          {
+            "goal_id": "act_53551baba3f9405daf2c9c50:repair:27",
+            "target": [
+              -1.1749999936670066,
+              0.2250000271946191
+            ],
+            "result": {
+              "status": 4,
+              "result": {
+                "error_code": 0,
+                "error_msg": ""
+              }
+            },
+            "coverage_before": 0.9574944071588367
+          },
+          {
+            "goal_id": "act_53551baba3f9405daf2c9c50:repair:28",
+            "target": [
+              -0.9749999906867743,
+              -1.1749999936670066
+            ],
+            "result": {
+              "status": 4,
+              "result": {
+                "error_code": 0,
+                "error_msg": ""
+              }
+            },
+            "coverage_before": 0.9614093959731543
+          },
+          {
+            "goal_id": "act_53551baba3f9405daf2c9c50:repair:29",
+            "target": [
+              -1.1749999936670066,
+              -0.47499998323619375
+            ],
+            "result": {
+              "status": 4,
+              "result": {
+                "error_code": 0,
+                "error_msg": ""
+              }
+            },
+            "coverage_before": 0.9630872483221476
+          },
+          {
+            "goal_id": "act_53551baba3f9405daf2c9c50:repair:30",
+            "target": [
+              -1.1749999936670066,
+              -1.1749999936670066
+            ],
+            "result": {
+              "status": 4,
+              "result": {
+                "error_code": 0,
+                "error_msg": ""
+              }
+            },
+            "coverage_before": 0.964765100671141
+          },
+          {
+            "goal_id": "act_53551baba3f9405daf2c9c50:repair:31",
+            "target": [
+              0.6750000339001416,
+              -1.1749999936670066
+            ],
+            "result": {
+              "status": 4,
+              "result": {
+                "error_code": 0,
+                "error_msg": ""
+              }
+            },
+            "coverage_before": 0.9667225950782998
+          },
+          {
+            "goal_id": "act_53551baba3f9405daf2c9c50:repair:32",
+            "target": [
+              0.07500002495944491,
+              -1.1749999936670066
+            ],
+            "result": {
+              "status": 4,
+              "result": {
+                "error_code": 0,
+                "error_msg": ""
+              }
+            },
+            "coverage_before": 0.968400447427293
+          },
+          {
+            "goal_id": "act_53551baba3f9405daf2c9c50:repair:33",
+            "target": [
+              0.07500002495944491,
+              1.1750000413507222
+            ],
+            "result": {
+              "status": 4,
+              "result": {
+                "error_code": 0,
+                "error_msg": ""
+              }
+            },
+            "coverage_before": 0.9695190156599552
+          },
+          {
+            "goal_id": "act_53551baba3f9405daf2c9c50:repair:34",
+            "target": [
+              0.6750000339001416,
+              1.1750000413507222
+            ],
+            "result": {
+              "status": 4,
+              "result": {
+                "error_code": 0,
+                "error_msg": ""
+              }
+            },
+            "coverage_before": 0.9697986577181208
+          },
+          {
+            "goal_id": "act_53551baba3f9405daf2c9c50:repair:35",
+            "target": [
+              -1.1749999936670066,
+              0.5250000316649674
+            ],
+            "result": {
+              "status": 4,
+              "result": {
+                "error_code": 0,
+                "error_msg": ""
+              }
+            },
+            "coverage_before": 0.9737136465324385
+          },
+          {
+            "goal_id": "act_53551baba3f9405daf2c9c50:repair:36",
+            "target": [
+              -1.1749999936670066,
+              -0.7749999877065421
+            ],
+            "result": {
+              "status": 4,
+              "result": {
+                "error_code": 0,
+                "error_msg": ""
+              }
+            },
+            "coverage_before": 0.9759507829977628
+          },
+          {
+            "goal_id": "act_53551baba3f9405daf2c9c50:repair:37",
+            "target": [
+              1.1750000413507222,
+              -0.32499998100101957
+            ],
+            "result": {
+              "status": 4,
+              "result": {
+                "error_code": 0,
+                "error_msg": ""
+              }
+            },
+            "coverage_before": 0.9765100671140939
+          },
+          {
+            "goal_id": "act_53551baba3f9405daf2c9c50:repair:38",
+            "target": [
+              -0.5249999839812518,
+              1.1750000413507222
+            ],
+            "result": {
+              "status": 4,
+              "result": {
+                "error_code": 0,
+                "error_msg": ""
+              }
+            },
+            "coverage_before": 0.9790268456375839
+          }
+        ],
+        "initial_action_result": {
+          "status": 6,
+          "result": {
+            "error_code": 0
+          }
+        },
+        "independent_evidence_hashes": [
+          "rosmissionevidence_27e933dae0e17344c8ac86fe7a5f99b2c462e48f806ac8dd5fbd7a2640441246"
+        ],
+        "evidence_artifact": {
+          "path": "/tmp/ros-expert-acceptance/native-011/actions/rosevidence_cebf743061879e6a705d31f14bda0237b8b6fd22dfc7051d3c82850e8df63eb5.json",
+          "sha256": "3456d58ce3ee63829ccd3d6b03605c2649ed08d27f6ba2ce62749838238d0200"
+        }
+      },
+      "final_state": "COMPLETED",
+      "evidence_level": "TASK_VERIFIED",
+      "evidence_domain": "SIMULATION",
+      "verified": true,
+      "valid_for_promotion": false,
+      "trust_level": "SIMULATED",
+      "usable_for_real_execution": false,
+      "artifacts": [],
+      "errors": [],
+      "transitions": [
+        {
+          "state": "PROPOSED",
+          "at": "2026-10-05T01:59:18.006104Z",
+          "reason": "action_submitted"
+        },
+        {
+          "state": "REQUEST_ACCEPTED",
+          "at": "2026-10-05T01:59:18.006106Z",
+          "reason": "request_accepted"
+        },
+        {
+          "state": "GROUNDED",
+          "at": "2026-10-05T01:59:18.006257Z",
+          "reason": "executor_resolved"
+        },
+        {
+          "state": "WAITING_RESOURCE",
+          "at": "2026-10-05T01:59:18.006259Z",
+          "reason": "ros_expert_base"
+        },
+        {
+          "state": "SCHEDULED",
+          "at": "2026-10-05T01:59:18.006278Z",
+          "reason": "lease_acquired"
+        },
+        {
+          "state": "POLICY_VALIDATED",
+          "at": "2026-10-05T02:10:33.396541Z",
+          "reason": "policy_allowed"
+        },
+        {
+          "state": "SIMULATION_VALIDATED",
+          "at": "2026-10-05T02:10:33.396545Z",
+          "reason": "physics_simulation_completed"
+        },
+        {
+          "state": "COMMAND_DISPATCHED",
+          "at": "2026-10-05T02:10:33.396546Z",
+          "reason": "command_dispatched"
+        },
+        {
+          "state": "EFFECT_OBSERVED",
+          "at": "2026-10-05T02:10:33.396550Z",
+          "reason": "effect_observed"
+        },
+        {
+          "state": "TASK_VERIFIED",
+          "at": "2026-10-05T02:10:33.396551Z",
+          "reason": "predicate_verified"
+        },
+        {
+          "state": "COMPLETED",
+          "at": "2026-10-05T02:10:33.396552Z",
+          "reason": "executor_completed"
+        }
+      ],
+      "started_at": "2026-10-05T01:59:18.006043Z",
+      "finished_at": "2026-10-05T02:10:33.396563Z"
+    },
+    "daemon_peer": {
+      "pid": 2400538,
+      "uid": 1000,
+      "gid": 1000
+    }
+  },
+  {
+    "capability_id": "ros.expert.remember",
+    "action_id": "act_b3c954c9dd234ae8ab46219f",
+    "receipt": {
+      "schema_version": "rosclaw.receipt.v1",
+      "action_id": "act_b3c954c9dd234ae8ab46219f",
+      "trace_id": "trace_464a02922f6c4d52a3472347",
+      "mode": "SIMULATION",
+      "execution_mode": "SIMULATION",
+      "body_id": "ros_expert_base",
+      "body_snapshot_hash": "510c836df556cde9d2e8b2fb25675aebec086234ec7177014724b0938d6aff3f",
+      "capability_id": "ros.expert.remember",
+      "policy_decision": {
+        "allowed": true
+      },
+      "authorization_decision": {},
+      "resource_lease": {
+        "lease_id": "lease_56878994165f475ab1a025e910b826b2",
+        "resource_id": "ros_expert_base",
+        "action_id": "act_b3c954c9dd234ae8ab46219f",
+        "acquired_at": "2026-10-05T02:10:40.893557Z",
+        "exclusive": true
+      },
+      "simulation_result": null,
+      "dispatch_result": {
+        "accepted": true
+      },
+      "driver_ack": null,
+      "acknowledgement_stage": "TASK_VERIFIED",
+      "observations": [],
+      "verification_result": {
+        "mission_verification_artifact": "/tmp/ros-expert-acceptance/native-011/actions/rosevidence_cebf743061879e6a705d31f14bda0237b8b6fd22dfc7051d3c82850e8df63eb5.verification.json",
+        "success": true,
+        "memory_id": "mis_c11b32ebd4ee4798b59252cc",
+        "memory_outcome": "success"
+      },
+      "final_state": "COMPLETED",
+      "evidence_level": "TASK_VERIFIED",
+      "evidence_domain": "SIMULATION",
+      "verified": true,
+      "valid_for_promotion": false,
+      "trust_level": "SIMULATED",
+      "usable_for_real_execution": false,
+      "artifacts": [
+        "/tmp/ros-expert-acceptance/native-011/actions/rosevidence_cebf743061879e6a705d31f14bda0237b8b6fd22dfc7051d3c82850e8df63eb5.verification.json"
+      ],
+      "errors": [],
+      "transitions": [
+        {
+          "state": "PROPOSED",
+          "at": "2026-10-05T02:10:40.893423Z",
+          "reason": "action_submitted"
+        },
+        {
+          "state": "REQUEST_ACCEPTED",
+          "at": "2026-10-05T02:10:40.893424Z",
+          "reason": "request_accepted"
+        },
+        {
+          "state": "GROUNDED",
+          "at": "2026-10-05T02:10:40.893545Z",
+          "reason": "executor_resolved"
+        },
+        {
+          "state": "WAITING_RESOURCE",
+          "at": "2026-10-05T02:10:40.893546Z",
+          "reason": "ros_expert_base"
+        },
+        {
+          "state": "SCHEDULED",
+          "at": "2026-10-05T02:10:40.893563Z",
+          "reason": "lease_acquired"
+        },
+        {
+          "state": "POLICY_VALIDATED",
+          "at": "2026-10-05T02:10:47.681435Z",
+          "reason": "policy_allowed"
+        },
+        {
+          "state": "COMMAND_DISPATCHED",
+          "at": "2026-10-05T02:10:47.681440Z",
+          "reason": "command_dispatched"
+        },
+        {
+          "state": "EFFECT_OBSERVED",
+          "at": "2026-10-05T02:10:47.681446Z",
+          "reason": "effect_observed"
+        },
+        {
+          "state": "TASK_VERIFIED",
+          "at": "2026-10-05T02:10:47.681448Z",
+          "reason": "predicate_verified"
+        },
+        {
+          "state": "COMPLETED",
+          "at": "2026-10-05T02:10:47.681449Z",
+          "reason": "executor_completed"
+        }
+      ],
+      "started_at": "2026-10-05T02:10:40.893406Z",
+      "finished_at": "2026-10-05T02:10:47.681464Z"
+    },
+    "daemon_peer": {
+      "pid": 2400538,
+      "uid": 1000,
+      "gid": 1000
+    }
+  }
+]

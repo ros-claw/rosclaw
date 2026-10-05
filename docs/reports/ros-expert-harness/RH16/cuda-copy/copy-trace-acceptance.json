@@ -1,0 +1,110 @@
+{
+  "status": "PARTIAL",
+  "explicit_cuda_activity_gate": "PASS",
+  "complete_copy_trace_verified": false,
+  "zero_copy_verified": false,
+  "unified_memory_trace_unsupported": true,
+  "evidence_domain": "GPU_FIXTURE",
+  "hardware_motion": false,
+  "validated_frames_including_warmup": 301,
+  "copies": [
+    {
+      "pid": 467,
+      "name": "component_conta",
+      "copy_kind": "Host-to-Host",
+      "operations": 301,
+      "bytes": 117028800
+    },
+    {
+      "pid": 500,
+      "name": "component_conta",
+      "copy_kind": "Device-to-Host",
+      "operations": 301,
+      "bytes": 1872460800
+    }
+  ],
+  "kernels": [
+    {
+      "pid": 475,
+      "name": "component_conta",
+      "kernels": 301
+    }
+  ],
+  "cuda_apis": {
+    "cuMemAddressFree": 6,
+    "cuMemAddressReserve": 12,
+    "cuMemCreate": 10,
+    "cuMemExportToShareableHandle": 10,
+    "cuMemGetAllocationGranularity": 4,
+    "cuMemImportFromShareableHandle": 6,
+    "cuMemMap": 12,
+    "cuMemRelease": 10,
+    "cuMemSetAccess": 12,
+    "cuMemUnmap": 6,
+    "cudaMemcpyAsync_v3020": 602
+  },
+  "diagnostics": [
+    {
+      "severity": 2,
+      "text": "Scheduling information is absent. The thread activity is deduced based on OS runtime libraries traces. This is inaccurate and does not take into account asynchronous interrupts and exception faults."
+    },
+    {
+      "severity": 2,
+      "text": "No NVTX events collected. Does the process use NVTX?"
+    },
+    {
+      "severity": 2,
+      "text": "No NVTX events collected. Does the process use NVTX?"
+    },
+    {
+      "severity": 2,
+      "text": "No NVTX events collected. Does the process use NVTX?"
+    },
+    {
+      "severity": 2,
+      "text": "No NVTX events collected. Does the process use NVTX?"
+    },
+    {
+      "severity": 2,
+      "text": "OS runtime libraries profiling might have not been started correctly."
+    },
+    {
+      "severity": 2,
+      "text": "No OS runtime libraries events collected. Does the process use OS runtime libraries?"
+    },
+    {
+      "severity": 2,
+      "text": "OS runtime libraries profiling might have not been started correctly."
+    },
+    {
+      "severity": 2,
+      "text": "No OS runtime libraries events collected. Does the process use OS runtime libraries?"
+    },
+    {
+      "severity": 2,
+      "text": "OS runtime libraries profiling might have not been started correctly."
+    },
+    {
+      "severity": 2,
+      "text": "No OS runtime libraries events collected. Does the process use OS runtime libraries?"
+    },
+    {
+      "severity": 3,
+      "text": "CUDA device 0: Unified Memory trace is not supported by the current driver version or configuration."
+    },
+    {
+      "severity": 3,
+      "text": "CUDA device 0: Unified Memory trace is not supported by the current driver version or configuration."
+    },
+    {
+      "severity": 3,
+      "text": "CUDA device 0: Unified Memory trace is not supported by the current driver version or configuration."
+    },
+    {
+      "severity": 3,
+      "text": "CUDA device 0: Unified Memory trace is not supported by the current driver version or configuration."
+    }
+  ],
+  "nsight_sqlite_sha256": "48e255d9b0be929351aa0c0231711ec2142d8b603809783a9622c68faf6712fa",
+  "note": "Explicit CUDA activity covers three component processes; CPU fallback, validation copies and unsupported Unified Memory tracing prevent a complete zero-copy claim."
+}

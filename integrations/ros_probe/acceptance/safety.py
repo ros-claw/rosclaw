@@ -17,7 +17,7 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
-from rosclaw.daemon.client import DaemonClient
+from rosclaw.daemon.client import DaemonClient, DaemonRequestError
 from rosclaw.mcp import tools
 from rosclaw.mcp.adapters.runtime_client import RuntimeClient
 
@@ -60,7 +60,8 @@ def clock_paused(container, paused):
 async def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "case", choices=["daemon_kill", "clock_pause", "bridge_kill", "observer_stop"]
+        "case",
+        choices=["daemon_kill", "daemon_restart", "clock_pause", "bridge_kill", "observer_stop"],
     )
     parser.add_argument("--directory", type=Path, required=True)
     parser.add_argument("--fixture", type=Path, required=True)
@@ -84,13 +85,16 @@ async def main():
     os.environ["ROSCLAW_ROS_EXPERT"] = "1"
     (root / "daemon_ready.json").unlink(missing_ok=True)
     log = (root / "daemon.log").open("w")
+    daemon_argv = [
+        sys.executable,
+        str(ROOT / "integrations/ros_probe/acceptance/daemon.py"),
+        "--directory",
+        str(root),
+    ]
+    if args.case == "daemon_restart":
+        daemon_argv.append("--persistent-ledger")
     daemon = subprocess.Popen(
-        [
-            sys.executable,
-            str(ROOT / "integrations/ros_probe/acceptance/daemon.py"),
-            "--directory",
-            str(root),
-        ],
+        daemon_argv,
         stdout=log,
         stderr=subprocess.STDOUT,
     )
@@ -162,8 +166,11 @@ async def main():
                 raise TimeoutError("actual motion was not observed before fault")
             await asyncio.sleep(0.1)
         record["before"] = current
+        if args.case == "daemon_restart":
+            record["runtime_before"] = client.get_runtime_status()
+            record["session_before"] = client.get_session(record["ticket"]["session_id"])
         record["injected_at"] = datetime.now(UTC).isoformat()
-        if args.case == "daemon_kill":
+        if args.case in {"daemon_kill", "daemon_restart"}:
             daemon.send_signal(signal.SIGKILL)
             daemon.wait(timeout=5)
         elif args.case == "clock_pause":
@@ -270,7 +277,7 @@ async def main():
         )
         record["standstill_displacement_m"] = displacement
         record["standstill_yaw_change_rad"] = yaw_change
-        if args.case != "daemon_kill":
+        if args.case not in {"daemon_kill", "daemon_restart"}:
             deadline = time.monotonic() + 15
             while client.get_action_status("fault-coverage").get("state") != "FINISHED":
                 if time.monotonic() > deadline:
@@ -291,6 +298,85 @@ async def main():
             )
         ):
             raise RuntimeError("independently measured stop/cleaning/collision gate failed")
+        if args.case == "daemon_restart":
+            (root / "daemon_ready.json").unlink(missing_ok=True)
+            daemon = subprocess.Popen(daemon_argv, stdout=log, stderr=subprocess.STDOUT)
+            deadline = time.monotonic() + 30
+            while not (root / "daemon_ready.json").exists():
+                if daemon.poll() is not None or time.monotonic() > deadline:
+                    raise RuntimeError("restarted daemon not ready")
+                await asyncio.sleep(0.1)
+            restarted = DaemonClient(socket_path=root / "run/rosclawd.sock")
+            status = restarted.get_runtime_status()
+            record["runtime_after"] = status
+            if (
+                status["daemon_instance_id"] == record["runtime_before"]["daemon_instance_id"]
+                or status["supervision_state"] != "DISARMED"
+                or status["ledger"]["integrity_verified"] is not True
+                or status["ledger"]["write_failed"]
+            ):
+                raise RuntimeError(
+                    "restart generation, disarmed state or durable ledger gate failed"
+                )
+            receipt = restarted.get_execution_receipt("fault-coverage")
+            record["recovered_canonical_receipt"] = receipt
+            canonical = receipt["receipt"]
+            if canonical["final_state"] != "FAILED" or not any(
+                e.get("code") == "DAEMON_RESTART_INTERRUPTED" for e in canonical["errors"]
+            ):
+                raise RuntimeError("interrupted SIM action was not durably recovered as failed")
+            for name, call in {
+                "old_session_heartbeat": lambda: restarted.heartbeat_session(
+                    record["ticket"]["session_id"]
+                ),
+                "old_action_lease": lambda: restarted.renew_action_lease(
+                    "fault-coverage", record["ticket"]["session_id"]
+                ),
+            }.items():
+                try:
+                    call()
+                except DaemonRequestError as exc:
+                    expected = (
+                        "SESSION_NOT_FOUND"
+                        if name == "old_session_heartbeat"
+                        else "ACTION_NOT_ACTIVE"
+                    )
+                    if exc.code != expected:
+                        raise RuntimeError(
+                            f"unexpected stale-authority rejection: {exc.code}"
+                        ) from exc
+                    record[name] = {"rejected": True, "code": exc.code, "error": str(exc)}
+                else:
+                    raise RuntimeError(f"restart accepted stale authority: {name}")
+            after = []
+            until = time.monotonic() + 3
+            while time.monotonic() < until:
+                after.append(observation(args.fixture))
+                await asyncio.sleep(0.1)
+            record["post_restart_observations"] = after
+            movement = max(
+                math.hypot(s["x"] - after[0]["x"], s["y"] - after[0]["y"]) for s in after
+            )
+            record["post_restart_displacement_m"] = movement
+            rotation = max(
+                abs(
+                    math.atan2(
+                        math.sin(s["yaw"] - after[0]["yaw"]), math.cos(s["yaw"] - after[0]["yaw"])
+                    )
+                )
+                for s in after
+            )
+            record["post_restart_yaw_change_rad"] = rotation
+            if (
+                len(after) < 20
+                or movement > 0.01
+                or rotation > 0.03
+                or any(
+                    s["cleaning_enabled"] or s["lease_remaining_sec"] > 0 or s["collision_count"]
+                    for s in after
+                )
+            ):
+                raise RuntimeError("restart resurrected motion or the cleaning lease")
         record["status"] = "PASS"
     except Exception as exc:
         record["error"] = str(exc)

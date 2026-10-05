@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+import pytest
+
 from rosclaw.connectors.ros.practice import RosPracticeAdapter
 from rosclaw.connectors.ros.provider import RosCapabilityProvider
 from rosclaw.provider.core.manifest import ProviderManifest
@@ -79,6 +81,89 @@ def test_ros_practice_adapter_publishes_failure_as_recorded():
     recorded = [e for e in bus.events if getattr(e, "topic", "") == "praxis.recorded"]
     assert len(recorded) == 1
     assert recorded[0].payload["outcome"] == "blocked"
+
+
+@pytest.mark.parametrize("keyword_fallback", [False, True])
+def test_verified_cleaning_memory_is_searchable_after_reopen(
+    tmp_path, monkeypatch, keyword_fallback
+):
+    from rosclaw.core.event_bus import Event, EventBus
+    from rosclaw.memory.interface import MemoryInterface
+    from rosclaw.memory.seekdb_client import SQLiteStructuredStore
+
+    if keyword_fallback:
+        import rosclaw.memory.interface as memory_module
+        import rosclaw.memory.tokenizer as tokenizer_module
+
+        monkeypatch.setattr(memory_module, "_HAS_SKLEARN", False)
+        monkeypatch.setattr(memory_module, "_HAS_BM25", False)
+        monkeypatch.setattr(tokenizer_module, "_HAS_JIEBA", False)
+
+    path = str(tmp_path / "memory.sqlite")
+    bus = EventBus()
+    memory = MemoryInterface("test_body", bus, SQLiteStructuredStore(path))
+    memory.initialize()
+    adapter = RosPracticeAdapter(bus)
+    adapter.initialize()
+    verification = {
+        "verification_status": "PASS",
+        "execution_receipts": [
+            {
+                "capability_id": "coverage.execute",
+                "started_at": "2026-10-05T01:59:18.006043Z",
+                "finished_at": "2026-10-05T02:10:33.396563Z",
+                "final_state": "COMPLETED",
+            }
+        ],
+    }
+    bus.publish(
+        Event(
+            topic="rosclaw.ros.verification.completed",
+            payload={
+                "mission_id": "verified_cleaning",
+                "verification": verification,
+            },
+            source="test",
+        )
+    )
+    adapter.stop()
+    memory.stop()
+
+    reopened = MemoryInterface("test_body", seekdb_client=SQLiteStructuredStore(path))
+    reopened.initialize()
+    try:
+        for query in (
+            "complete room cleaning",
+            "cleaning coverage",
+            "区域清扫",
+            "完成整个房间清扫。",
+            "clean the entire room",
+        ):
+            results = reopened.find_similar_experiences(query, outcome_filter="success")
+            assert results[0]["id"] == "verified_cleaning"
+            assert results[0]["duration_sec"] == pytest.approx(675.39052)
+            assert results[0]["metadata"]["raw"]["verification"] == verification
+    finally:
+        reopened.stop()
+
+
+@pytest.mark.parametrize("end", [None, "invalid", "2026-10-05T01:00:00Z"])
+def test_missing_or_invalid_receipt_timing_does_not_invent_duration(end):
+    bus = FakeEventBus()
+    adapter = RosPracticeAdapter(bus)
+    verification = {
+        "verification_status": "PASS",
+        "execution_receipts": [
+            {
+                "capability_id": "coverage.execute",
+                "started_at": "2026-10-05T02:00:00Z",
+                "finished_at": end,
+            }
+        ],
+    }
+    adapter._on_expert_event(FakeEvent(payload={"verification": verification}))
+    assert bus.events[0].payload["duration_sec"] == 0.0
+    assert bus.events[0].payload["raw"]["verification"] == verification
 
 
 def test_ros_capability_provider_publishes_firewall_blocked_event():

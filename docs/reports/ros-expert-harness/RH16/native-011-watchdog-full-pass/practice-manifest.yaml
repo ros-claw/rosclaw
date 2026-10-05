@@ -1,0 +1,34 @@
+schema_version: practice.manifest.v1
+practice_id: gazebo-room-cleaning
+session_id: c73c1303-e1bf-4f7d-8cbd-7f6a3a4aade6
+robot_id: ros_expert_base
+robot_type: null
+body_id: ros_expert_base
+task:
+  task_id: null
+  task_name: null
+  skill_id: null
+start_time: '2026-10-05T01:58:46.221640Z'
+end_time: '2026-10-05T02:10:47.663759Z'
+duration_ms: 721105.44384
+event_count: 8
+sources: {}
+artifacts:
+  events_jsonl: /tmp/ros-expert-acceptance/native-011/practice/sessions/gazebo-room-cleaning/raw/events.jsonl
+  mcap: /tmp/ros-expert-acceptance/native-011/practice/sessions/gazebo-room-cleaning/raw/events.mcap
+  timeline_jsonl: /tmp/ros-expert-acceptance/native-011/practice/sessions/gazebo-room-cleaning/timeline.jsonl
+  episode_json: /tmp/ros-expert-acceptance/native-011/practice/sessions/gazebo-room-cleaning/episode.json
+  frames: /tmp/ros-expert-acceptance/native-011/practice/sessions/gazebo-room-cleaning/frames
+  artifacts: /tmp/ros-expert-acceptance/native-011/practice/sessions/gazebo-room-cleaning/artifacts
+  provider: /tmp/ros-expert-acceptance/native-011/practice/sessions/gazebo-room-cleaning/provider
+  sandbox: /tmp/ros-expert-acceptance/native-011/practice/sessions/gazebo-room-cleaning/sandbox
+  runtime: /tmp/ros-expert-acceptance/native-011/practice/sessions/gazebo-room-cleaning/runtime
+  metrics: /tmp/ros-expert-acceptance/native-011/practice/sessions/gazebo-room-cleaning/metrics
+seekdb:
+  enabled: false
+  committed: null
+  table: praxis_events
+status:
+  outcome: SUCCESS
+  failure_labels: []
+  reward: null

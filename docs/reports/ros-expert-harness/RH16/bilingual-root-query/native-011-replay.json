@@ -1,0 +1,61 @@
+{
+  "status": "PASS",
+  "evidence_domain": "HISTORICAL_REPLAY",
+  "new_physical_mission": false,
+  "causal_memory_benefit_verified": false,
+  "mission_id": "mis_c11b32ebd4ee4798b59252cc",
+  "verification_sha256": "9112d68bf479761cd26e8e4176a3f787c49db916457ecfa4689fe475915050e4",
+  "source_instruction": "ROS ros.expert",
+  "source_duration_sec": 0.0,
+  "baseline_retrieval": {
+    "complete room cleaning": [],
+    "cleaning coverage": [],
+    "区域清扫": [],
+    "完成整个房间清扫。": [],
+    "clean the entire room": []
+  },
+  "retrieval_after_reopen": {
+    "complete room cleaning": {
+      "mission_id": "mis_c11b32ebd4ee4798b59252cc",
+      "duration_sec": 675.39052,
+      "first_query_ms": 2.869499003281817,
+      "warm_samples": 50,
+      "warm_median_ms": 0.00031999661587178707,
+      "warm_p95_ms": 0.0005920010153204203
+    },
+    "cleaning coverage": {
+      "mission_id": "mis_c11b32ebd4ee4798b59252cc",
+      "duration_sec": 675.39052,
+      "first_query_ms": 2.3346790112555027,
+      "warm_samples": 50,
+      "warm_median_ms": 0.00031999661587178707,
+      "warm_p95_ms": 0.0003839959390461445
+    },
+    "区域清扫": {
+      "mission_id": "mis_c11b32ebd4ee4798b59252cc",
+      "duration_sec": 675.39052,
+      "first_query_ms": 2.229189994977787,
+      "warm_samples": 50,
+      "warm_median_ms": 0.00031999661587178707,
+      "warm_p95_ms": 0.000400003045797348
+    },
+    "完成整个房间清扫。": {
+      "mission_id": "mis_c11b32ebd4ee4798b59252cc",
+      "duration_sec": 675.39052,
+      "first_query_ms": 2.273126010550186,
+      "warm_samples": 50,
+      "warm_median_ms": 0.0003360037226229906,
+      "warm_p95_ms": 0.00041601015254855156
+    },
+    "clean the entire room": {
+      "mission_id": "mis_c11b32ebd4ee4798b59252cc",
+      "duration_sec": 675.39052,
+      "first_query_ms": 2.1737169881816953,
+      "warm_samples": 50,
+      "warm_median_ms": 0.00032800016924738884,
+      "warm_p95_ms": 0.000400003045797348
+    }
+  },
+  "record_count_before": 1,
+  "record_count_after_double_replay": 1
+}

@@ -1,0 +1,27 @@
+{
+  "status": "FAIL",
+  "copy_trace_complete": false,
+  "zero_copy_verified": false,
+  "error": "official component failed to load: Could not find requested resource in ament index",
+  "captured_at": "2026-10-05T14:34:27.337944+00:00",
+  "evidence_domain": "GPU_FIXTURE",
+  "input_dimensions": [
+    1920,
+    1080
+  ],
+  "observed_output_shapes": [],
+  "publish_period_ms": 50,
+  "published_target": 300,
+  "warmup_validated_frames": 1,
+  "received_validated_frames": 0,
+  "content_and_backend_validated": false,
+  "input_header_bound_output_pixels_validated": false,
+  "output_buffer_backend": "UNKNOWN",
+  "component": "nvidia::isaac_ros::image_proc::ResizeNode",
+  "publisher_processor_subscriber_separate_processes": true,
+  "shared_cuda_pool_preload": "/opt/ros/lyrical/lib/libcuda_buffer.so",
+  "latency_samples_ms": [],
+  "hardware_motion": false,
+  "input_metadata_observer_forces_cpu_fallback": true,
+  "notes": "Exact-time metadata uses the real input header. Input CPU fallback and validator DtoH copies are explicit; no complete copy profiler trace exists."
+}

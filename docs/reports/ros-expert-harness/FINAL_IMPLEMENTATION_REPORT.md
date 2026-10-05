@@ -2,6 +2,16 @@
 
 ## 1. Executive Summary
 
+**2026-10-05 extended acceptance:** [PR #617](https://github.com/ros-claw/rosclaw/pull/617)
+was merged after its required checks passed. [RH16](RH16/README.md) adds live
+same-ledger daemon restart and stale-authority rejection, a verified-episode Memory
+retrieval fix, durable KNOW/HOW feedback linkage, three-process explicit CUDA
+activity profiling, and a distinct vendor Body compilation check. Native011's
+complete watchdog mission is now archived: 98.07046979865772%, zero contacts,
+675.39052 seconds. These are scoped additional gates; full-plan status remains
+PARTIAL. Unsupported Unified Memory tracing prevents a complete-copy claim;
+physical second-Body transfer and causal Memory/KNOW benefit remain unaccepted.
+
 **Overall plan status: PARTIAL; the implemented SIM fixture has passed end-to-end acceptance.** Work is isolated in `feat/ros-expert-harness-v1`, based on `origin/main` (`0e0d8e45`). The original checkout remains unchanged. The read-only expert foundation now has a real Jazzy/Gazebo/Nav2 fixture, daemon-owned simulation execution, independent physics observations, active Native context collection, native ROS1 introspection and source-backed KNOW/HOW consultation.
 
 The normal Gazebo cleaning acceptance **passed at 98.0425% independent coverage, zero collisions, complete observations and zero trace gaps** in 626.64 seconds within a 900-second budget. The canonical daemon receipt is COMPLETED / SIMULATION / TASK_VERIFIED; existing Memory persisted success and Practice closed with SUCCESS. [Archived acceptance](RH10/gazebo-normal-008/acceptance.json) includes exact artifact hashes, coverage mask, trajectory and receipts. Earlier failures at 97.04%, 97.68% and transport timeouts are retained. This scripted black-box run is not autonomous model evidence. Actual `gpt-6.1-sol` Native single-input acceptance now passed at **98.0145%**, zero physics contacts and complete observations after a 20-second dynamic obstacle. Three independent operator approvals led to canonical localization, coverage and Memory completion, Practice SUCCESS and the existing TaskKernel SUCCEEDED. [Complete model-run evidence](RH10/native-004-full-pass/acceptance.json) includes exact artifacts, SDK usage and kernel artifact registration. No empirical agent advantage or hardware verification is claimed. Implementation and required CI/merge status are tracked in [PR #617](https://github.com/ros-claw/rosclaw/pull/617).

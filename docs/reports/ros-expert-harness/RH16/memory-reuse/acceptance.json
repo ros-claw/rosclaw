@@ -1,0 +1,43 @@
+{
+  "status": "PASS",
+  "evidence_domain": "HISTORICAL_REPLAY",
+  "new_physical_mission": false,
+  "causal_memory_benefit_verified": false,
+  "mission_id": "mis_c11b32ebd4ee4798b59252cc",
+  "verification_sha256": "9112d68bf479761cd26e8e4176a3f787c49db916457ecfa4689fe475915050e4",
+  "source_instruction": "ROS ros.expert",
+  "source_duration_sec": 0.0,
+  "baseline_retrieval": {
+    "complete room cleaning": [],
+    "cleaning coverage": [],
+    "区域清扫": []
+  },
+  "retrieval_after_reopen": {
+    "complete room cleaning": {
+      "mission_id": "mis_c11b32ebd4ee4798b59252cc",
+      "duration_sec": 675.39052,
+      "first_query_ms": 1.925031014252454,
+      "warm_samples": 50,
+      "warm_median_ms": 0.0003359746187925339,
+      "warm_p95_ms": 0.0007520138751715422
+    },
+    "cleaning coverage": {
+      "mission_id": "mis_c11b32ebd4ee4798b59252cc",
+      "duration_sec": 675.39052,
+      "first_query_ms": 1.4004690165165812,
+      "warm_samples": 50,
+      "warm_median_ms": 0.0003280147211626172,
+      "warm_p95_ms": 0.0003839959390461445
+    },
+    "区域清扫": {
+      "mission_id": "mis_c11b32ebd4ee4798b59252cc",
+      "duration_sec": 675.39052,
+      "first_query_ms": 1.2742610124405473,
+      "warm_samples": 50,
+      "warm_median_ms": 0.00032798561733216047,
+      "warm_p95_ms": 0.000400003045797348
+    }
+  },
+  "record_count_before": 1,
+  "record_count_after_double_replay": 1
+}

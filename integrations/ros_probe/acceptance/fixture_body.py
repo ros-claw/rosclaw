@@ -37,12 +37,19 @@ def configure_fixture_body(home: Path, specification: dict, urdf_path: Path):
                 else {},
             }
         )
+    model_name = robot.get("name")
+    if model_name not in {"turtlebot3_waffle", "turtlebot3_burger"}:
+        raise ValueError("an explicitly supported vendor simulation model is required")
     profile = EurdfProfile(
-        profile_id="turtlebot3_waffle_gazebo",
+        profile_id=f"{model_name}_gazebo",
         profile_version="1.0.0",
-        vendor="ROBOTIS / Nav2 minimal simulation",
-        model=robot.get("name"),
-        display_name="TurtleBot3 Waffle Gazebo acceptance fixture",
+        vendor="ROBOTIS / turtlebot3_description"
+        if model_name == "turtlebot3_burger"
+        else "ROBOTIS / Nav2 minimal simulation",
+        model=model_name,
+        display_name="TurtleBot3 Burger Gazebo acceptance fixture"
+        if model_name == "turtlebot3_burger"
+        else "TurtleBot3 Waffle Gazebo acceptance fixture",
         description="Pinned vendor model with an explicitly simulated cleaning attachment.",
         assets={"urdf": "refs/robot.urdf"},
         identity={"robot_class": "mobile_base"},
@@ -100,7 +107,7 @@ def configure_fixture_body(home: Path, specification: dict, urdf_path: Path):
     resolver.ensure_body_dir()
     resolver.eurdf_profile_path.write_text(yaml.safe_dump(profile.to_dict(), sort_keys=False))
     resolver.eurdf_profile_path.with_name("robot.urdf").write_bytes(raw)
-    uri = "rosclaw://eurdf/turtlebot3_waffle_gazebo@1.0.0"
+    uri = f"rosclaw://eurdf/{profile.profile_id}@1.0.0"
     checksum = compute_checksum(resolver.eurdf_profile_path)
     resolver.eurdf_lock_path.write_text(
         yaml.safe_dump(
