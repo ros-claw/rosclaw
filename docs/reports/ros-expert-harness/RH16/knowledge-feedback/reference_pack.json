@@ -1,0 +1,274 @@
+{
+  "schema_version": "rosclaw.know.reference_pack.v2",
+  "reference_pack_id": "reference_pack_b0a76c08763b76a1a7ab7ace",
+  "query": "Nav2 opennav coverage complete area cleaning",
+  "context": {
+    "task": "Nav2 opennav coverage complete area cleaning",
+    "robot": "ros_expert_base",
+    "simulator": null,
+    "ros_distro": "jazzy",
+    "software_versions": {},
+    "current_stage": "ROS readiness",
+    "current_failure": "ROS_ENV_001,ROS_TF_007,ROS_TOPIC_002,ROS_TOPIC_004"
+  },
+  "generated_at": "2026-10-04T21:33:58.093509Z",
+  "index_version": "unversioned",
+  "items": [
+    {
+      "rank": 1,
+      "project_id": "project_cd79f6a069f0da23da0703f6",
+      "knowledge_unit_ids": [
+        "unit_8005017bedb4576427db65ff"
+      ],
+      "title": "opennav_coverage: Overview",
+      "why_relevant": "Matched by bm25_beng, fulltext_ngram; confidence=0.65.",
+      "relevance_dimensions": [
+        "bm25_beng",
+        "fulltext_ngram"
+      ],
+      "mechanism": "The indexed source evidence documents the listed project paths; unstated behavior remains unknown.",
+      "what_to_borrow": [
+        "Inspect the pinned evidence before borrowing implementation from: README.md, repository_metadata.json"
+      ],
+      "exact_files": [
+        "README.md",
+        "repository_metadata.json"
+      ],
+      "exact_sections": [],
+      "incompatibilities": [
+        "ros compatibility unknown for requested=jazzy",
+        "robot compatibility unknown for requested=ros_expert_base"
+      ],
+      "limitations": [
+        "supported robot model is not stated in indexed documents",
+        "simulator is not stated in indexed documents",
+        "Static compilation does not prove runtime behavior or hardware safety."
+      ],
+      "adaptation_needed": [
+        "Resolve compatibility warnings before applying this reference."
+      ],
+      "source_version": "git_commit:65a6598c3587cb947978227c01af421e18576f0a",
+      "evidence_refs": [
+        {
+          "schema_version": "rosclaw.know.evidence_ref.v2",
+          "evidence_id": "evidence_75822ea961cebe34b828ba48",
+          "source_id": "source_cd79f6a069f0da23da0703f6",
+          "snapshot_id": "snapshot_8cdec037021b6d7038886153",
+          "document_id": "document_6134d30aa1e49cbe03f33bc9",
+          "path": "README.md",
+          "start_line": 1,
+          "end_line": 12,
+          "section": null,
+          "url": "https://github.com/open-navigation/opennav_coverage/blob/65a6598c3587cb947978227c01af421e18576f0a/README.md",
+          "content_hash": "41111b99e25a9a8b9dee8dd9dad52b78d30e7bc500d8e22752ecd65358f60187",
+          "excerpt": "# Open Navigation's Nav2 Complete Coverage\n\nThis package contains the Complete Coverage Task Server & auxiliary tools utilizing the [Fields2Cover](https://github.com/Fields2Cover/Fields2Cover) complete coverage planning system which includes a great deal of options in headland, swath, route, and final path planning. You can find more information about Fields2Cover (F2C) in its [ReadTheDocs Documentation](https://fields2cover.github.io/index.html). It can accept both GPS and Cartesian coordinates and publishes the field, headland, swaths, and route as separate topics in cartesian coordinates for debugging and visualization. It can also compute coverage paths based on open-field polygons **or** based on annotated rows as might exist in a tree farm or other applications with both irregular and regular pre-established rows.\n\nThis capability was created by [Open Navigation LLC](https://www.opennav.org/) in partnership with [Bonsai Robotics](https://www.bonsairobotics.ai/). Bonsai Robotics builds autonomous software for machines in adverse and GPS degraded conditions utilizing vision. Bonsai Robotics funded the development of this work for their own product and has graciously allowed Open Navigation to open-source it for the community to leverage in their own systems. Please thank Bonsai Robotics for their commendable donation to the ROS community! Bonsai is hiring [here](https://www.bonsairobotics.ai/careers).\n\n![BonsaixOpenNavigation](https://github.com/ros-planning/navigation2/assets/14944147/b5c23851-0694-4b87-b5ab-fb7c957413f4)\n\n**⚠️ Need ROS 2, Nav2 help or support? Contact [Open Navigation](https://www.opennav.org/)! ⚠️**\n\nThis server exposes all of the features of Fields2Cover as a Lifecycle-Component Nav2 Task Server like all others within the Nav2 Framework, so it should feel very familiar to those using Nav2 already. The server is split into modular stages with factories and enum types for all known options which can be easily expanded up over time scalably. It"
+        },
+        {
+          "schema_version": "rosclaw.know.evidence_ref.v2",
+          "evidence_id": "evidence_9bf5c7c3cf703cf209585e1b",
+          "source_id": "source_cd79f6a069f0da23da0703f6",
+          "snapshot_id": "snapshot_8cdec037021b6d7038886153",
+          "document_id": "document_1328501a3f8d55c11293024b",
+          "path": "repository_metadata.json",
+          "start_line": 1,
+          "end_line": 12,
+          "section": null,
+          "url": "https://github.com/open-navigation/opennav_coverage/tree/65a6598c3587cb947978227c01af421e18576f0a",
+          "content_hash": "d2d5929e063ef5c0ee1e04c05a28c401c575b1a8c422a49c442d251c6dd1d51f",
+          "excerpt": "{\n  \"commit\": {\n    \"author\": {\n      \"avatar_url\": \"https://avatars.githubusercontent.com/u/79751117?v=4\",\n      \"events_url\": \"https://api.github.com/users/u33549/events{/privacy}\",\n      \"followers_url\": \"https://api.github.com/users/u33549/followers\",\n      \"following_url\": \"https://api.github.com/users/u33549/following{/other_user}\",\n      \"gists_url\": \"https://api.github.com/users/u33549/gists{/gist_id}\",\n      \"gravatar_id\": \"\",\n      \"html_url\": \"https://github.com/u33549\",\n      \"id\": 79751117,\n      \"login\": \"u33549\","
+        }
+      ],
+      "score": 0.005838180856689582,
+      "score_breakdown": {
+        "exact": 0.0,
+        "rrf": 0.048651507139079855,
+        "bm25_beng": 1.0,
+        "fulltext_ngram": 0.5,
+        "retrieval": 0.014595452141723956,
+        "compatibility": 0.5,
+        "compatibility_status_unknown": 1.0,
+        "truth_quality": 0.8,
+        "utility": 0.5
+      }
+    },
+    {
+      "rank": 2,
+      "project_id": "project_cd79f6a069f0da23da0703f6",
+      "knowledge_unit_ids": [
+        "unit_17790a4c7275f0e3d9dbcbf8"
+      ],
+      "title": "opennav_coverage: Robot Interface",
+      "why_relevant": "Matched by bm25_beng, fulltext_ngram; confidence=0.65.",
+      "relevance_dimensions": [
+        "bm25_beng",
+        "fulltext_ngram"
+      ],
+      "mechanism": "The indexed source evidence documents the listed project paths; unstated behavior remains unknown.",
+      "what_to_borrow": [
+        "Inspect the pinned evidence before borrowing implementation from: LICENSE, README.md"
+      ],
+      "exact_files": [
+        "LICENSE",
+        "README.md"
+      ],
+      "exact_sections": [],
+      "incompatibilities": [
+        "ros compatibility unknown for requested=jazzy",
+        "robot compatibility unknown for requested=ros_expert_base"
+      ],
+      "limitations": [
+        "supported robot model is not stated in indexed documents",
+        "simulator is not stated in indexed documents",
+        "Static compilation does not prove runtime behavior or hardware safety."
+      ],
+      "adaptation_needed": [
+        "Resolve compatibility warnings before applying this reference."
+      ],
+      "source_version": "git_commit:65a6598c3587cb947978227c01af421e18576f0a",
+      "evidence_refs": [
+        {
+          "schema_version": "rosclaw.know.evidence_ref.v2",
+          "evidence_id": "evidence_47e44e85c4694f19df4665a9",
+          "source_id": "source_cd79f6a069f0da23da0703f6",
+          "snapshot_id": "snapshot_8cdec037021b6d7038886153",
+          "document_id": "document_963919b4fb7beb1dac853b59",
+          "path": "LICENSE",
+          "start_line": 1,
+          "end_line": 12,
+          "section": null,
+          "url": "https://github.com/open-navigation/opennav_coverage/blob/65a6598c3587cb947978227c01af421e18576f0a/LICENSE",
+          "content_hash": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+          "excerpt": "Apache License\n                           Version 2.0, January 2004\n                        http://www.apache.org/licenses/\n\n   TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION\n\n   1. Definitions.\n\n      \"License\" shall mean the terms and conditions for use, reproduction,\n      and distribution as defined by Sections 1 through 9 of this document.\n\n      \"Licensor\" shall mean the copyright owner or entity authorized by"
+        },
+        {
+          "schema_version": "rosclaw.know.evidence_ref.v2",
+          "evidence_id": "evidence_75822ea961cebe34b828ba48",
+          "source_id": "source_cd79f6a069f0da23da0703f6",
+          "snapshot_id": "snapshot_8cdec037021b6d7038886153",
+          "document_id": "document_6134d30aa1e49cbe03f33bc9",
+          "path": "README.md",
+          "start_line": 1,
+          "end_line": 12,
+          "section": null,
+          "url": "https://github.com/open-navigation/opennav_coverage/blob/65a6598c3587cb947978227c01af421e18576f0a/README.md",
+          "content_hash": "41111b99e25a9a8b9dee8dd9dad52b78d30e7bc500d8e22752ecd65358f60187",
+          "excerpt": "# Open Navigation's Nav2 Complete Coverage\n\nThis package contains the Complete Coverage Task Server & auxiliary tools utilizing the [Fields2Cover](https://github.com/Fields2Cover/Fields2Cover) complete coverage planning system which includes a great deal of options in headland, swath, route, and final path planning. You can find more information about Fields2Cover (F2C) in its [ReadTheDocs Documentation](https://fields2cover.github.io/index.html). It can accept both GPS and Cartesian coordinates and publishes the field, headland, swaths, and route as separate topics in cartesian coordinates for debugging and visualization. It can also compute coverage paths based on open-field polygons **or** based on annotated rows as might exist in a tree farm or other applications with both irregular and regular pre-established rows.\n\nThis capability was created by [Open Navigation LLC](https://www.opennav.org/) in partnership with [Bonsai Robotics](https://www.bonsairobotics.ai/). Bonsai Robotics builds autonomous software for machines in adverse and GPS degraded conditions utilizing vision. Bonsai Robotics funded the development of this work for their own product and has graciously allowed Open Navigation to open-source it for the community to leverage in their own systems. Please thank Bonsai Robotics for their commendable donation to the ROS community! Bonsai is hiring [here](https://www.bonsairobotics.ai/careers).\n\n![BonsaixOpenNavigation](https://github.com/ros-planning/navigation2/assets/14944147/b5c23851-0694-4b87-b5ab-fb7c957413f4)\n\n**⚠️ Need ROS 2, Nav2 help or support? Contact [Open Navigation](https://www.opennav.org/)! ⚠️**\n\nThis server exposes all of the features of Fields2Cover as a Lifecycle-Component Nav2 Task Server like all others within the Nav2 Framework, so it should feel very familiar to those using Nav2 already. The server is split into modular stages with factories and enum types for all known options which can be easily expanded up over time scalably. It"
+        }
+      ],
+      "score": 0.0058074588904837455,
+      "score_breakdown": {
+        "exact": 0.0,
+        "rrf": 0.04839549075403121,
+        "bm25_beng": 0.5,
+        "fulltext_ngram": 0.3333333333333333,
+        "retrieval": 0.014518647226209363,
+        "compatibility": 0.5,
+        "compatibility_status_unknown": 1.0,
+        "truth_quality": 0.8,
+        "utility": 0.5
+      }
+    },
+    {
+      "rank": 3,
+      "project_id": "project_cd79f6a069f0da23da0703f6",
+      "knowledge_unit_ids": [
+        "unit_bcd345cae4e8a1d994951945"
+      ],
+      "title": "opennav_coverage: Issues And Releases",
+      "why_relevant": "Matched by bm25_beng, fulltext_ngram; confidence=0.65.",
+      "relevance_dimensions": [
+        "bm25_beng",
+        "fulltext_ngram"
+      ],
+      "mechanism": "The indexed source evidence documents the listed project paths; unstated behavior remains unknown.",
+      "what_to_borrow": [
+        "Inspect the pinned evidence before borrowing implementation from: .rosclaw/github/releases.json"
+      ],
+      "exact_files": [
+        ".rosclaw/github/releases.json"
+      ],
+      "exact_sections": [],
+      "incompatibilities": [
+        "ros compatibility unknown for requested=jazzy",
+        "robot compatibility unknown for requested=ros_expert_base"
+      ],
+      "limitations": [
+        "supported robot model is not stated in indexed documents",
+        "simulator is not stated in indexed documents",
+        "Static compilation does not prove runtime behavior or hardware safety."
+      ],
+      "adaptation_needed": [
+        "Resolve compatibility warnings before applying this reference."
+      ],
+      "source_version": "git_commit:65a6598c3587cb947978227c01af421e18576f0a",
+      "evidence_refs": [
+        {
+          "schema_version": "rosclaw.know.evidence_ref.v2",
+          "evidence_id": "evidence_cbfa54b911909c90b2fae1fd",
+          "source_id": "source_cd79f6a069f0da23da0703f6",
+          "snapshot_id": "snapshot_8cdec037021b6d7038886153",
+          "document_id": "document_7c6d218065db897f213add1d",
+          "path": ".rosclaw/github/releases.json",
+          "start_line": 1,
+          "end_line": 12,
+          "section": null,
+          "url": "https://github.com/open-navigation/opennav_coverage/releases",
+          "content_hash": "83b6015205cdcc87474c6ad9aae5a30ee6630920764cb00048a95947664c153e",
+          "excerpt": "[\n  {\n    \"assets\": [],\n    \"assets_url\": \"https://api.github.com/repos/open-navigation/opennav_coverage/releases/138242876/assets\",\n    \"author\": {\n      \"avatar_url\": \"https://avatars.githubusercontent.com/u/14944147?v=4\",\n      \"events_url\": \"https://api.github.com/users/SteveMacenski/events{/privacy}\",\n      \"followers_url\": \"https://api.github.com/users/SteveMacenski/followers\",\n      \"following_url\": \"https://api.github.com/users/SteveMacenski/following{/other_user}\",\n      \"gists_url\": \"https://api.github.com/users/SteveMacenski/gists{/gist_id}\",\n      \"gravatar_id\": \"\",\n      \"html_url\": \"https://github.com/SteveMacenski\","
+        }
+      ],
+      "score": 0.005746975019516004,
+      "score_breakdown": {
+        "exact": 0.0,
+        "rrf": 0.047891458495966696,
+        "bm25_beng": 0.25,
+        "fulltext_ngram": 1.0,
+        "retrieval": 0.014367437548790008,
+        "compatibility": 0.5,
+        "compatibility_status_unknown": 1.0,
+        "truth_quality": 0.8,
+        "utility": 0.5
+      }
+    }
+  ],
+  "comparison": {
+    "shared_principles": [
+      "opennav_coverage"
+    ],
+    "conflicting_assumptions": [
+      "robot compatibility unknown for requested=ros_expert_base",
+      "ros compatibility unknown for requested=jazzy"
+    ],
+    "route_tradeoffs": [
+      "supported robot model is not stated in indexed documents",
+      "simulator is not stated in indexed documents",
+      "Static compilation does not prove runtime behavior or hardware safety."
+    ],
+    "preferred_references": [
+      "unit_8005017bedb4576427db65ff",
+      "unit_17790a4c7275f0e3d9dbcbf8",
+      "unit_bcd345cae4e8a1d994951945"
+    ]
+  },
+  "recommended_reading_order": [
+    "unit_8005017bedb4576427db65ff",
+    "unit_17790a4c7275f0e3d9dbcbf8",
+    "unit_bcd345cae4e8a1d994951945"
+  ],
+  "suggested_next_checks": [
+    "Open the cited file/section at the pinned source version.",
+    "Verify compatibility against current runtime versions before implementation."
+  ],
+  "open_questions": [],
+  "token_budget": 4000,
+  "truncated": true,
+  "continuation_cursor": "unit_f88ec6da4aaedb308dbeee27",
+  "warnings": [
+    "index_version_missing",
+    "reranker_used=false; deterministic_fallback=rrf",
+    "AI_RERANK unavailable; native SeekDB/RRF result used"
+  ],
+  "cached": false,
+  "stale": false,
+  "cache_age_seconds": 0
+}

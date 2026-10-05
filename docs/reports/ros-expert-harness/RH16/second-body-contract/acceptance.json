@@ -1,0 +1,26 @@
+{
+  "status": "PASS",
+  "evidence_domain": "OFFLINE_BODY_CONTRACT",
+  "physical_cross_body_mission_verified": false,
+  "automatic_unknown_body_integration_verified": false,
+  "models": [
+    {
+      "model": "turtlebot3_waffle",
+      "urdf_sha256": "2c26a554239ba6e544ecca5a6640cf879ecd7e3409f11fb334df9ce78aeb3c7e",
+      "body_hash": "00e032a93bcf3cc4d1f70c72019f4c6646aaf81b6598cd0da2c9663ee0beca5b",
+      "vendor_base_collision_box_m": "0.266 0.266 0.094",
+      "vendor_wheel_separation_m": 0.288,
+      "declared_conservative_radius_m": 0.25,
+      "simulated_cleaner_half_width_m": 0.275
+    },
+    {
+      "model": "turtlebot3_burger",
+      "urdf_sha256": "4c2aefcef071aa3f5930e1b3948d8f4ed7c10aba63e7b675f04c8c576671bb63",
+      "body_hash": "7b845854dee1f27502b35cdb7586c45d7c54771c9b1313010e37bed5c10a27df",
+      "vendor_base_collision_box_m": "0.140 0.140 0.143",
+      "vendor_wheel_separation_m": 0.16,
+      "declared_conservative_radius_m": 0.15,
+      "simulated_cleaner_half_width_m": 0.175
+    }
+  ]
+}

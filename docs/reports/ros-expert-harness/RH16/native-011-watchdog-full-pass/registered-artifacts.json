@@ -1,0 +1,14 @@
+[
+  {
+    "artifact_id": "art_4ee577aea190414ea02b11f6",
+    "task_id": "task_0e468094780a46aebf15174f",
+    "path": "/tmp/ros-expert-acceptance/native-011/actions/rosevidence_cebf743061879e6a705d31f14bda0237b8b6fd22dfc7051d3c82850e8df63eb5.verification.json",
+    "media_type": "application/json",
+    "sha256": "9112d68bf479761cd26e8e4176a3f787c49db916457ecfa4689fe475915050e4",
+    "size_bytes": 71036,
+    "producer_operation_id": null,
+    "producer": "kernel:capability:ros.expert.remember",
+    "revision": 1,
+    "created_at": "2026-10-05T02:10:47.696002+00:00"
+  }
+]

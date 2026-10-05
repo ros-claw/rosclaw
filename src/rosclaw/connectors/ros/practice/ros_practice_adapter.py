@@ -11,7 +11,9 @@ No ROS Python imports.
 from __future__ import annotations
 
 import logging
+import math
 from collections.abc import Callable
+from datetime import datetime
 from typing import Any
 
 from rosclaw.core.event_bus import Event, EventBus
@@ -62,11 +64,33 @@ class RosPracticeAdapter(LifecycleMixin):
             verification.get("execution_receipts")
         )
         outcome = "success" if verified else "observed"
+        coverage_receipts = [
+            receipt
+            for receipt in verification.get("execution_receipts", [])
+            if receipt.get("capability_id") == "coverage.execute"
+        ]
+        duration = 0.0
+        if verified and coverage_receipts:
+            try:
+                starts = [datetime.fromisoformat(r["started_at"]) for r in coverage_receipts]
+                ends = [datetime.fromisoformat(r["finished_at"]) for r in coverage_receipts]
+                measured = (max(ends) - min(starts)).total_seconds()
+                if math.isfinite(measured) and measured >= 0:
+                    duration = measured
+            except (KeyError, TypeError, ValueError):
+                # Missing timing stays unknown; it must not interrupt storage
+                # of the independently verified outcome and original receipt.
+                pass
+        capability = "coverage.execute" if coverage_receipts else "ros.expert"
         self._publish_praxis_recorded(
             {
                 **payload,
                 "result": payload,
-                "capability_id": "ros.expert",
+                "capability_id": capability,
+                "instruction": "区域清扫 / complete area cleaning (ROS coverage.execute)"
+                if coverage_receipts
+                else "ROS ros.expert",
+                "duration_sec": duration,
                 "trace_id": payload.get("mission_id") or payload.get("snapshot_id", ""),
             },
             outcome=outcome,
@@ -108,7 +132,7 @@ class RosPracticeAdapter(LifecycleMixin):
         trace_id = payload.get("trace_id", "")
         error = payload.get("error")
         sandbox_decision = payload.get("sandbox_decision") or {}
-        instruction = f"ROS {capability_id}"
+        instruction = payload.get("instruction") or f"ROS {capability_id}"
 
         self._event_bus.publish(
             Event(
@@ -118,7 +142,7 @@ class RosPracticeAdapter(LifecycleMixin):
                     "event_type": outcome,
                     "robot_id": payload.get("robot_id", "unknown"),
                     "instruction": instruction,
-                    "duration_sec": 0.0,
+                    "duration_sec": payload.get("duration_sec", 0.0),
                     "outcome": outcome,
                     "error_details": error,
                     "capability_id": capability_id,

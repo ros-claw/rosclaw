@@ -1,0 +1,292 @@
+{
+  "schema_version": "rosclaw.extended_acceptance_manifest.v1",
+  "files": [
+    {
+      "path": "restart-001/safety.json",
+      "source": "/tmp/ros-expert-acceptance/restart-001/safety.json",
+      "source_sha256": "0b43f3ae821b5c2bee80145fd38a9ddc0bd3f7a4c173d5884c64fb336c8b1f3e",
+      "archive_sha256": "0b43f3ae821b5c2bee80145fd38a9ddc0bd3f7a4c173d5884c64fb336c8b1f3e",
+      "gzip": false
+    },
+    {
+      "path": "restart-001/daemon.log.gz",
+      "source": "/tmp/ros-expert-acceptance/restart-001/daemon.log",
+      "source_sha256": "3ce6b30daa942b7576d3b8018db7ad79a7056bcd3d91a2ccfdc23440d407a53a",
+      "archive_sha256": "4a5993e2e1a72bbaf6b632734f577773cb39aa9979cab55384131354e761197b",
+      "gzip": true
+    },
+    {
+      "path": "restart-002/safety.json",
+      "source": "/tmp/ros-expert-acceptance/restart-002/safety.json",
+      "source_sha256": "1d76dc99a7a95e71ace471d7972c4469d4effc8c938dd2d7cb23572ffc6fa8a5",
+      "archive_sha256": "1d76dc99a7a95e71ace471d7972c4469d4effc8c938dd2d7cb23572ffc6fa8a5",
+      "gzip": false
+    },
+    {
+      "path": "restart-002/daemon.log.gz",
+      "source": "/tmp/ros-expert-acceptance/restart-002/daemon.log",
+      "source_sha256": "17545dca01071e9c0007cd3dae82cf2dca7428794850daa41a74e33b129e1011",
+      "archive_sha256": "e213159b392a6929815f56967baa9492c0049b2466102218b1eca9cb6a94fb16",
+      "gzip": true
+    },
+    {
+      "path": "memory-reuse/acceptance.json",
+      "source": "/tmp/ros-expert-acceptance/memory-reuse-001/acceptance.json",
+      "source_sha256": "4bff7dbda36109d812a840cf0c9cf640bc0b91f40812b494728a79ad08e0a8d8",
+      "archive_sha256": "4bff7dbda36109d812a840cf0c9cf640bc0b91f40812b494728a79ad08e0a8d8",
+      "gzip": false
+    },
+    {
+      "path": "second-body-contract/acceptance.json",
+      "source": "/tmp/ros-expert-acceptance/second-body-contract-002/acceptance.json",
+      "source_sha256": "a8a5c18a51288c46a5baf9180b5eb7970ec09e28a049e38a9e8ccbf59ad7e857",
+      "archive_sha256": "a8a5c18a51288c46a5baf9180b5eb7970ec09e28a049e38a9e8ccbf59ad7e857",
+      "gzip": false
+    },
+    {
+      "path": "knowledge-feedback/write.json",
+      "source": "/tmp/ros-expert-acceptance/knowledge-feedback-001/write.json",
+      "source_sha256": "fac29250b72660e6302d39f65ca5ed63ad2b4ffd4d3866360a24e61701d352c6",
+      "archive_sha256": "fac29250b72660e6302d39f65ca5ed63ad2b4ffd4d3866360a24e61701d352c6",
+      "gzip": false
+    },
+    {
+      "path": "knowledge-feedback/read.json",
+      "source": "/tmp/ros-expert-acceptance/knowledge-feedback-001/read.json",
+      "source_sha256": "f355685defc48f8dfc41f5b5f11eb654e5fd3c85bafcbe4987a6d6e36761e2af",
+      "archive_sha256": "f355685defc48f8dfc41f5b5f11eb654e5fd3c85bafcbe4987a6d6e36761e2af",
+      "gzip": false
+    },
+    {
+      "path": "knowledge-feedback/feedback.json",
+      "source": "/tmp/ros-expert-acceptance/knowledge-feedback-001/feedback.json",
+      "source_sha256": "dd4f05aeba4cad1cd4069a4f51735e470c0f320501b6e73b3ac3f9af0f47cdc7",
+      "archive_sha256": "dd4f05aeba4cad1cd4069a4f51735e470c0f320501b6e73b3ac3f9af0f47cdc7",
+      "gzip": false
+    },
+    {
+      "path": "knowledge-feedback/reference_pack.json",
+      "source": "/tmp/ros-expert-acceptance/knowledge-repository/reference_pack.json",
+      "source_sha256": "d8d8f745b69db770dc919f634ab28021f46fe07e224ce26842fc90bbe0faa2e9",
+      "archive_sha256": "d8d8f745b69db770dc919f634ab28021f46fe07e224ce26842fc90bbe0faa2e9",
+      "gzip": false
+    },
+    {
+      "path": "knowledge-feedback/advice.json",
+      "source": "/tmp/ros-expert-acceptance/knowledge-repository/advice.json",
+      "source_sha256": "edded513dc7dc862adac48f7cf08ebde6456ffeb9942278a2de06380c2b165c9",
+      "archive_sha256": "edded513dc7dc862adac48f7cf08ebde6456ffeb9942278a2de06380c2b165c9",
+      "gzip": false
+    },
+    {
+      "path": "cuda-copy/resize-full-copy-004.json",
+      "source": "/tmp/ros-expert-isaac-oci/resize-full-copy-004.json",
+      "source_sha256": "5d4a39c7da308c4330ada08cbd6a7f380b54df46e6f8e6d84fc8b472bb7d96c6",
+      "archive_sha256": "5d4a39c7da308c4330ada08cbd6a7f380b54df46e6f8e6d84fc8b472bb7d96c6",
+      "gzip": false
+    },
+    {
+      "path": "cuda-copy/copy-trace-acceptance.json",
+      "source": "/tmp/ros-expert-isaac-oci/copy-trace-acceptance.json",
+      "source_sha256": "cc4fc98351701e011d404b2d1ff88a9e79af262ff1a1e0be3b363a8c19dd9764",
+      "archive_sha256": "cc4fc98351701e011d404b2d1ff88a9e79af262ff1a1e0be3b363a8c19dd9764",
+      "gzip": false
+    },
+    {
+      "path": "cuda-copy/resize-full-copy-004.nsys-rep.gz",
+      "source": "/tmp/ros-expert-isaac-oci/resize-full-copy-004.nsys-rep",
+      "source_sha256": "ca82c4ef7fa128aabee493773d235594903c2552cbcb34c60d97dfe9d0d9cf64",
+      "archive_sha256": "9fb70fd79e23f8236ffb457d45bd4c08c4b3a3e6c58c62cc39bf1d87e9124567",
+      "gzip": true
+    },
+    {
+      "path": "cuda-copy/resize-full-copy-004.sqlite.gz",
+      "source": "/tmp/ros-expert-isaac-oci/resize-full-copy-004.sqlite",
+      "source_sha256": "48e255d9b0be929351aa0c0231711ec2142d8b603809783a9622c68faf6712fa",
+      "archive_sha256": "02a899a4ebac5c5d12869461f07f48c0b2f7f96a30e132e134765edf972a03f4",
+      "gzip": true
+    },
+    {
+      "path": "cuda-copy/resize-full-copy-004-resize_component.log.gz",
+      "source": "/tmp/ros-expert-isaac-oci/resize-full-copy-004-resize_component.log",
+      "source_sha256": "231e8e0cc6412249dea24e460047c5697eab859a55ce5ad958a41d86ff51668e",
+      "archive_sha256": "041095a2a07904c1d2d77ce988b77e95e8a9e7043a0a435d9be954acb8fc1e6f",
+      "gzip": true
+    },
+    {
+      "path": "cuda-copy/resize-full-copy-004-resize_publisher.log.gz",
+      "source": "/tmp/ros-expert-isaac-oci/resize-full-copy-004-resize_publisher.log",
+      "source_sha256": "45fe2720ce58fd81c6b44bfc51b4540760786bfc3a9854b0d5fa31167cc32306",
+      "archive_sha256": "859fd9e301687ccac5ce0553a387f25c9587b8eff82bf0d050bb1b9fdd515c64",
+      "gzip": true
+    },
+    {
+      "path": "cuda-copy/resize-full-copy-004-resize_subscriber.log.gz",
+      "source": "/tmp/ros-expert-isaac-oci/resize-full-copy-004-resize_subscriber.log",
+      "source_sha256": "7cd428d5733ecf75a027caabec010cc3208279a947c939ece7c197216270310a",
+      "archive_sha256": "a0a21d3838a891f3cf96a6df7e07b6654fe076f102dbb65ed7ec29ea7d970d28",
+      "gzip": true
+    },
+    {
+      "path": "cuda-copy/failures/resize-full-copy-002.json",
+      "source": "/tmp/ros-expert-isaac-oci/resize-full-copy-002.json",
+      "source_sha256": "adf53cb88efd617162c2c4775eafd0dbf56d79476a15105a7402a32aad61a7f1",
+      "archive_sha256": "adf53cb88efd617162c2c4775eafd0dbf56d79476a15105a7402a32aad61a7f1",
+      "gzip": false
+    },
+    {
+      "path": "cuda-copy/failures/nsys-002.log.gz",
+      "source": "/tmp/ros-expert-nsys-002.log",
+      "source_sha256": "0984ab7dea5e75e98333138c2737a9617b20fb36e583c51818ed199473980696",
+      "archive_sha256": "ed5637fdbffb714464b8512b78acf0bd95ddcf76bd8cde647e55078156b7d82e",
+      "gzip": true
+    },
+    {
+      "path": "cuda-copy/failures/resize-full-copy-003.json",
+      "source": "/tmp/ros-expert-isaac-oci/resize-full-copy-003.json",
+      "source_sha256": "03742312301deaf978f4a400c1d6eb7a746f5678729c33b76454d29a43b28ceb",
+      "archive_sha256": "03742312301deaf978f4a400c1d6eb7a746f5678729c33b76454d29a43b28ceb",
+      "gzip": false
+    },
+    {
+      "path": "cuda-copy/failures/nsys-003.log.gz",
+      "source": "/tmp/ros-expert-nsys-003.log",
+      "source_sha256": "68ab4946eea56448865ee3bdb11907104b5d63b81385e601e7b41d7bd30caa17",
+      "archive_sha256": "196464b3d07258200d189694b97f12e2654721727073d4df2c766d66fa4589a2",
+      "gzip": true
+    },
+    {
+      "path": "regression/extended-regression.log.gz",
+      "source": "/tmp/ros-expert-extended-regression.log",
+      "source_sha256": "f026a405e6eb1cd84ed0ecdfbf3a5705029a9074e09897a0377b05d03beda2e7",
+      "archive_sha256": "b2dffc2131ff692737fd0547baba80124c039130d38531ebdbf21ca50341cdc3",
+      "gzip": true
+    },
+    {
+      "path": "regression/memory-regression.log.gz",
+      "source": "/tmp/ros-expert-memory-regression.log",
+      "source_sha256": "266c81078a1239f37be166798c25f6c25bf770c74188042a27d5446cc3ea3004",
+      "archive_sha256": "7a150156e368b6fba7aeb7f5c5e0e0253d21c3ce4af27431ecb34549224eb898",
+      "gzip": true
+    },
+    {
+      "path": "regression/extended-mypy.log.gz",
+      "source": "/tmp/ros-expert-extended-mypy.log",
+      "source_sha256": "5d4b6d285b77932e3d08212c3b4974d0a803f98ec60408ac6ccf6a063fa6c19e",
+      "archive_sha256": "987ddaa05b107a11d3e3fac2b196c9dddbc00c77007709349eff3ed4ce332668",
+      "gzip": true
+    },
+    {
+      "path": "second-body-contract/burger.vendor.urdf.gz",
+      "source": "/tmp/ros-expert-acceptance/burger.vendor.urdf",
+      "source_sha256": "4c2aefcef071aa3f5930e1b3948d8f4ed7c10aba63e7b675f04c8c576671bb63",
+      "archive_sha256": "586777a4cae0ded859dadcbbb148b3b136ba552e47163b0ed489f89f66c5d3b6",
+      "gzip": true
+    },
+    {
+      "path": "native-011-watchdog-full-pass/body.json",
+      "source": "/home/nvidia/workspace/rosclaw/rosclaw_harness/acceptance_final_18f48fc1/native-011-watchdog-full-pass/body.json",
+      "source_sha256": "9d79cef391f38af38fa8a8ea5b2ac9890528791e699d9497c90b7fe486b71b4d",
+      "archive_sha256": "9d79cef391f38af38fa8a8ea5b2ac9890528791e699d9497c90b7fe486b71b4d",
+      "gzip": false
+    },
+    {
+      "path": "native-011-watchdog-full-pass/sdk-usage.json",
+      "source": "/home/nvidia/workspace/rosclaw/rosclaw_harness/acceptance_final_18f48fc1/native-011-watchdog-full-pass/sdk-usage.json",
+      "source_sha256": "8a3216feb03ecd435ca3dd2580e14b595f601b72dff10e3be251f324840a0049",
+      "archive_sha256": "8a3216feb03ecd435ca3dd2580e14b595f601b72dff10e3be251f324840a0049",
+      "gzip": false
+    },
+    {
+      "path": "native-011-watchdog-full-pass/acceptance.json",
+      "source": "/home/nvidia/workspace/rosclaw/rosclaw_harness/acceptance_final_18f48fc1/native-011-watchdog-full-pass/acceptance.json",
+      "source_sha256": "d515d0bf67c58d6a54b318b660848dac627a18598c9de6a919bb6fd79aa308b7",
+      "archive_sha256": "d515d0bf67c58d6a54b318b660848dac627a18598c9de6a919bb6fd79aa308b7",
+      "gzip": false
+    },
+    {
+      "path": "native-011-watchdog-full-pass/practice-episode.json",
+      "source": "/home/nvidia/workspace/rosclaw/rosclaw_harness/acceptance_final_18f48fc1/native-011-watchdog-full-pass/practice-episode.json",
+      "source_sha256": "0c9cc75f7fb3c862e66c6c4f11d93669a5d54e2d14a36b69b581a055dc612c5c",
+      "archive_sha256": "0c9cc75f7fb3c862e66c6c4f11d93669a5d54e2d14a36b69b581a055dc612c5c",
+      "gzip": false
+    },
+    {
+      "path": "native-011-watchdog-full-pass/rosevidence_cebf743061879e6a705d31f14bda0237b8b6fd22dfc7051d3c82850e8df63eb5.verification.json",
+      "source": "/home/nvidia/workspace/rosclaw/rosclaw_harness/acceptance_final_18f48fc1/native-011-watchdog-full-pass/rosevidence_cebf743061879e6a705d31f14bda0237b8b6fd22dfc7051d3c82850e8df63eb5.verification.json",
+      "source_sha256": "9112d68bf479761cd26e8e4176a3f787c49db916457ecfa4689fe475915050e4",
+      "archive_sha256": "9112d68bf479761cd26e8e4176a3f787c49db916457ecfa4689fe475915050e4",
+      "gzip": false
+    },
+    {
+      "path": "native-011-watchdog-full-pass/task-kernel.json",
+      "source": "/home/nvidia/workspace/rosclaw/rosclaw_harness/acceptance_final_18f48fc1/native-011-watchdog-full-pass/task-kernel.json",
+      "source_sha256": "82aadc712fda2076a30a7b9610beba682bf7a0eeae95697540d785ff6852bf58",
+      "archive_sha256": "82aadc712fda2076a30a7b9610beba682bf7a0eeae95697540d785ff6852bf58",
+      "gzip": false
+    },
+    {
+      "path": "native-011-watchdog-full-pass/execution_config.json.gz",
+      "source": "/home/nvidia/workspace/rosclaw/rosclaw_harness/acceptance_final_18f48fc1/native-011-watchdog-full-pass/execution_config.json.gz",
+      "source_sha256": "89fa549ebe23ddf634f9b9aa60912c399884e94e5eb18b9962650d5cd5abeb84",
+      "archive_sha256": "89fa549ebe23ddf634f9b9aa60912c399884e94e5eb18b9962650d5cd5abeb84",
+      "gzip": false
+    },
+    {
+      "path": "native-011-watchdog-full-pass/rosevidence_cebf743061879e6a705d31f14bda0237b8b6fd22dfc7051d3c82850e8df63eb5.json.gz",
+      "source": "/home/nvidia/workspace/rosclaw/rosclaw_harness/acceptance_final_18f48fc1/native-011-watchdog-full-pass/rosevidence_cebf743061879e6a705d31f14bda0237b8b6fd22dfc7051d3c82850e8df63eb5.json.gz",
+      "source_sha256": "32261e738fa35341d51ef7b3882be68ade95dbf2a948a345bed6fa10fd92ca6b",
+      "archive_sha256": "32261e738fa35341d51ef7b3882be68ade95dbf2a948a345bed6fa10fd92ca6b",
+      "gzip": false
+    },
+    {
+      "path": "native-011-watchdog-full-pass/registered-artifacts.json",
+      "source": "/home/nvidia/workspace/rosclaw/rosclaw_harness/acceptance_final_18f48fc1/native-011-watchdog-full-pass/registered-artifacts.json",
+      "source_sha256": "9f99f81c88313a590f7d0427fd9d883360efef3a30db4ccae39e0f22fee83097",
+      "archive_sha256": "9f99f81c88313a590f7d0427fd9d883360efef3a30db4ccae39e0f22fee83097",
+      "gzip": false
+    },
+    {
+      "path": "native-011-watchdog-full-pass/action-transactions.json",
+      "source": "/home/nvidia/workspace/rosclaw/rosclaw_harness/acceptance_final_18f48fc1/native-011-watchdog-full-pass/action-transactions.json",
+      "source_sha256": "8a897d56bfca5fda94fbab8c44c09e51e569c19df5621f9ec837f04982cafb0d",
+      "archive_sha256": "8a897d56bfca5fda94fbab8c44c09e51e569c19df5621f9ec837f04982cafb0d",
+      "gzip": false
+    },
+    {
+      "path": "native-011-watchdog-full-pass/practice-manifest.yaml",
+      "source": "/home/nvidia/workspace/rosclaw/rosclaw_harness/acceptance_final_18f48fc1/native-011-watchdog-full-pass/practice-manifest.yaml",
+      "source_sha256": "a32827bd438fe03f1f27ef2f2158708bb51fa6e1d725227df28dbbd46e753b18",
+      "archive_sha256": "a32827bd438fe03f1f27ef2f2158708bb51fa6e1d725227df28dbbd46e753b18",
+      "gzip": false
+    },
+    {
+      "path": "native-011-watchdog-full-pass/canonical-receipts.json",
+      "source": "/home/nvidia/workspace/rosclaw/rosclaw_harness/acceptance_final_18f48fc1/native-011-watchdog-full-pass/canonical-receipts.json",
+      "source_sha256": "df1316a7fbf2a21689dac9403c44b5cdc87d63095c6e5b96d047d524af454b8e",
+      "archive_sha256": "df1316a7fbf2a21689dac9403c44b5cdc87d63095c6e5b96d047d524af454b8e",
+      "gzip": false
+    },
+    {
+      "path": "native-011-watchdog-full-pass/measured_map.json",
+      "source": "/home/nvidia/workspace/rosclaw/rosclaw_harness/acceptance_final_18f48fc1/native-011-watchdog-full-pass/measured_map.json",
+      "source_sha256": "4cbe10fb5666e05d051037244a0b8916fe1276f70477c157a4338877d6c65db4",
+      "archive_sha256": "4cbe10fb5666e05d051037244a0b8916fe1276f70477c157a4338877d6c65db4",
+      "gzip": false
+    },
+    {
+      "path": "native-011-watchdog-full-pass/dynamic-obstacle.json.gz",
+      "source": "/home/nvidia/workspace/rosclaw/rosclaw_harness/acceptance_final_18f48fc1/native-011-watchdog-full-pass/dynamic-obstacle.json.gz",
+      "source_sha256": "309799b89428264cd75bc7544f38b70c543932041c776163a25b731785facb76",
+      "archive_sha256": "309799b89428264cd75bc7544f38b70c543932041c776163a25b731785facb76",
+      "gzip": false
+    },
+    {
+      "path": "native-011-watchdog-full-pass/model-events.json",
+      "source": "/home/nvidia/workspace/rosclaw/rosclaw_harness/acceptance_final_18f48fc1/native-011-watchdog-full-pass/model-events.json",
+      "source_sha256": "09c1225a49ab4c2ba42df355bf52833dc0ceb4277aa14ae60d5a3a4dba1ea0c1",
+      "archive_sha256": "09c1225a49ab4c2ba42df355bf52833dc0ceb4277aa14ae60d5a3a4dba1ea0c1",
+      "gzip": false
+    }
+  ]
+}

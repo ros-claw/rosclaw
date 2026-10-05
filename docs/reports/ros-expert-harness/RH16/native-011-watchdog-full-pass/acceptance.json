@@ -1,0 +1,93 @@
+{
+  "status": "PASS",
+  "evidence_domain": "SIMULATION",
+  "source_commit": "18f48fc18943cf11ecd91de9b460993b5c95c1ec",
+  "autonomous_model": "gpt-6.1-sol",
+  "single_task_input": "完成整个房间清扫。",
+  "operator_approvals": 3,
+  "model_turns": 8,
+  "coverage_ratio": 0.9807046979865772,
+  "safety": {
+    "collision_count": 0,
+    "observation_complete": true,
+    "source": "gazebo_contacts_and_ground_truth_geometry"
+  },
+  "trace_gaps": 0,
+  "started_at": "2026-10-05T01:59:18.006043Z",
+  "finished_at": "2026-10-05T02:10:33.396563Z",
+  "coverage_duration_sec": 675.39052,
+  "canonical_final_states": [
+    "COMPLETED",
+    "COMPLETED",
+    "COMPLETED"
+  ],
+  "task_kernel_states": [
+    "SUCCEEDED"
+  ],
+  "memory_step": "COMPLETED",
+  "practice_outcome": "SUCCESS",
+  "controller_watchdog_sec": 0.2,
+  "hardware_verified": false,
+  "scope_probe_and_fault_latch_revision_exercised": true,
+  "files": [
+    {
+      "file": "action-transactions.json",
+      "sha256": "8a897d56bfca5fda94fbab8c44c09e51e569c19df5621f9ec837f04982cafb0d"
+    },
+    {
+      "file": "body.json",
+      "sha256": "9d79cef391f38af38fa8a8ea5b2ac9890528791e699d9497c90b7fe486b71b4d"
+    },
+    {
+      "file": "canonical-receipts.json",
+      "sha256": "df1316a7fbf2a21689dac9403c44b5cdc87d63095c6e5b96d047d524af454b8e"
+    },
+    {
+      "file": "dynamic-obstacle.json.gz",
+      "sha256": "309799b89428264cd75bc7544f38b70c543932041c776163a25b731785facb76",
+      "uncompressed_sha256": "abfb06bf306f46a357a444652bff81e20350a0b8405f00e81c142a3cbceecc01"
+    },
+    {
+      "file": "execution_config.json.gz",
+      "sha256": "89fa549ebe23ddf634f9b9aa60912c399884e94e5eb18b9962650d5cd5abeb84",
+      "uncompressed_sha256": "72340087e299c1a9e5d0dcbe3d02b5c0df3d2f46abfc8869ec6c049bb7ab7522"
+    },
+    {
+      "file": "measured_map.json",
+      "sha256": "4cbe10fb5666e05d051037244a0b8916fe1276f70477c157a4338877d6c65db4"
+    },
+    {
+      "file": "model-events.json",
+      "sha256": "09c1225a49ab4c2ba42df355bf52833dc0ceb4277aa14ae60d5a3a4dba1ea0c1"
+    },
+    {
+      "file": "practice-episode.json",
+      "sha256": "0c9cc75f7fb3c862e66c6c4f11d93669a5d54e2d14a36b69b581a055dc612c5c"
+    },
+    {
+      "file": "practice-manifest.yaml",
+      "sha256": "a32827bd438fe03f1f27ef2f2158708bb51fa6e1d725227df28dbbd46e753b18"
+    },
+    {
+      "file": "registered-artifacts.json",
+      "sha256": "9f99f81c88313a590f7d0427fd9d883360efef3a30db4ccae39e0f22fee83097"
+    },
+    {
+      "file": "rosevidence_cebf743061879e6a705d31f14bda0237b8b6fd22dfc7051d3c82850e8df63eb5.json.gz",
+      "sha256": "32261e738fa35341d51ef7b3882be68ade95dbf2a948a345bed6fa10fd92ca6b",
+      "uncompressed_sha256": "3456d58ce3ee63829ccd3d6b03605c2649ed08d27f6ba2ce62749838238d0200"
+    },
+    {
+      "file": "rosevidence_cebf743061879e6a705d31f14bda0237b8b6fd22dfc7051d3c82850e8df63eb5.verification.json",
+      "sha256": "9112d68bf479761cd26e8e4176a3f787c49db916457ecfa4689fe475915050e4"
+    },
+    {
+      "file": "sdk-usage.json",
+      "sha256": "8a3216feb03ecd435ca3dd2580e14b595f601b72dff10e3be251f324840a0049"
+    },
+    {
+      "file": "task-kernel.json",
+      "sha256": "82aadc712fda2076a30a7b9610beba682bf7a0eeae95697540d785ff6852bf58"
+    }
+  ]
+}

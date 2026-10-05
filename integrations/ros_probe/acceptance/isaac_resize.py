@@ -43,8 +43,12 @@ def run(output: Path, shared_cuda_library: Path):
             request.remap_rules = list(remaps)
             future = client.call_async(request)
             rclpy.spin_until_future_complete(node, future, timeout_sec=20)
-            if not future.done() or future.result() is None or not future.result().success:
-                raise RuntimeError("official component failed to load")
+            if not future.done() or future.result() is None:
+                raise RuntimeError("official component load timed out")
+            if not future.result().success:
+                raise RuntimeError(
+                    f"official component failed to load: {future.result().error_message}"
+                )
         finally:
             node.destroy_client(client)
 
