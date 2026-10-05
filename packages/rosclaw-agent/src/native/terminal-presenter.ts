@@ -85,10 +85,9 @@ export function renderTerminalReply(
 		? "\n（工作区投影退化——交付物仍可用上面的 artifact open 命令打开）"
 		: "";
 	if (passed && outcome.task_semantic_verification === "UNVERIFIED") {
-		const checked = outcome.verification_scope === "summary_nonempty_only"
-			? "已记录非空回复"
-			: "已检查交付文件完整性";
-		const head = `ℹ️ 交付完成：${checked}；任务语义未验收（未定义有效验收条件）`;
+		const head = outcome.verification_scope === "summary_nonempty_only"
+			? "ℹ️ 回复已记录；尚未设置任务验收条件"
+			: "ℹ️ 交付完成：已检查交付文件完整性；尚未设置任务验收条件";
 		return head + (artifactLines.length ? `\n交付物：\n${artifactLines.join("\n")}` : "")
 			+ degraded;
 	}

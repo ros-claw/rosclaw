@@ -155,7 +155,7 @@ test("integrity-only delivery completes without claiming task acceptance", async
 		artifact_refs: [{ path: "/tmp/report.txt", open_command: "open report.txt" }] });
 	assert.match(reply, /交付完成/);
 	assert.match(reply, /文件完整性/);
-	assert.match(reply, /任务语义未验收/);
+	assert.match(reply, /尚未设置任务验收条件/);
 	assert.doesNotMatch(reply, /任务完成|验收 PASS|未完全达成/);
 	assert.match(reply, /report.txt/);
 });
@@ -167,4 +167,14 @@ test("configured acceptance states its limited scope", async () => {
 	assert.match(reply, /已通过配置的验收检查/);
 	assert.match(reply, /仅限声明的检查范围/);
 	assert.doesNotMatch(reply, /任务完成/);
+});
+
+
+test("summary-only completion records a reply without claiming file delivery", async () => {
+	const { renderTerminalReply } = await import("../src/native/terminal-presenter.js");
+	const reply = renderTerminalReply({ verification: "PASS", delivery: "DELIVERED",
+		verification_scope: "summary_nonempty_only", task_semantic_verification: "UNVERIFIED" });
+	assert.match(reply, /回复已记录/);
+	assert.match(reply, /尚未设置任务验收条件/);
+	assert.doesNotMatch(reply, /文件|交付完成|任务完成|验收 PASS/);
 });
