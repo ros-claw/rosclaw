@@ -17,7 +17,7 @@ from nav_msgs.msg import OccupancyGrid
 from nav_msgs.msg import Path as NavPath
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.clock import Clock, ClockType
-from rclpy.executors import MultiThreadedExecutor
+from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from ros_gz_interfaces.msg import Contacts
@@ -263,7 +263,7 @@ class Witness(Node):
 def main():
     rclpy.init()
     node = Witness()
-    executor = MultiThreadedExecutor(num_threads=4)
+    executor = SingleThreadedExecutor()
     executor.add_node(node)
     try:
         executor.spin()

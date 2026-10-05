@@ -1,3 +1,15 @@
+> Later second-Body diagnostics found two fixture/recovery limits: the Python
+> multi-thread observer delayed messages despite timely native Gazebo arrivals,
+> and retry bookkeeping used a fixed 0.39 m radius for every cleaner. The follow-up
+> uses a single-thread observer, records retry attempts within the configured
+> rotated cleaning polygon, and scales a bounded repair-goal budget with footprint
+> size. The immutable action deadline, per-cell retry limit, independent 98%
+> coverage gate and collision/freshness gates remain enforced. Narrow/wide cleaner
+> regression tests verify that plans never credit coverage and that the goal
+> budget has a hard cap. A fresh live second-Body result is required before any
+> physical-transfer claim; the preceding Burger trial timed out at 93.812709%
+> after 60 repair goals and is recorded as failed in supplemental evidence.
+
 # Extended acceptance after PR #617
 
 Follow-up: the original task sentences `完成整个房间清扫。` and `clean the entire
