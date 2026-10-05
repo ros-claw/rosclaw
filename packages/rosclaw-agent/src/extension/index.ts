@@ -41,7 +41,7 @@ import {
 	renderTerminalReply,
 	type TerminalOutcome,
 } from "../native/terminal-presenter.js";
-import { classifyModelError, ProviderErrorGate } from "../native/model-errors.js";
+import { classifyAssistantFailure, classifyModelError, ProviderErrorGate } from "../native/model-errors.js";
 import { _bwrapAvailable } from "../tools/workspace-pack.js";
 import {
 	renderArtifactList,
@@ -1279,9 +1279,9 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 					}
 				}
 			}
-			if (msg.role === "assistant" && (msg.stopReason === "error" || msg.errorMessage)) {
-				const raw = String(msg.errorMessage ?? "");
-				const classified = classifyModelError(raw);
+			const classified = classifyAssistantFailure(msg);
+			if (classified) {
+				const raw = msg.stopReason === "length" ? "stopReason=length" : String(msg.errorMessage ?? "");
 				let hasActiveTask = false;
 				try {
 					hasActiveTask = Boolean(await inputController.activeTaskId());

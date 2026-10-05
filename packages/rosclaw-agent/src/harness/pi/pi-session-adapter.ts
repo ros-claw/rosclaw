@@ -13,6 +13,7 @@ import type {
 	HarnessSessionRef,
 } from "../port.js";
 import { PI_BACKEND_ID } from "./pi-backend.js";
+import { classifyAssistantFailure } from "../../native/model-errors.js";
 
 export class PiHarnessSession implements HarnessSession {
 	readonly sessionRef: HarnessSessionRef;
@@ -136,6 +137,10 @@ export function mapPiEvent(event: { type?: string } & Record<string, unknown>): 
 			const message = event.message as { role?: string; stopReason?: string; errorMessage?: string } | undefined;
 			if (message?.role !== "assistant") return undefined;
 			if (message.stopReason === "aborted") return { type: "turn.cancelled", turnId };
+			if (message.stopReason === "length") return {
+				type: "turn.failed", turnId,
+				error: { code: "MODEL_OUTPUT_LIMIT", message: classifyAssistantFailure(message)!.explanation, retryable: false },
+			};
 			if (message.stopReason === "error") return {
 				type: "turn.failed", turnId,
 				error: { code: "PROVIDER_UNAVAILABLE", message: message.errorMessage ?? "Model request failed", retryable: true },

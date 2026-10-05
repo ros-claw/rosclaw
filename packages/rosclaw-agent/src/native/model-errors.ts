@@ -13,6 +13,7 @@ export type ModelErrorCode =
 	| "MODEL_NOT_FOUND"
 	| "MODEL_TOOL_CALL_UNSUPPORTED"
 	| "MODEL_CONTEXT_LIMIT"
+	| "MODEL_OUTPUT_LIMIT"
 	| "MODEL_REQUEST_CANCELLED"
 	| "MODEL_UNKNOWN";
 
@@ -24,6 +25,23 @@ export interface ClassifiedModelError {
 	recovery: string;
 	/** task 是否可继续（配额类 = 可等/可换模型继续，不是 FAILED）。 */
 	taskRecoverable: boolean;
+}
+
+/** Use the provider's terminal reason, without inspecting or exposing reasoning. */
+export function classifyAssistantFailure(message: {
+	role?: string; stopReason?: string; errorMessage?: string;
+}): ClassifiedModelError | undefined {
+	if (message.role !== "assistant") return undefined;
+	if (message.stopReason === "length") return {
+		code: "MODEL_OUTPUT_LIMIT",
+		explanation: "模型响应达到输出上限，回复未完成",
+		recovery: "缩小本次任务或调整输出预算后发送消息继续",
+		taskRecoverable: true,
+	};
+	if (message.stopReason === "error" || message.errorMessage) {
+		return classifyModelError(message.errorMessage ?? "Model request failed");
+	}
+	return undefined;
 }
 
 /** 分类 provider 错误文本（HTTP 状态 + 消息关键词）——确定性规则，
