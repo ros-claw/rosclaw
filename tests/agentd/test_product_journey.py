@@ -730,7 +730,7 @@ class PtySession:
                  cwd: Path | None = None) -> None:
         import pty as _pty
 
-        if env.get("FAKE_JOURNEY_KEY") and len(argv) >= 3 and argv[:3] == [sys.executable, "-m", "rosclaw.entrypoint"]:
+        if env.get("FAKE_JOURNEY_KEY"):
             # Loopback fake-model servers must be contacted directly.
             env = dict(env)
             for proxy in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"):

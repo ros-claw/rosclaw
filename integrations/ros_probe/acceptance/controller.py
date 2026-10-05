@@ -39,6 +39,7 @@ def configure(model, output):
     (output / "controllers.yaml").write_text(
         yaml.safe_dump(
             {
+                "gz_ros_control": {"ros__parameters": {"use_sim_time": True}},
                 "controller_manager": {
                     "ros__parameters": {
                         "update_rate": 100,

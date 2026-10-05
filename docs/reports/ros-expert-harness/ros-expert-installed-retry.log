@@ -1,0 +1,12 @@
+============================= test session starts ==============================
+platform linux -- Python 3.11.15, pytest-9.1.1, pluggy-1.6.0
+rootdir: /home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw
+configfile: pyproject.toml
+plugins: xdist-3.8.0, anyio-4.14.2, asyncio-1.4.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 1 item
+
+tests/agentd/test_product_journey.py .                                   [100%]
+
+----------- generated xml file: /tmp/ros-expert-installed-retry.xml ------------
+======================== 1 passed in 209.59s (0:03:29) =========================

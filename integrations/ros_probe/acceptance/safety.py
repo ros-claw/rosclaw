@@ -59,7 +59,9 @@ def clock_paused(container, paused):
 
 async def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("case", choices=["daemon_kill", "clock_pause", "bridge_kill"])
+    parser.add_argument(
+        "case", choices=["daemon_kill", "clock_pause", "bridge_kill", "observer_stop"]
+    )
     parser.add_argument("--directory", type=Path, required=True)
     parser.add_argument("--fixture", type=Path, required=True)
     parser.add_argument("--container", default="ros-expert-golden")
@@ -94,6 +96,9 @@ async def main():
     )
     record = {"case": args.case, "evidence_domain": "SIMULATION", "status": "FAIL"}
     paused = False
+    stopped_witness = None
+    pose_observer = None
+    pose_log = None
     try:
         deadline = time.monotonic() + 30
         while not (root / "daemon_ready.json").exists():
@@ -167,7 +172,7 @@ async def main():
             await asyncio.sleep(2)
             record["resume_ack"] = clock_paused(args.container, False)
             paused = False
-        else:
+        elif args.case == "bridge_kill":
             listing = fixture_command(args.container, "ps -eo pid,args")
             pids = [
                 int(line.split()[0])
@@ -177,6 +182,74 @@ async def main():
             if len(pids) != 1:
                 raise RuntimeError("exact owned rosbridge process not found")
             fixture_command(args.container, f"kill -KILL {pids[0]}")
+        else:
+            pose_log = (root / "pose-observer.log").open("w")
+            pose_observer = subprocess.Popen(
+                [
+                    "docker",
+                    "exec",
+                    args.container,
+                    "bash",
+                    "-c",
+                    "source /opt/ros/jazzy/setup.bash && python3 /workspace/integrations/ros_probe/acceptance/pose_observer.py --output /evidence/independent-stop.jsonl",
+                ],
+                stdout=pose_log,
+                stderr=subprocess.STDOUT,
+            )
+            await asyncio.sleep(2)
+            listing = fixture_command(args.container, "ps -eo pid,args")
+            pids = [
+                int(line.split()[0])
+                for line in listing.splitlines()
+                if "/acceptance/witness.py" in line
+            ]
+            if len(pids) != 1:
+                raise RuntimeError("exact owned witness process not found")
+            stopped_witness = pids[0]
+            record["observer_stopped_at"] = datetime.now(UTC).isoformat()
+            fixture_command(args.container, f"kill -STOP {stopped_witness}")
+            await asyncio.sleep(4)
+            independent = [
+                json.loads(line)
+                for line in (args.fixture / "independent-stop.jsonl").read_text().splitlines()
+            ]
+            settled = [
+                s
+                for s in independent
+                if (
+                    datetime.fromisoformat(s["captured_at"])
+                    - datetime.fromisoformat(record["observer_stopped_at"])
+                ).total_seconds()
+                >= 1
+            ]
+            record["independent_observer_loss_poses"] = independent
+            if (
+                len(settled) < 30
+                or (
+                    datetime.now(UTC) - datetime.fromisoformat(settled[-1]["captured_at"])
+                ).total_seconds()
+                > 0.3
+            ):
+                raise RuntimeError("independent stop measurement is incomplete")
+            record["observer_loss_displacement_m"] = max(
+                math.hypot(s["x"] - settled[0]["x"], s["y"] - settled[0]["y"]) for s in settled
+            )
+            record["observer_loss_yaw_change_rad"] = max(
+                abs(
+                    math.atan2(
+                        math.sin(s["yaw"] - settled[0]["yaw"]),
+                        math.cos(s["yaw"] - settled[0]["yaw"]),
+                    )
+                )
+                for s in settled
+            )
+            fixture_command(args.container, f"kill -CONT {stopped_witness}")
+            stopped_witness = None
+            if (
+                record["observer_loss_displacement_m"] > 0.01
+                or record["observer_loss_yaw_change_rad"] > 0.03
+            ):
+                raise RuntimeError("controller did not independently stop on observer-process loss")
         await asyncio.sleep(5)
         samples = []
         until = time.monotonic() + 3
@@ -223,6 +296,18 @@ async def main():
         record["error"] = str(exc)
         raise
     finally:
+        if stopped_witness:
+            fixture_command(args.container, f"kill -CONT {stopped_witness}")
+        if pose_observer:
+            listing = fixture_command(args.container, "ps -eo pid,args")
+            for line in listing.splitlines():
+                if "/acceptance/pose_observer.py" in line:
+                    fixture_command(args.container, f"kill -INT {int(line.split()[0])}")
+            try:
+                pose_observer.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                pose_observer.terminate()
+            pose_log.close()
         if paused:
             clock_paused(args.container, False)
         if daemon.poll() is None:

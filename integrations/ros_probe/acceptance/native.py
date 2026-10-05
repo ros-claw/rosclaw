@@ -244,10 +244,31 @@ def main():
                 last = time.monotonic()
             if session.proc.poll() is not None:
                 raise RuntimeError("Native Agent exited")
+            sessions = list((home / "agent/sessions").glob("*.jsonl"))
+            if sessions:
+                latest = max(sessions, key=lambda p: p.stat().st_mtime)
+                if time.time() - latest.stat().st_mtime > 3:
+                    rows = latest.read_text().splitlines()
+                    message = json.loads(rows[-1]).get("message", {}) if rows else {}
+                    if message.get("role") == "assistant" and message.get("stopReason") == "stop":
+                        raise RuntimeError(
+                            "model finished without a verified Memory artifact and TaskKernel success"
+                        )
             time.sleep(0.3)
         else:
             raise TimeoutError("native mission")
     finally:
+        sessions = list((home / "agent/sessions").glob("*.jsonl"))
+        if sessions:
+            latest = max(sessions, key=lambda p: p.stat().st_mtime)
+            measured = []
+            for line in latest.read_text().splitlines():
+                message = json.loads(line).get("message", {})
+                if message.get("role") == "assistant":
+                    measured.append(
+                        {k: message.get(k) for k in ("model", "provider", "usage", "stopReason")}
+                    )
+            (root / "sdk-usage.json").write_text(json.dumps(measured, indent=2) + "\n")
         if session:
             session.stop()
         if operator:

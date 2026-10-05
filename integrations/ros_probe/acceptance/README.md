@@ -13,7 +13,7 @@ mkdir -p /tmp/ros-expert-run/golden
 docker run --rm --name ros-expert-golden -p 19090:9090 \
   -v "$PWD:/workspace:ro" -v /tmp/ros-expert-run/golden:/evidence \
   rosclaw/ros-expert-jazzy:acceptance \
-  bash -c 'source /opt/ros/jazzy/setup.bash && source /ws/install/setup.bash && python3 /workspace/integrations/ros_probe/acceptance/stack.py'
+  bash -c 'source /opt/ros/jazzy/setup.bash && source /ws/install/setup.bash && python3 /workspace/integrations/ros_probe/acceptance/stack.py --controller-watchdog'
 ```
 
 The stack writes its measured map and actual robot URDF into the owned evidence
@@ -68,3 +68,19 @@ canonical receipts, Practice, Memory and TaskKernel must still complete.
 
 Accepted and failed evidence is documented in
 [the implementation report](../../../docs/reports/ros-expert-harness/FINAL_IMPLEMENTATION_REPORT.md).
+
+For live safety tests, start the owned fixture with `--fault-acceptance` as well.
+This explicitly preserves physics when rosbridge/probe processes fail, so stop
+evidence remains observable. Use a fresh fixture for each case:
+
+```bash
+PYTHONPATH=src .venv/bin/python integrations/ros_probe/acceptance/safety.py \
+  observer_stop --directory /tmp/ros-expert-run/safety-observer \
+  --fixture /tmp/ros-expert-run/golden
+```
+
+Cases are `daemon_kill`, `clock_pause`, `bridge_kill`, `observer_stop`. The final
+case uses a second passive pose observer and checks the official controller's
+0.2-second command timeout while the primary observation/lease process is
+paused. Unknown stop evidence fails acceptance. Daemon SIGKILL cannot produce a
+terminal receipt; missing receipt is retained explicitly.

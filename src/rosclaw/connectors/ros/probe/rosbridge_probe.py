@@ -8,6 +8,7 @@ import uuid
 from typing import Any
 
 from rosclaw.connectors.ros.discovery import RosGraphDiscovery
+from rosclaw.connectors.ros.discovery.graph import RosGraphSnapshot
 from rosclaw.connectors.ros.intelligence import RosSystemModel, build_system_model
 
 
@@ -18,8 +19,23 @@ class RosbridgeProbe:
     def inspect(
         self, *, robot_id: str = "unknown", body: dict | None = None, deep: bool = False
     ) -> RosSystemModel:
-        graph = RosGraphDiscovery(self.transport).discover()
         native = self.read_native_snapshot() if deep else None
+        if native is not None:
+            if not isinstance(native.get("graph"), dict):
+                raise ValueError("native probe capture is missing its graph")
+            environment = native.get("environment", {})
+            endpoint = getattr(self.transport, "endpoint", None)
+            graph = RosGraphSnapshot.from_dict(
+                {
+                    **native["graph"],
+                    "ros_version": environment.get("ros_generation", "unknown"),
+                    "distro": environment.get("distro", "unknown"),
+                    "endpoint": endpoint.url if endpoint else "unknown",
+                    "captured_at": native["captured_at"],
+                }
+            )
+        else:
+            graph = RosGraphDiscovery(self.transport).discover()
         return build_system_model(graph, robot_id=robot_id, body=body, native=native)
 
     def read_native_snapshot(self, timeout_sec: float = 3.0) -> dict:

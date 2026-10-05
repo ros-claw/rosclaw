@@ -10,6 +10,7 @@
 
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
+import { fetchEmbodiedContext } from "../extension/context-injection.js";
 import type { BridgeToolContext } from "./bridge-tools.js";
 
 const AWAIT_TIMEOUT_MS = 330_000;
@@ -30,7 +31,7 @@ export function buildRequestActionTool(ctx: BridgeToolContext, snapshotDigest?: 
 			verification_plan: Type.Optional(Type.Array(Type.String())),
 		}),
 		async execute(_id, params, signal, onUpdate, _ctx) {
-			const state = ctx.active.current;
+			let state = ctx.active.current;
 			// P0-5F：所有返回路径都带结构化 status/capability——内核结果卡
 			// 只读 details，绝不解析模型/工具文本。
 			const capabilityId = String(params.capability_id ?? "");
@@ -61,7 +62,7 @@ export function buildRequestActionTool(ctx: BridgeToolContext, snapshotDigest?: 
 			// phase 1: propose（卡片存在后才通知 UI——P0-5 顺序修复）。
 			// P0-NA-10：完整请求上下文——session/revision/body/mode/idempotency
 			// 一个都不能少（admission 硬校验，缺即拒）。
-			const requestContext = {
+			let requestContext = {
 				pi_session_id: state.sessionId,
 				mission_id: state.missionId,
 				context_revision: state.contextRevision,
@@ -72,14 +73,42 @@ export function buildRequestActionTool(ctx: BridgeToolContext, snapshotDigest?: 
 				// 即 CONTEXT_LEASE_REQUIRED（fail closed）。
 				context_lease_id: state.contextLeaseId ?? "",
 			};
-			const proposed = await ctx.center.call("pi.action.propose", {
-				...requestContext,
+			const proposal = {
 				...(snapshotDigest ? { snapshot_digest: snapshotDigest } : {}),
 				capability_id: String(params.capability_id),
 				arguments: params.arguments ?? {},
 				expected_effect: String(params.expected_effect ?? params.capability_id),
 				risk_tier: String(params.risk_tier ?? "LOW"),
-			});
+			};
+			let proposed = await ctx.center.call("pi.action.propose", { ...requestContext, ...proposal });
+			// A readiness change can invalidate a lease during model deliberation.
+			// Refresh only a rejected, card-free SIM proposal; never reuse approval
+			// or retry execution. Body, mission, session and mode must stay bound.
+			if (!proposed.ok && proposed.code === "CONTEXT_HASH_MISMATCH" && !proposed.card
+				&& state.mode === "SIMULATION" && state.missionId) {
+				const prior = state;
+				const fetched = await fetchEmbodiedContext(ctx.rosclawHome, state.missionId, state.sessionId,
+					(_home, method, parameters) => ctx.center.call(method, parameters));
+				if (!fetched.stale && fetched.envelope && fetched.contextLeaseId
+					&& fetched.contextLeaseExpiresAt && Date.parse(fetched.contextLeaseExpiresAt) > Date.now()
+					&& fetched.envelope.body.effective_body_hash === prior.bodyHash
+					&& fetched.envelope.body.body_id === prior.bodyId
+					&& fetched.envelope.safety.mode === prior.mode && fetched.envelope.mission_id === prior.missionId
+					&& ctx.active.current.sessionId === prior.sessionId && ctx.active.current.missionId === prior.missionId
+					&& ctx.active.current.bodyHash === prior.bodyHash && ctx.active.current.mode === prior.mode) {
+					ctx.active.applyEnvelope(fetched.envelope, fetched.contextLeaseId);
+					state = ctx.active.current;
+					if (state.sessionId === prior.sessionId && state.missionId === prior.missionId
+						&& state.bodyHash === prior.bodyHash && state.mode === prior.mode) {
+						requestContext = { ...requestContext, context_revision: state.contextRevision,
+							context_lease_id: state.contextLeaseId ?? "",
+							idempotency_key: `${requestContext.idempotency_key}_fresh` };
+						proposed = await ctx.center.call("pi.action.propose", { ...requestContext, ...proposal });
+					}
+				} else {
+					ctx.active.markContextStale(fetched.note || "SIM proposal context could not be refreshed without changing its binding");
+				}
+			}
 			if (!proposed.ok) {
 				return {
 					content: [
