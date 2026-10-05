@@ -1,0 +1,6 @@
+[INFO] [1791159156.862407188] [host_endpoint_manager]: Attached to existing shared memory registry for domain 0
+Traceback (most recent call last):
+  File "/evidence/resize_acceptance.py", line 43, in <module>
+    if not counts or max(counts)!=1 or not valid or not all(valid):raise RuntimeError('graph warmup failed')
+                                                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: graph warmup failed

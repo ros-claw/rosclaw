@@ -84,3 +84,22 @@ case uses a second passive pose observer and checks the official controller's
 0.2-second command timeout while the primary observation/lease process is
 paused. Unknown stop evidence fails acceptance. Daemon SIGKILL cannot produce a
 terminal receipt; missing receipt is retained explicitly.
+
+For the owned Isaac ROS 5 / Lyrical GPU fixture, source the pinned upstream
+`cuda_buffer_backend` test-component build and run in a separate non-robot
+DDS domain:
+
+```bash
+ROS_DOMAIN_ID=201 python3 isaac_resize.py --output /evidence/resize.json
+```
+
+This loads the actual upstream ResizeNode and native CUDA publisher/validator
+in separate processes. The installed shared CUDA allocation library is
+explicitly preloaded to bind embedded component and transport allocation
+symbols to the same process-wide pool. A real validated cold-start frame
+precedes 300 frames at 20Hz. The observer checks all content/backend metrics and
+actual output dimensions; process death, stale IPC descriptors or incomplete
+metrics fail acceptance. Input metadata observation forces CPU fallback and
+native output pixel validation copies to CPU. These copies are explicit: this
+is a GPU Resize / CUDA IPC subtest, not an Isaac Sim cleaning or zero-copy graph
+acceptance. Failed and successful evidence is retained in RH13/isaac-live/resize.
