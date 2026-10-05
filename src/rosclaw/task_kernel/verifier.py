@@ -151,7 +151,15 @@ def verdict_for(
                 "ACCEPTANCE_MISSING: 无 artifact、无验收定义、无总结——"
                 "零证据不得成功"
             )
+    scope = (
+        "configured_acceptance" if acc_checks else
+        "artifact_integrity_only" if artifacts else "summary_nonempty_only"
+    )
     return {
+        "verification_scope": scope,
+        "task_semantic_verification": (
+            "CONFIGURED_CHECKS_ONLY" if acc_checks else "UNVERIFIED"
+        ),
         "status": "PASS" if not failures else "REPAIR_REQUIRED",
         "checks": checks,
         "failures": failures,

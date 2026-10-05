@@ -146,3 +146,25 @@ test("P0-6 user_directive 卡标注确定性链接管", async () => {
 	assert.match(text, /画一个五角星/);
 	assert.match(text, /确定性链/);
 });
+
+
+test("integrity-only delivery completes without claiming task acceptance", async () => {
+	const { renderTerminalReply } = await import("../src/native/terminal-presenter.js");
+	const reply = renderTerminalReply({ verification: "PASS", delivery: "DELIVERED",
+		verification_scope: "artifact_integrity_only", task_semantic_verification: "UNVERIFIED",
+		artifact_refs: [{ path: "/tmp/report.txt", open_command: "open report.txt" }] });
+	assert.match(reply, /交付完成/);
+	assert.match(reply, /文件完整性/);
+	assert.match(reply, /任务语义未验收/);
+	assert.doesNotMatch(reply, /任务完成|验收 PASS|未完全达成/);
+	assert.match(reply, /report.txt/);
+});
+
+test("configured acceptance states its limited scope", async () => {
+	const { renderTerminalReply } = await import("../src/native/terminal-presenter.js");
+	const reply = renderTerminalReply({ verification: "PASS", delivery: "DELIVERED",
+		verification_scope: "configured_acceptance", task_semantic_verification: "CONFIGURED_CHECKS_ONLY" });
+	assert.match(reply, /已通过配置的验收检查/);
+	assert.match(reply, /仅限声明的检查范围/);
+	assert.doesNotMatch(reply, /任务完成/);
+});

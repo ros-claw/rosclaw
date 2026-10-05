@@ -16,6 +16,8 @@
 
 export interface TerminalOutcome {
 	verification?: string;
+	verification_scope?: string;
+	task_semantic_verification?: string;
 	delivery?: string;
 	lifecycle?: string;
 	/** P0-4：outputs/ 投影视图状态（DEGRADED = 投影失败但账本
@@ -82,12 +84,22 @@ export function renderTerminalReply(
 	const degraded = outcome.workspace_projection === "DEGRADED"
 		? "\n（工作区投影退化——交付物仍可用上面的 artifact open 命令打开）"
 		: "";
+	if (passed && outcome.task_semantic_verification === "UNVERIFIED") {
+		const checked = outcome.verification_scope === "summary_nonempty_only"
+			? "已记录非空回复"
+			: "已检查交付文件完整性";
+		const head = `ℹ️ 交付完成：${checked}；任务语义未验收（未定义有效验收条件）`;
+		return head + (artifactLines.length ? `\n交付物：\n${artifactLines.join("\n")}` : "")
+			+ degraded;
+	}
 	if (passed) {
 		// P0-5：PASS_NEAR_LIMIT 如实标注（≥90% 阈值占用不显示普通
 		// PASS——19.86mm/20mm 是"勉强通过"，不是"干净通过"）。
-		const head = verification === "PASS_NEAR_LIMIT"
-			? "✅ 任务完成：验收 PASS_NEAR_LIMIT（误差接近阈值上限，勉强通过） · 交付 DELIVERED"
-			: "✅ 任务完成：验收 PASS · 交付 DELIVERED";
+		const head = outcome.task_semantic_verification === "CONFIGURED_CHECKS_ONLY"
+			? `✅ 交付完成：已通过配置的验收检查 · 交付 DELIVERED（仅限声明的检查范围）${verification === "PASS_NEAR_LIMIT" ? "；误差接近阈值上限，勉强通过" : ""}`
+			: verification === "PASS_NEAR_LIMIT"
+				? "✅ 任务完成：验收 PASS_NEAR_LIMIT（误差接近阈值上限，勉强通过） · 交付 DELIVERED"
+				: "✅ 任务完成：验收 PASS · 交付 DELIVERED";
 		if (!artifactLines.length) return head + degraded;
 		return (
 			`${head}\n交付物：\n${artifactLines.join("\n")}${degraded}\n`

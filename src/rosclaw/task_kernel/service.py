@@ -681,15 +681,26 @@ class TaskKernel:
         if task["state"] in TASK_TERMINAL:
             # 幂等：SUCCEEDED 重放返回既有终态 + 原 receipt。
             prior = self._conn.execute(
-                "SELECT verification_id FROM verifications WHERE task_id = ? "
+                "SELECT verification_id, revision, checks_json FROM verifications WHERE task_id = ? "
                 "AND status = 'PASS' ORDER BY rowid DESC LIMIT 1",
                 (task_id,),
             ).fetchone()
-            return {
+            result = {
                 "status": task["state"],
                 "already_terminal": True,
                 "verification_id": str(prior["verification_id"]) if prior else "",
             }
+            if prior and int(prior["revision"]) == int(task["active_revision"]):
+                try:
+                    stored_checks = json.loads(str(prior["checks_json"]))
+                except ValueError:
+                    stored_checks = {}
+                if not isinstance(stored_checks, dict):
+                    stored_checks = {}
+                for key in ("verification_scope", "task_semantic_verification"):
+                    if key in stored_checks:
+                        result[key] = stored_checks[key]
+            return result
         artifacts = [
             dict(r)
             for r in self._conn.execute(
@@ -1005,12 +1016,26 @@ class TaskKernel:
             trusted_evidence_present=trusted_present,
             extra_failures=provenance_failures,
         )
+        # Scope is frozen-check evidence, never a claim of whole-task semantics.
+        if any(d.get("required") and d.get("kind") for d in spec_deliverables):
+            verdict["verification_scope"] = (
+                "configured_acceptance_and_deliverables"
+                if verdict["verification_scope"] == "configured_acceptance"
+                else "declared_deliverables"
+            )
+            verdict["task_semantic_verification"] = "CONFIGURED_CHECKS_ONLY"
+        scope_fields = {
+            key: verdict[key]
+            for key in ("verification_scope", "task_semantic_verification")
+        }
         now = datetime.now(UTC).isoformat()
         if verdict["status"] == "PASS":
             verification_id = new_id("vrf")
             # P0-5：误差事实与分级随验收行持久化（checks_json 是
             # 审计面——误差/分级不回填就无从复核"接近阈值"）。
-            checks_payload: dict[str, Any] = {"checks": verdict["checks"]}
+            checks_payload: dict[str, Any] = {
+                "checks": verdict["checks"], **scope_fields,
+            }
             # 0902 R0-3：PASS 附带逐条 RequirementCoverage（审计面——
             # "每条要求都被证据满足"可复核，不是一句 PASS）。
             if grade:
@@ -1031,17 +1056,22 @@ class TaskKernel:
             )
             self._emit(task_id, "verification.completed",
                        {"verification_id": verification_id, "status": "PASS",
-                        "checks": verdict["checks"],
+                        "checks": verdict["checks"], **scope_fields,
                         **({"grade": grade} if grade else {})})
             self.transition(task_id, "SUCCEEDED", reason="verification_passed")
-            return {"status": "SUCCEEDED", "verification_id": verification_id}
+            return {
+                "status": "SUCCEEDED", "verification_id": verification_id,
+                **scope_fields,
+            }
         # REPAIR_REQUIRED：回同一 session（task 保持活跃——修复不新建）。
         self._emit(task_id, "verification.completed",
-                   {"status": "FAIL", "failures": verdict["failures"]})
+                   {"status": "FAIL", "failures": verdict["failures"],
+                    **scope_fields})
         return {
             "status": "REPAIR_REQUIRED",
             "failures": verdict["failures"],
             "checks": verdict["checks"],
+            **scope_fields,
         }
 
     #: 具身执行工具（用了这些 = 行为任务——受信证据规则才武装）。

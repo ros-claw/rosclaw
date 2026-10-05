@@ -211,6 +211,10 @@ class TaskCoordinator:
                 created_at=now,
                 workspace_projection=projection,
             )
+            # Forward only authoritative scope, without reinterpreting history.
+            for key in ("verification_scope", "task_semantic_verification"):
+                if key in verdict:
+                    outcome[key] = verdict[key]
             self._store_outcome(task_id, revision, outcome, now)
             return outcome
         # FAIL：区分 delivery 待修（媒体/交付类）与 verification 失败。
@@ -242,6 +246,9 @@ class TaskCoordinator:
                 delivery=delivery,
                 created_at=now,
             )
+            for key in ("verification_scope", "task_semantic_verification"):
+                if key in verdict:
+                    outcome[key] = verdict[key]
             directive = self._repair_directive(task_id, revision, failures, now)
             outcome["repair_directive"] = directive
             # 瞬态不落库——修复后下一次 consider 重算。
@@ -267,6 +274,9 @@ class TaskCoordinator:
             delivery="PARTIAL" if artifacts else "NONE",
             created_at=now,
         )
+        for key in ("verification_scope", "task_semantic_verification"):
+            if key in verdict:
+                outcome[key] = verdict[key]
         outcome["repair_directive"] = directive
         if int(seen["n"]) > 1:
             # 同指纹再现 → WAITING_INPUT（持久化——重放不再重试）。
