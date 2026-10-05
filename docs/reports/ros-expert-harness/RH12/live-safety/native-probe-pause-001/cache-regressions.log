@@ -1,0 +1,1 @@
+{"status": "PASS", "evidence_class": "deterministic_regression", "dds_connections": 0, "cases": ["expired_parameters", "expired_lifecycle", "historical_clock", "late_rpc_identity", "fresh_read_recovery"]}

@@ -101,6 +101,7 @@ def test_fresh_independent_witness_rejects_incomplete_or_colliding_observation(
 
     witness = SimulationWitness.__new__(SimulationWitness)
     witness.lock = threading.Lock()
+    witness.action_fault = None
     witness.latest = (
         time.monotonic(),
         {"observation_complete": complete, "collision_count": collisions},
@@ -550,3 +551,117 @@ def test_repair_missing_or_expiring_lease_requires_positive_service_ack(tmp_path
     )
     with pytest.raises(RuntimeError, match="did not acknowledge enable"):
         executor._run_goal("/navigate", "type", {}, "repair", time.monotonic() + 5)
+
+
+def scope_executor(tmp_path):
+    from rosclaw.connectors.ros.mission.executor import RosCoverageSimulationExecutor
+
+    def fail(*args, **kwargs):
+        pytest.fail("scope rejection must precede every effect and observation")
+
+    return RosCoverageSimulationExecutor(
+        owner="daemon_test",
+        client=SimpleNamespace(send_goal=fail),
+        control=SimpleNamespace(call_service=fail),
+        witness=SimpleNamespace(mark=fail, fresh=fail),
+        output=tmp_path,
+        body_id="base",
+        body_snapshot_hash="bound",
+        grid={
+            "frame_id": "map",
+            "width": 2,
+            "height": 2,
+            "resolution": 1.0,
+            "origin": [0.0, 0.0],
+            "accessible_cells": [0, 1, 2, 3],
+        },
+    )
+
+
+def scope_arguments(coords, frame="map"):
+    return {
+        "frame_id": frame,
+        "polygons": [{"points": [{"x": x, "y": y, "z": 0.0} for x, y in coords]}],
+    }
+
+
+@pytest.mark.parametrize(
+    "coords",
+    [
+        [(0, 0), (2, 0), (2, 2), (0, 2)],
+        [(2, 2), (2, 0), (0, 0), (0, 2)],
+        [(0, 0), (2, 0), (2, 2), (0, 2), (0, 0)],
+    ],
+)
+def test_coverage_scope_accepts_equivalent_whole_room_polygons(tmp_path, coords):
+    goal = scope_executor(tmp_path)._coverage_goal(scope_arguments(coords))
+    assert goal["frame_id"] == "map"
+    assert goal["polygons"][0]["points"][0] == goal["polygons"][0]["points"][-1]
+    assert len(goal["polygons"][0]["points"]) == 5
+
+
+@pytest.mark.parametrize(
+    "case",
+    ["smaller", "larger", "frame", "bowtie", "duplicate", "height", "nan", "boolean", "empty"],
+)
+def test_coverage_scope_rejects_before_observation_lease_or_cleaner_enable(tmp_path, case):
+    from rosclaw.kernel import ActionState
+
+    args = scope_arguments([(0, 0), (2, 0), (2, 2), (0, 2)])
+    points = args["polygons"][0]["points"]
+    if case == "smaller":
+        points[1]["x"] = 1.0
+    elif case == "larger":
+        points[1]["x"] = 3.0
+    elif case == "frame":
+        args["frame_id"] = "odom"
+    elif case == "bowtie":
+        points[1], points[2] = points[2], points[1]
+    elif case == "duplicate":
+        points[1] = dict(points[0])
+    elif case == "height":
+        points[1]["z"] = 1.0
+    elif case == "nan":
+        points[1]["x"] = float("nan")
+    elif case == "boolean":
+        points[1]["x"] = True
+    else:
+        args["polygons"] = []
+    result = scope_executor(tmp_path)._execute(
+        SimpleNamespace(
+            capability_id="coverage.execute",
+            arguments=args,
+        )
+    )
+    assert result.final_state is ActionState.BLOCKED
+    assert result.policy_decision["allowed"] is False
+    assert result.dispatch_result["accepted"] is False
+    assert result.errors[0]["code"] == "COVERAGE_SCOPE_REJECTED"
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"observation_complete": False, "collision_count": 0},
+        {"observation_complete": True, "collision_count": 1},
+    ],
+)
+def test_brief_physics_fault_remains_terminal_after_a_new_good_sample(bad):
+    import threading
+
+    from rosclaw.connectors.ros.mission.executor import SimulationWitness
+
+    witness = SimulationWitness.__new__(SimulationWitness)
+    witness.lock = threading.Lock()
+    witness.latest, witness.samples, witness.action_fault = None, [], None
+    witness.tracking = False
+    good = {"observation_complete": True, "collision_count": 0}
+    witness._record(bad)
+    witness._record(good)
+    assert witness.fresh() == good
+    assert witness.mark() == 2
+    witness._record(bad)
+    witness._record(good)
+    with pytest.raises(RuntimeError, match="during action"):
+        witness.fresh()
+    assert witness.since(2) == [bad, good]

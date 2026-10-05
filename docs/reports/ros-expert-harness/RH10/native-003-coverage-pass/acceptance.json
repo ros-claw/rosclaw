@@ -14,5 +14,46 @@
     "root_goal": "\u5b8c\u6210\u6574\u4e2a\u623f\u95f4\u6e05\u626b\u3002",
     "state": "RUNNING"
   },
-  "hardware_verified": false
+  "hardware_verified": false,
+  "files": [
+    {
+      "file": "body.json",
+      "sha256": "9d79cef391f38af38fa8a8ea5b2ac9890528791e699d9497c90b7fe486b71b4d"
+    },
+    {
+      "file": "canonical-receipts.json",
+      "sha256": "36dbda3d8d5ceef87a0a09f3144662e21fede62b0502b3b04e494600d2b98459"
+    },
+    {
+      "file": "dynamic-injection.log",
+      "sha256": "6fb1aed3632a18aaad5a0ff004ea7f20f5fe360ec7aadac6404caf4ce953169b"
+    },
+    {
+      "file": "dynamic_fault.json.gz",
+      "sha256": "0ff60ce44dfd2634741ce69759c1097ebfd07d69003b550ea2530ce5ddb08752",
+      "uncompressed_sha256": "16d3665806ed953d5173b5fcb47c78d5803e34c1d94bd7bad5a65b7d3a146892"
+    },
+    {
+      "file": "execution_config.json.gz",
+      "sha256": "89fa549ebe23ddf634f9b9aa60912c399884e94e5eb18b9962650d5cd5abeb84",
+      "uncompressed_sha256": "72340087e299c1a9e5d0dcbe3d02b5c0df3d2f46abfc8869ec6c049bb7ab7522"
+    },
+    {
+      "file": "measured_map.json",
+      "sha256": "4cbe10fb5666e05d051037244a0b8916fe1276f70477c157a4338877d6c65db4"
+    },
+    {
+      "file": "model-events.json",
+      "sha256": "55d0eaebbf0bbdd7e7d073d8b06b9f01758665141cfda70800910502933b9648"
+    },
+    {
+      "file": "model-usage.json",
+      "sha256": "c17e0ea0956640bd282135b0d86f40ef430e949a4c77067c1d29235c7c156406"
+    },
+    {
+      "file": "rosevidence_20b9b5dbfaab9a8bd6a480944d56a5a5d201333afb8167e1d1e188d8d7e0ce77.json.gz",
+      "sha256": "40ccc5e88121b2c2932f3f2f193a633bbaa72134149186bac3c692a600437d75",
+      "uncompressed_sha256": "3a9355bc940dc1808581d490c2ab5d675fae647a7f5a1934972114bd1b5b950a"
+    }
+  ]
 }

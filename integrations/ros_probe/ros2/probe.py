@@ -20,6 +20,7 @@ from ament_index_python.packages import get_packages_with_prefixes
 from lifecycle_msgs.srv import GetState
 from rcl_interfaces.srv import GetParameters, ListParameters
 from rclpy.action.graph import get_action_server_names_and_types_by_node
+from rclpy.clock import Clock, ClockType
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy, qos_check_compatible
 from rclpy.utilities import get_rmw_implementation_identifier
@@ -53,10 +54,13 @@ class ReadOnlyProbe(Node):
         self.edges = {}
         self.lifecycle_states = {}
         self.parameters = {}
+        self.parameter_received = {}
+        self.parameter_captured_at = {}
         self.clients_by_name = {}
         self.pending = {}
         self.errors = []
         self.clock_values = deque(maxlen=20)
+        self.clock_readings = deque(maxlen=200)
         self.packages = sorted(get_packages_with_prefixes())
         self.localization_observations = {}
         self.publisher = self.create_publisher(
@@ -64,7 +68,9 @@ class ReadOnlyProbe(Node):
         )
         self.status_publisher = self.create_publisher(String, "/rosclaw_probe/status", 1)
         self.refresh_service = self.create_service(Trigger, "/rosclaw_probe/refresh", self.refresh)
-        self.timer = self.create_timer(1.0, self.publish_snapshot)
+        # A paused simulation clock must not freeze its own diagnostic probe.
+        self.wall_clock = Clock(clock_type=ClockType.STEADY_TIME)
+        self.timer = self.create_timer(1.0, self.publish_snapshot, clock=self.wall_clock)
 
     def refresh(self, _request, response):
         self.discover_reads()
@@ -124,6 +130,9 @@ class ReadOnlyProbe(Node):
         self.pending[name] = (future, time.monotonic())
 
         def completed(result):
+            current = self.pending.get(name)
+            if current is None or current[0] is not result:
+                return
             self.pending.pop(name, None)
             if result.cancelled():
                 return
@@ -178,6 +187,8 @@ class ReadOnlyProbe(Node):
                     elif value.type == 9:
                         values[key] = list(value.string_array_value)
                 self.parameters[node_name] = values
+                self.parameter_received[node_name] = time.monotonic()
+                self.parameter_captured_at[node_name] = utc_now()
 
         future.add_done_callback(completed)
 
@@ -192,7 +203,9 @@ class ReadOnlyProbe(Node):
                 "yaw_variance": covariance[35],
             }
         if hasattr(message, "clock"):
-            self.clock_values.append(message.clock.sec + message.clock.nanosec / 1e9)
+            value = message.clock.sec + message.clock.nanosec / 1e9
+            self.clock_values.append(value)
+            self.clock_readings.append((time.monotonic(), value))
         if hasattr(message, "transforms"):
             for transform in message.transforms:
                 self.edges[(transform.header.frame_id, transform.child_frame_id)] = {
@@ -206,6 +219,28 @@ class ReadOnlyProbe(Node):
 
     def snapshot(self):
         stamp, wall = utc_now(), time.monotonic()
+        # Retain original read times while excluding old cached configuration
+        # from current readiness. A new envelope never refreshes an old RPC.
+        parameters = {
+            n: values
+            for n, values in self.parameters.items()
+            if 0 <= wall - self.parameter_received.get(n, 0) <= 5
+        }
+        lifecycle = []
+        for stored in self.lifecycle_states.values():
+            row = dict(stored)
+            age = (
+                datetime.fromisoformat(stamp) - datetime.fromisoformat(row["captured_at"])
+            ).total_seconds()
+            row["last_read_age_ms"] = age * 1000
+            if not -0.1 <= age <= 5:
+                row["last_observed_state"] = row["state"]
+                row["state"] = "UNKNOWN"
+            lifecycle.append(row)
+        recent_clock_values = {
+            v for received, v in self.clock_readings if 0 <= wall - received <= 1
+        }
+        clock_advancing = len(recent_clock_values) > 1 if self.clock_readings else None
         topics, qos_endpoints, incompatible, signals = [], [], [], []
         for topic, types in sorted(self.get_topic_names_and_types()):
             pubs = self.get_publishers_info_by_topic(topic)
@@ -293,7 +328,7 @@ class ReadOnlyProbe(Node):
         transforms = []
         observed_times = {
             n: p["use_sim_time"]
-            for n, p in self.parameters.items()
+            for n, p in parameters.items()
             if "use_sim_time" in p and n != self.get_fully_qualified_name()
         }
         runtime_sim_time = (
@@ -315,7 +350,7 @@ class ReadOnlyProbe(Node):
             if edge["parent"] == "map" and edge["child"] == "odom":
                 tolerances = [
                     p["transform_tolerance"]
-                    for n, p in self.parameters.items()
+                    for n, p in parameters.items()
                     if n.endswith("/amcl")
                     and isinstance(p.get("transform_tolerance"), (int, float))
                 ]
@@ -343,7 +378,7 @@ class ReadOnlyProbe(Node):
                 s["last_message_age_ms"] is not None and s["last_message_age_ms"] <= 2000
                 for s in costmaps
             )
-        sources = [p for n, p in self.parameters.items() if "costmap" in n]
+        sources = [p for n, p in parameters.items() if "costmap" in n]
         if sources:
             nav["obstacle_source_configured"] = all(
                 any(
@@ -378,7 +413,7 @@ class ReadOnlyProbe(Node):
             },
             "signals": signals,
             "transforms": sorted(transforms, key=lambda x: (x["parent"], x["child"])),
-            "lifecycle": sorted(self.lifecycle_states.values(), key=lambda x: x["name"]),
+            "lifecycle": sorted(lifecycle, key=lambda x: x["name"]),
             "qos": {
                 "supported": True,
                 "endpoints": qos_endpoints,
@@ -388,8 +423,12 @@ class ReadOnlyProbe(Node):
             "observations": {
                 "node_use_sim_time": observed_times,
                 "package_inventory": self.packages,
-                "node_parameters": self.parameters,
-                "clock_advancing": len(set(self.clock_values)) > 1 if self.clock_values else None,
+                "node_parameters": parameters,
+                "parameter_captured_at": self.parameter_captured_at,
+                "clock_advancing": clock_advancing,
+                "clock_last_receive_age_ms": (wall - self.clock_readings[-1][0]) * 1000
+                if self.clock_readings
+                else None,
                 "localization_quality": localization,
             },
             "completeness": {
@@ -397,8 +436,10 @@ class ReadOnlyProbe(Node):
                 "qos": True,
                 "signals": True,
                 "tf": any(t.endswith("/tf") for t in self.subscriptions_by_topic),
-                "lifecycle": bool(self.lifecycle_states),
-                "time": bool(observed_times),
+                "lifecycle": bool(lifecycle)
+                and all(row["state"] != "UNKNOWN" for row in lifecycle),
+                "time": bool(observed_times)
+                and (not any(observed_times.values()) or clock_advancing is not None),
             },
             "errors": self.errors[-50:],
         }

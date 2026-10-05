@@ -16,6 +16,10 @@ docker run --rm --name ros-expert-golden -p 19090:9090 \
   bash -c 'source /opt/ros/jazzy/setup.bash && source /ws/install/setup.bash && python3 /workspace/integrations/ros_probe/acceptance/stack.py --controller-watchdog'
 ```
 
+The official controller watchdog is enabled by default. `--no-controller-watchdog`
+is reserved for explicit historical fixture replay; it is not the current
+safety acceptance configuration.
+
 The stack writes its measured map and actual robot URDF into the owned evidence
 directory. For a fresh episode, restart only this owned container. Wait for the
 native probe, Nav2 lifecycle nodes and independent contact streams to be ready.
@@ -103,3 +107,7 @@ metrics fail acceptance. Input metadata observation forces CPU fallback and
 native output pixel validation copies to CPU. These copies are explicit: this
 is a GPU Resize / CUDA IPC subtest, not an Isaac Sim cleaning or zero-copy graph
 acceptance. Failed and successful evidence is retained in RH13/isaac-live/resize.
+
+Native probe freshness regressions run with ROS-host Python: `python3 integrations/ros_probe/acceptance/probe_cache.py`. They create no Node or DDS connection. In the inactive owned Golden fixture, `probe_pause.py` pauses and resumes only the acknowledged Gazebo world service and requires new wall-time probe captures showing clock progress true→false→true. The captured snapshot can be replayed through Core diagnosis at its original capture time; replay is historical evidence.
+
+`run.py --reject-smaller-scope` checks that the configured rectangular whole-room executor returns canonical BLOCKED for a smaller requested area before physical dispatch. The Core resource scheduler lease is separate from the cleaning actuator lease. Independent physics evidence must still show standstill, disabled cleaning and no active cleaning lease.

@@ -147,4 +147,4 @@ Practice evidence, MCP, and agent-framework workflows.
 - Optional canonical MCP extension: `ROSCLAW_ROS_EXPERT=1` adds four read-only composite tools; it grants no ROS write access.
 - Keep source/time/hash/completeness visible. Historical snapshots are not live state. Graph inference does not replace Body/e-URDF truth.
 - Physical actions still require rosclawd request_action. A synthetic coverage mask or successful action is not mission verification.
-- Native DDS fixture acceptance is not Nav2/Gazebo cleaning acceptance. Current live coverage and A/B gates are NOT_RUN; see docs/reports/ros-expert-harness/FINAL_IMPLEMENTATION_REPORT.md.
+- Native DDS fixture acceptance is not Nav2/Gazebo cleaning acceptance. Actual Native single-input Gazebo cleaning has SIMULATION acceptance. Same-model A/B and hardware gates remain unaccepted; see docs/reports/ros-expert-harness/FINAL_IMPLEMENTATION_REPORT.md.

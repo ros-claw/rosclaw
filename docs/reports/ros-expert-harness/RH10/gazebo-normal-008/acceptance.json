@@ -58,7 +58,7 @@
     },
     {
       "file": "rosevidence_0e0c13aa95e765a20b0c60bffc23aed61a1a3712a1e8099feeee6c927c777638.verification.json",
-      "uncompressed_sha256": "bdd09c797fa2ac00e01404ed455286d0c116060da6755e4976ae23b3a808cb37"
+      "sha256": "bdd09c797fa2ac00e01404ed455286d0c116060da6755e4976ae23b3a808cb37"
     },
     {
       "file": "rosevidence_0e0c13aa95e765a20b0c60bffc23aed61a1a3712a1e8099feeee6c927c777638.json.gz",

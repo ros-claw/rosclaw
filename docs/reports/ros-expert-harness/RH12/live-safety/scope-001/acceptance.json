@@ -1,0 +1,32 @@
+{
+  "status": "PASS",
+  "case": "requested smaller scope rejected before physical dispatch",
+  "canonical_final_state": "BLOCKED",
+  "mission_verified": false,
+  "motor_dispatch_accepted": false,
+  "active_physical_cleaning_lease_observed": false,
+  "lease_update_counter_delta": 2,
+  "core_resource_lease_present": true,
+  "maximum_displacement_m": 0.0,
+  "independent_observation_count": 96,
+  "hardware_verified": false,
+  "files": [
+    {
+      "file": "golden-scope-rejection.receipt.json",
+      "sha256": "2075ed53dd99b6fe1c559b7ee22669de6ee01f8918b4f99227eec90bc78a4bbd"
+    },
+    {
+      "file": "golden-scope-rejection.ticket.json",
+      "sha256": "9bfacec44c1fa2aecf7ad163766cc21c7fa5de7e1a6a2be389f7e814faf459d9"
+    },
+    {
+      "file": "independent-physics.jsonl.gz",
+      "sha256": "f54cef7bea64b4cc2787417f592de6788142431555db69e7fcfb0c017cc560d9",
+      "uncompressed_sha256": "2d232c3bcbe7211e1a959f27b3a65927e056dbfa498dc4347f98d52f12f71114"
+    },
+    {
+      "file": "journey.log",
+      "sha256": "7b88982a836f13b6246950bc967c2cebc9192032ae7361a95327f463ae775068"
+    }
+  ]
+}

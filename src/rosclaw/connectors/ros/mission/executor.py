@@ -39,6 +39,8 @@ class SimulationWitness:
         self.transport = transport
         self.latest = None
         self.samples = []
+        self.tracking = False
+        self.action_fault = None
         self.lock = threading.Lock()
         self.closed = threading.Event()
         result = transport.send(
@@ -89,12 +91,26 @@ class SimulationWitness:
                     continue
             except (KeyError, TypeError, ValueError):
                 continue
-            with self.lock:
-                self.latest = (time.monotonic(), sample)
-                self.samples.append(sample)
+            self._record(sample)
+
+    def _record(self, sample):
+        with self.lock:
+            self.latest = (time.monotonic(), sample)
+            self.samples.append(sample)
+            if self.tracking and self.action_fault is None:
+                if sample["observation_complete"] is not True:
+                    self.action_fault = "independent simulation witness is incomplete during action"
+                elif sample["collision_count"]:
+                    self.action_fault = (
+                        "independent simulation witness detected collision during action"
+                    )
 
     def fresh(self):
         with self.lock:
+            if self.action_fault:
+                # A short bad sample must not disappear between 100ms action
+                # polls, permitting motion until the next repair batch.
+                raise RuntimeError(self.action_fault)
             if not self.latest or time.monotonic() - self.latest[0] > 1:
                 raise RuntimeError("independent simulation witness is stale")
             sample = dict(self.latest[1])
@@ -106,6 +122,8 @@ class SimulationWitness:
 
     def mark(self):
         with self.lock:
+            self.tracking = True
+            self.action_fault = None
             return len(self.samples)
 
     def since(self, offset):
@@ -156,6 +174,63 @@ class RosCoverageSimulationExecutor:
             return self.control.call_service(
                 name, arguments, service_type="std_srvs/srv/SetBool", timeout_sec=0.5
             )
+
+    def _coverage_goal(self, arguments):
+        """Bind the rectangular fixture's approved area to its fixed denominator.
+
+        Repair covers the configured whole room. A caller must not authorize a
+        smaller polygon and then cause repairs outside that approved area, nor
+        shrink the verification denominator to claim whole-room completion.
+        """
+        frame = self.grid["frame_id"]
+        if arguments.get("frame_id", frame) != frame:
+            raise ValueError("coverage frame differs from the configured mission frame")
+        cells, width, resolution = (
+            self.grid["accessible_cells"],
+            self.grid["width"],
+            self.grid["resolution"],
+        )
+        left = self.grid["origin"][0] + min(i % width for i in cells) * resolution
+        right = self.grid["origin"][0] + (max(i % width for i in cells) + 1) * resolution
+        bottom = self.grid["origin"][1] + min(i // width for i in cells) * resolution
+        top = self.grid["origin"][1] + (max(i // width for i in cells) + 1) * resolution
+        expected = {(left, bottom), (right, bottom), (right, top), (left, top)}
+        polygons = arguments.get("polygons", [])
+        if len(polygons) != 1:
+            raise ValueError("the configured rectangular mission requires one coverage polygon")
+        points = [dict(p) for p in polygons[0]["points"]]
+        if points and points[0] == points[-1]:
+            points.pop()
+        if (
+            len(points) != 4
+            or not all(
+                type(p.get(k)) in (int, float) and math.isfinite(p[k])
+                for p in points
+                for k in ("x", "y", "z")
+            )
+            or any(p["z"] != 0 for p in points)
+        ):
+            raise ValueError("coverage requires four finite planar mission corners")
+        matched = []
+        for p in points:
+            corner = next(
+                (
+                    c
+                    for c in expected
+                    if math.isclose(p["x"], c[0], rel_tol=0, abs_tol=1e-6)
+                    and math.isclose(p["y"], c[1], rel_tol=0, abs_tol=1e-6)
+                ),
+                None,
+            )
+            if corner is None:
+                raise ValueError("coverage polygon differs from the configured whole-room area")
+            matched.append(corner)
+        if len(set(matched)) != 4 or any(
+            a[0] != b[0] and a[1] != b[1]
+            for a, b in zip(matched, matched[1:] + matched[:1], strict=True)
+        ):
+            raise ValueError("coverage corners are repeated or self-intersecting")
+        return {"polygons": [{"points": points + [dict(points[0])]}], "frame_id": frame}
 
     def _run_goal(self, name, action_type, args, goal_id, deadline, *, goal_timeout_sec=45):
         if self.stopping.is_set() or time.monotonic() >= deadline:
@@ -433,6 +508,14 @@ class RosCoverageSimulationExecutor:
             )
 
     def _execute(self, action):
+        coverage = action.capability_id == "coverage.execute"
+        try:
+            coverage_goal = self._coverage_goal(action.arguments) if coverage else None
+        except (KeyError, TypeError, ValueError) as exc:
+            return self._result(
+                ActionState.BLOCKED,
+                errors=[{"code": "COVERAGE_SCOPE_REJECTED", "message": str(exc)}],
+            )
         self.stopping.clear()
         started = self.witness.mark()
         completed, box = threading.Event(), {}
@@ -440,7 +523,6 @@ class RosCoverageSimulationExecutor:
         dispatched = False
         heartbeat_stop = threading.Event()
         deadline = time.monotonic() + action.verification_policy.timeout_sec
-        coverage = action.capability_id == "coverage.execute"
 
         def maintain_lease():
             last_log = time.monotonic()
@@ -513,20 +595,7 @@ class RosCoverageSimulationExecutor:
                     "/navigate_complete_coverage",
                     "opennav_coverage_msgs/action/NavigateCompleteCoverage",
                 )
-                polygons = []
-                for polygon in action.arguments["polygons"]:
-                    points = [dict(p) for p in polygon["points"]]
-                    if not 3 <= len(points) <= 10000 or not all(
-                        math.isfinite(p[k]) for p in points for k in ("x", "y", "z")
-                    ):
-                        raise ValueError("coverage polygon requires finite coordinates")
-                    # geometry_msgs/Polygon omits closure; Fields2Cover requires it.
-                    if points[0] != points[-1]:
-                        points.append(dict(points[0]))
-                    polygons.append({"points": points})
-                if not polygons:
-                    raise ValueError("coverage field is empty")
-                args = {"polygons": polygons, "frame_id": "map"}
+                args = coverage_goal
             else:
                 name, action_type = "/navigate_to_pose", "nav2_msgs/action/NavigateToPose"
                 args = {"pose": action.arguments["pose"]}

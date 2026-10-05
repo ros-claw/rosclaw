@@ -1,0 +1,26 @@
+{
+  "status": "PASS",
+  "evidence_domain": "GAZEBO_NATIVE_DDS",
+  "clock_advancing": [
+    true,
+    false,
+    true
+  ],
+  "motor_commands": 0,
+  "hardware_verified": false,
+  "files": [
+    {
+      "file": "cache-regressions.log",
+      "sha256": "e864aa746e33783e046638e73e3b2fe736c204df33b59597445529868769fcf9"
+    },
+    {
+      "file": "historical-core-diagnoses.json",
+      "sha256": "1aa8b210cb9983a70a2ea19a88e4ae69292d74694585cc5baf0c1630e26e46d3"
+    },
+    {
+      "file": "probe-pause-acceptance.json.gz",
+      "sha256": "4553d50ebf325e7556cbab8a9b81cffcfe8a8d6359d77032f9c3f48c1561a912",
+      "uncompressed_sha256": "4765bc95f2d17e306b4d1ba5df8349efbda04d9e95d2513d0ee10b3d94fc5c61"
+    }
+  ]
+}

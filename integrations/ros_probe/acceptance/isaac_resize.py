@@ -28,6 +28,7 @@ def run(output: Path, shared_cuda_library: Path):
     node = rclpy.create_node("isaac_resize_acceptance_observer")
     children, logs = [], []
     counts, validity, backends, latency, shapes = [], [], [], [], []
+    expected_pixels, input_output_matches = {}, []
 
     def load(container, package, plugin, name, params, remaps=()):
         client = node.create_client(LoadNode, f"/{container}/_container/load_node")
@@ -59,6 +60,7 @@ def run(output: Path, shared_cuda_library: Path):
                 and len(backends) >= target
                 and len(latency) >= target
                 and len(shapes) >= target
+                and len(input_output_matches) >= target
             ):
                 return
             rclpy.spin_once(node, timeout_sec=0.05)
@@ -119,15 +121,23 @@ def run(output: Path, shared_cuda_library: Path):
             Bool, "/backend_validation", lambda m: backends.append(m.data), 1000
         )
         node.create_subscription(Float64, "/latency_ms", lambda m: latency.append(m.data), 1000)
-        node.create_subscription(
-            Image,
-            "/test_cuda_image_cpu",
-            lambda m: shapes.append([m.width, m.height, m.step, m.encoding]),
-            1000,
-        )
+
+        def validate_output(image):
+            shapes.append([image.width, image.height, image.step, image.encoding])
+            stamp = (image.header.stamp.sec, image.header.stamp.nanosec)
+            expected = expected_pixels.get(stamp)
+            # The upstream native validator checks every byte is uniform;
+            # additionally bind that byte to the actual stamped input frame.
+            input_output_matches.append(
+                expected is not None and bool(image.data) and image.data[0] == expected
+            )
+
+        node.create_subscription(Image, "/test_cuda_image_cpu", validate_output, 1000)
         camera = node.create_publisher(CameraInfo, "/resize_input_camera_info", 10)
 
         def publish_camera(image):
+            stamp = (image.header.stamp.sec, image.header.stamp.nanosec)
+            expected_pixels[stamp] = image.data[0] if image.data else None
             info = CameraInfo()
             info.header = image.header
             info.width, info.height = 1920, 1080
@@ -150,7 +160,9 @@ def run(output: Path, shared_cuda_library: Path):
             {**publisher_params, "max_publish_count": 1, "publish_rate_ms": 1000},
         )
         wait_for_frames(1, 15)
-        if not all(validity + backends) or shapes != [[480, 270, 1440, "rgb8"]]:
+        if not all(validity + backends + input_output_matches) or shapes != [
+            [480, 270, 1440, "rgb8"]
+        ]:
             raise RuntimeError("cold-start graph validation failed")
         load(
             "resize_publisher",
@@ -160,7 +172,9 @@ def run(output: Path, shared_cuda_library: Path):
             {**publisher_params, "max_publish_count": 300, "publish_rate_ms": 50},
         )
         wait_for_frames(301, 35)
-        if not all(validity + backends) or any(s != [480, 270, 1440, "rgb8"] for s in shapes):
+        if not all(validity + backends + input_output_matches) or any(
+            s != [480, 270, 1440, "rgb8"] for s in shapes
+        ):
             raise RuntimeError("native output content/backend/geometry validation failed")
         result["status"] = "PASS"
     except Exception as exc:
@@ -192,6 +206,8 @@ def run(output: Path, shared_cuda_library: Path):
                 "received_validated_frames": max(0, max(counts, default=0) - 1),
                 "content_and_backend_validated": bool(validity and backends)
                 and all(validity + backends),
+                "input_header_bound_output_pixels_validated": bool(input_output_matches)
+                and all(input_output_matches),
                 "output_buffer_backend": "CUDA" if backends and all(backends) else "UNKNOWN",
                 "component": "nvidia::isaac_ros::image_proc::ResizeNode",
                 "publisher_processor_subscriber_separate_processes": True,

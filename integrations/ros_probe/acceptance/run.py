@@ -25,10 +25,13 @@ async def main():
     parser.add_argument("--directory", type=Path, required=True)
     parser.add_argument("--endpoint", default="ws://127.0.0.1:19090")
     parser.add_argument("--navigation-only", action="store_true")
+    parser.add_argument("--reject-smaller-scope", action="store_true")
     parser.add_argument("--prepare-only", action="store_true")
     parser.add_argument("--model-urdf", type=Path)
     parser.add_argument("--mission-timeout", type=int, default=900)
     args = parser.parse_args()
+    if args.navigation_only and args.reject_smaller_scope:
+        parser.error("navigation and scope-rejection cases are mutually exclusive")
     if not 60 <= args.mission_timeout <= 1800:
         parser.error("mission timeout must be between 60 and 1800 seconds")
     root = args.directory.resolve()
@@ -146,7 +149,7 @@ async def main():
             + "\n"
         )
 
-        async def request(capability, arguments, action_id, timeout):
+        async def request(capability, arguments, action_id, timeout, expected_state="COMPLETED"):
             ticket = await tools._request_action(
                 capability_id=capability,
                 arguments=arguments,
@@ -167,14 +170,36 @@ async def main():
                         json.dumps(receipt, indent=2) + "\n"
                     )
                     print(json.dumps(receipt), flush=True)
-                    if receipt.get("receipt", {}).get("final_state") != "COMPLETED":
+                    if receipt.get("receipt", {}).get("final_state") != expected_state:
                         raise RuntimeError(f"action failed: {action_id}")
                     return receipt
                 await asyncio.sleep(0.25)
             raise TimeoutError(action_id)
 
         await request("localization.set_initial_pose", {}, "golden-localize", 10)
-        if args.navigation_only:
+        if args.reject_smaller_scope:
+            receipt = await request(
+                "coverage.execute",
+                {
+                    "mission_id": mission_id,
+                    "frame_id": "map",
+                    "polygons": [
+                        {
+                            "points": [
+                                {"x": x / 2, "y": y / 2, "z": 0.0}
+                                for x, y in body["coverage_polygon"]
+                            ]
+                        }
+                    ],
+                },
+                "golden-scope-rejection",
+                15,
+                expected_state="BLOCKED",
+            )
+            errors = receipt.get("receipt", {}).get("errors", [])
+            if not any(e.get("code") == "COVERAGE_SCOPE_REJECTED" for e in errors):
+                raise RuntimeError("coverage scope was not rejected by the executor boundary")
+        elif args.navigation_only:
             await request(
                 "navigation.navigate_to_pose",
                 {

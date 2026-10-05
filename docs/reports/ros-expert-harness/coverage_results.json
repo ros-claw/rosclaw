@@ -6,10 +6,11 @@
   "hardware_verified": false,
   "coverage_ratio": 0.9801454138702461,
   "collision_count": 0,
-  "completion_time_seconds": 616.009736,
+  "completion_time_seconds": 682.815311,
   "dynamic_obstacle_recovery": true,
   "canonical_receipts": [
-    "RH10/native-004-full-pass/canonical-receipts.json"
+    "RH10/native-004-full-pass/canonical-receipts.json",
+    "RH10/native-010-watchdog-full-pass/canonical-receipts.json"
   ],
   "reason": "Actual gpt-6.1-sol chose observer, localization, coverage and Memory from a single cleaning input. Dynamic 20-second obstacle, >=98% independent coverage, zero physics contacts, three canonical completed receipts, Practice SUCCESS and TaskKernel SUCCEEDED. Full plan research/transfer gates remain pending.",
   "offline_calculation": {
@@ -298,5 +299,7 @@
     "nav2_acceptance": "NOT_RUN",
     "note": "Trace rasterization exercise; no coverage planner or robot executed."
   },
-  "offline_artifact": "RH04/evidence/coverage_results.json"
+  "offline_artifact": "RH04/evidence/coverage_results.json",
+  "complete_actual_model_runs": 2,
+  "complete_runs_with_controller_watchdog": 1
 }

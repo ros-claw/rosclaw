@@ -1,0 +1,406 @@
+{
+  "evidence_class": "historical_replay",
+  "evaluation_time": "each original native captured_at",
+  "diagnoses": {
+    "before": {
+      "schema_version": "rosclaw.ros_diagnosis.v1",
+      "snapshot_id": "rossys_bf593c17b03bf2a1e809e7d1f9a45b42ffa1fa3c2cf55f3e28a8551a82a37c64",
+      "snapshot_hash": "rossnap_bf593c17b03bf2a1e809e7d1f9a45b42ffa1fa3c2cf55f3e28a8551a82a37c64",
+      "profile": "all",
+      "status": "DEGRADED",
+      "unknown_checks": [],
+      "issues": [
+        {
+          "issue_code": "ROS_ENV_001",
+          "severity": "warning",
+          "evidence": [
+            {
+              "source": "rossys_bf593c17b03bf2a1e809e7d1f9a45b42ffa1fa3c2cf55f3e28a8551a82a37c64",
+              "observation": "read timeout: /bt_navigator_navigate_through_poses_rclcpp_node/list_parameters",
+              "timestamp": "2026-10-05T01:25:06.442047+00:00"
+            }
+          ],
+          "confidence": 1.0,
+          "hypotheses": [],
+          "next_checks": [
+            "Inspect the failed probe read."
+          ],
+          "recommended_repairs": [
+            "Inspect the failed probe read."
+          ],
+          "runtime_mutation_required": false
+        },
+        {
+          "issue_code": "ROS_ENV_001",
+          "severity": "warning",
+          "evidence": [
+            {
+              "source": "rossys_bf593c17b03bf2a1e809e7d1f9a45b42ffa1fa3c2cf55f3e28a8551a82a37c64",
+              "observation": "read timeout: /bt_navigator_navigate_to_pose_rclcpp_node/list_parameters",
+              "timestamp": "2026-10-05T01:25:06.442047+00:00"
+            }
+          ],
+          "confidence": 1.0,
+          "hypotheses": [],
+          "next_checks": [
+            "Inspect the failed probe read."
+          ],
+          "recommended_repairs": [
+            "Inspect the failed probe read."
+          ],
+          "runtime_mutation_required": false
+        },
+        {
+          "issue_code": "ROS_ENV_001",
+          "severity": "warning",
+          "evidence": [
+            {
+              "source": "rossys_bf593c17b03bf2a1e809e7d1f9a45b42ffa1fa3c2cf55f3e28a8551a82a37c64",
+              "observation": "read timeout: /bt_navigator_navigate_complete_coverage_rclcpp_node/list_parameters",
+              "timestamp": "2026-10-05T01:25:06.442047+00:00"
+            }
+          ],
+          "confidence": 1.0,
+          "hypotheses": [],
+          "next_checks": [
+            "Inspect the failed probe read."
+          ],
+          "recommended_repairs": [
+            "Inspect the failed probe read."
+          ],
+          "runtime_mutation_required": false
+        },
+        {
+          "issue_code": "ROS_TF_007",
+          "severity": "warning",
+          "evidence": [
+            {
+              "source": "rossys_bf593c17b03bf2a1e809e7d1f9a45b42ffa1fa3c2cf55f3e28a8551a82a37c64",
+              "observation": {
+                "roots": [
+                  "map",
+                  "ros_expert"
+                ]
+              },
+              "timestamp": "2026-10-05T01:25:06.442047+00:00"
+            }
+          ],
+          "confidence": 1.0,
+          "hypotheses": [],
+          "next_checks": [
+            "Inspect disconnected frame trees."
+          ],
+          "recommended_repairs": [
+            "Inspect disconnected frame trees."
+          ],
+          "runtime_mutation_required": false
+        }
+      ]
+    },
+    "paused": {
+      "schema_version": "rosclaw.ros_diagnosis.v1",
+      "snapshot_id": "rossys_30fe9185af63dc76cfb6fce276366ba9fd0542003171ab07da583f785799f947",
+      "snapshot_hash": "rossnap_30fe9185af63dc76cfb6fce276366ba9fd0542003171ab07da583f785799f947",
+      "profile": "all",
+      "status": "BLOCKED",
+      "unknown_checks": [],
+      "issues": [
+        {
+          "issue_code": "ROS_ENV_001",
+          "severity": "warning",
+          "evidence": [
+            {
+              "source": "rossys_30fe9185af63dc76cfb6fce276366ba9fd0542003171ab07da583f785799f947",
+              "observation": "read timeout: /bt_navigator_navigate_through_poses_rclcpp_node/list_parameters",
+              "timestamp": "2026-10-05T01:25:07.440490+00:00"
+            }
+          ],
+          "confidence": 1.0,
+          "hypotheses": [],
+          "next_checks": [
+            "Inspect the failed probe read."
+          ],
+          "recommended_repairs": [
+            "Inspect the failed probe read."
+          ],
+          "runtime_mutation_required": false
+        },
+        {
+          "issue_code": "ROS_ENV_001",
+          "severity": "warning",
+          "evidence": [
+            {
+              "source": "rossys_30fe9185af63dc76cfb6fce276366ba9fd0542003171ab07da583f785799f947",
+              "observation": "read timeout: /bt_navigator_navigate_to_pose_rclcpp_node/list_parameters",
+              "timestamp": "2026-10-05T01:25:07.440490+00:00"
+            }
+          ],
+          "confidence": 1.0,
+          "hypotheses": [],
+          "next_checks": [
+            "Inspect the failed probe read."
+          ],
+          "recommended_repairs": [
+            "Inspect the failed probe read."
+          ],
+          "runtime_mutation_required": false
+        },
+        {
+          "issue_code": "ROS_ENV_001",
+          "severity": "warning",
+          "evidence": [
+            {
+              "source": "rossys_30fe9185af63dc76cfb6fce276366ba9fd0542003171ab07da583f785799f947",
+              "observation": "read timeout: /bt_navigator_navigate_complete_coverage_rclcpp_node/list_parameters",
+              "timestamp": "2026-10-05T01:25:07.440490+00:00"
+            }
+          ],
+          "confidence": 1.0,
+          "hypotheses": [],
+          "next_checks": [
+            "Inspect the failed probe read."
+          ],
+          "recommended_repairs": [
+            "Inspect the failed probe read."
+          ],
+          "runtime_mutation_required": false
+        },
+        {
+          "issue_code": "ROS_TF_007",
+          "severity": "warning",
+          "evidence": [
+            {
+              "source": "rossys_30fe9185af63dc76cfb6fce276366ba9fd0542003171ab07da583f785799f947",
+              "observation": {
+                "roots": [
+                  "map",
+                  "ros_expert"
+                ]
+              },
+              "timestamp": "2026-10-05T01:25:07.440490+00:00"
+            }
+          ],
+          "confidence": 1.0,
+          "hypotheses": [],
+          "next_checks": [
+            "Inspect disconnected frame trees."
+          ],
+          "recommended_repairs": [
+            "Inspect disconnected frame trees."
+          ],
+          "runtime_mutation_required": false
+        },
+        {
+          "issue_code": "ROS_TOPIC_002",
+          "severity": "blocking",
+          "evidence": [
+            {
+              "source": "rossys_30fe9185af63dc76cfb6fce276366ba9fd0542003171ab07da583f785799f947",
+              "observation": {
+                "source": "native:monotonic_receive",
+                "captured_at": "2026-10-05T01:25:07.440490Z",
+                "freshness_policy": "stream",
+                "max_age_ms": 1000.0,
+                "topic": "/local_costmap/voxel_layer",
+                "rate_hz": 1.666660059978798,
+                "jitter_ms": 0.22435100368998728,
+                "last_message_age_ms": 1274.4062170095276,
+                "publisher_count": 1,
+                "subscriber_count": 1
+              },
+              "timestamp": "2026-10-05T01:25:07.440490+00:00"
+            }
+          ],
+          "confidence": 1.0,
+          "hypotheses": [],
+          "next_checks": [
+            "Inspect sensor freshness and upstream health."
+          ],
+          "recommended_repairs": [
+            "Inspect sensor freshness and upstream health."
+          ],
+          "runtime_mutation_required": false
+        },
+        {
+          "issue_code": "ROS_TIME_003",
+          "severity": "blocking",
+          "evidence": [
+            {
+              "source": "rossys_30fe9185af63dc76cfb6fce276366ba9fd0542003171ab07da583f785799f947",
+              "observation": {
+                "clock_advancing": false
+              },
+              "timestamp": "2026-10-05T01:25:07.440490+00:00"
+            }
+          ],
+          "confidence": 1.0,
+          "hypotheses": [],
+          "next_checks": [
+            "Inspect simulation clock publisher."
+          ],
+          "recommended_repairs": [
+            "Inspect simulation clock publisher."
+          ],
+          "runtime_mutation_required": false
+        }
+      ]
+    },
+    "resumed": {
+      "schema_version": "rosclaw.ros_diagnosis.v1",
+      "snapshot_id": "rossys_036fc0b817116e54949db4e7237c647cb3276f882420bc16c03b5b86d0caa344",
+      "snapshot_hash": "rossnap_036fc0b817116e54949db4e7237c647cb3276f882420bc16c03b5b86d0caa344",
+      "profile": "all",
+      "status": "BLOCKED",
+      "unknown_checks": [],
+      "issues": [
+        {
+          "issue_code": "ROS_ENV_001",
+          "severity": "warning",
+          "evidence": [
+            {
+              "source": "rossys_036fc0b817116e54949db4e7237c647cb3276f882420bc16c03b5b86d0caa344",
+              "observation": "read timeout: /bt_navigator_navigate_through_poses_rclcpp_node/list_parameters",
+              "timestamp": "2026-10-05T01:25:08.440692+00:00"
+            }
+          ],
+          "confidence": 1.0,
+          "hypotheses": [],
+          "next_checks": [
+            "Inspect the failed probe read."
+          ],
+          "recommended_repairs": [
+            "Inspect the failed probe read."
+          ],
+          "runtime_mutation_required": false
+        },
+        {
+          "issue_code": "ROS_ENV_001",
+          "severity": "warning",
+          "evidence": [
+            {
+              "source": "rossys_036fc0b817116e54949db4e7237c647cb3276f882420bc16c03b5b86d0caa344",
+              "observation": "read timeout: /bt_navigator_navigate_to_pose_rclcpp_node/list_parameters",
+              "timestamp": "2026-10-05T01:25:08.440692+00:00"
+            }
+          ],
+          "confidence": 1.0,
+          "hypotheses": [],
+          "next_checks": [
+            "Inspect the failed probe read."
+          ],
+          "recommended_repairs": [
+            "Inspect the failed probe read."
+          ],
+          "runtime_mutation_required": false
+        },
+        {
+          "issue_code": "ROS_ENV_001",
+          "severity": "warning",
+          "evidence": [
+            {
+              "source": "rossys_036fc0b817116e54949db4e7237c647cb3276f882420bc16c03b5b86d0caa344",
+              "observation": "read timeout: /bt_navigator_navigate_complete_coverage_rclcpp_node/list_parameters",
+              "timestamp": "2026-10-05T01:25:08.440692+00:00"
+            }
+          ],
+          "confidence": 1.0,
+          "hypotheses": [],
+          "next_checks": [
+            "Inspect the failed probe read."
+          ],
+          "recommended_repairs": [
+            "Inspect the failed probe read."
+          ],
+          "runtime_mutation_required": false
+        },
+        {
+          "issue_code": "ROS_TF_007",
+          "severity": "warning",
+          "evidence": [
+            {
+              "source": "rossys_036fc0b817116e54949db4e7237c647cb3276f882420bc16c03b5b86d0caa344",
+              "observation": {
+                "roots": [
+                  "map",
+                  "ros_expert"
+                ]
+              },
+              "timestamp": "2026-10-05T01:25:08.440692+00:00"
+            }
+          ],
+          "confidence": 1.0,
+          "hypotheses": [],
+          "next_checks": [
+            "Inspect disconnected frame trees."
+          ],
+          "recommended_repairs": [
+            "Inspect disconnected frame trees."
+          ],
+          "runtime_mutation_required": false
+        },
+        {
+          "issue_code": "ROS_TOPIC_002",
+          "severity": "blocking",
+          "evidence": [
+            {
+              "source": "rossys_036fc0b817116e54949db4e7237c647cb3276f882420bc16c03b5b86d0caa344",
+              "observation": {
+                "source": "native:monotonic_receive",
+                "captured_at": "2026-10-05T01:25:08.440692Z",
+                "freshness_policy": "stream",
+                "max_age_ms": 1000.0,
+                "topic": "/global_costmap/obstacle_layer",
+                "rate_hz": 0.9999999050904435,
+                "jitter_ms": 0.1722719426288335,
+                "last_message_age_ms": 1865.6106069975067,
+                "publisher_count": 1,
+                "subscriber_count": 1
+              },
+              "timestamp": "2026-10-05T01:25:08.440692+00:00"
+            }
+          ],
+          "confidence": 1.0,
+          "hypotheses": [],
+          "next_checks": [
+            "Inspect sensor freshness and upstream health."
+          ],
+          "recommended_repairs": [
+            "Inspect sensor freshness and upstream health."
+          ],
+          "runtime_mutation_required": false
+        },
+        {
+          "issue_code": "ROS_TOPIC_002",
+          "severity": "blocking",
+          "evidence": [
+            {
+              "source": "rossys_036fc0b817116e54949db4e7237c647cb3276f882420bc16c03b5b86d0caa344",
+              "observation": {
+                "source": "native:monotonic_receive",
+                "captured_at": "2026-10-05T01:25:08.440692Z",
+                "freshness_policy": "stream",
+                "max_age_ms": 1000.0,
+                "topic": "/global_costmap/static_layer",
+                "rate_hz": 0.9999998913417383,
+                "jitter_ms": 0.1688211808118806,
+                "last_message_age_ms": 1865.5763340066187,
+                "publisher_count": 1,
+                "subscriber_count": 1
+              },
+              "timestamp": "2026-10-05T01:25:08.440692+00:00"
+            }
+          ],
+          "confidence": 1.0,
+          "hypotheses": [],
+          "next_checks": [
+            "Inspect sensor freshness and upstream health."
+          ],
+          "recommended_repairs": [
+            "Inspect sensor freshness and upstream health."
+          ],
+          "runtime_mutation_required": false
+        }
+      ]
+    }
+  }
+}
