@@ -15,6 +15,7 @@
 import { VERSION } from "./version.js";
 
 process.env.PI_SKIP_VERSION_CHECK = "1";
+if (process.argv.includes("--continuation-target")) process.env.PI_OFFLINE = "1";
 
 const rosclawHomeEnv = process.env.ROSCLAW_HOME ?? `${process.env.HOME}/.rosclaw`;
 process.env.PI_CODING_AGENT_DIR ??= `${rosclawHomeEnv}/agent`;
@@ -100,7 +101,7 @@ async function main(): Promise<number> {
 	// PR-HP2：Pi SDK 调用全部经 harness/pi/ 帮助函数——本文件不再
 	// 直接引用 Pi 包。
 	const {
-		continueRecentPiSession, listAllPiSessions, listPiSessions,
+		continueRecentPiSession, resolveContinuationTarget, listAllPiSessions, listPiSessions,
 		openPiSession, runPiInteractive, runPiPrint,
 	} = await import("./harness/pi/pi-sessions.js");
 	const { createRosclawRuntime } = await import("./harness/pi/pi-runtime.js");
@@ -109,6 +110,11 @@ async function main(): Promise<number> {
 		resumeSessionId, resumeSessionPath, browseSessions, continueLast,
 	} = parseArgs(process.argv.slice(2));
 	const rosclawHome = rosclawHomeEnv;
+	if (process.argv.includes("--continuation-target")) {
+		const target = await resolveContinuationTarget(`${rosclawHome}/agent/sessions`);
+		console.log(JSON.stringify(target ?? { status: "NO_RECORDED_SESSION" }));
+		return target ? 0 : 2;
+	}
 	if (probe) {
 		// P1-A1：headless 探测通道——输出单行 JSON（无 secret），
 		// Python onboarding/doctor 解析；不建会话、不进 TUI。
@@ -130,29 +136,13 @@ async function main(): Promise<number> {
 	// 时间前缀，拼接 id 是格式漂移风险）。
 	const { WorkspaceStore } = await import("./session/workspace.js");
 	const workspaceStore = new WorkspaceStore(rosclawHome);
-	// PR-N1：ActiveTaskContext 在 session 创建前解析并冻结——
-	// runtime/工具/bridge/artifact/verifier/header 全从这里取路径。
-	const { resolveTaskContext } = await import("./native/active-task-context.js");
-	let taskContext = resolveTaskContext({
-		rosclawHome,
-		cwd: process.cwd(),  // 唯一允许的进程 cwd 读取（启动解析输入）
-		mode: "SIMULATION",
-		explicitWorkspace: workspace,
-	});
-	// 持久化绑定规则与旧 resolveStartupWorkspace 一致（explicit/git
-	// 会 bind；restored/default 不覆盖既有绑定）。
-	if (taskContext.workspaceSource === "explicit" || taskContext.workspaceSource === "git") {
-		// ActiveTaskContext already resolved automatic git roots. Persist the exact
-		// explicit task directory instead of widening it to its enclosing repo.
-		workspaceStore.bind(taskContext.workspaceRoot, { normalizeToGit: false });
-	}
-	const startupWs = { bound: workspaceStore.current, auto: taskContext.workspaceSource === "git" };
+	const startupCwd = process.cwd(); // 唯一启动解析输入
 	let initialSession: import("./harness/pi/pi-sessions.js").SessionManager | undefined;
 	const sessionDir = `${rosclawHome}/agent/sessions`;
 	if (browseSessions) {
 		const { browseSessions: openPicker } = await import("./harness/pi/pi-picker.js");
 		const picked = await openPicker(
-			(onProgress) => listPiSessions(taskContext.workspaceRoot, sessionDir, onProgress),
+			(onProgress) => listPiSessions(workspace ?? startupCwd, sessionDir, onProgress),
 			(onProgress) => listAllPiSessions(sessionDir, onProgress),
 		);
 		if (!picked) return 0;  // 用户取消——干净退出，不建会话
@@ -175,24 +165,32 @@ async function main(): Promise<number> {
 		}
 		initialSession = openPiSession(hit.path, sessionDir);
 	} else if (continueLast) {
-		initialSession = continueRecentPiSession(taskContext.workspaceRoot, sessionDir);
+		initialSession = await continueRecentPiSession(workspace ?? startupCwd, sessionDir);
+		if (!initialSession) {
+			console.error("没有可继续的已记录会话；请用 rosclaw chat 创建新会话");
+			return 2;
+		}
 	}
+	// PR-N1：ActiveTaskContext 在 session 创建前解析并冻结——
+	// runtime/工具/bridge/artifact/verifier/header 全从这里取路径。
+	const { resolveTaskContext } = await import("./native/active-task-context.js");
+	let taskContext = resolveTaskContext({
+		rosclawHome,
+		cwd: startupCwd,
+		mode: "SIMULATION",
+		explicitWorkspace: workspace,
+		resumedWorkspace: initialSession?.getCwd(),
+	});
 	const isResume = Boolean(
 		resumeSessionId || resumeSessionPath || browseSessions || continueLast,
 	);
-	// N4.2：resume 的 workspace 以会话记录为准（优先于 cwd 推导）。
-	if (isResume && initialSession) {
-		const resumedCwd = initialSession.getCwd();
-		if (resumedCwd) {
-			taskContext = resolveTaskContext({
-				rosclawHome,
-				cwd: process.cwd(),  // 唯一允许的进程 cwd 读取（启动解析输入）
-				mode: "SIMULATION",
-				explicitWorkspace: workspace,
-				resumedWorkspace: resumedCwd,
-			});
-		}
+	// Persist only after a successful recorded-session selection. A failed
+	// resume must not rewrite the current workspace, and continuation uses its
+	// recorded cwd rather than implicit enclosing git inference.
+	if (taskContext.workspaceSource === "explicit" || taskContext.workspaceSource === "git") {
+		workspaceStore.bind(taskContext.workspaceRoot, { normalizeToGit: false });
 	}
+	const startupWs = { bound: workspaceStore.current, auto: taskContext.workspaceSource === "git" };
 	// 十一审 PR-D：Workspace 一等状态——显式 --workspace > cwd git 自动
 	// 绑定 > 既有绑定。
 	const { runtime, coordinator, leaseManager } = await createRosclawRuntime({

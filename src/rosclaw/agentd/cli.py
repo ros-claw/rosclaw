@@ -624,6 +624,14 @@ def _chat_pi(home: Path, args: argparse.Namespace) -> int:
         print(str(exc), file=sys.stderr)
         return 2
     node, entry = runtime
+    continuation_target = None
+    if getattr(args, "continue_last", False):
+        try:
+            continuation_target = _select_continuation_target(node, entry, home)
+        except (OSError, ValueError, _sp.SubprocessError):
+            print("没有可继续的有效会话；请用 rosclaw chat 创建新会话", file=sys.stderr)
+            return 2
+        args._continuation_native_id = continuation_target["id"]
     config = load_agent_config(home / "config.yaml")
     # P0-7（0827 审计·真实 K3 复验实证）：retry 预算只在 setup 写
     # 不够——手工/legacy 配置的家目录绕过 setup（pi 默认 3 次重试
@@ -640,7 +648,8 @@ def _chat_pi(home: Path, args: argparse.Namespace) -> int:
     mission = None
     resume_argv: list[str] = []
     if getattr(args, "continue_last", False):
-        resume_argv = ["--continue"]
+        assert continuation_target is not None
+        resume_argv = ["--resume-path", continuation_target["path"]]
     elif getattr(args, "resume", None):
         query = str(args.resume)
         # WP-P0-1：裸 --resume → 会话选择器；P1-A5：查询原样传 Pi
@@ -768,6 +777,35 @@ def _chat_pi(home: Path, args: argparse.Namespace) -> int:
             managed_operatord.terminate()
 
 
+def _select_continuation_target(node: str, entry: str, home: Path) -> dict[str, str]:
+    """One public SDK-selected target shared by mode routing and native open.
+
+    Metadata query is offline, before service/model construction. It never
+    creates a session. Keep target failures explicit rather than silently
+    promoting a nested workspace or creating a fresh continuation UUID.
+    """
+    import json
+    import subprocess
+
+    from rosclaw.agentd.pi_entry import node_runtime_env
+
+    raw = subprocess.check_output(
+        [node, entry, "--continuation-target"],
+        env=node_runtime_env(dict(os.environ, ROSCLAW_HOME=str(home), PI_OFFLINE="1")),
+        text=True,
+        timeout=10,
+    )
+    target = json.loads(raw)
+    if not isinstance(target, dict) or not all(
+        isinstance(target.get(k), str) and target[k] for k in ("id", "path", "cwd")
+    ):
+        raise ValueError("INVALID_CONTINUATION_TARGET")
+    path = Path(target["path"]).resolve()
+    if not path.is_relative_to((home / "agent" / "sessions").resolve()):
+        raise ValueError("CONTINUATION_TARGET_OUTSIDE_SESSION_DIRECTORY")
+    return {"id": target["id"], "path": str(path), "cwd": target["cwd"]}
+
+
 def _resume_target_mode(home: Path, args: argparse.Namespace) -> str | None:
     """--resume/--continue 目标 session 的 mission mode（P0-NA-12）。
 
@@ -779,7 +817,9 @@ def _resume_target_mode(home: Path, args: argparse.Namespace) -> str | None:
 
     session_dir = home / "agent" / "sessions"
     session_id = ""
-    if getattr(args, "resume", None):
+    if getattr(args, "_continuation_native_id", None):
+        session_id = str(args._continuation_native_id)
+    elif getattr(args, "resume", None):
         candidate = str(args.resume)
         # 与 Node 侧同一规则：纯标识符，拒绝路径穿越。
         import re as _re
