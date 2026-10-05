@@ -171,8 +171,10 @@ def _write_thinking_level(home: Path, effort: str) -> None:
 
 
 def _write_retry_budget(home: Path) -> None:
-    """retry.maxRetries=1 写入 agent/settings.json（保留其他键，
-    幂等）——P0-7：确定性 provider 错误不得被自动重试烧配额。"""
+    """默认重试上限为 1，保留明确的 0 和其他配置键。
+
+    P0-7 限制默认 provider 恢复预算；启动不能增加用户的零重试预算。
+    """
     settings_path = home / "agent" / "settings.json"
     settings: dict = {}
     if settings_path.exists():
@@ -183,7 +185,7 @@ def _write_retry_budget(home: Path) -> None:
     retry = settings.get("retry")
     if not isinstance(retry, dict):
         retry = {}
-    if retry.get("maxRetries") == 1:
+    if type(retry.get("maxRetries")) is int and retry["maxRetries"] in (0, 1):
         return
     retry["maxRetries"] = 1
     settings["retry"] = retry
