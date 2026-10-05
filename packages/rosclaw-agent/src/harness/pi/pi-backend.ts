@@ -10,7 +10,7 @@
  *   全 true；probe 缺失的能力在创建期 fail-fast。
  */
 
-import { AgentSession, InteractiveMode, SessionManager } from "@earendil-works/pi-coding-agent";
+import { AgentSession, ExtensionRunner, InteractiveMode, SessionManager } from "@earendil-works/pi-coding-agent";
 
 import type {
 	HarnessCapabilities,
@@ -40,7 +40,8 @@ export function probePiCapabilities(): HarnessCapabilities {
 		modelSwitching: has(proto, "setModel"),
 		customTools: has(proto, "setActiveToolsByName"),
 		toolStreaming: has(proto, "subscribe"),
-		toolPolicyHook: has(proto, "subscribe"),  // 扩展钩子经事件订阅面
+		toolPolicyHook: typeof Object.getOwnPropertyDescriptor(AgentSession.prototype, "extensionRunner")?.get === "function"
+			&& typeof ExtensionRunner.prototype.emitToolCall === "function",
 		interactiveUi: typeof InteractiveMode === "function",
 	};
 }
