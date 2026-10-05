@@ -6,12 +6,12 @@
   "collision_count": 0,
   "evidence_domain": "SIMULATION",
   "autonomous_model": "gpt-6.1-sol",
-  "single_task_input": "完成整个房间清扫。",
+  "single_task_input": "\u5b8c\u6210\u6574\u4e2a\u623f\u95f4\u6e05\u626b\u3002",
   "dynamic_obstacle_zero_contacts": true,
   "memory_step": "NOT_CALLED",
   "task": {
     "task_id": "task_b6c16c43e39a4137b97864d5",
-    "root_goal": "完成整个房间清扫。",
+    "root_goal": "\u5b8c\u6210\u6574\u4e2a\u623f\u95f4\u6e05\u626b\u3002",
     "state": "RUNNING"
   },
   "hardware_verified": false

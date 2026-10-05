@@ -2,7 +2,7 @@
   "status": "PASS",
   "evidence_domain": "SIMULATION",
   "autonomous_model": "gpt-6.1-sol",
-  "single_task_input": "完成整个房间清扫。",
+  "single_task_input": "\u5b8c\u6210\u6574\u4e2a\u623f\u95f4\u6e05\u626b\u3002",
   "operator_approvals": 3,
   "coverage_ratio": 0.9801454138702461,
   "safety": {
@@ -39,16 +39,19 @@
       "sha256": "140476162d15e7c066b015152034838ed5039e029cdba7c6170f422fc124b2bc"
     },
     {
-      "file": "coverage-mask.json",
-      "sha256": "eb3dab65add667afb4cf78900db8a5cf629cede01513c92b7fd4eafc812b28c5"
+      "file": "coverage-mask.json.gz",
+      "sha256": "f176c4edf206cdea218bac5a895a6672ecc3f03ed21f5071268ed4913f992874",
+      "uncompressed_sha256": "eb3dab65add667afb4cf78900db8a5cf629cede01513c92b7fd4eafc812b28c5"
     },
     {
-      "file": "dynamic_fault.json",
-      "sha256": "ff8b3c93062ce92a44eee02397e9ba310f3956cfc93cacc44e34d72a1169bb4c"
+      "file": "dynamic_fault.json.gz",
+      "sha256": "a5acb87dc6f306d7231decca173c7125218c1e0aa8b2e7bf707ea70490a3f801",
+      "uncompressed_sha256": "ff8b3c93062ce92a44eee02397e9ba310f3956cfc93cacc44e34d72a1169bb4c"
     },
     {
-      "file": "execution_config.json",
-      "sha256": "72340087e299c1a9e5d0dcbe3d02b5c0df3d2f46abfc8869ec6c049bb7ab7522"
+      "file": "execution_config.json.gz",
+      "sha256": "89fa549ebe23ddf634f9b9aa60912c399884e94e5eb18b9962650d5cd5abeb84",
+      "uncompressed_sha256": "72340087e299c1a9e5d0dcbe3d02b5c0df3d2f46abfc8869ec6c049bb7ab7522"
     },
     {
       "file": "measured_map.json",

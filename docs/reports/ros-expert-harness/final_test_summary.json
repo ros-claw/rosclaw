@@ -385,8 +385,8 @@
     },
     "repository_format": {
       "status": "BASELINE_FAILURE",
-      "log": "format_repository.log",
-      "baseline_log": "format_baseline_archive.log",
+      "log": "format_repository.log.gz",
+      "baseline_log": "format_baseline_archive.log.gz",
       "note": "Baseline has 609 unformatted files; final changed files checked separately."
     },
     "focused_existing_types": {

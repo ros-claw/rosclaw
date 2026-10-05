@@ -23,16 +23,18 @@
       "sha256": "4a03973a84af0e425a5c87da837a1e43ed05457d7d46b0277fecc11dc8049abe"
     },
     {
-      "file": "execution_config.json",
-      "sha256": "e8975e00d3b1253c556c3641b93eac0b754eb65e70d9580557bfdbc067885e57"
+      "file": "execution_config.json.gz",
+      "sha256": "1abc8e9ed82071ed7427825ed94ef75fdf2dcfd09c289823cdf23893ac47f8ab",
+      "uncompressed_sha256": "e8975e00d3b1253c556c3641b93eac0b754eb65e70d9580557bfdbc067885e57"
     },
     {
       "file": "measured_map.json",
       "sha256": "4cbe10fb5666e05d051037244a0b8916fe1276f70477c157a4338877d6c65db4"
     },
     {
-      "file": "snapshot.json",
-      "sha256": "4b6c5401f2e708ed67e88c3d6f7b678293e2fdf7154229549f164a92c70d06eb"
+      "file": "snapshot.json.gz",
+      "sha256": "7373095130fcf41641da98ce37d7a4d037338ddbf7839dbee5b496e1334e5651",
+      "uncompressed_sha256": "4b6c5401f2e708ed67e88c3d6f7b678293e2fdf7154229549f164a92c70d06eb"
     },
     {
       "file": "solution.json",
@@ -71,8 +73,9 @@
       "sha256": "03cc39a38b512d286e3ed13352172467f2d5a8243d647884bab5fcd74ce07aa8"
     },
     {
-      "file": "coverage-mask.json",
-      "sha256": "4c20d8a989958a07c2c3f844b186e9de125989fe1f610698c0c7cc1294b9b69d"
+      "file": "coverage-mask.json.gz",
+      "sha256": "a71a4aa6d945ff8e54003642f085c7463e3581b8d6d9c8952c6208c76f5f7d83",
+      "uncompressed_sha256": "4c20d8a989958a07c2c3f844b186e9de125989fe1f610698c0c7cc1294b9b69d"
     },
     {
       "file": "trajectory.json.gz",
