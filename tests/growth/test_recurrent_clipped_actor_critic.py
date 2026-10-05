@@ -141,6 +141,17 @@ def test_joint_kl_rejection_rolls_back_actor_and_critic():
     assert result["accepted_update_history"] == []
 
 
+@pytest.mark.parametrize("field", ["context", "advantages", "critic_parameters"])
+def test_signed_integer_minimum_cannot_bypass_numeric_magnitude_bound(field):
+    data = dataset()
+    if field == "critic_parameters":
+        data[field]["bias_1"] = [np.iinfo(np.int64).min]
+    else:
+        data[field] = np.full(data[field].shape, np.iinfo(np.int64).min, dtype=np.int64)
+    with pytest.raises(ValueError, match="finite.*bounded|finite aligned"):
+        fit_recurrent_clipped_actor_critic(**data, config=config())
+
+
 def test_rng_threads_determinism_and_repeatability_restored():
     torch = pytest.importorskip("torch")
     torch_rng = torch.random.get_rng_state().clone()

@@ -83,7 +83,7 @@ def _value_parameters(value: Any, dimension: int) -> dict[str, Any]:
             array.shape != shape
             or array.dtype.kind not in "fiu"
             or not np.isfinite(array).all()
-            or np.max(np.abs(array)) > 1e6
+            or np.max(np.abs(array.astype(np.float64))) > 1e6
         ):
             raise ValueError("finite bounded value-network parameters required")
         owned[key] = np.array(array, dtype=np.float64, copy=True)
@@ -149,7 +149,9 @@ def fit_recurrent_clipped_actor_critic(
         or a.shape != b.shape
         or any(v.shape != (n, t) for v in (g, old_log, adv, ret))
         or any(
-            v.dtype.kind not in "fiu" or not np.isfinite(v).all() or np.max(np.abs(v)) > 1e6
+            v.dtype.kind not in "fiu"
+            or not np.isfinite(v).all()
+            or np.max(np.abs(v.astype(np.float64))) > 1e6
             for v in values
         )
         or np.any((g < 0) | (g > 1))
