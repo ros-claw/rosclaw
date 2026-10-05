@@ -1,7 +1,7 @@
 {
-  "package_version": "1.0.2",
-  "source_commit": "cd32f7725fdbddbaecdff5b1e68491563394e0ca",
+  "package_version": "1.0.3",
+  "source_commit": "d78dc83d633229d12f8b79631384c4c2717c399f",
   "license": "MIT",
-  "package_lock_sha256": "26a329a82b7429fa01597a0eee07b967bc19db92efa6ad75d507570939dc96e7",
+  "package_lock_sha256": "3e5b0d1004e90c52954c3f8a110ced345708b5b5a67e82f2bfa2d39ee4315df4",
   "characterization_suite_version": "1"
 }
