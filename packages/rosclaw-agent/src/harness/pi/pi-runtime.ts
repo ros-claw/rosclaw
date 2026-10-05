@@ -34,6 +34,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { createRosclawExtension } from "../../extension/index.js";
+import { createToolCallBudgetExtension, type ToolCallBudget } from "./tool-call-budget.js";
 import { buildBridgeTools } from "../../tools/bridge-tools.js";
 import { buildRequestActionTool } from "../../tools/request-action.js";
 import { buildCapabilitiesTool } from "../../tools/capabilities.js";
@@ -58,6 +59,8 @@ export interface RosclawRuntimeOptions {
 	/** 十一审 PR-D：Workspace 一等状态。 */
 	workspaceStore?: import("../../session/workspace.js").WorkspaceStore;
 	workspaceAutoBound?: boolean;
+	/** Optional restrictive tool budget; caller owns episode admission and persistence. */
+	toolCallBudget?: ToolCallBudget;
 }
 
 /** native_agent_v2.md：构建期从 Python 源树拷入 dist/prompts（单一事实源）。 */
@@ -89,6 +92,8 @@ export interface RosclawRuntime {
 export async function createRosclawRuntime(
 	options: RosclawRuntimeOptions,
 ): Promise<RosclawRuntime> {
+	const toolBudgetExtension = options.toolCallBudget === undefined
+		? undefined : createToolCallBudgetExtension(options.toolCallBudget);
 	const active = new ActiveSessionContext({
 		sessionId: "",
 		missionId: options.missionId,
@@ -190,6 +195,7 @@ export async function createRosclawRuntime(
 						};
 					})(),
 					extensionFactories: [
+						...(toolBudgetExtension ? [{ name: "rosclaw-tool-budget", factory: toolBudgetExtension }] : []),
 						{
 							name: "rosclaw",
 							factory: createRosclawExtension({

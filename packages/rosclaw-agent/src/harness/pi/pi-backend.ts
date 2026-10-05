@@ -20,6 +20,7 @@ import type {
 	NativeHarnessBackend,
 } from "../port.js";
 import { PiHarnessSession } from "./pi-session-adapter.js";
+import type { ToolCallBudget } from "./tool-call-budget.js";
 
 export const PI_BACKEND_ID = "pi";
 
@@ -56,6 +57,7 @@ interface PiBackendOptions extends Record<string, unknown> {
 	taskContext?: unknown;
 	workspaceStore?: unknown;
 	workspaceAutoBound?: boolean;
+	toolCallBudget?: ToolCallBudget;
 }
 
 export function createPiBackend(): NativeHarnessBackend {
@@ -86,6 +88,7 @@ export function createPiBackend(): NativeHarnessBackend {
 					? { workspaceStore: extra.workspaceStore as never }
 					: {}),
 				...(extra.workspaceAutoBound ? { workspaceAutoBound: true } : {}),
+				...(extra.toolCallBudget !== undefined ? { toolCallBudget: extra.toolCallBudget } : {}),
 			});
 			// RosclawRuntime.runtime = AgentSessionRuntime → .session 才是
 			// AgentSession（与 main.ts 的 runtime.session 同一对象）。
