@@ -147,6 +147,7 @@ class RosCoverageSimulationExecutor:
         self.control_lock = threading.Lock()
         self.recovery_centers = tuple(recovery_centers)
         self.lease_control = lease_control or control
+        self.lease_lock = self.control_lock if self.lease_control is control else threading.Lock()
 
     def _service(self, name, arguments):
         # One response consumer per connection: concurrent RPC loops would
@@ -159,10 +160,24 @@ class RosCoverageSimulationExecutor:
     def _run_goal(self, name, action_type, args, goal_id, deadline, *, goal_timeout_sec=45):
         if self.stopping.is_set() or time.monotonic() >= deadline:
             raise RuntimeError("simulation recovery stopped before dispatch")
-        lease = self._service("/rosclaw_sim/lease", {"data": True})
-        enabled = self._service("/rosclaw_sim/cleaning", {"data": True})
-        if not lease.ok or not enabled.ok or not enabled.data.get("values", {}).get("success"):
-            raise RuntimeError("simulation recovery actuator did not acknowledge enable")
+        observed = self.witness.fresh()
+        remaining = observed.get("lease_remaining_sec")
+        # The active mission heartbeat already maintains these states. Require
+        # actual fresh actuator/lease evidence rather than repeatedly toggling
+        # the same services at every repair goal (and racing the heartbeat).
+        enabled_and_leased = (
+            observed.get("cleaning_enabled") is True
+            and type(remaining) in (int, float)
+            and math.isfinite(remaining)
+            and remaining > 0.5
+        )
+        if not enabled_and_leased:
+            lease = self._service("/rosclaw_sim/lease", {"data": True})
+            enabled = self._service("/rosclaw_sim/cleaning", {"data": True})
+            if not all(
+                r.ok and r.data.get("values", {}).get("success") is True for r in (lease, enabled)
+            ):
+                raise RuntimeError("simulation recovery actuator did not acknowledge enable")
         done, result = threading.Event(), {}
         goal_deadline = min(deadline, time.monotonic() + goal_timeout_sec)
         with self.lock:
@@ -433,12 +448,13 @@ class RosCoverageSimulationExecutor:
             while not heartbeat_stop.wait(0.2):
                 try:
                     observed = self.witness.fresh()
-                    response = self.lease_control.call_service(
-                        "/rosclaw_sim/lease",
-                        {"data": True},
-                        service_type="std_srvs/srv/SetBool",
-                        timeout_sec=0.5,
-                    )
+                    with self.lease_lock:
+                        response = self.lease_control.call_service(
+                            "/rosclaw_sim/lease",
+                            {"data": True},
+                            service_type="std_srvs/srv/SetBool",
+                            timeout_sec=0.5,
+                        )
                     count += 1
                     if time.monotonic() - last_log >= 5:
                         logger.info("Simulation daemon lease renewed %s times", count)
@@ -470,12 +486,13 @@ class RosCoverageSimulationExecutor:
                         and not observed["cleaning_enabled"]
                         and not heartbeat_stop.is_set()
                     ):
-                        enabled = self.lease_control.call_service(
-                            "/rosclaw_sim/cleaning",
-                            {"data": True},
-                            service_type="std_srvs/srv/SetBool",
-                            timeout_sec=0.3,
-                        )
+                        with self.lease_lock:
+                            enabled = self.lease_control.call_service(
+                                "/rosclaw_sim/cleaning",
+                                {"data": True},
+                                service_type="std_srvs/srv/SetBool",
+                                timeout_sec=0.3,
+                            )
                         if not enabled.ok or not enabled.data.get("values", {}).get("success"):
                             raise RuntimeError("active simulation cleaning re-enable rejected")
                 except Exception:

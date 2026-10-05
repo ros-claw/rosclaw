@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parent
 OUTPUT = Path("/evidence")
 
 
-def prepare(controller_watchdog=False):
+def prepare(controller_watchdog=True):
     OUTPUT.mkdir(exist_ok=True)
     sim = Path(get_package_share_directory("nav2_minimal_tb3_sim"))
     (OUTPUT / "robot.urdf").write_bytes((sim / "urdf/turtlebot3_waffle.urdf").read_bytes())
@@ -199,7 +199,12 @@ def prepare(controller_watchdog=False):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--fault-acceptance", action="store_true")
-    parser.add_argument("--controller-watchdog", action="store_true")
+    parser.add_argument(
+        "--controller-watchdog",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Require the bottom-level command timeout; disable only for explicit legacy fixture replay",
+    )
     args = parser.parse_args()
     prepare(args.controller_watchdog)
     children = []

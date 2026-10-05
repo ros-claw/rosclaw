@@ -49,7 +49,7 @@ class Witness(Node):
         self.trace = Path("/evidence/witness.jsonl").open("a", buffering=1)  # noqa: SIM115 - node lifecycle closes it
         self.publisher = self.create_publisher(String, "/rosclaw_sim/observation", 10)
         self.cleaning_state = self.create_publisher(Bool, "/rosclaw_sim/cleaning_state", 10)
-        self.controller_watchdog = self.declare_parameter("controller_watchdog", False).value
+        self.controller_watchdog = self.declare_parameter("controller_watchdog", True).value
         self.velocity = self.create_publisher(
             TwistStamped if self.controller_watchdog else Twist,
             "/drive_controller/cmd_vel" if self.controller_watchdog else "/cmd_vel",

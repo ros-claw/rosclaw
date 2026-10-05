@@ -454,7 +454,13 @@ def test_repair_goal_budget_requires_canonical_cancellation_ack(tmp_path, acknow
         owner="daemon_test",
         client=client,
         control=None,
-        witness=SimpleNamespace(fresh=lambda: {"observation_complete": True}),
+        witness=SimpleNamespace(
+            fresh=lambda: {
+                "observation_complete": True,
+                "cleaning_enabled": True,
+                "lease_remaining_sec": 1.0,
+            }
+        ),
         output=tmp_path,
         body_id="base",
         body_snapshot_hash="bound",
@@ -483,3 +489,64 @@ def test_repair_goal_budget_requires_canonical_cancellation_ack(tmp_path, acknow
                 goal_timeout_sec=0.01,
             )
     assert client.cancelled == ["repair"]
+
+
+def test_repair_reuses_independently_observed_active_cleaning_lease(tmp_path):
+    import time
+
+    from rosclaw.connectors.ros.mission.executor import RosCoverageSimulationExecutor
+
+    sent = []
+
+    def send_goal(**args):
+        sent.append(args["goal_id"])
+        args["on_result"](4, {"error_code": 0})
+
+    control = SimpleNamespace(
+        call_service=lambda *args, **kwargs: pytest.fail(
+            "active state must not be redundantly toggled"
+        )
+    )
+    executor = RosCoverageSimulationExecutor(
+        owner="daemon_test",
+        client=SimpleNamespace(send_goal=send_goal),
+        control=control,
+        witness=SimpleNamespace(
+            fresh=lambda: {"cleaning_enabled": True, "lease_remaining_sec": 1.2}
+        ),
+        output=tmp_path,
+        body_id="base",
+        body_snapshot_hash="bound",
+        grid={},
+    )
+    result = executor._run_goal("/navigate", "type", {}, "repair", time.monotonic() + 5)
+    assert sent == ["repair"]
+    assert result["status"] == 4
+    assert executor.lease_lock is executor.control_lock
+
+
+@pytest.mark.parametrize("remaining", [None, False, float("nan"), -1.0, 0.5])
+def test_repair_missing_or_expiring_lease_requires_positive_service_ack(tmp_path, remaining):
+    import time
+
+    from rosclaw.connectors.ros.mission.executor import RosCoverageSimulationExecutor
+
+    control = SimpleNamespace(
+        call_service=lambda *args, **kwargs: SimpleNamespace(
+            ok=True, data={"values": {"success": False}}
+        )
+    )
+    executor = RosCoverageSimulationExecutor(
+        owner="daemon_test",
+        client=SimpleNamespace(send_goal=lambda **kwargs: pytest.fail("unleased motion")),
+        control=control,
+        witness=SimpleNamespace(
+            fresh=lambda: {"cleaning_enabled": True, "lease_remaining_sec": remaining}
+        ),
+        output=tmp_path,
+        body_id="base",
+        body_snapshot_hash="bound",
+        grid={},
+    )
+    with pytest.raises(RuntimeError, match="did not acknowledge enable"):
+        executor._run_goal("/navigate", "type", {}, "repair", time.monotonic() + 5)

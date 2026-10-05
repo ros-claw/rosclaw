@@ -278,6 +278,41 @@ def main():
             print("SDK usage capture failed; acceptance evidence is incomplete", file=sys.stderr)
         if session:
             session.stop()
+        try:
+            from rosclaw.daemon.client import DaemonClient
+
+            # Also retain failed canonical receipts before stopping the owned
+            # daemon. Read-only calls have a one-second bound and cannot hold
+            # cleanup indefinitely. Absence stays explicit, never successful.
+            receipt_client = DaemonClient(socket_path=root / "run/rosclawd.sock", timeout_sec=1)
+            connection = sqlite3.connect(home / "agentd/missions.db")
+            try:
+                action_rows = connection.execute(
+                    "select capability_id, action_id from action_txns where action_id is not null"
+                ).fetchall()
+            finally:
+                connection.close()
+            captured = []
+            for capability, action_id in action_rows:
+                try:
+                    receipt = receipt_client.get_execution_receipt(action_id)
+                    captured.append({"capability_id": capability, **receipt})
+                except Exception:
+                    captured.append(
+                        {
+                            "capability_id": capability,
+                            "action_id": action_id,
+                            "receipt": None,
+                            "capture_status": "UNAVAILABLE",
+                        }
+                    )
+            (root / "canonical-receipts-final.json").write_text(
+                json.dumps(captured, indent=2) + "\n"
+            )
+        except Exception:
+            print(
+                "Canonical receipt capture incomplete; process cleanup continues", file=sys.stderr
+            )
         if operator:
             operator.terminate()
             try:
