@@ -1,5 +1,17 @@
 # Extended acceptance after PR #617
 
+Follow-up: the original task sentences `完成整个房间清扫。` and `clean the entire
+room` still failed under the legacy tokenizer even after correcting the stored
+instruction. [Root-query comparison](bilingual-root-query/acceptance.json) uses
+the exact historical tokenizer from a54c83e3 and the same actual successful
+episode. Both queries fail before and retrieve the original episode after
+reusing the existing bilingual tokenizer and clean/cleaning aliases. Legacy
+terms remain available; Chinese segmentation also works with the existing
+bigram fallback when jieba is absent. Tests cover the normal retrieval path and
+keyword-only/no-jieba installations. [Regression](bilingual-root-query/regression.log.gz):
+202 passed; changed Memory/Practice type checking passed. The earlier results
+below describe their recorded revisions; final PR checks must cover this fix too.
+
 The implemented path has additional accepted gates; the complete research plan
 remains **PARTIAL**. [Machine-readable summary](acceptance_summary.json) distinguishes
 live simulation, historical replay, offline Body compilation and GPU activity.

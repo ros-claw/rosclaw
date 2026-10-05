@@ -1,6 +1,8 @@
 {
   "schema_version": "rosclaw.extended_acceptance.v1",
   "base_commit": "efa6f2abc661cb221c025d204462c8b0a22b1f47",
+  "original_runner_source_commit": "a54c83e3fc8d6e17a3d2cb4f1ca512e0cf299c00",
+  "bilingual_root_query_follow_up": "bilingual-root-query/acceptance.json",
   "overall_plan_status": "PARTIAL",
   "v1_done": false,
   "hardware_verified": false,

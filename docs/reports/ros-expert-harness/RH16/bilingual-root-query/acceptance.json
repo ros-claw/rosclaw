@@ -1,0 +1,28 @@
+{
+  "status": "PASS",
+  "evidence_domain": "HISTORICAL_RETRIEVAL",
+  "physical_mission_source_commit": "a54c83e3fc8d6e17a3d2cb4f1ca512e0cf299c00",
+  "legacy_tokenizer_source_commit": "a54c83e3fc8d6e17a3d2cb4f1ca512e0cf299c00",
+  "unchanged_actual_memory_episode": "gazebo-room-cleaning",
+  "new_physical_mission": false,
+  "causal_memory_benefit_verified": false,
+  "results": {
+    "before": {
+      "完成整个房间清扫。": [],
+      "clean the entire room": []
+    },
+    "after": {
+      "完成整个房间清扫。": [
+        "gazebo-room-cleaning"
+      ],
+      "clean the entire room": [
+        "gazebo-room-cleaning"
+      ]
+    }
+  },
+  "current_source_file_sha256": {
+    "src/rosclaw/memory/interface.py": "1cc2556834d11cdaabba3667f6f4bcb50f3f3a00e5b2e2d5b9958425159e2ead",
+    "src/rosclaw/memory/tokenizer.py": "32d134cf4e5f4e5e74cc81d69630f4c58928a2825134e02984e6ebaede2dadbb",
+    "src/rosclaw/connectors/ros/practice/ros_practice_adapter.py": "e3344eab7e2bd02f492a1eca9ab7ec153ad55baf5aed4de848e198772c0dd9e3"
+  }
+}

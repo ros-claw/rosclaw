@@ -33,7 +33,13 @@ def run(source: Path, verification_path: Path, output: Path):
         sqlite3.connect(database) as copy,
     ):
         original.backup(copy)
-    queries = ("complete room cleaning", "cleaning coverage", "区域清扫")
+    queries = (
+        "complete room cleaning",
+        "cleaning coverage",
+        "区域清扫",
+        "完成整个房间清扫。",
+        "clean the entire room",
+    )
     mission_id = verification["mission_id"]
     bus = EventBus()
     memory = MemoryInterface(verification["body_id"], bus, SQLiteStructuredStore(str(database)))

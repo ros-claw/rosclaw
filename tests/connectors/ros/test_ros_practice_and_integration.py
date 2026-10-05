@@ -83,10 +83,21 @@ def test_ros_practice_adapter_publishes_failure_as_recorded():
     assert recorded[0].payload["outcome"] == "blocked"
 
 
-def test_verified_cleaning_memory_is_searchable_after_reopen(tmp_path):
+@pytest.mark.parametrize("keyword_fallback", [False, True])
+def test_verified_cleaning_memory_is_searchable_after_reopen(
+    tmp_path, monkeypatch, keyword_fallback
+):
     from rosclaw.core.event_bus import Event, EventBus
     from rosclaw.memory.interface import MemoryInterface
     from rosclaw.memory.seekdb_client import SQLiteStructuredStore
+
+    if keyword_fallback:
+        import rosclaw.memory.interface as memory_module
+        import rosclaw.memory.tokenizer as tokenizer_module
+
+        monkeypatch.setattr(memory_module, "_HAS_SKLEARN", False)
+        monkeypatch.setattr(memory_module, "_HAS_BM25", False)
+        monkeypatch.setattr(tokenizer_module, "_HAS_JIEBA", False)
 
     path = str(tmp_path / "memory.sqlite")
     bus = EventBus()
@@ -121,7 +132,13 @@ def test_verified_cleaning_memory_is_searchable_after_reopen(tmp_path):
     reopened = MemoryInterface("test_body", seekdb_client=SQLiteStructuredStore(path))
     reopened.initialize()
     try:
-        for query in ("complete room cleaning", "cleaning coverage", "区域清扫"):
+        for query in (
+            "complete room cleaning",
+            "cleaning coverage",
+            "区域清扫",
+            "完成整个房间清扫。",
+            "clean the entire room",
+        ):
             results = reopened.find_similar_experiences(query, outcome_filter="success")
             assert results[0]["id"] == "verified_cleaning"
             assert results[0]["duration_sec"] == pytest.approx(675.39052)
