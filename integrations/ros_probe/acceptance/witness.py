@@ -9,6 +9,7 @@ import math
 import time
 from datetime import UTC, datetime
 from pathlib import Path
+from threading import Lock
 
 import rclpy
 from geometry_msgs.msg import PoseWithCovarianceStamped, Twist, TwistStamped
@@ -29,6 +30,7 @@ class Witness(Node):
     def __init__(self):
         super().__init__("rosclaw_sim_witness")
         self.cleaning = False
+        self.observation_lock = Lock()
         self.pose = None
         self.localization = None
         self.last_pose = 0
@@ -54,13 +56,25 @@ class Witness(Node):
             10,
         )
         self.control_callbacks = MutuallyExclusiveCallbackGroup()
+        self.pose_callbacks = MutuallyExclusiveCallbackGroup()
+        self.contact_callbacks = MutuallyExclusiveCallbackGroup()
         self.wall_clock = Clock(clock_type=ClockType.STEADY_TIME)
-        self.create_subscription(TFMessage, "/rosclaw_sim/ground_truth", self.observe, 20)
+        self.create_subscription(
+            TFMessage,
+            "/rosclaw_sim/ground_truth",
+            self.observe,
+            20,
+            callback_group=self.pose_callbacks,
+        )
         self.create_subscription(PoseWithCovarianceStamped, "/amcl_pose", self.localized, 10)
         self.create_subscription(Twist, "/nav_cmd_vel", self.command, 10)
         for topic in self.contact_topics:
             self.create_subscription(
-                Contacts, topic, lambda message, t=topic: self.contacts(t, message), 10
+                Contacts,
+                topic,
+                lambda message, t=topic: self.contacts(t, message),
+                10,
+                callback_group=self.contact_callbacks,
             )
         self.create_subscription(NavPath, "/plan", self.path_observation, 10)
         self.create_subscription(
@@ -150,14 +164,15 @@ class Witness(Node):
         }
 
     def contacts(self, topic, message):
-        self.contact_seen[topic] = time.monotonic()
         touching = any(
             "floor::" not in c.collision1.name and "floor::" not in c.collision2.name
             for c in message.contacts
         )
-        if touching and not any(self.contact_active.values()):
-            self.physics_collision_count += 1
-        self.contact_active[topic] = touching
+        with self.observation_lock:
+            self.contact_seen[topic] = time.monotonic()
+            if touching and not any(self.contact_active.values()):
+                self.physics_collision_count += 1
+            self.contact_active[topic] = touching
 
     def heartbeat(self, request, response):
         self.lease = time.monotonic() + 1.5 if request.data else 0
@@ -182,16 +197,25 @@ class Witness(Node):
         for t in message.transforms:
             if t.child_frame_id in {"turtlebot3_waffle", "expert_robot"}:
                 q = t.transform.rotation
-                self.pose = {
+                pose = {
                     "x": t.transform.translation.x,
                     "y": t.transform.translation.y,
                     "yaw": math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z)),
                     "time_sec": t.header.stamp.sec + t.header.stamp.nanosec / 1e9,
                 }
-                self.last_pose = time.monotonic()
+                with self.observation_lock:
+                    self.pose = pose
+                    self.last_pose = time.monotonic()
 
     def tick(self):
-        now = time.monotonic()
+        # Pose coordinates and their real receive time must be one snapshot.
+        # Dedicated callbacks prevent path/map disk writes starving ground truth.
+        with self.observation_lock:
+            pose = self.pose
+            last_pose = self.last_pose
+            contact_seen = self.contact_seen.copy()
+            physics_collision_count = self.physics_collision_count
+            now = time.monotonic()
         if now > self.lease:
             if self.cleaning:
                 self.get_logger().warning(
@@ -200,38 +224,37 @@ class Witness(Node):
             self.publish_velocity(Twist())
             self.cleaning = False
         self.cleaning_state.publish(Bool(data=self.cleaning))
-        if self.pose is None:
+        if pose is None:
             return
-        if self.published_time == self.pose["time_sec"]:
+        if self.published_time == pose["time_sec"]:
             return
-        self.published_time = self.pose["time_sec"]
+        self.published_time = pose["time_sec"]
         # Room geometry comes from the checked-in Gazebo world. A conservative
         # disc encloses this configured robot's physical footprint. This is
         # independent post-physics geometric collision observation, not Nav2's
         # prediction or a claim from the caller. Ground contact is excluded.
-        touching = max(abs(self.pose["x"]), abs(self.pose["y"])) + 0.25 >= 1.5
+        touching = max(abs(pose["x"]), abs(pose["y"])) + 0.25 >= 1.5
         if touching and not self.in_collision:
             self.collision_count += 1
         self.in_collision = touching
         sample = {
-            **self.pose,
+            **pose,
             "captured_at": datetime.now(UTC).isoformat(),
             "cleaning_enabled": self.cleaning,
             "lease_remaining_sec": self.lease - now,
             "lease_updates": self.lease_updates,
             "localization": self.localization,
             "evidence_domain": "GAZEBO_PHYSICS",
-            "collision_count": max(self.collision_count, self.physics_collision_count),
+            "collision_count": max(self.collision_count, physics_collision_count),
             "geometry_collision_count": self.collision_count,
-            "physics_collision_count": self.physics_collision_count,
+            "physics_collision_count": physics_collision_count,
             "collision_source": "gazebo_contacts_and_ground_truth_geometry",
             # Non-contacting sensors publish only on contact. Wheel/ground
             # contacts continuously witness the live physics contact pipeline.
-            "observation_complete": now - self.last_pose < 0.3
-            and all(now - self.contact_seen.get(t, 0) < 1 for t in self.wheel_topics),
-            "contact_stream_ages_ms": {
-                t: (now - seen) * 1000 for t, seen in self.contact_seen.items()
-            },
+            "ground_truth_age_ms": (now - last_pose) * 1000,
+            "observation_complete": 0 <= now - last_pose < 0.3
+            and all(0 <= now - contact_seen.get(t, 0) < 1 for t in self.wheel_topics),
+            "contact_stream_ages_ms": {t: (now - seen) * 1000 for t, seen in contact_seen.items()},
         }
         self.trace.write(json.dumps(sample) + "\n")
         self.publisher.publish(String(data=json.dumps(sample)))
@@ -240,7 +263,7 @@ class Witness(Node):
 def main():
     rclpy.init()
     node = Witness()
-    executor = MultiThreadedExecutor(num_threads=2)
+    executor = MultiThreadedExecutor(num_threads=4)
     executor.add_node(node)
     try:
         executor.spin()

@@ -258,17 +258,24 @@ def main():
         else:
             raise TimeoutError("native mission")
     finally:
-        sessions = list((home / "agent/sessions").glob("*.jsonl"))
-        if sessions:
-            latest = max(sessions, key=lambda p: p.stat().st_mtime)
-            measured = []
-            for line in latest.read_text().splitlines():
-                message = json.loads(line).get("message", {})
-                if message.get("role") == "assistant":
-                    measured.append(
-                        {k: message.get(k) for k in ("model", "provider", "usage", "stopReason")}
-                    )
-            (root / "sdk-usage.json").write_text(json.dumps(measured, indent=2) + "\n")
+        try:
+            sessions = list((home / "agent/sessions").glob("*.jsonl"))
+            if sessions:
+                latest = max(sessions, key=lambda p: p.stat().st_mtime)
+                measured = []
+                for line in latest.read_text().splitlines():
+                    message = json.loads(line).get("message", {})
+                    if message.get("role") == "assistant":
+                        measured.append(
+                            {
+                                k: message.get(k)
+                                for k in ("model", "provider", "usage", "stopReason")
+                            }
+                        )
+                (root / "sdk-usage.json").write_text(json.dumps(measured, indent=2) + "\n")
+        except (OSError, ValueError):
+            # Evidence failures must never bypass process/motion cleanup.
+            print("SDK usage capture failed; acceptance evidence is incomplete", file=sys.stderr)
         if session:
             session.stop()
         if operator:

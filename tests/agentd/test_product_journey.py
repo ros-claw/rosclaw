@@ -21,7 +21,6 @@ import os
 import re
 import socket
 import subprocess
-import sys
 import tarfile
 import termios
 import threading
