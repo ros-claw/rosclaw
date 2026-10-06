@@ -38,6 +38,16 @@ export function classifyAssistantFailure(message: {
 		recovery: "缩小本次任务或调整输出预算后发送消息继续",
 		taskRecoverable: true,
 	};
+	// stopReason=aborted 是 provider 的权威终止信号（watchdog/用户取消），
+	// 不看 errorMessage 内容——取消时后者可能只是传输细节或缺失。
+	if (message.stopReason === "aborted") {
+		return {
+			code: "MODEL_REQUEST_CANCELLED",
+			explanation: "模型请求已取消",
+			recovery: "重新发送消息继续",
+			taskRecoverable: true,
+		};
+	}
 	if (message.stopReason === "error" || message.errorMessage) {
 		return classifyModelError(message.errorMessage ?? "Model request failed");
 	}

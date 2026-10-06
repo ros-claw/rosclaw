@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { classifyModelError, ProviderErrorGate } from "../src/native/model-errors.js";
+import { classifyAssistantFailure, classifyModelError, ProviderErrorGate } from "../src/native/model-errors.js";
 
 test("H7: 403 配额耗尽 ≠ auth 错误", () => {
 	const err = classifyModelError(
@@ -70,6 +70,39 @@ test("user cancellation clears provider pause without suggesting a model switch"
 	assert.match(result.cardText, /同一任务/);
 	assert.doesNotMatch(result.cardText, /model|模型调用失败|配额/);
 	assert.equal(result.activity?.code, "MODEL_REQUEST_CANCELLED");
+});
+
+test("authoritative assistant stopReason=aborted → MODEL_REQUEST_CANCELLED (watchdog cancel)", () => {
+	// 真实 watchdog 取消：errorMessage 缺失或仅 "aborted"——不再落到 MODEL_UNKNOWN。
+	assert.equal(
+		classifyAssistantFailure({ role: "assistant", stopReason: "aborted" })?.code,
+		"MODEL_REQUEST_CANCELLED",
+	);
+	assert.equal(
+		classifyAssistantFailure({ role: "assistant", stopReason: "aborted", errorMessage: "aborted" })?.code,
+		"MODEL_REQUEST_CANCELLED",
+	);
+	// aborted 是权威终止信号：errorMessage 只是传输细节，不参与分类。
+	assert.equal(
+		classifyAssistantFailure({ role: "assistant", stopReason: "aborted", errorMessage: "irrelevant transport detail" })?.code,
+		"MODEL_REQUEST_CANCELLED",
+	);
+	// 任意包含 "aborted" 子串的配额/凭据错误不被掩盖。
+	assert.equal(
+		classifyAssistantFailure({ role: "assistant", stopReason: "error", errorMessage: "403 quota exhausted: job aborted" })?.code,
+		"PROVIDER_QUOTA_EXHAUSTED",
+	);
+	assert.equal(
+		classifyAssistantFailure({ role: "assistant", stopReason: "error", errorMessage: "401 unauthorized: aborted previous request record" })?.code,
+		"MODEL_CREDENTIAL_INVALID",
+	);
+	// 无关文本不被取消规则吞掉；非 assistant / 正常 stop 不产生错误卡。
+	assert.equal(
+		classifyModelError("Historical transaction marked aborted for unrelated reasons").code,
+		"MODEL_UNKNOWN",
+	);
+	assert.equal(classifyAssistantFailure({ role: "user", stopReason: "aborted", errorMessage: "aborted" }), undefined);
+	assert.equal(classifyAssistantFailure({ role: "assistant", stopReason: "stop" }), undefined);
 });
 
 test("live OpenAI websocket restart is recoverable provider disconnect, not unknown", () => {
