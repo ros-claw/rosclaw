@@ -489,7 +489,124 @@ def _restore_home_env(previous: str | None) -> None:
         os.environ["ROSCLAW_HOME"] = previous
 
 
+# ---------------------------------------------------------------------------
+# Stage B opt-in：--tool-call-policy JSON_FILE（operator-supplied tool-call
+# budget；restriction only——never a permission grant）。
+# 校验必须在 home/store/agent service/auth/Node 启动 之前完成：畸形 policy
+# 不得产生任何 home 变更或子进程副作用。
+# ---------------------------------------------------------------------------
+_TOOL_CALL_POLICY_KEYS = frozenset(
+    {"allowedTools", "maxCalls", "maxTotalCalls", "exactCommands", "visibleBudget"}
+)
+# 与 JS Number.isSafeInteger 上限一致（JSON 1.0 这类整数值浮点可接受）。
+_TOOL_CALL_POLICY_MAX_SAFE_INT = 9007199254740991
+
+
+def _policy_limit_ok(value: object) -> bool:
+    """integer 0..2^53-1；bool 拒绝；整数值有限浮点（如 1.0）接受；非有限拒绝。"""
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, int):
+        return 0 <= value <= _TOOL_CALL_POLICY_MAX_SAFE_INT
+    if isinstance(value, float):
+        import math
+
+        return (
+            math.isfinite(value)
+            and value.is_integer()
+            and 0 <= value <= _TOOL_CALL_POLICY_MAX_SAFE_INT
+        )
+    return False
+
+
+def _policy_tool_name_ok(name: object) -> bool:
+    """工具名：非空、已 trim 的字符串。"""
+    return isinstance(name, str) and len(name) >= 1 and name == name.strip()
+
+
+def _reject_nonstandard_constant(constant: str) -> None:
+    raise ValueError(f"非标准 JSON 常量不予接受：{constant}")
+
+
+def _validate_tool_call_policy(raw_path: str) -> Path:
+    """读取并校验 tool-call policy JSON 文件；任何畸形输入抛 ValueError/OSError。
+
+    跨字段原生守卫：maxCalls/exactCommands 的键必须是 allowedTools 子集；
+    工具名非空且已 trim；allowedTools=[] 是合法的有意 block-all；可选 map
+    可为空；visibleBudget 默认 false（缺失即缺省）。本函数只读文件，不
+    产生任何 home/store/auth/子进程副作用。
+    """
+    # 相对路径相对调用方 cwd 解析（不改 cwd）；~ 相对调用方 HOME 展开；
+    # 最终返回同一已校验文件的 canonical absolute resolved 路径。
+    path = Path(raw_path).expanduser()
+    if not path.is_file():
+        raise ValueError(f"policy 文件不存在或不是常规文件：{raw_path}")
+    path = path.resolve()
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ValueError(f"policy 文件不可读：{exc}") from exc
+    try:
+        data = json.loads(text, parse_constant=_reject_nonstandard_constant)
+    except ValueError as exc:
+        raise ValueError(f"policy JSON 解析失败：{exc}") from exc
+    if not isinstance(data, dict):
+        raise ValueError("policy 根必须是 JSON object")
+    unknown = set(data) - _TOOL_CALL_POLICY_KEYS
+    if unknown:
+        raise ValueError(f"policy 含未知顶层键：{sorted(unknown)}")
+    if "allowedTools" not in data:
+        raise ValueError("policy 缺少必需键 allowedTools")
+    tools = data["allowedTools"]
+    if not isinstance(tools, list):
+        raise ValueError("allowedTools 必须是数组")
+    for name in tools:
+        if not _policy_tool_name_ok(name):
+            raise ValueError(f"allowedTools 含空白/未 trim/非字符串工具名：{name!r}")
+    if len(set(tools)) != len(tools):
+        raise ValueError("allowedTools 含重复工具名")
+    tool_set = set(tools)
+    if "maxTotalCalls" in data and not _policy_limit_ok(data["maxTotalCalls"]):
+        raise ValueError("maxTotalCalls 必须是 0..2^53-1 的整数（bool/小数/负数/非安全整数拒绝）")
+    # 可选字段缺失合法；显式 JSON null 必须在任何副作用之前拒绝。
+    if "maxCalls" in data:
+        max_calls = data["maxCalls"]
+        if not isinstance(max_calls, dict):
+            raise ValueError("maxCalls 必须是 object")
+        for key, value in max_calls.items():
+            if not _policy_tool_name_ok(key) or key not in tool_set:
+                raise ValueError(f"maxCalls 键必须是 allowedTools 中声明的工具名：{key!r}")
+            if not _policy_limit_ok(value):
+                raise ValueError(f"maxCalls[{key!r}] 必须是 0..2^53-1 的整数")
+    if "exactCommands" in data:
+        exact = data["exactCommands"]
+        if not isinstance(exact, dict):
+            raise ValueError("exactCommands 必须是 object")
+        for key, commands in exact.items():
+            if not _policy_tool_name_ok(key) or key not in tool_set:
+                raise ValueError(f"exactCommands 键必须是 allowedTools 中声明的工具名：{key!r}")
+            if not isinstance(commands, list) or len(commands) < 1:
+                raise ValueError(f"exactCommands[{key!r}] 必须是非空数组")
+            for command in commands:
+                if not isinstance(command, str) or len(command) < 1:
+                    raise ValueError(f"exactCommands[{key!r}] 含非字符串/空命令：{command!r}")
+            if len(set(commands)) != len(commands):
+                raise ValueError(f"exactCommands[{key!r}] 含重复命令")
+    if "visibleBudget" in data and not isinstance(data["visibleBudget"], bool):
+        raise ValueError("visibleBudget 必须是 boolean")
+    return path
+
+
 def cmd_chat(args: argparse.Namespace) -> int:
+    # Stage B：--tool-call-policy 最先校验——畸形 policy 在 home/store/
+    # agent service/auth/Node 启动 之前 拒绝（零副作用）。
+    policy_arg = getattr(args, "tool_call_policy", None)
+    if policy_arg is not None:
+        try:
+            args.tool_call_policy = str(_validate_tool_call_policy(str(policy_arg)))
+        except (ValueError, OSError) as exc:
+            print(f"--tool-call-policy 无效：{exc}", file=sys.stderr)
+            return 2
     home = _home(args)
     previous_home_env = _ensure_home_env(home)
     try:
@@ -743,6 +860,13 @@ def _chat_pi(home: Path, args: argparse.Namespace) -> int:
     ws_arg = getattr(args, "workspace", None) or getattr(args, "path", None)
     if ws_arg:
         argv += ["--workspace", str(Path(ws_arg).expanduser().resolve())]
+    # Stage B：--tool-call-policy 已在 cmd_chat 顶部校验通过——cmd_chat
+    # 已把 args.tool_call_policy 归一为同一已校验文件的 canonical
+    # absolute resolved 路径（~ 相对调用方 HOME 展开，相对路径相对调用
+    # 方 cwd 解析），此处原样转发给 Node（readFileSync 不展开 ~）。
+    policy_arg = getattr(args, "tool_call_policy", None)
+    if policy_arg:
+        argv += ["--tool-call-policy", str(policy_arg)]
     # P0-NA-16：产品版本由 Python launcher 显式传给 Node——TS 侧不得
     # 用内部 npm 子包版本冒充 ROSClaw 产品版本。
     from rosclaw import __version__ as _product_version
@@ -906,6 +1030,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_chat.add_argument("--mission", default=None)
     p_chat.add_argument("--mode", default=None, choices=["SIMULATION", "SHADOW", "REAL"])
     p_chat.add_argument("--goal", default=None)
+    p_chat.add_argument(
+        "--tool-call-policy",
+        default=None,
+        metavar="JSON_FILE",
+        help="operator 工具调用预算 policy（JSON 文件；仅限制，从不授予权限）",
+    )
     p_chat.set_defaults(func=cmd_chat)
 
     p_art = sub.add_parser("artifact", help="交付物查看/打开/导出（R0-4）")
@@ -1039,6 +1169,12 @@ def add_agent_subparsers(subparsers) -> None:
         # WP-P0-1：裸 --resume 打开会话选择器；参数支持精确 ID/
         # 唯一前缀/标题（由 Pi 入口 TS 单份解析——P1-A5）。
         help="恢复会话：无参数打开选择器；或给 ID/唯一前缀/标题",
+    )
+    p_chat.add_argument(
+        "--tool-call-policy",
+        default=None,
+        metavar="JSON_FILE",
+        help="operator 工具调用预算 policy（JSON 文件；仅限制，从不授予权限）",
     )
     p_chat.set_defaults(func=cmd_chat)
 
