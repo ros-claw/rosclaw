@@ -23,8 +23,16 @@ export function contentHash(text: string): string {
 }
 
 export class EventMirror {
+	/** 受保护 server 边界：pi.events.batch 每次请求原子接受 ≤256 条。
+	 * 绝不把整个 pending 队列塞进一个请求——257+ 会被永久拒绝。 */
+	private static readonly MAX_BATCH_EVENTS = 256;
+	/** 有界 pending 上限：失败重放最多保留 1000 条（含在飞批次）防爆内存。
+	 * 显式 overflow 策略：超出时丢弃**最新**尾部并计数（overflowDropped）
+	 * ——本队列是有界缓冲，绝不声称无限不丢。 */
+	private static readonly MAX_PENDING = 1000;
 	private queue: MirrorEvent[] = [];
 	private flushing = false;
+	private overflowDropped = 0;
 	// P0-A：provider retry/重连重放对同一 message 重复 push——
 	// 只按稳定 provider 身份 (event_type, entryId) 去重；无身份的
 	// 历史消息不按内容 hash 合并（NATIVE-TOKENS）。键→载荷指纹：
@@ -89,29 +97,55 @@ export class EventMirror {
 	async flush(): Promise<number> {
 		if (this.flushing || this.queue.length === 0) return 0;
 		this.flushing = true;
-		const batch = this.queue.splice(0, this.queue.length);
+		let stored = 0;
 		try {
-			const response = await this.call(this.rosclawHome, "pi.events.batch", {
-				events: batch,
-			});
-			if (!response.ok) {
-				// 失败放回队列（bounded：最多保留 1000 条防爆内存）。
-				this.queue = [...batch, ...this.queue].slice(0, 1000);
-				return 0;
+			// BACKLOG-FIX：有界 drain——每个请求只取 ≤256 条批次，
+			// 循环直到队列清空或首次失败。flush 期间并发 push 的事件
+			// 由同一循环的后续批次拾起（splice 是同步原子的），
+			// 不重复、不丢、不改 payload、不动稳定身份。
+			while (this.queue.length > 0) {
+				const batch = this.queue.splice(0, EventMirror.MAX_BATCH_EVENTS);
+				try {
+					const response = await this.call(this.rosclawHome, "pi.events.batch", {
+						events: batch,
+					});
+					if (!response.ok) {
+						this.requeueFailedBatch(batch);
+						return stored;
+					}
+					stored += Number(response.stored ?? 0);
+				} catch {
+					// bridge 抛错（瞬时故障/commit 后回执丢失）保留 bounded
+					// pending：已 splice 的批次回到队首，后续 flush 重放。
+					// commit-before-reply-loss 的重放靠 server 端同 mirror_id
+					// 同载荷幂等去重——durable-idempotent，不产生重复行；
+					// 稳定身份在确认落库前仍走幂等路径。
+					this.requeueFailedBatch(batch);
+					return stored;
+				}
 			}
-			return Number(response.stored ?? 0);
-		} catch {
-			// bridge 抛错（瞬时故障）同样保留 bounded pending 队列——
-			// 已 splice 的批次不能丢，后续 flush 可成功重放；稳定身份
-			// 在成功落库前不算确认（重放同载荷仍走幂等路径）。
-			this.queue = [...batch, ...this.queue].slice(0, 1000);
-			return 0;
+			return stored;
 		} finally {
 			this.flushing = false;
 		}
 	}
 
+	/** 失败批次回到队首（顺序保留：失败批次 + 后续 suffix），
+	 * bounded 保留 ≤1000 条；超出丢弃最新尾部并计数（可观测）。 */
+	private requeueFailedBatch(batch: MirrorEvent[]): void {
+		const merged = [...batch, ...this.queue];
+		if (merged.length > EventMirror.MAX_PENDING) {
+			this.overflowDropped += merged.length - EventMirror.MAX_PENDING;
+		}
+		this.queue = merged.slice(0, EventMirror.MAX_PENDING);
+	}
+
 	get pending(): number {
 		return this.queue.length;
+	}
+
+	/** 有界 overflow 策略下被丢弃的最新尾部条数（0 = 无丢弃）。 */
+	get droppedOverflow(): number {
+		return this.overflowDropped;
 	}
 }

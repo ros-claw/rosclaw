@@ -170,6 +170,86 @@ test("throwing bridge preserves bounded pending queue and later replay succeeds"
 	assert.equal(mirror.pending, 0);
 });
 
+// BACKLOG-FIX：有界 drain——每个 pi.events.batch 请求 ≤256 条，
+// <=1000 的有限 pending 在 bridge 恢复后完整 drain。
+test("backlog of 1000 drains in <=256-event requests after bridge recovery", async () => {
+	const batches: number[] = [];
+	const seen: string[] = [];
+	let offline = true;
+	const mirror = new EventMirror(
+		"/tmp/rh", "pi_1", "mis_1",
+		async (_home: string, _method: string, params: Record<string, unknown> = {}) => {
+			const events = params.events as Array<Record<string, unknown>>;
+			assert.ok(events.length <= 256, `batch exceeds server boundary: ${events.length}`);
+			batches.push(events.length);
+			if (offline) throw new Error("INERT_BRIDGE_OFFLINE");
+			seen.push(...events.map((e) => String(e.pi_entry_id)));
+			return { ok: true, stored: events.length };
+		},
+	);
+	for (let i = 0; i < 1000; i++) mirror.push("message_end", { entryId: `e_${i}`, usage: { input: 1 } });
+	assert.equal(await mirror.flush(), 0);
+	assert.equal(mirror.pending, 1000, "failed request must not drop accepted pending");
+	offline = false;
+	await mirror.flush();
+	assert.equal(mirror.pending, 0);
+	assert.deepEqual(seen, Array.from({ length: 1000 }, (_, i) => `e_${i}`));
+	assert.ok(batches.every((n) => n <= 256));
+});
+
+test("failed middle batch preserves failed batch and later suffix in order", async () => {
+	let calls = 0;
+	const seen: string[] = [];
+	const mirror = new EventMirror(
+		"/tmp/rh", "pi_1", "mis_1",
+		async (_home: string, _method: string, params: Record<string, unknown> = {}) => {
+			const events = params.events as Array<Record<string, unknown>>;
+			calls++;
+			if (calls === 2) throw new Error("INERT_SECOND_BATCH_FAILURE");
+			seen.push(...events.map((e) => String(e.pi_entry_id)));
+			return { ok: true, stored: events.length };
+		},
+	);
+	for (let i = 0; i < 600; i++) mirror.push("message_end", { entryId: `s_${i}`, usage: { input: 1 } });
+	assert.equal(await mirror.flush(), 256, "first batch commits before the failure");
+	assert.equal(mirror.pending, 344, "failed batch + later suffix retained");
+	await mirror.flush();
+	assert.equal(mirror.pending, 0);
+	assert.deepEqual(seen, Array.from({ length: 600 }, (_, i) => `s_${i}`));
+});
+
+test("concurrent push during in-flight flush neither duplicates nor drops", async () => {
+	const seen: string[] = [];
+	let unblock: () => void = () => {};
+	let started: () => void = () => {};
+	const gate = new Promise<void>((resolve) => (unblock = resolve));
+	const startedP = new Promise<void>((resolve) => (started = resolve));
+	let first = true;
+	const mirror = new EventMirror(
+		"/tmp/rh", "pi_1", "mis_1",
+		async (_home: string, _method: string, params: Record<string, unknown> = {}) => {
+			const events = params.events as Array<Record<string, unknown>>;
+			assert.ok(events.length <= 256);
+			if (first) {
+				first = false;
+				started();
+				await gate;
+			}
+			seen.push(...events.map((e) => String(e.pi_entry_id)));
+			return { ok: true, stored: events.length };
+		},
+	);
+	for (let i = 0; i < 256; i++) mirror.push("message_end", { entryId: `c_${i}`, usage: { input: 1 } });
+	const active = mirror.flush();
+	await startedP;
+	for (let i = 256; i < 600; i++) mirror.push("message_end", { entryId: `c_${i}`, usage: { input: 1 } });
+	const overlap = mirror.flush(); // 在飞期间的重叠 flush 立即返回，不重复发送
+	unblock();
+	await Promise.all([active, overlap]);
+	assert.equal(mirror.pending, 0, "同一 drain 循环拾起 flush 期间 push 的 suffix");
+	assert.deepEqual(seen, Array.from({ length: 600 }, (_, i) => `c_${i}`));
+});
+
 test("/tokens renders decimal-string aggregates beyond JS exact-integer range verbatim", async () => {
 	const text = await renderTokens({
 		known_message_count: 2, input_uncached: "9007199254740993", cache_read: 0, cache_write: 0,
