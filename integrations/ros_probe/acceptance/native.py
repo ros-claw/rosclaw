@@ -26,6 +26,7 @@ def main():
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--directory", type=Path, required=True)
+    parser.add_argument("--endpoint", default="ws://127.0.0.1:19090")
     args = parser.parse_args()
     root = args.directory.resolve()
     home = root / "home"
@@ -46,6 +47,8 @@ def main():
             str(REPO / "integrations/ros_probe/acceptance/daemon.py"),
             "--directory",
             str(root),
+            "--endpoint",
+            args.endpoint,
         ],
         env=env,
         stdout=log,
@@ -113,7 +116,11 @@ def main():
         session.expect(b"Operator Ready", timeout=60)
         print(
             json.dumps(
-                {"stage": "operator_ready", "model": "gpt-6.1-sol", "input": "完成整个房间清扫。"}
+                {
+                    "stage": "operator_ready",
+                    "model_source": "isolated_home_configuration",
+                    "input": "完成整个房间清扫。",
+                }
             ),
             flush=True,
         )

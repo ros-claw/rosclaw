@@ -78,6 +78,10 @@ PYTHONPATH=src .venv/bin/python integrations/ros_probe/acceptance/native.py \
   --directory /tmp/ros-expert-run/native
 ```
 
+For an isolated loopback port, pass the same `--endpoint` to `native.py` and
+the configured `native_tools.py` MCP command. Model identity is recorded from
+actual SDK usage rather than a fixed runner label.
+
 The runner sends only “完成整个房间清扫。” and acts as the explicitly configured
 SIM test operator for exact independent authorization cards. The model chooses
 the observer, localization, coverage and memory calls; MCP physical function
@@ -113,7 +117,10 @@ PYTHONPATH=src .venv/bin/python integrations/ros_probe/acceptance/safety.py \
 Cases are `daemon_kill`, `clock_pause`, `bridge_kill`, `observer_stop`. The final
 case uses a second passive pose observer and checks the official controller's
 0.2-second command timeout while the primary observation/lease process is
-paused. Unknown stop evidence fails acceptance. Daemon SIGKILL cannot produce a
+paused. The auxiliary live witness reader ignores only an unfinished append at EOF;
+it rejects malformed completed records and preserves freshness checks. Canonical
+mission trajectories are never repaired or filtered by this reader.
+Unknown stop evidence fails acceptance. Daemon SIGKILL cannot produce a
 terminal receipt; missing receipt is retained explicitly.
 
 For the owned Isaac ROS 5 / Lyrical GPU fixture, source the pinned upstream
