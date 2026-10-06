@@ -1428,15 +1428,38 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 		if (mirror) {
 			const activeMirror = mirror;
 			pi.on("message_end", async (event) => {
-				const message = event.message as { role?: string; content?: unknown };
+				const message = event.message as {
+					role?: string; content?: unknown; responseId?: unknown; stopReason?: unknown;
+				};
 				if (message.role !== "assistant") return undefined;
 				// 只镜像 hash——全文权威在 Pi session。
 				const text = JSON.stringify(message.content ?? "");
 				activeMirror.retarget(mirrorSession.current.sessionId, mirrorSession.current.missionId ?? "");
+				// NATIVE-TOKENS：native SDK 先触发扩展 message_end、后
+				// session.appendMessage——此刻 session leaf 是上一条目，
+				// 不能当作本条消息身份。AssistantMessage.responseId 才是
+				// provider 真身份（有则保留）；缺失则留空=历史身份 UNKNOWN，
+				// 绝不用上一 leaf 或内容 hash 冒充。
+				const responseId = typeof message.responseId === "string" && message.responseId
+					? message.responseId
+					: undefined;
+				// NATIVE-TOKENS-TERMINAL：编译后的生产回调此前丢弃 stopReason，
+				// 导致 error/aborted 的零初始化用量被聚合成"已确认零付费"。
+				// 这里把真实终端出处（SDK StopReason + 当前 responseId）作为
+				// 有界 hash-only 信封随 usage 持久化——绝不携带原始错误/思考/
+				// 文本；responseId 存在也不是完成/计费权威。
+				const stopReason = typeof message.stopReason === "string" && message.stopReason
+					? message.stopReason
+					: null;
+				const usage = {
+					...((event.message as { usage?: Record<string, unknown> }).usage ?? {}),
+					_rosclaw_terminal: { stopReason, responseId: responseId ?? null },
+				};
 				activeMirror.push("message_end", {
+					entryId: responseId,
 					text,
 					model: String((event.message as { model?: string }).model ?? ""),
-					usage: (event.message as { usage?: Record<string, unknown> }).usage,
+					usage,
 				});
 				await activeMirror.flush();
 				return undefined;

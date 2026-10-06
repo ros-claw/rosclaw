@@ -256,23 +256,73 @@ export function buildCommandHandlers(deps: CommandDeps): Record<string, { descri
 						cost_microunits?: number; wall_span_ms?: number | null;
 						provider_latency_ms?: { p50?: number | null; p95?: number | null };
 						tool_calls?: { proposed?: number; completed?: number };
+						native_usage?: {
+							known_message_count?: number; input_uncached?: number | string | null;
+							cache_read?: number | string | null; cache_write?: number | string | null;
+							input_including_cache?: number | string | null; output?: number | string | null;
+							reasoning_subset_output?: number | string | null; total_tokens?: number | string | null;
+							unknown_message_count?: number;
+							reasoning_unknown_message_count?: number;
+							billing_authority_unknown_message_count?: number;
+							cost_usd_known_subtotal?: number | null;
+							cost_usd_estimate?: number | null;
+							cost_unknown_message_count?: number;
+							identity_scope?: string;
+						};
 					};
 					const lat = u.provider_latency_ms ?? {};
 					const tools = u.tool_calls ?? {};
-					notify(
-						ctx,
-						`${i18nT("tokens.title", loc)}:
-` +
-						`模型请求 ${u.model_turns ?? 0} · tokens in/out/total ` +
+					const lines: string[] = [`${i18nT("tokens.title", loc)}:`];
+					const n = u.native_usage;
+					if (n) {
+						// NATIVE-TOKENS：当前任务原生会话累计（PI message_end 口径，
+						// mission 聚合——可跨多个 PI session）。USD 估计与人民币旧账
+						// 分开——不做汇率换算；成本缺失是未知而不是免费；进行中/中止/
+						// 部分的消息不算已确认零付费。超出 JS 精确整数范围的聚合计数
+						// 以精确十进制字符串到达——原样呈现，不假装是安全数值。
+						const num = (v: number | string | null | undefined): string =>
+							v === null || v === undefined ? "未知" : String(v);
+						const usd = n.cost_usd_estimate === null || n.cost_usd_estimate === undefined
+							? "未知（有消息缺少成本数据——不按零计）"
+							: `${n.cost_usd_estimate} USD`;
+						const unconfirmed = (n.unknown_message_count ?? 0) > 0
+							? ` · 缺失或部分用量尚未确认 ${n.unknown_message_count ?? 0} 条` +
+								"（不是 live pending request proof）"
+							: "";
+						// NATIVE-TOKENS-TERMINAL：已上报成本下限与未知完成/计费
+						// 权威分开陈述——部分记录的已上报金额是事实下限，绝不
+						// 被未知记录清零，也不被说成完整账单。
+						const subtotal = n.cost_usd_known_subtotal === null ||
+							n.cost_usd_known_subtotal === undefined
+							? ""
+							: ` · 已上报成本小计 ${n.cost_usd_known_subtotal} USD` +
+								"（已知下限，不含尚未确认部分）";
+						const billingUnknown = (n.billing_authority_unknown_message_count ?? 0) > 0
+							? ` · 缺少终端完成凭证 ${n.billing_authority_unknown_message_count} 条` +
+								"（计费未知——不按零计，也不反向推断中止）"
+							: "";
+						const reasoningUnknown = (n.reasoning_unknown_message_count ?? 0) > 0
+							? ` · reasoning 细分未知 ${n.reasoning_unknown_message_count} 条` +
+								"（provider 未上报，按未知处理而非零）"
+							: "";
+						lines.push(
+							`当前任务原生会话累计：已确认 ${n.known_message_count ?? 0} 条 · ` +
+							`tokens 输入 ${num(n.input_uncached)} · 缓存读入/写入 ` +
+							`${num(n.cache_read)}/${num(n.cache_write)} · 含缓存输入合计 ` +
+							`${num(n.input_including_cache)} · 输出 ${num(n.output)} · ` +
+							`总计 ${num(n.total_tokens)}${unconfirmed}${reasoningUnknown}`,
+							`USD成本估计 ${usd}${subtotal}${billingUnknown}（与人民币旧账分开，不换算）`,
+						);
+					}
+					lines.push(
+						`其他模型请求（旧账）${u.model_turns ?? 0} · tokens in/out/total ` +
 						`${u.prompt_tokens ?? 0}/${u.completion_tokens ?? 0}/${u.total_tokens ?? 0} · ` +
-						`成本 ${(u.cost_microunits ?? 0) / 1e6} 元
-` +
+						`人民币成本 ${(u.cost_microunits ?? 0) / 1e6} 元`,
 						`provider 延迟 p50/p95 ${lat.p50 ?? "-"}/${lat.p95 ?? "-"}ms · ` +
-						`端到端跨度 ${u.wall_span_ms ?? "-"}ms
-` +
+						`端到端跨度 ${u.wall_span_ms ?? "-"}ms`,
 						`工具调用 proposed/completed ${tools.proposed ?? 0}/${tools.completed ?? 0}`,
-						"info",
 					);
+					notify(ctx, lines.join("\n"), "info");
 				} catch (err) {
 					notify(ctx, `agentd=UNREACHABLE（${(err as Error).message}）`, "error");
 				}

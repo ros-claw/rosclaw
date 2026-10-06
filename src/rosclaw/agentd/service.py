@@ -25,7 +25,7 @@ from rosclaw.agentd.runtime_sources import (
     SimBodySource,
 )
 from rosclaw.agentd.tools import BuiltinToolRegistry
-from rosclaw.agentd.usage import UsageRecorder
+from rosclaw.agentd.usage import UsageRecorder, native_mirror_usage_report
 from rosclaw.contracts.agent.mission import (
     BodyBinding,
     Budgets,
@@ -281,10 +281,11 @@ class AgentService:
             from rosclaw.agentd.tooling.mcp_adapter import kit_spawn_env
             from rosclaw.agentd.tooling.persistent_client import PersistentMcpClient
 
+            spawn_env: dict[str, str] | None = kit_spawn_env()
             shared_client = PersistentMcpClient(
                 command=str(sim_server.get("command", "")),
                 args=tuple(str(a) for a in sim_server.get("args", []) or []),
-                env=kit_spawn_env(),
+                env=spawn_env,
             )
             self._shared_mcp_client = shared_client
             server_name = str(sim_server.get("name", "sim"))
@@ -452,7 +453,13 @@ class AgentService:
         ).fetchall()
         tool_counts = {t: int(n) for t, n in tool_events}
         return {
+            # 既有顶层合计是 legacy 账（其他模型请求，人民币
+            # microunits 口径）——保持向后兼容，绝不与 native_usage
+            # 求和成虚假总计。
             **totals,
+            "legacy_scope": "legacy model-turn ledger (yuan microunits); "
+            "kept separate from native_usage (PI USD estimates)",
+            "native_usage": native_mirror_usage_report(self._store.connection, mission_id),
             "provider_latency_ms": latency,
             "wall_span_ms": wall_span_ms,
             "tool_calls": {
