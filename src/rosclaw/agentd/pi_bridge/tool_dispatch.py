@@ -818,13 +818,20 @@ class PiToolDispatcher:
                     f"（{artifact['size_bytes']}B）"
                     f"artifact_id={artifact['artifact_id']}——任务保持 "
                     f"{task['state']}（审计历史不变，未复活任务）；"
-                    "用户有新目标时会开始新任务"
+                    "用户有新目标时会开始新任务；"
+                    f"sha256={artifact['sha256']}"
                 ),
+                artifact_refs=[str(artifact["artifact_id"])],
             )
         return PiToolResultV1(
             request_id=request.request_id,
             ok=True, status="REGISTERED",
-            summary=f"交付物已登记：{_Path(artifact['path']).name}（{artifact['size_bytes']}B）artifact_id={artifact['artifact_id']}",
+            summary=(
+                f"交付物已登记：{_Path(artifact['path']).name}"
+                f"（{artifact['size_bytes']}B）artifact_id={artifact['artifact_id']}"
+                f" sha256={artifact['sha256']}"
+            ),
+            artifact_refs=[str(artifact["artifact_id"])],
         )
 
     async def _task_finish(self, request: PiToolRequestV1) -> PiToolResultV1:
