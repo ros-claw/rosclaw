@@ -39,6 +39,10 @@ from rosclaw.task_kernel.process_identity import (
     signal_owned_members,
 )
 
+#: Bounded initial birth-acquisition window (only before persistence; an
+#: accepted 8-field identity is never refreshed afterwards).
+_BIRTH_ACQUIRE_BUDGET_S = 0.5
+
 #: 终态集合（不可逆）。LOST：重启后无法证实结局的诚实终态。
 OPERATION_TERMINAL = frozenset({"SUCCEEDED", "FAILED", "CANCELLED", "LOST"})
 
@@ -214,6 +218,16 @@ class OperationManager:
             payload={"pid": proc.pid, "argv": argv[:5]},
         )
         identity = ProcessIdentity.capture(proc.pid)
+        # Bounded initial acquisition only, before persistence: a pre-exec or
+        # empty raw cmdline read is unknown, not authority. An accepted
+        # 8-field identity is never refreshed after this point.
+        deadline = asyncio.get_running_loop().time() + _BIRTH_ACQUIRE_BUDGET_S
+        while identity is None and proc.returncode is None:
+            remaining = deadline - asyncio.get_running_loop().time()
+            if remaining <= 0:
+                break
+            await asyncio.sleep(min(0.02, remaining))
+            identity = ProcessIdentity.capture(proc.pid)
         self._conn.execute(
             "UPDATE operations SET pid = ?, process_identity_json = ? WHERE operation_id = ?",
             (proc.pid, identity.to_json() if identity else "", operation_id),
