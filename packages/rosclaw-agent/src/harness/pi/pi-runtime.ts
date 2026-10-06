@@ -176,11 +176,22 @@ export async function createRosclawRuntime(
 							: { verified: [], excluded: [], skillPaths: [] };
 						return {
 							noExtensions: true,
-							noSkills: policy.skills === "off",
+							// NATIVE-BASE-1：任意项目 skill 发现一律关闭；
+							// developer 仅经 additionalSkillPaths 注入 digest
+							// 校验过的内置签名 Skill（noSkills=true 仍允许显式
+							// additionalSkillPaths——官方 PI104 语义）。
+							noSkills: true,
 							noPromptTemplates: true,
 							noThemes: !policy.themes,
 							noContextFiles: policy.contextFiles === "off",
 							additionalSkillPaths: bundled.skillPaths,
+							// NATIVE-BASE-2：原生可信系统基座
+							// （native_agent_v2.md，构建期单一事实源）作为
+							// ResourceLoader custom base——SDK 在其后追加
+							// cwd/可信 AGENTS/签名 Skill，provider 首条 system
+							// 恰好含一份 native base；扩展层不再整体替换
+							// event.systemPrompt。
+							systemPromptOverride: () => systemPrompt,
 							agentsFilesOverride: (base: { agentsFiles: Array<{ path: string; content: string }> }) => {
 								const allowed = [
 									options.taskContext.workspaceRoot,
