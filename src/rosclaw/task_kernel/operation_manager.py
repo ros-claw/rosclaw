@@ -462,7 +462,8 @@ class OperationManager:
                     stream.seek(checkpoint["offset"])
                     chunk = stream.read(_MAX_OUTPUT_CHUNK - len(decoder.getstate()[0]))
                     file_rc = self._read_exitcode(str(row.get("exitcode_path") or ""))
-                    final = (
+                    final = False
+                    if (
                         not chunk
                         and self._writers_closed(stream.fileno())
                         and (
@@ -471,7 +472,15 @@ class OperationManager:
                             or row["state"] in OPERATION_TERMINAL
                             or not self._pid_alive(int(row.get("pid") or 0))
                         )
-                    )
+                    ):
+                        # The empty read above may be stale: the producer can
+                        # write its final bytes and close the writer between
+                        # that read and these checks. Once every writer is
+                        # provably closed the spool cannot grow, so only a
+                        # confirming empty read at the cursor is true EOF.
+                        stream.seek(checkpoint["offset"])
+                        chunk = stream.read(_MAX_OUTPUT_CHUNK - len(decoder.getstate()[0]))
+                        final = not chunk
                     if chunk or final:
                         text = decoder.decode(chunk, final=final)
                         previous = checkpoint
