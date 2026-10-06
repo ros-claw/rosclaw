@@ -15,6 +15,7 @@ import rclpy
 from geometry_msgs.msg import PoseWithCovarianceStamped, Twist, TwistStamped
 from nav_msgs.msg import OccupancyGrid
 from nav_msgs.msg import Path as NavPath
+from profiles import PROFILES
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.clock import Clock, ClockType
 from rclpy.executors import SingleThreadedExecutor
@@ -29,6 +30,10 @@ from tf2_msgs.msg import TFMessage
 class Witness(Node):
     def __init__(self):
         super().__init__("rosclaw_sim_witness")
+        saved_profile = json.loads(Path("/evidence/fixture_profile.json").read_text())
+        self.profile = PROFILES[saved_profile["name"]]
+        if saved_profile != self.profile.to_dict():
+            raise ValueError("fixture observer profile differs from supported geometry")
         self.cleaning = False
         self.observation_lock = Lock()
         self.pose = None
@@ -63,7 +68,7 @@ class Witness(Node):
             TFMessage,
             "/rosclaw_sim/ground_truth",
             self.observe,
-            20,
+            QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT),
             callback_group=self.pose_callbacks,
         )
         self.create_subscription(PoseWithCovarianceStamped, "/amcl_pose", self.localized, 10)
@@ -195,7 +200,7 @@ class Witness(Node):
 
     def observe(self, message):
         for t in message.transforms:
-            if t.child_frame_id in {"turtlebot3_waffle", "expert_robot"}:
+            if t.child_frame_id == self.profile.simulation_model:
                 q = t.transform.rotation
                 pose = {
                     "x": t.transform.translation.x,
@@ -233,7 +238,7 @@ class Witness(Node):
         # disc encloses this configured robot's physical footprint. This is
         # independent post-physics geometric collision observation, not Nav2's
         # prediction or a claim from the caller. Ground contact is excluded.
-        touching = max(abs(pose["x"]), abs(pose["y"])) + 0.25 >= 1.5
+        touching = max(abs(pose["x"]), abs(pose["y"])) + self.profile.physical_radius_m >= 1.5
         if touching and not self.in_collision:
             self.collision_count += 1
         self.in_collision = touching

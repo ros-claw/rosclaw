@@ -16,6 +16,33 @@ docker run --rm --name ros-expert-golden -p 19090:9090 \
   bash -c 'source /opt/ros/jazzy/setup.bash && source /ws/install/setup.bash && python3 /workspace/integrations/ros_probe/acceptance/stack.py --controller-watchdog'
 ```
 
+Two explicitly supported fixture profiles are available: `--profile waffle`
+(default) and `--profile burger`. Burger requires the actual installed ROBOTIS
+`turtlebot3_description` URDF and `turtlebot3_gazebo` sensor/drive specification;
+the image build installs both. It preserves vendor collision/inertial geometry
+and uses the vendor 0.160 m wheel separation and 0.033 m wheel radius. Waffle
+uses the Nav2 minimal simulation model. Both cleaners are simulation attachments.
+
+Use a fresh owned evidence directory, unused loopback port and isolated DDS
+domain for each stack. To run Burger, pass `--profile burger` to `stack.py`, then
+run `run.py --directory <directory> --endpoint ws://127.0.0.1:<port>
+--profile burger --mission-timeout 1800`. The Agent-side runner verifies the
+actual URDF model identity before compiling its immutable Body. A profile/model
+mismatch fails before daemon startup. Without `--profile`, the runner identifies
+one of these two supported vendor models from the supplied URDF; it does not
+infer or support unknown robot geometry.
+
+The fixed profile defines physical radius, simulated cleaner polygon and legal
+recovery centers consistently for the Body, denominator and independent witness.
+Burger uses 0.150 m physical/recovery clearance and a 0.175 m cleaner half-width;
+Waffle preserves its 0.250 m physical radius, 0.300 m recovery clearance and
+0.275 m cleaner half-width. Cleaner size never alters collision clearance.
+`fixture_profile.json` records the observer configuration and is validated
+against the supported profile before observations start. Ground truth uses a
+separate depth-one SENSOR_DATA bridge and matching best-effort subscription,
+preventing old queued poses from being treated as current. Controller activation
+completes before Nav2 startup. No external overlay or monkeypatch is required.
+
 The official controller watchdog is enabled by default. `--no-controller-watchdog`
 is reserved for explicit historical fixture replay; it is not the current
 safety acceptance configuration.

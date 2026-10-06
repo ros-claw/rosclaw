@@ -11,12 +11,16 @@ from pathlib import Path
 
 import yaml
 from ament_index_python.packages import get_package_share_directory
+from profiles import PROFILES
 
 ROOT = Path(__file__).resolve().parent
 OUTPUT = Path("/evidence")
 
 
-def prepare(controller_watchdog=True):
+def prepare(controller_watchdog=True, profile_name="waffle"):
+    profile = PROFILES[profile_name]
+    if profile_name == "burger" and not controller_watchdog:
+        raise ValueError("Burger acceptance requires the bottom-level controller watchdog")
     OUTPUT.mkdir(exist_ok=True)
     sim = Path(get_package_share_directory("nav2_minimal_tb3_sim"))
     (OUTPUT / "robot.urdf").write_bytes((sim / "urdf/turtlebot3_waffle.urdf").read_bytes())
@@ -193,11 +197,25 @@ def prepare(controller_watchdog=True):
         }
     )
     (OUTPUT / "bridge.yaml").write_text(yaml.safe_dump(bridge))
+    if profile_name == "burger":
+        from burger import prepare as prepare_burger
+
+        prepare_burger(OUTPUT, profile)
+    bridge = yaml.safe_load((OUTPUT / "bridge.yaml").read_text())
+    truth = [item for item in bridge if item.get("ros_topic_name") == "/rosclaw_sim/ground_truth"]
+    for item in truth:
+        item.update(publisher_queue=1, subscriber_queue=1, qos_profile="SENSOR_DATA")
+    (OUTPUT / "truth_bridge.yaml").write_text(yaml.safe_dump(truth))
+    (OUTPUT / "bridge.yaml").write_text(
+        yaml.safe_dump([item for item in bridge if item not in truth])
+    )
+    (OUTPUT / "fixture_profile.json").write_text(json.dumps(profile.to_dict(), indent=2) + "\n")
     return sim
 
 
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--profile", choices=PROFILES, default="waffle")
     parser.add_argument("--fault-acceptance", action="store_true")
     parser.add_argument(
         "--controller-watchdog",
@@ -206,7 +224,8 @@ def main():
         help="Require the bottom-level command timeout; disable only for explicit legacy fixture replay",
     )
     args = parser.parse_args()
-    prepare(args.controller_watchdog)
+    prepare(args.controller_watchdog, args.profile)
+    profile = PROFILES[args.profile]
     children = []
     labels = {}
     exited = set()
@@ -234,7 +253,7 @@ def main():
                 "-file",
                 str(OUTPUT / "robot.sdf"),
                 "-name",
-                "turtlebot3_waffle",
+                profile.simulation_model,
                 "-z",
                 "0.05",
             ],
@@ -269,7 +288,6 @@ def main():
                 "robot_description:=" + (OUTPUT / "robot.urdf").read_text(),
             ],
         )
-        start("nav2", ["ros2", "launch", str(ROOT / "nav2_launch.py")])
         if args.controller_watchdog:
             subprocess.run(
                 [
@@ -285,6 +303,21 @@ def main():
                 check=True,
                 timeout=40,
             )
+        start("nav2", ["ros2", "launch", str(ROOT / "nav2_launch.py")])
+        start(
+            "truth_bridge",
+            [
+                "ros2",
+                "run",
+                "ros_gz_bridge",
+                "parameter_bridge",
+                "--ros-args",
+                "-p",
+                f"config_file:={OUTPUT / 'truth_bridge.yaml'}",
+                "-p",
+                "use_sim_time:=true",
+            ],
+        )
         start(
             "coverage",
             [
