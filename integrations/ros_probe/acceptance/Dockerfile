@@ -13,6 +13,7 @@ RUN if [ -n "$APT_PROXY" ]; then \
     apt-get -o Acquire::Retries=3 update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
       ros-jazzy-navigation2 ros-jazzy-nav2-bringup ros-jazzy-nav2-minimal-tb3-sim \
+      ros-jazzy-turtlebot3-description ros-jazzy-turtlebot3-gazebo \
       ros-jazzy-fields2cover ros-jazzy-rosbridge-server ros-jazzy-rosbridge-library \
       ros-jazzy-tf-transformations ros-jazzy-diagnostic-msgs libgdal-dev \
       ros-jazzy-gz-ros2-control ros-jazzy-diff-drive-controller ros-jazzy-joint-state-broadcaster \

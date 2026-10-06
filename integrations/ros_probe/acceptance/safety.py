@@ -17,6 +17,8 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
+from observations import completed_observations, latest_completed_observation
+
 from rosclaw.daemon.client import DaemonClient, DaemonRequestError
 from rosclaw.mcp import tools
 from rosclaw.mcp.adapters.runtime_client import RuntimeClient
@@ -25,10 +27,7 @@ ROOT = Path(__file__).resolve().parents[3]
 
 
 def observation(fixture):
-    with (fixture / "witness.jsonl").open("rb") as stream:
-        stream.seek(0, 2)
-        stream.seek(max(0, stream.tell() - 32768))
-        sample = json.loads(stream.read().splitlines()[-1])
+    sample = latest_completed_observation(fixture / "witness.jsonl")
     age = (datetime.now(UTC) - datetime.fromisoformat(sample["captured_at"])).total_seconds()
     if not 0 <= age < 1 or not sample["observation_complete"]:
         raise RuntimeError("fresh complete independent observation required")
@@ -216,10 +215,7 @@ async def main():
             record["observer_stopped_at"] = datetime.now(UTC).isoformat()
             fixture_command(args.container, f"kill -STOP {stopped_witness}")
             await asyncio.sleep(4)
-            independent = [
-                json.loads(line)
-                for line in (args.fixture / "independent-stop.jsonl").read_text().splitlines()
-            ]
+            independent = completed_observations(args.fixture / "independent-stop.jsonl")
             settled = [
                 s
                 for s in independent

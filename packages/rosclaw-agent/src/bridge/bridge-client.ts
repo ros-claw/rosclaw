@@ -23,7 +23,10 @@ export function bridgeToken(rosclawHome: string): string {
 
 /** pi.tools.execute / pi.action.execute 是长任务工具路径（确定性 SIM 闭环/仿真渲染可达
  *  分钟级）——不能用状态 ping 的 5s 超时。 */
-const TOOL_EXECUTE_TIMEOUT_MS = 960_000;
+// ActionDispatcher admits execution deadlines up to 3600 seconds. Keep the
+// response channel open for that bound plus receipt persistence overhead;
+// closing it earlier loses a live action's receipt without cancelling motion.
+const TOOL_EXECUTE_TIMEOUT_MS = 3_660_000;
 
 export async function bridgeCall(
 	rosclawHome: string,

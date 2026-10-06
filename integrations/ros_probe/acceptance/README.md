@@ -16,6 +16,33 @@ docker run --rm --name ros-expert-golden -p 19090:9090 \
   bash -c 'source /opt/ros/jazzy/setup.bash && source /ws/install/setup.bash && python3 /workspace/integrations/ros_probe/acceptance/stack.py --controller-watchdog'
 ```
 
+Two explicitly supported fixture profiles are available: `--profile waffle`
+(default) and `--profile burger`. Burger requires the actual installed ROBOTIS
+`turtlebot3_description` URDF and `turtlebot3_gazebo` sensor/drive specification;
+the image build installs both. It preserves vendor collision/inertial geometry
+and uses the vendor 0.160 m wheel separation and 0.033 m wheel radius. Waffle
+uses the Nav2 minimal simulation model. Both cleaners are simulation attachments.
+
+Use a fresh owned evidence directory, unused loopback port and isolated DDS
+domain for each stack. To run Burger, pass `--profile burger` to `stack.py`, then
+run `run.py --directory <directory> --endpoint ws://127.0.0.1:<port>
+--profile burger --mission-timeout 1800`. The Agent-side runner verifies the
+actual URDF model identity before compiling its immutable Body. A profile/model
+mismatch fails before daemon startup. Without `--profile`, the runner identifies
+one of these two supported vendor models from the supplied URDF; it does not
+infer or support unknown robot geometry.
+
+The fixed profile defines physical radius, simulated cleaner polygon and legal
+recovery centers consistently for the Body, denominator and independent witness.
+Burger uses 0.150 m physical/recovery clearance and a 0.175 m cleaner half-width;
+Waffle preserves its 0.250 m physical radius, 0.300 m recovery clearance and
+0.275 m cleaner half-width. Cleaner size never alters collision clearance.
+`fixture_profile.json` records the observer configuration and is validated
+against the supported profile before observations start. Ground truth uses a
+separate depth-one SENSOR_DATA bridge and matching best-effort subscription,
+preventing old queued poses from being treated as current. Controller activation
+completes before Nav2 startup. No external overlay or monkeypatch is required.
+
 The official controller watchdog is enabled by default. `--no-controller-watchdog`
 is reserved for explicit historical fixture replay; it is not the current
 safety acceptance configuration.
@@ -40,9 +67,13 @@ with zero contacts and no trajectory gaps. Failure artifacts and failed Practice
 episodes are retained, rather than converted into successful receipts.
 
 For actual-model Native acceptance, use `run.py --prepare-only` in a new owned
-directory, configure its `home/config.yaml` with `native_tools.py` as the SIM-only
-MCP source, and provision the existing Native model settings/authentication in
-that isolated home. Do not commit credentials. Use the same model/provider and
+directory, generate its `home/config.yaml` from the compiled Body with
+`configure_native.py --directory <directory> --endpoint <same endpoint>`,
+and provision the existing Native model settings/authentication separately in
+that isolated home. The generator binds both the active Body and MCP
+`required_body_types` to the compiled instance, rejecting stale/forged Body
+declarations before writing. It does not overwrite an existing config unless
+`--overwrite` is explicit, and never copies credentials. Do not commit credentials. Use the same model/provider and
 budget for any comparison. With the repository's development test dependencies
 and Node build installed:
 
@@ -50,6 +81,10 @@ and Node build installed:
 PYTHONPATH=src .venv/bin/python integrations/ros_probe/acceptance/native.py \
   --directory /tmp/ros-expert-run/native
 ```
+
+For an isolated loopback port, pass the same `--endpoint` to `native.py` and
+the configured `native_tools.py` MCP command. Model identity is recorded from
+actual SDK usage rather than a fixed runner label.
 
 The runner sends only “完成整个房间清扫。” and acts as the explicitly configured
 SIM test operator for exact independent authorization cards. The model chooses
@@ -86,7 +121,10 @@ PYTHONPATH=src .venv/bin/python integrations/ros_probe/acceptance/safety.py \
 Cases are `daemon_kill`, `clock_pause`, `bridge_kill`, `observer_stop`. The final
 case uses a second passive pose observer and checks the official controller's
 0.2-second command timeout while the primary observation/lease process is
-paused. Unknown stop evidence fails acceptance. Daemon SIGKILL cannot produce a
+paused. The auxiliary live witness reader ignores only an unfinished append at EOF;
+it rejects malformed completed records and preserves freshness checks. Canonical
+mission trajectories are never repaired or filtered by this reader.
+Unknown stop evidence fails acceptance. Daemon SIGKILL cannot produce a
 terminal receipt; missing receipt is retained explicitly.
 
 For the owned Isaac ROS 5 / Lyrical GPU fixture, source the pinned upstream
@@ -111,3 +149,8 @@ acceptance. Failed and successful evidence is retained in RH13/isaac-live/resize
 Native probe freshness regressions run with ROS-host Python: `python3 integrations/ros_probe/acceptance/probe_cache.py`. They create no Node or DDS connection. In the inactive owned Golden fixture, `probe_pause.py` pauses and resumes only the acknowledged Gazebo world service and requires new wall-time probe captures showing clock progress true→false→true. The captured snapshot can be replayed through Core diagnosis at its original capture time; replay is historical evidence.
 
 `run.py --reject-smaller-scope` checks that the configured rectangular whole-room executor returns canonical BLOCKED for a smaller requested area before physical dispatch. The Core resource scheduler lease is separate from the cleaning actuator lease. Independent physics evidence must still show standstill, disabled cleaning and no active cleaning lease.
+
+Native execution RPCs retain their response channel for the dispatcher maximum
+3600-second action deadline plus 60 seconds for receipt delivery. Read-only bridge
+queries retain their five-second timeout. This transport bound does not extend
+action authorization, leases, or verification deadlines.

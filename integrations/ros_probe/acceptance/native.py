@@ -20,20 +20,33 @@ import yaml
 REPO = Path(__file__).resolve().parents[3]
 
 
+def validate_fixture_config(config, body_id, endpoint):
+    if config.get("agent", {}).get("default_mode") != "SIMULATION" or any(
+        s.get("supported_modes") != ["SIMULATION"] for s in config.get("mcp_servers", [])
+    ):
+        raise ValueError("automated test approval requires the isolated SIM-only fixture")
+    if config.get("agent", {}).get("body_id") != body_id or any(
+        s.get("action_tools") and body_id not in s.get("required_body_types", [])
+        for s in config.get("mcp_servers", [])
+    ):
+        raise ValueError("Native action declarations do not bind the prepared fixture Body")
+    if config.get("agent", {}).get("ros_expert", {}).get("endpoint") != endpoint:
+        raise ValueError("Native observer and daemon fixture endpoints differ")
+
+
 def main():
     sys.path.insert(0, str(REPO))
     from tests.agentd.test_product_journey import PtySession
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--directory", type=Path, required=True)
+    parser.add_argument("--endpoint", default="ws://127.0.0.1:19090")
     args = parser.parse_args()
     root = args.directory.resolve()
     home = root / "home"
     config = yaml.safe_load((home / "config.yaml").read_text())
-    if config.get("agent", {}).get("default_mode") != "SIMULATION" or any(
-        s.get("supported_modes") != ["SIMULATION"] for s in config.get("mcp_servers", [])
-    ):
-        raise ValueError("automated test approval requires the isolated SIM-only fixture")
+    body_id = json.loads((root / "body.json").read_text())["body_id"]
+    validate_fixture_config(config, body_id, args.endpoint)
     env = os.environ.copy()
     env["ROSCLAW_HOME"] = str(home)
     env["ROSCLAW_ROS_EXPERT"] = "1"
@@ -46,6 +59,8 @@ def main():
             str(REPO / "integrations/ros_probe/acceptance/daemon.py"),
             "--directory",
             str(root),
+            "--endpoint",
+            args.endpoint,
         ],
         env=env,
         stdout=log,
@@ -113,7 +128,11 @@ def main():
         session.expect(b"Operator Ready", timeout=60)
         print(
             json.dumps(
-                {"stage": "operator_ready", "model": "gpt-6.1-sol", "input": "完成整个房间清扫。"}
+                {
+                    "stage": "operator_ready",
+                    "model_source": "isolated_home_configuration",
+                    "input": "完成整个房间清扫。",
+                }
             ),
             flush=True,
         )

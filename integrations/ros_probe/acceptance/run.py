@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 
 from fixture_body import configure_fixture_body
+from profiles import PROFILES, profile_for_urdf
 
 from rosclaw.connectors.ros.expert import inspect_system
 from rosclaw.connectors.ros.mission import compile_mission
@@ -28,6 +29,7 @@ async def main():
     parser.add_argument("--reject-smaller-scope", action="store_true")
     parser.add_argument("--prepare-only", action="store_true")
     parser.add_argument("--model-urdf", type=Path)
+    parser.add_argument("--profile", choices=PROFILES)
     parser.add_argument("--mission-timeout", type=int, default=900)
     args = parser.parse_args()
     if args.navigation_only and args.reject_smaller_scope:
@@ -35,6 +37,8 @@ async def main():
     if not 60 <= args.mission_timeout <= 1800:
         parser.error("mission timeout must be between 60 and 1800 seconds")
     root = args.directory.resolve()
+    urdf_path = args.model_urdf or root / "robot.urdf"
+    profile = profile_for_urdf(urdf_path, args.profile)
     measured = json.loads((root / "measured_map.json").read_text())
     width, height, res = measured["width"], measured["height"], measured["resolution"]
     origin = measured["origin"]
@@ -45,15 +49,15 @@ async def main():
         resolution=res,
         occupancy=measured["occupancy"],
         start_cell=start,
-        robot_radius=0.25,
-        cleaning_radius=0.275,
+        robot_radius=profile.physical_radius_m,
+        cleaning_radius=profile.cleaner_half_width_m,
     )
     body = {
-        "body_id": "ros_expert_base",
+        "body_id": profile.body_id,
         "base_frame": "base_footprint",
         "map_frame": "map",
-        "physical_radius_m": 0.25,
-        "cleaning_polygon": [[-0.275, -0.275], [0.275, -0.275], [0.275, 0.275], [-0.275, 0.275]],
+        "physical_radius_m": profile.physical_radius_m,
+        "cleaning_polygon": profile.cleaning_polygon,
     }
     # This acceptance world is rectangular. Use the measured cleanable room
     # boundary, not a second robot-center inset before Fields2Cover headlands.
@@ -62,7 +66,7 @@ async def main():
     bottom = origin[1] + min(i // width for i in cells) * res
     top = origin[1] + (max(i // width for i in cells) + 1) * res
     body["coverage_polygon"] = [[left, bottom], [right, bottom], [right, top], [left, top]]
-    body_hash = configure_fixture_body(root / "home", body, args.model_urdf or root / "robot.urdf")
+    body_hash = configure_fixture_body(root / "home", body, urdf_path)
     body["effective_body_hash"] = body_hash
     (root / "body.json").write_text(json.dumps(body, indent=2) + "\n")
     config = {
@@ -84,7 +88,7 @@ async def main():
         resolution=res,
         occupancy=measured["occupancy"],
         start_cell=start,
-        robot_radius=0.3,
+        robot_radius=profile.recovery_radius_m,
         cleaning_radius=0.001,
     )
     config["recovery_centers"] = [

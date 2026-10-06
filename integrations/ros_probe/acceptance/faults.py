@@ -12,15 +12,13 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
+from observations import latest_completed_observation
+
 ROOT = Path("/evidence")
 
 
 def observed():
-    with (ROOT / "witness.jsonl").open("rb") as stream:
-        stream.seek(0, 2)
-        stream.seek(max(0, stream.tell() - 32768))
-        line = stream.read().splitlines()[-1]
-    sample = json.loads(line)
+    sample = latest_completed_observation(ROOT / "witness.jsonl")
     captured = datetime.fromisoformat(sample["captured_at"])
     if not 0 <= (datetime.now(UTC) - captured).total_seconds() < 1:
         raise RuntimeError("fresh independent fixture observation is required")

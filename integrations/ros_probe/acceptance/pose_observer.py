@@ -5,9 +5,12 @@ import json
 import math
 import time
 from datetime import UTC, datetime
+from pathlib import Path
 
 import rclpy
+from profiles import PROFILES
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, ReliabilityPolicy
 from tf2_msgs.msg import TFMessage
 
 
@@ -15,13 +18,17 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
+    saved = json.loads(Path("/evidence/fixture_profile.json").read_text())
+    profile = PROFILES[saved["name"]]
+    if saved != profile.to_dict():
+        raise ValueError("independent observer profile differs from supported geometry")
     rclpy.init()
     node = Node("independent_stop_observer")
     with open(args.output, "w", buffering=1) as trace:
 
         def observe(message):
             for transform in message.transforms:
-                if transform.child_frame_id != "turtlebot3_waffle":
+                if transform.child_frame_id != profile.simulation_model:
                     continue
                 q = transform.transform.rotation
                 trace.write(
@@ -41,7 +48,12 @@ def main():
                     + "\n"
                 )
 
-        node.create_subscription(TFMessage, "/rosclaw_sim/ground_truth", observe, 20)
+        node.create_subscription(
+            TFMessage,
+            "/rosclaw_sim/ground_truth",
+            observe,
+            QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT),
+        )
         until = time.monotonic() + 90
         try:
             while time.monotonic() < until:
