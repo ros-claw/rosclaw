@@ -67,9 +67,13 @@ with zero contacts and no trajectory gaps. Failure artifacts and failed Practice
 episodes are retained, rather than converted into successful receipts.
 
 For actual-model Native acceptance, use `run.py --prepare-only` in a new owned
-directory, configure its `home/config.yaml` with `native_tools.py` as the SIM-only
-MCP source, and provision the existing Native model settings/authentication in
-that isolated home. Do not commit credentials. Use the same model/provider and
+directory, generate its `home/config.yaml` from the compiled Body with
+`configure_native.py --directory <directory> --endpoint <same endpoint>`,
+and provision the existing Native model settings/authentication separately in
+that isolated home. The generator binds both the active Body and MCP
+`required_body_types` to the compiled instance, rejecting stale/forged Body
+declarations before writing. It does not overwrite an existing config unless
+`--overwrite` is explicit, and never copies credentials. Do not commit credentials. Use the same model/provider and
 budget for any comparison. With the repository's development test dependencies
 and Node build installed:
 

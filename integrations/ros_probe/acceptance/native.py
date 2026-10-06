@@ -20,6 +20,20 @@ import yaml
 REPO = Path(__file__).resolve().parents[3]
 
 
+def validate_fixture_config(config, body_id, endpoint):
+    if config.get("agent", {}).get("default_mode") != "SIMULATION" or any(
+        s.get("supported_modes") != ["SIMULATION"] for s in config.get("mcp_servers", [])
+    ):
+        raise ValueError("automated test approval requires the isolated SIM-only fixture")
+    if config.get("agent", {}).get("body_id") != body_id or any(
+        s.get("action_tools") and body_id not in s.get("required_body_types", [])
+        for s in config.get("mcp_servers", [])
+    ):
+        raise ValueError("Native action declarations do not bind the prepared fixture Body")
+    if config.get("agent", {}).get("ros_expert", {}).get("endpoint") != endpoint:
+        raise ValueError("Native observer and daemon fixture endpoints differ")
+
+
 def main():
     sys.path.insert(0, str(REPO))
     from tests.agentd.test_product_journey import PtySession
@@ -31,10 +45,8 @@ def main():
     root = args.directory.resolve()
     home = root / "home"
     config = yaml.safe_load((home / "config.yaml").read_text())
-    if config.get("agent", {}).get("default_mode") != "SIMULATION" or any(
-        s.get("supported_modes") != ["SIMULATION"] for s in config.get("mcp_servers", [])
-    ):
-        raise ValueError("automated test approval requires the isolated SIM-only fixture")
+    body_id = json.loads((root / "body.json").read_text())["body_id"]
+    validate_fixture_config(config, body_id, args.endpoint)
     env = os.environ.copy()
     env["ROSCLAW_HOME"] = str(home)
     env["ROSCLAW_ROS_EXPERT"] = "1"

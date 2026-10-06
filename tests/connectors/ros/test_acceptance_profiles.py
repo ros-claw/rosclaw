@@ -94,3 +94,78 @@ def test_prepare_only_compiles_actual_body_and_legal_recovery_centers(
     if name == "burger":
         assert max(x for x, _ in recovery) == pytest.approx(1.325)
     assert not (root / "daemon_ready.json").exists()
+    configured = subprocess.run(
+        [
+            sys.executable,
+            str(RUNNER / "configure_native.py"),
+            "--directory",
+            str(root),
+            "--endpoint",
+            "ws://127.0.0.1:19094",
+        ],
+        env={**os.environ, "PYTHONPATH": str(ROOT / "src")},
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=True,
+    )
+    import yaml
+
+    native = yaml.safe_load((root / "home/config.yaml").read_text())
+    assert json.loads(configured.stdout)["body_snapshot_hash"] == body["effective_body_hash"]
+    assert native["agent"]["body_id"] == body["body_id"]
+    assert native["agent"]["default_mode"] == "SIMULATION"
+    assert native["mcp_servers"][0]["required_body_types"] == [body["body_id"]]
+    assert native["mcp_servers"][0]["supported_modes"] == ["SIMULATION"]
+    assert native["mcp_servers"][0]["args"][-1] == "ws://127.0.0.1:19094"
+    original_config = (root / "home/config.yaml").read_bytes()
+    body["effective_body_hash"] = "forged"
+    (root / "body.json").write_text(json.dumps(body))
+    rejected = subprocess.run(
+        [
+            sys.executable,
+            str(RUNNER / "configure_native.py"),
+            "--directory",
+            str(root),
+            "--overwrite",
+        ],
+        env={**os.environ, "PYTHONPATH": str(ROOT / "src")},
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert rejected.returncode != 0
+    assert "differ from the compiled Body" in rejected.stderr
+    assert (root / "home/config.yaml").read_bytes() == original_config
+
+
+@pytest.mark.parametrize("mutation", ["body", "declaration", "mode", "endpoint"])
+def test_native_preflight_rejects_inconsistent_binding_before_startup(mutation):
+    spec = importlib.util.spec_from_file_location("acceptance_native", RUNNER / "native.py")
+    native = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(native)
+    config = {
+        "agent": {
+            "body_id": "ros_expert_burger",
+            "default_mode": "SIMULATION",
+            "ros_expert": {"endpoint": "ws://127.0.0.1:19094"},
+        },
+        "mcp_servers": [
+            {
+                "action_tools": ["coverage.execute"],
+                "required_body_types": ["ros_expert_burger"],
+                "supported_modes": ["SIMULATION"],
+            }
+        ],
+    }
+    native.validate_fixture_config(config, "ros_expert_burger", "ws://127.0.0.1:19094")
+    if mutation == "body":
+        config["agent"]["body_id"] = "ros_expert_base"
+    elif mutation == "declaration":
+        config["mcp_servers"][0]["required_body_types"] = ["ros_expert_base"]
+    elif mutation == "mode":
+        config["mcp_servers"][0]["supported_modes"].append("REAL")
+    else:
+        config["agent"]["ros_expert"]["endpoint"] = "ws://127.0.0.1:19090"
+    with pytest.raises(ValueError):
+        native.validate_fixture_config(config, "ros_expert_burger", "ws://127.0.0.1:19094")
