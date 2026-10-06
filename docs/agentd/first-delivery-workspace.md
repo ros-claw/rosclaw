@@ -1,0 +1,7 @@
+# Delivery-first task workspace
+
+When the first effectful tool was `rosclaw_deliver`, the native tool relay supplied its resolved workspace, but Python task admission discarded that value and supplied an empty `cwd`. The kernel created the task under `home/tasks/<id>/workspace` while the artifact was registered from the native workspace. A native Kimi source-registration experiment exposed this split; its original workspace-binding rejection remains recorded.
+
+Delivery-first admission now forwards the workspace supplied by the native product tool. Relative and absolute artifact paths produce a task bound to that workspace. Delivery to an existing task retains its established workspace and revision; callers that supply no workspace retain the existing default.
+
+Validation: both first-delivery path variants failed before the fix and passed afterward. The existing-task regression and focused bridge, admission, delivery and lifecycle suites passed (61 tests). A real Python Unix-RPC → unchanged compiled Node product tool → PI 1.0.4 probe, using three deterministic fake provider responses and no external socket connections, also verified first-delivery workspace admission and model-visible registered SHA/Ref. MCP discovery was an explicit fixture noop; this probe does not certify production discovery or a paid native run of the new revision. The new test file passed Ruff checks and formatting, and the changed dispatcher passed focused mypy.

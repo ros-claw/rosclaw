@@ -470,7 +470,9 @@ class PiToolDispatcher:
             # 收尾评估失败不影响工具结果本身（下轮再评估）。
             return
 
-    def _ensure_task_for_effect(self, request: PiToolRequestV1) -> None:
+    def _ensure_task_for_effect(
+        self, request: PiToolRequestV1, *, cwd: str = ""
+    ) -> None:
         """P0-C（0824 总纲 §6.2）：effectful wire 工具执行前的原子
         admission——缺动机输入诚实拒绝（INPUT_MOTIVATION_MISSING）。
         mode 取 mission 权威值（request 不携带 mode 字段）。"""
@@ -480,7 +482,7 @@ class PiToolDispatcher:
             mission_id=request.mission_id,
             session_ref=request.pi_session_id,
             backend_native_id=request.pi_session_id,
-            cwd="",
+            cwd=cwd,
             mode=mission.mode.value if mission else "SIMULATION",
             # N0 熔断：body 缺省回落 mission 绑定（执行面首条即武装）。
             body_id=(mission.body_binding.body_id if mission else ""),
@@ -748,6 +750,10 @@ class PiToolDispatcher:
         附着的新输入（迟到请求不得自动激活新 revision）。无任务
         史时保留 P0-C 交付优先 admission。"""
         kernel = self._service._task_kernel
+        # The native product tool supplies its resolved ActiveTaskContext root.
+        # Keep it when delivery admits the first task, rather than falling back
+        # to home/tasks while registering a file in the native workspace.
+        session_cwd = str(request.arguments.get("cwd", "") or "")
         task = kernel.active_task_for(request.mission_id, request.pi_session_id)
         appended_post_terminal = False
         if task is None:
@@ -762,7 +768,7 @@ class PiToolDispatcher:
             elif latest is None:
                 # 交付优先（P0-C 金丝雀）：无任务史——首个 effectful
                 # call 原子 admission 建任务。
-                self._ensure_task_for_effect(request)
+                self._ensure_task_for_effect(request, cwd=session_cwd)
                 task = kernel.active_task_for(
                     request.mission_id, request.pi_session_id
                 )
@@ -777,7 +783,6 @@ class PiToolDispatcher:
         # 源（ActiveTaskContext）在 PR-N1。
         from pathlib import Path as _Path
 
-        session_cwd = str(request.arguments.get("cwd", "") or "")
         task_ws = str(task["workspace_path"])
         if _Path(path).is_absolute():
             resolved = path
