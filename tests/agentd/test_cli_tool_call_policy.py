@@ -148,6 +148,27 @@ def test_cmd_chat_rejects_malformed_before_any_side_effect(tmp_path, monkeypatch
         assert "--tool-call-policy 无效" in capsys.readouterr().err
 
 
+def test_unknown_tilde_username_rejected_friendly(tmp_path, monkeypatch, capsys):
+    import rosclaw.agentd.cli as cli
+
+    def _boom(*a, **k):
+        raise AssertionError("home/store/auth/Node 不得在 policy 拒绝前启动")
+
+    monkeypatch.setattr(cli, "_home", _boom)
+    monkeypatch.setattr(cli, "_cmd_chat_impl", _boom)
+    # 未知 ~username：expanduser 内部 RuntimeError 必须归一为 ValueError，
+    # cmd_chat 友好 invalid exit 2，不泄 traceback、零副作用。
+    raw = "~rosclaw_no_such_user_zz/policy.json"
+    with pytest.raises(ValueError):
+        _validate_tool_call_policy(raw)
+    parser = build_parser()
+    args = parser.parse_args(["chat", "--tool-call-policy", raw])
+    assert cli.cmd_chat(args) == 2
+    err = capsys.readouterr().err
+    assert "--tool-call-policy 无效" in err
+    assert "Traceback" not in err
+
+
 def test_cmd_chat_forwards_canonical_resolved_path(tmp_path, monkeypatch):
     from pathlib import Path
 

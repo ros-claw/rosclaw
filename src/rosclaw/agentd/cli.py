@@ -537,8 +537,13 @@ def _validate_tool_call_policy(raw_path: str) -> Path:
     产生任何 home/store/auth/子进程副作用。
     """
     # 相对路径相对调用方 cwd 解析（不改 cwd）；~ 相对调用方 HOME 展开；
+    # 未知 ~username 的 expanduser 抛 RuntimeError——归一为 ValueError，保持
+    # cmd_chat 的 (ValueError, OSError) 捕获契约（friendly invalid，exit 2）。
     # 最终返回同一已校验文件的 canonical absolute resolved 路径。
-    path = Path(raw_path).expanduser()
+    try:
+        path = Path(raw_path).expanduser()
+    except RuntimeError as exc:
+        raise ValueError(f"policy 路径无法展开（未知用户 home）：{exc}") from exc
     if not path.is_file():
         raise ValueError(f"policy 文件不存在或不是常规文件：{raw_path}")
     path = path.resolve()
