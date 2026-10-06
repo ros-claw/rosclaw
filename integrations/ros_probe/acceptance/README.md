@@ -149,3 +149,8 @@ acceptance. Failed and successful evidence is retained in RH13/isaac-live/resize
 Native probe freshness regressions run with ROS-host Python: `python3 integrations/ros_probe/acceptance/probe_cache.py`. They create no Node or DDS connection. In the inactive owned Golden fixture, `probe_pause.py` pauses and resumes only the acknowledged Gazebo world service and requires new wall-time probe captures showing clock progress true→false→true. The captured snapshot can be replayed through Core diagnosis at its original capture time; replay is historical evidence.
 
 `run.py --reject-smaller-scope` checks that the configured rectangular whole-room executor returns canonical BLOCKED for a smaller requested area before physical dispatch. The Core resource scheduler lease is separate from the cleaning actuator lease. Independent physics evidence must still show standstill, disabled cleaning and no active cleaning lease.
+
+Native execution RPCs retain their response channel for the dispatcher maximum
+3600-second action deadline plus 60 seconds for receipt delivery. Read-only bridge
+queries retain their five-second timeout. This transport bound does not extend
+action authorization, leases, or verification deadlines.
