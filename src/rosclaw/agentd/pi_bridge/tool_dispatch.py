@@ -478,15 +478,20 @@ class PiToolDispatcher:
         mode 取 mission 权威值（request 不携带 mode 字段）。"""
         kernel = self._service._task_kernel
         mission = self._service.get_mission(request.mission_id)
-        kernel.ensure_task_for_effect(
-            mission_id=request.mission_id,
-            session_ref=request.pi_session_id,
-            backend_native_id=request.pi_session_id,
-            cwd=cwd,
-            mode=mission.mode.value if mission else "SIMULATION",
-            # N0 熔断：body 缺省回落 mission 绑定（执行面首条即武装）。
-            body_id=(mission.body_binding.body_id if mission else ""),
-        )
+        try:
+            kernel.ensure_task_for_effect(
+                mission_id=request.mission_id,
+                session_ref=request.pi_session_id,
+                backend_native_id=request.pi_session_id,
+                cwd=cwd,
+                mode=mission.mode.value if mission else "SIMULATION",
+                # N0 熔断：body 缺省回落 mission 绑定（执行面首条即武装）。
+                body_id=(mission.body_binding.body_id if mission else ""),
+            )
+        except ValueError as exc:
+            # 本地一致性修复：缺动机输入必须 typed reject（此前裸
+            # ValueError 逃逸出验证链，不是结构化拒绝）。
+            raise ToolBridgeError("INPUT_MOTIVATION_MISSING", str(exc)) from exc
 
     async def _dispatch(self, request: PiToolRequestV1) -> PiToolResultV1:
         service = self._service
@@ -643,7 +648,13 @@ class PiToolDispatcher:
         if name == "rosclaw_task_blocked":
             return await self._task_blocked(request)
         if name == "rosclaw_process_start":
-            self._ensure_task_for_effect(request)
+            # 本地一致性修复：首个 effectful process 的 admission 必须
+            # 携带规范 session cwd（与 _artifact_register 的
+            # session_cwd 同一语义）——否则 task workspace 回落
+            # private home/tasks，首个进程丢失会话工作目录。
+            self._ensure_task_for_effect(
+                request, cwd=str(request.arguments.get("cwd", "") or "")
+            )
             return await self._process_start(request)
         if name == "rosclaw_process_status":
             return await self._process_status(request)

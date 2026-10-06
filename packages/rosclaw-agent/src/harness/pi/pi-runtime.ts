@@ -255,13 +255,38 @@ export async function createRosclawRuntime(
 					// （首个 effectful call 建 task——动机=session
 					// 最新输入）。
 					beforeEffect: async () => {
-						await center.call("pi.task.ensure_effect", {
-							mission_id: active.current.missionId ?? "",
-							session_ref: active.current.sessionId ?? "",
-							backend_native_id: active.current.sessionId ?? "",
+						// P0-C 本地一致性修复：admission RPC 的拒绝
+						// 必须阻断 effect（此前忽略返回值，ok:false
+						// 之后仍写盘）；并携带调用方请求上下文——服务
+						// 端先校验 writer/context 身份再落账 Task/
+						// revision/binding。
+						const state = active.current;
+						const admission = await center.call("pi.task.ensure_effect", {
+							mission_id: state.missionId ?? "",
+							session_ref: state.sessionId ?? "",
+							backend_native_id: state.sessionId ?? "",
 							cwd,
-							mode: active.current.mode ?? "SIMULATION",
+							mode: state.mode ?? "SIMULATION",
+							request: {
+								schema_version: "rosclaw.pi_tool_request.v1",
+								request_id: `ptr_effect_${Date.now()}_${Math.floor(Math.random() * 1e6)}`,
+								pi_session_id: state.sessionId ?? "",
+								mission_id: state.missionId ?? "",
+								context_revision: state.contextRevision,
+								body_hash: state.bodyHash ?? "",
+								mode: state.mode ?? "SIMULATION",
+								tool_name: "rosclaw_workspace_effect",
+								arguments: {},
+								requested_at: new Date().toISOString(),
+								idempotency_key: `idem_effect_${state.sessionId ?? ""}_${Date.now()}_${Math.floor(Math.random() * 1e6)}`,
+								actor: { engine: "pi", process_id: process.pid, uid: process.getuid?.() ?? 0 },
+							},
 						});
+						if (admission.ok !== true) {
+							const code = String(admission.code ?? "EFFECT_ADMISSION_DENIED");
+							const message = String(admission.error ?? "pi.task.ensure_effect rejected");
+							throw new Error(`REJECTED [${code}]: ${message}`);
+						}
 					},
 					// 大道至简 R1-2b：SIM 任务沙箱自动执行不弹卡——
 					// R1-a 的降级确认卡 apparatus 整体退役（REAL/
@@ -272,6 +297,10 @@ export async function createRosclawRuntime(
 					rosclawHome: options.rosclawHome,
 					active,
 					center,
+					// P0-C 本地一致性修复：首个 effectful process 的
+					// admission 需要规范 session cwd（任务 workspace 单一
+					// 事实源）——否则首个进程回落 private home/tasks。
+					sessionCwd: cwd,
 				}),
 				// PR-H4：Product Pack（登记/收尾/阻塞——验收决定终态）。
 				...buildProductPackTools({

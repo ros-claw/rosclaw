@@ -11,7 +11,7 @@ import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent
 
 import { executeVia, type BridgeToolContext } from "./bridge-tools.js";
 
-export function buildProcessTools(ctx: BridgeToolContext): ToolDefinition[] {
+export function buildProcessTools(ctx: BridgeToolContext & { sessionCwd?: string }): ToolDefinition[] {
 	return [
 		defineTool({
 			name: "process_start",
@@ -38,8 +38,13 @@ export function buildProcessTools(ctx: BridgeToolContext): ToolDefinition[] {
 				command: Type.String({ description: "由 sh -c 原样执行的后台命令；Bash 语法须显式调用 bash -c" }),
 			}),
 			async execute(_id, params, _signal, _onUpdate, _toolCtx) {
+				// P0-C 本地一致性修复：process_start 若是首个 effectful
+				// call，agentd admission 建 task 的 workspace 必须取规范
+				// session cwd（此前缺 cwd 回落 private home/tasks——首个
+				// 进程丢失会话工作目录）。
 				return await executeVia(ctx, "rosclaw_process_start", {
 					command: String(params.command ?? ""),
+					cwd: ctx.sessionCwd ?? "",
 				});
 			},
 		}),

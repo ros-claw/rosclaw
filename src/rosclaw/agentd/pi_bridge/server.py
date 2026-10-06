@@ -1207,15 +1207,101 @@ class PiBridgeServer:
             # P0-C（0824 总纲 §6.2）：首个 effectful call 的原子
             # admission——以 session 最新未附着输入为动机建 task/
             # 新 revision；已附着直接返回（不重复 bump）。
+            # 本地一致性修复：Task/revision/binding 落账之前先硬校验
+            # 调用方请求上下文（envelope 与 RPC 参数一致 + actor 是
+            # SO_PEERCRED 真实 peer 进程）与 writer 身份（session
+            # binding + writer lease + owner PID/UID）——缺上下文、
+            # 错 mission/session/writer 一律在 mutation 前 typed
+            # reject。普通（非物理）stale context revision 不在此
+            # 处拦截（G3 既有兼容协议保持正向）。
             kernel = service._task_kernel
+            mission_id = str(params.get("mission_id", ""))
+            session_ref = str(params.get("session_ref", ""))
+            request_ctx = params.get("request")
+            if not isinstance(request_ctx, dict):
+                return {
+                    "ok": False,
+                    "error": "ensure_effect requires the caller request context envelope",
+                    "code": "REQUEST_CONTEXT_REQUIRED",
+                }
+            # Typed-schema 边界：请求 envelope 声称的 schema major 必须是
+            # 既有 PiToolRequestV1 合约版本——显式错误版本（如 v999）在
+            # 任何 Task/revision/binding mutation 之前 typed reject，与
+            # pi.tools.execute 的 INVALID_REQUEST 语义一致。缺省
+            # schema_version 沿用 v1 默认（既有兼容，不收紧）。
+            from rosclaw.contracts.pi.tool_request import PiToolRequestV1
+
+            _schema = request_ctx.get("schema_version", PiToolRequestV1.SCHEMA)
+            if _schema != PiToolRequestV1.SCHEMA:
+                return {
+                    "ok": False,
+                    "error": (
+                        f"unsupported tool request schema {_schema!r}; "
+                        f"expected {PiToolRequestV1.SCHEMA}"
+                    ),
+                    "code": "INVALID_REQUEST",
+                }
+            if str(request_ctx.get("mission_id", "")) != mission_id:
+                return {
+                    "ok": False,
+                    "error": "request context mission_id does not match the RPC mission",
+                    "code": "REQUEST_MISSION_MISMATCH",
+                }
+            if str(request_ctx.get("pi_session_id", "")) != session_ref:
+                return {
+                    "ok": False,
+                    "error": "request context pi_session_id does not match the RPC session",
+                    "code": "REQUEST_SESSION_MISMATCH",
+                }
+            _actor = request_ctx.get("actor")
+            _actor = _actor if isinstance(_actor, dict) else {}
+            try:
+                _actor_pid = int(_actor.get("process_id", -1))
+            except (TypeError, ValueError):
+                _actor_pid = -1
+            if _actor_pid != peer_pid:
+                return {
+                    "ok": False,
+                    "error": "request actor is not the calling process (SO_PEERCRED)",
+                    "code": "REQUEST_ACTOR_MISMATCH",
+                }
+            _binding = self._bindings.binding_for_session(session_ref)
+            if _binding is None:
+                return {
+                    "ok": False,
+                    "error": "pi session has no active binding",
+                    "code": "SESSION_UNBOUND",
+                }
+            if _binding.mission_id != mission_id:
+                return {
+                    "ok": False,
+                    "error": f"bound mission is {_binding.mission_id}, not {mission_id}",
+                    "code": "MISSION_MISMATCH",
+                }
+            # SO_PEERCRED 是内核给的真值（与 pi.context 的 P0-5A
+            # writer 判定同一语义）——JSON 参数不可覆写。
+            _caller_uid = int(principal.rsplit(":", 1)[-1])
+            _writer = self._bindings.writer_of(mission_id)
+            if _writer is None or _writer.pi_session_id != session_ref:
+                return {
+                    "ok": False,
+                    "error": "this session does not hold the writer lease",
+                    "code": "WRITER_LEASE_REQUIRED",
+                }
+            if _writer.owner_pid != peer_pid or _writer.owner_uid != _caller_uid:
+                return {
+                    "ok": False,
+                    "error": "caller is not the writer process (SO_PEERCRED)",
+                    "code": "CALLER_MISMATCH",
+                }
             try:
                 # N0 熔断：body_id 缺省回落 mission 绑定（与
                 # pi.task.bind 同语义——执行面必须首条即武装，否则
                 # N4.1 资源证明在空 body 下误判 RESOURCE_PROVENANCE_MISSING）。
-                _mission = service.get_mission(str(params.get("mission_id", "")))
+                _mission = service.get_mission(mission_id)
                 result = kernel.ensure_task_for_effect(
-                    mission_id=str(params.get("mission_id", "")),
-                    session_ref=str(params.get("session_ref", "")),
+                    mission_id=mission_id,
+                    session_ref=session_ref,
                     backend_native_id=str(params.get("backend_native_id", "")),
                     cwd=str(params.get("cwd", "")),
                     mode=str(params.get("mode", "SIMULATION")),
