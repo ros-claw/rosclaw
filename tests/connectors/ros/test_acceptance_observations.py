@@ -40,3 +40,16 @@ def test_reader_does_not_retimestamp_stale_snapshot(tmp_path):
     stale = {"captured_at": "2000-01-01T00:00:00+00:00", "observation_complete": False}
     path.write_text(json.dumps(stale) + "\n" + '{"captured_at":')
     assert module.latest_completed_observation(path) == stale
+
+
+def test_auxiliary_window_preserves_every_completed_row(tmp_path):
+    path = tmp_path / "independent-stop.jsonl"
+    path.write_bytes(b'{"sequence":0}\n{"sequence":1}\n{"sequence":')
+    assert module.completed_observations(path) == [{"sequence": 0}, {"sequence": 1}]
+
+
+def test_auxiliary_window_does_not_skip_corrupt_middle_row(tmp_path):
+    path = tmp_path / "independent-stop.jsonl"
+    path.write_bytes(b'{"sequence":0}\ncorrupt\n{"sequence":1}\n')
+    with pytest.raises(ValueError):
+        module.completed_observations(path)

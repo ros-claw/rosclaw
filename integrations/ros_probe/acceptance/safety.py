@@ -17,7 +17,7 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
-from observations import latest_completed_observation
+from observations import completed_observations, latest_completed_observation
 
 from rosclaw.daemon.client import DaemonClient, DaemonRequestError
 from rosclaw.mcp import tools
@@ -215,10 +215,7 @@ async def main():
             record["observer_stopped_at"] = datetime.now(UTC).isoformat()
             fixture_command(args.container, f"kill -STOP {stopped_witness}")
             await asyncio.sleep(4)
-            independent = [
-                json.loads(line)
-                for line in (args.fixture / "independent-stop.jsonl").read_text().splitlines()
-            ]
+            independent = completed_observations(args.fixture / "independent-stop.jsonl")
             settled = [
                 s
                 for s in independent

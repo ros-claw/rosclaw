@@ -19,7 +19,19 @@ def latest_completed_observation(path):
     completed, separator, _unfinished = data.rpartition(b"\n")
     if not separator:
         raise ValueError("no completed independent observation")
-    sample = json.loads(completed.rsplit(b"\n", 1)[-1])
+    return _parse_observation(completed.rsplit(b"\n", 1)[-1])
+
+
+def completed_observations(path):
+    """Read a whole auxiliary observer window, rejecting any corrupt completed row."""
+    completed, separator, _unfinished = path.read_bytes().rpartition(b"\n")
+    if not separator:
+        raise ValueError("no completed independent observation")
+    return [_parse_observation(row) for row in completed.split(b"\n")]
+
+
+def _parse_observation(record):
+    sample = json.loads(record)
     if not isinstance(sample, dict):
         raise ValueError("independent observation must be a JSON object")
     return sample
