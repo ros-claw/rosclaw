@@ -12,6 +12,7 @@ import type { ActiveSessionContext } from "../session/active-context.js";
 import type { ProductStateCenter } from "../session/state-center.js";
 import type { LocaleManager } from "../i18n/locale.js";
 import { t as i18nT } from "../i18n/index.js";
+import type { MirrorDiagnostics } from "./event-mirror.js";
 
 export interface CommandDeps {
 	rosclawHome: string;
@@ -25,6 +26,10 @@ export interface CommandDeps {
 	/** PI puts thinking controls on ExtensionAPI, not the command context. */
 	thinking?: Pick<ExtensionAPI, "setThinkingLevel" | "getThinkingLevel" | "getSettings">;
 	listSessions?: () => Promise<SessionInfo[]>;
+	/** BOUNDED-IDENTITY：实际 EventMirror 的同步诊断（pending 含在飞/
+	 *  overflow_dropped/unconfirmed）。返回 null = 镜像诊断不可用——
+	 *  /tokens 必须诚实报"同步状态未知"，绝不假装完整。 */
+	mirrorDiagnostics?: () => MirrorDiagnostics | null;
 }
 
 type Handler = (args: string, ctx: ExtensionCommandContext) => Promise<void>;
@@ -322,6 +327,42 @@ export function buildCommandHandlers(deps: CommandDeps): Record<string, { descri
 						`端到端跨度 ${u.wall_span_ms ?? "-"}ms`,
 						`工具调用 proposed/completed ${tools.proposed ?? 0}/${tools.completed ?? 0}`,
 					);
+					// BOUNDED-IDENTITY：镜像同步完整性用用户可读语言呈现——
+					// 待同步（pending，含在飞）与溢出丢弃（overflow loss）是
+					// 同步完整性事实，绝不伪装成已确认完整/免单；诊断不可用
+					// 时诚实报未知。只含有界计数，不含原始内容/表名。
+					const mirrorDiag = deps.mirrorDiagnostics?.() ?? null;
+					if (mirrorDiag === null) {
+						lines.push(
+							"用量镜像同步状态未知（镜像诊断不可用——上方仅为已确认部分，" +
+							"完整性未知，不据此推断账单完整）",
+						);
+					} else if (mirrorDiag.unconfirmed) {
+						const gaps: string[] = [];
+						if (mirrorDiag.pending > 0) {
+							// BOUNDED-IDENTITY：诚实重试语义——镜像没有后台
+							// 定时器；待同步事件只随真实事件生命周期触发
+							// （下一条助手 message_end / turn_end / 会话关闭
+							// 时的 flush）重放，绝不承诺自动定时重试。
+							gaps.push(
+								`${mirrorDiag.pending} 条用量事件待同步（pending，含在飞批次）` +
+								"——无后台定时自动重试；将在下一条助手消息、回合结束" +
+								"或会话关闭时随事件生命周期重试同步",
+							);
+						}
+						if (mirrorDiag.overflow_dropped > 0) {
+							gaps.push(
+								`累计 ${mirrorDiag.overflow_dropped} 条用量事件因缓冲溢出` +
+								"（overflow）被丢弃——这部分用量已丢失（loss），上方汇总不完整",
+							);
+						}
+						lines.push(
+							`用量镜像同步未完成：${gaps.join("；")}。` +
+							"上方“已确认”数字不包含这些未同步/丢失部分——不是完整账单。",
+						);
+					} else {
+						lines.push("用量镜像已同步：无待同步事件（pending 0），无溢出丢失。");
+					}
 					notify(ctx, lines.join("\n"), "info");
 				} catch (err) {
 					notify(ctx, `agentd=UNREACHABLE（${(err as Error).message}）`, "error");

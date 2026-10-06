@@ -644,3 +644,96 @@ class TestTerminalAuthority:
         assert result.get("code") == "INVALID_USAGE"
         # 原子性：合法前缀也未提交。
         assert harness.snapshot() == before
+
+
+class TestStableEntryProtocol:
+    """BOUNDED-IDENTITY：prospective durable stable-entry/v1 协议。
+
+    - 显式 identity_protocol="stable-entry/v1" 且 pi_entry_id 非空：
+      durable 稳定身份 (session, mission, event_type, entry_id) 准入——
+      同键同语义载荷幂等（新 transport mirror_id/occurred_at 不重复
+      计数），同键不同语义载荷 typed conflict 原子回滚。
+    - 标记存在但非法/未知：任何变更前 typed 拒绝整批；缺省=legacy，
+      mirror_id 行为完全不变（无回填/无历史合并）。
+    """
+
+    @staticmethod
+    def _stable(mission_id: str, mirror_id: str, entry_id: str, **kw) -> dict:
+        event = _event(mission_id, mirror_id, entry_id=entry_id, **kw)
+        event["identity_protocol"] = "stable-entry/v1"
+        return event
+
+    async def test_stable_replay_new_transport_id_no_double_count(self, harness: _Harness) -> None:
+        event = self._stable(harness.mission_id, "mir_orig", "resp_stable")
+        result = await harness.send([event])
+        assert result["ok"] and result["stored"] == 1
+        before = harness.snapshot()
+        native_before = harness.native()
+        # 同稳定身份、同语义载荷，新 transport mirror_id + 新到达时间：
+        # durable 幂等——stored0，绝不重复计费。
+        replay = dict(event)
+        replay["mirror_id"] = "mir_new_transport"
+        replay["occurred_at"] = "2030-01-01T00:00:00+00:00"
+        result = await harness.send([replay])
+        assert result["ok"] and result["stored"] == 0
+        assert harness.snapshot() == before
+        assert harness.native() == native_before
+
+    async def test_stable_conflict_typed_atomic(self, harness: _Harness) -> None:
+        event = self._stable(harness.mission_id, "mir_orig", "resp_stable")
+        assert (await harness.send([event]))["ok"]
+        before = harness.snapshot()
+        conflict = self._stable(harness.mission_id, "mir_other", "resp_stable")
+        conflict["usage"] = dict(conflict["usage"], output=8)
+        result = await harness.send(
+            [self._stable(harness.mission_id, "mir_new_prefix", "resp_new"), conflict]
+        )
+        assert not result["ok"]
+        assert result.get("code") == "MIRROR_CONFLICT"
+        # 原子性：合法前缀未提交，原始行不变。
+        assert harness.snapshot() == before
+        # 同稳定身份同载荷重放仍幂等。
+        same = await harness.send([event])
+        assert same["ok"] and same["stored"] == 0
+
+    async def test_stable_namespace_separation(self, harness: _Harness) -> None:
+        base = self._stable(harness.mission_id, "mir_ns_a", "resp_ns")
+        other_session = dict(base, mirror_id="mir_ns_b", pi_session_id="pi_other")
+        other_type = self._stable(harness.mission_id, "mir_ns_c", "resp_ns", event_type="turn_end")
+        result = await harness.send([base, other_session, other_type])
+        assert result["ok"] and result["stored"] == 3
+
+    async def test_stable_identityless_not_deduplicated(self, harness: _Harness) -> None:
+        # 空 pi_entry_id 即使声明 stable-entry/v1 也不按稳定身份合并——
+        # 无身份消息保持 transport 身份独立。
+        result = await harness.send(
+            [
+                self._stable(harness.mission_id, "mir_e1", ""),
+                self._stable(harness.mission_id, "mir_e2", ""),
+            ]
+        )
+        assert result["ok"] and result["stored"] == 2
+
+    @pytest.mark.parametrize("marker", ["stable-entry/v2", "", None, True, {"version": 1}])
+    async def test_malformed_protocol_rejected_before_mutation(
+        self, harness: _Harness, marker: object
+    ) -> None:
+        good = self._stable(harness.mission_id, "mir_good", "resp_good")
+        bad = self._stable(harness.mission_id, "mir_bad", "resp_bad")
+        bad["identity_protocol"] = marker
+        result = await harness.send([good, bad])
+        assert not result["ok"]
+        assert result.get("code") == "UNSUPPORTED_IDENTITY_PROTOCOL"
+        # 任何变更前整批拒绝——合法前缀也未提交。
+        assert harness.snapshot() == []
+
+    async def test_absent_marker_legacy_behavior_preserved(self, harness: _Harness) -> None:
+        # legacy（无标记）：同 entry_id 不同 mirror_id 不同载荷仍然允许——
+        # 无历史回填/合并，mirror_id 准入契约不变。
+        first = _event(harness.mission_id, "mir_l1", entry_id="resp_legacy")
+        second = _event(harness.mission_id, "mir_l2", entry_id="resp_legacy")
+        second["usage"] = dict(second["usage"], output=8)
+        assert (await harness.send([first]))["ok"]
+        result = await harness.send([second])
+        assert result["ok"] and result["stored"] == 1
+        assert len(harness.snapshot()) == 2

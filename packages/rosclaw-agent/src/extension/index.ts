@@ -51,7 +51,7 @@ import {
 } from "../native/task-activity.js";
 import type { LocaleManager } from "../i18n/locale.js";
 import { t as i18nT } from "../i18n/index.js";
-import { EventMirror } from "./event-mirror.js";
+import { EventMirror, type MirrorDiagnostics } from "./event-mirror.js";
 import { WorkspaceStore } from "../session/workspace.js";
 import { buildCommandHandlers } from "./commands.js";
 import { guardInput } from "./input-guard.js";
@@ -707,6 +707,9 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 		} as never);
 
 		// -- 全量 ROSClaw 命令（NA-FIX-6，P0-8：InputGuard 允许的必须真实注册） --
+		// BOUNDED-IDENTITY：/tokens 消费真实 EventMirror 同步诊断。mirror 在
+		// 下方创建，命令 handler 只在工厂返回后才被调用——惰性 accessor 安全。
+		let mirrorDiagnostics: () => MirrorDiagnostics | null = () => null;
 		for (const [name, spec] of Object.entries(
 			buildCommandHandlers({
 				thinking: pi,
@@ -715,6 +718,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				active: options.active,
 				center,
 				locale,
+				mirrorDiagnostics: () => mirrorDiagnostics(),
 				registeredToolNames: () => [
 					"rosclaw_status",
 					"rosclaw_capabilities",
@@ -1424,6 +1428,9 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			options.active.current.sessionId,
 			options.active.current.missionId ?? "",
 		);
+		// BOUNDED-IDENTITY：把真实 mirror 的诊断接到 /tokens（上方已注册
+		// 的惰性 accessor 在此指向实际实例）。
+		mirrorDiagnostics = () => mirror.diagnostics();
 		const mirrorSession = options.active;
 		if (mirror) {
 			const activeMirror = mirror;
@@ -1455,20 +1462,41 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 					...((event.message as { usage?: Record<string, unknown> }).usage ?? {}),
 					_rosclaw_terminal: { stopReason, responseId: responseId ?? null },
 				};
-				activeMirror.push("message_end", {
-					entryId: responseId,
-					text,
-					model: String((event.message as { model?: string }).model ?? ""),
-					usage,
-				});
+				try {
+					activeMirror.push("message_end", {
+						entryId: responseId,
+						text,
+						model: String((event.message as { model?: string }).model ?? ""),
+						usage,
+					});
+				} catch (err) {
+					// BOUNDED-IDENTITY：有界背压溢出是已计数的可见丢失——
+					// push 拒绝前已累加 overflow_dropped，经 diagnostics() 与
+					// /tokens 的"同步未完成/丢失"提示对用户可见；绝不让
+					// MIRROR_OVERFLOW 击穿 message_end 生命周期与后续 UI，
+					// 也绝不把被丢弃的用量当作已知免费。其它 typed 错误
+					// （如 MIRROR_CONFLICT 数据损坏）仍然上抛——必须可观测。
+					if ((err as { code?: string }).code !== "MIRROR_OVERFLOW") throw err;
+				}
 				await activeMirror.flush();
 				return undefined;
 			});
 			pi.on("turn_end", async (event) => {
 				activeMirror.retarget(mirrorSession.current.sessionId, mirrorSession.current.missionId ?? "");
-				activeMirror.push("turn_end", {
-					text: JSON.stringify((event.message as { content?: unknown }).content ?? ""),
-				});
+				try {
+					activeMirror.push("turn_end", {
+						text: JSON.stringify((event.message as { content?: unknown }).content ?? ""),
+					});
+				} catch (err) {
+					// REGISTERED-TURN-END：与 message_end 同一有界背压纪律——
+					// MIRROR_OVERFLOW 是已计数（overflow_dropped）的可见丢失，
+					// 经 diagnostics()/​/tokens 对用户可见；绝不让它击穿
+					// turn_end 生命周期而跳过 flush。其它 typed 错误仍上抛。
+					if ((err as { code?: string }).code !== "MIRROR_OVERFLOW") throw err;
+				}
+				// 断连恢复后的既有积压随本事件生命周期做有界重试排水
+				// （flush 自身有 RPC/批次上限；无后台定时自动重试）——
+				// 溢出丢失保持可见，积压不因为一次 push 溢出而永久滞留。
 				await activeMirror.flush();
 				return undefined;
 			});

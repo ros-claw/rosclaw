@@ -1062,6 +1062,18 @@ class PiBridgeServer:
             #   typed 拒绝——原子性：不提交任何更早前缀。
             # - 同 mirror_id 完全相同载荷 = 幂等重放 → ok stored0；
             #   同 id 不同载荷 = typed conflict，原始字节不变。
+            # BOUNDED-IDENTITY（prospective durable stable-entry/v1）：
+            # - identity_protocol 缺省 = legacy mirror_id 准入，行为不变
+            #   （legacy 允许的同 entry 不同载荷/历史身份绝不回填或合并）。
+            # - identity_protocol 存在且 != "stable-entry/v1"（空串/null/
+            #   bool/object/未来版本）= 任何变更前 typed 拒绝整批。
+            # - stable-entry/v1 且 pi_entry_id 非空：durable 稳定身份
+            #   (pi_session_id, mission_id, event_type, pi_entry_id) 准入——
+            #   同键同语义载荷（content_hash/model/usage 对象）= 幂等
+            #   重放 stored0（新 transport mirror_id/occurred_at 不重复
+            #   计数，防 commit-后回执丢失/客户端缓存淘汰后的双重计费）；
+            #   同键不同语义载荷 = typed MIRROR_CONFLICT，原子回滚。
+            #   无 schema 迁移/回填/历史重分类；不声明 SQLite 有界。
             events = params.get("events")
             if not isinstance(events, list) or len(events) > 256:
                 return {
@@ -1071,8 +1083,10 @@ class PiBridgeServer:
                 }
             from rosclaw.agentd.usage import validate_mirror_usage
 
+            stable_protocol = "stable-entry/v1"
+            absent = object()
             conn = service._store.connection
-            prepared: list[tuple[str, ...]] = []
+            prepared: list[tuple] = []
             for index, event in enumerate(events):
                 if not isinstance(event, dict):
                     continue
@@ -1097,6 +1111,19 @@ class PiBridgeServer:
                         "error": f"invalid mirror usage: {usage_error}",
                         "code": "INVALID_USAGE",
                     }
+                marker = event.get("identity_protocol", absent)
+                if marker is not absent and marker != stable_protocol:
+                    # 协议标记存在但非法/未知——整批 typed 拒绝，
+                    # 发生在 BEGIN 之前：绝不提交更早前缀，绝不静默
+                    # 降级为 legacy。
+                    return {
+                        "ok": False,
+                        "error": "unsupported identity_protocol "
+                        f"{marker!r}: only an absent marker (legacy mirror_id "
+                        f"admission) or exactly '{stable_protocol}' is accepted; "
+                        "whole batch rejected before any mutation",
+                        "code": "UNSUPPORTED_IDENTITY_PROTOCOL",
+                    }
                 prepared.append(
                     (
                         str(event.get("mirror_id", "")) or f"mir_{index}",
@@ -1108,6 +1135,8 @@ class PiBridgeServer:
                         str(event.get("model", "")),
                         json.dumps(event.get("usage", {})),
                         str(event.get("occurred_at", "")),
+                        marker == stable_protocol,
+                        event.get("usage", {}),
                     )
                 )
             stored = 0
@@ -1124,7 +1153,7 @@ class PiBridgeServer:
                         (row[0],),
                     ).fetchone()
                     if existing is not None:
-                        if tuple(str(v) for v in existing) == row[1:]:
+                        if tuple(str(v) for v in existing) == row[1:9]:
                             # 完全相同的幂等重放——不重复计数。
                             continue
                         # 同 id 不同载荷：原子拒绝，撤销本批次已插入前缀。
@@ -1135,11 +1164,53 @@ class PiBridgeServer:
                             "different payload; original bytes unchanged",
                             "code": "MIRROR_CONFLICT",
                         }
+                    if row[9] and row[4]:
+                        # durable stable-entry 准入：稳定身份键
+                        # (session, mission, event_type, entry_id) 命中时——
+                        # 语义载荷（content_hash/model/usage 对象）相同 =
+                        # 幂等重放（transport mirror_id/occurred_at 不参与
+                        # 身份）；不同 = typed conflict，原子回滚，更早
+                        # 行不变。
+                        # IDENTITY-COMPAT（migration 042）：匹配限定在同为
+                        # stable-entry/v1 协议标记的行——历史 legacy 行
+                        # （identity_protocol=''，同 entry 多载荷保持原
+                        # 字节）绝不坍缩或污染新的 opt-in 稳定身份。
+                        stable_hit = conn.execute(
+                            "SELECT content_hash, model, usage_json "
+                            "FROM pi_event_mirrors "
+                            "WHERE pi_session_id = ? AND mission_id = ? "
+                            "AND event_type = ? AND pi_entry_id = ? "
+                            "AND identity_protocol = ?",
+                            (row[1], row[2], row[3], row[4], stable_protocol),
+                        ).fetchone()
+                        if stable_hit is not None:
+                            try:
+                                same_payload = (
+                                    str(stable_hit[0]) == row[5]
+                                    and str(stable_hit[1]) == row[6]
+                                    and json.loads(stable_hit[2]) == row[10]
+                                )
+                            except (TypeError, ValueError):
+                                same_payload = False
+                            if same_payload:
+                                # 同稳定身份同语义载荷：durable 幂等重放。
+                                continue
+                            conn.execute("ROLLBACK")
+                            return {
+                                "ok": False,
+                                "error": "stable identity (session "
+                                f"{row[1]}, mission {row[2]}, type {row[3]}, "
+                                f"entry {row[4]}) already stored with a "
+                                "different payload; batch rolled back, "
+                                "original rows unchanged",
+                                "code": "MIRROR_CONFLICT",
+                            }
                     conn.execute(
                         "INSERT INTO pi_event_mirrors (mirror_id, pi_session_id, mission_id, "
-                        "event_type, pi_entry_id, content_hash, model, usage_json, occurred_at) "
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                        row,
+                        "event_type, pi_entry_id, content_hash, model, usage_json, "
+                        "occurred_at, identity_protocol) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        (*row[:9], stable_protocol if row[9] else ""),
                     )
                     stored += 1
                 conn.execute("COMMIT")
