@@ -1,0 +1,39 @@
+{
+  "status": "PASS_ACTUAL_CLI_MEANINGFUL_STREAM_NO_FALSE_ABORT",
+  "receipt_sha256": "034ca0dfa3bee93b3253fe4a49d0f69df1bdd158a49839898f4145e05333e6c0",
+  "source_commit": "a4ef4ca8ff7e51775950a4ca8f84ac6bd521396d",
+  "meaningful_wire_updates": 21,
+  "fixture_duration_ms": 2200,
+  "watchdog_threshold_ms": 1000,
+  "abort_signals": 0,
+  "next_turn_succeeded": true,
+  "raw_binding": [
+    {
+      "name": "receipt.json",
+      "sha256": "034ca0dfa3bee93b3253fe4a49d0f69df1bdd158a49839898f4145e05333e6c0",
+      "size": 741
+    },
+    {
+      "name": "pty.log",
+      "sha256": "1c15b8d259268c6e65a0f4bceace35d15e50939eea636f043d62dc3f56cf47ed",
+      "size": 21505
+    },
+    {
+      "name": "probe.py",
+      "sha256": "412ec246b2b88da4d63ff1c9c7cac91d875fd905c02ce11839507a9aa7f665a7",
+      "size": 6395
+    },
+    {
+      "name": "wire.jsonl",
+      "sha256": "592e4e9498d9587d3cd8d6bf1d9d42d67e19d49b0d45506dd3dbf34ce011c9c8",
+      "size": 13988
+    },
+    {
+      "name": "preload.mjs",
+      "sha256": "05ee3010c87c14908211cd0890a16c791cae7a6698a8453a13194f46cd462681",
+      "size": 4890
+    }
+  ],
+  "operator_metadata_note": "Original fixture receipt reused field empty_wire_updates for21 meaningful updates. This additive exact wire-kind count disambiguates; raw receipt retained.",
+  "scope": "Synthetic transport, real private production CLI/UI/PI; not paid provider, original-chat cause or hardware. No full descendant birth inventory."
+}
