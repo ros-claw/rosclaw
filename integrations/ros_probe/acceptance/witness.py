@@ -328,13 +328,19 @@ def main():
     try:
         executor.spin()
     finally:
-        executor.shutdown()
-        node.publish_velocity(Twist())
-        node.trace.close()
-        summary = node.plan_audit.close()
-        Path(summary["path"] + ".summary.json").write_text(json.dumps(summary) + "\n")
-        node.destroy_node()
-        rclpy.shutdown()
+        try:
+            executor.shutdown()
+            if rclpy.ok():
+                node.publish_velocity(Twist())
+        finally:
+            # SIGINT may have invalidated the ROS context. Diagnostic flushing
+            # must not depend on a last ROS publish succeeding at shutdown.
+            node.trace.close()
+            summary = node.plan_audit.close()
+            Path(summary["path"] + ".summary.json").write_text(json.dumps(summary) + "\n")
+            node.destroy_node()
+            if rclpy.ok():
+                rclpy.shutdown()
 
 
 if __name__ == "__main__":

@@ -235,6 +235,13 @@ def main():
     labels = {}
     exited = set()
 
+    def interrupt_stack(_signum, _frame):
+        # Docker stop sends SIGTERM. Preserve the same fail-closed cleanup as
+        # interactive SIGINT, including child observer evidence flushing.
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGTERM, interrupt_stack)
+
     def start(name, argv):
         log = (OUTPUT / f"{name}.log").open("w")
         p = subprocess.Popen(argv, stdout=log, stderr=subprocess.STDOUT)

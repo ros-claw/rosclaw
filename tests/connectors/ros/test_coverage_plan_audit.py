@@ -93,3 +93,43 @@ def test_continuous_plan_projection_does_not_omit_between_waypoints():
         grid, [{"x": 0.5, "y": 0.5, "yaw": 0}, {"x": 3.5, "y": 0.5, "yaw": 0}], frame_id="map"
     )
     assert result["predicted_cells"] == [0, 1, 2, 3]
+
+
+def test_audit_flush_failure_does_not_change_result_or_leak_execution_lock(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from rosclaw.connectors.ros.mission.executor import RosCoverageSimulationExecutor
+    from rosclaw.kernel import ActionState, ExecutionMode
+
+    executor = RosCoverageSimulationExecutor(
+        owner="daemon_test",
+        client=None,
+        control=None,
+        witness=SimpleNamespace(latest=(0, {"time_sec": 1}), samples=[]),
+        output=tmp_path,
+        body_id="fixture",
+        body_snapshot_hash="body",
+        grid={},
+    )
+    expected = executor._result(ActionState.COMPLETED)
+    monkeypatch.setattr(executor, "_localize", lambda _action: expected)
+    original_close = CoverageAuditLog.close
+
+    def failing_summary(self, **kwargs):
+        original_close(self, **kwargs)
+        raise OSError("injected diagnostic flush failure")
+
+    monkeypatch.setattr(CoverageAuditLog, "close", failing_summary)
+    result = executor(
+        SimpleNamespace(
+            action_id="test-localize",
+            execution_mode=ExecutionMode.SIMULATION,
+            body_id="fixture",
+            body_snapshot_hash="body",
+            capability_id="localization.set_initial_pose",
+        )
+    )
+    assert result is expected
+    assert executor.execution_lock.acquire(blocking=False)
+    executor.execution_lock.release()
+    assert executor.audit is None
