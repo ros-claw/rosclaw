@@ -40,3 +40,30 @@ test("extra-root edits retain semantics and symlink escape remains denied", asyn
   assert.equal(good.isError, undefined); assert.equal(readFileSync(join(scratch, "driver.py"), "utf8"), "new");
  } finally {rmSync(root, {recursive: true, force: true}); rmSync(scratch, {recursive: true, force: true});}
 });
+
+test("empty oldText is rejected before any mutation; file unchanged", async () => {
+ const base = mkdtempSync(join(tmpdir(), "filetool-empty-"));
+ try {
+  const root = join(base, "root"); mkdirSync(root);
+  writeFileSync(join(root, "a.txt"), "ab");
+  const tools = buildWorkspacePackTools({root, mode: () => "SIMULATION", bwrapPath: () => null});
+  const call = (name: string, params: Record<string, unknown>) => tools.find(t => t.name === name)!.execute("fixture", params as never, undefined, undefined, {} as never);
+  const res = await call("edit", {path: "a.txt", oldText: "", newText: "X"});
+  assert.equal(res.isError, true);
+  assert.equal((res.details as Record<string, unknown>).code, "EDIT_OLD_TEXT_EMPTY");
+  assert.equal(readFileSync(join(root, "a.txt"), "utf8"), "ab");
+ } finally {rmSync(base, {recursive: true, force: true});}
+});
+
+test("write reports UTF-8 byte length, not UTF-16 code units", async () => {
+ const base = mkdtempSync(join(tmpdir(), "filetool-utf8-"));
+ try {
+  const root = join(base, "root"); mkdirSync(root);
+  const tools = buildWorkspacePackTools({root, mode: () => "SIMULATION", bwrapPath: () => null});
+  const call = (name: string, params: Record<string, unknown>) => tools.find(t => t.name === name)!.execute("fixture", params as never, undefined, undefined, {} as never);
+  const res = await call("write", {path: "u.txt", content: "汉字"});
+  assert.equal(res.isError, undefined);
+  assert.match(JSON.stringify(res.content), /\(6 bytes\)/);
+  assert.equal(readFileSync(join(root, "u.txt"), "utf8"), "汉字");
+ } finally {rmSync(base, {recursive: true, force: true});}
+});

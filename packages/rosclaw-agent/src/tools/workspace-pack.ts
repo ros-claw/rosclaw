@@ -398,7 +398,7 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 				mkdirSync(dirname(p), { recursive: true });
 				writeFileSync(p, String(params.content), "utf-8");
 				return {
-					content: [{ type: "text" as const, text: `wrote ${p} (${String(params.content).length} bytes)` }],
+					content: [{ type: "text" as const, text: `wrote ${p} (${Buffer.byteLength(String(params.content), "utf-8")} bytes)` }],
 					details: { path: p },
 				};
 			} catch (err) {
@@ -433,6 +433,13 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 				}
 				const text = readFileSync(p, "utf-8");
 				const oldText = String(params.oldText);
+				// 空 oldText 在读取后、任何写回前拒绝——split("") 会按字符
+				// 计数出现 N+1 次，可能绕过唯一性检查并造成整文件插入。
+				if (oldText.length === 0) {
+					return denied("EDIT_OLD_TEXT_EMPTY: oldText 必须非空（已拒绝，未做任何修改）; "
+						+ `workspace_root=${resolve(root)}; resolved_target=${p}.`,
+						{ code: "EDIT_OLD_TEXT_EMPTY", occurrences: 0, ...fileDiagnostic(String(params.path), p) });
+				}
 				const occurrences = text.split(oldText).length - 1;
 				if (occurrences !== 1) {
 					const code = occurrences === 0 ? "EDIT_OLD_TEXT_NOT_FOUND" : "EDIT_OLD_TEXT_NOT_UNIQUE";

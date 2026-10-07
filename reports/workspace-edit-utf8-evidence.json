@@ -1,0 +1,38 @@
+{
+  "case_id": "WORKSPACE_EDIT_UTF8_5250642c49f146d6b81cecd689bcecc9",
+  "scope": "CUSTOM_WORKSPACE_EDIT_UTF8_SOURCE_ONLY",
+  "software_only": true,
+  "bugs_fixed": [
+    {
+      "id": "empty_oldText",
+      "file": "packages/rosclaw-agent/src/tools/workspace-pack.ts",
+      "fix": "edit rejects empty oldText (EDIT_OLD_TEXT_EMPTY) after read and before any mutation; file unchanged",
+      "counterexample_before": {"before": "ab", "after": "Xab", "isError": false}
+    },
+    {
+      "id": "utf8_byte_report",
+      "file": "packages/rosclaw-agent/src/tools/workspace-pack.ts",
+      "fix": "write reports Buffer.byteLength(content, 'utf-8') instead of UTF-16 code units",
+      "counterexample_before": {"actual_bytes": 6, "reported": "2 bytes"}
+    }
+  ],
+  "preserved": [
+    "typed failures PATH_SCOPE_DENIED / EDIT_OLD_TEXT_NOT_FOUND / EDIT_OLD_TEXT_NOT_UNIQUE unchanged",
+    "legitimate multiple completed edits (same-file non-overlap, disjoint files) supported; no invented concurrency failure",
+    "source method/tool signatures unchanged"
+  ],
+  "tests_added": [
+    "empty oldText is rejected before any mutation; file unchanged",
+    "write reports UTF-8 byte length, not UTF-16 code units"
+  ],
+  "verification": {
+    "check": "PASS_NATIVE_PROVIDER_PROGRESS_SOFTWARE_CHECKS",
+    "build": "PASS_NATIVE_PROVIDER_PROGRESS_SOFTWARE_CHECKS",
+    "regression": "PASS_NATIVE_PROVIDER_PROGRESS_SOFTWARE_CHECKS (444 tests, 441 pass, 0 fail, 3 skipped)",
+    "factory_controls": "all 13 rows pass"
+  },
+  "source_sha256": {
+    "packages/rosclaw-agent/src/tools/workspace-pack.ts": "b2bdb3cafa4d523ba6ab0c6e59d72756e189ba12c72f758afc5dedc156b5bbb7",
+    "packages/rosclaw-agent/test/filetool-diagnostics.test.ts": "2e601c8f95f3375ada84644e8a1b8ee1a33e6a2e6a89e3a8f31091396031dcd7"
+  }
+}

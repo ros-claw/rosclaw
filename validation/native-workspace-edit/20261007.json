@@ -1,0 +1,27 @@
+{
+  "status": "PASS_EXACT_NATIVE_WORKSPACE_SOURCE_AND_COMBINED_REGRESSION",
+  "source_component_receipt_sha256": "ca011e6ab3dc242ff9139605c152e4da310cabd9a1ede0e948e861a733ade5af",
+  "original_whole": "DELIVERY_SCHEMA_FAIL_PRESERVED",
+  "files": [
+    {
+      "relative_path": "packages/rosclaw-agent/src/tools/workspace-pack.ts",
+      "size": 21637,
+      "sha256": "b2bdb3cafa4d523ba6ab0c6e59d72756e189ba12c72f758afc5dedc156b5bbb7"
+    },
+    {
+      "relative_path": "packages/rosclaw-agent/test/filetool-diagnostics.test.ts",
+      "size": 5366,
+      "sha256": "2e601c8f95f3375ada84644e8a1b8ee1a33e6a2e6a89e3a8f31091396031dcd7"
+    }
+  ],
+  "actual_factory_cases": 13,
+  "combined_promotion_npm_test": {
+    "exit": 0,
+    "tests": 455,
+    "pass": 452,
+    "fail": 0,
+    "skipped": 3,
+    "stdout_sha256": "78b828e2a9ec5cec25e56f378b2a2dd13f8568d5b7605e7397df0f6f83be437e"
+  },
+  "scope": "Workspace factory/software only; no PI SDK queue inheritance or general async race claim, no physics/model regression. Empty oldText rejected before mutation; UTF8 bytes correct. Native bytes unchanged."
+}
