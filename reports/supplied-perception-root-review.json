@@ -1,0 +1,123 @@
+{
+  "scope": "Supplied bounded observations and private FIXTURE capability dispatch; no live sensor or physical completion.",
+  "exact_native9": {
+    "src/rosclaw/perception/supplied_observations.py": "209f4d6e5fe5d5ceba607d19c820d3f33ea51d1534e01510dcfe196995f67311",
+    "src/rosclaw/perception/capabilities.py": "ca7c3cd73549fea1710cd9f40f72f267a77790a994754fde8d9c2dae3d169490",
+    "src/rosclaw/agentd/tooling/native_tools.py": "d44475bd95bc72a44dacab3fcfa3754e552adde5f271da89840351dd8529d8cc",
+    "src/rosclaw/core/runtime.py": "55951a170e6238b3fbd7bbaecbb080b88dc4b2f29fe31b781fe50f96cb8d7a9d",
+    "tests/test_supplied_perception_admission.py": "b71abefa307904e26641f64d014bc664ddee012253df9db4ad1dd00b93198742",
+    "tests/test_perception_capability_fixture_dispatch.py": "ed9de7f7a045d66e7cd1fcaa24f885a53265049860c4006f6686f67e6ecf0581",
+    "examples/apps/perception-quality/app.yaml": "fbb96a98032ff0c244e2fd1d0a5d4ebf90c950df76861ef8d83c000c0e904529",
+    "examples/perception_capability_fixture.py": "4bb3c40e32820c836b8f208a2984eb17e5c0e0366336d8713f0fc40c8061fb27",
+    "docs/perception_capability_fixture.md": "0fce2a375141a369446920303f1f8823ee9d43c7a670b4c4e63b32e0f5de5f1b"
+  },
+  "integration_receipt_sha256": "15961bbedbdaa2e589ccb280b2da79a33ac6db83e7840cd216405cfa1d28993a",
+  "integration_base": "f5b4b65c6b31c2c8a4d8bb129dd89824197801fc",
+  "related_tests": "128PASS",
+  "practice": "183PASS9SKIP",
+  "required_mypy": "206filesPASS (same exact workflow scope; prior integration counted121)",
+  "private_RPC": {
+    "current_sources_match": true,
+    "type_counters": 41,
+    "valid": 7,
+    "malformed_before_body": 23,
+    "old_hardening": 10,
+    "Apps": 2,
+    "negative6": [
+      {
+        "case": "revoked",
+        "request_rejected": true,
+        "error_class": "DaemonRequestError",
+        "code": "SESSION_NOT_ACTIVE",
+        "canonical_body_delta": 0
+      },
+      {
+        "case": "actor",
+        "request_rejected": true,
+        "error_class": "DaemonRequestError",
+        "code": "SESSION_ACTOR_MISMATCH",
+        "canonical_body_delta": 0
+      },
+      {
+        "case": "capability",
+        "request_rejected": true,
+        "error_class": "DaemonRequestError",
+        "code": "SESSION_CAPABILITY_SCOPE_MISMATCH",
+        "canonical_body_delta": 0
+      },
+      {
+        "case": "body",
+        "request_rejected": true,
+        "error_class": "DaemonRequestError",
+        "code": "SESSION_BODY_SCOPE_MISMATCH",
+        "canonical_body_delta": 0
+      },
+      {
+        "case": "expired",
+        "request_rejected": true,
+        "error_class": "DaemonRequestError",
+        "code": "ACTION_DEADLINE_EXPIRED",
+        "canonical_body_delta": 0
+      },
+      {
+        "case": "real",
+        "canonical_body_delta": 0,
+        "request_rejected": false,
+        "final_state": "BLOCKED"
+      }
+    ]
+  },
+  "source_task": "task_560eddc3ed574e97af32110c",
+  "source_refs": [
+    {
+      "path": "src/rosclaw/perception/supplied_observations.py",
+      "role": "diagnostic_source",
+      "sha256": "209f4d6e5fe5d5ceba607d19c820d3f33ea51d1534e01510dcfe196995f67311",
+      "matches": [
+        {
+          "call_entry": 36,
+          "result_entry": 37,
+          "artifact_ids": [
+            "art_31e4bf77f06c46a2ad75ee0c"
+          ],
+          "absolute": true
+        }
+      ]
+    },
+    {
+      "path": "tests/test_supplied_perception_admission.py",
+      "role": "diagnostic_source",
+      "sha256": "b71abefa307904e26641f64d014bc664ddee012253df9db4ad1dd00b93198742",
+      "matches": [
+        {
+          "call_entry": 36,
+          "result_entry": 38,
+          "artifact_ids": [
+            "art_5e5747e3e3d749e2a81252f5"
+          ],
+          "absolute": true
+        }
+      ]
+    }
+  ],
+  "original_whole_failure_preserved": "FAIL_SOURCE_OR_OPERATOR_ORACLE/SOURCE_FAILED_OR_MISPAIRED_EFFECT_UNPROVEN preserved; separate exact failed zero-effect and720order component proof",
+  "Root_two_order_byte_witness": "a7eab89977a46cc025ff772eaf555764e8fad7cc1f6bcbc6ed99886ab43f0229 (two representative orders; agent720 separate)",
+  "agent720_component": "bf5c4455f0457f69778fd2ab6730187bd10c72919daf260e613b999cc9ee0d8a",
+  "format_baseline": [
+    {
+      "path": "src/rosclaw/agentd/tooling/native_tools.py",
+      "baseline_changed_lines": 104,
+      "native_changed_lines": 104,
+      "equal_changed_lines": true,
+      "native_bytes_equal_prior_integration": true
+    },
+    {
+      "path": "src/rosclaw/core/runtime.py",
+      "baseline_changed_lines": 13,
+      "native_changed_lines": 13,
+      "equal_changed_lines": true,
+      "native_bytes_equal_prior_integration": true
+    }
+  ],
+  "limitation": "Cloud canonical analyzer admits at most 16x16 decoded points; this is not production depth-camera processing. Larger metadata may produce QUALITY_INVALID."
+}

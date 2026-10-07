@@ -458,3 +458,8 @@ def register_native_tools(
                 catalog._capabilities[_tid] = _cap.model_copy(update={
                     "accepts_refs": _accepts, "produces_refs": _produces,
                 })
+    # Stage B: bounded supplied-record perception quality tools (pure
+    # COMPUTE/DERIVED; no sensor, no physical grant).
+    from rosclaw.perception.capabilities import register_perception_tools
+
+    register_perception_tools(catalog)
