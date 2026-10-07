@@ -167,6 +167,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			ui: {
 				notify(t: string, k: "info" | "warning" | "error"): void;
 				setWidget(key: string, lines: string[] | undefined): void;
+				setWorkingMessage(message: string): void;
 			};
 		};
 		let latestCtx: LatestCtx | undefined;
@@ -1352,11 +1353,48 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				}
 			},
 		});
+		// 诚实 Provider 活动区：回合期间周期性把真实等待阶段/耗时
+		// 写入 working message（等待首响应/输出中/工具执行/等待用户
+		// 确认——区分工具与用户确认暂停，绝不含思考或内容文本）。
+		let providerActivityTimer: ReturnType<typeof setInterval> | null = null;
+		const stopProviderActivity = (): void => {
+			if (providerActivityTimer != null) {
+				clearInterval(providerActivityTimer);
+				providerActivityTimer = null;
+			}
+		};
+		const refreshProviderActivity = (): void => {
+			const ctx = latestCtx;
+			if (!ctx?.hasUI) return;
+			const phase = stallWatchdog.currentPhase();
+			if (phase === "tool") return; // 工具文案由 tool_execution_* 处理器维护
+			if (phase === "idle") return; // 回合已终态，不覆盖终态文案
+			// 迟到的 UI 异常隔离：周期回调里 setWorkingMessage 抛错
+			// （宿主 UI 竞态/拆解）绝不允许冒泡成 uncaught 崩宿主——
+			// 只丢这一帧进度文案，看门狗与取消语义不受影响。
+			try {
+				ctx.ui.setWorkingMessage(phaseWorkingMessage({
+					currentTool: null, operation: null,
+					provider: { phase, elapsedMs: stallWatchdog.providerWaitElapsedMs() },
+				}));
+			} catch {
+				// M8 同款：UI 写入失败不崩宿主。
+			}
+		};
 		pi.on("turn_start", async () => {
 			stallWatchdog.turnStarted();
+			stopProviderActivity();
+			refreshProviderActivity();
+			providerActivityTimer = setInterval(refreshProviderActivity, 250);
+			// 不阻止进程退出（终态一定清理，双保险）。
+			(providerActivityTimer as { unref?: () => void }).unref?.();
 		});
-		pi.on("message_update", async () => {
-			stallWatchdog.contentProgress();
+		pi.on("message_update", async (event) => {
+			// PI104 实证：空 text_start 边界/空 delta 不是内容进展，
+			// 不得推迟首 token 或流式 idle 取消；非空 text/thinking/
+			// toolcall 增量才是真实进展（thinking 文本不上屏）。
+			const assistantEvent = (event as { assistantMessageEvent?: unknown }).assistantMessageEvent;
+			stallWatchdog.assistantEventProgress(assistantEvent);
 		});
 		pi.on("message_end", async (event) => {
 			// 只数 assistant 消息——pi 在 turn_start 后立刻为用户 prompt
@@ -1380,11 +1418,13 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 		});
 		pi.on("agent_end", async (_event, ctx) => {
 			stallWatchdog.turnEnded();
+			stopProviderActivity();
 			activeToolCalls.clear();
 			if (ctx.hasUI) ctx.ui.setWorkingMessage(phaseWorkingMessage({ currentTool: null, operation: null }));
 		});
 		pi.on("turn_end", async () => {
 			stallWatchdog.turnEnded();
+			stopProviderActivity();
 		});
 		pi.on("turn_end", async () => {
 			// 大道至简 R0-2b：删除 turn_end 自动 consider→finish——

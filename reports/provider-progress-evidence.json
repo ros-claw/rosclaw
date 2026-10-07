@@ -1,0 +1,85 @@
+{
+  "case_id": "PI104_UX_COMPLETION_e6722ed6ad3c49a589c92b89b40b80ef",
+  "nonce": "e6722ed6ad3c49a589c92b89b40b80ef",
+  "scope": "PI104_PROVIDER_PROGRESS_CLOCK_UI_COMPLETION_SOURCE_ONLY",
+  "status": "PASS_NATIVE_PROVIDER_PROGRESS_SOFTWARE_CHECKS",
+  "prior_whole": "Original NATIVE_STOPPED + operator raw-Bash-JSON framing rejection retained, not rescored. This SOURCE round addresses three independently observed product clock/UI defects, not a framing retry.",
+  "source_sha256": {
+    "packages/rosclaw-agent/src/extension/index.ts": "9ed2e6f3c79d28a1fc81c2ba9272e2d53d9f5ae028aa43bf21eb69c5514c9660",
+    "packages/rosclaw-agent/src/extension/activity.ts": "51cec500f1bc704defd6079cd99e34050fa4cc51241c23868ef117949d8459e4",
+    "packages/rosclaw-agent/src/native/provider-watchdog.ts": "eb3538a5d78f3f0728e9f4333a431bbf46b8919bfdacf8284c4ba3d5d1688440",
+    "packages/rosclaw-agent/test/extension.test.ts": "e2f2cff4aadb087b5030e2b3a44e7ded02e54ba4186175cd32183780850d7be1",
+    "packages/rosclaw-agent/test/provider-progress-pi104.test.ts": "a11752c54a03373cde29348ac4bf20bacdba18b8c90453c3f390654532683aed"
+  },
+  "defects_fixed": [
+    {
+      "id": "overlap_resume_clock",
+      "observed": "user resumes while tool busy, or tool resumes while user busy, counted ~90ms of still-paused time as provider wait",
+      "fix": "_resumeWait resumes only when !userBusy && toolBusyCount === 0 (all pauses clear, nested tools included)",
+      "file": "packages/rosclaw-agent/src/native/provider-watchdog.ts"
+    },
+    {
+      "id": "terminal_elapsed_lost",
+      "observed": "measured elapsed ~35ms became 0 at terminal transition",
+      "fix": "_disarm now _pauseWait() first: freeze/preserve measured elapsed, no idle accumulation; turnStarted resets for the new turn",
+      "file": "packages/rosclaw-agent/src/native/provider-watchdog.ts"
+    },
+    {
+      "id": "registered_callback_ui_throw",
+      "observed": "late setWorkingMessage exception in the registered periodic callback escaped as uncaught host error",
+      "fix": "try/catch around the periodic UI write in refreshProviderActivity; watchdog/cancellation semantics unchanged",
+      "file": "packages/rosclaw-agent/src/extension/index.ts"
+    }
+  ],
+  "checker_runs": [
+    {
+      "mode": "check",
+      "exit": 0,
+      "status": "PASS_NATIVE_PROVIDER_PROGRESS_SOFTWARE_CHECKS",
+      "steps": {
+        "real_TypeScript_compile": 0,
+        "actual_assets": 0,
+        "actual_compiled_registered_callback_controls": 0,
+        "actual_overlap_terminal_clock": 0,
+        "actual_registered_UI_exception_isolation": 0,
+        "explicit_compiled_Node_tests": {"exit": 0, "tests": 50, "pass": 50, "fail": 0}
+      },
+      "clock_controls": {"pass": true, "rows": [
+        {"order": "user_resumes_while_tool_busy", "paused_increment_ms": 0, "pass": true},
+        {"order": "tool_resumes_while_user_busy", "paused_increment_ms": 0, "pass": true},
+        {"order": "terminal_freeze_and_newturn_reset", "idle_ms": 0, "pass": true}
+      ]},
+      "UI_exception_controls": {"pass": true, "note": "synthetic UI throw isolated inside registered periodic callback; healthy labels still advance; abort still fires"},
+      "provider_activity_labels_observed": true,
+      "counter_failures": []
+    },
+    {
+      "mode": "regression",
+      "exit": 0,
+      "status": "PASS_NATIVE_PROVIDER_PROGRESS_SOFTWARE_CHECKS",
+      "steps": {
+        "real_TypeScript_compile": 0,
+        "actual_assets": 0,
+        "actual_compiled_registered_callback_controls": 0,
+        "actual_overlap_terminal_clock": 0,
+        "actual_registered_UI_exception_isolation": 0,
+        "explicit_compiled_Node_tests": {"exit": 0, "tests": 453, "pass": 450, "fail": 0, "skipped": 3}
+      },
+      "clock_controls": {"pass": true},
+      "UI_exception_controls": {"pass": true},
+      "provider_activity_labels_observed": true,
+      "counter_failures": []
+    }
+  ],
+  "tests_added": [
+    "overlap resume: provider wait resumes only when ALL pauses are clear",
+    "nested tool pauses keep clock paused until the innermost resumes",
+    "terminal freeze: measured elapsed preserved at turn end, new turn resets"
+  ],
+  "limitations": [
+    "Synthetic provider/UI + actual compiled PI/extension factory callbacks; no real RPC/model/ROS/hardware.",
+    "No causal claim about historical timeouts; only three current observed clock/UI defects are demonstrated and fixed.",
+    "Activity refresh period 250ms, elapsed display precision 0.1s."
+  ],
+  "failures_encountered": "none after final bytes; both check and regression ran green on the same final source SHAs"
+}

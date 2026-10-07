@@ -58,6 +58,34 @@ function seconds(ms: number): string {
 	return `${Number((ms / 1_000).toFixed(3))}s`;
 }
 
+/** PI1.0.4 assistantMessageEvent 分类——只有"有意义的增量"才算
+ *  Provider 真实进展（PI104 实证反例：重复的 text_start 边界事件与
+ *  空 text_delta 会持续重置看门狗，首 token/流式 idle 取消永不触发）。
+ *  - text_delta / thinking_delta / toolcall_delta 且 delta 非空 → 真实进展；
+ *  - text_start / thinking_start / toolcall_start 等边界事件与空 delta
+ *    → 不是内容，不续期；
+ *  - 未知类型/无结构事件 → 保持旧兼容（视为流动）。
+ *  注意：thinking 增量只作为活性信号，其文本绝不上屏（不外泄思考内容）。 */
+export function isMeaningfulAssistantEvent(assistantEvent: unknown): boolean {
+	if (assistantEvent == null || typeof assistantEvent !== "object") return true; // 旧 pi 兼容
+	const ev = assistantEvent as { type?: unknown; delta?: unknown };
+	const type = typeof ev.type === "string" ? ev.type : "";
+	if (type === "text_delta" || type === "thinking_delta" || type === "toolcall_delta") {
+		return typeof ev.delta === "string" && ev.delta.length > 0;
+	}
+	if (
+		type === "text_start" || type === "text_end"
+		|| type === "thinking_start" || type === "thinking_end"
+		|| type === "toolcall_start" || type === "toolcall_end"
+	) {
+		return false;
+	}
+	return true; // 未知类型保持旧语义
+}
+
+/** 活动区诚实的 Provider 等待阶段（不含任何思考/内容文本）。 */
+export type ProviderWaitPhase = "waiting" | "streaming" | "tool" | "user_decision" | "idle";
+
 export class ProviderStallWatchdog {
 	private readonly opts: Required<ProviderStallWatchdogOptions>;
 	private firstTokenTimers: ReturnType<typeof setTimeout>[] = [];
@@ -70,6 +98,10 @@ export class ProviderStallWatchdog {
 	 *  >0 时 Provider 时钟暂停：工具运行不是 Provider 停滞。 */
 	private toolBusyCount = 0;
 	private lastStreamIdleNoticeAt = -Infinity;
+	/** 诚实 Provider 等待耗时：暂停（工具/用户确认）期不计入等待，
+	 *  也不把工具时间误标为 Provider 停滞。 */
+	private waitAccumMs = 0;
+	private waitResumedAt: number | null = null;
 
 	constructor(options: ProviderStallWatchdogOptions) {
 		this.opts = { ...DEFAULTS, ...options } as Required<ProviderStallWatchdogOptions>;
@@ -84,6 +116,8 @@ export class ProviderStallWatchdog {
 		this.sawContent = false;
 		this.abortedOnce = false;
 		this.lastStreamIdleNoticeAt = -Infinity;
+		this.waitAccumMs = 0;
+		this.waitResumedAt = performance.now();
 		this._armFirstToken();
 	}
 
@@ -122,17 +156,56 @@ export class ProviderStallWatchdog {
 		this._disarm();
 	}
 
+	/** PI104 message_update 入口：只有有意义的增量才续期（空边界/
+	 *  空 delta 不推迟首 token 与流式 idle 取消）。返回是否计为进展。 */
+	assistantEventProgress(assistantEvent: unknown): boolean {
+		if (!isMeaningfulAssistantEvent(assistantEvent)) return false;
+		this.contentProgress();
+		return true;
+	}
+
+	/** 当前 Provider 等待阶段（活动区诚实文案用；不含内容文本）。 */
+	currentPhase(): ProviderWaitPhase {
+		if (this.userBusy) return "user_decision";
+		if (this.toolBusyCount > 0) return "tool";
+		if (!this.active) return "idle";
+		return this.sawContent ? "streaming" : "waiting";
+	}
+
+	/** 本回合真实等待 Provider 的累计毫秒（工具/用户确认暂停期不计）。 */
+	providerWaitElapsedMs(): number {
+		const running = this.waitResumedAt != null ? performance.now() - this.waitResumedAt : 0;
+		return this.waitAccumMs + running;
+	}
+
+	private _pauseWait(): void {
+		if (this.waitResumedAt != null) {
+			this.waitAccumMs += performance.now() - this.waitResumedAt;
+			this.waitResumedAt = null;
+		}
+	}
+
+	private _resumeWait(): void {
+		// 重叠暂停修复：任一类暂停（用户确认/工具执行，含嵌套工具）
+		// 仍活跃时不得恢复 Provider 等待计时——只有全部暂停清空才恢复。
+		if (this.active && !this.userBusy && this.toolBusyCount === 0 && this.waitResumedAt == null) {
+			this.waitResumedAt = performance.now();
+		}
+	}
+
 	/** 模态对话框打开（确认卡等用户决定中）= 用户在场——暂停计时
 	 *  （等用户回答不是 Provider 停滞；journey 实证：委派腿的确认卡
 	 *  等待被 45s idle 误判取消）。 */
 	pauseForUser(): void {
 		this.userBusy = true;
 		this._disarmTimers();
+		this._pauseWait();
 	}
 
 	/** 对话框关闭——恢复计时（从当前状态重新武装）。 */
 	resumeFromUser(): void {
 		this.userBusy = false;
+		this._resumeWait();
 		if (this.active && !this.abortedOnce && this.toolBusyCount === 0) {
 			if (this.sawContent) this._resetStreamIdle();
 			else this._armFirstToken();
@@ -147,6 +220,7 @@ export class ProviderStallWatchdog {
 	pauseForTool(): void {
 		this.toolBusyCount += 1;
 		this._disarmTimers();
+		this._pauseWait();
 	}
 
 	/** tool_execution_end——离开工具阶段；计数归零才恢复 Provider
@@ -154,6 +228,7 @@ export class ProviderStallWatchdog {
 	resumeFromTool(): void {
 		if (this.toolBusyCount > 0) this.toolBusyCount -= 1;
 		if (this.toolBusyCount > 0) return;
+		this._resumeWait();
 		if (this.active && !this.abortedOnce && !this.userBusy) {
 			if (this.sawContent) this._resetStreamIdle();
 			else this._armFirstToken();
@@ -208,6 +283,10 @@ export class ProviderStallWatchdog {
 
 	private _disarm(): void {
 		this._disarmTimers();
+		// 终态冻结修复：先把仍在累计的等待段并入 waitAccumMs 再停表——
+		// 终态后 providerWaitElapsedMs 保留实测耗时（不再继续累加空闲
+		// 时间，也不回退为 0）；新回合由 turnStarted 自行重置。
+		this._pauseWait();
 		this.active = false;
 	}
 }

@@ -1,0 +1,41 @@
+{
+  "status": "PASS_NATIVE_SOURCE_COMPONENT_INDEPENDENT_REPLAY_AND_PROMOTION_BUILD",
+  "original_whole_delivery_schema": "FAIL_PRESERVED",
+  "source_component_receipt_sha256": "15b9036c73f6fbcabfdc7f0e48b72d641d3945a3282c28346b03dcf323fcfc74",
+  "files": [
+    {
+      "relative_path": "packages/rosclaw-agent/src/extension/index.ts",
+      "size": 68392,
+      "sha256": "9ed2e6f3c79d28a1fc81c2ba9272e2d53d9f5ae028aa43bf21eb69c5514c9660"
+    },
+    {
+      "relative_path": "packages/rosclaw-agent/src/extension/activity.ts",
+      "size": 1775,
+      "sha256": "51cec500f1bc704defd6079cd99e34050fa4cc51241c23868ef117949d8459e4"
+    },
+    {
+      "relative_path": "packages/rosclaw-agent/src/native/provider-watchdog.ts",
+      "size": 11471,
+      "sha256": "eb3538a5d78f3f0728e9f4333a431bbf46b8919bfdacf8284c4ba3d5d1688440"
+    },
+    {
+      "relative_path": "packages/rosclaw-agent/test/extension.test.ts",
+      "size": 6461,
+      "sha256": "e2f2cff4aadb087b5030e2b3a44e7ded02e54ba4186175cd32183780850d7be1"
+    },
+    {
+      "relative_path": "packages/rosclaw-agent/test/provider-progress-pi104.test.ts",
+      "size": 8884,
+      "sha256": "a11752c54a03373cde29348ac4bf20bacdba18b8c90453c3f390654532683aed"
+    }
+  ],
+  "current_promotion_npm_test": {
+    "exit": 0,
+    "tests": 453,
+    "pass": 450,
+    "fail": 0,
+    "skipped": 3
+  },
+  "native_ADR_counts_note": "Preserved Native ADR reports prior450/447/3 counts; current evidence and independent promotion build prove453/450/3.",
+  "scope": "PI1.0.4 software/provider fixture only. No original-chat timeout causal proof; unknown event legacy fallback remains. Native bytes exact; invalid delivery.json excluded."
+}
