@@ -48,8 +48,11 @@ def audit(directory, output):
     events = []
     source_files = [source, directory / "golden-coverage.receipt.json"]
     audit_complete = True
-    for path in sorted((directory / "actions").glob("coverage-audit-golden-coverage-*.jsonl")):
-        events.extend(read_audit(path))
+    for path in sorted((directory / "actions").glob("coverage-audit-*.jsonl")):
+        rows = read_audit(path)
+        if not rows or rows[0].get("action_id") != receipt["action_id"]:
+            continue
+        events.extend(rows)
         summary = load(Path(str(path) + ".summary.json"))
         audit_complete &= summary["complete"]
         source_files.extend([path, Path(str(path) + ".summary.json")])

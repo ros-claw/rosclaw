@@ -122,7 +122,7 @@ def test_audit_flush_failure_does_not_change_result_or_leak_execution_lock(tmp_p
     monkeypatch.setattr(CoverageAuditLog, "close", failing_summary)
     result = executor(
         SimpleNamespace(
-            action_id="test-localize",
+            action_id="nested/../../../escape",
             execution_mode=ExecutionMode.SIMULATION,
             body_id="fixture",
             body_snapshot_hash="body",
@@ -133,3 +133,7 @@ def test_audit_flush_failure_does_not_change_result_or_leak_execution_lock(tmp_p
     assert executor.execution_lock.acquire(blocking=False)
     executor.execution_lock.release()
     assert executor.audit is None
+    files = list(tmp_path.glob("coverage-audit-*.jsonl"))
+    assert len(files) == 1
+    assert read_audit(files[0])[0]["action_id"] == "nested/../../../escape"
+    assert not (tmp_path / "nested").exists()
