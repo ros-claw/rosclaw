@@ -3,7 +3,7 @@
  *
  * 红测试先行——materialize/snapshot 接线不存在时必须红：
  * 1. snapshot.active → 精确强类型工具（工具名 slug + input_schema
- *    原样成为 parameters）；
+ *    provider-facing 深拷贝投影成为 parameters）；
  * 2. PHYSICAL_EFFECT → propose_<slug>（不直接暴露原始 executor）；
  * 3. rosclaw_compute / rosclaw_execute 退出模型面（EMBODIMENT_PACK
  *    不再有）；rosclaw_task 保留为兼容入口；
@@ -15,6 +15,84 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { MODEL_TOOL_NAMES } from "../src/tools/surface.js";
+import { providerCompatibleSchema, materializeCapabilityTools } from "../src/tools/materialize.js";
+
+test("provider integer projection preserves safe bounds and data, recursively copies schemas", () => {
+	const unsafe = { type: "integer", minimum: -9223372036854775808, maximum: 9223372036854775807, exclusiveMinimum: -1e19, exclusiveMaximum: 1e19, description: "epoch ns" };
+	const safe = { type: "integer", minimum: -Number.MAX_SAFE_INTEGER, maximum: Number.MAX_SAFE_INTEGER, exclusiveMinimum: 0, exclusiveMaximum: 100 };
+	const schema = {
+		type: "object", required: ["ts"], additionalProperties: false,
+		properties: { ts: unsafe, safe, list: { type: "array", items: { anyOf: [unsafe, { type: "null" }] } } },
+		$defs: { ns: unsafe }, allOf: [{ oneOf: [unsafe], not: { allOf: [unsafe] } }],
+		$ref: "#/$defs/ns", enum: [{ type: "integer", maximum: 1e19 }],
+		default: { minimum: -1e19 }, title: "Scan",
+	};
+	const before = structuredClone(schema);
+	const freeze = (v: unknown): void => { if (v && typeof v === "object") { Object.values(v).forEach(freeze); Object.freeze(v); } };
+	freeze(schema);
+	const projected = providerCompatibleSchema(schema);
+	const expectedUnsafe = { type: "integer", description: "epoch ns" };
+	assert.deepEqual(projected, {
+		...before, properties: { ts: expectedUnsafe, safe, list: { type: "array", items: { anyOf: [expectedUnsafe, { type: "null" }] } } },
+		$defs: { ns: expectedUnsafe }, allOf: [{ oneOf: [expectedUnsafe], not: { allOf: [expectedUnsafe] } }],
+	});
+	assert.deepEqual(schema, before);
+	assert.notEqual(projected.properties, schema.properties);
+	assert.deepEqual(providerCompatibleSchema({ type: "number", minimum: -1e19, maximum: 1e19 }), { type: "number", minimum: -1e19, maximum: 1e19 });
+});
+
+test("safe fractional integer bounds remain exact, including integer/null unions", () => {
+	for (const type of ["integer", ["integer", "null"]]) {
+		const schema = { type, minimum: 1.5, maximum: 5.5, exclusiveMinimum: -0.5, exclusiveMaximum: 0.5, const: { maximum: 1e19 } };
+		const before = structuredClone(schema);
+		assert.deepEqual(providerCompatibleSchema(schema), before);
+		assert.deepEqual(schema, before);
+	}
+});
+
+test("inherited allOf unsafe bounds fail closed before materialization/provider", () => {
+	for (const key of ["minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum"]) {
+		for (const allOf of [[{ [key]: 1e19 }], [{ allOf: [{ allOf: [{ [key]: -1e19 }] }] }], [{ type: "integer" }, { [key]: 1e19 }]]) {
+			const schema = { type: "integer", allOf };
+			const before = structuredClone(schema);
+			const isUnsupported = (error: unknown) => error instanceof Error && error.message.startsWith("PROVIDER_SCHEMA_UNSUPPORTED:") && (error as Error & { code: string }).code === "PROVIDER_SCHEMA_UNSUPPORTED";
+			assert.throws(() => providerCompatibleSchema(schema), isUnsupported);
+			const captured = { calls: [] as Array<{ method: string; params: unknown }> };
+			assert.throws(() => materializeCapabilityTools({ ...SNAPSHOT, active: [{ ...SNAPSHOT.active[0], input_schema: schema }] }, { center: fakeCenter(captured), active: FAKE_ACTIVE, rosclawHome: "/tmp/x" }), isUnsupported);
+			assert.equal(captured.calls.length, 0);
+			assert.deepEqual(schema, before);
+		}
+	}
+	assert.deepEqual(providerCompatibleSchema({ type: "integer", allOf: [{ minimum: 1.5, maximum: 5.5 }] }), { type: "integer", allOf: [{ minimum: 1.5, maximum: 5.5 }] });
+	assert.deepEqual(providerCompatibleSchema({ type: "number", maximum: 1e19 }), { type: "number", maximum: 1e19 });
+});
+
+test("modern epoch ns passes unchanged through direct/propose wire; internal remains hidden", async () => {
+	const schema = { type: "object", properties: { reference_time_ns: { type: "integer", minimum: -9223372036854775808, maximum: 9223372036854775807 } } };
+	const captured: { calls: Array<{ method: string; params: unknown }> } = { calls: [] };
+	const active = (["direct", "propose_only", "internal"] as const).map((exposure) => ({
+		...SNAPSHOT.active[0], tool_name: exposure, exposure, effect_class: "READ_ONLY", input_schema: schema,
+	}));
+	const tools = materializeCapabilityTools({ ...SNAPSHOT, active }, { center: fakeCenter(captured), active: FAKE_ACTIVE, rosclawHome: "/tmp/x" });
+	assert.equal(tools.length, 2);
+	const params = { reference_time_ns: 1700000000000000000 };
+	assert.ok(params.reference_time_ns > Number.MAX_SAFE_INTEGER);
+	for (const tool of tools) await tool.execute("epoch", params, new AbortController().signal, async () => {}, {} as never);
+	for (const [i, call] of captured.calls.entries()) {
+		const { request } = call.params as { request: { tool_name: string; arguments: { arguments: unknown; capability_id: string; snapshot_digest: string } } };
+		assert.equal(request.arguments.arguments, params);
+		assert.equal(request.tool_name, i === 0 ? "rosclaw_observe" : "rosclaw_execute");
+		assert.equal(request.arguments.capability_id, SNAPSHOT.active[0].capability_id);
+		assert.equal(request.arguments.snapshot_digest, SNAPSHOT.digest);
+	}
+	assert.equal(schema.properties.reference_time_ns.maximum, 9223372036854775807);
+	// Exact int64 contract arithmetic is BigInt, not a claim of JS Number precision.
+	const lower = -(1n << 63n), upper = (1n << 63n) - 1n;
+	const canonicalAccepts = (v: bigint) => v >= lower && v <= upper;
+	assert.ok(canonicalAccepts(1700000000000000001n));
+	assert.ok(canonicalAccepts(lower) && canonicalAccepts(upper));
+	assert.ok(!canonicalAccepts(lower - 1n) && !canonicalAccepts(upper + 1n));
+});
 
 const SNAPSHOT = {
 	schema_version: "rosclaw.capability_snapshot.v1",
@@ -88,7 +166,7 @@ test("N5D: snapshot 物化为精确强类型工具", async () => {
 	assert.ok(!names.includes("weird"), "excluded 能力不得产生工具");
 	const plan = tools.find((t) => t.name === "ur5e__plan_cartesian_path");
 	assert.ok(plan);
-	// 精确 schema 原样成为 parameters（不再是 Record<string, unknown>）
+	// 安全 schema 的 provider-facing 深拷贝保持语义（不再是 Record<string, unknown>）
 	const params = plan.parameters as { properties?: Record<string, unknown>; required?: string[] };
 	assert.ok(params.properties?.shape, "input_schema 未成为 parameters");
 	assert.deepEqual(params.required, ["shape"]);

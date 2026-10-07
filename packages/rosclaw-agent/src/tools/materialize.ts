@@ -6,7 +6,7 @@
  * rosclaw_compute(arguments: unknown) 猜参数。
  *
  * 规则（测试钉住）：
- * - direct → 精确工具（input_schema 原样成为 parameters）；
+ * - direct → 精确工具（input_schema 的 provider-facing 深拷贝投影成为 parameters）；
  * - propose_only → propose_<slug>，走 admission 链（rosclaw_execute
  *   wire）——物理效应原始 executor 永不直接暴露；
  * - excluded 不产生工具（原因经 rosclaw inspect capability 可查）；
@@ -47,6 +47,50 @@ function wireEntryFor(entry: SnapshotActiveTool): string {
 	return entry.effect_class === "READ_ONLY" ? "rosclaw_observe" : "rosclaw_compute";
 }
 
+/** Provider-only projection: JS cannot represent int64 bounds exactly.
+ * Omit unsafe integer-valued bounds on locally declared integers; retain fractions.
+ * Type-less unsafe bounds fail closed with PROVIDER_SCHEMA_UNSUPPORTED because
+ * inherited type resolution is unsupported. Never clamp canonical domain or data.
+ * Traverse schema positions only; enum/default/const values are data, not schemas.
+ */
+export function providerCompatibleSchema(schema: Record<string, unknown>): Record<string, unknown> {
+	const clone = (value: unknown): unknown => {
+		if (Array.isArray(value)) return value.map(clone);
+		if (value !== null && typeof value === "object") {
+			return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, clone(v)]));
+		}
+		return value;
+	};
+	const maps = new Set(["properties", "patternProperties", "$defs", "definitions", "dependentSchemas"]);
+	const singles = new Set(["items", "additionalItems", "additionalProperties", "unevaluatedItems", "unevaluatedProperties", "contains", "propertyNames", "not", "if", "then", "else", "contentSchema"]);
+	const arrays = new Set(["allOf", "anyOf", "oneOf", "prefixItems"]);
+	const bounds = new Set(["minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum"]);
+	const project = (value: unknown): unknown => {
+		if (value === null || typeof value !== "object" || Array.isArray(value)) return clone(value);
+		const node = value as Record<string, unknown>;
+		const integer = node.type === "integer" || (Array.isArray(node.type) && node.type.includes("integer"));
+		return Object.fromEntries(Object.entries(node).flatMap(([key, child]) => {
+			const unsafeBound = bounds.has(key) && typeof child === "number" && Number.isInteger(child) && !Number.isSafeInteger(child);
+			// Type-less bounds may inherit integer through allOf/$ref at any depth.
+			// Do not guess that context or advertise an unsafe numeric constraint.
+			if (unsafeBound && node.type === undefined) {
+				throw Object.assign(new Error(`PROVIDER_SCHEMA_UNSUPPORTED: ${key} has an unsafe integer-valued bound without a local type; inherited type projection is unsupported`), { code: "PROVIDER_SCHEMA_UNSUPPORTED" });
+			}
+			if (integer && unsafeBound) return [];
+			if (maps.has(key) && child !== null && typeof child === "object" && !Array.isArray(child)) {
+				return [[key, Object.fromEntries(Object.entries(child).map(([k, v]) => [k, project(v)]))]];
+			}
+			if (key === "dependencies" && child !== null && typeof child === "object" && !Array.isArray(child)) {
+				return [[key, Object.fromEntries(Object.entries(child).map(([k, v]) => [k, Array.isArray(v) ? clone(v) : project(v)]))]];
+			}
+			if (arrays.has(key) && Array.isArray(child)) return [[key, child.map(project)]];
+			if (singles.has(key)) return [[key, Array.isArray(child) ? child.map(project) : project(child)]];
+			return [[key, clone(child)]];
+		}));
+	};
+	return project(schema) as Record<string, unknown>;
+}
+
 export function materializeCapabilityTools(
 	snapshot: CapabilitySnapshot,
 	ctx: BridgeToolContext,
@@ -65,9 +109,9 @@ export function materializeCapabilityTools(
 			description:
 				`${entry.description}（capability: ${capabilityId}；` +
 				`effect: ${entry.effect_class}）`,
-			// 精确 input_schema 原样成为 parameters——不再是
+			// 精确 input_schema 经 provider-facing 深拷贝投影成为 parameters——不再是
 			// Record<string, unknown> 猜参数。
-			parameters: entry.input_schema as never,
+			parameters: providerCompatibleSchema(entry.input_schema) as never,
 			async execute(_id, params, _signal, _onUpdate, _ctx2) {
 				const state = ctx.active.current;
 				if (!state.missionId) {
