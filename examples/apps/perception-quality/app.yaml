@@ -1,0 +1,28 @@
+apiVersion: rosclaw.io/v1
+kind: App
+metadata:
+  name: perception-quality
+  version: 0.1.0
+  title: Supplied perception quality (FIXTURE)
+  summary: >-
+    Runs the canonical bounded supplied-record scan/cloud quality analysis
+    through the private FIXTURE gateway. Synthetic evidence only; no sensor,
+    no ROS, no physical actuation.
+requires:
+  capabilities:
+    - perception.scan_quality
+    - perception.cloud_quality
+workflow:
+  - call: perception.scan_quality
+    save_as: scan_receipt
+    timeout_sec: 10.0
+    input:
+      record: ${input.scan.record}
+      reference_time_ns: ${input.scan.reference_time_ns}
+  - call: perception.cloud_quality
+    save_as: cloud_receipt
+    timeout_sec: 10.0
+    input:
+      record: ${input.cloud.record}
+verification:
+  require: []

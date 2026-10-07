@@ -247,6 +247,9 @@ class Runtime(LifecycleMixin):
         from rosclaw.kernel import ActionGateway
 
         self._action_gateway = ActionGateway(event_bus=self.event_bus, tracer=self._tracer)
+        from rosclaw.perception.capabilities import register_perception_fixture_executors
+
+        register_perception_fixture_executors(self._action_gateway)
 
         # Grounding engines (initialized on demand)
         self._firewall: Any | None = None
