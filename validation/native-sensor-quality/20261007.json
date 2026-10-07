@@ -1,0 +1,46 @@
+{
+  "schema": "rosclaw.native_sensor_quality.promotion.v1",
+  "author": "ROSClaw Native Agent (Kimi)",
+  "independent_reviewer": "Root supervisor",
+  "simulation_only": true,
+  "source_sha256": {
+    "src/rosclaw/perception/scan_quality.py": "5ba18fac582d1322758858f2706d41c7a9059ece8dd1da6c689663dd115428a8",
+    "src/rosclaw/perception/cloud_quality.py": "aa015c4f31f69c17413663dbb62b5362d5efccf51956427e151ade741cffd13d",
+    "tests/test_perception_sensor_quality.py": "d5b856dbca39b4ad226eda7bc25937e1872bae20170913c4296f8169677494a8",
+    "examples/perception_sensor_quality.py": "44f03260ea6ebb1eaf30c5a007273f93ce6dc2f4ad15b12376d6209e1dde120c",
+    "docs/perception_sensor_quality.md": "06f817fe938ff1311ad9816694bd11b32dfbc17f7a199b799ff6b5d3cacbcc94"
+  },
+  "evidence": {
+    "Root_stage_A_closed_component": "9bb3304d03a7c11fd2e369563157193262a0e184f3f6d726f1795bffa6a533e8",
+    "Root_documentation_closed_component": "626d9d45ebe17f714199691e705f94b98e2542106f39349157979c2d1499b14a",
+    "Root_documentation_SQL_refs_STOP": "05fba42d9abea5e37e096d79ea4160f1b23c0e6628e8815a90fe507412e85395",
+    "Root_DDS35_saved_independent_decode": "e5615591b25f84a7b6fd6a0f5409b2814eaffd2c7f7b49be293840b95e88a09a"
+  },
+  "verification": {
+    "pure_cases": 67,
+    "Native_pytest_cases": 10,
+    "current_documentation_refs": 7,
+    "algorithm_constants_preserved": true,
+    "ordinary_python_no_ROS_import": true
+  },
+  "original_whole_verdicts_preserved": [
+    "StageA UNEXPECTED_OUTPUT:.ruff_cache/.gitignore",
+    "DOC CONCURRENT_SOURCE_ORDER_UNPROVEN"
+  ],
+  "formatter_limit": "Independent current formatter composition matches final bytes; historical formatter binary hash was not frozen. Do not reinterpret original whole verdicts.",
+  "scope": "Pure supplied-observation scan/cloud analysis and offline example only. No App/capability registration/dispatch/ROS initialization or hardware access.",
+  "resource_limit": "No total ingestion allocation/work/real-time guarantee for arbitrary duck-typed inputs; cloud decode <=256, scan size uncapped. StageB bounded admission pending.",
+  "physical_success": false,
+  "promotion_checks": {
+    "Native_pytest": "10 passed",
+    "Practice_pytest": "183 passed, 9 skipped; 1 existing dependency deprecation warning",
+    "compileall_src_tests": "PASS",
+    "mypy_required_plus_new_modules": "123 source files PASS",
+    "selected_ruff": "PASS",
+    "selected_ruff_format": "4 files PASS",
+    "full_repo_ruff": "275 baseline violations exactsame filename/code/location; no new violations",
+    "full_repo_format": "612 existing complete diagnostic bodies byte-equal baseline/candidate; no new format failures",
+    "hygiene_receipt_sha256": "daa719c690e268846f81b52fb690b90833ab2aa3db500ecf106105182ccebef8",
+    "format_additive_receipt_sha256": "9d2542d4b57f992344b6cd9ff82989e02b3d1b2a68686eee4d90ed5e21b5da13"
+  }
+}
