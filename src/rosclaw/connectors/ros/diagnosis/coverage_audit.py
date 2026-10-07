@@ -28,7 +28,7 @@ class CoverageAuditLog:
     Each instance requires a new file, preventing accidental historical reuse.
     """
 
-    def __init__(self, path, *, context=None, capacity=1024, max_event_bytes=2_000_000):
+    def __init__(self, path, *, context=None, capacity=128, max_event_bytes=2_000_000):
         if type(capacity) is not int or capacity <= 0 or max_event_bytes <= 0:
             raise ValueError("audit queue and event limits must be positive")
         self.path = Path(path)
@@ -113,6 +113,8 @@ def read_audit(path):
         if not line.endswith("\n"):
             raise ValueError("unfinished audit event")
         row = json.loads(line)
+        if row.get("schema_version") != "rosclaw.coverage_audit_event.v1":
+            raise ValueError("unsupported audit schema version")
         saved = row.pop("artifact_sha256")
         if row["sequence"] != sequence or row["previous_hash"] != previous or digest(row) != saved:
             raise ValueError("audit chain integrity mismatch")

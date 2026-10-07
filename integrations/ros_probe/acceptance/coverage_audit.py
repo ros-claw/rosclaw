@@ -3,6 +3,7 @@
 import argparse
 import gzip
 import hashlib
+import html
 import json
 from datetime import datetime
 from pathlib import Path
@@ -247,6 +248,15 @@ def audit(directory, output):
     )
     manifest = {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in source_files}
     (output / "source-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    write_overlay(
+        output / "plan_execution_overlay.svg",
+        grid,
+        trace,
+        main_count,
+        main_cells,
+        plan_rows,
+        summary,
+    )
     print(
         json.dumps(
             {
@@ -257,6 +267,64 @@ def audit(directory, output):
             indent=2,
         )
     )
+
+
+def write_overlay(path, grid, trace, main_count, main_cells, plan_rows, summary):
+    """Portable diagnostic figure; original evidence is never modified."""
+    scale = 600 / max(grid["width"] * grid["resolution"], grid["height"] * grid["resolution"])
+
+    def xy(x, y):
+        return (45 + (x - grid["origin"][0]) * scale, 665 - (y - grid["origin"][1]) * scale)
+
+    parts = [
+        '<svg xmlns="http://www.w3.org/2000/svg" width="1040" height="740" viewBox="0 0 1040 740">',
+        '<rect width="1040" height="740" fill="#fafaf8"/>',
+        '<g font-family="sans-serif" fill="#172a3a">',
+        '<text x="45" y="32" font-size="21">Coverage plan vs observed first pass (SIM)</text>',
+    ]
+    covered = main_cells if main_cells is not None else set()
+    for cell in grid["accessible_cells"]:
+        row, col = divmod(cell, grid["width"])
+        x, y = xy(
+            grid["origin"][0] + col * grid["resolution"],
+            grid["origin"][1] + (row + 1) * grid["resolution"],
+        )
+        size = scale * grid["resolution"]
+        color = "#b8dfc1" if cell in covered else "#f5d8a6"
+        parts.append(
+            f'<rect x="{x:.2f}" y="{y:.2f}" width="{size:.2f}" height="{size:.2f}" fill="{color}"/>'
+        )
+    for row in plan_rows:
+        payload = row["payload"]
+        if row["kind"] == "path" and payload["topic"] == "/coverage_server/coverage_plan":
+            points = " ".join(
+                f"{x:.2f},{y:.2f}" for x, y in [xy(p["x"], p["y"]) for p in payload["poses"]]
+            )
+            parts.append(
+                f'<polyline points="{points}" fill="none" stroke="#2153a0" stroke-width="3"/>'
+            )
+    if main_count is not None:
+        points = " ".join(
+            f"{x:.2f},{y:.2f}" for x, y in [xy(p["x"], p["y"]) for p in trace[:main_count]]
+        )
+        parts.append(
+            f'<polyline points="{points}" fill="none" stroke="#9b365e" stroke-width="1.6"/>'
+        )
+    labels = [
+        "Green: observed first-pass credit",
+        "Orange: first-pass missed cells",
+        "Blue: recorded coverage plan",
+        "Purple: observed first-pass path",
+        f"Final coverage: {summary['observed_final_coverage_ratio'] * 100:.4f}%",
+        "Prediction is never measured credit",
+        f"Audit complete: {summary['audit_complete']}",
+    ]
+    if summary["main_observed_coverage_ratio"] is not None:
+        labels.insert(4, f"First pass: {summary['main_observed_coverage_ratio'] * 100:.4f}%")
+    for i, label in enumerate(labels):
+        parts.append(f'<text x="675" y="{100 + i * 34}" font-size="15">{html.escape(label)}</text>')
+    parts.append("</g></svg>")
+    path.write_text("\n".join(parts) + "\n")
 
 
 def main():
