@@ -6,6 +6,7 @@ import os
 import signal
 import subprocess
 import time
+import uuid
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -224,7 +225,11 @@ def main():
         help="Require the bottom-level command timeout; disable only for explicit legacy fixture replay",
     )
     args = parser.parse_args()
+    os.environ["PYTHONPATH"] = (
+        str(ROOT.parents[2] / "src") + os.pathsep + os.getenv("PYTHONPATH", "")
+    )
     prepare(args.controller_watchdog, args.profile)
+    (OUTPUT / "run_id.txt").write_text(uuid.uuid4().hex + "\n")
     profile = PROFILES[args.profile]
     children = []
     labels = {}

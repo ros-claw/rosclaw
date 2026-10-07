@@ -154,3 +154,42 @@ Native execution RPCs retain their response channel for the dispatcher maximum
 3600-second action deadline plus 60 seconds for receipt delivery. Read-only bridge
 queries retain their five-second timeout. This transport bound does not extend
 action authorization, leases, or verification deadlines.
+
+## Passive coverage causal audit
+
+The unchanged coverage/recovery algorithm now records bounded asynchronous
+Nav2 feedback, exact consumer offsets at the main-pass boundary, and goal
+intervals. `actions/coverage-audit-*.jsonl` is append-only and hash chained;
+its separate summary records dropped events and writer errors. An incomplete
+audit cannot satisfy the observability acceptance gate. It does not change
+canonical coverage, motion policy, deadlines, or the independent observer.
+
+The fixture observes the pinned server's existing coverage plan, field boundary,
+planning field and swath debug topics. `plan-events-*.jsonl` preserves every
+captured version, its frame, simulation/header time, wall capture time and
+orientation. Plans carry no action ID on those ROS topics: the offline auditor
+binds them only to an unambiguous serialized daemon goal interval; otherwise
+the binding is UNKNOWN. Unexposed internal route/controller stages remain
+UNKNOWN. The former overwritten `coverage_path.json` / `navigation_path.json`
+are superseded by this event stream.
+
+The daemon freezes public code/config hashes in `source-freeze.json`. This
+contains no credentials, ledger secrets or private model reasoning. Dirty
+working trees are identified explicitly; historical episodes without the new
+events do not acquire invented provenance or phase timestamps.
+
+After the task and fixture have stopped and flushed their audit summaries:
+
+```bash
+PYTHONPATH=src .venv/bin/python integrations/ros_probe/acceptance/coverage_audit.py \
+  --directory /tmp/ros-expert-run/golden \
+  --output /tmp/ros-expert-run/golden-audit
+```
+
+The output directory must be new. This read-only tool validates the canonical
+artifact hash, reruns the original verifier and reports plan prediction
+separately from measured coverage. The plan's ideal brush-on sweep never
+enters canonical credit. Missing heading or causal observations remain UNKNOWN,
+including old runs' precise phase times. Predicted-but-missed cells are not
+automatically called tracking errors. Hash chains reject mutation/reordering
+and incomplete trailing records rather than silently repairing them.

@@ -1,0 +1,250 @@
+"""Read-only plan/execution audit of an existing SIM episode; never dispatches."""
+
+import argparse
+import gzip
+import hashlib
+import json
+from datetime import datetime
+from pathlib import Path
+
+from rosclaw.connectors.ros.diagnosis.coverage_audit import (
+    digest,
+    plan_projection,
+    read_audit,
+    trajectory_metrics,
+)
+from rosclaw.connectors.ros.verification.coverage import CleaningPose, CoverageVerifier
+
+
+def load(path):
+    if path.suffix == ".gz":
+        with gzip.open(path, "rt") as stream:
+            text = stream.read()
+    else:
+        text = path.read_text()
+    return json.loads(text)
+
+
+def audit(directory, output):
+    receipt = load(directory / "golden-coverage.receipt.json")["receipt"]
+    source = Path(receipt["verification_result"]["evidence_artifact"]["path"])
+    if not source.exists():
+        candidates = list(directory.glob("rosevidence_*.json.gz"))
+        if len(candidates) != 1:
+            raise ValueError("cannot locate unique original mission evidence")
+        source = candidates[0]
+    evidence = load(source)
+    original_bytes = (
+        gzip.decompress(source.read_bytes()) if source.suffix == ".gz" else source.read_bytes()
+    )
+    if (
+        hashlib.sha256(original_bytes).hexdigest()
+        != receipt["verification_result"]["evidence_artifact"]["sha256"]
+    ):
+        raise ValueError("canonical evidence hash mismatch")
+    grid, trace = evidence["grid"], evidence["trajectory"]
+    verifier = CoverageVerifier(**grid)
+    events = []
+    source_files = [source, directory / "golden-coverage.receipt.json"]
+    audit_complete = True
+    for path in sorted((directory / "actions").glob("coverage-audit-golden-coverage-*.jsonl")):
+        events.extend(read_audit(path))
+        summary = load(Path(str(path) + ".summary.json"))
+        audit_complete &= summary["complete"]
+        source_files.extend([path, Path(str(path) + ".summary.json")])
+    if not events:
+        audit_complete = False
+    progress = next((r for r in events if r["kind"] == "coverage_progress"), None)
+    # Exact consumer offset, rather than guessed wall-clock/nearest-pose matching.
+    main_count = progress["payload"]["consumed_samples"] if progress else None
+    if main_count is None:
+        # A main pass can reach the threshold and never enter recovery.
+        ended = next(
+            (
+                r
+                for r in events
+                if r["kind"] == "goal_ended" and r["payload"]["nav_goal_id"] == receipt["action_id"]
+            ),
+            None,
+        )
+        main_count = ended["payload"].get("consumed_samples") if ended else None
+    starts = [(0, "MAIN_COVERAGE", receipt["action_id"])]
+    for row in events:
+        if row["kind"] == "goal_started" and row["payload"].get("stage") == "REPAIR":
+            starts.append(
+                (
+                    min(len(trace), max(0, row["payload"]["sample_offset"])),
+                    "REPAIR",
+                    row["payload"]["nav_goal_id"],
+                )
+            )
+    starts.sort()
+    segments = []
+    before = 0
+    main_cells = None
+    historic_checkpoint_indices = []
+    repairs = receipt["verification_result"].get("recovery_attempts", [])
+    checkpoint_ratio = repairs[0]["coverage_before"] if repairs else None
+    offsets = {s[0] for s in starts} | {len(trace)}
+    if main_count is not None:
+        offsets.add(main_count)
+    cursor = 0
+    for end in sorted(offsets):
+        if end == 0:
+            continue
+        for index, pose in enumerate(trace[cursor:end], cursor):
+            verifier.observe(CleaningPose(**pose), frame_id=evidence["frame_id"])
+            if (
+                main_count is None
+                and checkpoint_ratio is not None
+                and (len(verifier.visits) / len(verifier.accessible) == checkpoint_ratio)
+            ):
+                historic_checkpoint_indices.append(index)
+                main_cells = set(verifier.visits)
+        if end == main_count:
+            main_cells = set(verifier.visits)
+        active = max((s for s in starts if s[0] <= cursor), key=lambda s: s[0])
+        segments.append(
+            {
+                "stage": active[1] if events else "UNKNOWN",
+                "nav_goal_id": active[2] if events else None,
+                "sample_start": cursor,
+                "sample_end_exclusive": end,
+                "new_covered_cells": len(verifier.visits) - before,
+                "coverage_ratio": len(verifier.visits) / len(verifier.accessible),
+                **trajectory_metrics(trace[max(0, cursor - 1) : end]),
+                "phase_boundary_note": "consumer sample offset; waiting included",
+            }
+        )
+        before, cursor = len(verifier.visits), end
+    saved = directory / (
+        source.name.removesuffix(".gz").removesuffix(".json") + ".verification.json"
+    )
+    if saved.exists() and verifier.result() != load(saved)["coverage"]:
+        raise ValueError("saved canonical verifier differs from exact replay")
+    if verifier.result()["coverage_ratio"] != receipt["verification_result"]["coverage_ratio"]:
+        raise ValueError("canonical coverage differs from exact replay")
+    plans = []
+    plan_rows = []
+    for path in sorted(directory.glob("plan-events-*.jsonl")):
+        plan_rows.extend(read_audit(path))
+        source_files.append(path)
+        summary_path = Path(str(path) + ".summary.json")
+        if summary_path.exists():
+            source_files.append(summary_path)
+            audit_complete &= load(summary_path)["complete"]
+        else:
+            audit_complete = False
+    # Header timestamps on old Nav2 paths may be absent/zero. Use observed
+    # wall capture intervals, and explicitly retain ambiguity as UNKNOWN.
+    main_start = next(
+        (
+            r
+            for r in events
+            if r["kind"] == "goal_started" and r["payload"].get("stage") == "MAIN_COVERAGE"
+        ),
+        None,
+    )
+    main_end = next(
+        (
+            r
+            for r in events
+            if r["kind"] == "goal_ended" and r["payload"]["nav_goal_id"] == receipt["action_id"]
+        ),
+        None,
+    )
+    for row in plan_rows:
+        if row["kind"] == "path" and row["payload"]["topic"] == "/coverage_server/coverage_plan":
+            payload = row["payload"]
+            bound = bool(
+                main_start
+                and main_end
+                and datetime.fromisoformat(main_start["captured_at"])
+                <= datetime.fromisoformat(row["captured_at"])
+                <= datetime.fromisoformat(main_end["captured_at"])
+            )
+            projection = plan_projection(grid, payload["poses"], frame_id=payload["frame_id"])
+            plans.append(
+                {
+                    "plan_id": payload["plan_id"],
+                    "event_hash": row["artifact_sha256"],
+                    "nav_goal_id": receipt["action_id"] if bound else None,
+                    "binding_method": "single_serialized_main_goal_capture_interval"
+                    if bound
+                    else "UNKNOWN",
+                    **projection,
+                }
+            )
+    predicted = set().union(*(set(p["predicted_cells"]) for p in plans if p["nav_goal_id"]))
+    missed = verifier.accessible - (main_cells if main_cells is not None else set(verifier.visits))
+    attribution = {}
+    for cell in sorted(missed):
+        label = (
+            "NOT_IN_PLANNED_SWATH"
+            if audit_complete and predicted and cell not in predicted
+            else "UNKNOWN"
+        )
+        attribution.setdefault(label, []).append(cell)
+    summary = {
+        "schema_version": "rosclaw.coverage_causal_audit.v1",
+        "evidence_role": "historical_diagnostic_replay_not_new_physical_episode",
+        "audit_complete": bool(audit_complete and plans),
+        "body_snapshot_hash": receipt["body_snapshot_hash"],
+        "denominator_hash": digest(grid),
+        "fixed_denominator_cells": len(verifier.accessible),
+        "canonical_verifier_replay_equal": True,
+        "observed_final_coverage_ratio": verifier.result()["coverage_ratio"],
+        "main_sample_count": main_count,
+        "historical_checkpoint_ratio": checkpoint_ratio if main_count is None else None,
+        "historical_checkpoint_sample_range": [
+            historic_checkpoint_indices[0],
+            historic_checkpoint_indices[-1],
+        ]
+        if historic_checkpoint_indices
+        else None,
+        "historical_checkpoint_note": "Exact coverage replay; phase time is not identified by an old receipt alone",
+        "main_observed_coverage_ratio": len(main_cells) / len(verifier.accessible)
+        if main_cells is not None
+        else None,
+        "main_metrics": trajectory_metrics(trace[:main_count]) if main_count is not None else None,
+        "total_metrics": trajectory_metrics(trace),
+        "plans": plans,
+        "first_pass_missed_attribution": attribution,
+        "attribution_note": "Not-in-plan means outside recorded ideal coverage path sweep, not proof of unreachable geometry; planned-but-missed remains UNKNOWN without causal evidence.",
+        "feedback_events": sum(r["kind"] == "nav_feedback" for r in events),
+        "segment_count": len(segments),
+        "limitations": [
+            "Plan is diagnostic only, never measured coverage credit",
+            "No controller/collision-monitor state or unexposed internal route stage is inferred",
+            "Historical runs without events have UNKNOWN stage/heading evidence",
+        ],
+    }
+    output.mkdir(parents=True, exist_ok=False)
+    (output / "plan-versus-execution.json").write_text(json.dumps(summary, indent=2) + "\n")
+    (output / "coverage-segment-metrics.jsonl").write_text(
+        "".join(json.dumps(s) + "\n" for s in segments)
+    )
+    manifest = {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in source_files}
+    (output / "source-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    print(
+        json.dumps(
+            {
+                k: v
+                for k, v in summary.items()
+                if k not in {"plans", "first_pass_missed_attribution"}
+            },
+            indent=2,
+        )
+    )
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--directory", required=True, type=Path)
+    parser.add_argument("--output", required=True, type=Path)
+    args = parser.parse_args()
+    audit(args.directory.resolve(), args.output.resolve())
+
+
+if __name__ == "__main__":
+    main()
