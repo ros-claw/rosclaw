@@ -1,0 +1,26 @@
+{
+  "scope": "Exact Native authored Bash output repair; Root independent review only",
+  "source_sha256": "8d94b4b6a295914cf4854915c7b936296ebc9d8d88b41d3a6233dd3ebe8e96df",
+  "test_sha256": "fd1964cd63937c7ba03a0420725287bc6bad7968b16d550c69cf6aecf3c78142",
+  "whole": "NATIVE_STOPPED/PASS_NATIVE_BASH_OUTPUT_SOURCE_COMPONENT",
+  "saved_replay_sha256": "102c11add160c93b326ffe9be8074d3a350cf59e6931ffee433234459c85adb6",
+  "frozen_index_sha256": "d95ac1e3b652cd199949ae7a9e7f06c1d49cfba2ec52d024d3fa410c5b84e16d",
+  "Root_extra_BOM_counter_sha256": "d62eeb6be41444f74bc75cd7b78e7c999908d44638b89c9b7b5e169a510cd4b6",
+  "actual_public_factory_controls": 22,
+  "full_Node": {
+    "tests": 471,
+    "pass": 468,
+    "skip": 3,
+    "fail": 0
+  },
+  "pi_bridge_tests_pass": 6,
+  "usage": {
+    "requests": 13,
+    "completed": 13,
+    "input_and_cache": 354691,
+    "output": 4401,
+    "authority": "ALL_KNOWN"
+  },
+  "historical_results": "Original CUT, empty-unit-test RED and subsequent BOM RED retained; current pass does not rewrite them.",
+  "limits": "Valid UTF-8 output; independent stdout/stderr decoder order is not a global byte chronology guarantee. No provider performance, physics or hardware certification."
+}

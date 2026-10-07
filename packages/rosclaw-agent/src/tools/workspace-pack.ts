@@ -247,6 +247,8 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 			const result = await new Promise<{
 				output: string; exitCode: number | null; signal: NodeJS.Signals | null;
 				timedOut: boolean; aborted: boolean; spawnError?: string;
+				truncated: boolean; originalOutputBytes: number;
+				outputBytes: number; outputLimitBytes: number;
 			}>((resolvePromise) => {
 				// Agent commands often explicitly nest `bash -c`. Export the enabled
 				// options so an inner pipeline cannot hide a failed timeout behind tail.
@@ -278,7 +280,48 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 					env: scrubbedEnv,
 					detached: process.platform !== "win32",
 				});
-				let buf = "";
+				// 输出边界（诚实截断修复）：每条流独立增量 UTF8 解码
+				// （跨 chunk 多字节字符由 TextDecoder 保持，不跨流拼接
+				// 不完整码点）；保留前缀按原始字节计数并落在码点边界；
+				// 超过 65536 字节只计数不保留，截断显式暴露为
+				// details.truncated/originalOutputBytes/outputBytes/
+				// outputLimitBytes 与模型可见的 \n[TRUNCATED 后缀（≤512B，
+				// 不计入 payload）。恰好 65536 字节视为完整输出。
+				// 初始 BOM（U+FEFF）是普通输出数据，必须保留——
+				// ignoreBOM:true 阻止 TextDecoder 默认吞掉流首 BOM，
+				// 否则 raw 字节计数与保留 payload 相差 3 字节。
+				const decOut = new TextDecoder("utf-8", { ignoreBOM: true });
+				const decErr = new TextDecoder("utf-8", { ignoreBOM: true });
+				const retainedChunks: Buffer[] = [];
+				let retainedBytes = 0;
+				let originalOutputBytes = 0;
+				// 一旦任何字节放不下（含整码点大于剩余空间），保留通道
+				// 永久关闭——不得跳过被丢弃的码点再去保留更晚的字节，
+				// 否则 preview 不再是原始字节前缀。
+				let retentionClosed = false;
+				const appendDecoded = (text: string) => {
+					if (!text || retentionClosed) return;
+					if (retainedBytes >= MAX_OUTPUT_BYTES) {
+						retentionClosed = true;
+						return;
+					}
+					const b = Buffer.from(text, "utf-8");
+					const room = MAX_OUTPUT_BYTES - retainedBytes;
+					if (b.length <= room) {
+						retainedChunks.push(b);
+						retainedBytes += b.length;
+						return;
+					}
+					// 截到码点边界：有效 UTF8 中，长度 n 的前缀合法当且
+					// 仅当 b[n] 不是 continuation byte。
+					let n = room;
+					while (n > 0 && (b[n] & 0xc0) === 0x80) n--;
+					if (n > 0) {
+						retainedChunks.push(b.subarray(0, n));
+						retainedBytes += n;
+					}
+					retentionClosed = true;
+				};
 				// Keep final-result truncation unchanged, but do not freeze live
 				// progress once that first-output buffer has reached its cap.
 				let liveTail = "";
@@ -324,16 +367,24 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 					if (killTimer) clearTimeout(killTimer);
 					clearInterval(progress);
 					signal?.removeEventListener("abort", cancel);
-					resolvePromise({ output: text, exitCode, signal: exitSignal, timedOut, aborted, ...(spawnError ? { spawnError } : {}) });
+					resolvePromise({
+						output: text, exitCode, signal: exitSignal, timedOut, aborted,
+						...(spawnError ? { spawnError } : {}),
+						truncated: originalOutputBytes > MAX_OUTPUT_BYTES,
+						originalOutputBytes,
+						outputBytes: retainedBytes,
+						outputLimitBytes: MAX_OUTPUT_BYTES,
+					});
 				};
-				const collectOutput = (d: Buffer) => {
-					const text = d.toString();
-					if (buf.length < MAX_OUTPUT_BYTES) buf += text;
+				const collectOutput = (decoder: TextDecoder) => (d: Buffer) => {
+					originalOutputBytes += d.length;
+					const text = decoder.decode(d, { stream: true });
+					appendDecoded(text);
 					liveTail = (liveTail + text).slice(-4096);
 					lastOutputAt = Date.now();
 				};
-				child.stdout?.on("data", collectOutput);
-				child.stderr?.on("data", collectOutput);
+				child.stdout?.on("data", collectOutput(decOut));
+				child.stderr?.on("data", collectOutput(decErr));
 				if (timeoutMs !== null) {
 					timer = setTimeout(() => {
 						timedOut = true;
@@ -347,7 +398,16 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 					const head = `exit=${code ?? "signal"} wall=${Date.now() - started}ms`
 						+ (timedOut ? " TIMEOUT(explicit)" : "")
 						+ (aborted ? " ABORTED" : "");
-					finish(`${degradedMarker}${head}\n${buf.slice(0, MAX_OUTPUT_BYTES)}`, code, exitSignal);
+					// 终端关闭时冲刷两条流的解码器（有效输入下仅补齐
+					// 跨 chunk 的尾字节；有效输入不会产生替换符）。
+					appendDecoded(decOut.decode());
+					appendDecoded(decErr.decode());
+					const payload = Buffer.concat(retainedChunks).toString("utf-8");
+					const truncated = originalOutputBytes > MAX_OUTPUT_BYTES;
+					const notice = truncated
+						? `\n[TRUNCATED output preview: retained ${retainedBytes} of ${originalOutputBytes} raw stdout/stderr bytes (fixed limit ${MAX_OUTPUT_BYTES} bytes); excess bytes counted but not retained]`
+						: "";
+					finish(`${degradedMarker}${head}\n${payload}${notice}`, code, exitSignal);
 				});
 				child.on("error", (err) => finish(`spawn error: ${err.message}`, null, null, err.message));
 				signal?.addEventListener("abort", cancel, { once: true });
