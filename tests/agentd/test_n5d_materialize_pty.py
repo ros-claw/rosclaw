@@ -44,6 +44,27 @@ class _MaterializeFake:
         self.called = False
 
     def answer(self, body: dict) -> bytes:
+        # Shared helpers deliberately retain their fixed-ID negative control.
+        # Allocate once per response, then apply that identity to every frame.
+        payload = self._answer(body)
+        response_id = f"chatcmpl-materialize-{len(self.requests)}"
+        if not body.get("stream"):
+            completion = json.loads(payload)
+            completion["id"] = response_id
+            return json.dumps(completion).encode()
+        frames = []
+        for frame in payload.split(b"\n\n"):
+            if not frame:
+                continue
+            if frame == b"data: [DONE]":
+                frames.append(frame + b"\n\n")
+                continue
+            chunk = json.loads(frame.removeprefix(b"data: "))
+            chunk["id"] = response_id
+            frames.append(_sse(chunk))
+        return b"".join(frames)
+
+    def _answer(self, body: dict) -> bytes:
         self.requests.append(body)
         if not body.get("stream"):
             return json.dumps({
