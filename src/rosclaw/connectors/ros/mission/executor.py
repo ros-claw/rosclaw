@@ -463,7 +463,8 @@ class RosCoverageSimulationExecutor:
         try:
             try:
                 self.audit = CoverageAuditLog(
-                    self.output / f"coverage-audit-{digest(action.action_id)}-{time.time_ns()}.jsonl",
+                    self.output
+                    / f"coverage-audit-{digest(action.action_id)}-{time.time_ns()}.jsonl",
                     context={
                         **self.audit_metadata,
                         "action_id": action.action_id,
