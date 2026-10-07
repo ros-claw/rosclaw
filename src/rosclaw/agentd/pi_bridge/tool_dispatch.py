@@ -14,6 +14,8 @@ PNA-3 工具集（read/observe/verify/memory/fail_safe/status）：
 from __future__ import annotations
 
 import json
+import math
+import os
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
@@ -72,14 +74,456 @@ class ToolBridgeError(RuntimeError):
 #: capability 产物）。
 _ARTIFACT_SCALAR_KEYS = ("artifact", "mp4_artifact")
 _FORMAT_MEDIA = {
-    "gif": "image/gif", "mp4": "video/mp4",
-    "json": "application/json", "csv": "text/csv",
+    "gif": "image/gif",
+    "mp4": "video/mp4",
+    "json": "application/json",
+    "csv": "text/csv",
 }
 
 
-def _auto_register_artifacts(
-    service, request: PiToolRequestV1, value: object
-) -> list[dict]:
+# ----------------------------------------------------------------------
+# Opt-in declared local artifact schema（rosclaw_deliver 专用有界子集——
+# 不是任意 JSON Schema）。schema_path 缺省时完全保持既有行为。
+# ----------------------------------------------------------------------
+
+_DECLARED_SCHEMA_MAX_BYTES = 65536
+_DECLARED_ARTIFACT_MAX_BYTES = 262144
+_DECLARED_MAX_DEPTH = 64
+_DECLARED_MAX_ERRORS = 8
+_DECLARED_MAX_PATH_CHARS = 160
+_DECLARED_SCHEMA_MAX_NODES = 256
+_DECLARED_ARTIFACT_MAX_NODES = 8192
+
+#: 允许的验证关键字（title/description 仅注解，无权威语义）。
+_DECLARED_SCHEMA_KEYWORDS = frozenset(
+    {
+        "type",
+        "const",
+        "enum",
+        "properties",
+        "required",
+        "additionalProperties",
+        "items",
+        "minItems",
+        "maxItems",
+        "minLength",
+        "maxLength",
+        "minimum",
+        "maximum",
+        "exclusiveMinimum",
+        "exclusiveMaximum",
+        "title",
+        "description",
+    }
+)
+
+#: 已知但不支持的 JSON Schema 词汇——诊断可指名；其余未知键只报
+#: 结构路径（不回显键名，可能是秘密属性名）。
+_DECLARED_UNSUPPORTED_VOCAB = frozenset(
+    {
+        "$ref",
+        "$defs",
+        "definitions",
+        "$id",
+        "$schema",
+        "$anchor",
+        "allOf",
+        "anyOf",
+        "oneOf",
+        "not",
+        "if",
+        "then",
+        "else",
+        "dependentSchemas",
+        "dependentRequired",
+        "patternProperties",
+        "propertyNames",
+        "pattern",
+        "format",
+        "regex",
+        "contains",
+        "prefixItems",
+        "unevaluatedProperties",
+        "unevaluatedItems",
+    }
+)
+
+_DECLARED_TYPE_NAMES = frozenset(
+    {
+        "object",
+        "array",
+        "string",
+        "number",
+        "integer",
+        "boolean",
+        "null",
+    }
+)
+
+#: 非负整数边界关键字（bool 明确排除——True 不是 1）。
+_DECLARED_INT_BOUND_KEYS = frozenset({"minItems", "maxItems", "minLength", "maxLength"})
+#: 有限数值边界关键字（int/float，bool 排除）。
+_DECLARED_NUM_BOUND_KEYS = frozenset({"minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum"})
+
+
+def _declared_child_path(path: str, segment: str, index: int) -> str:
+    """结构路径只含段类型与序号——绝不回显属性名/值（秘密属性名
+    不得进诊断）。"""
+    return f"{path}/{segment}[{index}]"[:_DECLARED_MAX_PATH_CHARS]
+
+
+def _declared_tree_metrics(value: object) -> tuple[int, int]:
+    """迭代统计 (node_count, max_depth)——预算校验必须先于 validator。"""
+    nodes = 0
+    max_depth = 0
+    stack: list[tuple[object, int]] = [(value, 1)]
+    while stack:
+        current, depth = stack.pop()
+        nodes += 1
+        if depth > max_depth:
+            max_depth = depth
+        if isinstance(current, dict):
+            for item in current.values():
+                stack.append((item, depth + 1))
+        elif isinstance(current, list):
+            for item in current:
+                stack.append((item, depth + 1))
+    return nodes, max_depth
+
+
+def _is_declared_number(value: object) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _is_declared_int_bound(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _declared_const_equal(declared: object, value: object) -> bool:
+    if isinstance(declared, bool) or isinstance(value, bool):
+        return isinstance(declared, bool) and isinstance(value, bool) and declared == value
+    if _is_declared_number(declared) and _is_declared_number(value):
+        return declared == value
+    if type(declared) is not type(value):
+        return False
+    if declared is None or isinstance(declared, (str, int, float)):
+        return declared == value
+    if isinstance(declared, list):
+        return len(declared) == len(value) and all(
+            _declared_const_equal(d, v) for d, v in zip(declared, value, strict=True)
+        )
+    if isinstance(declared, dict):
+        return declared.keys() == value.keys() and all(
+            _declared_const_equal(declared[k], value[k]) for k in declared
+        )
+    return False
+
+
+def _check_declared_schema(schema: object) -> None:
+    """Schema 侧准入：plain JSON object；只允许有界关键字，且每个
+    关键字的值形状必须在实例校验前全部验证（畸形值 typed 拒绝，
+    绝不静默忽略）；拒绝一切 $ref（含本地/循环）、远程/文件解析、
+    分支/组合/条件、正则/pattern/format 与未知验证关键字。无自动
+    规范化。"""
+    if not isinstance(schema, dict):
+        raise ToolBridgeError("DECLARED_SCHEMA_INVALID", "schema 必须是 plain JSON object")
+    stack: list[tuple[dict, str]] = [(schema, "$")]
+    while stack:
+        node, path = stack.pop()
+        for key, sub in node.items():
+            if key not in _DECLARED_SCHEMA_KEYWORDS:
+                label = key if key in _DECLARED_UNSUPPORTED_VOCAB else "<unknown>"
+                raise ToolBridgeError(
+                    "DECLARED_SCHEMA_UNSUPPORTED_KEYWORD",
+                    f"不支持的 schema 关键字 {label}（{path}）——有界子集"
+                    "不支持 $ref/远程或文件解析/分支组合/条件/正则",
+                )
+            if key == "type":
+                names = sub if isinstance(sub, list) else [sub]
+                if (
+                    not names
+                    or any(
+                        not isinstance(name, str) or name not in _DECLARED_TYPE_NAMES
+                        for name in names
+                    )
+                    or len({name for name in names if isinstance(name, str)}) != len(names)
+                ):
+                    raise ToolBridgeError(
+                        "DECLARED_SCHEMA_INVALID",
+                        f"type 必须是已知 JSON 类型名或其非空唯一列表（{path}）",
+                    )
+            elif key == "required":
+                if (
+                    not isinstance(sub, list)
+                    or any(not isinstance(item, str) for item in sub)
+                    or len({item for item in sub if isinstance(item, str)}) != len(sub)
+                ):
+                    raise ToolBridgeError(
+                        "DECLARED_SCHEMA_INVALID",
+                        f"required 必须是字符串数组且唯一（可为空）（{path}）",
+                    )
+            elif key == "enum":
+                if not isinstance(sub, list) or not sub:
+                    raise ToolBridgeError(
+                        "DECLARED_SCHEMA_INVALID",
+                        f"enum 必须是非空 JSON 值数组（{path}）",
+                    )
+                for index in range(len(sub)):
+                    if any(_declared_const_equal(sub[prior], sub[index]) for prior in range(index)):
+                        raise ToolBridgeError(
+                            "DECLARED_SCHEMA_INVALID",
+                            f"enum 值必须语义唯一（数值 1==1.0、object 键序无关、"
+                            f"bool 与数值不同）（{path}）",
+                        )
+            elif key in _DECLARED_INT_BOUND_KEYS:
+                if not _is_declared_int_bound(sub) or sub < 0:
+                    raise ToolBridgeError(
+                        "DECLARED_SCHEMA_INVALID",
+                        f"{key} 必须是非负整数（bool/分数/字符串拒绝）（{path}）",
+                    )
+            elif key in _DECLARED_NUM_BOUND_KEYS:
+                if not _is_declared_number(sub) or (
+                    isinstance(sub, float) and not math.isfinite(sub)
+                ):
+                    raise ToolBridgeError(
+                        "DECLARED_SCHEMA_INVALID",
+                        f"{key} 必须是有限数值（bool/字符串拒绝）（{path}）",
+                    )
+            elif key in ("title", "description"):
+                if not isinstance(sub, str):
+                    raise ToolBridgeError(
+                        "DECLARED_SCHEMA_INVALID",
+                        f"{key} 注解必须是字符串（{path}）",
+                    )
+            elif key == "properties":
+                if not isinstance(sub, dict):
+                    raise ToolBridgeError(
+                        "DECLARED_SCHEMA_INVALID",
+                        f"properties 必须是 object（{path}）",
+                    )
+                for index, child in enumerate(sub.values()):
+                    if not isinstance(child, dict):
+                        raise ToolBridgeError(
+                            "DECLARED_SCHEMA_INVALID",
+                            f"子 schema 必须是 object（{path}）",
+                        )
+                    stack.append((child, _declared_child_path(path, "property", index)))
+            elif key == "items":
+                if not isinstance(sub, dict):
+                    raise ToolBridgeError(
+                        "DECLARED_SCHEMA_INVALID",
+                        f"items 必须是 object 子 schema（{path}）",
+                    )
+                stack.append((sub, _declared_child_path(path, "items", 0)))
+            elif key == "additionalProperties":
+                if not isinstance(sub, (bool, dict)):
+                    raise ToolBridgeError(
+                        "DECLARED_SCHEMA_INVALID",
+                        f"additionalProperties 必须是 bool 或 object 子 schema（{path}）",
+                    )
+                if isinstance(sub, dict):
+                    stack.append((sub, _declared_child_path(path, "additional", 0)))
+            # const：任何有限 JSON 值合法（载入阶段已保证有限）。
+
+
+def _declared_ensure_finite(value: object) -> None:
+    """JSON 数值必须有限（1e999 等解析为 inf 的形式是 typed 拒绝）。"""
+    stack: list[object] = [value]
+    while stack:
+        current = stack.pop()
+        if isinstance(current, float) and not math.isfinite(current):
+            raise ValueError("non-finite JSON number")
+        if isinstance(current, dict):
+            stack.extend(current.values())
+        elif isinstance(current, list):
+            stack.extend(current)
+
+
+def _declared_reject_constant(name: str) -> None:
+    raise ValueError(f"non-finite constant {name}")
+
+
+def _read_declared_bounded(path: str, *, max_bytes: int, kind: str) -> bytes:
+    """有限读取：单次最多读 max_bytes+1 字节——超限 typed 拒绝，绝不
+    物化整个超限文件（read bound 是声明语义的一部分）。"""
+    with open(path, "rb") as handle:
+        raw = handle.read(max_bytes + 1)
+    if len(raw) > max_bytes:
+        raise ToolBridgeError(
+            "DECLARED_SCHEMA_BUDGET_EXCEEDED",
+            f"{kind} 超过字节上限 {max_bytes}——拒绝登记",
+        )
+    return raw
+
+
+def _declared_text_depth(text: str) -> int:
+    """迭代扫描 JSON 结构深度（跳过字符串字面量与转义）——在任何
+    递归解析之前执行，使 5000 层嵌套也得到 typed 预算错误而不是
+    解释器 RecursionError。"""
+    depth = 0
+    max_depth = 0
+    in_string = False
+    escaped = False
+    for ch in text:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch in "[{":
+            depth += 1
+            if depth > max_depth:
+                max_depth = depth
+        elif ch in "]}":
+            depth -= 1
+    return max_depth
+
+
+def _load_declared_json(raw: bytes, *, max_bytes: int, max_nodes: int, kind: str) -> object:
+    """有界载入：字节上限 → UTF-8/JSON 解析（拒绝 NaN/Infinity 常量与
+    非有限数值）→ 深度/节点预算——全部先于任何 schema 关键字校验。"""
+    if len(raw) > max_bytes:
+        raise ToolBridgeError(
+            "DECLARED_SCHEMA_BUDGET_EXCEEDED",
+            f"{kind} 超过字节上限 {max_bytes}——拒绝登记",
+        )
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ToolBridgeError("DECLARED_SCHEMA_INVALID", f"{kind} 不是合法 UTF-8") from exc
+    if _declared_text_depth(text) > _DECLARED_MAX_DEPTH:
+        raise ToolBridgeError(
+            "DECLARED_SCHEMA_BUDGET_EXCEEDED",
+            f"{kind} 超过深度上限 {_DECLARED_MAX_DEPTH}——拒绝登记",
+        )
+    try:
+        value = json.loads(text, parse_constant=_declared_reject_constant)
+        _declared_ensure_finite(value)
+    except ValueError as exc:
+        raise ToolBridgeError("DECLARED_SCHEMA_INVALID", f"{kind} 不是合法/有限 JSON") from exc
+    nodes, depth = _declared_tree_metrics(value)
+    if depth > _DECLARED_MAX_DEPTH:
+        raise ToolBridgeError(
+            "DECLARED_SCHEMA_BUDGET_EXCEEDED",
+            f"{kind} 超过深度上限 {_DECLARED_MAX_DEPTH}——拒绝登记",
+        )
+    if nodes > max_nodes:
+        raise ToolBridgeError(
+            "DECLARED_SCHEMA_BUDGET_EXCEEDED",
+            f"{kind} 超过节点上限 {max_nodes}——拒绝登记",
+        )
+    return value
+
+
+def _declared_type_matches(expected: object, value: object) -> bool:
+    names = expected if isinstance(expected, list) else [expected]
+    for name in names:
+        if name == "object" and isinstance(value, dict):
+            return True
+        if name == "array" and isinstance(value, list):
+            return True
+        if name == "string" and isinstance(value, str):
+            return True
+        if name == "boolean" and isinstance(value, bool):
+            return True
+        if name == "null" and value is None:
+            return True
+        if name == "number" and _is_declared_number(value):
+            return True
+        if name == "integer" and _is_declared_int_bound(value):
+            return True
+    return False
+
+
+def _validate_declared_instance(schema: dict, instance: object) -> None:
+    """有界实例校验：错误收集上限 8，诊断只含结构路径（不回显
+    artifact/schema 的值或属性名）。"""
+    errors: list[str] = []
+
+    def add(path: str, reason: str) -> None:
+        if len(errors) < _DECLARED_MAX_ERRORS:
+            errors.append(f"{path}: {reason}")
+
+    def walk(node: dict, value: object, path: str) -> None:
+        if len(errors) >= _DECLARED_MAX_ERRORS:
+            return
+        expected = node.get("type")
+        if expected is not None and not _declared_type_matches(expected, value):
+            add(path, "type mismatch")
+            return
+        if "const" in node and not _declared_const_equal(node["const"], value):
+            add(path, "const mismatch")
+        options = node.get("enum")
+        if isinstance(options, list) and not any(
+            _declared_const_equal(option, value) for option in options
+        ):
+            add(path, "enum mismatch")
+        if isinstance(value, dict):
+            required = node.get("required")
+            if isinstance(required, list) and any(
+                isinstance(key, str) and key not in value for key in required
+            ):
+                add(path, "missing required property")
+            properties = node.get("properties")
+            additional = node.get("additionalProperties", True)
+            for index, (key, item) in enumerate(value.items()):
+                child = _declared_child_path(path, "property", index)
+                if isinstance(properties, dict) and key in properties:
+                    walk(properties[key], item, child)
+                elif additional is False:
+                    add(child, "additional property not allowed")
+                elif isinstance(additional, dict):
+                    walk(additional, item, child)
+        elif isinstance(value, list):
+            size = len(value)
+            min_items = node.get("minItems")
+            max_items = node.get("maxItems")
+            if _is_declared_int_bound(min_items) and size < min_items:
+                add(path, "minItems violated")
+            if _is_declared_int_bound(max_items) and size > max_items:
+                add(path, "maxItems violated")
+            items = node.get("items")
+            if isinstance(items, dict):
+                for index, item in enumerate(value):
+                    walk(items, item, _declared_child_path(path, "item", index))
+        elif isinstance(value, str):
+            min_length = node.get("minLength")
+            max_length = node.get("maxLength")
+            if _is_declared_int_bound(min_length) and len(value) < min_length:
+                add(path, "minLength violated")
+            if _is_declared_int_bound(max_length) and len(value) > max_length:
+                add(path, "maxLength violated")
+        elif _is_declared_number(value):
+            minimum = node.get("minimum")
+            maximum = node.get("maximum")
+            ex_min = node.get("exclusiveMinimum")
+            ex_max = node.get("exclusiveMaximum")
+            if _is_declared_number(minimum) and value < minimum:
+                add(path, "minimum violated")
+            if _is_declared_number(maximum) and value > maximum:
+                add(path, "maximum violated")
+            if _is_declared_number(ex_min) and value <= ex_min:
+                add(path, "exclusiveMinimum violated")
+            if _is_declared_number(ex_max) and value >= ex_max:
+                add(path, "exclusiveMaximum violated")
+
+    walk(schema, instance, "$")
+    if errors:
+        detail = "; ".join(errors)
+        raise ToolBridgeError(
+            "DECLARED_SCHEMA_VALIDATION_FAILED",
+            f"artifact 不满足声明的 schema（{len(errors)} 项有界诊断，未登记任何内容）：{detail}"[
+                :360
+            ],
+        )
+
+
+def _auto_register_artifacts(service, request: PiToolRequestV1, value: object) -> list[dict]:
     """capability 产物自动登记（producer=kernel:capability:<id>，
     幂等——同内容重复登记返回同一 ArtifactRef）。
 
@@ -116,34 +560,37 @@ def _auto_register_artifacts(
             if isinstance(item, dict) and item.get("path"):
                 candidates.append(item)
             elif isinstance(item, str) and item.endswith((".json", ".csv")):
-                candidates.append({
-                    "path": item,
-                    "format": item.rsplit(".", 1)[-1],
-                })
+                candidates.append(
+                    {
+                        "path": item,
+                        "format": item.rsplit(".", 1)[-1],
+                    }
+                )
     # 归因用真实 capability_id（不是 wire 入口名）。
-    capability_id = str(
-        (request.arguments or {}).get("capability_id") or request.tool_name
-    )
+    capability_id = str((request.arguments or {}).get("capability_id") or request.tool_name)
     registered: list[dict] = []
     for item in candidates:
         path = str(item["path"])
         fmt = str(item.get("format") or path.rsplit(".", 1)[-1])
         try:
             record = kernel.register_artifact(
-                task_id=str(task["task_id"]), path=path,
+                task_id=str(task["task_id"]),
+                path=path,
                 media_type=_FORMAT_MEDIA.get(fmt, "application/octet-stream"),
                 producer=f"kernel:capability:{capability_id}",
             )
         except ValueError:
             continue  # 文件缺失等由验收表达——登记不阻断工具结果
-        registered.append({
-            "artifact_id": str(record["artifact_id"]),
-            "media_type": str(record["media_type"]),
-            "path": str(record["path"]),
-            "size_bytes": int(record["size_bytes"]),
-            "digest": str(record["sha256"]),
-            "open_command": f"rosclaw artifact open {record['artifact_id']}",
-        })
+        registered.append(
+            {
+                "artifact_id": str(record["artifact_id"]),
+                "media_type": str(record["media_type"]),
+                "path": str(record["path"]),
+                "size_bytes": int(record["size_bytes"]),
+                "digest": str(record["sha256"]),
+                "open_command": f"rosclaw artifact open {record['artifact_id']}",
+            }
+        )
     return registered
 
 
@@ -195,36 +642,41 @@ _VOLATILE_FINGERPRINT_KEYS = frozenset({"camera"})
 def _failure_fingerprint(request: PiToolRequestV1) -> str:
     def _strip(value: object) -> object:
         if isinstance(value, dict):
-            return {
-                k: _strip(v)
-                for k, v in value.items()
-                if k not in _VOLATILE_FINGERPRINT_KEYS
-            }
+            return {k: _strip(v) for k, v in value.items() if k not in _VOLATILE_FINGERPRINT_KEYS}
         if isinstance(value, list):
             return [_strip(v) for v in value]
         return value
 
-    return request.tool_name + ":" + json.dumps(
-        _strip(request.arguments), sort_keys=True, ensure_ascii=False
+    return (
+        request.tool_name
+        + ":"
+        + json.dumps(_strip(request.arguments), sort_keys=True, ensure_ascii=False)
     )
 
 
 #: R0-9（0826 体验审计 §5.R0-9）：transient 错误码（可安全重试——
 #: 状态已变化/等待外部事件，不记熔断也不计预算）。
-_TRANSIENT_CODES = frozenset({
-    "CONTEXT_NOT_FRESH",
-    "CONTEXT_HASH_MISMATCH",
-    "NEEDS_REPLAN",
-    "CONTEXT_LEASE_REQUIRED",
-    "CAPABILITY_SNAPSHOT_CHANGED",
-    "WAITING_APPROVAL",
-})
+_TRANSIENT_CODES = frozenset(
+    {
+        "CONTEXT_NOT_FRESH",
+        "CONTEXT_HASH_MISMATCH",
+        "NEEDS_REPLAN",
+        "CONTEXT_LEASE_REQUIRED",
+        "CAPABILITY_SNAPSHOT_CHANGED",
+        "WAITING_APPROVAL",
+    }
+)
 
 #: 基础设施/配置错误前缀（模型重试预算为 0——重试不会成功，
 #: 修复路径在 recovery_action）。
 _INFRA_PREFIXES = (
-    "RENDER_", "RUNTIME_", "TRANSPORT_", "PI_ENGINE",
-    "WORLD_ASSET_", "TOOL_ASSET_", "RESOURCE_",
+    "RENDER_",
+    "RUNTIME_",
+    "TRANSPORT_",
+    "PI_ENGINE",
+    "WORLD_ASSET_",
+    "TOOL_ASSET_",
+    "RESOURCE_",
 )
 
 
@@ -244,11 +696,7 @@ def _error_envelope_details(code: str, *, tool_name: str = "") -> dict:
             "retry_after_condition": "状态已变化（context/审批/快照刷新后）",
             "recovery_action": recovery_hint(code, context=tool_name),
         }
-    scope = (
-        "infrastructure"
-        if code.startswith(_INFRA_PREFIXES)
-        else "deterministic"
-    )
+    scope = "infrastructure" if code.startswith(_INFRA_PREFIXES) else "deterministic"
     return {
         "scope": scope,
         "attempt_budget": 0,
@@ -345,13 +793,9 @@ class PiToolDispatcher:
     def _note_embodiment_use(self, request: PiToolRequestV1) -> None:
         """N4.1：具身执行工具落账——行为任务的判定依据是实际调用，
         不是 body 在场。"""
-        task = self._service._task_kernel.active_task_for(
-            request.mission_id, request.pi_session_id
-        )
+        task = self._service._task_kernel.active_task_for(request.mission_id, request.pi_session_id)
         if task is not None:
-            self._service._task_kernel.note_tool_use(
-                str(task["task_id"]), request.tool_name
-            )
+            self._service._task_kernel.note_tool_use(str(task["task_id"]), request.tool_name)
 
     async def _execute_validated(self, request: PiToolRequestV1) -> PiToolResultV1:
         service = self._service
@@ -412,9 +856,7 @@ class PiToolDispatcher:
                 await service._ensure_mcp_discovered()
             # PR-N5D：snapshot digest 校验——调用方钉住的工具面与当前
             # registry 不一致时不静默换工具（下一步重新规划一次）。
-            claimed_digest = str(
-                (request.arguments or {}).get("snapshot_digest", "")
-            )
+            claimed_digest = str((request.arguments or {}).get("snapshot_digest", ""))
             if claimed_digest:
                 current = service.capability_snapshot(mission)
                 if claimed_digest != current.digest:
@@ -430,9 +872,7 @@ class PiToolDispatcher:
                     request.tool_name, dict(request.arguments or {})
                 )
             except EffectUnresolvableError as exc:
-                raise ToolBridgeError(
-                    "EFFECT_UNRESOLVABLE", str(exc)[:400]
-                ) from exc
+                raise ToolBridgeError("EFFECT_UNRESOLVABLE", str(exc)[:400]) from exc
             with contextlib.suppress(Exception):
                 await service._events.append(
                     request.mission_id,
@@ -442,16 +882,12 @@ class PiToolDispatcher:
         # 5. 分发。
         return await self._dispatch(request)
 
-    def _coordinator_consider(
-        self, request: PiToolRequestV1, result: PiToolResultV1
-    ) -> None:
+    def _coordinator_consider(self, request: PiToolRequestV1, result: PiToolResultV1) -> None:
         """P0-D：effectful 完成后的自动收尾评估——outcome 摘要附进
         工具结果 summary（模型看到结果，无需新回合）。"""
         try:
             kernel = self._service._task_kernel
-            task = kernel.latest_task_for(
-                request.mission_id, request.pi_session_id
-            )
+            task = kernel.latest_task_for(request.mission_id, request.pi_session_id)
             if task is None:
                 return
             from rosclaw.task_kernel.coordinator import TaskCoordinator
@@ -470,9 +906,7 @@ class PiToolDispatcher:
             # 收尾评估失败不影响工具结果本身（下轮再评估）。
             return
 
-    def _ensure_task_for_effect(
-        self, request: PiToolRequestV1, *, cwd: str = ""
-    ) -> None:
+    def _ensure_task_for_effect(self, request: PiToolRequestV1, *, cwd: str = "") -> None:
         """P0-C（0824 总纲 §6.2）：effectful wire 工具执行前的原子
         admission——缺动机输入诚实拒绝（INPUT_MOTIVATION_MISSING）。
         mode 取 mission 权威值（request 不携带 mode 字段）。"""
@@ -539,9 +973,7 @@ class PiToolDispatcher:
             envelope = await service._tool_catalog.execute_v2(
                 request.request_id, capability_id, dict(args.get("arguments", {}))
             )
-            auto_refs = _auto_register_artifacts(
-                service, request, envelope.value
-            )
+            auto_refs = _auto_register_artifacts(service, request, envelope.value)
             return _envelope_result(request, envelope, auto_refs=auto_refs)
         if name == "rosclaw_compute":
             # 七审 §2.2/PR-SEVEN-2.2：COMPUTE 能力免审批调用（纯计算无
@@ -568,9 +1000,7 @@ class PiToolDispatcher:
             envelope = await service._tool_catalog.execute_v2(
                 request.request_id, capability_id, dict(args.get("arguments", {}))
             )
-            auto_refs = _auto_register_artifacts(
-                service, request, envelope.value
-            )
+            auto_refs = _auto_register_artifacts(service, request, envelope.value)
             return _envelope_result(request, envelope, auto_refs=auto_refs)
         if name == "rosclaw_verify":
             receipts = [
@@ -652,9 +1082,7 @@ class PiToolDispatcher:
             # 携带规范 session cwd（与 _artifact_register 的
             # session_cwd 同一语义）——否则 task workspace 回落
             # private home/tasks，首个进程丢失会话工作目录。
-            self._ensure_task_for_effect(
-                request, cwd=str(request.arguments.get("cwd", "") or "")
-            )
+            self._ensure_task_for_effect(request, cwd=str(request.arguments.get("cwd", "") or ""))
             return await self._process_start(request)
         if name == "rosclaw_process_status":
             return await self._process_status(request)
@@ -675,7 +1103,9 @@ class PiToolDispatcher:
             if kind == "self":
                 info = inspect_self(self._service._home)
                 return PiToolResultV1(
-                    request_id=request.request_id, ok=True, status="COMPLETED",
+                    request_id=request.request_id,
+                    ok=True,
+                    status="COMPLETED",
                     summary=json.dumps(info, ensure_ascii=False),
                 )
             idx = ensure_index(self._service._home)
@@ -683,17 +1113,23 @@ class PiToolDispatcher:
                 chain = robot_chain(idx, query)
                 if chain is None:
                     return PiToolResultV1(
-                        request_id=request.request_id, ok=False, status="FAILED",
+                        request_id=request.request_id,
+                        ok=False,
+                        status="FAILED",
                         summary=f"未知机器人 {query!r}（索引无权威链）",
                         error_code="UNKNOWN_ROBOT",
                     )
                 return PiToolResultV1(
-                    request_id=request.request_id, ok=True, status="COMPLETED",
+                    request_id=request.request_id,
+                    ok=True,
+                    status="COMPLETED",
                     summary=json.dumps(chain, ensure_ascii=False),
                 )
             hits = search(idx, query or kind, limit=20)
             return PiToolResultV1(
-                request_id=request.request_id, ok=True, status="COMPLETED",
+                request_id=request.request_id,
+                ok=True,
+                status="COMPLETED",
                 summary=json.dumps({"hits": hits}, ensure_ascii=False),
             )
         if name == "rosclaw_fail_safe":
@@ -704,8 +1140,11 @@ class PiToolDispatcher:
                 status="COMPLETED" if report["ok"] else "CANCELING",
                 error_code=report["code"],
                 retryable=not report["ok"],
-                summary=("fail-safe: 当前回合已请求取消；E-Stop 请走独立 operator 路径"
-                         if report["ok"] else "取消请求已记录，存在停止未确认的 operation；需要核实归属后清理"),
+                summary=(
+                    "fail-safe: 当前回合已请求取消；E-Stop 请走独立 operator 路径"
+                    if report["ok"]
+                    else "取消请求已记录，存在停止未确认的 operation；需要核实归属后清理"
+                ),
             )
         raise ToolBridgeError("TOOL_UNKNOWN", f"unhandled tool {name!r}")
 
@@ -734,25 +1173,106 @@ class PiToolDispatcher:
             # 复用观测路径（同一分发器，克隆请求换工具名——幂等键加
             # 后缀避免与外层 execute 互吞）。
             return await self._execute_validated(
-                request.model_copy(update={
-                    "tool_name": "rosclaw_observe",
-                    "idempotency_key": request.idempotency_key + ":observe",
-                })
+                request.model_copy(
+                    update={
+                        "tool_name": "rosclaw_observe",
+                        "idempotency_key": request.idempotency_key + ":observe",
+                    }
+                )
             )
         if cls == "COMPUTE":
             return await self._execute_validated(
-                request.model_copy(update={
-                    "tool_name": "rosclaw_compute",
-                    "idempotency_key": request.idempotency_key + ":compute",
-                })
+                request.model_copy(
+                    update={
+                        "tool_name": "rosclaw_compute",
+                        "idempotency_key": request.idempotency_key + ":compute",
+                    }
+                )
             )
         # PHYSICAL_ACTION：同一 admission 链（policy AUTO/ASK/DENY——
         # REAL 永远 rosclawd+operator；execute 不是绕过的旁路）。
         return await self._request_action(request)
 
-    async def _artifact_register(
-        self, request: PiToolRequestV1
-    ) -> PiToolResultV1:
+    @staticmethod
+    def _resolve_declared_path(raw: str, roots: list[str]) -> str | None:
+        """确定性解析：绝对路径必须落在某个工作区根内；相对路径按根
+        序探测且 realpath 不得越界。越界/为空返回 None（fail closed，
+        拒绝外部/远程 schema 来源——不做任何网络或文件解析）。"""
+        from pathlib import Path as _Path
+
+        if not raw:
+            return None
+        candidate = _Path(raw)
+        if candidate.is_absolute():
+            real = os.path.realpath(candidate)
+            for root in roots:
+                if real == root or real.startswith(root + os.sep):
+                    return real
+            return None
+        for root in roots:
+            real = os.path.realpath(_Path(root) / candidate)
+            if (real == root or real.startswith(root + os.sep)) and _Path(real).exists():
+                return real
+        return None
+
+    def _validate_declared_delivery(self, request: PiToolRequestV1) -> None:
+        """Opt-in 本地 schema 校验（登记前）：schema 侧准入 → artifact
+        侧预算 → 有界实例校验。任一不过 typed reject；本方法只读文
+        件，绝不产生新行或修改输入。"""
+        from pathlib import Path as _Path
+
+        kernel = self._service._task_kernel
+        session_cwd = str(request.arguments.get("cwd", "") or "")
+        roots: list[str] = []
+        if session_cwd:
+            roots.append(os.path.realpath(session_cwd))
+        task = kernel.active_task_for(request.mission_id, request.pi_session_id)
+        if task is None:
+            task = kernel.latest_task_for(request.mission_id, request.pi_session_id)
+        if task is not None:
+            roots.append(os.path.realpath(str(task["workspace_path"])))
+        if not roots:
+            raise ToolBridgeError(
+                "DECLARED_SCHEMA_PATH_REJECTED",
+                "无可用的会话/任务工作区根——fail closed",
+            )
+        schema_arg = str(request.arguments.get("schema_path", "")).strip()
+        schema_path = self._resolve_declared_path(schema_arg, roots)
+        if schema_path is None:
+            raise ToolBridgeError(
+                "DECLARED_SCHEMA_PATH_REJECTED",
+                "schema 必须位于会话/任务工作区内（拒绝外部/远程来源）",
+            )
+        if not _Path(schema_path).is_file():
+            raise ToolBridgeError("DECLARED_SCHEMA_NOT_FOUND", "声明的 schema 文件不存在")
+        schema = _load_declared_json(
+            _read_declared_bounded(
+                schema_path,
+                max_bytes=_DECLARED_SCHEMA_MAX_BYTES,
+                kind="schema",
+            ),
+            max_bytes=_DECLARED_SCHEMA_MAX_BYTES,
+            max_nodes=_DECLARED_SCHEMA_MAX_NODES,
+            kind="schema",
+        )
+        _check_declared_schema(schema)
+        artifact_arg = str(request.arguments.get("path", ""))
+        artifact_path = self._resolve_declared_path(artifact_arg, roots)
+        if artifact_path is None or not _Path(artifact_path).is_file():
+            raise ToolBridgeError("DECLARED_ARTIFACT_NOT_FOUND", "待校验 artifact 文件不存在")
+        instance = _load_declared_json(
+            _read_declared_bounded(
+                artifact_path,
+                max_bytes=_DECLARED_ARTIFACT_MAX_BYTES,
+                kind="artifact",
+            ),
+            max_bytes=_DECLARED_ARTIFACT_MAX_BYTES,
+            max_nodes=_DECLARED_ARTIFACT_MAX_NODES,
+            kind="artifact",
+        )
+        _validate_declared_instance(schema, instance)
+
+    async def _artifact_register(self, request: PiToolRequestV1) -> PiToolResultV1:
         """PR-H4：交付物登记（实读文件算 hash——口头提到不算）。
 
         W05 §9.2 追加交付：终态（SUCCEEDED/FAILED/BLOCKED/
@@ -760,6 +1280,11 @@ class PiToolDispatcher:
         revision，不改回 RUNNING、不 bump revision、不绑定未
         附着的新输入（迟到请求不得自动激活新 revision）。无任务
         史时保留 P0-C 交付优先 admission。"""
+        # Opt-in 声明 schema：所有拒绝必须先于任何 task admission /
+        # artifact 登记写入（零新行不变式）；只读文件，不改输入字节。
+        schema_arg = request.arguments.get("schema_path")
+        if isinstance(schema_arg, str) and schema_arg.strip():
+            self._validate_declared_delivery(request)
         kernel = self._service._task_kernel
         # The native product tool supplies its resolved ActiveTaskContext root.
         # Keep it when delivery admits the first task, rather than falling back
@@ -770,9 +1295,7 @@ class PiToolDispatcher:
         if task is None:
             from rosclaw.task_kernel.service import TASK_TERMINAL
 
-            latest = kernel.latest_task_for(
-                request.mission_id, request.pi_session_id
-            )
+            latest = kernel.latest_task_for(request.mission_id, request.pi_session_id)
             if latest is not None and str(latest.get("state")) in TASK_TERMINAL:
                 task = latest
                 appended_post_terminal = True
@@ -780,9 +1303,7 @@ class PiToolDispatcher:
                 # 交付优先（P0-C 金丝雀）：无任务史——首个 effectful
                 # call 原子 admission 建任务。
                 self._ensure_task_for_effect(request, cwd=session_cwd)
-                task = kernel.active_task_for(
-                    request.mission_id, request.pi_session_id
-                )
+                task = kernel.active_task_for(request.mission_id, request.pi_session_id)
             if task is None:
                 raise ToolBridgeError("NO_ACTIVE_TASK", "无活跃任务")
         path = str(request.arguments.get("path", ""))
@@ -818,7 +1339,8 @@ class PiToolDispatcher:
             )
         try:
             artifact = kernel.register_artifact(
-                task_id=task["task_id"], path=resolved,
+                task_id=task["task_id"],
+                path=resolved,
                 media_type=str(request.arguments.get("media_type", "application/octet-stream")),
                 producer="model:rosclaw_artifact_register",
                 metadata=delivery_metadata or None,
@@ -828,7 +1350,8 @@ class PiToolDispatcher:
         if appended_post_terminal:
             return PiToolResultV1(
                 request_id=request.request_id,
-                ok=True, status="REGISTERED",
+                ok=True,
+                status="REGISTERED",
                 summary=(
                     f"追加交付已登记：{_Path(artifact['path']).name}"
                     f"（{artifact['size_bytes']}B）"
@@ -841,7 +1364,8 @@ class PiToolDispatcher:
             )
         return PiToolResultV1(
             request_id=request.request_id,
-            ok=True, status="REGISTERED",
+            ok=True,
+            status="REGISTERED",
             summary=(
                 f"交付物已登记：{_Path(artifact['path']).name}"
                 f"（{artifact['size_bytes']}B）artifact_id={artifact['artifact_id']}"
@@ -860,21 +1384,24 @@ class PiToolDispatcher:
         result = kernel.finish_task(
             task_id=task["task_id"],
             summary=str(request.arguments.get("summary", "")),
-            artifact_ids=[
-                str(a) for a in (request.arguments.get("artifact_ids") or [])
-            ],
+            artifact_ids=[str(a) for a in (request.arguments.get("artifact_ids") or [])],
         )
 
         if result["status"] == "SUCCEEDED":
             return PiToolResultV1(
-                request_id=request.request_id, ok=True, status="SUCCEEDED",
+                request_id=request.request_id,
+                ok=True,
+                status="SUCCEEDED",
                 summary=f"验收通过——任务完成（{result['verification_id']}）",
             )
         failures = "；".join(result.get("failures", []))[:300]
         return PiToolResultV1(
-            request_id=request.request_id, ok=False, status="REPAIR_REQUIRED",
+            request_id=request.request_id,
+            ok=False,
+            status="REPAIR_REQUIRED",
             summary=f"验收未过，同一任务内修复后重试：{failures}",
-            error_code="VERIFICATION_FAILED", retryable=True,
+            error_code="VERIFICATION_FAILED",
+            retryable=True,
         )
 
     async def _task_blocked(self, request: PiToolRequestV1) -> PiToolResultV1:
@@ -887,14 +1414,15 @@ class PiToolDispatcher:
         if not reason_code:
             raise ToolBridgeError("INVALID_ARGUMENTS", "reason_code required")
         kernel.block_task(
-            task_id=task["task_id"], reason_code=reason_code,
+            task_id=task["task_id"],
+            reason_code=reason_code,
             detail=str(request.arguments.get("detail", "")),
-            recovery=[
-                str(r) for r in (request.arguments.get("recovery") or [])
-            ],
+            recovery=[str(r) for r in (request.arguments.get("recovery") or [])],
         )
         return PiToolResultV1(
-            request_id=request.request_id, ok=True, status="BLOCKED",
+            request_id=request.request_id,
+            ok=True,
+            status="BLOCKED",
             summary=f"任务已标记阻塞：{reason_code}",
         )
 
@@ -906,9 +1434,7 @@ class PiToolDispatcher:
         kernel = self._service._task_kernel
         task = kernel.active_task_for(request.mission_id, request.pi_session_id)
         if task is None:
-            raise ToolBridgeError(
-                "NO_ACTIVE_TASK", "无活跃任务——先发送任务消息（输入事务绑定）"
-            )
+            raise ToolBridgeError("NO_ACTIVE_TASK", "无活跃任务——先发送任务消息（输入事务绑定）")
         op = await self._service._operation_manager.start(
             task_id=task["task_id"],
             attempt_id="main",
@@ -920,7 +1446,9 @@ class PiToolDispatcher:
             request_id=request.request_id,
             ok=True,
             status="STARTED",
-            operation={key: op.get(key) for key in ("operation_id", "task_id", "revision", "state")},
+            operation={
+                key: op.get(key) for key in ("operation_id", "task_id", "revision", "state")
+            },
             summary=(
                 f"Operation 已启动：{op['operation_id']}（后台运行）。"
                 "command 由 sh -c 原样执行；Bash 语法必须显式调用 bash -c。"
@@ -939,16 +1467,16 @@ class PiToolDispatcher:
         )
 
     async def _process_status(self, request: PiToolRequestV1) -> PiToolResultV1:
-        op = self._service._operation_manager.get(
-            str(request.arguments.get("operation_id", ""))
-        )
+        op = self._service._operation_manager.get(str(request.arguments.get("operation_id", "")))
         if not op:
             raise ToolBridgeError("NOT_FOUND", "unknown operation")
         return PiToolResultV1(
             request_id=request.request_id,
             ok=True,
             status=str(op["state"]),
-            operation={key: op.get(key) for key in ("operation_id", "task_id", "revision", "state")},
+            operation={
+                key: op.get(key) for key in ("operation_id", "task_id", "revision", "state")
+            },
             summary=(
                 f"operation {op['operation_id']}: {op['state']}"
                 + (f"（{op['failure_code']}）" if op.get("failure_code") else "")
@@ -961,20 +1489,19 @@ class PiToolDispatcher:
         op = self._service._operation_manager.get(operation_id)
         if not op:
             raise ToolBridgeError("NOT_FOUND", "unknown operation")
-        events = self._service._operation_manager.events_since(
-            op["task_id"], 0
-        )
+        events = self._service._operation_manager.events_since(op["task_id"], 0)
         lines = [
             str(e["payload"].get("text", ""))
             for e in events
-            if e["event_type"] == "operation.output"
-            and e.get("operation_id") == operation_id
+            if e["event_type"] == "operation.output" and e.get("operation_id") == operation_id
         ]
         return PiToolResultV1(
             request_id=request.request_id,
             ok=True,
             status=str(op["state"]),
-            operation={key: op.get(key) for key in ("operation_id", "task_id", "revision", "state")},
+            operation={
+                key: op.get(key) for key in ("operation_id", "task_id", "revision", "state")
+            },
             summary="".join(lines[-tail:])[-3000:] or "（暂无输出）",
         )
 
@@ -990,12 +1517,21 @@ class PiToolDispatcher:
         if not op:
             raise ToolBridgeError("NOT_FOUND", "unknown operation")
         already_terminal = str(op["state"]) in OPERATION_TERMINAL
-        if already_terminal and op.get("provider") == "process" and manager.stop_confirmation_missing(op):
+        if (
+            already_terminal
+            and op.get("provider") == "process"
+            and manager.stop_confirmation_missing(op)
+        ):
             return PiToolResultV1(
-                request_id=request.request_id, ok=False, status=str(op["state"]),
+                request_id=request.request_id,
+                ok=False,
+                status=str(op["state"]),
                 summary="账本为取消终态，但缺实际进程停止证据；原终态保持，需要显式核实/清理",
-                error_code=OperationCancellationUnresolvedError.code, retryable=True,
-                operation={key: op.get(key) for key in ("operation_id", "task_id", "revision", "state")},
+                error_code=OperationCancellationUnresolvedError.code,
+                retryable=True,
+                operation={
+                    key: op.get(key) for key in ("operation_id", "task_id", "revision", "state")
+                },
             )
         if not already_terminal:
             try:
@@ -1003,10 +1539,15 @@ class PiToolDispatcher:
             except OperationCancellationUnresolvedError:
                 op = manager.get(operation_id)
                 return PiToolResultV1(
-                    request_id=request.request_id, ok=False, status="CANCELING",
+                    request_id=request.request_id,
+                    ok=False,
+                    status="CANCELING",
                     summary="取消请求已记录；进程归属或实际停止未确认，不能声称已停止，需要显式核实/清理",
-                    error_code=OperationCancellationUnresolvedError.code, retryable=True,
-                    operation={key: op.get(key) for key in ("operation_id", "task_id", "revision", "state")},
+                    error_code=OperationCancellationUnresolvedError.code,
+                    retryable=True,
+                    operation={
+                        key: op.get(key) for key in ("operation_id", "task_id", "revision", "state")
+                    },
                 )
             op = manager.get(operation_id)
             if not op:
@@ -1030,8 +1571,13 @@ class PiToolDispatcher:
                     f"operation {operation_id} {labels[state]}（{state}）；无需取消，原终态保持"
                 )
             return PiToolResultV1(
-                request_id=request.request_id, ok=True, status=state, summary=summary,
-                operation={key: op.get(key) for key in ("operation_id", "task_id", "revision", "state")},
+                request_id=request.request_id,
+                ok=True,
+                status=state,
+                summary=summary,
+                operation={
+                    key: op.get(key) for key in ("operation_id", "task_id", "revision", "state")
+                },
             )
         if state == "CANCELING":
             return PiToolResultV1(
@@ -1090,8 +1636,10 @@ class PiToolDispatcher:
             status = admission.decision_status(resume_approval_id)["status"]
             if status == "APPROVED":
                 result = await admission.execute(
-                    resume_approval_id, request=ctx,
-                    caller_pid=self._caller_pid, caller_uid=self._caller_uid,
+                    resume_approval_id,
+                    request=ctx,
+                    caller_pid=self._caller_pid,
+                    caller_uid=self._caller_uid,
                 )
                 return PiToolResultV1(
                     request_id=request.request_id,
@@ -1155,8 +1703,10 @@ class PiToolDispatcher:
                 error_code="OPERATOR_DECLINED",
             )
         result = await admission.execute(
-            card["approval_id"], request=ctx,
-            caller_pid=self._caller_pid, caller_uid=self._caller_uid,
+            card["approval_id"],
+            request=ctx,
+            caller_pid=self._caller_pid,
+            caller_uid=self._caller_uid,
         )
         return PiToolResultV1(
             request_id=request.request_id,
@@ -1167,9 +1717,7 @@ class PiToolDispatcher:
             error_code=result.get("error_code"),
         )
 
-    async def _mirror_decision(
-        self, request: PiToolRequestV1, result: PiToolResultV1
-    ) -> None:
+    async def _mirror_decision(self, request: PiToolRequestV1, result: PiToolResultV1) -> None:
         """规格 §15：每个工具调用镜像为 DecisionV1 审计事件（不写全文）。"""
         try:
             from rosclaw.contracts.agent.agent_event import AgentEventType

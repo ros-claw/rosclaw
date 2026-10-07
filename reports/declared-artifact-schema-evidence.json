@@ -1,0 +1,51 @@
+{
+  "case_id": "DECLARED_SCHEMA_HARDENING_34eb0dde20d14305b5e8a69921c71059",
+  "scope": "DECLARED_SCHEMA_HARDENING_SOURCE_ONLY",
+  "status": "PASS_NATIVE_PROVIDER_PROGRESS_SOFTWARE_CHECKS",
+  "source_sha256": {
+    "packages/rosclaw-agent/src/tools/product-pack.ts": "8035a12724dda398ccaa133583578864ca7a53d730575da2bcab3e9894028d93",
+    "src/rosclaw/agentd/pi_bridge/tool_dispatch.py": "7d2f01551a9892a01339840419610a727dd4ddcde758cd431493589e89a898bc",
+    "packages/rosclaw-agent/test/declared-artifact-schema.test.ts": "2131345e3158fa2e66102489d6e4ace6ef8acdba9daaf3862472b3dc83e7e968",
+    "tests/agentd/test_pi_tool_bridge.py": "d1b38014bb3af829cf2fa9cb8a18608ea9da558d2810992f3aa39e58eb91efab"
+  },
+  "runs": [
+    {
+      "mode": "format",
+      "exit": 0,
+      "status": "PASS_NATIVE_PROVIDER_PROGRESS_SOFTWARE_CHECKS",
+      "note": "Explicit ruff format applied only to the two mutable Python files; both reformatted then stable."
+    },
+    {
+      "mode": "check",
+      "exit": 0,
+      "status": "PASS_NATIVE_PROVIDER_PROGRESS_SOFTWARE_CHECKS",
+      "factory_controls": {"cases": 50, "GREEN": 50, "RED": 0, "receipt_sha256": "264a031328fc53a095ee2106a25f397fe84a55d9444755f0d5bec84018d6c4c3"},
+      "node_tests": {"pass": 15, "fail": 0},
+      "python_bridge_tests": {"pass": 44, "fail": 0},
+      "ruff": "All checks passed!",
+      "format_check": "2 files already formatted"
+    },
+    {
+      "mode": "regression",
+      "exit": 0,
+      "status": "PASS_NATIVE_PROVIDER_PROGRESS_SOFTWARE_CHECKS",
+      "factory_controls": {"cases": 50, "GREEN": 50, "RED": 0, "receipt_sha256": "216b6f729afc8b33b49e4c298203200d03ebfb6ed9977c03d9a0647388cbf2e9"},
+      "node_tests": {"tests": 459, "pass": 456, "fail": 0, "skipped": 3},
+      "python_bridge_tests": {"pass": 44, "fail": 0},
+      "ruff": "All checks passed!",
+      "format_check": "2 files already formatted"
+    }
+  ],
+  "hardening_counters_fixed": {
+    "keyword_shapes": [
+      "required_wrong_type",
+      "enum_wrong_type",
+      "additionalProperties_wrong_type",
+      "bound_wrong_type"
+    ],
+    "bounded_reads": ["oversize_schema", "oversize_artifact"],
+    "typed_depth": ["schema_decoder_depth", "artifact_decoder_depth"],
+    "result": "All 50 factory-control cases GREEN; every negative case isError=true with zero NEW Task/Artifact/Op/revision/binding rows, existing rows and artifact bytes unchanged, zero external transport attempts, no secret marker leakage."
+  },
+  "compatibility": "Absent schema_path legacy behavior preserved byte-for-byte (absent_schema_legacy GREEN); original validation-chain and wiring tests retained and passing; no nonce aliases/normalization; no operator application implementation."
+}

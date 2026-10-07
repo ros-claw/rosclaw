@@ -29,11 +29,18 @@ export function buildProductPackTools(ctx: BridgeToolContext): ToolDefinition[] 
 				"register automatically. Choose an explicit role: progress_/diagnostic_ " +
 				"register evidence and keep the task open (including SOURCE_ONLY work); " +
 				"The explicit final roles report/plot/image/video/data trigger Task Coordinator acceptance. " +
-				"— you do NOT call any finish/close tool.",
+				"— you do NOT call any finish/close tool. Optional schema_path: " +
+				"opt-in local JSON file declaring a bounded schema subset (type/const/" +
+				"enum/properties/required/additionalProperties/items/min/max bounds " +
+				"only — no $ref, no branching, no pattern/format); when present the " +
+				"artifact is validated BEFORE registration and any violation is a " +
+				"typed rejection that registers nothing. Absent schema_path preserves " +
+				"legacy behavior.",
 			parameters: Type.Object({
 				path: Type.String({ description: "交付物路径（相对任务工作区或绝对）" }),
 				media_type: Type.Optional(Type.String()),
 				role: Type.String({ minLength: 1, pattern: DELIVERY_ROLE_PATTERN, description: "必须明确交付意图：progress/diagnostic 及其 progress_/diagnostic_ 后缀仅登记证据并保持任务（source-only 用 progress_report）。最终角色仅 report/plot/image/video/data，会触发任务验收；未知角色拒绝。" }),
+				schema_path: Type.Optional(Type.String({ minLength: 1, description: "可选：本地有界 schema 文件路径（相对会话工作目录或绝对路径，必须位于会话/任务工作区内）。声明后 artifact 在登记前校验；不支持 $ref/分支/正则/条件关键字；任何违规为 typed 拒绝且不产生新登记行。缺省保持既有行为。" })),
 			}),
 			async execute(_id, params, _signal, _onUpdate, _toolCtx) {
 				return await executeVia(ctx, "rosclaw_deliver", {
