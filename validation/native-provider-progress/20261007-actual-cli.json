@@ -1,0 +1,199 @@
+{
+  "status": "PASS_ACTUAL_CLI_FIX_AND_REPRODUCED_BASELINE_COUNTER",
+  "cases": [
+    {
+      "mode": "empty_boundaries",
+      "baseline": {
+        "fixture_mode": "empty_boundaries",
+        "empty_wire_updates": 21,
+        "status": "COUNTER_BASELINE_EMPTY_UPDATES_PREVENT_FIRST_TOKEN_ABORT",
+        "source_commit": "3908ad40494d734b1061f3aa1ef11817135e8303",
+        "actual_private_sessions": [
+          "01a11404-505b-73ea-8aba-d1e934250609"
+        ],
+        "actual_requests": 2,
+        "actual_abort_signals": 0,
+        "assistant_stop_reasons": [
+          "stop",
+          "stop"
+        ],
+        "exit": 0,
+        "scope": "Actual production interactive CLI and watchdog wiring. Synthetic Anthropic transport continuously emits empty content boundaries/deltas; baseline does not abort during2200ms with1000ms thresholds, same UI session next prompt recovers. No real paid model/hardware/ROS tools. Owned private UDS only; automatic MCP discovery not certified zeroDDS."
+      },
+      "current": {
+        "fixture_mode": "empty_boundaries",
+        "empty_wire_updates": 9,
+        "status": "PASS_ACTUAL_MAIN_PYTHON_NODE_PI_UI_WATCHDOG_ABORT_AND_SAME_SESSION_RECOVERY",
+        "source_commit": "a4ef4ca8ff7e51775950a4ca8f84ac6bd521396d",
+        "actual_private_sessions": [
+          "01a11402-e152-7557-99bf-29f58f5d410d"
+        ],
+        "actual_requests": 2,
+        "actual_abort_signals": 1,
+        "assistant_stop_reasons": [
+          "aborted",
+          "stop"
+        ],
+        "exit": 0,
+        "scope": "Actual production interactive CLI and watchdog wiring. Synthetic Anthropic transport continuously emits empty content boundaries/deltas; actual repaired first-token watchdog cancels first request, actual AbortSignal cancels, same UI session next prompt recovers. No real paid model/hardware/ROS tools. Owned private UDS only; automatic MCP discovery not certified zeroDDS."
+      },
+      "raw_bindings": {
+        "baseline": [
+          {
+            "name": "receipt.json",
+            "size": 766,
+            "sha256": "9f7ed3b8c7ad6ce669bf0785d9cde33f55bfdfdb5647c8815f9eb5430037dc57"
+          },
+          {
+            "name": "pty.log",
+            "size": 18484,
+            "sha256": "117686624f52696d2843c44b8fa8d4e65a6e91e51b953591f9db4c4bc90a1c67"
+          },
+          {
+            "name": "probe.py",
+            "size": 6509,
+            "sha256": "9cfabc91c261b00586b09aad113ec17ad6c5d11392a74ae72b8e22f1ce4f22b3"
+          },
+          {
+            "name": "wire.jsonl",
+            "size": 13887,
+            "sha256": "c99a602d216cd9b80e6f2c934fb998e2b6778247510a3cd45fb9816b685f92ad"
+          },
+          {
+            "name": "preload.mjs",
+            "size": 4959,
+            "sha256": "57061db743942da5191ef147e37771a96710e08ecaf5a2f81d7c73df409b65b3"
+          }
+        ],
+        "current": [
+          {
+            "name": "receipt.json",
+            "size": 815,
+            "sha256": "f03bea1d3cca2bbb0fade31cff09c66a8b34a838b3c56e41a97d1b5aed79553b"
+          },
+          {
+            "name": "pty.log",
+            "size": 17216,
+            "sha256": "a5964e1a46befd26846f88b27bad126c4e999db8b01c9844bc63b2312f8466f7"
+          },
+          {
+            "name": "probe.py",
+            "size": 5891,
+            "sha256": "523835fdf4c97240b946b8313691bdb351c1d4417723c684bec08071a10d4194"
+          },
+          {
+            "name": "wire.jsonl",
+            "size": 13523,
+            "sha256": "12ede4c9805ed1b55f813ec7b8fd9722ac094dbf036b5c6a9908ed45dde1539a"
+          },
+          {
+            "name": "preload.mjs",
+            "size": 4326,
+            "sha256": "d192180b331bed1b84d9e03da0d6cd0cb53d8ecbbde3e969d182e58c7d0e66f1"
+          }
+        ]
+      },
+      "current_stage_elapsed_label_seen": true
+    },
+    {
+      "mode": "empty_deltas",
+      "baseline": {
+        "fixture_mode": "empty_deltas",
+        "empty_wire_updates": 21,
+        "status": "COUNTER_BASELINE_EMPTY_UPDATES_PREVENT_FIRST_TOKEN_ABORT",
+        "source_commit": "3908ad40494d734b1061f3aa1ef11817135e8303",
+        "actual_private_sessions": [
+          "01a11404-556f-71bd-bb0b-9d750011ea64"
+        ],
+        "actual_requests": 2,
+        "actual_abort_signals": 0,
+        "assistant_stop_reasons": [
+          "stop",
+          "stop"
+        ],
+        "exit": 0,
+        "scope": "Actual production interactive CLI and watchdog wiring. Synthetic Anthropic transport continuously emits empty content boundaries/deltas; baseline does not abort during2200ms with1000ms thresholds, same UI session next prompt recovers. No real paid model/hardware/ROS tools. Owned private UDS only; automatic MCP discovery not certified zeroDDS."
+      },
+      "current": {
+        "fixture_mode": "empty_deltas",
+        "empty_wire_updates": 9,
+        "status": "PASS_ACTUAL_MAIN_PYTHON_NODE_PI_UI_WATCHDOG_ABORT_AND_SAME_SESSION_RECOVERY",
+        "source_commit": "a4ef4ca8ff7e51775950a4ca8f84ac6bd521396d",
+        "actual_private_sessions": [
+          "01a11402-e42b-7129-b315-82a6962377cc"
+        ],
+        "actual_requests": 2,
+        "actual_abort_signals": 1,
+        "assistant_stop_reasons": [
+          "aborted",
+          "stop"
+        ],
+        "exit": 0,
+        "scope": "Actual production interactive CLI and watchdog wiring. Synthetic Anthropic transport continuously emits empty content boundaries/deltas; actual repaired first-token watchdog cancels first request, actual AbortSignal cancels, same UI session next prompt recovers. No real paid model/hardware/ROS tools. Owned private UDS only; automatic MCP discovery not certified zeroDDS."
+      },
+      "raw_bindings": {
+        "baseline": [
+          {
+            "name": "receipt.json",
+            "size": 762,
+            "sha256": "cf95d22fef045c8ccd25fadc0170f13d7fc47a942bb3eced531ff2f42380eeb5"
+          },
+          {
+            "name": "pty.log",
+            "size": 18455,
+            "sha256": "96867318ac387f4c687a84c129ee80dfd76fc9b52e271651d70bd6d8de66af9d"
+          },
+          {
+            "name": "probe.py",
+            "size": 6438,
+            "sha256": "e8d40a76f74c48120f0a298d3088c92e3df09cd7e9e0b7ef7d711fbcc29aa1f8"
+          },
+          {
+            "name": "wire.jsonl",
+            "size": 13887,
+            "sha256": "df98e2aa065ba41f9d49c745cdabf4a6f6af42e53ce00f162776b55703927877"
+          },
+          {
+            "name": "preload.mjs",
+            "size": 4892,
+            "sha256": "0392bdb8b1122d47bd4e862f2a4ea32d2fd1ddbdb8dd0070a0ea494067daa1d6"
+          }
+        ],
+        "current": [
+          {
+            "name": "receipt.json",
+            "size": 811,
+            "sha256": "7789f9bfa96cfc9321f16f954e6b8a283be169a4d7d496af27b1fb5ba31e3792"
+          },
+          {
+            "name": "pty.log",
+            "size": 18010,
+            "sha256": "d46a70e3c9391982be6fc82c59afde2b9170c657fde9f8d0971a91fe2594d187"
+          },
+          {
+            "name": "probe.py",
+            "size": 5921,
+            "sha256": "159719d75fb8112d9314cdf35a3700b163e6665a12140d92e29eed91897849e5"
+          },
+          {
+            "name": "wire.jsonl",
+            "size": 13523,
+            "sha256": "7bb217c4a84a56d542ca10db8c8853c7cb3e843e83ee14ab50d477208d160f92"
+          },
+          {
+            "name": "preload.mjs",
+            "size": 4360,
+            "sha256": "4cb50b82f3c8a4bd58360fb9a33c0b3fc6ff8ecbd71593f5161d00427b94a0d9"
+          }
+        ]
+      },
+      "current_stage_elapsed_label_seen": true
+    }
+  ],
+  "limits": [
+    "Synthetic Anthropic transport, real production Python/Node/PI/interactive UI. No live Kimi model/ROS/hardware.",
+    "Baseline stream intentionally ends at2200ms; current stream cancels at1000ms before end. Not a latency benchmark or historical original-chat causal proof.",
+    "PTY exits0; complete descendant birth inventory was not captured, so no all-descendants-gone claim.",
+    "Root baseline producer v1 NameError occurred before CLI startup; fixed prospectivev2, not product failure."
+  ]
+}
