@@ -1,0 +1,31 @@
+{
+  "status": "INDEPENDENT_SOFTWARE_REVIEW_NOT_WHOLE_EPISODE_RESCORING",
+  "native_author": "ROSClaw Native",
+  "native_whole_verdict": "FAIL_ACTUAL_ADMITTED_CURRENT_BYTE_SOFTWARE_CHECKS_REQUIRED",
+  "whole_failure": "Published check/regression exited0 but actual Bash preview cut structured output at65536; completed structured results unavailable from original tool text. Preserved unchanged.",
+  "independent_frozen_component_receipt_sha256": "264b406db7e3514df55f6ee6be01c20f0445ed7eea5451b2b046adfc72930018",
+  "combined_integration_receipt_sha256": "03edbfea906d7942eaaa19b7b9df3e3f3d884de6e10efef3b27adf57d44b243a",
+  "existing_function_AST_review_sha256": "62cbb1b0c0c595a2a10d84166d733a71b0e8e6c3eb868422b217eae4895d8516",
+  "independent_controls": {
+    "actual_private_RPC": 50,
+    "compiled_Node": {
+      "pass": 456,
+      "skip": 3,
+      "fail": 0
+    },
+    "python_bridge": 44,
+    "practice": {
+      "pass": 183,
+      "skip": 9
+    },
+    "required_CI_mypy_files": 121
+  },
+  "scope": "Opt-in bounded local JSON schema subset on supplied static files; absent schema_path preserves prior registration. No general JSON Schema compliance, concurrent-file snapshot guarantee, historical stall causality, physical capability or hardware claim.",
+  "native_source_sha256": {
+    "packages/rosclaw-agent/src/tools/product-pack.ts": "8035a12724dda398ccaa133583578864ca7a53d730575da2bcab3e9894028d93",
+    "src/rosclaw/agentd/pi_bridge/tool_dispatch.py": "7d2f01551a9892a01339840419610a727dd4ddcde758cd431493589e89a898bc",
+    "packages/rosclaw-agent/test/declared-artifact-schema.test.ts": "2131345e3158fa2e66102489d6e4ace6ef8acdba9daaf3862472b3dc83e7e968",
+    "tests/agentd/test_pi_tool_bridge.py": "d1b38014bb3af829cf2fa9cb8a18608ea9da558d2810992f3aa39e58eb91efab"
+  },
+  "sensor_promotion": "Separate supplied-perception integration held pending additional direct Python diagnostic boundary fix."
+}
