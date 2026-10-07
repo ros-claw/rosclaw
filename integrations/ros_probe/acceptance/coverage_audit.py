@@ -185,6 +185,26 @@ def audit(directory, output):
             else "UNKNOWN"
         )
         attribution.setdefault(label, []).append(cell)
+    feedback = {}
+    for row in events:
+        if row["kind"] != "nav_feedback":
+            continue
+        payload = row["payload"]
+        entry = feedback.setdefault(
+            payload["nav_goal_id"],
+            {
+                "observed_feedback_count": 0,
+                "max_number_of_recoveries": None,
+                "last_distance_remaining": None,
+            },
+        )
+        entry["observed_feedback_count"] += 1
+        values = payload["values"]
+        count = values.get("number_of_recoveries")
+        if type(count) is int and count >= 0:
+            entry["max_number_of_recoveries"] = max(count, entry["max_number_of_recoveries"] or 0)
+        if type(values.get("distance_remaining")) in (int, float):
+            entry["last_distance_remaining"] = values["distance_remaining"]
     summary = {
         "schema_version": "rosclaw.coverage_causal_audit.v1",
         "evidence_role": "historical_diagnostic_replay_not_new_physical_episode",
@@ -212,6 +232,7 @@ def audit(directory, output):
         "first_pass_missed_attribution": attribution,
         "attribution_note": "Not-in-plan means outside recorded ideal coverage path sweep, not proof of unreachable geometry; planned-but-missed remains UNKNOWN without causal evidence.",
         "feedback_events": sum(r["kind"] == "nav_feedback" for r in events),
+        "feedback_by_goal": feedback,
         "segment_count": len(segments),
         "limitations": [
             "Plan is diagnostic only, never measured coverage credit",
