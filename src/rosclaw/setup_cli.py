@@ -57,6 +57,13 @@ def _model_status(home: Path, *, probe: bool = False) -> dict:
                     "state": "NEEDS_SETUP",
                     "detail": "未配置模型——`rosclaw setup model`",
                 }
+            if model.provider == "openai-codex":
+                return {
+                    "state": "NEEDS_LOGIN",
+                    "provider": model.provider,
+                    "model": model.model,
+                    "detail": "chat 内 /login → openai-codex (ChatGPT OAuth); 未验证登录",
+                }
             # 凭据按已配置 provider 判定（别家 key 不算数——
             # kimi 配置 + 只有 anthropic key 仍是 NEEDS_SETUP；
             # kimi-code/kimi-coding 是同一内置服务的两个名字）。
@@ -64,8 +71,7 @@ def _model_status(home: Path, *, probe: bool = False) -> dict:
             if model.provider in ("kimi-code", "kimi-coding"):
                 provider_aliases = {"kimi-code", "kimi-coding"}
             cred = any(
-                e.get("source") in ("env", "pi-auth-file")
-                and e.get("provider") in provider_aliases
+                e.get("source") in ("env", "pi-auth-file") and e.get("provider") in provider_aliases
                 for e in credential_source_report(home)
             )
             if not cred:
@@ -136,6 +142,7 @@ def _worker_status() -> dict:
         "detail": "Worker 默认链已随 H9 删除（Worker V2 落地前无 worker 面）",
         "packs": [],
     }
+
 
 def _integration_status(home: Path) -> dict:
     config = home / "integrations" / "lerobot.yaml"
@@ -238,10 +245,7 @@ def _cmd_status(args: argparse.Namespace) -> int:
     # 完成"；可选项（integration/operator/robot_kit/safety/language）
     # 归详细页（--json 全量），不逼用户配置当前目标用不到的东西。
     required_for_sim_chat = ("model",)
-    needs = [
-        k for k in required_for_sim_chat
-        if status.get(k, {}).get("state") != "READY"
-    ]
+    needs = [k for k in required_for_sim_chat if status.get(k, {}).get("state") != "READY"]
     if needs:
         print(f"\n未完成：{', '.join(needs)}——运行 `rosclaw setup <area>` 配置。")
     else:
@@ -328,10 +332,12 @@ def _cmd_integration(args: argparse.Namespace) -> int:
         # 复用 legacy setup lerobot（保留一个版本的兼容路径）。
         from rosclaw.cli import main as legacy_main
 
-        sys.argv = ["rosclaw", "setup", "lerobot", *sys.argv[sys.argv.index("lerobot") + 1:]]
+        sys.argv = ["rosclaw", "setup", "lerobot", *sys.argv[sys.argv.index("lerobot") + 1 :]]
         return legacy_main()
-    print(f"未知 integration：{args.integration_name}（可选 {', '.join(INTEGRATIONS)}）",
-          file=sys.stderr)
+    print(
+        f"未知 integration：{args.integration_name}（可选 {', '.join(INTEGRATIONS)}）",
+        file=sys.stderr,
+    )
     return 2
 
 
@@ -348,7 +354,7 @@ _HELP = """rosclaw setup — 统一设置向导
 用法：
   rosclaw setup                    状态总览 + 下一步指引
   rosclaw setup status [--json]    机器可读状态
-  rosclaw setup model              配置模型提供方（Kimi/OpenAI 兼容/本地）
+  rosclaw setup model              配置模型提供方（Kimi/ChatGPT OAuth: openai-codex/OpenAI 兼容/本地）
   rosclaw setup body               查看/引导 Body 链接
   rosclaw setup operator           登记/启动独立授权进程
   rosclaw setup safety [POLICY]    SIM 审批策略（auto|ask-every-time）
@@ -369,13 +375,13 @@ def _cmd_safety(args: argparse.Namespace) -> int:
         current = "auto"
         if safety.exists():
             try:
-                current = json.loads(safety.read_text(encoding="utf-8")).get(
-                    "sim_policy", "auto"
-                )
+                current = json.loads(safety.read_text(encoding="utf-8")).get("sim_policy", "auto")
             except Exception:  # noqa: BLE001
                 current = "auto"
-        print(f"SIM 审批策略：{current}（auto=安全仿真自动执行 / "
-              "ask=每次人工确认；REAL 永远人工确认）")
+        print(
+            f"SIM 审批策略：{current}（auto=安全仿真自动执行 / "
+            "ask=每次人工确认；REAL 永远人工确认）"
+        )
         return 0
     mapping = {"auto": "auto", "ask-every-time": "ask", "ask": "ask"}
     if value not in mapping:
@@ -406,8 +412,13 @@ def _cmd_language(args: argparse.Namespace) -> int:
                 current = "auto"
         print(f"UI 语言：{current}（zh-CN|en-US|auto）")
         return 0
-    aliases = {"zh-CN": "zh-CN", "中文": "zh-CN", "en-US": "en-US",
-               "English": "en-US", "auto": "auto"}
+    aliases = {
+        "zh-CN": "zh-CN",
+        "中文": "zh-CN",
+        "en-US": "en-US",
+        "English": "en-US",
+        "auto": "auto",
+    }
     if value not in aliases:
         print(f"未知语言 {value!r}（zh-CN|en-US|auto）", file=sys.stderr)
         return 2
@@ -448,14 +459,12 @@ def _cmd_demo(args: argparse.Namespace) -> int:
         sim = SimTrajectoryService(home, runtime_manager=manager)
         plan = await asyncio.to_thread(
             sim.generate_planar_path,
-            shape="star5", center_m=[0.35, 0.25, 0.30], scale_m=0.10,
+            shape="star5",
+            center_m=[0.35, 0.25, 0.30],
+            scale_m=0.10,
         )
-        result = await asyncio.to_thread(
-            sim.simulate_cartesian_trajectory, plan["plan_id"]
-        )
-        render = await asyncio.to_thread(
-            sim.render_trace, result["trace_id"], format="gif"
-        )
+        result = await asyncio.to_thread(sim.simulate_cartesian_trajectory, plan["plan_id"])
+        render = await asyncio.to_thread(sim.render_trace, result["trace_id"], format="gif")
         verify = await asyncio.to_thread(
             sim.verify_tracking, result["trace_id"], max_tracking_error_m=0.05
         )
@@ -497,7 +506,8 @@ def dispatch_setup_argv(argv: list[str]) -> int | None:
         parser.add_argument("--json", action="store_true")
         # G-2：默认本地-only；--probe 显式发起联网模型探测。
         parser.add_argument(
-            "--probe", action="store_true",
+            "--probe",
+            action="store_true",
             help="联网探测模型可用性（默认本地检查——不发起模型 API 调用）",
         )
         return _cmd_status(parser.parse_args(rest))
