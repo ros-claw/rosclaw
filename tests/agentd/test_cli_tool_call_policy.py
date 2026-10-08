@@ -196,25 +196,48 @@ def test_cmd_chat_forwards_canonical_resolved_path(tmp_path, monkeypatch):
 
 
 EXACT_PATHS_INVALID = [
-    None, [], False, {"bash": ["file"]}, {"read": []}, {"read": "file"},
-    {"read": [7]}, {"read": [False]}, {"read": [""]}, {"read": ["   "]},
-    {"read": ["\ufeff"]}, {"read": ["x\0"]}, {"read": ["../x"]},
-    {"read": ["a/../x"]}, {"read": ["a\\..\\x"]}, {"read": ["x/"]},
-    {"read": ["x", "x"]}, {"__proto__": ["file"]},
+    None,
+    [],
+    False,
+    {"bash": ["file"]},
+    {"read": []},
+    {"read": "file"},
+    {"read": [7]},
+    {"read": [False]},
+    {"read": [""]},
+    {"read": ["   "]},
+    {"read": ["\ufeff"]},
+    {"read": ["x\0"]},
+    {"read": ["../x"]},
+    {"read": ["a/../x"]},
+    {"read": ["a\\..\\x"]},
+    {"read": ["x/"]},
+    {"read": ["x", "x"]},
+    {"__proto__": ["file"]},
 ]
 
 
-@pytest.mark.parametrize("exact_paths", [
-    {}, {"read": ["./relative.txt", "/tmp/explicit.txt"]},
-    {"read": ["\u0085", " file "]},
-    {"read": ["old.txt"], "write": ["new/file.txt"], "edit": ["old.txt"],
-     "rosclaw_deliver": ["report.json"]},
-])
+@pytest.mark.parametrize(
+    "exact_paths",
+    [
+        {},
+        {"read": ["./relative.txt", "/tmp/explicit.txt"]},
+        {"read": ["\u0085", " file "]},
+        {
+            "read": ["old.txt"],
+            "write": ["new/file.txt"],
+            "edit": ["old.txt"],
+            "rosclaw_deliver": ["report.json"],
+        },
+    ],
+)
 def test_exact_paths_valid_pure_schema(tmp_path, monkeypatch, exact_paths):
     home = tmp_path / "unused-home"
     monkeypatch.setenv("HOME", str(home))
-    payload = {"allowedTools": ["read", "write", "edit", "rosclaw_deliver"],
-               "exactPaths": exact_paths}
+    payload = {
+        "allowedTools": ["read", "write", "edit", "rosclaw_deliver"],
+        "exactPaths": exact_paths,
+    }
     policy = _write(tmp_path, payload)
     assert str(_validate_tool_call_policy(policy)) == policy
     assert not home.exists()  # Schema acceptance never binds or creates targets.
@@ -229,8 +252,10 @@ def test_exact_paths_reject_before_home_or_runtime(tmp_path, monkeypatch, capsys
 
     monkeypatch.setattr(cli, "_home", forbidden)
     monkeypatch.setattr(cli, "_cmd_chat_impl", forbidden)
-    policy = _write(tmp_path, {"allowedTools": ["read", "write", "edit", "rosclaw_deliver"],
-                              "exactPaths": exact_paths})
+    policy = _write(
+        tmp_path,
+        {"allowedTools": ["read", "write", "edit", "rosclaw_deliver"], "exactPaths": exact_paths},
+    )
     with pytest.raises(ValueError):
         _validate_tool_call_policy(policy)
     args = build_parser().parse_args(["chat", "--tool-call-policy", policy])
@@ -240,23 +265,37 @@ def test_exact_paths_reject_before_home_or_runtime(tmp_path, monkeypatch, capsys
 
 def test_exact_paths_undeclared_tool_rejected(tmp_path):
     with pytest.raises(ValueError):
-        _validate_tool_call_policy(_write(tmp_path, {
-            "allowedTools": ["write"], "exactPaths": {"read": ["file"]},
-        }))
+        _validate_tool_call_policy(
+            _write(
+                tmp_path,
+                {
+                    "allowedTools": ["write"],
+                    "exactPaths": {"read": ["file"]},
+                },
+            )
+        )
 
 
 def test_exact_paths_cmd_chat_forwards_valid_policy(tmp_path, monkeypatch):
     import rosclaw.agentd.cli as cli
 
-    policy = _write(tmp_path, {
-        "allowedTools": ["read"], "exactPaths": {"read": ["missing.txt"]},
-        "maxCalls": {"read": 1}, "maxTotalCalls": 1, "visibleBudget": True,
-    })
+    policy = _write(
+        tmp_path,
+        {
+            "allowedTools": ["read"],
+            "exactPaths": {"read": ["missing.txt"]},
+            "maxCalls": {"read": 1},
+            "maxTotalCalls": 1,
+            "visibleBudget": True,
+        },
+    )
     monkeypatch.setattr(cli, "_home", lambda args: tmp_path / "home")
     monkeypatch.setattr(cli, "_ensure_home_env", lambda home: None)
     monkeypatch.setattr(cli, "_restore_home_env", lambda prev: None)
     seen = []
-    monkeypatch.setattr(cli, "_cmd_chat_impl", lambda args, home: seen.append(args.tool_call_policy) or 0)
+    monkeypatch.setattr(
+        cli, "_cmd_chat_impl", lambda args, home: seen.append(args.tool_call_policy) or 0
+    )
     args = build_parser().parse_args(["chat", "--tool-call-policy", policy])
     assert cli.cmd_chat(args) == 0
     assert seen == [policy]
