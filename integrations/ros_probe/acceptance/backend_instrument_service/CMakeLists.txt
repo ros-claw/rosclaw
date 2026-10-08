@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 3.16)
+project(rosclaw_owned_instrument_service LANGUAGES CXX)
+find_package(gz-transport13 REQUIRED)
+find_package(gz-msgs10 REQUIRED)
+add_executable(owned_instrument_service owned_instrument_service.cc)
+target_compile_features(owned_instrument_service PRIVATE cxx_std_17)
+target_link_libraries(owned_instrument_service PRIVATE gz-transport13::core gz-msgs10::gz-msgs10)

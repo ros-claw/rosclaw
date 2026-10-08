@@ -150,6 +150,34 @@ direction/queue/QoS correspondence after source normalization. Parsing source
 is not loading a controller, a Gazebo world, a system plugin or a Native task.
 ## Original instrument transaction IPC
 
+## Owned world source and original instrument wire
+
+`WorldSourceOwner` is a read-only Linux source checker. The final bundle must
+reopen every manifest hash, the actual owned process PID/UID/starttime must
+match its Gazebo launch arguments and private `GZ_PARTITION`, and that same
+process must map the exact pinned physics/contact ELF inodes plus the installed
+Gazebo 8.15 core and scene command system. Source file mutation or loss latches
+a fault. Procfs size zero is handled with a bounded read. Unrelated unlinked
+shared memory is ignored; it cannot match a required ELF. This checker starts
+no World and does not itself admit backend health or authorize movement.
+
+`backend_instrument_service/owned_instrument_service` has an explicit
+`--source-validate-only` mode that constructs no transport Node. Its separate
+`--owned-runtime` mode is for a future qualified owned SIM fixture controller:
+it requires the exact private partition, discovers only the declared world's
+set-pose service and can target only the declared disjoint instrument and exact
+lift coordinates. It cannot accept a runtime-injected service reply. Requests
+use the installed SDK's `RequestRaw` API with a 100ms RPC timeout; retained
+request/reply wire bytes are decoded with that SDK without replacing originals
+by a reserialized representation. Source-only parsing can never arm a lift.
+
+`instrument_service_evidence.py` retains the original source record and can
+reparse its wire bytes using the same frozen executable in source-only mode.
+This proves byte/projection correspondence, not publisher authentication,
+actual probe motion, cache clearance, World ownership or physical acceptance.
+The compiled executable, its source and the original failed normalization
+attempt are retained with the source contract evidence.
+
 `backend_observer.py` optionally accepts both `--controller-pid` and
 `--controller-uid`, only with the complete spatial source mode. The owned
 observer directory must be mode 0700; its exclusive `probe-controller.sock`
