@@ -13,7 +13,7 @@ test("package bin entry exists and dist is built", () => {
 
 test("pi dependencies are exactly pinned (no ^ ranges)", () => {
 	// W08：deps/overrides 全部精确钉版；升级必须同步核对全部 PI 包。
-	const PI_PIN = "1.0.4";
+	const PI_PIN = "1.1.0";
 	for (const [name, version] of Object.entries(pkg.dependencies)) {
 		assert.ok(!version.startsWith("^") && !version.startsWith("~"), `${name} must be exact-pinned`);
 		assert.equal(version, PI_PIN, `${name} must be ${PI_PIN}`);
