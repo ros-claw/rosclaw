@@ -1,7 +1,9 @@
 """Passive diagnostics must preserve trace integrity and verifier authority."""
 
+import importlib.util
 import json
 import math
+from pathlib import Path
 
 import pytest
 
@@ -12,6 +14,28 @@ from rosclaw.connectors.ros.diagnosis.coverage_audit import (
     trajectory_metrics,
 )
 from rosclaw.connectors.ros.verification.coverage import CoverageVerifier
+
+
+def test_public_replay_prefers_local_artifact_even_when_old_machine_path_exists(tmp_path):
+    script = (
+        Path(__file__).resolve().parents[3] / "integrations/ros_probe/acceptance/coverage_audit.py"
+    )
+    spec = importlib.util.spec_from_file_location("public_coverage_replay", script)
+    auditor = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(auditor)
+    original = tmp_path / "old-machine" / "rosevidence_example.json"
+    original.parent.mkdir()
+    original.write_text("old bytes")
+    public = tmp_path / "public" / "actions" / original.name
+    public.parent.mkdir(parents=True)
+    public.write_text("public bytes")
+    assert auditor.evidence_source(tmp_path / "public", str(original)) == public
+    original.unlink()
+    assert auditor.evidence_source(tmp_path / "public", str(original)) == public
+    # This resolves the file, not success: the audit must still check canonical SHA.
+    public.unlink()
+    with pytest.raises(ValueError, match="cannot locate"):
+        auditor.evidence_source(tmp_path / "public", str(original))
 
 
 def test_append_chain_freezes_input_and_refuses_overwrite(tmp_path):

@@ -26,14 +26,21 @@ def load(path):
     return json.loads(text)
 
 
+def evidence_source(directory, recorded_path):
+    """Prefer reconstructed public bytes over a legacy machine-specific path."""
+    recorded = Path(recorded_path)
+    for local in [directory / "actions" / recorded.name, directory / recorded.name]:
+        for candidate in [local, Path(str(local) + ".gz")]:
+            if candidate.is_file():
+                return candidate
+    if recorded.is_file():
+        return recorded
+    raise ValueError("cannot locate original mission evidence by canonical artifact name")
+
+
 def audit(directory, output):
     receipt = load(directory / "golden-coverage.receipt.json")["receipt"]
-    source = Path(receipt["verification_result"]["evidence_artifact"]["path"])
-    if not source.exists():
-        candidates = list(directory.glob("rosevidence_*.json.gz"))
-        if len(candidates) != 1:
-            raise ValueError("cannot locate unique original mission evidence")
-        source = candidates[0]
+    source = evidence_source(directory, receipt["verification_result"]["evidence_artifact"]["path"])
     evidence = load(source)
     original_bytes = (
         gzip.decompress(source.read_bytes()) if source.suffix == ".gz" else source.read_bytes()

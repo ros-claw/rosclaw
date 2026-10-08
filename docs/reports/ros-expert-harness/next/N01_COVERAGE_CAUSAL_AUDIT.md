@@ -103,7 +103,7 @@ lookup and source binding; it does not change the frozen physical episode.
 
 ## Validation and next gate
 
-ROS connector regression: 303 passed / 11 deselected. Audit tests: 6 passed,
+ROS connector regression: 303 passed / 11 deselected. Audit tests: 7 passed,
 including immutable snapshots, hash tampering, unfinished EOF, bounded loss,
 continuous prediction, prediction isolation, failed flush preserving canonical
 result and lock release, and malicious action-ID filenames. Targeted source
@@ -130,3 +130,11 @@ acceptance; no efficiency improvement is claimed.
 
 Efficiency, dynamic occupancy, unknown Body, Memory causal benefit and A/B
 remain unaccepted; `v1_done=false`.
+
+Public replay portability was additionally checked after detecting that an old
+absolute artifact path could be chosen ahead of the reconstructed local copy.
+The auditor now prefers local canonical-name bytes, verifies their canonical
+SHA, and reads the local saved verifier. The complete summary remains exactly
+equal using only reconstructed public artifacts; a regression covers presence
+and absence of the legacy machine path. No frozen physical artifact or receipt
+is modified. Latest-head CI reruns for this offline fix.
