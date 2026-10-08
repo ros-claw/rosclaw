@@ -42,7 +42,15 @@ logger = logging.getLogger(__name__)
 class SimulationWitness:
     """Read-only receiver on a separate connection from the action client."""
 
-    def __init__(self, transport):
+    def __init__(self, transport, *, brush_binding=None):
+        if brush_binding is not None and (
+            type(brush_binding) is not dict
+            or set(brush_binding)
+            != {"run_id", "body_snapshot_hash", "attachment_hash", "producer_id"}
+            or any(type(v) is not str or not v for v in brush_binding.values())
+        ):
+            raise ValueError("frozen independent brush source binding required")
+        self.brush_binding = dict(brush_binding) if brush_binding is not None else None
         self.transport = transport
         self.latest = None
         self.samples = []
@@ -102,6 +110,29 @@ class SimulationWitness:
 
     def _record(self, sample):
         with self.lock:
+            if getattr(self, "brush_binding", None) is not None:
+                pair = sample.get("brush_state_pair")
+                valid = (
+                    sample.get("brush_source_binding") == self.brush_binding
+                    and sample.get("brush_source_fault") is None
+                    and type(pair) is dict
+                    and pair.get("status") == "PAIRED"
+                    and type(pair.get("enabled")) is bool
+                    and pair["enabled"] == sample.get("cleaning_enabled")
+                    and type(pair.get("watermark_sim_time_sec")) in (int, float)
+                    and math.isfinite(pair["watermark_sim_time_sec"])
+                    and pair["watermark_sim_time_sec"] > sample["time_sec"]
+                    and all(
+                        type(pair.get(k)) is str and pair[k]
+                        for k in ("state_event_hash", "watermark_event_hash", "pair_chain_hash")
+                    )
+                )
+                if not valid:
+                    sample = {
+                        **sample,
+                        "observation_complete": False,
+                        "brush_source_fault": "unbound or unpaired independent brush state",
+                    }
             self.latest = (time.monotonic(), sample)
             self.samples.append(sample)
             if self.tracking and self.action_fault is None:

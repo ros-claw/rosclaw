@@ -35,6 +35,7 @@ from tf2_msgs.msg import TFMessage
 from visualization_msgs.msg import Marker
 
 from rosclaw.connectors.ros.diagnosis.coverage_audit import CoverageAuditLog, digest
+from rosclaw.connectors.ros.verification.brush_timeline import BrushStateEvent, BrushStateTimeline
 
 
 class Witness(Node):
@@ -44,6 +45,12 @@ class Witness(Node):
         self.profile = PROFILES[saved_profile["name"]]
         if saved_profile != self.profile.to_dict():
             raise ValueError("fixture observer profile differs from supported geometry")
+        self.split_actuator = self.declare_parameter("split_actuator", False).value
+        self.brush_timeline, self.brush_fault = None, None
+        if self.split_actuator:
+            from sim_actuator import load_binding
+
+            self.brush_timeline = BrushStateTimeline(**load_binding("/evidence/brush_binding.json"))
         self.cleaning = False
         self.observation_lock = Lock()
         self.pose = None
@@ -73,12 +80,20 @@ class Witness(Node):
             },
         )
         self.publisher = self.create_publisher(String, "/rosclaw_sim/observation", 10)
-        self.cleaning_state = self.create_publisher(Bool, "/rosclaw_sim/cleaning_state", 10)
+        self.cleaning_state = (
+            None
+            if self.split_actuator
+            else self.create_publisher(Bool, "/rosclaw_sim/cleaning_state", 10)
+        )
         self.controller_watchdog = self.declare_parameter("controller_watchdog", True).value
-        self.velocity = self.create_publisher(
-            TwistStamped if self.controller_watchdog else Twist,
-            "/drive_controller/cmd_vel" if self.controller_watchdog else "/cmd_vel",
-            10,
+        self.velocity = (
+            None
+            if self.split_actuator
+            else self.create_publisher(
+                TwistStamped if self.controller_watchdog else Twist,
+                "/drive_controller/cmd_vel" if self.controller_watchdog else "/cmd_vel",
+                10,
+            )
         )
         self.control_callbacks = MutuallyExclusiveCallbackGroup()
         self.pose_callbacks = MutuallyExclusiveCallbackGroup()
@@ -92,7 +107,10 @@ class Witness(Node):
             callback_group=self.pose_callbacks,
         )
         self.create_subscription(PoseWithCovarianceStamped, "/amcl_pose", self.localized, 10)
-        self.create_subscription(Twist, "/nav_cmd_vel", self.command, 10)
+        if self.split_actuator:
+            self.create_subscription(String, "/rosclaw_sim/brush_events", self.brush_event, 2048)
+        else:
+            self.create_subscription(Twist, "/nav_cmd_vel", self.command, 10)
         self.create_subscription(
             CollisionMonitorState,
             "/collision_monitor_state",
@@ -150,18 +168,41 @@ class Witness(Node):
                 reliability=ReliabilityPolicy.RELIABLE,
             ),
         )
-        self.create_service(
-            SetBool,
-            "/rosclaw_sim/cleaning",
-            self.set_cleaning,
-            callback_group=self.control_callbacks,
-        )
-        self.create_service(
-            SetBool, "/rosclaw_sim/lease", self.heartbeat, callback_group=self.control_callbacks
-        )
+        if not self.split_actuator:
+            self.create_service(
+                SetBool,
+                "/rosclaw_sim/cleaning",
+                self.set_cleaning,
+                callback_group=self.control_callbacks,
+            )
+            self.create_service(
+                SetBool, "/rosclaw_sim/lease", self.heartbeat, callback_group=self.control_callbacks
+            )
         self.create_timer(
             0.05, self.tick, callback_group=self.control_callbacks, clock=self.wall_clock
         )
+
+    def brush_event(self, message):
+        if self.brush_fault is not None:
+            return
+        try:
+            payload = json.loads(message.data)
+            event = BrushStateEvent(**payload["event"])
+            self.brush_timeline.append(event, artifact_hash=payload["artifact_hash"])
+            remaining, updates = payload["lease_remaining_sec"], payload["lease_updates"]
+            if (
+                type(remaining) not in (int, float)
+                or not math.isfinite(remaining)
+                or remaining > 1.5
+            ):
+                raise ValueError("bounded actuator lease observation required")
+            if type(updates) is not int or updates < self.lease_updates:
+                raise ValueError("actuator lease count reversed")
+            self.lease, self.lease_updates = time.monotonic() + remaining, updates
+            self.plan_audit.emit("brush_state_received", payload, sim_time=event.sim_time_sec)
+        except (ValueError, TypeError, KeyError) as exc:
+            self.brush_fault = str(exc)
+            self.cleaning = False
 
     def map_observation(self, message):
         Path("/evidence/measured_map.json").write_text(
@@ -287,6 +328,8 @@ class Witness(Node):
         )
 
     def set_cleaning(self, request, response):
+        if self.split_actuator:
+            raise RuntimeError("passive observer has no cleaner service")
         self.cleaning = request.data
         response.success = True
         response.message = "Simulated cleaning state measured by witness"
@@ -317,6 +360,8 @@ class Witness(Node):
             self.contact_active[topic] = touching
 
     def heartbeat(self, request, response):
+        if self.split_actuator:
+            raise RuntimeError("passive observer has no lease service")
         self.lease = time.monotonic() + 1.5 if request.data else 0
         self.lease_updates += 1
         response.success = True
@@ -327,6 +372,8 @@ class Witness(Node):
             self.publish_velocity(message)
 
     def publish_velocity(self, message):
+        if self.split_actuator:
+            raise RuntimeError("passive observer has no actuator publisher")
         if self.controller_watchdog:
             stamped = TwistStamped()
             stamped.header.stamp = self.get_clock().now().to_msg()
@@ -358,18 +405,35 @@ class Witness(Node):
             contact_seen = self.contact_seen.copy()
             physics_collision_count = self.physics_collision_count
             now = time.monotonic()
-        if now > self.lease:
-            if self.cleaning:
-                self.get_logger().warning(
-                    f"Cleaning disabled by expired daemon lease: overdue={now - self.lease:.3f}s"
-                )
-            self.publish_velocity(Twist())
-            self.cleaning = False
-        self.cleaning_state.publish(Bool(data=self.cleaning))
+        if not self.split_actuator:
+            if now > self.lease:
+                if self.cleaning:
+                    self.get_logger().warning(
+                        f"Cleaning disabled by expired daemon lease: overdue={now - self.lease:.3f}s"
+                    )
+                self.publish_velocity(Twist())
+                self.cleaning = False
+            self.cleaning_state.publish(Bool(data=self.cleaning))
         if pose is None:
             return
         if self.published_time == pose["time_sec"]:
             return
+        brush_pair = None
+        if self.split_actuator and self.brush_fault is None:
+            if self.brush_timeline.sequence is None:
+                return  # never publish readiness before the first OFF watermark
+            if self.brush_timeline.previous_pose_time is None and (
+                pose["time_sec"] < self.brush_timeline.events[0].sim_time_sec
+            ):
+                return  # startup physics predating the source has no brush evidence
+            try:
+                brush_pair = self.brush_timeline.state_at(pose["time_sec"], now_monotonic=now)
+                if brush_pair["status"] == "PENDING":
+                    return
+                self.cleaning = brush_pair["enabled"]
+            except (ValueError, TypeError) as exc:
+                self.brush_fault = str(exc)
+                self.cleaning = False
         self.published_time = pose["time_sec"]
         # Room geometry comes from the checked-in Gazebo world. A conservative
         # disc encloses this configured robot's physical footprint. This is
@@ -394,10 +458,23 @@ class Witness(Node):
             # Non-contacting sensors publish only on contact. Wheel/ground
             # contacts continuously witness the live physics contact pipeline.
             "ground_truth_age_ms": (now - last_pose) * 1000,
-            "observation_complete": 0 <= now - last_pose < 0.3
+            "observation_complete": (
+                not self.split_actuator or (self.brush_fault is None and brush_pair is not None)
+            )
+            and 0 <= now - last_pose < 0.3
             and all(0 <= now - contact_seen.get(t, 0) < 1 for t in self.wheel_topics),
             "contact_stream_ages_ms": {t: (now - seen) * 1000 for t, seen in contact_seen.items()},
         }
+        if self.split_actuator:
+            sample["brush_state_pair"] = brush_pair
+            sample["brush_source_fault"] = self.brush_fault
+            sample["brush_source_binding"] = dict(
+                zip(
+                    ("run_id", "body_snapshot_hash", "attachment_hash", "producer_id"),
+                    self.brush_timeline.binding,
+                    strict=True,
+                )
+            )
         self.trace.write(json.dumps(sample) + "\n")
         self.publisher.publish(String(data=json.dumps(sample)))
 
@@ -412,7 +489,7 @@ def main():
     finally:
         try:
             executor.shutdown()
-            if rclpy.ok():
+            if rclpy.ok() and not node.split_actuator:
                 node.publish_velocity(Twist())
         finally:
             # SIGINT may have invalidated the ROS context. Diagnostic flushing

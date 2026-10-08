@@ -284,12 +284,31 @@ def main():
         default=True,
         help="Require the bottom-level command timeout; disable only for explicit legacy fixture replay",
     )
+    parser.add_argument(
+        "--brush-binding",
+        type=Path,
+        help="Prepared frozen SIM Body/attachment binding; enables separate passive observer and actuator",
+    )
     args = parser.parse_args()
     os.environ["PYTHONPATH"] = (
         str(ROOT.parents[2] / "src") + os.pathsep + os.getenv("PYTHONPATH", "")
     )
     prepare(args.controller_watchdog, args.profile, args.coverage_preset, args.seed)
-    (OUTPUT / "run_id.txt").write_text(uuid.uuid4().hex + "\n")
+    if args.brush_binding is not None:
+        binding = json.loads(args.brush_binding.read_text())
+        keys = {"run_id", "body_snapshot_hash", "attachment_hash", "producer_id"}
+        if (
+            type(binding) is not dict
+            or set(binding) != keys
+            or any(type(v) is not str or not v for v in binding.values())
+        ):
+            raise ValueError("prepared frozen SIM brush binding required")
+        with (OUTPUT / "brush_binding.json").open("x") as destination:
+            destination.write(json.dumps(binding) + "\n")
+        run_id = binding["run_id"]
+    else:
+        run_id = uuid.uuid4().hex
+    (OUTPUT / "run_id.txt").write_text(run_id + "\n")
     profile = PROFILES[args.profile]
     children = []
     labels = {}
@@ -448,8 +467,23 @@ def main():
                 "use_sim_time:=true",
                 "-p",
                 f"controller_watchdog:={'true' if args.controller_watchdog else 'false'}",
+                "-p",
+                f"split_actuator:={'true' if args.brush_binding is not None else 'false'}",
             ],
         )
+        if args.brush_binding is not None:
+            start(
+                "sim_actuator",
+                [
+                    "python3",
+                    str(ROOT / "sim_actuator.py"),
+                    "--ros-args",
+                    "-p",
+                    "use_sim_time:=true",
+                    "-p",
+                    f"controller_watchdog:={'true' if args.controller_watchdog else 'false'}",
+                ],
+            )
         start("probe", ["python3", str(ROOT.parent / "ros2/probe.py")])
         while True:
             for p in children:

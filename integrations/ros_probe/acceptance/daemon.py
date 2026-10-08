@@ -91,7 +91,13 @@ def main():
                 raise ConnectionError(result.error)
             time.sleep(0.2)
     client = Ros2ActionClient(transports[0])
-    witness = SimulationWitness(transports[1])
+    brush_binding = config.get("brush_binding")
+    if (
+        brush_binding is not None
+        and brush_binding.get("body_snapshot_hash") != config["body_snapshot_hash"]
+    ):
+        raise ValueError("prepared brush Body binding differs from immutable daemon Body")
+    witness = SimulationWitness(transports[1], brush_binding=brush_binding)
     deadline = time.monotonic() + 20
     while True:
         try:
