@@ -52,7 +52,7 @@ def wait_ready(directory, container, timeout=180):
     raise TimeoutError("complete fresh independent SIM startup observations missing")
 
 
-def journey(directory, port, profile, timeout):
+def journey(directory, port, profile, timeout, repair_strategy="greedy"):
     env = {
         **os.environ,
         "PYTHONPATH": str(REPOSITORY / "src") + os.pathsep + os.getenv("PYTHONPATH", ""),
@@ -70,6 +70,8 @@ def journey(directory, port, profile, timeout):
                 profile,
                 "--mission-timeout",
                 str(timeout),
+                "--repair-strategy",
+                repair_strategy,
             ],
             stdout=log,
             stderr=subprocess.STDOUT,
@@ -120,6 +122,9 @@ def run_arm(pair, arm, args, ordinal, image_id, commit):
         "seed": args.seed,
         "arm": arm,
         "preset": "baseline" if arm == "baseline" else args.candidate,
+        "repair_strategy": "greedy"
+        if arm == "baseline"
+        else getattr(args, "candidate_repair_strategy", "greedy"),
         "source_commit": commit,
         "image_id": image_id,
         "directory": str(directory),
@@ -165,7 +170,7 @@ def run_arm(pair, arm, args, ordinal, image_id, commit):
         launched = True
         row["container"] = name
         wait_ready(directory, name)
-        journey(directory, port, args.profile, args.mission_timeout)
+        journey(directory, port, args.profile, args.mission_timeout, row["repair_strategy"])
     except KeyboardInterrupt:
         row.update(status="INTERRUPTED", failure="Interrupted before paired arm completed")
         raise
@@ -241,6 +246,7 @@ def main():
     parser.add_argument(
         "--candidate",
         choices=[
+            "baseline",
             "diagonal",
             "headland",
             "perimeter",
@@ -249,6 +255,9 @@ def main():
             "perimeter_stateless_headland",
         ],
         required=True,
+    )
+    parser.add_argument(
+        "--candidate-repair-strategy", choices=["greedy", "pose_aware"], default="greedy"
     )
     parser.add_argument("--seed", type=int, required=True)
     parser.add_argument("--phase", choices=["pilot", "evaluation"], default="pilot")
@@ -277,6 +286,8 @@ def main():
         if (
             freeze["source_commit"] != commit
             or freeze["selected_presets"].get(args.profile) != args.candidate
+            or freeze.get("selected_repair_strategies", {}).get(args.profile, "greedy")
+            != args.candidate_repair_strategy
         ):
             parser.error("source or candidate differs from preregistered evaluation freeze")
     image_id = command(["docker", "image", "inspect", "--format", "{{.Id}}", args.image])
@@ -292,6 +303,7 @@ def main():
         "profile": args.profile,
         "seed": args.seed,
         "candidate": args.candidate,
+        "candidate_repair_strategy": args.candidate_repair_strategy,
         "v1_done": False,
     }
     (pair / "pair-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")

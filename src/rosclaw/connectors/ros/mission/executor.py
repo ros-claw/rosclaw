@@ -10,6 +10,7 @@ import logging
 import math
 import threading
 import time
+from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -17,6 +18,7 @@ from rosclaw.connectors.ros.action_client import STATUS_SUCCEEDED
 from rosclaw.connectors.ros.diagnosis.coverage_audit import CoverageAuditLog, digest
 from rosclaw.connectors.ros.mission.boundary_pass import rectangular_boundary_targets
 from rosclaw.connectors.ros.mission.recovery import MissedRegionRecovery
+from rosclaw.connectors.ros.mission.repair_optimizer import rank_repair_poses
 from rosclaw.connectors.ros.verification.coverage import (
     CleaningPose,
     CoverageVerifier,
@@ -158,9 +160,19 @@ class RosCoverageSimulationExecutor:
         boundary_pass=False,
         boundary_strategy="through_poses",
         boundary_centers=None,
+        repair_strategy="greedy",
+        repair_swath_yaw=0.0,
+        repair_budget_ms=500.0,
     ):
         if not owner.startswith("daemon_"):
             raise ValueError("daemon ownership is required")
+        if repair_strategy not in {"greedy", "pose_aware"}:
+            raise ValueError("unknown configured SIM repair strategy")
+        if not math.isfinite(repair_swath_yaw) or not 0 < repair_budget_ms <= 1000:
+            raise ValueError("configured repair yaw/budget must be finite and bounded")
+        self.repair_strategy = repair_strategy
+        self.repair_swath_yaw = repair_swath_yaw
+        self.repair_budget_ms = repair_budget_ms
         self.owner, self.client, self.control, self.witness = owner, client, control, witness
         self.output, self.body_id, self.grid = Path(output), body_id, grid
         self.body_snapshot_hash = body_snapshot_hash
@@ -491,6 +503,40 @@ class RosCoverageSimulationExecutor:
                 )
                 if ranking > best:
                     best, center = ranking, candidate
+            heading = math.pi / 4
+            if self.repair_strategy == "pose_aware":
+                ready_cells = {c for proposal in proposals["ready"] for c in proposal["cells"]}
+                selection = rank_repair_poses(
+                    self.grid,
+                    self.recovery_centers,
+                    ready_cells,
+                    current,
+                    attempts=recovery.attempts,
+                    swath_yaw=self.repair_swath_yaw,
+                    budget_ms=self.repair_budget_ms,
+                )
+                self._audit_event(
+                    "repair_candidate_selection",
+                    {
+                        "strategy": self.repair_strategy,
+                        "status": selection.status,
+                        "elapsed_ms": selection.elapsed_ms,
+                        "evaluated_poses": selection.evaluated_poses,
+                        "cost_model": selection.cost_model,
+                        "predicted_sequence": [asdict(pose) for pose in selection.poses],
+                        "credit_role": "prediction_only_never_measured_credit",
+                        "fallback": selection.status != "READY",
+                    },
+                )
+                if selection.status == "READY":
+                    selected = selection.poses[0]
+                    center, heading = (selected.x, selected.y), selected.yaw
+                    missed = sorted(ready_cells)
+            cosine_goal, sine_goal = math.cos(heading), math.sin(heading)
+            goal_polygon = [
+                (px * cosine_goal - py * sine_goal, px * sine_goal + py * cosine_goal)
+                for px, py in verifier.polygon
+            ]
             goal_id = f"{action_id}:repair:{index}"
             result = self._run_goal(
                 "/navigate_to_pose",
@@ -500,7 +546,7 @@ class RosCoverageSimulationExecutor:
                         "header": {"frame_id": "map"},
                         "pose": {
                             "position": {"x": center[0], "y": center[1], "z": 0.0},
-                            "orientation": {"z": math.sin(math.pi / 8), "w": math.cos(math.pi / 8)},
+                            "orientation": {"z": math.sin(heading / 2), "w": math.cos(heading / 2)},
                         },
                     }
                 },
@@ -517,7 +563,7 @@ class RosCoverageSimulationExecutor:
                     self.grid["origin"][1]
                     + (i // self.grid["width"] + 0.5) * self.grid["resolution"]
                     - center[1],
-                    polygon,
+                    goal_polygon,
                 )
             ]
             recovery.record_attempt(nearby or [cell], action_id=goal_id)

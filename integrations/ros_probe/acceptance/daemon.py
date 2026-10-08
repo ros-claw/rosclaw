@@ -117,6 +117,10 @@ def main():
         boundary_pass=config.get("experiment", {}).get("boundary_pass", False),
         boundary_strategy=config.get("experiment", {}).get("boundary_strategy", "through_poses"),
         boundary_centers=config.get("boundary_centers"),
+        repair_strategy=config.get("repair_strategy", "greedy"),
+        repair_swath_yaw=config.get("experiment", {})
+        .get("planning_parameters", {})
+        .get("default_swath_angle", 0.0),
     )
     for capability in [
         "navigation.navigate_to_pose",
@@ -183,6 +187,7 @@ def freeze_audit_source(root, config):
         Path(__file__),
         repository / "src/rosclaw/connectors/ros/mission/executor.py",
         repository / "src/rosclaw/connectors/ros/mission/boundary_pass.py",
+        repository / "src/rosclaw/connectors/ros/mission/repair_optimizer.py",
         repository / "src/rosclaw/connectors/ros/diagnosis/coverage_audit.py",
         repository / "src/rosclaw/connectors/ros/verification/coverage.py",
         *[
