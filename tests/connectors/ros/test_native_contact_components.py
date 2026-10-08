@@ -403,3 +403,58 @@ def test_distinct_ros_and_explicit_native_gazebo_topics_are_preserved(evidence, 
         )
         == frozen
     )
+
+
+@pytest.mark.parametrize(
+    "ros_topic,gz_topic",
+    [
+        ("/unseen/observations/components", "/rosclaw_sim/contact_components"),
+        ("/instrument/observations/components", "/rosclaw_sim/backend_probe_components"),
+    ],
+)
+def test_explicit_namespace_and_separate_probe_producer_reopen(
+    evidence, prepared_native, ros_topic, gz_topic
+):
+    import yaml
+
+    bridge = yaml.safe_load((prepared_native / "bridge.yaml").read_bytes())
+    bridge[-1].update(ros_topic_name=ros_topic, gz_topic_name=gz_topic)
+    (prepared_native / "bridge.yaml").write_text(yaml.safe_dump(bridge))
+    native = evidence.prepare_native_policy(
+        prepared_native,
+        plugin_path=prepared_native / "source-fixture.so",
+        support_topics=["/contacts/support"],
+        ground_collisions=["floor::link::collision"],
+        pose_topic="/actual_pose",
+        component_topic=ros_topic,
+        component_gz_topic=gz_topic,
+    )
+    assert native["schema_version"] == "rosclaw.native_contact_policy.v2"
+    assert native["component_topic"] == ros_topic and native["component_gz_topic"] == gz_topic
+    assert (
+        evidence.reopen_native_policy(
+            prepared_native, native, plugin_path=prepared_native / "source-fixture.so"
+        )
+        == native
+    )
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("component_gz_topic", "/cmd_vel"),
+        ("component_topic", "relative"),
+        ("component_topic", "/actual/pose"),
+        ("component_topic", "/actual/contact"),
+        ("schema_version", "unknown"),
+    ],
+)
+def test_probe_or_namespace_policy_cannot_alias_other_source_roles(evidence, field, value):
+    native = policy(packet_named("native_actual_contact_entity_names"))
+    native.update(
+        schema_version="rosclaw.native_contact_policy.v2",
+        component_gz_topic="/rosclaw_sim/backend_probe_components",
+    )
+    native[field] = value
+    with pytest.raises(ValueError):
+        evidence.native_policy(native)

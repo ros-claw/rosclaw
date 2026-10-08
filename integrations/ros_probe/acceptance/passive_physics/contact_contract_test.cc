@@ -152,5 +152,15 @@ int main(int argc, char **argv)
     F f; f.ecm.Component<ParentEntity>(f.body)->SetData(f.bodyLink, [](const auto &,const auto &){return false;});
     emit("native_nested_body_model_refused", f, false);
   }
+  if (rosclaw::native_contacts::PublisherTopic("/rosclaw_sim/contact_components") != "/rosclaw_sim/contact_components" ||
+      rosclaw::native_contacts::PublisherTopic("/rosclaw_sim/backend_probe_components") != "/rosclaw_sim/backend_probe_components")
+    throw std::runtime_error("SIM observation publisher topic binding changed");
+  for (const auto topic : {"/cmd_vel", "relative", "/rosclaw_sim/arbitrary"})
+  {
+    bool refused = false;
+    try { rosclaw::native_contacts::PublisherTopic(topic); }
+    catch (const std::runtime_error &) { refused = true; }
+    if (!refused) throw std::runtime_error("native observer allowed non-observation publisher topic");
+  }
   return 0;
 }

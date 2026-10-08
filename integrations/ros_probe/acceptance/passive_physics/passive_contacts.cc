@@ -39,7 +39,9 @@ class PassiveContacts : public gz::sim::System,
     this->producerId = required("producer_id");
     if (name->Data() != this->worldName)
       throw std::runtime_error("actual contact world name differs from declared source");
-    this->publisher = this->node.Advertise<gz::msgs::StringMsg>("/rosclaw_sim/contact_components");
+    const auto topic = config->HasElement("topic") ? config->Get<std::string>("topic") :
+        std::string("/rosclaw_sim/contact_components");
+    this->publisher = this->node.Advertise<gz::msgs::StringMsg>(native_contacts::PublisherTopic(topic));
   }
   public: std::string Packet(const gz::sim::UpdateInfo &info,
       const gz::sim::EntityComponentManager &ecm, std::uint64_t sequence) const
