@@ -2,6 +2,7 @@
 
 import argparse
 import hashlib
+import inspect
 import json
 import logging
 import signal
@@ -39,6 +40,24 @@ def main():
     from native_tools import fixture_mission_id
 
     fixture_mission = fixture_mission_id(config)
+    if "generic_execution_proposal" in config:
+        proposal = config["generic_execution_proposal"]
+        admission = config.get("dynamic_fixture_admission")
+        binding = config.get("occupancy_binding")
+        if (
+            type(proposal) is not dict
+            or type(admission) is not dict
+            or type(binding) is not dict
+            or admission.get("mission_id") != proposal.get("mission_id")
+            or binding.get("run_id") != proposal.get("run_id")
+            or not binding.get("geometry_hash")
+            or not admission.get("initial_packet_sha256")
+            or "occupancy_binding"
+            not in inspect.signature(RosCoverageSimulationExecutor).parameters
+        ):
+            raise ValueError(
+                "generic Native fixture requires independent physical source admission"
+            )
     runtime = Runtime(
         RuntimeConfig(
             robot_id=config["body_id"],

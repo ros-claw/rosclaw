@@ -46,7 +46,7 @@ OBSERVATION_SCHEMA = {
 }
 
 
-def configure(directory, endpoint, *, overwrite=False):
+def configure(directory, endpoint, *, overwrite=False, generic_proposal=None, mission_timeout=900):
     root = directory.resolve()
     parsed = urlparse(endpoint)
     if (
@@ -56,16 +56,29 @@ def configure(directory, endpoint, *, overwrite=False):
         or parsed.password
     ):
         raise ValueError("an owned loopback SIM fixture endpoint is required")
-    profile = profile_for_urdf(root / "robot.urdf")
-    body = json.loads((root / "body.json").read_text())
-    execution = json.loads((root / "execution_config.json").read_text())
+    if type(mission_timeout) is not int or not 60 <= mission_timeout <= 1800:
+        raise ValueError("bounded SIM mission timeout required")
+    generic = None
+    if generic_proposal is not None:
+        from rosclaw.connectors.ros.context.sim_native_fixture import prepare_sim_native_fixture
+
+        raw = Path(generic_proposal).read_bytes()
+        if len(raw) > 2_000_000:
+            raise ValueError("bounded generic execution proposal required")
+        generic = prepare_sim_native_fixture(root, json.loads(raw))
+        body, execution = generic["body"], generic["execution_config"]
+        profile = None
+    else:
+        profile = profile_for_urdf(root / "robot.urdf")
+        body = json.loads((root / "body.json").read_text())
+        execution = json.loads((root / "execution_config.json").read_text())
     resolver = BodyResolver(workspace=root / "home")
     if not resolver.effective_body_path.is_file():
         raise ValueError("prepare the compiled fixture Body first")
     effective = resolver.get_effective_body(recompile_if_stale=False)
     body_hash = effective.compute_hash()
     if (
-        effective.body_instance_id != profile.body_id
+        (profile is not None and effective.body_instance_id != profile.body_id)
         or body["body_id"] != effective.body_instance_id
         or execution["body_id"] != effective.body_instance_id
         or body["effective_body_hash"] != body_hash
@@ -102,7 +115,9 @@ def configure(directory, endpoint, *, overwrite=False):
                 "supported_modes": ["SIMULATION"],
                 "required_body_types": [effective.body_instance_id],
                 "effect_domain": "ROS",
-                "timeout_ms": 1800000 if profile.name == "burger" else 900000,
+                "timeout_ms": mission_timeout * 1000
+                if generic is not None
+                else (1800000 if profile.name == "burger" else 900000),
                 "output_schemas": {"ros.observe_system": OBSERVATION_SCHEMA},
             }
         ],
@@ -112,6 +127,13 @@ def configure(directory, endpoint, *, overwrite=False):
         raise FileExistsError(
             "fixture Native configuration already exists; use --overwrite explicitly"
         )
+    if generic is not None:
+        targets = {"body.json": body, "execution_config.json": execution}
+        if any((root / name).exists() for name in targets):
+            raise FileExistsError("generic fixture declarations require fresh exclusive outputs")
+        for name, value in targets.items():
+            with (root / name).open("x") as stream:
+                stream.write(json.dumps(value, indent=2) + "\n")
     path.write_text(yaml.safe_dump(config, sort_keys=False))
     return {
         "status": "CONFIGURED",
@@ -127,5 +149,17 @@ if __name__ == "__main__":
     parser.add_argument("--directory", type=Path, required=True)
     parser.add_argument("--endpoint", default="ws://127.0.0.1:19090")
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--generic-proposal", type=Path)
+    parser.add_argument("--mission-timeout", type=int, default=900)
     args = parser.parse_args()
-    print(json.dumps(configure(args.directory, args.endpoint, overwrite=args.overwrite)))
+    print(
+        json.dumps(
+            configure(
+                args.directory,
+                args.endpoint,
+                overwrite=args.overwrite,
+                generic_proposal=args.generic_proposal,
+                mission_timeout=args.mission_timeout,
+            )
+        )
+    )

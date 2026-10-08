@@ -19,15 +19,23 @@ from rosclaw.connectors.ros.resolver import resolve_task
 
 
 def fixture_mission_id(config):
-    """Use the admitted fresh dynamic mission; preserve legacy static fixtures."""
+    """Fresh generic/dynamic mission identity; declarations grant no source admission."""
+    proposal = config.get("generic_execution_proposal")
     admission = config.get("dynamic_fixture_admission")
-    if admission is not None and type(admission) is not dict:
-        raise ValueError("dynamic source admission must be an object")
-    if config.get("occupancy_binding") is not None and type(admission) is not dict:
-        raise ValueError("dynamic Native fixture requires source-admitted mission identity")
-    mission = admission.get("mission_id") if admission is not None else "gazebo-room-cleaning"
-    if type(mission) is not str or not mission or len(mission) > 256:
-        raise ValueError("bounded nonempty source-admitted mission identity required")
+    if any(value is not None and type(value) is not dict for value in (proposal, admission)):
+        raise ValueError("typed fixture proposal and admission required")
+    if config.get("occupancy_binding") is not None and admission is None:
+        raise ValueError("dynamic fixture requires source-admitted mission identity")
+    if (
+        proposal is not None
+        and admission is not None
+        and (proposal.get("mission_id") != admission.get("mission_id"))
+    ):
+        raise ValueError("generic proposal and source-admitted mission differ")
+    source = admission if admission is not None else proposal
+    mission = source.get("mission_id") if source is not None else "gazebo-room-cleaning"
+    if type(mission) is not str or not 1 <= len(mission) <= 256:
+        raise ValueError("bounded nonempty fixture mission required")
     return mission
 
 
@@ -37,7 +45,8 @@ def main():
     parser.add_argument("--endpoint", default="ws://127.0.0.1:19090")
     args = parser.parse_args()
     specification = json.loads((args.directory / "body.json").read_text())
-    mission = fixture_mission_id(json.loads((args.directory / "execution_config.json").read_text()))
+    config = json.loads((args.directory / "execution_config.json").read_text())
+    mission = fixture_mission_id(config)
     server = FastMCP("ros-expert-gazebo-acceptance")
 
     @server.tool(name="ros.observe_system")
@@ -60,7 +69,7 @@ def main():
                 ],
             },
             "task_area": {
-                "frame_id": "map",
+                "frame_id": specification.get("map_frame", "map"),
                 "mission_id": mission,
                 "polygons": [
                     {
