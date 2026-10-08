@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 
 from rosclaw.connectors.ros.diagnosis.engine import frame_connected
 from rosclaw.connectors.ros.intelligence import RosSystemModel
+from rosclaw.connectors.ros.intelligence.topic_parameters import observed_topic_parameter
 
 from .semantics import SEMANTIC_TYPES, is_initial_pose_command
 
@@ -154,14 +155,23 @@ def resolve_capabilities(model: RosSystemModel, *, now: datetime | None = None) 
                     None
                     if parameters is None
                     else (
-                        parameters.get("cmd_vel_in_topic") == binding.get("input_topic")
-                        and parameters.get("cmd_vel_out_topic") == binding.get("output_topic")
+                        observed_topic_parameter(
+                            model, binding["name"], "cmd_vel_in_topic", now=now
+                        )
+                        == binding.get("input_topic")
+                        and observed_topic_parameter(
+                            model, binding["name"], "cmd_vel_out_topic", now=now
+                        )
+                        == binding.get("output_topic")
                         and bool(parameters.get("polygons"))
                         and isinstance(parameters.get("observation_sources"), list)
                         and any(
                             isinstance(source, str)
                             and source
-                            and parameters.get(source + ".topic") == binding.get("sensor_topic")
+                            and observed_topic_parameter(
+                                model, binding["name"], source + ".topic", now=now
+                            )
+                            == binding.get("sensor_topic")
                             for source in parameters.get("observation_sources", [])
                         )
                     )

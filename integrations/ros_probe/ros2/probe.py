@@ -22,9 +22,11 @@ from lifecycle_msgs.srv import GetState
 from rcl_interfaces.srv import GetParameters, ListParameters
 from rclpy.action.graph import get_action_server_names_and_types_by_node
 from rclpy.clock import Clock, ClockType
+from rclpy.expand_topic_name import expand_topic_name
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy, qos_check_compatible
 from rclpy.utilities import get_rmw_implementation_identifier
+from rclpy.validate_full_topic_name import validate_full_topic_name
 from rosidl_runtime_py.utilities import get_message
 from std_msgs.msg import String
 from std_srvs.srv import Trigger
@@ -80,6 +82,33 @@ def latched_observation(topic, types, publishers):
     )
 
 
+def resolve_observed_topic_parameters(node_name, parameters, captured_at):
+    namespace, _, basename = node_name.rpartition("/")
+    records = {}
+    for key, raw in parameters.items():
+        if not (key.endswith(".topic") or key in ("cmd_vel_in_topic", "cmd_vel_out_topic")):
+            continue
+        record = {
+            "raw_value": raw,
+            "source": node_name + "/get_parameters",
+            "node_name": node_name,
+            "captured_at": captured_at,
+            "method": "rclpy.expand_topic_name_and_validate_full_topic_name",
+            "remapping_applied": False,
+            "complete": False,
+        }
+        try:
+            if type(raw) is not str or not raw or not node_name.startswith("/"):
+                raise ValueError("explicit parameter and observed fully qualified node required")
+            expanded = expand_topic_name(raw, basename, namespace or "/")
+            validate_full_topic_name(expanded)
+            record.update(expanded_name=expanded, complete=True)
+        except Exception as exc:
+            record["reason"] = type(exc).__name__
+        records[key] = record
+    return records
+
+
 def utc_now():
     return datetime.now(UTC).isoformat()
 
@@ -94,6 +123,7 @@ class ReadOnlyProbe(Node):
         self.parameters = {}
         self.parameter_received = {}
         self.parameter_captured_at = {}
+        self.resolved_topic_parameters = {}
         self.clients_by_name = {}
         self.pending = {}
         self.errors = []
@@ -221,6 +251,9 @@ class ReadOnlyProbe(Node):
                 self.parameters[node_name] = values
                 self.parameter_received[node_name] = time.monotonic()
                 self.parameter_captured_at[node_name] = utc_now()
+                self.resolved_topic_parameters[node_name] = resolve_observed_topic_parameters(
+                    node_name, values, self.parameter_captured_at[node_name]
+                )
 
         future.add_done_callback(completed)
 
@@ -457,6 +490,9 @@ class ReadOnlyProbe(Node):
                 "package_inventory": self.packages,
                 "node_parameters": parameters,
                 "parameter_captured_at": self.parameter_captured_at,
+                "resolved_topic_parameters": {
+                    n: self.resolved_topic_parameters.get(n, {}) for n in parameters
+                },
                 "clock_advancing": clock_advancing,
                 "clock_last_receive_age_ms": (wall - self.clock_readings[-1][0]) * 1000
                 if self.clock_readings

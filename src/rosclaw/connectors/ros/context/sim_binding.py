@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 from rosclaw.connectors.ros.context.discovery import discover_body_candidate
 from rosclaw.connectors.ros.context.sim_attachment import validate_sim_attachment
 from rosclaw.connectors.ros.diagnosis.coverage_audit import digest
+from rosclaw.connectors.ros.intelligence.topic_parameters import observed_topic_parameter
 from rosclaw.connectors.ros.resolver.semantics import is_initial_pose_command
 
 
@@ -100,10 +101,8 @@ def propose_sim_fixture_binding(model, urdf_bytes, *, attachment, policy, now=No
     parameter_time = model.observations.get("parameter_captured_at", {}).get(monitor)
     sensors = parameters.get("observation_sources")
     lidar = candidate["interfaces"]["sensing.lidar"][0]["name"]
-    input_topic, output_topic = (
-        parameters.get("cmd_vel_in_topic"),
-        parameters.get("cmd_vel_out_topic"),
-    )
+    input_topic = observed_topic_parameter(model, monitor, "cmd_vel_in_topic", now=now)
+    output_topic = observed_topic_parameter(model, monitor, "cmd_vel_out_topic", now=now)
     if (
         not fresh(parameter_time)
         or parameters.get("use_sim_time") is not True
@@ -111,7 +110,10 @@ def propose_sim_fixture_binding(model, urdf_bytes, *, attachment, policy, now=No
         or type(sensors) is not list
         or not sensors
         or any(type(n) is not str or not n for n in sensors)
-        or not any(parameters.get(n + ".topic") == lidar for n in sensors)
+        or not any(
+            observed_topic_parameter(model, monitor, n + ".topic", now=now) == lidar
+            for n in sensors
+        )
         or type(input_topic) is not str
         or not input_topic
         or type(output_topic) is not str
