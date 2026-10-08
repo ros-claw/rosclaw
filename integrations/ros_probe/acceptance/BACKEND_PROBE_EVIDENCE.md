@@ -70,3 +70,26 @@ clearance, observed support and gravity behavior remain separate mandatory gates
 `backend_probe_world_contract.py` checks this candidate using the installed SDF
 parser over a synthetic scene and actual source-bound ELF bytes. It starts no
 Gazebo world, Node, DDS or scene service. Original failure traces are retained.
+
+The robot's complete-contact source now requires native policy **v3**,
+`sampling_semantics=ALL_POSTUPDATE_PHYSICS_STEPS`. The robot producer publishes
+every actual PostUpdate step; the separately scoped instrument retains its
+20 Hz stream and publishes paused faults immediately. The observer uses a
+bounded depth-128 component queue for this mode. Every received robot sequence
+and physics iteration must advance by exactly one, and SIM delta must match
+actual step dt (1 ns numeric tolerance). A dropped short contact therefore
+invalidates completeness instead of being presented as zero contacts. Final
+complete-contact replay can explicitly require this policy. Older v1/v2 point
+cache archives remain historical sampled observations; they are not promoted.
+
+The additional `backend_source_gate.py` constraint requires all-step robot
+observations plus a refreshed measured probe cycle in the same run/world, with
+disjoint observation endpoints and actual entity identities. Source loss after
+opening latches closure. It does not grant a daemon lease or action permission;
+actual world/Body admission, actor integration and physical acceptance remain
+**NOT_VERIFIED / NOT_IMPLEMENTED**.
+
+The qualified SDK retains three original consecutive-step packets whose middle
+step contains a transient obstacle contact. The logical observer retains the
+positive count when contact clears; dropping the middle packet rejects the
+source. These are synthetic ECM contracts, not a live physical contact episode.

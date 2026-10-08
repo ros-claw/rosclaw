@@ -99,6 +99,7 @@ class BackendCacheProbe:
         self.cycle_sim = self.cycle_wall = None
         self.fault = None
         self.qualified_once = False
+        self.actual_source_identity = None
 
     def pose(self, sim_time, wall_time, values):
         try:
@@ -263,6 +264,20 @@ class BackendCacheProbe:
             else:
                 raise ValueError("unknown probe intervention state")
             self.previous, self.last_received, self.inventory_hash = current, wall, identity
+            self.actual_source_identity = {
+                "world_entity_id": packet["world_entity_id"],
+                "body_model_entity_id": packet["body_model_entity_id"],
+                "entity_ids": {packet["body_model_entity_id"]}
+                | {
+                    entity
+                    for row in packet["contact_sources"]
+                    for entity in (
+                        row["sensor_entity_id"],
+                        row["link_entity_id"],
+                        *row["collision_entity_ids"],
+                    )
+                },
+            }
             return {
                 "original_source_sha256": hashlib.sha256(raw).hexdigest(),
                 "original_size_bytes": len(raw),

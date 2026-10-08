@@ -33,7 +33,7 @@ def retained(raw, kind):
     }
 
 
-def fixture(root, plugin):
+def fixture(root, plugin, *, all_steps=False):
     root.mkdir()
     source = (
         Path(__file__).resolve().parents[3]
@@ -85,6 +85,7 @@ def fixture(root, plugin):
         support_topics=["/actual/contact"],
         ground_collisions=["support_plane::floor_link::floor_collision"],
         pose_topic="/actual_pose",
+        all_physics_steps=all_steps,
     )
     (root / "native-policy.json").write_text(json.dumps(policy, indent=2) + "\n")
     tracker = NativeContactEvidence(policy)
@@ -108,9 +109,10 @@ def fixture(root, plugin):
             }
         )
 
-    for i in range(41):
-        sim, wall = 10 + i / 10, 100 + i / 10
-        captured = origin + timedelta(seconds=i / 10)
+    count, rate = (401, 100) if all_steps else (41, 10)
+    for i in range(count):
+        sim, wall = 10 + i / rate, 100 + i / rate
+        captured = origin + timedelta(seconds=i / rate)
         ns = round(sim * 1e9)
         transform = TransformStamped()
         transform.header.frame_id = "fixture_world"
@@ -118,18 +120,20 @@ def fixture(root, plugin):
         transform.header.stamp.sec, transform.header.stamp.nanosec = divmod(ns, 1_000_000_000)
         transform.transform.rotation.w = 1.0
         raw = serialize_message(TFMessage(transforms=[transform]))
-        tracker.pose(sim, wall, [0, 0, 0, 1, 0, 0, 0])
+        pose_sim = transform.header.stamp.sec + transform.header.stamp.nanosec / 1e9
+        tracker.pose(pose_sim, wall, [0, 0, 0, 1, 0, 0, 0])
         emit(
             "native_contact_pose_received",
             {**retained(raw, "tf2_msgs/msg/TFMessage"), "received_monotonic_sec": wall},
-            sim,
+            pose_sim,
             wall,
             captured,
         )
         native = copy.deepcopy(packet)
         native.update(
             sequence=i,
-            iterations=100 + i * 100,
+            iterations=100 + i if all_steps else 100 + i * 100,
+            physics_step_dt_sec=1 / rate if all_steps else packet["physics_step_dt_sec"],
             sim_time_sec=sim,
             captured_at_unix_ns=int(captured.timestamp() * 1e9),
         )
@@ -146,7 +150,7 @@ def fixture(root, plugin):
                 "received_monotonic_sec": wall + 0.00001,
                 "received_unix_ns": unix,
             },
-            sim,
+            tracker.tracker.sim_time,
             wall,
             captured,
         )
@@ -154,7 +158,7 @@ def fixture(root, plugin):
         emit(
             "native_contact_observation",
             {**result, "snapshot_monotonic_sec": wall + 0.00002},
-            sim,
+            tracker.tracker.sim_time,
             wall,
             captured,
         )
@@ -186,6 +190,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--directory", required=True, type=Path)
     parser.add_argument("--plugin", required=True, type=Path)
+    parser.add_argument("--all-physics-steps", action="store_true")
     args = parser.parse_args()
     args.directory.mkdir()
     outcomes = []
@@ -210,7 +215,7 @@ def main():
     ]
     for fault in faults:
         root = args.directory / fault
-        policy, rows, origin = fixture(root, args.plugin)
+        policy, rows, origin = fixture(root, args.plugin, all_steps=args.all_physics_steps)
         native = next(row for row in rows if row["kind"] == "native_contact_source_received")
         payload = native["payload"]
         if fault == "bytes_hash":
@@ -270,6 +275,7 @@ def main():
                 end_sim=13.8,
                 start_wall=(origin + timedelta(seconds=0.2)).isoformat(),
                 end_wall=(origin + timedelta(seconds=3.8)).isoformat(),
+                require_all_physics_steps=args.all_physics_steps,
             )
             if fault != "valid":
                 raise AssertionError("corrupted source unexpectedly admitted: " + fault)
@@ -285,6 +291,7 @@ def main():
         "node_instantiated": False,
         "physical_acceptance": "NOT_RUN",
         "backend_health_admitted": False,
+        "all_physics_steps_policy": args.all_physics_steps,
     }
     (args.directory / "contract-summary.json").write_text(json.dumps(summary, indent=2) + "\n")
     print(json.dumps({"status": "PASS", "cases": len(outcomes), "physical_acceptance": "NOT_RUN"}))

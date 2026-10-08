@@ -15,6 +15,7 @@
 #include <gz/sim/components/Sensor.hh>
 #include <gz/sim/components/World.hh>
 #include <iomanip>
+#include <chrono>
 #include <map>
 #include <set>
 #include <sstream>
@@ -100,6 +101,16 @@ inline std::string PublisherTopic(const std::string &requested)
       requested != "/rosclaw_sim/backend_probe_components")
     throw std::runtime_error("declared simulator-owned contact observation topic required");
   return requested;
+}
+inline bool PublishThisStep(const std::string &topic, bool published,
+    std::chrono::steady_clock::duration last,
+    std::chrono::steady_clock::duration now, bool paused)
+{
+  PublisherTopic(topic);
+  // Robot evidence covers every PostUpdate physics step, including faults.
+  // The separately scoped backend instrument retains its 20 Hz proof stream.
+  return topic == "/rosclaw_sim/contact_components" || !published || paused ||
+      now < last || now - last >= std::chrono::milliseconds(50);
 }
 struct Sources
 {

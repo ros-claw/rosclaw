@@ -163,7 +163,12 @@ def main():
     try:
         qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
         node.create_subscription(TFMessage, policy["contact_policy"]["pose_topic"], pose, qos)
-        node.create_subscription(String, policy["component_topic"], components, qos)
+        component_qos = (
+            QoSProfile(depth=128, reliability=ReliabilityPolicy.BEST_EFFORT)
+            if policy.get("sampling_semantics") == "ALL_POSTUPDATE_PHYSICS_STEPS"
+            else qos
+        )
+        node.create_subscription(String, policy["component_topic"], components, component_qos)
         deadline, next_tick, last_sim = time.monotonic() + args.duration, 0, None
         while not stop[0] and time.monotonic() < deadline:
             rclpy.spin_once(node, timeout_sec=0.02)
