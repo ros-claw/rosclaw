@@ -1,0 +1,83 @@
+{
+  "task": [
+    {
+      "task_id": "task_7537610a1ef84754b9730faa",
+      "state": "RUNNING",
+      "workspace_path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/CHATGPT_G11_MOVEIT_FIVE_FIXTURE_FRESHNESS_SOURCE_RUN_prepared_20261008_v1/workspace"
+    }
+  ],
+  "artifacts": [
+    {
+      "artifact_id": "art_b1adb0af85f94765a91fb816",
+      "task_id": "task_7537610a1ef84754b9730faa",
+      "producer": "model:rosclaw_artifact_register",
+      "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/CHATGPT_G11_MOVEIT_FIVE_FIXTURE_FRESHNESS_SOURCE_RUN_prepared_20261008_v1/workspace/reports/operator_checks/moveit_1791444364363074121_check/receipt.json",
+      "sha256": "7bd753950edb76bcef36d117f38074b4321a1d5dc7d91a9304db8d404fb6d8fc",
+      "size_bytes": 676,
+      "metadata_json": "{\"role\": \"diagnostic_report\", \"evidence_tier\": \"EXPERIMENTAL\"}"
+    },
+    {
+      "artifact_id": "art_f537fbde927345918cfa67c1",
+      "task_id": "task_7537610a1ef84754b9730faa",
+      "producer": "model:rosclaw_artifact_register",
+      "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/CHATGPT_G11_MOVEIT_FIVE_FIXTURE_FRESHNESS_SOURCE_RUN_prepared_20261008_v1/workspace/reports/operator_checks/moveit_1791444380987634887_run/receipt.json",
+      "sha256": "f402be02cae4d8f2e48b0ed06f4a62dcb2a99c2a82970d46fa31a9136c188989",
+      "size_bytes": 3190,
+      "metadata_json": "{\"role\": \"diagnostic_report\", \"evidence_tier\": \"EXPERIMENTAL\"}"
+    },
+    {
+      "artifact_id": "art_b086efab20f3440cb057ab5e",
+      "task_id": "task_7537610a1ef84754b9730faa",
+      "producer": "model:rosclaw_artifact_register",
+      "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/CHATGPT_G11_MOVEIT_FIVE_FIXTURE_FRESHNESS_SOURCE_RUN_prepared_20261008_v1/workspace/reports/operator_checks/moveit_1791444380987634887_run/complete_result.json",
+      "sha256": "091094241e5eeb2ff89c25fe1d585149a55d14dd3794333ac5786d02e87a5b6f",
+      "size_bytes": 158659,
+      "metadata_json": "{\"role\": \"diagnostic_report\", \"evidence_tier\": \"EXPERIMENTAL\"}"
+    },
+    {
+      "artifact_id": "art_fbb1cebe8bda427aaeb23208",
+      "task_id": "task_7537610a1ef84754b9730faa",
+      "producer": "model:rosclaw_artifact_register",
+      "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/CHATGPT_G11_MOVEIT_FIVE_FIXTURE_FRESHNESS_SOURCE_RUN_prepared_20261008_v1/workspace/native/test_moveit_finite.cpp",
+      "sha256": "0d247686f672fbb9f3cc6ae42ff25a4c59de529e10e8ae83444392d53653f93f",
+      "size_bytes": 13775,
+      "metadata_json": "{\"role\": \"diagnostic_source\", \"evidence_tier\": \"EXPERIMENTAL\"}"
+    },
+    {
+      "artifact_id": "art_9c444b70dfd644e1b43b3b9d",
+      "task_id": "task_7537610a1ef84754b9730faa",
+      "producer": "model:rosclaw_artifact_register",
+      "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/CHATGPT_G11_MOVEIT_FIVE_FIXTURE_FRESHNESS_SOURCE_RUN_prepared_20261008_v1/workspace/native/moveit_fixture.hpp",
+      "sha256": "636f188c85e818877131a722b07a8f784725b52f2e8962a995fb1dbd1cdaf40e",
+      "size_bytes": 9220,
+      "metadata_json": "{\"role\": \"diagnostic_source\", \"evidence_tier\": \"EXPERIMENTAL\"}"
+    },
+    {
+      "artifact_id": "art_f6592d7bd685418ebad92a45",
+      "task_id": "task_7537610a1ef84754b9730faa",
+      "producer": "model:rosclaw_artifact_register",
+      "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/CHATGPT_G11_MOVEIT_FIVE_FIXTURE_FRESHNESS_SOURCE_RUN_prepared_20261008_v1/workspace/docs/MOVEIT_FINITE_SCOPE.md",
+      "sha256": "23df1d48289d3ce42ad43f5e92b99e1453d7060d0b4132f4aaa3d732bc3fa796",
+      "size_bytes": 6097,
+      "metadata_json": "{\"role\": \"diagnostic_report\", \"evidence_tier\": \"EXPERIMENTAL\"}"
+    },
+    {
+      "artifact_id": "art_f51378435a84470c85b87690",
+      "task_id": "task_7537610a1ef84754b9730faa",
+      "producer": "model:rosclaw_artifact_register",
+      "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/CHATGPT_G11_MOVEIT_FIVE_FIXTURE_FRESHNESS_SOURCE_RUN_prepared_20261008_v1/workspace/reports/evidence.json",
+      "sha256": "1ecb0725bb73caffaed97367b969073f331a0d81953825341048e8496cf8c7f1",
+      "size_bytes": 8452,
+      "metadata_json": "{\"role\": \"diagnostic_report\", \"evidence_tier\": \"EXPERIMENTAL\"}"
+    },
+    {
+      "artifact_id": "art_0cb9bc93f8d749b2adc75462",
+      "task_id": "task_7537610a1ef84754b9730faa",
+      "producer": "model:rosclaw_artifact_register",
+      "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/CHATGPT_G11_MOVEIT_FIVE_FIXTURE_FRESHNESS_SOURCE_RUN_prepared_20261008_v1/workspace/delivery.json",
+      "sha256": "9a57e87e43157bc0e3395f8f3609dc97aa4b3df61b33f7a9e55b41fba65cb78b",
+      "size_bytes": 566,
+      "metadata_json": "{\"role\": \"progress_report\", \"evidence_tier\": \"EXPERIMENTAL\"}"
+    }
+  ]
+}

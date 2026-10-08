@@ -1,0 +1,30 @@
+{
+  "status": "PASS_EXACT_EXISTING_NATIVE_STD_LIB_PROFILE_RESOLUTION_NO_NN",
+  "exact_profile": {
+    "mode": "robot_profile",
+    "profile": "so100.buffer.action"
+  },
+  "stats": {
+    "profile": "so100.buffer.action",
+    "stats_file": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/F44_SMOLVLA_official_resource_preparation_20261006_v1/assets/lerobot--smolvla_base/policy_postprocessor_step_0_unnormalizer_processor.safetensors",
+    "stats_sha256": "490ab239d96e263687c0b2e386a0afbc235a2eceb9857c36ed32f2f162a3e7c8",
+    "mean": [
+      1.5959141254425049,
+      119.9442367553711,
+      109.769775390625,
+      56.70551300048828,
+      -27.422693252563477,
+      12.002785682678223
+    ],
+    "std": [
+      26.39177894592285,
+      52.41140365600586,
+      49.85380554199219,
+      36.9983024597168,
+      59.35995101928711,
+      19.039955139160156
+    ]
+  },
+  "native_source_sha256": "b16665c65effa16470c992db027e545b29b64fb4a49a31c70e1973340c80e199",
+  "scope": "Existing Native pure stdlib stats decoder and policy validator only; no _default_dependencies, torch, model load, NN or new Native application implementation. This establishes saved alias, not physical calibration."
+}

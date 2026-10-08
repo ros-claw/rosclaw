@@ -1,0 +1,232 @@
+{
+  "schema": "moveit.finite.generated_cases.v1",
+  "cases": [
+    {
+      "id": "F38_float_arm_variable_map",
+      "direction": "F38",
+      "request": {
+        "group": "arm",
+        "state": {
+          "slide_x": 0.2,
+          "slide_y": -0.1,
+          "slide_z": 0.5,
+          "roll": 0,
+          "pitch": 0,
+          "yaw": 0
+        }
+      },
+      "oracle": "Generated model has13 variables including floating-base7; arm6 named variables order matches pinned URDF/SRDF and finite groupstate; actual tool translation [.2,-.1,.5]. No MuJoCo qpos claim."
+    },
+    {
+      "id": "F38_unknown_variable_reject",
+      "direction": "F38",
+      "request": {
+        "group": "arm",
+        "state": {
+          "unknown_generated_joint": 0.2
+        }
+      },
+      "oracle": "Explicit typed unknown-variable rejection before any state assignment; no silent default or fabricated success."
+    },
+    {
+      "id": "F39_world_object_identity_free",
+      "direction": "F39",
+      "request": {
+        "state": [
+          0,
+          0,
+          0.5,
+          0,
+          0,
+          0
+        ],
+        "object_id": "generated_obstacle",
+        "sphere_center": [
+          0.6,
+          0,
+          0.5
+        ],
+        "sphere_radius": 0.12
+      },
+      "oracle": "Actual PlanningScene world object retains exact ID/shape/pose and FCL currentstate collisionfalse; protected model toolradius.04."
+    },
+    {
+      "id": "F39_changed_pose_collision",
+      "direction": "F39",
+      "request": {
+        "state": [
+          0,
+          0,
+          0.5,
+          0,
+          0,
+          0
+        ],
+        "object_id": "generated_obstacle",
+        "sphere_center": [
+          0,
+          0,
+          0.5
+        ],
+        "sphere_radius": 0.12
+      },
+      "oracle": "Same ID moved to toolcenter in actual PlanningScene leads collisiontrue, not reused stale free result."
+    },
+    {
+      "id": "F40_obstacle_replan",
+      "direction": "F40",
+      "request": {
+        "start": [
+          -0.6,
+          0,
+          0.5,
+          0,
+          0,
+          0
+        ],
+        "goal": [
+          0.6,
+          0,
+          0.5,
+          0,
+          0,
+          0
+        ],
+        "obstacle_center": [
+          0,
+          0,
+          0.5
+        ],
+        "obstacle_radius": 0.12,
+        "planning_time_s": 0.5
+      },
+      "oracle": "Actual initialized OMPL planner produces baseline and moved-obstacle scene path, positive distinct detour; each current path state collisionchecked, endpoints exact, finite bounds. A path is no physical execution certificate."
+    },
+    {
+      "id": "F40_colliding_goal_no_plan",
+      "direction": "F40",
+      "request": {
+        "start": [
+          -0.6,
+          0,
+          0.5,
+          0,
+          0,
+          0
+        ],
+        "goal": [
+          0,
+          0,
+          0.5,
+          0,
+          0,
+          0
+        ],
+        "obstacle_center": [
+          0,
+          0,
+          0.5
+        ],
+        "obstacle_radius": 0.12,
+        "planning_time_s": 0.5
+      },
+      "oracle": "Actual goal collision yields bounded failure/no executable trajectory; report actual plugin error code, not invented recovery."
+    },
+    {
+      "id": "F41_link_contact_frame",
+      "direction": "F41",
+      "request": {
+        "state": [
+          0.2,
+          -0.1,
+          0.5,
+          0,
+          0,
+          1.5707963267948966
+        ],
+        "link": "tool",
+        "local_contact_point_m": [
+          0.04,
+          0,
+          0
+        ],
+        "local_normal": [
+          1,
+          0,
+          0
+        ]
+      },
+      "oracle": "Real MoveIt link transform applied to declared local point/normal: point[.2,-.06,.5], normal[0,1,0], leverarm[0,.04,0]; orthonormal rotation. This finite geometry is not actual grasp/contact force."
+    },
+    {
+      "id": "F41_unknown_contact_frame",
+      "direction": "F41",
+      "request": {
+        "state": [
+          0.2,
+          -0.1,
+          0.5,
+          0,
+          0,
+          0
+        ],
+        "link": "missing_generated_frame",
+        "local_contact_point_m": [
+          0.04,
+          0,
+          0
+        ],
+        "local_normal": [
+          1,
+          0,
+          0
+        ]
+      },
+      "oracle": "Unknown frame typed rejection, no identity/fake base fallback."
+    },
+    {
+      "id": "F42_cartesian_path_finite",
+      "direction": "F42",
+      "request": {
+        "start": [
+          -0.2,
+          0,
+          0.5,
+          0,
+          0,
+          0
+        ],
+        "target_m": [
+          0.2,
+          0,
+          0.5
+        ],
+        "link": "tool",
+        "step_m": 0.02
+      },
+      "oracle": "Actual installed KDL solver and CartesianInterpolator returns full finite fraction1, >1 accepted waypoint, first/last toolpose matching request, bounded variable limits and finite measured jumps."
+    },
+    {
+      "id": "F42_cartesian_out_of_bounds",
+      "direction": "F42",
+      "request": {
+        "start": [
+          -0.2,
+          0,
+          0.5,
+          0,
+          0,
+          0
+        ],
+        "target_m": [
+          2,
+          0,
+          0.5
+        ],
+        "link": "tool",
+        "step_m": 0.02
+      },
+      "oracle": "Actual out-of-bounds target must not return full accepted path; preserve fractional/typed failure and last valid bounds; no physical arm execution."
+    }
+  ]
+}

@@ -1,0 +1,173 @@
+{
+  "schema": "Native.CapabilityEvidence.Bundle.v1",
+  "native_sources": [
+    {
+      "path": "moveit/genuine_native/native/test_moveit_finite.cpp",
+      "sha256": "0d247686f672fbb9f3cc6ae42ff25a4c59de529e10e8ae83444392d53653f93f",
+      "original": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/MOVEIT_FIXTURE_FRESHNESS_actual_closed_private_freeze_20261008_v1/closed_workspace/native/test_moveit_finite.cpp",
+      "source_class": "GENUINE_COMPLETED_NATIVE_SOURCE",
+      "registered_original_path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/CHATGPT_G11_MOVEIT_FIVE_FIXTURE_FRESHNESS_SOURCE_RUN_prepared_20261008_v1/workspace/native/test_moveit_finite.cpp"
+    },
+    {
+      "path": "moveit/genuine_native/native/moveit_fixture.hpp",
+      "sha256": "636f188c85e818877131a722b07a8f784725b52f2e8962a995fb1dbd1cdaf40e",
+      "original": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/MOVEIT_FIXTURE_FRESHNESS_actual_closed_private_freeze_20261008_v1/closed_workspace/native/moveit_fixture.hpp",
+      "source_class": "GENUINE_COMPLETED_NATIVE_SOURCE",
+      "registered_original_path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/CHATGPT_G11_MOVEIT_FIVE_FIXTURE_FRESHNESS_SOURCE_RUN_prepared_20261008_v1/workspace/native/moveit_fixture.hpp"
+    },
+    {
+      "path": "moveit/genuine_native/docs/MOVEIT_FINITE_SCOPE.md",
+      "sha256": "23df1d48289d3ce42ad43f5e92b99e1453d7060d0b4132f4aaa3d732bc3fa796",
+      "original": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/MOVEIT_FIXTURE_FRESHNESS_actual_closed_private_freeze_20261008_v1/closed_workspace/docs/MOVEIT_FINITE_SCOPE.md",
+      "source_class": "GENUINE_COMPLETED_NATIVE_SOURCE",
+      "registered_original_path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/CHATGPT_G11_MOVEIT_FIVE_FIXTURE_FRESHNESS_SOURCE_RUN_prepared_20261008_v1/workspace/docs/MOVEIT_FINITE_SCOPE.md"
+    },
+    {
+      "path": "moveit/genuine_native/reports/evidence.json",
+      "sha256": "1ecb0725bb73caffaed97367b969073f331a0d81953825341048e8496cf8c7f1",
+      "original": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/MOVEIT_FIXTURE_FRESHNESS_actual_closed_private_freeze_20261008_v1/closed_workspace/reports/evidence.json",
+      "source_class": "GENUINE_COMPLETED_NATIVE_SOURCE",
+      "registered_original_path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/CHATGPT_G11_MOVEIT_FIVE_FIXTURE_FRESHNESS_SOURCE_RUN_prepared_20261008_v1/workspace/reports/evidence.json"
+    },
+    {
+      "path": "vla/genuine_native/native/test_vla_grounding_contention.py",
+      "sha256": "d5bee6dc0f66ee55f574e76cd750f07fb4c68f4899c2a5d631f37e860133a145",
+      "original": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/VLA4_actual_closed_private_freeze_20261008_v1/closed_workspace/native/test_vla_grounding_contention.py",
+      "source_class": "GENUINE_COMPLETED_NATIVE_SOURCE",
+      "registered_original_path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/CHATGPT_G11_VLA_GROUNDING_CONTENTION_FOUR_SOURCE_RUN_prepared_20261008_v2/workspace/native/test_vla_grounding_contention.py"
+    },
+    {
+      "path": "vla/genuine_native/docs/VLA_GROUNDING_CONTENTION_SCOPE.md",
+      "sha256": "000a6ee84df89d908630a2afec02506f58a3c4a95b301a4372905c1e62dc111f",
+      "original": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/VLA4_actual_closed_private_freeze_20261008_v1/closed_workspace/docs/VLA_GROUNDING_CONTENTION_SCOPE.md",
+      "source_class": "GENUINE_COMPLETED_NATIVE_SOURCE",
+      "registered_original_path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/CHATGPT_G11_VLA_GROUNDING_CONTENTION_FOUR_SOURCE_RUN_prepared_20261008_v2/workspace/docs/VLA_GROUNDING_CONTENTION_SCOPE.md"
+    },
+    {
+      "path": "vla/genuine_native/reports/evidence.json",
+      "sha256": "c84e3606465e456cb7059b2c855e498c0a6944a5fe327869f4f4e060ff9362d2",
+      "original": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/VLA4_actual_closed_private_freeze_20261008_v1/closed_workspace/reports/evidence.json",
+      "source_class": "GENUINE_COMPLETED_NATIVE_SOURCE",
+      "registered_original_path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/CHATGPT_G11_VLA_GROUNDING_CONTENTION_FOUR_SOURCE_RUN_prepared_20261008_v2/workspace/reports/evidence.json"
+    }
+  ],
+  "files": [
+    {
+      "path": "fixturelib/moveit_case_oracle.py",
+      "size": 7924,
+      "sha256": "dd2b2a8e830f55f280a4b5cce63ef8558de8fb4f3267ef261ede611449248457"
+    },
+    {
+      "path": "fixturelib/vla_four_case_oracle.py",
+      "size": 3978,
+      "sha256": "6a31b868f67cb186f00f1e22e8f9e0d9bac7424b1a5a3c7f241e52d2481049ef"
+    },
+    {
+      "path": "moveit/actual_cases.json",
+      "size": 158659,
+      "sha256": "091094241e5eeb2ff89c25fe1d585149a55d14dd3794333ac5786d02e87a5b6f"
+    },
+    {
+      "path": "moveit/genuine_native/docs/MOVEIT_FINITE_SCOPE.md",
+      "size": 6097,
+      "sha256": "23df1d48289d3ce42ad43f5e92b99e1453d7060d0b4132f4aaa3d732bc3fa796"
+    },
+    {
+      "path": "moveit/genuine_native/native/moveit_fixture.hpp",
+      "size": 9220,
+      "sha256": "636f188c85e818877131a722b07a8f784725b52f2e8962a995fb1dbd1cdaf40e"
+    },
+    {
+      "path": "moveit/genuine_native/native/test_moveit_finite.cpp",
+      "size": 13775,
+      "sha256": "0d247686f672fbb9f3cc6ae42ff25a4c59de529e10e8ae83444392d53653f93f"
+    },
+    {
+      "path": "moveit/genuine_native/reports/evidence.json",
+      "size": 8452,
+      "sha256": "1ecb0725bb73caffaed97367b969073f331a0d81953825341048e8496cf8c7f1"
+    },
+    {
+      "path": "moveit/independent_saved_receipt.json",
+      "size": 5847,
+      "sha256": "ca7c9e67e41b7b276093ab1585d97b2ef8d1b694d1e5c3183194959929881e04"
+    },
+    {
+      "path": "moveit/registered_sources.json",
+      "size": 4965,
+      "sha256": "e24a2ae49d1b8d2bd7b07bd5b76351017be97b575f510164ca760bc4c645c16c"
+    },
+    {
+      "path": "moveit/requests.json",
+      "size": 5466,
+      "sha256": "51e11b6c63c9c6594abc621a97017631d95e366877da6d71f461d1429fb5b69d"
+    },
+    {
+      "path": "vla/genuine_native/docs/VLA_GROUNDING_CONTENTION_SCOPE.md",
+      "size": 2465,
+      "sha256": "000a6ee84df89d908630a2afec02506f58a3c4a95b301a4372905c1e62dc111f"
+    },
+    {
+      "path": "vla/genuine_native/native/test_vla_grounding_contention.py",
+      "size": 9240,
+      "sha256": "d5bee6dc0f66ee55f574e76cd750f07fb4c68f4899c2a5d631f37e860133a145"
+    },
+    {
+      "path": "vla/genuine_native/reports/evidence.json",
+      "size": 12172,
+      "sha256": "c84e3606465e456cb7059b2c855e498c0a6944a5fe327869f4f4e060ff9362d2"
+    },
+    {
+      "path": "vla/independent_saved_receipt.json",
+      "size": 6078,
+      "sha256": "bd8906d05f91f76e337420650c2fe662ea54c1cc85a2ca19dddb3e8aec65948f"
+    },
+    {
+      "path": "vla/model_observations.json",
+      "size": 123718,
+      "sha256": "3cf0aefc21bfed3cbfdaf95aef16c60302938f74465ecc39fe4a498e5b79f66a"
+    },
+    {
+      "path": "vla/model_results.json",
+      "size": 46131,
+      "sha256": "e0453fd92052781a1b8414debe1c95f8a1d46f8ef5c260a141246aa48866367d"
+    },
+    {
+      "path": "vla/profile.json",
+      "size": 1210,
+      "sha256": "7a9475e97437c18f96b6238db1707a3a0c1b7f484c93b196261866b2d2fb2e7c"
+    },
+    {
+      "path": "vla/pure_actual.json",
+      "size": 10989,
+      "sha256": "74055da11741d6b80dab3606686907851c6c0d3796a9ed1815ebdbc7abdce0e0"
+    },
+    {
+      "path": "vla/pure_cases.json",
+      "size": 6201,
+      "sha256": "d35b4e2dc68c448bc82cd0c89edb6db101bc59b2cc9b104edfd0ea417f88fcb2"
+    },
+    {
+      "path": "vla/registered_sources.json",
+      "size": 2582,
+      "sha256": "718046b9190352b8c6d85f6a13cba6d1d2619e1065dc8a30fc0330c27bbd889d"
+    },
+    {
+      "path": "vla/requests.json",
+      "size": 2926,
+      "sha256": "168f87d9facc03fe25951060beb54bba6c2251645cb1ac0635aa1a92abcdcd9f"
+    },
+    {
+      "path": "vla/worker_receipt.json",
+      "size": 1465,
+      "sha256": "bae3cfa3a0d167efc478c2e02683a9220b1b264df14653c85449261d57893d30"
+    }
+  ],
+  "fixture_attribution": "fixturelib oracles are operator-authored finite generated-input acceptance fixtures, not Native robot algorithms.",
+  "scope": [
+    "MoveIt five generated finite library directions",
+    "VLA four bounded model/structured software scopes, raw/profile units physically UNKNOWN",
+    "No new NN/STEP/FK/science permitted"
+  ],
+  "current_scoped_direction_count": 51
+}

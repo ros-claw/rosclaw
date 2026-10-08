@@ -1,0 +1,6144 @@
+{
+  "cases": [
+    {
+      "Native_answer": {
+        "criteria": [
+          {
+            "criterion": "requested arm group matches six declared axes",
+            "passed": true
+          },
+          {
+            "criterion": "13 distinct variables and initialized actual plugins",
+            "passed": true
+          },
+          {
+            "criterion": "floating base seven plus six distinct named variable indices",
+            "passed": true
+          },
+          {
+            "criterion": "positive state has all six variables",
+            "passed": true
+          },
+          {
+            "criterion": "real default-base FK matches mapped translation and rotation",
+            "passed": true
+          }
+        ],
+        "group_variables": [
+          "slide_x",
+          "slide_y",
+          "slide_z",
+          "roll",
+          "pitch",
+          "yaw"
+        ],
+        "passed": true,
+        "tool_position_m": [
+          0.2,
+          -0.1,
+          0.5
+        ]
+      },
+      "case_id": "F38_float_arm_variable_map",
+      "input": {
+        "group": "arm",
+        "state": {
+          "pitch": 0,
+          "roll": 0,
+          "slide_x": 0.2,
+          "slide_y": -0.1,
+          "slide_z": 0.5,
+          "yaw": 0
+        }
+      },
+      "observed_actual_interfaces": [
+        {
+          "api": "RobotModel.metadata",
+          "input": {},
+          "output": {
+            "KDL_joint_names": [
+              "slide_x",
+              "slide_y",
+              "slide_z",
+              "roll",
+              "pitch",
+              "yaw"
+            ],
+            "KDL_loaded": true,
+            "OMPL_loaded": true,
+            "group_variables": [
+              "slide_x",
+              "slide_y",
+              "slide_z",
+              "roll",
+              "pitch",
+              "yaw"
+            ],
+            "joints": [
+              {
+                "first_variable_index": 0,
+                "name": "floating_base",
+                "type": 4,
+                "variables": [
+                  "floating_base/trans_x",
+                  "floating_base/trans_y",
+                  "floating_base/trans_z",
+                  "floating_base/rot_x",
+                  "floating_base/rot_y",
+                  "floating_base/rot_z",
+                  "floating_base/rot_w"
+                ]
+              },
+              {
+                "first_variable_index": 7,
+                "name": "slide_x",
+                "type": 2,
+                "variables": [
+                  "slide_x"
+                ]
+              },
+              {
+                "first_variable_index": 8,
+                "name": "slide_y",
+                "type": 2,
+                "variables": [
+                  "slide_y"
+                ]
+              },
+              {
+                "first_variable_index": 9,
+                "name": "slide_z",
+                "type": 2,
+                "variables": [
+                  "slide_z"
+                ]
+              },
+              {
+                "first_variable_index": 10,
+                "name": "roll",
+                "type": 1,
+                "variables": [
+                  "roll"
+                ]
+              },
+              {
+                "first_variable_index": 11,
+                "name": "pitch",
+                "type": 1,
+                "variables": [
+                  "pitch"
+                ]
+              },
+              {
+                "first_variable_index": 12,
+                "name": "yaw",
+                "type": 1,
+                "variables": [
+                  "yaw"
+                ]
+              }
+            ],
+            "variables": [
+              "floating_base/trans_x",
+              "floating_base/trans_y",
+              "floating_base/trans_z",
+              "floating_base/rot_x",
+              "floating_base/rot_y",
+              "floating_base/rot_z",
+              "floating_base/rot_w",
+              "slide_x",
+              "slide_y",
+              "slide_z",
+              "roll",
+              "pitch",
+              "yaw"
+            ]
+          }
+        },
+        {
+          "api": "RobotState.getGlobalLinkTransform",
+          "input": {
+            "link": "tool",
+            "q": [
+              0.2,
+              -0.1,
+              0.5,
+              0.0,
+              0.0,
+              0.0
+            ]
+          },
+          "output": {
+            "position_m": [
+              0.2,
+              -0.1,
+              0.5
+            ],
+            "rotation": [
+              [
+                1.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                1.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                1.0
+              ]
+            ],
+            "state": {
+              "bounds": true,
+              "q": [
+                0.2,
+                -0.1,
+                0.5,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "tool_position_m": [
+                0.2,
+                -0.1,
+                0.5
+              ],
+              "tool_rotation": [
+                [
+                  1.0,
+                  0.0,
+                  0.0
+                ],
+                [
+                  0.0,
+                  1.0,
+                  0.0
+                ],
+                [
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "Native_answer": {
+        "criteria": [
+          {
+            "criterion": "requested arm group matches six declared axes",
+            "passed": true
+          },
+          {
+            "criterion": "13 distinct variables and initialized actual plugins",
+            "passed": true
+          },
+          {
+            "criterion": "floating base seven plus six distinct named variable indices",
+            "passed": true
+          },
+          {
+            "criterion": "unknown variable rejected before any state assignment",
+            "passed": true
+          }
+        ],
+        "error_code": "UNKNOWN_VARIABLE",
+        "passed": true
+      },
+      "case_id": "F38_unknown_variable_reject",
+      "input": {
+        "group": "arm",
+        "state": {
+          "unknown_generated_joint": 0.2
+        }
+      },
+      "observed_actual_interfaces": [
+        {
+          "api": "RobotModel.metadata",
+          "input": {},
+          "output": {
+            "KDL_joint_names": [
+              "slide_x",
+              "slide_y",
+              "slide_z",
+              "roll",
+              "pitch",
+              "yaw"
+            ],
+            "KDL_loaded": true,
+            "OMPL_loaded": true,
+            "group_variables": [
+              "slide_x",
+              "slide_y",
+              "slide_z",
+              "roll",
+              "pitch",
+              "yaw"
+            ],
+            "joints": [
+              {
+                "first_variable_index": 0,
+                "name": "floating_base",
+                "type": 4,
+                "variables": [
+                  "floating_base/trans_x",
+                  "floating_base/trans_y",
+                  "floating_base/trans_z",
+                  "floating_base/rot_x",
+                  "floating_base/rot_y",
+                  "floating_base/rot_z",
+                  "floating_base/rot_w"
+                ]
+              },
+              {
+                "first_variable_index": 7,
+                "name": "slide_x",
+                "type": 2,
+                "variables": [
+                  "slide_x"
+                ]
+              },
+              {
+                "first_variable_index": 8,
+                "name": "slide_y",
+                "type": 2,
+                "variables": [
+                  "slide_y"
+                ]
+              },
+              {
+                "first_variable_index": 9,
+                "name": "slide_z",
+                "type": 2,
+                "variables": [
+                  "slide_z"
+                ]
+              },
+              {
+                "first_variable_index": 10,
+                "name": "roll",
+                "type": 1,
+                "variables": [
+                  "roll"
+                ]
+              },
+              {
+                "first_variable_index": 11,
+                "name": "pitch",
+                "type": 1,
+                "variables": [
+                  "pitch"
+                ]
+              },
+              {
+                "first_variable_index": 12,
+                "name": "yaw",
+                "type": 1,
+                "variables": [
+                  "yaw"
+                ]
+              }
+            ],
+            "variables": [
+              "floating_base/trans_x",
+              "floating_base/trans_y",
+              "floating_base/trans_z",
+              "floating_base/rot_x",
+              "floating_base/rot_y",
+              "floating_base/rot_z",
+              "floating_base/rot_w",
+              "slide_x",
+              "slide_y",
+              "slide_z",
+              "roll",
+              "pitch",
+              "yaw"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "Native_answer": {
+        "collision": false,
+        "criteria": [
+          {
+            "criterion": "actual current sphere retains exact object identity pose radius",
+            "passed": true
+          },
+          {
+            "criterion": "actual collision queried at requested bounded FK state",
+            "passed": true
+          },
+          {
+            "criterion": "FCL classification matches independently computed sphere separation",
+            "passed": true
+          }
+        ],
+        "passed": true,
+        "sphere_surface_separation_m": 0.43999999999999995,
+        "world_object": {
+          "center_m": [
+            0.6,
+            0.0,
+            0.5
+          ],
+          "id": "generated_obstacle",
+          "radius_m": 0.12,
+          "world_contains": true
+        }
+      },
+      "case_id": "F39_world_object_identity_free",
+      "input": {
+        "object_id": "generated_obstacle",
+        "sphere_center": [
+          0.6,
+          0,
+          0.5
+        ],
+        "sphere_radius": 0.12,
+        "state": [
+          0,
+          0,
+          0.5,
+          0,
+          0,
+          0
+        ]
+      },
+      "observed_actual_interfaces": [
+        {
+          "api": "PlanningScene.processCollisionObjectMsg",
+          "input": {
+            "center_m": [
+              0.6,
+              0.0,
+              0.5
+            ],
+            "id": "generated_obstacle",
+            "radius_m": 0.12
+          },
+          "output": {
+            "center_m": [
+              0.6,
+              0.0,
+              0.5
+            ],
+            "id": "generated_obstacle",
+            "radius_m": 0.12,
+            "world_contains": true
+          }
+        },
+        {
+          "api": "PlanningScene.checkCollision",
+          "input": {
+            "q": [
+              0.0,
+              0.0,
+              0.5,
+              0.0,
+              0.0,
+              0.0
+            ]
+          },
+          "output": {
+            "collision": false,
+            "state": {
+              "bounds": true,
+              "q": [
+                0.0,
+                0.0,
+                0.5,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "tool_position_m": [
+                0.0,
+                0.0,
+                0.5
+              ],
+              "tool_rotation": [
+                [
+                  1.0,
+                  0.0,
+                  0.0
+                ],
+                [
+                  0.0,
+                  1.0,
+                  0.0
+                ],
+                [
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "Native_answer": {
+        "collision": true,
+        "criteria": [
+          {
+            "criterion": "actual current sphere retains exact object identity pose radius",
+            "passed": true
+          },
+          {
+            "criterion": "actual collision queried at requested bounded FK state",
+            "passed": true
+          },
+          {
+            "criterion": "FCL classification matches independently computed sphere separation",
+            "passed": true
+          }
+        ],
+        "passed": true,
+        "sphere_surface_separation_m": -0.16,
+        "world_object": {
+          "center_m": [
+            0.0,
+            0.0,
+            0.5
+          ],
+          "id": "generated_obstacle",
+          "radius_m": 0.12,
+          "world_contains": true
+        }
+      },
+      "case_id": "F39_changed_pose_collision",
+      "input": {
+        "object_id": "generated_obstacle",
+        "sphere_center": [
+          0,
+          0,
+          0.5
+        ],
+        "sphere_radius": 0.12,
+        "state": [
+          0,
+          0,
+          0.5,
+          0,
+          0,
+          0
+        ]
+      },
+      "observed_actual_interfaces": [
+        {
+          "api": "PlanningScene.processCollisionObjectMsg",
+          "input": {
+            "center_m": [
+              0.0,
+              0.0,
+              0.5
+            ],
+            "id": "generated_obstacle",
+            "radius_m": 0.12
+          },
+          "output": {
+            "center_m": [
+              0.0,
+              0.0,
+              0.5
+            ],
+            "id": "generated_obstacle",
+            "radius_m": 0.12,
+            "world_contains": true
+          }
+        },
+        {
+          "api": "PlanningScene.checkCollision",
+          "input": {
+            "q": [
+              0.0,
+              0.0,
+              0.5,
+              0.0,
+              0.0,
+              0.0
+            ]
+          },
+          "output": {
+            "collision": true,
+            "state": {
+              "bounds": true,
+              "q": [
+                0.0,
+                0.0,
+                0.5,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "tool_position_m": [
+                0.0,
+                0.0,
+                0.5
+              ],
+              "tool_rotation": [
+                [
+                  1.0,
+                  0.0,
+                  0.0
+                ],
+                [
+                  0.0,
+                  1.0,
+                  0.0
+                ],
+                [
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "Native_answer": {
+        "baseline": {
+          "error_code": 1,
+          "max_transverse_detour_m": 1.2423801012832079e-06,
+          "point_count": 7,
+          "translation_length_m": 1.1999998283145759
+        },
+        "criteria": [
+          {
+            "criterion": "baseline solved with finite waypoint count",
+            "passed": true
+          },
+          {
+            "criterion": "baseline endpoint constraints",
+            "passed": true
+          },
+          {
+            "criterion": "baseline finite bounded states and independent generated FK",
+            "passed": true
+          },
+          {
+            "criterion": "baseline every actual waypoint checked in current FCL scene",
+            "passed": true
+          },
+          {
+            "criterion": "replan scene contains requested obstacle",
+            "passed": true
+          },
+          {
+            "criterion": "obstacle solved with finite waypoint count",
+            "passed": true
+          },
+          {
+            "criterion": "obstacle endpoint constraints",
+            "passed": true
+          },
+          {
+            "criterion": "obstacle finite bounded states and independent generated FK",
+            "passed": true
+          },
+          {
+            "criterion": "obstacle every actual waypoint checked in current FCL scene",
+            "passed": true
+          },
+          {
+            "criterion": "obstacle analytic swept tool-sphere segment clearance",
+            "passed": true
+          },
+          {
+            "criterion": "new actual trajectory differs and has positive obstacle detour",
+            "passed": true
+          }
+        ],
+        "obstacle": {
+          "error_code": 1,
+          "max_transverse_detour_m": 0.19884942580874054,
+          "minimum_segment_clearance_m": 0.018468295336961232,
+          "point_count": 19,
+          "translation_length_m": 1.3147489991004409
+        },
+        "passed": true
+      },
+      "case_id": "F40_obstacle_replan",
+      "input": {
+        "goal": [
+          0.6,
+          0,
+          0.5,
+          0,
+          0,
+          0
+        ],
+        "obstacle_center": [
+          0,
+          0,
+          0.5
+        ],
+        "obstacle_radius": 0.12,
+        "planning_time_s": 0.5,
+        "start": [
+          -0.6,
+          0,
+          0.5,
+          0,
+          0,
+          0
+        ]
+      },
+      "observed_actual_interfaces": [
+        {
+          "api": "World.clearObjects",
+          "input": {},
+          "output": {}
+        },
+        {
+          "api": "OMPLPlanner.getPlanningContext.solve",
+          "input": {
+            "goal": [
+              0.6,
+              0.0,
+              0.5,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "planning_time_s": 0.5,
+            "start": [
+              -0.6,
+              0.0,
+              0.5,
+              0.0,
+              0.0,
+              0.0
+            ]
+          },
+          "output": {
+            "error_code": 1,
+            "points": [
+              {
+                "bounds": true,
+                "q": [
+                  -0.6,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  -0.6,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  -0.4000000286143446,
+                  -1.491433214396238e-07,
+                  0.4999998563633032,
+                  -1.515914180781692e-07,
+                  1.6186922315197684e-07,
+                  -5.339767512244482e-08
+                ],
+                "tool_position_m": [
+                  -0.4000000286143446,
+                  -1.491433214396238e-07,
+                  0.4999998563633032
+                ],
+                "tool_rotation": [
+                  [
+                    0.9999999999999855,
+                    5.339767512244409e-08,
+                    1.6186922315197613e-07
+                  ],
+                  [
+                    -5.339769966042926e-08,
+                    0.9999999999999871,
+                    1.5159141807816664e-07
+                  ],
+                  [
+                    -1.6186921505734476e-07,
+                    -1.515914267216086e-07,
+                    0.9999999999999755
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  -0.20000005722868913,
+                  -2.982866428792476e-07,
+                  0.49999971272660637,
+                  -3.031828361563384e-07,
+                  3.237384463039537e-07,
+                  -1.0679535024488964e-07
+                ],
+                "tool_position_m": [
+                  -0.20000005722868913,
+                  -2.982866428792476e-07,
+                  0.49999971272660637
+                ],
+                "tool_rotation": [
+                  [
+                    0.9999999999999419,
+                    1.0679535024488384e-07,
+                    3.23738446303948e-07
+                  ],
+                  [
+                    -1.0679544839682485e-07,
+                    0.9999999999999484,
+                    3.031828361563179e-07
+                  ],
+                  [
+                    -3.237384139254141e-07,
+                    -3.031828707300928e-07,
+                    0.9999999999999016
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  -8.584303368142088e-08,
+                  -4.474299643188715e-07,
+                  0.49999956908990956,
+                  -4.5477425423450765e-07,
+                  4.856076694559306e-07,
+                  -1.6019302536733447e-07
+                ],
+                "tool_position_m": [
+                  -8.584303368142088e-08,
+                  -4.474299643188715e-07,
+                  0.49999956908990956
+                ],
+                "tool_rotation": [
+                  [
+                    0.9999999999998692,
+                    1.6019302536731488e-07,
+                    4.856076694559115e-07
+                  ],
+                  [
+                    -1.6019324620918294e-07,
+                    0.9999999999998838,
+                    4.5477425423443835e-07
+                  ],
+                  [
+                    -4.856075966041914e-07,
+                    -4.547743320254478e-07,
+                    0.9999999999997787
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.1999998855426217,
+                  -5.965732857584952e-07,
+                  0.49999942545321274,
+                  -6.063656723126768e-07,
+                  6.474768926079074e-07,
+                  -2.1359070048977927e-07
+                ],
+                "tool_position_m": [
+                  0.1999998855426217,
+                  -5.965732857584952e-07,
+                  0.49999942545321274
+                ],
+                "tool_rotation": [
+                  [
+                    0.9999999999997676,
+                    2.135907004897329e-07,
+                    6.474768926078622e-07
+                  ],
+                  [
+                    -2.1359109309749968e-07,
+                    0.9999999999997934,
+                    6.063656723125126e-07
+                  ],
+                  [
+                    -6.474767630936598e-07,
+                    -6.063658106076689e-07,
+                    0.9999999999996065
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.3999998569282772,
+                  -7.457166071981192e-07,
+                  0.49999928181651593,
+                  -7.579570903908461e-07,
+                  8.093461157598843e-07,
+                  -2.669883756122241e-07
+                ],
+                "tool_position_m": [
+                  0.3999998569282772,
+                  -7.457166071981192e-07,
+                  0.49999928181651593
+                ],
+                "tool_rotation": [
+                  [
+                    0.9999999999996368,
+                    2.6698837561213347e-07,
+                    8.093461157597959e-07
+                  ],
+                  [
+                    -2.669889890617713e-07,
+                    0.9999999999996771,
+                    7.579570903905253e-07
+                  ],
+                  [
+                    -8.093459133938023e-07,
+                    -7.579573064767513e-07,
+                    0.9999999999993853
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.5999998283139327,
+                  -8.94859928637743e-07,
+                  0.4999991381798191,
+                  -9.095485084690153e-07,
+                  9.71215338911861e-07,
+                  -3.2038605073466894e-07
+                ],
+                "tool_position_m": [
+                  0.5999998283139327,
+                  -8.94859928637743e-07,
+                  0.4999991381798191
+                ],
+                "tool_rotation": [
+                  [
+                    0.9999999999994771,
+                    3.2038605073451234e-07,
+                    9.712153389117084e-07
+                  ],
+                  [
+                    -3.203869341019938e-07,
+                    0.999999999999535,
+                    9.09548508468461e-07
+                  ],
+                  [
+                    -9.712150475046023e-07,
+                    -9.095488196326901e-07,
+                    0.9999999999991147
+                  ]
+                ]
+              }
+            ],
+            "solved": true
+          }
+        },
+        {
+          "api": "PlanningScene.checkCollision",
+          "input": {
+            "q": [
+              -0.6,
+              0.0,
+              0.5,
+              0.0,
+              0.0,
+              0.0
+            ]
+          },
+          "output": {
+            "collision": false,
+            "state": {
+              "bounds": true,
+              "q": [
+                -0.6,
+                0.0,
+                0.5,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "tool_position_m": [
+                -0.6,
+                0.0,
+                0.5
+              ],
+              "tool_rotation": [
+                [
+                  1.0,
+                  0.0,
+                  0.0
+                ],
+                [
+                  0.0,
+                  1.0,
+                  0.0
+                ],
+                [
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              ]
+            }
+          }
+        },
+        {
+          "api": "PlanningScene.checkCollision",
+          "input": {
+            "q": [
+              -0.4000000286143446,
+              -1.491433214396238e-07,
+              0.4999998563633032,
+              -1.515914180781692e-07,
+              1.6186922315197684e-07,
+              -5.339767512244482e-08
+            ]
+          },
+          "output": {
+            "collision": false,
+            "state": {
+              "bounds": true,
+              "q": [
+                -0.4000000286143446,
+                -1.491433214396238e-07,
+                0.4999998563633032,
+                -1.515914180781692e-07,
+                1.6186922315197684e-07,
+                -5.339767512244482e-08
+              ],
+              "tool_position_m": [
+                -0.4000000286143446,
+                -1.491433214396238e-07,
+                0.4999998563633032
+              ],
+              "tool_rotation": [
+                [
+                  0.9999999999999855,
+                  5.339767512244409e-08,
+                  1.6186922315197613e-07
+                ],
+                [
+                  -5.339769966042926e-08,
+                  0.9999999999999871,
+                  1.5159141807816664e-07
+                ],
+                [
+                  -1.6186921505734476e-07,
+                  -1.515914267216086e-07,
+                  0.9999999999999755
+                ]
+              ]
+            }
+          }
+        },
+        {
+          "api": "PlanningScene.checkCollision",
+          "input": {
+            "q": [
+              -0.20000005722868913,
+              -2.982866428792476e-07,
+              0.49999971272660637,
+              -3.031828361563384e-07,
+              3.237384463039537e-07,
+              -1.0679535024488964e-07
+            ]
+          },
+          "output": {
+            "collision": false,
+            "state": {
+              "bounds": true,
+              "q": [
+                -0.20000005722868913,
+                -2.982866428792476e-07,
+                0.49999971272660637,
+                -3.031828361563384e-07,
+                3.237384463039537e-07,
+                -1.0679535024488964e-07
+              ],
+              "tool_position_m": [
+                -0.20000005722868913,
+                -2.982866428792476e-07,
+                0.49999971272660637
+              ],
+              "tool_rotation": [
+                [
+                  0.9999999999999419,
+                  1.0679535024488384e-07,
+                  3.23738446303948e-07
+                ],
+                [
+                  -1.0679544839682485e-07,
+                  0.9999999999999484,
+                  3.031828361563179e-07
+                ],
+                [
+                  -3.237384139254141e-07,
+                  -3.031828707300928e-07,
+                  0.9999999999999016
+                ]
+              ]
+            }
+          }
+        },
+        {
+          "api": "PlanningScene.checkCollision",
+          "input": {
+            "q": [
+              -8.584303368142088e-08,
+              -4.474299643188715e-07,
+              0.49999956908990956,
+              -4.5477425423450765e-07,
+              4.856076694559306e-07,
+              -1.6019302536733447e-07
+            ]
+          },
+          "output": {
+            "collision": false,
+            "state": {
+              "bounds": true,
+              "q": [
+                -8.584303368142088e-08,
+                -4.474299643188715e-07,
+                0.49999956908990956,
+                -4.5477425423450765e-07,
+                4.856076694559306e-07,
+                -1.6019302536733447e-07
+              ],
+              "tool_position_m": [
+                -8.584303368142088e-08,
+                -4.474299643188715e-07,
+                0.49999956908990956
+              ],
+              "tool_rotation": [
+                [
+                  0.9999999999998692,
+                  1.6019302536731488e-07,
+                  4.856076694559115e-07
+                ],
+                [
+                  -1.6019324620918294e-07,
+                  0.9999999999998838,
+                  4.5477425423443835e-07
+                ],
+                [
+                  -4.856075966041914e-07,
+                  -4.547743320254478e-07,
+                  0.9999999999997787
+                ]
+              ]
+            }
+          }
+        },
+        {
+          "api": "PlanningScene.checkCollision",
+          "input": {
+            "q": [
+              0.1999998855426217,
+              -5.965732857584952e-07,
+              0.49999942545321274,
+              -6.063656723126768e-07,
+              6.474768926079074e-07,
+              -2.1359070048977927e-07
+            ]
+          },
+          "output": {
+            "collision": false,
+            "state": {
+              "bounds": true,
+              "q": [
+                0.1999998855426217,
+                -5.965732857584952e-07,
+                0.49999942545321274,
+                -6.063656723126768e-07,
+                6.474768926079074e-07,
+                -2.1359070048977927e-07
+              ],
+              "tool_position_m": [
+                0.1999998855426217,
+                -5.965732857584952e-07,
+                0.49999942545321274
+              ],
+              "tool_rotation": [
+                [
+                  0.9999999999997676,
+                  2.135907004897329e-07,
+                  6.474768926078622e-07
+                ],
+                [
+                  -2.1359109309749968e-07,
+                  0.9999999999997934,
+                  6.063656723125126e-07
+                ],
+                [
+                  -6.474767630936598e-07,
+                  -6.063658106076689e-07,
+                  0.9999999999996065
+                ]
+              ]
+            }
+          }
+        },
+        {
+          "api": "PlanningScene.checkCollision",
+          "input": {
+            "q": [
+              0.3999998569282772,
+              -7.457166071981192e-07,
+              0.49999928181651593,
+              -7.579570903908461e-07,
+              8.093461157598843e-07,
+              -2.669883756122241e-07
+            ]
+          },
+          "output": {
+            "collision": false,
+            "state": {
+              "bounds": true,
+              "q": [
+                0.3999998569282772,
+                -7.457166071981192e-07,
+                0.49999928181651593,
+                -7.579570903908461e-07,
+                8.093461157598843e-07,
+                -2.669883756122241e-07
+              ],
+              "tool_position_m": [
+                0.3999998569282772,
+                -7.457166071981192e-07,
+                0.49999928181651593
+              ],
+              "tool_rotation": [
+                [
+                  0.9999999999996368,
+                  2.6698837561213347e-07,
+                  8.093461157597959e-07
+                ],
+                [
+                  -2.669889890617713e-07,
+                  0.9999999999996771,
+                  7.579570903905253e-07
+                ],
+                [
+                  -8.093459133938023e-07,
+                  -7.579573064767513e-07,
+                  0.9999999999993853
+                ]
+              ]
+            }
+          }
+        },
+        {
+          "api": "PlanningScene.checkCollision",
+          "input": {
+            "q": [
+              0.5999998283139327,
+              -8.94859928637743e-07,
+              0.4999991381798191,
+              -9.095485084690153e-07,
+              9.71215338911861e-07,
+              -3.2038605073466894e-07
+            ]
+          },
+          "output": {
+            "collision": false,
+            "state": {
+              "bounds": true,
+              "q": [
+                0.5999998283139327,
+                -8.94859928637743e-07,
+                0.4999991381798191,
+                -9.095485084690153e-07,
+                9.71215338911861e-07,
+                -3.2038605073466894e-07
+              ],
+              "tool_position_m": [
+                0.5999998283139327,
+                -8.94859928637743e-07,
+                0.4999991381798191
+              ],
+              "tool_rotation": [
+                [
+                  0.9999999999994771,
+                  3.2038605073451234e-07,
+                  9.712153389117084e-07
+                ],
+                [
+                  -3.203869341019938e-07,
+                  0.999999999999535,
+                  9.09548508468461e-07
+                ],
+                [
+                  -9.712150475046023e-07,
+                  -9.095488196326901e-07,
+                  0.9999999999991147
+                ]
+              ]
+            }
+          }
+        },
+        {
+          "api": "PlanningScene.processCollisionObjectMsg",
+          "input": {
+            "center_m": [
+              0.0,
+              0.0,
+              0.5
+            ],
+            "id": "generated_obstacle",
+            "radius_m": 0.12
+          },
+          "output": {
+            "center_m": [
+              0.0,
+              0.0,
+              0.5
+            ],
+            "id": "generated_obstacle",
+            "radius_m": 0.12,
+            "world_contains": true
+          }
+        },
+        {
+          "api": "OMPLPlanner.getPlanningContext.solve",
+          "input": {
+            "goal": [
+              0.6,
+              0.0,
+              0.5,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "planning_time_s": 0.5,
+            "start": [
+              -0.6,
+              0.0,
+              0.5,
+              0.0,
+              0.0,
+              0.0
+            ]
+          },
+          "output": {
+            "error_code": 1,
+            "points": [
+              {
+                "bounds": true,
+                "q": [
+                  -0.6,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  -0.6,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  -0.5574513213941514,
+                  -0.023738253304879362,
+                  0.5116607163919136,
+                  0.05848274105456162,
+                  0.007044188800002547,
+                  -0.03362481193178583
+                ],
+                "tool_position_m": [
+                  -0.5574513213941514,
+                  -0.023738253304879362,
+                  0.5116607163919136
+                ],
+                "tool_rotation": [
+                  [
+                    0.999409943101482,
+                    0.03361764201682677,
+                    0.007044130544006159
+                  ],
+                  [
+                    -0.03314950846751899,
+                    0.9977399190940124,
+                    -0.05844795919991848
+                  ],
+                  [
+                    -0.008993092808061322,
+                    0.05817996211327343,
+                    0.998265604080519
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  -0.5149026427883028,
+                  -0.047476506609758724,
+                  0.5233214327838273,
+                  0.11696548210912323,
+                  0.014088377600005093,
+                  -0.06724962386357165
+                ],
+                "tool_position_m": [
+                  -0.5149026427883028,
+                  -0.047476506609758724,
+                  0.5233214327838273
+                ],
+                "tool_rotation": [
+                  [
+                    0.9976405809009466,
+                    0.06719227699390735,
+                    0.014087911555502817
+                  ],
+                  [
+                    -0.06509946927919197,
+                    0.9910328518824395,
+                    -0.11668738401955159
+                  ],
+                  [
+                    -0.021802074194653683,
+                    0.11549495401156187,
+                    0.9930687716158826
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  -0.47235396418245423,
+                  -0.07121475991463809,
+                  0.5349821491757408,
+                  0.17544822316368486,
+                  0.02113256640000764,
+                  -0.10087443579535749
+                ],
+                "tool_position_m": [
+                  -0.47235396418245423,
+                  -0.07121475991463809,
+                  0.5349821491757408
+                ],
+                "tool_rotation": [
+                  [
+                    0.9946943376646092,
+                    0.10068096012082259,
+                    0.02113099351932441
+                  ],
+                  [
+                    -0.0954878324342988,
+                    0.9800143627333869,
+                    -0.17451052315912857
+                  ],
+                  [
+                    -0.03827856417061216,
+                    0.17156687648093036,
+                    0.9844285440902317
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  -0.4298052855766057,
+                  -0.09495301321951745,
+                  0.5466428655676544,
+                  0.23393096421824647,
+                  0.028176755200010187,
+                  -0.1344992477271433
+                ],
+                "tool_position_m": [
+                  -0.4298052855766057,
+                  -0.09495301321951745,
+                  0.5466428655676544
+                ],
+                "tool_rotation": [
+                  [
+                    0.9905752497752902,
+                    0.13404087094917913,
+                    0.028173026954992398
+                  ],
+                  [
+                    -0.12397011990875638,
+                    0.964853011879587,
+                    -0.2317111884150135
+                  ],
+                  [
+                    -0.05824159941510697,
+                    0.22603475481012833,
+                    0.972376576083307
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  -0.38725660697075703,
+                  -0.11869126652439682,
+                  0.5583035819595681,
+                  0.29241370527280813,
+                  0.03522094400001274,
+                  -0.16812405965892915
+                ],
+                "tool_position_m": [
+                  -0.38725660697075703,
+                  -0.11869126652439682,
+                  0.5583035819595681
+                ],
+                "tool_rotation": [
+                  [
+                    0.985288959647869,
+                    0.1672293753322073,
+                    0.03521366243405662
+                  ],
+                  [
+                    -0.1502222898538129,
+                    0.9457483766071522,
+                    -0.28808552857790887
+                  ],
+                  [
+                    -0.08147962706773376,
+                    0.2785576137371511,
+                    0.9569570137691489
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  -0.3447079283649085,
+                  -0.14242951982927618,
+                  0.5699642983514817,
+                  0.3508964463273697,
+                  0.04226513280001528,
+                  -0.20174887159071497
+                ],
+                "tool_position_m": [
+                  -0.3447079283649085,
+                  -0.14242951982927618,
+                  0.5699642983514817
+                ],
+                "tool_rotation": [
+                  [
+                    0.9788427072244238,
+                    0.20020408707509507,
+                    0.04225255059743404
+                  ],
+                  [
+                    -0.1739433823543926,
+                    0.9229288247816512,
+                    -0.343432794185811
+                  ],
+                  [
+                    -0.10775274589853637,
+                    0.3288171344464698,
+                    0.9382263254917427
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  -0.20684811488622826,
+                  -0.14963933352566935,
+                  0.5735059619525971,
+                  0.36865899564851407,
+                  0.04440460559325909,
+                  -0.21196149300193998
+                ],
+                "tool_position_m": [
+                  -0.20684811488622826,
+                  -0.14963933352566935,
+                  0.5735059619525971
+                ],
+                "tool_rotation": [
+                  [
+                    0.976656478703472,
+                    0.2101705241598816,
+                    0.044390014427741695
+                  ],
+                  [
+                    -0.1806043099860745,
+                    0.9153005778323274,
+                    -0.36000963241871936
+                  ],
+                  [
+                    -0.11629361900374588,
+                    0.3435887119714036,
+                    0.9318919417962812
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  -0.068988301407548,
+                  -0.1568491472220625,
+                  0.5770476255537125,
+                  0.3864215449696584,
+                  0.046544078386502895,
+                  -0.22217411441316498
+                ],
+                "tool_position_m": [
+                  -0.068988301407548,
+                  -0.1568491472220625,
+                  0.5770476255537125
+                ],
+                "tool_rotation": [
+                  [
+                    0.9743643259340098,
+                    0.2201121828108223,
+                    0.04652727506976806
+                  ],
+                  [
+                    -0.18699892142661875,
+                    0.907360555853751,
+                    -0.37646809302523027
+                  ],
+                  [
+                    -0.12508222788407625,
+                    0.35811652944122435,
+                    0.925260497162031
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.06887151207113221,
+                  -0.16405896091845568,
+                  0.5805892891548279,
+                  0.4041840942908027,
+                  0.04868355117974671,
+                  -0.23238673582438996
+                ],
+                "tool_position_m": [
+                  0.06887151207113221,
+                  -0.16405896091845568,
+                  0.5805892891548279
+                ],
+                "tool_rotation": [
+                  [
+                    0.9719665383963813,
+                    0.2300278938084692,
+                    0.04866432274054006
+                  ],
+                  [
+                    -0.1931202313348741,
+                    0.8991165400160425,
+                    -0.392802779672885
+                  ],
+                  [
+                    -0.13411049357496432,
+                    0.3723930927657224,
+                    0.9183342310800897
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.2067313255498125,
+                  -0.17126877461484882,
+                  0.5841309527559433,
+                  0.42194664361194706,
+                  0.050823023972990516,
+                  -0.24259935723561496
+                ],
+                "tool_position_m": [
+                  0.2067313255498125,
+                  -0.17126877461484882,
+                  0.5841309527559433
+                ],
+                "tool_rotation": [
+                  [
+                    0.9694634188836186,
+                    0.23991649139462937,
+                    0.05080114765805944
+                  ],
+                  [
+                    -0.19896149988591014,
+                    0.8905764988469862,
+                    -0.40900833886926186
+                  ],
+                  [
+                    -0.14337015383138227,
+                    0.3864111500181312,
+                    0.911115482324843
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.3445911390284927,
+                  -0.178478588311242,
+                  0.5876726163570587,
+                  0.4397091929330914,
+                  0.052962496766234324,
+                  -0.25281197864683996
+                ],
+                "tool_position_m": [
+                  0.3445911390284927,
+                  -0.178478588311242,
+                  0.5876726163570587
+                ],
+                "tool_rotation": [
+                  [
+                    0.9668552834593532,
+                    0.24977681342760463,
+                    0.052937740041347575
+                  ],
+                  [
+                    -0.20451623743238637,
+                    0.8817485808176257,
+                    -0.42507946180990996
+                  ],
+                  [
+                    -0.1528527705775511,
+                    0.40016369612953967,
+                    0.9036066881263728
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.38107806587745874,
+                  -0.15298154530358513,
+                  0.5751479870608152,
+                  0.3768937048574391,
+                  0.04539656608767439,
+                  -0.21669609340619908
+                ],
+                "tool_position_m": [
+                  0.38107806587745874,
+                  -0.15298154530358513,
+                  0.5751479870608152
+                ],
+                "tool_rotation": [
+                  [
+                    0.9756069790624421,
+                    0.21478265642646038,
+                    0.045380975122278795
+                  ],
+                  [
+                    -0.18360238569600482,
+                    0.9116578870854589,
+                    -0.36765481212900253
+                  ],
+                  [
+                    -0.12033780109089284,
+                    0.3503545453012844,
+                    0.9288544052839169
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.4175649927264248,
+                  -0.12748450229592825,
+                  0.5626233577645715,
+                  0.3140782167817868,
+                  0.037830635409114445,
+                  -0.1805802081655582
+                ],
+                "tool_position_m": [
+                  0.4175649927264248,
+                  -0.12748450229592825,
+                  0.5626233577645715
+                ],
+                "tool_rotation": [
+                  [
+                    0.9830357937896091,
+                    0.17947187456387584,
+                    0.037821612458509624
+                  ],
+                  [
+                    -0.1593199969943981,
+                    0.9377152017522529,
+                    -0.30871886719220226
+                  ],
+                  [
+                    -0.09087225476534763,
+                    0.2974559574849024,
+                    0.9504010662192051
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.4540519195753908,
+                  -0.10198745928827138,
+                  0.550098728468328,
+                  0.25126272870613453,
+                  0.03026470473055451,
+                  -0.14446432292491732
+                ],
+                "tool_position_m": [
+                  0.4540519195753908,
+                  -0.10198745928827138,
+                  0.550098728468328
+                ],
+                "tool_rotation": [
+                  [
+                    0.9891299942592873,
+                    0.14389642707962083,
+                    0.030260084770893817
+                  ],
+                  [
+                    -0.13199671647155806,
+                    0.9595926049728276,
+                    -0.24851337855775488
+                  ],
+                  [
+                    -0.06479754082794677,
+                    0.2418178048762792,
+                    0.9681556837345263
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.49053884642435686,
+                  -0.07649041628061451,
+                  0.5375740991720844,
+                  0.18844724063048227,
+                  0.02269877405199457,
+                  -0.10834843768427642
+                ],
+                "tool_position_m": [
+                  0.49053884642435686,
+                  -0.07649041628061451,
+                  0.5375740991720844
+                ],
+                "tool_rotation": [
+                  [
+                    0.9938799524721863,
+                    0.10810871478817988,
+                    0.022696824904217625
+                  ],
+                  [
+                    -0.10199520360980585,
+                    0.9769959493190377,
+                    -0.18728559329213385
+                  ],
+                  [
+                    -0.042421910782978425,
+                    0.18382442928250942,
+                    0.9820432580515385
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.5270257732733229,
+                  -0.05099337327295764,
+                  0.5250494698758409,
+                  0.12563175255482995,
+                  0.015132843373434629,
+                  -0.07223255244363552
+                ],
+                "tool_position_m": [
+                  0.5270257732733229,
+                  -0.05099337327295764,
+                  0.5250494698758409
+                ],
+                "tool_rotation": [
+                  [
+                    0.9972781625506983,
+                    0.07216149271729178,
+                    0.015132265802422494
+                  ],
+                  [
+                    -0.06970981325639908,
+                    0.9896684612666324,
+                    -0.12528718493881918
+                  ],
+                  [
+                    -0.02401683649569374,
+                    0.12389130616370204,
+                    0.9920051087679896
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.5635127001222889,
+                  -0.025496330265300772,
+                  0.5125248405795972,
+                  0.06281626447917768,
+                  0.007566912694874693,
+                  -0.036116667202994654
+                ],
+                "tool_position_m": [
+                  0.5635127001222889,
+                  -0.025496330265300772,
+                  0.5125248405795972
+                ],
+                "tool_rotation": [
+                  [
+                    0.9993192537903185,
+                    0.0361077821120818,
+                    0.007566840483822044
+                  ],
+                  [
+                    -0.035562900357505936,
+                    0.9973940093743032,
+                    -0.06277316450852571
+                  ],
+                  [
+                    -0.009813721115014773,
+                    0.06246133312056951,
+                    0.997999134640245
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.599999626971255,
+                  7.127423561178148e-07,
+                  0.5000002112833537,
+                  7.76403525378555e-07,
+                  9.820163147523999e-07,
+                  -7.819623537361622e-07
+                ],
+                "tool_position_m": [
+                  0.599999626971255,
+                  7.127423561178148e-07,
+                  0.5000002112833537
+                ],
+                "tool_rotation": [
+                  [
+                    0.9999999999992121,
+                    7.819623537357054e-07,
+                    9.82016314752242e-07
+                  ],
+                  [
+                    -7.81961591294918e-07,
+                    0.9999999999993928,
+                    -7.764035253781026e-07
+                  ],
+                  [
+                    -9.82016921869974e-07,
+                    7.764027574784506e-07,
+                    0.9999999999992164
+                  ]
+                ]
+              }
+            ],
+            "solved": true
+          }
+        },
+        {
+          "api": "PlanningScene.checkCollision",
+          "input": {
+            "q": [
+              -0.6,
+              0.0,
+              0.5,
+              0.0,
+              0.0,
+              0.0
+            ]
+          },
+          "output": {
+            "collision": false,
+            "state": {
+              "bounds": true,
+              "q": [
+                -0.6,
+                0.0,
+                0.5,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "tool_position_m": [
+                -0.6,
+                0.0,
+                0.5
+              ],
+              "tool_rotation": [
+                [
+                  1.0,
+                  0.0,
+                  0.0
+                ],
+                [
+                  0.0,
+                  1.0,
+                  0.0
+                ],
+                [
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              ]
+            }
+          }
+        },
+        {
+          "api": "PlanningScene.checkCollision",
+          "input": {
+            "q": [
+              -0.5574513213941514,
+              -0.023738253304879362,
+              0.5116607163919136,
+              0.05848274105456162,
+              0.007044188800002547,
+              -0.03362481193178583
+            ]
+          },
+          "output": {
+            "collision": false,
+            "state": {
+              "bounds": true,
+              "q": [
+                -0.5574513213941514,
+                -0.023738253304879362,
+                0.5116607163919136,
+                0.05848274105456162,
+                0.007044188800002547,
+                -0.03362481193178583
+              ],
+              "tool_position_m": [
+                -0.5574513213941514,
+                -0.023738253304879362,
+                0.5116607163919136
+              ],
+              "tool_rotation": [
+                [
+                  0.999409943101482,
+                  0.03361764201682677,
+                  0.007044130544006159
+                ],
+                [
+                  -0.03314950846751899,
+                  0.9977399190940124,
+                  -0.05844795919991848
+                ],
+                [
+                  -0.008993092808061322,
+                  0.05817996211327343,
+                  0.998265604080519
+                ]
+              ]
+            }
+          }
+        },
+        {
+          "api": "PlanningScene.checkCollision",
+          "input": {
+            "q": [
+              -0.5149026427883028,
+              -0.047476506609758724,
+              0.5233214327838273,
+              0.11696548210912323,
+              0.014088377600005093,
+              -0.06724962386357165
+            ]
+          },
+          "output": {
+            "collision": false,
+            "state": {
+              "bounds": true,
+              "q": [
+                -0.5149026427883028,
+                -0.047476506609758724,
+                0.5233214327838273,
+                0.11696548210912323,
+                0.014088377600005093,
+                -0.06724962386357165
+              ],
+              "tool_position_m": [
+                -0.5149026427883028,
+                -0.047476506609758724,
+                0.5233214327838273
+              ],
+              "tool_rotation": [
+                [
+                  0.9976405809009466,
+                  0.06719227699390735,
+                  0.014087911555502817
+                ],
+                [
+                  -0.06509946927919197,
+                  0.9910328518824395,
+                  -0.11668738401955159
+                ],
+                [
+                  -0.021802074194653683,
+                  0.11549495401156187,
+                  0.9930687716158826
+                ]
+              ]
+            }
+          }
+        },
+        {
+          "api": "PlanningScene.checkCollision",
+          "input": {
+            "q": [
+              -0.47235396418245423,
+              -0.07121475991463809,
+              0.5349821491757408,
+              0.17544822316368486,
+              0.02113256640000764,
+              -0.10087443579535749
+            ]
+          },
+          "output": {
+            "collision": false,
+            "state": {
+              "bounds": true,
+              "q": [
+                -0.47235396418245423,
+                -0.07121475991463809,
+                0.5349821491757408,
+                0.17544822316368486,
+                0.02113256640000764,
+                -0.10087443579535749
+              ],
+              "tool_position_m": [
+                -0.47235396418245423,
+                -0.07121475991463809,
+                0.5349821491757408
+              ],
+              "tool_rotation": [
+                [
+                  0.9946943376646092,
+                  0.10068096012082259,
+                  0.02113099351932441
+                ],
+                [
+                  -0.0954878324342988,
+                  0.9800143627333869,
+                  -0.17451052315912857
+                ],
+                [
+                  -0.03827856417061216,
+                  0.17156687648093036,
+                  0.9844285440902317
+                ]
+              ]
+            }
+          }
+        },
+        {
+          "api": "PlanningScene.checkCollision",
+          "input": {
+            "q": [
+              -0.4298052855766057,
+              -0.09495301321951745,
+              0.5466428655676544,
+              0.23393096421824647,
+              0.028176755200010187,
+              -0.1344992477271433
+            ]
+          },
+          "output": {
+            "collision": false,
+            "state": {
+              "bounds": true,
+              "q": [
+                -0.4298052855766057,
+                -0.09495301321951745,
+                0.5466428655676544,
+                0.23393096421824647,
+                0.028176755200010187,
+                -0.1344992477271433
+              ],
+              "tool_position_m": [
+                -0.4298052855766057,
+                -0.09495301321951745,
+                0.5466428655676544
+              ],
+              "tool_rotation": [
+                [
+                  0.9905752497752902,
+                  0.13404087094917913,
+                  0.028173026954992398
+                ],
+                [
+                  -0.12397011990875638,
+                  0.964853011879587,
+                  -0.2317111884150135
+                ],
+                [
+                  -0.05824159941510697,
+                  0.22603475481012833,
+                  0.972376576083307
+                ]
+              ]
+            }
+          }
+        },
+        {
+          "api": "PlanningScene.checkCollision",
+          "input": {
+            "q": [
+              -0.38725660697075703,
+              -0.11869126652439682,
+              0.5583035819595681,
+              0.29241370527280813,
+              0.03522094400001274,
+              -0.16812405965892915
+            ]
+          },
+          "output": {
+            "collision": false,
+            "state": {
+              "bounds": true,
+              "q": [
+                -0.38725660697075703,
+                -0.11869126652439682,
+                0.5583035819595681,
+                0.29241370527280813,
+                0.03522094400001274,
+                -0.16812405965892915
+              ],
+              "tool_position_m": [
+                -0.38725660697075703,
+                -0.11869126652439682,
+                0.5583035819595681
+              ],
+              "tool_rotation": [
+                [
+                  0.985288959647869,
+                  0.1672293753322073,
+                  0.03521366243405662
+                ],
+                [
+                  -0.1502222898538129,
+                  0.9457483766071522,
+                  -0.28808552857790887
+                ],
+                [
+                  -0.08147962706773376,
+                  0.2785576137371511,
+                  0.9569570137691489
+                ]
+              ]
+            }
+          }
+        },
+        {
+          "api": "PlanningScene.checkCollision",
+          "input": {
+            "q": [
+              -0.3447079283649085,
+              -0.14242951982927618,
+              0.5699642983514817,
+              0.3508964463273697,
+              0.04226513280001528,
+              -0.20174887159071497
+            ]
+          },
+          "output": {
+            "collision": false,
+            "state": {
+              "bounds": true,
+              "q": [
+                -0.3447079283649085,
+                -0.14242951982927618,
+                0.5699642983514817,
+                0.3508964463273697,
+                0.04226513280001528,
+                -0.20174887159071497
+              ],
+              "tool_position_m": [
+                -0.3447079283649085,
+                -0.14242951982927618,
+                0.5699642983514817
+              ],
+              "tool_rotation": [
+                [
+                  0.9788427072244238,
+                  0.20020408707509507,
+                  0.04225255059743404
+                ],
+                [
+                  -0.1739433823543926,
+                  0.9229288247816512,
+                  -0.343432794185811
+                ],
+                [
+                  -0.10775274589853637,
+                  0.3288171344464698,
+                  0.9382263254917427
+                ]
+              ]
+            }
+          }
+        },
+        {
+          "api": "PlanningScene.checkCollision",
+          "input": {
+            "q": [
+              -0.20684811488622826,
+              -0.14963933352566935,
+              0.5735059619525971,
+              0.36865899564851407,
+              0.04440460559325909,
+              -0.21196149300193998
+            ]
+          },
+          "output": {
+            "collision": false,
+            "state": {
+              "bounds": true,
+              "q": [
+                -0.20684811488622826,
+                -0.14963933352566935,
+                0.5735059619525971,
+                0.36865899564851407,
+                0.04440460559325909,
+                -0.21196149300193998
+              ],
+              "tool_position_m": [
+                -0.20684811488622826,
+                -0.14963933352566935,
+                0.5735059619525971
+              ],
+              "tool_rotation": [
+                [
+                  0.976656478703472,
+                  0.2101705241598816,
+                  0.044390014427741695
+                ],
+                [
+                  -0.1806043099860745,
+                  0.9153005778323274,
+                  -0.36000963241871936
+                ],
+                [
+                  -0.11629361900374588,
+                  0.3435887119714036,
+                  0.9318919417962812
+                ]
+              ]
+            }
+          }
+        },
+        {
+          "api": "PlanningScene.checkCollision",
+          "input": {
+            "q": [
+              -0.068988301407548,
+              -0.1568491472220625,
+              0.5770476255537125,
+              0.3864215449696584,
+              0.046544078386502895,
+              -0.22217411441316498
+            ]
+          },
+          "output": {
+            "collision": false,
+            "state": {
+              "bounds": true,
+              "q": [
+                -0.068988301407548,
+                -0.1568491472220625,
+                0.5770476255537125,
+                0.3864215449696584,
+                0.046544078386502895,
+                -0.22217411441316498
+              ],
+              "tool_position_m": [
+                -0.068988301407548,
+                -0.1568491472220625,
+                0.5770476255537125
+              ],
+              "tool_rotation": [
+                [
+                  0.9743643259340098,
+                  0.2201121828108223,
+                  0.04652727506976806
+                ],
+                [
+                  -0.18699892142661875,
+                  0.907360555853751,
+                  -0.37646809302523027
+                ],
+                [
+                  -0.12508222788407625,
+                  0.35811652944122435,
+                  0.925260497162031
+                ]
+              ]
+            }
+          }
+        },
+        {
+          "api": "PlanningScene.checkCollision",
+          "input": {
+            "q": [
+              0.06887151207113221,
+              -0.16405896091845568,
+              0.5805892891548279,
+              0.4041840942908027,
+              0.04868355117974671,
+              -0.23238673582438996
+            ]
+          },
+          "output": {
+            "collision": false,
+            "state": {
+              "bounds": true,
+              "q": [
+                0.06887151207113221,
+                -0.16405896091845568,
+                0.5805892891548279,
+                0.4041840942908027,
+                0.04868355117974671,
+                -0.23238673582438996
+              ],
+              "tool_position_m": [
+                0.06887151207113221,
+                -0.16405896091845568,
+                0.5805892891548279
+              ],
+              "tool_rotation": [
+                [
+                  0.9719665383963813,
+                  0.2300278938084692,
+                  0.04866432274054006
+                ],
+                [
+                  -0.1931202313348741,
+                  0.8991165400160425,
+                  -0.392802779672885
+                ],
+                [
+                  -0.13411049357496432,
+                  0.3723930927657224,
+                  0.9183342310800897
+                ]
+              ]
+            }
+          }
+        },
+        {
+          "api": "PlanningScene.checkCollision",
+          "input": {
+            "q": [
+              0.2067313255498125,
+              -0.17126877461484882,
+              0.5841309527559433,
+              0.42194664361194706,
+              0.050823023972990516,
+              -0.24259935723561496
+            ]
+          },
+          "output": {
+            "collision": false,
+            "state": {
+              "bounds": true,
+              "q": [
+                0.2067313255498125,
+                -0.17126877461484882,
+                0.5841309527559433,
+                0.42194664361194706,
+                0.050823023972990516,
+                -0.24259935723561496
+              ],
+              "tool_position_m": [
+                0.2067313255498125,
+                -0.17126877461484882,
+                0.5841309527559433
+              ],
+              "tool_rotation": [
+                [
+                  0.9694634188836186,
+                  0.23991649139462937,
+                  0.05080114765805944
+                ],
+                [
+                  -0.19896149988591014,
+                  0.8905764988469862,
+                  -0.40900833886926186
+                ],
+                [
+                  -0.14337015383138227,
+                  0.3864111500181312,
+                  0.911115482324843
+                ]
+              ]
+            }
+          }
+        },
+        {
+          "api": "PlanningScene.checkCollision",
+          "input": {
+            "q": [
+              0.3445911390284927,
+              -0.178478588311242,
+              0.5876726163570587,
+              0.4397091929330914,
+              0.052962496766234324,
+              -0.25281197864683996
+            ]
+          },
+          "output": {
+            "collision": false,
+            "state": {
+              "bounds": true,
+              "q": [
+                0.3445911390284927,
+                -0.178478588311242,
+                0.5876726163570587,
+                0.4397091929330914,
+                0.052962496766234324,
+                -0.25281197864683996
+              ],
+              "tool_position_m": [
+                0.3445911390284927,
+                -0.178478588311242,
+                0.5876726163570587
+              ],
+              "tool_rotation": [
+                [
+                  0.9668552834593532,
+                  0.24977681342760463,
+                  0.052937740041347575
+                ],
+                [
+                  -0.20451623743238637,
+                  0.8817485808176257,
+                  -0.42507946180990996
+                ],
+                [
+                  -0.1528527705775511,
+                  0.40016369612953967,
+                  0.9036066881263728
+                ]
+              ]
+            }
+          }
+        },
+        {
+          "api": "PlanningScene.checkCollision",
+          "input": {
+            "q": [
+              0.38107806587745874,
+              -0.15298154530358513,
+              0.5751479870608152,
+              0.3768937048574391,
+              0.04539656608767439,
+              -0.21669609340619908
+            ]
+          },
+          "output": {
+            "collision": false,
+            "state": {
+              "bounds": true,
+              "q": [
+                0.38107806587745874,
+                -0.15298154530358513,
+                0.5751479870608152,
+                0.3768937048574391,
+                0.04539656608767439,
+                -0.21669609340619908
+              ],
+              "tool_position_m": [
+                0.38107806587745874,
+                -0.15298154530358513,
+                0.5751479870608152
+              ],
+              "tool_rotation": [
+                [
+                  0.9756069790624421,
+                  0.21478265642646038,
+                  0.045380975122278795
+                ],
+                [
+                  -0.18360238569600482,
+                  0.9116578870854589,
+                  -0.36765481212900253
+                ],
+                [
+                  -0.12033780109089284,
+                  0.3503545453012844,
+                  0.9288544052839169
+                ]
+              ]
+            }
+          }
+        },
+        {
+          "api": "PlanningScene.checkCollision",
+          "input": {
+            "q": [
+              0.4175649927264248,
+              -0.12748450229592825,
+              0.5626233577645715,
+              0.3140782167817868,
+              0.037830635409114445,
+              -0.1805802081655582
+            ]
+          },
+          "output": {
+            "collision": false,
+            "state": {
+              "bounds": true,
+              "q": [
+                0.4175649927264248,
+                -0.12748450229592825,
+                0.5626233577645715,
+                0.3140782167817868,
+                0.037830635409114445,
+                -0.1805802081655582
+              ],
+              "tool_position_m": [
+                0.4175649927264248,
+                -0.12748450229592825,
+                0.5626233577645715
+              ],
+              "tool_rotation": [
+                [
+                  0.9830357937896091,
+                  0.17947187456387584,
+                  0.037821612458509624
+                ],
+                [
+                  -0.1593199969943981,
+                  0.9377152017522529,
+                  -0.30871886719220226
+                ],
+                [
+                  -0.09087225476534763,
+                  0.2974559574849024,
+                  0.9504010662192051
+                ]
+              ]
+            }
+          }
+        },
+        {
+          "api": "PlanningScene.checkCollision",
+          "input": {
+            "q": [
+              0.4540519195753908,
+              -0.10198745928827138,
+              0.550098728468328,
+              0.25126272870613453,
+              0.03026470473055451,
+              -0.14446432292491732
+            ]
+          },
+          "output": {
+            "collision": false,
+            "state": {
+              "bounds": true,
+              "q": [
+                0.4540519195753908,
+                -0.10198745928827138,
+                0.550098728468328,
+                0.25126272870613453,
+                0.03026470473055451,
+                -0.14446432292491732
+              ],
+              "tool_position_m": [
+                0.4540519195753908,
+                -0.10198745928827138,
+                0.550098728468328
+              ],
+              "tool_rotation": [
+                [
+                  0.9891299942592873,
+                  0.14389642707962083,
+                  0.030260084770893817
+                ],
+                [
+                  -0.13199671647155806,
+                  0.9595926049728276,
+                  -0.24851337855775488
+                ],
+                [
+                  -0.06479754082794677,
+                  0.2418178048762792,
+                  0.9681556837345263
+                ]
+              ]
+            }
+          }
+        },
+        {
+          "api": "PlanningScene.checkCollision",
+          "input": {
+            "q": [
+              0.49053884642435686,
+              -0.07649041628061451,
+              0.5375740991720844,
+              0.18844724063048227,
+              0.02269877405199457,
+              -0.10834843768427642
+            ]
+          },
+          "output": {
+            "collision": false,
+            "state": {
+              "bounds": true,
+              "q": [
+                0.49053884642435686,
+                -0.07649041628061451,
+                0.5375740991720844,
+                0.18844724063048227,
+                0.02269877405199457,
+                -0.10834843768427642
+              ],
+              "tool_position_m": [
+                0.49053884642435686,
+                -0.07649041628061451,
+                0.5375740991720844
+              ],
+              "tool_rotation": [
+                [
+                  0.9938799524721863,
+                  0.10810871478817988,
+                  0.022696824904217625
+                ],
+                [
+                  -0.10199520360980585,
+                  0.9769959493190377,
+                  -0.18728559329213385
+                ],
+                [
+                  -0.042421910782978425,
+                  0.18382442928250942,
+                  0.9820432580515385
+                ]
+              ]
+            }
+          }
+        },
+        {
+          "api": "PlanningScene.checkCollision",
+          "input": {
+            "q": [
+              0.5270257732733229,
+              -0.05099337327295764,
+              0.5250494698758409,
+              0.12563175255482995,
+              0.015132843373434629,
+              -0.07223255244363552
+            ]
+          },
+          "output": {
+            "collision": false,
+            "state": {
+              "bounds": true,
+              "q": [
+                0.5270257732733229,
+                -0.05099337327295764,
+                0.5250494698758409,
+                0.12563175255482995,
+                0.015132843373434629,
+                -0.07223255244363552
+              ],
+              "tool_position_m": [
+                0.5270257732733229,
+                -0.05099337327295764,
+                0.5250494698758409
+              ],
+              "tool_rotation": [
+                [
+                  0.9972781625506983,
+                  0.07216149271729178,
+                  0.015132265802422494
+                ],
+                [
+                  -0.06970981325639908,
+                  0.9896684612666324,
+                  -0.12528718493881918
+                ],
+                [
+                  -0.02401683649569374,
+                  0.12389130616370204,
+                  0.9920051087679896
+                ]
+              ]
+            }
+          }
+        },
+        {
+          "api": "PlanningScene.checkCollision",
+          "input": {
+            "q": [
+              0.5635127001222889,
+              -0.025496330265300772,
+              0.5125248405795972,
+              0.06281626447917768,
+              0.007566912694874693,
+              -0.036116667202994654
+            ]
+          },
+          "output": {
+            "collision": false,
+            "state": {
+              "bounds": true,
+              "q": [
+                0.5635127001222889,
+                -0.025496330265300772,
+                0.5125248405795972,
+                0.06281626447917768,
+                0.007566912694874693,
+                -0.036116667202994654
+              ],
+              "tool_position_m": [
+                0.5635127001222889,
+                -0.025496330265300772,
+                0.5125248405795972
+              ],
+              "tool_rotation": [
+                [
+                  0.9993192537903185,
+                  0.0361077821120818,
+                  0.007566840483822044
+                ],
+                [
+                  -0.035562900357505936,
+                  0.9973940093743032,
+                  -0.06277316450852571
+                ],
+                [
+                  -0.009813721115014773,
+                  0.06246133312056951,
+                  0.997999134640245
+                ]
+              ]
+            }
+          }
+        },
+        {
+          "api": "PlanningScene.checkCollision",
+          "input": {
+            "q": [
+              0.599999626971255,
+              7.127423561178148e-07,
+              0.5000002112833537,
+              7.76403525378555e-07,
+              9.820163147523999e-07,
+              -7.819623537361622e-07
+            ]
+          },
+          "output": {
+            "collision": false,
+            "state": {
+              "bounds": true,
+              "q": [
+                0.599999626971255,
+                7.127423561178148e-07,
+                0.5000002112833537,
+                7.76403525378555e-07,
+                9.820163147523999e-07,
+                -7.819623537361622e-07
+              ],
+              "tool_position_m": [
+                0.599999626971255,
+                7.127423561178148e-07,
+                0.5000002112833537
+              ],
+              "tool_rotation": [
+                [
+                  0.9999999999992121,
+                  7.819623537357054e-07,
+                  9.82016314752242e-07
+                ],
+                [
+                  -7.81961591294918e-07,
+                  0.9999999999993928,
+                  -7.764035253781026e-07
+                ],
+                [
+                  -9.82016921869974e-07,
+                  7.764027574784506e-07,
+                  0.9999999999992164
+                ]
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "Native_answer": {
+        "criteria": [
+          {
+            "criterion": "negative planner scene object matches",
+            "passed": true
+          },
+          {
+            "criterion": "actual goal is in collision",
+            "passed": true
+          },
+          {
+            "criterion": "real planner rejects colliding goal without trajectory",
+            "passed": true
+          }
+        ],
+        "error_code": -27,
+        "passed": true,
+        "point_count": 0
+      },
+      "case_id": "F40_colliding_goal_no_plan",
+      "input": {
+        "goal": [
+          0,
+          0,
+          0.5,
+          0,
+          0,
+          0
+        ],
+        "obstacle_center": [
+          0,
+          0,
+          0.5
+        ],
+        "obstacle_radius": 0.12,
+        "planning_time_s": 0.5,
+        "start": [
+          -0.6,
+          0,
+          0.5,
+          0,
+          0,
+          0
+        ]
+      },
+      "observed_actual_interfaces": [
+        {
+          "api": "PlanningScene.processCollisionObjectMsg",
+          "input": {
+            "center_m": [
+              0.0,
+              0.0,
+              0.5
+            ],
+            "id": "generated_obstacle",
+            "radius_m": 0.12
+          },
+          "output": {
+            "center_m": [
+              0.0,
+              0.0,
+              0.5
+            ],
+            "id": "generated_obstacle",
+            "radius_m": 0.12,
+            "world_contains": true
+          }
+        },
+        {
+          "api": "PlanningScene.checkCollision",
+          "input": {
+            "q": [
+              0.0,
+              0.0,
+              0.5,
+              0.0,
+              0.0,
+              0.0
+            ]
+          },
+          "output": {
+            "collision": true,
+            "state": {
+              "bounds": true,
+              "q": [
+                0.0,
+                0.0,
+                0.5,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "tool_position_m": [
+                0.0,
+                0.0,
+                0.5
+              ],
+              "tool_rotation": [
+                [
+                  1.0,
+                  0.0,
+                  0.0
+                ],
+                [
+                  0.0,
+                  1.0,
+                  0.0
+                ],
+                [
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              ]
+            }
+          }
+        },
+        {
+          "api": "OMPLPlanner.getPlanningContext.solve",
+          "input": {
+            "goal": [
+              0.0,
+              0.0,
+              0.5,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "planning_time_s": 0.5,
+            "start": [
+              -0.6,
+              0.0,
+              0.5,
+              0.0,
+              0.0,
+              0.0
+            ]
+          },
+          "output": {
+            "error_code": -27,
+            "points": [],
+            "solved": false
+          }
+        }
+      ]
+    },
+    {
+      "Native_answer": {
+        "contact_world_m": [
+          0.2,
+          -0.060000000000000005,
+          0.5
+        ],
+        "criteria": [
+          {
+            "criterion": "real link rotation proper and matches generated serial FK",
+            "passed": true
+          },
+          {
+            "criterion": "rotated point normal and lever preserve local geometry",
+            "passed": true
+          }
+        ],
+        "lever_arm_world_m": [
+          2.4492935982947064e-18,
+          0.04,
+          0.0
+        ],
+        "normal_world": [
+          6.123233995736766e-17,
+          1.0,
+          0.0
+        ],
+        "passed": true
+      },
+      "case_id": "F41_link_contact_frame",
+      "input": {
+        "link": "tool",
+        "local_contact_point_m": [
+          0.04,
+          0,
+          0
+        ],
+        "local_normal": [
+          1,
+          0,
+          0
+        ],
+        "state": [
+          0.2,
+          -0.1,
+          0.5,
+          0,
+          0,
+          1.5707963267948966
+        ]
+      },
+      "observed_actual_interfaces": [
+        {
+          "api": "RobotState.getGlobalLinkTransform",
+          "input": {
+            "link": "tool",
+            "q": [
+              0.2,
+              -0.1,
+              0.5,
+              0.0,
+              0.0,
+              1.5707963267948966
+            ]
+          },
+          "output": {
+            "position_m": [
+              0.2,
+              -0.1,
+              0.5
+            ],
+            "rotation": [
+              [
+                6.123233995736766e-17,
+                -1.0,
+                0.0
+              ],
+              [
+                1.0,
+                6.123233995736766e-17,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                1.0
+              ]
+            ],
+            "state": {
+              "bounds": true,
+              "q": [
+                0.2,
+                -0.1,
+                0.5,
+                0.0,
+                0.0,
+                1.5707963267948966
+              ],
+              "tool_position_m": [
+                0.2,
+                -0.1,
+                0.5
+              ],
+              "tool_rotation": [
+                [
+                  6.123233995736766e-17,
+                  -1.0,
+                  0.0
+                ],
+                [
+                  1.0,
+                  6.123233995736766e-17,
+                  0.0
+                ],
+                [
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "Native_answer": {
+        "criteria": [
+          {
+            "criterion": "real model rejects unknown frame without identity fallback",
+            "passed": true
+          }
+        ],
+        "error_code": "UNKNOWN_FRAME",
+        "passed": true
+      },
+      "case_id": "F41_unknown_contact_frame",
+      "input": {
+        "link": "missing_generated_frame",
+        "local_contact_point_m": [
+          0.04,
+          0,
+          0
+        ],
+        "local_normal": [
+          1,
+          0,
+          0
+        ],
+        "state": [
+          0.2,
+          -0.1,
+          0.5,
+          0,
+          0,
+          0
+        ]
+      },
+      "observed_actual_interfaces": [
+        {
+          "api": "RobotModel.hasLinkModel",
+          "input": {
+            "link": "missing_generated_frame"
+          },
+          "output": {
+            "error": "UNKNOWN_FRAME"
+          }
+        }
+      ]
+    },
+    {
+      "Native_answer": {
+        "criteria": [
+          {
+            "criterion": "finite Cartesian fraction and bounded sample count",
+            "passed": true
+          },
+          {
+            "criterion": "all accepted KDL samples finite bounded and FK consistent",
+            "passed": true
+          },
+          {
+            "criterion": "full path with requested initial state and terminal tool pose",
+            "passed": true
+          },
+          {
+            "criterion": "measured adjacent coordinate jumps bounded",
+            "passed": true
+          }
+        ],
+        "first_tool_position_m": [
+          -0.2,
+          0.0,
+          0.5
+        ],
+        "fraction": 1.0,
+        "last_tool_position_m": [
+          0.2,
+          0.0,
+          0.5
+        ],
+        "max_coordinate_jump": 0.019047619047619077,
+        "max_translation_step_m": 0.019047619047619077,
+        "passed": true,
+        "point_count": 22
+      },
+      "case_id": "F42_cartesian_path_finite",
+      "input": {
+        "link": "tool",
+        "start": [
+          -0.2,
+          0,
+          0.5,
+          0,
+          0,
+          0
+        ],
+        "step_m": 0.02,
+        "target_m": [
+          0.2,
+          0,
+          0.5
+        ]
+      },
+      "observed_actual_interfaces": [
+        {
+          "api": "World.clearObjects",
+          "input": {},
+          "output": {}
+        },
+        {
+          "api": "CartesianInterpolator.computeCartesianPath.KDL",
+          "input": {
+            "start": [
+              -0.2,
+              0.0,
+              0.5,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "step_m": 0.02,
+            "target_m": [
+              0.2,
+              0.0,
+              0.5
+            ]
+          },
+          "output": {
+            "fraction": 1.0,
+            "points": [
+              {
+                "bounds": true,
+                "q": [
+                  -0.2,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  -0.2,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  -0.18095238095238095,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  -0.18095238095238095,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  -0.16190476190476194,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  -0.16190476190476194,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  -0.14285714285714288,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  -0.14285714285714288,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  -0.12380952380952381,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  -0.12380952380952381,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  -0.10476190476190478,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  -0.10476190476190478,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  -0.08571428571428573,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  -0.08571428571428573,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  -0.0666666666666667,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  -0.0666666666666667,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  -0.04761904761904762,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  -0.04761904761904762,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  -0.028571428571428567,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  -0.028571428571428567,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  -0.009523809523809539,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  -0.009523809523809539,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.009523809523809539,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.009523809523809539,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.028571428571428557,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.028571428571428557,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.04761904761904762,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.04761904761904762,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.06666666666666665,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.06666666666666665,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.08571428571428573,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.08571428571428573,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.10476190476190475,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.10476190476190475,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.12380952380952381,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.12380952380952381,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.14285714285714285,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.14285714285714285,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.1619047619047619,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.1619047619047619,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.18095238095238095,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.18095238095238095,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.2,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.2,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "Native_answer": {
+        "criteria": [
+          {
+            "criterion": "finite Cartesian fraction and bounded sample count",
+            "passed": true
+          },
+          {
+            "criterion": "all accepted KDL samples finite bounded and FK consistent",
+            "passed": true
+          },
+          {
+            "criterion": "out of bounds target cannot yield full accepted trajectory",
+            "passed": true
+          }
+        ],
+        "first_tool_position_m": [
+          -0.2,
+          0.0,
+          0.5
+        ],
+        "fraction": 0.5405405405405406,
+        "last_tool_position_m": [
+          0.9891891891891893,
+          0.0,
+          0.5
+        ],
+        "max_coordinate_jump": 0.01981981981981995,
+        "max_translation_step_m": 0.01981981981981995,
+        "passed": true,
+        "point_count": 61
+      },
+      "case_id": "F42_cartesian_out_of_bounds",
+      "input": {
+        "link": "tool",
+        "start": [
+          -0.2,
+          0,
+          0.5,
+          0,
+          0,
+          0
+        ],
+        "step_m": 0.02,
+        "target_m": [
+          2,
+          0,
+          0.5
+        ]
+      },
+      "observed_actual_interfaces": [
+        {
+          "api": "World.clearObjects",
+          "input": {},
+          "output": {}
+        },
+        {
+          "api": "CartesianInterpolator.computeCartesianPath.KDL",
+          "input": {
+            "start": [
+              -0.2,
+              0.0,
+              0.5,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "step_m": 0.02,
+            "target_m": [
+              2.0,
+              0.0,
+              0.5
+            ]
+          },
+          "output": {
+            "fraction": 0.5405405405405406,
+            "points": [
+              {
+                "bounds": true,
+                "q": [
+                  -0.2,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  -0.2,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  -0.18018018018018017,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  -0.18018018018018017,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  -0.16036036036036036,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  -0.16036036036036036,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  -0.14054054054054055,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  -0.14054054054054055,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  -0.12072072072072075,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  -0.12072072072072075,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  -0.10090090090090093,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  -0.10090090090090093,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  -0.08108108108108109,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  -0.08108108108108109,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  -0.061261261261261274,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  -0.061261261261261274,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  -0.041441441441441434,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  -0.041441441441441434,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  -0.021621621621621623,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  -0.021621621621621623,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  -0.001801801801801839,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  -0.001801801801801839,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.018018018018018,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.018018018018018,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.03783783783783784,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.03783783783783784,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.05765765765765765,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.05765765765765765,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.07747747747747746,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.07747747747747746,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.0972972972972973,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.0972972972972973,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.11711711711711709,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.11711711711711709,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.1369369369369369,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.1369369369369369,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.15675675675675677,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.15675675675675677,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.17657657657657658,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.17657657657657658,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.19639639639639636,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.19639639639639636,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.21621621621621623,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.21621621621621623,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.236036036036036,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.236036036036036,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.2558558558558558,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.2558558558558558,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.2756756756756757,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.2756756756756757,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.2954954954954955,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.2954954954954955,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.3153153153153153,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.3153153153153153,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.33513513513513515,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.33513513513513515,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.3549549549549549,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.3549549549549549,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.3747747747747747,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.3747747747747747,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.3945945945945946,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.3945945945945946,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.4144144144144144,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.4144144144144144,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.43423423423423424,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.43423423423423424,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.4540540540540541,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.4540540540540541,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.4738738738738738,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.4738738738738738,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.49369369369369365,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.49369369369369365,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.5135135135135136,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.5135135135135136,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.5333333333333332,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.5333333333333332,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.5531531531531532,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.5531531531531532,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.572972972972973,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.572972972972973,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.5927927927927927,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.5927927927927927,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.6126126126126126,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.6126126126126126,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.6324324324324324,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.6324324324324324,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.6522522522522523,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.6522522522522523,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.6720720720720721,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.6720720720720721,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.6918918918918919,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.6918918918918919,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.7117117117117117,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.7117117117117117,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.7315315315315315,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.7315315315315315,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.7513513513513514,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.7513513513513514,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.7711711711711711,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.7711711711711711,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.790990990990991,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.790990990990991,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.8108108108108109,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.8108108108108109,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.8306306306306306,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.8306306306306306,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.8504504504504504,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.8504504504504504,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.8702702702702703,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.8702702702702703,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.8900900900900901,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.8900900900900901,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.9099099099099098,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.9099099099099098,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.9297297297297297,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.9297297297297297,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.9495495495495495,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.9495495495495495,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.9693693693693693,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.9693693693693693,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              },
+              {
+                "bounds": true,
+                "q": [
+                  0.9891891891891893,
+                  0.0,
+                  0.5,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "tool_position_m": [
+                  0.9891891891891893,
+                  0.0,
+                  0.5
+                ],
+                "tool_rotation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "status": "ACTUAL_GENERATED_MOVEIT_CASES_COMPLETED_NOT_ORACLE"
+}

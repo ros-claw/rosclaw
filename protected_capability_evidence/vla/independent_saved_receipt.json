@@ -1,0 +1,154 @@
+{
+  "status": "PASS_SAVED_VLA_FOUR_ACTUAL_BOUNDED_SCOPES_NOT_PHYSICAL_OR_NEURAL_VLN",
+  "frozen_index_sha256": "ce84ef65c49dbfbb7352e2feda303e3b2d2e82fb8f9113d14f71a9cf1c2bb068",
+  "original_whole": "PASS_NATIVE_VLA_GROUNDING_CONTENTION_FOUR_BOUNDED_CASES",
+  "UUID": "01a11a66-69cd-701a-b4d3-3bd8182d647b",
+  "TaskID": "task_13ac2da0454f4e9fbf5c1201",
+  "cases": 8,
+  "directions": 4,
+  "case_verdicts": [
+    {
+      "id": "F43_normalized_model_space",
+      "status": "PASS_ACTUAL_PRETRAINED_MODEL_COORDINATE_INTERFACE_NOT_PHYSICAL"
+    },
+    {
+      "id": "F43_explicit_saved_stats_profile",
+      "status": "PASS_ACTUAL_PRETRAINED_MODEL_COORDINATE_INTERFACE_NOT_PHYSICAL"
+    },
+    {
+      "id": "F44_actual_policy_chunk_consumption",
+      "status": "PASS_ACTUAL_PRETRAINED_MODEL_COORDINATE_INTERFACE_NOT_PHYSICAL"
+    },
+    {
+      "id": "F44_generated_feedback_second_observation",
+      "status": "PASS_ACTUAL_PRETRAINED_MODEL_COORDINATE_INTERFACE_NOT_PHYSICAL"
+    },
+    {
+      "id": "F45_label_frame_freshness_match",
+      "status": "PASS_FINITE_EXISTING_NATIVE_STRUCTURED_SOFTWARE"
+    },
+    {
+      "id": "F45_no_grounding_blank_or_stale",
+      "status": "PASS_FINITE_EXISTING_NATIVE_STRUCTURED_SOFTWARE"
+    },
+    {
+      "id": "F46_reverse_edge_conflict",
+      "status": "PASS_FINITE_EXISTING_NATIVE_STRUCTURED_SOFTWARE"
+    },
+    {
+      "id": "F46_persistent_endpoint_and_disjoint_goal",
+      "status": "PASS_FINITE_EXISTING_NATIVE_STRUCTURED_SOFTWARE"
+    }
+  ],
+  "source_sha256": {
+    "native/test_vla_grounding_contention.py": "d5bee6dc0f66ee55f574e76cd750f07fb4c68f4899c2a5d631f37e860133a145",
+    "docs/VLA_GROUNDING_CONTENTION_SCOPE.md": "000a6ee84df89d908630a2afec02506f58a3c4a95b301a4372905c1e62dc111f",
+    "reports/evidence.json": "c84e3606465e456cb7059b2c855e498c0a6944a5fe327869f4f4e060ff9362d2"
+  },
+  "native_effects": [
+    {
+      "path": "native/test_vla_grounding_contention.py",
+      "final_sha256": "d5bee6dc0f66ee55f574e76cd750f07fb4c68f4899c2a5d631f37e860133a145",
+      "effects": [
+        {
+          "tool_id": "call_46bc052814c940e0904de506955c19a6|fc_0b78746a1368723e016ac7458ea5f88190bf2a6d11d01e09f0",
+          "tool": "write",
+          "result_entry": 46,
+          "before_sha256": null,
+          "after_sha256": "d5bee6dc0f66ee55f574e76cd750f07fb4c68f4899c2a5d631f37e860133a145"
+        }
+      ],
+      "first_write_replaces_seed": true
+    },
+    {
+      "path": "docs/VLA_GROUNDING_CONTENTION_SCOPE.md",
+      "final_sha256": "000a6ee84df89d908630a2afec02506f58a3c4a95b301a4372905c1e62dc111f",
+      "effects": [
+        {
+          "tool_id": "call_caa67ea72e1c4cfca5b59822fb02b40d|fc_0b78746a1368723e016ac745c71b3c81909f06165827dd725c",
+          "tool": "write",
+          "result_entry": 48,
+          "before_sha256": null,
+          "after_sha256": "f9f1a3c3827678745e3d737e06be49e74173db24384b84da4588c68cb2b7446d"
+        },
+        {
+          "tool_id": "call_ed317d73d3a442aea90086c3f28cea89|fc_0b78746a1368723e016ac7463f52f081909ac385e3192d7254",
+          "tool": "edit",
+          "result_entry": 68,
+          "before_sha256": "f9f1a3c3827678745e3d737e06be49e74173db24384b84da4588c68cb2b7446d",
+          "after_sha256": "000a6ee84df89d908630a2afec02506f58a3c4a95b301a4372905c1e62dc111f"
+        }
+      ],
+      "first_write_replaces_seed": true
+    },
+    {
+      "path": "reports/evidence.json",
+      "final_sha256": "c84e3606465e456cb7059b2c855e498c0a6944a5fe327869f4f4e060ff9362d2",
+      "effects": [
+        {
+          "tool_id": "call_dfc243df63e244db95b61c487722f91a|fc_0b78746a1368723e016ac7464c9c2c819097a3e99318ec6092",
+          "tool": "write",
+          "result_entry": 70,
+          "before_sha256": null,
+          "after_sha256": "c84e3606465e456cb7059b2c855e498c0a6944a5fe327869f4f4e060ff9362d2"
+        }
+      ],
+      "first_write_replaces_seed": true
+    }
+  ],
+  "registered_refs": {
+    "art_888b6b554ecf46aa898de368": "native/test_vla_grounding_contention.py",
+    "art_1e3c325e64a64e229f8e4f40": "docs/VLA_GROUNDING_CONTENTION_SCOPE.md",
+    "art_eb53b08134b84208882ea2f3": "reports/evidence.json",
+    "art_49ac8b15358e4bb1a343630a": "delivery.json"
+  },
+  "latest_receipts": {
+    "check": "6c5e2d950b145068018acc5af76de36e26879520c1b76a8cb154ae6e027e2762",
+    "run": "48d75f023018ffce75b665f01b7ecc49995e8ce39585108655e8ce8e39a07c27",
+    "managed": "e3d312a6976f64e213f8e3b888f26e95d64341efb15dc16db1adbe9fcd554d66"
+  },
+  "model_evidence_sha256": {
+    "worker_receipt.json": "bae3cfa3a0d167efc478c2e02683a9220b1b264df14653c85449261d57893d30",
+    "native_result.json": "e0453fd92052781a1b8414debe1c95f8a1d46f8ef5c260a141246aa48866367d",
+    "actual_observer.json": "3cf0aefc21bfed3cbfdaf95aef16c60302938f74465ecc39fe4a498e5b79f66a",
+    "receipt.json": "fe1f50b5d8a473d633beaf1657e2c9e7ef916034320bcf34837652f2daa66b5e"
+  },
+  "actual_predict_calls": 2,
+  "flow_steps_per_call": 10,
+  "observed_modules": 440,
+  "profile_postprocessed_values_checked": 300,
+  "actual_worker_elapsed_s": 24.89264471596107,
+  "observed_effect_metadata": {
+    "socket_attempts": [
+      {
+        "event": "socket.bind",
+        "family": 10,
+        "socket_type": 1,
+        "exact_loopback_ephemeral": true,
+        "pinned_source_site_match": true,
+        "classification": "DENIED_IMPORT_IPV6_CAPABILITY_PROBE",
+        "effect_denied": true
+      }
+    ],
+    "process_attempts": []
+  },
+  "usage": {
+    "input": 123736,
+    "cacheRead": 1350784,
+    "cacheWrite": 0,
+    "output": 9541
+  },
+  "usage_complete_known": true,
+  "captured_births_gone": 13,
+  "signals": 0,
+  "auth_exported": false,
+  "auth_deleted": false,
+  "no_execution": true,
+  "limitations": [
+    "Two actual pretrained CPU chunks; generated model-coordinate feedback only",
+    "Saved so100 profile does not establish physical calibration or G1 mapping",
+    "F45 deterministic structured grounding is not neural VLN",
+    "F46 finite reservation software is not physical multiagent operation",
+    "One denied import capability socket-bind attempt is preserved; not zero socket attempts"
+  ]
+}

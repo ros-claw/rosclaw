@@ -1,0 +1,147 @@
+{
+  "status": "PASS_SAVED_NATIVE_MOVEIT_FIVE_ACTUAL_GENERATED_CPP_CASES_NOT_PHYSICAL",
+  "frozen_index_sha256": "3dc7137918112e039f42e65782956da1cd85b63abf3c6c7188fe9ca866e55481",
+  "original_whole": "PASS_NATIVE_MOVEIT_FIVE_ACTUAL_GENERATED_CPP_CASES",
+  "UUID": "01a11a66-8981-74ac-836d-2e8b7c2260d0",
+  "TaskID": "task_7537610a1ef84754b9730faa",
+  "case_verdicts": [
+    {
+      "case": "F38_float_arm_variable_map",
+      "direction": "F38",
+      "status": "PASS_ACTUAL_GENERATED_CPP_LIBRARY_AND_INDEPENDENT_ORACLE"
+    },
+    {
+      "case": "F38_unknown_variable_reject",
+      "direction": "F38",
+      "status": "PASS_ACTUAL_GENERATED_CPP_LIBRARY_AND_INDEPENDENT_ORACLE"
+    },
+    {
+      "case": "F39_world_object_identity_free",
+      "direction": "F39",
+      "status": "PASS_ACTUAL_GENERATED_CPP_LIBRARY_AND_INDEPENDENT_ORACLE"
+    },
+    {
+      "case": "F39_changed_pose_collision",
+      "direction": "F39",
+      "status": "PASS_ACTUAL_GENERATED_CPP_LIBRARY_AND_INDEPENDENT_ORACLE"
+    },
+    {
+      "case": "F40_obstacle_replan",
+      "direction": "F40",
+      "status": "PASS_ACTUAL_GENERATED_CPP_LIBRARY_AND_INDEPENDENT_ORACLE"
+    },
+    {
+      "case": "F40_colliding_goal_no_plan",
+      "direction": "F40",
+      "status": "PASS_ACTUAL_GENERATED_CPP_LIBRARY_AND_INDEPENDENT_ORACLE"
+    },
+    {
+      "case": "F41_link_contact_frame",
+      "direction": "F41",
+      "status": "PASS_ACTUAL_GENERATED_CPP_LIBRARY_AND_INDEPENDENT_ORACLE"
+    },
+    {
+      "case": "F41_unknown_contact_frame",
+      "direction": "F41",
+      "status": "PASS_ACTUAL_GENERATED_CPP_LIBRARY_AND_INDEPENDENT_ORACLE"
+    },
+    {
+      "case": "F42_cartesian_path_finite",
+      "direction": "F42",
+      "status": "PASS_ACTUAL_GENERATED_CPP_LIBRARY_AND_INDEPENDENT_ORACLE"
+    },
+    {
+      "case": "F42_cartesian_out_of_bounds",
+      "direction": "F42",
+      "status": "PASS_ACTUAL_GENERATED_CPP_LIBRARY_AND_INDEPENDENT_ORACLE"
+    }
+  ],
+  "directions": [
+    "F38",
+    "F39",
+    "F40",
+    "F41",
+    "F42"
+  ],
+  "cases": 10,
+  "source_sha256": {
+    "native/test_moveit_finite.cpp": "0d247686f672fbb9f3cc6ae42ff25a4c59de529e10e8ae83444392d53653f93f",
+    "native/moveit_fixture.hpp": "636f188c85e818877131a722b07a8f784725b52f2e8962a995fb1dbd1cdaf40e",
+    "docs/MOVEIT_FINITE_SCOPE.md": "23df1d48289d3ce42ad43f5e92b99e1453d7060d0b4132f4aaa3d732bc3fa796",
+    "reports/evidence.json": "1ecb0725bb73caffaed97367b969073f331a0d81953825341048e8496cf8c7f1"
+  },
+  "native_effects": [
+    {
+      "path": "native/moveit_fixture.hpp",
+      "seed_sha256": "797887063696bafcce2480965c66b43b1c2e3f6c19af65a213c6fe49647ba509",
+      "final_sha256": "636f188c85e818877131a722b07a8f784725b52f2e8962a995fb1dbd1cdaf40e",
+      "effects": [
+        {
+          "tool_id": "call_91fbdbfd00df44e28d43c02ab0d92840|fc_08641ca416313e62016ac7457d35408195a8c7925d30109b79",
+          "tool": "edit",
+          "result_entry": 26,
+          "before_sha256": "797887063696bafcce2480965c66b43b1c2e3f6c19af65a213c6fe49647ba509",
+          "after_sha256": "636f188c85e818877131a722b07a8f784725b52f2e8962a995fb1dbd1cdaf40e"
+        }
+      ]
+    },
+    {
+      "path": "docs/MOVEIT_FINITE_SCOPE.md",
+      "seed_sha256": "7ff08c785be4be5a0919700f9bcb565e6b68f09edbd4155f2d234c2d14dbe27d",
+      "final_sha256": "23df1d48289d3ce42ad43f5e92b99e1453d7060d0b4132f4aaa3d732bc3fa796",
+      "effects": [
+        {
+          "tool_id": "call_0ca0748347594baa872dad0f0cc47be0|fc_08641ca416313e62016ac745eb3b048195aadbc32ef2692456",
+          "tool": "write",
+          "result_entry": 58,
+          "before_sha256": "7ff08c785be4be5a0919700f9bcb565e6b68f09edbd4155f2d234c2d14dbe27d",
+          "after_sha256": "23df1d48289d3ce42ad43f5e92b99e1453d7060d0b4132f4aaa3d732bc3fa796"
+        }
+      ]
+    },
+    {
+      "path": "reports/evidence.json",
+      "seed_sha256": "ec97054aedfef97e26b735a877404d0a4c485a663dd08328822b27e90e5ec127",
+      "final_sha256": "1ecb0725bb73caffaed97367b969073f331a0d81953825341048e8496cf8c7f1",
+      "effects": [
+        {
+          "tool_id": "call_b38a86794a454590a22cbfd04e0c7c6a|fc_08641ca416313e62016ac74619b728819597fdf05131de80d0",
+          "tool": "write",
+          "result_entry": 60,
+          "before_sha256": "ec97054aedfef97e26b735a877404d0a4c485a663dd08328822b27e90e5ec127",
+          "after_sha256": "1ecb0725bb73caffaed97367b969073f331a0d81953825341048e8496cf8c7f1"
+        }
+      ]
+    }
+  ],
+  "registered_refs": {
+    "art_b1adb0af85f94765a91fb816": "reports/operator_checks/moveit_1791444364363074121_check/receipt.json",
+    "art_f537fbde927345918cfa67c1": "reports/operator_checks/moveit_1791444380987634887_run/receipt.json",
+    "art_b086efab20f3440cb057ab5e": "reports/operator_checks/moveit_1791444380987634887_run/complete_result.json",
+    "art_fbb1cebe8bda427aaeb23208": "native/test_moveit_finite.cpp",
+    "art_9c444b70dfd644e1b43b3b9d": "native/moveit_fixture.hpp",
+    "art_f6592d7bd685418ebad92a45": "docs/MOVEIT_FINITE_SCOPE.md",
+    "art_f51378435a84470c85b87690": "reports/evidence.json",
+    "art_0cb9bc93f8d749b2adc75462": "delivery.json"
+  },
+  "latest_check_sha256": "7bd753950edb76bcef36d117f38074b4321a1d5dc7d91a9304db8d404fb6d8fc",
+  "latest_run_sha256": "f402be02cae4d8f2e48b0ed06f4a62dcb2a99c2a82970d46fa31a9136c188989",
+  "raw_case_outputs_sha256": "091094241e5eeb2ff89c25fe1d585149a55d14dd3794333ac5786d02e87a5b6f",
+  "compile_header_dependency_proved": true,
+  "usage": {
+    "input": 55498,
+    "cacheRead": 971520,
+    "cacheWrite": 0,
+    "output": 6965
+  },
+  "usage_complete_known": true,
+  "captured_births_gone": 14,
+  "signals": 0,
+  "auth_exported": false,
+  "auth_deleted": false,
+  "no_execution": true,
+  "limitations": [
+    "Generated finite MoveIt library cases only; no physical manipulation/controller execution",
+    "Historical whole failures remain unchanged"
+  ]
+}
