@@ -1,10 +1,12 @@
 """Offline official-ROS CDR contracts; no Node, DDS, simulation or motion."""
 
+import argparse
 import base64
 import copy
 import hashlib
 import json
 import tempfile
+from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -192,6 +194,15 @@ def write(path, rows, *, incomplete=False):
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--directory",
+        type=Path,
+        help="Exclusive owned directory retaining all synthetic source cases",
+    )
+    args = parser.parse_args()
+    if args.directory is not None:
+        args.directory.mkdir(parents=True, exist_ok=False)
     cases = [
         "valid",
         "projection",
@@ -211,7 +222,12 @@ def main():
         "contact_observation",
     ]
     results = []
-    with tempfile.TemporaryDirectory(prefix="independent-contact-cdr-contract-") as directory:
+    context = (
+        nullcontext(str(args.directory))
+        if args.directory is not None
+        else tempfile.TemporaryDirectory(prefix="independent-contact-cdr-contract-")
+    )
+    with context as directory:
         policy, rows, origin = fixture(prepared_sources(Path(directory)))
         for case in cases:
             path = Path(directory) / (case + ".jsonl")

@@ -4,11 +4,13 @@ The Node, clock and delivery loop are synthetic. No DDS, simulation, publisher,
 service or motion is started. This verifies recording/closure/replay wiring.
 """
 
+import argparse
 import json
 import signal
 import sys
 import tempfile
 import time
+from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -25,6 +27,15 @@ import rosclaw.connectors.ros.diagnosis.coverage_audit as audit_module
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--directory",
+        type=Path,
+        help="Exclusive owned directory retaining all synthetic source cases",
+    )
+    args = parser.parse_args()
+    if args.directory is not None:
+        args.directory.mkdir(parents=True, exist_ok=False)
     real_pause = time.sleep
     clock = [0.0]
     origin = datetime(2026, 10, 8, 12, tzinfo=UTC)
@@ -110,9 +121,12 @@ def main():
         rclpy.spin_once = spin
         time.monotonic = lambda: 100 + clock[0]
         contact_observer.datetime = audit_module.datetime = FakeDatetime
-        with tempfile.TemporaryDirectory(
-            prefix="independent-contact-callback-contract-"
-        ) as directory:
+        context = (
+            nullcontext(str(args.directory))
+            if args.directory is not None
+            else tempfile.TemporaryDirectory(prefix="independent-contact-callback-contract-")
+        )
+        with context as directory:
             results = []
             for case in (
                 "valid",
