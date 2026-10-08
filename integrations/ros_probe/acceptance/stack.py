@@ -14,7 +14,7 @@ import yaml
 from ament_index_python.packages import get_package_share_directory
 from profiles import PROFILES
 
-from experiments import gazebo_arguments, planning_parameters, validate_seed
+from experiments import controller_parameters, gazebo_arguments, planning_parameters, validate_seed
 
 ROOT = Path(__file__).resolve().parent
 OUTPUT = Path("/evidence")
@@ -23,6 +23,7 @@ OUTPUT = Path("/evidence")
 def prepare(controller_watchdog=True, profile_name="waffle", coverage_preset="baseline", seed=None):
     profile = PROFILES[profile_name]
     candidate = planning_parameters(profile, coverage_preset)
+    controller_candidate = controller_parameters(profile, coverage_preset)
     validate_seed(seed)
     if profile_name == "burger" and not controller_watchdog:
         raise ValueError("Burger acceptance requires the bottom-level controller watchdog")
@@ -210,6 +211,7 @@ def prepare(controller_watchdog=True, profile_name="waffle", coverage_preset="ba
     # 0.3 m, not the Waffle default. Candidate settings never alter its geometry.
     params = yaml.safe_load((OUTPUT / "nav2.yaml").read_text())
     params["coverage_server"]["ros__parameters"].update(candidate)
+    params["controller_server"]["ros__parameters"]["FollowPath"].update(controller_candidate)
     (OUTPUT / "nav2.yaml").write_text(yaml.safe_dump(params))
     (OUTPUT / "experiment.json").write_text(
         json.dumps(
@@ -218,12 +220,14 @@ def prepare(controller_watchdog=True, profile_name="waffle", coverage_preset="ba
                 "evidence_role": "fixture_configuration_not_measured_success",
                 "profile": profile_name,
                 "preset": coverage_preset,
-                "boundary_pass": coverage_preset in ("perimeter", "perimeter_sequential"),
+                "boundary_pass": coverage_preset
+                in ("perimeter", "perimeter_sequential", "perimeter_stateless"),
                 "boundary_strategy": "sequential"
-                if coverage_preset == "perimeter_sequential"
+                if coverage_preset in ("perimeter_sequential", "perimeter_stateless")
                 else "through_poses",
                 "seed": seed,
                 "planning_parameters": candidate,
+                "controller_parameters": controller_candidate,
                 "start_pose": {"x": 0.0, "y": 0.0, "yaw": 0.0},
                 "gazebo_arguments": gazebo_arguments(OUTPUT / "world.sdf", seed),
             },
@@ -248,7 +252,14 @@ def main():
     parser.add_argument("--profile", choices=PROFILES, default="waffle")
     parser.add_argument(
         "--coverage-preset",
-        choices=["baseline", "diagonal", "headland", "perimeter", "perimeter_sequential"],
+        choices=[
+            "baseline",
+            "diagonal",
+            "headland",
+            "perimeter",
+            "perimeter_sequential",
+            "perimeter_stateless",
+        ],
         default="baseline",
     )
     parser.add_argument("--seed", type=int)

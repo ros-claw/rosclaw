@@ -64,6 +64,16 @@
         "swath_angle_rad": 0.0,
         "route_mode": "BOUSTROPHEDON",
         "boundary_pass": "9 existing legal boundary targets, sequential NavigateToPose with unchanged goal checker, total180s"
+      },
+      {
+        "id": "perimeter_stateless",
+        "headland_width": 0.5,
+        "swath_angle_rad": 0.0,
+        "route_mode": "BOUSTROPHEDON",
+        "boundary_pass": "9 existing legal boundary targets, sequential NavigateToPose with unchanged goal checker, total180s",
+        "controller_parameters": {
+          "stateful": false
+        }
       }
     ],
     "burger": [
@@ -92,6 +102,16 @@
         "swath_angle_rad": 0.0,
         "route_mode": "BOUSTROPHEDON",
         "boundary_pass": "9 existing legal boundary targets, sequential NavigateToPose with unchanged goal checker, total180s"
+      },
+      {
+        "id": "perimeter_stateless",
+        "headland_width": 0.3,
+        "swath_angle_rad": 0.0,
+        "route_mode": "BOUSTROPHEDON",
+        "boundary_pass": "9 existing legal boundary targets, sequential NavigateToPose with unchanged goal checker, total180s",
+        "controller_parameters": {
+          "stateful": false
+        }
       }
     ]
   },
@@ -133,6 +153,7 @@
     "main_and_boundary_separately_reported": true,
     "evaluation_freeze": "NOT_FROZEN",
     "additional_candidate": "Sequential9 existing legal corners/midpoints. First through-poses pilot measured primary76.9%; actual Nav2 paths bend away from boundary. Separate candidate, all runs retained; no evaluation seeds used.",
-    "boundary_clearance": "Sequential candidate uses existing legal centers additionally screened with robot_radius=max(original recovery radius, physical radius+0.05). Original baseline recovery unchanged. No inset shrink."
+    "boundary_clearance": "Sequential candidate uses existing legal centers additionally screened with robot_radius=max(original recovery radius, physical radius+0.05). Original baseline recovery unchanged. No inset shrink.",
+    "controller_candidate": "perimeter_stateless: baseline planner plus sequential9 boundary; only RPP stateful=false. Hypothesis controller goal latch; no speed/tolerance/collision/deadline/lease guard change. New candidate before physical dispatch, old failed trials retained."
   }
 }

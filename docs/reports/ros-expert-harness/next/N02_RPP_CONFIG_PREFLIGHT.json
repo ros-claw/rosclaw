@@ -1,0 +1,36 @@
+{
+  "image_id": "sha256:c31355f34739eb4ea8b60de1414c57ce0eea8225aa9e3ce854b7ceb66ca4376e",
+  "nav2_package_version": "1.3.13-1noble.20260921",
+  "rows": [
+    {
+      "profile": "waffle",
+      "all_non_stateful_nav2_parameters_equal": true,
+      "unchanged_geometry_world_controller_files": {
+        "world.sdf": "07915dc6fe79575e990fe9973f1ab45b9cbbf1cbd310a6b7bd876542879a6ad2",
+        "robot.urdf": "2c26a554239ba6e544ecca5a6640cf879ecd7e3409f11fb334df9ce78aeb3c7e",
+        "robot.sdf": "3eaea9a33c1b1ddb3de2efb48ea47a7480ade730e0582654988487d7410b072b",
+        "controllers.yaml": "d4be58f3f775582fb8df4ac2ab59deb8a54e3e79c59386dc5160e5cdcd2bb2c8",
+        "fixture_profile.json": "3fac272e6de8510a9dba5cb2c78dcf3cc8c14148db869a5f65f6e13c0b1eeb8e"
+      },
+      "candidate_stateful": false,
+      "baseline_stateful": "upstream default true; YAML unchanged",
+      "seed": 100801,
+      "evidence_role": "configuration_only_no_ROS_action"
+    },
+    {
+      "profile": "burger",
+      "all_non_stateful_nav2_parameters_equal": true,
+      "unchanged_geometry_world_controller_files": {
+        "world.sdf": "07915dc6fe79575e990fe9973f1ab45b9cbbf1cbd310a6b7bd876542879a6ad2",
+        "robot.urdf": "9b9400dff5b253df9a26f287d45e5d51d01f8b3300baffed781948961fc2892f",
+        "robot.sdf": "e60cf1e09352bf002ee3765703e5dfc7159f946e25c3163feff838cf6bce9cd7",
+        "controllers.yaml": "3ebd6132d57012f447fb60afef9c17f1ad032957a3ed6d5a82f1fd16117ff726",
+        "fixture_profile.json": "8331ad8201810b44864d163774143199e2657523fce2985fc16b7d5e1ad51647"
+      },
+      "candidate_stateful": false,
+      "baseline_stateful": "upstream default true; YAML unchanged",
+      "seed": 100801,
+      "evidence_role": "configuration_only_no_ROS_action"
+    }
+  ]
+}

@@ -18,9 +18,15 @@ def planning_parameters(profile, preset="baseline"):
     elif preset == "headland":
         # Offline-screened known fixtures, not a claim of generic Body adaptation.
         params["default_headland_width"] = {"waffle": 0.45, "burger": 0.35}[profile.name]
-    elif preset not in ("baseline", "perimeter", "perimeter_sequential"):
+    elif preset not in ("baseline", "perimeter", "perimeter_sequential", "perimeter_stateless"):
         raise ValueError("unknown predeclared coverage preset")
     return params
+
+
+def controller_parameters(profile, preset="baseline"):
+    """Only goal-rotation statefulness differs; speed/stop guards stay original."""
+    planning_parameters(profile, preset)
+    return {"stateful": False} if preset == "perimeter_stateless" else {}
 
 
 def validate_seed(seed):

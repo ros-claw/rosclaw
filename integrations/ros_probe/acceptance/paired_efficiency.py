@@ -240,7 +240,13 @@ def main():
     parser.add_argument("--profile", choices=PROFILES, required=True)
     parser.add_argument(
         "--candidate",
-        choices=["diagonal", "headland", "perimeter", "perimeter_sequential"],
+        choices=[
+            "diagonal",
+            "headland",
+            "perimeter",
+            "perimeter_sequential",
+            "perimeter_stateless",
+        ],
         required=True,
     )
     parser.add_argument("--seed", type=int, required=True)

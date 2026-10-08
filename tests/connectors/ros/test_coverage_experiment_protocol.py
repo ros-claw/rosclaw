@@ -98,3 +98,18 @@ def test_startup_ready_does_not_wait_for_task_generated_snapshot(tmp_path, monke
     monkeypatch.setattr(pairs, "latest_completed_observation", lambda *args: sample)
     pairs.wait_ready(tmp_path, "mock-owned", timeout=1)
     assert not (tmp_path / "snapshot.json").exists()
+
+
+def test_rotation_latch_candidate_changes_no_speed_guard_or_planner_setting():
+    for name, width in [("waffle", 0.5), ("burger", 0.3)]:
+        profile = SimpleNamespace(name=name, coverage_width_m=width)
+        before = dict(vars(profile))
+        assert experiments.controller_parameters(profile, "baseline") == {}
+        assert experiments.controller_parameters(profile, "perimeter_sequential") == {}
+        assert experiments.controller_parameters(profile, "perimeter_stateless") == {
+            "stateful": False
+        }
+        assert experiments.planning_parameters(
+            profile, "perimeter_stateless"
+        ) == experiments.planning_parameters(profile, "baseline")
+        assert vars(profile) == before

@@ -12,7 +12,13 @@ from pathlib import Path
 from threading import Lock
 
 import rclpy
-from geometry_msgs.msg import PolygonStamped, PoseWithCovarianceStamped, Twist, TwistStamped
+from geometry_msgs.msg import (
+    PointStamped,
+    PolygonStamped,
+    PoseWithCovarianceStamped,
+    Twist,
+    TwistStamped,
+)
 from nav2_msgs.msg import CollisionMonitorState
 from nav_msgs.msg import OccupancyGrid
 from nav_msgs.msg import Path as NavPath
@@ -100,6 +106,20 @@ class Witness(Node):
                 lambda message, t=topic: self.velocity_observation(t, message),
                 10,
             )
+        self.create_subscription(Bool, "/is_rotating_to_heading", self.rotation_observation, 10)
+        self.create_subscription(
+            NavPath,
+            "/received_global_plan",
+            lambda message: self.record_path("/received_global_plan", message),
+            10,
+        )
+        for topic in ["/lookahead_point", "/curvature_lookahead_point"]:
+            self.create_subscription(
+                PointStamped,
+                topic,
+                lambda message, t=topic: self.carrot_observation(t, message),
+                10,
+            )
         for topic in self.contact_topics:
             self.create_subscription(
                 Contacts,
@@ -178,6 +198,30 @@ class Witness(Node):
                 "linear_x": message.linear.x,
                 "angular_z": message.angular.z,
                 "evidence_role": "command_observation_not_measured_motion",
+            },
+            sim_time=self.get_clock().now().nanoseconds / 1e9,
+        )
+
+    def rotation_observation(self, message):
+        self.plan_audit.emit(
+            "rpp_rotation_state",
+            {
+                "topic": "/is_rotating_to_heading",
+                "rotating": message.data,
+                "evidence_role": "controller_rotation_flag_not_goal_or_path_cause",
+            },
+            sim_time=self.get_clock().now().nanoseconds / 1e9,
+        )
+
+    def carrot_observation(self, topic, message):
+        self.plan_audit.emit(
+            "rpp_lookahead_point",
+            {
+                "topic": topic,
+                "frame_id": message.header.frame_id,
+                "point": {"x": message.point.x, "y": message.point.y, "z": message.point.z},
+                "header_stamp_sec": message.header.stamp.sec + message.header.stamp.nanosec / 1e9,
+                "evidence_role": "controller_debug_target_not_measured_pose",
             },
             sim_time=self.get_clock().now().nanoseconds / 1e9,
         )

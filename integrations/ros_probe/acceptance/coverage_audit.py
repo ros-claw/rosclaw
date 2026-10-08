@@ -308,7 +308,12 @@ def audit(directory, output):
         "feedback_by_goal": feedback,
         "controller_diagnostic_events": {
             kind: sum(row["kind"] == kind for row in plan_rows)
-            for kind in ["collision_monitor_state", "velocity_command"]
+            for kind in [
+                "collision_monitor_state",
+                "velocity_command",
+                "rpp_rotation_state",
+                "rpp_lookahead_point",
+            ]
         },
         "segment_count": len(segments),
         "limitations": [
