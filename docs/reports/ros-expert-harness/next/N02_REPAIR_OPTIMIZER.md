@@ -38,3 +38,24 @@ mypy and lint checks pass. Counts overlap and are not summed.
 
 The optimizer is prepared in an isolated worktree while unchanged main-planning
 pairs run; it is not used in those physical episodes. `v1_done=false`.
+# Current integration and remaining physical gate
+
+The repair engine is prepared on the reviewed stateless/sequential boundary
+candidate. Defaults remain greedy, and all legal boundary target/controller
+options are preserved. Updated evaluation admission binds the actual image,
+source, selected main and repair strategies, and original per-Body deadlines.
+Statistics reject mismatched arm presets, altered baseline repair strategies,
+mixed candidate strategies or missing complete independent observations. Final
+analysis records its own source hash as well as every input hash.
+
+Native supplemental acceptance supports current append-only path logs without
+requiring removed overwritten snapshot filenames. Its still-running observer
+prefix is explicitly LIVE_PREFIX_NOT_FINAL_AUDIT; complete shutdown/EOF/hash
+validation remains separate and required. Neither this compatibility fix nor
+the offline engine tests count as a Native physical acceptance run.
+
+Physical pose-aware repair status remains NOT_RUN until the main PR gate passes.
+The latest main Waffle pilot's primary91.1633% still needed23 greedy repairs
+and achieved only13.7724% distance/20.5538% SIM reductions. That motivates the
+repair trial; predictions cannot establish a gain. All original pilot failures
+and unconsumed evaluation seeds are retained.
