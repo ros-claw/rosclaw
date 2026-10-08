@@ -188,6 +188,13 @@ def prepare_probe_world(output, *, scene_directory, instrument_directory, policy
                 <= radii[model_name] + declaration["sphere_radius_m"] + 0.2
             ):
                 raise ValueError("instrument source placement lacks full scene collision clearance")
+    # The new spatial constraint requires complete actual Body geometry.
+    # Set it on this exclusive candidate; the original frozen scene is unchanged.
+    flags = passive[0].findall("include_body_collision_geometry")
+    if len(flags) > 1:
+        raise ValueError("ambiguous actual Body geometry producer source flag")
+    flag = flags[0] if flags else ET.SubElement(passive[0], "include_body_collision_geometry")
+    flag.text = "true"
     # The sphere is an observed obstacle, never a falsely static or hidden model.
     ET.SubElement(passive[0], "obstacle_model").text = name
     probe_root = xml_source(sources["instrument.sdf"])

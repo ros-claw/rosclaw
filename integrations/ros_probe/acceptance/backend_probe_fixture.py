@@ -143,7 +143,7 @@ def prepare_probe_fixture(output, declaration):
         "publish_model_pose": "true",
         "publish_link_pose": "false",
         "use_pose_vector_msg": "true",
-        "update_frequency": "20",
+        "update_frequency": "-1",
         "topic": declaration["pose_topic"],
     }.items():
         ET.SubElement(pose, key).text = value

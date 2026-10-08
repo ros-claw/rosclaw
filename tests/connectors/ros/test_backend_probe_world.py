@@ -100,6 +100,7 @@ def test_prepares_exclusive_world_with_dynamic_observed_probe_and_preserves_inpu
     occupancy = next(
         p for p in world.findall("plugin") if p.get("name") == "rosclaw::PassivePhysics"
     )
+    assert occupancy.findtext("include_body_collision_geometry") == "true"
     assert [e.text for e in occupancy.findall("obstacle_model")] == [
         "scene_obstacle",
         "isolated_instrument",
@@ -222,5 +223,22 @@ def test_unresolved_or_mismatched_world_sources_are_refused_before_output(fixtur
     (scene / "physics_binding.json").write_text(json.dumps(binding))
     world.write(scene / "world.sdf")
     with pytest.raises(ValueError):
+        prepare(fixture)
+    assert not out.exists()
+
+
+def test_duplicate_body_geometry_source_flags_refuse_before_output(fixture):
+    _, scene, _, _, _, out = fixture
+    path = scene / "world.sdf"
+    tree = ET.parse(path)
+    passive = next(
+        p
+        for p in tree.find("world").findall("plugin")
+        if p.get("name") == "rosclaw::PassivePhysics"
+    )
+    ET.SubElement(passive, "include_body_collision_geometry").text = "true"
+    ET.SubElement(passive, "include_body_collision_geometry").text = "false"
+    tree.write(path)
+    with pytest.raises(ValueError, match="ambiguous actual Body geometry"):
         prepare(fixture)
     assert not out.exists()
