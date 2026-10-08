@@ -10,6 +10,7 @@ import hashlib
 import json
 from typing import Any
 
+from rosclaw.growth.canonical_json_snapshot import CanonicalJSONSnapshot
 from rosclaw.growth.shared_proof_payload import MARKER, SCHEMA, canonical_hash
 
 
@@ -46,6 +47,53 @@ class FrozenPayloadField:
         digest.update(b"}")
         return "sha256:" + digest.hexdigest()
 
+    def document_hash_at_path(self, fields: dict[str, Any], path: tuple[str, ...]) -> str:
+        """Hash a complete document with this payload at one explicit dict path.
+
+        Intermediate dictionaries must already exist and the final key must
+        be absent. Only the payload's JSON encoding is cached: every supplied
+        field and every payload byte remains in the ordinary canonical hash.
+        No markers, hash substitutions, policy checks or authority are added.
+        """
+        if (
+            type(path) is not tuple
+            or not 1 <= len(path) <= 16
+            or any(type(key) is not str or not 1 <= len(key) <= 128 for key in path)
+            or type(self._payload_bytes) is not bytes
+            or self.payload_hash != "sha256:" + hashlib.sha256(self._payload_bytes).hexdigest()
+        ):
+            raise ValueError(
+                "bounded explicit dictionary path and unchanged cached payload required"
+            )
+        # Independently own and validate the small fields before traversing.
+        # Lossy Python keys/tuples and nonfinite values are not ordinary JSON.
+        owned = CanonicalJSONSnapshot(fields).restore()
+        digest = hashlib.sha256()
+
+        def append(node: Any, remaining: tuple[str, ...]) -> None:
+            key = remaining[0]
+            if type(node) is not dict or (
+                (len(remaining) == 1 and key in node) or (len(remaining) > 1 and key not in node)
+            ):
+                raise ValueError("existing dictionary path and one missing payload key required")
+            names = sorted([*node, key] if len(remaining) == 1 else node)
+            digest.update(b"{")
+            for index, name in enumerate(names):
+                if index:
+                    digest.update(b",")
+                digest.update(_bytes(name))
+                digest.update(b":")
+                if name != key:
+                    digest.update(_bytes(node[name]))
+                elif len(remaining) == 1:
+                    digest.update(self._payload_bytes)
+                else:
+                    append(node[name], remaining[1:])
+            digest.update(b"}")
+
+        append(owned, path)
+        return "sha256:" + digest.hexdigest()
+
     def envelope(self, fields: dict[str, Any], key: str) -> dict[str, Any]:
         logical_hash = self.document_hash(fields, key)
         # Capture independent compact fields. Caller mutation after this call
@@ -60,3 +108,42 @@ class FrozenPayloadField:
             "stripped_document": stripped,
         }
         return {**value, "envelope_hash": canonical_hash(value)}
+
+    def restore(self, envelope: Any, key: str) -> dict[str, Any]:
+        """Restore only this cached payload after complete envelope validation.
+
+        This is persistence math, not a policy validator or trust grant.
+        Returned fields and payload are freshly owned ordinary dictionaries.
+        A caller must still validate any policy and its execution commitment.
+        """
+        if (
+            type(envelope) is not dict
+            or set(envelope)
+            != {
+                "schema",
+                "location",
+                "payload_hash",
+                "logical_document_hash",
+                "stripped_document",
+                "envelope_hash",
+            }
+            or type(key) is not str
+            or not 1 <= len(key) <= 128
+            or envelope["schema"] != SCHEMA
+            or envelope["location"] != [key]
+            or envelope["payload_hash"] != self.payload_hash
+            or self.payload_hash != "sha256:" + hashlib.sha256(self._payload_bytes).hexdigest()
+            or type(envelope["stripped_document"]) is not dict
+        ):
+            raise ValueError("complete envelope for the immutable cached payload required")
+        unsigned = {k: v for k, v in envelope.items() if k != "envelope_hash"}
+        if canonical_hash(unsigned) != envelope["envelope_hash"]:
+            raise ValueError("cached payload envelope seal changed")
+        stripped = json.loads(_bytes(envelope["stripped_document"]))
+        if stripped.get(key) != {MARKER: self.payload_hash}:
+            raise ValueError("exact single cached payload marker required")
+        fields = {k: v for k, v in stripped.items() if k != key}
+        if self.document_hash(fields, key) != envelope["logical_document_hash"]:
+            raise ValueError("complete cached logical document hash changed")
+        fields[key] = json.loads(self._payload_bytes)
+        return fields
