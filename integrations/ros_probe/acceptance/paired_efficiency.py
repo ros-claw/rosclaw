@@ -267,7 +267,9 @@ def main():
         required=True,
     )
     parser.add_argument(
-        "--candidate-repair-strategy", choices=["greedy", "pose_aware"], default="greedy"
+        "--candidate-repair-strategy",
+        choices=["greedy", "pose_aware", "pose_aware_robust"],
+        default="greedy",
     )
     parser.add_argument("--seed", type=int, required=True)
     parser.add_argument("--phase", choices=["pilot", "evaluation"], default="pilot")

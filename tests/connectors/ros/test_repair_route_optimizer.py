@@ -119,7 +119,7 @@ def test_map_mismatch_and_invalid_costs_are_rejected():
         )
 
 
-@pytest.mark.parametrize("strategy", ["greedy", "pose_aware"])
+@pytest.mark.parametrize("strategy", ["greedy", "pose_aware", "pose_aware_robust"])
 def test_budget_fallback_keeps_original_dispatch_and_requires_measured_pose(
     tmp_path, monkeypatch, strategy
 ):
@@ -177,8 +177,52 @@ def test_budget_fallback_keeps_original_dispatch_and_requires_measured_pose(
     records = driver._repair(verifier, 0, "mock-action", time.monotonic() + 60)
     assert len(records) == 1
     assert verifier.result()["coverage_ratio"] == 1.0
-    assert bool(ranking_calls) == (strategy == "pose_aware")
+    assert bool(ranking_calls) == (strategy != "greedy")
     decisions = [p for k, p in audit if k == "repair_candidate_selection"]
-    if strategy == "pose_aware":
+    if strategy != "greedy":
         assert decisions[0]["fallback"] is True
         assert decisions[0]["credit_role"] == "prediction_only_never_measured_credit"
+
+
+def test_robust_prediction_averages_clipped_translations_without_widening_credit():
+    specification = grid(3, 1.0, [[-0.1, -0.1], [0.1, -0.1], [0.1, 0.1], [-0.1, 0.1]])
+    remaining = {0, 1, 3, 4}
+    current = {"x": 0.5, "y": 0.5, "yaw": 0.0}
+    original = copy.deepcopy((specification, remaining, current))
+    nominal = repair_optimizer.rank_repair_poses(specification, [(0.5, 0.5)], remaining, current)
+    robust = repair_optimizer.rank_repair_poses(
+        specification, [(0.5, 0.5)], remaining, current, robust_footprint=True
+    )
+    assert robust.status == "READY"
+    assert robust.poses[0].predicted_new_cells == nominal.poses[0].predicted_new_cells == (0,)
+    assert robust.poses[0].utility * robust.poses[0].estimated_cost_sec == pytest.approx(12 / 9)
+    assert nominal.poses[0].utility * nominal.poses[0].estimated_cost_sec == pytest.approx(3)
+    assert robust.reward_model == "NINE_ONE_CELL_TRANSLATIONS_NOT_CALIBRATED_PROBABILITY"
+    assert (specification, remaining, current) == original
+    verifier = CoverageVerifier(**specification)
+    assert not verifier.visits
+
+
+def test_robust_translation_never_wraps_at_grid_edges_or_resurrects_exhausted_cells():
+    specification = grid(3, 1.0, [[-0.1, -0.1], [0.1, -0.1], [0.1, 0.1], [-0.1, 0.1]])
+    current = {"x": 0.5, "y": 0.5, "yaw": 0.0}
+    result = repair_optimizer.rank_repair_poses(
+        specification, [(0.5, 0.5)], {0, 2, 5}, current, robust_footprint=True
+    )
+    assert result.poses[0].utility * result.poses[0].estimated_cost_sec == pytest.approx(3 / 9)
+    exhausted = repair_optimizer.rank_repair_poses(
+        specification, [(0.5, 0.5)], {0, 1}, current, attempts={0: 3, 1: 3}, robust_footprint=True
+    )
+    assert exhausted.status == "NO_CANDIDATE"
+
+
+@pytest.mark.parametrize("value", [1, None, "true"])
+def test_robust_mode_requires_boolean(value):
+    with pytest.raises(ValueError, match="boolean"):
+        repair_optimizer.rank_repair_poses(
+            grid(),
+            [(1.125, 1.125)],
+            {64},
+            {"x": 1.125, "y": 1.125, "yaw": 0},
+            robust_footprint=value,
+        )

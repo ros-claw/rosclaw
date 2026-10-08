@@ -31,7 +31,9 @@ async def main():
     parser.add_argument("--model-urdf", type=Path)
     parser.add_argument("--profile", choices=PROFILES)
     parser.add_argument("--mission-timeout", type=int, default=900)
-    parser.add_argument("--repair-strategy", choices=["greedy", "pose_aware"], default="greedy")
+    parser.add_argument(
+        "--repair-strategy", choices=["greedy", "pose_aware", "pose_aware_robust"], default="greedy"
+    )
     args = parser.parse_args()
     if args.navigation_only and args.reject_smaller_scope:
         parser.error("navigation and scope-rejection cases are mutually exclusive")

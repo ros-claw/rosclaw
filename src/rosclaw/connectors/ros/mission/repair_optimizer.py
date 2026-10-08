@@ -28,6 +28,7 @@ class RepairSelection:
     elapsed_ms: float = 0.0
     evaluated_poses: int = 0
     cost_model: str = "STATIC_LEGAL_CENTER_GRID_PREDICTION_ONLY"
+    reward_model: str = "NOMINAL_SAMPLED_FOOTPRINT_PREDICTION_ONLY"
 
 
 class _BudgetExceededError(Exception):
@@ -52,6 +53,7 @@ def rank_repair_poses(
     goal_overhead_sec=2.896155560857831,
     beam_width=3,
     shortlist_size=24,
+    robust_footprint=False,
 ):
     """Return at most two predicted poses; the executor dispatches only the first.
 
@@ -60,6 +62,8 @@ def rank_repair_poses(
     live Nav2 reachability or motion permission. Each call copies the actual
     missed mask; only independent measured poses may update coverage.
     """
+    if type(robust_footprint) is not bool:
+        raise ValueError("robust footprint mode must be boolean")
     start = time.monotonic()
     if (
         not all(
@@ -80,7 +84,17 @@ def rank_repair_poses(
             raise _BudgetExceededError
 
     def finish(status, poses=()):
-        return RepairSelection(status, tuple(poses), (time.monotonic() - start) * 1000, evaluated)
+        return RepairSelection(
+            status,
+            tuple(poses),
+            (time.monotonic() - start) * 1000,
+            evaluated,
+            reward_model=(
+                "NINE_ONE_CELL_TRANSLATIONS_NOT_CALIBRATED_PROBABILITY"
+                if robust_footprint
+                else "NOMINAL_SAMPLED_FOOTPRINT_PREDICTION_ONLY"
+            ),
+        )
 
     try:
         # Bound precomputation too, including unusually large externally supplied maps.
@@ -191,6 +205,42 @@ def rank_repair_poses(
         def gain(cells):
             return sum(max(0, 3 - retries.get(c, 0)) for c in cells)
 
+        # These are fixed prediction scenarios, not localization estimates,
+        # collision envelopes, reachable centers or measured cleaning credit.
+        shifts = tuple((dx, dy) for dx in (-1, 0, 1) for dy in (-1, 0, 1))
+        kernels = {}
+        if robust_footprint:
+            for yaw, footprint in offsets.items():
+                counts = {}
+                for sx, sy in shifts:
+                    check_budget()
+                    for dx, dy in footprint:
+                        key = (dx + sx, dy + sy)
+                        counts[key] = counts.get(key, 0) + 1
+                kernels[yaw] = tuple(counts.items())
+
+        def robust_gain(col, row, yaw):
+            return sum(
+                count * max(0, 3 - retries.get((row + dy) * width + col + dx, 0))
+                for (dx, dy), count in kernels[yaw]
+                if 0 <= col + dx < width
+                and 0 <= row + dy < height
+                and (row + dy) * width + col + dx in remaining
+            ) / len(shifts)
+
+        def shifted_footprints(pose):
+            col, row = pose.center_cell % width, pose.center_cell // width
+            return tuple(
+                frozenset(
+                    (row + dy + sy) * width + col + dx + sx
+                    for dx, dy in offsets[pose.yaw]
+                    if 0 <= col + dx + sx < width
+                    and 0 <= row + dy + sy < height
+                    and (row + dy + sy) * width + col + dx + sx in remaining
+                )
+                for sx, sy in shifts
+            )
+
         def heading_cost(x, y, yaw, origin):
             distance = math.hypot(x - origin["x"], y - origin["y"])
             if distance < res / 2:
@@ -219,6 +269,8 @@ def rank_repair_poses(
                 reward = gain(cells)
                 if not reward:
                     continue
+                if robust_footprint:
+                    reward = robust_gain(col, row, yaw)
                 turn = heading_cost(x, y, yaw, current_pose)
                 cost = distance / drive_speed_mps + turn / turn_speed_radps + goal_overhead_sec
                 ranked.append(
@@ -266,6 +318,7 @@ def rank_repair_poses(
         if not shortlist:
             return finish("NO_CANDIDATE")
         best, best_utility = (shortlist[0],), shortlist[0].utility
+        scenarios = {p: shifted_footprints(p) for p in shortlist} if robust_footprint else {}
         seen = set()
         for first in shortlist:
             if first.center_cell in seen:
@@ -287,6 +340,15 @@ def rank_repair_poses(
                 cost = first.estimated_cost_sec + access_next[second.center_cell] / drive_speed_mps
                 cost += turn / turn_speed_radps + goal_overhead_sec
                 utility = (gain(first.predicted_new_cells) + gain(added)) / cost
+                if robust_footprint:
+                    utility = (
+                        sum(
+                            gain(a | b)
+                            for a, b in zip(scenarios[first], scenarios[second], strict=True)
+                        )
+                        / len(shifts)
+                        / cost
+                    )
                 if utility > best_utility:
                     best, best_utility = (first, second), utility
         check_budget()

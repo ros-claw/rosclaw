@@ -166,7 +166,7 @@ class RosCoverageSimulationExecutor:
     ):
         if not owner.startswith("daemon_"):
             raise ValueError("daemon ownership is required")
-        if repair_strategy not in {"greedy", "pose_aware"}:
+        if repair_strategy not in {"greedy", "pose_aware", "pose_aware_robust"}:
             raise ValueError("unknown configured SIM repair strategy")
         if not math.isfinite(repair_swath_yaw) or not 0 < repair_budget_ms <= 1000:
             raise ValueError("configured repair yaw/budget must be finite and bounded")
@@ -504,7 +504,7 @@ class RosCoverageSimulationExecutor:
                 if ranking > best:
                     best, center = ranking, candidate
             heading = math.pi / 4
-            if self.repair_strategy == "pose_aware":
+            if self.repair_strategy in {"pose_aware", "pose_aware_robust"}:
                 ready_cells = {c for proposal in proposals["ready"] for c in proposal["cells"]}
                 selection = rank_repair_poses(
                     self.grid,
@@ -514,6 +514,7 @@ class RosCoverageSimulationExecutor:
                     attempts=recovery.attempts,
                     swath_yaw=self.repair_swath_yaw,
                     budget_ms=self.repair_budget_ms,
+                    robust_footprint=self.repair_strategy == "pose_aware_robust",
                 )
                 self._audit_event(
                     "repair_candidate_selection",
@@ -523,6 +524,7 @@ class RosCoverageSimulationExecutor:
                         "elapsed_ms": selection.elapsed_ms,
                         "evaluated_poses": selection.evaluated_poses,
                         "cost_model": selection.cost_model,
+                        "reward_model": selection.reward_model,
                         "predicted_sequence": [asdict(pose) for pose in selection.poses],
                         "credit_role": "prediction_only_never_measured_credit",
                         "fallback": selection.status != "READY",
