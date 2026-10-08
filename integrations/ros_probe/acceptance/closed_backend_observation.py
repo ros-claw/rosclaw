@@ -42,8 +42,13 @@ def closed_backend_observation(
     probe_pose_frame,
     scene_binding=None,
     probe_declaration=None,
+    instrument_service_binary=None,
+    instrument_service_binary_sha256=None,
 ):
     """Replay complete owned original sources with the online event engine."""
+    if (instrument_service_binary is None) != (instrument_service_binary_sha256 is None):
+        raise ValueError("complete frozen instrument SDK parser path/SHA required")
+    sdk_rpc_replays = 0
     engine = BackendObserverReplay(
         robot_policy,
         probe_policy,
@@ -51,6 +56,7 @@ def closed_backend_observation(
         probe_pose_frame=probe_pose_frame,
         scene_binding=scene_binding,
         probe_declaration=probe_declaration,
+        instrument_service_binary_sha256=instrument_service_binary_sha256,
     )
     for root, policy, plugin in (
         (robot_directory, robot_policy, robot_plugin),
@@ -136,6 +142,23 @@ def closed_backend_observation(
                     or not 0 <= round(captured.timestamp() * 1e9) - unix < 300_000_000
                 ):
                     raise ValueError("joint original UNIX receipt differs from captured audit")
+            if row["kind"] == "backend_probe_lift_ack" and instrument_service_binary is not None:
+                from closed_native_contact_evidence import original_ros_bytes
+                from instrument_service_evidence import verify_service_sdk_projection
+
+                raw_service = original_ros_bytes(
+                    payload["original_service_record"], "owned_gazebo_instrument_RPC_original_json"
+                )
+                verify_service_sdk_projection(
+                    raw_service,
+                    probe_policy,
+                    binary_path=instrument_service_binary,
+                    binary_sha256=instrument_service_binary_sha256,
+                    robot_model_name=robot_policy["contact_policy"]["model_name"],
+                    partition="rosclaw_backend_"
+                    + hashlib.sha256(engine.binding["run_id"].encode()).hexdigest()[:32],
+                )
+                sdk_rpc_replays += 1
             actual = engine.apply(row["kind"], payload)
             if digest(payload.get("projection")) != digest(actual):
                 raise ValueError("joint retained online projection differs from original replay")
@@ -168,6 +191,8 @@ def closed_backend_observation(
     ):
         raise ValueError("closed joined original source has no fresh qualified final constraint")
     return {
+        "original_service_wire_required": instrument_service_binary is not None,
+        "original_service_SDK_wire_replays": sdk_rpc_replays,
         "evidence_role": "closed_joint_source_correspondence_not_world_admission_or_stop_or_task_acceptance",
         "original_source_sha256": source_hash.hexdigest(),
         "summary_sha256": hashlib.sha256(summary_raw).hexdigest(),

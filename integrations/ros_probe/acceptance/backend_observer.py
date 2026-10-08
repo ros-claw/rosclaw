@@ -16,6 +16,7 @@ from pathlib import Path
 
 from backend_observer_replay import BackendObserverReplay
 from backend_probe_evidence import probe_policy
+from backend_probe_world import bounded_source
 from native_contact_evidence import reopen_native_policy
 from probe_controller_ipc import ProbeControllerIPC, decode_controller_packet
 from probe_scene_geometry import decode_scene_json
@@ -68,9 +69,31 @@ def main():
     parser.add_argument("--prepare-only", action="store_true")
     parser.add_argument("--controller-pid", type=int)
     parser.add_argument("--controller-uid", type=int)
+    parser.add_argument("--instrument-service-binary", type=Path)
+    parser.add_argument("--instrument-service-binary-sha256")
     for name in ("scene-binding", "probe-declaration", "scene-directory"):
         parser.add_argument("--" + name, type=Path)
     args = parser.parse_args()
+    if (args.instrument_service_binary is None) != (args.instrument_service_binary_sha256 is None):
+        raise ValueError("both owned instrument service binary and frozen SHA required")
+    service_binary_raw = None
+    if args.instrument_service_binary is not None:
+        if (
+            args.controller_pid is None
+            or not args.instrument_service_binary.resolve().is_relative_to(
+                args.probe_directory.resolve()
+            )
+        ):
+            raise ValueError(
+                "original service wire requires owned instrument binary and pinned controller"
+            )
+        service_binary_raw = bounded_source(args.instrument_service_binary, 100_000_000)
+        if (
+            not service_binary_raw.startswith(b"\x7fELF")
+            or hashlib.sha256(service_binary_raw).hexdigest()
+            != args.instrument_service_binary_sha256
+        ):
+            raise ValueError("frozen actual instrument service binary SHA differs")
     if (args.controller_pid is None) != (args.controller_uid is None):
         raise ValueError("both pinned instrument controller PID and UID required")
     if args.controller_pid is not None and args.scene_binding is None:
@@ -117,6 +140,7 @@ def main():
         robot_pose_frame=args.robot_pose_frame,
         probe_pose_frame=args.probe_pose_frame,
         **spatial_options,
+        instrument_service_binary_sha256=args.instrument_service_binary_sha256,
     )
     config = {
         "run_id": engine.binding["run_id"],
@@ -308,6 +332,11 @@ def main():
                         or any(
                             owned_json(path, args.scene_directory)[0] != raw
                             for path, raw in frozen_spatial_sources
+                        )
+                        or (
+                            service_binary_raw is not None
+                            and bounded_source(args.instrument_service_binary, 100_000_000)
+                            != service_binary_raw
                         )
                     ):
                         raise ValueError("frozen independent observer policy changed")

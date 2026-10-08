@@ -24,6 +24,7 @@ class BackendObserverReplay:
         probe_pose_frame,
         scene_binding=None,
         probe_declaration=None,
+        instrument_service_binary_sha256=None,
     ):
         if any(
             type(v) is not str or not 0 < len(v) <= 256
@@ -36,6 +37,7 @@ class BackendObserverReplay:
         self.last_wall = None
         self.sequence = 0
         self.spatial = None
+        self.instrument_service_binary_sha256 = instrument_service_binary_sha256
         if (scene_binding is None) != (probe_declaration is None):
             raise ValueError("both frozen scene binding and probe declaration required")
         if scene_binding is not None:
@@ -49,6 +51,24 @@ class BackendObserverReplay:
                     "schema_version": "rosclaw.spatial_backend_observer_constraint.v2",
                     "contact_constraint_policy_hash": self.gate.policy_hash,
                     "scene_geometry_policy_hash": geometry.policy_hash,
+                }
+            )
+
+        if instrument_service_binary_sha256 is not None:
+            if (
+                self.spatial is None
+                or type(instrument_service_binary_sha256) is not str
+                or len(instrument_service_binary_sha256) != 64
+                or any(c not in "0123456789abcdef" for c in instrument_service_binary_sha256)
+            ):
+                raise ValueError(
+                    "original service wire requires spatial sources and frozen SDK binary SHA"
+                )
+            self.gate.policy_hash = digest(
+                {
+                    "schema_version": "rosclaw.original_instrument_wire_backend_constraint.v3",
+                    "spatial_constraint_policy_hash": self.gate.policy_hash,
+                    "instrument_service_binary_sha256": instrument_service_binary_sha256,
                 }
             )
 
@@ -137,6 +157,34 @@ class BackendObserverReplay:
                         raise ValueError(
                             "original instrument IPC packet/event correspondence differs"
                         )
+                if (
+                    kind == "backend_probe_lift_ack"
+                    and self.instrument_service_binary_sha256 is not None
+                ):
+                    from instrument_service_evidence import parse_original_service_record
+
+                    if (
+                        payload.get("service_binary_sha256")
+                        != self.instrument_service_binary_sha256
+                    ):
+                        raise ValueError(
+                            "original service wire missing or frozen SDK binary SHA differs"
+                        )
+                    raw = original_ros_bytes(
+                        payload["original_service_record"],
+                        "owned_gazebo_instrument_RPC_original_json",
+                    )
+                    record, sources, _ = parse_original_service_record(raw, self.gate.probe.policy)
+                    if (
+                        original_ros_bytes(payload["request"], "gz.msgs.Pose_protobuf_text")
+                        != sources["request_text_hex"]
+                        or original_ros_bytes(payload["response"], "gz.msgs.Boolean_protobuf_text")
+                        != sources["response_text_hex"]
+                        or payload.get("acknowledged_at_unix_ns")
+                        != record["acknowledged_at_unix_ns"]
+                        or payload.get("returncode") != 0
+                    ):
+                        raise ValueError("original service wire and lift ACK projection differ")
                 result = self.gate.probe.apply(kind, payload)
                 return {
                     **result,

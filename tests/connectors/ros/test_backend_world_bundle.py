@@ -79,6 +79,11 @@ def test_assembles_disjoint_all_step_robot_and_sampled_probe_without_runtime_adm
     policy = json.loads((output / "robot-source/native-policy.json").read_text())
     assert policy["sampling_semantics"] == "ALL_POSTUPDATE_PHYSICS_STEPS"
     config = json.loads((output / "observer-source/backend_actor_constraint.json").read_text())
+    interlock = importlib.import_module("actuator_observation_constraint")
+    assert (
+        interlock.configuration(config, json.loads((source / "brush_binding.json").read_text()))
+        == config
+    )
     assert config["constraint_policy_hash"] == result["constraint_policy_hash"]
     for path, sha in result["output_hashes"].items():
         assert hashlib.sha256((output / path).read_bytes()).hexdigest() == sha
@@ -87,6 +92,53 @@ def test_assembles_disjoint_all_step_robot_and_sampled_probe_without_runtime_adm
     assert result["qualified_Native_launcher"] == "NOT_JOINED"
     with pytest.raises(FileExistsError):
         module.prepare_backend_world(output, **options)
+
+
+def test_optional_service_wire_binds_frozen_binary_into_compatible_actor_policy(bundle, tmp_path):
+    module, options, output = bundle
+    legacy = module.prepare_backend_world(output, **options)
+    executable = tmp_path / "synthetic_NOT_EXECUTABLE"
+    executable.write_bytes(b"\x7fELFsynthetic_NOT_LOADABLE_source_only")
+    sha = hashlib.sha256(executable.read_bytes()).hexdigest()
+    candidate = tmp_path / "wire-bundle"
+    result = module.prepare_backend_world(
+        candidate,
+        **options,
+        instrument_service_binary=executable,
+        instrument_service_binary_sha256=sha,
+    )
+    assert result["constraint_policy_hash"] != legacy["constraint_policy_hash"]
+    assert result["instrument_service_binary_sha256"] == sha
+    assert (
+        candidate / "instrument-source/owned_instrument_service"
+    ).read_bytes() == executable.read_bytes()
+    config = json.loads((candidate / "observer-source/backend_actor_constraint.json").read_text())
+    binding = json.loads((options["scene_directory"] / "brush_binding.json").read_text())
+    assert (
+        importlib.import_module("actuator_observation_constraint").configuration(config, binding)
+        == config
+    )
+    assert not result["backend_health_admitted"] and result["physical_acceptance"] == "NOT_RUN"
+
+
+@pytest.mark.parametrize("fault", ["missing_sha", "wrong_sha", "not_elf"])
+def test_service_source_binary_fault_is_refused_before_bundle_creation(bundle, tmp_path, fault):
+    module, options, output = bundle
+    binary = tmp_path / "synthetic_service"
+    binary.write_bytes(b"not ELF" if fault == "not_elf" else b"\x7fELFsynthetic_source_only")
+    sha = hashlib.sha256(binary.read_bytes()).hexdigest()
+    with pytest.raises(ValueError):
+        module.prepare_backend_world(
+            output,
+            **options,
+            instrument_service_binary=binary,
+            instrument_service_binary_sha256=None
+            if fault == "missing_sha"
+            else "0" * 64
+            if fault == "wrong_sha"
+            else sha,
+        )
+    assert not output.exists()
 
 
 @pytest.mark.parametrize(
