@@ -32,7 +32,7 @@ from rosclaw.agentd.pi_config import (
 )
 from rosclaw.agentd.pi_probe import pi_probe_home
 
-PROVIDER_CHOICES = ("kimi-code", "kimi-api", "openai-compat", "local", "skip")
+PROVIDER_CHOICES = ("kimi-code", "kimi-api", "openai-codex", "openai-compat", "local", "skip")
 
 _TEMPLATES = {
     "kimi-code": {
@@ -70,6 +70,31 @@ def configure_model(
         raise ValueError(f"unknown provider choice {choice!r}")
     if choice == "skip":
         return {"configured": False, "reason": "user chose to configure later"}
+    if choice == "openai-codex":
+        if base_url is not None or api_key_ref is not None:
+            raise ValueError("openai-codex uses built-in OAuth; no base_url or api_key_ref")
+        settings_path = home / "agent" / "settings.json"
+        settings = json.loads(settings_path.read_text()) if settings_path.exists() else {}
+        if not isinstance(settings, dict):
+            raise ValueError("settings.json must contain an object")
+        settings["defaultProvider"] = "openai-codex"
+        settings["defaultModel"] = model or "gpt-5.4"
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        settings_path.write_text(
+            json.dumps(settings, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+        if reasoning_effort:
+            _write_thinking_level(home, reasoning_effort)
+            _write_retry_budget(home)
+        return {
+            "configured": True,
+            "config_path": str(home / "agent"),
+            "provider": "openai-codex",
+            "model": settings["defaultModel"],
+            "api_key_ref": "",
+            "auth_mode": "oauth",
+            "key_hint": "chat 内 /login → openai-codex (ChatGPT OAuth); no API key",
+        }
     if choice == "kimi-code" and not base_url and not model:
         # 0914 PR-1（审计 §3.5）：默认映射到 Pi 内置 kimi-coding——
         # 实测等价（2026-08-01）：同一 api.kimi.com/coding/v1、同一
@@ -371,6 +396,17 @@ def doctor(home: Path, *, deep: bool = False) -> dict:
             else {"provider": "", "model": ""}
         ),
     }
+    if model and model.provider == "openai-codex" and not deep:
+        # Setup/init must not trigger OAuth refresh or an API request. Presence
+        # is not proof of authentication; explicit deep probing remains opt-in.
+        return {
+            **report,
+            "status": "NEEDS_LOGIN",
+            "api_key_ref": "",
+            "quota_state": "unknown",
+            "reason": "chat 内 /login → openai-codex (ChatGPT OAuth); not verified locally",
+            "auth_mode": "oauth",
+        }
     report["components"] = _component_report()
     report["authorization"] = _authorization_report(home)
     # P1-A3：凭据来源只有 env 与 Pi auth.json（NA-FIX-7 可见性保留）。
@@ -402,8 +438,7 @@ def doctor(home: Path, *, deep: bool = False) -> dict:
         # 旧 engine 不上报 auth_configured（升级过渡期）——退回
         # 静态来源枚举（看得到文件/env 存在性）。
         cred_present = any(
-            e.get("source") in ("env", "pi-auth-file")
-            for e in report["credential_sources"]
+            e.get("source") in ("env", "pi-auth-file") for e in report["credential_sources"]
         )
     report["credential_present"] = bool(cred_present)
     # 兼容旧字段名（R0-7 报告的 api_key_present）。
@@ -416,19 +451,13 @@ def doctor(home: Path, *, deep: bool = False) -> dict:
     if not cred_present or err.startswith(("AUTH_NOT_CONFIGURED", "MODEL_NOT_CONFIGURED")):
         report["status"] = "UNCONFIGURED"
         report["quota_state"] = "unknown"
-        report["reason"] = (
-            err
-            or "无可用凭据——chat 内 /login 或 `rosclaw setup model` 配置"
-        )
+        report["reason"] = err or "无可用凭据——chat 内 /login 或 `rosclaw setup model` 配置"
     elif err.startswith("QUOTA_EXHAUSTED"):
         # 配额是服务商事实，不是凭据缺失——不得降格 UNCONFIGURED
         # （重新 /login 不会重置额度；指引换已配置模型）。
         report["status"] = "AUTH_READY"
         report["quota_state"] = "exhausted"
-        report["reason"] = (
-            "凭据已配置；当前配额已用完——用 /model 切换其他已配置模型"
-            f"（{err}）"
-        )
+        report["reason"] = f"凭据已配置；当前配额已用完——用 /model 切换其他已配置模型（{err}）"
     elif err.startswith("AUTH_FAILED"):
         report["status"] = "AUTH_READY"
         report["quota_state"] = "unknown"
@@ -443,21 +472,17 @@ def doctor(home: Path, *, deep: bool = False) -> dict:
         report["quota_state"] = "unknown"
         report["reason"] = (
             f"暂时无法连接——凭据已配置且配置已保留（{err}）"
-            if err else "暂时无法连接（凭据已配置，配置已保留）"
+            if err
+            else "暂时无法连接（凭据已配置，配置已保留）"
         )
-    elif probe.chat_ok and (
-        (deep and probe.tool_call_ok) or tool_evidence
-    ):
+    elif probe.chat_ok and ((deep and probe.tool_call_ok) or tool_evidence):
         report["quota_state"] = "ok"
         # deep 完整探测通过，或账本有真实工具成功证据。
         report["status"] = "TOOL_READY"
     elif probe.chat_ok and deep and not probe.tool_call_ok:
         report["quota_state"] = "ok"
         report["status"] = "DEGRADED"
-        report["reason"] = (
-            probe.error
-            or "对话可用；工具自检退化（rosclaw doctor --deep 重试）"
-        )
+        report["reason"] = probe.error or "对话可用；工具自检退化（rosclaw doctor --deep 重试）"
     elif probe.chat_ok:
         report["quota_state"] = "ok"
         report["status"] = "CHAT_READY"

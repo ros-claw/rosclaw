@@ -55,14 +55,28 @@ original sessions, migrate actual original history, perform paid summarization,
 or certify historical review. Actual source migration requires later Root
 approval. There is no automatic context compaction as part of offline selection.
 
+## Built-in ChatGPT OAuth onboarding
+
+`rosclaw setup model --provider openai-codex` (or `rosclaw agent init
+--provider openai-codex`) writes only Pi defaults in `agent/settings.json`.
+An explicit `--model` is allowed; the default is `gpt-5.4`. Selection does not
+promise catalog availability or account entitlement. Pi's built-in provider
+owns endpoints, model metadata and OAuth; no custom provider is created.
+`--base-url` and `--api-key-ref` are rejected before configuration writes.
+Unrelated settings and explicit retry zero survive; models/auth bytes are untouched.
+
+Configuration is not login. In chat use `/login` and select `openai-codex` for
+ChatGPT OAuth through the existing Pi flow. Configure/init do not launch login,
+refresh tokens or call an API. Local setup/doctor report `NEEDS_LOGIN` with
+unverified-login guidance, without reading auth contents or claiming chat/tool
+readiness. Explicit deep doctor probing is a separate opt-in network operation.
+New chats use the defaults; ordinary recorded Kimi continuation and explicit
+private-fork behavior above are unchanged.
+
 ## Verification
 
-Native-owned Python tests exercise all parser surfaces, paired flags and exact
-launcher authority/error handling with process/network guards. Node tests use
-real offline ModelRuntime and SDK restoration, read-only current/legacy files,
-branching and ownership, and isolated mirror identities. The exact public check
-and regression also exercise compiled private CLI selection and existing writer,
-MainExit, close/event, atomic/stale/residual controls plus all Node tests. They
-persist opaque full logs with hashes and compact diagnostic summaries. A final
-SOURCE_PASS requires both current check and regression passing on the final
-seven-source hashes; otherwise deliver truthful SOURCE_FAIL.
+This four-path source-only episode uses synthetic owned configuration and mocked
+boolean readiness facts, the public inert gate and finite existing/new Python
+onboarding regression. It does not run login, read real auth, access the network,
+repeat Node/provider/physics tests, or certify actual account access. SOURCE_PASS
+requires current check and regression passing on the final four source hashes.
