@@ -18,12 +18,26 @@ from rosclaw.connectors.ros.diagnosis import diagnose
 from rosclaw.connectors.ros.resolver import resolve_task
 
 
+def fixture_mission_id(config):
+    """Use the admitted fresh dynamic mission; preserve legacy static fixtures."""
+    admission = config.get("dynamic_fixture_admission")
+    if admission is not None and type(admission) is not dict:
+        raise ValueError("dynamic source admission must be an object")
+    if config.get("occupancy_binding") is not None and type(admission) is not dict:
+        raise ValueError("dynamic Native fixture requires source-admitted mission identity")
+    mission = admission.get("mission_id") if admission is not None else "gazebo-room-cleaning"
+    if type(mission) is not str or not mission or len(mission) > 256:
+        raise ValueError("bounded nonempty source-admitted mission identity required")
+    return mission
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--directory", type=Path, required=True)
     parser.add_argument("--endpoint", default="ws://127.0.0.1:19090")
     args = parser.parse_args()
     specification = json.loads((args.directory / "body.json").read_text())
+    mission = fixture_mission_id(json.loads((args.directory / "execution_config.json").read_text()))
     server = FastMCP("ros-expert-gazebo-acceptance")
 
     @server.tool(name="ros.observe_system")
@@ -47,6 +61,7 @@ def main():
             },
             "task_area": {
                 "frame_id": "map",
+                "mission_id": mission,
                 "polygons": [
                     {
                         "points": [
@@ -66,7 +81,7 @@ def main():
         raise RuntimeError("physical actions require the Agentd rosclawd action channel")
 
     @server.tool(name="coverage.execute")
-    def execute_coverage(polygons: list[dict], mission_id: str = "gazebo-room-cleaning") -> dict:
+    def execute_coverage(polygons: list[dict], mission_id: str = mission) -> dict:
         """Execute official coverage and bounded measured missed-cell repair through rosclawd.
 
         Use the observed task area's polygons. The daemon independently verifies

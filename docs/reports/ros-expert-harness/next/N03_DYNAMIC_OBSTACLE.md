@@ -96,3 +96,9 @@ The fixture audit cursor consumes an append-only audit from its genesis, validat
 `analyze_dynamic_credit` first uses public exact temporal replay, then independently recomputes new credit, occupied enabled-brush exposure and actual enabled free-cell revisits after obstacle withdrawal. Previously valid credit survives later occupation. No exposure cannot pass the D6 calculation. Synthetic tests caught a counterfactual footprint deduplication bug: each independent sampled footprint now clears visits, previous pose and last footprint. This diagnosis grants no canonical receipt, source authentication, Native task success or physical acceptance.
 
 Validation: 595 ROS tests passed, 10 integration deselected, one existing warning in 12.32s. Fifteen focused cursor/credit cases passed; changed-file Ruff and format passed. Actual dynamic Native D2/D4/D5/D6 remain NOT_RUN. Failed pre-fix diagnostic regression logs are retained locally; they are not counted as passing runs.
+
+## Fresh Native mission identity in catalog and Practice
+
+Dynamic Native preparation now takes its tool-schema mission default and observed task-area mission identity from the admitted independent fixture source. Missing/malformed dynamic admission refuses catalog/daemon startup; legacy static fixtures retain their original mission name. Practice episode identity uses the same admitted fresh mission. The physical MCP tool body still refuses execution and requires Agentd/rosclawd.
+
+Ten new cases include the actual installed FastMCP schema default, unchanged strict action parameters and refusal of direct invocation. Full ROS validation:605 passed,10 integration deselected,one existing warning in12.26s;changed-file Ruff/format passed. This corrects prelaunch wiring only; no new Native physical episode has run.

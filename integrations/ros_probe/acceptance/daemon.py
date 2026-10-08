@@ -36,6 +36,9 @@ def main():
     args = parser.parse_args()
     root = args.directory.resolve()
     config = json.loads((root / "execution_config.json").read_text())
+    from native_tools import fixture_mission_id
+
+    fixture_mission = fixture_mission_id(config)
     runtime = Runtime(
         RuntimeConfig(
             robot_id=config["body_id"],
@@ -74,8 +77,8 @@ def main():
             robot=config["body_id"],
             body_id=config["body_id"],
             payload={
-                "practice_id": "gazebo-room-cleaning",
-                "episode_id": "gazebo-room-cleaning",
+                "practice_id": fixture_mission,
+                "episode_id": fixture_mission,
                 "metadata": {"evidence_domain": "SIMULATION", "engine": "gazebo"},
             },
         )
