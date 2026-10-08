@@ -52,11 +52,14 @@ struct PassivePhysicsContractFixture
   }
   std::string Packet() const { return observer.Packet(info, ecm, 0); }
   void EnableBodyGeometry() { observer.includeBodyGeometry = true; }
+  void RequireReference(const std::string &name = "actual_base") { observer.bodyReferenceLink = name; }
   void AddBodyGeometry(bool mesh = false)
   {
     using namespace gz::sim::components;
     observer.includeBodyGeometry = true;
     auto bodyLink = ecm.CreateEntity();
+    ecm.CreateComponent(bodyLink, Link());
+    ecm.CreateComponent(bodyLink, Name("actual_base"));
     ecm.CreateComponent(bodyLink, ParentEntity(body));
     ecm.CreateComponent(bodyLink, Pose(gz::math::Pose3d::Zero));
     auto bodyCollision = ecm.CreateEntity();
@@ -73,6 +76,16 @@ struct PassivePhysicsContractFixture
     auto wheelJoint = ecm.CreateEntity();
     ecm.CreateComponent(wheelJoint, Joint());
     ecm.CreateComponent(wheelJoint, ParentEntity(body));
+  }
+  void MoveReference(const gz::math::Pose3d &pose)
+  {
+    using namespace gz::sim::components;
+    ecm.Each<Link,Name>([&](auto entity, const auto *, const auto *name)
+    {
+      if (name->Data()=="actual_base")
+        ecm.Component<Pose>(entity)->SetData(pose,[](const auto &,const auto &){return false;});
+      return true;
+    });
   }
 };
 }
@@ -143,5 +156,28 @@ int main()
     PassivePhysicsContractFixture f;
     f.AddBodyGeometry(true);
     emit("v2_unsupported_body_mesh",f,false);
+  }
+  {
+    PassivePhysicsContractFixture f;
+    f.AddBodyGeometry(); f.RequireReference();
+    emit("v3_actual_body_reference_identity",f,true);
+    emit("v3_read_only_reference_repeated",f,true);
+  }
+  {
+    PassivePhysicsContractFixture f;
+    f.AddBodyGeometry(); f.RequireReference("missing_base");
+    emit("v3_missing_reference_link",f,false);
+  }
+  {
+    PassivePhysicsContractFixture f;
+    f.AddBodyGeometry(); f.RequireReference();
+    f.MoveReference(gz::math::Pose3d(0.01,0,0,0,0,0));
+    emit("v3_shifted_reference_link",f,false);
+  }
+  {
+    PassivePhysicsContractFixture f;
+    f.AddBodyGeometry(); f.RequireReference();
+    f.MoveReference(gz::math::Pose3d(0,0,0,0,0,0.01));
+    emit("v3_rotated_reference_link",f,false);
   }
 }

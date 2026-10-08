@@ -209,6 +209,7 @@ def frozen_runtime(runtime):
         "runtime_policy_hash": policy["artifact_hash"],
         "source_urdf_sha256": policy["source_urdf_sha256"],
         "maximum_body_planar_radius_m": policy["body"]["physical_radius_m"],
+        "body_reference_link": policy["body"]["base_frame"],
         "model_base_identity_approved": True,
         "model_base_identity_source": "simulator_operator_fixture_policy",
         "world_to_map_xyyaw": [0, 0, 0],
@@ -413,8 +414,9 @@ def test_actual_generic_actuator_uses_declared_services_and_lease_stop(frozen_ru
 @pytest.mark.parametrize(
     "case,expected",
     [
-        ("actual_collision_components", "v2"),
-        ("v2_actual_body_collision_with_joint", "exceeds"),
+        ("actual_collision_components", "v3"),
+        ("v2_actual_body_collision_with_joint", "v3"),
+        ("v3_actual_body_reference_identity", "exceeds"),
     ],
 )
 def test_actual_generic_observer_refuses_missing_or_oversized_component_body_before_credit(
@@ -445,7 +447,9 @@ def test_actual_generic_observer_refuses_missing_or_oversized_component_body_bef
     )
     rows = [
         json.loads(line)
-        for line in (Path(__file__).parent / "fixtures/passive-ecm-body-v2-contract-packets.jsonl")
+        for line in (
+            Path(__file__).parent / "fixtures/passive-ecm-reference-v3-contract-packets.jsonl"
+        )
         .read_text()
         .splitlines()
     ]
@@ -455,6 +459,8 @@ def test_actual_generic_observer_refuses_missing_or_oversized_component_body_bef
         world_name=policy["policy"]["world_name"], paused=False, captured_at_unix_ns=time.time_ns()
     )
     packet["body"]["model_name"] = policy["policy"]["body_model_name"]
+    if "reference_link" in packet["body"]:
+        packet["body"]["reference_link"]["name"] = policy["body"]["base_frame"]
     packet["obstacles"][0]["model_name"] = "synthetic_obstacle"
     packet["scene_models"] = [
         {

@@ -7,6 +7,7 @@
 #include <gz/sim/components/Collision.hh>
 #include <gz/sim/components/Geometry.hh>
 #include <gz/sim/components/Joint.hh>
+#include <gz/sim/components/Link.hh>
 #include <gz/sim/components/Model.hh>
 #include <gz/sim/components/Name.hh>
 #include <gz/sim/components/ParentEntity.hh>
@@ -91,6 +92,12 @@ class PassivePhysics : public gz::sim::System,
     this->attachmentHash = required("attachment_hash");
     this->includeBodyGeometry = config->HasElement("include_body_collision_geometry") &&
         config->Get<bool>("include_body_collision_geometry");
+    if (config->HasElement("body_reference_link"))
+    {
+      this->bodyReferenceLink = required("body_reference_link");
+      if (!this->includeBodyGeometry)
+        throw std::runtime_error("Body reference link requires actual Body geometry");
+    }
     this->allowed.insert(this->bodyName);
     for (const auto &key : {"static_model", "obstacle_model"})
     {
@@ -203,7 +210,8 @@ class PassivePhysics : public gz::sim::System,
       const gz::sim::EntityComponentManager &ecm, std::uint64_t packetSequence) const
   {
     std::ostringstream packet;
-    const auto schema = this->includeBodyGeometry ?
+    const auto schema = !this->bodyReferenceLink.empty() ?
+        "rosclaw.gazebo_postupdate_observation.v3" : this->includeBodyGeometry ?
         "rosclaw.gazebo_postupdate_observation.v2" : "rosclaw.gazebo_postupdate_observation.v1";
     packet << std::setprecision(17) << "{\"schema_version\":" << Quote(schema)
         << ",\"run_id\":" << Quote(this->runId) << ",\"body_snapshot_hash\":" << Quote(this->bodyHash)
@@ -246,6 +254,33 @@ class PassivePhysics : public gz::sim::System,
       if (this->includeBodyGeometry)
         packet << ",\"collision_geometry\":" <<
             this->CollisionGeometry(models.at(this->bodyName), ecm, true);
+      if (!this->bodyReferenceLink.empty())
+      {
+        const auto body = models.at(this->bodyName);
+        gz::sim::Entity reference = gz::sim::kNullEntity;
+        ecm.Each<gz::sim::components::Link, gz::sim::components::Name,
+            gz::sim::components::ParentEntity>([&](auto entity, const auto *,
+                const auto *name, const auto *parent)
+        {
+          if (parent->Data() != body || name->Data() != this->bodyReferenceLink) return true;
+          if (reference != gz::sim::kNullEntity)
+            throw std::runtime_error("ambiguous actual Body reference link");
+          reference = entity;
+          return true;
+        });
+        if (reference == gz::sim::kNullEntity)
+          throw std::runtime_error("actual Body reference link missing");
+        const auto relative = this->RelativePose(reference, body, ecm);
+        // PoseJson checks finiteness before the strict identity comparison.
+        const auto relativeJson = PoseJson(relative);
+        if (relative.Pos().Length() > 1e-9 ||
+            std::abs(relative.Rot().X()) > 1e-9 || std::abs(relative.Rot().Y()) > 1e-9 ||
+            std::abs(relative.Rot().Z()) > 1e-9 || std::abs(std::abs(relative.Rot().W()) - 1) > 1e-9)
+          throw std::runtime_error("actual model and Body reference link origins differ");
+        packet << ",\"reference_link\":{\"name\":" << Quote(this->bodyReferenceLink)
+            << ",\"entity_id\":" << reference << ",\"model_relative_pose\":" << relativeJson
+            << ",\"world_pose\":" << PoseJson(gz::sim::worldPose(reference, ecm)) << '}';
+      }
       packet << '}';
       packet << ",\"obstacles\":[";
       bool first = true;
@@ -286,6 +321,7 @@ class PassivePhysics : public gz::sim::System,
   friend struct PassivePhysicsContractFixture;
   private: gz::sim::Entity world = gz::sim::kNullEntity;
   private: std::string runId, bodyName, bodyHash, attachmentHash, worldName;
+  private: std::string bodyReferenceLink;
   private: std::set<std::string> allowed, obstacles;
   private: gz::transport::Node node;
   private: gz::transport::Node::Publisher publisher;

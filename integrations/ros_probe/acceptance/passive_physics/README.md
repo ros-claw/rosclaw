@@ -136,3 +136,7 @@ focused cases PASS,full ROS700 passed/10 integration deselected/one existing
 warning in15.34s,module mypy and scoped Ruff/format PASS. No held-out robot has
 been selected or inspected;actual Body/plugin-load/Native physical gates remain
 NOT_RUN.
+
+Opt-in body_reference_link=<exact compiled Body base link> requires actual Body collision geometry and produces v3. PostUpdate reads the actual direct Model→Link component identity and relative/world poses, rejects missing/ambiguous links and any nonidentity translation/rotation beyond1e-9, and emits the named link/entity and pose proof in the same packet. The parser requires the exact frozen base link, independent entity identity, normalized finite poses and equivalent model/reference world pose, and rejects v1/v2 downgrade when a reference is required. q and -q remain equivalent. This supports only proven model/base identity; arbitrary offsets remain unsupported rather than guessed. Existing v1/v2 defaults remain compatible.
+
+Offline SDK compile/CTest/ldd-r PASS;18 actual SDK component records include identity/read-only/missing/shifted/rotated reference cases.102 focused SDK/parser/runtime-node cases PASS and full ROS1063 passed/10 integration deselected/one existing warning in18.53s. These are component/code contracts; no Gazebo server, physical mission, or held-out model has run.

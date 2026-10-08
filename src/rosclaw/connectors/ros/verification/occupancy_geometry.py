@@ -254,6 +254,7 @@ def parse_physics_packet(
     scene_model_names,
     received_at_unix_ns=None,
     maximum_body_planar_radius_m=None,
+    required_body_reference_link=None,
 ):
     """Validate complete simulator-side components before deriving any geometry.
 
@@ -278,6 +279,7 @@ def parse_physics_packet(
         not in (
             "rosclaw.gazebo_postupdate_observation.v1",
             "rosclaw.gazebo_postupdate_observation.v2",
+            "rosclaw.gazebo_postupdate_observation.v3",
         )
         or packet.get("source") != "gazebo_ecm_postupdate"
         or packet.get("evidence_domain") != "GAZEBO_PHYSICS"
@@ -345,18 +347,63 @@ def parse_physics_packet(
         return values
 
     body = packet.get("body")
-    body_geometry = packet["schema_version"] == "rosclaw.gazebo_postupdate_observation.v2"
+    reference_geometry = packet["schema_version"] == "rosclaw.gazebo_postupdate_observation.v3"
+    body_geometry = (
+        reference_geometry or packet["schema_version"] == "rosclaw.gazebo_postupdate_observation.v2"
+    )
     if (
         type(body) is not dict
         or set(body)
         != {"model_name", "entity_id", "world_pose"}
         | ({"collision_geometry"} if body_geometry else set())
+        | ({"reference_link"} if reference_geometry else set())
         or type(body["entity_id"]) is not int
         or body["model_name"] != body_model_name
         or body["entity_id"] != models[body_model_name]
     ):
         raise ValueError("actual body model identity missing or different")
     pose(body["world_pose"])
+    if required_body_reference_link is not None and (
+        type(required_body_reference_link) is not str
+        or not 1 <= len(required_body_reference_link) <= 256
+        or not reference_geometry
+    ):
+        raise ValueError("actual v3 Body reference link identity required")
+    if reference_geometry:
+        reference = body["reference_link"]
+        if (
+            type(reference) is not dict
+            or set(reference) != {"name", "entity_id", "model_relative_pose", "world_pose"}
+            or type(reference["name"]) is not str
+            or not 1 <= len(reference["name"]) <= 256
+            or (
+                required_body_reference_link is not None
+                and reference["name"] != required_body_reference_link
+            )
+            or type(reference["entity_id"]) is not int
+            or not 0 < reference["entity_id"] < 2**64
+            or reference["entity_id"] in ids
+        ):
+            raise ValueError("actual named Body reference link differs or is ambiguous")
+        ids.add(reference["entity_id"])
+        relative = pose(reference["model_relative_pose"])
+        world = pose(reference["world_pose"])
+        if (
+            any(abs(v) > 1e-9 for v in [*relative[:3], *relative[4:]])
+            or abs(abs(relative[3]) - 1) > 1e-9
+        ):
+            raise ValueError("actual model and Body reference link origins differ")
+        sign = (
+            1
+            if sum(a * b for a, b in zip(world[3:], body["world_pose"][3:], strict=True)) >= 0
+            else -1
+        )
+        if any(
+            abs(a - b) > 1e-9 for a, b in zip(world[:3], body["world_pose"][:3], strict=True)
+        ) or any(
+            abs(a - sign * b) > 1e-9 for a, b in zip(world[3:], body["world_pose"][3:], strict=True)
+        ):
+            raise ValueError("actual Body reference world pose differs from model observation")
     obstacles = packet.get("obstacles")
     if type(obstacles) is not list or len(obstacles) != len(obstacle_names):
         raise ValueError("all declared obstacle components required")
@@ -378,7 +425,9 @@ def parse_physics_packet(
         is_body = body_geometry and model is body
         if (
             type(model) is not dict
-            or set(model) != {"model_name", "entity_id", "world_pose", "collision_geometry"}
+            or set(model)
+            != {"model_name", "entity_id", "world_pose", "collision_geometry"}
+            | ({"reference_link"} if is_body and reference_geometry else set())
             or type(model["model_name"]) is not str
             or type(model["entity_id"]) is not int
             or model["model_name"] not in ((body_model_name,) if is_body else obstacle_names)
@@ -486,6 +535,9 @@ def parse_physics_packet(
     if body_geometry:
         result["body_collision_geometry"] = body["collision_geometry"]
         result["body_planar_radius_m"] = math.nextafter(body_planar_radius, math.inf)
+    if reference_geometry:
+        result["body_reference_link"] = body["reference_link"]
+        result["body_model_reference_identity_verified_from_components"] = True
     if maximum_body_planar_radius_m is not None:
         if (
             type(maximum_body_planar_radius_m) not in (int, float)

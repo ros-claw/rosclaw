@@ -48,6 +48,7 @@ def retained_packet(row, binding):
         scene_model_names=frozenset(binding["scene_model_names"]),
         received_at_unix_ns=int(captured.timestamp() * 1e9),
         maximum_body_planar_radius_m=binding.get("maximum_body_planar_radius_m"),
+        required_body_reference_link=binding.get("body_reference_link"),
     )
     if (
         row["run_id"] != binding["run_id"]

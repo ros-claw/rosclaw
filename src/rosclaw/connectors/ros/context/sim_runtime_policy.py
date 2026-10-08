@@ -248,6 +248,7 @@ def load_frozen_sim_runtime_policy(root):
         "runtime_policy_hash": rebuilt["artifact_hash"],
         "source_urdf_sha256": rebuilt["source_urdf_sha256"],
         "maximum_body_planar_radius_m": rebuilt["body"]["physical_radius_m"],
+        "body_reference_link": rebuilt["body"]["base_frame"],
         "model_base_identity_approved": True,
         "model_base_identity_source": "simulator_operator_fixture_policy",
         "world_to_map_xyyaw": [0, 0, 0],
