@@ -7,6 +7,8 @@ Gazebo, independently of Nav2 localization and action results.
 import json
 import math
 import time
+from collections import deque
+from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 from threading import Lock
@@ -36,6 +38,11 @@ from visualization_msgs.msg import Marker
 
 from rosclaw.connectors.ros.diagnosis.coverage_audit import CoverageAuditLog, digest
 from rosclaw.connectors.ros.verification.brush_timeline import BrushStateEvent, BrushStateTimeline
+from rosclaw.connectors.ros.verification.coverage import CoverageVerifier
+from rosclaw.connectors.ros.verification.occupancy_geometry import (
+    OccupancyProjector,
+    parse_physics_packet,
+)
 
 
 class Witness(Node):
@@ -51,6 +58,36 @@ class Witness(Node):
             from sim_actuator import load_binding
 
             self.brush_timeline = BrushStateTimeline(**load_binding("/evidence/brush_binding.json"))
+        self.dynamic_physics = self.declare_parameter("dynamic_physics", False).value
+        self.physics_projector = self.physics_binding = None
+        self.physics_queue = deque()
+        self.physics_sequence = self.physics_time = self.physics_last_received = None
+        self.physics_fault = None
+        self.physics_map_verified = False
+        if self.dynamic_physics:
+            if not self.split_actuator:
+                raise ValueError("dynamic evidence requires separate passive observer/actuator")
+            binding = json.loads(Path("/evidence/physics_binding.json").read_text())
+            if (
+                binding.get("frame_transform_source") != "simulator_operator_fixture_policy"
+                or binding.get("world_to_map_xyyaw") != [0, 0, 0]
+                or binding.get("map_world_identity_approved") is not True
+                or type(binding.get("mission_id")) is not str
+                or not binding["mission_id"]
+                or any(
+                    binding.get(k) != v
+                    for k, v in zip(
+                        ("run_id", "body_snapshot_hash", "attachment_hash"),
+                        self.brush_timeline.binding[:3],
+                        strict=True,
+                    )
+                )
+            ):
+                raise ValueError(
+                    "explicit frozen known-fixture world/map identity and source binding required"
+                )
+            self.physics_binding = binding
+            self.physics_grid = CoverageVerifier(**binding["grid"])
         self.cleaning = False
         self.observation_lock = Lock()
         self.pose = None
@@ -99,13 +136,18 @@ class Witness(Node):
         self.pose_callbacks = MutuallyExclusiveCallbackGroup()
         self.contact_callbacks = MutuallyExclusiveCallbackGroup()
         self.wall_clock = Clock(clock_type=ClockType.STEADY_TIME)
-        self.create_subscription(
-            TFMessage,
-            "/rosclaw_sim/ground_truth",
-            self.observe,
-            QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT),
-            callback_group=self.pose_callbacks,
-        )
+        if self.dynamic_physics:
+            self.create_subscription(
+                String, "/rosclaw_sim/physics_snapshot", self.physics_event, 16
+            )
+        else:
+            self.create_subscription(
+                TFMessage,
+                "/rosclaw_sim/ground_truth",
+                self.observe,
+                QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT),
+                callback_group=self.pose_callbacks,
+            )
         self.create_subscription(PoseWithCovarianceStamped, "/amcl_pose", self.localized, 10)
         if self.split_actuator:
             self.create_subscription(String, "/rosclaw_sim/brush_events", self.brush_event, 2048)
@@ -182,6 +224,76 @@ class Witness(Node):
             0.05, self.tick, callback_group=self.control_callbacks, clock=self.wall_clock
         )
 
+    def physics_event(self, message):
+        if self.physics_fault is not None:
+            return
+        try:
+            binding = self.physics_binding
+            raw = message.data.encode("utf-8")
+            packet = json.loads(raw)
+            if packet.get("complete") is not True and self.physics_projector is None:
+                self.plan_audit.emit(
+                    "physics_startup_incomplete", packet, sim_time=packet.get("sim_time_sec")
+                )
+                return  # no readiness/credit while approved fixture bootstrap is incomplete
+            decoded = parse_physics_packet(
+                raw,
+                **{
+                    k: binding[k]
+                    for k in (
+                        "run_id",
+                        "body_snapshot_hash",
+                        "attachment_hash",
+                        "world_name",
+                        "body_model_name",
+                    )
+                },
+                obstacle_names=tuple(binding["obstacle_names"]),
+                scene_model_names=frozenset(binding["scene_model_names"]),
+            )
+            if (
+                self.physics_sequence is not None
+                and packet["sequence"] != self.physics_sequence + 1
+            ):
+                raise ValueError("physical producer sequence gap/reorder")
+            if self.physics_time is not None and packet["sim_time_sec"] <= self.physics_time:
+                raise ValueError("physical producer SIM time did not advance")
+            if self.physics_projector is None:
+                self.physics_projector = OccupancyProjector(self.physics_grid, decoded["geometry"])
+                with Path("/evidence/physics_ready.json").open("x") as ready:
+                    ready.write(
+                        json.dumps(
+                            {
+                                "binding": binding,
+                                "geometry_hash": decoded["geometry"].artifact_hash(),
+                                "initial_packet_sha256": decoded["packet_sha256"],
+                                "evidence_role": "actual_component_source_admission_not_mission_acceptance",
+                            }
+                        )
+                        + "\n"
+                    )
+            if decoded["geometry"].artifact_hash() != self.physics_projector.geometry_hash:
+                raise ValueError("actual scene collision geometry or model identity changed")
+            self.physics_sequence, self.physics_time = packet["sequence"], packet["sim_time_sec"]
+            self.physics_last_received = time.monotonic()
+            self.plan_audit.emit(
+                "physics_snapshot_received", packet, sim_time=packet["sim_time_sec"]
+            )
+            if packet["paused"]:
+                if self.pose is not None:
+                    raise ValueError("physics paused after live observation admission")
+                return
+            if self.brush_timeline.sequence is None or (
+                self.brush_timeline.previous_pose_time is None
+                and packet["sim_time_sec"] < self.brush_timeline.events[0].sim_time_sec
+            ):
+                return  # startup data predating OFF admission has no brush credit
+            if len(self.physics_queue) >= 6:
+                raise ValueError("pending physics/brush pairing queue overflow")
+            self.physics_queue.append((decoded, self.physics_last_received))
+        except (ValueError, TypeError, KeyError, OSError) as exc:
+            self.physics_fault = str(exc)
+
     def brush_event(self, message):
         if self.brush_fault is not None:
             return
@@ -205,6 +317,23 @@ class Witness(Node):
             self.cleaning = False
 
     def map_observation(self, message):
+        if self.dynamic_physics:
+            q = message.info.origin.orientation
+            grid = self.physics_grid
+            if (
+                message.header.frame_id != grid.frame_id
+                or message.info.width != grid.width
+                or message.info.height != grid.height
+                or message.info.resolution != grid.resolution
+                or [message.info.origin.position.x, message.info.origin.position.y]
+                != list(grid.origin)
+                or (q.x, q.y, q.z, abs(q.w)) != (0, 0, 0, 1)
+                or len(message.data) != grid.width * grid.height
+                or any(message.data[i] != 0 for i in grid.accessible)
+            ):
+                self.physics_fault = "actual map/frame differs from frozen projection grid"
+            else:
+                self.physics_map_verified = True
         Path("/evidence/measured_map.json").write_text(
             json.dumps(
                 {
@@ -414,12 +543,39 @@ class Witness(Node):
                 self.publish_velocity(Twist())
                 self.cleaning = False
             self.cleaning_state.publish(Bool(data=self.cleaning))
+        decoded = None
+        if self.dynamic_physics:
+            if self.pose is not None and (
+                self.physics_last_received is None or now - self.physics_last_received >= 0.3
+            ):
+                self.physics_fault = self.physics_fault or "physical producer stale"
+            if self.physics_fault is None:
+                if not self.physics_queue:
+                    return
+                decoded, last_pose = self.physics_queue[0]
+                p = decoded["body_world_pose"]
+                pose = {
+                    "x": p[0],
+                    "y": p[1],
+                    "yaw": math.atan2(
+                        2 * (p[3] * p[6] + p[4] * p[5]), 1 - 2 * (p[5] ** 2 + p[6] ** 2)
+                    ),
+                    "time_sec": decoded["packet"]["sim_time_sec"],
+                }
+                self.pose = pose
         if pose is None:
             return
-        if self.published_time == pose["time_sec"]:
+        if self.published_time == pose["time_sec"] and not (
+            self.dynamic_physics and self.physics_fault
+        ):
             return
         brush_pair = None
-        if self.split_actuator and self.brush_fault is None:
+        if (
+            self.split_actuator
+            and self.brush_fault is None
+            and not (self.dynamic_physics and self.physics_fault)
+            and (not self.dynamic_physics or self.physics_map_verified)
+        ):
             if self.brush_timeline.sequence is None:
                 return  # never publish readiness before the first OFF watermark
             if self.brush_timeline.previous_pose_time is None and (
@@ -461,6 +617,7 @@ class Witness(Node):
             "observation_complete": (
                 not self.split_actuator or (self.brush_fault is None and brush_pair is not None)
             )
+            and not (self.dynamic_physics and self.physics_fault)
             and 0 <= now - last_pose < 0.3
             and all(0 <= now - contact_seen.get(t, 0) < 1 for t in self.wheel_topics),
             "contact_stream_ages_ms": {t: (now - seen) * 1000 for t, seen in contact_seen.items()},
@@ -475,6 +632,40 @@ class Witness(Node):
                     strict=True,
                 )
             )
+        if self.dynamic_physics:
+            sample["physics_source_fault"] = self.physics_fault
+            sample["frame_transform_evidence"] = {
+                k: self.physics_binding[k]
+                for k in (
+                    "world_name",
+                    "world_to_map_xyyaw",
+                    "frame_transform_source",
+                    "map_world_identity_approved",
+                )
+            }
+            if decoded is not None and self.physics_fault is None:
+                try:
+                    age = (time.time_ns() - decoded["packet"]["captured_at_unix_ns"]) / 1e9
+                    snapshot = self.physics_projector.project(
+                        decoded["model_poses"],
+                        run_id=self.physics_binding["run_id"],
+                        mission_id=self.physics_binding["mission_id"],
+                        sequence=decoded["packet"]["sequence"],
+                        frame_id=self.physics_grid.frame_id,
+                        sim_time_sec=pose["time_sec"],
+                        ground_truth_age_sec=age,
+                        complete=True,
+                    )
+                    sample["occupancy"] = asdict(snapshot)
+                    sample["occupancy_hash"] = snapshot.artifact_hash()
+                    sample["physics_packet_sha256"] = decoded["packet_sha256"]
+                    self.physics_queue.popleft()
+                except (ValueError, TypeError) as exc:
+                    self.physics_fault = str(exc)
+                    sample["physics_source_fault"] = self.physics_fault
+                    sample["observation_complete"] = False
+            else:
+                sample["observation_complete"] = False
         self.trace.write(json.dumps(sample) + "\n")
         self.publisher.publish(String(data=json.dumps(sample)))
 

@@ -8,7 +8,9 @@ Runtime source authentication and Native physical acceptance remain separate.
 """
 
 import hashlib
+import json
 import math
+import time
 from dataclasses import dataclass
 from xml.etree import ElementTree as ET
 
@@ -123,6 +125,16 @@ def seal_obstacle_geometry(sdf_bytes, *, obstacle_names):
 
 
 @dataclass(frozen=True)
+class PhysicsGeometry:
+    component_geometry_hash: str
+    model_radii: tuple[tuple[str, float], ...]
+    source: str = "gazebo_ecm_postupdate"
+
+    def artifact_hash(self):
+        return digest(self.__dict__)
+
+
+@dataclass(frozen=True)
 class ModelPose:
     model_name: str
     x: float
@@ -134,7 +146,9 @@ class OccupancyProjector:
     """Validate one whole packet before returning any occupancy credit input."""
 
     def __init__(self, verifier, geometry):
-        if not isinstance(verifier, CoverageVerifier) or not isinstance(geometry, ObstacleGeometry):
+        if not isinstance(verifier, CoverageVerifier) or not isinstance(
+            geometry, (ObstacleGeometry, PhysicsGeometry)
+        ):
             raise TypeError("sealed collision geometry and fixed coverage grid required")
         if verifier.width * verifier.height > 1_000_000:
             raise ValueError("occupancy projection grid unbounded")
@@ -225,3 +239,205 @@ class OccupancyProjector:
             True,
             ground_truth_age_sec,
         )
+
+
+def parse_physics_packet(
+    raw,
+    *,
+    run_id,
+    body_snapshot_hash,
+    attachment_hash,
+    world_name,
+    body_model_name,
+    obstacle_names,
+    scene_model_names,
+    received_at_unix_ns=None,
+):
+    """Validate complete simulator-side components before deriving any geometry.
+
+    Source authorization remains the configured passive SIM bridge and daemon;
+    this parser is not a DDS authentication mechanism. No caller radius is used.
+    """
+    if any(
+        type(v) is not str or not v
+        for v in (run_id, body_snapshot_hash, attachment_hash, world_name, body_model_name)
+    ):
+        raise ValueError("frozen physics source identities required")
+    if type(raw) is not bytes or not 0 < len(raw) <= 2_000_000:
+        raise ValueError("bounded physics packet bytes required")
+    try:
+        packet = json.loads(raw)
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise ValueError("invalid physics packet JSON") from exc
+    if type(packet) is not dict or packet.get("complete") is not True:
+        raise ValueError("complete physical component packet required")
+    if (
+        packet.get("schema_version") != "rosclaw.gazebo_postupdate_observation.v1"
+        or packet.get("source") != "gazebo_ecm_postupdate"
+        or packet.get("evidence_domain") != "GAZEBO_PHYSICS"
+        or any(
+            packet.get(k) != v
+            for k, v in (
+                ("run_id", run_id),
+                ("body_snapshot_hash", body_snapshot_hash),
+                ("attachment_hash", attachment_hash),
+                ("world_name", world_name),
+            )
+        )
+    ):
+        raise ValueError("physics source/run/Body/attachment/world binding mismatch")
+    if (
+        type(obstacle_names) is not tuple
+        or not 0 < len(obstacle_names) <= 32
+        or len(set(obstacle_names)) != len(obstacle_names)
+        or type(scene_model_names) is not frozenset
+        or not 0 < len(scene_model_names) <= 64
+        or body_model_name in obstacle_names
+        or not {body_model_name, *obstacle_names} <= scene_model_names
+    ):
+        raise ValueError("explicit bounded closed scene identities required")
+    for key in ("sequence", "physics_iteration", "captured_at_unix_ns"):
+        if type(packet.get(key)) is not int or packet[key] < 0:
+            raise ValueError("nonnegative integer source sequence/iteration/capture required")
+    stamp = packet.get("sim_time_sec")
+    if type(stamp) not in (float, int) or not math.isfinite(stamp) or stamp < 0:
+        raise ValueError("nonnegative finite physical SIM time required")
+    if type(packet.get("paused")) is not bool:
+        raise ValueError("explicit physical pause state required")
+    received = time.time_ns() if received_at_unix_ns is None else received_at_unix_ns
+    if type(received) is not int or not 0 <= received - packet["captured_at_unix_ns"] < 300_000_000:
+        raise ValueError("physical capture stale or future-dated")
+    scene = packet.get("scene_models")
+    if type(scene) is not list or len(scene) != len(scene_model_names):
+        raise ValueError("complete actual scene model set required")
+    models, ids = {}, set()
+    for row in scene:
+        if (
+            type(row) is not dict
+            or set(row) != {"model_name", "entity_id"}
+            or row["model_name"] not in scene_model_names
+            or row["model_name"] in models
+            or type(row["entity_id"]) is not int
+            or not 0 < row["entity_id"] < 2**64
+            or row["entity_id"] in ids
+        ):
+            raise ValueError("ambiguous actual model identity")
+        models[row["model_name"]] = row["entity_id"]
+        ids.add(row["entity_id"])
+
+    def pose(values):
+        if (
+            type(values) is not list
+            or len(values) != 7
+            or any(type(v) not in (float, int) or not math.isfinite(v) for v in values)
+            or not math.isclose(sum(v * v for v in values[3:]), 1, abs_tol=1e-6)
+        ):
+            raise ValueError("finite normalized actual physical pose required")
+        return values
+
+    body = packet.get("body")
+    if (
+        type(body) is not dict
+        or set(body) != {"model_name", "entity_id", "world_pose"}
+        or type(body["entity_id"]) is not int
+        or body["model_name"] != body_model_name
+        or body["entity_id"] != models[body_model_name]
+    ):
+        raise ValueError("actual body model identity missing or different")
+    pose(body["world_pose"])
+    obstacles = packet.get("obstacles")
+    if type(obstacles) is not list or len(obstacles) != len(obstacle_names):
+        raise ValueError("all declared obstacle components required")
+    names, radii, geometry_rows, model_poses = set(), [], [], []
+    collision_count = 0
+    for model in obstacles:
+        if (
+            type(model) is not dict
+            or set(model) != {"model_name", "entity_id", "world_pose", "collision_geometry"}
+            or type(model["entity_id"]) is not int
+            or model["model_name"] not in obstacle_names
+            or model["model_name"] in names
+            or model["entity_id"] != models[model["model_name"]]
+        ):
+            raise ValueError("actual obstacle identity missing or ambiguous")
+        names.add(model["model_name"])
+        position = pose(model["world_pose"])
+        model_poses.append(ModelPose(model["model_name"], position[0], position[1], stamp))
+        collisions = model["collision_geometry"]
+        if type(collisions) is not list or not 0 < len(collisions) <= 256:
+            raise ValueError("bounded actual collision components required")
+        maximum = 0
+        for collision in collisions:
+            collision_count += 1
+            if collision_count > 256 or type(collision) is not dict:
+                raise ValueError("whole packet collision budget exceeded")
+            entity = collision.get("entity_id")
+            if type(entity) is not int or not 0 < entity < 2**64 or entity in ids:
+                raise ValueError("duplicate or invalid actual collision identity")
+            ids.add(entity)
+            relative = pose(collision.get("model_relative_pose"))
+            kind = collision.get("kind")
+            keys = {"entity_id", "kind", "model_relative_pose", "enclosing_radius_m"}
+            expected_dimensions = {
+                "box": {"size"},
+                "sphere": {"radius"},
+                "cylinder": {"radius", "length"},
+            }
+            if (
+                kind not in expected_dimensions
+                or set(collision) != keys | expected_dimensions[kind]
+            ):
+                raise ValueError("unique explicit actual collision primitive required")
+            if kind == "box":
+                sizes = collision.get("size")
+                if type(sizes) is not list or len(sizes) != 3:
+                    raise ValueError("actual collision box dimensions required")
+            elif kind in ("sphere", "cylinder"):
+                sizes = [collision.get("radius")]
+                if kind == "cylinder":
+                    sizes.append(collision.get("length"))
+            else:
+                raise ValueError("unsupported actual collision primitive")
+            if any(
+                type(v) not in (float, int) or not math.isfinite(v) or not 0 < v <= 200
+                for v in sizes
+            ):
+                raise ValueError("positive finite collision dimensions required")
+            extent = (
+                math.sqrt(sum((v / 2) ** 2 for v in sizes))
+                if kind == "box"
+                else sizes[0]
+                if kind == "sphere"
+                else math.hypot(sizes[0], sizes[1] / 2)
+            )
+            radius = math.sqrt(sum(v * v for v in relative[:3])) + extent
+            if not math.isfinite(radius) or not 0 < radius <= 100:
+                raise ValueError("actual collision envelope unbounded")
+            reported = collision.get("enclosing_radius_m")
+            if type(reported) not in (float, int) or not math.isclose(
+                reported, radius, rel_tol=1e-12, abs_tol=1e-12
+            ):
+                raise ValueError("reported envelope does not match actual components")
+            maximum = max(maximum, math.nextafter(radius, math.inf))
+        radii.append((model["model_name"], maximum))
+        geometry_rows.append(
+            {k: model[k] for k in ("model_name", "entity_id", "collision_geometry")}
+        )
+    geometry_hash = digest(
+        {
+            "source": "gazebo_ecm_postupdate",
+            "world_name": world_name,
+            "scene_models": scene,
+            "body_model": body_model_name,
+            "obstacles": sorted(geometry_rows, key=lambda r: r["model_name"]),
+        }
+    )
+    geometry = PhysicsGeometry(geometry_hash, tuple(sorted(radii)))
+    return {
+        "packet": packet,
+        "packet_sha256": hashlib.sha256(raw).hexdigest(),
+        "geometry": geometry,
+        "model_poses": tuple(model_poses),
+        "body_world_pose": body["world_pose"],
+        "ground_truth_age_sec": (received - packet["captured_at_unix_ns"]) / 1e9,
+    }

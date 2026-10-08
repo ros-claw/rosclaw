@@ -25,6 +25,8 @@ PROFILE = SimpleNamespace(physical_radius_m=0.25, to_dict=lambda: {"name": "fixt
 
 
 class FakePath:
+    extra = {}
+
     def __init__(self, path):
         self.path = str(path)
 
@@ -32,6 +34,8 @@ class FakePath:
         return FakePath(self.path + "/" + name)
 
     def read_text(self):
+        if self.path in self.extra:
+            return self.extra[self.path]
         return {
             "/evidence/fixture_profile.json": json.dumps(PROFILE.to_dict()),
             "/evidence/contact_topics.json": json.dumps(["/wheel_left", "/wheel_right"]),
@@ -41,6 +45,9 @@ class FakePath:
 
     def open(self, *args, **kwargs):
         return io.StringIO()
+
+    def write_text(self, text):
+        return len(text)
 
     def exists(self):
         return True
@@ -74,15 +81,31 @@ class FakeNode:
         )
 
 
-def load_node(filename, classname, monkeypatch):
+def load_node(filename, classname, monkeypatch, *, dynamic=False):
     tree = ast.parse((ROOT / filename).read_text())
     tree.body = [
         n
         for n in tree.body
         if isinstance(n, (ast.FunctionDef, ast.ClassDef)) and getattr(n, "name", None) != "main"
     ]
+
+    class ConfiguredNode(FakeNode):
+        def declare_parameter(self, name, default):
+            if name == "dynamic_physics":
+                return SimpleNamespace(value=dynamic)
+            return super().declare_parameter(name, default)
+
+    from rosclaw.connectors.ros.verification.coverage import CoverageVerifier
+    from rosclaw.connectors.ros.verification.occupancy_geometry import (
+        OccupancyProjector,
+        parse_physics_packet,
+    )
+
     env = {
-        "Node": FakeNode,
+        "Node": ConfiguredNode,
+        "CoverageVerifier": CoverageVerifier,
+        "OccupancyProjector": OccupancyProjector,
+        "parse_physics_packet": parse_physics_packet,
         "Path": FakePath,
         "json": json,
         "math": math,
@@ -90,6 +113,7 @@ def load_node(filename, classname, monkeypatch):
         "datetime": datetime,
         "UTC": UTC,
         "Lock": Lock,
+        "deque": __import__("collections").deque,
         "asdict": __import__("dataclasses").asdict,
         "BrushStateEvent": BrushStateEvent,
         "BrushStateTimeline": BrushStateTimeline,
@@ -276,3 +300,112 @@ def test_daemon_independent_brush_binding_and_pair_guard(fault):
         witness._record(record)
         with pytest.raises(RuntimeError, match="incomplete"):
             witness.fresh()  # one bad frame never vanishes under a later good frame
+
+
+@pytest.mark.parametrize("fault", [None, "sequence", "geometry", "stale"])
+def test_actual_witness_callbacks_pair_component_packet_with_brush_and_apply_blocking(
+    monkeypatch, fault
+):
+    import copy
+
+    from rosclaw.connectors.ros.verification.coverage import CoverageVerifier
+    from rosclaw.connectors.ros.verification.occupancy import OccupancyAccounting
+
+    grid = {
+        "width": 4,
+        "height": 4,
+        "resolution": 0.1,
+        "origin": [-0.2, -0.2],
+        "accessible_cells": list(range(16)),
+        "cleaning_polygon": [[-0.04, -0.04], [0.04, -0.04], [0.04, 0.04], [-0.04, 0.04]],
+    }
+    binding = {k: BINDING[k] for k in ("run_id", "body_snapshot_hash", "attachment_hash")}
+    binding.update(
+        world_name="fixture_world",
+        body_model_name="anonymous_body",
+        obstacle_names=["anonymous_blocker"],
+        scene_model_names=["anonymous_body", "anonymous_blocker"],
+        mission_id="mission",
+        grid=grid,
+        world_to_map_xyyaw=[0, 0, 0],
+        frame_transform_source="simulator_operator_fixture_policy",
+        map_world_identity_approved=True,
+    )
+    monkeypatch.setattr(FakePath, "extra", {"/evidence/physics_binding.json": json.dumps(binding)})
+    observer = load_node("witness.py", "Witness", monkeypatch, dynamic=True)
+    assert set(observer.publishers) == {"/rosclaw_sim/observation"} and not observer.services
+    assert "/rosclaw_sim/physics_snapshot" in observer.subscriptions
+    assert "/rosclaw_sim/ground_truth" not in observer.subscriptions
+    observer.map_observation(
+        SimpleNamespace(
+            header=SimpleNamespace(frame_id="map"),
+            data=[0] * 16,
+            info=SimpleNamespace(
+                width=4,
+                height=4,
+                resolution=0.1,
+                origin=SimpleNamespace(
+                    position=SimpleNamespace(x=-0.2, y=-0.2),
+                    orientation=SimpleNamespace(x=0, y=0, z=0, w=1),
+                ),
+            ),
+        )
+    )
+    assert observer.physics_map_verified and observer.physics_fault is None
+    actor = load_node("sim_actuator.py", "SimulationActuator", monkeypatch)
+    actor.sim_time = 0
+    actor.tick()
+    actor.heartbeat(SimpleNamespace(data=True), SimpleNamespace())
+    actor.sim_time = 0.01
+    actor.set_cleaning(SimpleNamespace(data=True), SimpleNamespace())
+    actor.sim_time = 0.06
+    actor.tick()
+    for msg in actor.publishers["/rosclaw_sim/brush_events"]:
+        observer.brush_event(msg)
+    fixture = json.loads(
+        (Path(__file__).parent / "fixtures/passive-ecm-contract-packets.jsonl")
+        .read_text()
+        .splitlines()[0]
+    )["packet"]
+    packet = copy.deepcopy(fixture)
+    packet.update({k: BINDING[k] for k in ("run_id", "body_snapshot_hash", "attachment_hash")})
+    packet.update(sequence=0, sim_time_sec=0.05, paused=False, captured_at_unix_ns=time.time_ns())
+    packet["body"]["world_pose"][:2] = [0.05, 0.05]
+    observer.contact_seen = {t: time.monotonic() for t in observer.wheel_topics}
+    observer.physics_event(SimpleNamespace(data=json.dumps(packet)))
+    observer.tick()
+    first = json.loads(observer.publishers["/rosclaw_sim/observation"][-1].data)
+    assert first["observation_complete"] and first["cleaning_enabled"]
+    assert first["time_sec"] == first["occupancy"]["sim_time_sec"] == 0.05
+    assert first["occupancy"]["occupied_cells"] == list(range(16))
+    accounting = OccupancyAccounting(
+        CoverageVerifier(**grid),
+        run_id="run",
+        mission_id="mission",
+        geometry_hash=observer.physics_projector.geometry_hash,
+    )
+    accounting.observe_sample(first)
+    assert not accounting.verifier.visits
+    actor.sim_time = 0.16
+    actor.tick()
+    observer.brush_event(actor.publishers["/rosclaw_sim/brush_events"][-1])
+    packet.update(sequence=1, sim_time_sec=0.15, captured_at_unix_ns=time.time_ns())
+    packet["obstacles"][0]["world_pose"][0] = 2
+    if fault == "sequence":
+        packet["sequence"] = 2
+    elif fault == "geometry":
+        packet["obstacles"][0]["collision_geometry"][0].update(radius=0.3, enclosing_radius_m=0.4)
+    elif fault == "stale":
+        packet["captured_at_unix_ns"] -= 300_000_000
+    observer.physics_event(SimpleNamespace(data=json.dumps(packet)))
+    observer.tick()
+    second = json.loads(observer.publishers["/rosclaw_sim/observation"][-1].data)
+    if fault is None:
+        assert second["observation_complete"] and second["occupancy"]["occupied_cells"] == []
+        accounting.observe_sample(second)
+        assert set(accounting.verifier.visits) == {10}  # only actual new revisit after withdrawal
+    else:
+        assert not second["observation_complete"] and second["physics_source_fault"]
+        with pytest.raises(ValueError):
+            accounting.observe_sample(second)
+        assert not accounting.verifier.visits
