@@ -9,6 +9,7 @@ import hashlib
 import json
 import math
 import re
+import struct
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -83,13 +84,16 @@ def prepare_physics(output, *, config_path, library_path, brush_binding, profile
     ):
         raise ValueError("bounded frozen fixture grid required")
     grid = CoverageVerifier(**binding["grid"])
-    if (grid.width, grid.height, grid.resolution, tuple(grid.origin), grid.frame_id) != (
-        64,
-        64,
-        0.05,
-        (-1.6, -1.6),
-        "map",
-    ) or [list(p) for p in grid.polygon] != profile.cleaning_polygon:
+    # OccupancyGrid.info.resolution is float32 on the ROS wire. Both exact
+    # policy spelling and its exact wire value are permitted at preparation;
+    # live map/daemon admission still requires equality with the frozen value.
+    wire_resolution = struct.unpack("f", struct.pack("f", 0.05))[0]
+    if (
+        (grid.width, grid.height, tuple(grid.origin), grid.frame_id)
+        != (64, 64, (-1.6, -1.6), "map")
+        or grid.resolution not in (0.05, wire_resolution)
+        or [list(p) for p in grid.polygon] != profile.cleaning_polygon
+    ):
         raise ValueError("physics grid or brush differs from the known fixture")
     # The denominator is frozen before obstacle introduction, never trimmed by
     # obstacle occupancy. Require the same original map/Body computation.
@@ -103,7 +107,7 @@ def prepare_physics(output, *, config_path, library_path, brush_binding, profile
     expected = cleanable_cells(
         width=64,
         height=64,
-        resolution=0.05,
+        resolution=grid.resolution,
         occupancy=occupancy,
         start_cell=32 * 64 + 32,
         robot_radius=profile.physical_radius_m,

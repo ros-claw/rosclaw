@@ -252,3 +252,44 @@ def test_daemon_admission_binds_compiled_body_and_actual_map_to_source_seal(scen
         assert result["occupancy_binding"] == {"run_id": "run", "geometry_hash": "a" * 64}
         assert result["physical_radius_m"] == 0.25
         assert result["dynamic_fixture_admission"]["physical_acceptance"] == "NOT_RUN"
+
+
+def test_ros_wire_resolution_preserved_in_frozen_scene(scene):
+    import struct
+
+    resolution = struct.unpack("f", struct.pack("f", 0.05))[0]
+    scene[-1]["binding"]["grid"]["resolution"] = resolution
+    prepare(scene)
+    output, _, _, _, profile, fixture = scene
+    binding = fixture["binding"]
+    assert (
+        json.loads((output / "physics_binding.json").read_text())["grid"]["resolution"]
+        == resolution
+    )
+    # The actual map uses the same wire value, never a tolerance or rounding.
+    config = {"body_snapshot_hash": "body", "grid": copy.deepcopy(binding["grid"])}
+    (output / "brush_binding.json").write_text(json.dumps({**scene[3], "producer_id": "actuator"}))
+    (output / "run_id.txt").write_text("run\n")
+    (output / "physics_ready.json").write_text(
+        json.dumps(
+            {
+                "binding": binding,
+                "geometry_hash": "a" * 64,
+                "initial_packet_sha256": "b" * 64,
+                "evidence_role": "actual_component_source_admission_not_mission_acceptance",
+            }
+        )
+    )
+    result = MODULE.admit_dynamic_daemon_config(
+        output, config, mission_id="mission", profile=profile
+    )
+    assert result["grid"]["resolution"] == resolution
+    config["grid"]["resolution"] = 0.05
+    with pytest.raises(ValueError, match="compiled Body/map/mission"):
+        MODULE.admit_dynamic_daemon_config(output, config, mission_id="mission", profile=profile)
+
+
+def test_nearby_but_different_map_resolution_refused(scene):
+    scene[-1]["binding"]["grid"]["resolution"] = 0.05000001
+    with pytest.raises(ValueError, match="physics grid"):
+        prepare(scene)
