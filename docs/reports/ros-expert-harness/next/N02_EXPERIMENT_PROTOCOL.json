@@ -57,6 +57,13 @@
         "swath_angle_rad": 0.0,
         "route_mode": "BOUSTROPHEDON",
         "boundary_pass": "5 existing legal corner targets, Nav2 NavigateThroughPoses, bounded180s"
+      },
+      {
+        "id": "perimeter_sequential",
+        "headland_width": 0.5,
+        "swath_angle_rad": 0.0,
+        "route_mode": "BOUSTROPHEDON",
+        "boundary_pass": "9 existing legal boundary targets, sequential NavigateToPose with unchanged goal checker, total180s"
       }
     ],
     "burger": [
@@ -78,6 +85,13 @@
         "swath_angle_rad": 0.0,
         "route_mode": "BOUSTROPHEDON",
         "boundary_pass": "5 existing legal corner targets, Nav2 NavigateThroughPoses, bounded180s"
+      },
+      {
+        "id": "perimeter_sequential",
+        "headland_width": 0.3,
+        "swath_angle_rad": 0.0,
+        "route_mode": "BOUSTROPHEDON",
+        "boundary_pass": "9 existing legal boundary targets, sequential NavigateToPose with unchanged goal checker, total180s"
       }
     ]
   },
@@ -117,6 +131,8 @@
     "reason": "Diagonal rejected; headland main failed. Explicit legal Edges target coordination allowed in user plan section 5.1.",
     "registered_before_perimeter_physical_trial": true,
     "main_and_boundary_separately_reported": true,
-    "evaluation_freeze": "NOT_FROZEN"
+    "evaluation_freeze": "NOT_FROZEN",
+    "additional_candidate": "Sequential9 existing legal corners/midpoints. First through-poses pilot measured primary76.9%; actual Nav2 paths bend away from boundary. Separate candidate, all runs retained; no evaluation seeds used.",
+    "boundary_clearance": "Sequential candidate uses existing legal centers additionally screened with robot_radius=max(original recovery radius, physical radius+0.05). Original baseline recovery unchanged. No inset shrink."
   }
 }

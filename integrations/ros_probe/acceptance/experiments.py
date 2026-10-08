@@ -18,7 +18,7 @@ def planning_parameters(profile, preset="baseline"):
     elif preset == "headland":
         # Offline-screened known fixtures, not a claim of generic Body adaptation.
         params["default_headland_width"] = {"waffle": 0.45, "burger": 0.35}[profile.name]
-    elif preset not in ("baseline", "perimeter"):
+    elif preset not in ("baseline", "perimeter", "perimeter_sequential"):
         raise ValueError("unknown predeclared coverage preset")
     return params
 

@@ -94,6 +94,21 @@ async def main():
     config["recovery_centers"] = [
         [origin[0] + (i % width + 0.5) * res, origin[1] + (i // width + 0.5) * res] for i in centers
     ]
+    # Boundary targets get an additional 50mm circle clearance screen.
+    # The original recovery centers/algorithm and denominator remain unchanged.
+    boundary_cells = cleanable_cells(
+        width=width,
+        height=height,
+        resolution=res,
+        occupancy=measured["occupancy"],
+        start_cell=start,
+        robot_radius=max(profile.recovery_radius_m, profile.physical_radius_m + 0.05),
+        cleaning_radius=0.001,
+    )
+    config["boundary_centers"] = [
+        [origin[0] + (i % width + 0.5) * res, origin[1] + (i // width + 0.5) * res]
+        for i in boundary_cells
+    ]
     if (root / "experiment.json").exists():
         config["experiment"] = json.loads((root / "experiment.json").read_text())
     (root / "execution_config.json").write_text(json.dumps(config, indent=2) + "\n")

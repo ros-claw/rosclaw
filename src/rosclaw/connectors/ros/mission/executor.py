@@ -156,6 +156,8 @@ class RosCoverageSimulationExecutor:
         lease_control=None,
         audit_metadata=None,
         boundary_pass=False,
+        boundary_strategy="through_poses",
+        boundary_centers=None,
     ):
         if not owner.startswith("daemon_"):
             raise ValueError("daemon ownership is required")
@@ -175,7 +177,13 @@ class RosCoverageSimulationExecutor:
         self.audit_metadata = dict(audit_metadata or {})
         if type(boundary_pass) is not bool:
             raise ValueError("boundary pass must be a configured boolean")
+        if boundary_strategy not in ("through_poses", "sequential"):
+            raise ValueError("unknown configured boundary strategy")
         self.boundary_pass = boundary_pass
+        self.boundary_strategy = boundary_strategy
+        self.boundary_centers = tuple(
+            recovery_centers if boundary_centers is None else boundary_centers
+        )
 
     def _audit_event(self, kind, payload):
         if self.audit is not None:
@@ -320,7 +328,11 @@ class RosCoverageSimulationExecutor:
             result = {"status": "SKIPPED", "reason": "upstream main goal did not succeed"}
             self._audit_event("boundary_decision", result)
             return result
-        targets = rectangular_boundary_targets(self.recovery_centers, self.witness.fresh())
+        targets = rectangular_boundary_targets(
+            self.boundary_centers,
+            self.witness.fresh(),
+            edge_midpoints=self.boundary_strategy == "sequential",
+        )
         if not targets:
             result = {"status": "SKIPPED", "reason": "legal rectangular corners unavailable"}
             self._audit_event("boundary_decision", result)
@@ -331,6 +343,7 @@ class RosCoverageSimulationExecutor:
                 "status": "DISPATCH",
                 "targets": targets,
                 "waypoint_count": len(targets),
+                "strategy": self.boundary_strategy,
                 "evidence_role": "Nav2 targets, no predicted coverage credit",
             },
         )
@@ -344,6 +357,39 @@ class RosCoverageSimulationExecutor:
             }
             for p in targets
         ]
+        if self.boundary_strategy == "sequential":
+            until = time.monotonic() + 180
+            results = []
+            for index, pose in enumerate(poses):
+                remaining = until - time.monotonic()
+                if remaining <= 0:
+                    return {
+                        "status": "FAILED",
+                        "reason": "boundary stage budget exhausted",
+                        "waypoint_count": len(targets),
+                        "nav_goal_results": results,
+                    }
+                result = self._run_goal(
+                    "/navigate_to_pose",
+                    "nav2_msgs/action/NavigateToPose",
+                    {"pose": pose},
+                    f"{action_id}:boundary:{index}",
+                    deadline,
+                    goal_timeout_sec=min(45, remaining),
+                    stage="BOUNDARY_PASS",
+                )
+                results.append(result)
+                if result.get("status") != STATUS_SUCCEEDED or result.get("timed_out"):
+                    return {
+                        "status": "FAILED",
+                        "waypoint_count": len(targets),
+                        "nav_goal_results": results,
+                    }
+            return {
+                "status": "SUCCEEDED",
+                "waypoint_count": len(targets),
+                "nav_goal_results": results,
+            }
         result = self._run_goal(
             "/navigate_through_poses",
             "nav2_msgs/action/NavigateThroughPoses",

@@ -115,6 +115,8 @@ def main():
         lease_control=transports[3],
         audit_metadata=freeze_audit_source(root, config),
         boundary_pass=config.get("experiment", {}).get("boundary_pass", False),
+        boundary_strategy=config.get("experiment", {}).get("boundary_strategy", "through_poses"),
+        boundary_centers=config.get("boundary_centers"),
     )
     for capability in [
         "navigation.navigate_to_pose",

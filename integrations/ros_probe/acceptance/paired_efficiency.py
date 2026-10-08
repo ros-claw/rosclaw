@@ -238,7 +238,11 @@ def main():
     parser.add_argument("--directory", type=Path, required=True)
     parser.add_argument("--protocol", type=Path, required=True)
     parser.add_argument("--profile", choices=PROFILES, required=True)
-    parser.add_argument("--candidate", choices=["diagonal", "headland", "perimeter"], required=True)
+    parser.add_argument(
+        "--candidate",
+        choices=["diagonal", "headland", "perimeter", "perimeter_sequential"],
+        required=True,
+    )
     parser.add_argument("--seed", type=int, required=True)
     parser.add_argument("--phase", choices=["pilot", "evaluation"], default="pilot")
     parser.add_argument("--image", default="rosclaw/ros-expert-rebuilt:dad31022")
