@@ -15,7 +15,7 @@ from xml.etree import ElementTree as ET
 from rosclaw.connectors.ros.diagnosis.coverage_audit import digest
 
 
-def prepare_probe_fixture(output, declaration):
+def validate_probe_declaration(declaration):
     keys = {
         "schema_version",
         "source",
@@ -100,6 +100,12 @@ def prepare_probe_fixture(output, declaration):
         <= max(p[1] for p in polygon) + clearance
     ):
         raise ValueError("probe must be outside frozen work region plus full body clearance")
+    return declaration
+
+
+def prepare_probe_fixture(output, declaration):
+    validate_probe_declaration(declaration)
+    xy = declaration["probe_xy"]
     name = declaration["probe_model_name"]
     radius = declaration["sphere_radius_m"]
     sdf = ET.Element("sdf", version="1.9")

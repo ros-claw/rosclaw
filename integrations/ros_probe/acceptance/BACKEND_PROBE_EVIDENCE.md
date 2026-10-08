@@ -57,3 +57,16 @@ A successful replay reports `backend_health_admitted=false`,
 qualification must still be joined with the owned runtime, robot contact source,
 brush actor, mission accounting and closed canonical Native acceptance. These
 contracts cannot be counted as D1–D6 physical episodes or unseen-Body admission.
+
+`backend_probe_world.py` now prepares an **exclusive world-source candidate**.
+It leaves original scene bytes intact and adds the probe as a dynamic observed
+obstacle to both the explicit scene and passive occupancy inventory. It checks
+instrument/run/world/region correspondence, full source collision clearance,
+source ground-plane identity and footprint, required system uniqueness, endpoint
+aliasing and the owned compiled library. It currently requires an explicit
+operator-approved world/map identity; transformed regions are refused. This is
+source preparation, not an actual loaded world or runtime admission. Actual Body
+clearance, observed support and gravity behavior remain separate mandatory gates.
+`backend_probe_world_contract.py` checks this candidate using the installed SDF
+parser over a synthetic scene and actual source-bound ELF bytes. It starts no
+Gazebo world, Node, DDS or scene service. Original failure traces are retained.
