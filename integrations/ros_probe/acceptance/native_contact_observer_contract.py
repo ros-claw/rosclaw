@@ -51,7 +51,14 @@ def main():
             return origin + timedelta(seconds=clock[0])
 
     class FakeNode:
-        def __init__(self, name):
+        def __init__(self, name, **options):
+            assert options["enable_rosout"] is False
+            assert options["start_parameter_services"] is False
+            assert options["enable_logger_service"] is False
+            assert options["use_global_arguments"] is False
+            assert options["parameter_overrides"][0].value is False
+            self.publishers = []
+            self.services = []
             self.subscriptions = {}
             nodes.append(self)
 
@@ -149,6 +156,7 @@ def main():
                 "pose_regression",
                 "frame",
                 "missing_data",
+                "audit_collision",
             ):
                 current_case[0], clock[0] = case, 0.0
                 nodes.clear()
@@ -175,6 +183,24 @@ def main():
                     "--pose-frame",
                     "fixture_world",
                 ]
+                if case == "audit_collision":
+                    collision = root / "native-contact-events.jsonl"
+                    collision.write_bytes(
+                        b"synthetic preexisting evidence must not be overwritten\n"
+                    )
+                    try:
+                        contact_observer.main()
+                    except FileExistsError:
+                        assert state == {"init": 1, "shutdown": 1, "destroy": 1}
+                        assert (
+                            collision.read_bytes()
+                            == b"synthetic preexisting evidence must not be overwritten\n"
+                        )
+                        results.append(
+                            {"case": case, "status": "EXPECTED_REJECTION_WITH_RESOURCE_CLEANUP"}
+                        )
+                        continue
+                    raise AssertionError("observer overwrote existing evidence")
                 contact_observer.main()
                 assert len(nodes) == 1 and state == {"init": 1, "shutdown": 1, "destroy": 1}
                 latest = json.loads((root / "native-contact-latest.json").read_text())

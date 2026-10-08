@@ -38,7 +38,11 @@ source loss, altered inventory or malformed packets latch rejection. Positive
 contact counts are retained. The output is observation evidence and always
 states `physical_acceptance=NOT_VERIFIED`.
 
-`native_contact_observer.py` is an independent process with only subscriptions.
+`native_contact_observer.py` is an independent process with observation subscriptions.
+It disables rosout, parameter/logger/type-description services and global
+argument remapping, then retires the standard rclpy parameter metadata publisher
+before observation. Standard constructor parameter metadata can be emitted
+during initialization; no actuator publisher or motion service is ever created.
 Its original pose CDR and original producer JSON bytes are retained with hashes
 and sizes, including rejected inputs. It reopens supplied SDF/bridge/producer
 bytes on preparation and closure. Source preparation is not runtime admission.
@@ -46,7 +50,7 @@ A closed-original-byte replay is implemented in
 `closed_native_contact_evidence.py`: it reopens prepared sources, replays
 installed official TFMessage CDR and original JSON, checks genesis/sequence/hash
 chain and writer closure, and requires complete source brackets and no gaps.
-Its 15 synthetic serialization contracts and 8 actual observer callback contracts
+Its 15 synthetic serialization contracts and 9 actual observer callback/resource cleanup contracts
 retain original bytes and fault traces. Backend qualification and the replay
 still need to be connected to final Native acceptance. No task or brush state is inferred here.
 

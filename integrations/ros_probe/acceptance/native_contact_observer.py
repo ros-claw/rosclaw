@@ -1,4 +1,4 @@
-"""Separate passive native component observer; no actuator, service or publisher.
+"""Separate passive native component observer; no actuator or motion service.
 
 Final acceptance requires replay of closed original bytes and a separately
 admitted physics backend. This process only supplies source observations.
@@ -39,26 +39,52 @@ def main():
     tracker = NativeContactEvidence(policy)
     import rclpy
     from rclpy.node import Node
+    from rclpy.parameter import Parameter
     from rclpy.qos import QoSProfile, ReliabilityPolicy
     from rclpy.serialization import serialize_message
     from std_msgs.msg import String
     from tf2_msgs.msg import TFMessage
 
     rclpy.init()
-    node = Node("independent_native_contact_observer")
-    audit = CoverageAuditLog(
-        args.directory / "native-contact-events.jsonl",
-        context={
-            **{
-                k: policy["contact_policy"][k]
-                for k in ("run_id", "body_snapshot_hash", "attachment_hash", "producer_id")
+    node = None
+    try:
+        node = Node(
+            "independent_native_contact_observer",
+            enable_rosout=False,
+            start_parameter_services=False,
+            enable_logger_service=False,
+            use_global_arguments=False,
+            parameter_overrides=[Parameter("start_type_description_service", value=False)],
+        )
+        # Standard rclpy initialization can emit parameter metadata. Retire its
+        # built-in metadata publisher before observing; no actuator publisher or
+        # external parameter/logger/type-description service is exposed.
+        for publisher in tuple(node.publishers):
+            if publisher.topic_name != "/parameter_events":
+                raise ValueError("unexpected publisher on passive native observer")
+            node.destroy_publisher(publisher)
+        if tuple(node.services):
+            raise ValueError("unexpected service on passive native observer")
+        audit = CoverageAuditLog(
+            args.directory / "native-contact-events.jsonl",
+            context={
+                **{
+                    k: policy["contact_policy"][k]
+                    for k in ("run_id", "body_snapshot_hash", "attachment_hash", "producer_id")
+                },
+                "source": "independent_gazebo_contact_component_subscription",
+                "evidence_domain": "SIMULATION",
+                "native_policy_hash": tracker.snapshot(time.monotonic())["native_policy_hash"],
+                "pose_frame": args.pose_frame,
             },
-            "source": "independent_gazebo_contact_component_subscription",
-            "evidence_domain": "SIMULATION",
-            "native_policy_hash": tracker.snapshot(time.monotonic())["native_policy_hash"],
-            "pose_frame": args.pose_frame,
-        },
-    )
+        )
+    except BaseException:
+        try:
+            if node is not None:
+                node.destroy_node()
+        finally:
+            rclpy.shutdown()
+        raise
     stop = [False]
     signal.signal(signal.SIGINT, lambda *_: stop.__setitem__(0, True))
     signal.signal(signal.SIGTERM, lambda *_: stop.__setitem__(0, True))
