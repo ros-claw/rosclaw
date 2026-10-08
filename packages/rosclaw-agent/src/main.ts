@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// HP2-COMPAT: direct UI lifecycle ownership until helper exposes public stop.
 /** rosclaw-agent 入口（PNA-0）：Pi InteractiveMode + ROSClaw 品牌。
  *
  * `rosclaw chat` 由 Python CLI 转调本入口。用户没有 engine 选择面
@@ -12,6 +13,8 @@
 // P0-NA-15：供应链边界——上游版本检查/自更新通道在 ROSClaw 产品里
 // 一律关闭（host_managed：只有 ROSClaw signed release 能升级本产物，
 // 内部 harness 不得自行更新）。同样必须在 pi 模块加载前设定。
+// HP2-COMPAT: main owns InteractiveMode's public stop handle for error exit;
+// the protected helper cannot return that handle after run rejects.
 import { readFileSync } from "node:fs";
 import { VERSION } from "./version.js";
 // Type-only import（编译期擦除）——不会在 pi 模块加载前引入任何运行时依赖。
@@ -219,8 +222,15 @@ async function main(): Promise<number> {
 	// 直接引用 Pi 包。
 	const {
 		continueRecentPiSession, resolveContinuationTarget, listAllPiSessions, listPiSessions,
-		openPiSession, runPiInteractive, runPiPrint,
+		openPiSession, runPiPrint,
 	} = await import("./harness/pi/pi-sessions.js");
+	const { SessionWriterOwnership, isSessionInUse } = await import(
+		"./harness/pi/session-writer-ownership.js"
+	);
+	// SESSION_WRITER：本进程的 session writer owner——resume/continue 在
+	// SessionManager.open 前占有目标文件；新 chat 在 runtime 预创建 seam
+	// 占有最终文件。正常退出/失败退出只释放自己拥有的 claim。
+	const ownership = new SessionWriterOwnership();
 	const { createRosclawRuntime } = await import("./harness/pi/pi-runtime.js");
 	const rosclawHome = rosclawHomeEnv;
 	if (process.argv.includes("--continuation-target")) {
@@ -252,6 +262,7 @@ async function main(): Promise<number> {
 	const startupCwd = process.cwd(); // 唯一启动解析输入
 	let initialSession: import("./harness/pi/pi-sessions.js").SessionManager | undefined;
 	const sessionDir = `${rosclawHome}/agent/sessions`;
+	try {
 	if (browseSessions) {
 		const { browseSessions: openPicker } = await import("./harness/pi/pi-picker.js");
 		const picked = await openPicker(
@@ -259,9 +270,9 @@ async function main(): Promise<number> {
 			(onProgress) => listAllPiSessions(sessionDir, onProgress),
 		);
 		if (!picked) return 0;  // 用户取消——干净退出，不建会话
-		initialSession = openPiSession(picked, sessionDir);
+		initialSession = openPiSession(picked, sessionDir, ownership);
 	} else if (resumeSessionPath) {
-		initialSession = openPiSession(resumeSessionPath, sessionDir);
+		initialSession = openPiSession(resumeSessionPath, sessionDir, ownership);
 	} else if (resumeSessionId) {
 		// 兼容路径：`chat --resume <id>`——精确 ID/唯一前缀经
 		// listAll 解析（拒绝路径穿越由解析保证）。
@@ -276,13 +287,23 @@ async function main(): Promise<number> {
 			);
 			return 2;
 		}
-		initialSession = openPiSession(hit.path, sessionDir);
+		initialSession = openPiSession(hit.path, sessionDir, ownership);
 	} else if (continueLast) {
-		initialSession = await continueRecentPiSession(workspace ?? startupCwd, sessionDir);
+		initialSession = await continueRecentPiSession(workspace ?? startupCwd, sessionDir, ownership);
 		if (!initialSession) {
 			console.error("没有可继续的已记录会话；请用 rosclaw chat 创建新会话");
 			return 2;
 		}
+	}
+	} catch (err) {
+		// SESSION_WRITER：第二个同 session 进程在任何 SDK open/append/
+		// provider/tool 副作用之前被拒绝——文件保持原样，非零退出。
+		if (isSessionInUse(err)) {
+			console.error((err as Error).message);
+			ownership.releaseAll();
+			return 2;
+		}
+		throw err;
 	}
 	// PR-N1：ActiveTaskContext 在 session 创建前解析并冻结——
 	// runtime/工具/bridge/artifact/verifier/header 全从这里取路径。
@@ -306,7 +327,7 @@ async function main(): Promise<number> {
 	const startupWs = { bound: workspaceStore.current, auto: taskContext.workspaceSource === "git" };
 	// 十一审 PR-D：Workspace 一等状态——显式 --workspace > cwd git 自动
 	// 绑定 > 既有绑定。
-	const { runtime, coordinator, leaseManager } = await createRosclawRuntime({
+	const { runtime, coordinator, leaseManager, ownership: runtimeOwnership } = await createRosclawRuntime({
 		cwd: taskContext.workspaceRoot,
 		taskContext,
 		rosclawHome,
@@ -314,6 +335,7 @@ async function main(): Promise<number> {
 		version: VERSION,
 		workspaceStore,
 		workspaceAutoBound: startupWs.auto,
+		ownership,
 		...(toolCallBudget !== undefined ? { toolCallBudget } : {}),
 		...(missionId ? { missionId } : {}),
 		...(initialSession ? { sessionManager: initialSession } : {}),
@@ -325,10 +347,12 @@ async function main(): Promise<number> {
 	// 写回 leaseState=ACTIVE）——此前直接 leaseManager.bind，header 显示
 	// Action LOCKED 而动作实际可执行（假锁）。
 	const sessionId = runtime.session.sessionManager.getSessionId();
+	try {
 	if (missionId) {
 		const outcome = await coordinator.attachInitialMission(sessionId, missionId);
 		if (!outcome.ok) {
 			console.error(`初始 Mission 接入失败：${outcome.reason}`);
+			// The common confirmed teardown also covers startup binding failure.
 			return 2;
 		}
 	} else if (resumeSessionId || resumeSessionPath || browseSessions || continueLast) {
@@ -340,26 +364,57 @@ async function main(): Promise<number> {
 			return 2;
 		}
 	}
-	try {
 		if (print) {
 			// 非 TTY 单发模式（冒烟/脚本）。
 			return await runPiPrint(runtime, {
 				...(initialMessage ? { initialMessage } : {}),
 			});
 		}
-		return await runPiInteractive(runtime, {
+		// Keep the consumer handle: the legacy helper loses it on run rejection.
+		const { InteractiveMode } = await import("@earendil-works/pi-coding-agent");
+		const mode = new InteractiveMode(runtime, {
 			verbose: false,
 			...(initialMessage ? { initialMessage } : {}),
 		});
+		try {
+			await mode.run();
+			return 0;
+		} finally {
+			// Local consumer termination only, never remote idle confirmation.
+			mode.stop();
+		}
 	} finally {
+		// UI/print completion is not proof that the SDK writer stopped.
+		// Capture the current session (which may have changed through /resume).
+		const session = runtime.session;
+		try {
+			await session.abort();
+			if (session.isIdle !== true) throw new Error("SESSION_CLOSE_IDLE_UNCONFIRMED");
+			await session.dispose();
+			if (session.isIdle !== true) throw new Error("SESSION_CLOSE_IDLE_UNCONFIRMED");
+			await runtime.dispose();
+			if (session.isIdle !== true) throw new Error("SESSION_CLOSE_IDLE_UNCONFIRMED");
+		} catch (err) {
+			// Host shutdown terminates local extension consumers even on abort
+			// failure. It cannot upgrade the sticky failed confirmation to success.
+			try {
+				// Best-effort local agent cancellation drains real terminal events;
+				// it is NOT a successful session abort receipt or release authority.
+				session.agent.abort();
+				await session.waitForIdle();
+				await runtime.dispose();
+			} catch { /* Keep the first failure. */ }
+			throw new Error(`MAIN_EXIT_TEARDOWN_UNCONFIRMED: ${(err as Error).message}`);
+		}
+		runtimeOwnership.releaseAll();
 		await leaseManager.release();
 	}
 }
 
 main().then(
-	(code) => process.exit(code),
+	(code) => { process.exitCode = code; },
 	(err) => {
 		console.error(`rosclaw-agent failed: ${(err as Error).message}`);
-		process.exit(2);
+		process.exitCode = 2;
 	},
 );

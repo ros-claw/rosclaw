@@ -18,7 +18,7 @@ test("adapter uses Pi ModelRuntime and closes a pending event read", async () =>
 	let unsubscribed = false;
 	let aborts = 0;
 	const raw = {
-		sessionId: "test", modelRuntime: { getModel: () => model },
+		sessionId: "test", isIdle: true, modelRuntime: { getModel: () => model },
 		setModel: async (m: unknown) => { selected = m; },
 		subscribe: () => () => { unsubscribed = true; },
 		abort: async () => { aborts++; }, dispose: () => {},

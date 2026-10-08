@@ -95,7 +95,8 @@ export function createPiBackend(): NativeHarnessBackend {
 			const session = (runtime as unknown as {
 				runtime: { session: import("@earendil-works/pi-coding-agent").AgentSession };
 			}).runtime.session;
-			return new PiHarnessSession(session, options.cwd);
+			// SESSION_WRITER：adapter close 是授权的公共释放 seam。
+			return new PiHarnessSession(session, options.cwd, () => runtime.ownership.releaseAll());
 		},
 		async resume(ref: HarnessSessionRef): Promise<HarnessSession> {
 			if (ref.backendId !== PI_BACKEND_ID) {
@@ -104,6 +105,7 @@ export function createPiBackend(): NativeHarnessBackend {
 				);
 			}
 			const { SessionManager } = await import("@earendil-works/pi-coding-agent");
+			const { SessionWriterOwnership } = await import("./session-writer-ownership.js");
 			const rosclawHome = `${process.env.ROSCLAW_HOME ?? `${process.env.HOME}/.rosclaw`}`;
 			const sessionDir = `${rosclawHome}/agent/sessions`;
 			// nativeRef（session id）→ 真实路径（精确 ID/唯一前缀——
@@ -116,26 +118,39 @@ export function createPiBackend(): NativeHarnessBackend {
 					`HARNESS_SESSION_LOST: session ${ref.nativeRef} ${hit.error}`,
 				);
 			}
-			const opened = SessionManager.open(hit.path, sessionDir);
-			const runtime = await (await import("./pi-runtime.js")).createRosclawRuntime({
-				cwd: opened.getCwd() ?? process.cwd(),
-				rosclawHome,
-				profile: "developer",
-				version: "0.0.0",
-				taskContext: (await import("../../native/active-task-context.js"))
-					.resolveTaskContext({
-						rosclawHome,
-						cwd: opened.getCwd() ?? process.cwd(),
-						mode: "SIMULATION",
-						resumedWorkspace: opened.getCwd() ?? undefined,
-					}) as never,
-				sessionManager: opened,
-				resumed: true,
-			});
+			// SESSION_WRITER：backend resume 在任何 SessionManager.open
+			// 之前占有目标文件——其他活 owner（含同 PID 独立 runtime）
+			// → 可读 SESSION_IN_USE，零 SDK open/append/provider 副作用。
+			const ownership = new SessionWriterOwnership();
+			ownership.acquire(hit.path);
+			let runtime: Awaited<ReturnType<typeof import("./pi-runtime.js").createRosclawRuntime>>;
+			try {
+				const opened = SessionManager.open(hit.path, sessionDir);
+				runtime = await (await import("./pi-runtime.js")).createRosclawRuntime({
+					cwd: opened.getCwd() ?? process.cwd(),
+					rosclawHome,
+					profile: "developer",
+					version: "0.0.0",
+					taskContext: (await import("../../native/active-task-context.js"))
+						.resolveTaskContext({
+							rosclawHome,
+							cwd: opened.getCwd() ?? process.cwd(),
+							mode: "SIMULATION",
+							resumedWorkspace: opened.getCwd() ?? undefined,
+						}) as never,
+					sessionManager: opened,
+					resumed: true,
+					ownership,
+				});
+			} catch (err) {
+				// 构造/打开失败——只释放自己刚占有的 claim。
+				ownership.releaseAll();
+				throw err;
+			}
 			const session = (runtime as unknown as {
 				runtime: { session: import("@earendil-works/pi-coding-agent").AgentSession };
 			}).runtime.session;
-			return new PiHarnessSession(session, opened.getCwd() ?? "");
+			return new PiHarnessSession(session, runtime.runtime.session.sessionManager.getCwd() ?? "", () => ownership.releaseAll());
 		},
 	};
 }

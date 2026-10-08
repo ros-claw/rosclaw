@@ -35,6 +35,12 @@ import { fileURLToPath } from "node:url";
 
 import { createRosclawExtension } from "../../extension/index.js";
 import { createToolCallBudgetExtension, type ToolCallBudget } from "./tool-call-budget.js";
+import {
+	SessionWriterOwnership,
+	canonicalSessionPath,
+	isSessionInUse,
+} from "./session-writer-ownership.js";
+import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import { buildBridgeTools } from "../../tools/bridge-tools.js";
 import { buildRequestActionTool } from "../../tools/request-action.js";
 import { buildCapabilitiesTool } from "../../tools/capabilities.js";
@@ -61,6 +67,47 @@ export interface RosclawRuntimeOptions {
 	workspaceAutoBound?: boolean;
 	/** Optional restrictive tool budget; caller owns episode admission and persistence. */
 	toolCallBudget?: ToolCallBudget;
+	/** SESSION_WRITER：调用方持有的 writer owner（main/backend 的
+	 *  resume 在 SessionManager.open 前已占有）；缺省时本 runtime
+	 *  自建独立 owner——同 PID 的两个 runtime 是不同 writer。 */
+	ownership?: SessionWriterOwnership;
+}
+
+/** session_before_switch 公共 veto/reservation seam：目标文件被其他
+ *  活 owner（或 UNKNOWN 锁）持有时在 SDK SessionManager.open 之前
+ *  取消切换。无冲突目标则在 open 之前**实际占有**（exclusive
+ *  reservation）——check-only 预检不够：预检之后、SDK open 之前插入
+ *  的竞争 writer 必须被拒绝。reservation 记入 `reservations` 集合：
+ *  目标 open 失败时只释放该 target reservation，旧 runtime 与其旧
+ *  排他 claim 保持存活；veto 路径不留下任何新 claim、不动他人锁。 */
+export function createSessionWriterOwnershipExtension(
+	ownership: SessionWriterOwnership,
+	reservations?: Set<string>,
+): ExtensionFactory {
+	return (pi) => {
+		(pi as unknown as {
+			on(event: string, handler: (event: {
+				reason?: string;
+				targetSessionFile?: string;
+			}) => { cancel: true } | undefined): void;
+		}).on("session_before_switch", (event) => {
+			if (!event.targetSessionFile) return undefined; // new session：无既有文件
+			try {
+				// 同文件自切换（target == 本 owner 已持有的当前文件）只是
+				// 幂等复核，绝不记入 reservations——否则 open 失败的公共
+				// wrapper 会把旧 runtime 的既有排他 claim 一起释放，泄漏
+				// 给第二个 acquirer。只有真正新占有的 target 才是
+				// reservation（open 失败时被 token-only 释放）。
+				const alreadyHeld = ownership.has(event.targetSessionFile);
+				const canonical = ownership.acquire(event.targetSessionFile);
+				if (!alreadyHeld) reservations?.add(canonical);
+				return undefined;
+			} catch (err) {
+				if (isSessionInUse(err)) return { cancel: true };
+				throw err;
+			}
+		});
+	};
 }
 
 /** native_agent_v2.md：构建期从 Python 源树拷入 dist/prompts（单一事实源）。 */
@@ -87,6 +134,8 @@ export interface RosclawRuntime {
 	 * 绑定（--mission/--resume/--continue）与扩展的生命周期 hook 共用。 */
 	coordinator: AgentSessionCoordinator;
 	leaseManager: SessionLeaseManager;
+	/** 本 runtime 的 session writer owner（正常退出/close 时 releaseAll）。 */
+	ownership: SessionWriterOwnership;
 }
 
 export async function createRosclawRuntime(
@@ -152,9 +201,42 @@ export async function createRosclawRuntime(
 	// PR-N5D：扩展工厂先于 session 创建注册——创建后回填引用，
 	// 供物化工具激活（setActiveToolsByName）。
 	const lateSession: { session?: { setActiveToolsByName(names: string[]): void } } = {};
+	// SESSION_WRITER：本 runtime 的 writer owner（调用方传入 = resume
+	// 已在 SDK open 前占有的同一 owner；缺省 = 独立新 owner）。
+	const ownership = options.ownership ?? new SessionWriterOwnership();
+	// SESSION_WRITER switch reservation 集合：session_before_switch 在
+	// SDK open 之前占有的目标文件 canonical——open 成功即转为 session
+	// 正常 claim（从集合移除）；open 失败只释放该 target reservation，
+	// 旧 runtime 与其旧排他 claim 保持存活。
+	const switchReservations = new Set<string>();
+	// 预创建 seam：新 chat 在任何 SDK 初始 model/thinking append 之前就
+	// 占有最终 session 文件；resume 路径对调用方已占有的文件幂等复核。
+	// 同 PID 第二个独立 runtime owner 对同一文件在此即被拒绝。
+	const initialSessionManager =
+		options.sessionManager ??
+		SessionManager.create(options.cwd, `${agentDir}/sessions`);
+	const initialSessionFile = initialSessionManager.getSessionFile();
+	if (!initialSessionFile) throw new Error("SESSION_WRITER_UNPERSISTED_SESSION_FILE");
+	ownership.acquire(initialSessionFile);
 
-	const runtime = await createAgentSessionRuntime(
+	let runtime: AgentSessionRuntime;
+	try {
+	runtime = await createAgentSessionRuntime(
 		async ({ cwd, sessionManager, sessionStartEvent }) => {
+			// SESSION_WRITER replacement factory pre-create seam：初始
+			// session 与 switch/new 的 incoming 文件都在
+			// createAgentSessionFromServices 初始 model/thinking 写入
+			// 之前完成占有（同 owner 幂等；他人活 owner/UNKNOWN → 抛
+			// SESSION_IN_USE，切换失败且不留新 claim）。
+			const incomingFile = sessionManager.getSessionFile();
+			if (!incomingFile) throw new Error("SESSION_WRITER_UNPERSISTED_SESSION_FILE");
+			const incomingCanonical = canonicalSessionPath(incomingFile);
+			// session_before_switch 的 reservation 在此移交 open 路径；
+			// 目标 open 失败时只释放该 reservation/新 claim，旧 claim 不动。
+			const wasReserved = switchReservations.delete(incomingCanonical);
+			const heldBefore = ownership.has(incomingFile);
+			ownership.acquire(incomingFile);
+			try {
 			const services = await createAgentSessionServices({
 				cwd,
 				agentDir,
@@ -207,6 +289,10 @@ export async function createRosclawRuntime(
 					})(),
 					extensionFactories: [
 						...(toolBudgetExtension ? [{ name: "rosclaw-tool-budget", factory: toolBudgetExtension }] : []),
+						{
+							name: "rosclaw-session-writer-ownership",
+							factory: createSessionWriterOwnershipExtension(ownership, switchReservations),
+						},
 						{
 							name: "rosclaw",
 							factory: createRosclawExtension({
@@ -384,16 +470,53 @@ export async function createRosclawRuntime(
 				services,
 				diagnostics: services.diagnostics,
 			};
+			} catch (err) {
+				// 目标 open 失败：只释放本 factory 新占的 claim 或
+				// before_switch 移交的 target reservation——旧 runtime
+				// 与其旧排他 claim 保持存活，绝不动他人 owner。
+				if (!heldBefore || wasReserved) ownership.release(incomingFile);
+				throw err;
+			}
 		},
 		{
 			cwd: options.cwd,
 			agentDir,
 			// 初始 session：--resume/--continue 用打开的既有 session；
-			// 否则新建于默认 session 目录。
-			sessionManager:
-				options.sessionManager ??
-				SessionManager.create(options.cwd, `${agentDir}/sessions`),
+			// 否则新建于默认 session 目录（上方已预创建并占有）。
+			sessionManager: initialSessionManager,
 		},
 	);
-	return { runtime, active, coordinator, leaseManager };
+	} catch (err) {
+		// 构造期任何失败（含 replacement factory 抛出）——只释放自己
+		// 拥有的 claim，绝不动他人 owner 的锁。
+		ownership.releaseAll();
+		throw err;
+	}
+	// SESSION_WRITER failed-switch reservation cleanup：公共 SDK switch
+	// 顺序为 emitBeforeSwitch（本扩展在此实际占有 target reservation）
+	// → SessionManager.open → assertSessionCwdExists → teardownCurrent
+	// → createRuntime（replacement factory）。factory 自己的 catch 只能
+	// 清理它已被调用之后的失败；SM.open / cwd 校验 / teardown 等
+	// factory 尚未被调用前的失败会把 reservation 泄漏在
+	// switchReservations 里。这里在公共 switchSession 上包一层：
+	// 任何抛出路径释放仍挂起的 target reservation（token-only
+	// release——只释放自己占有的 target，旧 runtime 的旧排他 claim
+	// 与他人 owner 绝不动）。teardown 之后的失败同样只释放新 target：
+	// SDK 已拆除旧 runtime，绝不伪造"旧 runtime 仍存活"。
+	const originalSwitchSession = runtime.switchSession.bind(runtime);
+	runtime.switchSession = (async (
+		sessionPath: string,
+		options?: Parameters<AgentSessionRuntime["switchSession"]>[1],
+	) => {
+		try {
+			return await originalSwitchSession(sessionPath, options);
+		} catch (err) {
+			for (const canonical of [...switchReservations]) {
+				switchReservations.delete(canonical);
+				ownership.release(canonical);
+			}
+			throw err;
+		}
+	}) as AgentSessionRuntime["switchSession"];
+	return { runtime, active, coordinator, leaseManager, ownership };
 }

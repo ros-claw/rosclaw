@@ -19,12 +19,20 @@ export class PiHarnessSession implements HarnessSession {
 	readonly sessionRef: HarnessSessionRef;
 	readonly cwd: string;
 	private readonly _session: AgentSession;
+	/** Local consumption only; never evidence that the remote writer stopped. */
 	private _closed = false;
+	private readonly _eventSubscriptions = new Set<() => void>();
+	/** Single-flight, sticky outcome: failed/unresolved teardown retains ownership. */
+	private _closePromise?: Promise<void>;
 	private readonly _eventWaiters = new Set<() => void>();
+	/** SESSION_WRITER：授权公共释放 seam——close 时释放本 session
+	 *  所属 writer owner 的 claim（只释放自己拥有的状态）。 */
+	private readonly _onClose?: () => void;
 
-	constructor(session: AgentSession, cwd: string) {
+	constructor(session: AgentSession, cwd: string, onClose?: () => void) {
 		this._session = session;
 		this.cwd = cwd;
+		this._onClose = onClose;
 		this.sessionRef = {
 			backendId: PI_BACKEND_ID,
 			nativeRef: session.sessionId,
@@ -44,6 +52,7 @@ export class PiHarnessSession implements HarnessSession {
 	}
 
 	async *events(): AsyncIterable<HarnessEvent> {
+		if (this._closed) return;
 		// 简单拉模式：subscribe 收集到队列，调用方按节奏消费。
 		const queue: HarnessEvent[] = [];
 		let notify: (() => void) | undefined;
@@ -54,6 +63,14 @@ export class PiHarnessSession implements HarnessSession {
 				notify?.();
 			}
 		});
+		let subscribed = true;
+		const detach = () => {
+			if (!subscribed) return;
+			subscribed = false;
+			this._eventSubscriptions.delete(detach);
+			unsubscribe();
+		};
+		this._eventSubscriptions.add(detach);
 		try {
 			while (!this._closed) {
 				if (!queue.length) {
@@ -74,7 +91,8 @@ export class PiHarnessSession implements HarnessSession {
 				if (next) yield next;
 			}
 		} finally {
-			unsubscribe();
+			notify?.();
+			detach();
 		}
 	}
 
@@ -110,12 +128,29 @@ export class PiHarnessSession implements HarnessSession {
 		}
 	}
 
-	async close(): Promise<void> {
-		if (this._closed) return;
+	close(): Promise<void> {
+		if (this._closePromise) return this._closePromise;
+		// Defer teardown until the shared promise is installed (also reentrant-safe).
+		this._closePromise = Promise.resolve().then(async () => {
+			await this._session.abort();
+			if (this._session.isIdle !== true) {
+				throw new Error("SESSION_CLOSE_IDLE_UNCONFIRMED");
+			}
+			await this._session.dispose();
+			if (this._session.isIdle !== true) {
+				throw new Error("SESSION_CLOSE_IDLE_UNCONFIRMED");
+			}
+			// No finally release: only confirmed idle + successful disposal authorize it.
+			this._onClose?.();
+		});
+		// Local teardown is unconditional and immediate, even if abort never settles.
+		// It does not authorize release or certify remote idle/disposal.
 		this._closed = true;
 		for (const wake of this._eventWaiters) wake();
-		await this._session.abort();
-		this._session.dispose();
+		for (const detach of this._eventSubscriptions) {
+			try { detach(); } catch { /* Local unsubscribe cannot replace sticky remote outcome. */ }
+		}
+		return this._closePromise;
 	}
 }
 

@@ -11,13 +11,21 @@ import {
 	SessionManager,
 	runPrintMode,
 } from "@earendil-works/pi-coding-agent";
+import { SessionWriterOwnership } from "./session-writer-ownership.js";
 
 export { SessionManager };
 
-/** 打开既有 session（精确路径由调用方经 resolveSessionQuery 解析）。 */
-export function openPiSession(path: string, sessionDir: string): SessionManager {
+/** 打开既有 session（精确路径由调用方经 resolveSessionQuery 解析）。
+ *  SESSION_WRITER：传入 ownership 时在任何 SessionManager.open 之前
+ *  占有该文件——其他活 owner 持有 → SESSION_IN_USE，零 SDK open。 */
+export function openPiSession(
+	path: string,
+	sessionDir: string,
+	ownership?: SessionWriterOwnership,
+): SessionManager {
 	const stat = statSync(path);
 	if (!stat.isFile() || stat.size === 0) throw new Error("NO_RECORDED_SESSION_AT_PATH");
+	ownership?.acquire(path);
 	return SessionManager.open(path, sessionDir);
 }
 
@@ -51,10 +59,11 @@ export async function resolveContinuationTarget(sessionDir: string) {
 export async function continueRecentPiSession(
 	_workspaceRoot: string,
 	sessionDir: string,
+	ownership?: SessionWriterOwnership,
 ): Promise<SessionManager | undefined> {
 	const target = await resolveContinuationTarget(sessionDir);
 	if (!target) return undefined;
-	const recorded = openPiSession(target.path, sessionDir);
+	const recorded = openPiSession(target.path, sessionDir, ownership);
 	if (recorded.getSessionId() !== target.id || recorded.getCwd() !== target.cwd) {
 		throw new Error("CONTINUATION_TARGET_CHANGED");
 	}
