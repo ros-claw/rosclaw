@@ -128,3 +128,53 @@ def test_source_mismatch_or_unclosed_prefix_cannot_pass_replay(tmp_path, monkeyp
     m, path, e, b = fixture(tmp_path, monkeypatch, fault)
     with pytest.raises(ValueError):
         m.replay_component_occupancy(path, e, b)
+
+
+def test_actual_executor_artifact_preserves_body_binding_for_closed_source_replay(
+    tmp_path, monkeypatch
+):
+    from types import SimpleNamespace
+
+    from rosclaw.connectors.ros.mission.executor import RosCoverageSimulationExecutor
+    from rosclaw.kernel import ActionState
+
+    m, audit, prepared, binding = fixture(tmp_path, monkeypatch)
+    rows = [
+        {**pose, **occupancy, "observation_complete": True, "collision_count": 0}
+        for pose, occupancy in zip(
+            prepared["trajectory"], prepared["occupancy_samples"], strict=True
+        )
+    ]
+    control = SimpleNamespace(
+        call_service=lambda *a, **kw: SimpleNamespace(ok=True, data={"values": {"success": True}})
+    )
+    client = SimpleNamespace(send_goal=lambda **kw: kw["on_result"](4, {}))
+    witness = SimpleNamespace(mark=lambda: 0, since=lambda _: rows, fresh=lambda: rows[-1])
+    executor = RosCoverageSimulationExecutor(
+        owner="daemon_offline_contract",
+        client=client,
+        control=control,
+        witness=witness,
+        output=tmp_path / "actions",
+        body_id=prepared["body_id"],
+        body_snapshot_hash=binding["body_snapshot_hash"],
+        grid=prepared["grid"],
+        occupancy_binding=prepared["occupancy_binding"],
+    )
+    monkeypatch.setattr(executor, "_coverage_goal", lambda _: {})
+    monkeypatch.setattr(executor, "_repair", lambda *a, **kw: [])
+    action = SimpleNamespace(
+        capability_id="coverage.execute",
+        action_id="fresh_action",
+        body_id=prepared["body_id"],
+        arguments={"mission_id": "mission"},
+        verification_policy=SimpleNamespace(timeout_sec=10),
+    )
+    result = executor._execute(action)
+    assert result.final_state == ActionState.COMPLETED
+    artifact = result.verification_result["evidence_artifact"]
+    actual = json.loads(Path(artifact["path"]).read_bytes())
+    assert actual["body_snapshot_hash"] == binding["body_snapshot_hash"]
+    replay = m.replay_component_occupancy(audit, actual, binding)
+    assert replay["source_replay_match"] and replay["matched_canonical_samples"] == 3
+    assert replay["physical_acceptance"] == "NOT_VERIFIED"
