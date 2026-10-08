@@ -7,6 +7,7 @@
 
 import {
 	createAgentSessionFromServices,
+	createReadToolDefinition,
 	createAgentSessionRuntime,
 	createAgentSessionServices,
 	ModelRuntime,
@@ -185,7 +186,7 @@ export async function createRosclawRuntime(
 	options: RosclawRuntimeOptions,
 ): Promise<RosclawRuntime> {
 	const toolBudgetExtension = options.toolCallBudget === undefined
-		? undefined : createToolCallBudgetExtension(options.toolCallBudget);
+		? undefined : createToolCallBudgetExtension(options.toolCallBudget, options.taskContext.workspaceRoot);
 	const active = new ActiveSessionContext({
 		sessionId: "",
 		missionId: options.missionId,
@@ -374,7 +375,11 @@ export async function createRosclawRuntime(
 			// 内建 + bash/write/edit 同名策略覆盖）+ Embodiment Pack。
 			// 普通任务不再委派第二个 Pi Session；task_submit/delegate/
 			// work_* 退出模型面（root task 权威在 InputController——H2）。
-			const customTools = filterModelTools([
+			const budgetWrap = toolBudgetExtension?.wrapTools ?? ((tools: import("@earendil-works/pi-coding-agent").ToolDefinition<any, any>[]) => tools);
+			const customTools = budgetWrap(filterModelTools([
+				// Only configured read gets a custom SDK definition so its final
+				// execute input crosses the same admission seam as write/edit/deliver.
+				...(toolBudgetExtension?.hasPath("read") ? [createReadToolDefinition(cwd)] : []),
 				// 策略包装的工作工具（GUARDED_MAIN_SESSION——第一层过滤，
 				// 强隔离在 PR-H6）。
 				...buildWorkspacePackTools({
@@ -489,7 +494,7 @@ export async function createRosclawRuntime(
 					active,
 					center,
 				}),
-			]);
+			]));
 			const initialOverride = options.explicitModel && sessionManager === initialSessionManager;
 			const result = await createAgentSessionFromServices({
 				services,

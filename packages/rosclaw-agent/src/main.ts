@@ -19,6 +19,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { VERSION } from "./version.js";
 // Type-only import（编译期擦除）——不会在 pi 模块加载前引入任何运行时依赖。
 import type { ToolCallBudget } from "./harness/pi/tool-call-budget.js";
+// This module imports only node builtins at runtime; schema rejection stays pre-SDK/auth.
+import { validateExactPaths } from "./harness/pi/tool-call-budget.js";
 
 process.env.PI_SKIP_VERSION_CHECK = "1";
 if (process.argv.includes("--continuation-target")) process.env.PI_OFFLINE = "1";
@@ -58,7 +60,7 @@ interface CliArgs {
 // （inputs/prebody_cli/tool_call_policy.schema.json）一致；保留字段名
 // （__proto__ 等）作为 own data key 原样透传，不做重建赋值，不引入原型污染。
 const TOOL_CALL_POLICY_KEYS = new Set([
-	"allowedTools", "maxCalls", "maxTotalCalls", "exactCommands", "visibleBudget",
+	"allowedTools", "maxCalls", "maxTotalCalls", "exactCommands", "visibleBudget", "exactPaths",
 ]);
 
 function invalidToolCallPolicy(message: string): never {
@@ -140,6 +142,10 @@ export function loadToolCallPolicyFile(path: string): ToolCallBudget {
 	if (doc.maxCalls !== undefined) validatePolicyCountMap(doc.maxCalls, allowed);
 	if (doc.maxTotalCalls !== undefined) validatePolicyCount(doc.maxTotalCalls, "maxTotalCalls");
 	if (doc.exactCommands !== undefined) validatePolicyExactCommands(doc.exactCommands, allowed);
+	if (doc.exactPaths !== undefined) {
+		try { validateExactPaths(doc.exactPaths, allowed); }
+		catch { invalidToolCallPolicy("exactPaths must map allowed path tools to non-empty unique exact filepath arrays (no ..)"); }
+	}
 	if (doc.visibleBudget !== undefined && typeof doc.visibleBudget !== "boolean") {
 		invalidToolCallPolicy("visibleBudget must be a boolean");
 	}
