@@ -129,3 +129,23 @@ def test_burger_combined_candidate_only_adds_screened_headland_to_stateless():
         experiments.planning_parameters(
             SimpleNamespace(name="waffle", coverage_width_m=0.5), "perimeter_stateless_headland"
         )
+
+
+@pytest.mark.parametrize(
+    "name,width,spacing,headland", [("waffle", 0.5, 0.4, 0.5), ("burger", 0.3, 0.27, 0.35)]
+)
+def test_overlap_candidate_changes_only_spacing_of_existing_safe_main_configuration(
+    name, width, spacing, headland
+):
+    profile = SimpleNamespace(name=name, coverage_width_m=width)
+    original = experiments.planning_parameters(
+        profile, "perimeter_stateless" if name == "waffle" else "perimeter_stateless_headland"
+    )
+    candidate = experiments.planning_parameters(profile, "perimeter_stateless_overlap")
+    assert candidate.pop("operation_width") == spacing
+    assert candidate == original and candidate["default_headland_width"] == headland
+    assert experiments.controller_parameters(profile, "perimeter_stateless_overlap") == {
+        "stateful": False
+    }
+    assert vars(profile) == {"name": name, "coverage_width_m": width}
+    assert "operation_width" not in experiments.planning_parameters(profile, "baseline")

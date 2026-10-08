@@ -262,6 +262,7 @@ def main():
             "perimeter_sequential",
             "perimeter_stateless",
             "perimeter_stateless_headland",
+            "perimeter_stateless_overlap",
         ],
         required=True,
     )

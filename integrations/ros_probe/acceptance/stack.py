@@ -226,10 +226,16 @@ def prepare(controller_watchdog=True, profile_name="waffle", coverage_preset="ba
                     "perimeter_sequential",
                     "perimeter_stateless",
                     "perimeter_stateless_headland",
+                    "perimeter_stateless_overlap",
                 ),
                 "boundary_strategy": "sequential"
                 if coverage_preset
-                in ("perimeter_sequential", "perimeter_stateless", "perimeter_stateless_headland")
+                in (
+                    "perimeter_sequential",
+                    "perimeter_stateless",
+                    "perimeter_stateless_headland",
+                    "perimeter_stateless_overlap",
+                )
                 else "through_poses",
                 "seed": seed,
                 "planning_parameters": candidate,
@@ -266,6 +272,7 @@ def main():
             "perimeter_sequential",
             "perimeter_stateless",
             "perimeter_stateless_headland",
+            "perimeter_stateless_overlap",
         ],
         default="baseline",
     )

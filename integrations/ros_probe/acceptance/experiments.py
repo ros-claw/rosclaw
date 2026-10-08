@@ -24,6 +24,12 @@ def planning_parameters(profile, preset="baseline"):
         if profile.name != "burger":
             raise ValueError("safe-headland combination is preregistered only for Burger")
         params["default_headland_width"] = 0.35
+    elif preset == "perimeter_stateless_overlap":
+        # Explicit known-fixture diagnostic: more overlap addresses measured
+        # strip/endpoint misses without shrinking the real verifier brush or
+        # changing robot geometry, speeds, controller guards or repair costs.
+        params["operation_width"] = {"waffle": 0.40, "burger": 0.27}[profile.name]
+        params["default_headland_width"] = {"waffle": 0.50, "burger": 0.35}[profile.name]
     elif preset not in ("baseline", "perimeter", "perimeter_sequential", "perimeter_stateless"):
         raise ValueError("unknown predeclared coverage preset")
     return params
@@ -34,7 +40,8 @@ def controller_parameters(profile, preset="baseline"):
     planning_parameters(profile, preset)
     return (
         {"stateful": False}
-        if preset in ("perimeter_stateless", "perimeter_stateless_headland")
+        if preset
+        in ("perimeter_stateless", "perimeter_stateless_headland", "perimeter_stateless_overlap")
         else {}
     )
 
