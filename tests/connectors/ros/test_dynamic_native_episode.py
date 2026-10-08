@@ -55,7 +55,7 @@ def test_episode_protocol_retains_exact_source_scene_model_and_budget(launcher):
 @pytest.mark.parametrize(
     "key,value",
     [
-        ("case", "D4"),
+        ("case", "D5"),
         ("profile", []),
         ("source_commit", "main"),
         ("p0_merge_commit", None),
@@ -193,12 +193,15 @@ def test_failed_fixture_is_retained_and_owned_simulator_is_stopped(launcher, inp
     assert sum(argv[:2] == ["docker", "stop"] for argv in calls) == 1
 
 
+@pytest.mark.parametrize("case", ["D2", "D4"])
 @pytest.mark.parametrize("fault", [None, "bootstrap", "launch", "sdk", "replay", "child", "world"])
 def test_full_sequence_closes_world_before_replay_and_retains_failures(
-    launcher, inputs, monkeypatch, fault
+    launcher, inputs, monkeypatch, fault, case
 ):
     directory, protocol, plugin, urdf, home, spec = inputs
     events = []
+    spec["case"] = case
+    protocol.write_text(json.dumps(spec))
 
     def command(argv, **kwargs):
         if argv[:2] == ["git", "rev-parse"]:
@@ -259,6 +262,9 @@ def test_full_sequence_closes_world_before_replay_and_retains_failures(
             if any(a.endswith("configure_native.py") for a in self.argv):
                 (directory / "home/agent").mkdir(parents=True)
             if any(Path(a).name == "native.py" for a in self.argv):
+                if case == "D4":
+                    assert "--expected-safe-failure" in self.argv
+                    assert self.argv[-1] == "D4"
                 events.append("native")
                 if fault != "sdk":
                     (directory / "sdk-usage.json").write_text(
@@ -284,6 +290,17 @@ def test_full_sequence_closes_world_before_replay_and_retains_failures(
     monkeypatch.setattr(launcher, "wait_ready", lambda *a: None)
     monkeypatch.setattr(launcher, "collect_stop_geometry", lambda *a: {"status": "MOCK"})
     monkeypatch.setattr(launcher, "replay_component_occupancy", replay)
+
+    def negative_acceptance(*args):
+        events.append("replay")
+        assert "canonical" not in events
+        assert events.index("native") < events.index("stop") < events.index("stopped_verified")
+        assert (directory / "stop-dynamic-scenario.json").exists()
+        if fault == "replay":
+            raise ValueError("closed source fault")
+        return {"status": "PASS_EXPECTED_SAFE_FAILURE", "task_state": "BLOCKED"}
+
+    monkeypatch.setattr(launcher, "validate_d4_negative", negative_acceptance)
     monkeypatch.setattr(launcher.subprocess, "run", lambda *a, **kw: None)
     monkeypatch.setattr(launcher.subprocess, "Popen", Process)
     monkeypatch.setattr(launcher.os, "killpg", lambda *a: None)
@@ -295,8 +312,15 @@ def test_full_sequence_closes_world_before_replay_and_retains_failures(
     else:
         assert events.count("stop") == 1
     if fault in {"replay", "child", "world"}:
-        assert result["task_kernel_succeeded"] is True
+        assert result["task_kernel_succeeded"] is (case == "D2")
         assert result["physical_acceptance"] == "NOT_VERIFIED"
     if fault in {"child", "world"}:
         assert "replay" not in events
         assert result["cleanup_errors"]
+    if case == "D4" and fault is None:
+        assert result["expected_safe_failure"] is True
+        assert result["task_kernel_succeeded"] is False
+        assert result["task_state"] == "BLOCKED"
+    if fault == "sdk":
+        assert result["native_process_started"] is True
+        assert result["autonomous_llm"] is None

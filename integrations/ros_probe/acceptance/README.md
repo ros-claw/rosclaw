@@ -225,3 +225,31 @@ Freeze the resulting image ID in each future generic protocol. Import/reopen
 checks use `--network none`, the frozen source read-only and a synthetic compiled
 Body fixture read-only, and initialize no ROS Node or DDS connection. Passing
 those checks is no held-out model, source/contact or L0–L4 physical acceptance.
+### Frozen dynamic Native episodes
+
+`dynamic_native_episode.py` accepts a closed
+`rosclaw.dynamic_native_episode.v1` protocol for D2 or D4. Register exact source,
+prior reviewed P0 merge, image ID, plugin/vendor hashes, seed, scene target,
+model/provider and deadlines before launch. The entry refuses concurrent owned
+physical episodes and requires PR 624 to be merged at the recorded commit.
+It opens a new evidence directory and a fresh Native home using only the three
+existing model configuration files; credentials remain private local files.
+
+Robot actions still flow through the actual Native Agent, MCP and rosclawd.
+The scene controller changes only the preloaded fixture obstacle. D2 requires
+actual withdrawal, free-cell revisit and canonical whole-room acceptance. D4
+keeps the obstacle present until the genuine FAILED/BLOCKED root closes, then
+requires a canonical BLOCKED partial temporal artifact and complete source
+replay. D4 is an expected safe failure, never a successful cleaning task.
+
+After the owned simulator stops, D4 acceptance checks the exact introduced
+component packet, continuing obstruction, occupied unclean cells, complete
+zero-contact observations and an advancing independent stop window. The
+separate actuator's closed genesis-to-end audit must bracket that same window
+with brush OFF and no live lease. Native outcome, service acknowledgement and
+zero requested velocity do not substitute for these observations. Missing SDK
+usage after a Native process starts leaves model provenance UNKNOWN (`null`).
+
+These entry and refusal tests are offline contracts. D1, D3, D5 and D6 do not
+have full physical episode entry support here; do not label their preparation
+or these synthetic tests as dynamic Native simulation acceptance.
