@@ -106,6 +106,7 @@ def main():
         assert (
             binding == decode_scene_json((output / "physics_fixture.json").read_bytes())["binding"]
         )
+        assert binding == decode_scene_json((output / "physics.json").read_bytes())["binding"]
         assert set(binding["scene_model_names"]) == {
             model.get("name")
             for model in ET.parse(output / "world.sdf").getroot().findall("world/model")
