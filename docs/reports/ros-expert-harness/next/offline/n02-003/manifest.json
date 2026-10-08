@@ -1,0 +1,23 @@
+{
+  "evidence_role": "offline_predictions_never_measured_credit",
+  "image_id": "sha256:c31355f34739eb4ea8b60de1414c57ce0eea8225aa9e3ce854b7ceb66ca4376e",
+  "planner_revision": "65a6598c3587cb947978227c01af421e18576f0a",
+  "candidate_count": 12,
+  "source_files": {
+    "generator.py": "32c0d4b80c959b193b4b979cd62e18c92cd9be1c3d3eef06121f6011c1ca4be5",
+    "candidate-paths.json": "d167b7a0bc2c82423012bb999fff4b52adf53c5465c48a0de268372a1c27e584",
+    "candidate-scores.json": "4ed00e3016e634ea77691f1837c609cef8b0f68eb5d1f2ca736052277768e13c"
+  },
+  "baseline_profile_config_verified": {
+    "waffle": 0.5,
+    "burger": 0.3
+  },
+  "supersedes": "n02-offline-002 used .5 headland for both profiles; its Burger reference is not the actual baseline",
+  "limitations": [
+    "Physical acceptance pending",
+    "Geometry screen is valid only for this convex rectangular room and conservative circular Body",
+    "No efficiency improvement claimed",
+    "Burger diagonal at baseline headland has negative clearance and is rejected",
+    "Unchanged Burger baseline has only24mm conservative planned clearance and fails50mm new-candidate screen; do not silently reclassify it as new-candidate safe"
+  ]
+}

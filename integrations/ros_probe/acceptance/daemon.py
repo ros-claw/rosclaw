@@ -183,13 +183,24 @@ def freeze_audit_source(root, config):
         repository / "src/rosclaw/connectors/ros/verification/coverage.py",
         *[
             Path(__file__).with_name(name)
-            for name in ["stack.py", "witness.py", "profiles.py", "run.py", "nav2_launch.py"]
+            for name in [
+                "stack.py",
+                "witness.py",
+                "profiles.py",
+                "run.py",
+                "nav2_launch.py",
+                "experiments.py",
+                "paired_efficiency.py",
+                "cleaning_acceptance.py",
+            ]
         ],
         root / "nav2.yaml",
         root / "execution_config.json",
         root / "robot.urdf",
         root / "measured_map.json",
         root / "world.sdf",
+        root / "experiment.json",
+        root / "protocol.json",
     ]
     hashes = {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in files if p.exists()}
     commit = subprocess.check_output(

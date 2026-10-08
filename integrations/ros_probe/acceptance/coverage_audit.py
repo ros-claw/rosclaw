@@ -176,6 +176,8 @@ def audit(directory, output):
         "witness.jsonl",
         "world.sdf",
         "fixture_profile.json",
+        "experiment.json",
+        "protocol.json",
         "golden-localize.receipt.json",
         "golden-remember.receipt.json",
     ]:

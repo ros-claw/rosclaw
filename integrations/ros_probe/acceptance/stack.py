@@ -14,12 +14,16 @@ import yaml
 from ament_index_python.packages import get_package_share_directory
 from profiles import PROFILES
 
+from experiments import gazebo_arguments, planning_parameters, validate_seed
+
 ROOT = Path(__file__).resolve().parent
 OUTPUT = Path("/evidence")
 
 
-def prepare(controller_watchdog=True, profile_name="waffle"):
+def prepare(controller_watchdog=True, profile_name="waffle", coverage_preset="baseline", seed=None):
     profile = PROFILES[profile_name]
+    candidate = planning_parameters(profile, coverage_preset)
+    validate_seed(seed)
     if profile_name == "burger" and not controller_watchdog:
         raise ValueError("Burger acceptance requires the bottom-level controller watchdog")
     OUTPUT.mkdir(exist_ok=True)
@@ -202,6 +206,27 @@ def prepare(controller_watchdog=True, profile_name="waffle"):
         from burger import prepare as prepare_burger
 
         prepare_burger(OUTPUT, profile)
+    # Apply after profile-specific generation: Burger's original headland is
+    # 0.3 m, not the Waffle default. Candidate settings never alter its geometry.
+    params = yaml.safe_load((OUTPUT / "nav2.yaml").read_text())
+    params["coverage_server"]["ros__parameters"].update(candidate)
+    (OUTPUT / "nav2.yaml").write_text(yaml.safe_dump(params))
+    (OUTPUT / "experiment.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "rosclaw.sim_coverage_experiment.v1",
+                "evidence_role": "fixture_configuration_not_measured_success",
+                "profile": profile_name,
+                "preset": coverage_preset,
+                "seed": seed,
+                "planning_parameters": candidate,
+                "start_pose": {"x": 0.0, "y": 0.0, "yaw": 0.0},
+                "gazebo_arguments": gazebo_arguments(OUTPUT / "world.sdf", seed),
+            },
+            indent=2,
+        )
+        + "\n"
+    )
     bridge = yaml.safe_load((OUTPUT / "bridge.yaml").read_text())
     truth = [item for item in bridge if item.get("ros_topic_name") == "/rosclaw_sim/ground_truth"]
     for item in truth:
@@ -217,6 +242,10 @@ def prepare(controller_watchdog=True, profile_name="waffle"):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--profile", choices=PROFILES, default="waffle")
+    parser.add_argument(
+        "--coverage-preset", choices=["baseline", "diagonal", "headland"], default="baseline"
+    )
+    parser.add_argument("--seed", type=int)
     parser.add_argument("--fault-acceptance", action="store_true")
     parser.add_argument(
         "--controller-watchdog",
@@ -228,7 +257,7 @@ def main():
     os.environ["PYTHONPATH"] = (
         str(ROOT.parents[2] / "src") + os.pathsep + os.getenv("PYTHONPATH", "")
     )
-    prepare(args.controller_watchdog, args.profile)
+    prepare(args.controller_watchdog, args.profile, args.coverage_preset, args.seed)
     (OUTPUT / "run_id.txt").write_text(uuid.uuid4().hex + "\n")
     profile = PROFILES[args.profile]
     children = []
@@ -250,9 +279,7 @@ def main():
         return p
 
     try:
-        start(
-            "gazebo", ["gz", "sim", "-r", "-s", "--headless-rendering", str(OUTPUT / "world.sdf")]
-        )
+        start("gazebo", gazebo_arguments(OUTPUT / "world.sdf", args.seed))
         time.sleep(3)
         subprocess.run(
             [

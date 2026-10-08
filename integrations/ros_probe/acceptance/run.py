@@ -94,6 +94,8 @@ async def main():
     config["recovery_centers"] = [
         [origin[0] + (i % width + 0.5) * res, origin[1] + (i // width + 0.5) * res] for i in centers
     ]
+    if (root / "experiment.json").exists():
+        config["experiment"] = json.loads((root / "experiment.json").read_text())
     (root / "execution_config.json").write_text(json.dumps(config, indent=2) + "\n")
     if args.prepare_only:
         print(

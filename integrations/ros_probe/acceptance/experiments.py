@@ -1,0 +1,37 @@
+"""Predeclared SIM planning candidates; predictions grant no execution credit."""
+
+import math
+
+
+def planning_parameters(profile, preset="baseline"):
+    """Keep Body dimensions and original profile-specific baseline unchanged."""
+    params = {
+        "default_headland_width": profile.coverage_width_m,
+        "default_swath_angle_type": "SET_ANGLE",
+        "default_swath_angle": 0.0,
+        "default_route_type": "BOUSTROPHEDON",
+    }
+    if preset == "diagonal":
+        if profile.name != "waffle":
+            raise ValueError("diagonal candidate lacks safe offline clearance for this profile")
+        params["default_swath_angle"] = math.pi / 4
+    elif preset == "headland":
+        # Offline-screened known fixtures, not a claim of generic Body adaptation.
+        params["default_headland_width"] = {"waffle": 0.45, "burger": 0.35}[profile.name]
+    elif preset != "baseline":
+        raise ValueError("unknown predeclared coverage preset")
+    return params
+
+
+def validate_seed(seed):
+    if seed is not None and (type(seed) is not int or not 0 <= seed <= 2**31 - 1):
+        raise ValueError("SIM seed must be an integer from 0 through 2147483647")
+    return seed
+
+
+def gazebo_arguments(world, seed=None):
+    validate_seed(seed)
+    args = ["gz", "sim", "-r", "-s", "--headless-rendering"]
+    if seed is not None:
+        args.extend(["--seed", str(seed)])
+    return args + [str(world)]
