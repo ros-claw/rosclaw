@@ -19,6 +19,7 @@ from rclpy.node import Node
 from std_msgs.msg import Bool, String
 from std_srvs.srv import SetBool
 
+from rosclaw.connectors.ros.context.sim_runtime_policy import load_frozen_sim_runtime_policy
 from rosclaw.connectors.ros.diagnosis.coverage_audit import CoverageAuditLog
 from rosclaw.connectors.ros.verification.brush_timeline import BrushStateEvent
 
@@ -38,18 +39,43 @@ def load_binding(path):
 class SimulationActuator(Node):
     def __init__(self):
         super().__init__("rosclaw_sim_actuator")
+        runtime_policy = load_frozen_sim_runtime_policy(Path("/evidence"))
+        self.runtime_policy = runtime_policy
         self.binding = load_binding("/evidence/brush_binding.json")
         self.cleaning, self.lease, self.lease_updates, self.sequence = False, 0, 0, 0
         self.fault = None
         self.last_event_time = None
         self.controller_watchdog = self.declare_parameter("controller_watchdog", True).value
+        if runtime_policy is not None and not self.controller_watchdog:
+            raise ValueError("generic SIM drive requires the declared stamped controller watchdog")
+        topics = (
+            runtime_policy["policy"]["topics"]
+            if runtime_policy is not None
+            else {
+                "drive_velocity": "/drive_controller/cmd_vel"
+                if self.controller_watchdog
+                else "/cmd_vel",
+                "cleaning_state": "/rosclaw_sim/cleaning_state",
+                "brush_events": "/rosclaw_sim/brush_events",
+                "nav_velocity": "/nav_cmd_vel",
+            }
+        )
+        endpoints = (
+            runtime_policy["endpoints"]
+            if runtime_policy is not None
+            else {
+                "cleaning": "/rosclaw_sim/cleaning",
+                "hold": "/rosclaw_sim/hold",
+                "lease": "/rosclaw_sim/lease",
+            }
+        )
         self.velocity = self.create_publisher(
             TwistStamped if self.controller_watchdog else Twist,
-            "/drive_controller/cmd_vel" if self.controller_watchdog else "/cmd_vel",
+            topics["drive_velocity"],
             10,
         )
-        self.cleaning_state = self.create_publisher(Bool, "/rosclaw_sim/cleaning_state", 10)
-        self.brush_events = self.create_publisher(String, "/rosclaw_sim/brush_events", 2048)
+        self.cleaning_state = self.create_publisher(Bool, topics["cleaning_state"], 10)
+        self.brush_events = self.create_publisher(String, topics["brush_events"], 2048)
         self.audit = CoverageAuditLog(
             Path("/evidence") / f"brush-events-{time.time_ns()}.jsonl",
             context={
@@ -58,11 +84,11 @@ class SimulationActuator(Node):
                 "evidence_domain": "SIMULATION",
             },
         )
-        self.create_subscription(Twist, "/nav_cmd_vel", self.command, 10)
-        self.create_service(SetBool, "/rosclaw_sim/cleaning", self.set_cleaning)
+        self.create_subscription(Twist, topics["nav_velocity"], self.command, 10)
+        self.create_service(SetBool, endpoints["cleaning"], self.set_cleaning)
         self.holding = False
-        self.create_service(SetBool, "/rosclaw_sim/hold", self.set_hold)
-        self.create_service(SetBool, "/rosclaw_sim/lease", self.heartbeat)
+        self.create_service(SetBool, endpoints["hold"], self.set_hold)
+        self.create_service(SetBool, endpoints["lease"], self.heartbeat)
         self.create_timer(0.05, self.tick, clock=Clock(clock_type=ClockType.STEADY_TIME))
 
     def event(self, kind):

@@ -81,7 +81,9 @@ class FakeNode:
         )
 
 
-def load_node(filename, classname, monkeypatch, *, dynamic=False):
+def load_node(
+    filename, classname, monkeypatch, *, dynamic=False, runtime_policy=None, brush_binding=None
+):
     tree = ast.parse((ROOT / filename).read_text())
     tree.body = [
         n
@@ -103,6 +105,8 @@ def load_node(filename, classname, monkeypatch, *, dynamic=False):
 
     env = {
         "Node": ConfiguredNode,
+        "SimpleNamespace": SimpleNamespace,
+        "load_frozen_sim_runtime_policy": lambda _: runtime_policy,
         "CoverageVerifier": CoverageVerifier,
         "OccupancyProjector": OccupancyProjector,
         "parse_physics_packet": parse_physics_packet,
@@ -144,8 +148,11 @@ def load_node(filename, classname, monkeypatch, *, dynamic=False):
     env["TwistStamped"] = lambda: SimpleNamespace(header=SimpleNamespace())
     env["Bool"] = env["String"] = lambda **kw: SimpleNamespace(**kw)
     module = ModuleType("sim_actuator")
-    module.load_binding = lambda _: BINDING.copy()
+    module.load_binding = lambda _: (brush_binding or BINDING).copy()
     monkeypatch.setitem(__import__("sys").modules, "sim_actuator", module)
+    profiles = ModuleType("profiles")
+    profiles.PROFILES = {"fixture": PROFILE}
+    monkeypatch.setitem(__import__("sys").modules, "profiles", profiles)
     exec(compile(tree, str(ROOT / filename), "exec"), env)
     return env[classname]()
 
@@ -243,7 +250,7 @@ def test_observer_waits_for_watermark_and_exact_disable_never_receives_on_credit
     actor = load_node("sim_actuator.py", "SimulationActuator", monkeypatch)
     observer.pose = {"x": 0, "y": 0, "yaw": 0, "time_sec": 1.15}
     observer.last_pose = time.monotonic()
-    observer.contact_seen = {t: time.monotonic() for t in observer.wheel_topics}
+    observer.contact_seen = {t: time.monotonic() for t in observer.support_topics}
     observer.tick()
     assert not observer.publishers["/rosclaw_sim/observation"] and observer.brush_fault is None
     actor.tick()
@@ -406,7 +413,7 @@ def test_actual_witness_callbacks_pair_component_packet_with_brush_and_apply_blo
     packet.update({k: BINDING[k] for k in ("run_id", "body_snapshot_hash", "attachment_hash")})
     packet.update(sequence=0, sim_time_sec=0.05, paused=False, captured_at_unix_ns=time.time_ns())
     packet["body"]["world_pose"][:2] = [0.05, 0.05]
-    observer.contact_seen = {t: time.monotonic() for t in observer.wheel_topics}
+    observer.contact_seen = {t: time.monotonic() for t in observer.support_topics}
     retained = []
     observer.plan_audit.emit = lambda kind, payload, **kw: retained.append((kind, payload))
     wire = json.dumps(packet)
