@@ -114,7 +114,20 @@ def build_embodied_context(service: AgentService, mission_id: str) -> EmbodiedCo
     ros_observations = native_ros_observations(service, mission, body)
     if ros_observations is not None:
         envelope.self_state["ros_observations"] = ros_observations
+    from rosclaw.connectors.ros.context.memory_intervention import native_memory_intervention
+
+    memory_intervention = native_memory_intervention(service, mission)
+    if memory_intervention is not None:
+        envelope.memory_summary = memory_intervention
     envelope.hash = envelope_hash(envelope)
+    if memory_intervention is not None:
+        from rosclaw.connectors.ros.context.memory_intervention import retain_injection_evidence
+
+        retain_injection_evidence(service._home, envelope)
+        contexts = getattr(service, "_ros_memory_envelopes", None)
+        if contexts is None:
+            contexts = service._ros_memory_envelopes = {}
+        contexts[mission_id] = envelope.model_dump(mode="json")
     return envelope
 
 

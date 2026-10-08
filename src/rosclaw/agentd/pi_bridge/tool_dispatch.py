@@ -13,6 +13,7 @@ PNA-3 工具集（read/observe/verify/memory/fail_safe/status）：
 
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
@@ -577,6 +578,31 @@ class PiToolDispatcher:
                 summary=json.dumps({"receipts": receipts[-3:]}, ensure_ascii=False)[:8000],
             )
         if name == "rosclaw_memory_query":
+            from rosclaw.connectors.ros.context.memory_intervention import (
+                native_memory_intervention,
+            )
+
+            intervention = native_memory_intervention(
+                service, service.get_mission(request.mission_id)
+            )
+            if intervention is not None:
+                available = intervention["status"] != "UNKNOWN"
+                summary = json.dumps(intervention, ensure_ascii=False, sort_keys=True)
+                if len(summary.encode()) > 8000:
+                    return PiToolResultV1(
+                        request_id=request.request_id,
+                        ok=False,
+                        status="FAILED",
+                        error_code="MEMORY_SOURCE_TOO_LARGE",
+                        summary="Reviewed Memory result exceeds the public tool budget; no partial guidance returned.",
+                    )
+                return PiToolResultV1(
+                    request_id=request.request_id,
+                    ok=available,
+                    status="COMPLETED" if available else "FAILED",
+                    error_code=None if available else "MEMORY_SOURCE_UNAVAILABLE",
+                    summary=summary,
+                )
             return PiToolResultV1(
                 request_id=request.request_id,
                 ok=True,
@@ -1048,12 +1074,18 @@ class PiToolDispatcher:
             error_code=result.get("error_code"),
         )
 
-    async def _mirror_decision(
-        self, request: PiToolRequestV1, result: PiToolResultV1
-    ) -> None:
+    async def _mirror_decision(self, request: PiToolRequestV1, result: PiToolResultV1) -> None:
         """规格 §15：每个工具调用镜像为 DecisionV1 审计事件（不写全文）。"""
         try:
+            from rosclaw.connectors.ros.context.memory_intervention import (
+                tool_memory_correspondence,
+            )
             from rosclaw.contracts.agent.agent_event import AgentEventType
+
+            try:
+                memory = tool_memory_correspondence(self._service, request, result)
+            except (ValueError, TypeError, KeyError):
+                memory = []  # Advisory evidence cannot suppress the actual tool audit.
 
             await self._service._events.append(
                 request.mission_id,
@@ -1065,7 +1097,8 @@ class PiToolDispatcher:
                     "ok": result.ok,
                     "status": result.status,
                     "error_code": result.error_code,
-                    "summary_hash": json.dumps(result.summary)[:64],
+                    "summary_hash": hashlib.sha256(result.summary.encode()).hexdigest(),
+                    **({"memory_use_correspondence": memory} if memory else {}),
                 },
             )
         except Exception:  # noqa: BLE001 - 审计镜像失败不影响已完成的工具结果

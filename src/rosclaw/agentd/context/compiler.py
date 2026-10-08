@@ -24,10 +24,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from rosclaw.agentd.context.sources import (
-    EVIDENCE_RANK,
     CapabilityInfo,
     ConversationMessage,
-    EvidenceClass,
     SourceBundle,
 )
 from rosclaw.agentd.context.tokens import (
@@ -60,9 +58,6 @@ UNTRUSTED_OPEN = (
 )
 UNTRUSTED_CLOSE = "\n</untrusted_input>"
 
-_MEMORY_ADMITTED = frozenset(
-    {EvidenceClass.MEASURED, EvidenceClass.VERIFIED_RECEIPT, EvidenceClass.CURATED}
-)
 _PERMISSION_RANK = {"granted": 3, "operator_only": 2, "unknown": 1, "denied": 0}
 
 
@@ -162,9 +157,11 @@ class ContextCompiler:
 
         # L5 — evidence-gated memory.
         memory_items = src.memory.retrieve(memory_query or mission.goal.text, 10)
-        admitted = [m for m in memory_items if m.evidence_class in _MEMORY_ADMITTED]
-        excluded = len(memory_items) - len(admitted)
-        admitted.sort(key=lambda m: EVIDENCE_RANK[m.evidence_class])
+        from rosclaw.agentd.context.memory_layer import compile_memory_layer
+
+        admitted, memory_text, excluded = compile_memory_layer(
+            memory_items, body_id=mission.body_binding.body_id
+        )
 
         # L6 — organization (workers/team).
         org = src.organization.get_org()
@@ -176,9 +173,7 @@ class ContextCompiler:
             "dynamic_self": self_facts.summary or f"health={self_facts.health}",
             "capabilities": "\n".join(f"- {c.name} [{c.kind}] {c.summary}" for c in caps),
             "mission": self._mission_summary(mission, task_graph),
-            "memory": "\n".join(
-                f"- [{m.evidence_class.value}] {m.summary} ({m.ref})" for m in admitted
-            ),
+            "memory": memory_text,
             "organization": org.workers_summary,
             "safety": consent.public_scope_summary
             or f"allowed_risk_tiers={list(consent.allowed_risk_tiers)}",
@@ -195,7 +190,7 @@ class ContextCompiler:
                 TruncationEvent(
                     layer="memory",
                     dropped_tokens=0,
-                    reason=f"{excluded} items below curated evidence excluded",
+                    reason=f"{excluded} items with ineligible evidence or Body scope excluded",
                 )
             )
 
