@@ -348,6 +348,12 @@ class Witness(Node):
                     "height": message.info.height,
                     "resolution": message.info.resolution,
                     "origin": [message.info.origin.position.x, message.info.origin.position.y],
+                    "origin_orientation": [
+                        message.info.origin.orientation.x,
+                        message.info.origin.orientation.y,
+                        message.info.origin.orientation.z,
+                        message.info.origin.orientation.w,
+                    ],
                     "frame_id": message.header.frame_id,
                     "occupancy": list(message.data),
                 }

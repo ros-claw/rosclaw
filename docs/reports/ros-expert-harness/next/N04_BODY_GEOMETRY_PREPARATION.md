@@ -43,8 +43,25 @@ source/hash tampering and actual probe metadata extraction. The combined ROS
 suite passes 387 tests (10 deselected), both modules pass mypy and Ruff/format.
 These are offline tests, not held-out L0–L4 robot evidence.
 
-Remaining before the N04 feature freeze: explicit SIM attachment declaration, verified
-fixture-policy binding, generic simulator workspace generation and allowed
-polygon/denominator integration. Only after that freeze may the actual held-out
+`validate_sim_attachment()` requires a named explicit SIMULATED_CLEANING
+declaration and a finite simple polygon. It derives a conservative inscribed
+radius and records its declaration hash; drive observations cannot supply it.
+`derive_allowed_region_grid()` supports bounded arbitrary simple allowed task
+polygons and observed spawn positions, including a shifted L-shaped region.
+It checks the task/map/spawn frames and observed map orientation, applies
+clearance/connectivity only inside the declared region and produces a frozen
+initial denominator plus legal centers with provenance hashes. Temporary
+occupancy cannot redefine that initial denominator. Rotated/unknown map
+orientations and offset-only cleaning attachments explicitly remain unsupported.
+The original known-Body run.py denominator is unchanged. The observer adds actual
+origin quaternion metadata for later generic preflight.
+
+Sixteen attachment/region tests and the complete current ROS suite pass:
+416 passed /10 deselected, with three-module mypy and changed-file Ruff passing.
+These remain offline preflight results and grant no physical capability.
+
+Remaining before the N04 feature freeze: verified fixture-policy binding,
+generic simulator workspace generation and live region/Body integration.
+Only after that freeze may the actual held-out
 asset be chosen. Physical acceptance must then retain separate L0–L4 results,
 including two namespace/sensor/frame/spawn perturbations without core changes.
