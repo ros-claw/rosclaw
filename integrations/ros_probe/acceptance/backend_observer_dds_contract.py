@@ -6,11 +6,13 @@ a bad stream must latch. This checks transport/lifecycle, not physical evidence.
 """
 
 import argparse
+import base64
 import copy
 import hashlib
 import json
 import os
 import signal
+import socket
 import subprocess
 import sys
 import time
@@ -32,7 +34,10 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--plugin", type=Path, required=True)
     parser.add_argument("--with-spatial", action="store_true")
+    parser.add_argument("--with-controller-ipc", action="store_true")
     args = parser.parse_args()
+    if args.with_controller_ipc and not args.with_spatial:
+        raise ValueError("synthetic controller IPC requires spatial source contract")
     args.output.mkdir(exist_ok=False)
     (args.output / "original-contract-driver.py").write_bytes(Path(__file__).read_bytes())
     repo = Path(__file__).resolve().parents[3]
@@ -60,6 +65,8 @@ def main():
         args.output / name for name in ("robot", "instrument", "observer")
     ]
     output.mkdir()
+    if args.with_controller_ipc:
+        output.chmod(0o700)
     robot_policy, _, _ = robot_fixture(robot_root, args.plugin, all_steps=True)
     probe_policy, _ = probe_fixture(probe_root, args.plugin)
     # Both are explicitly derived fixtures. Rebind the instrument source to
@@ -108,6 +115,8 @@ def main():
         "60",
     ]
     scene = None
+    if args.with_controller_ipc:
+        argv += ["--controller-pid", str(os.getpid()), "--controller-uid", str(os.getuid())]
     if args.with_spatial:
         sources = Path(__file__).resolve().parents[3] / "tests/connectors/ros/fixtures"
         scene = next(
@@ -301,8 +310,49 @@ def main():
             while time.monotonic() < until:
                 rclpy.spin_once(node, timeout_sec=0.005)
 
+        ipc_replies = []
+
+        def original_synthetic_ipc(kind):
+            # Deliberate test double reply; no scene service is executed.
+            from probe_lift_evidence import lift_request
+
+            p = {
+                "schema_version": "rosclaw.probe_controller_ipc.v1",
+                "kind": kind,
+                "run_id": config["run_id"],
+                "constraint_policy_hash": config["constraint_policy_hash"],
+                "transaction_id": "d" * 64,
+                "request_base64": base64.b64encode(lift_request(probe_policy)).decode(),
+            }
+            if kind == "backend_probe_lift_ack":
+                p.update(
+                    response_base64=base64.b64encode(b"data: true\n").decode(),
+                    returncode=0,
+                    acknowledged_at_unix_ns=time.time_ns(),
+                )
+            raw = json.dumps(p, allow_nan=False).encode()
+            with socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET) as client:
+                client.settimeout(0.15)
+                client.connect(str(output / "probe-controller.sock"))
+                client.sendall(raw)
+                reply = json.loads(client.recv(4096))
+            if (
+                reply.get("accepted_original_source_event") is not True
+                or reply.get("transaction_id") != p["transaction_id"]
+                or reply.get("event") != kind
+                or reply.get("authorization") is not False
+                or reply.get("world_source_ownership_admitted") is not False
+            ):
+                raise ValueError(
+                    "actual private IPC did not accept only the synthetic original source event"
+                )
+            ipc_replies.append(reply)
+
         for index in range(400):
             frame(index)
+            if args.with_controller_ipc and index == 100:
+                original_synthetic_ipc("backend_probe_lift_begin")
+                original_synthetic_ipc("backend_probe_lift_ack")
         valid = [
             r
             for r in received
@@ -403,6 +453,11 @@ def main():
             "first_rejection_matches_retained_intentional_fault": True,
             "probe_source_rate_hz": 20,
             "spatial_source_join_required": args.with_spatial,
+            "actual_private_controller_IPC": args.with_controller_ipc,
+            "controller_IPC_replies": ipc_replies,
+            "IPC_service_reply_source": "EXPLICIT_SYNTHETIC_REPLY_NO_SERVICE_EXECUTED"
+            if args.with_controller_ipc
+            else "NOT_RUN",
             "spatial_source_rate_hz": 20 if args.with_spatial else None,
             "first_iteration_positive_even_at_initial_sequence_zero": True,
             "completed_spatial_joins_before_intentional_fault": len(original_joins)

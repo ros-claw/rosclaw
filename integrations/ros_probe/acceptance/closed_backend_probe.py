@@ -13,7 +13,7 @@ from pathlib import Path
 from backend_probe_evidence import BackendCacheProbe, probe_policy
 from closed_native_contact_evidence import decode_ros_pose, original_ros_bytes
 from native_contact_evidence import decode_native_packet, reopen_native_policy
-from probe_lift_evidence import derive_lift_ack
+from probe_lift_evidence import derive_lift_ack, lift_request
 
 from rosclaw.connectors.ros.diagnosis.coverage_audit import digest
 
@@ -31,6 +31,16 @@ class ProbeEventReplay:
         self.last_wall = None
         self.fault = None
         self.pending = []
+        self.lift_transaction = None
+        self.used_lift_transactions = set()
+
+    def transaction_fresh(self, wall):
+        if self.lift_transaction is not None and wall - self.lift_transaction[1] >= 0.2:
+            self.fault = (
+                self.fault or "original instrument lift transaction acknowledgement timed out"
+            )
+        if self.fault:
+            raise ValueError(self.fault)
 
     def apply(self, kind, payload):
         if self.fault:
@@ -51,6 +61,7 @@ class ProbeEventReplay:
         ):
             raise ValueError("original instrument event receipt clock regressed")
         self.last_wall = wall
+        self.transaction_fresh(wall)
         if self.pending and wall - self.pending[0][1] >= 0.3:
             raise ValueError("pending original instrument component lacks timely exact pose")
         if kind == "backend_probe_pose":
@@ -71,8 +82,52 @@ class ProbeEventReplay:
                 "paired_components": self._drain(),
                 "pending_exact_pose": len(self.pending),
             }
+        if kind == "backend_probe_lift_begin":
+            request = original_ros_bytes(payload["request"], "gz.msgs.Pose_protobuf_text")
+            transaction = payload.get("transaction_id")
+            unix = payload.get("received_unix_ns")
+            if (
+                self.lift_transaction is not None
+                or self.pending
+                or self.tracker.phase != "READY_FOR_LIFT"
+                or self.tracker.previous is None
+                or type(unix) is not int
+                or not 0 <= unix - self.tracker.previous[3] < 100_000_000
+                or type(transaction) is not str
+                or len(transaction) != 64
+                or any(c not in "0123456789abcdef" for c in transaction)
+                or transaction in self.used_lift_transactions
+                or request != lift_request(self.policy)
+            ):
+                raise ValueError(
+                    "fresh measured ground and unique exact instrument lift begin required"
+                )
+            if len(self.used_lift_transactions) >= 500:
+                raise ValueError("bounded immutable instrument lift transaction count exceeded")
+            self.used_lift_transactions.add(transaction)
+            self.lift_transaction = (transaction, wall, unix)
+            return {
+                "transaction_id": transaction,
+                "request_sha256": hashlib.sha256(request).hexdigest(),
+                "lift_transaction_pending": True,
+            }
         if kind == "backend_probe_lift_ack":
-            if self.pending:
+            transaction = self.lift_transaction
+            completed = payload.get("acknowledged_at_unix_ns", payload["received_unix_ns"])
+            if (
+                type(completed) is not int
+                or type(payload.get("received_unix_ns")) is not int
+                or not 0 <= payload["received_unix_ns"] - completed < 100_000_000
+            ):
+                raise ValueError("original instrument service completion receipt stale or future")
+            if transaction is not None and (
+                payload.get("transaction_id") != transaction[0]
+                or not 0 <= completed - transaction[2] < 200_000_000
+            ):
+                raise ValueError("original instrument lift ACK does not match pending transaction")
+            if transaction is None and payload.get("transaction_id") is not None:
+                raise ValueError("instrument lift ACK lacks original transaction begin")
+            if self.pending and transaction is None:
                 raise ValueError("instrument lift cannot bypass an unpaired original source")
             request = original_ros_bytes(payload["request"], "gz.msgs.Pose_protobuf_text")
             response = original_ros_bytes(payload["response"], "gz.msgs.Boolean_protobuf_text")
@@ -81,10 +136,19 @@ class ProbeEventReplay:
                 request_bytes=request,
                 response_bytes=response,
                 returncode=payload["returncode"],
-                acknowledged_at_unix_ns=payload["received_unix_ns"],
+                acknowledged_at_unix_ns=completed,
             )
             self.tracker.acknowledge_lift(ack)
-            return ack
+            self.lift_transaction = None
+            paired = self._drain()
+            return {
+                **ack,
+                **(
+                    {"paired_components": paired, "transaction_id": transaction[0]}
+                    if transaction is not None
+                    else {}
+                ),
+            }
         if kind == "backend_probe_snapshot":
             result = self.tracker.snapshot(wall)
             self.samples.append(
@@ -97,6 +161,8 @@ class ProbeEventReplay:
 
     def _drain(self):
         results = []
+        if self.lift_transaction is not None:
+            return results
         while self.pending:
             raw, wall, unix, sim = self.pending[0]
             if round(sim * 1e9) not in self.tracker.pose_history:
@@ -171,7 +237,11 @@ def closed_probe_replay(path, policy, *, plugin_path, pose_frame):
             if captured.tzinfo is None or (last_capture is not None and captured < last_capture):
                 raise ValueError("original instrument capture clock regressed")
             last_capture = captured
-            if row["kind"] in {"backend_probe_components", "backend_probe_lift_ack"}:
+            if row["kind"] in {
+                "backend_probe_components",
+                "backend_probe_lift_ack",
+                "backend_probe_lift_begin",
+            }:
                 unix = payload.get("received_unix_ns")
                 if (
                     type(unix) is not int
@@ -210,6 +280,7 @@ def closed_probe_replay(path, policy, *, plugin_path, pose_frame):
     if (
         replay.fault
         or replay.pending
+        or replay.lift_transaction is not None
         or replay.tracker.fault
         or not replay.samples
         or replay.tracker.cycles < 1

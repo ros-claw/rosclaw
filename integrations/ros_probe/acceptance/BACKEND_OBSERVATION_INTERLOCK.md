@@ -148,3 +148,36 @@ The additional compiled `backend_source_parser` invokes installed
 It checks the known differential-drive interfaces and exact bridge type/name/
 direction/queue/QoS correspondence after source normalization. Parsing source
 is not loading a controller, a Gazebo world, a system plugin or a Native task.
+## Original instrument transaction IPC
+
+`backend_observer.py` optionally accepts both `--controller-pid` and
+`--controller-uid`, only with the complete spatial source mode. The owned
+observer directory must be mode 0700; its exclusive `probe-controller.sock`
+is a mode 0600 Linux `SOCK_SEQPACKET` socket. Kernel PID/UID and process start
+time pin one live controller. This is local process correspondence, not
+publisher authentication or independent Gazebo world admission.
+
+The controller must first send an original exact `backend_probe_lift_begin`
+request. Fresh stable ground, current complete robot contact observation and
+the exact-step spatial constraint are required. The observer retains original
+IPC bytes, their hashes and the kernel peer identity before returning a source
+event acknowledgement with `authorization=false` and world admission false.
+Only a separately qualified owned world controller may execute the declared
+instrument scene service; this observer never executes it.
+
+An accepted begin retains original probe components for at most 0.2 seconds
+while original independent poses continue to arrive. A matching original
+successful reply resumes those original frames without altering their clocks.
+The service completion timestamp is distinct from observer receipt. Frames
+captured before completion cannot prove the required post-completion measured
+lift. Clear cache and stable ground recontact remain mandatory; a successful
+reply alone does not complete a cycle. Missing, late, mismatched or failed
+replies latch a fault, as do incomplete original source or IPC audit records.
+A closed replay rejects any unfinished transaction, even after an earlier
+successful cycle, and reparses original IPC bytes to check retained projections.
+
+`backend_observer_dds_contract.py --with-spatial --with-controller-ipc` tests
+the actual isolated observer process, DDS transport and private IPC against
+explicit synthetic SDK-derived packets and an explicitly synthetic service
+reply. It starts no Gazebo world, scene service, robot actuator or Native task.
+It cannot establish physical cache behavior or admit a runtime world.

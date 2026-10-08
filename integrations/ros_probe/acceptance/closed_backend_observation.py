@@ -127,6 +127,7 @@ def closed_backend_observation(
                 "backend_robot_components",
                 "backend_probe_components",
                 "backend_probe_lift_ack",
+                "backend_probe_lift_begin",
                 "backend_scene_components",
             }:
                 unix = payload.get("received_unix_ns")
@@ -163,6 +164,7 @@ def closed_backend_observation(
         or not latest["actor_envelope"]["live_source_constraint_satisfied"]
         or engine.gate.fault
         or engine.gate.probe.pending
+        or engine.gate.probe.lift_transaction is not None
     ):
         raise ValueError("closed joined original source has no fresh qualified final constraint")
     return {
