@@ -443,7 +443,10 @@ jobs:
           version: 'latest'
 
       - name: Install dependencies
-        run: uv pip install -e ".[dev]" --system
+        # The deployment smoke needs the runtime and pytest, not the knowledge
+        # development stack and its transitive multi-GB CUDA dependencies.
+        # Keep runtime dependencies installed normally; do not use --no-deps.
+        run: uv pip install -e . 'pytest>=7.0.0' 'pytest-asyncio>=0.21.0' --system
 
       - name: Run ROS deployment smoke test
         run: pytest tests/connectors/ros/integration/test_ros2_container_smoke.py -v -m deployment
