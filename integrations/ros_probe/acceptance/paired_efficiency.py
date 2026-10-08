@@ -217,6 +217,8 @@ def run_arm(pair, arm, args, ordinal, image_id, commit):
                     post_cleanup_yaw_change_rad=accepted["post_cleanup_yaw_change_rad"],
                     run_id=audit["run_id"],
                     audit_complete=True,
+                    main_nav_goal_result=audit.get("main_nav_goal_result"),
+                    optimization_status="PILOT_OBSERVATION_ONLY",
                 )
             except Exception as exc:
                 row.update(status="FAIL", failure=f"{type(exc).__name__}: {exc}")

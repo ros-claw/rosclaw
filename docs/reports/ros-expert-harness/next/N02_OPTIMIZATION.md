@@ -1,7 +1,7 @@
 # N02 main planning candidates and paired SIM protocol
 
-Status: candidate implementation and configuration tests PASS; physical pilot
-NOT_RUN at initial commit. First startup attempt failed before dispatch. No efficiency improvement or P0 closure claimed.
+Status: first paired physical pilot PASS; diagonal optimization REJECTED.
+The first startup attempt failed before dispatch and remains retained. No efficiency improvement or P0 closure claimed.
 N01 PR #621 remains the predecessor and must merge first.
 
 The actual Waffle baseline uses 0.5 m headland, 0.45 m operation width and
@@ -52,7 +52,7 @@ Configuration preflight generates five configurations inside the unchanged
 rebuilt image, with no ROS action. Exact robot/world/controller/map bytes and
 all non-planning Nav2 settings match across presets; only temporary controller
 YAML reference paths in SDF are normalized for comparison. Local ROS regression:
-305 passed / 11 deselected before the added owned-fixture failure test; focused
+308 passed / 11 deselected after the portability and startup fixes; focused
 protocol tests: 4 passed after adding the startup regression. Changed-file lint/format checks pass. These counts
 are not summed.
 
@@ -79,3 +79,33 @@ state, a measured map and active navigation/coverage lifecycle logs. A regressio
 test proves startup does not depend on the task-created snapshot. A fresh
 attempt at the same preregistered pilot seed is separate evidence; the failed
 startup is not counted as a physical cleaning pass.
+
+## First paired physical pilot, seed100801
+
+| Measurement | Baseline | Diagonal candidate |
+| --- | ---: | ---: |
+| Final measured coverage | 98.0425% | 98.0425% |
+| Main measured coverage | 57.0749% | 13.3949% |
+| Observed distance | 62.713985 m | 64.987093 m |
+| Observed SIM span | 573.36 s | 705.64 s |
+| Repair goals | 26 | 40 |
+| Contact / trace gaps | 0 / 0 | 0 / 0 |
+| Audit / canonical replay / independent stop | PASS | PASS |
+
+Frozen source1f41fd4b8dfc22d07392f351d284e534eafddba5, unchanged image,
+Body, seed and world, independent fresh directories. The diagonal main goal
+returns status6/error105 (`FAILED_TO_MAKE_PROGRESS` from installed FollowPath
+contract), then the existing measured repair loop completes the room. Its
+distance increases3.6246% and SIM span increases23.0710%. It is rejected.
+Physical pair PASS and optimization FAIL are separate claims. This is one
+pilot pair, not a median or completed five-seed pilot series.
+
+[Run summaries, overlays and conclusion](runs/n02-waffle-diagonal-100801/README.md)
+are committed. Complete public raw inputs, independent post-cleanup observations
+and hashes are durably archived under
+`/home/nvidia/workspace/rosclaw/rosclaw_harness/evidence/2026-10-08/n02-waffle-diagonal-100801`.
+The actual cause of the progress stall remains unassigned: no collision-monitor
+state/velocity observation was captured in this episode. Subsequent trials
+passively record those existing topics, with no actuator, control or safety
+parameter change. The canonical initial Nav2 result is also exposed in the
+offline summary. Earlier absent observations are not invented retroactively.

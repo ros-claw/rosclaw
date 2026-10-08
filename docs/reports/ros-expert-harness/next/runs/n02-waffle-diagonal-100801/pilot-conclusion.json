@@ -1,0 +1,21 @@
+{
+  "schema_version": "rosclaw.optimization_pilot_conclusion.v1",
+  "physical_pair_status": "PASS",
+  "optimization_status": "REJECTED",
+  "reason": "Main navigation FAILED_TO_MAKE_PROGRESS105; distance and SIM span regress",
+  "source_commit": "1f41fd4b8dfc22d07392f351d284e534eafddba5",
+  "seed": 100801,
+  "paired_measured_reduction": {
+    "measured_distance_m": -0.03624562882916127,
+    "sim_duration_sec": -0.23071019952560334
+  },
+  "candidate_main_nav_result": {
+    "status": 6,
+    "result": {
+      "error_code": 105
+    }
+  },
+  "candidate_repair_goals": 40,
+  "paired_results_sha256": "b444a5382dc72b1ca02b0626d2583213b6d477c911d562eef101220bee5f60fb",
+  "v1_done": false
+}

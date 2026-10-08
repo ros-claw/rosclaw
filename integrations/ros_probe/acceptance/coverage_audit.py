@@ -267,6 +267,7 @@ def audit(directory, output):
         "canonical_verifier_replay_equal": saved_equal,
         "observed_final_coverage_ratio": verifier.result()["coverage_ratio"],
         "main_sample_count": main_count,
+        "main_nav_goal_result": receipt["verification_result"].get("initial_action_result"),
         "historical_checkpoint_ratio": checkpoint_ratio if main_count is None else None,
         "historical_checkpoint_sample_range": [
             historic_checkpoint_indices[0],
@@ -285,6 +286,10 @@ def audit(directory, output):
         "attribution_note": "Not-in-plan means outside recorded ideal coverage path sweep, not proof of unreachable geometry; planned-but-missed remains UNKNOWN without causal evidence.",
         "feedback_events": sum(r["kind"] == "nav_feedback" for r in events),
         "feedback_by_goal": feedback,
+        "controller_diagnostic_events": {
+            kind: sum(row["kind"] == kind for row in plan_rows)
+            for kind in ["collision_monitor_state", "velocity_command"]
+        },
         "segment_count": len(segments),
         "limitations": [
             "Plan is diagnostic only, never measured coverage credit",
