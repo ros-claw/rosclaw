@@ -246,6 +246,7 @@ def main():
             "perimeter",
             "perimeter_sequential",
             "perimeter_stateless",
+            "perimeter_stateless_headland",
         ],
         required=True,
     )

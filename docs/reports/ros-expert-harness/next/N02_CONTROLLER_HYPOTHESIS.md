@@ -48,3 +48,23 @@ gaps, complete audit/replay and independent stop. Distance reduces13.7724% and
 SIM span20.5538% against this pair's baseline; the30% target remains unmet.
 This observed improvement does not prove the internal controller hypothesis.
 Burger acceptance and full fixed-seed evaluation remain outstanding.
+
+## Burger pilot: collision-ahead and planning-clearance combination
+
+The Burger stateless pilot's original main aborts104 after579 measured samples;
+the boundary stage is skipped. The Nav2 log explicitly emits repeated RPP
+collision-ahead warnings, then controller patience exceeded. This is distinct
+from the Waffle rotation/progress-stall hypothesis. The exact projected costmap
+collision cells are unavailable, so their per-cell cause remains UNKNOWN.
+
+Before dispatching another combination, preregister Burger-only
+`perimeter_stateless_headland`: existing stateless controller and sequential
+boundary handling, but use the already screened0.35m headland. Pinned planner
+predictions give0.074037m conservative polyline wall clearance versus~0.024m
+at baseline0.3; no physical tracking guarantee is inferred. Config-only pinned
+image preflight proves that only the headland and RPP stateful flag differ from
+baseline, with identical world/URDF/SDF/watchdog files and all other Nav2 params.
+No speed, goal tolerance, collision detection/monitor, source health, progress
+deadline, lease, mission denominator or original per-Body deadline is changed.
+Waffle cannot select this Burger-only combination. Evaluation seeds remain
+unused and the ongoing failed-main pilot is completed and preserved.

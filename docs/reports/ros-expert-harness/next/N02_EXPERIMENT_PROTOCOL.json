@@ -112,6 +112,16 @@
         "controller_parameters": {
           "stateful": false
         }
+      },
+      {
+        "id": "perimeter_stateless_headland",
+        "headland_width": 0.35,
+        "swath_angle_rad": 0.0,
+        "route_mode": "BOUSTROPHEDON",
+        "boundary_pass": "9 original legal corner/midpoint targets; sequential Nav2 actions",
+        "controller_parameters": {
+          "FollowPath.stateful": false
+        }
       }
     ]
   },
@@ -155,5 +165,16 @@
     "additional_candidate": "Sequential9 existing legal corners/midpoints. First through-poses pilot measured primary76.9%; actual Nav2 paths bend away from boundary. Separate candidate, all runs retained; no evaluation seeds used.",
     "boundary_clearance": "Sequential candidate uses existing legal centers additionally screened with robot_radius=max(original recovery radius, physical radius+0.05). Original baseline recovery unchanged. No inset shrink.",
     "controller_candidate": "perimeter_stateless: baseline planner plus sequential9 boundary; only RPP stateful=false. Hypothesis controller goal latch; no speed/tolerance/collision/deadline/lease guard change. New candidate before physical dispatch, old failed trials retained."
+  },
+  "pilot_combination_amendment": {
+    "registered_before_combination_physical_trial": true,
+    "phase": "pilot_only",
+    "reason": "Burger stateless main logs RPP collision-ahead warnings followed by patience104; boundary skipped. Previously screened headland0.35 improves conservative turn clearance from~24mm to~74mm without changing guards. Precise costmap collision cell cause remains UNKNOWN.",
+    "source_trial": "n02-burger-stateless-100801",
+    "evaluation_seeds_used": 0,
+    "original_deadlines_sec": {
+      "waffle": 900,
+      "burger": 1800
+    }
   }
 }

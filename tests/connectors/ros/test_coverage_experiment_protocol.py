@@ -113,3 +113,19 @@ def test_rotation_latch_candidate_changes_no_speed_guard_or_planner_setting():
             profile, "perimeter_stateless"
         ) == experiments.planning_parameters(profile, "baseline")
         assert vars(profile) == before
+
+
+def test_burger_combined_candidate_only_adds_screened_headland_to_stateless():
+    profile = SimpleNamespace(name="burger", coverage_width_m=0.3)
+    original = experiments.planning_parameters(profile, "perimeter_stateless")
+    combined = experiments.planning_parameters(profile, "perimeter_stateless_headland")
+    assert combined.pop("default_headland_width") == 0.35
+    original.pop("default_headland_width")
+    assert combined == original
+    assert experiments.controller_parameters(profile, "perimeter_stateless_headland") == {
+        "stateful": False
+    }
+    with pytest.raises(ValueError, match="only for Burger"):
+        experiments.planning_parameters(
+            SimpleNamespace(name="waffle", coverage_width_m=0.5), "perimeter_stateless_headland"
+        )
