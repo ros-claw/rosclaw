@@ -70,3 +70,35 @@ steps. Initial output preservation and final training error are measured on
 every supplied frame. Held-out calibration, physical gain and all execution
 authority remain false. Synthetic learning and regression tests do not certify
 robot stability; lower training MSE cannot be substituted for a physical gate.
+
+## Context-excluded temporal MC credit
+
+`growth.cross_fitted_value_advantages.cross_fitted_value_advantages` consumes
+complete chronological value targets and already completed normalized value
+fits. It does not train anything. Unlike the historical terminal-return
+cross-fit adapters, targets may change at each frame inside an episode.
+
+The caller predeclares K folds (2..10): `episode_context_id % K`. Repeated
+trajectories of one context cannot cross folds. Each supplied fold binds its
+ordered context exclusions, exact float64 training inputs, initial/fitted
+critic parameters, source versions, full configuration, statistics, counts,
+and finite loss history. The adapter recomputes original-unit training MSE and
+predicts only the excluded episodes. A full-data fit or changed training mean
+cannot be relabelled as an excluded fit. Empty folds fail; they are not repaired
+after results arrive. No best-fold or best-model selection occurs.
+
+All supplied target rows, including failures, remain unchanged. Raw credit is
+`target - excluded_value`; normalized advantages use one global mean and a
+fixed standard-deviation floor of `1e-6`. Returned predictions, raw/normalized
+advantages and episode fold IDs are privately owned read-only arrays. The
+receipt includes each contributing fit hash and source/input/parameter
+bindings. This is offline MC baseline subtraction, not online TD/GAE or an
+on-policy claim. Actor observations receive neither context IDs nor future
+labels through this API; it does not modify the existing actor learner.
+
+Numeric receipt consistency does not authenticate optimizer execution, an
+initial critic's previous training history, or physical trajectories. The
+caller must authenticate the archived data and fit receipts separately.
+Cross-fitting on consumed contexts is not a private Fresh exam. The result
+grants no actor update, runtime, promotion or hardware authority; deployment
+still requires the unchanged physical safety, retention and improvement gates.
