@@ -44,6 +44,8 @@ def analyze_pairs(pairs, *, expected_seeds, profile, phase, bootstrap_samples=20
     run_ids = set()
     for pair in selected:
         problems = []
+        if pair.get("status") != "PASS":
+            problems.append("whole paired run did not pass")
         rows = pair.get("runs", [])
         if len(rows) != 2 or {r.get("arm") for r in rows} != {"baseline", "candidate"}:
             problems.append("two distinct arms required")
@@ -186,8 +188,16 @@ def main():
     parser.add_argument("--phase", choices=["pilot", "evaluation"], required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    protocol = json.loads(args.protocol.read_text())
+    protocol_bytes = args.protocol.read_bytes()
+    protocol = json.loads(protocol_bytes)
     pairs = [json.loads(p.read_text()) for p in args.pairs]
+    protocol_hash = hashlib.sha256(protocol_bytes).hexdigest()
+    if any(
+        p.get("protocol_sha256") != protocol_hash
+        for p in pairs
+        if p.get("profile") == args.profile and p.get("phase") == args.phase
+    ):
+        raise ValueError("retained pair differs from exact supplied preregistration bytes")
     report = analyze_pairs(
         pairs,
         expected_seeds=protocol[f"{args.phase}_seeds"],

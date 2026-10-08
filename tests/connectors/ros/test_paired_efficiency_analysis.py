@@ -1,7 +1,10 @@
 """Every preregistered paired seed contributes to statistical acceptance."""
 
 import copy
+import hashlib
 import importlib.util
+import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -16,6 +19,7 @@ spec.loader.exec_module(analysis)
 
 def pair(seed, baseline, candidate):
     p = {
+        "status": "PASS",
         "profile": "waffle",
         "phase": "evaluation",
         "seed": seed,
@@ -46,6 +50,55 @@ def pair(seed, baseline, candidate):
         for arm, value in [("baseline", baseline), ("candidate", candidate)]
     ]
     return p
+
+
+@pytest.mark.parametrize("status", ["FAIL", "NO_FINAL_RESULT", None])
+def test_whole_pair_failure_cannot_be_promoted_by_two_passing_arms(status):
+    value = pair(1, 10, 1)
+    value["status"] = status
+    result = analysis.analyze_pairs(
+        [value], expected_seeds=[1], profile="waffle", phase="evaluation"
+    )
+    assert result["pair_success_rate"] == 0
+    assert not result["complete_frozen_series"]
+    assert result["metrics"] == {}
+    assert "whole paired run did not pass" in result["failed_pairs"][0]["reasons"]
+
+
+def test_cli_requires_exact_supplied_preregistration_bytes(tmp_path, monkeypatch):
+    original = b'{"pilot_seeds": [1]}'
+    different = b'{"pilot_seeds": [1]}\n'
+    value = pair(1, 10, 1)
+    value["phase"] = "pilot"
+    value["protocol_sha256"] = hashlib.sha256(original).hexdigest()
+    source = tmp_path / "pair.json"
+    protocol = tmp_path / "protocol.json"
+    output = tmp_path / "analysis.json"
+    source.write_text(json.dumps(value))
+    protocol.write_bytes(different)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "analysis",
+            "--pairs",
+            str(source),
+            "--protocol",
+            str(protocol),
+            "--profile",
+            "waffle",
+            "--phase",
+            "pilot",
+            "--output",
+            str(output),
+        ],
+    )
+    with pytest.raises(ValueError, match="exact supplied preregistration bytes"):
+        analysis.main()
+    assert not output.exists()
+    protocol.write_bytes(original)
+    analysis.main()
+    assert json.loads(output.read_text())["complete_frozen_series"]
 
 
 def test_paired_bootstrap_is_reproducible_and_medians_are_not_conflated():

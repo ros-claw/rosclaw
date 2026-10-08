@@ -82,3 +82,9 @@ These timings describe computation on a recorded mask, not physical efficiency.
 The complete local ROS suite passed348 tests with10 integration cases
 deselected; targeted mypy, Ruff and formatting passed. Physical pose-aware
 acceptance remains NOT_RUN.
+
+## Whole-pair failure and exact preregistration guard before formal evaluation
+
+The read-only analysis now refuses a failed/missing whole-pair status even when both nested arms claim PASS, and binds selected pair summaries to the exact supplied protocol bytes before writing a report. Three status cases and a byte-different logically equivalent protocol regression prevent promotion of wrapper failures or a substituted registration. Twenty statistical tests passed;full ROS regression354 passed,10 integration deselected,one existing warning in9.75s;scoped Ruff/format passed.
+
+Both original five-pilot series were revalidated from their unchanged raw summaries/protocol. Source hashes, success rate, missing/failed seeds, metrics/bootstrap intervals and joint30% outcome were exactly equal to the retained earlier reports. This is read-only historical validation, not additional physics or evaluation. Frozen active/queued worktrees remain unchanged.
