@@ -253,3 +253,58 @@ usage after a Native process starts leaves model provenance UNKNOWN (`null`).
 These entry and refusal tests are offline contracts. D1, D3, D5 and D6 do not
 have full physical episode entry support here; do not label their preparation
 or these synthetic tests as dynamic Native simulation acceptance.
+
+### Independent contact evidence for observation faults
+
+`contact_evidence.py` prepares an explicit policy from the actual owned
+`robot.sdf`, `bridge.yaml`, brush binding and physics binding. The operator must
+supply continuous support topics and exact ground collision names. Each Body
+collision needs an explicit SDF contact sensor and a distinct Gazebo-to-ROS
+bridge. An explicit independent pose topic supports namespaces; no robot
+profile or name heuristic chooses support streams.
+
+`contact_observer.py --policy <frozen-json> --duration <60..1920>` is a separate
+passive process. It has no publishers, services or action/lease authority. It
+retains original serialized ROS Contact and TFMessage bytes, hashes and receipt
+times in a closed Core audit. Every declared contact stream, including streams
+with empty contact lists, must actually arrive and remain fresh. Source silence
+is UNKNOWN, not a zero-contact measurement. The first valid all-stream sample
+admits this evidence source; subsequent loss or malformed input latches failure.
+`independent-contact-latest.json` is a freshness/readiness projection only.
+
+`closed_contact_evidence.closed_contact_window` uses the installed official ROS
+CDR decoder to reopen the original messages. It checks parsed projections,
+source/Body identity, genesis-to-close hashes, lossless writer closure and both
+original SIM/wall brackets across the requested window. Each selected sample
+must be complete, advancing and contact-free, with no gap over 300 ms. It does
+not set canonical task state or prove brush state or standstill. The enclosing
+negative Native episode must independently bind the prepared source, original
+mission interval, canonical failed task/receipt, actuator OFF/lease evidence
+and independent stop poses before making a physical safety claim.
+
+The prepared source is not proof that the live simulator emits every stream.
+If a Gazebo sensor publishes only on contact and supplies no fresh empty
+messages, this strict independent observer does not admit that stream. A full
+negative physical acceptance must resolve that source limitation rather than
+infer zero contacts from silence. No D5 physical episode is accepted by this
+component alone; the owned fault controller and full episode integration remain
+required.
+
+The official serialization/replay contract can be run inside the prepared
+Jazzy image, with no Node/DDS/network/server:
+
+```bash
+docker run --rm --network none --entrypoint bash \
+  -v "$PWD:/workspace:ro" rosclaw/ros-expert-generic-runtime:1008-v1 \
+  -c 'source /opt/ros/jazzy/setup.bash && PYTHONPATH=/workspace/src:${PYTHONPATH} python3 /workspace/integrations/ros_probe/acceptance/contact_cdr_contract.py'
+```
+
+It serializes synthetic Contacts/TFMessage with official ROS types and tests
+original-byte replay plus fifteen rejection cases. This is offline SDK
+contract evidence, not simulator or robot acceptance.
+
+`contact_observer_contract.py` additionally exercises the real process callbacks,
+exclusive latest-file writes, audit closure and official-byte replay with a
+synthetic delivery loop. Its seven cases include source loss, foreign contact,
+contact, timestamp regression and malformed stamps. It starts no real Node or
+DDS endpoint and remains offline contract evidence.
