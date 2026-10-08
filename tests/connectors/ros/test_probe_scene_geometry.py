@@ -73,7 +73,9 @@ def fixture(monkeypatch):
     scene["obstacles"].append(sphere)
     scene["scene_models"].append({"model_name": d["probe_model_name"], "entity_id": 40})
     for component in (robot, probe):
-        component.update(sim_time_sec=1.0, captured_at_unix_ns=scene["captured_at_unix_ns"])
+        component.update(
+            iterations=100, sim_time_sec=1.0, captured_at_unix_ns=scene["captured_at_unix_ns"]
+        )
     probe["body_world_pose"] = sphere["world_pose"].copy()
     constraint = module.ProbeSceneGeometry(binding, d, gate)
 
@@ -109,6 +111,7 @@ def test_exact_source_geometry_uses_actual_body_envelope_without_authority(fixtu
         "collision_identity",
         "model_pose",
         "clock",
+        "iteration",
         "world",
         "probe_radius",
         "probe_offset",
@@ -135,6 +138,8 @@ def test_invalid_original_scope_geometry_or_clearance_latches(fixture, fault):
         robot["body_world_pose"][0] = 0.1
     elif fault == "clock":
         probe["sim_time_sec"] += 0.01
+    elif fault == "iteration":
+        probe["iterations"] += 1
     elif fault == "world":
         probe["world_entity_id"] += 1
     elif fault == "probe_radius":
@@ -157,6 +162,7 @@ def test_invalid_original_scope_geometry_or_clearance_latches(fixture, fault):
         "collision_identity": "collision identities",
         "model_pose": "physical poses",
         "clock": "model identity and clock",
+        "iteration": "model identity and clock",
         "world": "world identities",
         "probe_radius": "sphere must match",
         "probe_offset": "sphere must match",
@@ -192,7 +198,9 @@ def test_new_actual_packet_sequence_must_be_contiguous(fixture):
     )
     for component in (robot, probe):
         component.update(
-            sim_time_sec=scene["sim_time_sec"], captured_at_unix_ns=scene["captured_at_unix_ns"]
+            iterations=scene["physics_iteration"],
+            sim_time_sec=scene["sim_time_sec"],
+            captured_at_unix_ns=scene["captured_at_unix_ns"],
         )
     with pytest.raises(ValueError, match="missing or regressed"):
         observe()
@@ -207,7 +215,9 @@ def advance(scene, robot, probe):
     )
     for component in (robot, probe):
         component.update(
-            sim_time_sec=scene["sim_time_sec"], captured_at_unix_ns=scene["captured_at_unix_ns"]
+            iterations=scene["physics_iteration"],
+            sim_time_sec=scene["sim_time_sec"],
+            captured_at_unix_ns=scene["captured_at_unix_ns"],
         )
 
 

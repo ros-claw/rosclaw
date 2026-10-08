@@ -116,6 +116,7 @@ class ProbeSceneGeometry:
                 if (
                     native["body_model_entity_id"] != model["entity_id"]
                     or abs(native["sim_time_sec"] - packet["sim_time_sec"]) > 1e-9
+                    or native["iterations"] != packet["physics_iteration"]
                 ):
                     raise ValueError(
                         "exact original same-step scene/native model identity and clock required"
