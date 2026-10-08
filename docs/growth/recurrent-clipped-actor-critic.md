@@ -39,3 +39,34 @@ Synthetic tests verify genuine actor/value updates, negative-advantage influence
 protected zero gates, exact independent causal KL reconstruction, joint rollback,
 repeatability and rejected malformed/non-finite/wrong-density inputs. These tests
 are not physical rollout evidence or football performance.
+
+## Independent value regression
+
+`growth.normalized_value_regression.fit_normalized_value_regression` supplies a
+separate offline critic optimizer and budget, without modifying the joint v1
+learner or accepting actor parameters. Its contexts, labels and initial critic
+are caller-authenticated. It does not compute actor advantages, authenticate
+physical provenance, or authorize a policy update.
+
+Complete supplied targets define fixed mean `m` and scale `s` (with an explicit
+positive floor). The initial last layer is transformed to `W/s, (b-m)/s`;
+original-unit predictions `s * normalized_prediction + m` must remain unchanged.
+Only normalized regression error is optimized. The exported last layer is
+folded back to `s*W, s*b+m`, so existing value evaluators receive original-unit
+parameters, not normalized predictions. All labels are retained, including
+negative and failure returns; targets are not clipped or redefined.
+
+This uses the output-preserving parametrization described in
+[PopArt](https://arxiv.org/abs/1602.07714), but statistics stay fixed for each
+fit: it is **not adaptive online PopArt**, actor-critic RL, or a continual
+optimizer checkpoint. Frozen whole-episode minibatches, independent Adam and
+gradient clipping cannot inherit the actor's KL rollback. A caller still needs
+properly versioned data/model commitments, frozen advantage computation,
+protected actor updates and unchanged physical exams to use the result.
+
+The numeric receipt binds source, parameter-contract source, inputs, initial
+and fitted critic parameters, normalization statistics and actual optimizer
+steps. Initial output preservation and final training error are measured on
+every supplied frame. Held-out calibration, physical gain and all execution
+authority remain false. Synthetic learning and regression tests do not certify
+robot stability; lower training MSE cannot be substituted for a physical gate.
