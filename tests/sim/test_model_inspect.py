@@ -111,3 +111,49 @@ def test_inspect_model_full_direct(tiny_task_root) -> None:
     detail = inspect_model_full(model, model_digest="sha256:test")
     assert detail["model_digest"] == "sha256:test"
     assert detail["nq"] == 2
+
+
+def test_inspection_reports_compiled_motor_defaults_and_body_inertia() -> None:
+    """Identical names do not imply identical compiled motor/body dynamics."""
+    import mujoco
+
+    model = mujoco.MjModel.from_xml_string("""<mujoco>
+      <default><joint armature="0.012" damping="0.05" frictionloss="0.2"/></default>
+      <option gravity="0 0 -8" tolerance="1e-7" ls_tolerance="0.02"/>
+      <worldbody><body name="link">
+        <inertial pos="0.01 0.02 0.03" mass="2" diaginertia="0.01 0.02 0.025"/>
+        <joint name="hinge" type="hinge"/>
+        <joint name="slide" type="slide" axis="1 0 0" armature="0.025"/>
+        <geom type="sphere" size="0.1"/>
+      </body></worldbody>
+    </mujoco>""")
+    detail = inspect_model_full(model)
+    hinge, slide = detail["joints_detail"]
+    assert hinge["armature"] == pytest.approx(0.012)
+    assert slide["armature"] == pytest.approx(0.025)
+    assert hinge["damping"] == pytest.approx(0.05)
+    assert slide["frictionloss"] == pytest.approx(0.2)
+    body = next(b for b in detail["bodies"] if b["name"] == "link")
+    assert body["mass"] == 2
+    assert body["inertia"] == pytest.approx([0.01, 0.02, 0.025])
+    assert body["inertial_pos"] == pytest.approx([0.01, 0.02, 0.03])
+    assert body["inertial_quat"] == pytest.approx([1, 0, 0, 0])
+    assert detail["options"]["gravity"] == [0, 0, -8]
+    assert detail["options"]["tolerance"] == pytest.approx(1e-7)
+    assert detail["options"]["ls_tolerance"] == pytest.approx(0.02)
+    # Inspection reports the live compiled model, not a cached XML attribute.
+    model.dof_armature[1] = 0.04
+    assert inspect_model_full(model)["joints_detail"][1]["armature"] == pytest.approx(0.04)
+    assert model.dof_armature[0] == pytest.approx(0.012)
+
+
+def test_multidof_joint_does_not_report_misleading_scalar_motor_properties() -> None:
+    import mujoco
+
+    model = mujoco.MjModel.from_xml_string("""<mujoco><worldbody><body>
+      <freejoint/><geom type="sphere" size="0.1"/>
+      <body pos="0 0 .3"><joint type="ball"/><geom type="sphere" size=".1"/></body>
+    </body></worldbody></mujoco>""")
+    for joint in inspect_model_full(model)["joints_detail"]:
+        assert joint["type"] in {"free", "ball"}
+        assert not {"armature", "damping", "frictionloss"} & joint.keys()
