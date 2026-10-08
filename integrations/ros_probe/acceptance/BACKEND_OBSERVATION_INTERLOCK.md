@@ -46,3 +46,14 @@ zero command do not certify the backend or physical stopping.
 Current contracts use endpoint recorders and explicit pose decoder doubles;
 these do not start ROS/DDS/physics. Actual installed ROS CDR source contracts
 for the underlying trackers are separate and retain their synthetic labels.
+
+`closed_backend_observation.py` reopens the robot/probe prepared policies and
+plugin bytes before and after replay, requires a closed lossless hash-chain
+writer, and recomputes every original source projection with the online engine.
+It rejects substituted Body/policy/source identities, modified byte hashes,
+missing/reordered events, clock or SIM mismatch, fabricated projections,
+partial rows, duplicate/nonfinite JSON, unknown events and incomplete closure.
+A fresh qualified logical final constraint is required. This result continues
+to declare actual world/Body admission, physical stopping and task acceptance
+unverified. Its 13 contracts use explicitly synthetic tapes and decoder/source
+loader doubles; they are not additional physical episodes.
