@@ -1,0 +1,591 @@
+{
+  "action_id": "golden-coverage",
+  "receipt": {
+    "schema_version": "rosclaw.receipt.v1",
+    "action_id": "golden-coverage",
+    "trace_id": "trace_7b684c2d38df4c178486b59b",
+    "mode": "SIMULATION",
+    "execution_mode": "SIMULATION",
+    "body_id": "ros_expert_base",
+    "body_snapshot_hash": "510c836df556cde9d2e8b2fb25675aebec086234ec7177014724b0938d6aff3f",
+    "capability_id": "coverage.execute",
+    "policy_decision": {
+      "allowed": true,
+      "reason": "configured_gazebo_only"
+    },
+    "authorization_decision": {},
+    "resource_lease": {
+      "lease_id": "lease_82c7c2ed76334269a113a97d212f698f",
+      "resource_id": "ros_expert_base",
+      "action_id": "golden-coverage",
+      "acquired_at": "2026-10-07T23:55:32.268323Z",
+      "exclusive": true
+    },
+    "simulation_result": {
+      "has_physics": true,
+      "engine": "gazebo"
+    },
+    "dispatch_result": {
+      "accepted": true,
+      "owner": "daemon_ros_expert_gazebo"
+    },
+    "driver_ack": null,
+    "acknowledgement_stage": "TASK_VERIFIED",
+    "observations": [
+      {
+        "x": 1.1185535723288786,
+        "y": -0.7491703676072358,
+        "yaw": 0.7457953182230174,
+        "time_sec": 598.06,
+        "captured_at": "2026-10-08T00:04:47.155398+00:00",
+        "cleaning_enabled": true,
+        "lease_remaining_sec": 1.3877422189689241,
+        "lease_updates": 2685,
+        "localization": {
+          "x": 1.1371995670010044,
+          "y": -0.8183600206287002,
+          "yaw": 0.7391206906406477,
+          "frame_id": "map",
+          "source": "amcl_pose",
+          "captured_at": "2026-10-08T00:04:47.148883+00:00",
+          "time_sec": 598.05,
+          "covariance": [
+            0.0013214915311063804,
+            0.0008098416518648039,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0008098416518648039,
+            0.0008079735406946556,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.003015942654542947
+          ]
+        },
+        "evidence_domain": "GAZEBO_PHYSICS",
+        "collision_count": 0,
+        "geometry_collision_count": 0,
+        "physics_collision_count": 0,
+        "collision_source": "gazebo_contacts_and_ground_truth_geometry",
+        "ground_truth_age_ms": 18.22618901496753,
+        "observation_complete": true,
+        "contact_stream_ages_ms": {
+          "/rosclaw_sim/contacts/caster_back_left_link": 7.571193040348589,
+          "/rosclaw_sim/contacts/wheel_left_link": 7.951867009978741,
+          "/rosclaw_sim/contacts/wheel_right_link": 7.7799620339646935,
+          "/rosclaw_sim/contacts/caster_back_right_link": 7.668730046134442
+        }
+      }
+    ],
+    "verification_result": {
+      "mission_id": "gazebo-room-cleaning",
+      "coverage_ratio": 0.9801454138702461,
+      "recovery_attempts": [
+        {
+          "goal_id": "golden-coverage:repair:0",
+          "target": [
+            -1.1249999929219485,
+            1.1250000406056642
+          ],
+          "result": {
+            "status": 4,
+            "result": {
+              "error_code": 0,
+              "error_msg": ""
+            }
+          },
+          "coverage_before": 0.5724272930648769
+        },
+        {
+          "goal_id": "golden-coverage:repair:1",
+          "target": [
+            -0.2749999802559615,
+            -1.1749999936670066
+          ],
+          "result": {
+            "status": 4,
+            "result": {
+              "error_code": 0,
+              "error_msg": ""
+            }
+          },
+          "coverage_before": 0.6297539149888143
+        },
+        {
+          "goal_id": "golden-coverage:repair:2",
+          "target": [
+            -0.22499997951090345,
+            1.1750000413507222
+          ],
+          "result": {
+            "status": 4,
+            "result": {
+              "error_code": 0,
+              "error_msg": ""
+            }
+          },
+          "coverage_before": 0.677013422818792
+        },
+        {
+          "goal_id": "golden-coverage:repair:3",
+          "target": [
+            0.6250000331550836,
+            1.1750000413507222
+          ],
+          "result": {
+            "status": 4,
+            "result": {
+              "error_code": 0,
+              "error_msg": ""
+            }
+          },
+          "coverage_before": 0.729586129753915
+        },
+        {
+          "goal_id": "golden-coverage:repair:4",
+          "target": [
+            -1.1749999936670066,
+            -1.1749999936670066
+          ],
+          "result": {
+            "status": 4,
+            "result": {
+              "error_code": 0,
+              "error_msg": ""
+            }
+          },
+          "coverage_before": 0.7807606263982103
+        },
+        {
+          "goal_id": "golden-coverage:repair:5",
+          "target": [
+            0.5250000316649674,
+            -1.1749999936670066
+          ],
+          "result": {
+            "status": 4,
+            "result": {
+              "error_code": 0,
+              "error_msg": ""
+            }
+          },
+          "coverage_before": 0.8165548098434005
+        },
+        {
+          "goal_id": "golden-coverage:repair:6",
+          "target": [
+            1.1750000413507222,
+            -1.1749999936670066
+          ],
+          "result": {
+            "status": 4,
+            "result": {
+              "error_code": 0,
+              "error_msg": ""
+            }
+          },
+          "coverage_before": 0.8565436241610739
+        },
+        {
+          "goal_id": "golden-coverage:repair:7",
+          "target": [
+            1.1750000413507222,
+            1.1750000413507222
+          ],
+          "result": {
+            "status": 5,
+            "result": {
+              "error_code": 0,
+              "error_msg": ""
+            },
+            "timed_out": true,
+            "goal_timeout_sec": 45
+          },
+          "coverage_before": 0.8887024608501118
+        },
+        {
+          "goal_id": "golden-coverage:repair:8",
+          "target": [
+            -1.1749999936670066,
+            -0.5249999839812518
+          ],
+          "result": {
+            "status": 4,
+            "result": {
+              "error_code": 0,
+              "error_msg": ""
+            }
+          },
+          "coverage_before": 0.9250559284116331
+        },
+        {
+          "goal_id": "golden-coverage:repair:9",
+          "target": [
+            -1.1749999936670066,
+            0.27500002793967715
+          ],
+          "result": {
+            "status": 4,
+            "result": {
+              "error_code": 0,
+              "error_msg": ""
+            }
+          },
+          "coverage_before": 0.9337248322147651
+        },
+        {
+          "goal_id": "golden-coverage:repair:10",
+          "target": [
+            -1.1749999936670066,
+            0.8750000368803739
+          ],
+          "result": {
+            "status": 4,
+            "result": {
+              "error_code": 0,
+              "error_msg": ""
+            }
+          },
+          "coverage_before": 0.935682326621924
+        },
+        {
+          "goal_id": "golden-coverage:repair:11",
+          "target": [
+            0.12500002570450297,
+            -1.1749999936670066
+          ],
+          "result": {
+            "status": 4,
+            "result": {
+              "error_code": 0,
+              "error_msg": ""
+            }
+          },
+          "coverage_before": 0.9384787472035794
+        },
+        {
+          "goal_id": "golden-coverage:repair:12",
+          "target": [
+            -0.5749999847263099,
+            -1.1749999936670066
+          ],
+          "result": {
+            "status": 4,
+            "result": {
+              "error_code": 0,
+              "error_msg": ""
+            }
+          },
+          "coverage_before": 0.9426733780760627
+        },
+        {
+          "goal_id": "golden-coverage:repair:13",
+          "target": [
+            -0.5749999847263099,
+            1.1750000413507222
+          ],
+          "result": {
+            "status": 4,
+            "result": {
+              "error_code": 0,
+              "error_msg": ""
+            }
+          },
+          "coverage_before": 0.9460290827740492
+        },
+        {
+          "goal_id": "golden-coverage:repair:14",
+          "target": [
+            1.1750000413507222,
+            -0.02499997653067121
+          ],
+          "result": {
+            "status": 4,
+            "result": {
+              "error_code": 0,
+              "error_msg": ""
+            }
+          },
+          "coverage_before": 0.9507829977628636
+        },
+        {
+          "goal_id": "golden-coverage:repair:15",
+          "target": [
+            -1.1749999936670066,
+            1.1750000413507222
+          ],
+          "result": {
+            "status": 4,
+            "result": {
+              "error_code": 0,
+              "error_msg": ""
+            }
+          },
+          "coverage_before": 0.9566554809843401
+        },
+        {
+          "goal_id": "golden-coverage:repair:16",
+          "target": [
+            0.7750000353902577,
+            -1.1749999936670066
+          ],
+          "result": {
+            "status": 4,
+            "result": {
+              "error_code": 0,
+              "error_msg": ""
+            }
+          },
+          "coverage_before": 0.9608501118568232
+        },
+        {
+          "goal_id": "golden-coverage:repair:17",
+          "target": [
+            -1.1749999936670066,
+            -0.12499997802078733
+          ],
+          "result": {
+            "status": 4,
+            "result": {
+              "error_code": 0,
+              "error_msg": ""
+            }
+          },
+          "coverage_before": 0.9628076062639821
+        },
+        {
+          "goal_id": "golden-coverage:repair:18",
+          "target": [
+            -0.8749999891966582,
+            -1.1749999936670066
+          ],
+          "result": {
+            "status": 4,
+            "result": {
+              "error_code": 0,
+              "error_msg": ""
+            }
+          },
+          "coverage_before": 0.964765100671141
+        },
+        {
+          "goal_id": "golden-coverage:repair:19",
+          "target": [
+            1.1750000413507222,
+            0.7250000346451997
+          ],
+          "result": {
+            "status": 4,
+            "result": {
+              "error_code": 0,
+              "error_msg": ""
+            }
+          },
+          "coverage_before": 0.9675615212527964
+        },
+        {
+          "goal_id": "golden-coverage:repair:20",
+          "target": [
+            0.2250000271946191,
+            1.1750000413507222
+          ],
+          "result": {
+            "status": 4,
+            "result": {
+              "error_code": 0,
+              "error_msg": ""
+            }
+          },
+          "coverage_before": 0.9697986577181208
+        },
+        {
+          "goal_id": "golden-coverage:repair:21",
+          "target": [
+            -1.1749999936670066,
+            -1.1749999936670066
+          ],
+          "result": {
+            "status": 4,
+            "result": {
+              "error_code": 0,
+              "error_msg": ""
+            }
+          },
+          "coverage_before": 0.9742729306487695
+        },
+        {
+          "goal_id": "golden-coverage:repair:22",
+          "target": [
+            -1.1749999936670066,
+            -0.8249999884516002
+          ],
+          "result": {
+            "status": 4,
+            "result": {
+              "error_code": 0,
+              "error_msg": ""
+            }
+          },
+          "coverage_before": 0.9753914988814317
+        },
+        {
+          "goal_id": "golden-coverage:repair:23",
+          "target": [
+            -1.1749999936670066,
+            0.5250000316649674
+          ],
+          "result": {
+            "status": 4,
+            "result": {
+              "error_code": 0,
+              "error_msg": ""
+            }
+          },
+          "coverage_before": 0.9765100671140939
+        },
+        {
+          "goal_id": "golden-coverage:repair:24",
+          "target": [
+            0.27500002793967715,
+            -1.1749999936670066
+          ],
+          "result": {
+            "status": 4,
+            "result": {
+              "error_code": 0,
+              "error_msg": ""
+            }
+          },
+          "coverage_before": 0.9781879194630873
+        },
+        {
+          "goal_id": "golden-coverage:repair:25",
+          "target": [
+            1.1750000413507222,
+            -0.8249999884516002
+          ],
+          "result": {
+            "status": 4,
+            "result": {
+              "error_code": 0,
+              "error_msg": ""
+            }
+          },
+          "coverage_before": 0.9793064876957495
+        }
+      ],
+      "initial_action_result": {
+        "status": 4,
+        "result": {
+          "error_code": 0
+        }
+      },
+      "independent_evidence_hashes": [
+        "rosmissionevidence_1987bdfa14463709412dbbf06253042b118a4c7df570231d13e43d7f8d7095d3"
+      ],
+      "evidence_artifact": {
+        "path": "/tmp/ros-expert-next/n01-waffle-004/actions/rosevidence_0e0c13aa95e765a20b0c60bffc23aed61a1a3712a1e8099feeee6c927c777638.json",
+        "sha256": "e6099e4d574d4a3ebf509993ceb8e5d094423e43e6c01a43da6c36b99eb905fd"
+      }
+    },
+    "final_state": "COMPLETED",
+    "evidence_level": "TASK_VERIFIED",
+    "evidence_domain": "SIMULATION",
+    "verified": true,
+    "valid_for_promotion": false,
+    "trust_level": "SIMULATED",
+    "usable_for_real_execution": false,
+    "artifacts": [],
+    "errors": [],
+    "transitions": [
+      {
+        "state": "PROPOSED",
+        "at": "2026-10-07T23:55:32.268194Z",
+        "reason": "action_submitted"
+      },
+      {
+        "state": "REQUEST_ACCEPTED",
+        "at": "2026-10-07T23:55:32.268195Z",
+        "reason": "request_accepted"
+      },
+      {
+        "state": "GROUNDED",
+        "at": "2026-10-07T23:55:32.268308Z",
+        "reason": "executor_resolved"
+      },
+      {
+        "state": "WAITING_RESOURCE",
+        "at": "2026-10-07T23:55:32.268309Z",
+        "reason": "ros_expert_base"
+      },
+      {
+        "state": "SCHEDULED",
+        "at": "2026-10-07T23:55:32.268327Z",
+        "reason": "lease_acquired"
+      },
+      {
+        "state": "POLICY_VALIDATED",
+        "at": "2026-10-08T00:04:52.523992Z",
+        "reason": "policy_allowed"
+      },
+      {
+        "state": "SIMULATION_VALIDATED",
+        "at": "2026-10-08T00:04:52.523995Z",
+        "reason": "physics_simulation_completed"
+      },
+      {
+        "state": "COMMAND_DISPATCHED",
+        "at": "2026-10-08T00:04:52.523996Z",
+        "reason": "command_dispatched"
+      },
+      {
+        "state": "EFFECT_OBSERVED",
+        "at": "2026-10-08T00:04:52.523999Z",
+        "reason": "effect_observed"
+      },
+      {
+        "state": "TASK_VERIFIED",
+        "at": "2026-10-08T00:04:52.524000Z",
+        "reason": "predicate_verified"
+      },
+      {
+        "state": "COMPLETED",
+        "at": "2026-10-08T00:04:52.524001Z",
+        "reason": "executor_completed"
+      }
+    ],
+    "started_at": "2026-10-07T23:55:32.268177Z",
+    "finished_at": "2026-10-08T00:04:52.524012Z"
+  },
+  "daemon_peer": {
+    "pid": 1588801,
+    "uid": 1000,
+    "gid": 1000
+  }
+}

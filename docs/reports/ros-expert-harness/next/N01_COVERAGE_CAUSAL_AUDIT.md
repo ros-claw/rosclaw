@@ -1,7 +1,8 @@
 # N01: passive coverage causal audit
 
-Status: implementation and focused regression accepted; fresh physical run in
-progress. This report does not yet declare the N01 live/merge gate complete.
+Status: fresh SIM physical and diagnostic acceptance PASS on frozen source
+`2dcb77bd03de034963776c7e2e89db5070d3c57e`. Expanded local regression and
+latest-head CI are pending; the PR merge gate remains open.
 
 ## Implemented
 
@@ -26,7 +27,7 @@ progress. This report does not yet declare the N01 live/merge gate complete.
   Planned-but-missed cells remain UNKNOWN without a causal observation. Audit
   completeness is separate from canonical task success.
 
-## Preliminary physical observation
+## Recorded physical observation
 
 Instrumentation pilot `n01-waffle-002` uses the unchanged room, Body, attachment,
 algorithm and rebuilt image. Its upstream field debug polygon spans [-1.5,1.5]
@@ -48,16 +49,77 @@ imported an eager diagnosis initializer requiring absent Pydantic; making
 diagnosis exports lazy fixed the pure passive import in the unchanged image.
 No dependency installation or control guard relaxation was used.
 
-## Validation
+## Formal accepted run
 
-ROS connector regression before the final added projection test: 301 passed /
-11 deselected. Focused audit/native regression: 64 passed. Current audit tests:
-5 passed, including integrity mutation, unfinished EOF, invalid/oversize loss,
-input mutation, continuous path projection and prediction isolation. Targeted
-source type checks and changed-file Ruff/format/diff checks passed.
+Run `n01-waffle-004`, ID `f1e279292c684a769b569d84d9381c6a`, uses a clean
+source freeze and unchanged rebuilt image
+`sha256:c31355f34739eb4ea8b60de1414c57ce0eea8225aa9e3ce854b7ceb66ca4376e`.
+The [public evidence archive](runs/n01-waffle-004/README.md) includes the original
+canonical artifact, receipts, verifier result, append-only streams and source
+hashes. Authentication, action tickets and private ledger/model data are excluded.
 
-Architecture/security/agentd checks and fresh complete physical acceptance are
-still running; their final results must be recorded before merging. The
-existing full CI remains the release gate. These counts overlap and are not
-summed. Efficiency, dynamic occupancy, unknown-Body, Memory causal benefit and
-A/B remain unaccepted; `v1_done=false`.
+| Measured quantity | Result |
+| --- | ---: |
+| Fixed denominator | 3,576 cells |
+| Main observed coverage | 2,047 cells / 57.2427293065% |
+| Main distance / SIM span | 10.5665212995 m / 65.6 s |
+| Final observed coverage | 3,505 cells / 98.0145413870% |
+| Total observed distance / SIM span | 57.9029962809 m / 554.84 s |
+| Canonical mission duration | 560.255835 s |
+| Independent pose samples | 11,098 |
+| Contact count / trace gaps | 0 / 0 |
+| Captured feedback / repair goals | 54,747 / 26 |
+| Audit loss / source binding errors | 0 / 0 |
+| Canonical verifier independent replay | Exactly equal |
+| Receipts / Practice / Memory reopen | 3 COMPLETED SIM / SUCCESS / 5 queries |
+| Independent post-cleanup 3 s displacement / yaw | 0 m / 0 rad |
+
+Canonical duration and observed SIM span measure different intervals; neither is
+substituted for the other. Segment intervals include waiting and partition all
+observed distance, rotation and SIM duration exactly once.
+
+Of the 1,529 first-pass missed cells, 1,425 (93.20%) lie outside the recorded
+ideal plan sweep; 104 (6.80%) remain UNKNOWN. The recorded plan predicts 2,141
+cells (59.8713646532%) and is 9.6929116639 m long. The upstream server reserves
+0.5 m headland for turning and generates interior swaths without an explicit
+headland cleaning pass. This explains the predominant plan omission. It does
+not establish that shrinking the headland is safe, nor assign the remaining
+104 cells to tracking error. The plan-to-execution
+[overlay](runs/n01-waffle-004/plan_execution_overlay.svg) displays both masks
+and trajectories; predictions never enter canonical coverage credit.
+
+`n01-waffle-001` failed at startup; no cleaning was dispatched. Pilot 002
+physically passed but lacked a clean source freeze and closing plan summary.
+Run 003 physically completed but its closing plan summary was missing.
+Both have incomplete audits, retained separately. Run 004 fixes the shutdown
+flush path and supplies complete diagnostic evidence. No missing historical
+heading or internal swath/controller stage was invented.
+
+Physical acceptance belongs to the recorded frozen commit, not a subsequently
+edited HEAD. Later runtime changes hash the audit filename to prevent path
+traversal; execution/repair/goal/service functions, witness, stack, daemon and
+logger remain identical. Later offline processing repairs saved-verification
+lookup and source binding; it does not change the frozen physical episode.
+
+## Validation and next gate
+
+ROS connector regression: 303 passed / 11 deselected. Audit tests: 6 passed,
+including immutable snapshots, hash tampering, unfinished EOF, bounded loss,
+continuous prediction, prediction isolation, failed flush preserving canonical
+result and lock release, and malicious action-ID filenames. Targeted source
+type checks and changed-file Ruff/format/diff checks passed. Counts overlap and
+are not summed. Formal public JSON schemas and segment-total invariants are
+also checked against the complete run.
+
+Expanded architecture/security/agentd regression and latest-head CI are still
+running. Their final results are required before PR #621 is merged.
+
+N02 has 15 offline candidates generated by the actual pinned Fields2Cover
+installation, varying headland and angle. Several high-coverage candidates
+have insufficient or negative sampled body clearance and are rejected. A
+45-degree swath angle with the original 0.5 m headland predicts 77.49%, but
+needs fresh controlled physical trials. Offline geometry is not physical
+acceptance; no efficiency improvement is claimed.
+
+Efficiency, dynamic occupancy, unknown Body, Memory causal benefit and A/B
+remain unaccepted; `v1_done=false`.

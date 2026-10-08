@@ -1,0 +1,13 @@
+{
+  "name": "waffle",
+  "vendor_model": "turtlebot3_waffle",
+  "simulation_model": "turtlebot3_waffle",
+  "body_id": "ros_expert_base",
+  "physical_radius_m": 0.25,
+  "cleaner_half_width_m": 0.275,
+  "recovery_radius_m": 0.3,
+  "coverage_width_m": 0.5,
+  "operation_width_m": 0.45,
+  "evidence_domain": "SIMULATION",
+  "cleaner_kind": "simulated_attachment"
+}
