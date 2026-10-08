@@ -201,6 +201,8 @@ P0_TOOL_CALLS: list[tuple[str, dict[str, Any]]] = [
             "payload": {"target": 0.1},
         },
     ),
+    # Deliberately absent receipt: strict replay must return the honest error envelope.
+    ("sim_strict_replay", {"receipt_ref": "simexp_0000000000000000"}),
 ]
 
 EXPECTED_TOOLS = set(P0_AGENT_MCP_TOOLS)
@@ -220,6 +222,7 @@ EXPECTED_ERROR_TOOLS = {
     "sim_branch_experiment",
     "sim_compile_world",
     "sim_interact",
+    "sim_strict_replay",
 }
 
 

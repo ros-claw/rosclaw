@@ -57,6 +57,26 @@ jobs:
           pytest tests/storage tests/memory tests/practice tests/how \
             tests/knowledge tests/darwin tests/evolution -q
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.23.1"
+          cache: npm
+          cache-dependency-path: |
+            packages/rosclaw-agent/package-lock.json
+            packages/rosclaw-tui/package-lock.json
+
+      - name: Install locked agent SDK dependencies and build
+        working-directory: packages/rosclaw-agent
+        run: |
+          npm ci
+          npm run build
+
+      - name: Install locked TUI dependencies and build
+        working-directory: packages/rosclaw-tui
+        run: |
+          npm ci
+          npm run build
+
       - name: Gate C — full regression (no unexpected failures)
         # Mirror ci.yml's regression selector: deployment tests drive
         # scripts/build_release.sh, which requires a repo-local .venv that
