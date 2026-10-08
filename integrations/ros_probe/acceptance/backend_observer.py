@@ -17,6 +17,7 @@ from pathlib import Path
 from backend_observer_replay import BackendObserverReplay
 from backend_probe_evidence import probe_policy
 from native_contact_evidence import reopen_native_policy
+from probe_scene_geometry import decode_scene_json
 
 from rosclaw.connectors.ros.diagnosis.coverage_audit import CoverageAuditLog
 
@@ -31,7 +32,7 @@ def owned_json(path, directory):
     ):
         raise ValueError("bounded owned regular frozen observer policy required")
     raw = path.read_bytes()
-    return raw, json.loads(raw)
+    return raw, decode_scene_json(raw)
 
 
 def retained(raw, source_type, wall, unix):
@@ -64,6 +65,8 @@ def main():
     parser.add_argument("--probe-pose-frame", required=True)
     parser.add_argument("--duration", type=int, required=True)
     parser.add_argument("--prepare-only", action="store_true")
+    for name in ("scene-binding", "probe-declaration", "scene-directory"):
+        parser.add_argument("--" + name, type=Path)
     args = parser.parse_args()
     if (
         not 60 <= args.duration <= 1920
@@ -78,8 +81,35 @@ def main():
     reopen_native_policy(
         args.probe_directory, probe["native_policy"], plugin_path=args.probe_plugin
     )
+    spatial_args = (args.scene_binding, args.probe_declaration, args.scene_directory)
+    if any(v is not None for v in spatial_args) and any(v is None for v in spatial_args):
+        raise ValueError("complete owned spatial observer source arguments required")
+    spatial_options, frozen_spatial_sources = {}, []
+    if args.scene_binding is not None:
+        for name, path in (
+            ("scene_binding", args.scene_binding),
+            ("probe_declaration", args.probe_declaration),
+        ):
+            raw, value = owned_json(path, args.scene_directory)
+            spatial_options[name] = value
+            frozen_spatial_sources.append((path, raw))
+        observed_topics = {
+            topic
+            for p in (robot, probe["native_policy"])
+            for topic in (
+                p["component_topic"],
+                p["contact_policy"]["pose_topic"],
+                *p["contact_policy"]["contacts"],
+            )
+        }
+        if "/rosclaw_sim/physics_snapshot" in observed_topics:
+            raise ValueError("independent scene source aliases a robot/instrument role")
     engine = BackendObserverReplay(
-        robot, probe, robot_pose_frame=args.robot_pose_frame, probe_pose_frame=args.probe_pose_frame
+        robot,
+        probe,
+        robot_pose_frame=args.robot_pose_frame,
+        probe_pose_frame=args.probe_pose_frame,
+        **spatial_options,
     )
     config = {
         "run_id": engine.binding["run_id"],
@@ -142,7 +172,11 @@ def main():
                 raw = serialize_message(message) if is_pose else message.data.encode("utf-8")
                 payload = retained(
                     raw,
-                    "tf2_msgs/msg/TFMessage" if is_pose else "gazebo_ecm_contact_sensor_data_json",
+                    "tf2_msgs/msg/TFMessage"
+                    if is_pose
+                    else "gazebo_ecm_postupdate_observation_json"
+                    if kind == "backend_scene_components"
+                    else "gazebo_ecm_contact_sensor_data_json",
                     wall,
                     unix,
                 )
@@ -172,6 +206,13 @@ def main():
                 lambda m, p=prefix: receive("backend_" + p + "_components", m),
                 component_qos,
             )
+        if engine.spatial is not None:
+            node.create_subscription(
+                String,
+                "/rosclaw_sim/physics_snapshot",
+                lambda m: receive("backend_scene_components", m),
+                component_qos,
+            )
         stop = [False]
         signal.signal(signal.SIGINT, lambda *_: stop.__setitem__(0, True))
         signal.signal(signal.SIGTERM, lambda *_: stop.__setitem__(0, True))
@@ -182,13 +223,26 @@ def main():
             wall = time.monotonic()
             if wall < next_tick:
                 continue
-            if (
-                args.robot_policy.read_bytes() != robot_raw
-                or args.probe_policy.read_bytes() != probe_raw
-            ):
-                engine.gate.fault = (
-                    engine.gate.fault or "frozen independent observer policy changed"
-                )
+            if engine.gate.fault is None:
+                try:
+                    if (
+                        owned_json(args.robot_policy, args.robot_directory)[0] != robot_raw
+                        or owned_json(args.probe_policy, args.probe_directory)[0] != probe_raw
+                        or any(
+                            owned_json(path, args.scene_directory)[0] != raw
+                            for path, raw in frozen_spatial_sources
+                        )
+                    ):
+                        raise ValueError("frozen independent observer policy changed")
+                except (ValueError, OSError) as exc:
+                    engine.gate.fault = str(exc)
+                    audit.emit(
+                        "backend_observation_policy_rejected",
+                        {
+                            "received_monotonic_sec": wall,
+                            "error": str(exc)[:512],
+                        },
+                    )
             if audit.dropped or audit.error:
                 engine.gate.fault = (
                     engine.gate.fault or "original backend observation audit incomplete"

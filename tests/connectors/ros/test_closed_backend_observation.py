@@ -13,7 +13,7 @@ from tests.connectors.ros.test_backend_source_gate import retained, sources
 
 
 @pytest.fixture
-def tape(monkeypatch, tmp_path):
+def tape(monkeypatch, tmp_path, request):
     monkeypatch.syspath_prepend(
         str(Path(__file__).resolve().parents[3] / "integrations/ros_probe/acceptance")
     )
@@ -30,11 +30,19 @@ def tape(monkeypatch, tmp_path):
     calls = []
     monkeypatch.setattr(module, "reopen_native_policy", lambda *a, **kw: calls.append(a))
     robot, robot_policy, instrument, probe_policy = sources()
+    spatial = bool(getattr(request, "param", False))
+    spatial_options, scene = {}, None
+    if spatial:
+        from tests.connectors.ros import test_probe_scene_geometry as spatial_contract
+
+        _, scene, _, _, declaration, binding, _ = spatial_contract.fixture.__wrapped__(monkeypatch)
+        spatial_options = {"scene_binding": binding, "probe_declaration": declaration}
     engine = joint.BackendObserverReplay(
         robot_policy,
         probe_policy,
         robot_pose_frame="synthetic_robot_world",
         probe_pose_frame="synthetic_probe_world",
+        **spatial_options,
     )
     rows = []
     origin = 1_791_504_000_000_000_000
@@ -77,13 +85,31 @@ def tape(monkeypatch, tmp_path):
         p = copy.deepcopy(instrument)
         p.update(
             sequence=i,
-            iterations=i * 50,
+            iterations=i if spatial else i * 50,
             sim_time_sec=sim,
             captured_at_unix_ns=r["captured_at_unix_ns"],
             body_world_pose=[6, 0, z, 1, 0, 0, 0],
         )
         if not touching:
             p["collision_contacts"][0]["contacts"] = []
+        if spatial:
+            scene.update(
+                sequence=i,
+                physics_iteration=i,
+                sim_time_sec=sim,
+                captured_at_unix_ns=r["captured_at_unix_ns"],
+            )
+            scene["obstacles"][1]["world_pose"] = p["body_world_pose"].copy()
+            emit(
+                "backend_scene_components",
+                {
+                    **retained(
+                        json.dumps(scene).encode(), "gazebo_ecm_postupdate_observation_json"
+                    ),
+                    "received_monotonic_sec": wall,
+                    "received_unix_ns": r["captured_at_unix_ns"],
+                },
+            )
         for offset, prefix, packet, pose in [
             (0, "robot", r, [0, 0, 0, 1, 0, 0, 0]),
             (0.002, "probe", p, p["body_world_pose"]),
@@ -158,6 +184,7 @@ def tape(monkeypatch, tmp_path):
             probe_plugin=tmp_path / "synthetic_probe.so",
             robot_pose_frame="synthetic_robot_world",
             probe_pose_frame="synthetic_probe_world",
+            **spatial_options,
         )
 
     write()
@@ -171,6 +198,44 @@ def test_closed_original_joint_projection_replays_without_acceptance(tape):
     assert result["probe_completed_cache_cycles"] == 1 and result["robot_collision_count"] == 0
     assert len(calls) == 4
     assert result["physical_acceptance"] == "NOT_VERIFIED" and not result["backend_health_admitted"]
+
+
+@pytest.mark.parametrize("tape", [True], indirect=True)
+def test_closed_spatial_original_tape_requires_all_same_step_geometry(tape):
+    _, rows, _, validate, _ = tape
+    result = validate()
+    assert result["events_replayed"] == 217 and result["completed_exact_scene_joins"] == 36
+    assert result["spatial_source_join_required"]
+    assert result["probe_completed_cache_cycles"] == 1
+    assert not result["backend_health_admitted"] and not result["authorization"]
+    assert sum(row["kind"] == "backend_scene_components" for row in rows) == 36
+
+
+@pytest.mark.parametrize("tape", [True], indirect=True)
+@pytest.mark.parametrize("fault", ["missing_scene", "pose_mismatch", "projection", "iteration"])
+def test_closed_spatial_tape_refuses_hash_resealed_false_source_or_projection(tape, fault):
+    _, rows, write, validate, _ = tape
+    source = next(row for row in rows if row["kind"] == "backend_scene_components")
+    if fault == "missing_scene":
+        rows.remove(source)
+    elif fault == "projection":
+        source["payload"]["projection"]["joined_spatial_sources"] = [{"invented": True}]
+    else:
+        import base64
+
+        raw = base64.b64decode(source["payload"]["original_source_base64"])
+        packet = json.loads(raw)
+        if fault == "pose_mismatch":
+            packet["body"]["world_pose"][0] += 0.1
+        else:
+            packet["physics_iteration"] += 1
+        replacement = retained(
+            json.dumps(packet).encode(), "gazebo_ecm_postupdate_observation_json"
+        )
+        source["payload"].update(replacement)
+    write()
+    with pytest.raises(ValueError):
+        validate()
 
 
 @pytest.mark.parametrize(

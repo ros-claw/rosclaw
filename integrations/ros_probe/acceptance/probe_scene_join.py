@@ -8,6 +8,7 @@ ownership, executing scene services or providing robot authority.
 import math
 
 from native_contact_evidence import decode_native_packet
+from probe_scene_geometry import decode_scene_json
 
 from rosclaw.connectors.ros.verification.occupancy_geometry import parse_physics_packet
 
@@ -44,6 +45,7 @@ class ProbeSceneJoin:
                 raise ValueError("bounded original spatial source and ordered receipt required")
             self.last_receipt = wall, unix
             if kind == "scene":
+                decode_scene_json(raw)
                 b = self.geometry.binding
                 packet = parse_physics_packet(
                     raw,

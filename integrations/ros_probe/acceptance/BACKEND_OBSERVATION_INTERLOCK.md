@@ -106,3 +106,21 @@ Robot packets between 20 Hz scene observations remain the separate all-step
 contact gate's responsibility. This sampled spatial join cannot certify absence
 of one-step contacts. Source ownership, controller IPC and the qualified full
 launcher remain independent prerequisites; no scene service is executed here.
+
+The optional spatial observer mode requires all of `--scene-binding`,
+`--probe-declaration` and `--scene-directory`. It adds the independent
+`/rosclaw_sim/physics_snapshot` subscription, binds both declarations into a new
+constraint policy hash, and requires spatial readiness as well as the contact
+constraint. `closed_backend_observation` accepts the same two frozen declarations
+and replays original scene bytes and joins with the identical online engine.
+A legacy actor constraint file cannot enable this mode. The owned policy files
+are reopened as regular files; ambiguous/nonfinite/non-UTF8 JSON is refused.
+None of these sources certifies world ownership or creates a scene-service ACK.
+
+The isolated DDS driver accepts `--with-spatial`. It uses explicitly synthetic
+SDK-derived sources at robot 100 Hz / scene and probe 20 Hz, positive physics
+iterations and a fixed 0.5 s transport setup interval before starting sequences.
+It requires all 80 original exact scene joins and checks that the first rejected
+original robot frame is the intentional sequence regression at iteration 401.
+Discovery alone does not prove a data connection. This contract starts no
+Gazebo world, scene service, actuator or Native mission.

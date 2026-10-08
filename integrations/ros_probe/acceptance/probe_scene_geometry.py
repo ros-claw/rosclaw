@@ -5,6 +5,7 @@ inventory. It grants no scene-service or robot authority, and cannot certify
 world ownership, DDS authentication, physical stopping or task acceptance.
 """
 
+import json
 import math
 from copy import deepcopy
 
@@ -13,6 +14,26 @@ from native_contact_evidence import decode_native_packet
 
 from rosclaw.connectors.ros.diagnosis.coverage_audit import digest
 from rosclaw.connectors.ros.verification.occupancy_geometry import parse_physics_packet
+
+
+def decode_scene_json(raw):
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("duplicate original scene JSON key")
+            result[key] = value
+        return result
+
+    def nonfinite(value):
+        raise ValueError("nonfinite original scene JSON constant")
+
+    if type(raw) is not bytes or not 0 < len(raw) <= 262144:
+        raise ValueError("bounded complete original scene bytes required")
+    try:
+        return json.loads(raw.decode("utf-8"), object_pairs_hook=unique, parse_constant=nonfinite)
+    except (UnicodeError, json.JSONDecodeError, RecursionError) as exc:
+        raise ValueError("original scene must be bounded UTF-8 JSON") from exc
 
 
 class ProbeSceneGeometry:
@@ -64,6 +85,7 @@ class ProbeSceneGeometry:
             if type(wall) not in (int, float) or not math.isfinite(wall) or wall < 0:
                 raise ValueError("finite original scene receipt clock required")
             b, d = self.binding, self.declaration
+            decode_scene_json(raw)
             parsed = parse_physics_packet(
                 raw,
                 **{
