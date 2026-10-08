@@ -124,7 +124,8 @@ def audit(directory, output):
     saved = directory / (
         source.name.removesuffix(".gz").removesuffix(".json") + ".verification.json"
     )
-    if saved.exists() and verifier.result() != load(saved)["coverage"]:
+    saved_equal = verifier.result() == load(saved)["coverage"] if saved.exists() else None
+    if saved_equal is False:
         raise ValueError("saved canonical verifier differs from exact replay")
     if verifier.result()["coverage_ratio"] != receipt["verification_result"]["coverage_ratio"]:
         raise ValueError("canonical coverage differs from exact replay")
@@ -216,7 +217,7 @@ def audit(directory, output):
         "body_snapshot_hash": receipt["body_snapshot_hash"],
         "denominator_hash": digest(grid),
         "fixed_denominator_cells": len(verifier.accessible),
-        "canonical_verifier_replay_equal": True,
+        "canonical_verifier_replay_equal": saved_equal,
         "observed_final_coverage_ratio": verifier.result()["coverage_ratio"],
         "main_sample_count": main_count,
         "historical_checkpoint_ratio": checkpoint_ratio if main_count is None else None,
