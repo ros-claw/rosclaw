@@ -133,7 +133,9 @@ class CoverageVerifier:
             raise ValueError("temporary blocks must be accessible cells")
         self.temporary_blocked = set(cells)
 
-    def observe(self, pose: CleaningPose, *, frame_id: str) -> None:
+    def observe(self, pose: CleaningPose, *, frame_id: str, interpolate: bool = True) -> None:
+        if type(interpolate) is not bool:
+            raise ValueError("interpolation mode must be a boolean")
         if type(pose.cleaning_enabled) is not bool:
             raise ValueError("cleaning state must be an observed boolean")
         if frame_id != self.frame_id:
@@ -156,17 +158,21 @@ class CoverageVerifier:
             dt = pose.time_sec - previous.time_sec
             yaw_delta = (pose.yaw - previous.yaw + math.pi) % (2 * math.pi) - math.pi
             if dt <= self.max_gap and distance / dt <= self.max_speed:
-                steps = max(
-                    1, math.ceil((distance + abs(yaw_delta) * self.radius) / (self.resolution / 4))
-                )
-                positions = [
-                    (
-                        previous.x + (pose.x - previous.x) * i / steps,
-                        previous.y + (pose.y - previous.y) * i / steps,
-                        previous.yaw + yaw_delta * i / steps,
+                if interpolate:
+                    steps = max(
+                        1,
+                        math.ceil(
+                            (distance + abs(yaw_delta) * self.radius) / (self.resolution / 4)
+                        ),
                     )
-                    for i in range(steps + 1)
-                ]
+                    positions = [
+                        (
+                            previous.x + (pose.x - previous.x) * i / steps,
+                            previous.y + (pose.y - previous.y) * i / steps,
+                            previous.yaw + yaw_delta * i / steps,
+                        )
+                        for i in range(steps + 1)
+                    ]
             else:
                 self.gaps += 1
                 self.last_footprint.clear()
