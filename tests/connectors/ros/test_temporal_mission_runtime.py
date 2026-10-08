@@ -301,7 +301,8 @@ def test_negative_first_sim_timestamp_never_enters_credit():
     ],
 )
 @pytest.mark.parametrize("tracking", [False, True])
-def test_malformed_receiver_frame_cannot_disappear_after_next_good_frame(fault, tracking):
+@pytest.mark.parametrize("topic", ["/rosclaw_sim/observation", "/different/robot/independent"])
+def test_malformed_receiver_frame_cannot_disappear_after_next_good_frame(fault, tracking, topic):
     good = {
         **sample(0, 0, 0.005, []),
         "evidence_domain": "GAZEBO_PHYSICS",
@@ -327,11 +328,12 @@ def test_malformed_receiver_frame_cannot_disappear_after_next_good_frame(fault, 
         payload = "\ud800"
     elif fault == "oversize":
         payload = " " * 2_000_001
-    bad_frame = {"topic": "/rosclaw_sim/observation", "msg": {"data": payload}}
+    bad_frame = {"topic": topic, "msg": {"data": payload}}
     if fault == "envelope":
         bad_frame = ["invalid"]
-    frames = [bad_frame, {"topic": "/rosclaw_sim/observation", "msg": {"data": json.dumps(good)}}]
+    frames = [bad_frame, {"topic": topic, "msg": {"data": json.dumps(good)}}]
     witness = SimulationWitness.__new__(SimulationWitness)
+    witness.observation_topic = topic
     witness.closed = Event()
     witness.lock = Lock()
     witness.samples, witness.receiver_faults = [], []

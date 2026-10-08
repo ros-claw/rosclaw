@@ -29,6 +29,8 @@ def propose_sim_execution_interfaces(model, policy, specification, *, now=None):
         result["unknown_fields"].append("explicit_complete_execution_interface_declaration")
         return result
     try:
+        if type(declaration["endpoints"]) is not dict or "hold" not in declaration["endpoints"]:
+            raise ValueError("explicit observed SIM hold service required")
         endpoints = freeze_sim_endpoints(declaration["endpoints"])
         observation = absolute_endpoint(declaration["observation_topic"])
         node = absolute_endpoint(declaration["coverage_lifecycle_node"])
@@ -62,6 +64,7 @@ def propose_sim_execution_interfaces(model, policy, specification, *, now=None):
         ("set_initial_pose", "nav2_msgs/srv/SetInitialPose"),
         ("lease", "std_srvs/srv/SetBool"),
         ("cleaning", "std_srvs/srv/SetBool"),
+        ("hold", "std_srvs/srv/SetBool"),
     ):
         matches = [s for s in model.graph.get("services", []) if s.get("name") == endpoints[role]]
         if len(matches) != 1 or matches[0].get("srv_type") != kind:

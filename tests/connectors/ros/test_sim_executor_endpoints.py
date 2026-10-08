@@ -152,3 +152,39 @@ def test_spawn_numeric_bounds_refuse_unknown_configuration(bad):
 
     with pytest.raises(ValueError):
         freeze_sim_spawn(bad)
+
+
+def test_dynamic_wait_uses_frozen_namespaced_hold_service(tmp_path):
+    endpoints = {k: "/different/robot" + value for k, value in DEFAULT_ENDPOINTS.items()}
+    executor = configured(tmp_path, endpoints=endpoints)
+    calls = []
+    executor.lease_control = SimpleNamespace(
+        call_service=lambda name, values, **kwargs: (
+            calls.append((name, values))
+            or SimpleNamespace(ok=True, data={"values": {"success": True}})
+        )
+    )
+    executor._set_obstacle_wait(True)
+    executor._set_obstacle_wait(False)
+    assert calls == [
+        ("/different/robot/rosclaw_sim/hold", {"data": True}),
+        ("/different/robot/rosclaw_sim/hold", {"data": False}),
+    ]
+
+
+def test_legacy_six_endpoints_remain_static_compatible_but_dynamic_requires_hold(tmp_path):
+    endpoints = {k: "/different" + value for k, value in DEFAULT_ENDPOINTS.items() if k != "hold"}
+    assert freeze_sim_endpoints(endpoints)["navigate_to_pose"] == "/different/navigate_to_pose"
+    with pytest.raises(ValueError, match="explicit hold"):
+        RosCoverageSimulationExecutor(
+            owner="daemon_test",
+            client=None,
+            control=None,
+            witness=None,
+            output=tmp_path,
+            body_id="body",
+            body_snapshot_hash="hash",
+            grid={},
+            endpoints=endpoints,
+            occupancy_binding={"run_id": "fresh", "geometry_hash": "source"},
+        )

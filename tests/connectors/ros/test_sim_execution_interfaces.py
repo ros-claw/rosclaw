@@ -22,6 +22,7 @@ def execution_example(namespace="/sample"):
         "set_initial_pose": namespace + "/init",
         "lease": namespace + "/lease",
         "cleaning": namespace + "/brush_switch",
+        "hold": namespace + "/hold",
     }
     node, observation = namespace + "/coverage_node", namespace + "/independent"
     model.graph["actions"] += [
@@ -37,6 +38,7 @@ def execution_example(namespace="/sample"):
     model.graph["services"] += [
         {"name": endpoints["set_initial_pose"], "srv_type": "nav2_msgs/srv/SetInitialPose"},
         {"name": endpoints["lease"], "srv_type": "std_srvs/srv/SetBool"},
+        {"name": endpoints["hold"], "srv_type": "std_srvs/srv/SetBool"},
     ]
     model.graph["topics"].append({"name": observation, "msg_type": "std_msgs/msg/String"})
     model.signals.append(
@@ -114,9 +116,9 @@ def test_missing_stale_ambiguous_or_mismatched_interfaces_refuse_compilation(tmp
     elif fault == "coverage_duplicate":
         model.graph["actions"].append(deepcopy(model.graph["actions"][-1]))
     elif fault == "initial_type":
-        model.graph["services"][-2]["srv_type"] = "std_srvs/srv/SetBool"
+        model.graph["services"][-3]["srv_type"] = "std_srvs/srv/SetBool"
     elif fault == "missing_lease":
-        model.graph["services"].pop()
+        model.graph["services"].pop(-2)
     elif fault == "inactive":
         model.lifecycle[-1].state = "INACTIVE"
     elif fault == "old_lifecycle":
@@ -157,3 +159,26 @@ def test_modified_unsealed_snapshot_refuses_interface_proposal():
     model.graph["actions"][-1]["name"] = "/different"
     with pytest.raises(ValueError, match="snapshot hash"):
         propose_sim_execution_interfaces(model, policy, specification, now=NOW)
+
+
+@pytest.mark.parametrize("fault", ["undeclared", "missing", "wrong_type", "duplicate"])
+def test_generic_dynamic_hold_must_be_explicit_and_observed(fault):
+    model, data, attachment, policy = execution_example("/renamed/robot")
+    specification = propose_sim_fixture_binding(
+        model, data, attachment=attachment, policy=policy, now=NOW
+    )["specification"]
+    hold = policy["execution_interfaces"]["endpoints"]["hold"]
+    if fault == "undeclared":
+        policy["execution_interfaces"]["endpoints"].pop("hold")
+    elif fault == "missing":
+        model.graph["services"] = [s for s in model.graph["services"] if s["name"] != hold]
+    elif fault == "wrong_type":
+        next(s for s in model.graph["services"] if s["name"] == hold)["srv_type"] = (
+            "std_srvs/srv/Trigger"
+        )
+    else:
+        model.graph["services"].append({"name": hold, "srv_type": "std_srvs/srv/SetBool"})
+    model.seal()
+    policy["source_snapshot_hash"] = model.snapshot_hash
+    result = propose_sim_execution_interfaces(model, policy, specification, now=NOW)
+    assert result["status"] == "UNKNOWN" and result["capabilities_granted"] == []

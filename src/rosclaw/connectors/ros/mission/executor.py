@@ -248,6 +248,8 @@ class RosCoverageSimulationExecutor:
         if not math.isfinite(repair_swath_yaw) or not 0 < repair_budget_ms <= 1000:
             raise ValueError("configured repair yaw/budget must be finite and bounded")
         self.endpoints = freeze_sim_endpoints(endpoints)
+        if occupancy_binding is not None and endpoints is not None and "hold" not in endpoints:
+            raise ValueError("dynamic configured endpoints require an explicit hold service")
         self.configured_spawn = freeze_sim_spawn(configured_spawn)
         self.repair_strategy = repair_strategy
         self.repair_swath_yaw = repair_swath_yaw
@@ -599,7 +601,7 @@ class RosCoverageSimulationExecutor:
             self.waiting_for_obstacle.set()
         with self.lease_lock:
             response = self.lease_control.call_service(
-                "/rosclaw_sim/hold",
+                self.endpoints["hold"],
                 {"data": waiting},
                 service_type="std_srvs/srv/SetBool",
                 timeout_sec=0.5,

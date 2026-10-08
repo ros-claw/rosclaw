@@ -11,6 +11,7 @@ DEFAULT_ENDPOINTS = MappingProxyType(
         "set_initial_pose": "/set_initial_pose",
         "lease": "/rosclaw_sim/lease",
         "cleaning": "/rosclaw_sim/cleaning",
+        "hold": "/rosclaw_sim/hold",
     }
 )
 
@@ -29,9 +30,13 @@ def freeze_sim_endpoints(endpoints=None):
     """Require a whole configured set; never infer an unknown namespace."""
     if endpoints is None:
         return DEFAULT_ENDPOINTS
-    if type(endpoints) is not dict or set(endpoints) != set(DEFAULT_ENDPOINTS):
+    if type(endpoints) is not dict or set(endpoints) not in (
+        set(DEFAULT_ENDPOINTS),
+        set(DEFAULT_ENDPOINTS) - {"hold"},
+    ):
         raise ValueError("complete explicit simulator endpoint configuration required")
     frozen = {key: absolute_endpoint(value) for key, value in endpoints.items()}
+    frozen.setdefault("hold", DEFAULT_ENDPOINTS["hold"])
     if len(set(frozen.values())) != len(frozen):
         raise ValueError("simulator endpoint roles must be distinct")
     return MappingProxyType(frozen)
