@@ -61,16 +61,25 @@ class FakeRosbridgeActionServer:
             sequence = [0, 1]
             for _ in range(max(1, min(order, 8))):
                 sequence.append(sequence[-1] + sequence[-2])
-                await ws.send(json.dumps({
-                    "op": "action_feedback", "id": goal_id,
-                    "values": {"sequence": list(sequence)},
-                }))
+                await ws.send(
+                    json.dumps(
+                        {
+                            "op": "action_feedback",
+                            "id": goal_id,
+                            "values": {"sequence": list(sequence)},
+                        }
+                    )
+                )
                 await asyncio.sleep(0.4)
-            await ws.send(json.dumps({
-                "op": "action_result", "id": goal_id,
-                "values": {"status": SUCCEEDED,
-                           "result": {"sequence": sequence}},
-            }))
+            await ws.send(
+                json.dumps(
+                    {
+                        "op": "action_result",
+                        "id": goal_id,
+                        "values": {"status": SUCCEEDED, "result": {"sequence": sequence}},
+                    }
+                )
+            )
 
         async def handler(ws) -> None:
             # 并发语义（与真 rosbridge 一致）：goal 执行与消息读取并行——
@@ -81,19 +90,22 @@ class FakeRosbridgeActionServer:
                     self.goals.append(msg)
                     goal_id = msg["id"]
                     order = int(msg.get("args", {}).get("order", 3))
-                    running[goal_id] = asyncio.create_task(
-                        fibonacci(ws, goal_id, order)
-                    )
+                    running[goal_id] = asyncio.create_task(fibonacci(ws, goal_id, order))
                 elif msg.get("op") == "cancel_goal":
                     goal_id = str(msg.get("id", ""))
                     self.cancelled.append(goal_id)
                     task = running.pop(goal_id, None)
                     if task is not None:
                         task.cancel()
-                    await ws.send(json.dumps({
-                        "op": "action_result", "id": goal_id,
-                        "values": {"status": CANCELED, "result": {}},
-                    }))
+                    await ws.send(
+                        json.dumps(
+                            {
+                                "op": "action_result",
+                                "id": goal_id,
+                                "values": {"status": CANCELED, "result": {}},
+                            }
+                        )
+                    )
 
         self._server = await websockets.serve(handler, "127.0.0.1", 0)
         self._port = self._server.sockets[0].getsockname()[1]
@@ -135,15 +147,15 @@ class TestRos2ActionLiveJourney:
             (now, now),
         )
         conn.commit()
-        transport = RosbridgeTransport(
-            RosbridgeEndpoint(host="127.0.0.1", port=server.port)
-        )
+        transport = RosbridgeTransport(RosbridgeEndpoint(host="127.0.0.1", port=server.port))
         client = Ros2ActionClient(transport)
         mgr = OperationManager(None, conn)
         try:
+
             async def run() -> dict:
                 op = await mgr.start_action(
-                    task_id="task_1", attempt_id="",
+                    task_id="task_1",
+                    attempt_id="",
                     action="/fibonacci",
                     action_type="action_tutorials_interfaces/action/Fibonacci",
                     args={"order": 4},
@@ -151,7 +163,8 @@ class TestRos2ActionLiveJourney:
                 )
                 # cancel 链路（第二个 goal）。
                 op2 = await mgr.start_action(
-                    task_id="task_1", attempt_id="",
+                    task_id="task_1",
+                    attempt_id="",
                     action="/fibonacci",
                     action_type="action_tutorials_interfaces/action/Fibonacci",
                     args={"order": 8},
@@ -165,16 +178,17 @@ class TestRos2ActionLiveJourney:
                 deadline = asyncio.get_running_loop().time() + 20.0
                 while (
                     mgr.get(op2["operation_id"])["state"] != "CANCELLED"
-                    and asyncio.get_running_loop().time() < deadline
-                ):
+                    or mgr.get(op["operation_id"])["state"] != "SUCCEEDED"
+                ) and asyncio.get_running_loop().time() < deadline:
                     await asyncio.sleep(0.05)
+                assert mgr.get(op["operation_id"])["state"] == "SUCCEEDED"
+                assert mgr.get(op2["operation_id"])["state"] == "CANCELLED"
                 return op
 
             op = asyncio.run(run())
             op_id = op["operation_id"]
 
-            _wait(lambda: mgr.get(op_id)["state"] == "SUCCEEDED",
-                  label="goal1 SUCCEEDED")
+            _wait(lambda: mgr.get(op_id)["state"] == "SUCCEEDED", label="goal1 SUCCEEDED")
             row = mgr.get(op_id)
             assert row["goal_id"], "缺 goal_id"
             assert row["provider"] == "ros2_action"
@@ -183,19 +197,23 @@ class TestRos2ActionLiveJourney:
             assert progress.get("sequence"), f"feedback 未落成 progress: {row}"
 
             rows = conn.execute(
-                "SELECT operation_id, state, cancel_reason FROM operations "
-                "WHERE operation_id != ?",
+                "SELECT operation_id, state, cancel_reason FROM operations WHERE operation_id != ?",
                 (op_id,),
             ).fetchall()
             assert len(rows) == 1
-            _wait(lambda: conn.execute(
-                "SELECT state FROM operations WHERE operation_id = ?",
-                (rows[0]["operation_id"],),
-            ).fetchone()["state"] == "CANCELLED", timeout=30.0,
-                  label="goal2 CANCELLED")
+            _wait(
+                lambda: (
+                    conn.execute(
+                        "SELECT state FROM operations WHERE operation_id = ?",
+                        (rows[0]["operation_id"],),
+                    ).fetchone()["state"]
+                    == "CANCELLED"
+                ),
+                timeout=30.0,
+                label="goal2 CANCELLED",
+            )
             final = conn.execute(
-                "SELECT state, cancel_reason FROM operations "
-                "WHERE operation_id = ?",
+                "SELECT state, cancel_reason FROM operations WHERE operation_id = ?",
                 (rows[0]["operation_id"],),
             ).fetchone()
             assert final["state"] == "CANCELLED"
@@ -204,13 +222,14 @@ class TestRos2ActionLiveJourney:
 
             types = [
                 r["event_type"]
-                for r in conn.execute(
-                    "SELECT event_type FROM task_events ORDER BY seq"
-                ).fetchall()
+                for r in conn.execute("SELECT event_type FROM task_events ORDER BY seq").fetchall()
             ]
             for expected in (
-                "operation.queued", "operation.admitted", "operation.progress",
-                "operation.completed", "operation.canceling",
+                "operation.queued",
+                "operation.admitted",
+                "operation.progress",
+                "operation.completed",
+                "operation.canceling",
                 "operation.cancelled",
             ):
                 assert expected in types, f"事件链缺 {expected}"
