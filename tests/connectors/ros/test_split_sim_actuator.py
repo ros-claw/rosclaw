@@ -441,7 +441,8 @@ def test_actual_witness_callbacks_pair_component_packet_with_brush_and_apply_blo
         packet["obstacles"][0]["collision_geometry"][0].update(radius=0.3, enclosing_radius_m=0.4)
     elif fault == "stale":
         packet["captured_at_unix_ns"] -= 300_000_000
-    observer.physics_event(SimpleNamespace(data=json.dumps(packet)))
+    rejected_wire = json.dumps(packet)
+    observer.physics_event(SimpleNamespace(data=rejected_wire))
     observer.tick()
     second = json.loads(observer.publishers["/rosclaw_sim/observation"][-1].data)
     if fault is None:
@@ -450,6 +451,34 @@ def test_actual_witness_callbacks_pair_component_packet_with_brush_and_apply_blo
         assert set(accounting.verifier.visits) == {10}  # only actual new revisit after withdrawal
     else:
         assert not second["observation_complete"] and second["physics_source_fault"]
+        rejection = next(
+            payload for kind, payload in retained if kind == "physics_snapshot_rejected"
+        )
+        assert rejection["raw_packet_utf8"] == rejected_wire
+        assert rejection["packet_sha256"] == hashlib.sha256(rejected_wire.encode()).hexdigest()
+        assert rejection["source_bytes_complete"] is True and rejection["source_admitted"] is False
+        before = len(retained)
+        observer.physics_event(SimpleNamespace(data=wire))
+        assert len(retained) == before  # The first source fault stays latched.
         with pytest.raises(ValueError):
             accounting.observe_sample(second)
         assert not accounting.verifier.visits
+
+
+@pytest.mark.parametrize("wire", ["{not json}", "x" * 262145, "\ud800"])
+def test_rejected_source_retention_is_bounded_without_fabricating_admission(monkeypatch, wire):
+    observer = load_node("witness.py", "Witness", monkeypatch)
+    retained = []
+    observer.plan_audit.emit = lambda kind, payload, **kw: retained.append((kind, payload, kw))
+    observer.physics_event(SimpleNamespace(data=wire))
+    assert observer.physics_fault
+    kind, evidence, timestamp = retained[-1]
+    assert kind == "physics_snapshot_rejected" and timestamp == {}
+    assert evidence["source_admitted"] is False
+    if wire == "{not json}":
+        assert evidence["source_bytes_complete"] and evidence["raw_packet_utf8"] == wire
+    else:
+        assert evidence["source_bytes_complete"] is False and "raw_packet_utf8" not in evidence
+    before = len(retained)
+    observer.physics_event(SimpleNamespace(data="{}"))
+    assert len(retained) == before
