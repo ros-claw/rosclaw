@@ -264,7 +264,11 @@ def prepare_contact_policy(
                 raise ValueError("one exact prepared Gazebo-to-ROS contact bridge required")
             gz_topic = mappings[0]["gz_topic_name"]
             scoped = f"/world/{physics['world_name']}/model/{model.get('name')}/link/{name}/sensor/{sensor.get('name')}/contact"
-            if gz_topic in gz_topics or gz_topic not in {topic, scoped}:
+            if gz_topic in gz_topics or gz_topic not in {
+                topic,
+                scoped,
+                sensor.findtext("contact/topic"),
+            }:
                 raise ValueError(
                     "exact distinct SDF or fully scoped Gazebo contact source required"
                 )

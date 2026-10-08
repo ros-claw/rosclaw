@@ -42,8 +42,13 @@ states `physical_acceptance=NOT_VERIFIED`.
 Its original pose CDR and original producer JSON bytes are retained with hashes
 and sizes, including rejected inputs. It reopens supplied SDF/bridge/producer
 bytes on preparation and closure. Source preparation is not runtime admission.
-A closed-original-byte replay and actual backend qualification still need to be
-connected to final Native acceptance. No task or brush state is inferred here.
+A closed-original-byte replay is implemented in
+`closed_native_contact_evidence.py`: it reopens prepared sources, replays
+installed official TFMessage CDR and original JSON, checks genesis/sequence/hash
+chain and writer closure, and requires complete source brackets and no gaps.
+Its 15 synthetic serialization contracts and 8 actual observer callback contracts
+retain original bytes and fault traces. Backend qualification and the replay
+still need to be connected to final Native acceptance. No task or brush state is inferred here.
 
 The new generic fixture writes the nested native contact topic as well as the
 explicit bridge topic. It preserves original source geometry and does not pick

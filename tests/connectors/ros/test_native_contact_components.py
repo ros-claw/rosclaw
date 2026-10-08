@@ -376,3 +376,24 @@ def test_prepared_native_topic_or_binding_conflicts_refuse(evidence, prepared_na
         evidence.reopen_native_policy(
             prepared_native, frozen, plugin_path=prepared_native / "source-fixture.so"
         )
+
+
+def test_distinct_ros_and_explicit_native_gazebo_topics_are_preserved(evidence, prepared_native):
+    import xml.etree.ElementTree as ET
+
+    import yaml
+
+    tree = ET.parse(prepared_native / "robot.sdf")
+    tree.find("model/link/sensor/contact/topic").text = "/qualified/native_support"
+    tree.write(prepared_native / "robot.sdf")
+    bridge = yaml.safe_load((prepared_native / "bridge.yaml").read_bytes())
+    bridge[0]["gz_topic_name"] = "/qualified/native_support"
+    (prepared_native / "bridge.yaml").write_text(yaml.safe_dump(bridge))
+    frozen = prepare(evidence, prepared_native)
+    assert frozen["native_sources"]["/contacts/support"]["gz_topic"] == "/qualified/native_support"
+    assert (
+        evidence.reopen_native_policy(
+            prepared_native, frozen, plugin_path=prepared_native / "source-fixture.so"
+        )
+        == frozen
+    )
