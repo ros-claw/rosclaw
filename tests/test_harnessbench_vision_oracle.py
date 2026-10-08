@@ -1,9 +1,12 @@
 """Actual lossless render observations and counterexamples; never physics stepping."""
 
 import copy
+import hashlib
+import json
 import os
 import subprocess
 import sys
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -205,29 +208,65 @@ def test_renderer_worker_initial_state_mismatch_still_rejected_as_evidence_failu
     assert not isinstance(error.value, vision_oracle.CameraRendererUnavailableError)
 
 
-@pytest.mark.parametrize("worker", ["_CAMERA_WORKER_CODE", "_RENDER_WORKER_CODE"])
-@pytest.mark.parametrize("selected", ["egl", "osmesa"])
-@pytest.mark.parametrize("inherited", ["egl", "osmesa"])
-def test_real_worker_renderer_platform_matrix(worker, selected, inherited):
-    # Execute the exact production prefix, including its imports, in a fresh
-    # process. Inspecting environment strings alone misses lazy OpenGL loading.
-    prefix = getattr(mujoco_backend, worker).split("request = json.loads", 1)[0]
-    code = (
-        prefix
-        + """
+# Linux CI contract. Only an exact missing selected SONAME is known unavailable.
+# Package presence, find_library, historical tracebacks and imports are NOT proof
+# of offscreen capability. These children are executed only in the renderer phase.
+_RENDERER_LIBRARIES = {"egl": "libEGL.so.1", "osmesa": "libOSMesa.so.8"}
+_RENDERER_MARKER = "REAL_RENDERER_CLOSED_ZERO_STEP"
+_RENDERER_CAPABILITY_SCHEMA = "renderer_capability.v1"
+_RENDERER_NATIVE_PROBE_CODE = r"""
+import ctypes
+import json
+import sys
+
+selected = sys.argv[1]
+soname = {"egl": "libEGL.so.1", "osmesa": "libOSMesa.so.8"}[selected]
+if not sys.platform.startswith("linux"):
+    raise RuntimeError("RENDERER_CAPABILITY_UNKNOWN_PLATFORM")
+try:
+    native_library = ctypes.CDLL(soname)
+except OSError as exc:
+    # Missing dependency, permissions, symbols or a broken driver are NOT this
+    # narrow absence classification; they propagate as failures.
+    detail = str(exc)
+    if detail != soname + ": cannot open shared object file: No such file or directory":
+        raise
+    print(json.dumps({
+        "schema": "renderer_capability.v1", "backend": selected,
+        "status": "UNAVAILABLE", "stage": "native_loader",
+        "reason": "SELECTED_NATIVE_LIBRARY_ABSENT", "library": soname,
+        "exception_type": "OSError", "detail": detail,
+    }, sort_keys=True))
+    raise SystemExit(0)
+"""
+_RENDERER_CONSTRUCTOR_CODE = r"""
 assert os.environ["MUJOCO_GL"] == os.environ["PYOPENGL_PLATFORM"] == backend
 assert hasattr(mujoco, "Renderer")
 model = mujoco.MjModel.from_xml_string(
     '<mujoco><worldbody><geom type="sphere" size=".1"/></worldbody></mujoco>'
 )
-try:
-    renderer = mujoco.Renderer(model, height=32, width=32)
-except Exception as exc:
-    raise SystemExit(f"INFRASTRUCTURE_FAILURE: {backend}: {exc}") from exc
+renderer = mujoco.Renderer(model, height=32, width=32)
 renderer.close()
-print("REAL_RENDERER_CLOSED_ZERO_STEP")
 """
+
+
+def _renderer_prefix(worker):
+    source = getattr(mujoco_backend, worker)
+    assert "request = json.loads" in source, "PRODUCTION_PREFIX_BOUNDARY_CHANGED"
+    return source.split("request = json.loads", 1)[0]
+
+
+def _required_renderer_backends():
+    declared = os.environ.get("ROSCLAW_REQUIRED_RENDERER_BACKENDS", "osmesa")
+    required = set(declared.split(","))
+    assert required <= _RENDERER_LIBRARIES.keys() and "osmesa" in required, (
+        f"INVALID_REQUIRED_RENDERER_BACKENDS: {declared!r}; OSMesa cannot be downgraded"
     )
+    return required
+
+
+def _run_renderer_child(code, selected, inherited, label):
+    assert selected in _RENDERER_LIBRARIES and inherited in _RENDERER_LIBRARIES
     env = dict(os.environ, MUJOCO_GL=inherited, PYOPENGL_PLATFORM=inherited)
     try:
         result = subprocess.run(
@@ -237,11 +276,319 @@ print("REAL_RENDERER_CLOSED_ZERO_STEP")
             text=True,
             timeout=30,
         )
-    except subprocess.TimeoutExpired:
-        pytest.fail(f"INFRASTRUCTURE_FAILURE: {worker}/{selected}/{inherited}: child timeout")
-    # Missing renderer infrastructure is a failure, never a mock/skip success;
-    # this explicitly tests both backends without falling back to the other.
+    except subprocess.TimeoutExpired as exc:
+        # subprocess.run kills and waits for its owned child on timeout.
+        raise AssertionError(f"INFRASTRUCTURE_FAILURE: {label}: child timeout") from exc
+    # Fail BEFORE interpreting any output as absence. Signals/native crashes,
+    # import/constructor defects and evidence errors can never turn into skips.
     assert result.returncode == 0, (
-        f"{worker}/{selected}/{inherited}: {result.stdout}{result.stderr}"
+        f"INFRASTRUCTURE_FAILURE: {label}: returncode={result.returncode}: "
+        f"{result.stdout}{result.stderr}"
     )
-    assert result.stdout.strip() == "REAL_RENDERER_CLOSED_ZERO_STEP"
+    return result
+
+
+def _probe_renderer_capability(selected):
+    prefix = _renderer_prefix("_CAMERA_WORKER_CODE")
+    code = (
+        _RENDERER_NATIVE_PROBE_CODE
+        + prefix
+        + _RENDERER_CONSTRUCTOR_CODE
+        + '\nprint(json.dumps({"schema": "renderer_capability.v1", '
+        '"backend": backend, "status": "AVAILABLE", '
+        '"stage": "offscreen_constructor", '
+        '"reason": "REAL_RENDERER_CLOSED_ZERO_STEP"}, sort_keys=True))\n'
+    )
+    result = _run_renderer_child(code, selected, selected, f"capability/{selected}")
+    # Malformed/unknown output is a hard failure, not an absence heuristic.
+    capability = json.loads(result.stdout)
+    assert isinstance(capability, dict), "INVALID_RENDERER_CAPABILITY_RECORD"
+    capability["probe"] = {
+        "worker": "_CAMERA_WORKER_CODE",
+        "prefix_sha256": hashlib.sha256(prefix.encode()).hexdigest(),
+        "selected": selected,
+        "inherited": selected,
+        "returncode": result.returncode,
+        "stdout": result.stdout,
+        "stderr": result.stderr,
+    }
+    return capability
+
+
+def _renderer_capability_verdict(selected, capability, required):
+    assert capability.get("schema") == _RENDERER_CAPABILITY_SCHEMA, (
+        "INVALID_RENDERER_CAPABILITY_SCHEMA"
+    )
+    assert capability.get("backend") == selected, "RENDERER_CAPABILITY_BACKEND_MISMATCH"
+    probe = capability.get("probe", {})
+    assert (
+        probe.get("returncode") == 0
+        and probe.get("selected") == probe.get("inherited") == selected
+        and probe.get("worker") == "_CAMERA_WORKER_CODE"
+        and probe.get("prefix_sha256")
+        == hashlib.sha256(_renderer_prefix("_CAMERA_WORKER_CODE").encode()).hexdigest()
+    ), "INVALID_RENDERER_CAPABILITY_PROBE_EVIDENCE"
+    if capability.get("status") == "AVAILABLE":
+        assert capability.get("stage") == "offscreen_constructor", (
+            "AVAILABLE_REQUIRES_REAL_OFFSCREEN_CONSTRUCTION"
+        )
+        assert capability.get("reason") == _RENDERER_MARKER
+        return {"type": _RENDERER_CAPABILITY_SCHEMA, "verdict": "RUN", "capability": capability}
+    assert capability.get("status") == "UNAVAILABLE", "RENDERER_CAPABILITY_UNKNOWN"
+    soname = _RENDERER_LIBRARIES[selected]
+    assert (
+        capability.get("stage") == "native_loader"
+        and capability.get("reason") == "SELECTED_NATIVE_LIBRARY_ABSENT"
+        and capability.get("library") == soname
+        and capability.get("exception_type") == "OSError"
+        and capability.get("detail")
+        == soname + ": cannot open shared object file: No such file or directory"
+    ), "UNPROVED_RENDERER_UNAVAILABILITY"
+    assert selected not in required, (
+        "INFRASTRUCTURE_FAILURE: REQUIRED_RENDERER_UNAVAILABLE: "
+        + json.dumps(capability, sort_keys=True)
+    )
+    return {
+        "type": _RENDERER_CAPABILITY_SCHEMA,
+        "verdict": "NOT_RUN",
+        "reason": "OPTIONAL_SELECTED_NATIVE_LIBRARY_ABSENT",
+        "capability": capability,
+    }
+
+
+def _exercise_renderer_matrix(worker, selected, inherited, capability, required):
+    verdict = _renderer_capability_verdict(selected, capability, required)
+    if verdict["verdict"] == "NOT_RUN":
+        return verdict
+    prefix = _renderer_prefix(worker)
+    result = _run_renderer_child(
+        prefix + _RENDERER_CONSTRUCTOR_CODE + f"\nprint({_RENDERER_MARKER!r})\n",
+        selected,
+        inherited,
+        f"{worker}/{selected}/{inherited}",
+    )
+    assert result.stdout.strip() == _RENDERER_MARKER, "REAL_RENDERER_CLOSE_MARKER_MISSING"
+    return {**verdict, "verdict": "PASS", "worker": worker, "inherited": inherited}
+
+
+@pytest.fixture(scope="module")
+def renderer_capabilities():
+    # Cache per selected backend within this test process only; no stale external
+    # declaration can label a backend available. Parent GL modules/env untouched.
+    return {}
+
+
+def _cached_renderer_capability(capabilities, selected):
+    if selected not in capabilities:
+        capabilities[selected] = _probe_renderer_capability(selected)
+    return capabilities[selected]
+
+
+def test_required_renderer_backend_offscreen_capability(renderer_capabilities, record_property):
+    for selected in sorted(_required_renderer_backends()):
+        capability = _cached_renderer_capability(renderer_capabilities, selected)
+        verdict = _renderer_capability_verdict(selected, capability, _required_renderer_backends())
+        record_property(f"renderer_capability_{selected}", json.dumps(verdict, sort_keys=True))
+        assert verdict["verdict"] == "RUN"
+
+
+@pytest.mark.parametrize("worker", ["_CAMERA_WORKER_CODE", "_RENDER_WORKER_CODE"])
+@pytest.mark.parametrize("selected", ["egl", "osmesa"])
+@pytest.mark.parametrize("inherited", ["egl", "osmesa"])
+def test_real_worker_renderer_platform_matrix(
+    worker, selected, inherited, renderer_capabilities, record_property
+):
+    # Every available combination still executes the exact production prefix
+    # and a real Renderer in a fresh child, including mismatched inherited env.
+    capability = _cached_renderer_capability(renderer_capabilities, selected)
+    verdict = _exercise_renderer_matrix(
+        worker, selected, inherited, capability, _required_renderer_backends()
+    )
+    evidence = json.dumps(verdict, sort_keys=True)
+    record_property("renderer_capability", evidence)
+    if verdict["verdict"] == "NOT_RUN":
+        pytest.skip(evidence)  # Typed NOT_RUN, NOT a passing renderer matrix.
+    assert verdict["verdict"] == "PASS"
+
+
+# SOURCE selector: pure supplied records + mocked subprocess responses only.
+# No fixture here calls any MuJoCo model/Renderer/engine API or real subprocess.
+def _mock_renderer_capability(selected, status="AVAILABLE"):
+    record = {
+        "schema": _RENDERER_CAPABILITY_SCHEMA,
+        "backend": selected,
+        "status": status,
+        "stage": "offscreen_constructor",
+        "reason": _RENDERER_MARKER,
+    }
+    if status == "UNAVAILABLE":
+        soname = _RENDERER_LIBRARIES[selected]
+        record.update(
+            stage="native_loader",
+            reason="SELECTED_NATIVE_LIBRARY_ABSENT",
+            library=soname,
+            exception_type="OSError",
+            detail=soname + ": cannot open shared object file: No such file or directory",
+        )
+    return record
+
+
+def _mock_probe_response(monkeypatch, record, returncode=0, stderr=""):
+    calls = []
+
+    def run(*args, **kwargs):
+        calls.append((args, kwargs))
+        return SimpleNamespace(returncode=returncode, stdout=json.dumps(record), stderr=stderr)
+
+    monkeypatch.setattr(subprocess, "run", run)
+    return calls
+
+
+def test_renderer_capability_optional_absence_is_typed_not_run_with_exact_evidence(monkeypatch):
+    calls = _mock_probe_response(monkeypatch, _mock_renderer_capability("egl", "UNAVAILABLE"))
+    capability = _probe_renderer_capability("egl")
+    verdict = _exercise_renderer_matrix(
+        "_RENDER_WORKER_CODE", "egl", "osmesa", capability, {"osmesa"}
+    )
+    assert len(calls) == 1  # No matrix child for confirmed optional absence.
+    assert verdict["type"] == "renderer_capability.v1"
+    assert verdict["verdict"] == "NOT_RUN" and verdict["verdict"] != "PASS"
+    assert verdict["reason"] == "OPTIONAL_SELECTED_NATIVE_LIBRARY_ABSENT"
+    assert verdict["capability"]["library"] == "libEGL.so.1"
+    assert verdict["capability"]["probe"]["returncode"] == 0
+    assert "libEGL.so.1" in verdict["capability"]["probe"]["stdout"]
+
+
+@pytest.mark.parametrize("status", ["UNAVAILABLE", "UNKNOWN"])
+def test_renderer_capability_required_osmesa_absent_or_unknown_fails(monkeypatch, status):
+    _mock_probe_response(monkeypatch, _mock_renderer_capability("osmesa", status))
+    capability = _probe_renderer_capability("osmesa")
+    with pytest.raises(AssertionError, match="REQUIRED_RENDERER_UNAVAILABLE|CAPABILITY_UNKNOWN"):
+        _renderer_capability_verdict("osmesa", capability, {"osmesa"})
+
+
+def test_renderer_capability_declared_required_egl_cannot_skip(monkeypatch):
+    _mock_probe_response(monkeypatch, _mock_renderer_capability("egl", "UNAVAILABLE"))
+    with pytest.raises(AssertionError, match="REQUIRED_RENDERER_UNAVAILABLE"):
+        _renderer_capability_verdict("egl", _probe_renderer_capability("egl"), {"egl", "osmesa"})
+
+
+@pytest.mark.parametrize(
+    "detail",
+    [
+        "ImportError: injected available import defect",
+        "RuntimeError: injected Renderer constructor defect",
+        "RuntimeError: injected render defect",
+        "AttributeError: 'NoneType' object has no attribute 'eglQueryString'",
+    ],
+)
+def test_renderer_capability_available_backend_regression_fails(monkeypatch, detail):
+    _mock_probe_response(monkeypatch, _mock_renderer_capability("egl"))
+    capability = _probe_renderer_capability("egl")
+    calls = _mock_probe_response(monkeypatch, {}, returncode=1, stderr=detail)
+    with pytest.raises(AssertionError, match="INFRASTRUCTURE_FAILURE") as error:
+        _exercise_renderer_matrix("_CAMERA_WORKER_CODE", "egl", "osmesa", capability, {"osmesa"})
+    assert len(calls) == 1 and detail in str(error.value)
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        "OBSERVATION_NOT_ORIGINAL_INITIAL_STATE",
+        "SIM_CAMERA_STATE_INVALID",
+        "MODEL_COMPILE_FAILED: bad scene",
+    ],
+)
+def test_renderer_capability_absence_output_cannot_mask_evidence_error(monkeypatch, error):
+    # Even a plausible absence record is ignored when the worker failed.
+    _mock_probe_response(
+        monkeypatch, _mock_renderer_capability("egl", "UNAVAILABLE"), returncode=1, stderr=error
+    )
+    with pytest.raises(AssertionError, match=error):
+        _probe_renderer_capability("egl")
+
+
+def test_renderer_capability_original_state_error_remains_evidence_failure(monkeypatch):
+    test_renderer_worker_initial_state_mismatch_still_rejected_as_evidence_failure(monkeypatch)
+
+
+@pytest.mark.parametrize(
+    "detail",
+    [
+        "libGLdispatch.so.0: cannot open shared object file: No such file or directory",
+        "libEGL.so.1: permission denied",
+    ],
+)
+def test_renderer_capability_unproved_absence_never_skips(monkeypatch, detail):
+    record = _mock_renderer_capability("egl", "UNAVAILABLE")
+    record["detail"] = detail
+    _mock_probe_response(monkeypatch, record)
+    with pytest.raises(AssertionError, match="UNPROVED_RENDERER_UNAVAILABILITY"):
+        _renderer_capability_verdict("egl", _probe_renderer_capability("egl"), {"osmesa"})
+
+
+@pytest.mark.parametrize("worker", ["_CAMERA_WORKER_CODE", "_RENDER_WORKER_CODE"])
+@pytest.mark.parametrize(
+    "selected,inherited",
+    [("egl", "egl"), ("egl", "osmesa"), ("osmesa", "egl"), ("osmesa", "osmesa")],
+)
+def test_renderer_capability_available_matrix_exact_prefix_and_parent_isolation(
+    monkeypatch, worker, selected, inherited
+):
+    monkeypatch.setenv("MUJOCO_GL", inherited)
+    monkeypatch.setenv("PYOPENGL_PLATFORM", inherited)
+    parent_env = dict(os.environ)
+    parent_gl_modules = {
+        name: module for name, module in sys.modules.items() if name.startswith("OpenGL")
+    }
+    calls = _mock_probe_response(monkeypatch, _mock_renderer_capability(selected))
+    capability = _probe_renderer_capability(selected)
+    probe_args, probe_kwargs = calls[0]
+    assert _renderer_prefix("_CAMERA_WORKER_CODE") in probe_args[0][3]
+    assert _RENDERER_NATIVE_PROBE_CODE in probe_args[0][3]
+    assert probe_kwargs["env"]["MUJOCO_GL"] == probe_kwargs["env"]["PYOPENGL_PLATFORM"] == selected
+
+    def matrix_run(args, **kwargs):
+        assert args[:3] == [sys.executable, "-B", "-c"] and args[-1] == selected
+        assert args[3].startswith(_renderer_prefix(worker))
+        assert _RENDERER_CONSTRUCTOR_CODE in args[3]
+        assert kwargs["env"]["MUJOCO_GL"] == kwargs["env"]["PYOPENGL_PLATFORM"] == inherited
+        assert kwargs["timeout"] == 30 and kwargs["capture_output"] and kwargs["text"]
+        return SimpleNamespace(returncode=0, stdout=_RENDERER_MARKER + "\n", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", matrix_run)
+    verdict = _exercise_renderer_matrix(worker, selected, inherited, capability, {"osmesa"})
+    assert verdict["verdict"] == "PASS"  # Mock control flow, NOT real capability evidence.
+    assert dict(os.environ) == parent_env
+    assert {
+        name: module for name, module in sys.modules.items() if name.startswith("OpenGL")
+    } == parent_gl_modules
+
+
+@pytest.mark.parametrize("failure", ["timeout", "signal"])
+def test_renderer_capability_timeout_or_native_crash_fails(monkeypatch, failure):
+    _mock_probe_response(monkeypatch, _mock_renderer_capability("egl"))
+    capability = _probe_renderer_capability("egl")
+
+    def failed_run(args, **kwargs):
+        if failure == "timeout":
+            raise subprocess.TimeoutExpired(args, kwargs["timeout"])
+        return SimpleNamespace(returncode=-11, stdout="", stderr="native crash")
+
+    monkeypatch.setattr(subprocess, "run", failed_run)
+    with pytest.raises(AssertionError, match="INFRASTRUCTURE_FAILURE"):
+        _exercise_renderer_matrix("_RENDER_WORKER_CODE", "egl", "osmesa", capability, {"osmesa"})
+
+
+def test_renderer_capability_required_policy_cannot_downgrade_osmesa(monkeypatch):
+    monkeypatch.setenv("ROSCLAW_REQUIRED_RENDERER_BACKENDS", "egl")
+    with pytest.raises(AssertionError, match="INVALID_REQUIRED_RENDERER_BACKENDS"):
+        _required_renderer_backends()
+
+
+def test_renderer_capability_package_presence_is_not_offscreen_availability(monkeypatch):
+    record = _mock_renderer_capability("osmesa")
+    record["stage"] = "native_loader"
+    _mock_probe_response(monkeypatch, record)
+    with pytest.raises(AssertionError, match="AVAILABLE_REQUIRES_REAL_OFFSCREEN_CONSTRUCTION"):
+        _renderer_capability_verdict("osmesa", _probe_renderer_capability("osmesa"), {"osmesa"})
