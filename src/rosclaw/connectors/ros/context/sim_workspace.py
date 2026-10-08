@@ -46,6 +46,28 @@ def compile_sim_body_workspace(destination, model, urdf_bytes, *, attachment, po
         )
     profile_id = "observed_sim_" + proposal["source_urdf_sha256"][:16]
     bindings = deepcopy(specification["ros_capability_bindings"])
+    execution = None
+    if "execution_interfaces" in policy:
+        from rosclaw.connectors.ros.context.sim_execution_interfaces import (
+            propose_sim_execution_interfaces,
+        )
+
+        execution = propose_sim_execution_interfaces(model, policy, specification, now=now)
+        if execution["status"] != "READY_FOR_SIM_INTERFACE_COMPILATION":
+            raise ValueError(
+                "fresh observed SIM execution interfaces required: "
+                + str(execution["unknown_fields"])
+            )
+        bindings["coverage.execute"] = {
+            "name": execution["endpoints"]["navigate_complete_coverage"],
+            "ros_type": "opennav_coverage_msgs/action/NavigateCompleteCoverage",
+            "lifecycle_nodes": {"coverage_server": execution["coverage_lifecycle_node"]},
+        }
+        bindings["localization.set_initial_pose"] = {
+            "name": execution["endpoints"]["set_initial_pose"],
+            "srv_type": "nav2_msgs/srv/SetInitialPose",
+            "pose_source": "frozen_SIM_fixture_spawn_only",
+        }
     bindings["coverage.verify"] = {
         "name": "rosclaw.coverage_verifier.v1",
         "cleaning_polygon": specification["cleaning_polygon"],
@@ -80,6 +102,7 @@ def compile_sim_body_workspace(destination, model, urdf_bytes, *, attachment, po
                 "cleaner_kind": "SIMULATED_CLEANING",
                 "evidence_domain": "SIMULATION",
                 "usable_for_real_execution": False,
+                "execution_interface_proposal": execution,
             },
         },
         capability_hints={
@@ -88,6 +111,11 @@ def compile_sim_body_workspace(destination, model, urdf_bytes, *, attachment, po
                 "cleaning.enable",
                 "cleaning.disable",
             ]
+            + (
+                ["coverage.execute", "localization.set_initial_pose"]
+                if execution is not None
+                else []
+            )
         },
         safety={"safety_level": "STRICT", "environment": {"real_robot_execution_allowed": False}},
         sandbox={"compatible_engines": ["gazebo"], "preferred_engine": "gazebo"},
@@ -164,6 +192,7 @@ def compile_sim_body_workspace(destination, model, urdf_bytes, *, attachment, po
         "usable_for_real_execution": False,
         "execution_entry": "request_action",
         "direct_actions_dispatched": False,
+        "execution_interface_proposal": execution,
     }
     manifest["manifest_hash"] = digest(manifest)
     (destination / "sim-body-workspace.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
