@@ -214,6 +214,44 @@ def test_daemon_original_deadline_blocks_without_dispatch_or_retries(tmp_path, m
     assert driver.waiting_for_obstacle.is_set() and calls == [("/rosclaw_sim/hold", True)]
 
 
+def test_repeated_dynamic_action_does_not_restart_original_mission_budget(tmp_path):
+    driver, _ = temporal_executor(tmp_path, [])
+    action = SimpleNamespace(
+        arguments={"mission_id": "mission"}, verification_policy=SimpleNamespace(timeout_sec=30)
+    )
+    wall = time.monotonic() + 30
+    first = driver._temporal_admission(action, sample(0, 0, 0.005, []), wall)
+    second = driver._temporal_admission(action, sample(10, 1, 0.005, []), wall + 10)
+    assert first == second == (0, 30, wall)
+    with pytest.raises(ValueError, match="deadline expired"):
+        driver._temporal_admission(action, sample(30, 2, 0.005, []), wall + 30)
+    assert driver.temporal_mission_deadlines["mission"] == first
+    restarted, _ = temporal_executor(tmp_path, [])
+    with pytest.raises(ValueError, match="no restarted budget"):
+        restarted._temporal_admission(action, sample(10, 1, 0.005, []), wall + 10)
+    assert not restarted.temporal_mission_deadlines
+
+
+@pytest.mark.parametrize("fault", ["foreign_mission", "incomplete", "source", "negative_clock"])
+def test_bad_dynamic_admission_cannot_create_or_extend_mission_budget(tmp_path, fault):
+    driver, _ = temporal_executor(tmp_path, [])
+    action = SimpleNamespace(
+        arguments={"mission_id": "mission"}, verification_policy=SimpleNamespace(timeout_sec=30)
+    )
+    row = sample(0, 0, 0.005, [])
+    if fault == "foreign_mission":
+        action.arguments["mission_id"] = "other"
+    elif fault == "incomplete":
+        row["observation_complete"] = False
+    elif fault == "source":
+        row["occupancy_hash"] = "bad"
+    else:
+        row = sample(-1, 0, 0.005, [])
+    with pytest.raises(ValueError):
+        driver._temporal_admission(action, row, time.monotonic() + 30)
+    assert not driver.temporal_mission_deadlines
+
+
 @pytest.mark.parametrize("fault", ["missing", "hash", "complete", "collision", "boolean_collision"])
 def test_daemon_transport_fault_latches_before_additional_credit(fault):
     accounting = OccupancyAccounting(CoverageVerifier(**GRID), mission_id="mission", **BINDING)

@@ -78,6 +78,14 @@ silently run with static accounting. Admission files do not replace rosclawd's
 fresh observation wait, action guards or replay. 27 preparation/admission tests,
 527 ROS tests, required mypy over121 files and Practice183 passed/9 skipped.
 
+Temporal admission now validates a complete paired source packet before any
+ON service. Repeated actions for the same source mission share the first SIM
+and wall deadlines. A daemon-owned exclusive admission record refuses silently
+restarting that mission's budget after process restart, including partial/crash
+records. Navigation actions do not start the coverage mission's clocks.532 ROS
+tests and scoped mypy passed, including wrong mission, missing source, expiry,
+negative clock and process-restart refusal; physical acceptance is still NOT_RUN.
+
 The source uses Gazebo8 `worldPose` and actual `Geometry`/`Collision`/`Pose`
 components. It avoids concurrent `generate_world_sdf`, whose Gazebo8 implementation
 explicitly notes an ECM thread-safety TODO:

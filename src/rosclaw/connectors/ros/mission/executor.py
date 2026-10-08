@@ -226,6 +226,7 @@ class RosCoverageSimulationExecutor:
         self.physical_radius_m = physical_radius_m
         self.waiting_for_obstacle = threading.Event()
         self.temporal_recovery_state = None
+        self.temporal_mission_deadlines = {}
         self.stopping = threading.Event()
         self.goal_id = None
         self.lock = threading.Lock()
@@ -864,6 +865,73 @@ class RosCoverageSimulationExecutor:
                 errors=[{"code": "INITIAL_LOCALIZATION_FAILED", "message": str(exc)}],
             )
 
+    def _temporal_admission(self, action, admission, wall_deadline):
+        """A repeated action cannot restart the same frozen mission's clocks."""
+        mission_id = action.arguments.get("mission_id")
+        duration = action.verification_policy.timeout_sec
+        if type(mission_id) is not str or not mission_id or not 0 < duration <= 1800:
+            raise ValueError("dynamic mission requires identity and original bounded duration")
+        # Verify the actual source's complete same-tick packet before any ON
+        # service, using a fresh scratch verifier rather than crediting a pose
+        # outside the final retained trajectory.
+        accounting = OccupancyAccounting(
+            CoverageVerifier(**self.grid), mission_id=mission_id, **self.occupancy_binding
+        )
+        accounting.observe_sample(admission)
+        now_sim = admission["time_sec"]
+        if mission_id not in self.temporal_mission_deadlines:
+            if len(self.temporal_mission_deadlines) >= 64:
+                raise ValueError("dynamic mission admission registry exceeds bound")
+            identity = {
+                **self.occupancy_binding,
+                "mission_id": mission_id,
+                "body_snapshot_hash": self.body_snapshot_hash,
+            }
+            self.output.mkdir(parents=True, exist_ok=True)
+            path = self.output / (content_hash("rostemporaladmission", identity) + ".json")
+            # Never translate a previous process's monotonic clock or silently
+            # restart its budget. A crash/partial file also refuses a new ON.
+            try:
+                with path.open("x") as admission_record:
+                    admission_record.write(
+                        json.dumps(
+                            {
+                                "schema_version": "rosclaw.temporal_mission_admission.v1",
+                                "identity": identity,
+                                "admission_sim_time": now_sim,
+                                "deadline_sim_time": now_sim + duration,
+                                "deadline_monotonic": wall_deadline,
+                                "captured_at": datetime.now(UTC).isoformat(),
+                                "restart_policy": "refuse_same_source_mission_admission_after_process_restart",
+                            },
+                            sort_keys=True,
+                        )
+                        + "\n"
+                    )
+            except FileExistsError as exc:
+                raise ValueError(
+                    "previous dynamic mission admission exists; no restarted budget"
+                ) from exc
+            self.temporal_mission_deadlines[mission_id] = (
+                now_sim,
+                now_sim + duration,
+                wall_deadline,
+            )
+        original_admission, sim_deadline, original_wall_deadline = self.temporal_mission_deadlines[
+            mission_id
+        ]
+        if (
+            now_sim < original_admission
+            or now_sim >= sim_deadline
+            or time.monotonic() >= original_wall_deadline
+        ):
+            raise ValueError("original dynamic mission deadline expired or SIM clock reversed")
+        return (
+            original_admission,
+            min(sim_deadline, now_sim + duration),
+            min(wall_deadline, original_wall_deadline),
+        )
+
     def _execute(self, action):
         coverage = action.capability_id == "coverage.execute"
         try:
@@ -953,12 +1021,14 @@ class RosCoverageSimulationExecutor:
         heartbeat_thread = threading.Thread(target=maintain_lease, daemon=True)
         try:
             admission = self.witness.fresh()
-            if self.occupancy_binding is not None and self.physical_radius_m is not None:
-                admission_sim_time = admission["time_sec"]
-                duration = action.verification_policy.timeout_sec
-                if not 0 < duration <= 1800:
-                    raise ValueError("dynamic mission requires original bounded SIM duration")
-                deadline_sim_time = admission_sim_time + duration
+            if (
+                coverage
+                and self.occupancy_binding is not None
+                and self.physical_radius_m is not None
+            ):
+                admission_sim_time, deadline_sim_time, deadline = self._temporal_admission(
+                    action, admission, deadline
+                )
             self._service("/rosclaw_sim/lease", {"data": True})
             if deadline_sim_time is not None:
                 self._set_obstacle_wait(False)
