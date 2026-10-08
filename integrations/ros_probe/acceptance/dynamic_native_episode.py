@@ -6,11 +6,13 @@ be merged; source/image/plugin/vendor/config are frozen before simulator launch.
 """
 
 import argparse
+import asyncio
 import contextlib
 import hashlib
 import json
 import os
 import re
+import shlex
 import shutil
 import signal
 import subprocess
@@ -23,6 +25,7 @@ from dynamic_source_replay import replay_component_occupancy
 from independent_stop import collect_stop_geometry
 from negative_dynamic_acceptance import validate_d4_negative
 from paired_efficiency import command, wait_ready
+from probe_scene_geometry import decode_scene_json
 
 ROOT = Path(__file__).resolve().parent
 REPOSITORY = ROOT.parents[2]
@@ -106,12 +109,33 @@ def validate_episode_spec(spec):
     return spec
 
 
-def run_episode(directory, protocol, plugin, vendor_urdf, native_profile_home):
+def run_episode(
+    directory,
+    protocol,
+    plugin,
+    vendor_urdf,
+    native_profile_home,
+    *,
+    contact_plugin=None,
+    instrument_service_binary=None,
+):
     with protocol.open("rb") as stream:
         raw = stream.read(65537)
     if len(raw) > 65536:
         raise ValueError("bounded frozen episode protocol required")
-    spec = validate_episode_spec(json.loads(raw))
+    value = decode_scene_json(raw)
+    if type(value) is not dict:
+        raise ValueError("closed Native episode protocol object required")
+    backend, backend_inputs = None, {}
+    if value.get("schema_version") == "rosclaw.dynamic_native_episode.v2":
+        from qualified_backend_episode import frozen_backend_files, validate_qualified_spec
+
+        spec, backend = validate_qualified_spec(value, validate_episode_spec)
+        backend_inputs = frozen_backend_files(backend, contact_plugin, instrument_service_binary)
+    else:
+        spec = validate_episode_spec(value)
+        if contact_plugin is not None or instrument_service_binary is not None:
+            raise ValueError("qualified original sources require explicit v2 protocol")
     plugin_raw, urdf_raw = plugin.read_bytes(), vendor_urdf.read_bytes()
     if (
         not 0 < len(plugin_raw) <= 20_000_000
@@ -130,6 +154,7 @@ def run_episode(directory, protocol, plugin, vendor_urdf, native_profile_home):
             protocol.read_bytes() != raw
             or plugin.read_bytes() != plugin_raw
             or vendor_urdf.read_bytes() != urdf_raw
+            or any(path.read_bytes() != original for path, original in backend_inputs.items())
         ):
             raise ValueError("frozen episode inputs changed")
         if command(["git", "rev-parse", "HEAD"], cwd=REPOSITORY) != spec[
@@ -178,6 +203,7 @@ def run_episode(directory, protocol, plugin, vendor_urdf, native_profile_home):
         "autonomous_llm": False,
         "task_kernel_succeeded": False,
         "physical_acceptance": "NOT_VERIFIED",
+        "qualified_original_backend_required": backend is not None,
     }
 
     def start(name, argv):
@@ -198,7 +224,54 @@ def run_episode(directory, protocol, plugin, vendor_urdf, native_profile_home):
             if name == "native-run":
                 result.update(native_process_started=True, autonomous_llm=None)
             try:
-                code = child.wait(timeout=timeout)
+                if name == "native-run" and backend is not None:
+                    from qualified_backend_episode import qualified_projection, request_mcp_stop
+
+                    started = time.monotonic()
+                    deadline = started + timeout
+                    try:
+                        while child.poll() is None:
+                            if time.monotonic() >= deadline:
+                                raise TimeoutError("immutable genuine Native deadline exhausted")
+                            qualified_projection(directory)
+                            time.sleep(0.1)
+                    except (Exception, KeyboardInterrupt):
+                        try:
+                            stop_receipt = asyncio.run(
+                                request_mcp_stop(
+                                    directory,
+                                    "qualified original backend observation failed during Native SIM task",
+                                )
+                            )
+                            (directory / "backend-fault-mcp-stop-response.json").write_text(
+                                json.dumps(stop_receipt, indent=2) + "\n"
+                            )
+                        except Exception as stop_error:
+                            (directory / "backend-fault-mcp-stop-unavailable.json").write_text(
+                                json.dumps(
+                                    {
+                                        "error": str(stop_error),
+                                        "physical_stop_proof": "NOT_MEASURED",
+                                    }
+                                )
+                                + "\n"
+                            )
+                        raise
+                    finally:
+                        (directory / "native-task-observation-boundaries.json").write_text(
+                            json.dumps(
+                                {
+                                    "native_started_monotonic_sec": started,
+                                    "native_ended_monotonic_sec": time.monotonic(),
+                                    "source": "host_genuine_Native_invocation_boundaries_not_task_receipt",
+                                    "authorization": False,
+                                }
+                            )
+                            + "\n"
+                        )
+                    code = child.returncode
+                else:
+                    code = child.wait(timeout=timeout)
                 if code:
                     raise RuntimeError(f"{name} exited {code}; retained {name}.log")
             finally:
@@ -242,6 +315,54 @@ def run_episode(directory, protocol, plugin, vendor_urdf, native_profile_home):
             "--brush-binding /evidence/bootstrap/brush.json --physics-fixture /evidence/bootstrap/physics.json "
             "--physics-plugin /frozen/passive.so"
         )
+        backend_mounts = []
+        if backend is not None:
+            from qualified_backend_episode import probe_declaration
+
+            declaration = probe_declaration(physics["binding"], spec["profile"])
+            (directory / "probe-declaration.json").write_text(
+                json.dumps(declaration, indent=2) + "\n"
+            )
+            backend_mounts = [
+                "-e",
+                "PYTHONPATH=/workspace/src",
+                "-v",
+                f"{contact_plugin.resolve()}:/frozen/contact.so:ro",
+                "-v",
+                f"{instrument_service_binary.resolve()}:/frozen/owned_instrument_service:ro",
+            ]
+            argv = [
+                "python3",
+                "/workspace/integrations/ros_probe/acceptance/backend_stack.py",
+                "--directory",
+                "/evidence",
+                "--profile",
+                spec["profile"],
+                "--coverage-preset",
+                spec["coverage_preset"],
+                "--seed",
+                str(spec["seed"]),
+                "--duration",
+                str(spec["mission_timeout_sec"] + 120),
+                "--brush-binding",
+                "/evidence/bootstrap/brush.json",
+                "--physics-fixture",
+                "/evidence/bootstrap/physics.json",
+                "--physics-plugin",
+                "/frozen/passive.so",
+                "--contact-plugin",
+                "/frozen/contact.so",
+                "--instrument-service-binary",
+                "/frozen/owned_instrument_service",
+                "--instrument-service-binary-sha256",
+                backend["instrument_service_binary_sha256"],
+                "--probe-declaration",
+                "/evidence/probe-declaration.json",
+            ]
+            stack = (
+                "source /opt/ros/jazzy/setup.bash && source /ws/install/setup.bash && "
+                + shlex.join(argv)
+            )
         # A timed-out run command can still have created this unique owned container.
         launched = True
         command(
@@ -267,6 +388,7 @@ def run_episode(directory, protocol, plugin, vendor_urdf, native_profile_home):
                 f"{directory}:/evidence",
                 "-v",
                 f"{plugin.resolve()}:/frozen/passive.so:ro",
+                *backend_mounts,
                 spec["image"],
                 "bash",
                 "-c",
@@ -274,6 +396,22 @@ def run_episode(directory, protocol, plugin, vendor_urdf, native_profile_home):
             ]
         )
         wait_ready(directory, container)
+        if backend is not None:
+            from qualified_backend_episode import qualified_projection
+
+            until = time.monotonic() + 60
+            while True:
+                if (directory / "backend-stack-fault.json").exists():
+                    raise ValueError("qualified source startup failed; original fault retained")
+                try:
+                    qualified_projection(directory)
+                    break
+                except (OSError, ValueError, KeyError):
+                    if time.monotonic() >= until:
+                        raise TimeoutError(
+                            "actual mapped World and measured backend cycle not qualified"
+                        ) from None
+                    time.sleep(0.1)
         endpoint = f"ws://127.0.0.1:{spec['port']}"
         step(
             "native-prepare",
@@ -386,6 +524,35 @@ def run_episode(directory, protocol, plugin, vendor_urdf, native_profile_home):
         result.update(autonomous_llm=True, actual_sdk_turns=len(usage))
         stop = collect_stop_geometry(directory / "independent-pose.jsonl")
         (directory / "independent-stop.json").write_text(json.dumps(stop, indent=2) + "\n")
+        if backend is not None:
+            plan = json.loads((directory / "backend-stack-source-plan.json").read_bytes())
+            request = {
+                key: plan[key] for key in ("run_id", "body_snapshot_hash", "constraint_policy_hash")
+            }
+            (directory / "backend-close-source-request.json").write_text(json.dumps(request) + "\n")
+            until = time.monotonic() + 15
+            while not (directory / "backend-source-closed.json").exists():
+                if (directory / "backend-stack-fault.json").exists():
+                    raise ValueError("original backend source closure failed")
+                if time.monotonic() >= until:
+                    raise TimeoutError("original backend source writers did not close")
+                time.sleep(0.05)
+            step(
+                "closed-qualified-backend-source",
+                [
+                    "docker",
+                    "exec",
+                    "-e",
+                    "PYTHONPATH=/workspace/src",
+                    container,
+                    "bash",
+                    "-c",
+                    "source /opt/ros/jazzy/setup.bash && "
+                    "python3 /workspace/integrations/ros_probe/acceptance/qualified_backend_episode.py --directory /evidence",
+                ],
+                timeout=120,
+            )
+            result["qualified_original_backend_closed_replay"] = "PASS_SOURCE_CORRESPONDENCE_ONLY"
         if case == "D2":
             step(
                 "native-acceptance",
@@ -407,6 +574,16 @@ def run_episode(directory, protocol, plugin, vendor_urdf, native_profile_home):
             )
     except (Exception, KeyboardInterrupt) as exc:
         result.update(status="FAIL", error=type(exc).__name__ + ": " + str(exc))
+        if backend is not None and (directory / "independent-pose.jsonl").exists():
+            try:
+                stop_on_failure = collect_stop_geometry(directory / "independent-pose.jsonl")
+                (directory / "independent-stop-after-failure.json").write_text(
+                    json.dumps(stop_on_failure, indent=2) + "\n"
+                )
+                result["independent_stop_after_failure"] = "PASS_GEOMETRY_ONLY_TASK_FAILED"
+            except Exception as stop_error:
+                result["independent_stop_after_failure"] = "MISSING_STOP_PROOF"
+                result["independent_stop_error"] = str(stop_error)
     finally:
         cleanup_errors = []
         try:
@@ -498,9 +675,17 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ("directory", "protocol", "plugin", "vendor-urdf", "native-profile-home"):
         parser.add_argument("--" + name, type=Path, required=True)
+    parser.add_argument("--contact-plugin", type=Path)
+    parser.add_argument("--instrument-service-binary", type=Path)
     args = parser.parse_args()
     result = run_episode(
-        args.directory, args.protocol, args.plugin, args.vendor_urdf, args.native_profile_home
+        args.directory,
+        args.protocol,
+        args.plugin,
+        args.vendor_urdf,
+        args.native_profile_home,
+        contact_plugin=args.contact_plugin,
+        instrument_service_binary=args.instrument_service_binary,
     )
     print(json.dumps(result), flush=True)
     if result["status"] != "PASS":

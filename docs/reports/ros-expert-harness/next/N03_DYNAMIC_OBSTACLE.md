@@ -228,3 +228,32 @@ its failure log is retained. The frozen P1 dependency image passed.
 The host's genuine Native/canonical acceptance still needs to be joined to
 this qualified source path, including closed original service-wire replay and
 independent stop proof. All six dynamic physical cases remain unaccepted.
+
+### Qualified Native v2 host entry (D2/D4 code, physical tests pending)
+
+`dynamic_native_episode.py` accepts the closed
+`rosclaw.dynamic_native_episode.v2` protocol, including exact native contact
+plugin and instrument-service ELF hashes and mandatory all-step/spatial/original
+service-wire mode. Legacy v1 cannot silently acquire these inputs. Existing
+actual PR #624 merge, clean commit, immutable image, model, Body and deadline
+checks run before the operator fixture starts.
+
+The v2 source path uses the owned backend stack. Both witness and the scene
+controller read the exact final inventory, including the instrument. During the
+genuine Chinese Native invocation, fresh qualified observation and mapped World
+correspondence are mandatory. A fault requests `emergency_stop` through the
+canonical stdio MCP server and rosclawd, and retains the original MCP response.
+A successful RPC request is never itself stop proof. Independent actual pose
+measurement is attempted while the World remains alive, including failed runs.
+The no-daemon stdio transport check returned `DAEMON_UNAVAILABLE`; no robot,
+World, ROS Node or SDK transport was present.
+
+At successful source closure, an in-flight instrument RPC must finish its
+measured cycle before the observer exits. World and witness remain alive. Closed
+replay reopens original SDK service wire, all-step robot contacts and exact scene
+joins, and requires the original observation interval to contain the entire
+Native invocation. This source correspondence remains separate from canonical
+TaskKernel, coverage/temporal credit, Practice/Memory and independent stop gates.
+The complete N03 ROS source regression passed 1,259 tests (10 integration tests
+deselected). D1/D3/D5/D6 full Native orchestration and all actual dynamic physical
+runs remain pending; this checkpoint is not N03 acceptance.
