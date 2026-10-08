@@ -20,6 +20,11 @@ from rosclaw.connectors.ros.diagnosis.coverage_audit import CoverageAuditLog, di
 from rosclaw.connectors.ros.mission.boundary_pass import rectangular_boundary_targets
 from rosclaw.connectors.ros.mission.recovery import MissedRegionRecovery
 from rosclaw.connectors.ros.mission.repair_optimizer import rank_repair_poses
+from rosclaw.connectors.ros.mission.sim_endpoints import (
+    absolute_endpoint,
+    freeze_sim_endpoints,
+    freeze_sim_spawn,
+)
 from rosclaw.connectors.ros.mission.temporal_recovery import (
     TimePairedRecovery,
     paired_route_candidates,
@@ -47,7 +52,9 @@ logger = logging.getLogger(__name__)
 class SimulationWitness:
     """Read-only receiver on a separate connection from the action client."""
 
-    def __init__(self, transport, *, brush_binding=None):
+    def __init__(
+        self, transport, *, brush_binding=None, observation_topic="/rosclaw_sim/observation"
+    ):
         if brush_binding is not None and (
             type(brush_binding) is not dict
             or set(brush_binding)
@@ -57,6 +64,7 @@ class SimulationWitness:
             raise ValueError("frozen independent brush source binding required")
         self.brush_binding = dict(brush_binding) if brush_binding is not None else None
         self.brush_pair_chain = None
+        self.observation_topic = absolute_endpoint(observation_topic)
         self.transport = transport
         self.latest = None
         self.samples = []
@@ -69,7 +77,7 @@ class SimulationWitness:
             {
                 "op": "subscribe",
                 "id": "ros-expert-witness",
-                "topic": "/rosclaw_sim/observation",
+                "topic": self.observation_topic,
                 "type": "std_msgs/msg/String",
             }
         )
@@ -106,7 +114,7 @@ class SimulationWitness:
             if type(data) is not dict:
                 self._receiver_fault("malformed observer transport envelope", None)
                 continue
-            if data.get("topic") != "/rosclaw_sim/observation":
+            if data.get("topic") != self.observation_topic:
                 continue
             raw = None
             try:
@@ -229,6 +237,9 @@ class RosCoverageSimulationExecutor:
         repair_budget_ms=500.0,
         occupancy_binding=None,
         physical_radius_m=None,
+        endpoints=None,
+        configured_spawn=(0.0, 0.0, 0.0),
+        mission_polygon=None,
     ):
         if not owner.startswith("daemon_"):
             raise ValueError("daemon ownership is required")
@@ -236,11 +247,56 @@ class RosCoverageSimulationExecutor:
             raise ValueError("unknown configured SIM repair strategy")
         if not math.isfinite(repair_swath_yaw) or not 0 < repair_budget_ms <= 1000:
             raise ValueError("configured repair yaw/budget must be finite and bounded")
+        self.endpoints = freeze_sim_endpoints(endpoints)
+        self.configured_spawn = freeze_sim_spawn(configured_spawn)
         self.repair_strategy = repair_strategy
         self.repair_swath_yaw = repair_swath_yaw
         self.repair_budget_ms = repair_budget_ms
         self.owner, self.client, self.control, self.witness = owner, client, control, witness
-        self.output, self.body_id, self.grid = Path(output), body_id, grid
+        self.output, self.body_id = Path(output), body_id
+        self.grid = {**grid, "frame_id": grid.get("frame_id", "map")}
+        self.mission_polygon = None
+        if mission_polygon is not None:
+            if type(mission_polygon) not in (list, tuple) or not 3 <= len(mission_polygon) <= 64:
+                raise ValueError("bounded explicitly configured mission polygon required")
+            if any(
+                type(p) not in (list, tuple)
+                or len(p) != 2
+                or any(type(v) not in (int, float) or not -1_000_000 <= v <= 1_000_000 for v in p)
+                for p in mission_polygon
+            ):
+                raise ValueError("bounded finite mission polygon coordinates required")
+            polygon = [tuple(float(v) for v in p) for p in mission_polygon]
+            if polygon[0] == polygon[-1]:
+                polygon.pop()
+            CoverageVerifier(
+                width=1, height=1, resolution=1, accessible_cells=[0], cleaning_polygon=polygon
+            )
+            configured_grid = CoverageVerifier(**self.grid)
+            for i in configured_grid.accessible:
+                x = (
+                    configured_grid.origin[0]
+                    + (i % configured_grid.width + 0.5) * configured_grid.resolution
+                )
+                y = (
+                    configured_grid.origin[1]
+                    + (i // configured_grid.width + 0.5) * configured_grid.resolution
+                )
+                if not point_in_polygon(x, y, polygon):
+                    raise ValueError("fixed denominator extends outside approved mission polygon")
+            if len(recovery_centers) > 5000 or any(
+                type(p) not in (list, tuple)
+                or len(p) != 2
+                or any(type(v) not in (int, float) or not -1_000_000 <= v <= 1_000_000 for v in p)
+                or not point_in_polygon(p[0], p[1], polygon)
+                for p in recovery_centers
+            ):
+                raise ValueError("repair centers must remain within the approved mission polygon")
+            if boundary_pass:
+                raise ValueError(
+                    "rectangular boundary pass is unavailable for an arbitrary mission polygon"
+                )
+            self.mission_polygon = tuple(polygon)
         self.body_snapshot_hash = body_snapshot_hash
         if occupancy_binding is not None and (
             type(occupancy_binding) is not dict
@@ -313,6 +369,39 @@ class RosCoverageSimulationExecutor:
         frame = self.grid["frame_id"]
         if arguments.get("frame_id", frame) != frame:
             raise ValueError("coverage frame differs from the configured mission frame")
+        if self.mission_polygon is not None:
+            polygons = arguments.get("polygons", [])
+            if type(polygons) is not list or len(polygons) != 1 or type(polygons[0]) is not dict:
+                raise ValueError("the configured mission requires exactly its approved polygon")
+            points = polygons[0].get("points")
+            if type(points) is not list or not 3 <= len(points) <= 65:
+                raise ValueError("bounded approved mission points required")
+            if any(
+                type(p) is not dict
+                or any(
+                    type(p.get(k)) not in (int, float) or not -1_000_000 <= p[k] <= 1_000_000
+                    for k in ("x", "y", "z")
+                )
+                or p["z"] != 0
+                for p in points
+            ):
+                raise ValueError("bounded finite planar mission points required")
+            requested = [(p["x"], p["y"]) for p in points]
+            if requested[0] == requested[-1]:
+                requested.pop()
+            expected = self.mission_polygon
+            if len(requested) != len(expected) or not any(
+                all(
+                    math.isclose(a[0], b[0], rel_tol=0, abs_tol=1e-6)
+                    and math.isclose(a[1], b[1], rel_tol=0, abs_tol=1e-6)
+                    for a, b in zip(requested, ordered[offset:] + ordered[:offset], strict=True)
+                )
+                for ordered in (expected, expected[::-1])
+                for offset in range(len(expected))
+            ):
+                raise ValueError("coverage polygon differs from the whole approved mission area")
+            canonical = [{"x": x, "y": y, "z": 0.0} for x, y in expected]
+            return {"polygons": [{"points": canonical + [dict(canonical[0])]}], "frame_id": frame}
         cells, width, resolution = (
             self.grid["accessible_cells"],
             self.grid["width"],
@@ -377,8 +466,8 @@ class RosCoverageSimulationExecutor:
             and remaining > 0.5
         )
         if not enabled_and_leased:
-            lease = self._service("/rosclaw_sim/lease", {"data": True})
-            enabled = self._service("/rosclaw_sim/cleaning", {"data": True})
+            lease = self._service(self.endpoints["lease"], {"data": True})
+            enabled = self._service(self.endpoints["cleaning"], {"data": True})
             if not all(
                 r.ok and r.data.get("values", {}).get("success") is True for r in (lease, enabled)
             ):
@@ -467,7 +556,7 @@ class RosCoverageSimulationExecutor:
                         "nav_goal_results": results,
                     }
                 result = self._run_goal(
-                    "/navigate_to_pose",
+                    self.endpoints["navigate_to_pose"],
                     "nav2_msgs/action/NavigateToPose",
                     {"pose": pose},
                     f"{action_id}:boundary:{index}",
@@ -488,7 +577,7 @@ class RosCoverageSimulationExecutor:
                 "nav_goal_results": results,
             }
         result = self._run_goal(
-            "/navigate_through_poses",
+            self.endpoints["navigate_through_poses"],
             "nav2_msgs/action/NavigateThroughPoses",
             {"poses": poses},
             f"{action_id}:boundary",
@@ -583,7 +672,7 @@ class RosCoverageSimulationExecutor:
                                 for k in ["x", "y", "yaw", "time_sec", "cleaning_enabled"]
                             }
                         ),
-                        frame_id="map",
+                        frame_id=self.grid["frame_id"],
                     )
             if verifier.result()["coverage_ratio"] >= 0.98:
                 break
@@ -720,11 +809,11 @@ class RosCoverageSimulationExecutor:
             ]
             goal_id = f"{action_id}:repair:{index}"
             result = self._run_goal(
-                "/navigate_to_pose",
+                self.endpoints["navigate_to_pose"],
                 "nav2_msgs/action/NavigateToPose",
                 {
                     "pose": {
-                        "header": {"frame_id": "map"},
+                        "header": {"frame_id": self.grid["frame_id"]},
                         "pose": {
                             "position": {"x": center[0], "y": center[1], "z": 0.0},
                             "orientation": {"z": math.sin(heading / 2), "w": math.cos(heading / 2)},
@@ -769,8 +858,8 @@ class RosCoverageSimulationExecutor:
         with self.lock:
             if self.goal_id:
                 self.client.cancel_goal(self.goal_id)
-        result = self._service("/rosclaw_sim/cleaning", {"data": False})
-        lease = self._service("/rosclaw_sim/lease", {"data": False})
+        result = self._service(self.endpoints["cleaning"], {"data": False})
+        lease = self._service(self.endpoints["lease"], {"data": False})
         return {"acknowledged": result.ok and lease.ok, "physical_stop_verified": False}
 
     def __call__(self, action):
@@ -827,14 +916,15 @@ class RosCoverageSimulationExecutor:
         Refuse initialization after the robot has left the configured spawn.
         """
         try:
+            spawn_x, spawn_y, spawn_yaw = self.configured_spawn
             observed = self.witness.fresh()
             if action.arguments:
                 raise ValueError("fixture localization accepts only the configured spawn")
             if (
                 observed["cleaning_enabled"]
                 or observed.get("lease_remaining_sec", 0) > 0
-                or math.hypot(observed["x"], observed["y"]) > 0.02
-                or abs((observed["yaw"] + math.pi) % (2 * math.pi) - math.pi) > 0.02
+                or math.hypot(observed["x"] - spawn_x, observed["y"] - spawn_y) > 0.02
+                or abs((observed["yaw"] - spawn_yaw + math.pi) % (2 * math.pi) - math.pi) > 0.02
             ):
                 raise RuntimeError("initial localization requires the stationary configured spawn")
             time.sleep(0.2)
@@ -850,14 +940,17 @@ class RosCoverageSimulationExecutor:
             requested_at = datetime.now(UTC)
             with self.control_lock:
                 response = self.control.call_service(
-                    "/set_initial_pose",
+                    self.endpoints["set_initial_pose"],
                     {
                         "pose": {
-                            "header": {"frame_id": "map"},
+                            "header": {"frame_id": self.grid["frame_id"]},
                             "pose": {
                                 "pose": {
-                                    "position": {"x": 0.0, "y": 0.0, "z": 0.0},
-                                    "orientation": {"w": 1.0},
+                                    "position": {"x": spawn_x, "y": spawn_y, "z": 0.0},
+                                    "orientation": {
+                                        "z": math.sin(spawn_yaw / 2),
+                                        "w": math.cos(spawn_yaw / 2),
+                                    },
                                 },
                                 "covariance": covariance,
                             },
@@ -877,8 +970,8 @@ class RosCoverageSimulationExecutor:
                 captured = datetime.fromisoformat(
                     localized.get("captured_at", "1970-01-01T00:00:00+00:00")
                 )
-                if captured >= requested_at and localized.get("frame_id") == "map":
-                    distance = math.hypot(localized["x"], localized["y"])
+                if captured >= requested_at and localized.get("frame_id") == self.grid["frame_id"]:
+                    distance = math.hypot(localized["x"] - spawn_x, localized["y"] - spawn_y)
                     if distance <= 0.03 and all(
                         localized["covariance"][i] <= 0.002 for i in (0, 7, 35)
                     ):
@@ -887,6 +980,7 @@ class RosCoverageSimulationExecutor:
                             accepted=True,
                             verification={
                                 "initial_pose_source": "configured_fixture_spawn",
+                                "configured_spawn": list(self.configured_spawn),
                                 "localization_error_m": distance,
                             },
                             observations=[observed],
@@ -994,7 +1088,7 @@ class RosCoverageSimulationExecutor:
                     observed = self.witness.fresh()
                     with self.lease_lock:
                         response = self.lease_control.call_service(
-                            "/rosclaw_sim/lease",
+                            self.endpoints["lease"],
                             {"data": True},
                             service_type="std_srvs/srv/SetBool",
                             timeout_sec=0.5,
@@ -1040,7 +1134,7 @@ class RosCoverageSimulationExecutor:
                             if self.waiting_for_obstacle.is_set():
                                 continue
                             enabled = self.lease_control.call_service(
-                                "/rosclaw_sim/cleaning",
+                                self.endpoints["cleaning"],
                                 {"data": True},
                                 service_type="std_srvs/srv/SetBool",
                                 timeout_sec=0.3,
@@ -1063,21 +1157,24 @@ class RosCoverageSimulationExecutor:
                 admission_sim_time, deadline_sim_time, deadline = self._temporal_admission(
                     action, admission, deadline
                 )
-            self._service("/rosclaw_sim/lease", {"data": True})
+            self._service(self.endpoints["lease"], {"data": True})
             if deadline_sim_time is not None:
                 self._set_obstacle_wait(False)
             heartbeat_thread.start()
             if coverage:
-                response = self._service("/rosclaw_sim/cleaning", {"data": True})
+                response = self._service(self.endpoints["cleaning"], {"data": True})
                 if not response.ok or not response.data.get("values", {}).get("success"):
                     raise RuntimeError("simulated cleaning actuator rejected enable")
                 name, action_type = (
-                    "/navigate_complete_coverage",
+                    self.endpoints["navigate_complete_coverage"],
                     "opennav_coverage_msgs/action/NavigateCompleteCoverage",
                 )
                 args = coverage_goal
             else:
-                name, action_type = "/navigate_to_pose", "nav2_msgs/action/NavigateToPose"
+                name, action_type = (
+                    self.endpoints["navigate_to_pose"],
+                    "nav2_msgs/action/NavigateToPose",
+                )
                 args = {"pose": action.arguments["pose"]}
             with self.lock:
                 self.goal_id = goal_id
@@ -1163,7 +1260,7 @@ class RosCoverageSimulationExecutor:
                     "body_id": action.body_id,
                     "action_ids": [action.action_id],
                     "grid": self.grid,
-                    "frame_id": "map",
+                    "frame_id": self.grid["frame_id"],
                     "trajectory": [
                         {k: s[k] for k in ["x", "y", "yaw", "time_sec", "cleaning_enabled"]}
                         for s in samples
@@ -1231,7 +1328,7 @@ class RosCoverageSimulationExecutor:
                 verification = {"goal_distance_m": distance, "collision_count": collision_count}
             heartbeat_stop.set()
             heartbeat_thread.join(timeout=2)
-            disabled = self._service("/rosclaw_sim/cleaning", {"data": False})
+            disabled = self._service(self.endpoints["cleaning"], {"data": False})
             if not disabled.ok or not disabled.data.get("values", {}).get("success"):
                 raise RuntimeError("simulated cleaning disable was not acknowledged")
             return self._result(
@@ -1286,7 +1383,7 @@ class RosCoverageSimulationExecutor:
             heartbeat_stop.set()
             if heartbeat_thread.is_alive():
                 heartbeat_thread.join(timeout=2)
-            for service in ["/rosclaw_sim/cleaning", "/rosclaw_sim/lease"]:
+            for service in [self.endpoints["cleaning"], self.endpoints["lease"]]:
                 try:
                     self._service(service, {"data": False})
                 except Exception:

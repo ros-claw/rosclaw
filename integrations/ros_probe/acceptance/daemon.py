@@ -100,7 +100,11 @@ def main():
         and brush_binding.get("body_snapshot_hash") != config["body_snapshot_hash"]
     ):
         raise ValueError("prepared brush Body binding differs from immutable daemon Body")
-    witness = SimulationWitness(transports[1], brush_binding=brush_binding)
+    witness = SimulationWitness(
+        transports[1],
+        brush_binding=brush_binding,
+        observation_topic=config.get("observation_topic", "/rosclaw_sim/observation"),
+    )
     deadline = time.monotonic() + 20
     while True:
         try:
@@ -120,6 +124,9 @@ def main():
         body_id=config["body_id"],
         body_snapshot_hash=config["body_snapshot_hash"],
         grid=config["grid"],
+        endpoints=config.get("endpoints"),
+        configured_spawn=config.get("configured_spawn", (0.0, 0.0, 0.0)),
+        mission_polygon=config.get("mission_polygon"),
         recovery_centers=config["recovery_centers"],
         lease_control=transports[3],
         audit_metadata=freeze_audit_source(root, config),
