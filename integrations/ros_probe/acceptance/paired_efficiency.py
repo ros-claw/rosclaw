@@ -126,6 +126,7 @@ def run_arm(pair, arm, args, ordinal, image_id, commit):
         if arm == "baseline"
         else getattr(args, "candidate_repair_strategy", "greedy"),
         "source_commit": commit,
+        "mission_timeout_sec": args.mission_timeout,
         "image_id": image_id,
         "directory": str(directory),
         "status": "RUNNING",
@@ -204,6 +205,12 @@ def run_arm(pair, arm, args, ordinal, image_id, commit):
                     )
                 audit = json.loads((directory / "audit/plan-versus-execution.json").read_text())
                 accepted = json.loads((directory / "accepted/acceptance.json").read_text())
+                segments = [
+                    json.loads(line)
+                    for line in (directory / "audit/coverage-segment-metrics.jsonl")
+                    .read_text()
+                    .splitlines()
+                ]
                 if (
                     not audit["audit_complete"]
                     or audit["canonical_verifier_replay_equal"] is not True
@@ -224,6 +231,8 @@ def run_arm(pair, arm, args, ordinal, image_id, commit):
                     post_cleanup_yaw_change_rad=accepted["post_cleanup_yaw_change_rad"],
                     run_id=audit["run_id"],
                     audit_complete=True,
+                    complete_independent_observations=accepted["complete_independent_observations"],
+                    repair_goal_count=sum(s["stage"] == "REPAIR" for s in segments),
                     main_nav_goal_result=audit.get("main_nav_goal_result"),
                     optimization_status="PILOT_OBSERVATION_ONLY",
                 )
@@ -291,6 +300,11 @@ def main():
         ):
             parser.error("source or candidate differs from preregistered evaluation freeze")
     image_id = command(["docker", "image", "inspect", "--format", "{{.Id}}", args.image])
+    if args.phase == "evaluation" and (
+        freeze.get("image_id") != image_id
+        or freeze.get("mission_timeout_sec", {}).get(args.profile) != args.mission_timeout
+    ):
+        parser.error("image or mission deadline differs from the evaluation freeze")
     pair = args.directory.resolve()
     pair.mkdir(parents=True, exist_ok=False)
     (pair / "protocol.json").write_bytes(protocol_bytes)
@@ -304,6 +318,7 @@ def main():
         "seed": args.seed,
         "candidate": args.candidate,
         "candidate_repair_strategy": args.candidate_repair_strategy,
+        "mission_timeout_sec": args.mission_timeout,
         "v1_done": False,
     }
     (pair / "pair-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")

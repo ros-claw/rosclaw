@@ -27,8 +27,10 @@ def pair(seed, baseline, candidate):
         {k: p[k] for k in ["profile", "seed", "source_commit", "image_id"]}
         | {
             "arm": arm,
+            "preset": "baseline" if arm == "baseline" else p["candidate"],
             "status": "PASS",
             "audit_complete": True,
+            "complete_independent_observations": True,
             "run_id": f"{seed}-{arm}",
             "coverage_ratio": 0.98,
             "collision_count": 0,
@@ -98,3 +100,27 @@ def test_changed_freeze_or_invalid_measurements_fail_series(mutation):
     assert result["failed_pairs"]
     assert result["metrics"] == {}
     assert result["complete_frozen_series"] is False
+
+
+@pytest.mark.parametrize(
+    "fault",
+    ["arm_preset", "baseline_repair", "candidate_repair", "mixed_repair", "incomplete_observer"],
+)
+def test_repair_ablation_identity_and_complete_observations_are_required(fault):
+    pairs = [pair(1, 10, 1), pair(2, 20, 2)]
+    row = pairs[1]["runs"][1]
+    if fault == "arm_preset":
+        row["preset"] = "baseline"
+    elif fault == "baseline_repair":
+        pairs[1]["runs"][0]["repair_strategy"] = "pose_aware"
+    elif fault == "candidate_repair":
+        row["repair_strategy"] = "pose_aware"
+    elif fault == "mixed_repair":
+        pairs[1]["candidate_repair_strategy"] = row["repair_strategy"] = "pose_aware"
+    else:
+        row["complete_independent_observations"] = False
+    result = analysis.analyze_pairs(
+        pairs, expected_seeds=[1, 2], profile="waffle", phase="evaluation"
+    )
+    assert result["failed_pairs"] and not result["complete_frozen_series"]
+    assert result["metrics"] == {} and not result["median_30_percent_target"]

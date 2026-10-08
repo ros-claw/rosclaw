@@ -49,8 +49,18 @@ def analyze_pairs(pairs, *, expected_seeds, profile, phase, bootstrap_samples=20
             problems.append("two distinct arms required")
         else:
             arms = {r["arm"]: r for r in rows}
-            identities.add((pair["source_commit"], pair["image_id"], pair["candidate"]))
+            strategy = pair.get("candidate_repair_strategy", "greedy")
+            identities.add((pair["source_commit"], pair["image_id"], pair["candidate"], strategy))
             for r in rows:
+                expected_preset = "baseline" if r["arm"] == "baseline" else pair["candidate"]
+                expected_strategy = "greedy" if r["arm"] == "baseline" else strategy
+                if (
+                    r.get("preset") != expected_preset
+                    or r.get("repair_strategy", "greedy") != expected_strategy
+                ):
+                    problems.append("arm preset or repair strategy differs from frozen pair")
+                if r.get("complete_independent_observations") is not True:
+                    problems.append("complete independent observations not recorded")
                 if any(
                     r.get(k) != pair[k] for k in ["profile", "seed", "source_commit", "image_id"]
                 ):
@@ -96,7 +106,7 @@ def analyze_pairs(pairs, *, expected_seeds, profile, phase, bootstrap_samples=20
         failures.append(
             {
                 "seed": None,
-                "reasons": ["series source/image/candidate changed; not a frozen series"],
+                "reasons": ["series source/image/candidate/repair changed; not a frozen series"],
             }
         )
     eligible = not missing and not failures and len(validated) == len(expected_seeds)
@@ -169,6 +179,11 @@ def main():
         if not freeze or any(
             p["source_commit"] != freeze["source_commit"]
             or p["candidate"] != freeze["selected_presets"].get(args.profile)
+            or p["image_id"] != freeze.get("image_id")
+            or p.get("mission_timeout_sec")
+            != freeze.get("mission_timeout_sec", {}).get(args.profile)
+            or p.get("candidate_repair_strategy", "greedy")
+            != freeze.get("selected_repair_strategies", {}).get(args.profile, "greedy")
             for p in pairs
             if p["profile"] == args.profile and p["phase"] == args.phase
         ):
@@ -176,6 +191,7 @@ def main():
     report["input_sha256"] = {
         str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in [args.protocol, *args.pairs]
     }
+    report["analysis_source_sha256"] = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open("x") as stream:
         stream.write(json.dumps(report, indent=2) + "\n")
