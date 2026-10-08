@@ -127,7 +127,10 @@ def run_episode(
     if type(value) is not dict:
         raise ValueError("closed Native episode protocol object required")
     backend, backend_inputs = None, {}
-    if value.get("schema_version") == "rosclaw.dynamic_native_episode.v2":
+    if value.get("schema_version") in {
+        "rosclaw.dynamic_native_episode.v2",
+        "rosclaw.dynamic_native_episode.v3",
+    }:
         from qualified_backend_episode import frozen_backend_files, validate_qualified_spec
 
         spec, backend = validate_qualified_spec(value, validate_episode_spec)
@@ -292,6 +295,7 @@ def run_episode(
             library_path=plugin,
             mission_id=mission,
             profile_name=spec["profile"],
+            obstacle_count=2 if case == "D3" else 1,
         )
         (directory / "physics.json").write_bytes(
             (directory / "bootstrap/physics.json").read_bytes()
@@ -307,6 +311,9 @@ def run_episode(
             "introduce_after_cleaning_sim_sec": spec["introduce_after_cleaning_sim_sec"],
             "wall_timeout_sec": spec["mission_timeout_sec"] + 120,
         }
+        if case == "D3":
+            scenario.update(spec["scenario_source"])
+            scenario["second_obstacle_name"] = physics["binding"]["obstacle_names"][1]
         (directory / "scenario.json").write_text(json.dumps(scenario, indent=2) + "\n")
         stack = (
             "source /opt/ros/jazzy/setup.bash && source /ws/install/setup.bash && "
@@ -553,7 +560,7 @@ def run_episode(
                 timeout=120,
             )
             result["qualified_original_backend_closed_replay"] = "PASS_SOURCE_CORRESPONDENCE_ONLY"
-        if case == "D2":
+        if case in {"D2", "D3"}:
             step(
                 "native-acceptance",
                 [
@@ -658,6 +665,22 @@ def run_episode(
             (directory / "closed-source-replay.json").write_text(
                 json.dumps(replay, indent=2) + "\n"
             )
+            if case == "D3":
+                from dynamic_two_blocker_replay import replay_two_blocker_scenario
+
+                two_blocker = replay_two_blocker_scenario(
+                    audits[0],
+                    directory / "dynamic-scenario-events.jsonl",
+                    directory / "scenario.json",
+                    json.loads(evidence_paths[0].read_bytes()),
+                    json.loads((directory / "physics.json").read_bytes()),
+                )
+                (directory / "closed-two-blocker-source-replay.json").write_text(
+                    json.dumps(two_blocker, indent=2) + "\n"
+                )
+                result["two_nonconcurrent_blockers_and_no_old_mask_source_leak"] = (
+                    "PASS_SOURCE_CORRESPONDENCE_ONLY"
+                )
             result.update(
                 status="PASS",
                 task_kernel_succeeded=True,

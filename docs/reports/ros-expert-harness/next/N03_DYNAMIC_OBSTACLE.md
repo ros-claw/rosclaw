@@ -257,3 +257,15 @@ TaskKernel, coverage/temporal credit, Practice/Memory and independent stop gates
 The complete N03 ROS source regression passed 1,259 tests (10 integration tests
 deselected). D1/D3/D5/D6 full Native orchestration and all actual dynamic physical
 runs remain pending; this checkpoint is not N03 acceptance.
+
+## Qualified D3 two-blocker Native host source
+
+The closed episode v3 protocol adds exactly a distinct second target, a second10–30SIM-second dwell and a2–30SIM-second gap to the qualified original-wire backend. Legacy v1 and v2 cannot silently select D3. Two separate blocker models are preloaded before World preparation under the same initial denominator; all geometry and identities stay frozen.
+
+The owned scene controller introduces the first blocker only with independently measured Body clearance, records the original service response, and waits for an actual later PostUpdate packet at the target. After its dwell it requests withdrawal and independently confirms the original parked pose before waiting the frozen gap and introducing the second blocker. ACK alone cannot advance either stage. Native waits for both perturbations; all original observation/SDK/receipt/stop gates remain required, including the actual prior PR624 merge before any World or process launch.
+
+After genuine task/source closure, `dynamic_two_blocker_replay.py` reuses the exact canonical component-to-occupancy replay and checks all four confirmations against their original observer packet bytes and original receipt ages. Per-model projections require a nonempty occupied grid at each introduction, an empty mask at each withdrawal, and an empty other-model mask throughout both confirmation windows. Full canonical replay rejects a stale mask carried into later trajectory samples. Dwell and gap are checked against actual recorded SIM times. This is historical source correspondence, not a new physics run or source authentication.
+
+Validation: focused host/scenario/source contracts137 passed before the additional v3 early-merge refusal case; full ROS1293 passed/10 integration deselected/one existing warning in25.41s, source replay mypy and source/tests Ruff passed. Real source SDK preparation on both actual installed Waffle/Burger URDFs with two preloaded task blockers and the separate cache probe passed; generated Worlds passed installed SDF parsing and final/root physics inventories agreed. Executed source and real ELF bytes were captured before the SDK check. No Node, World, service or model call was started by it.
+
+D2/D3/D4 host orchestration is implemented but actual new Native physics tasks remain NOT_RUN pending the frozen N02 formal review/merge. D1/D5/D6 complete actual task entry and acceptance remain incomplete. v1_done=false.

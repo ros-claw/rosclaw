@@ -49,6 +49,8 @@ def fixture(root, case="D2", kind="SCENARIO_STARTED"):
         ("D2", "SCENARIO_STARTED", False),
         ("D4", "ACTUAL_POSTUPDATE_POSITION_CONFIRMED", False),
         ("D2", "PERTURBATION_COMPLETE_REQUIRES_NATIVE_AND_CREDIT_VALIDATION", True),
+        ("D3", "SCENARIO_STARTED", False),
+        ("D3", "PERTURBATION_COMPLETE_REQUIRES_NATIVE_AND_CREDIT_VALIDATION", True),
     ],
 )
 def test_fixture_progress_never_promotes_physical_acceptance(

@@ -255,14 +255,25 @@ def test_original_source_writers_close_before_world_without_claiming_stop(
     assert record["physical_acceptance"] == "NOT_VERIFIED" and record["authorization"] is False
 
 
+@pytest.mark.parametrize("case", ["D2", "D3"])
 def test_qualified_v2_keeps_actual_prior_merge_check_before_any_process(
-    modules, tmp_path, monkeypatch
+    modules, tmp_path, monkeypatch, case
 ):
     from tests.connectors.ros import test_dynamic_native_episode as original
 
     _, episode, _ = modules
     directory, protocol_path, plugin, urdf, home, spec = original.inputs.__wrapped__(tmp_path)
     spec["schema_version"] = "rosclaw.dynamic_native_episode.v2"
+    if case == "D3":
+        spec.update(
+            schema_version="rosclaw.dynamic_native_episode.v3",
+            case="D3",
+            scenario_source={
+                "second_target_xy": [-0.7, -0.7],
+                "second_dwell_sim_sec": 20,
+                "gap_sim_sec": 5,
+            },
+        )
     contact, worker = tmp_path / "contact.so", tmp_path / "worker"
     contact.write_bytes(b"\x7fELFsynthetic_not_loadable")
     worker.write_bytes(b"\x7fELFsynthetic_not_executable")
@@ -303,3 +314,59 @@ def test_qualified_v2_keeps_actual_prior_merge_check_before_any_process(
         )
     assert not directory.exists()
     assert any(argv[0] == "gh" for argv in called)
+
+
+def test_d3_requires_qualified_original_wire_and_an_explicit_second_blocker(modules):
+    qualified, episode, _ = modules
+    spec = protocol()
+    spec.update(
+        schema_version="rosclaw.dynamic_native_episode.v3",
+        case="D3",
+        scenario_source={
+            "second_target_xy": [-0.7, -0.7],
+            "second_dwell_sim_sec": 20,
+            "gap_sim_sec": 5,
+        },
+    )
+    base, backend = qualified.validate_qualified_spec(spec, episode.validate_episode_spec)
+    assert base["case"] == "D3" and base["scenario_source"] == spec["scenario_source"]
+    assert backend["source_mode"] == "ALL_STEP_SPATIAL_ORIGINAL_SERVICE_WIRE_REQUIRED"
+    with pytest.raises(ValueError):
+        episode.validate_episode_spec(
+            {**spec, "schema_version": "rosclaw.dynamic_native_episode.v1"}
+        )
+
+
+@pytest.mark.parametrize(
+    "fault", ["case", "extra", "target", "nan", "dwell", "gap", "implicit", "downgrade"]
+)
+def test_unregistered_or_concurrent_d3_protocol_refuses_before_any_process(modules, fault):
+    qualified, episode, _ = modules
+    spec = protocol()
+    spec.update(
+        schema_version="rosclaw.dynamic_native_episode.v3",
+        case="D3",
+        scenario_source={
+            "second_target_xy": [-0.7, -0.7],
+            "second_dwell_sim_sec": 20,
+            "gap_sim_sec": 5,
+        },
+    )
+    if fault == "case":
+        spec["case"] = "D1"
+    elif fault == "extra":
+        spec["scenario_source"]["reset_deadline"] = True
+    elif fault == "target":
+        spec["scenario_source"]["second_target_xy"] = spec["target_xy"]
+    elif fault == "nan":
+        spec["scenario_source"]["second_target_xy"] = [float("nan"), 0]
+    elif fault == "dwell":
+        spec["scenario_source"]["second_dwell_sim_sec"] = 9
+    elif fault == "gap":
+        spec["scenario_source"]["gap_sim_sec"] = 0
+    elif fault == "implicit":
+        spec.pop("scenario_source")
+    else:
+        spec["schema_version"] = "rosclaw.dynamic_native_episode.v2"
+    with pytest.raises(ValueError):
+        qualified.validate_qualified_spec(spec, episode.validate_episode_spec)

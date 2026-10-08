@@ -19,7 +19,11 @@ from profiles import profile_for_urdf
 from rosclaw.connectors.ros.verification.reachable import cleanable_cells
 
 
-def prepare_bindings(output, *, urdf_path, library_path, mission_id, profile_name):
+def prepare_bindings(
+    output, *, urdf_path, library_path, mission_id, profile_name, obstacle_count=1
+):
+    if type(obstacle_count) is not int or obstacle_count not in (1, 2):
+        raise ValueError("one or two explicitly staged fixture blockers required")
     if type(mission_id) is not str or not 1 <= len(mission_id) <= 256:
         raise ValueError("bounded nonempty mission id required")
     profile = profile_for_urdf(urdf_path, profile_name)
@@ -68,6 +72,7 @@ def prepare_bindings(output, *, urdf_path, library_path, mission_id, profile_nam
         cleaning_radius=profile.cleaner_half_width_m,
     )
     name = "ros_expert_temporal_obstacle"
+    names = [name] if obstacle_count == 1 else [name, name + "_second"]
     if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,63}", name):
         raise ValueError("invalid fixture obstacle identifier")
     binding = {
@@ -75,7 +80,7 @@ def prepare_bindings(output, *, urdf_path, library_path, mission_id, profile_nam
         "mission_id": mission_id,
         "world_name": "ros_expert",
         "body_model_name": profile.simulation_model,
-        "obstacle_names": [name],
+        "obstacle_names": names,
         "scene_model_names": [
             "floor",
             "east",
@@ -83,7 +88,7 @@ def prepare_bindings(output, *, urdf_path, library_path, mission_id, profile_nam
             "north",
             "south",
             profile.simulation_model,
-            name,
+            *names,
         ],
         "world_to_map_xyyaw": [0, 0, 0],
         "map_world_identity_approved": True,
@@ -102,7 +107,10 @@ def prepare_bindings(output, *, urdf_path, library_path, mission_id, profile_nam
         "schema_version": "rosclaw.sim_physics_fixture.v1",
         "binding": binding,
         "plugin_sha256": hashlib.sha256(plugin).hexdigest(),
-        "obstacles": [{"name": name, "pose": [5, 0, 0.1, 0, 0, 0], "box_size": [0.7, 0.7, 0.2]}],
+        "obstacles": [
+            {"name": obstacle_name, "pose": [5, index, 0.1, 0, 0, 0], "box_size": [0.7, 0.7, 0.2]}
+            for index, obstacle_name in enumerate(names)
+        ],
     }
     for filename, value in (
         ("brush.json", brush),
