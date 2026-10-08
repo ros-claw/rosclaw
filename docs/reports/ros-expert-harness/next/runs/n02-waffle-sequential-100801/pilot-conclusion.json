@@ -1,0 +1,95 @@
+{
+  "status": "BOUNDARY_NOT_EXERCISED_MAIN_FAILED",
+  "reason": "Candidate upstream main105 after39.12SIMs. Boundary correctly skipped; raw zero-translational command evidence retained. Existing measured repair reaches physical98%; no claim about sequential boundary effectiveness.",
+  "physical_summary": {
+    "schema_version": "rosclaw.paired_efficiency_run.v1",
+    "phase": "pilot",
+    "protocol_sha256": "021286038e5b001385790cc0af3822f99918b2ea7efd483756e3ef5f639f646f",
+    "source_commit": "955ff36035a887a4a26b16b405d95908ce4172d2",
+    "image_id": "sha256:c31355f34739eb4ea8b60de1414c57ce0eea8225aa9e3ce854b7ceb66ca4376e",
+    "profile": "waffle",
+    "seed": 100801,
+    "candidate": "perimeter_sequential",
+    "v1_done": false,
+    "status": "PASS",
+    "runs": [
+      {
+        "profile": "waffle",
+        "seed": 100801,
+        "arm": "baseline",
+        "preset": "baseline",
+        "source_commit": "955ff36035a887a4a26b16b405d95908ce4172d2",
+        "image_id": "sha256:c31355f34739eb4ea8b60de1414c57ce0eea8225aa9e3ce854b7ceb66ca4376e",
+        "directory": "/tmp/ros-expert-next/n02-waffle-sequential-100801/baseline",
+        "status": "PASS",
+        "port": 20191,
+        "ros_domain_id": 201,
+        "container": "reh-n02-waffle-100801-baseline-1791425406495016833",
+        "measured_distance_m": 63.73410308407942,
+        "sim_duration_sec": 643.24,
+        "main_coverage_ratio": 0.5735458612975392,
+        "primary_coverage_ratio": 0.5735458612975392,
+        "boundary_nav_goal_result": {
+          "status": "DISABLED"
+        },
+        "coverage_ratio": 0.9809843400447428,
+        "canonical_duration_sec": 649.690946,
+        "collision_count": 0,
+        "trace_gaps": 0,
+        "post_cleanup_displacement_m": 0.0,
+        "post_cleanup_yaw_change_rad": 0.0,
+        "run_id": "5d0602c75d2b42fbb5001c7d7d13a846",
+        "audit_complete": true,
+        "main_nav_goal_result": {
+          "status": 4,
+          "result": {
+            "error_code": 0
+          }
+        },
+        "optimization_status": "PILOT_OBSERVATION_ONLY"
+      },
+      {
+        "profile": "waffle",
+        "seed": 100801,
+        "arm": "candidate",
+        "preset": "perimeter_sequential",
+        "source_commit": "955ff36035a887a4a26b16b405d95908ce4172d2",
+        "image_id": "sha256:c31355f34739eb4ea8b60de1414c57ce0eea8225aa9e3ce854b7ceb66ca4376e",
+        "directory": "/tmp/ros-expert-next/n02-waffle-sequential-100801/candidate",
+        "status": "PASS",
+        "port": 20192,
+        "ros_domain_id": 202,
+        "container": "reh-n02-waffle-100801-candidate-1791426131191285140",
+        "measured_distance_m": 63.71206851848872,
+        "sim_duration_sec": 697.5600000000001,
+        "main_coverage_ratio": 0.13590604026845637,
+        "primary_coverage_ratio": 0.13590604026845637,
+        "boundary_nav_goal_result": {
+          "status": "SKIPPED",
+          "reason": "upstream main goal did not succeed"
+        },
+        "coverage_ratio": 0.9804250559284117,
+        "canonical_duration_sec": 704.397644,
+        "collision_count": 0,
+        "trace_gaps": 0,
+        "post_cleanup_displacement_m": 0.0,
+        "post_cleanup_yaw_change_rad": 0.0,
+        "run_id": "1db5ed021b4c4744937a1a305a3d57f6",
+        "audit_complete": true,
+        "main_nav_goal_result": {
+          "status": 6,
+          "result": {
+            "error_code": 105
+          }
+        },
+        "optimization_status": "PILOT_OBSERVATION_ONLY"
+      }
+    ],
+    "paired_measured_reduction": {
+      "measured_distance_m": 0.00034572645608010877,
+      "sim_duration_sec": -0.08444748460916607
+    },
+    "statistical_note": "One pair is a pilot observation, not a median improvement or P0 acceptance."
+  },
+  "v1_done": false
+}

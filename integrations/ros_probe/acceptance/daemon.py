@@ -114,6 +114,9 @@ def main():
         recovery_centers=config["recovery_centers"],
         lease_control=transports[3],
         audit_metadata=freeze_audit_source(root, config),
+        boundary_pass=config.get("experiment", {}).get("boundary_pass", False),
+        boundary_strategy=config.get("experiment", {}).get("boundary_strategy", "through_poses"),
+        boundary_centers=config.get("boundary_centers"),
     )
     for capability in [
         "navigation.navigate_to_pose",
@@ -179,17 +182,29 @@ def freeze_audit_source(root, config):
     files = [
         Path(__file__),
         repository / "src/rosclaw/connectors/ros/mission/executor.py",
+        repository / "src/rosclaw/connectors/ros/mission/boundary_pass.py",
         repository / "src/rosclaw/connectors/ros/diagnosis/coverage_audit.py",
         repository / "src/rosclaw/connectors/ros/verification/coverage.py",
         *[
             Path(__file__).with_name(name)
-            for name in ["stack.py", "witness.py", "profiles.py", "run.py", "nav2_launch.py"]
+            for name in [
+                "stack.py",
+                "witness.py",
+                "profiles.py",
+                "run.py",
+                "nav2_launch.py",
+                "experiments.py",
+                "paired_efficiency.py",
+                "cleaning_acceptance.py",
+            ]
         ],
         root / "nav2.yaml",
         root / "execution_config.json",
         root / "robot.urdf",
         root / "measured_map.json",
         root / "world.sdf",
+        root / "experiment.json",
+        root / "protocol.json",
     ]
     hashes = {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in files if p.exists()}
     commit = subprocess.check_output(

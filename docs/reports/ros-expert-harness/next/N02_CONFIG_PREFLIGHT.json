@@ -1,0 +1,105 @@
+{
+  "status": "PASS_CONFIGURATION_ONLY",
+  "geometry_world_guards_identical_across_presets": true,
+  "only_sdf_yaml_reference_path_normalized": true,
+  "all_non_planning_nav2_parameters_identical": true,
+  "runs": [
+    {
+      "profile": "waffle",
+      "preset": "baseline",
+      "public_file_hashes": {
+        "room.pgm": "f0b2bd03a8f463d5b66a963a497451d9f327780f7ab3847a6481776d761e5214",
+        "contact_topics.json": "87ceec5b71afd71decea8208aada1dbbdd8c085f7578999de8ccdc88466609e7",
+        "truth_bridge.yaml": "8a8180847683c4fff238de3e8d42592395bcdd64291c3f312df36de1cd987cc6",
+        "world.sdf": "07915dc6fe79575e990fe9973f1ab45b9cbbf1cbd310a6b7bd876542879a6ad2",
+        "bridge.yaml": "2e8fff115e493d90522f248205a65af14ec5341713cea863ed8b06d68f567cda",
+        "map.yaml": "53ed2b3565404b9c7c611c5a73d1245b97e572bc1ac51251f21b15955dc759ed",
+        "nav2.yaml": "cfcc758f867dedbb5fd4c5fd995e3988e04a4cdc5ee2e2e6cad1eeadbe13253f",
+        "robot.urdf": "2c26a554239ba6e544ecca5a6640cf879ecd7e3409f11fb334df9ce78aeb3c7e",
+        "controllers.yaml": "d4be58f3f775582fb8df4ac2ab59deb8a54e3e79c59386dc5160e5cdcd2bb2c8",
+        "fixture_profile.json": "3fac272e6de8510a9dba5cb2c78dcf3cc8c14148db869a5f65f6e13c0b1eeb8e",
+        "experiment.json": "e76f7e2a5dea6738e088bcdeb3331cabfec3e09a1610f67cc4104dafe4bed757",
+        "robot.sdf": "87fcb1e7fd73df4e6c839a460d00a037b87e8f0989407075bcc994436fb82726"
+      },
+      "normalized_robot_sdf_sha256": "3eaea9a33c1b1ddb3de2efb48ea47a7480ade730e0582654988487d7410b072b"
+    },
+    {
+      "profile": "waffle",
+      "preset": "diagonal",
+      "public_file_hashes": {
+        "room.pgm": "f0b2bd03a8f463d5b66a963a497451d9f327780f7ab3847a6481776d761e5214",
+        "contact_topics.json": "87ceec5b71afd71decea8208aada1dbbdd8c085f7578999de8ccdc88466609e7",
+        "truth_bridge.yaml": "8a8180847683c4fff238de3e8d42592395bcdd64291c3f312df36de1cd987cc6",
+        "world.sdf": "07915dc6fe79575e990fe9973f1ab45b9cbbf1cbd310a6b7bd876542879a6ad2",
+        "bridge.yaml": "2e8fff115e493d90522f248205a65af14ec5341713cea863ed8b06d68f567cda",
+        "map.yaml": "53ed2b3565404b9c7c611c5a73d1245b97e572bc1ac51251f21b15955dc759ed",
+        "nav2.yaml": "6dad66d08b9afd45b8d0de0c13cac7d8571a8299ef4b0809236ba87ab4e5c8b2",
+        "robot.urdf": "2c26a554239ba6e544ecca5a6640cf879ecd7e3409f11fb334df9ce78aeb3c7e",
+        "controllers.yaml": "d4be58f3f775582fb8df4ac2ab59deb8a54e3e79c59386dc5160e5cdcd2bb2c8",
+        "fixture_profile.json": "3fac272e6de8510a9dba5cb2c78dcf3cc8c14148db869a5f65f6e13c0b1eeb8e",
+        "experiment.json": "857899367a4004837bc14c2aa01e36f50e6e5610a9b16a3dfd5163d93917b4a2",
+        "robot.sdf": "2465dada94519ebfa01e921b22e8c62b19364fceffdd72fa1e067a6a2f625669"
+      },
+      "normalized_robot_sdf_sha256": "3eaea9a33c1b1ddb3de2efb48ea47a7480ade730e0582654988487d7410b072b"
+    },
+    {
+      "profile": "waffle",
+      "preset": "headland",
+      "public_file_hashes": {
+        "room.pgm": "f0b2bd03a8f463d5b66a963a497451d9f327780f7ab3847a6481776d761e5214",
+        "contact_topics.json": "87ceec5b71afd71decea8208aada1dbbdd8c085f7578999de8ccdc88466609e7",
+        "truth_bridge.yaml": "8a8180847683c4fff238de3e8d42592395bcdd64291c3f312df36de1cd987cc6",
+        "world.sdf": "07915dc6fe79575e990fe9973f1ab45b9cbbf1cbd310a6b7bd876542879a6ad2",
+        "bridge.yaml": "2e8fff115e493d90522f248205a65af14ec5341713cea863ed8b06d68f567cda",
+        "map.yaml": "53ed2b3565404b9c7c611c5a73d1245b97e572bc1ac51251f21b15955dc759ed",
+        "nav2.yaml": "1e1db1d6dc3f4d1e2cc85de6515a98e9bd95aed3bfec626d1e8bd13fd142d711",
+        "robot.urdf": "2c26a554239ba6e544ecca5a6640cf879ecd7e3409f11fb334df9ce78aeb3c7e",
+        "controllers.yaml": "d4be58f3f775582fb8df4ac2ab59deb8a54e3e79c59386dc5160e5cdcd2bb2c8",
+        "fixture_profile.json": "3fac272e6de8510a9dba5cb2c78dcf3cc8c14148db869a5f65f6e13c0b1eeb8e",
+        "experiment.json": "db08ff152d91680ef312cba1e2c8482af5085d73c5409cbda2cbef548c2d6291",
+        "robot.sdf": "a94b14bb0c227f46c218d4f5d88c1805f5c9f065a8c1d18a903b701d85c13c57"
+      },
+      "normalized_robot_sdf_sha256": "3eaea9a33c1b1ddb3de2efb48ea47a7480ade730e0582654988487d7410b072b"
+    },
+    {
+      "profile": "burger",
+      "preset": "baseline",
+      "public_file_hashes": {
+        "room.pgm": "f0b2bd03a8f463d5b66a963a497451d9f327780f7ab3847a6481776d761e5214",
+        "contact_topics.json": "f5498a424f354744540c445b10eaae2c57695343666996418fb10077f248a2de",
+        "truth_bridge.yaml": "8a8180847683c4fff238de3e8d42592395bcdd64291c3f312df36de1cd987cc6",
+        "world.sdf": "07915dc6fe79575e990fe9973f1ab45b9cbbf1cbd310a6b7bd876542879a6ad2",
+        "burger.vendor.urdf": "4c2aefcef071aa3f5930e1b3948d8f4ed7c10aba63e7b675f04c8c576671bb63",
+        "bridge.yaml": "3e015dcef50526231f68d8e2e45be345dc925e8024856f7614b005ccdfb0eae4",
+        "map.yaml": "53ed2b3565404b9c7c611c5a73d1245b97e572bc1ac51251f21b15955dc759ed",
+        "nav2.yaml": "75255343329a84e1865f4a2f5124bfc85e8ff5f1a88d4e9052372dcbdb6df603",
+        "robot.urdf": "9b9400dff5b253df9a26f287d45e5d51d01f8b3300baffed781948961fc2892f",
+        "controllers.yaml": "3ebd6132d57012f447fb60afef9c17f1ad032957a3ed6d5a82f1fd16117ff726",
+        "fixture_profile.json": "8331ad8201810b44864d163774143199e2657523fce2985fc16b7d5e1ad51647",
+        "experiment.json": "68f3d416350c29d23db34491fb5e84c7011aa33b323c394ddc9b2b0f318fa510",
+        "robot.sdf": "648d7f2018d48df718fbd2ebf9bfeb50c2f48d307677482c0b4dd5a6b7851921"
+      },
+      "normalized_robot_sdf_sha256": "e60cf1e09352bf002ee3765703e5dfc7159f946e25c3163feff838cf6bce9cd7"
+    },
+    {
+      "profile": "burger",
+      "preset": "headland",
+      "public_file_hashes": {
+        "room.pgm": "f0b2bd03a8f463d5b66a963a497451d9f327780f7ab3847a6481776d761e5214",
+        "contact_topics.json": "f5498a424f354744540c445b10eaae2c57695343666996418fb10077f248a2de",
+        "truth_bridge.yaml": "8a8180847683c4fff238de3e8d42592395bcdd64291c3f312df36de1cd987cc6",
+        "world.sdf": "07915dc6fe79575e990fe9973f1ab45b9cbbf1cbd310a6b7bd876542879a6ad2",
+        "burger.vendor.urdf": "4c2aefcef071aa3f5930e1b3948d8f4ed7c10aba63e7b675f04c8c576671bb63",
+        "bridge.yaml": "3e015dcef50526231f68d8e2e45be345dc925e8024856f7614b005ccdfb0eae4",
+        "map.yaml": "53ed2b3565404b9c7c611c5a73d1245b97e572bc1ac51251f21b15955dc759ed",
+        "nav2.yaml": "d86d4a76c20da215de537862aaaec0b82dc61dcbe6541e8e6a7f53fc08f9ef88",
+        "robot.urdf": "9b9400dff5b253df9a26f287d45e5d51d01f8b3300baffed781948961fc2892f",
+        "controllers.yaml": "3ebd6132d57012f447fb60afef9c17f1ad032957a3ed6d5a82f1fd16117ff726",
+        "fixture_profile.json": "8331ad8201810b44864d163774143199e2657523fce2985fc16b7d5e1ad51647",
+        "experiment.json": "0d9fd1137e9120cf75a620f6b0f58a3e7704dd3900dd13851af091fd4aaa553b",
+        "robot.sdf": "362b4ba3150dbeb18a73bb8705a18582b979af3683d8361a19f48d9dd2076a3e"
+      },
+      "normalized_robot_sdf_sha256": "e60cf1e09352bf002ee3765703e5dfc7159f946e25c3163feff838cf6bce9cd7"
+    }
+  ]
+}

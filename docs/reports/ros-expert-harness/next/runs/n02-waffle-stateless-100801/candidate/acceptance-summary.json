@@ -1,0 +1,29 @@
+{
+  "status": "PASS",
+  "source_commit": "1c107929188b939d965b311fe49a27a642bda5db",
+  "evidence_domain": "SIMULATION",
+  "autonomous_llm": false,
+  "task_kernel_succeeded": false,
+  "hardware_verified": false,
+  "causal_memory_benefit_verified": false,
+  "mission_id": "gazebo-room-cleaning",
+  "coverage_ratio": 0.9818232662192393,
+  "collision_count": 0,
+  "trace_gaps": 0,
+  "complete_independent_observations": true,
+  "duration_sec": 580.593742,
+  "memory_instruction": "\u533a\u57df\u6e05\u626b / complete area cleaning (ROS coverage.execute)",
+  "memory_duration_sec": 580.593742,
+  "retrieval_after_reopen": {
+    "complete room cleaning": "gazebo-room-cleaning",
+    "cleaning coverage": "gazebo-room-cleaning",
+    "\u533a\u57df\u6e05\u626b": "gazebo-room-cleaning",
+    "\u5b8c\u6210\u6574\u4e2a\u623f\u95f4\u6e05\u626b\u3002": "gazebo-room-cleaning",
+    "clean the entire room": "gazebo-room-cleaning"
+  },
+  "practice_outcome": "SUCCESS",
+  "canonical_receipts": "3 COMPLETED / SIMULATION",
+  "post_cleanup_displacement_m": 0.0,
+  "post_cleanup_yaw_change_rad": 0.0,
+  "verification_replay_uses_saved_canonical_receipts": true
+}

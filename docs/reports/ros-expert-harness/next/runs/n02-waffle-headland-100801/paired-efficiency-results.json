@@ -1,0 +1,81 @@
+{
+  "schema_version": "rosclaw.paired_efficiency_run.v1",
+  "phase": "pilot",
+  "protocol_sha256": "fffe833103d7598509b26e78e6ee9c589b9df3b25660417f012022bffe61024d",
+  "source_commit": "e9a1e3a9d2b9f2c9315e0b960d1663d767e207f9",
+  "image_id": "sha256:c31355f34739eb4ea8b60de1414c57ce0eea8225aa9e3ce854b7ceb66ca4376e",
+  "profile": "waffle",
+  "seed": 100801,
+  "candidate": "headland",
+  "v1_done": false,
+  "status": "PASS",
+  "runs": [
+    {
+      "profile": "waffle",
+      "seed": 100801,
+      "arm": "baseline",
+      "preset": "baseline",
+      "source_commit": "e9a1e3a9d2b9f2c9315e0b960d1663d767e207f9",
+      "image_id": "sha256:c31355f34739eb4ea8b60de1414c57ce0eea8225aa9e3ce854b7ceb66ca4376e",
+      "directory": "/tmp/ros-expert-next/n02-waffle-headland-100801/baseline",
+      "status": "PASS",
+      "port": 20191,
+      "ros_domain_id": 201,
+      "container": "reh-n02-waffle-100801-baseline-1791422254537602230",
+      "measured_distance_m": 72.42737640980394,
+      "sim_duration_sec": 697.6,
+      "main_coverage_ratio": 0.5735458612975392,
+      "coverage_ratio": 0.9821029082774049,
+      "canonical_duration_sec": 704.309974,
+      "collision_count": 0,
+      "trace_gaps": 0,
+      "post_cleanup_displacement_m": 0.0,
+      "post_cleanup_yaw_change_rad": 0.0,
+      "run_id": "ec1ddf4491904109a60332a9cc21ebc3",
+      "audit_complete": true,
+      "main_nav_goal_result": {
+        "status": 4,
+        "result": {
+          "error_code": 0
+        }
+      },
+      "optimization_status": "PILOT_OBSERVATION_ONLY"
+    },
+    {
+      "profile": "waffle",
+      "seed": 100801,
+      "arm": "candidate",
+      "preset": "headland",
+      "source_commit": "e9a1e3a9d2b9f2c9315e0b960d1663d767e207f9",
+      "image_id": "sha256:c31355f34739eb4ea8b60de1414c57ce0eea8225aa9e3ce854b7ceb66ca4376e",
+      "directory": "/tmp/ros-expert-next/n02-waffle-headland-100801/candidate",
+      "status": "PASS",
+      "port": 20192,
+      "ros_domain_id": 202,
+      "container": "reh-n02-waffle-100801-candidate-1791423034497079353",
+      "measured_distance_m": 57.63355645397578,
+      "sim_duration_sec": 595.24,
+      "main_coverage_ratio": 0.4742729306487696,
+      "coverage_ratio": 0.9807046979865772,
+      "canonical_duration_sec": 601.068644,
+      "collision_count": 0,
+      "trace_gaps": 0,
+      "post_cleanup_displacement_m": 0.0,
+      "post_cleanup_yaw_change_rad": 0.0,
+      "run_id": "3eff557b9040460dae5fcac62d0bbe3f",
+      "audit_complete": true,
+      "main_nav_goal_result": {
+        "status": 6,
+        "result": {
+          "error_code": 104
+        }
+      },
+      "optimization_status": "PILOT_OBSERVATION_ONLY"
+    }
+  ],
+  "paired_measured_reduction": {
+    "measured_distance_m": 0.20425729453629138,
+    "sim_duration_sec": 0.14673165137614685
+  },
+  "statistical_note": "One pair is a pilot observation, not a median improvement or P0 acceptance."
+}

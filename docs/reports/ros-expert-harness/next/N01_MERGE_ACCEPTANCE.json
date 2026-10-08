@@ -1,0 +1,17 @@
+{
+  "status": "PASS_MERGED",
+  "pr": "https://github.com/ros-claw/rosclaw/pull/621",
+  "review_source_commit": "cecc98467565ce67af04b35b2dfb014bdf272dfe",
+  "merge_commit": "8a9ae84feb09ce659251185c8460e0acc7491a69",
+  "merged_at": "2026-10-08T02:01:48Z",
+  "physical_source_commit": "2dcb77bd03de034963776c7e2e89db5070d3c57e",
+  "physical_run_id": "f1e279292c684a769b569d84d9381c6a",
+  "ci_full_regression": {"passed": 8066, "skipped": 114, "run": "https://github.com/ros-claw/rosclaw/actions/runs/37711550078"},
+  "dataflywheel_full_regression": {"passed": 8077, "skipped": 114, "deselected": 102, "run": "https://github.com/ros-claw/rosclaw/actions/runs/37711550171"},
+  "required_checks": "ALL_PASS",
+  "additional_dataflywheel_A_to_G": "ALL_PASS",
+  "physical_acceptance": "PASS_SIMULATION_ONLY",
+  "physical_archive": "runs/n01-waffle-004",
+  "counts_note": "Overlapping suites are not summed; physical episode source remains distinct from review HEAD.",
+  "v1_done": false
+}

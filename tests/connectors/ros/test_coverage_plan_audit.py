@@ -161,3 +161,81 @@ def test_audit_flush_failure_does_not_change_result_or_leak_execution_lock(tmp_p
     assert len(files) == 1
     assert read_audit(files[0])[0]["action_id"] == "nested/../../../escape"
     assert not (tmp_path / "nested").exists()
+
+
+def test_boundary_audit_separates_upstream_primary_and_repair_credit(tmp_path):
+    import hashlib
+
+    from rosclaw.connectors.ros.verification.coverage import CleaningPose
+
+    script = (
+        Path(__file__).resolve().parents[3] / "integrations/ros_probe/acceptance/coverage_audit.py"
+    )
+    spec = importlib.util.spec_from_file_location("boundary_replay", script)
+    auditor = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(auditor)
+    grid = {
+        "width": 4,
+        "height": 1,
+        "resolution": 1,
+        "origin": [0, 0],
+        "frame_id": "map",
+        "accessible_cells": list(range(4)),
+        "cleaning_polygon": [[-0.5, -0.5], [0.5, -0.5], [0.5, 0.5], [-0.5, 0.5]],
+    }
+    trace = [
+        {"x": i + 0.5, "y": 0.5, "yaw": 0, "time_sec": i, "cleaning_enabled": True}
+        for i in range(4)
+    ]
+    evidence = {"grid": grid, "trajectory": trace, "frame_id": "map"}
+    source = tmp_path / "actions/rosevidence_test.json"
+    source.parent.mkdir()
+    source.write_text(json.dumps(evidence))
+    verifier = CoverageVerifier(**grid)
+    for pose in trace:
+        verifier.observe(CleaningPose(**pose), frame_id="map")
+    (source.parent / "rosevidence_test.verification.json").write_text(
+        json.dumps({"coverage": verifier.result()})
+    )
+    receipt = {
+        "action_id": "root",
+        "body_snapshot_hash": "body",
+        "verification_result": {
+            "coverage_ratio": 1,
+            "evidence_artifact": {
+                "path": str(source),
+                "sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+            },
+        },
+    }
+    (tmp_path / "golden-coverage.receipt.json").write_text(json.dumps({"receipt": receipt}))
+    audit_path = source.parent / "coverage-audit-test.jsonl"
+    writer = CoverageAuditLog(audit_path, context={"action_id": "root"})
+    writer.emit("goal_ended", {"nav_goal_id": "root", "consumed_samples": 1})
+    writer.emit(
+        "goal_started",
+        {"nav_goal_id": "root:boundary", "stage": "BOUNDARY_PASS", "sample_offset": 1},
+    )
+    writer.emit("primary_completed", {"consumed_samples": 2})
+    writer.emit("coverage_progress", {"consumed_samples": 2})
+    writer.emit(
+        "goal_started", {"nav_goal_id": "root:repair:0", "stage": "REPAIR", "sample_offset": 2}
+    )
+    Path(str(audit_path) + ".summary.json").write_text(json.dumps(writer.close()))
+    output = tmp_path / "replay"
+    auditor.audit(tmp_path, output)
+    summary = json.loads((output / "plan-versus-execution.json").read_text())
+    assert summary["main_observed_coverage_ratio"] == 0.25
+    assert summary["primary_before_repair_coverage_ratio"] == 0.5
+    assert summary["observed_final_coverage_ratio"] == 1
+    assert summary["canonical_verifier_replay_equal"] is True
+    segments = [
+        json.loads(row)
+        for row in (output / "coverage-segment-metrics.jsonl").read_text().splitlines()
+    ]
+    assert [row["stage"] for row in segments] == ["MAIN_COVERAGE", "BOUNDARY_PASS", "REPAIR"]
+    assert [row["new_covered_cells"] for row in segments] == [1, 1, 2]
+    assert (
+        sum(row["observed_distance_m"] for row in segments)
+        == summary["total_metrics"]["observed_distance_m"]
+    )
