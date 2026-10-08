@@ -103,6 +103,8 @@ class OccupancyAccounting:
                 raise ValueError("occupancy time must be finite")
             if snapshot.sim_time_sec != pose.time_sec:
                 raise ValueError("occupancy and cleaning pose must have identical SIM timestamps")
+            if snapshot.sim_time_sec < 0:
+                raise ValueError("occupancy SIM time must be nonnegative")
             if self.previous_time is not None and snapshot.sim_time_sec <= self.previous_time:
                 raise ValueError("occupancy SIM time must strictly increase")
             if not 0 <= snapshot.ground_truth_age_sec < self.max_age_sec:
@@ -139,3 +141,32 @@ class OccupancyAccounting:
             "occupancy_chain_hash": digest(self.snapshot_hashes),
             "interpolation": "disabled; sampled brush footprints only",
         }
+
+    def observe_sample(self, sample):
+        """Consume one trusted observer transport sample before granting credit.
+
+        This checks bytes and frozen source identities, not transport authority.
+        The daemon must configure this receiver; an action cannot enable it.
+        """
+        if self.fault:
+            raise ValueError("occupancy fault is latched: " + self.fault)
+        try:
+            payload = sample["occupancy"]
+            if not isinstance(payload, dict) or type(payload.get("occupied_cells")) is not list:
+                raise ValueError("versioned occupancy transport payload required")
+            snapshot = OccupancySnapshot(
+                **{**payload, "occupied_cells": tuple(payload["occupied_cells"])}
+            )
+            pose = CleaningPose(
+                **{k: sample[k] for k in ["x", "y", "yaw", "time_sec", "cleaning_enabled"]}
+            )
+            if (
+                sample.get("observation_complete") is not True
+                or type(sample.get("collision_count")) is not int
+                or sample["collision_count"] != 0
+            ):
+                raise ValueError("complete collision-free observer sample required")
+            self.observe(pose, snapshot, artifact_hash=sample["occupancy_hash"])
+        except (KeyError, TypeError, ValueError) as exc:
+            self.fault = str(exc)
+            raise ValueError("invalid time-paired observer sample: " + self.fault) from exc

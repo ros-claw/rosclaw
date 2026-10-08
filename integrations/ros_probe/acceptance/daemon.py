@@ -118,6 +118,7 @@ def main():
         boundary_strategy=config.get("experiment", {}).get("boundary_strategy", "through_poses"),
         boundary_centers=config.get("boundary_centers"),
         repair_strategy=config.get("repair_strategy", "greedy"),
+        occupancy_binding=config.get("occupancy_binding"),
         repair_swath_yaw=config.get("experiment", {})
         .get("planning_parameters", {})
         .get("default_swath_angle", 0.0),

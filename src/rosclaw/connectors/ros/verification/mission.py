@@ -3,14 +3,42 @@
 from rosclaw.contracts.common import content_hash
 
 from .coverage import CleaningPose, CoverageVerifier
+from .occupancy import OccupancyAccounting
+
+
+def replay_coverage(evidence):
+    """Replay every paired snapshot, never a final occupancy mask over history."""
+    verifier = CoverageVerifier(**evidence["grid"])
+    schema = evidence.get("schema_version")
+    dynamic = schema == "rosclaw.time_paired_mission_evidence.v1"
+    if not dynamic and any(k in evidence for k in ("occupancy_binding", "occupancy_samples")):
+        raise ValueError("dynamic evidence requires its explicit versioned schema")
+    if schema not in (None, "rosclaw.time_paired_mission_evidence.v1"):
+        raise ValueError("unsupported mission evidence schema")
+    if not dynamic:
+        for sample in evidence["trajectory"]:
+            verifier.observe(CleaningPose(**sample), frame_id=evidence["frame_id"])
+        return verifier.result(), None
+    binding = evidence["occupancy_binding"]
+    if set(binding) != {"run_id", "geometry_hash"} or evidence["frame_id"] != verifier.frame_id:
+        raise ValueError("frozen dynamic binding and frame required")
+    accounting = OccupancyAccounting(verifier, mission_id=evidence["mission_id"], **binding)
+    samples = evidence["occupancy_samples"]
+    if type(samples) is not list or not samples or len(samples) != len(evidence["trajectory"]):
+        raise ValueError("one occupancy snapshot per trajectory pose required")
+    for pose, occupancy in zip(evidence["trajectory"], samples, strict=True):
+        if type(occupancy) is not dict or set(occupancy) != {"occupancy", "occupancy_hash"}:
+            raise ValueError("occupancy record cannot replace trajectory or safety fields")
+        accounting.observe_sample(
+            {**pose, **occupancy, "observation_complete": True, "collision_count": 0}
+        )
+    result = accounting.result()
+    return result["coverage"], result
 
 
 def verify_mission(evidence: dict, *, daemon=None, event_bus=None) -> dict:
     mission_id, body_id = evidence["mission_id"], evidence["body_id"]
-    verifier = CoverageVerifier(**evidence["grid"])
-    for sample in evidence["trajectory"]:
-        verifier.observe(CleaningPose(**sample), frame_id=evidence["frame_id"])
-    coverage = verifier.result()
+    coverage, temporal = replay_coverage(evidence)
     collision = evidence.get("collision", {})
     calculation_pass = (
         coverage["coverage_ratio"] >= 0.98
@@ -71,6 +99,8 @@ def verify_mission(evidence: dict, *, daemon=None, event_bus=None) -> dict:
         "hardware_verified": status == "PASS" and domains == {"HARDWARE"},
         "usable_for_real_execution": False,
     }
+    if temporal is not None:
+        result["time_paired_accounting"] = temporal
     from rosclaw.connectors.ros.intelligence.evidence import emit_expert_evidence
 
     emit_expert_evidence(

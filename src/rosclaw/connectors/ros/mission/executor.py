@@ -13,6 +13,7 @@ import time
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
+from types import MappingProxyType
 
 from rosclaw.connectors.ros.action_client import STATUS_SUCCEEDED
 from rosclaw.connectors.ros.diagnosis.coverage_audit import CoverageAuditLog, digest
@@ -24,6 +25,8 @@ from rosclaw.connectors.ros.verification.coverage import (
     CoverageVerifier,
     point_in_polygon,
 )
+from rosclaw.connectors.ros.verification.mission import replay_coverage
+from rosclaw.connectors.ros.verification.occupancy import OccupancyAccounting
 from rosclaw.contracts.common import content_hash
 from rosclaw.kernel import (
     ActionExecutionResult,
@@ -163,6 +166,7 @@ class RosCoverageSimulationExecutor:
         repair_strategy="greedy",
         repair_swath_yaw=0.0,
         repair_budget_ms=500.0,
+        occupancy_binding=None,
     ):
         if not owner.startswith("daemon_"):
             raise ValueError("daemon ownership is required")
@@ -176,6 +180,15 @@ class RosCoverageSimulationExecutor:
         self.owner, self.client, self.control, self.witness = owner, client, control, witness
         self.output, self.body_id, self.grid = Path(output), body_id, grid
         self.body_snapshot_hash = body_snapshot_hash
+        if occupancy_binding is not None and (
+            type(occupancy_binding) is not dict
+            or set(occupancy_binding) != {"run_id", "geometry_hash"}
+            or any(type(v) is not str or not v for v in occupancy_binding.values())
+        ):
+            raise ValueError("daemon-configured immutable occupancy binding required")
+        self.occupancy_binding = (
+            MappingProxyType(dict(occupancy_binding)) if occupancy_binding is not None else None
+        )
         self.stopping = threading.Event()
         self.goal_id = None
         self.lock = threading.Lock()
@@ -417,9 +430,14 @@ class RosCoverageSimulationExecutor:
             "nav_goal_result": result,
         }
 
-    def _repair(self, verifier, started, action_id, deadline):
+    def _repair(self, verifier, started, action_id, deadline, *, mission_id=None):
         """Bounded missed-cell goals; every connecting path is planned by Nav2."""
         recovery = MissedRegionRecovery(verifier)
+        accounting = (
+            OccupancyAccounting(verifier, mission_id=mission_id, **self.occupancy_binding)
+            if self.occupancy_binding is not None
+            else None
+        )
         records, consumed = [], started
         width, resolution = verifier.width, verifier.resolution
         radius = math.ceil(verifier.radius / resolution)
@@ -447,12 +465,18 @@ class RosCoverageSimulationExecutor:
                     raise RuntimeError(
                         "recovery independent observer is incomplete or saw collision"
                     )
-                verifier.observe(
-                    CleaningPose(
-                        **{k: sample[k] for k in ["x", "y", "yaw", "time_sec", "cleaning_enabled"]}
-                    ),
-                    frame_id="map",
-                )
+                if accounting is not None:
+                    accounting.observe_sample(sample)
+                else:
+                    verifier.observe(
+                        CleaningPose(
+                            **{
+                                k: sample[k]
+                                for k in ["x", "y", "yaw", "time_sec", "cleaning_enabled"]
+                            }
+                        ),
+                        frame_id="map",
+                    )
             if verifier.result()["coverage_ratio"] >= 0.98:
                 break
             self._audit_event(
@@ -872,7 +896,16 @@ class RosCoverageSimulationExecutor:
                         },
                     )
                 verifier = CoverageVerifier(**self.grid)
-                repairs = self._repair(verifier, started, action.action_id, deadline)
+                if self.occupancy_binding is not None:
+                    repairs = self._repair(
+                        verifier,
+                        started,
+                        action.action_id,
+                        deadline,
+                        mission_id=action.arguments["mission_id"],
+                    )
+                else:
+                    repairs = self._repair(verifier, started, action.action_id, deadline)
                 samples = self.witness.since(started)
                 final = self.witness.fresh()
                 collision_count = max(s["collision_count"] for s in samples)
@@ -896,14 +929,20 @@ class RosCoverageSimulationExecutor:
                         "source": final.get("collision_source", "gazebo_ground_truth_geometry"),
                     },
                 }
-                verifier = CoverageVerifier(**self.grid)
-                for pose in evidence["trajectory"]:
-                    verifier.observe(CleaningPose(**pose), frame_id="map")
-                ratio = verifier.result()["coverage_ratio"]
+                if self.occupancy_binding is not None:
+                    evidence.update(
+                        schema_version="rosclaw.time_paired_mission_evidence.v1",
+                        occupancy_binding=dict(self.occupancy_binding),
+                        occupancy_samples=[
+                            {k: s[k] for k in ("occupancy", "occupancy_hash")} for s in samples
+                        ],
+                    )
+                calculated, temporal = replay_coverage(evidence)
+                ratio = calculated["coverage_ratio"]
                 self._audit_event(
                     "coverage_final", {"coverage_ratio": ratio, "sample_count": len(samples)}
                 )
-                if verifier.result()["trace_gaps"]:
+                if calculated["trace_gaps"]:
                     raise RuntimeError("independent cleaning trajectory contains unverified gaps")
                 self.output.mkdir(parents=True, exist_ok=True)
                 filename = content_hash("rosevidence", action.action_id) + ".json"
@@ -921,6 +960,8 @@ class RosCoverageSimulationExecutor:
                         "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
                     },
                 }
+                if temporal is not None:
+                    verification["time_paired_accounting"] = temporal
             else:
                 target = args["pose"]["pose"]["position"]
                 distance = math.hypot(final["x"] - target["x"], final["y"] - target["y"])
