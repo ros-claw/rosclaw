@@ -62,6 +62,7 @@ class SimulationWitness:
         self.samples = []
         self.tracking = False
         self.action_fault = None
+        self.receiver_faults = []
         self.lock = threading.Lock()
         self.closed = threading.Event()
         result = transport.send(
@@ -77,40 +78,73 @@ class SimulationWitness:
         self.thread = threading.Thread(target=self._read, daemon=True)
         self.thread.start()
 
+    def _receiver_fault(self, error, raw):
+        encoded = (
+            raw[:2_000_000].encode("utf-8", errors="backslashreplace") if type(raw) is str else None
+        )
+        with self.lock:
+            self.receiver_faults.append(
+                {
+                    "error": str(error)[:512],
+                    "payload_sha256": hashlib.sha256(encoded[:2_000_000]).hexdigest()
+                    if encoded is not None
+                    else None,
+                    "payload_hash_scope": "bounded_utf8_prefix_max_2MB",
+                    "captured_at": datetime.now(UTC).isoformat(),
+                }
+            )
+            del self.receiver_faults[:-128]
+            if self.tracking and self.action_fault is None:
+                self.action_fault = "independent simulation observation malformed during action"
+
     def _read(self):
         while not self.closed.is_set():
             result = self.transport.receive(timeout_sec=0.2)
             if not result.ok:
                 continue
-            data = result.data or {}
+            data = result.data if result.data is not None else {}
+            if type(data) is not dict:
+                self._receiver_fault("malformed observer transport envelope", None)
+                continue
             if data.get("topic") != "/rosclaw_sim/observation":
                 continue
+            raw = None
             try:
-                sample = json.loads(data["msg"]["data"])
+                raw = data["msg"]["data"]
+                if (
+                    type(raw) is not str
+                    or len(raw) > 2_000_000
+                    or len(raw.encode("utf-8")) > 2_000_000
+                ):
+                    raise ValueError("bounded observation String payload required")
+                sample = json.loads(raw)
                 if (
                     not isinstance(sample, dict)
                     or sample.get("evidence_domain") != "GAZEBO_PHYSICS"
                 ):
-                    continue
+                    raise ValueError("independent observation domain missing or different")
                 captured = datetime.fromisoformat(sample["captured_at"])
                 if (
                     captured.tzinfo is None
                     or not -0.1 <= (datetime.now(UTC) - captured).total_seconds() <= 1
                 ):
-                    continue
+                    raise ValueError("independent observation capture stale or future-dated")
                 if not all(
                     type(sample[k]) in (int, float) and math.isfinite(sample[k])
                     for k in ["x", "y", "yaw", "time_sec"]
                 ):
-                    continue
+                    raise ValueError("finite observation pose/clock required")
+                if sample["time_sec"] < 0:
+                    raise ValueError("nonnegative observation SIM clock required")
                 if (
                     type(sample.get("cleaning_enabled")) is not bool
                     or type(sample.get("observation_complete")) is not bool
                     or type(sample.get("collision_count")) is not int
                     or sample["collision_count"] < 0
                 ):
-                    continue
-            except (KeyError, TypeError, ValueError):
+                    raise ValueError("typed complete collision/brush observation required")
+            except (KeyError, TypeError, ValueError, OverflowError) as exc:
+                self._receiver_fault(exc, raw)
                 continue
             self._record(sample)
 
@@ -1230,6 +1264,7 @@ class RosCoverageSimulationExecutor:
                             "verification_status": "NOT_VERIFIED",
                             "error": str(exc),
                             "observations": self.witness.since(started),
+                            "receiver_faults": list(getattr(self.witness, "receiver_faults", ())),
                         },
                         indent=2,
                     )

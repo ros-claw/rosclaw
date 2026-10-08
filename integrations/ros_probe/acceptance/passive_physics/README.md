@@ -93,6 +93,15 @@ Malformed names or dimensions cannot escape as unhandled overflow/type errors.
 540 ROS tests,50 focused parser/observer tests and scoped mypy/CI Ruff passed;
 the8 new cases are synthetic corruption tests, not physical fault episodes.
 
+The read-only receiver now records bounded malformed-frame diagnostics and
+latches them during an active action. Wrong domain, invalid JSON/envelope,
+typed collision/brush errors, future/negative clocks and numeric overflow cannot
+be hidden by a subsequent good frame. Startup readiness remains separate. Failed
+action artifacts retain up to128 diagnostics with bounded UTF8-prefix hashes;
+these hashes diagnose bytes and do not authenticate DDS publishers.560 ROS
+tests and scoped mypy/CI Ruff passed, including20 receiver cases. Actual dynamic
+fault injection remains NOT_RUN.
+
 The source uses Gazebo8 `worldPose` and actual `Geometry`/`Collision`/`Pose`
 components. It avoids concurrent `generate_world_sdf`, whose Gazebo8 implementation
 explicitly notes an ECM thread-safety TODO:

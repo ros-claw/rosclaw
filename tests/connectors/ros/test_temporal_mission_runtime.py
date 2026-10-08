@@ -1,13 +1,16 @@
 """Daemon receiver/replay contracts; these fixtures are not Native acceptance."""
 
 import copy
+import json
 import time
 from dataclasses import asdict
+from datetime import UTC, datetime
+from threading import Event, Lock
 from types import SimpleNamespace
 
 import pytest
 
-from rosclaw.connectors.ros.mission.executor import RosCoverageSimulationExecutor
+from rosclaw.connectors.ros.mission.executor import RosCoverageSimulationExecutor, SimulationWitness
 from rosclaw.connectors.ros.verification.coverage import CoverageVerifier
 from rosclaw.connectors.ros.verification.mission import replay_coverage, verify_mission
 from rosclaw.connectors.ros.verification.occupancy import OccupancyAccounting, OccupancySnapshot
@@ -280,6 +283,75 @@ def test_negative_first_sim_timestamp_never_enters_credit():
         accounting.observe_sample(sample(-0.1, 0, 0.005, []))
     assert not accounting.verifier.visits
     assert accounting.result()["complete"] is False
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "json",
+        "missing",
+        "domain",
+        "bool_collision",
+        "negative_clock",
+        "huge_integer",
+        "future",
+        "envelope",
+        "unicode",
+        "oversize",
+    ],
+)
+@pytest.mark.parametrize("tracking", [False, True])
+def test_malformed_receiver_frame_cannot_disappear_after_next_good_frame(fault, tracking):
+    good = {
+        **sample(0, 0, 0.005, []),
+        "evidence_domain": "GAZEBO_PHYSICS",
+        "captured_at": datetime.now(UTC).isoformat(),
+    }
+    bad = copy.deepcopy(good)
+    if fault == "missing":
+        bad.pop("x")
+    elif fault == "domain":
+        bad["evidence_domain"] = "NAV2_ESTIMATE"
+    elif fault == "bool_collision":
+        bad["collision_count"] = False
+    elif fault == "negative_clock":
+        bad["time_sec"] = -1
+    elif fault == "huge_integer":
+        bad["x"] = 10**400
+    elif fault == "future":
+        bad["captured_at"] = "2099-01-01T00:00:00+00:00"
+    payload = json.dumps(bad)
+    if fault == "json":
+        payload = "{broken"
+    elif fault == "unicode":
+        payload = "\ud800"
+    elif fault == "oversize":
+        payload = " " * 2_000_001
+    bad_frame = {"topic": "/rosclaw_sim/observation", "msg": {"data": payload}}
+    if fault == "envelope":
+        bad_frame = ["invalid"]
+    frames = [bad_frame, {"topic": "/rosclaw_sim/observation", "msg": {"data": json.dumps(good)}}]
+    witness = SimulationWitness.__new__(SimulationWitness)
+    witness.closed = Event()
+    witness.lock = Lock()
+    witness.samples, witness.receiver_faults = [], []
+    witness.latest, witness.action_fault = None, None
+    witness.tracking = tracking
+
+    def receive(**kwargs):
+        if frames:
+            return SimpleNamespace(ok=True, data=frames.pop(0))
+        witness.closed.set()
+        return SimpleNamespace(ok=False)
+
+    witness.transport = SimpleNamespace(receive=receive)
+    witness._read()
+    assert len(witness.samples) == 1 and len(witness.receiver_faults) == 1
+    if tracking:
+        with pytest.raises(RuntimeError, match="malformed during action"):
+            witness.fresh()
+    else:
+        assert witness.fresh()["observation_complete"]  # startup readiness is separate
 
 
 def brush_evidence():
