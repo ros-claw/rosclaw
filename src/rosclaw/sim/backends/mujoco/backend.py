@@ -2069,8 +2069,7 @@ class MujocoBackend:
         payload = {
             "xml": hashlib.sha256(manifest["mjcf_xml"].encode("utf-8")).hexdigest(),
             "assets": sorted(
-                [name, hashlib.sha256(blob).hexdigest()]
-                for name, blob in assets.items()
+                [name, hashlib.sha256(blob).hexdigest()] for name, blob in assets.items()
             ),
         }
         return "sha256:" + hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
@@ -2129,6 +2128,7 @@ import sys
 
 backend = sys.argv[1]
 os.environ["MUJOCO_GL"] = backend
+os.environ["PYOPENGL_PLATFORM"] = backend
 
 import mujoco
 from PIL import Image
@@ -2216,6 +2216,7 @@ import sys
 
 backend = sys.argv[1]
 os.environ["MUJOCO_GL"] = backend
+os.environ["PYOPENGL_PLATFORM"] = backend
 
 import mujoco
 import numpy as np
