@@ -162,3 +162,19 @@ Twenty-two new cases use the repository migrations and actual ExecutionReceipt s
 Preflight refuses an unmerged P0, changed source/image/plugin and another owned live physical episode. The private model profile is copied into a fresh home with mode0600 and is excluded from public evidence. Bootstrap failures retain a result. Cleanup always attempts the uniquely owned simulator stop, even after a lost docker-run response or an observer cleanup failure. Actual Native success is retained separately when a later source/shutdown gate fails. Closed source replay runs only after verified simulator shutdown; missing SDK identity or any incomplete gate refuses physical PASS.
 
 Thirty-six host-entry contracts use no Docker, model or robot dispatch. They cover preflight refusal, startup failure, full ordering and retained bootstrap/run-response/SDK/source/child/world failures. The prior corrected full ROS checkpoint passed782/10 integration deselected/one existing warning in18.03s; final added lost-run-response case is rechecked separately. Fresh Native D2 and other D1–D6 physical results remain NOT_RUN until P0 formal evaluation and merge. These orchestration tests are not physical acceptance.
+
+## Executor-to-closed-source Body identity regression
+
+A full handoff review found that synthetic replay fixtures supplied a Body hash
+which the actual temporal executor artifact did not yet retain. Temporal
+artifacts now include the executor's frozen body_snapshot_hash; static artifact
+format and coverage accounting are unchanged. A new regression runs the actual
+executor writer, reads its retained artifact and replays all three original
+component/mask correspondences through the closed-source auditor. No hash is
+patched into the generated artifact and no acceptance rule is weakened.
+
+Fourteen closed-source contracts passed, including the full writer handoff.
+Full ROS784 passed/10 integration deselected/one existing warning in18.82s;
+repository-required mypy121 files, scoped Ruff/format and compileall passed.
+Transport/action feedback in this test is synthetic and no physics is dispatched.
+Actual Native D1–D6 remain NOT_RUN pending P0 formal evaluation and merge.

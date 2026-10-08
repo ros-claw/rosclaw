@@ -1177,6 +1177,7 @@ class RosCoverageSimulationExecutor:
                 if self.occupancy_binding is not None:
                     evidence.update(
                         schema_version="rosclaw.time_paired_mission_evidence.v1",
+                        body_snapshot_hash=self.body_snapshot_hash,
                         occupancy_binding=dict(self.occupancy_binding),
                         occupancy_samples=[
                             {k: s[k] for k in ("occupancy", "occupancy_hash")} for s in samples
