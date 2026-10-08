@@ -216,3 +216,15 @@ changed-module mypy passed. No held-out asset was selected or inspected.
 Generic World/Nav2 assembly, staged actual Graph/TF/source admission, guarded
 launch and held-out L0–L4 are still required before generic feature freeze. This
 controller source checkpoint does not close those gates.
+
+## Generic navigation source and installed parameter parser
+
+`sim_navigation_source.py` generates Nav2/OpenNav source parameters from the exact candidate controlled URDF, collision envelope, explicit SIM cleaning attachment and operator-declared frames, nodes, topics, action/service endpoints, spawn and resource paths. Motion limits come from the source-derived controller report. The shared namespace is explicitly declared for SDK internal costmap/BT nodes; no robot profile is read. Source controller reports now retain the exact frames, node and topic declarations needed for this comparison.
+
+The actual installed template omits map-server parameters because bringup supplies them in launch. The generator adds the declared map path and map frame explicitly; it does not manufacture AMCL localization evidence or use an initial-pose estimate. Both obstacle and voxel costmap layers receive the declared sensor source. Source generation is not semantic controller startup or live readiness. Duplicate YAML keys, aliases, excessive nesting and incomplete/nonfinite limits or bounds excluding zero are refused.
+
+The network-disabled installed SDK check parsed all 12 generated node parameter sections using `rcl_yaml_param_parser` without starting a ROS Node or World. Its helper preserves source bytes and the executed parser binary before execution and checks them again afterward. The updated controller parser also passed all 12 valid/invalid two/four-wheel source cases. Both navigation SDK attempts remain separate: initial generation and bounded-template generation. The initial offline test failure caused by the absent map-server template section remains retained.
+
+Unchanged installed templates, package metadata, licenses, original source paths, image digest and file SHA-256 are retained under `tests/fixtures/ros/navigation_source`. The installed OpenNav tree has no `.git`; an attempted revision query failed, so the source manifest records the revision as unavailable rather than claiming an independent revision observation. Nav2 bringup's directly observed Debian version is `1.3.13-1noble.20261006.045211`.
+
+Targeted contracts: 23 passed. Changed controller/navigation modules: mypy passed. The preceding full source checkpoint passed 1,711 ROS tests; final bounded-template regression passed 1,719 ROS tests / 10 integration deselected / one existing warning in 33.40s. Required mypy passed 121 source files; source/tests Ruff, scoped format and compileall passed; Practice passed 183 tests / 9 skipped / one existing warning in 35.11s. Generic World/Map assembly, actual staged discovery/admission, guarded launch and held-out L0–L4 remain required. No held-out asset selected, no action dispatched, physical acceptance NOT_RUN.

@@ -1,0 +1,22 @@
+{
+  "schema_version": "rosclaw.installed_navigation_template_sources.v1",
+  "image_digest": "sha256:66f2c28aa505349a14d30b7365ab0b327abe0f9fb84e99ba2d182d65dec3f7b2",
+  "source_capture": "docker image read-only files; network none; no Node/World",
+  "nav2_debian_version": "ros-jazzy-nav2-bringup\t1.3.13-1noble.20261006.045211",
+  "opennav_git_revision": "NOT_AVAILABLE_IN_INSTALLED_IMAGE",
+  "opennav_revision_limitation": "Image source tree has no .git. Do not represent protocol-pinned revision as a fresh git observation. Original template bytes are pinned below.",
+  "source_paths": {
+    "nav2_params.sdk.yaml": "/opt/ros/jazzy/share/nav2_bringup/params/nav2_params.yaml",
+    "coverage_params.sdk.yaml": "/ws/src/opennav_coverage/opennav_coverage_demo/params/demo_params.yaml"
+  },
+  "files": {
+    "LICENSE.Apache-2.0": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+    "coverage-package.xml": "f0d2463a09b28ba3385df0e3228ddd6f132748c33376d08123e5bdeb0b0416be",
+    "coverage_params.sdk.yaml": "6a97c4f2baef72db40ed1e5b2f94f2832c4a76b1c344b780991e70bcd7e3bcde",
+    "nav2-copyright": "8d8cf5ef57fbce4da081e1c0fbd5f51a5b2bd9db0e64ee92f303cdacc063a384",
+    "nav2-package.xml": "4ba633e9e8f921dff4ee02b8b094f65e41bb48bea652ef8fba6c84052a59debb",
+    "nav2_params.sdk.yaml": "299f9002d6dcfbf661e532c99f32dda1766eab3afa3ab71a52378d80e7ef956f"
+  },
+  "heldout_asset": "NOT_SELECTED",
+  "physical_acceptance": "NOT_RUN"
+}

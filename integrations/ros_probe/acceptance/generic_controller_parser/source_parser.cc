@@ -31,6 +31,17 @@ const rcl_variant_t & Parameter(const rcl_node_params_t & node, const std::strin
 int main(int argc, char **argv)
 {
   try {
+    if (argc == 3 && std::string(argv[1]) == "--yaml-source-only") {
+      Read(argv[2]);
+      auto raw = rcl_yaml_node_struct_init(rcutils_get_default_allocator());
+      if (!raw) throw std::runtime_error("source parser allocation failed");
+      std::unique_ptr<rcl_params_t, decltype(&rcl_yaml_node_struct_fini)> params(raw, rcl_yaml_node_struct_fini);
+      if (!rcl_parse_yaml_file(argv[2], params.get()) || params->num_nodes == 0)
+        throw std::runtime_error("installed ROS parameter parser refused source");
+      std::cout << "{\"status\":\"PASS_ACTUAL_ROS_PARAMETER_SOURCE_PARSER\",\"nodes_parsed\":"
+        << params->num_nodes << ",\"Node_started\":false,\"hardware_loaded\":false,\"physical_acceptance\":\"NOT_RUN\"}\n";
+      return 0;
+    }
     if (argc != 5) throw std::runtime_error("URDF, YAML, drive FQN, expected joint CSV required");
     const auto source = Read(argv[1]);
     Read(argv[2]);
