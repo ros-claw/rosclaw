@@ -1,12 +1,16 @@
 """Actual lossless render observations and counterexamples; never physics stepping."""
 
 import copy
+import os
+import subprocess
+import sys
 
 import numpy as np
 import pytest
 
 from benchmarks.harnessbench.tasks_v2 import V02_MODEL, V03_MODEL
 from benchmarks.harnessbench.vision_oracle import judge_calibration, judge_grounding, verify_camera
+from rosclaw.sim.backends.mujoco import backend as mujoco_backend
 from rosclaw.sim.backends.mujoco.backend import MujocoBackend
 
 
@@ -133,12 +137,22 @@ def test_public_camera_pins_renderer_despite_inherited_opengl_platform(tmp_path,
     runtime = SimulationRuntime(tmp_path)
     model = runtime.load_model("scene.xml")["model_ref"]
     state = runtime.snapshot(model)["state_ref"]
-    # Producer's declared renderer is EGL; the operator shell may select OSMesa.
-    monkeypatch.setenv("PYOPENGL_PLATFORM", "egl")
-    observed = runtime.observe(model, state, channels=["camera_segmentation:cam"])
-    ref = observed["values"]["camera_segmentation:cam"]["observation_manifest_ref"]
-    assert runtime.backend.store.get(ref)["renderer_backend"] == "egl"
+    # Exercise the producer with an opposite inherited platform. Its manifest
+    # declares the renderer actually available, not an assumption about EGL.
     monkeypatch.setenv("PYOPENGL_PLATFORM", "osmesa")
+    monkeypatch.setenv("MUJOCO_GL", "osmesa")
+    try:
+        observed = runtime.observe(model, state, channels=["camera_segmentation:cam"])
+    except ValueError as exc:
+        if str(exc).startswith("SIM_RENDER_UNAVAILABLE"):
+            pytest.fail(f"INFRASTRUCTURE_FAILURE: {exc}")
+        raise
+    ref = observed["values"]["camera_segmentation:cam"]["observation_manifest_ref"]
+    selected = runtime.backend.store.get(ref)["renderer_backend"]
+    assert selected in {"egl", "osmesa"}
+    inherited = "osmesa" if selected == "egl" else "egl"
+    monkeypatch.setenv("PYOPENGL_PLATFORM", inherited)
+    monkeypatch.setenv("MUJOCO_GL", inherited)
     truth = verify_camera(
         runtime.backend,
         ref,
@@ -189,3 +203,45 @@ def test_renderer_worker_initial_state_mismatch_still_rejected_as_evidence_failu
     with pytest.raises(ValueError, match="OBSERVATION_NOT_ORIGINAL_INITIAL_STATE") as error:
         vision_oracle._independent_pixels(V02_MODEL, np.zeros(1), "cam", "blue_box", "egl")
     assert not isinstance(error.value, vision_oracle.CameraRendererUnavailableError)
+
+
+@pytest.mark.parametrize("worker", ["_CAMERA_WORKER_CODE", "_RENDER_WORKER_CODE"])
+@pytest.mark.parametrize("selected", ["egl", "osmesa"])
+@pytest.mark.parametrize("inherited", ["egl", "osmesa"])
+def test_real_worker_renderer_platform_matrix(worker, selected, inherited):
+    # Execute the exact production prefix, including its imports, in a fresh
+    # process. Inspecting environment strings alone misses lazy OpenGL loading.
+    prefix = getattr(mujoco_backend, worker).split("request = json.loads", 1)[0]
+    code = (
+        prefix
+        + """
+assert os.environ["MUJOCO_GL"] == os.environ["PYOPENGL_PLATFORM"] == backend
+assert hasattr(mujoco, "Renderer")
+model = mujoco.MjModel.from_xml_string(
+    '<mujoco><worldbody><geom type="sphere" size=".1"/></worldbody></mujoco>'
+)
+try:
+    renderer = mujoco.Renderer(model, height=32, width=32)
+except Exception as exc:
+    raise SystemExit(f"INFRASTRUCTURE_FAILURE: {backend}: {exc}") from exc
+renderer.close()
+print("REAL_RENDERER_CLOSED_ZERO_STEP")
+"""
+    )
+    env = dict(os.environ, MUJOCO_GL=inherited, PYOPENGL_PLATFORM=inherited)
+    try:
+        result = subprocess.run(
+            [sys.executable, "-B", "-c", code, selected],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired:
+        pytest.fail(f"INFRASTRUCTURE_FAILURE: {worker}/{selected}/{inherited}: child timeout")
+    # Missing renderer infrastructure is a failure, never a mock/skip success;
+    # this explicitly tests both backends without falling back to the other.
+    assert result.returncode == 0, (
+        f"{worker}/{selected}/{inherited}: {result.stdout}{result.stderr}"
+    )
+    assert result.stdout.strip() == "REAL_RENDERER_CLOSED_ZERO_STEP"

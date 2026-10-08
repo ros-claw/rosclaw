@@ -8,7 +8,10 @@ ordinary Python interpreter with only ``src`` on ``sys.path``.
 
 import math
 import struct
+import subprocess
+import sys
 import types
+from pathlib import Path
 
 import pytest
 
@@ -182,7 +185,22 @@ def test_cloud_layout_invalid_declared_count_convention():
 
 
 def test_modules_import_without_ros():
-    import sys
-
-    assert "rclpy" not in sys.modules
-    assert "sensor_msgs" not in sys.modules
+    # MCP collection installs parent-process ROS stubs. A fresh isolated child
+    # tests the actual source imports without altering those shared modules.
+    code = """
+import sys
+sys.path.insert(0, sys.argv[1])
+assert "rclpy" not in sys.modules
+assert "sensor_msgs" not in sys.modules
+import rosclaw.perception.scan_quality
+import rosclaw.perception.cloud_quality
+assert "rclpy" not in sys.modules
+assert "sensor_msgs" not in sys.modules
+"""
+    result = subprocess.run(
+        [sys.executable, "-I", "-S", "-c", code, str(Path(__file__).resolve().parents[1] / "src")],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
