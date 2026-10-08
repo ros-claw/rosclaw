@@ -242,6 +242,8 @@ def test_full_sequence_closes_world_before_replay_and_retains_failures(
             Process.next_pid += 1
             self.pid = Process.next_pid
             self.argv = argv
+            if argv[:2] == ["docker", "exec"]:
+                assert argv[2:4] == ["-e", "PYTHONPATH=/workspace/src"]
             self.returncode = None
             self.observer = "pose_observer.py" in " ".join(argv)
             self.scenario = "dynamic_scenario.py" in " ".join(argv)
