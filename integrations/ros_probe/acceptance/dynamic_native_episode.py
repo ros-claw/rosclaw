@@ -313,6 +313,8 @@ def run_episode(directory, protocol, plugin, vendor_urdf, native_profile_home):
             [
                 "docker",
                 "exec",
+                "-e",
+                "PYTHONPATH=/workspace/src",
                 container,
                 "bash",
                 "-c",
@@ -325,6 +327,8 @@ def run_episode(directory, protocol, plugin, vendor_urdf, native_profile_home):
             [
                 "docker",
                 "exec",
+                "-e",
+                "PYTHONPATH=/workspace/src",
                 container,
                 "bash",
                 "-c",
