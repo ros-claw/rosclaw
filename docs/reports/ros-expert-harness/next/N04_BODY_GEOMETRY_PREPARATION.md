@@ -28,8 +28,22 @@ bounded prismatic travel, unsupported meshes mixed with valid collisions,
 disconnected cycles, incomplete sources, UTF-16 entity inputs and overflow.
 The ROS connector suite passes 368 tests (10 deselected); Ruff/format pass.
 
-Remaining before the N04 feature freeze: provenance-bound read-only Graph/TF/
-sensor candidate construction, explicit SIM attachment declaration, verified
+`discover_body_candidate()` now consumes a sealed fresh graph and actual typed
+message frame metadata, fresh TF chains and uniquely matching live URDF digest.
+No default topic/frame names are used. The optional read-only ROS2 host probe
+captures original message receive times and robot_description parameter hashes;
+it does not export URDF payload in the periodic snapshot. Stale or ambiguous
+streams/descriptions, incomplete TF and mismatched provenance remain UNKNOWN.
+A PROPOSED candidate never authorizes navigation, grants a capability or binds
+a cleaner. There is no drive-topic publication or writable robot RPC.
+
+Nineteen additional synthetic tests cover namespace/sensor/frame renames,
+expired signal/header/TF/URDF evidence, ambiguous sensor/description sources,
+source/hash tampering and actual probe metadata extraction. The combined ROS
+suite passes 387 tests (10 deselected), both modules pass mypy and Ruff/format.
+These are offline tests, not held-out L0–L4 robot evidence.
+
+Remaining before the N04 feature freeze: explicit SIM attachment declaration, verified
 fixture-policy binding, generic simulator workspace generation and allowed
 polygon/denominator integration. Only after that freeze may the actual held-out
 asset be chosen. Physical acceptance must then retain separate L0–L4 results,

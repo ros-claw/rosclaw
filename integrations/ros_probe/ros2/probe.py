@@ -7,6 +7,7 @@ Run with the ROS host's Python after sourcing ROS. No ROSClaw dependency.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import statistics
@@ -63,6 +64,8 @@ class ReadOnlyProbe(Node):
         self.clock_readings = deque(maxlen=200)
         self.packages = sorted(get_packages_with_prefixes())
         self.localization_observations = {}
+        self.message_frames = {}
+        self.urdf_descriptions = {}
         self.publisher = self.create_publisher(
             String, PROBE_TOPIC, QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
         )
@@ -168,6 +171,7 @@ class ReadOnlyProbe(Node):
                         "polygons",
                         "observation_sources",
                         "scan.topic",
+                        "robot_description",
                     }
                 ]
                 if parameter_request.names:
@@ -183,7 +187,17 @@ class ReadOnlyProbe(Node):
                     elif value.type == 3:
                         values[key] = value.double_value
                     elif value.type == 4:
-                        values[key] = value.string_value
+                        if key == "robot_description":
+                            raw = value.string_value.encode("utf-8")
+                            self.urdf_descriptions[node_name] = {
+                                "source": name,
+                                "captured_at": utc_now(),
+                                "sha256": hashlib.sha256(raw).hexdigest(),
+                                "size_bytes": len(raw),
+                                "complete": 0 < len(raw) <= 1_000_000,
+                            }
+                        else:
+                            values[key] = value.string_value
                     elif value.type == 9:
                         values[key] = list(value.string_array_value)
                 self.parameters[node_name] = values
@@ -194,6 +208,14 @@ class ReadOnlyProbe(Node):
 
     def observe(self, topic, message):
         self.samples.setdefault(topic, deque(maxlen=200)).append(time.monotonic())
+        if hasattr(message, "header"):
+            self.message_frames[topic] = {
+                "source": topic,
+                "captured_at": utc_now(),
+                "frame_id": message.header.frame_id,
+                "child_frame_id": getattr(message, "child_frame_id", None),
+                "stamp_sec": message.header.stamp.sec + message.header.stamp.nanosec / 1e9,
+            }
         if hasattr(message, "pose") and hasattr(message.pose, "covariance"):
             covariance = message.pose.covariance
             self.localization_observations[topic] = {
@@ -430,6 +452,8 @@ class ReadOnlyProbe(Node):
                 if self.clock_readings
                 else None,
                 "localization_quality": localization,
+                "message_frames": self.message_frames,
+                "urdf_descriptions": self.urdf_descriptions,
             },
             "completeness": {
                 "graph": True,
