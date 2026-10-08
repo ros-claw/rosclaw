@@ -90,6 +90,13 @@ def prepare_backend_stack(args):
     fixture = decode_scene_json(bounded_source(output / "physics_fixture.json"))
     fixture["binding"] = decode_scene_json(bounded_source(output / "physics_binding.json"))
     (output / "physics_fixture.json").write_text(json.dumps(fixture, indent=2) + "\n")
+    # The scene perturbation reader also consumes physics.json. It must use
+    # the exact final inventory including the independent instrument model.
+    if (output / "physics.json").exists():
+        (output / "physics.original-source.json").write_bytes(
+            (output / "physics.json").read_bytes()
+        )
+    (output / "physics.json").write_text(json.dumps(fixture, indent=2) + "\n")
     observer, controller = output / "backend-observer", output / "backend-controller"
     observer.mkdir(mode=0o700)
     controller.mkdir(mode=0o700)
@@ -187,6 +194,85 @@ class OwnedStackChildren:
                 child.wait(timeout=2)
         for log in self.logs:
             log.close()
+
+
+class SourceClosure:
+    """Close original source writers at a completed measured cycle boundary."""
+
+    def __init__(self, directory, children, plan):
+        self.directory, self.children, self.plan = directory, children, plan
+        self.closed = False
+
+    def requested(self):
+        path = self.directory / "backend-close-source-request.json"
+        if not path.exists():
+            return False
+        request = decode_scene_json(bounded_source(path))
+        expected = {
+            key: self.plan[key]
+            for key in ("run_id", "body_snapshot_hash", "constraint_policy_hash")
+        }
+        if request != expected:
+            raise ValueError(
+                "owned original source closure request differs from frozen run/Body/policy"
+            )
+        return True
+
+    def close(self, original):
+        projection = decode_scene_json(original)
+        snapshot = projection["snapshot"]
+        if not (
+            snapshot.get("live_source_constraint_satisfied") is True
+            and snapshot.get("probe_phase") == "READY_FOR_LIFT"
+            and snapshot.get("probe_lift_transaction_pending") is False
+            and snapshot.get("probe_completed_cache_cycles", 0) >= 1
+        ):
+            return False
+        for name in ("backend-owned-instrument", "backend-independent-observer"):
+            matches = [child for role, child in self.children.children if role == name]
+            if len(matches) != 1 or matches[0].poll() is not None:
+                raise ValueError("exclusive live original source writer required for closure")
+            child = matches[0]
+            os.killpg(child.pid, signal.SIGINT)
+            child.wait(timeout=5)
+            if child.returncode != 0:
+                raise ValueError("original source writer did not close cleanly: " + name)
+            if name == "backend-owned-instrument":
+                # An RPC already in flight may finish after the closure request.
+                # Preserve observation until that actual measured cycle completes.
+                until = min(self.children.deadline, time.monotonic() + 5)
+                while time.monotonic() < until:
+                    original = bounded_source(
+                        self.directory / "backend-observer/backend-observation-latest.json"
+                    )
+                    snapshot = decode_scene_json(original)["snapshot"]
+                    if snapshot.get("source_fault"):
+                        raise ValueError("original source fault during measured closure")
+                    if (
+                        snapshot.get("live_source_constraint_satisfied") is True
+                        and snapshot.get("probe_phase") == "READY_FOR_LIFT"
+                        and snapshot.get("probe_lift_transaction_pending") is False
+                        and 0 <= time.monotonic() - snapshot["sampled_monotonic_sec"] < 0.1
+                    ):
+                        break
+                    time.sleep(0.01)
+                else:
+                    raise ValueError(
+                        "actual instrument cycle did not complete before source closure deadline"
+                    )
+        self.closed = True
+        record = {
+            "source": "owned_backend_stack_original_source_closure",
+            "last_observation_sha256": hashlib.sha256(original).hexdigest(),
+            "captured_at_unix_ns": time.time_ns(),
+            "constraint_policy_hash": self.plan["constraint_policy_hash"],
+            "source_closed_for_replay": True,
+            "physical_stop_proof": "NOT_MEASURED",
+            "physical_acceptance": "NOT_VERIFIED",
+            "authorization": False,
+        }
+        (self.directory / "backend-source-closed.json").write_text(json.dumps(record) + "\n")
+        return True
 
 
 class RuntimeFaultLatch:
@@ -465,6 +551,7 @@ def launch_backend_stack(args, plan, *, deadline):
         )
         children.start("backend-graph-probe", ["python3", str(ROOT.parent / "ros2/probe.py")])
         fault = RuntimeFaultLatch(out, children)
+        closure = SourceClosure(out, children, plan)
         (out / "backend-stack-runtime-deadline.json").write_text(
             json.dumps(
                 {
@@ -484,15 +571,29 @@ def launch_backend_stack(args, plan, *, deadline):
                 raise ValueError("owned World exited; independent physical stop proof missing")
             if not fault.latched:
                 try:
-                    children.check()
+                    unexpected = [
+                        failure
+                        for failure in children.failed()
+                        if not (
+                            closure.closed
+                            and failure["name"]
+                            in {"backend-owned-instrument", "backend-independent-observer"}
+                        )
+                    ]
+                    if unexpected:
+                        raise ValueError(
+                            "owned backend dependency exited: " + unexpected[0]["name"]
+                        )
                     owner.check()
                     latest = out / "backend-observer/backend-observation-latest.json"
-                    if latest.exists():
+                    if latest.exists() and not closure.closed:
                         original = bounded_source(latest)
                         snapshot = decode_scene_json(original)["snapshot"]
                         if snapshot.get("source_fault"):
                             raise ValueError("independent backend observation source rejected")
-                except (ValueError, OSError, UnicodeError) as error:
+                        if closure.requested():
+                            closure.close(original)
+                except (ValueError, OSError, UnicodeError, subprocess.TimeoutExpired) as error:
                     fault.fail(error, original_observation=original)
             # On failure, preserve World/witness until the fixed fixture deadline.
             # Host must request a guarded stop and measure it; process exit is not proof.
