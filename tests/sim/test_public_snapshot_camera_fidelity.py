@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import mujoco
@@ -58,7 +59,7 @@ def test_actual_cli_default_snapshot_observe_passes_strong_camera_binding(tmp_pa
     _fixture(tmp_path)
     repo = Path(__file__).resolve().parents[2]
     prefix = [
-        str(repo / ".venv/bin/python"),
+        sys.executable,
         "-m",
         "rosclaw.entrypoint",
         "sim",

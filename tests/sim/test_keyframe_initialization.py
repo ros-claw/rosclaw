@@ -3,6 +3,7 @@
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import mujoco
@@ -97,7 +98,7 @@ def test_cli_selects_actual_named_keyframe_with_auditable_reference(tmp_path):
     ref = backend.load_model_xml(XML, source={"kind": "fixture"}).model_ref
     repo = Path(__file__).resolve().parents[2]
     command = [
-        str(repo / ".venv/bin/python"),
+        sys.executable,
         "-m",
         "rosclaw.entrypoint",
         "sim",

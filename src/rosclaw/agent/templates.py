@@ -67,6 +67,7 @@ def _tool_table(tool_names: tuple[str, ...]) -> str:
         "sim_snapshot": "Snapshot a full resumable physics state",
         "sim_observe": "Bounded semantic observation channels",
         "sim_rollout": "Bounded rollout; SimulationReceipt (SIMULATED only)",
+        "sim_strict_replay": "Strict physics replay of a simulation receipt (SIMULATED only)",
         "sim_audit": "Physical-honesty audit of a model or trace",
         "sim_compare": "Compare experiment receipts: table, best, Pareto",
         "sim_render": "Render a trace into a GIF evidence artifact",

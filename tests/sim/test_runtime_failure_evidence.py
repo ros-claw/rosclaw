@@ -4,6 +4,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 import mujoco
@@ -100,7 +101,7 @@ def test_native_cli_exposes_failed_refs_without_success_receipt(tmp_path):
     repo = Path(__file__).resolve().parents[2]
     result = subprocess.run(
         [
-            str(repo / ".venv/bin/python"),
+            sys.executable,
             "-m",
             "rosclaw.entrypoint",
             "sim",
