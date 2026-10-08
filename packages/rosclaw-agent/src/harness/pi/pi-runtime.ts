@@ -32,6 +32,45 @@ import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
 import { observeCompactionStream } from "./compaction-stream.js";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { getSupportedThinkingLevels, type Model, type Api } from "@earendil-works/pi-ai";
+import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
+import { credentialStoreFor } from "../../credentials/store.js";
+
+export interface ExplicitModelSelection {
+	modelRuntime: ModelRuntime;
+	model: Model<Api>;
+}
+
+/** Offline authority: no provider stream, login, refresh or credential writes. */
+export async function resolveExplicitModel(
+	agentDir: string, profile: "developer" | "robot", provider: string, modelId: string,
+): Promise<ExplicitModelSelection> {
+	const store = credentialStoreFor(profile, agentDir);
+	const modelRuntime = await ModelRuntime.create({
+		credentials: {
+			read: store.read.bind(store), list: store.list.bind(store),
+			modify: async () => { throw new Error("MODEL_OVERRIDE_AUTH_WRITE_FORBIDDEN"); },
+			delete: async () => { throw new Error("MODEL_OVERRIDE_AUTH_WRITE_FORBIDDEN"); },
+		} as never,
+		authPath: `${agentDir}/auth.json`,
+		modelsPath: profile === "robot" ? null : `${agentDir}/models.json`,
+		allowModelNetwork: false,
+	});
+	if (!modelRuntime.getProvider(provider)) throw new Error("UNKNOWN_MODEL_PROVIDER");
+	const model = modelRuntime.getPhysicalModel(provider, modelId);
+	if (!model) throw new Error("UNKNOWN_MODEL_TARGET");
+	if (!modelRuntime.getAvailableSnapshot().some(m => m.provider === provider && m.id === modelId)) {
+		throw new Error("MODEL_AUTH_UNAVAILABLE: configure target credentials separately; no automatic login/refresh");
+	}
+	return { modelRuntime, model };
+}
+
+export function requireSupportedThinking(selection: ExplicitModelSelection, thinking: string): ThinkingLevel {
+	if (!getSupportedThinkingLevels(selection.model).includes(thinking as ThinkingLevel)) {
+		throw new Error(`MODEL_THINKING_UNSUPPORTED: ${thinking}; no effort fallback`);
+	}
+	return thinking as ThinkingLevel;
+}
 
 import { createRosclawExtension } from "../../extension/index.js";
 import { createToolCallBudgetExtension, type ToolCallBudget } from "./tool-call-budget.js";
@@ -62,6 +101,10 @@ export interface RosclawRuntimeOptions {
 	sessionManager?: import("@earendil-works/pi-coding-agent").SessionManager;
 	/** WP-P0-3：本次启动是恢复——session_start 展示 Resume Report。 */
 	resumed?: boolean;
+	/** Validated before any fork/mission; only initial runtime uses this choice. */
+	explicitModel?: ExplicitModelSelection;
+	explicitThinking?: ThinkingLevel;
+	overrideSourceId?: string;
 	/** 十一审 PR-D：Workspace 一等状态。 */
 	workspaceStore?: import("../../session/workspace.js").WorkspaceStore;
 	workspaceAutoBound?: boolean;
@@ -179,7 +222,10 @@ export async function createRosclawRuntime(
 	// PR-SIX-5：UI/回答语言策略（持久化；launcher 可经 ROSCLAW_UI_LOCALE
 	// 覆盖）。
 	const locale = new LocaleManager(agentDir);
-	const settingsManager = SettingsManager.create(options.cwd, agentDir);
+	const loadedSettings = SettingsManager.create(options.cwd, agentDir);
+	const settingsManager = options.explicitModel
+		? SettingsManager.inMemory({ ...loadedSettings.getSettings(), retry: { enabled: false, maxRetries: 0 } })
+		: loadedSettings;
 	// P1-1：raw reasoning 默认不显示（live + resumed history 同策；
 	// debug 可在 /settings 手动打开）。
 	settingsManager.setHideThinkingBlock(true);
@@ -196,7 +242,7 @@ export async function createRosclawRuntime(
 	}
 	// 凭据后端按 profile：developer=加固文件（0600/原子写/fsync），
 	// robot=env-only（写即拒）。十审 W1：与 Worker 共用同一构造逻辑。
-	const modelRuntime = await createSharedModelRuntime(agentDir, options.profile);
+	const modelRuntime = options.explicitModel?.modelRuntime ?? await createSharedModelRuntime(agentDir, options.profile);
 	const systemPrompt = loadSystemPrompt();
 	// PR-N5D：扩展工厂先于 session 创建注册——创建后回填引用，
 	// 供物化工具激活（setActiveToolsByName）。
@@ -288,6 +334,13 @@ export async function createRosclawRuntime(
 						};
 					})(),
 					extensionFactories: [
+						...(options.explicitModel ? [{ name: "rosclaw-model-selection-notice", factory: ((pi) => {
+							pi.on("session_start", (_event, ctx) => {
+								if (sessionManager !== initialSessionManager) return;
+								const selected = ctx.model;
+								ctx.ui.setStatus("model-selection", `${selected?.provider ?? "unknown"}/${selected?.id ?? "unknown"} · effort ${options.explicitThinking} · ${options.overrideSourceId ? `source ${options.overrideSourceId} → restored new` : "new"} session ${sessionManager.getSessionId()}`);
+							});
+						}) as ExtensionFactory }] : []),
 						...(toolBudgetExtension ? [{ name: "rosclaw-tool-budget", factory: toolBudgetExtension }] : []),
 						{
 							name: "rosclaw-session-writer-ownership",
@@ -437,10 +490,12 @@ export async function createRosclawRuntime(
 					center,
 				}),
 			]);
+			const initialOverride = options.explicitModel && sessionManager === initialSessionManager;
 			const result = await createAgentSessionFromServices({
 				services,
 				sessionManager,
 				sessionStartEvent,
+				...(initialOverride ? { model: options.explicitModel!.model, thinkingLevel: options.explicitThinking } : {}),
 				// PR-N5D：静态 allowlist 无法容纳物化工具名（snapshot
 				// 在 mission 绑定后才可知）——不再传 tools allowlist；
 				// 模型面由扩展在 session_start/before_agent_start 经

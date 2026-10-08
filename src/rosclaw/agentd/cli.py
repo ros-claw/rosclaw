@@ -602,7 +602,46 @@ def _validate_tool_call_policy(raw_path: str) -> Path:
     return path
 
 
+def _model_override_argv(args: argparse.Namespace) -> list[str]:
+    """Pair syntax only; the model catalog/auth authority remains Native, not Python."""
+    provider = getattr(args, "provider", None)
+    model = getattr(args, "model", None)
+    if provider is None and model is None:
+        return []
+    if not all(isinstance(v, str) and v and v == v.strip() and not v.startswith("-")
+               for v in (provider, model)):
+        raise ValueError("MODEL_OVERRIDE_PAIR_REQUIRED: --provider and --model are required together")
+    if getattr(args, "mission", None) or getattr(args, "mode", None) not in (None, "SIMULATION"):
+        raise ValueError("MODEL_OVERRIDE_INCOMPATIBLE_OPTIONS: explicit selection creates its own SIM scope")
+    return ["--provider", provider, "--model", model]
+
+
+def _validate_native_model_selection(node: str, entry: str, home: Path,
+                                     override: list[str]) -> None:
+    """Offline zero-fetch selection before kernel writes. Never bootstrap auth/login."""
+    import subprocess
+
+    from rosclaw.agentd.pi_entry import node_runtime_env
+
+    result = subprocess.run(
+        [node, entry, "--validate-model-selection", *override],
+        env=node_runtime_env(dict(os.environ, ROSCLAW_HOME=str(home), PI_OFFLINE="1")),
+        capture_output=True, text=True, timeout=15, check=False,
+    )
+    if result.returncode != 0:
+        # Native emits typed errors, not credentials or history.
+        raise ValueError(result.stderr.strip() or "MODEL_SELECTION_REJECTED")
+    selected = json.loads(result.stdout)
+    if selected != {"provider": override[1], "model": override[3]}:
+        raise ValueError("MODEL_SELECTION_MISMATCH")
+
+
 def cmd_chat(args: argparse.Namespace) -> int:
+    try:
+        _model_override_argv(args)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
     # Stage B：--tool-call-policy 最先校验——畸形 policy 在 home/store/
     # agent service/auth/Node 启动 之前 拒绝（零副作用）。
     policy_arg = getattr(args, "tool_call_policy", None)
@@ -630,6 +669,8 @@ def _cmd_chat_impl(args: argparse.Namespace, home: Path) -> int:
             file=sys.stderr,
         )
         return 2
+    if _model_override_argv(args):
+        return _chat_pi(home, args)  # explicit target: no global default/login changes
     # P1-A1：chat 准入读 Pi 配置单源（agent/settings.json+models.json——
     # chat 引擎实际消费的那份），不再读 config.yaml 模型段。
     from rosclaw.agentd.pi_config import pi_model_configured
@@ -746,6 +787,13 @@ def _chat_pi(home: Path, args: argparse.Namespace) -> int:
         print(str(exc), file=sys.stderr)
         return 2
     node, entry = runtime
+    override = _model_override_argv(args)
+    if override:
+        try:
+            _validate_native_model_selection(node, entry, home, override)
+        except (OSError, ValueError, _sp.SubprocessError) as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
     continuation_target = None
     if getattr(args, "continue_last", False):
         try:
@@ -760,7 +808,8 @@ def _chat_pi(home: Path, args: argparse.Namespace) -> int:
     # 把确定性 403 烧 4 次）。chat 启动幂等补齐（保留其他键）。
     from rosclaw.agentd.onboarding import _write_retry_budget
 
-    _write_retry_budget(home)
+    if not override:
+        _write_retry_budget(home)
     # 十审 W0：诊断路由必须先于 AgentService 构造（启动 warning 就在那里）。
     _route_internal_diagnostics_to_log(home, debug=bool(getattr(args, "debug", False)))
     service = AgentService(config, home)
@@ -857,7 +906,7 @@ def _chat_pi(home: Path, args: argparse.Namespace) -> int:
                 stdout=(home / "run" / "operatord.out.log").open("ab"),
                 stderr=(home / "run" / "operatord.err.log").open("ab"),
             )
-    argv = [node, entry, "--profile", profile, *resume_argv]
+    argv = [node, entry, "--profile", profile, *resume_argv, *override]
     if mission is not None:
         argv += ["--mission", mission.mission_id]
     # 十一审 PR-D：chat [PATH]/--workspace → 显式传给 Native Agent
@@ -1193,6 +1242,15 @@ def add_agent_subparsers(subparsers) -> None:
     p_resume.set_defaults(func=cmd_resume)
     p_continue = subparsers.add_parser("continue", help="继续最近会话")
     p_continue.set_defaults(func=cmd_continue)
+    for public_parser in (p_chat, p_resume, p_continue):
+        public_parser.add_argument(
+            "--provider", default=None,
+            help="显式选择 provider（须同时 --model）；恢复时创建新 fork，保留源会话",
+        )
+        public_parser.add_argument(
+            "--model", default=None,
+            help="显式选择 model；不改全局默认，普通恢复仍使用已记录模型",
+        )
 
 
 def cmd_sessions(args: argparse.Namespace) -> int:

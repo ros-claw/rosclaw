@@ -48,6 +48,8 @@ interface CliArgs {
 	browseSessions: boolean;
 	continueLast: boolean;
 	toolCallPolicyPath?: string;
+	provider?: string;
+	model?: string;
 }
 
 // Stage A opt-in `--tool-call-policy JSON_FILE`：进入任何 runtime/session/
@@ -157,8 +159,21 @@ function parseArgs(argv: string[]): CliArgs {
 	let continueLast = false;
 	let workspace: string | undefined;
 	let toolCallPolicyPath: string | undefined;
+	let provider: string | undefined;
+	let model: string | undefined;
 	for (let i = 0; i < argv.length; i += 1) {
-		if (argv[i] === "--tool-call-policy") {
+		if (argv[i] === "--provider" || argv[i] === "--model") {
+			const flag = argv[i];
+			const value = argv[++i];
+			if (!value || value.startsWith("-") || value !== value.trim()) throw new Error("MODEL_OVERRIDE_PAIR_REQUIRED");
+			if (flag === "--provider") {
+				if (provider !== undefined) throw new Error("DUPLICATE_MODEL_OVERRIDE");
+				provider = value;
+			} else {
+				if (model !== undefined) throw new Error("DUPLICATE_MODEL_OVERRIDE");
+				model = value;
+			}
+		} else if (argv[i] === "--tool-call-policy") {
 			// 缺参数立即拒绝（早失败，不进 runtime/auth）。
 			if (argv[i + 1] === undefined) {
 				throw new Error("INVALID_TOOL_CALL_POLICY: --tool-call-policy requires a JSON file path");
@@ -200,7 +215,10 @@ function parseArgs(argv: string[]): CliArgs {
 			continueLast = true;
 		}
 	}
+	if ((provider === undefined) !== (model === undefined)) throw new Error("MODEL_OVERRIDE_PAIR_REQUIRED");
+	if (provider && (probe || (missionId && (resumeSessionId || resumeSessionPath || continueLast || browseSessions)))) throw new Error("MODEL_OVERRIDE_INCOMPATIBLE_OPTIONS");
 	return {
+		provider, model,
 		profile, initialMessage, print, probe, deepProbe, missionId, workspace,
 		resumeSessionId, resumeSessionPath, browseSessions, continueLast,
 		...(toolCallPolicyPath !== undefined ? { toolCallPolicyPath } : {}),
@@ -213,7 +231,7 @@ async function main(): Promise<number> {
 	const {
 		profile, initialMessage, print, probe, deepProbe, missionId, workspace,
 		resumeSessionId, resumeSessionPath, browseSessions, continueLast,
-		toolCallPolicyPath,
+		toolCallPolicyPath, provider, model,
 	} = parseArgs(process.argv.slice(2));
 	const toolCallBudget = toolCallPolicyPath === undefined
 		? undefined
@@ -222,7 +240,7 @@ async function main(): Promise<number> {
 	// 直接引用 Pi 包。
 	const {
 		continueRecentPiSession, resolveContinuationTarget, listAllPiSessions, listPiSessions,
-		openPiSession, runPiPrint,
+		openPiSession, runPiPrint, forkPiSessionForOverride, inspectOverrideSource,
 	} = await import("./harness/pi/pi-sessions.js");
 	const { SessionWriterOwnership, isSessionInUse } = await import(
 		"./harness/pi/session-writer-ownership.js"
@@ -231,8 +249,15 @@ async function main(): Promise<number> {
 	// SessionManager.open 前占有目标文件；新 chat 在 runtime 预创建 seam
 	// 占有最终文件。正常退出/失败退出只释放自己拥有的 claim。
 	const ownership = new SessionWriterOwnership();
-	const { createRosclawRuntime } = await import("./harness/pi/pi-runtime.js");
+	const { createRosclawRuntime, resolveExplicitModel, requireSupportedThinking } = await import("./harness/pi/pi-runtime.js");
 	const rosclawHome = rosclawHomeEnv;
+	const explicitModel = provider && model
+		? await resolveExplicitModel(`${rosclawHome}/agent`, profile, provider, model) : undefined;
+	if (process.argv.includes("--validate-model-selection")) {
+		if (!explicitModel) throw new Error("MODEL_OVERRIDE_PAIR_REQUIRED");
+		console.log(JSON.stringify({ provider: explicitModel.model.provider, model: explicitModel.model.id }));
+		return 0;
+	}
 	if (process.argv.includes("--continuation-target")) {
 		const target = await resolveContinuationTarget(`${rosclawHome}/agent/sessions`);
 		console.log(JSON.stringify(target ?? { status: "NO_RECORDED_SESSION" }));
@@ -262,6 +287,19 @@ async function main(): Promise<number> {
 	const startupCwd = process.cwd(); // 唯一启动解析输入
 	let initialSession: import("./harness/pi/pi-sessions.js").SessionManager | undefined;
 	const sessionDir = `${rosclawHome}/agent/sessions`;
+	let forkSourceId: string | undefined;
+	let explicitThinking: import("@earendil-works/pi-agent-core").ThinkingLevel | undefined;
+	const { SettingsManager } = await import("@earendil-works/pi-coding-agent");
+	const defaultThinking = explicitModel
+		? SettingsManager.create(workspace ?? startupCwd, `${rosclawHome}/agent`).getDefaultThinkingLevel() ?? "medium" : "medium";
+	const selectRecorded = (path: string) => {
+		if (!explicitModel) return openPiSession(path, sessionDir, ownership);
+		const fork = forkPiSessionForOverride(path, sessionDir, ownership, explicitModel, defaultThinking);
+		forkSourceId = fork.sourceId;
+		explicitThinking = fork.thinking;
+		console.error(`Preserved source ${fork.sourceId}; selected branch context only → new session ${fork.session.getSessionId()}`);
+		return fork.session;
+	};
 	try {
 	if (browseSessions) {
 		const { browseSessions: openPicker } = await import("./harness/pi/pi-picker.js");
@@ -270,9 +308,9 @@ async function main(): Promise<number> {
 			(onProgress) => listAllPiSessions(sessionDir, onProgress),
 		);
 		if (!picked) return 0;  // 用户取消——干净退出，不建会话
-		initialSession = openPiSession(picked, sessionDir, ownership);
+		initialSession = explicitModel ? selectRecorded(picked) : openPiSession(picked, sessionDir, ownership);
 	} else if (resumeSessionPath) {
-		initialSession = openPiSession(resumeSessionPath, sessionDir, ownership);
+		initialSession = explicitModel ? selectRecorded(resumeSessionPath) : openPiSession(resumeSessionPath, sessionDir, ownership);
 	} else if (resumeSessionId) {
 		// 兼容路径：`chat --resume <id>`——精确 ID/唯一前缀经
 		// listAll 解析（拒绝路径穿越由解析保证）。
@@ -287,9 +325,18 @@ async function main(): Promise<number> {
 			);
 			return 2;
 		}
-		initialSession = openPiSession(hit.path, sessionDir, ownership);
+		initialSession = explicitModel ? selectRecorded(hit.path) : openPiSession(hit.path, sessionDir, ownership);
 	} else if (continueLast) {
-		initialSession = await continueRecentPiSession(workspace ?? startupCwd, sessionDir, ownership);
+		if (explicitModel) {
+			const target = await resolveContinuationTarget(sessionDir);
+			if (target) {
+				const source = inspectOverrideSource(target.path);
+				if (source.id !== target.id || source.cwd !== target.cwd) throw new Error("CONTINUATION_TARGET_CHANGED");
+				initialSession = selectRecorded(target.path);
+			}
+		} else {
+			initialSession = await continueRecentPiSession(workspace ?? startupCwd, sessionDir, ownership);
+		}
 		if (!initialSession) {
 			console.error("没有可继续的已记录会话；请用 rosclaw chat 创建新会话");
 			return 2;
@@ -305,6 +352,7 @@ async function main(): Promise<number> {
 		}
 		throw err;
 	}
+	if (explicitModel && explicitThinking === undefined) explicitThinking = requireSupportedThinking(explicitModel, defaultThinking);
 	// PR-N1：ActiveTaskContext 在 session 创建前解析并冻结——
 	// runtime/工具/bridge/artifact/verifier/header 全从这里取路径。
 	const { resolveTaskContext } = await import("./native/active-task-context.js");
@@ -336,6 +384,7 @@ async function main(): Promise<number> {
 		workspaceStore,
 		workspaceAutoBound: startupWs.auto,
 		ownership,
+		...(explicitModel ? { explicitModel, explicitThinking, overrideSourceId: forkSourceId } : {}),
 		...(toolCallBudget !== undefined ? { toolCallBudget } : {}),
 		...(missionId ? { missionId } : {}),
 		...(initialSession ? { sessionManager: initialSession } : {}),
@@ -364,6 +413,13 @@ async function main(): Promise<number> {
 			return 2;
 		}
 	}
+		if (explicitModel) {
+			const actual = runtime.session.model;
+			if (!actual || actual.provider !== provider || actual.id !== model || runtime.session.thinkingLevel !== explicitThinking) {
+				throw new Error("MODEL_OVERRIDE_RESTORATION_MISMATCH");
+			}
+			console.error(`Selected ${actual.provider}/${actual.id} · effort ${runtime.session.thinkingLevel} · ${forkSourceId ? `source ${forkSourceId} → new restored` : "new"} session ${sessionId}`);
+		}
 		if (print) {
 			// 非 TTY 单发模式（冒烟/脚本）。
 			return await runPiPrint(runtime, {
