@@ -1,4 +1,4 @@
-"""Synthetic recovery state tests; the runtime remains unwired."""
+"""Synthetic temporal contracts; these are not Native physical acceptance."""
 
 import pytest
 
@@ -61,6 +61,74 @@ def test_partial_obstruction_defers_only_blocked_cells_and_clearance_restores_ca
     assert result["ready"][0]["cells"] == [0, 1, 2, 3]
     assert result["deferred"] == []
     assert accounting.verifier.visits == {}  # withdrawal is not cleaning credit
+
+
+def test_paired_route_filters_body_clearance_and_recovers_only_after_withdrawal():
+    from rosclaw.connectors.ros.mission.temporal_recovery import paired_route_candidates
+
+    accounting, _ = setup()
+    centers = tuple((i + 0.5, 0.5) for i in range(4))
+    current = {"x": 0.5, "y": 0.5, "yaw": 0, "time_sec": 1}
+    observe(accounting, 1, 0, (2,))
+    selected, reachable, proof = paired_route_candidates(
+        accounting, centers, current, physical_radius_m=0.05
+    )
+    assert selected == ((0.5, 0.5),)
+    assert reachable == frozenset({0})
+    assert proof["snapshot_sequence"] == 0 and proof["prediction_only"]
+    observe(accounting, 2, 1, ())
+    current["time_sec"] = 2
+    selected, reachable, proof = paired_route_candidates(
+        accounting, centers, current, physical_radius_m=0.05
+    )
+    assert selected == centers and reachable == frozenset(range(4))
+    assert accounting.verifier.visits == {}
+    current["time_sec"] = 1
+    with pytest.raises(ValueError, match="paired occupancy"):
+        paired_route_candidates(accounting, centers, current, physical_radius_m=0.05)
+
+
+def test_paired_route_does_not_jump_to_nearest_disconnected_center_or_cut_corners():
+    from rosclaw.connectors.ros.mission.temporal_recovery import paired_route_candidates
+
+    grid = CoverageVerifier(
+        width=3,
+        height=3,
+        resolution=1,
+        accessible_cells=list(range(9)),
+        cleaning_polygon=[(-0.4, -0.4), (0.4, -0.4), (0.4, 0.4), (-0.4, 0.4)],
+    )
+    accounting = OccupancyAccounting(
+        grid, run_id="run", mission_id="mission", geometry_hash="geometry"
+    )
+    observe(accounting, 1, 0, ())
+    current = {"x": 0.5, "y": 0.5, "yaw": 0, "time_sec": 1}
+    centers = ((0.5, 0.5), (1.5, 1.5), (2.5, 1.5))
+    selected, reachable, _ = paired_route_candidates(
+        accounting, centers, current, physical_radius_m=0.05
+    )
+    assert selected == ((0.5, 0.5),) and reachable == frozenset({0})
+    current["x"] = 1.5
+    selected, reachable, _ = paired_route_candidates(
+        accounting, centers, current, physical_radius_m=0.05
+    )
+    assert selected == () and not reachable  # current cell has no legal entry
+
+
+def test_route_budget_expiration_returns_no_partial_candidate(monkeypatch):
+    from rosclaw.connectors.ros.mission import temporal_recovery as module
+
+    accounting, _ = setup()
+    observe(accounting, 1, 0, ())
+    ticks = iter([0, 1])
+    monkeypatch.setattr(module.time, "monotonic", lambda: next(ticks))
+    with pytest.raises(ValueError, match="no partial"):
+        module.paired_route_candidates(
+            accounting,
+            ((0.5, 0.5),),
+            {"x": 0.5, "y": 0.5, "yaw": 0, "time_sec": 1},
+            physical_radius_m=0.05,
+        )
 
 
 def test_blocked_route_waits_without_spending_attempts_and_deadline_removes_all_goals():

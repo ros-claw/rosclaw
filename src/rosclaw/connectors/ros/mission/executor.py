@@ -20,6 +20,10 @@ from rosclaw.connectors.ros.diagnosis.coverage_audit import CoverageAuditLog, di
 from rosclaw.connectors.ros.mission.boundary_pass import rectangular_boundary_targets
 from rosclaw.connectors.ros.mission.recovery import MissedRegionRecovery
 from rosclaw.connectors.ros.mission.repair_optimizer import rank_repair_poses
+from rosclaw.connectors.ros.mission.temporal_recovery import (
+    TimePairedRecovery,
+    paired_route_candidates,
+)
 from rosclaw.connectors.ros.verification.brush_timeline import validate_brush_pair
 from rosclaw.connectors.ros.verification.coverage import (
     CleaningPose,
@@ -190,6 +194,7 @@ class RosCoverageSimulationExecutor:
         repair_swath_yaw=0.0,
         repair_budget_ms=500.0,
         occupancy_binding=None,
+        physical_radius_m=None,
     ):
         if not owner.startswith("daemon_"):
             raise ValueError("daemon ownership is required")
@@ -212,6 +217,15 @@ class RosCoverageSimulationExecutor:
         self.occupancy_binding = (
             MappingProxyType(dict(occupancy_binding)) if occupancy_binding is not None else None
         )
+        if physical_radius_m is not None and (
+            type(physical_radius_m) not in (int, float) or not 0 < physical_radius_m <= 10
+        ):
+            raise ValueError("configured physical Body radius must be finite and bounded")
+        if occupancy_binding is not None and recovery_centers and physical_radius_m is None:
+            raise ValueError("dynamic repair requires an explicit physical Body radius")
+        self.physical_radius_m = physical_radius_m
+        self.waiting_for_obstacle = threading.Event()
+        self.temporal_recovery_state = None
         self.stopping = threading.Event()
         self.goal_id = None
         self.lock = threading.Lock()
@@ -453,7 +467,35 @@ class RosCoverageSimulationExecutor:
             "nav_goal_result": result,
         }
 
-    def _repair(self, verifier, started, action_id, deadline, *, mission_id=None):
+    def _set_obstacle_wait(self, waiting):
+        # Set the flag before acquiring the same lock as heartbeat re-enable.
+        # An in-flight enable completes before the acknowledged hold is set;
+        # every later enable observes the hold flag inside that lock.
+        if waiting:
+            self.waiting_for_obstacle.set()
+        with self.lease_lock:
+            response = self.lease_control.call_service(
+                "/rosclaw_sim/hold",
+                {"data": waiting},
+                service_type="std_srvs/srv/SetBool",
+                timeout_sec=0.5,
+            )
+            if not response.ok or response.data.get("values", {}).get("success") is not True:
+                raise RuntimeError("SIM drive/brush hold was not acknowledged")
+            if not waiting:
+                self.waiting_for_obstacle.clear()
+
+    def _repair(
+        self,
+        verifier,
+        started,
+        action_id,
+        deadline,
+        *,
+        mission_id=None,
+        admission_sim_time=None,
+        deadline_sim_time=None,
+    ):
         """Bounded missed-cell goals; every connecting path is planned by Nav2."""
         recovery = MissedRegionRecovery(verifier)
         accounting = (
@@ -461,6 +503,13 @@ class RosCoverageSimulationExecutor:
             if self.occupancy_binding is not None
             else None
         )
+        temporal = accounting is not None and self.physical_radius_m is not None
+        if temporal:
+            recovery = TimePairedRecovery(
+                accounting,
+                admission_sim_time=admission_sim_time,
+                deadline_sim_time=deadline_sim_time,
+            )
         records, consumed = [], started
         width, resolution = verifier.width, verifier.resolution
         radius = math.ceil(verifier.radius / resolution)
@@ -480,7 +529,8 @@ class RosCoverageSimulationExecutor:
         goal_budget = min(
             240, max(60, 2 * math.ceil(len(verifier.accessible) / max(1, len(offsets))))
         )
-        for index in range(goal_budget):
+        index = 0
+        while index < goal_budget:
             samples = self.witness.since(consumed)
             consumed += len(samples)
             for sample in samples:
@@ -512,8 +562,54 @@ class RosCoverageSimulationExecutor:
                     "consumed_samples": consumed - started,
                 },
             )
-            proposals = recovery.propose()
-            if not proposals["ready"] or not self.recovery_centers:
+            centers = self.recovery_centers
+            if temporal:
+                if self.stopping.is_set() or time.monotonic() >= deadline:
+                    self.temporal_recovery_state = {
+                        "status": "BLOCKED",
+                        "reason": "original_wall_deadline_or_stop",
+                    }
+                    if not self.waiting_for_obstacle.is_set():
+                        self._set_obstacle_wait(True)
+                    break
+                current = samples[-1] if samples else self.witness.fresh()
+                if current["time_sec"] != accounting.previous_time:
+                    # Consume this newer packet through the accounting loop
+                    # before using its position for a route proposal.
+                    continue
+                centers, reachable, route = paired_route_candidates(
+                    accounting,
+                    centers,
+                    current,
+                    physical_radius_m=self.physical_radius_m,
+                    budget_ms=self.repair_budget_ms,
+                )
+                proposals = recovery.propose_at(
+                    sim_time_sec=accounting.previous_time,
+                    snapshot_sequence=accounting.previous_sequence,
+                    reachable_cells=reachable,
+                )
+                self.temporal_recovery_state = proposals
+                self._audit_event(
+                    "temporal_recovery_proposal", {**proposals, "route_evidence": route}
+                )
+                if proposals["status"] == "WAITING_FOR_OBSTACLE":
+                    if not self.waiting_for_obstacle.is_set():
+                        self._set_obstacle_wait(True)
+                    # Freshness/lease/clock are checked again on every poll.
+                    # Waiting consumes neither an attempt nor a goal index.
+                    self.stopping.wait(0.1)
+                    self.witness.fresh()
+                    continue
+                if not proposals["ready"]:
+                    if not self.waiting_for_obstacle.is_set():
+                        self._set_obstacle_wait(True)
+                    break
+                if self.waiting_for_obstacle.is_set():
+                    self._set_obstacle_wait(False)
+            else:
+                proposals = recovery.propose()
+            if not proposals["ready"] or not centers:
                 break
             # Repair the largest measured hole before spending the bounded
             # budget on isolated boundary cells. Nav2 still owns every path.
@@ -527,14 +623,15 @@ class RosCoverageSimulationExecutor:
                 self.grid["origin"][1]
                 + (cell // self.grid["width"] + 0.5) * self.grid["resolution"]
             )
-            center = min(self.recovery_centers, key=lambda p: (p[0] - x) ** 2 + (p[1] - y) ** 2)
+            center = min(centers, key=lambda p: (p[0] - x) ** 2 + (p[1] - y) ** 2)
             # Select a stopped cleaning footprint with the highest remaining
             # utility. This selects one repair goal, never a coverage path;
             # predicted cells do not enter the measured coverage accumulator.
             remaining = set(missed)
-            current = self.witness.fresh()
+            if not temporal:
+                current = self.witness.fresh()
             best = (-1, -math.inf)
-            for candidate in self.recovery_centers:
+            for candidate in centers:
                 col = round((candidate[0] - verifier.origin[0]) / resolution - 0.5)
                 row = round((candidate[1] - verifier.origin[1]) / resolution - 0.5)
                 score = sum(
@@ -555,7 +652,7 @@ class RosCoverageSimulationExecutor:
                 ready_cells = {c for proposal in proposals["ready"] for c in proposal["cells"]}
                 selection = rank_repair_poses(
                     self.grid,
-                    self.recovery_centers,
+                    centers,
                     ready_cells,
                     current,
                     attempts=recovery.attempts,
@@ -629,6 +726,7 @@ class RosCoverageSimulationExecutor:
                 goal_id,
                 verifier.result()["coverage_ratio"],
             )
+            index += 1
         return records
 
     def emergency_stop(self):
@@ -783,6 +881,8 @@ class RosCoverageSimulationExecutor:
         dispatched = False
         heartbeat_stop = threading.Event()
         deadline = time.monotonic() + action.verification_policy.timeout_sec
+        admission_sim_time = deadline_sim_time = None
+        self.temporal_recovery_state = None
 
         def maintain_lease():
             last_log = time.monotonic()
@@ -813,7 +913,13 @@ class RosCoverageSimulationExecutor:
                                 remaining,
                             )
                             continue
-                    if not response.ok or time.monotonic() > deadline or self.stopping.is_set():
+                    if (
+                        not response.ok
+                        or time.monotonic() > deadline
+                        or self.stopping.is_set()
+                        or deadline_sim_time is not None
+                        and observed["time_sec"] >= deadline_sim_time
+                    ):
                         logger.error(
                             "Simulation heartbeat stopped: ok=%s error=%s deadline=%s stopping=%s",
                             response.ok,
@@ -829,6 +935,8 @@ class RosCoverageSimulationExecutor:
                         and not heartbeat_stop.is_set()
                     ):
                         with self.lease_lock:
+                            if self.waiting_for_obstacle.is_set():
+                                continue
                             enabled = self.lease_control.call_service(
                                 "/rosclaw_sim/cleaning",
                                 {"data": True},
@@ -844,8 +952,16 @@ class RosCoverageSimulationExecutor:
 
         heartbeat_thread = threading.Thread(target=maintain_lease, daemon=True)
         try:
-            self.witness.fresh()
+            admission = self.witness.fresh()
+            if self.occupancy_binding is not None and self.physical_radius_m is not None:
+                admission_sim_time = admission["time_sec"]
+                duration = action.verification_policy.timeout_sec
+                if not 0 < duration <= 1800:
+                    raise ValueError("dynamic mission requires original bounded SIM duration")
+                deadline_sim_time = admission_sim_time + duration
             self._service("/rosclaw_sim/lease", {"data": True})
+            if deadline_sim_time is not None:
+                self._set_obstacle_wait(False)
             heartbeat_thread.start()
             if coverage:
                 response = self._service("/rosclaw_sim/cleaning", {"data": True})
@@ -926,6 +1042,8 @@ class RosCoverageSimulationExecutor:
                         action.action_id,
                         deadline,
                         mission_id=action.arguments["mission_id"],
+                        admission_sim_time=admission_sim_time,
+                        deadline_sim_time=deadline_sim_time,
                     )
                 else:
                     repairs = self._repair(verifier, started, action.action_id, deadline)
@@ -999,6 +1117,8 @@ class RosCoverageSimulationExecutor:
                 }
                 if temporal is not None:
                     verification["time_paired_accounting"] = temporal
+                if self.temporal_recovery_state is not None:
+                    verification["temporal_recovery"] = self.temporal_recovery_state
             else:
                 target = args["pose"]["pose"]["position"]
                 distance = math.hypot(final["x"] - target["x"], final["y"] - target["y"])
@@ -1011,7 +1131,11 @@ class RosCoverageSimulationExecutor:
             if not disabled.ok or not disabled.data.get("values", {}).get("success"):
                 raise RuntimeError("simulated cleaning disable was not acknowledged")
             return self._result(
-                ActionState.DEGRADED if coverage and ratio < 0.98 else ActionState.COMPLETED,
+                ActionState.BLOCKED
+                if coverage and ratio < 0.98 and self.temporal_recovery_state is not None
+                else ActionState.DEGRADED
+                if coverage and ratio < 0.98
+                else ActionState.COMPLETED,
                 verification=verification,
                 observations=[final],
                 accepted=dispatched,

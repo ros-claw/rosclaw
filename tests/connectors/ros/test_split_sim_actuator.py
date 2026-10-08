@@ -165,7 +165,11 @@ def test_passive_node_creates_no_drive_cleaner_or_lease_authority(monkeypatch):
 def test_separate_actuator_requires_lease_and_stops_cleaner_on_expiry(monkeypatch):
     actor = load_node("sim_actuator.py", "SimulationActuator", monkeypatch)
     assert not any("ground_truth" in topic or "contact" in topic for topic in actor.subscriptions)
-    assert set(actor.services) == {"/rosclaw_sim/cleaning", "/rosclaw_sim/lease"}
+    assert set(actor.services) == {
+        "/rosclaw_sim/cleaning",
+        "/rosclaw_sim/lease",
+        "/rosclaw_sim/hold",
+    }
     response = actor.set_cleaning(SimpleNamespace(data=True), SimpleNamespace())
     assert response.success is False and not actor.cleaning
     actor.tick()  # initial OFF watermark
@@ -201,6 +205,37 @@ def test_failed_transition_publication_fails_closed(monkeypatch):
     before = len(actor.publishers["/drive_controller/cmd_vel"])
     actor.command(SimpleNamespace())
     assert len(actor.publishers["/drive_controller/cmd_vel"]) == before
+
+
+def test_hold_zeros_drive_blocks_commands_and_cannot_be_reenabled_by_lease(monkeypatch):
+    actor = load_node("sim_actuator.py", "SimulationActuator", monkeypatch)
+    actor.tick()
+    actor.heartbeat(SimpleNamespace(data=True), SimpleNamespace())
+    actor.sim_time = 1.1
+    assert actor.set_cleaning(SimpleNamespace(data=True), SimpleNamespace()).success
+    actor.sim_time = 1.2
+    assert actor.set_hold(SimpleNamespace(data=True), SimpleNamespace()).success
+    assert actor.holding and not actor.cleaning
+    before = len(actor.publishers["/drive_controller/cmd_vel"])
+    actor.heartbeat(SimpleNamespace(data=True), SimpleNamespace())
+    assert not actor.set_cleaning(SimpleNamespace(data=True), SimpleNamespace()).success
+    actor.command(SimpleNamespace())
+    assert len(actor.publishers["/drive_controller/cmd_vel"]) == before
+    actor.lease = 0
+    assert not actor.set_hold(SimpleNamespace(data=False), SimpleNamespace()).success
+    assert actor.holding
+    actor.heartbeat(SimpleNamespace(data=True), SimpleNamespace())
+    assert actor.set_hold(SimpleNamespace(data=False), SimpleNamespace()).success
+    assert not actor.cleaning  # hold release alone does not enable the brush
+
+
+def test_hold_transition_failure_stops_without_claiming_acknowledgment(monkeypatch):
+    actor = load_node("sim_actuator.py", "SimulationActuator", monkeypatch)
+    actor.heartbeat(SimpleNamespace(data=True), SimpleNamespace())
+    actor.cleaning = True
+    actor.event = lambda _: (_ for _ in ()).throw(RuntimeError("source failed"))
+    assert not actor.set_hold(SimpleNamespace(data=True), SimpleNamespace()).success
+    assert actor.holding and actor.fault and not actor.cleaning and actor.lease == 0
 
 
 def test_observer_waits_for_watermark_and_exact_disable_never_receives_on_credit(monkeypatch):

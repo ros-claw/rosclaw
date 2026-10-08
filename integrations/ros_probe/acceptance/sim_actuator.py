@@ -60,6 +60,8 @@ class SimulationActuator(Node):
         )
         self.create_subscription(Twist, "/nav_cmd_vel", self.command, 10)
         self.create_service(SetBool, "/rosclaw_sim/cleaning", self.set_cleaning)
+        self.holding = False
+        self.create_service(SetBool, "/rosclaw_sim/hold", self.set_hold)
         self.create_service(SetBool, "/rosclaw_sim/lease", self.heartbeat)
         self.create_timer(0.05, self.tick, clock=Clock(clock_type=ClockType.STEADY_TIME))
 
@@ -99,11 +101,32 @@ class SimulationActuator(Node):
             self.velocity.publish(message)
 
     def command(self, message):
-        if self.fault is None and time.monotonic() < self.lease:
+        if self.fault is None and not self.holding and time.monotonic() < self.lease:
             self.publish_velocity(message)
 
+    def set_hold(self, request, response):
+        if self.fault or (not request.data and time.monotonic() >= self.lease):
+            response.success = False
+            response.message = "SIM hold release requires a live healthy daemon lease"
+            return response
+        self.holding = request.data
+        if self.holding:
+            try:
+                self.stop()
+            except (ValueError, RuntimeError) as exc:
+                self.fault = str(exc)
+                self.lease = 0
+                self.cleaning = False
+                self.publish_velocity(Twist())
+                response.success = False
+                response.message = "SIM hold source failed; drive stopped"
+                return response
+        response.success = True
+        response.message = "SIM drive hold recorded"
+        return response
+
     def set_cleaning(self, request, response):
-        if self.fault or (request.data and time.monotonic() >= self.lease):
+        if self.fault or (request.data and (self.holding or time.monotonic() >= self.lease)):
             response.success = False
             response.message = "SIM cleaner requires a live daemon lease and healthy event source"
             return response

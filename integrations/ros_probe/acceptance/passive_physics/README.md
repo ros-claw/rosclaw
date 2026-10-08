@@ -55,6 +55,20 @@ from independent PostUpdate packets. These CLI inputs do not create a receipt,
 authorize an action or prove the library loaded. 17 offline preparation tests
 and the 509-test ROS suite passed; fresh physical execution remains NOT_RUN.
 
+Daemon-configured dynamic repair additionally requires the actual physical Body
+radius, distinct from cleaner width. Its time-paired route filter dilates
+occupied cell squares conservatively, uses only the current legal-center
+component and prohibits corner cuts or guessed entry into a distant component.
+Only its filtered centers are offered to the existing greedy/pose-aware goal
+selection; Nav2 still plans all connecting paths. A fixed admission SIM deadline
+and the original wall deadline bound execution. Waiting uses a separate actuator
+hold service: drive zero, brush OFF, commands inhibited, lease renewal cannot
+enable the brush. Hold release alone grants no brush credit. Polls consume no
+goal or retry count; withdrawal requires measured enabled revisits. Faults,
+unpaired route input or computation exhaustion stop without partial proposals.
+These contracts passed the 517-test ROS suite and scoped mypy; actual dynamic
+Native episodes and their complete canonical receipts remain NOT_RUN.
+
 The source uses Gazebo8 `worldPose` and actual `Geometry`/`Collision`/`Pose`
 components. It avoids concurrent `generate_world_sdf`, whose Gazebo8 implementation
 explicitly notes an ECM thread-safety TODO:

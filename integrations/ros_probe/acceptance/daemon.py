@@ -125,6 +125,7 @@ def main():
         boundary_centers=config.get("boundary_centers"),
         repair_strategy=config.get("repair_strategy", "greedy"),
         occupancy_binding=config.get("occupancy_binding"),
+        physical_radius_m=config.get("physical_radius_m"),
         repair_swath_yaw=config.get("experiment", {})
         .get("planning_parameters", {})
         .get("default_swath_angle", 0.0),

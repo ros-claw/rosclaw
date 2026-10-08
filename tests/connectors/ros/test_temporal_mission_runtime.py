@@ -127,6 +127,93 @@ def test_daemon_repair_consumes_same_paired_occupancy_as_final_replay(tmp_path):
         executor.occupancy_binding["run_id"] = "other"
 
 
+def temporal_executor(tmp_path, batches):
+    class Stream:
+        current = None
+
+        def since(self, offset):
+            batch = batches.pop(0) if batches else []
+            if batch:
+                self.current = batch[-1]
+            return batch
+
+        def fresh(self):
+            return self.current
+
+    calls = []
+    control = SimpleNamespace(
+        call_service=lambda name, arguments, **kwargs: (
+            calls.append((name, arguments["data"])),
+            SimpleNamespace(ok=True, data={"values": {"success": True}}),
+        )[1]
+    )
+    driver = RosCoverageSimulationExecutor(
+        owner="daemon_test",
+        client=None,
+        control=control,
+        witness=Stream(),
+        output=tmp_path,
+        body_id="body",
+        body_snapshot_hash="bodyhash",
+        grid=GRID,
+        occupancy_binding=BINDING,
+        physical_radius_m=0.001,
+        recovery_centers=((0.005, 0.005), (0.015, 0.005)),
+    )
+    return driver, calls
+
+
+def test_daemon_waits_with_brush_off_then_repairs_actual_withdrawn_cells(tmp_path, monkeypatch):
+    batches = [[sample(t, i, 0.005, [1])] for i, t in enumerate((0, 0.1, 0.2))]
+    batches.append([sample(0.3, 3, 0.005, [])])
+    for batch in batches:
+        batch[0]["cleaning_enabled"] = False
+    driver, calls = temporal_executor(tmp_path, batches)
+    monkeypatch.setattr(driver.stopping, "wait", lambda _: False)
+    goals = []
+
+    def goal(*args, **kwargs):
+        goals.append(args)
+        batches.append([sample(0.4, 4, 0.005, []), sample(0.5, 5, 0.015, [])])
+        return {"status": 4}
+
+    monkeypatch.setattr(driver, "_run_goal", goal)
+    verifier = CoverageVerifier(**GRID)
+    repairs = driver._repair(
+        verifier,
+        0,
+        "action",
+        time.monotonic() + 2,
+        mission_id="mission",
+        admission_sim_time=0,
+        deadline_sim_time=1,
+    )
+    assert len(goals) == len(repairs) == 1
+    assert calls == [("/rosclaw_sim/hold", True), ("/rosclaw_sim/hold", False)]
+    assert verifier.result()["coverage_ratio"] == 1
+    assert not driver.waiting_for_obstacle.is_set()
+
+
+@pytest.mark.parametrize("clock", ["sim", "wall"])
+def test_daemon_original_deadline_blocks_without_dispatch_or_retries(tmp_path, monkeypatch, clock):
+    row = sample(1, 0, 0.005, [1])
+    row["cleaning_enabled"] = False
+    driver, calls = temporal_executor(tmp_path, [[row]])
+    monkeypatch.setattr(driver, "_run_goal", lambda *a, **k: pytest.fail("deadline dispatched"))
+    repairs = driver._repair(
+        CoverageVerifier(**GRID),
+        0,
+        "action",
+        time.monotonic() + (1 if clock == "sim" else -1),
+        mission_id="mission",
+        admission_sim_time=0,
+        deadline_sim_time=1,
+    )
+    assert repairs == []
+    assert driver.temporal_recovery_state["status"] == "BLOCKED"
+    assert driver.waiting_for_obstacle.is_set() and calls == [("/rosclaw_sim/hold", True)]
+
+
 @pytest.mark.parametrize("fault", ["missing", "hash", "complete", "collision", "boolean_collision"])
 def test_daemon_transport_fault_latches_before_additional_credit(fault):
     accounting = OccupancyAccounting(CoverageVerifier(**GRID), mission_id="mission", **BINDING)
