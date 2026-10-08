@@ -86,6 +86,13 @@ records. Navigation actions do not start the coverage mission's clocks.532 ROS
 tests and scoped mypy passed, including wrong mission, missing source, expiry,
 negative clock and process-restart refusal; physical acceptance is still NOT_RUN.
 
+The packet parser also rejects oversized JSON integers before floating-point
+conversion, bounds source counters to their SDK unsigned domain and SIM time to
+the SDK nanosecond clock domain, and requires typed model/primitive identities.
+Malformed names or dimensions cannot escape as unhandled overflow/type errors.
+540 ROS tests,50 focused parser/observer tests and scoped mypy/CI Ruff passed;
+the8 new cases are synthetic corruption tests, not physical fault episodes.
+
 The source uses Gazebo8 `worldPose` and actual `Geometry`/`Collision`/`Pose`
 components. It avoids concurrent `generate_world_sdf`, whose Gazebo8 implementation
 explicitly notes an ECM thread-safety TODO:

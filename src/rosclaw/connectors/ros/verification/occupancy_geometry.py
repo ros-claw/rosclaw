@@ -289,18 +289,20 @@ def parse_physics_packet(
     if (
         type(obstacle_names) is not tuple
         or not 0 < len(obstacle_names) <= 32
+        or any(type(n) is not str or not n for n in obstacle_names)
         or len(set(obstacle_names)) != len(obstacle_names)
         or type(scene_model_names) is not frozenset
         or not 0 < len(scene_model_names) <= 64
+        or any(type(n) is not str or not n for n in scene_model_names)
         or body_model_name in obstacle_names
         or not {body_model_name, *obstacle_names} <= scene_model_names
     ):
         raise ValueError("explicit bounded closed scene identities required")
     for key in ("sequence", "physics_iteration", "captured_at_unix_ns"):
-        if type(packet.get(key)) is not int or packet[key] < 0:
-            raise ValueError("nonnegative integer source sequence/iteration/capture required")
+        if type(packet.get(key)) is not int or not 0 <= packet[key] < 2**64:
+            raise ValueError("bounded unsigned source sequence/iteration/capture required")
     stamp = packet.get("sim_time_sec")
-    if type(stamp) not in (float, int) or not math.isfinite(stamp) or stamp < 0:
+    if type(stamp) not in (float, int) or not 0 <= stamp <= (2**63 - 1) / 1e9:
         raise ValueError("nonnegative finite physical SIM time required")
     if type(packet.get("paused")) is not bool:
         raise ValueError("explicit physical pause state required")
@@ -315,6 +317,7 @@ def parse_physics_packet(
         if (
             type(row) is not dict
             or set(row) != {"model_name", "entity_id"}
+            or type(row["model_name"]) is not str
             or row["model_name"] not in scene_model_names
             or row["model_name"] in models
             or type(row["entity_id"]) is not int
@@ -329,7 +332,7 @@ def parse_physics_packet(
         if (
             type(values) is not list
             or len(values) != 7
-            or any(type(v) not in (float, int) or not math.isfinite(v) for v in values)
+            or any(type(v) not in (float, int) or not -1_000_000 <= v <= 1_000_000 for v in values)
             or not math.isclose(sum(v * v for v in values[3:]), 1, abs_tol=1e-6)
         ):
             raise ValueError("finite normalized actual physical pose required")
@@ -354,6 +357,7 @@ def parse_physics_packet(
         if (
             type(model) is not dict
             or set(model) != {"model_name", "entity_id", "world_pose", "collision_geometry"}
+            or type(model["model_name"]) is not str
             or type(model["entity_id"]) is not int
             or model["model_name"] not in obstacle_names
             or model["model_name"] in names
@@ -384,7 +388,8 @@ def parse_physics_packet(
                 "cylinder": {"radius", "length"},
             }
             if (
-                kind not in expected_dimensions
+                type(kind) is not str
+                or kind not in expected_dimensions
                 or set(collision) != keys | expected_dimensions[kind]
             ):
                 raise ValueError("unique explicit actual collision primitive required")
@@ -398,10 +403,7 @@ def parse_physics_packet(
                     sizes.append(collision.get("length"))
             else:
                 raise ValueError("unsupported actual collision primitive")
-            if any(
-                type(v) not in (float, int) or not math.isfinite(v) or not 0 < v <= 200
-                for v in sizes
-            ):
+            if any(type(v) not in (float, int) or not 0 < v <= 200 for v in sizes):
                 raise ValueError("positive finite collision dimensions required")
             extent = (
                 math.sqrt(sum((v / 2) ** 2 for v in sizes))
@@ -414,8 +416,10 @@ def parse_physics_packet(
             if not math.isfinite(radius) or not 0 < radius <= 100:
                 raise ValueError("actual collision envelope unbounded")
             reported = collision.get("enclosing_radius_m")
-            if type(reported) not in (float, int) or not math.isclose(
-                reported, radius, rel_tol=1e-12, abs_tol=1e-12
+            if (
+                type(reported) not in (float, int)
+                or not 0 < reported <= 100
+                or not math.isclose(reported, radius, rel_tol=1e-12, abs_tol=1e-12)
             ):
                 raise ValueError("reported envelope does not match actual components")
             maximum = max(maximum, math.nextafter(radius, math.inf))

@@ -108,6 +108,14 @@ def test_real_sdk_failure_records_never_become_geometry(row):
         "overflow",
         "quaternion",
         "mesh",
+        "huge_clock_integer",
+        "huge_sequence_integer",
+        "huge_pose_integer",
+        "huge_relative_pose_integer",
+        "huge_dimension_integer",
+        "huge_reported_radius_integer",
+        "kind_list",
+        "model_name_list",
     ],
 )
 def test_physics_component_packet_refuses_corruption(fault):
@@ -151,6 +159,22 @@ def test_physics_component_packet_refuses_corruption(fault):
         collision["radius"] = 1e308
     elif fault == "quaternion":
         p["body"]["world_pose"][3] = 0
+    elif fault == "huge_clock_integer":
+        p["sim_time_sec"] = 10**400
+    elif fault == "huge_sequence_integer":
+        p["sequence"] = 10**400
+    elif fault == "huge_pose_integer":
+        p["body"]["world_pose"][0] = 10**400
+    elif fault == "huge_relative_pose_integer":
+        collision["model_relative_pose"][0] = 10**400
+    elif fault == "huge_dimension_integer":
+        collision["radius"] = 10**400
+    elif fault == "huge_reported_radius_integer":
+        collision["enclosing_radius_m"] = 10**400
+    elif fault == "kind_list":
+        collision["kind"] = ["sphere"]
+    elif fault == "model_name_list":
+        p["scene_models"][0]["model_name"] = ["anonymous_body"]
     else:
         collision["kind"] = "mesh"
     # Same actual receipt time as the original SDK fixture; source mutations do
