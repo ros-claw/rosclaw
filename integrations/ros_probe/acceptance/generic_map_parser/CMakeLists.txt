@@ -1,0 +1,8 @@
+cmake_minimum_required(VERSION 3.16)
+project(rosclaw_generic_map_source_parser)
+find_package(ament_cmake REQUIRED)
+find_package(nav2_map_server REQUIRED)
+find_package(nav_msgs REQUIRED)
+add_executable(generic_map_source_parser source_parser.cc)
+target_compile_features(generic_map_source_parser PRIVATE cxx_std_17)
+ament_target_dependencies(generic_map_source_parser nav2_map_server nav_msgs)
