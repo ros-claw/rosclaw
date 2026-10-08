@@ -17,6 +17,7 @@ from pathlib import Path
 from backend_observer_replay import BackendObserverReplay
 from backend_probe_evidence import probe_policy
 from native_contact_evidence import reopen_native_policy
+from probe_controller_ipc import ProbeControllerIPC, decode_controller_packet
 from probe_scene_geometry import decode_scene_json
 
 from rosclaw.connectors.ros.diagnosis.coverage_audit import CoverageAuditLog
@@ -65,9 +66,15 @@ def main():
     parser.add_argument("--probe-pose-frame", required=True)
     parser.add_argument("--duration", type=int, required=True)
     parser.add_argument("--prepare-only", action="store_true")
+    parser.add_argument("--controller-pid", type=int)
+    parser.add_argument("--controller-uid", type=int)
     for name in ("scene-binding", "probe-declaration", "scene-directory"):
         parser.add_argument("--" + name, type=Path)
     args = parser.parse_args()
+    if (args.controller_pid is None) != (args.controller_uid is None):
+        raise ValueError("both pinned instrument controller PID and UID required")
+    if args.controller_pid is not None and args.scene_binding is None:
+        raise ValueError("instrument IPC requires complete spatial observer sources")
     if (
         not 60 <= args.duration <= 1920
         or args.directory.is_symlink()
@@ -133,7 +140,7 @@ def main():
     from tf2_msgs.msg import TFMessage
 
     rclpy.init()
-    node, audit = None, None
+    node, audit, controller_ipc = None, None, None
     try:
         node = Node(
             "independent_backend_observer",
@@ -158,6 +165,12 @@ def main():
                 "evidence_domain": "SIMULATION",
             },
         )
+        if args.controller_pid is not None:
+            controller_ipc = ProbeControllerIPC(
+                args.directory / "probe-controller.sock",
+                controller_pid=args.controller_pid,
+                controller_uid=args.controller_uid,
+            )
         publisher = node.create_publisher(
             String, "/rosclaw_sim/backend_observation_constraint", 128
         )
@@ -220,6 +233,70 @@ def main():
         subscriber_seen = False
         while not stop[0] and time.monotonic() < deadline:
             rclpy.spin_once(node, timeout_sec=0.01)
+            if controller_ipc is not None:
+                wall, unix = time.monotonic(), time.time_ns()
+                transport = None
+                try:
+                    received = controller_ipc.poll()
+                    if received is not None:
+                        wall, unix = time.monotonic(), time.time_ns()
+                        raw, peer = received
+                        transport = retained(
+                            raw, "linux_unix_seqpacket_probe_controller", wall, unix
+                        )
+                        transport["kernel_peer_credentials"] = peer
+                        kind, payload = decode_controller_packet(
+                            raw,
+                            run_id=engine.binding["run_id"],
+                            constraint_policy_hash=engine.gate.policy_hash,
+                        )
+                        payload.update(
+                            received_monotonic_sec=wall,
+                            received_unix_ns=unix,
+                            controller_transport=transport,
+                        )
+                        if kind == "backend_probe_lift_begin":
+                            robot_source = engine.gate.robot.snapshot(wall)
+                            spatial_source = engine.spatial.snapshot(wall)
+                            if (
+                                not robot_source["observation_complete"]
+                                or robot_source["collision_count"] != 0
+                                or not spatial_source["scene_geometry_constraint_satisfied"]
+                                or spatial_source["source_fault"]
+                                or spatial_source["join_source_fault"]
+                            ):
+                                raise ValueError(
+                                    "original instrument lift requires fresh complete robot/spatial sources"
+                                )
+                        projection = engine.apply(kind, payload)
+                        audit.emit(kind, {**payload, "projection": projection})
+                        if audit.dropped or audit.error:
+                            raise ValueError("original instrument IPC audit incomplete")
+                        controller_ipc.finish(
+                            json.dumps(
+                                {
+                                    "accepted_original_source_event": True,
+                                    "transaction_id": payload["transaction_id"],
+                                    "event": kind,
+                                    "world_source_ownership_admitted": False,
+                                    "authorization": False,
+                                }
+                            ).encode()
+                        )
+                except (ValueError, OSError) as exc:
+                    engine.gate.fault = engine.gate.fault or str(exc)
+                    audit.emit(
+                        "backend_probe_controller_rejected",
+                        {
+                            "received_monotonic_sec": wall,
+                            "received_unix_ns": unix,
+                            "controller_transport": transport,
+                            "error": str(exc)[:512],
+                        },
+                    )
+                    controller_ipc.finish(
+                        b'{"accepted_original_source_event":false,"authorization":false}'
+                    )
             wall = time.monotonic()
             if wall < next_tick:
                 continue
@@ -265,8 +342,8 @@ def main():
                 next_tick = wall + 0.05
                 continue
             subscriber_seen = True
-            # There is deliberately no invented lift ACK: a source-bound owned
-            # controller and its original IPC audit still need integration.
+            # Original controller IPC never substitutes for measured lift,
+            # clear cache, recontact or independent world admission.
             payload = {"received_monotonic_sec": wall}
             projection = (
                 engine.failed_sample(wall)
@@ -287,6 +364,8 @@ def main():
             temporary.replace(args.directory / "backend-observation-latest.json")
             next_tick = wall + 0.05
     finally:
+        if controller_ipc is not None:
+            controller_ipc.close()
         try:
             if node is not None:
                 node.destroy_node()

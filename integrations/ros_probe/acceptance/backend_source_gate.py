@@ -51,6 +51,10 @@ class BackendObservationGate:
         if self.last_sample is not None and wall_time <= self.last_sample:
             self.fault = self.fault or "live gate sample clock repeated/regressed"
         self.last_sample = wall_time
+        try:
+            self.probe.transaction_fresh(wall_time)
+        except ValueError as exc:
+            self.fault = self.fault or str(exc)
         if self.probe.pending and wall_time - self.probe.pending[0][1] >= 0.3:
             self.probe.fault = (
                 self.probe.fault or "pending original instrument component lacks timely exact pose"
@@ -91,6 +95,8 @@ class BackendObservationGate:
             else None,
             "robot_collision_count": robot["collision_count"],
             "probe_completed_cache_cycles": probe["completed_cache_cycles"],
+            "probe_phase": probe["phase"],
+            "probe_lift_transaction_pending": self.probe.lift_transaction is not None,
             "source_fault": self.fault,
             "runtime_actor_integration": "NOT_IMPLEMENTED",
             "actual_world_and_body_admission": "NOT_VERIFIED",

@@ -1,5 +1,6 @@
 """Original-source join with explicit pose decoder doubles; no live ROS/physics."""
 
+import base64
 import importlib
 import json
 from pathlib import Path
@@ -62,6 +63,46 @@ def test_measured_cycle_projection_still_requires_daemon_lease_and_body_admissio
     assert result["snapshot"]["physical_acceptance"] == "NOT_VERIFIED"
     second = e.apply("backend_observation_sample", {"received_monotonic_sec": 101.82})
     assert second["actor_envelope"]["sequence"] == 1
+
+
+@pytest.mark.parametrize("tamper", [False, "transaction", "request"])
+def test_original_controller_ipc_is_reparsed_before_any_lift_transition(module, tamper):
+    e = engine(module)
+    f = Fixture(importlib.import_module("backend_source_gate"))
+    f.cycle()
+    e.gate = f.gate
+    request = importlib.import_module("probe_lift_evidence").lift_request(e.gate.probe.policy)
+    raw = json.dumps(
+        {
+            "schema_version": "rosclaw.probe_controller_ipc.v1",
+            "kind": "backend_probe_lift_begin",
+            "transaction_id": "a" * 64,
+            "run_id": e.binding["run_id"],
+            "constraint_policy_hash": e.gate.policy_hash,
+            "request_base64": base64.b64encode(request).decode(),
+        }
+    ).encode()
+    kind, payload = importlib.import_module("probe_controller_ipc").decode_controller_packet(
+        raw, run_id=e.binding["run_id"], constraint_policy_hash=e.gate.policy_hash
+    )
+    payload.update(
+        received_monotonic_sec=101.803,
+        received_unix_ns=f.origin + 1_803_000_000,
+        controller_transport=retained(raw, "linux_unix_seqpacket_probe_controller"),
+    )
+    if tamper == "transaction":
+        payload["transaction_id"] = "b" * 64
+    elif tamper == "request":
+        payload["request"] = retained(b"wrong_instrument", "gz.msgs.Pose_protobuf_text")
+    if tamper:
+        with pytest.raises(ValueError, match="IPC packet/event correspondence differs"):
+            e.apply(kind, payload)
+        assert e.gate.fault and e.gate.probe.lift_transaction is None
+    else:
+        result = e.apply(kind, payload)
+        assert result["lift_transaction_pending"]
+        assert e.gate.probe.tracker.cycles == 1
+        assert e.gate.probe.tracker.phase == "READY_FOR_LIFT"
 
 
 @pytest.mark.parametrize(

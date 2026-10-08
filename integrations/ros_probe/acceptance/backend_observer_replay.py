@@ -117,8 +117,26 @@ class BackendObserverReplay:
                 "backend_probe_pose",
                 "backend_probe_components",
                 "backend_probe_lift_ack",
+                "backend_probe_lift_begin",
                 "backend_probe_snapshot",
             }:
+                if "controller_transport" in payload:
+                    from probe_controller_ipc import decode_controller_packet
+
+                    raw = original_ros_bytes(
+                        payload["controller_transport"], "linux_unix_seqpacket_probe_controller"
+                    )
+                    original_kind, original_payload = decode_controller_packet(
+                        raw,
+                        run_id=self.binding["run_id"],
+                        constraint_policy_hash=self.gate.policy_hash,
+                    )
+                    if original_kind != kind or any(
+                        payload.get(k) != v for k, v in original_payload.items()
+                    ):
+                        raise ValueError(
+                            "original instrument IPC packet/event correspondence differs"
+                        )
                 result = self.gate.probe.apply(kind, payload)
                 return {
                     **result,
