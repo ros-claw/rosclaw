@@ -1,0 +1,22 @@
+{
+  "/tmp/ros-expert-next/n02-waffle-stateless-100801/baseline/actions/rosevidence_0e0c13aa95e765a20b0c60bffc23aed61a1a3712a1e8099feeee6c927c777638.json": "475c8a859980e55cd893d65be6b0eaff7520daff3a89f084a3eb4e7289ccfee2",
+  "/tmp/ros-expert-next/n02-waffle-stateless-100801/baseline/golden-coverage.receipt.json": "2c720a0e2ff4299dfc81c3c7e6d2834e701052fc7e812d3993b2ea313490a30c",
+  "/tmp/ros-expert-next/n02-waffle-stateless-100801/baseline/actions/coverage-audit-0e0c13aa95e765a20b0c60bffc23aed61a1a3712a1e8099feeee6c927c777638-1791426952681419367.jsonl": "cab8acfd813373f8b4304bf9f0d5e97bf09f491d39e9c5938340910170a5a0d1",
+  "/tmp/ros-expert-next/n02-waffle-stateless-100801/baseline/actions/coverage-audit-0e0c13aa95e765a20b0c60bffc23aed61a1a3712a1e8099feeee6c927c777638-1791426952681419367.jsonl.summary.json": "a85e48f4a2ea0add496c8bdc42145f4b43ca44af2e9bfce86b841b5c433a6a5d",
+  "/tmp/ros-expert-next/n02-waffle-stateless-100801/baseline/plan-events-1791426947434410809.jsonl": "9b201c2828881e650267015750e2cef26946ed688d970404f82ff1c64d66d0dc",
+  "/tmp/ros-expert-next/n02-waffle-stateless-100801/baseline/plan-events-1791426947434410809.jsonl.summary.json": "cc039fb90693211bec8c1d75f9d7245f6594ccff5e0b7c4970fa20ded0fe84c1",
+  "/tmp/ros-expert-next/n02-waffle-stateless-100801/baseline/source-freeze.json": "368af740062a8b83322d59da1aff4b99dba8f296232dbeb286626b9cce75907e",
+  "/tmp/ros-expert-next/n02-waffle-stateless-100801/baseline/snapshot.json": "0823cc5fcba5a1cff9ef46f6b995b0427e7369fbf3385a7416cc37e5ad5871b2",
+  "/tmp/ros-expert-next/n02-waffle-stateless-100801/baseline/measured_map.json": "4cbe10fb5666e05d051037244a0b8916fe1276f70477c157a4338877d6c65db4",
+  "/tmp/ros-expert-next/n02-waffle-stateless-100801/baseline/execution_config.json": "c677a2dcf36a19f6e097cc368a312bdc907b40f71e55f297b602029362c2522b",
+  "/tmp/ros-expert-next/n02-waffle-stateless-100801/baseline/nav2.yaml": "cfcc758f867dedbb5fd4c5fd995e3988e04a4cdc5ee2e2e6cad1eeadbe13253f",
+  "/tmp/ros-expert-next/n02-waffle-stateless-100801/baseline/body.json": "9d79cef391f38af38fa8a8ea5b2ac9890528791e699d9497c90b7fe486b71b4d",
+  "/tmp/ros-expert-next/n02-waffle-stateless-100801/baseline/robot.urdf": "2c26a554239ba6e544ecca5a6640cf879ecd7e3409f11fb334df9ce78aeb3c7e",
+  "/tmp/ros-expert-next/n02-waffle-stateless-100801/baseline/witness.jsonl": "84c979ab09c38ce8ca713020bc7eed8e1f7dbad943f6084df1a8f947a8485018",
+  "/tmp/ros-expert-next/n02-waffle-stateless-100801/baseline/world.sdf": "07915dc6fe79575e990fe9973f1ab45b9cbbf1cbd310a6b7bd876542879a6ad2",
+  "/tmp/ros-expert-next/n02-waffle-stateless-100801/baseline/fixture_profile.json": "3fac272e6de8510a9dba5cb2c78dcf3cc8c14148db869a5f65f6e13c0b1eeb8e",
+  "/tmp/ros-expert-next/n02-waffle-stateless-100801/baseline/experiment.json": "cd3ec42d6a7ad03268b3456e597f81836245fd3efec1dcd5eea3ef4353435c69",
+  "/tmp/ros-expert-next/n02-waffle-stateless-100801/baseline/protocol.json": "f999beeeb5c76ed11bc8ed26155ca6c2d9a2149c451fa1e0c0ff2b66259c2b8b",
+  "/tmp/ros-expert-next/n02-waffle-stateless-100801/baseline/golden-localize.receipt.json": "b7f1c0e65789de7d142397382876355be5702e7a71e323bbf03d2b363a24e57d",
+  "/tmp/ros-expert-next/n02-waffle-stateless-100801/baseline/golden-remember.receipt.json": "65b73140707234b1d25a682ae1ae1dfc23f2d84e88b7e05a7947ad44065d8a5d"
+}

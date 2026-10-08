@@ -1,0 +1,22 @@
+{
+  "/tmp/ros-expert-next/n02-waffle-sequential-100801/candidate/actions/rosevidence_0e0c13aa95e765a20b0c60bffc23aed61a1a3712a1e8099feeee6c927c777638.json": "8f6a556fc0c7a80afcdf120ab69b71d92ca5e9c77d3e489e75bbd46729663981",
+  "/tmp/ros-expert-next/n02-waffle-sequential-100801/candidate/golden-coverage.receipt.json": "7b2c37327565e2d3894a80e8c7ad41d6b389cbd22738b87530808cc9f8ee22c8",
+  "/tmp/ros-expert-next/n02-waffle-sequential-100801/candidate/actions/coverage-audit-0e0c13aa95e765a20b0c60bffc23aed61a1a3712a1e8099feeee6c927c777638-1791426143596337629.jsonl": "5bb539a8f9dcfcf10ae85fdeebc0ebe7f3190e3a82a23ed3cf57e231635c2614",
+  "/tmp/ros-expert-next/n02-waffle-sequential-100801/candidate/actions/coverage-audit-0e0c13aa95e765a20b0c60bffc23aed61a1a3712a1e8099feeee6c927c777638-1791426143596337629.jsonl.summary.json": "4b1c96136f61a6386dd8a65e40b95d58f92a935d8fec71d49d0618e5aaf50161",
+  "/tmp/ros-expert-next/n02-waffle-sequential-100801/candidate/plan-events-1791426138628154295.jsonl": "2c790215be4a269256f2897df897e3a3c7e48c75f33764d934139b712753c4ee",
+  "/tmp/ros-expert-next/n02-waffle-sequential-100801/candidate/plan-events-1791426138628154295.jsonl.summary.json": "23dbda88ce389ca4b089c63a3cf07924a835ac5b13755b579d0f926420512d54",
+  "/tmp/ros-expert-next/n02-waffle-sequential-100801/candidate/source-freeze.json": "f53210b62d542db46bf3d5b3fe2cd445206cf36bf5251bdfacfb7088352e21f2",
+  "/tmp/ros-expert-next/n02-waffle-sequential-100801/candidate/snapshot.json": "a79c855df40e49b06bd60ba5d7ee8b3615392f24a07c26cbe751a4a759297cea",
+  "/tmp/ros-expert-next/n02-waffle-sequential-100801/candidate/measured_map.json": "4cbe10fb5666e05d051037244a0b8916fe1276f70477c157a4338877d6c65db4",
+  "/tmp/ros-expert-next/n02-waffle-sequential-100801/candidate/execution_config.json": "a14cd34b04a0424e8e8fa60dab3d8ff2d6a140e43ff0fc1f8c083d79e75e814c",
+  "/tmp/ros-expert-next/n02-waffle-sequential-100801/candidate/nav2.yaml": "cfcc758f867dedbb5fd4c5fd995e3988e04a4cdc5ee2e2e6cad1eeadbe13253f",
+  "/tmp/ros-expert-next/n02-waffle-sequential-100801/candidate/body.json": "9d79cef391f38af38fa8a8ea5b2ac9890528791e699d9497c90b7fe486b71b4d",
+  "/tmp/ros-expert-next/n02-waffle-sequential-100801/candidate/robot.urdf": "2c26a554239ba6e544ecca5a6640cf879ecd7e3409f11fb334df9ce78aeb3c7e",
+  "/tmp/ros-expert-next/n02-waffle-sequential-100801/candidate/witness.jsonl": "1d5a0c5e84c2fb6bcbe03e34bb18df736b8209071b53542499cce503cca7dea7",
+  "/tmp/ros-expert-next/n02-waffle-sequential-100801/candidate/world.sdf": "07915dc6fe79575e990fe9973f1ab45b9cbbf1cbd310a6b7bd876542879a6ad2",
+  "/tmp/ros-expert-next/n02-waffle-sequential-100801/candidate/fixture_profile.json": "3fac272e6de8510a9dba5cb2c78dcf3cc8c14148db869a5f65f6e13c0b1eeb8e",
+  "/tmp/ros-expert-next/n02-waffle-sequential-100801/candidate/experiment.json": "d327e128cf4cf4d5c66da3e3d0f0307142ef7cd5732f9b6ca74d6e97aa26cafc",
+  "/tmp/ros-expert-next/n02-waffle-sequential-100801/candidate/protocol.json": "021286038e5b001385790cc0af3822f99918b2ea7efd483756e3ef5f639f646f",
+  "/tmp/ros-expert-next/n02-waffle-sequential-100801/candidate/golden-localize.receipt.json": "7b9db3cbf313bad1bb6431bc972125cad93e16b1a0757326d9880f1bbe680170",
+  "/tmp/ros-expert-next/n02-waffle-sequential-100801/candidate/golden-remember.receipt.json": "43672082abb5a082043bb5d0a898d1943c699a27e72f75d17b2fa7ed6bea32e2"
+}

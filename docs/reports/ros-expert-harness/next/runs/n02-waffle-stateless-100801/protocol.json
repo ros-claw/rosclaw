@@ -1,0 +1,159 @@
+{
+  "schema_version": "rosclaw.paired_efficiency_protocol.v1",
+  "status": "PREREGISTERED_BEFORE_N02_PHYSICAL_TRIALS",
+  "profiles": [
+    "waffle",
+    "burger"
+  ],
+  "pilot_seeds": [
+    100801,
+    100802,
+    100803,
+    100804,
+    100805
+  ],
+  "evaluation_seeds": [
+    100811,
+    100812,
+    100813,
+    100814,
+    100815,
+    100816,
+    100817,
+    100818,
+    100819,
+    100820
+  ],
+  "pairs": {
+    "same_image_digest": true,
+    "same_seed_profile_world_start_pose": true,
+    "same_guard_speed_denominator": true,
+    "order": "baseline then candidate for odd seed, candidate then baseline for even seed",
+    "isolation": "fresh directory/container/ROS_DOMAIN_ID/port and clean state per run"
+  },
+  "main_coverage_candidates": {
+    "waffle": [
+      {
+        "id": "baseline",
+        "headland_width": 0.5,
+        "swath_angle_rad": 0.0,
+        "route_mode": "BOUSTROPHEDON"
+      },
+      {
+        "id": "diagonal",
+        "headland_width": 0.5,
+        "swath_angle_rad": 0.7853981633974483,
+        "route_mode": "BOUSTROPHEDON"
+      },
+      {
+        "id": "headland45",
+        "headland_width": 0.45,
+        "swath_angle_rad": 0.0,
+        "route_mode": "BOUSTROPHEDON"
+      },
+      {
+        "id": "perimeter",
+        "headland_width": 0.5,
+        "swath_angle_rad": 0.0,
+        "route_mode": "BOUSTROPHEDON",
+        "boundary_pass": "5 existing legal corner targets, Nav2 NavigateThroughPoses, bounded180s"
+      },
+      {
+        "id": "perimeter_sequential",
+        "headland_width": 0.5,
+        "swath_angle_rad": 0.0,
+        "route_mode": "BOUSTROPHEDON",
+        "boundary_pass": "9 existing legal boundary targets, sequential NavigateToPose with unchanged goal checker, total180s"
+      },
+      {
+        "id": "perimeter_stateless",
+        "headland_width": 0.5,
+        "swath_angle_rad": 0.0,
+        "route_mode": "BOUSTROPHEDON",
+        "boundary_pass": "9 existing legal boundary targets, sequential NavigateToPose with unchanged goal checker, total180s",
+        "controller_parameters": {
+          "stateful": false
+        }
+      }
+    ],
+    "burger": [
+      {
+        "id": "baseline",
+        "headland_width": 0.3,
+        "swath_angle_rad": 0.0,
+        "route_mode": "BOUSTROPHEDON"
+      },
+      {
+        "id": "conservative35",
+        "headland_width": 0.35,
+        "swath_angle_rad": 0.0,
+        "route_mode": "BOUSTROPHEDON"
+      },
+      {
+        "id": "perimeter",
+        "headland_width": 0.3,
+        "swath_angle_rad": 0.0,
+        "route_mode": "BOUSTROPHEDON",
+        "boundary_pass": "5 existing legal corner targets, Nav2 NavigateThroughPoses, bounded180s"
+      },
+      {
+        "id": "perimeter_sequential",
+        "headland_width": 0.3,
+        "swath_angle_rad": 0.0,
+        "route_mode": "BOUSTROPHEDON",
+        "boundary_pass": "9 existing legal boundary targets, sequential NavigateToPose with unchanged goal checker, total180s"
+      },
+      {
+        "id": "perimeter_stateless",
+        "headland_width": 0.3,
+        "swath_angle_rad": 0.0,
+        "route_mode": "BOUSTROPHEDON",
+        "boundary_pass": "9 existing legal boundary targets, sequential NavigateToPose with unchanged goal checker, total180s",
+        "controller_parameters": {
+          "stateful": false
+        }
+      }
+    ]
+  },
+  "screen": "minimum circle-to-wall clearance of plan polyline >= 0.05 m for rectangular fixture; no physical tracking guarantee",
+  "pilot_policy": "First test each main candidate at seed100801. Reject unsafe candidates; choose safe candidate using paired measured distance/SIM span, complete remaining five pilot pairs per profile. Freeze configuration before evaluation. Repair optimization has its own later commit and pilot freeze. All failures retained; no substitution for failed seeds.",
+  "acceptance": {
+    "measured_coverage_min": 0.98,
+    "collision_count": 0,
+    "trace_gaps": 0,
+    "complete_observations": true,
+    "independent_stop_lease": true,
+    "primary_efficiency_target_median_paired_reduction": 0.3,
+    "diagnostic_first_pass_target": 0.9,
+    "diagnostic_repair_goal_target_max": 10
+  },
+  "reporting": [
+    "every individual run",
+    "paired measured deltas by profile",
+    "median and bootstrap uncertainty with seed fixed",
+    "canonical mission wall time separate from SIM span",
+    "plan predictions clearly separate"
+  ],
+  "no_claims": [
+    "No P0 closure until frozen paired evaluation and safety gates pass",
+    "No evaluation seed used to tune parameters",
+    "No higher speed, weaker guards, smaller denominator or upgraded planner"
+  ],
+  "original_baseline_source_commit": "41cd770c",
+  "actual_run_source_commit": "Record complete clean commit at each run; baseline original algorithms may be wrapped by seeded fixture protocol.",
+  "rejected_before_physical_trial": [
+    "Burger diagonal at baseline0.3 headland has negative conservative polyline clearance; never dispatch."
+  ],
+  "primary_reporting_definition": "Report 1 - median(candidate distance)/median(baseline distance) and same for SIM span, plus median paired per-run relative delta. All failed pairs invalidate safety gate and remain in success-rate denominator.",
+  "offline_inputs_manifest_sha256": "3f55f570ed9aceb07e0569b0f6f1ed1a9394648b3e11e6a3223f562a0726c520",
+  "supersedes_initial_protocol_reason": "Verified Burger actual baseline headland0.3; initial0.5 assumption invalid. No N02 physical trial has run before either protocol.",
+  "pilot_amendment": {
+    "reason": "Diagonal rejected; headland main failed. Explicit legal Edges target coordination allowed in user plan section 5.1.",
+    "registered_before_perimeter_physical_trial": true,
+    "main_and_boundary_separately_reported": true,
+    "evaluation_freeze": "NOT_FROZEN",
+    "additional_candidate": "Sequential9 existing legal corners/midpoints. First through-poses pilot measured primary76.9%; actual Nav2 paths bend away from boundary. Separate candidate, all runs retained; no evaluation seeds used.",
+    "boundary_clearance": "Sequential candidate uses existing legal centers additionally screened with robot_radius=max(original recovery radius, physical radius+0.05). Original baseline recovery unchanged. No inset shrink.",
+    "controller_candidate": "perimeter_stateless: baseline planner plus sequential9 boundary; only RPP stateful=false. Hypothesis controller goal latch; no speed/tolerance/collision/deadline/lease guard change. New candidate before physical dispatch, old failed trials retained."
+  }
+}

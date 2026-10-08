@@ -41,3 +41,10 @@ distinguish goal versus path rotation and is not reported as causal proof. None
 of these debug topics grants measured coverage. Full ROS contract suite327pass/
 10deselected, Ruff/format pass. Physical status: NOT_RUN at this code freeze;
 no efficiency benefit claimed and no evaluation seeds consumed.
+
+Post-freeze Waffle seed100801 paired outcome: original main and all9 boundary
+goals succeeded, primary measured coverage91.1633%, final98.1823%, zero contacts/
+gaps, complete audit/replay and independent stop. Distance reduces13.7724% and
+SIM span20.5538% against this pair's baseline; the30% target remains unmet.
+This observed improvement does not prove the internal controller hypothesis.
+Burger acceptance and full fixed-seed evaluation remain outstanding.

@@ -1,8 +1,9 @@
 # N02 main planning candidates and paired SIM protocol
 
-Status: first paired physical pilot PASS; diagonal optimization REJECTED.
-The first startup attempt failed before dispatch and remains retained. No efficiency improvement or P0 closure claimed.
-N01 PR #621 remains the predecessor and must merge first.
+Status: five Waffle candidate pilot pairs have completed physical acceptance;
+the latest stateless boundary candidate improves this pair below the30% target.
+The first startup attempt failed before dispatch and remains retained. No frozen-series median or P0 closure claimed.
+N01 predecessor PR #621 merged at8a9ae84; its actual gates are recorded separately.
 
 The actual Waffle baseline uses 0.5 m headland, 0.45 m operation width and
 0.5 m robot width. Burger uses 0.3 m headland and 0.3 m operation/robot widths.
@@ -70,6 +71,32 @@ evaluation remain separate steps. The target is at least 98% measured coverage,
 zero contact, complete stop/evidence gates and a 30% reduction in both median
 observed distance and SIM span. Until actual frozen paired evaluation exists,
 `v1_done=false` and efficiency acceptance remains open.
+
+## Later candidate outcomes (same first pilot seed, independent pairs)
+
+| Waffle candidate | Baseline distance / SIM | Candidate distance / SIM | Result |
+| --- | --- | --- | --- |
+| Headland0.45 |72.427m /697.60s|57.634m /595.24s|Main failed104; reductions20.43% /14.67%, rejected.|
+| Five boundary through-poses targets |57.700m /531.52s|71.632m /671.64s|Main/boundary succeeded; primary76.90%; worse24.15% /26.36%, rejected.|
+| Nine sequential boundary targets |63.734m /643.24s|63.712m /697.56s|Main failed105; boundary never exercised; reductions0.0346% /-8.4447%.|
+| Nine sequential targets plus RPP stateless |73.275m /723.76s|63.183m /575.00s|Main/boundary succeeded; primary91.1633%; reductions13.7724% /20.5538%, below target.|
+
+All10 physical runs retain original>=98% coverage, zero contacts/trace gaps,
+complete audit/canonical replay, Practice/Memory and independent stop. Different
+rows cannot be combined into a synthetic best baseline or improvement estimate.
+Latest source1c107929188b939d965b311fe49a27a642bda5db is unchanged across its
+two arms. Its candidate final coverage is98.1823%, but still uses23 repair goals.
+The boundary segments sum to119.60SIMs after successful original main coverage;
+measured primary coverage is distinct from original main57.5503%.
+See [stateless physical results](runs/n02-waffle-stateless-100801/paired-efficiency-results.json)
+and [unexercised sequential boundary results](runs/n02-waffle-sequential-100801/paired-efficiency-results.json).
+Complete raw artifacts remain in the matching local evidence archives; SHA
+manifests and per-stage SVG/JSON are committed beside each result.
+
+Burger stateless seed100801 is running with the same frozen1c source. Its1800s
+deadline is the existing documented Burger acceptance deadline, identical for
+both arms; Waffle retains its existing900s deadline. None of the ten final
+evaluation seeds has been consumed. Repair optimization remains a later PR.
 
 The first `n02-waffle-diagonal-100801` startup was interrupted before any
 MCP journey or action artifact. Readiness incorrectly waited for `snapshot.json`,
