@@ -40,7 +40,10 @@ def wait_ready(directory, container, timeout=180):
                 and sample["collision_count"] == 0
                 and not sample["cleaning_enabled"]
                 and (directory / "measured_map.json").exists()
-                and (directory / "snapshot.json").exists()
+                and all(
+                    "Managed nodes are active" in (directory / name).read_text()
+                    for name in ["nav2.log", "coverage_lifecycle.log"]
+                )
             ):
                 return
         except (OSError, ValueError, KeyError):
@@ -163,6 +166,9 @@ def run_arm(pair, arm, args, ordinal, image_id, commit):
         row["container"] = name
         wait_ready(directory, name)
         journey(directory, port, args.profile, args.mission_timeout)
+    except KeyboardInterrupt:
+        row.update(status="INTERRUPTED", failure="Interrupted before paired arm completed")
+        raise
     except Exception as exc:
         row.update(status="FAIL", failure=f"{type(exc).__name__}: {exc}")
     finally:
@@ -220,6 +226,10 @@ def run_arm(pair, arm, args, ordinal, image_id, commit):
 
 
 def main():
+    def interrupt(_signum, _frame):
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGTERM, interrupt)
     parser = argparse.ArgumentParser()
     parser.add_argument("--directory", type=Path, required=True)
     parser.add_argument("--protocol", type=Path, required=True)
@@ -271,9 +281,17 @@ def main():
     }
     (pair / "pair-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     arms = ["baseline", "candidate"] if args.seed % 2 else ["candidate", "baseline"]
-    results = [
-        run_arm(pair, arm, args, ordinal, image_id, commit) for ordinal, arm in enumerate(arms)
-    ]
+    try:
+        results = [
+            run_arm(pair, arm, args, ordinal, image_id, commit) for ordinal, arm in enumerate(arms)
+        ]
+    except KeyboardInterrupt:
+        manifest.update(
+            status="INTERRUPTED",
+            runs=[json.loads(p.read_text()) for p in pair.glob("*/run-result.json")],
+        )
+        (pair / "paired-efficiency-results.json").write_text(json.dumps(manifest, indent=2) + "\n")
+        raise SystemExit(130) from None
     manifest.update(
         status="PASS" if all(r["status"] == "PASS" for r in results) else "FAIL", runs=results
     )

@@ -1,7 +1,7 @@
 # N02 main planning candidates and paired SIM protocol
 
 Status: candidate implementation and configuration tests PASS; physical pilot
-NOT_RUN at initial commit. No efficiency improvement or P0 closure claimed.
+NOT_RUN at initial commit. First startup attempt failed before dispatch. No efficiency improvement or P0 closure claimed.
 N01 PR #621 remains the predecessor and must merge first.
 
 The actual Waffle baseline uses 0.5 m headland, 0.45 m operation width and
@@ -53,7 +53,7 @@ rebuilt image, with no ROS action. Exact robot/world/controller/map bytes and
 all non-planning Nav2 settings match across presets; only temporary controller
 YAML reference paths in SDF are normalized for comparison. Local ROS regression:
 305 passed / 11 deselected before the added owned-fixture failure test; focused
-protocol tests: 3 passed. Changed-file lint/format checks pass. These counts
+protocol tests: 4 passed after adding the startup regression. Changed-file lint/format checks pass. These counts
 are not summed.
 
 Planned pilot command (clean committed worktree, output must not exist):
@@ -70,3 +70,12 @@ evaluation remain separate steps. The target is at least 98% measured coverage,
 zero contact, complete stop/evidence gates and a 30% reduction in both median
 observed distance and SIM span. Until actual frozen paired evaluation exists,
 `v1_done=false` and efficiency acceptance remains open.
+
+The first `n02-waffle-diagonal-100801` startup was interrupted before any
+MCP journey or action artifact. Readiness incorrectly waited for `snapshot.json`,
+which `run.py` creates only after startup. The owned container was stopped and
+all evidence retained. The corrected check requires fresh independent observer
+state, a measured map and active navigation/coverage lifecycle logs. A regression
+test proves startup does not depend on the task-created snapshot. A fresh
+attempt at the same preregistered pilot seed is separate evidence; the failed
+startup is not counted as a physical cleaning pass.

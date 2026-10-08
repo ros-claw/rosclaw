@@ -2,6 +2,7 @@
 
 import importlib.util
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -74,3 +75,26 @@ def test_failed_journey_stops_owned_fixture_and_retains_failure(tmp_path, monkey
     assert not any(call[:2] == ["docker", "rm"] for call in calls)
     assert json.loads((tmp_path / "candidate/run-result.json").read_text()) == result
     assert (tmp_path / "candidate/protocol.json").read_text() == "{}"
+
+
+def test_startup_ready_does_not_wait_for_task_generated_snapshot(tmp_path, monkeypatch):
+    runner = ROOT / "integrations/ros_probe/acceptance"
+    monkeypatch.syspath_prepend(str(runner))
+    spec = importlib.util.spec_from_file_location(
+        "coverage_pair_ready", runner / "paired_efficiency.py"
+    )
+    pairs = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(pairs)
+    (tmp_path / "measured_map.json").write_text("{}")
+    for name in ["nav2.log", "coverage_lifecycle.log"]:
+        (tmp_path / name).write_text("Managed nodes are active")
+    sample = {
+        "captured_at": datetime.now(UTC).isoformat(),
+        "observation_complete": True,
+        "collision_count": 0,
+        "cleaning_enabled": False,
+    }
+    monkeypatch.setattr(pairs, "command", lambda *args: "true")
+    monkeypatch.setattr(pairs, "latest_completed_observation", lambda *args: sample)
+    pairs.wait_ready(tmp_path, "mock-owned", timeout=1)
+    assert not (tmp_path / "snapshot.json").exists()
