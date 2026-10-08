@@ -39,12 +39,19 @@ export function renderTaskActivity(events: KernelEvent[]): string[] {
 					`✎ 修订 r${String(p.revision ?? "?")}：${firstLine(p.delta)}`,
 				);
 				break;
-			case "task.state_changed":
-				// 中间状态转换噪音大——只在非 ACTIVE 时提示。
-				if (String(p.to ?? "") !== "ACTIVE") {
-					lines.push(`… 状态：${String(p.from ?? "?")} → ${String(p.to ?? "?")}`);
+			case "task.state_changed": {
+				// 当前 Kernel 发 state/reason；兼容旧 from/to，不虚构前态。
+				const state = p.state ?? p.to;
+				if (String(state ?? "") !== "ACTIVE") {
+					const transition = p.from != null && state != null
+						? `${String(p.from)} → ${String(state)}`
+						: String(state ?? "未知");
+					const reason = p.reason ?? p.reason_code;
+					lines.push(`… 状态：${transition}`
+						+ (reason ? `（${firstLine(reason, 40)}）` : ""));
 				}
 				break;
+			}
 			case "task.terminal":
 				lines.push(
 					`■ 终态：${String(p.state ?? "?")}`
@@ -77,8 +84,25 @@ export function renderTaskActivity(events: KernelEvent[]): string[] {
 				break;
 			case "verification.completed": {
 				if (String(p.status) === "PASS") {
-					const checks = Array.isArray(p.checks) ? p.checks.length : 0;
-					lines.push(`✓ 验收通过（${checks} 项检查）`);
+					const checks = Array.isArray(p.checks) ? p.checks.length
+						: typeof p.checks === "number" && Number.isInteger(p.checks) && p.checks >= 0
+							? p.checks : "未知";
+					const scope = String(p.verification_scope ?? "UNKNOWN");
+					const semantic = String(p.task_semantic_verification ?? "UNKNOWN");
+					let label: string;
+					if (scope === "artifact_integrity_only") {
+						label = "已检查交付文件完整性；任务语义未验证";
+					} else if (scope === "summary_nonempty_only") {
+						label = "已记录回复；任务语义未验证";
+					} else if ((["configured_acceptance", "configured_acceptance_and_deliverables",
+						"declared_deliverables"].includes(scope) && semantic === "CONFIGURED_CHECKS_ONLY")
+						|| (scope === "configured_criteria" && ["VERIFIED", "CONFIGURED_CHECKS_ONLY"].includes(semantic))) {
+						label = "验收通过；仅限已配置检查/声明交付条件，不代表整体目标达成";
+					} else {
+						label = "校验记录 PASS；验收范围未知，未确认目标达成";
+					}
+					lines.push(`ℹ ${label}（${checks} 项检查；verification_scope=${scope}；`
+						+ `task_semantic_verification=${semantic}）`);
 				} else {
 					const failures = Array.isArray(p.failures) ? p.failures : [];
 					lines.push(

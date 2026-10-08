@@ -21,6 +21,26 @@
 
 </div>
 
+## Verification scope in Native task surfaces
+
+Activity and the coordinator tool summary report verification scope separately
+from lifecycle and delivery. `artifact_integrity_only` / `UNVERIFIED` means
+registered files passed integrity checks, **not** that the user's goal was
+achieved. `summary_nonempty_only` means a response was recorded, not semantic
+acceptance. `configured_acceptance`, `declared_deliverables`, and
+`configured_acceptance_and_deliverables` with `CONFIGURED_CHECKS_ONLY` cover
+only the frozen checks/declared delivery conditions. The legacy
+`configured_criteria` / `VERIFIED` display is likewise limited to declared
+checks, never upgraded to overall semantic success. Missing or unknown scope
+must not imply whole-task success; failures remain failures. Numeric and array
+check counts are supported; current state/reason events do not invent a prior
+state. These are presentation rules, not changes to verification or lifecycle.
+
+Source-only evidence uses `diagnostic_source`, `diagnostic_report`, and
+`progress_report`: registration leaves the task RUNNING and does not certify
+Native source, physical execution, or overall goal achievement. Terminal reply
+wording and final-delivery role semantics remain unchanged.
+
 ROSClaw connects **AI agents and the physical world**. It turns agent intent
 into governed action, then makes verified physical experience available to
 memory, reusable skills, and evaluated improvement. Codex, Claude Code,

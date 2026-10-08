@@ -83,6 +83,63 @@ describe("P0-H artifact 可点击打开", () => {
 	});
 });
 
+describe("P0-H verification scope truth", () => {
+	it("integrity-only numeric count and current state/reason are not goal acceptance", async () => {
+		const { renderTaskActivity } = await import("../src/native/task-activity.js");
+		const lines = renderTaskActivity([
+			{ seq: 3, event_type: "task.terminal", payload: { state: "SUCCEEDED", reason: "verification_passed" } },
+			{ seq: 1, event_type: "verification.completed", payload: {
+				status: "PASS", checks: 1, verification_scope: "artifact_integrity_only",
+				task_semantic_verification: "UNVERIFIED",
+			} },
+			{ seq: 2, event_type: "task.state_changed", payload: { state: "SUCCEEDED", reason: "verification_passed" } },
+		]);
+		assert.match(lines[0], /完整性/);
+		assert.match(lines[0], /1 项检查/);
+		assert.match(lines[0], /UNVERIFIED/);
+		assert.doesNotMatch(lines[0], /验收通过|目标已达成/);
+		assert.equal(lines[1], "… 状态：SUCCEEDED（verification_passed）");
+		assert.equal(lines[2], "■ 终态：SUCCEEDED（verification_passed）");
+		const { renderTerminalReply } = await import("../src/native/terminal-presenter.js");
+		assert.equal(renderTerminalReply({ verification: "PASS", delivery: "DELIVERED",
+			verification_scope: "artifact_integrity_only", task_semantic_verification: "UNVERIFIED" }),
+			"ℹ️ 交付完成：已检查交付文件完整性；尚未设置任务验收条件");
+	});
+
+	it("response-only, configured arrays, failures and unknown scope remain distinct", async () => {
+		const { renderTaskActivity } = await import("../src/native/task-activity.js");
+		const render = (payload: Record<string, unknown>) => renderTaskActivity([
+			{ seq: 1, event_type: "verification.completed", payload },
+		]).join("\n");
+		const response = render({ status: "PASS", checks: 1,
+			verification_scope: "summary_nonempty_only", task_semantic_verification: "UNVERIFIED" });
+		assert.match(response, /回复/);
+		assert.match(response, /UNVERIFIED/);
+		assert.doesNotMatch(response, /验收通过/);
+		for (const scope of ["configured_acceptance", "declared_deliverables", "configured_acceptance_and_deliverables"]) {
+			const configured = render({ status: "PASS", checks: ["a", "b"],
+				verification_scope: scope, task_semantic_verification: "CONFIGURED_CHECKS_ONLY" });
+			assert.match(configured, /2 项检查/);
+			assert.match(configured, /验收通过/);
+			assert.match(configured, /仅限/);
+		}
+		const legacyConfigured = render({ status: "PASS", checks: ["a", "b"],
+			verification_scope: "configured_criteria", task_semantic_verification: "VERIFIED" });
+		assert.match(legacyConfigured, /验收通过/);
+		assert.match(legacyConfigured, /仅限/);
+		assert.match(render({ status: "FAIL", failures: ["SYNTHETIC_CRITERION_FAIL"],
+			verification_scope: "configured_acceptance" }), /验收未过：SYNTHETIC_CRITERION_FAIL/);
+		for (const scope of [undefined, "future_scope"]) {
+			const unknown = render({ status: "PASS", checks: 1, verification_scope: scope });
+			assert.match(unknown, /未知/);
+			assert.doesNotMatch(unknown, /验收通过|目标已达成/);
+		}
+		assert.deepEqual(renderTaskActivity([{ seq: 1, event_type: "task.state_changed",
+			payload: { from: "RUNNING", to: "WAITING_INPUT", reason: "needs_input" } }]),
+			["… 状态：RUNNING → WAITING_INPUT（needs_input）"]);
+	});
+});
+
 describe("P0-H Working 单行", () => {
 	it("阶段化 working message 无换行（占位就地更新，新增=0）", async () => {
 		const { phaseWorkingMessage } = await import("../src/extension/activity.js");

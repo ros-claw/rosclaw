@@ -897,10 +897,38 @@ class PiToolDispatcher:
                 # PiToolResultV1 has no `details` field. Writing it used to raise
                 # after finish_task had mutated the ledger, then get swallowed,
                 # hiding that lifecycle transition from the model.
+                # Present the authoritative scope; PASS alone is not proof of
+                # goal achievement. This is presentation only, not a verdict.
+                scope = str(outcome.get("verification_scope") or "UNKNOWN")
+                semantic = str(outcome.get("task_semantic_verification") or "UNKNOWN")
+                verification = str(outcome["verification"])
+                if verification not in ("PASS", "PASS_NEAR_LIMIT"):
+                    scope_note = "验收未过；未确认目标达成"
+                elif scope == "artifact_integrity_only":
+                    scope_note = "已检查交付文件完整性；任务语义未验证"
+                elif scope == "summary_nonempty_only":
+                    scope_note = "已记录回复；任务语义未验证"
+                elif (
+                    scope
+                    in (
+                        "configured_acceptance",
+                        "configured_acceptance_and_deliverables",
+                        "declared_deliverables",
+                    )
+                    and semantic == "CONFIGURED_CHECKS_ONLY"
+                ) or (
+                    scope == "configured_criteria"
+                    and semantic in ("VERIFIED", "CONFIGURED_CHECKS_ONLY")
+                ):
+                    scope_note = "仅限已配置检查/声明交付条件，不代表整体目标达成"
+                else:
+                    scope_note = "验收范围未知；未确认目标达成"
                 result.summary += (
                     f"；任务验收：lifecycle={outcome['lifecycle']}"
-                    f", verification={outcome['verification']}"
+                    f", verification={verification}"
                     f", delivery={outcome['delivery']}"
+                    f", verification_scope={scope}"
+                    f", task_semantic_verification={semantic}；{scope_note}"
                 )
         except Exception:
             # 收尾评估失败不影响工具结果本身（下轮再评估）。
