@@ -183,3 +183,36 @@ complete generic world/Nav2 generator, staged live discovery/source admission
 and guarded launch still require implementation before generic feature freeze
 and asset selection. Operator policy and isolated SDK entities are not live
 contact or physical cleaning acceptance.
+
+## Generic source-derived SIM controller candidate
+
+`sim_controller_source.py` reads the materialized Gazebo8 DiffDrive source and
+actual rotational URDF/SDF joints. It supports explicit bounded left/right wheel
+lists without a two-joint Body template. Mechanical dimensions must be present;
+missing dimensions, foreign plugins, unsupported drive options and ambiguous
+joints refuse preparation. Original noncontroller XML structure is preserved.
+The new generated control declaration is an unexecuted simulator-only candidate,
+not a live controller, provider, rosclawd permit or hardware qualification.
+
+The operator declares exact node/topic/frame names, source parameter paths and
+bounded motion limits. Namespaces are decomposed only from declared absolute
+names. TF prefixing is explicitly disabled, original source limits cannot be
+relaxed, and zero command must be possible. The installed Jazzy plugin binary
+contains `controller_manager_name`; the Jazzy source consumes robot_description
+from the topic, so legacy `robot_param_node` assumptions are not introduced.
+See [official Jazzy plugin source](https://github.com/ros-controls/gz_ros2_control/blob/jazzy/gz_ros2_control/src/gz_ros2_control_plugin.cpp)
+and [official controller frame-prefix semantics](https://control.ros.org/jazzy/doc/ros2_controllers/diff_drive_controller/doc/userdoc.html).
+
+Twenty-three Python source contracts passed. A separate C++ parser built against
+installed `hardware_interface` and `rcl_yaml_param_parser` validates actual
+control resources, exact node/parameter types, wheel inventories, deadman and
+TF prefix configuration. Twelve SDK source cases passed for synthetic two-/four-
+wheel XML, including timeout, prefix, alias, unknown joint and wrong interface
+refusals. Executed source, real parser ELF and all original outputs are captured
+before execution. No Node, World, hardware plugin or robot action is created.
+The full ROS source regression passed 1,695 tests, 10 integration tests deselected;
+changed-module mypy passed. No held-out asset was selected or inspected.
+
+Generic World/Nav2 assembly, staged actual Graph/TF/source admission, guarded
+launch and held-out L0–L4 are still required before generic feature freeze. This
+controller source checkpoint does not close those gates.
