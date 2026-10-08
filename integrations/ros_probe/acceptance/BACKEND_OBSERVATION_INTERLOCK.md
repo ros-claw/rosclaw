@@ -94,3 +94,15 @@ candidates request complete Body collision geometry, leaving original scenes
 unchanged. Its20 contracts use explicitly derived synthetic source packets.
 It remains unjoined to a controller and original-source closed replay and
 declares world ownership, backend/physical admission and authority unverified.
+
+`ProbeSceneJoin` buffers original scene, robot and instrument bytes independently
+for at most 300 ms (8 scene / 64 native packets per role). It joins only the same
+integer nanosecond SIM step; the spatial validator additionally checks original
+SIM values, physical iteration, model/collision identities and poses. All six
+cross-stream arrival orders are supported. Adjacent frames, interpolation,
+sequence gaps and expired pending scenes fail closed. The original receipts are
+preserved in the result; joining later never extends the earliest source TTL.
+Robot packets between 20 Hz scene observations remain the separate all-step
+contact gate's responsibility. This sampled spatial join cannot certify absence
+of one-step contacts. Source ownership, controller IPC and the qualified full
+launcher remain independent prerequisites; no scene service is executed here.
