@@ -8,11 +8,18 @@ import { createAssistantMessageEventStream, type AssistantMessage } from "@earen
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { buildWorkspacePackTools } from "../src/tools/workspace-pack.js";
 
-test("native PI end events and persisted session retain separate failed/successful bash results", async () => {
+test("native PI end events and persisted session retain separate failed/successful bash results", { timeout: 5000 }, async () => {
+	for (const reverseCompletion of [false, true]) {
 	const root = await mkdtemp(join(tmpdir(), "rosclaw-pi-envelope-"));
 	try {
 		const tool = buildWorkspacePackTools({ root, bwrapPath: () => null }).find(t => t.name === "bash")!;
-		const tools = [{ ...tool, execute: (id: string, args: unknown, signal?: AbortSignal, update?: Parameters<typeof tool.execute>[3]) => tool.execute(id, args, signal, update, {} as never) }];
+		let releaseBad!: () => void;
+		const goodEnded = new Promise<void>(resolve => { releaseBad = resolve; });
+		const tools = [{ ...tool, execute: async (id: string, args: unknown, signal?: AbortSignal, update?: Parameters<typeof tool.execute>[3]) => {
+			// Gate on the observed good end event, not shell timing or execution mode.
+			if (reverseCompletion && id === "bad") await goodEnded;
+			return tool.execute(id, args, signal, update, {} as never);
+		} }];
 		const session = SessionManager.create(root, join(root, "sessions"));
 		const endings: { toolCallId: string; isError: boolean }[] = [];
 		let turns = 0;
@@ -20,7 +27,10 @@ test("native PI end events and persisted session retain separate failed/successf
 			model: { id: "fixture", name: "fixture", api: "openai-completions", provider: "fixture", baseUrl: "http://invalid.local", reasoning: false, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 4096, maxTokens: 100 },
 			convertToLlm: messages => messages as never,
 		}, event => {
-			if (event.type === "tool_execution_end") endings.push({ toolCallId: event.toolCallId, isError: event.isError });
+			if (event.type === "tool_execution_end") {
+				endings.push({ toolCallId: event.toolCallId, isError: event.isError });
+				if (event.toolCallId === "good") releaseBad();
+			}
 			if (event.type === "message_end") session.appendMessage(event.message as Parameters<typeof session.appendMessage>[0]);
 		}, undefined, () => {
 			const first = turns++ === 0;
@@ -32,11 +42,40 @@ test("native PI end events and persisted session retain separate failed/successf
 			stream.push({ type: "done", reason: message.stopReason as "toolUse" | "stop", message });
 			return stream;
 		});
-		assert.deepEqual(endings, [{ toolCallId: "bad", isError: true }, { toolCallId: "good", isError: false }]);
+		assert.equal(endings.length, 2);
+		assert.deepEqual(endings.filter(end => end.toolCallId === "bad"), [{ toolCallId: "bad", isError: true }]);
+		assert.deepEqual(endings.filter(end => end.toolCallId === "good"), [{ toolCallId: "good", isError: false }]);
+		assert.equal(endings.some(end => end.toolCallId === "bad" && !end.isError), false);
+		assert.equal(endings.some(end => end.toolCallId === "good" && end.isError), false);
+		if (reverseCompletion) assert.deepEqual(endings, [{ toolCallId: "good", isError: false }, { toolCallId: "bad", isError: true }]);
 		const entries = (await readFile(session.getSessionFile()!, "utf8")).trim().split("\n").map(line => JSON.parse(line));
 		const results = entries.filter(entry => entry.message?.role === "toolResult");
 		assert.deepEqual(results.map(entry => [entry.message.toolCallId, entry.message.isError, entry.message.details.exitCode]), [["bad", true, 7], ["good", false, 0]]);
 	} finally { await rm(root, { recursive: true, force: true }); }
+	}
+});
+
+test("gated reverse completion retains independent bash ID/error/exit associations", { timeout: 5000 }, async () => {
+	const root = await mkdtemp(join(tmpdir(), "rosclaw-reverse-"));
+	let releaseBad!: () => void;
+	const goodEnded = new Promise<void>(resolve => { releaseBad = resolve; });
+	try {
+		const tool = buildWorkspacePackTools({ root, bwrapPath: () => null }).find(t => t.name === "bash")!;
+		const endings: [string, boolean | undefined, unknown][] = [];
+		const results = await Promise.all(["bad", "good"].map(async id => {
+			if (id === "bad") await goodEnded;
+			const result = await tool.execute(id, { command: id === "bad" ? "exit 7" : "printf ok" }, undefined, undefined, {} as never);
+			const row: [string, boolean | undefined, unknown] = [id, result.isError, (result.details as { exitCode: number }).exitCode];
+			endings.push(row);
+			if (id === "good") releaseBad();
+			return row;
+		}));
+		assert.deepEqual(endings, [["good", false, 0], ["bad", true, 7]]);
+		assert.deepEqual(results, [["bad", true, 7], ["good", false, 0]]);
+	} finally {
+		releaseBad();
+		await rm(root, { recursive: true, force: true });
+	}
 });
 
 for (const [label, command, timeout] of [
