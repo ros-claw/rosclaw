@@ -124,6 +124,8 @@ def audit(directory, output):
     saved = directory / (
         source.name.removesuffix(".gz").removesuffix(".json") + ".verification.json"
     )
+    if not saved.exists():
+        saved = source.parent / saved.name
     saved_equal = verifier.result() == load(saved)["coverage"] if saved.exists() else None
     if saved_equal is False:
         raise ValueError("saved canonical verifier differs from exact replay")
@@ -140,6 +142,39 @@ def audit(directory, output):
             audit_complete &= load(summary_path)["complete"]
         else:
             audit_complete = False
+    freeze_path = directory / "source-freeze.json"
+    freeze = load(freeze_path) if freeze_path.exists() else None
+    binding_errors = []
+    if freeze is None or freeze.get("working_tree_dirty") is not False:
+        binding_errors.append("missing or dirty source freeze")
+    elif not events or any(
+        any(row.get(k) != freeze.get(k) for k in ["run_id", "git_sha", "map_hash", "geometry_hash"])
+        or row.get("body_snapshot_hash") != receipt["body_snapshot_hash"]
+        for row in events
+    ):
+        binding_errors.append(
+            "daemon event provenance differs from source freeze or canonical Body"
+        )
+    if freeze and any(row.get("run_id") != freeze["run_id"] for row in plan_rows):
+        binding_errors.append("plan observer belongs to another run")
+    audit_complete &= not binding_errors
+    for name in [
+        "source-freeze.json",
+        "snapshot.json",
+        "measured_map.json",
+        "execution_config.json",
+        "nav2.yaml",
+        "body.json",
+        "robot.urdf",
+        "witness.jsonl",
+        "world.sdf",
+        "fixture_profile.json",
+        "golden-localize.receipt.json",
+        "golden-remember.receipt.json",
+    ]:
+        path = directory / name
+        if path.exists():
+            source_files.append(path)
     # Header timestamps on old Nav2 paths may be absent/zero. Use observed
     # wall capture intervals, and explicitly retain ambiguity as UNKNOWN.
     main_start = next(
@@ -214,6 +249,9 @@ def audit(directory, output):
         "schema_version": "rosclaw.coverage_causal_audit.v1",
         "evidence_role": "historical_diagnostic_replay_not_new_physical_episode",
         "audit_complete": bool(audit_complete and plans),
+        "source_binding_errors": binding_errors,
+        "source_commit": freeze.get("git_sha") if freeze else None,
+        "run_id": freeze.get("run_id") if freeze else None,
         "body_snapshot_hash": receipt["body_snapshot_hash"],
         "denominator_hash": digest(grid),
         "fixed_denominator_cells": len(verifier.accessible),
