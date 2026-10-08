@@ -277,7 +277,13 @@ class Witness(Node):
             self.physics_sequence, self.physics_time = packet["sequence"], packet["sim_time_sec"]
             self.physics_last_received = time.monotonic()
             self.plan_audit.emit(
-                "physics_snapshot_received", packet, sim_time=packet["sim_time_sec"]
+                "physics_snapshot_received",
+                {
+                    "packet": packet,
+                    "raw_packet_utf8": raw.decode("utf-8"),
+                    "packet_sha256": decoded["packet_sha256"],
+                },
+                sim_time=packet["sim_time_sec"],
             )
             if packet["paused"]:
                 if self.pose is not None:

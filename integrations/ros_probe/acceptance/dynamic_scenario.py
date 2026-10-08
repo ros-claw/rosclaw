@@ -1,0 +1,247 @@
+"""Owned fixture obstacle perturbation; no robot command or acceptance credit.
+
+Start before the live observer audit to consume its genesis. The Native task
+runs separately through Agentd/rosclawd. All placement decisions use matched
+fresh independent component packets; world service ACK is never pose proof.
+"""
+
+import argparse
+import hashlib
+import json
+import math
+import time
+from collections import OrderedDict
+from datetime import UTC, datetime
+from pathlib import Path
+
+from audit_cursor import AuditCursor
+from faults import observed, service
+from prepared_obstacle import pose_request
+
+from rosclaw.connectors.ros.verification.occupancy_geometry import parse_physics_packet
+
+
+def retained_packet(row, binding):
+    """Validate original packet bytes at original receipt; live freshness is separate."""
+    payload = row["payload"]
+    raw = payload["raw_packet_utf8"].encode("utf-8")
+    if hashlib.sha256(raw).hexdigest() != payload["packet_sha256"]:
+        raise ValueError("retained actual packet bytes changed")
+    if json.loads(raw) != payload["packet"]:
+        raise ValueError("retained decoded packet differs from original bytes")
+    captured = datetime.fromisoformat(row["captured_at"])
+    if captured.tzinfo is None:
+        raise ValueError("timezone-aware actual packet receipt required")
+    decoded = parse_physics_packet(
+        raw,
+        **{
+            k: binding[k]
+            for k in (
+                "run_id",
+                "body_snapshot_hash",
+                "attachment_hash",
+                "world_name",
+                "body_model_name",
+            )
+        },
+        obstacle_names=tuple(binding["obstacle_names"]),
+        scene_model_names=frozenset(binding["scene_model_names"]),
+        received_at_unix_ns=int(captured.timestamp() * 1e9),
+    )
+    if (
+        row["run_id"] != binding["run_id"]
+        or row["sim_time_sec"] != decoded["packet"]["sim_time_sec"]
+    ):
+        raise ValueError("retained audit and original packet identity/time mismatch")
+    return decoded
+
+
+def scenario_policy(spec, binding):
+    if (
+        spec.get("schema_version") != "rosclaw.dynamic_fixture_scenario.v1"
+        or spec.get("case") not in {"D2", "D4"}
+        or spec.get("run_id") != binding["run_id"]
+        or spec.get("mission_id") != binding["mission_id"]
+        or spec.get("obstacle_name") not in binding["obstacle_names"]
+    ):
+        raise ValueError("preregistered scenario and exact source identity required")
+    for key, low, high in (
+        ("introduce_after_cleaning_sim_sec", 1, 120),
+        ("dwell_sim_sec", 10, 30),
+        ("wall_timeout_sec", 60, 1920),
+    ):
+        value = spec.get(key)
+        if type(value) not in (int, float) or not low <= value <= high:
+            raise ValueError("bounded frozen scenario times required")
+    target = spec.get("target_xy")
+    if (
+        type(target) is not list
+        or len(target) != 2
+        or any(type(v) not in (int, float) or not -1.2 <= v <= 1.2 for v in target)
+    ):
+        raise ValueError("bounded fixture target pair required")
+    return spec
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--directory", type=Path, default=Path("/evidence"))
+    parser.add_argument("--scenario", type=Path, required=True)
+    args = parser.parse_args()
+    root = args.directory
+    raw = args.scenario.read_bytes()
+    if len(raw) > 65536:
+        raise ValueError("bounded scenario file required")
+    fixture = json.loads((root / "physics.json").read_text())
+    binding = fixture["binding"]
+    spec = scenario_policy(json.loads(raw), binding)
+    name = spec["obstacle_name"]
+    parked = next(o["pose"][:2] for o in fixture["obstacles"] if o["name"] == name)
+    start = time.monotonic()
+    until = start + spec["wall_timeout_sec"]
+    cursor = None
+    packets = OrderedDict()
+    sequence = stamp = None
+    geometry_hash = None
+    first_on = occupied_at = None
+    state = "WAITING_FOR_CLEANING"
+    target = spec["target_xy"]
+    mutation_after_ns = None
+    confirmation_deadline = None
+    with (root / "dynamic-scenario-events.jsonl").open("x", buffering=1) as log:
+
+        def emit(kind, **values):
+            log.write(
+                json.dumps(
+                    {
+                        "kind": kind,
+                        "captured_at": datetime.now(UTC).isoformat(),
+                        "scenario_sha256": hashlib.sha256(raw).hexdigest(),
+                        "run_id": binding["run_id"],
+                        "mission_id": binding["mission_id"],
+                        "physical_acceptance": "NOT_VERIFIED",
+                        **values,
+                    }
+                )
+                + "\n"
+            )
+
+        emit("SCENARIO_STARTED", policy=spec)
+        try:
+            while time.monotonic() < until:
+                if args.scenario.read_bytes() != raw:
+                    raise ValueError("frozen scenario changed")
+                if (root / "stop-dynamic-scenario.json").exists():
+                    emit("TASK_RUNNER_STOP_REQUESTED", final_state=state)
+                    return
+                paths = list(root.glob("plan-events-*.jsonl"))
+                if len(paths) > 1:
+                    raise ValueError("exclusive observer audit required")
+                if paths and cursor is None:
+                    cursor = AuditCursor(paths[0], run_id=binding["run_id"])
+                for row in cursor.poll() if cursor is not None else ():
+                    if row["kind"] != "physics_snapshot_received":
+                        continue
+                    decoded = retained_packet(row, binding)
+                    actual_geometry = decoded["geometry"].artifact_hash()
+                    if geometry_hash is None:
+                        geometry_hash = actual_geometry
+                    if actual_geometry != geometry_hash:
+                        raise ValueError("actual closed scene collision geometry changed")
+                    packet = decoded["packet"]
+                    if sequence is not None and (
+                        packet["sequence"] != sequence + 1 or packet["sim_time_sec"] <= stamp
+                    ):
+                        raise ValueError("actual component source gap/time regression")
+                    sequence, stamp = packet["sequence"], packet["sim_time_sec"]
+                    packets[decoded["packet_sha256"]] = decoded
+                    while len(packets) > 12:
+                        packets.popitem(last=False)
+                if not (root / "body.json").exists() or not packets:
+                    time.sleep(0.02)
+                    continue
+                sample = observed()
+                if (
+                    not 0
+                    <= (
+                        datetime.now(UTC) - datetime.fromisoformat(sample["captured_at"])
+                    ).total_seconds()
+                    < 0.3
+                ):
+                    raise ValueError("fresh actual paired observation required")
+                decoded = packets.get(sample.get("physics_packet_sha256"))
+                if decoded is None:
+                    # Observer publication may precede audit writer flush.
+                    time.sleep(0.02)
+                    continue
+                packet = decoded["packet"]
+                if [sample["x"], sample["y"]] != decoded["body_world_pose"][:2]:
+                    raise ValueError("paired body observation differs from actual component packet")
+                if (
+                    sample["time_sec"] != packet["sim_time_sec"]
+                    or packet["paused"]
+                    or not 0 <= time.time_ns() - packet["captured_at_unix_ns"] < 300_000_000
+                ):
+                    raise ValueError("fresh advancing same-time actual component packet required")
+                pose = next(p for p in decoded["model_poses"] if p.model_name == name)
+                if first_on is None and sample["cleaning_enabled"]:
+                    first_on = sample["time_sec"]
+                    emit("FIRST_ENABLED_CLEANING", sim_time_sec=first_on)
+                body = json.loads((root / "body.json").read_text())
+                if (
+                    state == "WAITING_FOR_CLEANING"
+                    and first_on is not None
+                    and sample["time_sec"] >= first_on + spec["introduce_after_cleaning_sim_sec"]
+                ):
+                    request = pose_request(
+                        fixture, body, sample, name=name, x=target[0], y=target[1]
+                    )
+                    mutation_after_ns = time.time_ns()
+                    emit("INTRODUCTION_REQUESTED", request=request, before=sample)
+                    response = service("set_pose", "gz.msgs.Pose", request)
+                    emit("INTRODUCTION_ACK_REQUIRES_ACTUAL_PACKET", response=response)
+                    state = "CONFIRMING_INTRODUCTION"
+                    confirmation_deadline = time.monotonic() + 5
+                elif state in {"CONFIRMING_INTRODUCTION", "CONFIRMING_WITHDRAWAL"}:
+                    if (
+                        packet["captured_at_unix_ns"] > mutation_after_ns
+                        and math.hypot(pose.x - target[0], pose.y - target[1]) < 0.001
+                    ):
+                        emit(
+                            "ACTUAL_POSTUPDATE_POSITION_CONFIRMED",
+                            state=state,
+                            packet_sha256=decoded["packet_sha256"],
+                            actual_xy=[pose.x, pose.y],
+                            sim_time_sec=pose.sim_time_sec,
+                        )
+                        if state == "CONFIRMING_WITHDRAWAL":
+                            emit("PERTURBATION_COMPLETE_REQUIRES_NATIVE_AND_CREDIT_VALIDATION")
+                            return
+                        occupied_at = pose.sim_time_sec
+                        state = "OCCUPIED"
+                    elif time.monotonic() > confirmation_deadline:
+                        raise ValueError("service ACK lacks independent actual pose confirmation")
+                elif (
+                    state == "OCCUPIED"
+                    and spec["case"] == "D2"
+                    and sample["time_sec"] >= occupied_at + spec["dwell_sim_sec"]
+                ):
+                    target = parked
+                    request = pose_request(
+                        fixture, body, sample, name=name, x=target[0], y=target[1]
+                    )
+                    mutation_after_ns = time.time_ns()
+                    emit("WITHDRAWAL_REQUESTED", request=request, before=sample)
+                    response = service("set_pose", "gz.msgs.Pose", request)
+                    emit("WITHDRAWAL_ACK_REQUIRES_ACTUAL_PACKET", response=response)
+                    state = "CONFIRMING_WITHDRAWAL"
+                    confirmation_deadline = time.monotonic() + 5
+                time.sleep(0.02)
+            raise TimeoutError("original bounded scenario wall deadline")
+        except Exception as exc:
+            emit("SCENARIO_FAILED", error=type(exc).__name__ + ": " + str(exc), state=state)
+            raise
+
+
+if __name__ == "__main__":
+    main()

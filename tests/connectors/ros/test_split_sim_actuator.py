@@ -407,7 +407,16 @@ def test_actual_witness_callbacks_pair_component_packet_with_brush_and_apply_blo
     packet.update(sequence=0, sim_time_sec=0.05, paused=False, captured_at_unix_ns=time.time_ns())
     packet["body"]["world_pose"][:2] = [0.05, 0.05]
     observer.contact_seen = {t: time.monotonic() for t in observer.wheel_topics}
-    observer.physics_event(SimpleNamespace(data=json.dumps(packet)))
+    retained = []
+    observer.plan_audit.emit = lambda kind, payload, **kw: retained.append((kind, payload))
+    wire = json.dumps(packet)
+    observer.physics_event(SimpleNamespace(data=wire))
+    import hashlib
+
+    source = next(payload for kind, payload in retained if kind == "physics_snapshot_received")
+    assert source["raw_packet_utf8"] == wire
+    assert source["packet"] == packet
+    assert source["packet_sha256"] == hashlib.sha256(wire.encode()).hexdigest()
     observer.tick()
     first = json.loads(observer.publishers["/rosclaw_sim/observation"][-1].data)
     assert first["observation_complete"] and first["cleaning_enabled"]
