@@ -196,3 +196,35 @@ substitution cases. Full ROS793 passed/10 integration deselected/one existing
 warning in17.47s. The independent scene, brush/contact, closed actual source and
 advancing stop checks remain required; no actual D4/D5 Native physics claim is
 made by these isolated database/receipt tests.
+
+### Whole known-SIM stack source preparation and fault retention
+
+`backend_stack.py` joins the generated robot, instrument and world bundle,
+original service worker, independent observer, required actor constraint,
+Nav2 and independent witness as an owned operator fixture. Robot task commands
+still require Native MCP and rosclawd. This launcher does not admit a held-out
+robot and does not replace the frozen P0 stack.
+
+The root World/binding used by witness and Native admission is exactly the
+final source bundle; original World, binding and experiment files are preserved.
+Runtime faults retain the original observation bytes and withdraw the observer
+so the actor's source-age watchdog closes its gate. The World, actor and witness
+remain alive until the immutable fixture deadline so a guarded stop and actual
+independent pose measurement remain possible. A dead World is explicitly
+`MISSING_STOP_PROOF`. Cleanup flushes owned sources before stopping the World.
+The fixed duration includes source preparation and is never reset on dependency
+startup. Lifecycle tests use plain Python processes, not World/robot evidence.
+
+`backend_stack_source_contract.py` snapshots executed Python source and real ELF
+bytes before validation, invokes the actual known vendor URDF/Body compiler,
+checks final World model inventory and all root/bundle constraint bindings,
+and uses the installed SDF parser. Both known bodies passed this source-only
+check. No ROS Node, Gazebo World, scene service, Native task or robot actuation
+was executed; physical acceptance remains `NOT_RUN`. Full N03 ROS regression:
+1,239 passed, 10 integration tests deselected. The first whole-stack attempt
+failed at import because the original P0 image lacks Python Body dependencies;
+its failure log is retained. The frozen P1 dependency image passed.
+
+The host's genuine Native/canonical acceptance still needs to be joined to
+this qualified source path, including closed original service-wire replay and
+independent stop proof. All six dynamic physical cases remain unaccepted.
