@@ -63,6 +63,112 @@ def capture_terminal_counters(root):
         )
 
 
+def negative_native_progress(root, case, receipt_client):
+    """Read genuine failed root/transaction/receipt; never declare physics safe."""
+    if type(case) is not str or case not in {"D4", "D5"}:
+        raise ValueError("explicit D4/D5 negative Native case required")
+    root = Path(root).resolve()
+    with (root / "execution_config.json").open("rb") as stream:
+        config_raw = stream.read(2_000_001)
+    if len(config_raw) > 2_000_000:
+        raise ValueError("bounded frozen execution configuration required")
+    config = json.loads(config_raw)
+    if type(config) is not dict or any(
+        type(config.get(k)) is not str or not 1 <= len(config[k]) <= 256
+        for k in ("body_id", "body_snapshot_hash")
+    ):
+        raise ValueError("typed bound negative Native configuration required")
+    with closing(
+        sqlite3.connect(f"file:{root / 'home/agentd/missions.db'}?mode=ro", uri=True)
+    ) as db:
+        db.row_factory = sqlite3.Row
+        tasks = db.execute(
+            "select task_id,mission_id,root_goal,body_id,mode,state,terminal_reason from tasks limit 2"
+        ).fetchall()
+        if len(tasks) != 1:
+            raise ValueError("one actual Native root task required")
+        task = dict(tasks[0])
+        if (
+            task["root_goal"] != "完成整个房间清扫。"
+            or task["body_id"] != config["body_id"]
+            or task["mode"] != "SIMULATION"
+            or not task["mission_id"]
+        ):
+            raise ValueError("negative Native root does not match the isolated SIM task")
+        if task["state"] == "SUCCEEDED":
+            raise RuntimeError("negative Native task incorrectly reports success")
+        if task["state"] not in {"FAILED", "BLOCKED"}:
+            return {
+                "status": "PENDING_REAL_TERMINAL_STATE",
+                "task_state": task["state"],
+                "physical_acceptance": "NOT_VERIFIED",
+            }
+        rows = db.execute(
+            "select action_id,capability_id,state,mission_id,body_hash,mode from action_txns "
+            "where capability_id='coverage.execute' limit 65"
+        ).fetchall()
+        if len(rows) > 64:
+            raise ValueError("bounded negative Native coverage transactions required")
+    retained = []
+    for row in rows:
+        if (
+            row["state"] != "FAILED"
+            or row["mission_id"] != task["mission_id"]
+            or row["body_hash"] != config["body_snapshot_hash"]
+            or row["mode"] != "SIMULATION"
+            or type(row["action_id"]) is not str
+            or not row["action_id"]
+        ):
+            continue
+        result = receipt_client.get_execution_receipt(row["action_id"])
+        if type(result) is not dict:
+            raise ValueError("typed negative Native canonical receipt bundle required")
+        receipt = result.get("receipt")
+        if (
+            type(receipt) is not dict
+            or result.get("action_id") != row["action_id"]
+            or receipt.get("action_id") != row["action_id"]
+            or receipt.get("body_id") != config["body_id"]
+            or receipt.get("body_snapshot_hash") != config["body_snapshot_hash"]
+            or receipt.get("capability_id") != "coverage.execute"
+            or receipt.get("execution_mode") != "SIMULATION"
+            or receipt.get("final_state") not in {"FAILED", "BLOCKED", "TIMED_OUT"}
+        ):
+            raise ValueError("negative Native canonical receipt identity or terminal state differs")
+        verification = receipt.get("verification_result")
+        artifact = verification.get("failure_artifact") if type(verification) is dict else None
+        if type(artifact) is not dict or type(artifact.get("path")) is not str:
+            raise ValueError("canonical negative receipt requires retained failure artifact")
+        path = Path(artifact["path"]).resolve()
+        if (
+            path.parent != (root / "actions").resolve()
+            or not path.name.endswith(".failed.json")
+            or not path.is_file()
+            or not 0 < path.stat().st_size <= 1_000_000_000
+        ):
+            raise ValueError("bounded owned failed artifact required")
+        with path.open("rb") as stream:
+            sha = hashlib.file_digest(stream, "sha256").hexdigest()
+        if sha != artifact.get("sha256"):
+            raise ValueError("canonical retained failure artifact changed")
+        retained.append({"capability_id": row["capability_id"], **result})
+    if not retained:
+        return {
+            "status": "PENDING_REAL_FAILED_COVERAGE_RECEIPT",
+            "task_state": task["state"],
+            "physical_acceptance": "NOT_VERIFIED",
+        }
+    return {
+        "status": "CANONICAL_NEGATIVE_TERMINAL_OBSERVED_NOT_PHYSICS_VERIFIED",
+        "case": case,
+        "task": task,
+        "canonical_receipts": retained,
+        "physical_acceptance": "NOT_VERIFIED",
+        "requires_independent_stop_and_closed_source_and_scenario_validation": True,
+        "task_state_modified": False,
+    }
+
+
 def required_scenario_progress(root, scenario_bytes):
     """Fixture progress only; canonical component/credit/stop gates remain required."""
     from observations import latest_completed_observation
@@ -114,6 +220,7 @@ def main():
     parser.add_argument("--directory", type=Path, required=True)
     parser.add_argument("--endpoint", default="ws://127.0.0.1:19090")
     parser.add_argument("--required-scenario", type=Path)
+    parser.add_argument("--expected-safe-failure", choices=["D4", "D5"])
     args = parser.parse_args()
     root = args.directory.resolve()
     home = root / "home"
@@ -122,7 +229,11 @@ def main():
     validate_fixture_config(config, body_id, args.endpoint)
     scenario_bytes = args.required_scenario.read_bytes() if args.required_scenario else None
     if scenario_bytes is not None:
-        required_scenario_progress(root, scenario_bytes)
+        progress = required_scenario_progress(root, scenario_bytes)
+        if args.expected_safe_failure and progress["case"] != args.expected_safe_failure:
+            raise ValueError("negative Native expectation differs from required scenario")
+    elif args.expected_safe_failure == "D4":
+        raise ValueError("D4 negative Native requires its frozen obstruction scenario")
     env = os.environ.copy()
     env["ROSCLAW_HOME"] = str(home)
     env["ROSCLAW_ROS_EXPERT"] = "1"
@@ -217,14 +328,16 @@ def main():
         cursor = len(session.clean)
         last = time.monotonic()
         approvals = 0
+        failed_at = None
         while time.monotonic() < deadline:
             scenario_progress = None
             if scenario_bytes is not None:
                 if args.required_scenario.read_bytes() != scenario_bytes:
                     raise ValueError("required frozen scenario changed during Native task")
                 scenario_progress = required_scenario_progress(root, scenario_bytes)
+            failed = list((root / "actions").glob("*.failed.json"))
             output = session.clean[cursor:]
-            if "ROSCLAW 授权请求".encode() in output:
+            if not failed and failed_at is None and "ROSCLAW 授权请求".encode() in output:
                 time.sleep(0.5)
                 session.send("y")
                 cursor = len(session.clean)
@@ -233,13 +346,49 @@ def main():
                     json.dumps({"stage": "operator_approved_simulation_card", "count": approvals}),
                     flush=True,
                 )
-            failed = list((root / "actions").glob("*.failed.json"))
             if failed:
-                raise RuntimeError(
-                    "canonical mission failed: " + json.loads(failed[0].read_text())["error"]
+                if not args.expected_safe_failure:
+                    raise RuntimeError(
+                        "canonical mission failed: " + json.loads(failed[0].read_text())["error"]
+                    )
+                # Let the actual failed response reach TaskKernel. This grace
+                # does not renew a physical mission deadline or change state.
+                failed_at = time.monotonic() if failed_at is None else failed_at
+                from rosclaw.daemon.client import DaemonClient
+
+                progress = negative_native_progress(
+                    root,
+                    args.expected_safe_failure,
+                    DaemonClient(socket_path=root / "run/rosclawd.sock", timeout_sec=1),
                 )
+                if (
+                    progress["status"]
+                    == "CANONICAL_NEGATIVE_TERMINAL_OBSERVED_NOT_PHYSICS_VERIFIED"
+                ):
+                    (root / "native-negative-terminal.json").write_text(
+                        json.dumps(progress, indent=2) + "\n"
+                    )
+                    print(
+                        json.dumps(
+                            {
+                                "stage": "negative_native_terminal_observed",
+                                "case": args.expected_safe_failure,
+                                "task_state": progress["task"]["state"],
+                                "physical_acceptance": "NOT_VERIFIED",
+                            }
+                        ),
+                        flush=True,
+                    )
+                    session.send("/quit\r")
+                    return
+                if time.monotonic() - failed_at >= 60:
+                    raise TimeoutError(
+                        "actual negative Native terminal/receipt did not close within60s"
+                    )
             artifacts = list((root / "actions").glob("*.verification.json"))
             if artifacts:
+                if args.expected_safe_failure:
+                    raise RuntimeError("negative Native unexpectedly produced mission verification")
                 result = json.loads(artifacts[0].read_text())
                 if result["verification_status"] != "PASS":
                     raise RuntimeError("mission not verified")
@@ -366,7 +515,7 @@ def main():
             if session.proc.poll() is not None:
                 raise RuntimeError("Native Agent exited")
             sessions = list((home / "agent/sessions").glob("*.jsonl"))
-            if sessions:
+            if sessions and failed_at is None:
                 latest = max(sessions, key=lambda p: p.stat().st_mtime)
                 if time.time() - latest.stat().st_mtime > 3:
                     rows = latest.read_text().splitlines()
