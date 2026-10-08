@@ -1,8 +1,9 @@
-"""Exact shared-document seals without returning an executable full payload.
+"""Exact shared-document seals and optional owned full JSON restoration.
 
 Canonical payload bytes are owned once. Each envelope still authenticates the
 whole logical JSON document, optionally its root seal, and current dependencies.
 Identity is not provenance, physical evidence, policy validation or authority.
+Full restoration reads numerical data; it never loads or executes a policy.
 """
 
 from __future__ import annotations
@@ -59,6 +60,8 @@ class CompiledSharedMetadata:
             raise ValueError("finite canonical JSON payload required") from exc
         if not 2 <= len(encoded) <= 512 * 1024**2:
             raise ValueError("bounded shared payload required")
+        if json.loads(encoded) != payload:
+            raise ValueError("lossless ordinary canonical JSON payload required")
         self._payload_bytes = encoded
         self._payload_hash = "sha256:" + hashlib.sha256(encoded).hexdigest()
         self._pins = {
@@ -137,3 +140,28 @@ class CompiledSharedMetadata:
             "promotion_authorized": False,
             "hardware_authorized": False,
         }
+
+    def restore(
+        self, envelope: dict[str, Any], *, sealed_field: str | None = None
+    ) -> dict[str, Any]:
+        """Restore all JSON fields from verified owned canonical payload bytes.
+
+        Each call still verifies the whole envelope, payload, logical document
+        and optional root seal. Each result is independently owned; callers
+        must pin/recheck the actual input files and enforce evidence/authority
+        separately. No compact marker is returned in place of the payload.
+        """
+        owned = copy.deepcopy(envelope)
+        verified = self.verify(owned, sealed_field=sealed_field)
+        payload = self._payload_bytes
+        if (
+            type(payload) is not bytes
+            or "sha256:" + hashlib.sha256(payload).hexdigest() != verified["payload_hash"]
+        ):
+            raise ValueError("complete restoration payload changed")
+        location = reference._path(owned["location"])
+        encoded = b"".join(_chunks(verified["metadata_with_payload_marker"], location, payload))
+        if "sha256:" + hashlib.sha256(encoded).hexdigest() != verified["logical_document_hash"]:
+            raise ValueError("complete restoration document changed")
+        result: dict[str, Any] = json.loads(encoded)
+        return result
