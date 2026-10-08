@@ -8,6 +8,7 @@ cache snapshots alone do not prove backend health or a completed cleaning task.
 import hashlib
 import json
 import math
+import re
 
 from contact_evidence import IndependentContacts, contact_policy
 
@@ -71,32 +72,53 @@ def _finite(value):
 
 
 def native_policy(policy):
-    if (
-        type(policy) is not dict
-        or set(policy)
-        != {
-            "schema_version",
-            "contact_policy",
-            "world_name",
-            "native_sources",
-            "component_topic",
-            "plugin_sha256",
-            "backend_health_evidence_required",
-        }
-        or policy["schema_version"] != "rosclaw.native_contact_policy.v1"
-    ):
+    keys = {
+        "schema_version",
+        "contact_policy",
+        "world_name",
+        "native_sources",
+        "component_topic",
+        "plugin_sha256",
+        "backend_health_evidence_required",
+    }
+    if type(policy) is not dict:
         raise ValueError("closed frozen native contact policy required")
+    version = policy.get("schema_version")
+    if version == "rosclaw.native_contact_policy.v2":
+        keys.add("component_gz_topic")
+    if set(policy) != keys or version not in {
+        "rosclaw.native_contact_policy.v1",
+        "rosclaw.native_contact_policy.v2",
+    }:
+        raise ValueError("closed frozen native contact policy required")
+    if (
+        version == "rosclaw.native_contact_policy.v1"
+        and policy["component_topic"] != "/rosclaw_sim/contact_components"
+    ):
+        raise ValueError("v1 native component topic binding differs")
+    if (
+        type(policy["component_topic"]) is not str
+        or len(policy["component_topic"]) > 1024
+        or not re.fullmatch(r"(?:/[A-Za-z_][A-Za-z0-9_]*)+", policy["component_topic"])
+        or policy.get("component_gz_topic", "/rosclaw_sim/contact_components")
+        not in {"/rosclaw_sim/contact_components", "/rosclaw_sim/backend_probe_components"}
+    ):
+        raise ValueError("explicit ROS observation bridge to simulator-owned producer required")
     base = contact_policy(policy["contact_policy"])
     if (
         type(policy["world_name"]) is not str
         or not 0 < len(policy["world_name"]) <= 256
-        or policy["component_topic"] != "/rosclaw_sim/contact_components"
         or type(policy["plugin_sha256"]) is not str
         or len(policy["plugin_sha256"]) != 64
         or any(c not in "0123456789abcdef" for c in policy["plugin_sha256"])
         or policy["backend_health_evidence_required"] is not True
     ):
         raise ValueError("explicit qualified native producer and health boundary required")
+    if (
+        policy["component_topic"] == base["pose_topic"]
+        or policy["component_topic"] in base["contacts"]
+    ):
+        raise ValueError("distinct native component, pose and contact source roles required")
     sources = policy["native_sources"]
     if type(sources) is not dict or set(sources) != set(base["contacts"]):
         raise ValueError("every declared contact stream requires exact native source binding")
@@ -350,7 +372,16 @@ class NativeContactEvidence:
         return result
 
 
-def prepare_native_policy(directory, *, plugin_path, support_topics, ground_collisions, pose_topic):
+def prepare_native_policy(
+    directory,
+    *,
+    plugin_path,
+    support_topics,
+    ground_collisions,
+    pose_topic,
+    component_topic="/rosclaw_sim/contact_components",
+    component_gz_topic="/rosclaw_sim/contact_components",
+):
     """Freeze supplied SIM source bindings; this does not admit a running source."""
     from pathlib import Path
     from xml.etree import ElementTree as ET
@@ -398,12 +429,10 @@ def prepare_native_policy(directory, *, plugin_path, support_topics, ground_coll
                 "sensor_name": sensor.get("name"),
                 "link_name": link.get("name"),
             }
-    components = [
-        row for row in bridge if row.get("ros_topic_name") == "/rosclaw_sim/contact_components"
-    ]
+    components = [row for row in bridge if row.get("ros_topic_name") == component_topic]
     if len(components) != 1 or components[0] != {
-        "ros_topic_name": "/rosclaw_sim/contact_components",
-        "gz_topic_name": "/rosclaw_sim/contact_components",
+        "ros_topic_name": component_topic,
+        "gz_topic_name": component_gz_topic,
         "ros_type_name": "std_msgs/msg/String",
         "gz_type_name": "gz.msgs.StringMsg",
         "direction": "GZ_TO_ROS",
@@ -411,11 +440,20 @@ def prepare_native_policy(directory, *, plugin_path, support_topics, ground_coll
         raise ValueError("one exact native component producer bridge required")
     return native_policy(
         {
-            "schema_version": "rosclaw.native_contact_policy.v1",
+            "schema_version": (
+                "rosclaw.native_contact_policy.v1"
+                if component_topic == component_gz_topic == "/rosclaw_sim/contact_components"
+                else "rosclaw.native_contact_policy.v2"
+            ),
+            **(
+                {}
+                if component_topic == component_gz_topic == "/rosclaw_sim/contact_components"
+                else {"component_gz_topic": component_gz_topic}
+            ),
             "contact_policy": base,
             "world_name": physics["world_name"],
             "native_sources": native_sources,
-            "component_topic": "/rosclaw_sim/contact_components",
+            "component_topic": component_topic,
             "plugin_sha256": hashlib.sha256(plugin_path.read_bytes()).hexdigest(),
             "backend_health_evidence_required": True,
         }
@@ -430,6 +468,8 @@ def reopen_native_policy(directory, policy, *, plugin_path):
         support_topics=base["support_topics"],
         ground_collisions=base["ground_collisions"],
         pose_topic=base["pose_topic"],
+        component_topic=policy["component_topic"],
+        component_gz_topic=policy.get("component_gz_topic", "/rosclaw_sim/contact_components"),
     )
     if current != policy:
         raise ValueError("frozen native component source or producer library changed")

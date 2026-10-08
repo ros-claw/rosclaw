@@ -93,6 +93,14 @@ inline std::string Topic(gz::sim::Entity entity,
     throw std::runtime_error("actual native contact topic components disagree");
   return resolved;
 }
+inline std::string PublisherTopic(const std::string &requested)
+{
+  // Two simulator-owned observation streams only; no actuator endpoint.
+  if (requested != "/rosclaw_sim/contact_components" &&
+      requested != "/rosclaw_sim/backend_probe_components")
+    throw std::runtime_error("declared simulator-owned contact observation topic required");
+  return requested;
+}
 struct Sources
 {
   std::string inventory;
