@@ -7,6 +7,7 @@ No credentials or raw model reasoning are copied into report artifacts.
 """
 
 import argparse
+import hashlib
 import json
 import os
 import sqlite3
@@ -62,6 +63,49 @@ def capture_terminal_counters(root):
         )
 
 
+def required_scenario_progress(root, scenario_bytes):
+    """Fixture progress only; canonical component/credit/stop gates remain required."""
+    from observations import latest_completed_observation
+
+    if not 0 < len(scenario_bytes) <= 65536:
+        raise ValueError("bounded frozen scenario required")
+    spec = json.loads(scenario_bytes)
+    config = json.loads((root / "execution_config.json").read_bytes())
+    if not isinstance(spec, dict) or not isinstance(config, dict):
+        raise ValueError("scenario and fixture config must be objects")
+    binding = config.get("occupancy_binding")
+    admission = config.get("dynamic_fixture_admission")
+    if not isinstance(binding, dict) or not isinstance(admission, dict):
+        raise ValueError("source-admitted dynamic fixture required")
+    if (
+        spec.get("schema_version") != "rosclaw.dynamic_fixture_scenario.v1"
+        or spec.get("case") not in {"D2", "D4"}
+        or not isinstance(spec.get("run_id"), str)
+        or not spec["run_id"]
+        or not isinstance(spec.get("mission_id"), str)
+        or not spec["mission_id"]
+        or spec["run_id"] != binding.get("run_id")
+        or spec["mission_id"] != admission.get("mission_id")
+    ):
+        raise ValueError("scenario must bind the source-admitted Native fixture")
+    event = latest_completed_observation(root / "dynamic-scenario-events.jsonl")
+    if (
+        event.get("scenario_sha256") != hashlib.sha256(scenario_bytes).hexdigest()
+        or event.get("run_id") != spec["run_id"]
+        or event.get("mission_id") != spec["mission_id"]
+        or event.get("physical_acceptance") != "NOT_VERIFIED"
+    ):
+        raise ValueError("required scenario progress identity differs from frozen fixture")
+    if event.get("kind") in {"SCENARIO_FAILED", "TASK_RUNNER_STOP_REQUESTED"}:
+        raise RuntimeError("required scenario failed or stopped before Native completion")
+    return {
+        "case": spec["case"],
+        "perturbation_complete": event.get("kind")
+        == "PERTURBATION_COMPLETE_REQUIRES_NATIVE_AND_CREDIT_VALIDATION",
+        "physical_acceptance": "NOT_VERIFIED",
+    }
+
+
 def main():
     sys.path.insert(0, str(REPO))
     from tests.agentd.test_product_journey import PtySession
@@ -69,12 +113,16 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--directory", type=Path, required=True)
     parser.add_argument("--endpoint", default="ws://127.0.0.1:19090")
+    parser.add_argument("--required-scenario", type=Path)
     args = parser.parse_args()
     root = args.directory.resolve()
     home = root / "home"
     config = yaml.safe_load((home / "config.yaml").read_text())
     body_id = json.loads((root / "body.json").read_text())["body_id"]
     validate_fixture_config(config, body_id, args.endpoint)
+    scenario_bytes = args.required_scenario.read_bytes() if args.required_scenario else None
+    if scenario_bytes is not None:
+        required_scenario_progress(root, scenario_bytes)
     env = os.environ.copy()
     env["ROSCLAW_HOME"] = str(home)
     env["ROSCLAW_ROS_EXPERT"] = "1"
@@ -170,6 +218,11 @@ def main():
         last = time.monotonic()
         approvals = 0
         while time.monotonic() < deadline:
+            scenario_progress = None
+            if scenario_bytes is not None:
+                if args.required_scenario.read_bytes() != scenario_bytes:
+                    raise ValueError("required frozen scenario changed during Native task")
+                scenario_progress = required_scenario_progress(root, scenario_bytes)
             output = session.clean[cursor:]
             if "ROSCLAW 授权请求".encode() in output:
                 time.sleep(0.5)
@@ -190,6 +243,27 @@ def main():
                 result = json.loads(artifacts[0].read_text())
                 if result["verification_status"] != "PASS":
                     raise RuntimeError("mission not verified")
+                if scenario_progress is not None:
+                    if (
+                        scenario_progress["case"] != "D2"
+                        or not scenario_progress["perturbation_complete"]
+                    ):
+                        raise RuntimeError("Native success requires the completed D2 perturbation")
+                    from rosclaw.connectors.ros.verification.dynamic_diagnostics import (
+                        analyze_dynamic_credit,
+                    )
+
+                    source = artifacts[0].with_name(
+                        artifacts[0].name.removesuffix(".verification.json") + ".json"
+                    )
+                    diagnosis = analyze_dynamic_credit(json.loads(source.read_bytes()))
+                    (root / "dynamic-credit-diagnostics.json").write_text(
+                        json.dumps(diagnosis, indent=2) + "\n"
+                    )
+                    if not diagnosis["d2_calculation_withdrawal_and_actual_revisit_present"]:
+                        raise RuntimeError(
+                            "D2 requires actual enabled revisit of withdrawn unclean cells"
+                        )
                 print(
                     json.dumps(
                         {
