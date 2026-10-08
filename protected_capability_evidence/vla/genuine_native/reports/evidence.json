@@ -1,0 +1,116 @@
+{
+  "schema": "Native.VLA4.RawCaseEvidence.v1",
+  "source_sha256": {"native/test_vla_grounding_contention.py": "d5bee6dc0f66ee55f574e76cd750f07fb4c68f4899c2a5d631f37e860133a145"},
+  "cases": [
+    {
+      "case_id": "F43_normalized_model_space", "direction": "F43",
+      "input": {"request_id": "model_normalized", "device": "cpu", "seed": 20261008, "task": "Pick up the red cube.", "state": [0,0,0,0,0,0], "images_ref": "inputs/ACTUAL_MODEL_REQUESTS.json#/requests/0/images", "action_space_policy": {"mode": "normalized"}},
+      "raw_output": {"kind": "NORMALIZED_MODEL_ACTION", "profile": null, "stats_sha256": null, "action_shape": [1,50,6], "robot_units_verified": false, "physical_calibration_established": false, "full_result_pointer": "model_results/0", "observer_verdict": "PASS_ACTUAL_PRETRAINED_MODEL_COORDINATE_INTERFACE_NOT_PHYSICAL"},
+      "assertions": [
+        {"criterion": "first output is normalized with no implicitly selected stats profile", "passed": true},
+        {"criterion": "normalized result does not assert physical units or calibration", "passed": true},
+        {"criterion": "independent observer confirms normalized returned values equal raw predicted tensor", "passed": true}
+      ],
+      "evidence_paths": ["reports/operator_checks/vla_four_1791444464575282634_managed/model_carrier/native_result.json", "reports/operator_checks/vla_four_1791444464575282634_managed/model_carrier/actual_observer.json", "reports/operator_checks/vla_four_1791444464575282634_managed/model_carrier/worker_receipt.json", "reports/operator_checks/vla_four_1791444439427417553_check/receipt.json"],
+      "limitations": ["Model coordinates only, no calibrated units or physical task success."]
+    },
+    {
+      "case_id": "F43_explicit_saved_stats_profile", "direction": "F43",
+      "input": {"request_id": "model_declared_so100_stats", "action_space_policy": {"mode": "robot_profile", "profile": "so100.buffer.action"}, "request_ref": "inputs/ACTUAL_MODEL_REQUESTS.json#/requests/1", "state_binding": "first actual normalized actions[0][0]"},
+      "raw_output": {"kind": "ROBOT_PROFILE_ACTION", "profile": "so100.buffer.action", "stats_sha256": "490ab239d96e263687c0b2e386a0afbc235a2eceb9857c36ed32f2f162a3e7c8", "action_mean": [1.5959141254425049,119.9442367553711,109.769775390625,56.70551300048828,-27.422693252563477,12.002785682678223], "action_std": [26.39177894592285,52.41140365600586,49.85380554199219,36.9983024597168,59.35995101928711,19.039955139160156], "postprocessor_applied": true, "robot_units_verified": false, "physical_calibration_established": false, "full_result_pointer": "model_results/1"},
+      "assertions": [
+        {"criterion": "second output explicitly selects saved so100.buffer.action", "passed": true},
+        {"criterion": "saved mean/std and full stats digest match declared public binding", "passed": true},
+        {"criterion": "official postprocessor applied without physical calibration claim", "passed": true},
+        {"criterion": "independent tensor observer verifies raw*std+mean for every output scalar", "passed": true}
+      ],
+      "evidence_paths": ["reports/operator_checks/vla_four_1791444464575282634_managed/model_carrier/native_result.json", "reports/operator_checks/vla_four_1791444464575282634_managed/model_carrier/actual_observer.json", "reports/operator_checks/vla_four_1791444464575282634_managed/model_carrier/worker_receipt.json"],
+      "limitations": ["Saved statistical domain only; no G1/RH56 conversion, units or physical calibration."]
+    },
+    {
+      "case_id": "F44_actual_policy_chunk_consumption", "direction": "F44",
+      "input": {"requests_ref": "inputs/ACTUAL_MODEL_REQUESTS.json", "resource_binding_ref": "inputs/CURRENT_ASSET_SOURCE_BINDING.json", "device": "cpu", "actual_calls": 2, "flow_steps_per_call": 10, "dependencies": "official default; no injection"},
+      "raw_output": {"actual_predict_calls": 2, "flow_steps_per_call": 10, "observed_module_count": 440, "elapsed_s": 24.89264471596107, "shape_each": [1,50,6], "scalar_counts": [300,300], "consumption": [{"min": -0.6092667579650879, "max": 1.0984687805175781, "l1": 114.16907314350829}, {"min": -20.24564552307129, "max": 184.560302734375, "l1": 18848.99152070284}], "whole_robot_task_success": false},
+      "assertions": [
+        {"criterion": "both returned chunks consumed as 300 finite scalar values each", "passed": true},
+        {"criterion": "both calls report official default CPU backend and no mock", "passed": true},
+        {"criterion": "both chunks postprocessed with correct shape and no physical action", "passed": true},
+        {"criterion": "independent observer validates pretrained checkpoint samples and actual forward tensors", "passed": true}
+      ],
+      "evidence_paths": ["reports/operator_checks/vla_four_1791444464575282634_managed/receipt.json", "reports/operator_checks/vla_four_1791444464575282634_managed/model_carrier/native_result.json", "reports/operator_checks/vla_four_1791444464575282634_managed/model_carrier/actual_observer.json", "reports/operator_checks/vla_four_1791444464575282634_managed/model_carrier/worker_receipt.json"],
+      "limitations": ["Two pretrained CPU chunks only; no extra predictions, robot STEP or grasp/environment outcome.", "Import IPv6 capability probe denied; no process attempts."]
+    },
+    {
+      "case_id": "F44_generated_feedback_second_observation", "direction": "F44",
+      "input": {"state": [-0.12246532738208771,0.05347365140914917,-0.15023678541183472,-0.005516760051250458,0.05402788519859314,-0.5748943090438843], "causal_binding": "second actual request state = first actual normalized actions[0][0]", "unchanged_fields": ["device","seed","task","images"]},
+      "raw_output": {"feedback_state": [-0.12246532738208771,0.05347365140914917,-0.15023678541183472,-0.005516760051250458,0.05402788519859314,-0.5748943090438843], "state_space": {"kind": "POLICY_INPUT_COORDINATES", "normalization_applied": false, "state_stats_present": false, "physical_robot_state_equivalence": false}, "observer_verdict": "PASS_ACTUAL_PRETRAINED_MODEL_COORDINATE_INTERFACE_NOT_PHYSICAL"},
+      "assertions": [
+        {"criterion": "second actual request state exactly equals first normalized action", "passed": true},
+        {"criterion": "feedback is consumed in policy coordinates without state statistics", "passed": true},
+        {"criterion": "task, seed and fixed images unchanged across feedback request", "passed": true},
+        {"criterion": "independent observer confirms six feedback values in actual second preprocessing tensor", "passed": true}
+      ],
+      "evidence_paths": ["reports/operator_checks/vla_four_1791444464575282634_managed/model_carrier/native_result.json", "reports/operator_checks/vla_four_1791444464575282634_managed/model_carrier/actual_observer.json", "reports/operator_checks/vla_four_1791444464575282634_managed/model_carrier/worker_receipt.json"],
+      "limitations": ["Synthetic action-as-state benchmark, not measured physical feedback or environment transition.", "No saved state stats; intentional policy-coordinate passthrough."]
+    },
+    {
+      "case_id": "F45_label_frame_freshness_match", "direction": "F45",
+      "input": {"goal_label": "  Red   Cup ", "robot_position": [0,0,0], "now": 10.0, "max_age": 2.0, "max_future": 0.1, "candidates": [{"id": "b", "label": "RED CUP", "frame": "map", "position": [1,0,0], "observed_stamp": 9.5}, {"id": "a", "label": "red cup", "frame": "map", "position": [-1,0,0], "observed_stamp": 9.5}, {"id": "near_wrong_frame", "label": "red cup", "frame": "camera", "position": [0,0,0], "observed_stamp": 9.9}]},
+      "raw_output": {"outputs": [{"status": "OK", "candidate_id": "a", "goal_position": [-1,0,0]}]},
+      "assertions": [
+        {"criterion": "subcase 0: protected output equals public expected structure", "passed": true},
+        {"criterion": "normalized label, map frame and freshness select candidate a", "passed": true},
+        {"criterion": "equidistant tie resolved lexically, not camera proximity", "passed": true}
+      ],
+      "evidence_paths": ["reports/operator_checks/vla_four_1791444451164621765_run/pure_raw.json", "reports/operator_checks/vla_four_1791444451164621765_run/receipt.json"],
+      "limitations": ["Deterministic structured-label grounding, not neural VLN or sensor validation."]
+    },
+    {
+      "case_id": "F45_no_grounding_blank_or_stale", "direction": "F45",
+      "input": {"subcases_ref": "inputs/PURE_FOUR_CASES.json#/cases/1/subcases", "blank_goal": " \t\n ", "stale_now": 20.0, "candidate_stamps": [9.5,9.5,9.9], "max_age": 2.0},
+      "raw_output": {"outputs": [{"status": "INVALID"}, {"status": "NOT_GROUNDED"}]},
+      "assertions": [
+        {"criterion": "subcase 0: protected output equals public expected structure", "passed": true},
+        {"criterion": "subcase 1: protected output equals public expected structure", "passed": true},
+        {"criterion": "blank label rejected", "passed": true},
+        {"criterion": "all stale candidates yield no grounding", "passed": true},
+        {"criterion": "neither negative case emits a goal", "passed": true}
+      ],
+      "evidence_paths": ["reports/operator_checks/vla_four_1791444451164621765_run/pure_raw.json", "reports/operator_checks/vla_four_1791444451164621765_run/receipt.json"],
+      "limitations": ["Structured negative tests only, not perception or navigation."]
+    },
+    {
+      "case_id": "F46_reverse_edge_conflict", "direction": "F46",
+      "input": {"horizon": 2, "requests": [{"agent": "a", "path": [[0,0],[1,0]], "start_tick": 0}, {"agent": "b", "path": [[1,0],[0,0]], "start_tick": 0}]},
+      "raw_output": {"outputs": [{"status": "OK", "decisions": [{"agent": "a", "accepted": true, "conflict_tick": null}, {"agent": "b", "accepted": false, "conflict_tick": 1}]}]},
+      "assertions": [
+        {"criterion": "subcase 0: protected output equals public expected structure", "passed": true},
+        {"criterion": "first agent accepted before contention", "passed": true},
+        {"criterion": "contender rejected at exact conflict tick", "passed": true}
+      ],
+      "evidence_paths": ["reports/operator_checks/vla_four_1791444451164621765_run/pure_raw.json", "reports/operator_checks/vla_four_1791444451164621765_run/receipt.json"],
+      "limitations": ["Finite discrete reservations, not physical coordination."]
+    },
+    {
+      "case_id": "F46_persistent_endpoint_and_disjoint_goal", "direction": "F46",
+      "input": {"horizon": 4, "requests": [{"agent": "a", "path": [[0,0],[1,0]], "start_tick": 0}, {"agent": "b", "path": [[2,0],[1,0]], "start_tick": 2}, {"agent": "c", "path": [[2,1],[3,1]], "start_tick": 2}]},
+      "raw_output": {"outputs": [{"status": "OK", "decisions": [{"agent": "a", "accepted": true, "conflict_tick": null}, {"agent": "b", "accepted": false, "conflict_tick": 3}, {"agent": "c", "accepted": true, "conflict_tick": null}]}]},
+      "assertions": [
+        {"criterion": "subcase 0: protected output equals public expected structure", "passed": true},
+        {"criterion": "first agent accepted before contention", "passed": true},
+        {"criterion": "contender rejected at exact conflict tick", "passed": true},
+        {"criterion": "disjoint third goal remains accepted", "passed": true}
+      ],
+      "evidence_paths": ["reports/operator_checks/vla_four_1791444451164621765_run/pure_raw.json", "reports/operator_checks/vla_four_1791444451164621765_run/receipt.json"],
+      "limitations": ["Persistence through finite horizon only; no robot multiagent execution."]
+    }
+  ],
+  "limitations": [
+    "Eight verified finite software/model-interface cases, not whole-robot success.",
+    "F43 saved statistical coordinates have no physical calibration, verified units or G1/RH56 mapping.",
+    "F44 generated action-as-state feedback is synthetic, not physical closed-loop control.",
+    "F45 deterministic structured-label grounding is not neural VLN or navigation.",
+    "F46 finite discrete reservation is not physical multiagent coordination.",
+    "No hardware, ROS, controller, robot physics/STEP, downloads or protected asset modifications."
+  ]
+}

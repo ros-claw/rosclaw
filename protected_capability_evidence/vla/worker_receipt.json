@@ -1,0 +1,42 @@
+{
+  "status": "PASS_FOUR_ACTUAL_PRETRAINED_MODEL_COORDINATE_CASES",
+  "elapsed_s": 24.89264471596107,
+  "native_source_sha256": "d5bee6dc0f66ee55f574e76cd750f07fb4c68f4899c2a5d631f37e860133a145",
+  "events": {
+    "socket_attempts": [
+      {
+        "event": "socket.bind",
+        "family": 10,
+        "socket_type": 1,
+        "exact_loopback_ephemeral": true,
+        "pinned_source_site_match": true,
+        "classification": "DENIED_IMPORT_IPV6_CAPABILITY_PROBE",
+        "effect_denied": true
+      }
+    ],
+    "process_attempts": []
+  },
+  "cases": [
+    {
+      "id": "F43_normalized_model_space",
+      "status": "PASS_ACTUAL_PRETRAINED_MODEL_COORDINATE_INTERFACE_NOT_PHYSICAL"
+    },
+    {
+      "id": "F43_explicit_saved_stats_profile",
+      "status": "PASS_ACTUAL_PRETRAINED_MODEL_COORDINATE_INTERFACE_NOT_PHYSICAL"
+    },
+    {
+      "id": "F44_actual_policy_chunk_consumption",
+      "status": "PASS_ACTUAL_PRETRAINED_MODEL_COORDINATE_INTERFACE_NOT_PHYSICAL"
+    },
+    {
+      "id": "F44_generated_feedback_second_observation",
+      "status": "PASS_ACTUAL_PRETRAINED_MODEL_COORDINATE_INTERFACE_NOT_PHYSICAL"
+    }
+  ],
+  "actual_predict_calls": 2,
+  "flow_steps_per_call": 10,
+  "observed_module_count": 440,
+  "whole_robot_task_success": false,
+  "scope": "Two genuine pretrained CPU chunks. Generated model-space feedback and explicit saved statistical profile; no physical state transition, grasp success, calibrated units or G1 mapping."
+}

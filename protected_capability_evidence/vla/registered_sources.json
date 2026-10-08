@@ -1,0 +1,47 @@
+{
+  "task": [
+    {
+      "task_id": "task_13ac2da0454f4e9fbf5c1201",
+      "state": "RUNNING",
+      "workspace_path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/CHATGPT_G11_VLA_GROUNDING_CONTENTION_FOUR_SOURCE_RUN_prepared_20261008_v2/workspace"
+    }
+  ],
+  "artifacts": [
+    {
+      "artifact_id": "art_888b6b554ecf46aa898de368",
+      "task_id": "task_13ac2da0454f4e9fbf5c1201",
+      "producer": "model:rosclaw_artifact_register",
+      "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/CHATGPT_G11_VLA_GROUNDING_CONTENTION_FOUR_SOURCE_RUN_prepared_20261008_v2/workspace/native/test_vla_grounding_contention.py",
+      "sha256": "d5bee6dc0f66ee55f574e76cd750f07fb4c68f4899c2a5d631f37e860133a145",
+      "size_bytes": 9240,
+      "metadata_json": "{\"role\": \"diagnostic_source\", \"evidence_tier\": \"EXPERIMENTAL\"}"
+    },
+    {
+      "artifact_id": "art_1e3c325e64a64e229f8e4f40",
+      "task_id": "task_13ac2da0454f4e9fbf5c1201",
+      "producer": "model:rosclaw_artifact_register",
+      "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/CHATGPT_G11_VLA_GROUNDING_CONTENTION_FOUR_SOURCE_RUN_prepared_20261008_v2/workspace/docs/VLA_GROUNDING_CONTENTION_SCOPE.md",
+      "sha256": "000a6ee84df89d908630a2afec02506f58a3c4a95b301a4372905c1e62dc111f",
+      "size_bytes": 2465,
+      "metadata_json": "{\"role\": \"diagnostic_report\", \"evidence_tier\": \"EXPERIMENTAL\"}"
+    },
+    {
+      "artifact_id": "art_eb53b08134b84208882ea2f3",
+      "task_id": "task_13ac2da0454f4e9fbf5c1201",
+      "producer": "model:rosclaw_artifact_register",
+      "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/CHATGPT_G11_VLA_GROUNDING_CONTENTION_FOUR_SOURCE_RUN_prepared_20261008_v2/workspace/reports/evidence.json",
+      "sha256": "c84e3606465e456cb7059b2c855e498c0a6944a5fe327869f4f4e060ff9362d2",
+      "size_bytes": 12172,
+      "metadata_json": "{\"role\": \"diagnostic_report\", \"evidence_tier\": \"EXPERIMENTAL\"}"
+    },
+    {
+      "artifact_id": "art_49ac8b15358e4bb1a343630a",
+      "task_id": "task_13ac2da0454f4e9fbf5c1201",
+      "producer": "model:rosclaw_artifact_register",
+      "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/CHATGPT_G11_VLA_GROUNDING_CONTENTION_FOUR_SOURCE_RUN_prepared_20261008_v2/workspace/delivery.json",
+      "sha256": "dee4b37c9d7451901633a3257f95fb3ebb1d815c7a6a4febb16c5c9dbfb89a3c",
+      "size_bytes": 1168,
+      "metadata_json": "{\"role\": \"progress_report\", \"evidence_tier\": \"EXPERIMENTAL\"}"
+    }
+  ]
+}

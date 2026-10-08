@@ -1,0 +1,295 @@
+{
+  "schema": "VLA4.PURE_CASES.v1",
+  "cases": [
+    {
+      "id": "F45_label_frame_freshness_match",
+      "direction": "F45",
+      "input": {
+        "goal_label": "  Red   Cup ",
+        "robot_position": [
+          0,
+          0,
+          0
+        ],
+        "now": 10.0,
+        "max_age": 2.0,
+        "max_future": 0.1,
+        "candidates": [
+          {
+            "id": "b",
+            "label": "RED CUP",
+            "frame": "map",
+            "position": [
+              1,
+              0,
+              0
+            ],
+            "observed_stamp": 9.5
+          },
+          {
+            "id": "a",
+            "label": "red cup",
+            "frame": "map",
+            "position": [
+              -1,
+              0,
+              0
+            ],
+            "observed_stamp": 9.5
+          },
+          {
+            "id": "near_wrong_frame",
+            "label": "red cup",
+            "frame": "camera",
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "observed_stamp": 9.9
+          }
+        ]
+      },
+      "expected": {
+        "status": "OK",
+        "candidate_id": "a",
+        "goal_position": [
+          -1.0,
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "id": "F45_no_grounding_blank_or_stale",
+      "direction": "F45",
+      "subcases": [
+        {
+          "input": {
+            "goal_label": " \t\n ",
+            "robot_position": [
+              0,
+              0,
+              0
+            ],
+            "now": 10.0,
+            "max_age": 2.0,
+            "max_future": 0.1,
+            "candidates": [
+              {
+                "id": "b",
+                "label": "RED CUP",
+                "frame": "map",
+                "position": [
+                  1,
+                  0,
+                  0
+                ],
+                "observed_stamp": 9.5
+              },
+              {
+                "id": "a",
+                "label": "red cup",
+                "frame": "map",
+                "position": [
+                  -1,
+                  0,
+                  0
+                ],
+                "observed_stamp": 9.5
+              },
+              {
+                "id": "near_wrong_frame",
+                "label": "red cup",
+                "frame": "camera",
+                "position": [
+                  0,
+                  0,
+                  0
+                ],
+                "observed_stamp": 9.9
+              }
+            ]
+          },
+          "expected": {
+            "status": "INVALID"
+          }
+        },
+        {
+          "input": {
+            "goal_label": "  Red   Cup ",
+            "robot_position": [
+              0,
+              0,
+              0
+            ],
+            "now": 20.0,
+            "max_age": 2.0,
+            "max_future": 0.1,
+            "candidates": [
+              {
+                "id": "b",
+                "label": "RED CUP",
+                "frame": "map",
+                "position": [
+                  1,
+                  0,
+                  0
+                ],
+                "observed_stamp": 9.5
+              },
+              {
+                "id": "a",
+                "label": "red cup",
+                "frame": "map",
+                "position": [
+                  -1,
+                  0,
+                  0
+                ],
+                "observed_stamp": 9.5
+              },
+              {
+                "id": "near_wrong_frame",
+                "label": "red cup",
+                "frame": "camera",
+                "position": [
+                  0,
+                  0,
+                  0
+                ],
+                "observed_stamp": 9.9
+              }
+            ]
+          },
+          "expected": {
+            "status": "NOT_GROUNDED"
+          }
+        }
+      ]
+    },
+    {
+      "id": "F46_reverse_edge_conflict",
+      "direction": "F46",
+      "input": {
+        "horizon": 2,
+        "requests": [
+          {
+            "agent": "a",
+            "path": [
+              [
+                0,
+                0
+              ],
+              [
+                1,
+                0
+              ]
+            ],
+            "start_tick": 0
+          },
+          {
+            "agent": "b",
+            "path": [
+              [
+                1,
+                0
+              ],
+              [
+                0,
+                0
+              ]
+            ],
+            "start_tick": 0
+          }
+        ]
+      },
+      "expected": {
+        "status": "OK",
+        "decisions": [
+          {
+            "agent": "a",
+            "accepted": true,
+            "conflict_tick": null
+          },
+          {
+            "agent": "b",
+            "accepted": false,
+            "conflict_tick": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "F46_persistent_endpoint_and_disjoint_goal",
+      "direction": "F46",
+      "input": {
+        "horizon": 4,
+        "requests": [
+          {
+            "agent": "a",
+            "path": [
+              [
+                0,
+                0
+              ],
+              [
+                1,
+                0
+              ]
+            ],
+            "start_tick": 0
+          },
+          {
+            "agent": "b",
+            "path": [
+              [
+                2,
+                0
+              ],
+              [
+                1,
+                0
+              ]
+            ],
+            "start_tick": 2
+          },
+          {
+            "agent": "c",
+            "path": [
+              [
+                2,
+                1
+              ],
+              [
+                3,
+                1
+              ]
+            ],
+            "start_tick": 2
+          }
+        ]
+      },
+      "expected": {
+        "status": "OK",
+        "decisions": [
+          {
+            "agent": "a",
+            "accepted": true,
+            "conflict_tick": null
+          },
+          {
+            "agent": "b",
+            "accepted": false,
+            "conflict_tick": 3
+          },
+          {
+            "agent": "c",
+            "accepted": true,
+            "conflict_tick": null
+          }
+        ]
+      }
+    }
+  ]
+}

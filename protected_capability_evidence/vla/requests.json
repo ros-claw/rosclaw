@@ -1,0 +1,101 @@
+{
+  "schema": "VLA4.MODEL_REQUESTS.v1",
+  "images_origin": "Exact synthetic RGB inputs previously used in CLOSED pretrained CPU trial; no camera/hardware sensor capture.",
+  "requests": [
+    {
+      "id": "model_normalized",
+      "device": "cpu",
+      "seed": 20261008,
+      "task": "Pick up the red cube.",
+      "state": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "images": {
+        "camera1": {
+          "relative_path": "camera1.png",
+          "sha256": "629a6ac69e156e0e6ed90f90d5a2bcaa2f3853bf200459bdeccd1763a94a7cc1",
+          "shape": [
+            3,
+            256,
+            256
+          ]
+        },
+        "camera2": {
+          "relative_path": "camera2.png",
+          "sha256": "170faecef27324bc9f9818e0f9d1c2e42be9c95922bd124ec3096ba9797885c3",
+          "shape": [
+            3,
+            256,
+            256
+          ]
+        },
+        "camera3": {
+          "relative_path": "camera3.png",
+          "sha256": "35e5505f200ec105fe71ef35b7ede3a821c45c810129caffc7937de23d83f096",
+          "shape": [
+            3,
+            256,
+            256
+          ]
+        }
+      },
+      "action_space_policy": {
+        "mode": "normalized"
+      }
+    },
+    {
+      "id": "model_declared_so100_stats",
+      "device": "cpu",
+      "seed": 20261008,
+      "task": "Pick up the red cube.",
+      "state": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "images": {
+        "camera1": {
+          "relative_path": "camera1.png",
+          "sha256": "629a6ac69e156e0e6ed90f90d5a2bcaa2f3853bf200459bdeccd1763a94a7cc1",
+          "shape": [
+            3,
+            256,
+            256
+          ]
+        },
+        "camera2": {
+          "relative_path": "camera2.png",
+          "sha256": "170faecef27324bc9f9818e0f9d1c2e42be9c95922bd124ec3096ba9797885c3",
+          "shape": [
+            3,
+            256,
+            256
+          ]
+        },
+        "camera3": {
+          "relative_path": "camera3.png",
+          "sha256": "35e5505f200ec105fe71ef35b7ede3a821c45c810129caffc7937de23d83f096",
+          "shape": [
+            3,
+            256,
+            256
+          ]
+        }
+      },
+      "action_space_policy": {
+        "mode": "robot_profile",
+        "profile": "so100.buffer.action"
+      },
+      "state_binding": "Native test must replace this template state with exactly the six model-space values from first normalized result.actions[0][0]. Protected observer checks exact first-result -> second actual preprocessing relation. No physical robot/state conversion."
+    }
+  ],
+  "state_semantics": "First state is generated zero policy-coordinate observation; second is toy feedback of exactly one previous normalized action vector into policy-input coordinates. This explicit benchmark feedback has no calibrated robot or environment transition interpretation."
+}

@@ -1,0 +1,479 @@
+{
+  "status": "PASS_FOUR_ACTUAL_EXISTING_NATIVE_STRUCTURED_CASES",
+  "cases": [
+    {
+      "id": "F45_label_frame_freshness_match",
+      "status": "PASS_FINITE_EXISTING_NATIVE_STRUCTURED_SOFTWARE"
+    },
+    {
+      "id": "F45_no_grounding_blank_or_stale",
+      "status": "PASS_FINITE_EXISTING_NATIVE_STRUCTURED_SOFTWARE"
+    },
+    {
+      "id": "F46_reverse_edge_conflict",
+      "status": "PASS_FINITE_EXISTING_NATIVE_STRUCTURED_SOFTWARE"
+    },
+    {
+      "id": "F46_persistent_endpoint_and_disjoint_goal",
+      "status": "PASS_FINITE_EXISTING_NATIVE_STRUCTURED_SOFTWARE"
+    }
+  ],
+  "actual_solve_calls": [
+    {
+      "module": "F45",
+      "input": {
+        "goal_label": "  Red   Cup ",
+        "robot_position": [
+          0,
+          0,
+          0
+        ],
+        "now": 10.0,
+        "max_age": 2.0,
+        "max_future": 0.1,
+        "candidates": [
+          {
+            "id": "b",
+            "label": "RED CUP",
+            "frame": "map",
+            "position": [
+              1,
+              0,
+              0
+            ],
+            "observed_stamp": 9.5
+          },
+          {
+            "id": "a",
+            "label": "red cup",
+            "frame": "map",
+            "position": [
+              -1,
+              0,
+              0
+            ],
+            "observed_stamp": 9.5
+          },
+          {
+            "id": "near_wrong_frame",
+            "label": "red cup",
+            "frame": "camera",
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "observed_stamp": 9.9
+          }
+        ]
+      },
+      "result": {
+        "status": "OK",
+        "candidate_id": "a",
+        "goal_position": [
+          -1,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "module": "F45",
+      "input": {
+        "goal_label": " \t\n ",
+        "robot_position": [
+          0,
+          0,
+          0
+        ],
+        "now": 10.0,
+        "max_age": 2.0,
+        "max_future": 0.1,
+        "candidates": [
+          {
+            "id": "b",
+            "label": "RED CUP",
+            "frame": "map",
+            "position": [
+              1,
+              0,
+              0
+            ],
+            "observed_stamp": 9.5
+          },
+          {
+            "id": "a",
+            "label": "red cup",
+            "frame": "map",
+            "position": [
+              -1,
+              0,
+              0
+            ],
+            "observed_stamp": 9.5
+          },
+          {
+            "id": "near_wrong_frame",
+            "label": "red cup",
+            "frame": "camera",
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "observed_stamp": 9.9
+          }
+        ]
+      },
+      "result": {
+        "status": "INVALID"
+      }
+    },
+    {
+      "module": "F45",
+      "input": {
+        "goal_label": "  Red   Cup ",
+        "robot_position": [
+          0,
+          0,
+          0
+        ],
+        "now": 20.0,
+        "max_age": 2.0,
+        "max_future": 0.1,
+        "candidates": [
+          {
+            "id": "b",
+            "label": "RED CUP",
+            "frame": "map",
+            "position": [
+              1,
+              0,
+              0
+            ],
+            "observed_stamp": 9.5
+          },
+          {
+            "id": "a",
+            "label": "red cup",
+            "frame": "map",
+            "position": [
+              -1,
+              0,
+              0
+            ],
+            "observed_stamp": 9.5
+          },
+          {
+            "id": "near_wrong_frame",
+            "label": "red cup",
+            "frame": "camera",
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "observed_stamp": 9.9
+          }
+        ]
+      },
+      "result": {
+        "status": "NOT_GROUNDED"
+      }
+    },
+    {
+      "module": "F46",
+      "input": {
+        "horizon": 2,
+        "requests": [
+          {
+            "agent": "a",
+            "path": [
+              [
+                0,
+                0
+              ],
+              [
+                1,
+                0
+              ]
+            ],
+            "start_tick": 0
+          },
+          {
+            "agent": "b",
+            "path": [
+              [
+                1,
+                0
+              ],
+              [
+                0,
+                0
+              ]
+            ],
+            "start_tick": 0
+          }
+        ]
+      },
+      "result": {
+        "status": "OK",
+        "decisions": [
+          {
+            "agent": "a",
+            "accepted": true,
+            "conflict_tick": null
+          },
+          {
+            "agent": "b",
+            "accepted": false,
+            "conflict_tick": 1
+          }
+        ]
+      }
+    },
+    {
+      "module": "F46",
+      "input": {
+        "horizon": 4,
+        "requests": [
+          {
+            "agent": "a",
+            "path": [
+              [
+                0,
+                0
+              ],
+              [
+                1,
+                0
+              ]
+            ],
+            "start_tick": 0
+          },
+          {
+            "agent": "b",
+            "path": [
+              [
+                2,
+                0
+              ],
+              [
+                1,
+                0
+              ]
+            ],
+            "start_tick": 2
+          },
+          {
+            "agent": "c",
+            "path": [
+              [
+                2,
+                1
+              ],
+              [
+                3,
+                1
+              ]
+            ],
+            "start_tick": 2
+          }
+        ]
+      },
+      "result": {
+        "status": "OK",
+        "decisions": [
+          {
+            "agent": "a",
+            "accepted": true,
+            "conflict_tick": null
+          },
+          {
+            "agent": "b",
+            "accepted": false,
+            "conflict_tick": 3
+          },
+          {
+            "agent": "c",
+            "accepted": true,
+            "conflict_tick": null
+          }
+        ]
+      }
+    }
+  ],
+  "native_result": {
+    "cases": [
+      {
+        "id": "F45_label_frame_freshness_match",
+        "passed": true,
+        "criteria": [
+          "subcase 0: protected output equals public expected structure",
+          "normalized label, map frame and freshness select candidate a",
+          "equidistant tie resolved lexically, not camera proximity"
+        ],
+        "assertions": [
+          {
+            "criterion": "subcase 0: protected output equals public expected structure",
+            "passed": true
+          },
+          {
+            "criterion": "normalized label, map frame and freshness select candidate a",
+            "passed": true
+          },
+          {
+            "criterion": "equidistant tie resolved lexically, not camera proximity",
+            "passed": true
+          }
+        ],
+        "outputs": [
+          {
+            "status": "OK",
+            "candidate_id": "a",
+            "goal_position": [
+              -1,
+              0,
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "id": "F45_no_grounding_blank_or_stale",
+        "passed": true,
+        "criteria": [
+          "subcase 0: protected output equals public expected structure",
+          "subcase 1: protected output equals public expected structure",
+          "blank label rejected",
+          "all stale candidates yield no grounding",
+          "neither negative case emits a goal"
+        ],
+        "assertions": [
+          {
+            "criterion": "subcase 0: protected output equals public expected structure",
+            "passed": true
+          },
+          {
+            "criterion": "subcase 1: protected output equals public expected structure",
+            "passed": true
+          },
+          {
+            "criterion": "blank label rejected",
+            "passed": true
+          },
+          {
+            "criterion": "all stale candidates yield no grounding",
+            "passed": true
+          },
+          {
+            "criterion": "neither negative case emits a goal",
+            "passed": true
+          }
+        ],
+        "outputs": [
+          {
+            "status": "INVALID"
+          },
+          {
+            "status": "NOT_GROUNDED"
+          }
+        ]
+      },
+      {
+        "id": "F46_reverse_edge_conflict",
+        "passed": true,
+        "criteria": [
+          "subcase 0: protected output equals public expected structure",
+          "first agent accepted before contention",
+          "contender rejected at exact conflict tick"
+        ],
+        "assertions": [
+          {
+            "criterion": "subcase 0: protected output equals public expected structure",
+            "passed": true
+          },
+          {
+            "criterion": "first agent accepted before contention",
+            "passed": true
+          },
+          {
+            "criterion": "contender rejected at exact conflict tick",
+            "passed": true
+          }
+        ],
+        "outputs": [
+          {
+            "status": "OK",
+            "decisions": [
+              {
+                "agent": "a",
+                "accepted": true,
+                "conflict_tick": null
+              },
+              {
+                "agent": "b",
+                "accepted": false,
+                "conflict_tick": 1
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "F46_persistent_endpoint_and_disjoint_goal",
+        "passed": true,
+        "criteria": [
+          "subcase 0: protected output equals public expected structure",
+          "first agent accepted before contention",
+          "contender rejected at exact conflict tick",
+          "disjoint third goal remains accepted"
+        ],
+        "assertions": [
+          {
+            "criterion": "subcase 0: protected output equals public expected structure",
+            "passed": true
+          },
+          {
+            "criterion": "first agent accepted before contention",
+            "passed": true
+          },
+          {
+            "criterion": "contender rejected at exact conflict tick",
+            "passed": true
+          },
+          {
+            "criterion": "disjoint third goal remains accepted",
+            "passed": true
+          }
+        ],
+        "outputs": [
+          {
+            "status": "OK",
+            "decisions": [
+              {
+                "agent": "a",
+                "accepted": true,
+                "conflict_tick": null
+              },
+              {
+                "agent": "b",
+                "accepted": false,
+                "conflict_tick": 3
+              },
+              {
+                "agent": "c",
+                "accepted": true,
+                "conflict_tick": null
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "status": "SOURCE_VALIDATED"
+  },
+  "NN": 0,
+  "robot_STEP": 0,
+  "hardware": 0
+}

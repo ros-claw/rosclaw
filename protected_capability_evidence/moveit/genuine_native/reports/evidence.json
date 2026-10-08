@@ -1,0 +1,107 @@
+{
+  "schema": "MOVEIT5.fixture_freshness.evidence.v1",
+  "case_id": "MOVEIT_FIXTURE_FRESHNESS_CHATGPT_G11_74057e13020449a586e3ca33968f8b6e",
+  "nonce": "74057e13020449a586e3ca33968f8b6e",
+  "scope": "SOURCE_RUN_finite_MoveIt_CPP_software_not_robot_execution",
+  "status": "SOURCE_VALIDATED",
+  "evidence_class": "ACTUAL_GENERATED_CPP_LIBRARY_AND_INDEPENDENT_ORACLE",
+  "fixture_provenance": {
+    "seed_author": "operator interface carrier; not historical Native algorithm authorship",
+    "seed_sha256_from_contract": "797887063696bafcce2480965c66b43b1c2e3f6c19af65a213c6fe49647ba509",
+    "repair_author": "current Native fixture-freshness repair",
+    "changed_method": "MoveItFixture::state_row(const moveit::core::RobotState&)",
+    "repair": "Copy supplied RobotState, updateLinkTransforms on the owned copy, then read q, tool transform and bounds through a const reference to that refreshed copy.",
+    "preservation": "No joint reset/clamp/reassignment; all source positions copied, original waypoint untouched; link transforms computed from the queried state, not substituted.",
+    "installed_API_inspected": "/opt/ros/jazzy/include/moveit_core/moveit/robot_state/robot_state.hpp:1205-1314",
+    "installed_API_contract": "Non-const getGlobalLinkTransform updates link transforms; const getGlobalLinkTransform asserts checkLinkTransforms. Explicit copy freshness makes the const read legal without disabling its assertion.",
+    "assertion_masked": false,
+    "SDK_modified": false,
+    "protected_CPP_modified": false,
+    "public_cases_or_expectations_modified": false
+  },
+  "source_sha256_at_check_RUN_and_registration": {
+    "native/test_moveit_finite.cpp": "0d247686f672fbb9f3cc6ae42ff25a4c59de529e10e8ae83444392d53653f93f",
+    "native/moveit_fixture.hpp": "636f188c85e818877131a722b07a8f784725b52f2e8962a995fb1dbd1cdaf40e"
+  },
+  "current_source_refs_obtained_from_registration": {
+    "native/test_moveit_finite.cpp": "art_fbb1cebe8bda427aaeb23208",
+    "native/moveit_fixture.hpp": "art_9c444b70dfd644e1b43b3b9d"
+  },
+  "role_map": {
+    "native/test_moveit_finite.cpp": "diagnostic_source",
+    "native/moveit_fixture.hpp": "diagnostic_source",
+    "docs/MOVEIT_FINITE_SCOPE.md": "diagnostic_report",
+    "reports/evidence.json": "diagnostic_report",
+    "delivery.json": "progress_report"
+  },
+  "check": {
+    "command": "/home/nvidia/workspace/rosclaw/rosclaw_agent/rosclaw/.venv/bin/python -B /home/nvidia/workspace/tennis/experiments/harness_audit_20261003/CHATGPT_G11_MOVEIT_FIVE_FIXTURE_FRESHNESS_SOURCE_RUN_prepared_20261008_v1/operator/PUBLIC_MOVEIT_FIVE_CHECK.py /home/nvidia/workspace/tennis/experiments/harness_audit_20261003/CHATGPT_G11_MOVEIT_FIVE_FIXTURE_FRESHNESS_SOURCE_RUN_prepared_20261008_v1/cases/SOURCE --mode check",
+    "helper_exit_code": 0,
+    "helper_wall_ms": 9281,
+    "status": "PASS_MOVEIT_FIVE_CHECK",
+    "receipt_path": "reports/operator_checks/moveit_1791444364363074121_check/receipt.json",
+    "receipt_sha256": "7bd753950edb76bcef36d117f38074b4321a1d5dc7d91a9304db8d404fb6d8fc",
+    "receipt_ref": "art_b1adb0af85f94765a91fb816",
+    "compiler_evidence_directory": "reports/operator_checks/moveit_1791444364363074121_check/compile",
+    "binary_sha256": "7d0774096960785eef7544ddc4705dd0a37f267d58aded18768275189cdc8198"
+  },
+  "RUN": {
+    "command": "/home/nvidia/workspace/rosclaw/rosclaw_agent/rosclaw/.venv/bin/python -B /home/nvidia/workspace/tennis/experiments/harness_audit_20261003/CHATGPT_G11_MOVEIT_FIVE_FIXTURE_FRESHNESS_SOURCE_RUN_prepared_20261008_v1/operator/PUBLIC_MOVEIT_FIVE_CHECK.py /home/nvidia/workspace/tennis/experiments/harness_audit_20261003/CHATGPT_G11_MOVEIT_FIVE_FIXTURE_FRESHNESS_SOURCE_RUN_prepared_20261008_v1/cases/SOURCE --mode run",
+    "helper_exit_code": 0,
+    "helper_wall_ms": 1480,
+    "status": "PASS_MOVEIT_FIVE_RUN",
+    "receipt_path": "reports/operator_checks/moveit_1791444380987634887_run/receipt.json",
+    "receipt_sha256": "f402be02cae4d8f2e48b0ed06f4a62dcb2a99c2a82970d46fa31a9136c188989",
+    "receipt_ref": "art_f537fbde927345918cfa67c1",
+    "complete_result_path": "reports/operator_checks/moveit_1791444380987634887_run/complete_result.json",
+    "complete_result_sha256": "091094241e5eeb2ff89c25fe1d585149a55d14dd3794333ac5786d02e87a5b6f",
+    "complete_result_ref": "art_b086efab20f3440cb057ab5e",
+    "complete_result_bytes_from_registration": 158659,
+    "full_payload": "All ten exact requests, actual Native answers/criteria, and observed actual interface input/output records persisted by the published helper; no synthetic replacement.",
+    "budget": {"attempts": 1, "elapsed_s": 0.689784687012434},
+    "helper_child_success": true,
+    "child_exit_evidence": "Helper PASS occurs only after bounded child return code equals zero; tool exit/wall refer to helper, not a separately reported child wall time.",
+    "birth_evidence_path": "reports/operator_checks/moveit_1791444380987634887_run/births.json",
+    "same_birth_alive_after": false,
+    "case_count": 10,
+    "failed_case_id": null
+  },
+  "independent_verification": {
+    "verdict_status_each_case": "PASS_ACTUAL_GENERATED_CPP_LIBRARY_AND_INDEPENDENT_ORACLE",
+    "validator": "published unchanged moveit_case_oracle.validate called by the helper on complete actual driver JSON and exact unchanged public cases",
+    "distinction": "Native criteria alone are self-reports. Fixture records instrument actual library calls; independent generated mathematics and trace bindings validate their results. Neither is hardware observation.",
+    "cases": [
+      {"case_id": "F38_float_arm_variable_map", "pass": true, "checked": "13 distinct variables, floating-base seven, group six, named indices and actual FK"},
+      {"case_id": "F38_unknown_variable_reject", "pass": true, "actual_error_code": "UNKNOWN_VARIABLE", "checked": "unknown variable absent; no transform/state assignment for it"},
+      {"case_id": "F39_world_object_identity_free", "pass": true, "actual_collision": false, "checked": "actual sphere ID/pose/radius and requested collision state"},
+      {"case_id": "F39_changed_pose_collision", "pass": true, "actual_collision": true, "checked": "actual moved sphere ID/pose/radius and requested collision state"},
+      {"case_id": "F40_obstacle_replan", "pass": true, "checked": "ordered baseline/world-change/replan trace, both endpoints, finite bounds/FK, all obstacle path segments independently clear", "Native_measured_baseline_points": 7, "Native_measured_obstacle_points": 19, "Native_measured_obstacle_minimum_segment_clearance_m": 0.018468295336961232},
+      {"case_id": "F40_colliding_goal_no_plan", "pass": true, "actual_error_code": -27, "actual_solved": false, "actual_point_count": 0},
+      {"case_id": "F41_link_contact_frame", "pass": true, "checked": "actual tool rotation and position, transformed contact point [0.2,-0.06,0.5], normal [0,1,0], lever [0,0.04,0] within unchanged tolerance"},
+      {"case_id": "F41_unknown_contact_frame", "pass": true, "actual_error_code": "UNKNOWN_FRAME", "checked": "exact missing frame; no identity fallback"},
+      {"case_id": "F42_cartesian_path_finite", "pass": true, "actual_fraction": 1.0, "actual_point_count": 22, "checked": "all q finite/bounded, actual FK consistent, target reached, coordinate jumps <=0.05"},
+      {"case_id": "F42_cartesian_out_of_bounds", "pass": true, "actual_fraction": 0.5405405405405406, "actual_point_count": 61, "checked": "all accepted states bounded/FK consistent; unreachable target not falsely complete"}
+    ]
+  },
+  "unchanged_quotas": {
+    "RUN_max_attempts": 8,
+    "RUN_cumulative_s": 90,
+    "driver_child_s": 10,
+    "compiler_child_s": 90,
+    "planning_calls_per_RUN_max": 6,
+    "planning_seconds_each_max": 0.5,
+    "cartesian_calls_per_RUN_max": 2,
+    "state_calls_max": 10000,
+    "path_points_max": 1000,
+    "hardware": 0,
+    "robot_physics_STEP": 0,
+    "NN": 0
+  },
+  "history_not_rescored": ["prior LINK_BLOCKED", "prior dirty-transform abort wholeFAIL"],
+  "limitations": [
+    "Only these ten generated finite C++ software cases are validated.",
+    "No exact historical abort case/stack attribution is claimed.",
+    "No physical robot execution, dynamics rollout, practical contact/grasp/force capability, learned planner reliability, arbitrary scene guarantee or deployment safety certification.",
+    "Installed library initialization, kinematics, planning and collision software mathematics occurred; not claimed absent."
+  ]
+}

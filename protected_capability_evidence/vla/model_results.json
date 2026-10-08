@@ -1,0 +1,1416 @@
+{
+  "model_results": [
+    {
+      "schema": "F44.SMOLVLA_INFERENCE_RESULT.v1",
+      "status": "ACTIONS_POSTPROCESSED",
+      "actions": [
+        [
+          [
+            -0.12246532738208771,
+            0.05347365140914917,
+            -0.15023678541183472,
+            -0.005516760051250458,
+            0.05402788519859314,
+            -0.5748943090438843
+          ],
+          [
+            0.13843391835689545,
+            0.1727549433708191,
+            -0.05143159627914429,
+            -0.007477284874767065,
+            0.2017347663640976,
+            -0.5079144239425659
+          ],
+          [
+            0.251994788646698,
+            0.1553374081850052,
+            -0.017311520874500275,
+            0.02021237090229988,
+            0.2054976224899292,
+            -0.5246543884277344
+          ],
+          [
+            0.27933311462402344,
+            0.07300537824630737,
+            -0.03820646554231644,
+            -0.07420822978019714,
+            0.19765926897525787,
+            -0.5544073581695557
+          ],
+          [
+            0.29042211174964905,
+            0.10231668502092361,
+            -0.122597336769104,
+            -0.018107861280441284,
+            0.19279010593891144,
+            -0.5795438885688782
+          ],
+          [
+            0.3130652904510498,
+            0.0654437243938446,
+            -0.12936735153198242,
+            -0.06637256592512131,
+            0.1593102514743805,
+            -0.5290332436561584
+          ],
+          [
+            0.3215031325817108,
+            0.07621271908283234,
+            -0.133413165807724,
+            -0.07304729521274567,
+            0.09138518571853638,
+            -0.582450270652771
+          ],
+          [
+            0.25659671425819397,
+            0.09665941447019577,
+            -0.10089631378650665,
+            -0.03061099350452423,
+            0.060061559081077576,
+            -0.5537421703338623
+          ],
+          [
+            0.23424115777015686,
+            0.15376636385917664,
+            -0.09804122149944305,
+            0.017488300800323486,
+            0.10814765840768814,
+            -0.5641435980796814
+          ],
+          [
+            0.2102133184671402,
+            0.18486273288726807,
+            -0.09999191015958786,
+            0.0017645955085754395,
+            0.10702580213546753,
+            -0.5900586843490601
+          ],
+          [
+            0.1444101333618164,
+            0.15390345454216003,
+            -0.11981245875358582,
+            -0.017543576657772064,
+            0.0712752491235733,
+            -0.5862611532211304
+          ],
+          [
+            0.1345033347606659,
+            0.31844931840896606,
+            -0.08555474877357483,
+            -0.036201685667037964,
+            0.1457333117723465,
+            -0.5851269364356995
+          ],
+          [
+            0.14138780534267426,
+            0.46288859844207764,
+            0.07263699173927307,
+            -0.11313216388225555,
+            0.1332114040851593,
+            -0.5660805702209473
+          ],
+          [
+            0.1308956742286682,
+            0.5814021825790405,
+            0.15665477514266968,
+            -0.05937149003148079,
+            0.20281928777694702,
+            -0.5776283144950867
+          ],
+          [
+            0.13922953605651855,
+            0.6408572196960449,
+            0.22920750081539154,
+            -0.00492173433303833,
+            0.1835663914680481,
+            -0.5876584649085999
+          ],
+          [
+            0.12862883508205414,
+            0.748008131980896,
+            0.4039159417152405,
+            -0.01971094310283661,
+            0.272853285074234,
+            -0.5866655707359314
+          ],
+          [
+            0.18161258101463318,
+            0.7213696837425232,
+            0.4379432201385498,
+            -0.08047784119844437,
+            0.24061214923858643,
+            -0.6092667579650879
+          ],
+          [
+            0.15158499777317047,
+            0.7505345344543457,
+            0.46032023429870605,
+            -0.1432548612356186,
+            0.25159043073654175,
+            -0.5757922530174255
+          ],
+          [
+            0.13502049446105957,
+            0.858397364616394,
+            0.519603967666626,
+            -0.13002356886863708,
+            0.27620890736579895,
+            -0.5676886439323425
+          ],
+          [
+            0.1150158941745758,
+            0.8633475303649902,
+            0.5183225274085999,
+            -0.09180785715579987,
+            0.29504379630088806,
+            -0.5658018589019775
+          ],
+          [
+            0.10878051072359085,
+            0.8629217147827148,
+            0.5851737856864929,
+            -0.09498991072177887,
+            0.32743993401527405,
+            -0.5595475435256958
+          ],
+          [
+            0.07062198221683502,
+            0.9131690263748169,
+            0.6017882227897644,
+            0.051903873682022095,
+            0.2854168117046356,
+            -0.5477457642555237
+          ],
+          [
+            0.1247100979089737,
+            0.9138661623001099,
+            0.5622836947441101,
+            0.10128672420978546,
+            0.3145325779914856,
+            -0.6012774109840393
+          ],
+          [
+            0.18471823632717133,
+            0.9268913269042969,
+            0.6056919693946838,
+            0.05702754855155945,
+            0.34395715594291687,
+            -0.5976541042327881
+          ],
+          [
+            0.1935918927192688,
+            0.9610556960105896,
+            0.560954213142395,
+            0.16456730663776398,
+            0.35426491498947144,
+            -0.5848243236541748
+          ],
+          [
+            0.16967907547950745,
+            0.9332300424575806,
+            0.528919517993927,
+            0.23499664664268494,
+            0.3657640218734741,
+            -0.6029694676399231
+          ],
+          [
+            0.2199249565601349,
+            0.976747453212738,
+            0.5900679230690002,
+            0.2856268286705017,
+            0.41794970631599426,
+            -0.598776638507843
+          ],
+          [
+            0.16219830513000488,
+            1.0504099130630493,
+            0.620795488357544,
+            0.3025394082069397,
+            0.4289151430130005,
+            -0.5925115346908569
+          ],
+          [
+            0.16689778864383698,
+            1.0477995872497559,
+            0.6212095022201538,
+            0.34659263491630554,
+            0.4196019172668457,
+            -0.579604983329773
+          ],
+          [
+            0.22275185585021973,
+            1.021584153175354,
+            0.6153186559677124,
+            0.32689154148101807,
+            0.38591626286506653,
+            -0.594599187374115
+          ],
+          [
+            0.3137841820716858,
+            1.0676413774490356,
+            0.5954745411872864,
+            0.36789441108703613,
+            0.4206058979034424,
+            -0.5210181474685669
+          ],
+          [
+            0.2558826506137848,
+            1.0616965293884277,
+            0.5931743383407593,
+            0.3465207517147064,
+            0.4142155349254608,
+            -0.5388144254684448
+          ],
+          [
+            0.20789209008216858,
+            1.0984687805175781,
+            0.5757029056549072,
+            0.39639970660209656,
+            0.4110671877861023,
+            -0.5352462530136108
+          ],
+          [
+            0.20106570422649384,
+            1.0280866622924805,
+            0.585005521774292,
+            0.40306323766708374,
+            0.40380212664604187,
+            -0.5594061613082886
+          ],
+          [
+            0.22838079929351807,
+            0.9431058764457703,
+            0.6217131018638611,
+            0.3574593663215637,
+            0.3745877742767334,
+            0.20932728052139282
+          ],
+          [
+            0.2532593011856079,
+            0.9302669763565063,
+            0.644031822681427,
+            0.32802003622055054,
+            0.39576175808906555,
+            0.1372814178466797
+          ],
+          [
+            0.28071460127830505,
+            0.8457599878311157,
+            0.6421800851821899,
+            0.2531815469264984,
+            0.3866485357284546,
+            0.08227267116308212
+          ],
+          [
+            0.30747026205062866,
+            0.8135718107223511,
+            0.6032780408859253,
+            0.21579082310199738,
+            0.32409799098968506,
+            -0.21637150645256042
+          ],
+          [
+            0.28932270407676697,
+            0.8166781663894653,
+            0.5530115365982056,
+            0.23441733419895172,
+            0.3524567484855652,
+            -0.32886460423469543
+          ],
+          [
+            0.2616240382194519,
+            0.8686609864234924,
+            0.5724932551383972,
+            0.28261154890060425,
+            0.3378003239631653,
+            -0.37715768814086914
+          ],
+          [
+            0.2892220914363861,
+            0.8966077566146851,
+            0.5891903638839722,
+            0.28458455204963684,
+            0.35838109254837036,
+            -0.40331363677978516
+          ],
+          [
+            0.2648197412490845,
+            0.8865688443183899,
+            0.4743889272212982,
+            0.3457658290863037,
+            0.3502228260040283,
+            -0.4678348898887634
+          ],
+          [
+            0.3100472092628479,
+            0.893974781036377,
+            0.47440779209136963,
+            0.4382422864437103,
+            0.3654705882072449,
+            -0.5046107769012451
+          ],
+          [
+            0.22086672484874725,
+            0.8349624872207642,
+            0.34748587012290955,
+            0.4476495683193207,
+            0.373098760843277,
+            -0.4606670141220093
+          ],
+          [
+            0.13120412826538086,
+            0.7528759241104126,
+            0.2858339548110962,
+            0.4810815751552582,
+            0.3934847116470337,
+            -0.4730522632598877
+          ],
+          [
+            0.20153558254241943,
+            0.7124491333961487,
+            0.34403887391090393,
+            0.36486533284187317,
+            0.40968623757362366,
+            -0.4938843250274658
+          ],
+          [
+            0.15871624648571014,
+            0.6731098294258118,
+            0.3429965674877167,
+            0.41873762011528015,
+            0.37028008699417114,
+            -0.44012451171875
+          ],
+          [
+            0.16482742130756378,
+            0.715279757976532,
+            0.36379551887512207,
+            0.4522237181663513,
+            0.3480618894100189,
+            -0.4824315905570984
+          ],
+          [
+            0.08567003905773163,
+            0.7152295708656311,
+            0.4681365489959717,
+            0.5006845593452454,
+            0.3073291778564453,
+            -0.4215846657752991
+          ],
+          [
+            -0.0017844289541244507,
+            0.7121284008026123,
+            0.4303683340549469,
+            0.46878552436828613,
+            0.2930769920349121,
+            -0.5126932859420776
+          ]
+        ]
+      ],
+      "action_shape": [
+        1,
+        50,
+        6
+      ],
+      "device": "cpu",
+      "seed": 20261008,
+      "action_space_policy": {
+        "mode": "normalized",
+        "profile": null
+      },
+      "action_space": {
+        "kind": "NORMALIZED_MODEL_ACTION",
+        "profile": null,
+        "stats_sha256": null,
+        "postprocessor_applied": true,
+        "robot_units_verified": false,
+        "units_status": "PROFILE_UNITS_NOT_VERIFIED",
+        "physical_calibration_established": false,
+        "g1_rh56_mapping": "NOT_ESTABLISHED_NO_CONVERSION"
+      },
+      "state_space": {
+        "kind": "POLICY_INPUT_COORDINATES",
+        "normalization_applied": false,
+        "state_stats_present": false,
+        "physical_robot_state_equivalence": false,
+        "note": "Pinned saved processors carry no STATE statistics; the passthrough is intentional and reported, not proof of preprocessing correctness."
+      },
+      "dependencies_provenance": "OFFICIAL_LEROBOT_DEFAULT_BACKEND",
+      "mock_inference_not_actual_nn": false,
+      "physical_action_executed": false,
+      "offline_environment": {
+        "HF_HUB_OFFLINE": "1",
+        "TRANSFORMERS_OFFLINE": "1"
+      },
+      "pinned_revisions": {
+        "lerobot": "4aabd9c679e0085dff9fbe1434a7e8c823e14183",
+        "smolvla": "d9f33c94a60fb382c90dea2164c96845bd955e28",
+        "smolvlm2": "7b375e1b73b11138ff12fe22c8f2822d8fe03467"
+      },
+      "resource_paths": {
+        "asset_root": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/F44_SMOLVLA_official_resource_preparation_20261006_v1/assets",
+        "asset_manifest": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_F44_OUTCOME_MANAGED_closed_components_peer_20261007_v1/workspace/inputs/pinned_assets.json",
+        "policy_dir": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/F44_SMOLVLA_official_resource_preparation_20261006_v1/assets/lerobot--smolvla_base",
+        "vlm_dir": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/F44_SMOLVLA_official_resource_preparation_20261006_v1/assets/HuggingFaceTB--SmolVLM2-500M-Video-Instruct",
+        "tokenizer_dir": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/F44_SMOLVLA_official_resource_preparation_20261006_v1/assets/HuggingFaceTB--SmolVLM2-500M-Video-Instruct"
+      },
+      "assets": [
+        {
+          "path": "HuggingFaceTB--SmolVLM2-500M-Video-Instruct/README.md",
+          "sha256": "afc4bf5f519438b221a84292979a9eac3de4b9726e5baaa82033c55f59f9f7a5",
+          "status": "PINNED_OK"
+        },
+        {
+          "path": "HuggingFaceTB--SmolVLM2-500M-Video-Instruct/added_tokens.json",
+          "sha256": "74135b8664b56088c0006f1c8e848d79a8eba003411f72ebf1dc2ee96227be3a",
+          "status": "PINNED_OK"
+        },
+        {
+          "path": "HuggingFaceTB--SmolVLM2-500M-Video-Instruct/chat_template.json",
+          "sha256": "b585e3598909a5687f9f9d738d35223724dedef256b9b274e1cbfb32b13c74bf",
+          "status": "PINNED_OK"
+        },
+        {
+          "path": "HuggingFaceTB--SmolVLM2-500M-Video-Instruct/config.json",
+          "sha256": "ea6bc1237e96247f6258de3e202e2e62b93d6f386dc47e7b36b5588bf3a15e17",
+          "status": "PINNED_OK"
+        },
+        {
+          "path": "HuggingFaceTB--SmolVLM2-500M-Video-Instruct/generation_config.json",
+          "sha256": "34835060c9f0f74d1acb456cc72ca32746d3843d9eb5f578f9cbffac1d2eb840",
+          "status": "PINNED_OK"
+        },
+        {
+          "path": "HuggingFaceTB--SmolVLM2-500M-Video-Instruct/merges.txt",
+          "sha256": "0b54e8aa4e53d5383e2e4bc635a56b43f9647f7b13832d5d9ecd8f82dac4f510",
+          "status": "PINNED_OK"
+        },
+        {
+          "path": "HuggingFaceTB--SmolVLM2-500M-Video-Instruct/model.safetensors",
+          "sha256": "b9bfd456c9472c0acd5719d6e514c4b859891af205ee1a736552fd3497b8b0c3",
+          "status": "PINNED_OK"
+        },
+        {
+          "path": "HuggingFaceTB--SmolVLM2-500M-Video-Instruct/preprocessor_config.json",
+          "sha256": "149e315d9410368e5491455bb06e0f763426e9e56cca731c13b24404a29b6374",
+          "status": "PINNED_OK"
+        },
+        {
+          "path": "HuggingFaceTB--SmolVLM2-500M-Video-Instruct/processor_config.json",
+          "sha256": "f3ad45028447b3562b4752be0d5916d6806c1ef589091a469608dcf0faa1737c",
+          "status": "PINNED_OK"
+        },
+        {
+          "path": "HuggingFaceTB--SmolVLM2-500M-Video-Instruct/special_tokens_map.json",
+          "sha256": "2dfea2a426162316ff1567c82bc6d36d9690cd9f90455f075c77daca78b45c60",
+          "status": "PINNED_OK"
+        },
+        {
+          "path": "HuggingFaceTB--SmolVLM2-500M-Video-Instruct/tokenizer.json",
+          "sha256": "5ece781dc8d2b2f3e2f289ca0ae50b17cfc27dd27bfe7971bb8241e0b964331a",
+          "status": "PINNED_OK"
+        },
+        {
+          "path": "HuggingFaceTB--SmolVLM2-500M-Video-Instruct/tokenizer_config.json",
+          "sha256": "dd9ce2ab89a3dd881bd9378f1a79b943a064b9275a7e1706d5b7b47b68977913",
+          "status": "PINNED_OK"
+        },
+        {
+          "path": "HuggingFaceTB--SmolVLM2-500M-Video-Instruct/vocab.json",
+          "sha256": "82b84012e3add4d01d12ba14442026e49b8cbbaead1f79ecf3d919784f82dc79",
+          "status": "PINNED_OK"
+        },
+        {
+          "path": "lerobot--smolvla_base/README.md",
+          "sha256": "a484071b8d7d0591452f795813fb54af9199fc1c48ef1ee995358d5ba07ee070",
+          "status": "PINNED_OK"
+        },
+        {
+          "path": "lerobot--smolvla_base/config.json",
+          "sha256": "650584b56c104720f7a3c91d1ec6bec9e8de8ac11e60c92ba2fa82d93eda147d",
+          "status": "PINNED_OK"
+        },
+        {
+          "path": "lerobot--smolvla_base/model.safetensors",
+          "sha256": "7cd549ac2351fb069c0ddb3c34ad2d09cfc92b56a15dccdfc2e41467aaca01eb",
+          "status": "PINNED_OK"
+        },
+        {
+          "path": "lerobot--smolvla_base/policy_postprocessor.json",
+          "sha256": "2b78bb742065288df2ec63b0ee35f97a1f6950171cf2272f7e34b1fe3873b17b",
+          "status": "PINNED_OK"
+        },
+        {
+          "path": "lerobot--smolvla_base/policy_postprocessor_step_0_unnormalizer_processor.safetensors",
+          "sha256": "490ab239d96e263687c0b2e386a0afbc235a2eceb9857c36ed32f2f162a3e7c8",
+          "status": "PINNED_OK"
+        },
+        {
+          "path": "lerobot--smolvla_base/policy_preprocessor.json",
+          "sha256": "7683d648280a72f0d51e869fb8dd1596beed90b7f84849330cf1bc26634a4bd6",
+          "status": "PINNED_OK"
+        },
+        {
+          "path": "lerobot--smolvla_base/policy_preprocessor_step_5_normalizer_processor.safetensors",
+          "sha256": "490ab239d96e263687c0b2e386a0afbc235a2eceb9857c36ed32f2f162a3e7c8",
+          "status": "PINNED_OK"
+        }
+      ],
+      "original_model_config": {
+        "vlm_model_name": "HuggingFaceTB/SmolVLM2-500M-Video-Instruct",
+        "hub_resolution": "DISABLED_OFFLINE_LOCAL_PINNED_ONLY"
+      },
+      "config_features": {
+        "input_features": [
+          "observation.images.camera1",
+          "observation.images.camera2",
+          "observation.images.camera3",
+          "observation.state"
+        ],
+        "output_action_shape": [
+          6
+        ],
+        "status": "CONFIG_FEATURES_MATCH"
+      },
+      "preprocessor_feature_compatibility": {
+        "policy_config_features": [
+          "action",
+          "observation.images.camera1",
+          "observation.images.camera2",
+          "observation.images.camera3",
+          "observation.state"
+        ],
+        "identity_visual_normalization_is_not_mapping_proof": true,
+        "preprocessor": {
+          "status": "RENAMED_OR_EXTRA_NAMES_REPORTED",
+          "feature_names": [
+            "action",
+            "observation.image",
+            "observation.image2",
+            "observation.image3",
+            "observation.state"
+          ],
+          "unmatched_vs_policy_config": [
+            "observation.image",
+            "observation.image2",
+            "observation.image3"
+          ]
+        },
+        "postprocessor": {
+          "status": "FEATURE_NAMES_MATCH",
+          "feature_names": [
+            "action"
+          ],
+          "unmatched_vs_policy_config": []
+        }
+      },
+      "input_images": [
+        {
+          "camera": "camera1",
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/CHATGPT_G11_VLA_GROUNDING_CONTENTION_FOUR_SOURCE_RUN_prepared_20261008_v2/workspace/inputs/camera1.png",
+          "sha256": "629a6ac69e156e0e6ed90f90d5a2bcaa2f3853bf200459bdeccd1763a94a7cc1",
+          "status": "PINNED_OK"
+        },
+        {
+          "camera": "camera2",
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/CHATGPT_G11_VLA_GROUNDING_CONTENTION_FOUR_SOURCE_RUN_prepared_20261008_v2/workspace/inputs/camera2.png",
+          "sha256": "170faecef27324bc9f9818e0f9d1c2e42be9c95922bd124ec3096ba9797885c3",
+          "status": "PINNED_OK"
+        },
+        {
+          "camera": "camera3",
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/CHATGPT_G11_VLA_GROUNDING_CONTENTION_FOUR_SOURCE_RUN_prepared_20261008_v2/workspace/inputs/camera3.png",
+          "sha256": "35e5505f200ec105fe71ef35b7ede3a821c45c810129caffc7937de23d83f096",
+          "status": "PINNED_OK"
+        }
+      ]
+    },
+    {
+      "schema": "F44.SMOLVLA_INFERENCE_RESULT.v1",
+      "status": "ACTIONS_POSTPROCESSED",
+      "actions": [
+        [
+          [
+            -5.751835823059082,
+            129.46815490722656,
+            97.74613189697266,
+            56.17538833618164,
+            -20.24564552307129,
+            0.36310386657714844
+          ],
+          [
+            1.553095817565918,
+            137.737060546875,
+            106.21513366699219,
+            55.4671516418457,
+            -11.185413360595703,
+            0.9145040512084961
+          ],
+          [
+            4.225968360900879,
+            138.35980224609375,
+            110.06220245361328,
+            56.57982635498047,
+            -10.556783676147461,
+            0.49384212493896484
+          ],
+          [
+            4.626482963562012,
+            134.1680145263672,
+            110.22149658203125,
+            52.7036247253418,
+            -11.210966110229492,
+            0.33594322204589844
+          ],
+          [
+            4.5816240310668945,
+            136.89675903320312,
+            106.70011901855469,
+            55.7035026550293,
+            -11.695384979248047,
+            -0.002277374267578125
+          ],
+          [
+            5.186149597167969,
+            136.30438232421875,
+            107.20916748046875,
+            54.01338195800781,
+            -13.087449073791504,
+            0.5217952728271484
+          ],
+          [
+            5.220120906829834,
+            137.67288208007812,
+            107.99530792236328,
+            53.921932220458984,
+            -17.568862915039062,
+            -0.16881179809570312
+          ],
+          [
+            3.5654101371765137,
+            140.11802673339844,
+            110.34608459472656,
+            56.209739685058594,
+            -19.16582489013672,
+            0.25472068786621094
+          ],
+          [
+            2.9585835933685303,
+            143.3076934814453,
+            111.4310302734375,
+            57.90910339355469,
+            -16.14007568359375,
+            0.15586471557617188
+          ],
+          [
+            2.4757578372955322,
+            145.55604553222656,
+            112.58515167236328,
+            57.32978439331055,
+            -16.699071884155273,
+            -0.19344425201416016
+          ],
+          [
+            0.9752911925315857,
+            144.4589080810547,
+            112.08077239990234,
+            56.892452239990234,
+            -18.501792907714844,
+            -0.12967872619628906
+          ],
+          [
+            1.2890666723251343,
+            152.3160400390625,
+            114.53343963623047,
+            55.67815017700195,
+            -14.043573379516602,
+            -0.0988626480102539
+          ],
+          [
+            1.7828882932662964,
+            158.41506958007812,
+            122.5558090209961,
+            52.590850830078125,
+            -15.016731262207031,
+            0.3234825134277344
+          ],
+          [
+            1.9518051147460938,
+            163.39991760253906,
+            126.42704772949219,
+            54.48609161376953,
+            -10.570514678955078,
+            0.04282093048095703
+          ],
+          [
+            2.6102919578552246,
+            165.4478302001953,
+            129.39703369140625,
+            56.49765396118164,
+            -11.942684173583984,
+            0.03795623779296875
+          ],
+          [
+            2.531348705291748,
+            169.50221252441406,
+            137.6460418701172,
+            55.46283721923828,
+            -7.286375045776367,
+            -0.026360511779785156
+          ],
+          [
+            3.991844654083252,
+            167.57632446289062,
+            139.13229370117188,
+            53.524925231933594,
+            -9.062103271484375,
+            -0.29030418395996094
+          ],
+          [
+            3.4958293437957764,
+            169.09600830078125,
+            140.49981689453125,
+            51.125404357910156,
+            -8.750419616699219,
+            0.24027347564697266
+          ],
+          [
+            3.155637741088867,
+            173.69789123535156,
+            143.11282348632812,
+            51.50413131713867,
+            -7.379976272583008,
+            0.4002504348754883
+          ],
+          [
+            2.8115463256835938,
+            173.6669158935547,
+            143.11154174804688,
+            53.109375,
+            -6.162267684936523,
+            0.4429941177368164
+          ],
+          [
+            2.7858872413635254,
+            173.7381591796875,
+            146.91668701171875,
+            52.70366668701172,
+            -4.574123382568359,
+            0.5015287399291992
+          ],
+          [
+            1.8547592163085938,
+            175.95663452148438,
+            147.3675537109375,
+            58.19886016845703,
+            -6.634304046630859,
+            0.6237802505493164
+          ],
+          [
+            3.1424150466918945,
+            176.02020263671875,
+            145.85546875,
+            60.39892578125,
+            -5.435617446899414,
+            -0.34388160705566406
+          ],
+          [
+            4.519288063049316,
+            176.49676513671875,
+            147.97190856933594,
+            58.85079574584961,
+            -3.6352901458740234,
+            -0.11704444885253906
+          ],
+          [
+            4.751137733459473,
+            178.26039123535156,
+            145.65272521972656,
+            62.992645263671875,
+            -3.307828903198242,
+            0.10853385925292969
+          ],
+          [
+            4.030060768127441,
+            176.898681640625,
+            143.74082946777344,
+            65.59070587158203,
+            -2.757129669189453,
+            -0.21689701080322266
+          ],
+          [
+            5.267050743103027,
+            179.08203125,
+            147.06048583984375,
+            67.71943664550781,
+            -0.011022567749023438,
+            -0.038489341735839844
+          ],
+          [
+            3.8936681747436523,
+            182.328369140625,
+            148.22869873046875,
+            68.17328643798828,
+            1.0672035217285156,
+            0.1556682586669922
+          ],
+          [
+            4.0475616455078125,
+            181.90919494628906,
+            148.18356323242188,
+            69.78014373779297,
+            0.5833721160888672,
+            0.26751708984375
+          ],
+          [
+            5.3176422119140625,
+            180.87110900878906,
+            148.0287322998047,
+            69.17198944091797,
+            -1.8073310852050781,
+            -0.07375240325927734
+          ],
+          [
+            7.551471710205078,
+            183.25106811523438,
+            146.88619995117188,
+            70.86006164550781,
+            -0.012020111083984375,
+            1.7777109146118164
+          ],
+          [
+            6.029242515563965,
+            182.7381591796875,
+            146.5569610595703,
+            69.97854614257812,
+            -0.3081398010253906,
+            1.1510181427001953
+          ],
+          [
+            4.675338268280029,
+            184.560302734375,
+            145.94024658203125,
+            71.7930908203125,
+            -0.3998737335205078,
+            1.1794557571411133
+          ],
+          [
+            4.4547834396362305,
+            181.42471313476562,
+            146.27828979492188,
+            72.16350555419922,
+            -0.8391437530517578,
+            0.6072902679443359
+          ],
+          [
+            5.003252983093262,
+            178.02462768554688,
+            148.03826904296875,
+            70.82117462158203,
+            -3.3081226348876953,
+            10.726263046264648
+          ],
+          [
+            5.635750770568848,
+            177.83932495117188,
+            149.822998046875,
+            69.73371124267578,
+            -1.6125850677490234,
+            8.839493751525879
+          ],
+          [
+            6.094720840454102,
+            174.66055297851562,
+            149.75897216796875,
+            67.59234619140625,
+            -2.2292842864990234,
+            7.44893741607666
+          ],
+          [
+            6.350076675415039,
+            174.2458038330078,
+            148.635009765625,
+            66.2410659790039,
+            -4.925615310668945,
+            3.052194595336914
+          ],
+          [
+            5.9503583908081055,
+            174.42030334472656,
+            146.59994506835938,
+            67.07242584228516,
+            -3.2758827209472656,
+            2.602961540222168
+          ],
+          [
+            5.1793107986450195,
+            176.6942138671875,
+            147.2981719970703,
+            68.63600158691406,
+            -4.380170822143555,
+            2.3211545944213867
+          ],
+          [
+            5.706533432006836,
+            178.46310424804688,
+            148.1842041015625,
+            68.98978424072266,
+            -3.074300765991211,
+            2.2336387634277344
+          ],
+          [
+            5.107030391693115,
+            178.39840698242188,
+            143.39569091796875,
+            71.23899841308594,
+            -3.1809959411621094,
+            1.735025405883789
+          ],
+          [
+            6.062777519226074,
+            178.48834228515625,
+            143.57879638671875,
+            74.35121154785156,
+            -2.498746871948242,
+            1.58416748046875
+          ],
+          [
+            4.053772926330566,
+            176.43211364746094,
+            138.41163635253906,
+            74.53379821777344,
+            -2.0742034912109375,
+            2.191655158996582
+          ],
+          [
+            1.854818344116211,
+            173.35186767578125,
+            136.6090850830078,
+            75.780517578125,
+            -1.1853256225585938,
+            1.8843011856079102
+          ],
+          [
+            3.6164817810058594,
+            172.3975830078125,
+            139.32571411132812,
+            72.15959167480469,
+            -0.0039920806884765625,
+            1.6003618240356445
+          ],
+          [
+            2.4204142093658447,
+            171.01007080078125,
+            139.26351928710938,
+            74.28726959228516,
+            -2.5175018310546875,
+            2.3686838150024414
+          ],
+          [
+            2.6238090991973877,
+            172.81280517578125,
+            140.3614501953125,
+            75.1715316772461,
+            -3.020875930786133,
+            1.7517328262329102
+          ],
+          [
+            0.49391186237335205,
+            172.65924072265625,
+            145.61026000976562,
+            77.0346450805664,
+            -6.007484436035156,
+            2.4938745498657227
+          ],
+          [
+            -1.6193983554840088,
+            172.53785705566406,
+            143.59994506835938,
+            75.84768676757812,
+            -6.587837219238281,
+            1.1355390548706055
+          ]
+        ]
+      ],
+      "action_shape": [
+        1,
+        50,
+        6
+      ],
+      "device": "cpu",
+      "seed": 20261008,
+      "action_space_policy": {
+        "mode": "robot_profile",
+        "profile": "so100.buffer.action"
+      },
+      "action_space": {
+        "kind": "ROBOT_PROFILE_ACTION",
+        "profile": "so100.buffer.action",
+        "stats_sha256": "490ab239d96e263687c0b2e386a0afbc235a2eceb9857c36ed32f2f162a3e7c8",
+        "postprocessor_applied": true,
+        "robot_units_verified": false,
+        "units_status": "PROFILE_UNITS_NOT_VERIFIED",
+        "physical_calibration_established": false,
+        "g1_rh56_mapping": "NOT_ESTABLISHED_NO_CONVERSION",
+        "stats_file": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/F44_SMOLVLA_official_resource_preparation_20261006_v1/assets/lerobot--smolvla_base/policy_postprocessor_step_0_unnormalizer_processor.safetensors",
+        "action_mean": [
+          1.5959141254425049,
+          119.9442367553711,
+          109.769775390625,
+          56.70551300048828,
+          -27.422693252563477,
+          12.002785682678223
+        ],
+        "action_std": [
+          26.39177894592285,
+          52.41140365600586,
+          49.85380554199219,
+          36.9983024597168,
+          59.35995101928711,
+          19.039955139160156
+        ],
+        "transform": "official unnormalizer_processor MEAN_STD inverse via pinned stats override"
+      },
+      "state_space": {
+        "kind": "POLICY_INPUT_COORDINATES",
+        "normalization_applied": false,
+        "state_stats_present": false,
+        "physical_robot_state_equivalence": false,
+        "note": "Pinned saved processors carry no STATE statistics; the passthrough is intentional and reported, not proof of preprocessing correctness."
+      },
+      "dependencies_provenance": "OFFICIAL_LEROBOT_DEFAULT_BACKEND",
+      "mock_inference_not_actual_nn": false,
+      "physical_action_executed": false,
+      "offline_environment": {
+        "HF_HUB_OFFLINE": "1",
+        "TRANSFORMERS_OFFLINE": "1"
+      },
+      "pinned_revisions": {
+        "lerobot": "4aabd9c679e0085dff9fbe1434a7e8c823e14183",
+        "smolvla": "d9f33c94a60fb382c90dea2164c96845bd955e28",
+        "smolvlm2": "7b375e1b73b11138ff12fe22c8f2822d8fe03467"
+      },
+      "resource_paths": {
+        "asset_root": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/F44_SMOLVLA_official_resource_preparation_20261006_v1/assets",
+        "asset_manifest": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_F44_OUTCOME_MANAGED_closed_components_peer_20261007_v1/workspace/inputs/pinned_assets.json",
+        "policy_dir": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/F44_SMOLVLA_official_resource_preparation_20261006_v1/assets/lerobot--smolvla_base",
+        "vlm_dir": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/F44_SMOLVLA_official_resource_preparation_20261006_v1/assets/HuggingFaceTB--SmolVLM2-500M-Video-Instruct",
+        "tokenizer_dir": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/F44_SMOLVLA_official_resource_preparation_20261006_v1/assets/HuggingFaceTB--SmolVLM2-500M-Video-Instruct"
+      },
+      "assets": [
+        {
+          "path": "HuggingFaceTB--SmolVLM2-500M-Video-Instruct/README.md",
+          "sha256": "afc4bf5f519438b221a84292979a9eac3de4b9726e5baaa82033c55f59f9f7a5",
+          "status": "PINNED_OK"
+        },
+        {
+          "path": "HuggingFaceTB--SmolVLM2-500M-Video-Instruct/added_tokens.json",
+          "sha256": "74135b8664b56088c0006f1c8e848d79a8eba003411f72ebf1dc2ee96227be3a",
+          "status": "PINNED_OK"
+        },
+        {
+          "path": "HuggingFaceTB--SmolVLM2-500M-Video-Instruct/chat_template.json",
+          "sha256": "b585e3598909a5687f9f9d738d35223724dedef256b9b274e1cbfb32b13c74bf",
+          "status": "PINNED_OK"
+        },
+        {
+          "path": "HuggingFaceTB--SmolVLM2-500M-Video-Instruct/config.json",
+          "sha256": "ea6bc1237e96247f6258de3e202e2e62b93d6f386dc47e7b36b5588bf3a15e17",
+          "status": "PINNED_OK"
+        },
+        {
+          "path": "HuggingFaceTB--SmolVLM2-500M-Video-Instruct/generation_config.json",
+          "sha256": "34835060c9f0f74d1acb456cc72ca32746d3843d9eb5f578f9cbffac1d2eb840",
+          "status": "PINNED_OK"
+        },
+        {
+          "path": "HuggingFaceTB--SmolVLM2-500M-Video-Instruct/merges.txt",
+          "sha256": "0b54e8aa4e53d5383e2e4bc635a56b43f9647f7b13832d5d9ecd8f82dac4f510",
+          "status": "PINNED_OK"
+        },
+        {
+          "path": "HuggingFaceTB--SmolVLM2-500M-Video-Instruct/model.safetensors",
+          "sha256": "b9bfd456c9472c0acd5719d6e514c4b859891af205ee1a736552fd3497b8b0c3",
+          "status": "PINNED_OK"
+        },
+        {
+          "path": "HuggingFaceTB--SmolVLM2-500M-Video-Instruct/preprocessor_config.json",
+          "sha256": "149e315d9410368e5491455bb06e0f763426e9e56cca731c13b24404a29b6374",
+          "status": "PINNED_OK"
+        },
+        {
+          "path": "HuggingFaceTB--SmolVLM2-500M-Video-Instruct/processor_config.json",
+          "sha256": "f3ad45028447b3562b4752be0d5916d6806c1ef589091a469608dcf0faa1737c",
+          "status": "PINNED_OK"
+        },
+        {
+          "path": "HuggingFaceTB--SmolVLM2-500M-Video-Instruct/special_tokens_map.json",
+          "sha256": "2dfea2a426162316ff1567c82bc6d36d9690cd9f90455f075c77daca78b45c60",
+          "status": "PINNED_OK"
+        },
+        {
+          "path": "HuggingFaceTB--SmolVLM2-500M-Video-Instruct/tokenizer.json",
+          "sha256": "5ece781dc8d2b2f3e2f289ca0ae50b17cfc27dd27bfe7971bb8241e0b964331a",
+          "status": "PINNED_OK"
+        },
+        {
+          "path": "HuggingFaceTB--SmolVLM2-500M-Video-Instruct/tokenizer_config.json",
+          "sha256": "dd9ce2ab89a3dd881bd9378f1a79b943a064b9275a7e1706d5b7b47b68977913",
+          "status": "PINNED_OK"
+        },
+        {
+          "path": "HuggingFaceTB--SmolVLM2-500M-Video-Instruct/vocab.json",
+          "sha256": "82b84012e3add4d01d12ba14442026e49b8cbbaead1f79ecf3d919784f82dc79",
+          "status": "PINNED_OK"
+        },
+        {
+          "path": "lerobot--smolvla_base/README.md",
+          "sha256": "a484071b8d7d0591452f795813fb54af9199fc1c48ef1ee995358d5ba07ee070",
+          "status": "PINNED_OK"
+        },
+        {
+          "path": "lerobot--smolvla_base/config.json",
+          "sha256": "650584b56c104720f7a3c91d1ec6bec9e8de8ac11e60c92ba2fa82d93eda147d",
+          "status": "PINNED_OK"
+        },
+        {
+          "path": "lerobot--smolvla_base/model.safetensors",
+          "sha256": "7cd549ac2351fb069c0ddb3c34ad2d09cfc92b56a15dccdfc2e41467aaca01eb",
+          "status": "PINNED_OK"
+        },
+        {
+          "path": "lerobot--smolvla_base/policy_postprocessor.json",
+          "sha256": "2b78bb742065288df2ec63b0ee35f97a1f6950171cf2272f7e34b1fe3873b17b",
+          "status": "PINNED_OK"
+        },
+        {
+          "path": "lerobot--smolvla_base/policy_postprocessor_step_0_unnormalizer_processor.safetensors",
+          "sha256": "490ab239d96e263687c0b2e386a0afbc235a2eceb9857c36ed32f2f162a3e7c8",
+          "status": "PINNED_OK"
+        },
+        {
+          "path": "lerobot--smolvla_base/policy_preprocessor.json",
+          "sha256": "7683d648280a72f0d51e869fb8dd1596beed90b7f84849330cf1bc26634a4bd6",
+          "status": "PINNED_OK"
+        },
+        {
+          "path": "lerobot--smolvla_base/policy_preprocessor_step_5_normalizer_processor.safetensors",
+          "sha256": "490ab239d96e263687c0b2e386a0afbc235a2eceb9857c36ed32f2f162a3e7c8",
+          "status": "PINNED_OK"
+        }
+      ],
+      "original_model_config": {
+        "vlm_model_name": "HuggingFaceTB/SmolVLM2-500M-Video-Instruct",
+        "hub_resolution": "DISABLED_OFFLINE_LOCAL_PINNED_ONLY"
+      },
+      "config_features": {
+        "input_features": [
+          "observation.images.camera1",
+          "observation.images.camera2",
+          "observation.images.camera3",
+          "observation.state"
+        ],
+        "output_action_shape": [
+          6
+        ],
+        "status": "CONFIG_FEATURES_MATCH"
+      },
+      "preprocessor_feature_compatibility": {
+        "policy_config_features": [
+          "action",
+          "observation.images.camera1",
+          "observation.images.camera2",
+          "observation.images.camera3",
+          "observation.state"
+        ],
+        "identity_visual_normalization_is_not_mapping_proof": true,
+        "preprocessor": {
+          "status": "RENAMED_OR_EXTRA_NAMES_REPORTED",
+          "feature_names": [
+            "action",
+            "observation.image",
+            "observation.image2",
+            "observation.image3",
+            "observation.state"
+          ],
+          "unmatched_vs_policy_config": [
+            "observation.image",
+            "observation.image2",
+            "observation.image3"
+          ]
+        },
+        "postprocessor": {
+          "status": "FEATURE_NAMES_MATCH",
+          "feature_names": [
+            "action"
+          ],
+          "unmatched_vs_policy_config": []
+        }
+      },
+      "input_images": [
+        {
+          "camera": "camera1",
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/CHATGPT_G11_VLA_GROUNDING_CONTENTION_FOUR_SOURCE_RUN_prepared_20261008_v2/workspace/inputs/camera1.png",
+          "sha256": "629a6ac69e156e0e6ed90f90d5a2bcaa2f3853bf200459bdeccd1763a94a7cc1",
+          "status": "PINNED_OK"
+        },
+        {
+          "camera": "camera2",
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/CHATGPT_G11_VLA_GROUNDING_CONTENTION_FOUR_SOURCE_RUN_prepared_20261008_v2/workspace/inputs/camera2.png",
+          "sha256": "170faecef27324bc9f9818e0f9d1c2e42be9c95922bd124ec3096ba9797885c3",
+          "status": "PINNED_OK"
+        },
+        {
+          "camera": "camera3",
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/CHATGPT_G11_VLA_GROUNDING_CONTENTION_FOUR_SOURCE_RUN_prepared_20261008_v2/workspace/inputs/camera3.png",
+          "sha256": "35e5505f200ec105fe71ef35b7ede3a821c45c810129caffc7937de23d83f096",
+          "status": "PINNED_OK"
+        }
+      ]
+    }
+  ],
+  "cases": [
+    {
+      "id": "F43_normalized_model_space",
+      "passed": true,
+      "criteria": [
+        "first output is normalized with no implicitly selected stats profile",
+        "normalized result does not assert physical units or calibration"
+      ],
+      "assertions": [
+        {
+          "criterion": "first output is normalized with no implicitly selected stats profile",
+          "passed": true
+        },
+        {
+          "criterion": "normalized result does not assert physical units or calibration",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "id": "F43_explicit_saved_stats_profile",
+      "passed": true,
+      "criteria": [
+        "second output explicitly selects saved so100.buffer.action",
+        "saved mean/std and full stats digest match declared public binding",
+        "official postprocessor applied without physical calibration claim"
+      ],
+      "assertions": [
+        {
+          "criterion": "second output explicitly selects saved so100.buffer.action",
+          "passed": true
+        },
+        {
+          "criterion": "saved mean/std and full stats digest match declared public binding",
+          "passed": true
+        },
+        {
+          "criterion": "official postprocessor applied without physical calibration claim",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "id": "F44_actual_policy_chunk_consumption",
+      "passed": true,
+      "criteria": [
+        "both returned chunks consumed as 300 finite scalar values each",
+        "both calls report official default CPU backend and no mock",
+        "both chunks postprocessed with correct shape and no physical action"
+      ],
+      "assertions": [
+        {
+          "criterion": "both returned chunks consumed as 300 finite scalar values each",
+          "passed": true
+        },
+        {
+          "criterion": "both calls report official default CPU backend and no mock",
+          "passed": true
+        },
+        {
+          "criterion": "both chunks postprocessed with correct shape and no physical action",
+          "passed": true
+        }
+      ],
+      "consumption": [
+        {
+          "scalar_count": 300,
+          "min": -0.6092667579650879,
+          "max": 1.0984687805175781,
+          "l1": 114.16907314350829,
+          "first_action": [
+            -0.12246532738208771,
+            0.05347365140914917,
+            -0.15023678541183472,
+            -0.005516760051250458,
+            0.05402788519859314,
+            -0.5748943090438843
+          ],
+          "last_action": [
+            -0.0017844289541244507,
+            0.7121284008026123,
+            0.4303683340549469,
+            0.46878552436828613,
+            0.2930769920349121,
+            -0.5126932859420776
+          ]
+        },
+        {
+          "scalar_count": 300,
+          "min": -20.24564552307129,
+          "max": 184.560302734375,
+          "l1": 18848.99152070284,
+          "first_action": [
+            -5.751835823059082,
+            129.46815490722656,
+            97.74613189697266,
+            56.17538833618164,
+            -20.24564552307129,
+            0.36310386657714844
+          ],
+          "last_action": [
+            -1.6193983554840088,
+            172.53785705566406,
+            143.59994506835938,
+            75.84768676757812,
+            -6.587837219238281,
+            1.1355390548706055
+          ]
+        }
+      ]
+    },
+    {
+      "id": "F44_generated_feedback_second_observation",
+      "passed": true,
+      "criteria": [
+        "second actual request state exactly equals first normalized action",
+        "feedback is consumed in policy coordinates without state statistics",
+        "task, seed and fixed images unchanged across feedback request"
+      ],
+      "assertions": [
+        {
+          "criterion": "second actual request state exactly equals first normalized action",
+          "passed": true
+        },
+        {
+          "criterion": "feedback is consumed in policy coordinates without state statistics",
+          "passed": true
+        },
+        {
+          "criterion": "task, seed and fixed images unchanged across feedback request",
+          "passed": true
+        }
+      ],
+      "feedback_state": [
+        -0.12246532738208771,
+        0.05347365140914917,
+        -0.15023678541183472,
+        -0.005516760051250458,
+        0.05402788519859314,
+        -0.5748943090438843
+      ]
+    }
+  ],
+  "status": "SOURCE_VALIDATED"
+}

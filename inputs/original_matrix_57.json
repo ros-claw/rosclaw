@@ -1,0 +1,3088 @@
+{
+  "status": "NO_GO_TEST_DESIGN_ONLY",
+  "ledger_version": 170,
+  "rows": [
+    {
+      "id": "F01",
+      "direction": "filetool_scope_recovery",
+      "domain": "native tooling",
+      "evidence": [
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/native_capability_50_direction_prospective_plan_20261005_v1/bounded_native50_prospective_plan_v1.json",
+          "sha256": "07eed1cf1e91164e03e148efdd7cfe4740a2cf068b0ecdd715bdbb8cd7e5d4df",
+          "json_pointer": "/directions/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ACTUAL_DIRECTION_C_CX_CI_ORIGINAL_F_inventory_20261007_v1/receipt.json",
+          "sha256": "e990d77aa5f729fb2b6c0635b7dd0d3a47f0753858eb52c56e2977527e45f569",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C60/20261003-171519/results.json",
+          "sha256": "72d4ae1af8cde5dfe2b450b84d44a18ed60457a5d548a0cc3c1239ed805da424",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/CI07/20261003-171820/results.json",
+          "sha256": "ec353500622b673f860b2ea19fe15293f516c2b7157e735475cad98492ce0854",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        }
+      ],
+      "evidence_analogue_C_CX_CI": [
+        "C60",
+        "CI07"
+      ],
+      "current_observed_scope": "\u5df2\u6709\u79bb\u7ebffixture/Native\u5386\u53f2scope\uff0cF catalog\u4e0d\u662f\u5b8c\u6210\u8bc1\u660e\u3002",
+      "catalog_original_status_preserved": "ORIGINAL_EPISODE_OPERATOR_INVALID; CONTRACT_FAIL",
+      "real_ROS_run": "NOT_PROVEN_FOR_THIS_DIRECTION_BY_C_CX_CI",
+      "real_NN_run": "NOT_PROVEN",
+      "real_physics_run": "NOT_PROVEN",
+      "physical_success": "NOT_ESTABLISHED",
+      "gap": "\u672c\u65b9\u5411\u6700\u65b0\u72ec\u7acb\u771f\u5b9e\u95ed\u73af\u9a8c\u6536\u4ecd\u9700\u4e0b\u5217\u6d4b\u8bd5\uff1bC/CX/CI\u4e0e\u76f8\u4f3cF\u4efb\u52a1\u4e0d\u80fd\u81ea\u52a8\u6298\u53e0/\u5347\u7ea7\u3002",
+      "next_independent_local_test": "\u4f7f\u7528\u5f53\u524d\u771f\u5b9eworkspace\u5de5\u5177\u5b8c\u6210\u540c\u6587\u4ef6\u4e24\u4e2a\u4e0d\u91cd\u53e0edit\uff0c\u7a7aoldText\u660e\u786e\u62d2\u7edd\uff0c\u6c49\u5b57UTF8\u5b57\u8282\u6570\u51c6\u786e\uff1b\u4fdd\u62a4\u6587\u4ef6\u5b57\u8282\u4e0d\u53d8\u3002",
+      "dependencies": [
+        "current compiled ROSClaw/PI104",
+        "privateHOME/SQLite",
+        "exact tools+scope/pinned inputs",
+        "synthetic offline provider preparation; actualChatGPT access\u9700paid completion"
+      ],
+      "next_execution_status": "NO_GO_NOT_RUN"
+    },
+    {
+      "id": "F02",
+      "direction": "artifact_scope_truthfulness",
+      "domain": "task acceptance",
+      "evidence": [
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/native_capability_50_direction_prospective_plan_20261005_v1/bounded_native50_prospective_plan_v1.json",
+          "sha256": "07eed1cf1e91164e03e148efdd7cfe4740a2cf068b0ecdd715bdbb8cd7e5d4df",
+          "json_pointer": "/directions/1",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ACTUAL_DIRECTION_C_CX_CI_ORIGINAL_F_inventory_20261007_v1/receipt.json",
+          "sha256": "e990d77aa5f729fb2b6c0635b7dd0d3a47f0753858eb52c56e2977527e45f569",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C53/20261003-171439/results.json",
+          "sha256": "afaac8b5f222328aa0cf1afc6ccf0a3a8aae8cd7bcef275e5c79ab635eb61953",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C54/20261003-171446/results.json",
+          "sha256": "64693c0a98eab73040389c04733767ddb06f79153a8e37621950aad04e0e3b39",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        }
+      ],
+      "evidence_analogue_C_CX_CI": [
+        "C53",
+        "C54"
+      ],
+      "current_observed_scope": "\u5df2\u6709\u79bb\u7ebffixture/Native\u5386\u53f2scope\uff0cF catalog\u4e0d\u662f\u5b8c\u6210\u8bc1\u660e\u3002",
+      "catalog_original_status_preserved": "SOFTWARE_COMPONENT_QUALIFIED; whole original operator invalid",
+      "real_ROS_run": "NOT_PROVEN_FOR_THIS_DIRECTION_BY_C_CX_CI",
+      "real_NN_run": "NOT_PROVEN",
+      "real_physics_run": "NOT_PROVEN",
+      "physical_success": "NOT_ESTABLISHED",
+      "gap": "\u672c\u65b9\u5411\u6700\u65b0\u72ec\u7acb\u771f\u5b9e\u95ed\u73af\u9a8c\u6536\u4ecd\u9700\u4e0b\u5217\u6d4b\u8bd5\uff1bC/CX/CI\u4e0e\u76f8\u4f3cF\u4efb\u52a1\u4e0d\u80fd\u81ea\u52a8\u6298\u53e0/\u5347\u7ea7\u3002",
+      "next_independent_local_test": "\u771f\u5b9edeliver\u2192private SQLite\u2192artifact_resolve\u9010\u4e00\u6bd4\u8def\u5f84\u3001current Task/UUID\u3001role\u3001size/SHA\uff1b\u9519\u8bef\u4efb\u52a1Ref\u62d2\u7edd\u4e14\u4e0d\u65b0\u589e\u6ce8\u518c\u3002",
+      "dependencies": [
+        "current compiled ROSClaw/PI104",
+        "privateHOME/SQLite",
+        "exact tools+scope/pinned inputs",
+        "synthetic offline provider preparation; actualChatGPT access\u9700paid completion"
+      ],
+      "next_execution_status": "NO_GO_NOT_RUN"
+    },
+    {
+      "id": "F03",
+      "direction": "managed_terminal_autocontinue",
+      "domain": "agent harness",
+      "evidence": [
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/native_capability_50_direction_prospective_plan_20261005_v1/bounded_native50_prospective_plan_v1.json",
+          "sha256": "07eed1cf1e91164e03e148efdd7cfe4740a2cf068b0ecdd715bdbb8cd7e5d4df",
+          "json_pointer": "/directions/2",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ACTUAL_DIRECTION_C_CX_CI_ORIGINAL_F_inventory_20261007_v1/receipt.json",
+          "sha256": "e990d77aa5f729fb2b6c0635b7dd0d3a47f0753858eb52c56e2977527e45f569",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C56/20261003-171458/results.json",
+          "sha256": "54f0642237a2d7f371ddd515214bb1dd3ee7cc2e4ccfe50dfb0be701b646c8ff",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        }
+      ],
+      "evidence_analogue_C_CX_CI": [
+        "C56"
+      ],
+      "current_observed_scope": "\u5df2\u6709\u79bb\u7ebffixture/Native\u5386\u53f2scope\uff0cF catalog\u4e0d\u662f\u5b8c\u6210\u8bc1\u660e\u3002",
+      "catalog_original_status_preserved": "SOFTWARE_COMPONENT_QUALIFIED_BY_ADDITIVE_READONLY_ORACLE; whole original operator invalid",
+      "real_ROS_run": "NOT_PROVEN_FOR_THIS_DIRECTION_BY_C_CX_CI",
+      "real_NN_run": "NOT_PROVEN",
+      "real_physics_run": "NOT_PROVEN",
+      "physical_success": "NOT_ESTABLISHED",
+      "gap": "\u672c\u65b9\u5411\u6700\u65b0\u72ec\u7acb\u771f\u5b9e\u95ed\u73af\u9a8c\u6536\u4ecd\u9700\u4e0b\u5217\u6d4b\u8bd5\uff1bC/CX/CI\u4e0e\u76f8\u4f3cF\u4efb\u52a1\u4e0d\u80fd\u81ea\u52a8\u6298\u53e0/\u5347\u7ea7\u3002",
+      "next_independent_local_test": "\u771f\u5b9e\u6709\u96503\u79d2managed child\uff0c\u7ec8\u6b62SSE\u901a\u77e5\u540eNative\u7ee7\u7eed\u767b\u8bb0receipt\u5e76STOP\uff1b\u4efb\u52a1\u6210\u529f\u548c\u5b50\u8fdb\u7a0b\u505c\u6b62\u5206\u5217\u3002",
+      "dependencies": [
+        "current compiled ROSClaw/PI104",
+        "privateHOME/SQLite",
+        "exact tools+scope/pinned inputs",
+        "synthetic offline provider preparation; actualChatGPT access\u9700paid completion"
+      ],
+      "next_execution_status": "NO_GO_NOT_RUN"
+    },
+    {
+      "id": "F04",
+      "direction": "planning_contract_validation",
+      "domain": "source contract",
+      "evidence": [
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/native_capability_50_direction_prospective_plan_20261005_v1/bounded_native50_prospective_plan_v1.json",
+          "sha256": "07eed1cf1e91164e03e148efdd7cfe4740a2cf068b0ecdd715bdbb8cd7e5d4df",
+          "json_pointer": "/directions/3",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ACTUAL_DIRECTION_C_CX_CI_ORIGINAL_F_inventory_20261007_v1/receipt.json",
+          "sha256": "e990d77aa5f729fb2b6c0635b7dd0d3a47f0753858eb52c56e2977527e45f569",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/CI01/20261003-171701/results.json",
+          "sha256": "cb5dc2500d2781613464ebe5444c857b0ef87b9d7f0ad69505b75db354654b8f",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/CI04/20261003-171714/results.json",
+          "sha256": "087872b3ae5a02c98afd26578a56061e9521fa8a0991bd6b155d531c96fe089f",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        }
+      ],
+      "evidence_analogue_C_CX_CI": [
+        "CI01",
+        "CI04"
+      ],
+      "current_observed_scope": "\u5df2\u6709\u79bb\u7ebffixture/Native\u5386\u53f2scope\uff0cF catalog\u4e0d\u662f\u5b8c\u6210\u8bc1\u660e\u3002",
+      "catalog_original_status_preserved": "SOFTWARE_SUBCOMPONENT_QUALIFIED; whole episode contract fail",
+      "real_ROS_run": "NOT_PROVEN_FOR_THIS_DIRECTION_BY_C_CX_CI",
+      "real_NN_run": "NOT_PROVEN",
+      "real_physics_run": "NOT_PROVEN",
+      "physical_success": "NOT_ESTABLISHED",
+      "gap": "\u672c\u65b9\u5411\u6700\u65b0\u72ec\u7acb\u771f\u5b9e\u95ed\u73af\u9a8c\u6536\u4ecd\u9700\u4e0b\u5217\u6d4b\u8bd5\uff1bC/CX/CI\u4e0e\u76f8\u4f3cF\u4efb\u52a1\u4e0d\u80fd\u81ea\u52a8\u6298\u53e0/\u5347\u7ea7\u3002",
+      "next_independent_local_test": "\u771f\u5b9e\u5df2\u6ce8\u518c\u5de5\u5177\u6b63\u8d1f\u53c2\u6570\u2192Python RPC\uff0c\u9010\u7c7b\u578b\u9519\u8bef\u4ee5\u53caoperation/task\u65b0\u589e\u6570\uff1b\u4e0d\u6267\u884c\u5e94\u7528\u8fd0\u52a8\u3002",
+      "dependencies": [
+        "current compiled ROSClaw/PI104",
+        "privateHOME/SQLite",
+        "exact tools+scope/pinned inputs",
+        "synthetic offline provider preparation; actualChatGPT access\u9700paid completion"
+      ],
+      "next_execution_status": "NO_GO_NOT_RUN"
+    },
+    {
+      "id": "F05",
+      "direction": "managed_running_cancel",
+      "domain": "process lifecycle",
+      "evidence": [
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/native_capability_50_direction_prospective_plan_20261005_v1/bounded_native50_prospective_plan_v1.json",
+          "sha256": "07eed1cf1e91164e03e148efdd7cfe4740a2cf068b0ecdd715bdbb8cd7e5d4df",
+          "json_pointer": "/directions/4",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ACTUAL_DIRECTION_C_CX_CI_ORIGINAL_F_inventory_20261007_v1/receipt.json",
+          "sha256": "e990d77aa5f729fb2b6c0635b7dd0d3a47f0753858eb52c56e2977527e45f569",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C52/20261003-171438/results.json",
+          "sha256": "7e802b38d23468fa58712103513dc41a5b16cc68de565adccdd8bd1a7f38adbc",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        }
+      ],
+      "evidence_analogue_C_CX_CI": [
+        "C52"
+      ],
+      "current_observed_scope": "\u5df2\u6709\u79bb\u7ebffixture/Native\u5386\u53f2scope\uff0cF catalog\u4e0d\u662f\u5b8c\u6210\u8bc1\u660e\u3002",
+      "catalog_original_status_preserved": "SOFTWARE_COMPONENT_QUALIFIED",
+      "real_ROS_run": "NOT_PROVEN_FOR_THIS_DIRECTION_BY_C_CX_CI",
+      "real_NN_run": "NOT_PROVEN",
+      "real_physics_run": "NOT_PROVEN",
+      "physical_success": "NOT_ESTABLISHED",
+      "gap": "\u672c\u65b9\u5411\u6700\u65b0\u72ec\u7acb\u771f\u5b9e\u95ed\u73af\u9a8c\u6536\u4ecd\u9700\u4e0b\u5217\u6d4b\u8bd5\uff1bC/CX/CI\u4e0e\u76f8\u4f3cF\u4efb\u52a1\u4e0d\u80fd\u81ea\u52a8\u6298\u53e0/\u5347\u7ea7\u3002",
+      "next_independent_local_test": "\u771f\u5b9e\u6709\u9650child\u6355\u83b7canonical8\u518dcancel\uff0c\u5224\u5b9adurable operation\u7ec8\u6001\u4e0e\u540c\u51fa\u751f\u5b9e\u9645gone\uff1b\u8bb0\u5f55STOP_UNCONFIRMED\u3002",
+      "dependencies": [
+        "current compiled ROSClaw/PI104",
+        "privateHOME/SQLite",
+        "exact tools+scope/pinned inputs",
+        "synthetic offline provider preparation; actualChatGPT access\u9700paid completion"
+      ],
+      "next_execution_status": "NO_GO_NOT_RUN"
+    },
+    {
+      "id": "F06",
+      "direction": "recorded_continuation",
+      "domain": "restart",
+      "evidence": [
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/native_capability_50_direction_prospective_plan_20261005_v1/bounded_native50_prospective_plan_v1.json",
+          "sha256": "07eed1cf1e91164e03e148efdd7cfe4740a2cf068b0ecdd715bdbb8cd7e5d4df",
+          "json_pointer": "/directions/5",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ACTUAL_DIRECTION_C_CX_CI_ORIGINAL_F_inventory_20261007_v1/receipt.json",
+          "sha256": "e990d77aa5f729fb2b6c0635b7dd0d3a47f0753858eb52c56e2977527e45f569",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C56/20261003-171458/results.json",
+          "sha256": "54f0642237a2d7f371ddd515214bb1dd3ee7cc2e4ccfe50dfb0be701b646c8ff",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        }
+      ],
+      "evidence_analogue_C_CX_CI": [
+        "C56"
+      ],
+      "current_observed_scope": "\u5df2\u6709\u79bb\u7ebffixture/Native\u5386\u53f2scope\uff0cF catalog\u4e0d\u662f\u5b8c\u6210\u8bc1\u660e\u3002",
+      "catalog_original_status_preserved": "ORIGINAL_UUID_FAIL; genericfix5d755 and freshprepared NO_GO",
+      "real_ROS_run": "NOT_PROVEN_FOR_THIS_DIRECTION_BY_C_CX_CI",
+      "real_NN_run": "NOT_PROVEN",
+      "real_physics_run": "NOT_PROVEN",
+      "physical_success": "NOT_ESTABLISHED",
+      "gap": "\u672c\u65b9\u5411\u6700\u65b0\u72ec\u7acb\u771f\u5b9e\u95ed\u73af\u9a8c\u6536\u4ecd\u9700\u4e0b\u5217\u6d4b\u8bd5\uff1bC/CX/CI\u4e0e\u76f8\u4f3cF\u4efb\u52a1\u4e0d\u80fd\u81ea\u52a8\u6298\u53e0/\u5347\u7ea7\u3002",
+      "next_independent_local_test": "\u540cUUID\u5728\u79c1\u6709home\u6b63\u5e38\u9000\u51fa\u518dresume\uff0c\u6838\u4f1a\u8bdd\u56fe\u7236\u94fe\u3001\u4e00\u6b21\u5ef6\u7eed\u3001\u539fRef\u53ef\u8bfb\u4e0e\u65e0\u91cd\u590d\u5de5\u5177\u6548\u5e94\u3002",
+      "dependencies": [
+        "current compiled ROSClaw/PI104",
+        "privateHOME/SQLite",
+        "exact tools+scope/pinned inputs",
+        "synthetic offline provider preparation; actualChatGPT access\u9700paid completion"
+      ],
+      "next_execution_status": "NO_GO_NOT_RUN"
+    },
+    {
+      "id": "F07",
+      "direction": "same_uuid_compaction",
+      "domain": "context",
+      "evidence": [
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/native_capability_50_direction_prospective_plan_20261005_v1/bounded_native50_prospective_plan_v1.json",
+          "sha256": "07eed1cf1e91164e03e148efdd7cfe4740a2cf068b0ecdd715bdbb8cd7e5d4df",
+          "json_pointer": "/directions/6",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ACTUAL_DIRECTION_C_CX_CI_ORIGINAL_F_inventory_20261007_v1/receipt.json",
+          "sha256": "e990d77aa5f729fb2b6c0635b7dd0d3a47f0753858eb52c56e2977527e45f569",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C55/20261003-171451/results.json",
+          "sha256": "efe2fdd7293c85ae63541df661e7831c72a7b76d547ef8401bb6ea7898380d42",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        }
+      ],
+      "evidence_analogue_C_CX_CI": [
+        "C55"
+      ],
+      "current_observed_scope": "\u5df2\u6709\u79bb\u7ebffixture/Native\u5386\u53f2scope\uff0cF catalog\u4e0d\u662f\u5b8c\u6210\u8bc1\u660e\u3002",
+      "catalog_original_status_preserved": "OPERATOR_PREPARATION_INVALID_NOTHING_TO_COMPACT",
+      "real_ROS_run": "NOT_PROVEN_FOR_THIS_DIRECTION_BY_C_CX_CI",
+      "real_NN_run": "NOT_PROVEN",
+      "real_physics_run": "NOT_PROVEN",
+      "physical_success": "NOT_ESTABLISHED",
+      "gap": "\u672c\u65b9\u5411\u6700\u65b0\u72ec\u7acb\u771f\u5b9e\u95ed\u73af\u9a8c\u6536\u4ecd\u9700\u4e0b\u5217\u6d4b\u8bd5\uff1bC/CX/CI\u4e0e\u76f8\u4f3cF\u4efb\u52a1\u4e0d\u80fd\u81ea\u52a8\u6298\u53e0/\u5347\u7ea7\u3002",
+      "next_independent_local_test": "\u5f53\u524dPI104\u79c1\u6709\u4f1a\u8bdd\u4ee5\u56fa\u5b9a\u5408\u6210\u5bf9\u8bdd\u89e6\u53d1compaction\uff0c\u4fdd\u5b58\u539f\u8282\u70b9\u4e0e\u6458\u8981\u5f15\u7528\u8986\u76d6\uff1b\u4e0d\u8bfb\u53d6\u771f\u5b9ethinking\u3002",
+      "dependencies": [
+        "current compiled ROSClaw/PI104",
+        "privateHOME/SQLite",
+        "exact tools+scope/pinned inputs",
+        "synthetic offline provider preparation; actualChatGPT access\u9700paid completion"
+      ],
+      "next_execution_status": "NO_GO_NOT_RUN"
+    },
+    {
+      "id": "F08",
+      "direction": "ros2_readonly_interface",
+      "domain": "ROS2",
+      "evidence": [
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/native_capability_50_direction_prospective_plan_20261005_v1/bounded_native50_prospective_plan_v1.json",
+          "sha256": "07eed1cf1e91164e03e148efdd7cfe4740a2cf068b0ecdd715bdbb8cd7e5d4df",
+          "json_pointer": "/directions/7",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ACTUAL_DIRECTION_C_CX_CI_ORIGINAL_F_inventory_20261007_v1/receipt.json",
+          "sha256": "e990d77aa5f729fb2b6c0635b7dd0d3a47f0753858eb52c56e2977527e45f569",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave5_nonphysical4_20261003/CI05/20261003-174946/results.json",
+          "sha256": "570f35a153d19a25bdb9061dab3d35f9dc2bc24ed0eb4ca92f797356ab4dc11c",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C05/20261003-171027/results.json",
+          "sha256": "ae893cfbcacf84663a5416fb2ebcb979534d9e7aa17f5886107dd092c22409cd",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ACTUAL_DIRECTION_C_CX_CI_ORIGINAL_F_inventory_20261007_v1/receipt.json",
+          "sha256": "e990d77aa5f729fb2b6c0635b7dd0d3a47f0753858eb52c56e2977527e45f569",
+          "json_pointer": "/F50/current_incremental_evidence",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        }
+      ],
+      "evidence_analogue_C_CX_CI": [
+        "CI05",
+        "C05"
+      ],
+      "current_observed_scope": "inventory\u660e\u786e\u8bb0\u5f55\u771f\u5b9eROS callback/managed\u7ec4\u4ef6\uff0c\u539fwhole\u5931\u8d25\u4fdd\u7559\uff1b\u975e\u5b9e\u4f53\u8fd0\u52a8\u3002",
+      "catalog_original_status_preserved": "PLANNED_NOT_EXECUTED",
+      "real_ROS_run": "RECORDED_REAL_GENERATED_MIDDLEWARE_COMPONENT",
+      "real_NN_run": "NOT_PROVEN",
+      "real_physics_run": "NOT_PROVEN",
+      "physical_success": "NOT_ESTABLISHED",
+      "gap": "\u672c\u65b9\u5411\u6700\u65b0\u72ec\u7acb\u771f\u5b9e\u95ed\u73af\u9a8c\u6536\u4ecd\u9700\u4e0b\u5217\u6d4b\u8bd5\uff1bC/CX/CI\u4e0e\u76f8\u4f3cF\u4efb\u52a1\u4e0d\u80fd\u81ea\u52a8\u6298\u53e0/\u5347\u7ea7\u3002",
+      "next_independent_local_test": "\u672c\u673a\u9694\u79bbROS2 domain\u771f\u5b9eparameter/list/read\uff0c\u4ec5\u751f\u6210\u8282\u70b9\uff1b\u6838Node\u2192RPC\u2192rclpy\u771f\u5b9e\u8fd4\u56de/\u7c7b\u578b\u548c\u53d6\u6d88\u6062\u590d\u3002",
+      "dependencies": [
+        "ROS2 Jazzy/rclpy/rclcpp/tf2\u76f8\u5e94\u5305",
+        "\u9694\u79bbROS_DOMAIN_ID",
+        "generated fixtures",
+        "\u5f53\u524dcompiled ROSClaw runtime"
+      ],
+      "next_execution_status": "NO_GO_NOT_RUN"
+    },
+    {
+      "id": "F09",
+      "direction": "frozen_required_file_acceptance",
+      "domain": "task acceptance",
+      "evidence": [
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/native_capability_50_direction_prospective_plan_20261005_v1/bounded_native50_prospective_plan_v1.json",
+          "sha256": "07eed1cf1e91164e03e148efdd7cfe4740a2cf068b0ecdd715bdbb8cd7e5d4df",
+          "json_pointer": "/directions/8",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ACTUAL_DIRECTION_C_CX_CI_ORIGINAL_F_inventory_20261007_v1/receipt.json",
+          "sha256": "e990d77aa5f729fb2b6c0635b7dd0d3a47f0753858eb52c56e2977527e45f569",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C53/20261003-171439/results.json",
+          "sha256": "afaac8b5f222328aa0cf1afc6ccf0a3a8aae8cd7bcef275e5c79ab635eb61953",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        }
+      ],
+      "evidence_analogue_C_CX_CI": [
+        "C53"
+      ],
+      "current_observed_scope": "\u5df2\u6709\u79bb\u7ebffixture/Native\u5386\u53f2scope\uff0cF catalog\u4e0d\u662f\u5b8c\u6210\u8bc1\u660e\u3002",
+      "catalog_original_status_preserved": "AGGREGATE_BUDGET_FAIL_NOT_COMPLETE",
+      "real_ROS_run": "NOT_PROVEN_FOR_THIS_DIRECTION_BY_C_CX_CI",
+      "real_NN_run": "NOT_PROVEN",
+      "real_physics_run": "NOT_PROVEN",
+      "physical_success": "NOT_ESTABLISHED",
+      "gap": "\u672c\u65b9\u5411\u6700\u65b0\u72ec\u7acb\u771f\u5b9e\u95ed\u73af\u9a8c\u6536\u4ecd\u9700\u4e0b\u5217\u6d4b\u8bd5\uff1bC/CX/CI\u4e0e\u76f8\u4f3cF\u4efb\u52a1\u4e0d\u80fd\u81ea\u52a8\u6298\u53e0/\u5347\u7ea7\u3002",
+      "next_independent_local_test": "\u771f\u5b9edeliver\u524d\u9010\u5fc5\u9700\u6587\u4ef6SHA/role/current Task\u6821\u9a8c\uff0c\u7f3a\u6587\u4ef6\u4e0e\u9519\u6458\u8981\u4e0d\u5f97\u83b7\u5f97whole\u6210\u529f\u3002",
+      "dependencies": [
+        "current compiled ROSClaw/PI104",
+        "privateHOME/SQLite",
+        "exact tools+scope/pinned inputs",
+        "synthetic offline provider preparation; actualChatGPT access\u9700paid completion"
+      ],
+      "next_execution_status": "NO_GO_NOT_RUN"
+    },
+    {
+      "id": "F10",
+      "direction": "immutable_source_closure",
+      "domain": "artifact provenance",
+      "evidence": [
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/native_capability_50_direction_prospective_plan_20261005_v1/bounded_native50_prospective_plan_v1.json",
+          "sha256": "07eed1cf1e91164e03e148efdd7cfe4740a2cf068b0ecdd715bdbb8cd7e5d4df",
+          "json_pointer": "/directions/9",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ACTUAL_DIRECTION_C_CX_CI_ORIGINAL_F_inventory_20261007_v1/receipt.json",
+          "sha256": "e990d77aa5f729fb2b6c0635b7dd0d3a47f0753858eb52c56e2977527e45f569",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C53/20261003-171439/results.json",
+          "sha256": "afaac8b5f222328aa0cf1afc6ccf0a3a8aae8cd7bcef275e5c79ab635eb61953",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        }
+      ],
+      "evidence_analogue_C_CX_CI": [
+        "C53"
+      ],
+      "current_observed_scope": "\u5df2\u6709\u79bb\u7ebffixture/Native\u5386\u53f2scope\uff0cF catalog\u4e0d\u662f\u5b8c\u6210\u8bc1\u660e\u3002",
+      "catalog_original_status_preserved": "PLANNED_NATIVE_NOT_EXECUTED",
+      "real_ROS_run": "NOT_PROVEN_FOR_THIS_DIRECTION_BY_C_CX_CI",
+      "real_NN_run": "NOT_PROVEN",
+      "real_physics_run": "NOT_PROVEN",
+      "physical_success": "NOT_ESTABLISHED",
+      "gap": "\u672c\u65b9\u5411\u6700\u65b0\u72ec\u7acb\u771f\u5b9e\u95ed\u73af\u9a8c\u6536\u4ecd\u9700\u4e0b\u5217\u6d4b\u8bd5\uff1bC/CX/CI\u4e0e\u76f8\u4f3cF\u4efb\u52a1\u4e0d\u80fd\u81ea\u52a8\u6298\u53e0/\u5347\u7ea7\u3002",
+      "next_independent_local_test": "\u91cd\u653eNative\u6210\u529fwrite/edit/formatter\u7684\u539f\u5b57\u8282\u94fe\uff0c\u6784\u5efacandidate\u540e\u6e90manifest\u4e0d\u53d8\uff1b\u4e0d\u5141\u8bb8operator\u8865\u6e90\u3002",
+      "dependencies": [
+        "current compiled ROSClaw/PI104",
+        "privateHOME/SQLite",
+        "exact tools+scope/pinned inputs",
+        "synthetic offline provider preparation; actualChatGPT access\u9700paid completion"
+      ],
+      "next_execution_status": "NO_GO_NOT_RUN"
+    },
+    {
+      "id": "F11",
+      "direction": "longline_process_output",
+      "domain": "process output",
+      "evidence": [
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/native_capability_50_direction_prospective_plan_20261005_v1/bounded_native50_prospective_plan_v1.json",
+          "sha256": "07eed1cf1e91164e03e148efdd7cfe4740a2cf068b0ecdd715bdbb8cd7e5d4df",
+          "json_pointer": "/directions/10",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ACTUAL_DIRECTION_C_CX_CI_ORIGINAL_F_inventory_20261007_v1/receipt.json",
+          "sha256": "e990d77aa5f729fb2b6c0635b7dd0d3a47f0753858eb52c56e2977527e45f569",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C59/20261003-171514/results.json",
+          "sha256": "f5d2ca85c61250395395385f4c1367ce8c85ff76144989aecbab076588cd6650",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        }
+      ],
+      "evidence_analogue_C_CX_CI": [
+        "C59"
+      ],
+      "current_observed_scope": "\u5df2\u6709\u79bb\u7ebffixture/Native\u5386\u53f2scope\uff0cF catalog\u4e0d\u662f\u5b8c\u6210\u8bc1\u660e\u3002",
+      "catalog_original_status_preserved": "GENERIC_FRAMEWORK_FIX_TESTED; native episode planned",
+      "real_ROS_run": "NOT_PROVEN_FOR_THIS_DIRECTION_BY_C_CX_CI",
+      "real_NN_run": "NOT_PROVEN",
+      "real_physics_run": "NOT_PROVEN",
+      "physical_success": "NOT_ESTABLISHED",
+      "gap": "\u672c\u65b9\u5411\u6700\u65b0\u72ec\u7acb\u771f\u5b9e\u95ed\u73af\u9a8c\u6536\u4ecd\u9700\u4e0b\u5217\u6d4b\u8bd5\uff1bC/CX/CI\u4e0e\u76f8\u4f3cF\u4efb\u52a1\u4e0d\u80fd\u81ea\u52a8\u6298\u53e0/\u5347\u7ea7\u3002",
+      "next_independent_local_test": "\u5b9e\u9645Bash/managed stdout 64KiB\u8fb9\u754c\u3001emoji\u3001BOM\u3001\u65e0\u6362\u884c\u957f\u884c\uff1b\u5b8c\u6574\u6301\u4e45\u6587\u4ef6\u4e0epreview\u524d\u7f00/\u6709\u6548UTF8/exit\u5206\u522b\u6838\u9a8c\u3002",
+      "dependencies": [
+        "current compiled ROSClaw/PI104",
+        "privateHOME/SQLite",
+        "exact tools+scope/pinned inputs",
+        "synthetic offline provider preparation; actualChatGPT access\u9700paid completion"
+      ],
+      "next_execution_status": "NO_GO_NOT_RUN"
+    },
+    {
+      "id": "F12",
+      "direction": "ros1_actionlib_cancel",
+      "domain": "ROS1 action",
+      "evidence": [
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/native_capability_50_direction_prospective_plan_20261005_v1/bounded_native50_prospective_plan_v1.json",
+          "sha256": "07eed1cf1e91164e03e148efdd7cfe4740a2cf068b0ecdd715bdbb8cd7e5d4df",
+          "json_pointer": "/directions/11",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ACTUAL_DIRECTION_C_CX_CI_ORIGINAL_F_inventory_20261007_v1/receipt.json",
+          "sha256": "e990d77aa5f729fb2b6c0635b7dd0d3a47f0753858eb52c56e2977527e45f569",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C52/20261003-171438/results.json",
+          "sha256": "7e802b38d23468fa58712103513dc41a5b16cc68de565adccdd8bd1a7f38adbc",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        }
+      ],
+      "evidence_analogue_C_CX_CI": [
+        "C52"
+      ],
+      "current_observed_scope": "\u5df2\u6709\u79bb\u7ebffixture/Native\u5386\u53f2scope\uff0cF catalog\u4e0d\u662f\u5b8c\u6210\u8bc1\u660e\u3002",
+      "catalog_original_status_preserved": "PLANNED_NOT_EXECUTED; previous ROS1 TCPROS21 does not cover actionlib",
+      "real_ROS_run": "NOT_PROVEN_FOR_THIS_DIRECTION_BY_C_CX_CI",
+      "real_NN_run": "NOT_PROVEN",
+      "real_physics_run": "NOT_PROVEN",
+      "physical_success": "NOT_ESTABLISHED",
+      "gap": "\u672c\u65b9\u5411\u6700\u65b0\u72ec\u7acb\u771f\u5b9e\u95ed\u73af\u9a8c\u6536\u4ecd\u9700\u4e0b\u5217\u6d4b\u8bd5\uff1bC/CX/CI\u4e0e\u76f8\u4f3cF\u4efb\u52a1\u4e0d\u80fd\u81ea\u52a8\u6298\u53e0/\u5347\u7ea7\u3002",
+      "next_independent_local_test": "Noetic\u79c1\u6709action server\u6536\u5230goal/cancel\u540e\u5b9e\u9645\u505c\u6b62\u6709\u9650timer\uff1baction\u7ed3\u679c\u4e0ephysical-stop receipt\u5206\u522b\u5224\u3002",
+      "dependencies": [
+        "\u5df2\u5c01Noetic\u73af\u5883/container\uff08\u672c\u673a/opt/ros\u5f53\u524d\u53ea\u89c1jazzy\uff09",
+        "TCPROS/actionlib/service\u5e93",
+        "finite helper identity",
+        "\u5f53\u524dcompiled runtime"
+      ],
+      "next_execution_status": "NO_GO_NOT_RUN"
+    },
+    {
+      "id": "F13",
+      "direction": "sensor_freshness_failstop",
+      "domain": "sensor/control",
+      "evidence": [
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/native_capability_50_direction_prospective_plan_20261005_v1/bounded_native50_prospective_plan_v1.json",
+          "sha256": "07eed1cf1e91164e03e148efdd7cfe4740a2cf068b0ecdd715bdbb8cd7e5d4df",
+          "json_pointer": "/directions/12",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ACTUAL_DIRECTION_C_CX_CI_ORIGINAL_F_inventory_20261007_v1/receipt.json",
+          "sha256": "e990d77aa5f729fb2b6c0635b7dd0d3a47f0753858eb52c56e2977527e45f569",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C10/20261003-171050/results.json",
+          "sha256": "0eb73288ac6f48ec38056cafb997fe2c9f0d4e9cd418434df162313cbdb6863c",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C11/20261003-171055/results.json",
+          "sha256": "449051b0cb11c95861e8c5d54626af99202373cf0f8ed1992080294418906440",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ACTUAL_DIRECTION_C_CX_CI_ORIGINAL_F_inventory_20261007_v1/receipt.json",
+          "sha256": "e990d77aa5f729fb2b6c0635b7dd0d3a47f0753858eb52c56e2977527e45f569",
+          "json_pointer": "/F50/current_incremental_evidence",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        }
+      ],
+      "evidence_analogue_C_CX_CI": [
+        "C10",
+        "C11"
+      ],
+      "current_observed_scope": "inventory\u660e\u786e\u8bb0\u5f55\u771f\u5b9eROS callback/managed\u7ec4\u4ef6\uff0c\u539fwhole\u5931\u8d25\u4fdd\u7559\uff1b\u975e\u5b9e\u4f53\u8fd0\u52a8\u3002",
+      "catalog_original_status_preserved": "PLANNED_NOT_EXECUTED",
+      "real_ROS_run": "RECORDED_REAL_GENERATED_MIDDLEWARE_COMPONENT",
+      "real_NN_run": "NOT_PROVEN",
+      "real_physics_run": "NOT_PROVEN",
+      "physical_success": "NOT_ESTABLISHED",
+      "gap": "\u672c\u65b9\u5411\u6700\u65b0\u72ec\u7acb\u771f\u5b9e\u95ed\u73af\u9a8c\u6536\u4ecd\u9700\u4e0b\u5217\u6d4b\u8bd5\uff1bC/CX/CI\u4e0e\u76f8\u4f3cF\u4efb\u52a1\u4e0d\u80fd\u81ea\u52a8\u6298\u53e0/\u5347\u7ea7\u3002",
+      "next_independent_local_test": "Jazzy\u751f\u6210\u5e26timestamp\u6570\u636e\uff0c\u505c\u6b62publisher\u9020\u6210stale\uff1b\u5b9e\u9645\u8ba2\u9605\u56de\u8c03/\u6682\u505c/\u6062\u590d\u53ca\u7ec8\u6001\u8bb0\u5f55\uff0c\u4e0d\u63a5\u7535\u673a\u3002",
+      "dependencies": [
+        "ROS2 Jazzy/rclpy/rclcpp/tf2\u76f8\u5e94\u5305",
+        "\u9694\u79bbROS_DOMAIN_ID",
+        "generated fixtures",
+        "\u5f53\u524dcompiled ROSClaw runtime"
+      ],
+      "next_execution_status": "NO_GO_NOT_RUN"
+    },
+    {
+      "id": "F14",
+      "direction": "ros2_action_cancel_stop",
+      "domain": "ROS2 action",
+      "evidence": [
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/native_capability_50_direction_prospective_plan_20261005_v1/bounded_native50_prospective_plan_v1.json",
+          "sha256": "07eed1cf1e91164e03e148efdd7cfe4740a2cf068b0ecdd715bdbb8cd7e5d4df",
+          "json_pointer": "/directions/13",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ACTUAL_DIRECTION_C_CX_CI_ORIGINAL_F_inventory_20261007_v1/receipt.json",
+          "sha256": "e990d77aa5f729fb2b6c0635b7dd0d3a47f0753858eb52c56e2977527e45f569",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C52/20261003-171438/results.json",
+          "sha256": "7e802b38d23468fa58712103513dc41a5b16cc68de565adccdd8bd1a7f38adbc",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        }
+      ],
+      "evidence_analogue_C_CX_CI": [
+        "C52"
+      ],
+      "current_observed_scope": "\u5df2\u6709\u79bb\u7ebffixture/Native\u5386\u53f2scope\uff0cF catalog\u4e0d\u662f\u5b8c\u6210\u8bc1\u660e\u3002",
+      "catalog_original_status_preserved": "PLANNED_NOT_EXECUTED",
+      "real_ROS_run": "NOT_PROVEN_FOR_THIS_DIRECTION_BY_C_CX_CI",
+      "real_NN_run": "NOT_PROVEN",
+      "real_physics_run": "NOT_PROVEN",
+      "physical_success": "NOT_ESTABLISHED",
+      "gap": "\u672c\u65b9\u5411\u6700\u65b0\u72ec\u7acb\u771f\u5b9e\u95ed\u73af\u9a8c\u6536\u4ecd\u9700\u4e0b\u5217\u6d4b\u8bd5\uff1bC/CX/CI\u4e0e\u76f8\u4f3cF\u4efb\u52a1\u4e0d\u80fd\u81ea\u52a8\u6298\u53e0/\u5347\u7ea7\u3002",
+      "next_independent_local_test": "Jazzy\u6709\u9650action goal/feedback/cancel/result\uff0c\u91cd\u590dcancel\u4e0d\u91cd\u8ba1\uff1b\u65e0\u5b9e\u4f53\u6267\u884c\u3002",
+      "dependencies": [
+        "ROS2 Jazzy/rclpy/rclcpp/tf2\u76f8\u5e94\u5305",
+        "\u9694\u79bbROS_DOMAIN_ID",
+        "generated fixtures",
+        "\u5f53\u524dcompiled ROSClaw runtime"
+      ],
+      "next_execution_status": "NO_GO_NOT_RUN"
+    },
+    {
+      "id": "F15",
+      "direction": "causal_timestamped_filter",
+      "domain": "filters",
+      "evidence": [
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/native_capability_50_direction_prospective_plan_20261005_v1/bounded_native50_prospective_plan_v1.json",
+          "sha256": "07eed1cf1e91164e03e148efdd7cfe4740a2cf068b0ecdd715bdbb8cd7e5d4df",
+          "json_pointer": "/directions/14",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ACTUAL_DIRECTION_C_CX_CI_ORIGINAL_F_inventory_20261007_v1/receipt.json",
+          "sha256": "e990d77aa5f729fb2b6c0635b7dd0d3a47f0753858eb52c56e2977527e45f569",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C35/20261003-171305/results.json",
+          "sha256": "ab56ce79ef71e999f81120dcee4627bc99469b20f5a914deee902272079a140b",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C36/20261003-171315/results.json",
+          "sha256": "6d6f8e8aaa21a4ba728ef36534d78d12ef60a1fd99504a4b713e7d1b4c8673a1",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C37/20261003-171318/results.json",
+          "sha256": "196359c634b3a3121d153fe4f938c241b3ece4c22c19cc07d4bef2d2db523482",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C38/20261003-171320/results.json",
+          "sha256": "8ff0e6ac19157371da8b2fba88b13559cf202c4a8112df9ae4faf157512d9bb3",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/CX06/20261003-171607/results.json",
+          "sha256": "d3b3b52dcfce5d531e90373d8a057bb038c9b011b623ba8b34a0a8fb8c887d8a",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        }
+      ],
+      "evidence_analogue_C_CX_CI": [
+        "C35",
+        "C36",
+        "C37",
+        "C38",
+        "CX06"
+      ],
+      "current_observed_scope": "\u5df2\u6709\u79bb\u7ebffixture/Native\u5386\u53f2scope\uff0cF catalog\u4e0d\u662f\u5b8c\u6210\u8bc1\u660e\u3002",
+      "catalog_original_status_preserved": "PROSPECTIVE_NO_PACKET_GO_OR_MODEL_EPISODE",
+      "real_ROS_run": "NOT_PROVEN_FOR_THIS_DIRECTION_BY_C_CX_CI",
+      "real_NN_run": "NOT_PROVEN",
+      "real_physics_run": "NOT_PROVEN",
+      "physical_success": "NOT_ESTABLISHED",
+      "gap": "\u672c\u65b9\u5411\u6700\u65b0\u72ec\u7acb\u771f\u5b9e\u95ed\u73af\u9a8c\u6536\u4ecd\u9700\u4e0b\u5217\u6d4b\u8bd5\uff1bC/CX/CI\u4e0e\u76f8\u4f3cF\u4efb\u52a1\u4e0d\u80fd\u81ea\u52a8\u6298\u53e0/\u5347\u7ea7\u3002",
+      "next_independent_local_test": "\u4e0d\u89c4\u5219dt/dropout/\u51b2\u51fb\u8f93\u5165\uff0c\u72ec\u7acb\u6807\u91cf\u9012\u63a8+\u622a\u65ad\u672a\u6765\u6837\u672c\u4e0d\u5f71\u54cd\u8fc7\u53bb\u8f93\u51fa\uff1b\u5305\u542b\u65f6\u95f4\u5012\u9000\u4e0eNaN\u3002",
+      "dependencies": [
+        "pinned Python/NumPy",
+        "\u516c\u5f00\u786e\u5b9a\u6027\u6570\u636e/\u72ec\u7acboracle",
+        "\u771f\u5b9emiddleware\u6216physics\u9700\u8981\u53e6scope/GO"
+      ],
+      "next_execution_status": "NO_GO_NOT_RUN"
+    },
+    {
+      "id": "F16",
+      "direction": "se3_camera_depth_projection",
+      "domain": "3D perception",
+      "evidence": [
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/native_capability_50_direction_prospective_plan_20261005_v1/bounded_native50_prospective_plan_v1.json",
+          "sha256": "07eed1cf1e91164e03e148efdd7cfe4740a2cf068b0ecdd715bdbb8cd7e5d4df",
+          "json_pointer": "/directions/15",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ACTUAL_DIRECTION_C_CX_CI_ORIGINAL_F_inventory_20261007_v1/receipt.json",
+          "sha256": "e990d77aa5f729fb2b6c0635b7dd0d3a47f0753858eb52c56e2977527e45f569",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C08/20261003-171031/results.json",
+          "sha256": "d9ace310f3fc6d7432252271417fbe95a7dc2955a399ef49a923338d591c1ff4",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C17/20261003-171137/results.json",
+          "sha256": "6923f9419415db7c7f1766a9407d03421dee2bc333863db935b0acf35adebae3",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/CX01/20261003-171524/results.json",
+          "sha256": "5f9f87dd1783e0d2ae0d061ebdabd778225c89e858cd4ba5b76abe1a97b3174e",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        }
+      ],
+      "evidence_analogue_C_CX_CI": [
+        "C08",
+        "C17",
+        "CX01"
+      ],
+      "current_observed_scope": "\u5df2\u6709\u79bb\u7ebffixture/Native\u5386\u53f2scope\uff0cF catalog\u4e0d\u662f\u5b8c\u6210\u8bc1\u660e\u3002",
+      "catalog_original_status_preserved": "PROSPECTIVE_NO_PACKET_GO_OR_MODEL_EPISODE",
+      "real_ROS_run": "NOT_PROVEN_FOR_THIS_DIRECTION_BY_C_CX_CI",
+      "real_NN_run": "NOT_PROVEN",
+      "real_physics_run": "NOT_PROVEN",
+      "physical_success": "NOT_ESTABLISHED",
+      "gap": "\u672c\u65b9\u5411\u6700\u65b0\u72ec\u7acb\u771f\u5b9e\u95ed\u73af\u9a8c\u6536\u4ecd\u9700\u4e0b\u5217\u6d4b\u8bd5\uff1bC/CX/CI\u4e0e\u76f8\u4f3cF\u4efb\u52a1\u4e0d\u80fd\u81ea\u52a8\u6298\u53e0/\u5347\u7ea7\u3002",
+      "next_independent_local_test": "\u975e\u5355\u4f4dSE3\u76f8\u673a\u5916\u53c2+mm\u6df1\u5ea6/\u7a7a\u6d1e\uff0c\u72ec\u7acb\u6295\u5f71\u548c\u9006\u6295\u5f71\u95ed\u5408\uff0c\u8f74/\u5c3a\u5ea6\u8bef\u7528\u53cd\u4f8b\u3002",
+      "dependencies": [
+        "pinned Python/NumPy",
+        "\u516c\u5f00\u786e\u5b9a\u6027\u6570\u636e/\u72ec\u7acboracle",
+        "\u771f\u5b9emiddleware\u6216physics\u9700\u8981\u53e6scope/GO"
+      ],
+      "next_execution_status": "NO_GO_NOT_RUN"
+    },
+    {
+      "id": "F17",
+      "direction": "bounded_dynamic_grid_path",
+      "domain": "path planning",
+      "evidence": [
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/native_capability_50_direction_prospective_plan_20261005_v1/bounded_native50_prospective_plan_v1.json",
+          "sha256": "07eed1cf1e91164e03e148efdd7cfe4740a2cf068b0ecdd715bdbb8cd7e5d4df",
+          "json_pointer": "/directions/16",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ACTUAL_DIRECTION_C_CX_CI_ORIGINAL_F_inventory_20261007_v1/receipt.json",
+          "sha256": "e990d77aa5f729fb2b6c0635b7dd0d3a47f0753858eb52c56e2977527e45f569",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C24/20261003-171214/results.json",
+          "sha256": "237ce5e33a0d4f5646f70af98ef1c6d8ca968df658db691a344f81ce535d713c",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C26/20261003-171218/results.json",
+          "sha256": "81ae819dab7147c90fab8e28cb023159b6eb91bb71279de87bb211fddc94cc18",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C27/20261003-171226/results.json",
+          "sha256": "e4ebcb6c3e3de4d043a675f276710d0f94395411de334b3bc2b41c6587640b94",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C28/20261003-171232/results.json",
+          "sha256": "3c4a03cb8113f5ecc676e9694dab1bc4d21b4789d81675f0278372d23dead413",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/CX09/20261003-171623/results.json",
+          "sha256": "ea24d7ce4dd8cd4a8fd7cf2e0bad8fbf766fd2bb269c89eb8cf3137cda668b31",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        }
+      ],
+      "evidence_analogue_C_CX_CI": [
+        "C24",
+        "C26",
+        "C27",
+        "C28",
+        "CX09"
+      ],
+      "current_observed_scope": "\u5df2\u6709\u79bb\u7ebffixture/Native\u5386\u53f2scope\uff0cF catalog\u4e0d\u662f\u5b8c\u6210\u8bc1\u660e\u3002",
+      "catalog_original_status_preserved": "PROSPECTIVE_NO_PACKET_GO_OR_MODEL_EPISODE",
+      "real_ROS_run": "NOT_PROVEN_FOR_THIS_DIRECTION_BY_C_CX_CI",
+      "real_NN_run": "NOT_PROVEN",
+      "real_physics_run": "NOT_PROVEN",
+      "physical_success": "NOT_ESTABLISHED",
+      "gap": "\u672c\u65b9\u5411\u6700\u65b0\u72ec\u7acb\u771f\u5b9e\u95ed\u73af\u9a8c\u6536\u4ecd\u9700\u4e0b\u5217\u6d4b\u8bd5\uff1bC/CX/CI\u4e0e\u76f8\u4f3cF\u4efb\u52a1\u4e0d\u80fd\u81ea\u52a8\u6298\u53e0/\u5347\u7ea7\u3002",
+      "next_independent_local_test": "\u5360\u636e\u6805\u683c\u542b\u52a8\u6001\u969c\u788d\u3001\u89d2\u843d/footprint\uff0c\u72ec\u7acbDijkstra\u548cswept-cell\u68c0\u67e5\uff1b\u65e0\u8def\u5f84\u5fc5\u987b\u8bda\u5b9e\u4e0d\u53ef\u884c\u3002",
+      "dependencies": [
+        "pinned Python/NumPy",
+        "\u516c\u5f00\u786e\u5b9a\u6027\u6570\u636e/\u72ec\u7acboracle",
+        "\u771f\u5b9emiddleware\u6216physics\u9700\u8981\u53e6scope/GO"
+      ],
+      "next_execution_status": "NO_GO_NOT_RUN"
+    },
+    {
+      "id": "F18",
+      "direction": "ros2_graph_parameter_readonly",
+      "domain": "ROS2",
+      "evidence": [
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/native_capability_50_direction_prospective_plan_20261005_v1/bounded_native50_prospective_plan_v1.json",
+          "sha256": "07eed1cf1e91164e03e148efdd7cfe4740a2cf068b0ecdd715bdbb8cd7e5d4df",
+          "json_pointer": "/directions/17",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ACTUAL_DIRECTION_C_CX_CI_ORIGINAL_F_inventory_20261007_v1/receipt.json",
+          "sha256": "e990d77aa5f729fb2b6c0635b7dd0d3a47f0753858eb52c56e2977527e45f569",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C04/20261003-171007/results.json",
+          "sha256": "4cbe1bdc309e9912e0f61566deef0800108cba0e05d7c1dd168a94deef631cd7",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave5_nonphysical4_20261003/CI05/20261003-174946/results.json",
+          "sha256": "570f35a153d19a25bdb9061dab3d35f9dc2bc24ed0eb4ca92f797356ab4dc11c",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        }
+      ],
+      "evidence_analogue_C_CX_CI": [
+        "C04",
+        "CI05"
+      ],
+      "current_observed_scope": "\u5df2\u6709\u79bb\u7ebffixture/Native\u5386\u53f2scope\uff0cF catalog\u4e0d\u662f\u5b8c\u6210\u8bc1\u660e\u3002",
+      "catalog_original_status_preserved": "PROSPECTIVE_NO_PACKET_GO_OR_MODEL_EPISODE",
+      "real_ROS_run": "NOT_PROVEN_FOR_THIS_DIRECTION_BY_C_CX_CI",
+      "real_NN_run": "NOT_PROVEN",
+      "real_physics_run": "NOT_PROVEN",
+      "physical_success": "NOT_ESTABLISHED",
+      "gap": "\u672c\u65b9\u5411\u6700\u65b0\u72ec\u7acb\u771f\u5b9e\u95ed\u73af\u9a8c\u6536\u4ecd\u9700\u4e0b\u5217\u6d4b\u8bd5\uff1bC/CX/CI\u4e0e\u76f8\u4f3cF\u4efb\u52a1\u4e0d\u80fd\u81ea\u52a8\u6298\u53e0/\u5347\u7ea7\u3002",
+      "next_independent_local_test": "\u771f\u5b9eROS2\u53c2\u6570service\u542b\u547d\u540d\u7a7a\u95f4\u78b0\u649e\u3001\u8282\u70b9\u91cd\u542f\u3001\u8bfb\u56de\u503c/\u7c7b\u578b\uff1b\u4e0d\u5c06\u4fdd\u5b58graph\u5f53\u5728\u7ebf\u53d1\u73b0\u3002",
+      "dependencies": [
+        "ROS2 Jazzy/rclpy/rclcpp/tf2\u76f8\u5e94\u5305",
+        "\u9694\u79bbROS_DOMAIN_ID",
+        "generated fixtures",
+        "\u5f53\u524dcompiled ROSClaw runtime"
+      ],
+      "next_execution_status": "NO_GO_NOT_RUN"
+    },
+    {
+      "id": "F19",
+      "direction": "ros1_topic_latch_reconnect",
+      "domain": "ROS1",
+      "evidence": [
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/native_capability_50_direction_prospective_plan_20261005_v1/bounded_native50_prospective_plan_v1.json",
+          "sha256": "07eed1cf1e91164e03e148efdd7cfe4740a2cf068b0ecdd715bdbb8cd7e5d4df",
+          "json_pointer": "/directions/18",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ACTUAL_DIRECTION_C_CX_CI_ORIGINAL_F_inventory_20261007_v1/receipt.json",
+          "sha256": "e990d77aa5f729fb2b6c0635b7dd0d3a47f0753858eb52c56e2977527e45f569",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C01/20261003-171007/results.json",
+          "sha256": "919559cb951daeed5bc10d452459f71547736386ababae34a612882cc8e59aea",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C05/20261003-171027/results.json",
+          "sha256": "ae893cfbcacf84663a5416fb2ebcb979534d9e7aa17f5886107dd092c22409cd",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/CI06/20261003-171802/results.json",
+          "sha256": "f2c729ccbbb9ccd7795e79c10d186031274d3adaa1b8b50738b882d1c2a09927",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ACTUAL_DIRECTION_C_CX_CI_ORIGINAL_F_inventory_20261007_v1/receipt.json",
+          "sha256": "e990d77aa5f729fb2b6c0635b7dd0d3a47f0753858eb52c56e2977527e45f569",
+          "json_pointer": "/F50/current_incremental_evidence",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        }
+      ],
+      "evidence_analogue_C_CX_CI": [
+        "C01",
+        "C05",
+        "CI06"
+      ],
+      "current_observed_scope": "inventory\u660e\u786e\u8bb0\u5f55\u771f\u5b9eROS callback/managed\u7ec4\u4ef6\uff0c\u539fwhole\u5931\u8d25\u4fdd\u7559\uff1b\u975e\u5b9e\u4f53\u8fd0\u52a8\u3002",
+      "catalog_original_status_preserved": "PROSPECTIVE_NO_PACKET_GO_OR_MODEL_EPISODE",
+      "real_ROS_run": "RECORDED_REAL_GENERATED_MIDDLEWARE_COMPONENT",
+      "real_NN_run": "NOT_PROVEN",
+      "real_physics_run": "NOT_PROVEN",
+      "physical_success": "NOT_ESTABLISHED",
+      "gap": "\u672c\u65b9\u5411\u6700\u65b0\u72ec\u7acb\u771f\u5b9e\u95ed\u73af\u9a8c\u6536\u4ecd\u9700\u4e0b\u5217\u6d4b\u8bd5\uff1bC/CX/CI\u4e0e\u76f8\u4f3cF\u4efb\u52a1\u4e0d\u80fd\u81ea\u52a8\u6298\u53e0/\u5347\u7ea7\u3002",
+      "next_independent_local_test": "\u771f\u5b9eNoetic TCPROS latch\u53d1\u5e03/\u665a\u8ba2\u9605/\u65ad\u7ebf\u91cd\u8fde\uff0c\u6838header/frame/\u4e00\u6b21\u6d88\u606f\u4fdd\u7559\u548ctask-bound receipts\u3002",
+      "dependencies": [
+        "\u5df2\u5c01Noetic\u73af\u5883/container\uff08\u672c\u673a/opt/ros\u5f53\u524d\u53ea\u89c1jazzy\uff09",
+        "TCPROS/actionlib/service\u5e93",
+        "finite helper identity",
+        "\u5f53\u524dcompiled runtime"
+      ],
+      "next_execution_status": "NO_GO_NOT_RUN"
+    },
+    {
+      "id": "F20",
+      "direction": "ros1_service_failure_recovery",
+      "domain": "ROS1",
+      "evidence": [
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/native_capability_50_direction_prospective_plan_20261005_v1/bounded_native50_prospective_plan_v1.json",
+          "sha256": "07eed1cf1e91164e03e148efdd7cfe4740a2cf068b0ecdd715bdbb8cd7e5d4df",
+          "json_pointer": "/directions/19",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ACTUAL_DIRECTION_C_CX_CI_ORIGINAL_F_inventory_20261007_v1/receipt.json",
+          "sha256": "e990d77aa5f729fb2b6c0635b7dd0d3a47f0753858eb52c56e2977527e45f569",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/CI03/20261003-171705/results.json",
+          "sha256": "b55519509608b6443a8e1a5e7957d554c602239e1292d245a2fcd93ce4b4de52",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ACTUAL_DIRECTION_C_CX_CI_ORIGINAL_F_inventory_20261007_v1/receipt.json",
+          "sha256": "e990d77aa5f729fb2b6c0635b7dd0d3a47f0753858eb52c56e2977527e45f569",
+          "json_pointer": "/F50/current_incremental_evidence",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        }
+      ],
+      "evidence_analogue_C_CX_CI": [
+        "CI03"
+      ],
+      "current_observed_scope": "inventory\u660e\u786e\u8bb0\u5f55\u771f\u5b9eROS callback/managed\u7ec4\u4ef6\uff0c\u539fwhole\u5931\u8d25\u4fdd\u7559\uff1b\u975e\u5b9e\u4f53\u8fd0\u52a8\u3002",
+      "catalog_original_status_preserved": "PROSPECTIVE_NO_PACKET_GO_OR_MODEL_EPISODE",
+      "real_ROS_run": "RECORDED_REAL_GENERATED_MIDDLEWARE_COMPONENT",
+      "real_NN_run": "NOT_PROVEN",
+      "real_physics_run": "NOT_PROVEN",
+      "physical_success": "NOT_ESTABLISHED",
+      "gap": "\u672c\u65b9\u5411\u6700\u65b0\u72ec\u7acb\u771f\u5b9e\u95ed\u73af\u9a8c\u6536\u4ecd\u9700\u4e0b\u5217\u6d4b\u8bd5\uff1bC/CX/CI\u4e0e\u76f8\u4f3cF\u4efb\u52a1\u4e0d\u80fd\u81ea\u52a8\u6298\u53e0/\u5347\u7ea7\u3002",
+      "next_independent_local_test": "\u771f\u5b9eNoetic SetBool\u6210\u529f\u3001\u58f0\u660e\u5931\u8d25\u3001timeout\u540e\u6062\u590d\uff0c\u6838\u53ea\u89c4\u5b9a\u6b21\u6570\u4e0e\u771f\u5b9etyped\u56de\u5e94\uff1b\u65e0\u88c5\u7f6e\u3002",
+      "dependencies": [
+        "\u5df2\u5c01Noetic\u73af\u5883/container\uff08\u672c\u673a/opt/ros\u5f53\u524d\u53ea\u89c1jazzy\uff09",
+        "TCPROS/actionlib/service\u5e93",
+        "finite helper identity",
+        "\u5f53\u524dcompiled runtime"
+      ],
+      "next_execution_status": "NO_GO_NOT_RUN"
+    },
+    {
+      "id": "F21",
+      "direction": "ros2_qos_compatibility",
+      "domain": "ROS2 QoS",
+      "evidence": [
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/native_capability_50_direction_prospective_plan_20261005_v1/bounded_native50_prospective_plan_v1.json",
+          "sha256": "07eed1cf1e91164e03e148efdd7cfe4740a2cf068b0ecdd715bdbb8cd7e5d4df",
+          "json_pointer": "/directions/20",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ACTUAL_DIRECTION_C_CX_CI_ORIGINAL_F_inventory_20261007_v1/receipt.json",
+          "sha256": "e990d77aa5f729fb2b6c0635b7dd0d3a47f0753858eb52c56e2977527e45f569",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C02/20261003-171007/results.json",
+          "sha256": "54657d7e1ebcc4d367a2231e228d6843a7e03debb5c63e53077c42687bb5dcec",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C03/20261003-171007/results.json",
+          "sha256": "6cf1d794c543558d5bd859c55cb13ffe3faf0ce6829d6346be84acdb639fe9f0",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C07/20261003-171030/results.json",
+          "sha256": "65138d29ba983dd908affbbb97349dbaf51c4412edc86966920d2ff97ab1f91c",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/CX02/20261003-171537/results.json",
+          "sha256": "e426f591ab8b4601804414f0f44d1f81a5e847a414732e2cb4e77b8972fab29c",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        }
+      ],
+      "evidence_analogue_C_CX_CI": [
+        "C02",
+        "C03",
+        "C07",
+        "CX02"
+      ],
+      "current_observed_scope": "\u5df2\u6709\u79bb\u7ebffixture/Native\u5386\u53f2scope\uff0cF catalog\u4e0d\u662f\u5b8c\u6210\u8bc1\u660e\u3002",
+      "catalog_original_status_preserved": "PROSPECTIVE_NO_PACKET_GO_OR_MODEL_EPISODE",
+      "real_ROS_run": "NOT_PROVEN_FOR_THIS_DIRECTION_BY_C_CX_CI",
+      "real_NN_run": "NOT_PROVEN",
+      "real_physics_run": "NOT_PROVEN",
+      "physical_success": "NOT_ESTABLISHED",
+      "gap": "\u672c\u65b9\u5411\u6700\u65b0\u72ec\u7acb\u771f\u5b9e\u95ed\u73af\u9a8c\u6536\u4ecd\u9700\u4e0b\u5217\u6d4b\u8bd5\uff1bC/CX/CI\u4e0e\u76f8\u4f3cF\u4efb\u52a1\u4e0d\u80fd\u81ea\u52a8\u6298\u53e0/\u5347\u7ea7\u3002",
+      "next_independent_local_test": "\u771f\u5b9eJazzy QoS requested/offered\u517c\u5bb9/\u4e0d\u517c\u5bb9\u548ctransient latejoin\uff0c\u6838\u6536\u5305/\u65e0\u5305\u6709\u671f\u9650\u4e0edomain\u9694\u79bb\u3002",
+      "dependencies": [
+        "ROS2 Jazzy/rclpy/rclcpp/tf2\u76f8\u5e94\u5305",
+        "\u9694\u79bbROS_DOMAIN_ID",
+        "generated fixtures",
+        "\u5f53\u524dcompiled ROSClaw runtime"
+      ],
+      "next_execution_status": "NO_GO_NOT_RUN"
+    },
+    {
+      "id": "F22",
+      "direction": "tf2_static_dynamic_time",
+      "domain": "frames/localization",
+      "evidence": [
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/native_capability_50_direction_prospective_plan_20261005_v1/bounded_native50_prospective_plan_v1.json",
+          "sha256": "07eed1cf1e91164e03e148efdd7cfe4740a2cf068b0ecdd715bdbb8cd7e5d4df",
+          "json_pointer": "/directions/21",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ACTUAL_DIRECTION_C_CX_CI_ORIGINAL_F_inventory_20261007_v1/receipt.json",
+          "sha256": "e990d77aa5f729fb2b6c0635b7dd0d3a47f0753858eb52c56e2977527e45f569",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C08/20261003-171031/results.json",
+          "sha256": "d9ace310f3fc6d7432252271417fbe95a7dc2955a399ef49a923338d591c1ff4",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C09/20261003-171043/results.json",
+          "sha256": "750c12e334cf2602ed04147e0368ddbd3bed24392c230327304cbc1281a8577c",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C10/20261003-171050/results.json",
+          "sha256": "0eb73288ac6f48ec38056cafb997fe2c9f0d4e9cd418434df162313cbdb6863c",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        }
+      ],
+      "evidence_analogue_C_CX_CI": [
+        "C08",
+        "C09",
+        "C10"
+      ],
+      "current_observed_scope": "\u5df2\u6709\u79bb\u7ebffixture/Native\u5386\u53f2scope\uff0cF catalog\u4e0d\u662f\u5b8c\u6210\u8bc1\u660e\u3002",
+      "catalog_original_status_preserved": "PROSPECTIVE_NO_PACKET_GO_OR_MODEL_EPISODE",
+      "real_ROS_run": "NOT_PROVEN_FOR_THIS_DIRECTION_BY_C_CX_CI",
+      "real_NN_run": "NOT_PROVEN",
+      "real_physics_run": "NOT_PROVEN",
+      "physical_success": "NOT_ESTABLISHED",
+      "gap": "\u672c\u65b9\u5411\u6700\u65b0\u72ec\u7acb\u771f\u5b9e\u95ed\u73af\u9a8c\u6536\u4ecd\u9700\u4e0b\u5217\u6d4b\u8bd5\uff1bC/CX/CI\u4e0e\u76f8\u4f3cF\u4efb\u52a1\u4e0d\u80fd\u81ea\u52a8\u6298\u53e0/\u5347\u7ea7\u3002",
+      "next_independent_local_test": "tf2\u771f\u5b9estatic/dynamic+\u6307\u5b9a\u65f6\u523b\u67e5\u627e\uff1bpast/future/extrapolation\u5206\u522b\u6838\uff0c\u72ec\u7acbR/t\u6570\u503c\u91cd\u7b97\u3002",
+      "dependencies": [
+        "ROS2 Jazzy/rclpy/rclcpp/tf2\u76f8\u5e94\u5305",
+        "\u9694\u79bbROS_DOMAIN_ID",
+        "generated fixtures",
+        "\u5f53\u524dcompiled ROSClaw runtime"
+      ],
+      "next_execution_status": "NO_GO_NOT_RUN"
+    },
+    {
+      "id": "F23",
+      "direction": "laser_scan_invalid_ranges",
+      "domain": "laser sensors",
+      "evidence": [
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/native_capability_50_direction_prospective_plan_20261005_v1/bounded_native50_prospective_plan_v1.json",
+          "sha256": "07eed1cf1e91164e03e148efdd7cfe4740a2cf068b0ecdd715bdbb8cd7e5d4df",
+          "json_pointer": "/directions/22",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ACTUAL_DIRECTION_C_CX_CI_ORIGINAL_F_inventory_20261007_v1/receipt.json",
+          "sha256": "e990d77aa5f729fb2b6c0635b7dd0d3a47f0753858eb52c56e2977527e45f569",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C13/20261003-171112/results.json",
+          "sha256": "d980619cf66928d2fd45a0330441006c9f4b21f8911e4547894ddc149e802b49",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "/sensor",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        }
+      ],
+      "evidence_analogue_C_CX_CI": [
+        "C13"
+      ],
+      "current_observed_scope": "\u5df2\u751f\u621035\u6d88\u606f\u53cc\u4f20\u611f\u7ec4\u4ef6\uff0c\u4e0d\u662fhardware\u611f\u77e5\u7cbe\u5ea6\u3002",
+      "catalog_original_status_preserved": "PROSPECTIVE_NO_PACKET_GO_OR_MODEL_EPISODE",
+      "real_ROS_run": "RECORDED_REAL_GENERATED_ROS2_DUAL35_COMPONENT",
+      "real_NN_run": "NOT_PROVEN",
+      "real_physics_run": "NOT_PROVEN",
+      "physical_success": "NOT_ESTABLISHED",
+      "gap": "\u672c\u65b9\u5411\u6700\u65b0\u72ec\u7acb\u771f\u5b9e\u95ed\u73af\u9a8c\u6536\u4ecd\u9700\u4e0b\u5217\u6d4b\u8bd5\uff1bC/CX/CI\u4e0e\u76f8\u4f3cF\u4efb\u52a1\u4e0d\u80fd\u81ea\u52a8\u6298\u53e0/\u5347\u7ea7\u3002",
+      "next_independent_local_test": "\u5f53\u524d\u89e3\u7801\u5668\u5904\u7406NaN/Inf/\u8d85\u8303\u56f4LaserScan\u548c\u89d2\u5ea6\u7d22\u5f15\uff0c\u771f\u5b9e\u751f\u6210ROS\u6d88\u606f\u4e0e\u72ec\u7acb\u6807\u91cf\u6e05\u7406\u8868\u5bf9\u7167\u3002",
+      "dependencies": [
+        "pinned Python/NumPy",
+        "\u516c\u5f00\u786e\u5b9a\u6027\u6570\u636e/\u72ec\u7acboracle",
+        "\u771f\u5b9emiddleware\u6216physics\u9700\u8981\u53e6scope/GO"
+      ],
+      "next_execution_status": "NO_GO_NOT_RUN"
+    },
+    {
+      "id": "F24",
+      "direction": "pointcloud2_layout_endianness",
+      "domain": "3D sensors",
+      "evidence": [
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/native_capability_50_direction_prospective_plan_20261005_v1/bounded_native50_prospective_plan_v1.json",
+          "sha256": "07eed1cf1e91164e03e148efdd7cfe4740a2cf068b0ecdd715bdbb8cd7e5d4df",
+          "json_pointer": "/directions/23",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ACTUAL_DIRECTION_C_CX_CI_ORIGINAL_F_inventory_20261007_v1/receipt.json",
+          "sha256": "e990d77aa5f729fb2b6c0635b7dd0d3a47f0753858eb52c56e2977527e45f569",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C21/20261003-171152/results.json",
+          "sha256": "3808c705eb9782a05ca378a4ddce574a53fa2b9cd11cbd0f242bfa27242948ea",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/CX07/20261003-171617/results.json",
+          "sha256": "7a8794006cbe497d1320a60f131aa12d02e0b88d92b356fa5a9e2b37507aa29a",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/CI02/20261003-171703/results.json",
+          "sha256": "9af7d126681e650368f6df1b6c0c1f493afd5072214db377645ea7aeecd268a8",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "/sensor",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        }
+      ],
+      "evidence_analogue_C_CX_CI": [
+        "C21",
+        "CX07",
+        "CI02"
+      ],
+      "current_observed_scope": "\u5df2\u751f\u621035\u6d88\u606f\u53cc\u4f20\u611f\u7ec4\u4ef6\uff0c\u4e0d\u662fhardware\u611f\u77e5\u7cbe\u5ea6\u3002",
+      "catalog_original_status_preserved": "PROSPECTIVE_NO_PACKET_GO_OR_MODEL_EPISODE",
+      "real_ROS_run": "RECORDED_REAL_GENERATED_ROS2_DUAL35_COMPONENT",
+      "real_NN_run": "NOT_PROVEN",
+      "real_physics_run": "NOT_PROVEN",
+      "physical_success": "NOT_ESTABLISHED",
+      "gap": "\u672c\u65b9\u5411\u6700\u65b0\u72ec\u7acb\u771f\u5b9e\u95ed\u73af\u9a8c\u6536\u4ecd\u9700\u4e0b\u5217\u6d4b\u8bd5\uff1bC/CX/CI\u4e0e\u76f8\u4f3cF\u4efb\u52a1\u4e0d\u80fd\u81ea\u52a8\u6298\u53e0/\u5347\u7ea7\u3002",
+      "next_independent_local_test": "\u5b9e\u9645PointCloud2\u5927\u7aef/row padding/\u591a\u5b57\u6bb5\u53ca\u622a\u77eddata\uff1b\u7f16\u8bd1Node\u2192RPC\u2192\u751f\u6210ROS\u56de\u8c03\u4e0e\u72ec\u7acbstruct\u89e3\u7801\u5bf9\u7167\u3002",
+      "dependencies": [
+        "pinned Python/NumPy",
+        "\u516c\u5f00\u786e\u5b9a\u6027\u6570\u636e/\u72ec\u7acboracle",
+        "\u771f\u5b9emiddleware\u6216physics\u9700\u8981\u53e6scope/GO"
+      ],
+      "next_execution_status": "NO_GO_NOT_RUN"
+    },
+    {
+      "id": "F25",
+      "direction": "depth_to_pointcloud",
+      "domain": "3D reconstruction",
+      "evidence": [
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/native_capability_50_direction_prospective_plan_20261005_v1/bounded_native50_prospective_plan_v1.json",
+          "sha256": "07eed1cf1e91164e03e148efdd7cfe4740a2cf068b0ecdd715bdbb8cd7e5d4df",
+          "json_pointer": "/directions/24",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ACTUAL_DIRECTION_C_CX_CI_ORIGINAL_F_inventory_20261007_v1/receipt.json",
+          "sha256": "e990d77aa5f729fb2b6c0635b7dd0d3a47f0753858eb52c56e2977527e45f569",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C17/20261003-171137/results.json",
+          "sha256": "6923f9419415db7c7f1766a9407d03421dee2bc333863db935b0acf35adebae3",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C20/20261003-171149/results.json",
+          "sha256": "26a5cb9a29967609b777c208c27a336bf6aaf1414d4f5582c6c52cf7ab49ba64",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/CX01/20261003-171524/results.json",
+          "sha256": "5f9f87dd1783e0d2ae0d061ebdabd778225c89e858cd4ba5b76abe1a97b3174e",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        }
+      ],
+      "evidence_analogue_C_CX_CI": [
+        "C17",
+        "C20",
+        "CX01"
+      ],
+      "current_observed_scope": "\u5df2\u6709\u79bb\u7ebffixture/Native\u5386\u53f2scope\uff0cF catalog\u4e0d\u662f\u5b8c\u6210\u8bc1\u660e\u3002",
+      "catalog_original_status_preserved": "PROSPECTIVE_NO_PACKET_GO_OR_MODEL_EPISODE",
+      "real_ROS_run": "NOT_PROVEN_FOR_THIS_DIRECTION_BY_C_CX_CI",
+      "real_NN_run": "NOT_PROVEN",
+      "real_physics_run": "NOT_PROVEN",
+      "physical_success": "NOT_ESTABLISHED",
+      "gap": "\u672c\u65b9\u5411\u6700\u65b0\u72ec\u7acb\u771f\u5b9e\u95ed\u73af\u9a8c\u6536\u4ecd\u9700\u4e0b\u5217\u6d4b\u8bd5\uff1bC/CX/CI\u4e0e\u76f8\u4f3cF\u4efb\u52a1\u4e0d\u80fd\u81ea\u52a8\u6298\u53e0/\u5347\u7ea7\u3002",
+      "next_independent_local_test": "\u5b9a\u6807\u76f8\u673ametric\u6df1\u5ea6\u6295\u5f71\u3001mask\u7a7a\u503c\u3001\u975e\u65b9\u5f62\u56fe\u50cf\uff1b\u72ec\u7acb\u51e0\u4f55\u91cd\u6295\u5f71\u6b8b\u5dee\u548c\u65e0\u4f2a\u9020point\u3002",
+      "dependencies": [
+        "pinned Python/NumPy",
+        "\u516c\u5f00\u786e\u5b9a\u6027\u6570\u636e/\u72ec\u7acboracle",
+        "\u771f\u5b9emiddleware\u6216physics\u9700\u8981\u53e6scope/GO"
+      ],
+      "next_execution_status": "NO_GO_NOT_RUN"
+    },
+    {
+      "id": "F26",
+      "direction": "voxel_outlier_filter",
+      "domain": "3D filtering",
+      "evidence": [
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/native_capability_50_direction_prospective_plan_20261005_v1/bounded_native50_prospective_plan_v1.json",
+          "sha256": "07eed1cf1e91164e03e148efdd7cfe4740a2cf068b0ecdd715bdbb8cd7e5d4df",
+          "json_pointer": "/directions/25",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ACTUAL_DIRECTION_C_CX_CI_ORIGINAL_F_inventory_20261007_v1/receipt.json",
+          "sha256": "e990d77aa5f729fb2b6c0635b7dd0d3a47f0753858eb52c56e2977527e45f569",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C22/20261003-171157/results.json",
+          "sha256": "a7cd33ea28601014c91a5e746488e7dac06728461edaeb88278312a1d138085e",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        }
+      ],
+      "evidence_analogue_C_CX_CI": [
+        "C22"
+      ],
+      "current_observed_scope": "\u5df2\u6709\u79bb\u7ebffixture/Native\u5386\u53f2scope\uff0cF catalog\u4e0d\u662f\u5b8c\u6210\u8bc1\u660e\u3002",
+      "catalog_original_status_preserved": "PROSPECTIVE_NO_PACKET_GO_OR_MODEL_EPISODE",
+      "real_ROS_run": "NOT_PROVEN_FOR_THIS_DIRECTION_BY_C_CX_CI",
+      "real_NN_run": "NOT_PROVEN",
+      "real_physics_run": "NOT_PROVEN",
+      "physical_success": "NOT_ESTABLISHED",
+      "gap": "\u672c\u65b9\u5411\u6700\u65b0\u72ec\u7acb\u771f\u5b9e\u95ed\u73af\u9a8c\u6536\u4ecd\u9700\u4e0b\u5217\u6d4b\u8bd5\uff1bC/CX/CI\u4e0e\u76f8\u4f3cF\u4efb\u52a1\u4e0d\u80fd\u81ea\u52a8\u6298\u53e0/\u5347\u7ea7\u3002",
+      "next_independent_local_test": "\u8d1fvoxel\u8fb9\u754c/\u91cd\u5408/\u79bb\u7fa4\u70b9\uff0c\u5c0f\u96c6\u5408\u9010\u70b9oracle\uff1b307200\u70b9\u989d\u5916\u6709\u9650\u6587\u4ef6\u6027\u80fd\u5e76\u660e\u786e\u4fdd\u7559/\u4e22\u5f03\u6570\u91cf\u3002",
+      "dependencies": [
+        "pinned Python/NumPy",
+        "\u516c\u5f00\u786e\u5b9a\u6027\u6570\u636e/\u72ec\u7acboracle",
+        "\u771f\u5b9emiddleware\u6216physics\u9700\u8981\u53e6scope/GO"
+      ],
+      "next_execution_status": "NO_GO_NOT_RUN"
+    },
+    {
+      "id": "F27",
+      "direction": "plane_normal_segmentation",
+      "domain": "3D segmentation",
+      "evidence": [
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/native_capability_50_direction_prospective_plan_20261005_v1/bounded_native50_prospective_plan_v1.json",
+          "sha256": "07eed1cf1e91164e03e148efdd7cfe4740a2cf068b0ecdd715bdbb8cd7e5d4df",
+          "json_pointer": "/directions/26",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ACTUAL_DIRECTION_C_CX_CI_ORIGINAL_F_inventory_20261007_v1/receipt.json",
+          "sha256": "e990d77aa5f729fb2b6c0635b7dd0d3a47f0753858eb52c56e2977527e45f569",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C23/20261003-171157/results.json",
+          "sha256": "8c243c437968b93c8188696ff913dd6f64180aa66ce23667d81bec379454d5cd",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        }
+      ],
+      "evidence_analogue_C_CX_CI": [
+        "C23"
+      ],
+      "current_observed_scope": "\u5df2\u6709\u79bb\u7ebffixture/Native\u5386\u53f2scope\uff0cF catalog\u4e0d\u662f\u5b8c\u6210\u8bc1\u660e\u3002",
+      "catalog_original_status_preserved": "PROSPECTIVE_NO_PACKET_GO_OR_MODEL_EPISODE",
+      "real_ROS_run": "NOT_PROVEN_FOR_THIS_DIRECTION_BY_C_CX_CI",
+      "real_NN_run": "NOT_PROVEN",
+      "real_physics_run": "NOT_PROVEN",
+      "physical_success": "NOT_ESTABLISHED",
+      "gap": "\u672c\u65b9\u5411\u6700\u65b0\u72ec\u7acb\u771f\u5b9e\u95ed\u73af\u9a8c\u6536\u4ecd\u9700\u4e0b\u5217\u6d4b\u8bd5\uff1bC/CX/CI\u4e0e\u76f8\u4f3cF\u4efb\u52a1\u4e0d\u80fd\u81ea\u52a8\u6298\u53e0/\u5347\u7ea7\u3002",
+      "next_independent_local_test": "\u5df2\u77e5\u5e73\u9762+\u79bb\u7fa4\u70b9\uff0c\u72ec\u7acbsigned distance/\u6cd5\u5411\u00b1\u7b49\u4ef7\u8bc4\u5206\uff0c\u62d2\u7edd\u4ee5\u6f02\u4eae\u56fe\u50cf\u66ff\u4ee3\u6b8b\u5dee\u3002",
+      "dependencies": [
+        "pinned Python/NumPy",
+        "\u516c\u5f00\u786e\u5b9a\u6027\u6570\u636e/\u72ec\u7acboracle",
+        "\u771f\u5b9emiddleware\u6216physics\u9700\u8981\u53e6scope/GO"
+      ],
+      "next_execution_status": "NO_GO_NOT_RUN"
+    },
+    {
+      "id": "F28",
+      "direction": "multi_sensor_timestamp_join",
+      "domain": "sensor fusion",
+      "evidence": [
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/native_capability_50_direction_prospective_plan_20261005_v1/bounded_native50_prospective_plan_v1.json",
+          "sha256": "07eed1cf1e91164e03e148efdd7cfe4740a2cf068b0ecdd715bdbb8cd7e5d4df",
+          "json_pointer": "/directions/27",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ACTUAL_DIRECTION_C_CX_CI_ORIGINAL_F_inventory_20261007_v1/receipt.json",
+          "sha256": "e990d77aa5f729fb2b6c0635b7dd0d3a47f0753858eb52c56e2977527e45f569",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C11/20261003-171055/results.json",
+          "sha256": "449051b0cb11c95861e8c5d54626af99202373cf0f8ed1992080294418906440",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C12/20261003-171056/results.json",
+          "sha256": "b88c25547a0622d885c2771ba8641b68ed79aa4fc99893cd176820ecc6efbd0c",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/CX03/20261003-171542/results.json",
+          "sha256": "b50fc80b40193d446119ea5c56e25d154eff124861cedaf7ba5200ba9cc00762",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/CX04/20261003-171543/results.json",
+          "sha256": "ad83e2d763e76c6d8c5af25c72b7974e123e22f8df60d623633b3d2ac725c96d",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        }
+      ],
+      "evidence_analogue_C_CX_CI": [
+        "C11",
+        "C12",
+        "CX03",
+        "CX04"
+      ],
+      "current_observed_scope": "\u5df2\u6709\u79bb\u7ebffixture/Native\u5386\u53f2scope\uff0cF catalog\u4e0d\u662f\u5b8c\u6210\u8bc1\u660e\u3002",
+      "catalog_original_status_preserved": "PROSPECTIVE_NO_PACKET_GO_OR_MODEL_EPISODE",
+      "real_ROS_run": "NOT_PROVEN_FOR_THIS_DIRECTION_BY_C_CX_CI",
+      "real_NN_run": "NOT_PROVEN",
+      "real_physics_run": "NOT_PROVEN",
+      "physical_success": "NOT_ESTABLISHED",
+      "gap": "\u672c\u65b9\u5411\u6700\u65b0\u72ec\u7acb\u771f\u5b9e\u95ed\u73af\u9a8c\u6536\u4ecd\u9700\u4e0b\u5217\u6d4b\u8bd5\uff1bC/CX/CI\u4e0e\u76f8\u4f3cF\u4efb\u52a1\u4e0d\u80fd\u81ea\u52a8\u6298\u53e0/\u5347\u7ea7\u3002",
+      "next_independent_local_test": "\u4e09\u6e90\u4e71\u5e8f/\u7f3a\u5931/\u65f6\u949f\u56de\u9000\uff0c\u72ec\u7acb\u914d\u5bf9\u8868\u3001freshness\u4e0e\u5185\u5b58\u4e0a\u9650\uff1b\u8ffd\u52a0\u771f\u5b9e\u751f\u6210\u6d88\u606f\u5c01\u5305\u3002",
+      "dependencies": [
+        "pinned Python/NumPy",
+        "\u516c\u5f00\u786e\u5b9a\u6027\u6570\u636e/\u72ec\u7acboracle",
+        "\u771f\u5b9emiddleware\u6216physics\u9700\u8981\u53e6scope/GO"
+      ],
+      "next_execution_status": "NO_GO_NOT_RUN"
+    },
+    {
+      "id": "F29",
+      "direction": "imu_rotation_conventions",
+      "domain": "IMU",
+      "evidence": [
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/native_capability_50_direction_prospective_plan_20261005_v1/bounded_native50_prospective_plan_v1.json",
+          "sha256": "07eed1cf1e91164e03e148efdd7cfe4740a2cf068b0ecdd715bdbb8cd7e5d4df",
+          "json_pointer": "/directions/28",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ACTUAL_DIRECTION_C_CX_CI_ORIGINAL_F_inventory_20261007_v1/receipt.json",
+          "sha256": "e990d77aa5f729fb2b6c0635b7dd0d3a47f0753858eb52c56e2977527e45f569",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C14/20261003-171116/results.json",
+          "sha256": "a3bfa273a0dba1d57cec419bb8de07507e09b90f4e5f0885135dcb14fd3f0f29",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C33/20261003-171259/results.json",
+          "sha256": "cb5cf1050bfc461c52322244d30f81e2128f15758af1bee8a2d4928fb6514140",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        }
+      ],
+      "evidence_analogue_C_CX_CI": [
+        "C14",
+        "C33"
+      ],
+      "current_observed_scope": "\u5df2\u6709\u79bb\u7ebffixture/Native\u5386\u53f2scope\uff0cF catalog\u4e0d\u662f\u5b8c\u6210\u8bc1\u660e\u3002",
+      "catalog_original_status_preserved": "PROSPECTIVE_NO_PACKET_GO_OR_MODEL_EPISODE",
+      "real_ROS_run": "NOT_PROVEN_FOR_THIS_DIRECTION_BY_C_CX_CI",
+      "real_NN_run": "NOT_PROVEN",
+      "real_physics_run": "NOT_PROVEN",
+      "physical_success": "NOT_ESTABLISHED",
+      "gap": "\u672c\u65b9\u5411\u6700\u65b0\u72ec\u7acb\u771f\u5b9e\u95ed\u73af\u9a8c\u6536\u4ecd\u9700\u4e0b\u5217\u6d4b\u8bd5\uff1bC/CX/CI\u4e0e\u76f8\u4f3cF\u4efb\u52a1\u4e0d\u80fd\u81ea\u52a8\u6298\u53e0/\u5347\u7ea7\u3002",
+      "next_independent_local_test": "\u5b9e\u9645IMU\u56db\u5143\u6570\u987a\u5e8f\u3001\u00b1\u7b26\u53f7\u3001\u91cd\u529b\u53bb\u9664\u3001\u975efinite\u503c\uff0c\u72ec\u7acbframe\u65cb\u8f6coracle\u4e0e\u5355\u4f4d\u6807\u7b7e\u3002",
+      "dependencies": [
+        "pinned Python/NumPy",
+        "\u516c\u5f00\u786e\u5b9a\u6027\u6570\u636e/\u72ec\u7acboracle",
+        "\u771f\u5b9emiddleware\u6216physics\u9700\u8981\u53e6scope/GO"
+      ],
+      "next_execution_status": "NO_GO_NOT_RUN"
+    },
+    {
+      "id": "F30",
+      "direction": "odometry_bias_covariance",
+      "domain": "localization",
+      "evidence": [
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/native_capability_50_direction_prospective_plan_20261005_v1/bounded_native50_prospective_plan_v1.json",
+          "sha256": "07eed1cf1e91164e03e148efdd7cfe4740a2cf068b0ecdd715bdbb8cd7e5d4df",
+          "json_pointer": "/directions/29",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ACTUAL_DIRECTION_C_CX_CI_ORIGINAL_F_inventory_20261007_v1/receipt.json",
+          "sha256": "e990d77aa5f729fb2b6c0635b7dd0d3a47f0753858eb52c56e2977527e45f569",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C39/20261003-171326/results.json",
+          "sha256": "2b529ab22e6bb10adfb99f8a9abe3c2e79e3e93440b23f3cca3f7d1e8ba5fe05",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        }
+      ],
+      "evidence_analogue_C_CX_CI": [
+        "C39"
+      ],
+      "current_observed_scope": "\u5df2\u6709\u79bb\u7ebffixture/Native\u5386\u53f2scope\uff0cF catalog\u4e0d\u662f\u5b8c\u6210\u8bc1\u660e\u3002",
+      "catalog_original_status_preserved": "PROSPECTIVE_NO_PACKET_GO_OR_MODEL_EPISODE",
+      "real_ROS_run": "NOT_PROVEN_FOR_THIS_DIRECTION_BY_C_CX_CI",
+      "real_NN_run": "NOT_PROVEN",
+      "real_physics_run": "NOT_PROVEN",
+      "physical_success": "NOT_ESTABLISHED",
+      "gap": "\u672c\u65b9\u5411\u6700\u65b0\u72ec\u7acb\u771f\u5b9e\u95ed\u73af\u9a8c\u6536\u4ecd\u9700\u4e0b\u5217\u6d4b\u8bd5\uff1bC/CX/CI\u4e0e\u76f8\u4f3cF\u4efb\u52a1\u4e0d\u80fd\u81ea\u52a8\u6298\u53e0/\u5347\u7ea7\u3002",
+      "next_independent_local_test": "\u56fa\u5b9a\u5e26bias\u8f68\u8ff9\uff0c\u79ef\u5206\u4e0e\u534f\u65b9\u5deePSD/\u5355\u4f4d\u9a8c\u8bc1\uff1b\u672a\u8fd0\u884c\u771f\u5b9e\u8f6e\u5f0f\u5e73\u53f0\u4e0d\u80fd\u58f0\u79f0\u5b9a\u4f4d\u3002",
+      "dependencies": [
+        "pinned Python/NumPy",
+        "\u516c\u5f00\u786e\u5b9a\u6027\u6570\u636e/\u72ec\u7acboracle",
+        "\u771f\u5b9emiddleware\u6216physics\u9700\u8981\u53e6scope/GO"
+      ],
+      "next_execution_status": "NO_GO_NOT_RUN"
+    },
+    {
+      "id": "F31",
+      "direction": "ekf_consistency_gating",
+      "domain": "state estimation",
+      "evidence": [
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/native_capability_50_direction_prospective_plan_20261005_v1/bounded_native50_prospective_plan_v1.json",
+          "sha256": "07eed1cf1e91164e03e148efdd7cfe4740a2cf068b0ecdd715bdbb8cd7e5d4df",
+          "json_pointer": "/directions/30",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ACTUAL_DIRECTION_C_CX_CI_ORIGINAL_F_inventory_20261007_v1/receipt.json",
+          "sha256": "e990d77aa5f729fb2b6c0635b7dd0d3a47f0753858eb52c56e2977527e45f569",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C37/20261003-171318/results.json",
+          "sha256": "196359c634b3a3121d153fe4f938c241b3ece4c22c19cc07d4bef2d2db523482",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C38/20261003-171320/results.json",
+          "sha256": "8ff0e6ac19157371da8b2fba88b13559cf202c4a8112df9ae4faf157512d9bb3",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/CX06/20261003-171607/results.json",
+          "sha256": "d3b3b52dcfce5d531e90373d8a057bb038c9b011b623ba8b34a0a8fb8c887d8a",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        }
+      ],
+      "evidence_analogue_C_CX_CI": [
+        "C37",
+        "C38",
+        "CX06"
+      ],
+      "current_observed_scope": "\u5df2\u6709\u79bb\u7ebffixture/Native\u5386\u53f2scope\uff0cF catalog\u4e0d\u662f\u5b8c\u6210\u8bc1\u660e\u3002",
+      "catalog_original_status_preserved": "PROSPECTIVE_NO_PACKET_GO_OR_MODEL_EPISODE",
+      "real_ROS_run": "NOT_PROVEN_FOR_THIS_DIRECTION_BY_C_CX_CI",
+      "real_NN_run": "NOT_PROVEN",
+      "real_physics_run": "NOT_PROVEN",
+      "physical_success": "NOT_ESTABLISHED",
+      "gap": "\u672c\u65b9\u5411\u6700\u65b0\u72ec\u7acb\u771f\u5b9e\u95ed\u73af\u9a8c\u6536\u4ecd\u9700\u4e0b\u5217\u6d4b\u8bd5\uff1bC/CX/CI\u4e0e\u76f8\u4f3cF\u4efb\u52a1\u4e0d\u80fd\u81ea\u52a8\u6298\u53e0/\u5347\u7ea7\u3002",
+      "next_independent_local_test": "\u56fa\u5b9a\u7ebf\u6027Gaussian\u5e8f\u5217/NIS\u9608\u503c\uff0c\u72ec\u7acb\u79bb\u7ebfKF\u53c2\u8003\u3001outlier\u62d2\u7edd\u3001\u56e0\u679c\u6027\uff1b\u4e0d\u5938EKF\u6cdb\u5316\u3002",
+      "dependencies": [
+        "pinned Python/NumPy",
+        "\u516c\u5f00\u786e\u5b9a\u6027\u6570\u636e/\u72ec\u7acboracle",
+        "\u771f\u5b9emiddleware\u6216physics\u9700\u8981\u53e6scope/GO"
+      ],
+      "next_execution_status": "NO_GO_NOT_RUN"
+    },
+    {
+      "id": "F32",
+      "direction": "slam_loop_closure_contract",
+      "domain": "SLAM",
+      "evidence": [
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/native_capability_50_direction_prospective_plan_20261005_v1/bounded_native50_prospective_plan_v1.json",
+          "sha256": "07eed1cf1e91164e03e148efdd7cfe4740a2cf068b0ecdd715bdbb8cd7e5d4df",
+          "json_pointer": "/directions/31",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ACTUAL_DIRECTION_C_CX_CI_ORIGINAL_F_inventory_20261007_v1/receipt.json",
+          "sha256": "e990d77aa5f729fb2b6c0635b7dd0d3a47f0753858eb52c56e2977527e45f569",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C25/20261003-171215/results.json",
+          "sha256": "301f0263404f337b45729352d3d5bee180c0e9725aa05d73e59043dee9de66d9",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        }
+      ],
+      "evidence_analogue_C_CX_CI": [
+        "C25"
+      ],
+      "current_observed_scope": "\u5df2\u6709\u79bb\u7ebffixture/Native\u5386\u53f2scope\uff0cF catalog\u4e0d\u662f\u5b8c\u6210\u8bc1\u660e\u3002",
+      "catalog_original_status_preserved": "PROSPECTIVE_NO_PACKET_GO_OR_MODEL_EPISODE",
+      "real_ROS_run": "NOT_PROVEN_FOR_THIS_DIRECTION_BY_C_CX_CI",
+      "real_NN_run": "NOT_PROVEN",
+      "real_physics_run": "NOT_PROVEN",
+      "physical_success": "NOT_ESTABLISHED",
+      "gap": "\u672c\u65b9\u5411\u6700\u65b0\u72ec\u7acb\u771f\u5b9e\u95ed\u73af\u9a8c\u6536\u4ecd\u9700\u4e0b\u5217\u6d4b\u8bd5\uff1bC/CX/CI\u4e0e\u76f8\u4f3cF\u4efb\u52a1\u4e0d\u80fd\u81ea\u52a8\u6298\u53e0/\u5347\u7ea7\u3002",
+      "next_independent_local_test": "\u9884\u68c0\u67e5\u672c\u673aSLAM\u8f6f\u4ef6/\u6570\u636e\u96c6\uff0c\u82e5\u7f3a\u5219BLOCKED\uff1b\u5b58\u5728\u624d\u56fa\u5b9a\u95ed\u73afbag\u4e0egroundtruth posegraph\uff0c\u8bb0\u5f55\u771f\u5b9ecallback\u3002",
+      "dependencies": [
+        "\u9884\u5148\u6838\u5b9e\u9645SLAM/Nav2/MoveIt/FCL\u5b89\u88c5",
+        "\u56fa\u5b9amodel/map/scene/dataset",
+        "\u7f3a\u4f9d\u8d56\u5219BLOCKED\u4e0d\u5f97mock PASS"
+      ],
+      "next_execution_status": "NO_GO_NOT_RUN"
+    },
+    {
+      "id": "F33",
+      "direction": "nav2_goal_recovery_contract",
+      "domain": "navigation",
+      "evidence": [
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/native_capability_50_direction_prospective_plan_20261005_v1/bounded_native50_prospective_plan_v1.json",
+          "sha256": "07eed1cf1e91164e03e148efdd7cfe4740a2cf068b0ecdd715bdbb8cd7e5d4df",
+          "json_pointer": "/directions/32",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ACTUAL_DIRECTION_C_CX_CI_ORIGINAL_F_inventory_20261007_v1/receipt.json",
+          "sha256": "e990d77aa5f729fb2b6c0635b7dd0d3a47f0753858eb52c56e2977527e45f569",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C25/20261003-171215/results.json",
+          "sha256": "301f0263404f337b45729352d3d5bee180c0e9725aa05d73e59043dee9de66d9",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/CX09/20261003-171623/results.json",
+          "sha256": "ea24d7ce4dd8cd4a8fd7cf2e0bad8fbf766fd2bb269c89eb8cf3137cda668b31",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        }
+      ],
+      "evidence_analogue_C_CX_CI": [
+        "C25",
+        "CX09"
+      ],
+      "current_observed_scope": "\u5df2\u6709\u79bb\u7ebffixture/Native\u5386\u53f2scope\uff0cF catalog\u4e0d\u662f\u5b8c\u6210\u8bc1\u660e\u3002",
+      "catalog_original_status_preserved": "PROSPECTIVE_NO_PACKET_GO_OR_MODEL_EPISODE",
+      "real_ROS_run": "NOT_PROVEN_FOR_THIS_DIRECTION_BY_C_CX_CI",
+      "real_NN_run": "NOT_PROVEN",
+      "real_physics_run": "NOT_PROVEN",
+      "physical_success": "NOT_ESTABLISHED",
+      "gap": "\u672c\u65b9\u5411\u6700\u65b0\u72ec\u7acb\u771f\u5b9e\u95ed\u73af\u9a8c\u6536\u4ecd\u9700\u4e0b\u5217\u6d4b\u8bd5\uff1bC/CX/CI\u4e0e\u76f8\u4f3cF\u4efb\u52a1\u4e0d\u80fd\u81ea\u52a8\u6298\u53e0/\u5347\u7ea7\u3002",
+      "next_independent_local_test": "\u9884\u68c0\u67e5Nav2+map/sim\uff0c\u9694\u79bbworld\u56fa\u5b9agoal\u4e0e\u969c\u788d\u5931\u8d25\u6062\u590d\uff0c\u771f\u5b9eaction/odometry/stop\uff1b\u4e0d\u89e6\u786c\u4ef6\u3002",
+      "dependencies": [
+        "\u9884\u5148\u6838\u5b9e\u9645SLAM/Nav2/MoveIt/FCL\u5b89\u88c5",
+        "\u56fa\u5b9amodel/map/scene/dataset",
+        "\u7f3a\u4f9d\u8d56\u5219BLOCKED\u4e0d\u5f97mock PASS"
+      ],
+      "next_execution_status": "NO_GO_NOT_RUN"
+    },
+    {
+      "id": "F34",
+      "direction": "global_astar_heuristic",
+      "domain": "planning",
+      "evidence": [
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/native_capability_50_direction_prospective_plan_20261005_v1/bounded_native50_prospective_plan_v1.json",
+          "sha256": "07eed1cf1e91164e03e148efdd7cfe4740a2cf068b0ecdd715bdbb8cd7e5d4df",
+          "json_pointer": "/directions/33",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ACTUAL_DIRECTION_C_CX_CI_ORIGINAL_F_inventory_20261007_v1/receipt.json",
+          "sha256": "e990d77aa5f729fb2b6c0635b7dd0d3a47f0753858eb52c56e2977527e45f569",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C26/20261003-171218/results.json",
+          "sha256": "81ae819dab7147c90fab8e28cb023159b6eb91bb71279de87bb211fddc94cc18",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C27/20261003-171226/results.json",
+          "sha256": "e4ebcb6c3e3de4d043a675f276710d0f94395411de334b3bc2b41c6587640b94",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        }
+      ],
+      "evidence_analogue_C_CX_CI": [
+        "C26",
+        "C27"
+      ],
+      "current_observed_scope": "\u5df2\u6709\u79bb\u7ebffixture/Native\u5386\u53f2scope\uff0cF catalog\u4e0d\u662f\u5b8c\u6210\u8bc1\u660e\u3002",
+      "catalog_original_status_preserved": "PROSPECTIVE_NO_PACKET_GO_OR_MODEL_EPISODE",
+      "real_ROS_run": "NOT_PROVEN_FOR_THIS_DIRECTION_BY_C_CX_CI",
+      "real_NN_run": "NOT_PROVEN",
+      "real_physics_run": "NOT_PROVEN",
+      "physical_success": "NOT_ESTABLISHED",
+      "gap": "\u672c\u65b9\u5411\u6700\u65b0\u72ec\u7acb\u771f\u5b9e\u95ed\u73af\u9a8c\u6536\u4ecd\u9700\u4e0b\u5217\u6d4b\u8bd5\uff1bC/CX/CI\u4e0e\u76f8\u4f3cF\u4efb\u52a1\u4e0d\u80fd\u81ea\u52a8\u6298\u53e0/\u5347\u7ea7\u3002",
+      "next_independent_local_test": "\u9690\u85cf\u6709\u9650\u5730\u56fe\uff0c\u72ec\u7acbDijkstra\u6700\u77ed\u8ddd\u79bb\u4e0e\u53ef\u8fbe\u6027\uff0cheuristic admissibility/consistency\u4ee5\u53ca\u65e0corner-cut\u3002",
+      "dependencies": [
+        "pinned Python/NumPy",
+        "\u516c\u5f00\u786e\u5b9a\u6027\u6570\u636e/\u72ec\u7acboracle",
+        "\u771f\u5b9emiddleware\u6216physics\u9700\u8981\u53e6scope/GO"
+      ],
+      "next_execution_status": "NO_GO_NOT_RUN"
+    },
+    {
+      "id": "F35",
+      "direction": "trajectory_speed_accel_caps",
+      "domain": "trajectory control",
+      "evidence": [
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/native_capability_50_direction_prospective_plan_20261005_v1/bounded_native50_prospective_plan_v1.json",
+          "sha256": "07eed1cf1e91164e03e148efdd7cfe4740a2cf068b0ecdd715bdbb8cd7e5d4df",
+          "json_pointer": "/directions/34",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ACTUAL_DIRECTION_C_CX_CI_ORIGINAL_F_inventory_20261007_v1/receipt.json",
+          "sha256": "e990d77aa5f729fb2b6c0635b7dd0d3a47f0753858eb52c56e2977527e45f569",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C30/20261003-171237/results.json",
+          "sha256": "77864640ebbcd164c56ea9f50e835659cc083eb01dd4d9aa4e862c29e046d5a0",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C42/20261003-171346/results.json",
+          "sha256": "df0d06f239e5b436519a37fd378da902c889234e4f8509b048adc5d2914b0e80",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/CX12/20261003-171644/results.json",
+          "sha256": "0358ded60378df5a9cf54fcccdf99f9740219e35431268718ff4d9fda0409026",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        }
+      ],
+      "evidence_analogue_C_CX_CI": [
+        "C30",
+        "C42",
+        "CX12"
+      ],
+      "current_observed_scope": "\u5df2\u6709\u79bb\u7ebffixture/Native\u5386\u53f2scope\uff0cF catalog\u4e0d\u662f\u5b8c\u6210\u8bc1\u660e\u3002",
+      "catalog_original_status_preserved": "PROSPECTIVE_NO_PACKET_GO_OR_MODEL_EPISODE",
+      "real_ROS_run": "NOT_PROVEN_FOR_THIS_DIRECTION_BY_C_CX_CI",
+      "real_NN_run": "NOT_PROVEN",
+      "real_physics_run": "NOT_PROVEN",
+      "physical_success": "NOT_ESTABLISHED",
+      "gap": "\u672c\u65b9\u5411\u6700\u65b0\u72ec\u7acb\u771f\u5b9e\u95ed\u73af\u9a8c\u6536\u4ecd\u9700\u4e0b\u5217\u6d4b\u8bd5\uff1bC/CX/CI\u4e0e\u76f8\u4f3cF\u4efb\u52a1\u4e0d\u80fd\u81ea\u52a8\u6298\u53e0/\u5347\u7ea7\u3002",
+      "next_independent_local_test": "\u5b9e\u9645\u751f\u4ea7Hermite\u63d2\u503c\u5168\u6bb5\u5bfc\u6570\u6781\u503c\u3001raw29\u8bf7\u6c42\u4e0eRATE4\uff08\u4ec5G1\uff09/actuator\u771f\u5b9eclip\u5bf9\u7167\u3002",
+      "dependencies": [
+        "pinned NumPy/MuJoCo\u6a21\u578b\uff08\u6d89\u53caFK\u65f6\u9700\u72ec\u7acbGO\uff09",
+        "free29 mappings/caps",
+        "\u56fa\u5b9astate/scene"
+      ],
+      "next_execution_status": "NO_GO_NOT_RUN"
+    },
+    {
+      "id": "F36",
+      "direction": "mpc_constraint_truthfulness",
+      "domain": "control",
+      "evidence": [
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/native_capability_50_direction_prospective_plan_20261005_v1/bounded_native50_prospective_plan_v1.json",
+          "sha256": "07eed1cf1e91164e03e148efdd7cfe4740a2cf068b0ecdd715bdbb8cd7e5d4df",
+          "json_pointer": "/directions/35",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ACTUAL_DIRECTION_C_CX_CI_ORIGINAL_F_inventory_20261007_v1/receipt.json",
+          "sha256": "e990d77aa5f729fb2b6c0635b7dd0d3a47f0753858eb52c56e2977527e45f569",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C41/20261003-171344/results.json",
+          "sha256": "ecabbf321a1b89ad57061dafe15194f31de79319f4957e67c21233234b040570",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        }
+      ],
+      "evidence_analogue_C_CX_CI": [
+        "C41"
+      ],
+      "current_observed_scope": "\u5df2\u6709\u79bb\u7ebffixture/Native\u5386\u53f2scope\uff0cF catalog\u4e0d\u662f\u5b8c\u6210\u8bc1\u660e\u3002",
+      "catalog_original_status_preserved": "PROSPECTIVE_NO_PACKET_GO_OR_MODEL_EPISODE",
+      "real_ROS_run": "NOT_PROVEN_FOR_THIS_DIRECTION_BY_C_CX_CI",
+      "real_NN_run": "NOT_PROVEN",
+      "real_physics_run": "NOT_PROVEN",
+      "physical_success": "NOT_ESTABLISHED",
+      "gap": "\u672c\u65b9\u5411\u6700\u65b0\u72ec\u7acb\u771f\u5b9e\u95ed\u73af\u9a8c\u6536\u4ecd\u9700\u4e0b\u5217\u6d4b\u8bd5\uff1bC/CX/CI\u4e0e\u76f8\u4f3cF\u4efb\u52a1\u4e0d\u80fd\u81ea\u52a8\u6298\u53e0/\u5347\u7ea7\u3002",
+      "next_independent_local_test": "\u6709\u9650\u5df2\u58f0\u660e\u7ebf\u6027plant/MPC\u7ea6\u675f\uff0c\u72ec\u7acb\u53ef\u884c\u6027/\u6b8b\u5dee\uff0cinfeasible\u660e\u786e\uff1b\u4e0d\u5c06toy plant\u5f53G1\u95ed\u73af\u3002",
+      "dependencies": [
+        "pinned Python/NumPy",
+        "\u516c\u5f00\u786e\u5b9a\u6027\u6570\u636e/\u72ec\u7acboracle",
+        "\u771f\u5b9emiddleware\u6216physics\u9700\u8981\u53e6scope/GO"
+      ],
+      "next_execution_status": "NO_GO_NOT_RUN"
+    },
+    {
+      "id": "F37",
+      "direction": "pid_saturation_antiwindup",
+      "domain": "control",
+      "evidence": [
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/native_capability_50_direction_prospective_plan_20261005_v1/bounded_native50_prospective_plan_v1.json",
+          "sha256": "07eed1cf1e91164e03e148efdd7cfe4740a2cf068b0ecdd715bdbb8cd7e5d4df",
+          "json_pointer": "/directions/36",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ACTUAL_DIRECTION_C_CX_CI_ORIGINAL_F_inventory_20261007_v1/receipt.json",
+          "sha256": "e990d77aa5f729fb2b6c0635b7dd0d3a47f0753858eb52c56e2977527e45f569",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C40/20261003-171342/results.json",
+          "sha256": "d5f3807f29109acea013b9d322ab33758e88b8920e65cda44f6704fe9eaab109",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C41/20261003-171344/results.json",
+          "sha256": "ecabbf321a1b89ad57061dafe15194f31de79319f4957e67c21233234b040570",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave5_nonphysical4_20261003/C44/20261003-174946/results.json",
+          "sha256": "f8154844834b34e01ec1e87a96e487ee007d6c2fa95289894520e43c520b0729",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        }
+      ],
+      "evidence_analogue_C_CX_CI": [
+        "C40",
+        "C41",
+        "C44"
+      ],
+      "current_observed_scope": "\u5df2\u6709\u79bb\u7ebffixture/Native\u5386\u53f2scope\uff0cF catalog\u4e0d\u662f\u5b8c\u6210\u8bc1\u660e\u3002",
+      "catalog_original_status_preserved": "PROSPECTIVE_NO_PACKET_GO_OR_MODEL_EPISODE",
+      "real_ROS_run": "NOT_PROVEN_FOR_THIS_DIRECTION_BY_C_CX_CI",
+      "real_NN_run": "NOT_PROVEN",
+      "real_physics_run": "NOT_PROVEN",
+      "physical_success": "NOT_ESTABLISHED",
+      "gap": "\u672c\u65b9\u5411\u6700\u65b0\u72ec\u7acb\u771f\u5b9e\u95ed\u73af\u9a8c\u6536\u4ecd\u9700\u4e0b\u5217\u6d4b\u8bd5\uff1bC/CX/CI\u4e0e\u76f8\u4f3cF\u4efb\u52a1\u4e0d\u80fd\u81ea\u52a8\u6298\u53e0/\u5347\u7ea7\u3002",
+      "next_independent_local_test": "\u56fa\u5b9a\u9971\u548c/\u53cd\u5411\u8bef\u5dee/\u89e3\u9664\u9971\u548cplant\uff0cantiwindup\u4e0e\u5b9e\u9645dt\u68c0\u67e5\uff1b\u5bf9M20\u4e0d\u6539official PD\u5148\u6d4bbaseline\u3002",
+      "dependencies": [
+        "pinned Python/NumPy",
+        "\u516c\u5f00\u786e\u5b9a\u6027\u6570\u636e/\u72ec\u7acboracle",
+        "\u771f\u5b9emiddleware\u6216physics\u9700\u8981\u53e6scope/GO"
+      ],
+      "next_execution_status": "NO_GO_NOT_RUN"
+    },
+    {
+      "id": "F38",
+      "direction": "joint_type_qpos_mapping",
+      "domain": "robot model",
+      "evidence": [
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/native_capability_50_direction_prospective_plan_20261005_v1/bounded_native50_prospective_plan_v1.json",
+          "sha256": "07eed1cf1e91164e03e148efdd7cfe4740a2cf068b0ecdd715bdbb8cd7e5d4df",
+          "json_pointer": "/directions/37",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ACTUAL_DIRECTION_C_CX_CI_ORIGINAL_F_inventory_20261007_v1/receipt.json",
+          "sha256": "e990d77aa5f729fb2b6c0635b7dd0d3a47f0753858eb52c56e2977527e45f569",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C16/20261003-171117/results.json",
+          "sha256": "b0526729c2cd6a6d11d4715ac2427a086d32b0a4b29cb9f60704221cd237252b",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C43/20261003-171348/results.json",
+          "sha256": "10e3ae76b360b74635b27b807e561db75d74ed0521da6c911c7851c70d28e11a",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave5_nonphysical4_20261003/C44/20261003-174946/results.json",
+          "sha256": "f8154844834b34e01ec1e87a96e487ee007d6c2fa95289894520e43c520b0729",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        }
+      ],
+      "evidence_analogue_C_CX_CI": [
+        "C16",
+        "C43",
+        "C44"
+      ],
+      "current_observed_scope": "\u5df2\u6709\u79bb\u7ebffixture/Native\u5386\u53f2scope\uff0cF catalog\u4e0d\u662f\u5b8c\u6210\u8bc1\u660e\u3002",
+      "catalog_original_status_preserved": "PROSPECTIVE_NO_PACKET_GO_OR_MODEL_EPISODE",
+      "real_ROS_run": "NOT_PROVEN_FOR_THIS_DIRECTION_BY_C_CX_CI",
+      "real_NN_run": "NOT_PROVEN",
+      "real_physics_run": "NOT_PROVEN",
+      "physical_success": "NOT_ESTABLISHED",
+      "gap": "\u672c\u65b9\u5411\u6700\u65b0\u72ec\u7acb\u771f\u5b9e\u95ed\u73af\u9a8c\u6536\u4ecd\u9700\u4e0b\u5217\u6d4b\u8bd5\uff1bC/CX/CI\u4e0e\u76f8\u4f3cF\u4efb\u52a1\u4e0d\u80fd\u81ea\u52a8\u6298\u53e0/\u5347\u7ea7\u3002",
+      "next_independent_local_test": "\u56fa\u5b9a\u6a21\u578bfree/hinge/slide nq/nv/dof/qpos\u5730\u5740\uff0c\u771f\u5b9e\u540cstateFK/J\u53ca\u72ec\u7acb\u6709\u9650\u5dee\u5206\uff1b\u9700\u53e6Root kinematic GO\u3002",
+      "dependencies": [
+        "pinned NumPy/MuJoCo\u6a21\u578b\uff08\u6d89\u53caFK\u65f6\u9700\u72ec\u7acbGO\uff09",
+        "free29 mappings/caps",
+        "\u56fa\u5b9astate/scene"
+      ],
+      "next_execution_status": "NO_GO_NOT_RUN"
+    },
+    {
+      "id": "F39",
+      "direction": "moveit_scene_semantic_identity",
+      "domain": "manipulation",
+      "evidence": [
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/native_capability_50_direction_prospective_plan_20261005_v1/bounded_native50_prospective_plan_v1.json",
+          "sha256": "07eed1cf1e91164e03e148efdd7cfe4740a2cf068b0ecdd715bdbb8cd7e5d4df",
+          "json_pointer": "/directions/38",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ACTUAL_DIRECTION_C_CX_CI_ORIGINAL_F_inventory_20261007_v1/receipt.json",
+          "sha256": "e990d77aa5f729fb2b6c0635b7dd0d3a47f0753858eb52c56e2977527e45f569",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C25/20261003-171215/results.json",
+          "sha256": "301f0263404f337b45729352d3d5bee180c0e9725aa05d73e59043dee9de66d9",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave5_nonphysical4_20261003/CI05/20261003-174946/results.json",
+          "sha256": "570f35a153d19a25bdb9061dab3d35f9dc2bc24ed0eb4ca92f797356ab4dc11c",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        }
+      ],
+      "evidence_analogue_C_CX_CI": [
+        "C25",
+        "CI05"
+      ],
+      "current_observed_scope": "\u5df2\u6709\u79bb\u7ebffixture/Native\u5386\u53f2scope\uff0cF catalog\u4e0d\u662f\u5b8c\u6210\u8bc1\u660e\u3002",
+      "catalog_original_status_preserved": "PROSPECTIVE_NO_PACKET_GO_OR_MODEL_EPISODE",
+      "real_ROS_run": "NOT_PROVEN_FOR_THIS_DIRECTION_BY_C_CX_CI",
+      "real_NN_run": "NOT_PROVEN",
+      "real_physics_run": "NOT_PROVEN",
+      "physical_success": "NOT_ESTABLISHED",
+      "gap": "\u672c\u65b9\u5411\u6700\u65b0\u72ec\u7acb\u771f\u5b9e\u95ed\u73af\u9a8c\u6536\u4ecd\u9700\u4e0b\u5217\u6d4b\u8bd5\uff1bC/CX/CI\u4e0e\u76f8\u4f3cF\u4efb\u52a1\u4e0d\u80fd\u81ea\u52a8\u6298\u53e0/\u5347\u7ea7\u3002",
+      "next_independent_local_test": "\u9884\u68c0\u67e5MoveIt\u6a21\u578b/FCL\uff0c\u6838scene identity/ACM/padding/group\u4e0e\u56fa\u5b9acollision witness\uff1bplan-only\u4e0d\u7b49execution\u3002",
+      "dependencies": [
+        "\u9884\u5148\u6838\u5b9e\u9645SLAM/Nav2/MoveIt/FCL\u5b89\u88c5",
+        "\u56fa\u5b9amodel/map/scene/dataset",
+        "\u7f3a\u4f9d\u8d56\u5219BLOCKED\u4e0d\u5f97mock PASS"
+      ],
+      "next_execution_status": "NO_GO_NOT_RUN"
+    },
+    {
+      "id": "F40",
+      "direction": "moveit_dynamic_obstacle_replan",
+      "domain": "manipulation planning",
+      "evidence": [
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/native_capability_50_direction_prospective_plan_20261005_v1/bounded_native50_prospective_plan_v1.json",
+          "sha256": "07eed1cf1e91164e03e148efdd7cfe4740a2cf068b0ecdd715bdbb8cd7e5d4df",
+          "json_pointer": "/directions/39",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ACTUAL_DIRECTION_C_CX_CI_ORIGINAL_F_inventory_20261007_v1/receipt.json",
+          "sha256": "e990d77aa5f729fb2b6c0635b7dd0d3a47f0753858eb52c56e2977527e45f569",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/CX09/20261003-171623/results.json",
+          "sha256": "ea24d7ce4dd8cd4a8fd7cf2e0bad8fbf766fd2bb269c89eb8cf3137cda668b31",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        }
+      ],
+      "evidence_analogue_C_CX_CI": [
+        "CX09"
+      ],
+      "current_observed_scope": "\u5df2\u6709\u79bb\u7ebffixture/Native\u5386\u53f2scope\uff0cF catalog\u4e0d\u662f\u5b8c\u6210\u8bc1\u660e\u3002",
+      "catalog_original_status_preserved": "PROSPECTIVE_NO_PACKET_GO_OR_MODEL_EPISODE",
+      "real_ROS_run": "NOT_PROVEN_FOR_THIS_DIRECTION_BY_C_CX_CI",
+      "real_NN_run": "NOT_PROVEN",
+      "real_physics_run": "NOT_PROVEN",
+      "physical_success": "NOT_ESTABLISHED",
+      "gap": "\u672c\u65b9\u5411\u6700\u65b0\u72ec\u7acb\u771f\u5b9e\u95ed\u73af\u9a8c\u6536\u4ecd\u9700\u4e0b\u5217\u6d4b\u8bd5\uff1bC/CX/CI\u4e0e\u76f8\u4f3cF\u4efb\u52a1\u4e0d\u80fd\u81ea\u52a8\u6298\u53e0/\u5347\u7ea7\u3002",
+      "next_independent_local_test": "\u771f\u5b9e\u89c4\u5212action\u4e2d\u969c\u788d\u7248\u672cA\u2192B\u2192C\uff0c\u4fdd\u5b58scene\u540c\u7248\u672c\u78b0\u649e\u68c0\u67e5\u4e0efailure\uff1b\u7981\u6b62\u7528\u65e7scene\u5ba3\u79f0\u52a8\u6001\u6267\u884c\u5b89\u5168\u3002",
+      "dependencies": [
+        "\u9884\u5148\u6838\u5b9e\u9645SLAM/Nav2/MoveIt/FCL\u5b89\u88c5",
+        "\u56fa\u5b9amodel/map/scene/dataset",
+        "\u7f3a\u4f9d\u8d56\u5219BLOCKED\u4e0d\u5f97mock PASS"
+      ],
+      "next_execution_status": "NO_GO_NOT_RUN"
+    },
+    {
+      "id": "F41",
+      "direction": "grasp_frame_contact_geometry",
+      "domain": "manipulation geometry",
+      "evidence": [
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/native_capability_50_direction_prospective_plan_20261005_v1/bounded_native50_prospective_plan_v1.json",
+          "sha256": "07eed1cf1e91164e03e148efdd7cfe4740a2cf068b0ecdd715bdbb8cd7e5d4df",
+          "json_pointer": "/directions/40",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ACTUAL_DIRECTION_C_CX_CI_ORIGINAL_F_inventory_20261007_v1/receipt.json",
+          "sha256": "e990d77aa5f729fb2b6c0635b7dd0d3a47f0753858eb52c56e2977527e45f569",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C31/20261003-171249/results.json",
+          "sha256": "7a097b00cceceacce9389eb32820ad54773684149d65fc645e409119ea5da505",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C32/20261003-171254/results.json",
+          "sha256": "ccb06ff1264cec7330a01be19e8b021df70c99b5fd6547b48b836f72bd3fbb7d",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C34/20261003-171259/results.json",
+          "sha256": "02b5ca0e881c3982f8a7870378d5ce70ad841f7ee66a900b0533f010d660dd69",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/CX10/20261003-171628/results.json",
+          "sha256": "5d92d7a5840597f6d4fd39f813b9f5a185f5a14153f7f7ca3531768124a09ada",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        }
+      ],
+      "evidence_analogue_C_CX_CI": [
+        "C31",
+        "C32",
+        "C34",
+        "CX10"
+      ],
+      "current_observed_scope": "\u5df2\u6709\u79bb\u7ebffixture/Native\u5386\u53f2scope\uff0cF catalog\u4e0d\u662f\u5b8c\u6210\u8bc1\u660e\u3002",
+      "catalog_original_status_preserved": "PROSPECTIVE_NO_PACKET_GO_OR_MODEL_EPISODE",
+      "real_ROS_run": "NOT_PROVEN_FOR_THIS_DIRECTION_BY_C_CX_CI",
+      "real_NN_run": "NOT_PROVEN",
+      "real_physics_run": "NOT_PROVEN",
+      "physical_success": "NOT_ESTABLISHED",
+      "gap": "\u672c\u65b9\u5411\u6700\u65b0\u72ec\u7acb\u771f\u5b9e\u95ed\u73af\u9a8c\u6536\u4ecd\u9700\u4e0b\u5217\u6d4b\u8bd5\uff1bC/CX/CI\u4e0e\u76f8\u4f3cF\u4efb\u52a1\u4e0d\u80fd\u81ea\u52a8\u6298\u53e0/\u5347\u7ea7\u3002",
+      "next_independent_local_test": "\u56fa\u5b9a\u63a5\u89e6\u70b9/ellipsoid\u6cd5\u5411/leverarm/\u6469\u64e6\u9525\uff0c\u72ec\u7acbgeometry/math witness\uff1b\u6ca1\u6709\u771f\u5b9e\u63a5\u89e6\u4e0d\u79f0\u6293\u53d6\u6210\u529f\u3002",
+      "dependencies": [
+        "pinned NumPy/MuJoCo\u6a21\u578b\uff08\u6d89\u53caFK\u65f6\u9700\u72ec\u7acbGO\uff09",
+        "free29 mappings/caps",
+        "\u56fa\u5b9astate/scene"
+      ],
+      "next_execution_status": "NO_GO_NOT_RUN"
+    },
+    {
+      "id": "F42",
+      "direction": "cartesian_path_jump_limits",
+      "domain": "manipulation trajectory",
+      "evidence": [
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/native_capability_50_direction_prospective_plan_20261005_v1/bounded_native50_prospective_plan_v1.json",
+          "sha256": "07eed1cf1e91164e03e148efdd7cfe4740a2cf068b0ecdd715bdbb8cd7e5d4df",
+          "json_pointer": "/directions/41",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ACTUAL_DIRECTION_C_CX_CI_ORIGINAL_F_inventory_20261007_v1/receipt.json",
+          "sha256": "e990d77aa5f729fb2b6c0635b7dd0d3a47f0753858eb52c56e2977527e45f569",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C30/20261003-171237/results.json",
+          "sha256": "77864640ebbcd164c56ea9f50e835659cc083eb01dd4d9aa4e862c29e046d5a0",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C33/20261003-171259/results.json",
+          "sha256": "cb5cf1050bfc461c52322244d30f81e2128f15758af1bee8a2d4928fb6514140",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        }
+      ],
+      "evidence_analogue_C_CX_CI": [
+        "C30",
+        "C33"
+      ],
+      "current_observed_scope": "\u5df2\u6709\u79bb\u7ebffixture/Native\u5386\u53f2scope\uff0cF catalog\u4e0d\u662f\u5b8c\u6210\u8bc1\u660e\u3002",
+      "catalog_original_status_preserved": "PROSPECTIVE_NO_PACKET_GO_OR_MODEL_EPISODE",
+      "real_ROS_run": "NOT_PROVEN_FOR_THIS_DIRECTION_BY_C_CX_CI",
+      "real_NN_run": "NOT_PROVEN",
+      "real_physics_run": "NOT_PROVEN",
+      "physical_success": "NOT_ESTABLISHED",
+      "gap": "\u672c\u65b9\u5411\u6700\u65b0\u72ec\u7acb\u771f\u5b9e\u95ed\u73af\u9a8c\u6536\u4ecd\u9700\u4e0b\u5217\u6d4b\u8bd5\uff1bC/CX/CI\u4e0e\u76f8\u4f3cF\u4efb\u52a1\u4e0d\u80fd\u81ea\u52a8\u6298\u53e0/\u5347\u7ea7\u3002",
+      "next_independent_local_test": "\u56fa\u5b9aCartesian\u8def\u5f84\u5230jointtrajectory\uff0c\u72ec\u7acbjoint bounds/\u5947\u5f02\u8df3\u53d8/fraction\uff1b\u4e0d\u9690\u5f0f\u6267\u884c\u673a\u68b0\u81c2\u3002",
+      "dependencies": [
+        "pinned NumPy/MuJoCo\u6a21\u578b\uff08\u6d89\u53caFK\u65f6\u9700\u72ec\u7acbGO\uff09",
+        "free29 mappings/caps",
+        "\u56fa\u5b9astate/scene"
+      ],
+      "next_execution_status": "NO_GO_NOT_RUN"
+    },
+    {
+      "id": "F43",
+      "direction": "vla_input_action_units",
+      "domain": "VLA interface",
+      "evidence": [
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/native_capability_50_direction_prospective_plan_20261005_v1/bounded_native50_prospective_plan_v1.json",
+          "sha256": "07eed1cf1e91164e03e148efdd7cfe4740a2cf068b0ecdd715bdbb8cd7e5d4df",
+          "json_pointer": "/directions/42",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ACTUAL_DIRECTION_C_CX_CI_ORIGINAL_F_inventory_20261007_v1/receipt.json",
+          "sha256": "e990d77aa5f729fb2b6c0635b7dd0d3a47f0753858eb52c56e2977527e45f569",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C45/20261003-171402/results.json",
+          "sha256": "7d0f9f189c4cde144e05cb372c716cf64cce8b7ef643794823e71151e4f682f7",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C46/20261003-171409/results.json",
+          "sha256": "062757dd3e9395fb8e084a7dcfa01803b8b95e36256c6ee603e376abfba8918f",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C47/20261003-171412/results.json",
+          "sha256": "01613a1750b8e5c32083d25826ddef93105848fbb67216af17bc09c359ad27dc",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/CX08/20261003-171619/results.json",
+          "sha256": "01a53f60281ab547e9507fdf58b4246bcdb764b08ea66f2bbcebe29e56deb47e",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        }
+      ],
+      "evidence_analogue_C_CX_CI": [
+        "C45",
+        "C46",
+        "C47",
+        "CX08"
+      ],
+      "current_observed_scope": "\u5df2\u6709\u79bb\u7ebffixture/Native\u5386\u53f2scope\uff0cF catalog\u4e0d\u662f\u5b8c\u6210\u8bc1\u660e\u3002",
+      "catalog_original_status_preserved": "PROSPECTIVE_NO_PACKET_GO_OR_MODEL_EPISODE",
+      "real_ROS_run": "NOT_PROVEN_FOR_THIS_DIRECTION_BY_C_CX_CI",
+      "real_NN_run": "NOT_PROVEN",
+      "real_physics_run": "NOT_PROVEN",
+      "physical_success": "NOT_ESTABLISHED",
+      "gap": "\u672c\u65b9\u5411\u6700\u65b0\u72ec\u7acb\u771f\u5b9e\u95ed\u73af\u9a8c\u6536\u4ecd\u9700\u4e0b\u5217\u6d4b\u8bd5\uff1bC/CX/CI\u4e0e\u76f8\u4f3cF\u4efb\u52a1\u4e0d\u80fd\u81ea\u52a8\u6298\u53e0/\u5347\u7ea7\u3002",
+      "next_independent_local_test": "\u8bfb\u53d6\u5df2\u5b89\u88c5SmolVLA\u5b98\u65b9stats+pre/post\u94fe\u4e0eaction-space\u6807\u7b7e\uff0c\u56fa\u5b9a\u5df2\u58f0\u660e\u673a\u5668\u4ebaprofile\uff1b\u4e25\u79816\u7ef4\u6620\u5c04G1/RH56\u3002",
+      "dependencies": [
+        "pinned Python/NumPy",
+        "\u516c\u5f00\u786e\u5b9a\u6027\u6570\u636e/\u72ec\u7acboracle",
+        "\u771f\u5b9emiddleware\u6216physics\u9700\u8981\u53e6scope/GO"
+      ],
+      "next_execution_status": "NO_GO_NOT_RUN"
+    },
+    {
+      "id": "F44",
+      "direction": "vla_closedloop_policy_observer",
+      "domain": "VLA model",
+      "evidence": [
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/native_capability_50_direction_prospective_plan_20261005_v1/bounded_native50_prospective_plan_v1.json",
+          "sha256": "07eed1cf1e91164e03e148efdd7cfe4740a2cf068b0ecdd715bdbb8cd7e5d4df",
+          "json_pointer": "/directions/43",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ACTUAL_DIRECTION_C_CX_CI_ORIGINAL_F_inventory_20261007_v1/receipt.json",
+          "sha256": "e990d77aa5f729fb2b6c0635b7dd0d3a47f0753858eb52c56e2977527e45f569",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C45/20261003-171402/results.json",
+          "sha256": "7d0f9f189c4cde144e05cb372c716cf64cce8b7ef643794823e71151e4f682f7",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C46/20261003-171409/results.json",
+          "sha256": "062757dd3e9395fb8e084a7dcfa01803b8b95e36256c6ee603e376abfba8918f",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "/F44_outcome_v7",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        }
+      ],
+      "evidence_analogue_C_CX_CI": [
+        "C45",
+        "C46"
+      ],
+      "current_observed_scope": "v170 F44_outcome_v7\u5df2\u8bb0\u5f551x50x6 finite\u30011\u5b98\u65b9load/pre/predict/post\u3001\u771f\u5b9eRefs/STOP\uff1b\u65e0physical\u52a8\u4f5c\u3002",
+      "catalog_original_status_preserved": "PROSPECTIVE_NO_PACKET_GO_OR_MODEL_EPISODE",
+      "real_ROS_run": "NOT_PROVEN_FOR_THIS_DIRECTION_BY_C_CX_CI",
+      "real_NN_run": "RECORDED_1_CPU_OFFICIAL_FORWARD",
+      "real_physics_run": "NOT_PROVEN",
+      "physical_success": "NOT_ESTABLISHED",
+      "gap": "\u672c\u65b9\u5411\u6700\u65b0\u72ec\u7acb\u771f\u5b9e\u95ed\u73af\u9a8c\u6536\u4ecd\u9700\u4e0b\u5217\u6d4b\u8bd5\uff1bC/CX/CI\u4e0e\u76f8\u4f3cF\u4efb\u52a1\u4e0d\u80fd\u81ea\u52a8\u6298\u53e0/\u5347\u7ea7\u3002",
+      "next_independent_local_test": "\u4ec5\u5728\u72ec\u7acbNN GO\u4e0b1\u6b21450M CPU\u5b98\u65b9pre/predict/post\uff0c\u4fdd\u5b58raw/post tensors\u3001\u771f\u5b9enormalized\u5355\u4f4d\uff1bclosedloop\u53e6GO\u3002",
+      "dependencies": [
+        "pinned lerobot/torch/transformers/450M weights/stats",
+        "\u5b98\u65b9pre/post\u7248\u672c",
+        "CPU/RAM/wall\u914d\u989d",
+        "\u72ec\u7acbNN Root GO"
+      ],
+      "next_execution_status": "NO_GO_NOT_RUN"
+    },
+    {
+      "id": "F45",
+      "direction": "vln_instruction_grounding",
+      "domain": "VLN",
+      "evidence": [
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/native_capability_50_direction_prospective_plan_20261005_v1/bounded_native50_prospective_plan_v1.json",
+          "sha256": "07eed1cf1e91164e03e148efdd7cfe4740a2cf068b0ecdd715bdbb8cd7e5d4df",
+          "json_pointer": "/directions/44",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ACTUAL_DIRECTION_C_CX_CI_ORIGINAL_F_inventory_20261007_v1/receipt.json",
+          "sha256": "e990d77aa5f729fb2b6c0635b7dd0d3a47f0753858eb52c56e2977527e45f569",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C48/20261003-171420/results.json",
+          "sha256": "528ff160dad3ce5890ac747e3393ff9d6d66384b220defed967e025df87865f8",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C49/20261003-171423/results.json",
+          "sha256": "2dddf825fe1584615c33c66bc930d78020ff9fe5781e90ba55586eb409fde710",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave5_nonphysical4_20261003/CX11/20261003-174946/results.json",
+          "sha256": "81d571dc01b3ebcb8e86a6c5abd5c0f400d09cc666009f653f1c36b7479562d7",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        }
+      ],
+      "evidence_analogue_C_CX_CI": [
+        "C48",
+        "C49",
+        "CX11"
+      ],
+      "current_observed_scope": "\u5df2\u6709\u79bb\u7ebffixture/Native\u5386\u53f2scope\uff0cF catalog\u4e0d\u662f\u5b8c\u6210\u8bc1\u660e\u3002",
+      "catalog_original_status_preserved": "PROSPECTIVE_NO_PACKET_GO_OR_MODEL_EPISODE",
+      "real_ROS_run": "NOT_PROVEN_FOR_THIS_DIRECTION_BY_C_CX_CI",
+      "real_NN_run": "NOT_PROVEN",
+      "real_physics_run": "NOT_PROVEN",
+      "physical_success": "NOT_ESTABLISHED",
+      "gap": "\u672c\u65b9\u5411\u6700\u65b0\u72ec\u7acb\u771f\u5b9e\u95ed\u73af\u9a8c\u6536\u4ecd\u9700\u4e0b\u5217\u6d4b\u8bd5\uff1bC/CX/CI\u4e0e\u76f8\u4f3cF\u4efb\u52a1\u4e0d\u80fd\u81ea\u52a8\u6298\u53e0/\u5347\u7ea7\u3002",
+      "next_independent_local_test": "\u771f\u5b9e\u6709\u9650\u5ba4\u5185\u73af\u5883/\u56fe\u50cf\u6807\u7b7e+\u65f6\u5e8f\u8bed\u8a00\uff0c\u8def\u7ebf\u5b9e\u4f53/blank-label/\u6b67\u4e49\u5bf9\u7167\uff1b\u7f3a\u73af\u5883\u5219\u4ec5grounding\u8f6f\u4ef6\u975e\u5bfc\u822a\u3002",
+      "dependencies": [
+        "pinned Python/NumPy",
+        "\u516c\u5f00\u786e\u5b9a\u6027\u6570\u636e/\u72ec\u7acboracle",
+        "\u771f\u5b9emiddleware\u6216physics\u9700\u8981\u53e6scope/GO"
+      ],
+      "next_execution_status": "NO_GO_NOT_RUN"
+    },
+    {
+      "id": "F46",
+      "direction": "multiagent_goal_contention",
+      "domain": "multi-agent",
+      "evidence": [
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/native_capability_50_direction_prospective_plan_20261005_v1/bounded_native50_prospective_plan_v1.json",
+          "sha256": "07eed1cf1e91164e03e148efdd7cfe4740a2cf068b0ecdd715bdbb8cd7e5d4df",
+          "json_pointer": "/directions/45",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ACTUAL_DIRECTION_C_CX_CI_ORIGINAL_F_inventory_20261007_v1/receipt.json",
+          "sha256": "e990d77aa5f729fb2b6c0635b7dd0d3a47f0753858eb52c56e2977527e45f569",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C57/20261003-171459/results.json",
+          "sha256": "e08966366f154ac294d02abbe8dabc508aa0223d05fb82e55d1c4a74c90ff052",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        }
+      ],
+      "evidence_analogue_C_CX_CI": [
+        "C57"
+      ],
+      "current_observed_scope": "\u5df2\u6709\u79bb\u7ebffixture/Native\u5386\u53f2scope\uff0cF catalog\u4e0d\u662f\u5b8c\u6210\u8bc1\u660e\u3002",
+      "catalog_original_status_preserved": "PROSPECTIVE_NO_PACKET_GO_OR_MODEL_EPISODE",
+      "real_ROS_run": "NOT_PROVEN_FOR_THIS_DIRECTION_BY_C_CX_CI",
+      "real_NN_run": "NOT_PROVEN",
+      "real_physics_run": "NOT_PROVEN",
+      "physical_success": "NOT_ESTABLISHED",
+      "gap": "\u672c\u65b9\u5411\u6700\u65b0\u72ec\u7acb\u771f\u5b9e\u95ed\u73af\u9a8c\u6536\u4ecd\u9700\u4e0b\u5217\u6d4b\u8bd5\uff1bC/CX/CI\u4e0e\u76f8\u4f3cF\u4efb\u52a1\u4e0d\u80fd\u81ea\u52a8\u6298\u53e0/\u5347\u7ea7\u3002",
+      "next_independent_local_test": "\u4e24\u6709\u9650agent\u5728\u540c\u6a21\u62df\u56fe\u7533\u8bf7\u51b2\u7a81goal\uff0c\u72ec\u7acbreservations\u4e0e\u8def\u5f84\u65f6\u7a7a\u51b2\u7a81oracle\uff1b\u4e0d\u8fd0\u884c\u786c\u4ef6\u3002",
+      "dependencies": [
+        "pinned Python/NumPy",
+        "\u516c\u5f00\u786e\u5b9a\u6027\u6570\u636e/\u72ec\u7acboracle",
+        "\u771f\u5b9emiddleware\u6216physics\u9700\u8981\u53e6scope/GO"
+      ],
+      "next_execution_status": "NO_GO_NOT_RUN"
+    },
+    {
+      "id": "F47",
+      "direction": "sensor_noise_robust_navigation",
+      "domain": "navigation/perception",
+      "evidence": [
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/native_capability_50_direction_prospective_plan_20261005_v1/bounded_native50_prospective_plan_v1.json",
+          "sha256": "07eed1cf1e91164e03e148efdd7cfe4740a2cf068b0ecdd715bdbb8cd7e5d4df",
+          "json_pointer": "/directions/46",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ACTUAL_DIRECTION_C_CX_CI_ORIGINAL_F_inventory_20261007_v1/receipt.json",
+          "sha256": "e990d77aa5f729fb2b6c0635b7dd0d3a47f0753858eb52c56e2977527e45f569",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C13/20261003-171112/results.json",
+          "sha256": "d980619cf66928d2fd45a0330441006c9f4b21f8911e4547894ddc149e802b49",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C29/20261003-171237/results.json",
+          "sha256": "13abb3447b3cf350143763ba83c523f5330806556cfaf1c125a5c9ef198003d0",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/CX09/20261003-171623/results.json",
+          "sha256": "ea24d7ce4dd8cd4a8fd7cf2e0bad8fbf766fd2bb269c89eb8cf3137cda668b31",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        }
+      ],
+      "evidence_analogue_C_CX_CI": [
+        "C13",
+        "C29",
+        "CX09"
+      ],
+      "current_observed_scope": "\u5df2\u6709\u79bb\u7ebffixture/Native\u5386\u53f2scope\uff0cF catalog\u4e0d\u662f\u5b8c\u6210\u8bc1\u660e\u3002",
+      "catalog_original_status_preserved": "PROSPECTIVE_NO_PACKET_GO_OR_MODEL_EPISODE",
+      "real_ROS_run": "NOT_PROVEN_FOR_THIS_DIRECTION_BY_C_CX_CI",
+      "real_NN_run": "NOT_PROVEN",
+      "real_physics_run": "NOT_PROVEN",
+      "physical_success": "NOT_ESTABLISHED",
+      "gap": "\u672c\u65b9\u5411\u6700\u65b0\u72ec\u7acb\u771f\u5b9e\u95ed\u73af\u9a8c\u6536\u4ecd\u9700\u4e0b\u5217\u6d4b\u8bd5\uff1bC/CX/CI\u4e0e\u76f8\u4f3cF\u4efb\u52a1\u4e0d\u80fd\u81ea\u52a8\u6298\u53e0/\u5347\u7ea7\u3002",
+      "next_independent_local_test": "\u56fa\u5b9anoise/dropout\u5bfc\u822a\u5e8f\u5217\uff0c\u72ec\u7acb\u505c\u6b62\u8ddd\u79bb/freshness/recovery\uff1b\u673a\u5668\u4eba\u52a8\u529b\u5b66\u4e0e\u611f\u77e5\u8bef\u5dee\u5fc5\u987b\u5206\u5f00\u3002",
+      "dependencies": [
+        "pinned Python/NumPy",
+        "\u516c\u5f00\u786e\u5b9a\u6027\u6570\u636e/\u72ec\u7acboracle",
+        "\u771f\u5b9emiddleware\u6216physics\u9700\u8981\u53e6scope/GO"
+      ],
+      "next_execution_status": "NO_GO_NOT_RUN"
+    },
+    {
+      "id": "F48",
+      "direction": "model_tool_schema_malformed",
+      "domain": "harness API",
+      "evidence": [
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/native_capability_50_direction_prospective_plan_20261005_v1/bounded_native50_prospective_plan_v1.json",
+          "sha256": "07eed1cf1e91164e03e148efdd7cfe4740a2cf068b0ecdd715bdbb8cd7e5d4df",
+          "json_pointer": "/directions/47",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ACTUAL_DIRECTION_C_CX_CI_ORIGINAL_F_inventory_20261007_v1/receipt.json",
+          "sha256": "e990d77aa5f729fb2b6c0635b7dd0d3a47f0753858eb52c56e2977527e45f569",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/CI01/20261003-171701/results.json",
+          "sha256": "cb5dc2500d2781613464ebe5444c857b0ef87b9d7f0ad69505b75db354654b8f",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/CI03/20261003-171705/results.json",
+          "sha256": "b55519509608b6443a8e1a5e7957d554c602239e1292d245a2fcd93ce4b4de52",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/CI04/20261003-171714/results.json",
+          "sha256": "087872b3ae5a02c98afd26578a56061e9521fa8a0991bd6b155d531c96fe089f",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        }
+      ],
+      "evidence_analogue_C_CX_CI": [
+        "CI01",
+        "CI03",
+        "CI04"
+      ],
+      "current_observed_scope": "\u5df2\u6709\u79bb\u7ebffixture/Native\u5386\u53f2scope\uff0cF catalog\u4e0d\u662f\u5b8c\u6210\u8bc1\u660e\u3002",
+      "catalog_original_status_preserved": "PROSPECTIVE_NO_PACKET_GO_OR_MODEL_EPISODE",
+      "real_ROS_run": "NOT_PROVEN_FOR_THIS_DIRECTION_BY_C_CX_CI",
+      "real_NN_run": "NOT_PROVEN",
+      "real_physics_run": "NOT_PROVEN",
+      "physical_success": "NOT_ESTABLISHED",
+      "gap": "\u672c\u65b9\u5411\u6700\u65b0\u72ec\u7acb\u771f\u5b9e\u95ed\u73af\u9a8c\u6536\u4ecd\u9700\u4e0b\u5217\u6d4b\u8bd5\uff1bC/CX/CI\u4e0e\u76f8\u4f3cF\u4efb\u52a1\u4e0d\u80fd\u81ea\u52a8\u6298\u53e0/\u5347\u7ea7\u3002",
+      "next_independent_local_test": "\u5f53\u524dPI104\u5168CLI\u771f\u5b9etool policy/schema\u2192privateRPC\uff1a\u5408\u6cd5/\u9519\u8bef\u53c2\u6570\u3001\u6269\u5c55callback\u4e0e\u96f6\u65b0\u589eeffect\uff1b\u4e0d\u62fffakeprovider\u5f53\u771f\u5b9eaccess\u3002",
+      "dependencies": [
+        "current compiled ROSClaw/PI104",
+        "privateHOME/SQLite",
+        "exact tools+scope/pinned inputs",
+        "synthetic offline provider preparation; actualChatGPT access\u9700paid completion"
+      ],
+      "next_execution_status": "NO_GO_NOT_RUN"
+    },
+    {
+      "id": "F49",
+      "direction": "artifact_reboot_durability",
+      "domain": "storage/restart",
+      "evidence": [
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/native_capability_50_direction_prospective_plan_20261005_v1/bounded_native50_prospective_plan_v1.json",
+          "sha256": "07eed1cf1e91164e03e148efdd7cfe4740a2cf068b0ecdd715bdbb8cd7e5d4df",
+          "json_pointer": "/directions/48",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ACTUAL_DIRECTION_C_CX_CI_ORIGINAL_F_inventory_20261007_v1/receipt.json",
+          "sha256": "e990d77aa5f729fb2b6c0635b7dd0d3a47f0753858eb52c56e2977527e45f569",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C53/20261003-171439/results.json",
+          "sha256": "afaac8b5f222328aa0cf1afc6ccf0a3a8aae8cd7bcef275e5c79ab635eb61953",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/CI09/20261003-171856/results.json",
+          "sha256": "c09f875f2dff6c3691ed65c91d7ebbc34dd63a54340953f550958fdd95d65c28",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave5_nonphysical4_20261003/CI11/20261003-174946/results.json",
+          "sha256": "e938dc4154b2c88bda592b98033792d3adfcec05dbfa92f3532eeea269019847",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/CI12/20261003-171917/results.json",
+          "sha256": "abb7fd4e7db58fe8d85d3ba66cc3b8488db901f67f12c8a19f3c8e7d624dd100",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        }
+      ],
+      "evidence_analogue_C_CX_CI": [
+        "C53",
+        "CI09",
+        "CI11",
+        "CI12"
+      ],
+      "current_observed_scope": "\u5df2\u6709\u79bb\u7ebffixture/Native\u5386\u53f2scope\uff0cF catalog\u4e0d\u662f\u5b8c\u6210\u8bc1\u660e\u3002",
+      "catalog_original_status_preserved": "PROSPECTIVE_NO_PACKET_GO_OR_MODEL_EPISODE",
+      "real_ROS_run": "NOT_PROVEN_FOR_THIS_DIRECTION_BY_C_CX_CI",
+      "real_NN_run": "NOT_PROVEN",
+      "real_physics_run": "NOT_PROVEN",
+      "physical_success": "NOT_ESTABLISHED",
+      "gap": "\u672c\u65b9\u5411\u6700\u65b0\u72ec\u7acb\u771f\u5b9e\u95ed\u73af\u9a8c\u6536\u4ecd\u9700\u4e0b\u5217\u6d4b\u8bd5\uff1bC/CX/CI\u4e0e\u76f8\u4f3cF\u4efb\u52a1\u4e0d\u80fd\u81ea\u52a8\u6298\u53e0/\u5347\u7ea7\u3002",
+      "next_independent_local_test": "\u79c1\u6709SQLite/Ref\u6587\u4ef6\u91cd\u65b0\u5f00\u542f\uff0cdigest/path/current task\u548cdup conflict\u539f\u5b50\u6027\uff1b\u4e0d\u58f0\u79f0\u65ad\u7535\u6301\u4e45\u6027\u3002",
+      "dependencies": [
+        "current compiled ROSClaw/PI104",
+        "privateHOME/SQLite",
+        "exact tools+scope/pinned inputs",
+        "synthetic offline provider preparation; actualChatGPT access\u9700paid completion"
+      ],
+      "next_execution_status": "NO_GO_NOT_RUN"
+    },
+    {
+      "id": "F50",
+      "direction": "bounded_multi_stage_delivery",
+      "domain": "long task UX",
+      "evidence": [
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/native_capability_50_direction_prospective_plan_20261005_v1/bounded_native50_prospective_plan_v1.json",
+          "sha256": "07eed1cf1e91164e03e148efdd7cfe4740a2cf068b0ecdd715bdbb8cd7e5d4df",
+          "json_pointer": "/directions/49",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ACTUAL_DIRECTION_C_CX_CI_ORIGINAL_F_inventory_20261007_v1/receipt.json",
+          "sha256": "e990d77aa5f729fb2b6c0635b7dd0d3a47f0753858eb52c56e2977527e45f569",
+          "json_pointer": "",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C58/20261003-171511/results.json",
+          "sha256": "279f482659621a318a64b109df68fc70970ad913b9faa984f0d64e627655b4f2",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/C59/20261003-171514/results.json",
+          "sha256": "f5d2ca85c61250395395385f4c1367ce8c85ff76144989aecbab076588cd6650",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        },
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/kimi_matrix_wave4_typed_ci84_20261003/CI12/20261003-171917/results.json",
+          "sha256": "abb7fd4e7db58fe8d85d3ba66cc3b8488db901f67f12c8a19f3c8e7d624dd100",
+          "json_pointer": "/records/0",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        }
+      ],
+      "evidence_analogue_C_CX_CI": [
+        "C58",
+        "C59",
+        "CI12"
+      ],
+      "current_observed_scope": "\u5df2\u6709\u79bb\u7ebffixture/Native\u5386\u53f2scope\uff0cF catalog\u4e0d\u662f\u5b8c\u6210\u8bc1\u660e\u3002",
+      "catalog_original_status_preserved": "PROSPECTIVE_NO_PACKET_GO_OR_MODEL_EPISODE",
+      "real_ROS_run": "NOT_PROVEN_FOR_THIS_DIRECTION_BY_C_CX_CI",
+      "real_NN_run": "NOT_PROVEN",
+      "real_physics_run": "NOT_PROVEN",
+      "physical_success": "NOT_ESTABLISHED",
+      "gap": "\u672c\u65b9\u5411\u6700\u65b0\u72ec\u7acb\u771f\u5b9e\u95ed\u73af\u9a8c\u6536\u4ecd\u9700\u4e0b\u5217\u6d4b\u8bd5\uff1bC/CX/CI\u4e0e\u76f8\u4f3cF\u4efb\u52a1\u4e0d\u80fd\u81ea\u52a8\u6298\u53e0/\u5347\u7ea7\u3002",
+      "next_independent_local_test": "\u6709\u96503stage\u4efb\u52a1\uff0c\u8986\u76d6sourceRefs\u5148\u767b\u8bb0\u3001\u8fdb\u5ea6/\u5f53\u524d\u9884\u7b97/partial/\u6700\u7ec8STOP\uff1b\u8d85\u9884\u7b97\u4fdd\u7559UNKNOWN\uff0c\u4e0d\u683c\u5f0f\u91cd\u8bd5\u3002",
+      "dependencies": [
+        "current compiled ROSClaw/PI104",
+        "privateHOME/SQLite",
+        "exact tools+scope/pinned inputs",
+        "synthetic offline provider preparation; actualChatGPT access\u9700paid completion"
+      ],
+      "next_execution_status": "NO_GO_NOT_RUN"
+    },
+    {
+      "id": "X51",
+      "direction": "PI104_provider_progress_watchdog",
+      "domain": "PI/UX",
+      "evidence": [
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "/current_recovery_status_supersedes_inherited_live_rows",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        }
+      ],
+      "evidence_analogue_C_CX_CI": [],
+      "current_observed_scope": "\u4ee5v170\u5177\u4f53\u5b57\u6bb5\u4e3a\u4e8b\u5b9e\uff0c\u65e7whole/provider/operator\u5931\u8d25\u5206\u5c42\u4fdd\u7559\u3002",
+      "real_ROS_run": "NOT_REQUIRED_FOR_THIS_TEST",
+      "real_NN_run": "NOT_REQUIRED_OR_NOT_RUN",
+      "real_physics_run": "NOT_APPLICABLE_SOFTWARE",
+      "physical_success": "NOT_ESTABLISHED",
+      "gap": "\u72ec\u7acb\u5f53\u524druntime/candidate/protocol\u8d44\u683c\u4e0e\u9010\u9879\u771f\u5b9e\u7ed3\u679c\uff0c\u4e0d\u80fd\u7528\u5df2\u8bb0\u5f55activity\u66ff\u4ee3\u76ee\u6807\u5b8c\u6210\u3002",
+      "next_independent_local_test": "registered compiled callbacks\uff1asilent/empty/nonempty/thinking/toolcall\u8fb9\u754c\u3001tool+user\u91cd\u53e0pause\u53caUI throw\u9694\u79bb\uff1belapsed\u4e0d\u5047\u8fdb\u5ea6\u3002",
+      "dependencies": [
+        "\u5f53\u524dpinned runtime/privateHOME/SQLite",
+        "\u5bf9\u5e94\u5df2\u5c01Native source/model/policy",
+        "\u9700\u8981physics/NN\u65f6\u5355\u72ecRoot GO\uff1b\u672c\u8bbe\u8ba10execution"
+      ],
+      "next_execution_status": "NO_GO_NOT_RUN"
+    },
+    {
+      "id": "X52",
+      "direction": "native_tokens_accounting",
+      "domain": "PI/usage",
+      "evidence": [
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "/current_recovery_status_supersedes_inherited_live_rows",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        }
+      ],
+      "evidence_analogue_C_CX_CI": [],
+      "current_observed_scope": "\u4ee5v170\u5177\u4f53\u5b57\u6bb5\u4e3a\u4e8b\u5b9e\uff0c\u65e7whole/provider/operator\u5931\u8d25\u5206\u5c42\u4fdd\u7559\u3002",
+      "real_ROS_run": "NOT_REQUIRED_FOR_THIS_TEST",
+      "real_NN_run": "NOT_REQUIRED_OR_NOT_RUN",
+      "real_physics_run": "NOT_APPLICABLE_SOFTWARE",
+      "physical_success": "NOT_ESTABLISHED",
+      "gap": "\u72ec\u7acb\u5f53\u524druntime/candidate/protocol\u8d44\u683c\u4e0e\u9010\u9879\u771f\u5b9e\u7ed3\u679c\uff0c\u4e0d\u80fd\u7528\u5df2\u8bb0\u5f55activity\u66ff\u4ee3\u76ee\u6807\u5b8c\u6210\u3002",
+      "next_independent_local_test": "\u771f\u5b9eregistered /tokens+privateSQLite\uff1b\u6b63\u5e38/abort/error31\u5360\u4f4d3partial\u3001cache/\u6210\u672cUSD\u3001legacy\u6765\u6e90\u9694\u79bb\u3001\u91cd\u590d\u6279\u539f\u5b50\u6027\u3002",
+      "dependencies": [
+        "\u5f53\u524dpinned runtime/privateHOME/SQLite",
+        "\u5bf9\u5e94\u5df2\u5c01Native source/model/policy",
+        "\u9700\u8981physics/NN\u65f6\u5355\u72ecRoot GO\uff1b\u672c\u8bbe\u8ba10execution"
+      ],
+      "next_execution_status": "NO_GO_NOT_RUN"
+    },
+    {
+      "id": "X53",
+      "direction": "event_mirror_bounded_backlog",
+      "domain": "PI/queue",
+      "evidence": [
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "/current_recovery_status_supersedes_inherited_live_rows",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        }
+      ],
+      "evidence_analogue_C_CX_CI": [],
+      "current_observed_scope": "\u4ee5v170\u5177\u4f53\u5b57\u6bb5\u4e3a\u4e8b\u5b9e\uff0c\u65e7whole/provider/operator\u5931\u8d25\u5206\u5c42\u4fdd\u7559\u3002",
+      "real_ROS_run": "NOT_REQUIRED_FOR_THIS_TEST",
+      "real_NN_run": "NOT_REQUIRED_OR_NOT_RUN",
+      "real_physics_run": "NOT_APPLICABLE_SOFTWARE",
+      "physical_success": "NOT_ESTABLISHED",
+      "gap": "\u72ec\u7acb\u5f53\u524druntime/candidate/protocol\u8d44\u683c\u4e0e\u9010\u9879\u771f\u5b9e\u7ed3\u679c\uff0c\u4e0d\u80fd\u7528\u5df2\u8bb0\u5f55activity\u66ff\u4ee3\u76ee\u6807\u5b8c\u6210\u3002",
+      "next_independent_local_test": "\u771f\u5b9eEventMirror\u2192SQLite\u2192/tokens 257/1000\u79ef\u538b\u3001\u6301\u7eedproducer\u3001\u65ad\u6865\u6062\u590d\u3001commitlost\u5e42\u7b49\u3001legacy\u2192optin\u9694\u79bb\u548c\u53ef\u89c1overflow\u3002",
+      "dependencies": [
+        "\u5f53\u524dpinned runtime/privateHOME/SQLite",
+        "\u5bf9\u5e94\u5df2\u5c01Native source/model/policy",
+        "\u9700\u8981physics/NN\u65f6\u5355\u72ecRoot GO\uff1b\u672c\u8bbe\u8ba10execution"
+      ],
+      "next_execution_status": "NO_GO_NOT_RUN"
+    },
+    {
+      "id": "X54",
+      "direction": "declared_local_delivery_schema",
+      "domain": "delivery/UX",
+      "evidence": [
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "/ChatGPT_schema_SOURCE_v2",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        }
+      ],
+      "evidence_analogue_C_CX_CI": [],
+      "current_observed_scope": "\u4ee5v170\u5177\u4f53\u5b57\u6bb5\u4e3a\u4e8b\u5b9e\uff0c\u65e7whole/provider/operator\u5931\u8d25\u5206\u5c42\u4fdd\u7559\u3002",
+      "real_ROS_run": "NOT_REQUIRED_FOR_THIS_TEST",
+      "real_NN_run": "NOT_REQUIRED_OR_NOT_RUN",
+      "real_physics_run": "NOT_APPLICABLE_SOFTWARE",
+      "physical_success": "NOT_ESTABLISHED",
+      "gap": "\u72ec\u7acb\u5f53\u524druntime/candidate/protocol\u8d44\u683c\u4e0e\u9010\u9879\u771f\u5b9e\u7ed3\u679c\uff0c\u4e0d\u80fd\u7528\u5df2\u8bb0\u5f55activity\u66ff\u4ee3\u76ee\u6807\u5b8c\u6210\u3002",
+      "next_independent_local_test": "\u771f\u5b9ecustom deliver\u2192RPC\u2192SQLite\uff0ckeyword shape/\u6574\u6570bounds/enum\u8bed\u4e49\u91cd\u590d/depth/boundedread\uff1bwrong schema0NEW\u4e14\u65e7rows\u4e0d\u53d8\u3002",
+      "dependencies": [
+        "\u5f53\u524dpinned runtime/privateHOME/SQLite",
+        "\u5bf9\u5e94\u5df2\u5c01Native source/model/policy",
+        "\u9700\u8981physics/NN\u65f6\u5355\u72ecRoot GO\uff1b\u672c\u8bbe\u8ba10execution"
+      ],
+      "next_execution_status": "NO_GO_NOT_RUN"
+    },
+    {
+      "id": "X55",
+      "direction": "M20_dense_official_policy_baseline",
+      "domain": "physical/locomotion",
+      "evidence": [
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "/M20_managed_actual_baseline_next",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        }
+      ],
+      "evidence_analogue_C_CX_CI": [],
+      "current_observed_scope": "\u4ee5v170\u5177\u4f53\u5b57\u6bb5\u4e3a\u4e8b\u5b9e\uff0c\u65e7whole/provider/operator\u5931\u8d25\u5206\u5c42\u4fdd\u7559\u3002",
+      "real_ROS_run": "NOT_INFERRED_FROM_PHYSICS",
+      "real_NN_run": "NOT_REQUIRED_OR_NOT_RUN",
+      "real_physics_run": "NOT_RUN_IN_v170",
+      "physical_success": "NOT_ESTABLISHED",
+      "gap": "\u72ec\u7acb\u5f53\u524druntime/candidate/protocol\u8d44\u683c\u4e0e\u9010\u9879\u771f\u5b9e\u7ed3\u679c\uff0c\u4e0d\u80fd\u7528\u5df2\u8bb0\u5f55activity\u66ff\u4ee3\u76ee\u6807\u5b8c\u6210\u3002",
+      "next_independent_local_test": "\u672a\u6765\u72ec\u7acbGO\u535540s\u539f24fires\u5b98\u65b9ONNX/PD\uff0c\u4e0d\u4fee\u6539\u63a7\u5236\uff1a40000substep+<=10000NN/608frames\uff1bq/dq/ctrl/torque/ncon\u8bb0\u5f55\u4e0e\u6ce2\u5f62/slip/phase\u5ba1\u67e5\u3002",
+      "dependencies": [
+        "\u5f53\u524dpinned runtime/privateHOME/SQLite",
+        "\u5bf9\u5e94\u5df2\u5c01Native source/model/policy",
+        "\u9700\u8981physics/NN\u65f6\u5355\u72ecRoot GO\uff1b\u672c\u8bbe\u8ba10execution"
+      ],
+      "next_execution_status": "NO_GO_NOT_RUN"
+    },
+    {
+      "id": "X56",
+      "direction": "G1_free29_racket_return",
+      "domain": "physical/tennis",
+      "evidence": [
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "/BN_numeric",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        }
+      ],
+      "evidence_analogue_C_CX_CI": [],
+      "current_observed_scope": "\u4ee5v170\u5177\u4f53\u5b57\u6bb5\u4e3a\u4e8b\u5b9e\uff0c\u65e7whole/provider/operator\u5931\u8d25\u5206\u5c42\u4fdd\u7559\u3002",
+      "real_ROS_run": "NOT_INFERRED_FROM_PHYSICS",
+      "real_NN_run": "RECORDED_BN500_COMPLETED",
+      "real_physics_run": "RECORDED_BN_48847_STEPS_PHYSICAL_FAIL",
+      "physical_success": "NOT_ESTABLISHED",
+      "gap": "\u72ec\u7acb\u5f53\u524druntime/candidate/protocol\u8d44\u683c\u4e0e\u9010\u9879\u771f\u5b9e\u7ed3\u679c\uff0c\u4e0d\u80fd\u7528\u5df2\u8bb0\u5f55activity\u66ff\u4ee3\u76ee\u6807\u5b8c\u6210\u3002",
+      "next_independent_local_test": "\u5148\u65b0managed kinematic GO\u9a8c\u8bc1BR exact11 full608\u4e0edistinct query\uff0c\u518d\u72ec\u7acbphysicsGO\uff1b\u771f\u5b9e\u63a5\u89e6/.914\u7f51/opponent\u9996\u6b21\u843d\u5730/rootbalance/29rate/torque\u5168\u9a8c\u8bc1\uff0c\u65e0rescue\u3002",
+      "dependencies": [
+        "\u5f53\u524dpinned runtime/privateHOME/SQLite",
+        "\u5bf9\u5e94\u5df2\u5c01Native source/model/policy",
+        "\u9700\u8981physics/NN\u65f6\u5355\u72ecRoot GO\uff1b\u672c\u8bbe\u8ba10execution"
+      ],
+      "next_execution_status": "NO_GO_NOT_RUN"
+    },
+    {
+      "id": "X57",
+      "direction": "session_writer_graph_concurrency",
+      "domain": "PI/storage",
+      "evidence": [
+        {
+          "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_native50_actual_coverage_additive_20261007_v170.json",
+          "sha256": "cd885c475c8c6aa15b0150bf3359e091d0fd4914b2cbe2fcede27c7a984ad04f",
+          "json_pointer": "/session_writer_source",
+          "kind": "EXISTING_EVIDENCE_NOT_NEW_TEST"
+        }
+      ],
+      "evidence_analogue_C_CX_CI": [],
+      "current_observed_scope": "\u4ee5v170\u5177\u4f53\u5b57\u6bb5\u4e3a\u4e8b\u5b9e\uff0c\u65e7whole/provider/operator\u5931\u8d25\u5206\u5c42\u4fdd\u7559\u3002",
+      "real_ROS_run": "NOT_REQUIRED_FOR_THIS_TEST",
+      "real_NN_run": "NOT_REQUIRED_OR_NOT_RUN",
+      "real_physics_run": "NOT_APPLICABLE_SOFTWARE",
+      "physical_success": "NOT_ESTABLISHED",
+      "gap": "\u72ec\u7acb\u5f53\u524druntime/candidate/protocol\u8d44\u683c\u4e0e\u9010\u9879\u771f\u5b9e\u7ed3\u679c\uff0c\u4e0d\u80fd\u7528\u5df2\u8bb0\u5f55activity\u66ff\u4ee3\u76ee\u6807\u5b8c\u6210\u3002",
+      "next_independent_local_test": "\u4e24\u771f\u5b9eCLI/\u540cPID\u53ccmanager\u79c1\u6709session\uff0c\u9501/lease/\u539f\u5b50switch\u5931\u8d25rollback/\u7236\u94fe/undefined graph\uff0cclosed\u539f\u5e8f\u5217\u4e0e\u5de5\u5177effect\u4e0d\u91cd\u590d\u3002",
+      "dependencies": [
+        "\u5f53\u524dpinned runtime/privateHOME/SQLite",
+        "\u5bf9\u5e94\u5df2\u5c01Native source/model/policy",
+        "\u9700\u8981physics/NN\u65f6\u5355\u72ecRoot GO\uff1b\u672c\u8bbe\u8ba10execution"
+      ],
+      "next_execution_status": "NO_GO_NOT_RUN"
+    }
+  ],
+  "scope": "57 distinct acceptance directions; 84 model activities are offline fixture records, not 84 real physics skills. Existing actual middleware/NN/physics scopes explicit."
+}
