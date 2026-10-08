@@ -289,7 +289,21 @@ def main():
         type=Path,
         help="Prepared frozen SIM Body/attachment binding; enables separate passive observer and actuator",
     )
+    parser.add_argument(
+        "--physics-fixture",
+        type=Path,
+        help="Explicit frozen known-SIM scene/grid policy; requires a separate actuator",
+    )
+    parser.add_argument(
+        "--physics-plugin",
+        type=Path,
+        help="Compiled passive Gazebo plugin pinned by the physics fixture SHA256",
+    )
     args = parser.parse_args()
+    if (args.physics_fixture is None) != (args.physics_plugin is None):
+        parser.error("physics fixture and pinned compiled plugin must be supplied together")
+    if args.physics_fixture is not None and args.brush_binding is None:
+        parser.error("physics fixture requires a prepared separate SIM actuator binding")
     os.environ["PYTHONPATH"] = (
         str(ROOT.parents[2] / "src") + os.pathsep + os.getenv("PYTHONPATH", "")
     )
@@ -310,6 +324,16 @@ def main():
         run_id = uuid.uuid4().hex
     (OUTPUT / "run_id.txt").write_text(run_id + "\n")
     profile = PROFILES[args.profile]
+    if args.physics_fixture is not None:
+        from physics_fixture import prepare_physics
+
+        prepare_physics(
+            OUTPUT,
+            config_path=args.physics_fixture,
+            library_path=args.physics_plugin,
+            brush_binding=binding,
+            profile=profile,
+        )
     children = []
     labels = {}
     exited = set()
@@ -469,6 +493,8 @@ def main():
                 f"controller_watchdog:={'true' if args.controller_watchdog else 'false'}",
                 "-p",
                 f"split_actuator:={'true' if args.brush_binding is not None else 'false'}",
+                "-p",
+                f"dynamic_physics:={'true' if args.physics_fixture is not None else 'false'}",
             ],
         )
         if args.brush_binding is not None:

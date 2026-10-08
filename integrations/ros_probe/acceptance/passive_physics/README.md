@@ -39,8 +39,21 @@ read-only checks, five distinct failure cases); no Gazebo server/physics/actuato
 or publisher invocation. The generated JSON was decoded independently with
 Python; no partial fault packet contains a body/obstacle claim. Initial shared
 library `ldd -r` had no unresolved symbols. Further parser/transport, actual
-plugin loading, scene/frame admission and dynamic Native D2/D4/D5/D6 are pending.
+plugin loading and dynamic Native D2/D4/D5/D6 are pending.
 No actual third Body was selected or inspected.
+
+The launcher accepts `--physics-fixture CONFIG --physics-plugin LIBRARY` only
+with `--brush-binding BINDING`. The versioned configuration pins the library
+SHA256, run/Body/attachment/mission identities, original static-map denominator,
+exact brush and explicitly approved known-fixture world/map identity. It defines
+1–32 uniquely named bounded box obstacles initially parked outside the room.
+Preparation adds the world plugin and a GZ_TO_ROS StringMsg bridge, then starts
+the observer with `dynamic_physics=true`. Unknown scene models, changed masks,
+unapproved transforms, source mismatches, bad bytes or repeated preparation
+are rejected before simulator startup. Actual geometry still comes exclusively
+from independent PostUpdate packets. These CLI inputs do not create a receipt,
+authorize an action or prove the library loaded. 17 offline preparation tests
+and the 509-test ROS suite passed; fresh physical execution remains NOT_RUN.
 
 The source uses Gazebo8 `worldPose` and actual `Geometry`/`Collision`/`Pose`
 components. It avoids concurrent `generate_world_sdf`, whose Gazebo8 implementation
