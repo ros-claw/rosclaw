@@ -45,6 +45,8 @@ def decode_controller_packet(raw, *, run_id, constraint_policy_hash):
     }
     if packet.get("kind") == "backend_probe_lift_ack":
         keys |= {"response_base64", "returncode", "acknowledged_at_unix_ns"}
+        if "service_record_base64" in packet or "service_binary_sha256" in packet:
+            keys |= {"service_record_base64", "service_binary_sha256"}
     elif packet.get("kind") != "backend_probe_lift_begin":
         raise ValueError("instrument IPC only accepts original lift begin/reply")
     if (
@@ -91,6 +93,19 @@ def decode_controller_packet(raw, *, run_id, constraint_policy_hash):
             returncode=packet["returncode"],
             acknowledged_at_unix_ns=packet["acknowledged_at_unix_ns"],
         )
+        if "service_record_base64" in packet:
+            if (
+                type(packet["service_binary_sha256"]) is not str
+                or len(packet["service_binary_sha256"]) != 64
+                or any(c not in "0123456789abcdef" for c in packet["service_binary_sha256"])
+            ):
+                raise ValueError("frozen original instrument service binary SHA required")
+            payload.update(
+                original_service_record=original(
+                    "service_record_base64", "owned_gazebo_instrument_RPC_original_json"
+                ),
+                service_binary_sha256=packet["service_binary_sha256"],
+            )
     return packet["kind"], payload
 
 

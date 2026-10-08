@@ -94,9 +94,21 @@ def prepare_backend_world(
     robot_pose_topic,
     robot_pose_frame,
     probe_pose_frame,
+    instrument_service_binary=None,
+    instrument_service_binary_sha256=None,
 ):
     d = validate_probe_declaration(declaration)
     source, output = Path(scene_directory), Path(output)
+    if (instrument_service_binary is None) != (instrument_service_binary_sha256 is None):
+        raise ValueError("complete original instrument service source binary/SHA required")
+    service_binary = None
+    if instrument_service_binary is not None:
+        service_binary = bounded_source(instrument_service_binary, 100_000_000)
+        if (
+            not service_binary.startswith(b"\x7fELF")
+            or hashlib.sha256(service_binary).hexdigest() != instrument_service_binary_sha256
+        ):
+            raise ValueError("actual frozen instrument service source binary SHA differs")
     inputs = {
         name: bounded_source(source / name)
         for name in (
@@ -179,6 +191,10 @@ def prepare_backend_world(
     instrument = output / "instrument-source"
     prepare_probe_fixture(instrument, d)
     (instrument / "librosclaw_passive_contacts.so").write_bytes(library)
+    if service_binary is not None:
+        service_path = instrument / "owned_instrument_service"
+        service_path.write_bytes(service_binary)
+        service_path.chmod(0o500)
     native = prepare_native_policy(
         instrument,
         plugin_path=instrument / "librosclaw_passive_contacts.so",
@@ -235,6 +251,7 @@ def prepare_backend_world(
         probe_pose_frame=probe_pose_frame,
         scene_binding=scene_binding,
         probe_declaration=d,
+        instrument_service_binary_sha256=instrument_service_binary_sha256,
     )
     observer = output / "observer-source"
     observer.mkdir()
@@ -249,6 +266,7 @@ def prepare_backend_world(
         "status": "SOURCE_PREPARED_NOT_RUNTIME_ADMISSION",
         "source_hashes": {name: hashlib.sha256(raw).hexdigest() for name, raw in inputs.items()},
         "source_contact_library_sha256": hashlib.sha256(library).hexdigest(),
+        "instrument_service_binary_sha256": instrument_service_binary_sha256,
         "candidate_visual_name_repairs": renamed_visuals,
         "nonvisual_world_source_sha256_before_and_after_visual_repair": physical_source_sha,
         "output_hashes": {

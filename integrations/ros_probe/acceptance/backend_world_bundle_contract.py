@@ -8,7 +8,9 @@ not select a held-out robot or admit a runtime source.
 import argparse
 import hashlib
 import json
+import os
 import subprocess
+import sys
 from copy import deepcopy
 from pathlib import Path
 from xml.etree import ElementTree as ET
@@ -26,6 +28,7 @@ def main():
     parser.add_argument("--physics-plugin", required=True, type=Path)
     parser.add_argument("--contact-plugin", required=True, type=Path)
     parser.add_argument("--installed-source-parser", type=Path)
+    parser.add_argument("--instrument-service-binary", type=Path)
     args = parser.parse_args()
     args.directory.mkdir(exist_ok=False)
     reports = []
@@ -87,6 +90,12 @@ def main():
             robot_pose_topic="/rosclaw_sim/ground_truth",
             robot_pose_frame="ros_expert",
             probe_pose_frame="ros_expert",
+            instrument_service_binary=args.instrument_service_binary,
+            instrument_service_binary_sha256=hashlib.sha256(
+                args.instrument_service_binary.read_bytes()
+            ).hexdigest()
+            if args.instrument_service_binary is not None
+            else None,
         )
         if original != {p.name: p.read_bytes() for p in scene.iterdir() if p.is_file()}:
             raise ValueError("original known vendor fixture source changed during assembly")
@@ -126,6 +135,49 @@ def main():
         if structure(actual_control) != structure(parsed_control):
             raise ValueError("actual full SDF parser changed command/state interface source")
         source_parser_result = "NOT_RUN"
+        controller_plan = "NOT_RUN"
+        if args.instrument_service_binary is not None:
+            plan_directory = root / "controller-source-plan"
+            plan_directory.mkdir(mode=0o700)
+            planned = subprocess.run(
+                [
+                    sys.executable,
+                    str(Path(__file__).with_name("owned_probe_controller.py")),
+                    "--directory",
+                    str(plan_directory),
+                    "--bundle-directory",
+                    str(root / "bundle"),
+                    "--observer-directory",
+                    str(root / "bundle/observer-source"),
+                    "--physics-plugin",
+                    str(scene / "librosclaw_passive_physics.so"),
+                    "--physics-plugin-sha256",
+                    hashlib.sha256(args.physics_plugin.read_bytes()).hexdigest(),
+                    "--world-pid",
+                    str(os.getpid()),
+                    "--world-uid",
+                    str(os.getuid()),
+                    "--partition",
+                    "rosclaw_backend_" + hashlib.sha256(brush["run_id"].encode()).hexdigest()[:32],
+                    "--seed",
+                    "100821",
+                    "--duration",
+                    "60",
+                    "--prepare-only",
+                ],
+                capture_output=True,
+                timeout=15,
+            )
+            (root / "controller-prepare-only-stdout.json").write_bytes(planned.stdout)
+            (root / "controller-prepare-only-stderr.txt").write_bytes(planned.stderr)
+            if planned.returncode:
+                raise ValueError("known source-only controller plan failed")
+            controller_plan = json.loads(planned.stdout)
+            if (
+                controller_plan.get("world_source_admission") is not False
+                or controller_plan.get("authorization") is not False
+            ):
+                raise ValueError("source-only controller plan falsely admitted World or authority")
         if args.installed_source_parser is not None:
             control_projection = ET.fromstring((scene / "robot.urdf").read_bytes())
             original_controls = control_projection.findall("ros2_control")
@@ -181,6 +233,7 @@ def main():
                 "robot_original_full_generic_unique_name_check": "NOT_A_VALID_ROS2_CONTROL_SCHEMA_CHECK_INITIAL_FAILURE_RETAINED",
                 "ros2_control_runtime_or_hardware_plugin_loading": "NOT_RUN",
                 "installed_control_and_bridge_source_parser": source_parser_result,
+                "owned_instrument_controller_prepare_only": controller_plan,
             }
         )
     summary = {

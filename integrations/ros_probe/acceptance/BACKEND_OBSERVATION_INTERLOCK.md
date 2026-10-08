@@ -35,8 +35,9 @@ source bytes and projections are retained; source files/plugin hashes are
 reopened periodically. It waits for an actor subscription before issuing the
 first envelope, preserving sequence zero.
 
-The instrument controller and its original lift transaction IPC are still
-unjoined. The observer does not synthesize an ACK or execute a scene service;
+The original lift transaction IPC has an actual isolated transport contract.
+The physical instrument controller remains unjoined to a qualified complete
+World/Native launcher. The observer does not synthesize an ACK or execute a scene service;
 therefore it cannot qualify an actual probe cycle through this entry yet.
 Actual whole-world/Body geometry admission, a source-bound owned instrument
 controller, independent all-step DDS delivery, closed joined replay and Native
@@ -148,8 +149,6 @@ The additional compiled `backend_source_parser` invokes installed
 It checks the known differential-drive interfaces and exact bridge type/name/
 direction/queue/QoS correspondence after source normalization. Parsing source
 is not loading a controller, a Gazebo world, a system plugin or a Native task.
-## Original instrument transaction IPC
-
 ## Owned world source and original instrument wire
 
 `WorldSourceOwner` is a read-only Linux source checker. The final bundle must
@@ -177,6 +176,8 @@ This proves byte/projection correspondence, not publisher authentication,
 actual probe motion, cache clearance, World ownership or physical acceptance.
 The compiled executable, its source and the original failed normalization
 attempt are retained with the source contract evidence.
+
+## Original instrument transaction IPC
 
 `backend_observer.py` optionally accepts both `--controller-pid` and
 `--controller-uid`, only with the complete spatial source mode. The owned
@@ -209,3 +210,24 @@ the actual isolated observer process, DDS transport and private IPC against
 explicit synthetic SDK-derived packets and an explicitly synthetic service
 reply. It starts no Gazebo world, scene service, robot actuator or Native task.
 It cannot establish physical cache behavior or admit a runtime world.
+
+## Required original service wire and owned controller
+
+The optional frozen `instrument_service_binary_sha256` changes the actor
+constraint policy hash and requires original service wire for every lift ACK.
+Online projection checks the actual RPC mode/outcome, exact header-free
+SDK Boolean true wire, original request/reply text and completion clock.
+Closed replay additionally invokes the frozen installed SDK executable in
+source-only mode to recompute original request/reply wire projections. Legacy
+synthetic text-only source contracts cannot satisfy this optional requirement.
+
+`owned_probe_controller.py --prepare-only` validates the prepared known
+source bundle and emits an unexecuted instrument plan without creating a
+process, transport Node, World or service. Its separate runtime entry reopens
+the frozen World sources and actual process ELF mappings before starting the
+private SDK service worker. The observer pins this controller PID/UID. Every
+request needs fresh independent robot/scene/ground constraints and a retained
+BEGIN; original failed RPC output is saved before validation. Both SIM and
+wall refresh clocks apply. Any source/RPC/audit failure reports a negative
+original IPC event so the observer closes its actor interlock. These source
+entries still require whole guarded launcher and actual physical acceptance.
