@@ -13,6 +13,7 @@ import sqlite3
 import subprocess
 import sys
 import time
+from contextlib import closing
 from pathlib import Path
 
 import yaml
@@ -32,6 +33,33 @@ def validate_fixture_config(config, body_id, endpoint):
         raise ValueError("Native action declarations do not bind the prepared fixture Body")
     if config.get("agent", {}).get("ros_expert", {}).get("endpoint") != endpoint:
         raise ValueError("Native observer and daemon fixture endpoints differ")
+
+
+def capture_terminal_counters(root):
+    """Read public model counters/task state after owned Native process shutdown."""
+    columns = (
+        "provider",
+        "model",
+        "prompt_tokens",
+        "completion_tokens",
+        "total_tokens",
+        "finish_reason",
+    )
+    with closing(
+        sqlite3.connect(f"file:{root / 'home/agentd/missions.db'}?mode=ro", uri=True)
+    ) as db:
+        rows = db.execute(
+            "select provider,model,prompt_tokens,completion_tokens,total_tokens,finish_reason from model_usage limit 257"
+        ).fetchall()
+        states = db.execute("select state from tasks limit 65").fetchall()
+        if len(rows) > 256 or len(states) > 64:
+            raise ValueError("isolated Native usage/task evidence exceeds bound")
+        (root / "usage.json").write_text(
+            json.dumps([dict(zip(columns, row, strict=True)) for row in rows], indent=2) + "\n"
+        )
+        (root / "task-kernel-final-states.json").write_text(
+            json.dumps({"states": [row[0] for row in states]}, indent=2) + "\n"
+        )
 
 
 def main():
@@ -292,11 +320,17 @@ def main():
                             }
                         )
                 (root / "sdk-usage.json").write_text(json.dumps(measured, indent=2) + "\n")
-        except (OSError, ValueError):
+        except (OSError, ValueError, sqlite3.Error):
             # Evidence failures must never bypass process/motion cleanup.
             print("SDK usage capture failed; acceptance evidence is incomplete", file=sys.stderr)
         if session:
             session.stop()
+        try:
+            capture_terminal_counters(root)
+        except (OSError, ValueError, sqlite3.Error):
+            print(
+                "Core usage/task capture failed; acceptance evidence is incomplete", file=sys.stderr
+            )
         try:
             from rosclaw.daemon.client import DaemonClient
 
