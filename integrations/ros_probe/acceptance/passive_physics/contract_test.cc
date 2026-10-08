@@ -1,6 +1,7 @@
 // Isolated SDK component fixtures; no Gazebo server, actuator or publisher call.
 #include "passive_physics.cc"
 #include <fstream>
+#include <sdf/parser.hh>
 namespace rosclaw
 {
 struct PassivePhysicsContractFixture
@@ -64,6 +65,7 @@ struct PassivePhysicsContractFixture
     ecm.CreateComponent(bodyLink, Pose(gz::math::Pose3d::Zero));
     auto bodyCollision = ecm.CreateEntity();
     ecm.CreateComponent(bodyCollision, Collision());
+    ecm.CreateComponent(bodyCollision, Name("actual_collision"));
     ecm.CreateComponent(bodyCollision, ParentEntity(bodyLink));
     ecm.CreateComponent(bodyCollision, Pose(gz::math::Pose3d::Zero));
     sdf::Geometry geometry;
@@ -76,6 +78,34 @@ struct PassivePhysicsContractFixture
     auto wheelJoint = ecm.CreateEntity();
     ecm.CreateComponent(wheelJoint, Joint());
     ecm.CreateComponent(wheelJoint, ParentEntity(body));
+  }
+  void RequireContacts() { observer.includeBodyContacts = true; }
+  gz::sim::Entity AddContact(const std::string &collisionName = "actual_collision",
+      const std::string &topic = "/synthetic/body_contact")
+  {
+    using namespace gz::sim::components;
+    gz::sim::Entity bodyLink = gz::sim::kNullEntity;
+    ecm.Each<Link,Name>([&](auto entity, const auto *, const auto *name)
+    {
+      if (name->Data() == "actual_base") bodyLink = entity;
+      return true;
+    });
+    if (bodyLink == gz::sim::kNullEntity) throw std::runtime_error("SDK fixture Body link absent");
+    auto sensor = ecm.CreateEntity();
+    ecm.CreateComponent(sensor, Sensor());
+    ecm.CreateComponent(sensor, Name("actual_contact_sensor"));
+    ecm.CreateComponent(sensor, ParentEntity(bodyLink));
+    ecm.CreateComponent(sensor, SensorTopic(topic));
+    auto document = std::make_shared<sdf::SDF>();
+    sdf::init(document);
+    const auto xml = "<sdf version='1.10'><model name='fixture'><link name='actual_base'>"
+        "<sensor name='actual_contact_sensor' type='contact'><topic>" + topic +
+        "</topic><contact><collision>" + collisionName +
+        "</collision></contact></sensor></link></model></sdf>";
+    if (!sdf::readString(xml, document)) throw std::runtime_error("actual SDK SDF parser fixture failed");
+    auto element = document->Root()->GetElement("model")->GetElement("link")->GetElement("sensor");
+    ecm.CreateComponent(sensor, ContactSensor(element));
+    return sensor;
   }
   void MoveReference(const gz::math::Pose3d &pose)
   {
@@ -180,4 +210,43 @@ int main()
     f.MoveReference(gz::math::Pose3d(0,0,0,0,0,0.01));
     emit("v3_rotated_reference_link",f,false);
   }
+  {
+    PassivePhysicsContractFixture f;
+    f.AddBodyGeometry(); f.RequireReference(); f.RequireContacts();
+    const auto sensor = f.AddContact();
+    const auto before = f.ecm.Component<ContactSensor>(sensor)->Data()->ToString("");
+    emit("v4_actual_contact_sensor_collision_mapping", f, true);
+    emit("v4_read_only_contact_mapping_repeated", f, true);
+    if (f.ecm.Component<ContactSensor>(sensor)->Data()->ToString("") != before)
+      throw std::runtime_error("passive contact read changed SDK sensor configuration");
+  }
+  {
+    PassivePhysicsContractFixture f;
+    f.AddBodyGeometry(); f.RequireReference(); f.RequireContacts();
+    emit("v4_missing_contact_sensor", f, false);
+  }
+  {
+    PassivePhysicsContractFixture f;
+    f.AddBodyGeometry(); f.RequireReference(); f.RequireContacts();
+    auto sensor = f.AddContact(); f.ecm.RemoveComponent<SensorTopic>(sensor);
+    emit("v4_missing_actual_sensor_topic", f, false);
+  }
+  {
+    PassivePhysicsContractFixture f;
+    f.AddBodyGeometry(); f.RequireReference(); f.RequireContacts();
+    auto sensor = f.AddContact();
+    f.ecm.Component<SensorTopic>(sensor)->SetData("/foreign", [](const auto &,const auto &){return false;});
+    emit("v4_substituted_actual_sensor_topic", f, false);
+  }
+  {
+    PassivePhysicsContractFixture f;
+    f.AddBodyGeometry(); f.RequireReference(); f.RequireContacts(); f.AddContact("foreign_collision");
+    emit("v4_missing_actual_collision_reference", f, false);
+  }
+  {
+    PassivePhysicsContractFixture f;
+    f.AddBodyGeometry(); f.RequireReference(); f.RequireContacts(); f.AddContact(); f.AddContact();
+    emit("v4_duplicate_contact_coverage", f, false);
+  }
+
 }

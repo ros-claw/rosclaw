@@ -4,12 +4,15 @@ No model template or namespace inference. Physical source and contact-sensor
 placement still need independent checks against the loaded simulator.
 """
 
+import hashlib
 import json
 import re
 import xml.etree.ElementTree as ET
 from copy import deepcopy
 from datetime import UTC, datetime
 from pathlib import Path
+
+import yaml
 
 from rosclaw.body.resolver import BodyResolver
 from rosclaw.connectors.ros.context.sim_native_fixture import prepare_sim_native_fixture
@@ -107,30 +110,76 @@ def prepare_sim_runtime_policy(root, admission, model, declaration, *, now=None)
     raw = (root / "robot.urdf").read_bytes()
     robot = ET.fromstring(raw)
     collisions = {
-        (link.get("name"), i)
+        (link.get("name"), i): collision.get("name")
         for link in robot.findall("link")
-        for i, _ in enumerate(link.findall("collision"))
+        for i, collision in enumerate(link.findall("collision"))
     }
+    with (root / "bridge.yaml").open("rb") as stream:
+        bridge_raw = stream.read(2_000_001)
+    if len(bridge_raw) > 2_000_000:
+        raise ValueError("bounded actual fixture bridge configuration required")
+    bridge = yaml.safe_load(bridge_raw)
+    if (
+        type(bridge) is not list
+        or not 1 <= len(bridge) <= 1024
+        or any(type(row) is not dict for row in bridge)
+    ):
+        raise ValueError("typed bounded actual bridge mapping list required")
     streams = policy["collision_streams"]
     if type(streams) is not list or not 1 <= len(streams) <= 512:
         raise ValueError("bounded complete body collision stream mapping required")
-    seen, contact_topics = set(), []
+    seen, contact_topics, mapping = set(), [], []
+    gz_topics, sensor_names = set(), set()
     for item in streams:
         if (
             type(item) is not dict
-            or set(item) != {"link", "collision_index", "topic"}
+            or set(item)
+            != {"link", "collision_index", "topic", "collision_name", "sensor_name", "gz_topic"}
             or type(item["link"]) is not str
             or type(item["collision_index"]) is not int
         ):
             raise ValueError("typed source URDF collision stream mapping required")
         identity = (item["link"], item["collision_index"])
         topic = absolute_endpoint(item["topic"])
+        gz_topic = absolute_endpoint(item["gz_topic"])
+        if (
+            identity not in collisions
+            or not collisions[identity]
+            or item["collision_name"] != collisions[identity]
+            or type(item["sensor_name"]) is not str
+            or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,63}", item["sensor_name"])
+            or gz_topic in gz_topics
+            or (item["link"], item["sensor_name"]) in sensor_names
+        ):
+            raise ValueError(
+                "actual source collision name and unique declared sensor mapping required"
+            )
+        matched = [
+            row for row in bridge if row.get("ros_topic_name", row.get("topic_name")) == topic
+        ]
+        expected_bridge = {
+            "ros_topic_name": topic,
+            "gz_topic_name": gz_topic,
+            "ros_type_name": "ros_gz_interfaces/msg/Contacts",
+            "gz_type_name": "gz.msgs.Contacts",
+            "direction": "GZ_TO_ROS",
+        }
+        if matched != [expected_bridge]:
+            raise ValueError("exact frozen Gazebo-to-ROS contact bridge source required")
+        gz_topics.add(gz_topic)
+        sensor_names.add((item["link"], item["sensor_name"]))
+        mapping.append(
+            {
+                "link_name": item["link"],
+                **{k: item[k] for k in ("collision_name", "sensor_name", "gz_topic")},
+            }
+        )
         if identity in seen or topic in contact_topics or topic in topics.values():
             raise ValueError("collision streams must be distinct and cover each URDF collision")
         seen.add(identity)
         contact_topics.append(topic)
         _observed_topic(model, topic, "ros_gz_interfaces/msg/Contacts", now, fresh=False)
-    if seen != collisions:
+    if seen != set(collisions):
         raise ValueError("every actual captured URDF collision requires an explicit stream")
     support = policy["support_contact_topics"]
     if (
@@ -174,6 +223,8 @@ def prepare_sim_runtime_policy(root, admission, model, declaration, *, now=None)
         "grid": config["grid"],
         "policy": policy,
         "contact_topics": contact_topics,
+        "body_contact_mapping": mapping,
+        "source_bridge_sha256": hashlib.sha256(bridge_raw).hexdigest(),
         "requires_actual_component_geometry_and_contact_mapping_admission": True,
     }
     result["artifact_hash"] = digest(result)
@@ -252,6 +303,7 @@ def load_frozen_sim_runtime_policy(root):
         "source_urdf_sha256": rebuilt["source_urdf_sha256"],
         "maximum_body_planar_radius_m": rebuilt["body"]["physical_radius_m"],
         "body_reference_link": rebuilt["body"]["base_frame"],
+        "body_contact_mapping": rebuilt["body_contact_mapping"],
         "model_base_identity_approved": True,
         "model_base_identity_source": "simulator_operator_fixture_policy",
         "world_to_map_xyyaw": [0, 0, 0],

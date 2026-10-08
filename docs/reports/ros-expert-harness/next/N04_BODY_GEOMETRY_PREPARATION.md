@@ -147,3 +147,39 @@ Ninety-eight focused contracts passed in1.44s;full ROS1118 passed/10 integration
 A separate fixture image now layers the five exact Pydantic dependencies over the pinned known-body image. All downloaded CPython3.12/aarch64 wheels are SHA256 locked; Docker build uses network-none/no-index/require-hashes. Parent image ID c31355f34739eb4ea8b60de1414c57ce0eea8225aa9e3ce854b7ceb66ca4376e is unchanged before/after. Derived image ID is66f2c28aa505349a14d30b7365ab0b327abe0f9fb84e99ba2d182d65dec3f7b2. The repository lock and Dockerfile reproduce this dependency layer without selecting an asset.
 
 Actual image imports of the compiled Body/policy and passive modules passed. A synthetic namespaced fixture exported by the real compiler/resolver also reopened successfully inside the image, preserving its Body/policy hashes and exact independent model/topic binding. The source/fixture mounts were read-only, network disabled, no DDS Node/server initialized and no physics/actions dispatched. This closes the Python dependency compatibility gap only; actual model/contact/source/Navigation and held-out L0–L4 remain NOT_RUN.
+
+## Actual contact sensor/parent/collision component mapping (v4 opt-in)
+
+The passive plugin now optionally retains actual ContactSensor/SensorTopic,
+Sensor/Link/Collision names and entity IDs in the same PostUpdate packet. Actual
+explicit sensor configuration and actual topic must agree; each direct Body
+link's named collision must resolve uniquely and all Body collisions must be
+covered exactly once. Missing, duplicated or substituted metadata produces a
+complete=false fault without partial free occupancy. Existing v1/v2/v3 defaults
+are preserved. The parser requires exact frozen mapping for generic admission,
+validates complete cardinality/entities/reference linkage and never projects
+Body contacts into obstacle masks or cleaning credit.
+
+Generic preparation reopens captured URDF collision names and exact GZ_TO_ROS
+contact bridge bytes, retaining the bridge SHA in the sealed policy. The actual
+observer checks the v4 mapping before readiness, locks component identity hash,
+and refuses later identity changes. Generic contact callbacks reject foreign
+Body collisions, invalid/stale/future/reversing timestamps and missing actual
+continuous support contact; faults latch incomplete observation. A later good
+message cannot erase a prior fault. These checks do not authenticate DDS peers.
+
+SDK compile/link/CTest and ldd-r pass, retaining25 actual isolated component
+rows (the18 previous rows plus7 v4 success/fault rows). A repeated read also
+checks the SDF sensor element remains byte-identical. Initial template/header
+build failures remain retained before correction.140 focused SDK/parser/node/
+source/reopen contracts pass in2.23s;full ROS1161 passed/10 integration deselected/
+one existing warning in18.86s. Changed-module mypy2 files and required mypy121
+files, scoped Ruff/format and compileall pass. The generic dependency image
+reopens the new compiled Body/contact/bridge policy successfully with source and
+fixture read-only, network disabled and no DDS/physics/actions initialized.
+
+Actual v4 plugin/contact sensor load and held-out L0–L4 remain NOT_RUN. The
+complete generic world/Nav2 generator, staged live discovery/source admission
+and guarded launch still require implementation before generic feature freeze
+and asset selection. Operator policy and isolated SDK entities are not live
+contact or physical cleaning acceptance.

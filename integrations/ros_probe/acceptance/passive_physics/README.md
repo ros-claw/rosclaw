@@ -140,3 +140,21 @@ NOT_RUN.
 Opt-in body_reference_link=<exact compiled Body base link> requires actual Body collision geometry and produces v3. PostUpdate reads the actual direct Model→Link component identity and relative/world poses, rejects missing/ambiguous links and any nonidentity translation/rotation beyond1e-9, and emits the named link/entity and pose proof in the same packet. The parser requires the exact frozen base link, independent entity identity, normalized finite poses and equivalent model/reference world pose, and rejects v1/v2 downgrade when a reference is required. q and -q remain equivalent. This supports only proven model/base identity; arbitrary offsets remain unsupported rather than guessed. Existing v1/v2 defaults remain compatible.
 
 Offline SDK compile/CTest/ldd-r PASS;18 actual SDK component records include identity/read-only/missing/shifted/rotated reference cases.102 focused SDK/parser/runtime-node cases PASS and full ROS1063 passed/10 integration deselected/one existing warning in18.53s. These are component/code contracts; no Gazebo server, physical mission, or held-out model has run.
+
+The optional `include_body_contact_sensors=true` requires the existing actual
+Body geometry and exact `body_reference_link` and emits v4 `body.contact_sources`.
+Each row retains actual Sensor/ContactSensor/SensorTopic, direct parent Link and
+named Collision entity identities from the same read-only PostUpdate packet.
+Exactly one explicitly named contact sensor/topic must cover each actual Body
+collision. Missing, duplicated, wrong-parent or unresolved collision/topic
+components refuse complete packets. v1/v2/v3 default output stays unchanged.
+This metadata is no DDS authentication or proof of a live loaded scene.
+
+The generic runtime policy reopens the captured named URDF collisions and exact
+Gazebo-to-ROS contact bridge YAML bytes. Its source mapping must match actual v4
+component metadata before observer readiness; component IDs remain fixed during
+the run. Each received contact must belong to that declared Body collision with
+a fresh nonreversing SIM timestamp. Unknown source faults latch incomplete
+observation. Continuous support streams additionally require actual contacts.
+The component fixtures exercise SDK entities and SDF sensor elements offline;
+no Gazebo server, sensor publisher, contact physics or robot action is invoked.

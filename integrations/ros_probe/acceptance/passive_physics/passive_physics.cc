@@ -5,6 +5,8 @@
 #include <gz/msgs/geometry.pb.h>
 #include <gz/sim/Util.hh>
 #include <gz/sim/components/Collision.hh>
+#include <gz/sim/components/ContactSensor.hh>
+#include <gz/sim/components/Sensor.hh>
 #include <gz/sim/components/Geometry.hh>
 #include <gz/sim/components/Joint.hh>
 #include <gz/sim/components/Link.hh>
@@ -98,6 +100,10 @@ class PassivePhysics : public gz::sim::System,
       if (!this->includeBodyGeometry)
         throw std::runtime_error("Body reference link requires actual Body geometry");
     }
+    this->includeBodyContacts = config->HasElement("include_body_contact_sensors") &&
+        config->Get<bool>("include_body_contact_sensors");
+    if (this->includeBodyContacts && this->bodyReferenceLink.empty())
+      throw std::runtime_error("actual contact mapping requires Body reference geometry");
     this->allowed.insert(this->bodyName);
     for (const auto &key : {"static_model", "obstacle_model"})
     {
@@ -206,11 +212,87 @@ class PassivePhysics : public gz::sim::System,
     return out.str();
   }
 
+  private: std::string BodyContactSources(gz::sim::Entity body,
+      const gz::sim::EntityComponentManager &ecm) const
+  {
+    using namespace gz::sim::components;
+    std::set<gz::sim::Entity> collisions, covered;
+    ecm.Each<Collision>([&](auto entity, const auto *)
+    {
+      if (this->Descendant(entity, body, ecm)) collisions.insert(entity);
+      return true;
+    });
+    if (collisions.empty() || collisions.size() > 256)
+      throw std::runtime_error("bounded actual Body collisions required for contact mapping");
+    std::map<gz::sim::Entity, std::string> rows;
+    std::set<std::string> topics;
+    ecm.Each<ContactSensor>([&](auto entity, const auto *component)
+    {
+      if (!this->Descendant(entity, body, ecm)) return true;
+      const auto parent = ecm.Component<ParentEntity>(entity);
+      const auto name = ecm.Component<Name>(entity);
+      const auto topic = ecm.Component<SensorTopic>(entity);
+      if (!parent || !name || !topic || !ecm.Component<Sensor>(entity))
+        throw std::runtime_error("actual contact sensor identity/topic missing");
+      const auto link = parent->Data();
+      const auto linkName = ecm.Component<Name>(link);
+      const auto linkParent = ecm.Component<ParentEntity>(link);
+      if (!ecm.Component<Link>(link) || !linkName || !linkParent || linkParent->Data() != body)
+        throw std::runtime_error("actual contact sensor requires direct Body link");
+      const auto element = component->Data();
+      if (!element || !element->HasElement("contact") || !element->HasElement("topic"))
+        throw std::runtime_error("explicit actual contact sensor configuration required");
+      const auto contact = element->GetElement("contact");
+      if (!contact->HasElement("collision"))
+        throw std::runtime_error("actual contact collision reference missing");
+      const auto collisionElement = contact->GetElement("collision");
+      const auto collisionName = collisionElement->template Get<std::string>();
+      if (collisionElement->GetNextElement("collision"))
+        throw std::runtime_error("multi-collision contact sensor unsupported");
+      const auto configuredTopic = element->template Get<std::string>("topic");
+      if (topic->Data() != configuredTopic || configuredTopic.empty() ||
+          configuredTopic.size() > 1024 || configuredTopic[0] != '/' ||
+          !topics.insert(configuredTopic).second || name->Data().empty() ||
+          name->Data().size() > 256 || linkName->Data().empty() || linkName->Data().size() > 256 ||
+          collisionName.empty() || collisionName.size() > 256)
+        throw std::runtime_error("actual contact names/topics ambiguous or unbounded");
+      gz::sim::Entity matched = gz::sim::kNullEntity;
+      ecm.Each<Collision, Name, ParentEntity>([&](auto candidate, const auto *,
+          const auto *candidateName, const auto *candidateParent)
+      {
+        if (candidateParent->Data() != link || candidateName->Data() != collisionName) return true;
+        if (matched != gz::sim::kNullEntity)
+          throw std::runtime_error("ambiguous actual contact collision name");
+        matched = candidate;
+        return true;
+      });
+      if (matched == gz::sim::kNullEntity || !collisions.count(matched) ||
+          !covered.insert(matched).second)
+        throw std::runtime_error("missing or duplicate actual Body contact coverage");
+      std::ostringstream row;
+      row << "{\"sensor_entity_id\":" << entity << ",\"sensor_name\":" << Quote(name->Data())
+          << ",\"link_entity_id\":" << link << ",\"link_name\":" << Quote(linkName->Data())
+          << ",\"collision_entity_id\":" << matched << ",\"collision_name\":" << Quote(collisionName)
+          << ",\"gz_topic\":" << Quote(configuredTopic) << '}';
+      rows.emplace(entity, row.str());
+      return true;
+    });
+    if (covered != collisions || rows.size() != collisions.size())
+      throw std::runtime_error("actual contact sensors do not cover every Body collision");
+    std::ostringstream out;
+    out << '[';
+    bool first = true;
+    for (const auto &row : rows) { if (!first) out << ','; first = false; out << row.second; }
+    out << ']';
+    return out.str();
+  }
+
   public: std::string Packet(const gz::sim::UpdateInfo &info,
       const gz::sim::EntityComponentManager &ecm, std::uint64_t packetSequence) const
   {
     std::ostringstream packet;
-    const auto schema = !this->bodyReferenceLink.empty() ?
+    const auto schema = this->includeBodyContacts ?
+        "rosclaw.gazebo_postupdate_observation.v4" : !this->bodyReferenceLink.empty() ?
         "rosclaw.gazebo_postupdate_observation.v3" : this->includeBodyGeometry ?
         "rosclaw.gazebo_postupdate_observation.v2" : "rosclaw.gazebo_postupdate_observation.v1";
     packet << std::setprecision(17) << "{\"schema_version\":" << Quote(schema)
@@ -281,6 +363,8 @@ class PassivePhysics : public gz::sim::System,
             << ",\"entity_id\":" << reference << ",\"model_relative_pose\":" << relativeJson
             << ",\"world_pose\":" << PoseJson(gz::sim::worldPose(reference, ecm)) << '}';
       }
+      if (this->includeBodyContacts)
+        packet << ",\"contact_sources\":" << this->BodyContactSources(models.at(this->bodyName), ecm);
       packet << '}';
       packet << ",\"obstacles\":[";
       bool first = true;
@@ -328,6 +412,7 @@ class PassivePhysics : public gz::sim::System,
   private: std::chrono::steady_clock::duration lastTime{};
   private: bool published = false;
   private: bool includeBodyGeometry = false;
+  private: bool includeBodyContacts = false;
   private: std::uint64_t sequence = 0;
 };
 }

@@ -1,10 +1,12 @@
 """Real compiler/reopen on synthetic Graph; no chosen heldout or physical run."""
 
+import hashlib
 import json
 from copy import deepcopy
 from datetime import timedelta
 
 import pytest
+import yaml
 
 from rosclaw.body.resolver import BodyResolver
 from rosclaw.connectors.ros.context.sim_execution_config import prepare_sim_execution_config
@@ -35,6 +37,10 @@ def runtime(request, monkeypatch, tmp_path):
 
     def augmented(*args):
         model, data, attachment, policy = execution_example(*args)
+        data = data.replace(b"<collision>", b'<collision name="chassis_collision">')
+        for description in model.observations["urdf_descriptions"].values():
+            description.update(sha256=hashlib.sha256(data).hexdigest(), size_bytes=len(data))
+        policy["source_urdf_sha256"] = hashlib.sha256(data).hexdigest()
         for name, kind in [
             (topics["physics"], "std_msgs/msg/String"),
             (topics["brush_events"], "std_msgs/msg/String"),
@@ -62,6 +68,19 @@ def runtime(request, monkeypatch, tmp_path):
     root.mkdir()
     workspace.rename(root / "home")
     (root / "robot.urdf").write_bytes(data)
+    (root / "bridge.yaml").write_text(
+        yaml.safe_dump(
+            [
+                {
+                    "ros_topic_name": namespace + "/ground_contact",
+                    "gz_topic_name": "/actual/contact",
+                    "ros_type_name": "ros_gz_interfaces/msg/Contacts",
+                    "gz_type_name": "gz.msgs.Contacts",
+                    "direction": "GZ_TO_ROS",
+                }
+            ]
+        )
+    )
     admission = prepare_sim_execution_config(root / "home", model, data, **kwargs)
     declaration = {
         "source": "simulator_operator_fixture_policy",
@@ -76,7 +95,14 @@ def runtime(request, monkeypatch, tmp_path):
         "controller_watchdog_approved": True,
         "topics": topics,
         "collision_streams": [
-            {"link": "chassis", "collision_index": 0, "topic": namespace + "/ground_contact"}
+            {
+                "link": "chassis",
+                "collision_index": 0,
+                "topic": namespace + "/ground_contact",
+                "collision_name": "chassis_collision",
+                "sensor_name": "body_contact",
+                "gz_topic": "/actual/contact",
+            }
         ],
         "support_contact_topics": [namespace + "/ground_contact"],
         "ground_model_names": ["renamed_ground"],
@@ -212,6 +238,7 @@ def frozen_runtime(runtime):
         "source_urdf_sha256": policy["source_urdf_sha256"],
         "maximum_body_planar_radius_m": policy["body"]["physical_radius_m"],
         "body_reference_link": policy["body"]["base_frame"],
+        "body_contact_mapping": policy["body_contact_mapping"],
         "model_base_identity_approved": True,
         "model_base_identity_source": "simulator_operator_fixture_policy",
         "world_to_map_xyyaw": [0, 0, 0],
@@ -363,14 +390,15 @@ def test_actual_generic_contact_handler_excludes_only_explicit_ground_model(
 
     def message(name):
         return SimpleNamespace(
+            header=SimpleNamespace(stamp=SimpleNamespace(sec=1, nanosec=0)),
             contacts=[
                 SimpleNamespace(
                     collision1=SimpleNamespace(
-                        name="unselected_synthetic_model::chassis::collision"
+                        name="unselected_synthetic_model::chassis::chassis_collision"
                     ),
                     collision2=SimpleNamespace(name=name),
                 )
-            ]
+            ],
         )
 
     node.contacts(topic, message("renamed_ground::surface::collision"))
@@ -418,7 +446,8 @@ def test_actual_generic_actuator_uses_declared_services_and_lease_stop(frozen_ru
     [
         ("actual_collision_components", "v3"),
         ("v2_actual_body_collision_with_joint", "v3"),
-        ("v3_actual_body_reference_identity", "exceeds"),
+        ("v3_actual_body_reference_identity", "v4"),
+        ("v4_actual_contact_sensor_collision_mapping", "exceeds"),
     ],
 )
 def test_actual_generic_observer_refuses_missing_or_oversized_component_body_before_credit(
@@ -450,7 +479,7 @@ def test_actual_generic_observer_refuses_missing_or_oversized_component_body_bef
     rows = [
         json.loads(line)
         for line in (
-            Path(__file__).parent / "fixtures/passive-ecm-reference-v3-contract-packets.jsonl"
+            Path(__file__).parent / "fixtures/passive-ecm-contact-v4-contract-packets.jsonl"
         )
         .read_text()
         .splitlines()
@@ -463,6 +492,9 @@ def test_actual_generic_observer_refuses_missing_or_oversized_component_body_bef
     packet["body"]["model_name"] = policy["policy"]["body_model_name"]
     if "reference_link" in packet["body"]:
         packet["body"]["reference_link"]["name"] = policy["body"]["base_frame"]
+    if "contact_sources" in packet["body"]:
+        for row in packet["body"]["contact_sources"]:
+            row.update(policy["body_contact_mapping"][0])
     packet["obstacles"][0]["model_name"] = "synthetic_obstacle"
     packet["scene_models"] = [
         {
@@ -477,3 +509,173 @@ def test_actual_generic_observer_refuses_missing_or_oversized_component_body_bef
     assert observer.physics_projector is None and observer.pose is None
     assert not observer.physics_queue
     assert not observer.publishers[policy["policy"]["topics"]["observation"]]
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "collision_name",
+        "sensor_name",
+        "gz_topic",
+        "bridge_topic",
+        "bridge_direction",
+        "duplicate_bridge",
+        "missing_bridge",
+    ],
+)
+def test_actual_contact_bridge_and_captured_collision_mapping_must_agree(runtime, fault):
+    root, admission, model, policy = runtime
+    if fault in {"collision_name", "sensor_name", "gz_topic"}:
+        policy["collision_streams"][0][fault] = "foreign" if fault != "gz_topic" else "/foreign"
+    else:
+        bridge = yaml.safe_load((root / "bridge.yaml").read_text())
+        if fault == "bridge_topic":
+            bridge[0]["gz_topic_name"] = "/foreign"
+        elif fault == "bridge_direction":
+            bridge[0]["direction"] = "ROS_TO_GZ"
+        elif fault == "duplicate_bridge":
+            bridge.append(deepcopy(bridge[0]))
+        else:
+            bridge.clear()
+        (root / "bridge.yaml").write_text(yaml.safe_dump(bridge))
+    # A different legitimate sensor name alone is a proposal, and is checked
+    # against actual components at live admission, never certified by Graph.
+    if fault == "sensor_name":
+        policy["collision_streams"][0][fault] = "invalid/name"
+    with pytest.raises(ValueError):
+        prepare_sim_runtime_policy(root, admission, model, policy, now=NOW)
+
+
+def test_runtime_reopen_refuses_changed_contact_bridge_bytes(frozen_runtime):
+    root, _ = frozen_runtime
+    with (root / "bridge.yaml").open("a") as stream:
+        stream.write("\n# source bytes changed\n")
+    with pytest.raises(ValueError):
+        load_frozen_sim_runtime_policy(root)
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "wrong_collision",
+        "missing_header",
+        "old",
+        "future",
+        "reversed",
+        "empty_support",
+        "boolean_stamp",
+    ],
+)
+def test_actual_generic_contact_fault_is_latched_on_wrong_identity_or_time(
+    frozen_runtime, monkeypatch, fault
+):
+    from types import SimpleNamespace
+
+    from tests.connectors.ros.test_split_sim_actuator import FakePath, load_node
+
+    root, policy = frozen_runtime
+    brush = json.loads((root / "brush_binding.json").read_text())
+    monkeypatch.setattr(
+        FakePath,
+        "extra",
+        {
+            "/evidence/physics_binding.json": (root / "physics_binding.json").read_text(),
+        },
+    )
+    node = load_node(
+        "witness.py",
+        "Witness",
+        monkeypatch,
+        dynamic=True,
+        runtime_policy=policy,
+        brush_binding=brush,
+    )
+    topic = policy["contact_topics"][0]
+    good = SimpleNamespace(
+        header=SimpleNamespace(stamp=SimpleNamespace(sec=1, nanosec=0)),
+        contacts=[
+            SimpleNamespace(
+                collision1=SimpleNamespace(
+                    name="unselected_synthetic_model::chassis::chassis_collision"
+                ),
+                collision2=SimpleNamespace(name="renamed_ground::surface::collision"),
+            )
+        ],
+    )
+    node.contacts(topic, good)
+    assert node.contact_fault is None
+    bad = deepcopy(good)
+    if fault == "wrong_collision":
+        bad.contacts[0].collision1.name = "unselected_synthetic_model::chassis::foreign"
+    elif fault == "missing_header":
+        del bad.header
+    elif fault == "old":
+        bad.header.stamp.sec = 0
+    elif fault == "future":
+        bad.header.stamp.sec = 2
+    elif fault == "reversed":
+        bad.header.stamp.sec, bad.header.stamp.nanosec = 0, 999_999_999
+    elif fault == "empty_support":
+        bad.contacts.clear()
+    else:
+        bad.header.stamp.sec = True
+    node.contacts(topic, bad)
+    latched = node.contact_fault
+    assert latched and node.physics_collision_count == 0
+    node.contacts(topic, good)
+    assert node.contact_fault == latched
+
+
+def test_actual_generic_component_contact_ids_cannot_change_after_initial_admission(
+    frozen_runtime, monkeypatch
+):
+    import math
+    import time
+    from types import SimpleNamespace
+
+    from tests.connectors.ros.test_physics_contact_components_v4 import packet as sdk_packet
+    from tests.connectors.ros.test_split_sim_actuator import FakePath, load_node
+
+    root, policy = frozen_runtime
+    brush = json.loads((root / "brush_binding.json").read_text())
+    monkeypatch.setattr(
+        FakePath,
+        "extra",
+        {
+            "/evidence/physics_binding.json": (root / "physics_binding.json").read_text(),
+        },
+    )
+    node = load_node(
+        "witness.py",
+        "Witness",
+        monkeypatch,
+        dynamic=True,
+        runtime_policy=policy,
+        brush_binding=brush,
+    )
+    packet = sdk_packet()  # SDK source with explicit synthetic geometry/policy substitution.
+    packet.update({k: brush[k] for k in ("run_id", "body_snapshot_hash", "attachment_hash")})
+    packet.update(
+        world_name=policy["policy"]["world_name"], paused=False, captured_at_unix_ns=time.time_ns()
+    )
+    packet["body"]["model_name"] = policy["policy"]["body_model_name"]
+    packet["body"]["reference_link"]["name"] = policy["body"]["base_frame"]
+    packet["body"]["contact_sources"][0].update(policy["body_contact_mapping"][0])
+    geometry = packet["body"]["collision_geometry"][0]
+    geometry["size"] = [0.4, 0.2, 0.1]
+    geometry["enclosing_radius_m"] = math.sqrt(0.2**2 + 0.1**2 + 0.05**2)
+    packet["obstacles"][0]["model_name"] = "synthetic_obstacle"
+    packet["scene_models"] = [
+        {
+            "model_name": policy["policy"]["body_model_name"],
+            "entity_id": packet["body"]["entity_id"],
+        },
+        {"model_name": "synthetic_obstacle", "entity_id": packet["obstacles"][0]["entity_id"]},
+        {"model_name": "renamed_ground", "entity_id": 1000},
+    ]
+    node.physics_event(SimpleNamespace(data=json.dumps(packet)))
+    assert node.physics_fault is None and len(node.body_contact_mapping_hash) == 64
+    packet.update(sequence=1, sim_time_sec=0.2, captured_at_unix_ns=time.time_ns())
+    packet["body"]["contact_sources"][0]["sensor_entity_id"] += 100
+    node.physics_event(SimpleNamespace(data=json.dumps(packet)))
+    assert "contact component identities changed" in node.physics_fault

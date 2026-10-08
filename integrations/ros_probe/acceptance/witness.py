@@ -94,6 +94,7 @@ class Witness(Node):
         self.physics_queue = deque()
         self.physics_sequence = self.physics_time = self.physics_last_received = None
         self.physics_fault = None
+        self.body_contact_mapping_hash = None
         self.physics_map_verified = False
         if self.dynamic_physics:
             if not self.split_actuator:
@@ -141,6 +142,8 @@ class Witness(Node):
                 )
         self.contact_seen = {}
         self.contact_active = {}
+        self.contact_fault = None
+        self.contact_sim_stamps = {}
         self.physics_collision_count = 0
         self.trace = Path("/evidence/witness.jsonl").open("a", buffering=1)  # noqa: SIM115 - node lifecycle closes it
         self.plan_audit = CoverageAuditLog(
@@ -291,7 +294,16 @@ class Witness(Node):
                 scene_model_names=frozenset(binding["scene_model_names"]),
                 maximum_body_planar_radius_m=binding.get("maximum_body_planar_radius_m"),
                 required_body_reference_link=binding.get("body_reference_link"),
+                required_body_contact_mapping=tuple(binding["body_contact_mapping"])
+                if "body_contact_mapping" in binding
+                else None,
             )
+            if self.generic_runtime:
+                actual_mapping_hash = decoded["body_contact_mapping_hash"]
+                if self.body_contact_mapping_hash is None:
+                    self.body_contact_mapping_hash = actual_mapping_hash
+                elif actual_mapping_hash != self.body_contact_mapping_hash:
+                    raise ValueError("actual Body contact component identities changed")
             if (
                 self.physics_sequence is not None
                 and packet["sequence"] != self.physics_sequence + 1
@@ -307,6 +319,7 @@ class Witness(Node):
                             {
                                 "binding": binding,
                                 "geometry_hash": decoded["geometry"].artifact_hash(),
+                                "body_contact_mapping_hash": self.body_contact_mapping_hash,
                                 "initial_packet_sha256": decoded["packet_sha256"],
                                 "evidence_role": "actual_component_source_admission_not_mission_acceptance",
                             }
@@ -530,7 +543,45 @@ class Witness(Node):
             "covariance": list(message.pose.covariance),
         }
 
+    def validate_generic_contact(self, topic, message):
+        streams = self.runtime_policy["policy"]["collision_streams"]
+        rows = [row for row in streams if row["topic"] == topic]
+        if len(rows) != 1 or not 0 <= len(message.contacts) <= 4096:
+            raise ValueError("bounded unique mapped actual contact stream required")
+        row = rows[0]
+        model = self.runtime_policy["policy"]["body_model_name"]
+        identity = "::".join((model, row["link"], row["collision_name"]))
+        stamp = message.header.stamp
+        if (
+            type(stamp.sec) is not int
+            or stamp.sec < 0
+            or type(stamp.nanosec) is not int
+            or not 0 <= stamp.nanosec < 1_000_000_000
+        ):
+            raise ValueError("actual contact SIM timestamp required")
+        sim_time = stamp.sec + stamp.nanosec / 1e9
+        age = self.get_clock().now().nanoseconds / 1e9 - sim_time
+        if not -0.1 <= age < 0.3 or sim_time < self.contact_sim_stamps.get(topic, 0):
+            raise ValueError("actual contact timestamp stale/future/reversed")
+        if topic in self.support_topics and not message.contacts:
+            raise ValueError("declared continuous support requires actual ground contact")
+        for contact in message.contacts:
+            names = (contact.collision1.name, contact.collision2.name)
+            if (
+                any(type(name) is not str or not 1 <= len(name) <= 1024 for name in names)
+                or identity not in names
+            ):
+                raise ValueError("actual contact belongs to another Body collision/source")
+        self.contact_sim_stamps[topic] = sim_time
+
     def contacts(self, topic, message):
+        if self.generic_runtime:
+            try:
+                self.validate_generic_contact(topic, message)
+            except (AttributeError, KeyError, TypeError, ValueError) as exc:
+                with self.observation_lock:
+                    self.contact_fault = self.contact_fault or str(exc)
+                return
         touching = any(
             not any(
                 name.startswith(model + "::")
@@ -682,9 +733,11 @@ class Witness(Node):
                 not self.split_actuator or (self.brush_fault is None and brush_pair is not None)
             )
             and not (self.dynamic_physics and self.physics_fault)
+            and self.contact_fault is None
             and 0 <= now - last_pose < 0.3
             and all(0 <= now - contact_seen.get(t, 0) < 1 for t in self.support_topics),
             "contact_stream_ages_ms": {t: (now - seen) * 1000 for t, seen in contact_seen.items()},
+            "contact_source_fault": self.contact_fault,
         }
         if self.split_actuator:
             sample["brush_state_pair"] = brush_pair

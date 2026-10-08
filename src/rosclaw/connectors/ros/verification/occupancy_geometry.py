@@ -242,6 +242,87 @@ class OccupancyProjector:
         )
 
 
+def validate_body_contact_sources(body, *, required_mapping=None, other_entity_ids=()):
+    """Exact actual sensor/parent/collision mapping; no transport authentication."""
+    rows = body.get("contact_sources")
+    if type(rows) is not list or not 1 <= len(rows) <= 256:
+        raise ValueError("bounded complete actual Body contact source mapping required")
+    collision_ids = {c["entity_id"] for c in body["collision_geometry"]}
+    reserved = set(other_entity_ids) | collision_ids | {body["entity_id"]}
+    reference = body["reference_link"]
+    reference_id = reference["entity_id"]
+    sensor_ids, topics, covered, sensors, collisions = set(), set(), set(), set(), set()
+    link_names, link_ids = {}, {}
+    fields = {"sensor_name", "link_name", "collision_name", "gz_topic"}
+    mappings = set()
+    for row in rows:
+        if type(row) is not dict or set(row) != fields | {
+            "sensor_entity_id",
+            "link_entity_id",
+            "collision_entity_id",
+        }:
+            raise ValueError("closed actual contact component mapping required")
+        for key in fields:
+            value = row[key]
+            if (
+                type(value) is not str
+                or not 1 <= len(value) <= (1024 if key == "gz_topic" else 256)
+                or any(ord(c) < 33 or ord(c) > 126 for c in value)
+            ):
+                raise ValueError("bounded actual contact identity required")
+        if not row["gz_topic"].startswith("/"):
+            raise ValueError("explicit absolute actual Gazebo sensor topic required")
+        for key in ("sensor_entity_id", "link_entity_id", "collision_entity_id"):
+            if type(row[key]) is not int or not 0 < row[key] < 2**64:
+                raise ValueError("bounded actual contact entity identity required")
+        sensor, link, collision = (
+            row[k] for k in ("sensor_entity_id", "link_entity_id", "collision_entity_id")
+        )
+        if (
+            sensor in reserved
+            or sensor == reference_id
+            or sensor in sensor_ids
+            or link in reserved
+            or link == sensor
+            or link in sensor_ids
+            or collision not in collision_ids
+            or collision in covered
+            or row["gz_topic"] in topics
+            or (link, row["sensor_name"]) in sensors
+            or (link, row["collision_name"]) in collisions
+            or (link == reference_id and row["link_name"] != reference["name"])
+            or (row["link_name"] == reference["name"] and link != reference_id)
+            or link_names.get(link, row["link_name"]) != row["link_name"]
+            or link_ids.get(row["link_name"], link) != link
+        ):
+            raise ValueError("ambiguous or substituted actual contact mapping")
+        sensor_ids.add(sensor)
+        topics.add(row["gz_topic"])
+        covered.add(collision)
+        sensors.add((link, row["sensor_name"]))
+        collisions.add((link, row["collision_name"]))
+        link_names[link], link_ids[row["link_name"]] = row["link_name"], link
+        mappings.add(tuple(row[k] for k in sorted(fields)))
+    if covered != collision_ids or sensor_ids & set(link_names):
+        raise ValueError("actual contact sensors must uniquely cover all Body collisions")
+    if required_mapping is not None:
+        if (
+            type(required_mapping) is not tuple
+            or len(required_mapping) != len(rows)
+            or any(
+                type(row) is not dict
+                or set(row) != fields
+                or any(type(row[k]) is not str for k in fields)
+                for row in required_mapping
+            )
+        ):
+            raise ValueError("exact frozen Body contact source policy required")
+        expected = {tuple(row[k] for k in sorted(fields)) for row in required_mapping}
+        if len(expected) != len(required_mapping) or expected != mappings:
+            raise ValueError("actual Body sensor mapping differs from frozen source policy")
+    return rows
+
+
 def parse_physics_packet(
     raw,
     *,
@@ -255,6 +336,7 @@ def parse_physics_packet(
     received_at_unix_ns=None,
     maximum_body_planar_radius_m=None,
     required_body_reference_link=None,
+    required_body_contact_mapping=None,
 ):
     """Validate complete simulator-side components before deriving any geometry.
 
@@ -280,6 +362,7 @@ def parse_physics_packet(
             "rosclaw.gazebo_postupdate_observation.v1",
             "rosclaw.gazebo_postupdate_observation.v2",
             "rosclaw.gazebo_postupdate_observation.v3",
+            "rosclaw.gazebo_postupdate_observation.v4",
         )
         or packet.get("source") != "gazebo_ecm_postupdate"
         or packet.get("evidence_domain") != "GAZEBO_PHYSICS"
@@ -347,7 +430,10 @@ def parse_physics_packet(
         return values
 
     body = packet.get("body")
-    reference_geometry = packet["schema_version"] == "rosclaw.gazebo_postupdate_observation.v3"
+    contact_geometry = packet["schema_version"] == "rosclaw.gazebo_postupdate_observation.v4"
+    reference_geometry = (
+        contact_geometry or packet["schema_version"] == "rosclaw.gazebo_postupdate_observation.v3"
+    )
     body_geometry = (
         reference_geometry or packet["schema_version"] == "rosclaw.gazebo_postupdate_observation.v2"
     )
@@ -357,6 +443,7 @@ def parse_physics_packet(
         != {"model_name", "entity_id", "world_pose"}
         | ({"collision_geometry"} if body_geometry else set())
         | ({"reference_link"} if reference_geometry else set())
+        | ({"contact_sources"} if contact_geometry else set())
         or type(body["entity_id"]) is not int
         or body["model_name"] != body_model_name
         or body["entity_id"] != models[body_model_name]
@@ -428,6 +515,7 @@ def parse_physics_packet(
             or set(model)
             != {"model_name", "entity_id", "world_pose", "collision_geometry"}
             | ({"reference_link"} if is_body and reference_geometry else set())
+            | ({"contact_sources"} if is_body and contact_geometry else set())
             or type(model["model_name"]) is not str
             or type(model["entity_id"]) is not int
             or model["model_name"] not in ((body_model_name,) if is_body else obstacle_names)
@@ -538,6 +626,16 @@ def parse_physics_packet(
     if reference_geometry:
         result["body_reference_link"] = body["reference_link"]
         result["body_model_reference_identity_verified_from_components"] = True
+    if required_body_contact_mapping is not None and not contact_geometry:
+        raise ValueError("actual Body contact mapping requires v4 component source")
+    if contact_geometry:
+        result["body_contact_sources"] = validate_body_contact_sources(
+            body,
+            required_mapping=required_body_contact_mapping,
+            other_entity_ids=set(models.values())
+            | {c["entity_id"] for obstacle in obstacles for c in obstacle["collision_geometry"]},
+        )
+        result["body_contact_mapping_hash"] = digest(result["body_contact_sources"])
     if maximum_body_planar_radius_m is not None:
         if (
             type(maximum_body_planar_radius_m) not in (int, float)
