@@ -197,7 +197,11 @@ def prepare_contact_fixture(output, *, urdf_bytes, sdf_bytes, bridge_bytes, decl
             ET.SubElement(sensor, "always_on").text = "true"
             ET.SubElement(sensor, "update_rate").text = "20"
             ET.SubElement(sensor, "topic").text = topic
-            ET.SubElement(ET.SubElement(sensor, "contact"), "collision").text = name
+            contact = ET.SubElement(sensor, "contact")
+            ET.SubElement(contact, "collision").text = name
+            # Gazebo 8.15 Contact.cc resolves this nested topic. The generic
+            # sensor/topic alone does not bind the native contact publisher.
+            ET.SubElement(contact, "topic").text = topic
             streams.append(
                 {
                     "link": link_name,

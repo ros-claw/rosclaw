@@ -61,6 +61,7 @@ def test_source_named_collisions_get_one_sensor_each_without_geometry_or_urdf_ch
         assert len(sensor.findall("contact/collision")) == 1
         assert sensor.findtext("contact/collision") == row["collision_name"]
         assert sensor.findtext("topic") == row["gz_topic"]
+        assert sensor.findtext("contact/topic") == row["gz_topic"]
         assert any(
             b.get("ros_topic_name") == row["topic"] and b.get("gz_topic_name") == row["gz_topic"]
             for b in bridge
