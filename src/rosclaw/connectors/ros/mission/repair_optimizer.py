@@ -225,7 +225,44 @@ def rank_repair_poses(
                     RepairPose(x, y, yaw, cells, distance, turn, cost, reward / cost, cell)
                 )
         ranked.sort(key=lambda p: (-p.utility, p.estimated_cost_sec, p.center_cell, p.yaw))
-        shortlist = ranked[:shortlist_size]
+        # Many yaw variants can cover exactly the same cells. Filling a small
+        # beam with those variants hides other holes and defeats lookahead.
+        # Represent separate measured-hole components before adding global
+        # utility leaders; predictions still grant no measured cleaning credit.
+        components, unassigned = {}, set(remaining)
+        while unassigned:
+            check_budget()
+            root = min(unassigned)
+            pending = [root]
+            unassigned.remove(root)
+            while pending:
+                check_budget()
+                cell = pending.pop()
+                components[cell] = root
+                col, row = cell % width, cell // width
+                for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                    neighbor = cell + dy * width + dx
+                    if 0 <= col + dx < width and 0 <= row + dy < height and neighbor in unassigned:
+                        unassigned.remove(neighbor)
+                        pending.append(neighbor)
+        leaders = {}
+        for pose in ranked:
+            check_budget()
+            for component in {components[c] for c in pose.predicted_new_cells}:
+                leaders.setdefault(component, pose)
+        diverse = sorted(
+            leaders.values(), key=lambda p: (-p.utility, p.estimated_cost_sec, p.center_cell, p.yaw)
+        )
+        shortlist, signatures = [], set()
+        for pose in diverse + ranked:
+            check_budget()
+            if pose.predicted_new_cells in signatures:
+                continue
+            signatures.add(pose.predicted_new_cells)
+            shortlist.append(pose)
+            if len(shortlist) == shortlist_size:
+                break
+        shortlist.sort(key=lambda p: (-p.utility, p.estimated_cost_sec, p.center_cell, p.yaw))
         if not shortlist:
             return finish("NO_CANDIDATE")
         best, best_utility = (shortlist[0],), shortlist[0].utility

@@ -59,3 +59,23 @@ The latest main Waffle pilot's primary91.1633% still needed23 greedy repairs
 and achieved only13.7724% distance/20.5538% SIM reductions. That motivates the
 repair trial; predictions cannot establish a gain. All original pilot failures
 and unconsumed evaluation seeds are retained.
+
+## Candidate diversity regression
+
+The bounded shortlist represents distinct four-neighbor components of the
+measured missed mask and removes equivalent predicted footprints. Otherwise,
+multiple yaw variants covering the same cells can fill the entire shortlist
+and hide the next hole from the two-goal lookahead. A narrow legal corridor
+with two adjacent distant missed cells reproduces that failure: the previous
+shortlist found only one target; the corrected search considers both. These
+are predicted goals, not coverage credit, and only the first is dispatched.
+
+The immutable Waffle stateless pilot's primary mask contains316 missed cells
+after91.1633% coverage. Three read-only rankings evaluated20736 poses each,
+returning READY in215.19,210.84 and210.30 ms, below the500 ms bound. Input
+evidence SHA256 is
+`bca5084b5f923ff764ced9c53fcc9f7c910021e3d545aed4d1e08801c8e5add2`.
+These timings describe computation on a recorded mask, not physical efficiency.
+The complete local ROS suite passed344 tests with10 integration cases
+deselected; targeted mypy, Ruff and formatting passed. Physical pose-aware
+acceptance remains NOT_RUN.

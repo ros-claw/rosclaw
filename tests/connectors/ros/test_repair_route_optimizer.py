@@ -11,6 +11,35 @@ from rosclaw.connectors.ros.mission import repair_optimizer
 from rosclaw.connectors.ros.verification.coverage import CoverageVerifier
 
 
+def test_equivalent_yaws_cannot_starve_second_goal_lookahead():
+    # Both distant adjacent holes need separate tiny brush placements. Several
+    # cheaper headings at the first hole must not hide the second placement.
+    specification = {
+        "width": 22,
+        "height": 1,
+        "resolution": 0.1,
+        "origin": [-2.0, 0.0],
+        "accessible_cells": list(range(22)),
+        "cleaning_polygon": [[-0.04, -0.04], [0.04, -0.04], [0.04, 0.04], [-0.04, 0.04]],
+    }
+    centers = [(-2.0 + (i + 0.5) * 0.1, 0.05) for i in range(22)]
+    result = repair_optimizer.rank_repair_poses(
+        specification,
+        centers,
+        {20, 21},
+        {"x": -1.95, "y": 0.05, "yaw": 0.0},
+        beam_width=2,
+        shortlist_size=2,
+    )
+    assert result.status == "READY"
+    assert len(result.poses) == 2
+    assert set(result.poses[0].predicted_new_cells) | set(result.poses[1].predicted_new_cells) == {
+        20,
+        21,
+    }
+    assert result.poses[0].center_cell != result.poses[1].center_cell
+
+
 def grid(width=12, resolution=0.25, polygon=None):
     return {
         "width": width,
