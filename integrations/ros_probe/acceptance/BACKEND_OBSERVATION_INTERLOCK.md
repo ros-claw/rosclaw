@@ -1,7 +1,8 @@
 # Additional SIM backend observation interlock
 
-This is source preparation, not physical acceptance. No new Gazebo world,
-DDS delivery, probe scene operation or Native episode has been verified here.
+This is source preparation, not physical acceptance. No new Gazebo world, probe scene operation or Native episode has been verified here.
+Isolated actual DDS transport has now been checked over explicitly synthetic
+SDK-derived packets, separately from physical source admission.
 The frozen N02 experiment source, image and launcher remain unchanged.
 
 The new opt-in `require_backend_observation=true` actor mode requires the exact
@@ -57,3 +58,16 @@ A fresh qualified logical final constraint is required. This result continues
 to declare actual world/Body admission, physical stopping and task acceptance
 unverified. Its 13 contracts use explicitly synthetic tapes and decoder/source
 loader doubles; they are not additional physical episodes.
+
+`backend_observer_dds_contract.py` runs actual rclpy Nodes and an independent
+observer process in an isolated `--network none` container/domain231. The
+final contract sends robot TF/components at100Hz and probe TF/components at20Hz.
+Before injection, no source fault or ready/authorization claim is allowed. The
+retained valid robot prefix must reach sequence399; the first rejected source
+must be the intentional sequence0/iteration400 packet. Later valid messages
+cannot clear failure. The actual observer exits0 onSIGINT and closes1144 events
+without drops or writer error. Four seconds of synthetic DDS traffic is not a
+whole-mission DDS qualification, real Gazebo contact/cache qualification,
+physical stop proof or Native task. No actuator or scene service starts.
+The earlier20Hz and100Hz transport passes remain retained; the final test adds
+stronger source-prefix/fault-origin assertions and an original driver copy.
