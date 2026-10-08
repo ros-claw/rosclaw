@@ -102,3 +102,11 @@ caller must authenticate the archived data and fit receipts separately.
 Cross-fitting on consumed contexts is not a private Fresh exam. The result
 grants no actor update, runtime, promotion or hardware authority; deployment
 still requires the unchanged physical safety, retention and improvement gates.
+
+Value evaluation batches whole episodes with at most 65,536 chronological
+frames per hidden-layer allocation (the input horizon is at most 4,096). For
+the fixed 64-unit float64 critic, each hidden array is at most 32 MiB. Input
+arrays, outputs, masks, matrix-operation temporaries and receipt serialization
+still require additional memory; this is not a total-process memory ceiling.
+Batching changes neither frame order nor target statistics and does not
+truncate long batches, omit failures, refit a critic or modify the policy.

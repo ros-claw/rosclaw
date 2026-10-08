@@ -33,9 +33,22 @@ def _numeric_hash(context: Any, targets: Any) -> str:
     )
 
 
+_VALUE_PREDICTION_FRAME_BATCH = 65536
+
+
 def _predict(context: Any, parameters: Any) -> Any:
-    hidden = np.tanh(context @ parameters["weight_0"].T + parameters["bias_0"])
-    return (hidden @ parameters["weight_1"].T + parameters["bias_1"]).squeeze(-1)
+    # Bound hidden activations independently of input feature width. Splitting
+    # only the episode axis preserves each chronological matrix multiplication;
+    # never reshape, reorder or discard frames to reduce memory.
+    episodes_per_batch = max(1, _VALUE_PREDICTION_FRAME_BATCH // context.shape[1])
+    predictions = np.empty(context.shape[:2], dtype=np.float64)
+    for start in range(0, len(context), episodes_per_batch):
+        end = start + episodes_per_batch
+        hidden = np.tanh(context[start:end] @ parameters["weight_0"].T + parameters["bias_0"])
+        predictions[start:end] = (hidden @ parameters["weight_1"].T + parameters["bias_1"]).squeeze(
+            -1
+        )
+    return predictions
 
 
 def cross_fitted_value_advantages(

@@ -239,3 +239,42 @@ def test_zero_targets_and_zero_predictions_use_finite_advantage_floor(fitted_dat
     np.testing.assert_array_equal(result["predictions"], np.zeros((8, 6)))
     np.testing.assert_array_equal(result["advantages"], np.zeros((8, 6)))
     assert result["raw_advantage_std"] == result["held_out_mse"] == 0
+
+
+@pytest.mark.parametrize("frame_budget", [1, 6, 13, 65536])
+def test_episode_chunking_keeps_every_credit_and_receipt_bit_exact(
+    fitted_data, monkeypatch, frame_budget
+):
+    import rosclaw.growth.cross_fitted_value_advantages as module
+
+    expected = cross_fitted_value_advantages(**fitted_data)
+    monkeypatch.setattr(module, "_VALUE_PREDICTION_FRAME_BATCH", frame_budget)
+    actual = cross_fitted_value_advantages(**fitted_data)
+    for key in ("predictions", "raw_advantages", "advantages", "episode_fold_ids"):
+        np.testing.assert_array_equal(actual[key], expected[key])
+    for key in set(actual) - {"predictions", "raw_advantages", "advantages", "episode_fold_ids"}:
+        assert actual[key] == expected[key]
+
+
+def test_large_low_dimension_prediction_bounds_hidden_allocation(monkeypatch):
+    import rosclaw.growth.cross_fitted_value_advantages as module
+
+    x = np.random.default_rng(91).normal(size=(17, 4096, 2))
+    parameters = {k: np.asarray(v) for k, v in initial_value_parameters(2, seed=71).items()}
+    parameters["weight_1"][:] = np.random.default_rng(52).normal(size=(1, 64))
+    hidden = np.tanh(x @ parameters["weight_0"].T + parameters["bias_0"])
+    expected = (hidden @ parameters["weight_1"].T + parameters["bias_1"]).squeeze(-1)
+    del hidden
+    original_tanh = np.tanh
+    observed_frames = []
+
+    def measured_tanh(value):
+        observed_frames.append(value.shape[0] * value.shape[1])
+        assert value.shape[2] == 64
+        assert observed_frames[-1] <= module._VALUE_PREDICTION_FRAME_BATCH
+        return original_tanh(value)
+
+    monkeypatch.setattr(module.np, "tanh", measured_tanh)
+    actual = module._predict(x, parameters)
+    np.testing.assert_array_equal(actual, expected)
+    assert observed_frames == [65536, 4096]
