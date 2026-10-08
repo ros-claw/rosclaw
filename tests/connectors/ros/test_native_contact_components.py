@@ -87,6 +87,8 @@ def test_original_official_sdk_packets_decode_or_refuse(evidence, row):
     [
         "extra",
         "sdk",
+        "old_schema",
+        "pose_component",
         "body",
         "missing_row",
         "duplicate_row",
@@ -108,6 +110,10 @@ def test_corrupted_raw_bytes_are_not_admitted(evidence, fault):
         packet["untrusted"] = True
     elif fault == "sdk":
         packet["sdk_version"] = "8.16.0"
+    elif fault == "old_schema":
+        packet["schema_version"] = "rosclaw.gazebo_postupdate_contacts.v1"
+    elif fault == "pose_component":
+        packet["body_pose_component"] = "OPTIONAL_WORLD_POSE"
     elif fault == "body":
         packet["body_snapshot_hash"] = "wrong"
     elif fault == "missing_row":

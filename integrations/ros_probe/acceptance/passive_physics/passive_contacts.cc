@@ -51,9 +51,10 @@ class PassiveContacts : public gz::sim::System,
     const auto captured = std::chrono::duration_cast<std::chrono::nanoseconds>(
         std::chrono::system_clock::now().time_since_epoch()).count();
     out << std::setprecision(17)
-        << "{\"schema_version\":\"rosclaw.gazebo_postupdate_contacts.v1\""
+        << "{\"schema_version\":\"rosclaw.gazebo_postupdate_contacts.v2\""
         << ",\"source\":\"gazebo_ecm_contact_sensor_data\",\"evidence_domain\":\"GAZEBO_PHYSICS\""
         << ",\"sdk_version\":\"8.15.0\",\"component_semantics\":\"PHYSICS_UPDATE_CONTACT_CACHE\""
+        << ",\"body_pose_component\":\"PHYSICS_UPDATED_DIRECT_WORLD_MODEL_POSE\""
         << ",\"run_id\":" << native_contacts::Quote(this->runId)
         << ",\"body_snapshot_hash\":" << native_contacts::Quote(this->bodyHash)
         << ",\"attachment_hash\":" << native_contacts::Quote(this->attachmentHash)
@@ -80,8 +81,10 @@ class PassiveContacts : public gz::sim::System,
         body = entity; return true;
       });
       if (body == gz::sim::kNullEntity) throw std::runtime_error("actual contact Body model missing");
-      const auto pose = ecm.Component<WorldPose>(body);
-      if (!pose) throw std::runtime_error("actual contact Body world pose missing");
+      // Physics.cc updates Pose on a direct World child model. WorldPose is
+      // optional, and native Physics only updates that component on links.
+      const auto pose = ecm.Component<Pose>(body);
+      if (!pose) throw std::runtime_error("actual physics-updated direct World Body Pose missing");
       const double values[] = {pose->Data().Pos().X(), pose->Data().Pos().Y(), pose->Data().Pos().Z(),
           pose->Data().Rot().W(), pose->Data().Rot().X(), pose->Data().Rot().Y(), pose->Data().Rot().Z()};
       const auto norm = values[3]*values[3] + values[4]*values[4] + values[5]*values[5] + values[6]*values[6];

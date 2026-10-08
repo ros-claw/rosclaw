@@ -20,6 +20,7 @@ HEADER = {
     "evidence_domain",
     "sdk_version",
     "component_semantics",
+    "body_pose_component",
     *IDENTITIES,
     "world_name",
     "body_model_name",
@@ -133,11 +134,12 @@ def decode_native_packet(raw, policy):
         raise ValueError("closed original native contact header required")
     base = policy["contact_policy"]
     expected = {
-        "schema_version": "rosclaw.gazebo_postupdate_contacts.v1",
+        "schema_version": "rosclaw.gazebo_postupdate_contacts.v2",
         "source": "gazebo_ecm_contact_sensor_data",
         "evidence_domain": "GAZEBO_PHYSICS",
         "sdk_version": "8.15.0",
         "component_semantics": "PHYSICS_UPDATE_CONTACT_CACHE",
+        "body_pose_component": "PHYSICS_UPDATED_DIRECT_WORLD_MODEL_POSE",
         **{k: base[k] for k in IDENTITIES},
         "world_name": policy["world_name"],
         "body_model_name": base["model_name"],

@@ -16,7 +16,12 @@ def decode_ros_pose(raw, model_name, pose_frame):
     from rclpy.serialization import deserialize_message
     from tf2_msgs.msg import TFMessage
 
-    message = deserialize_message(raw, TFMessage)
+    try:
+        message = deserialize_message(raw, TFMessage)
+    except Exception as exc:
+        raise ValueError(
+            "original independent pose CDR cannot be decoded by installed ROS SDK"
+        ) from exc
     matches = [t for t in message.transforms if t.child_frame_id == model_name]
     if len(matches) != 1 or matches[0].header.frame_id != pose_frame:
         raise ValueError("one original serialized independent Body pose required")

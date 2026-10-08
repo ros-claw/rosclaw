@@ -17,7 +17,7 @@ import yaml
 from closed_native_contact_evidence import closed_native_contact_window
 from geometry_msgs.msg import TransformStamped
 from native_contact_evidence import NativeContactEvidence, prepare_native_policy
-from rclpy.serialization import serialize_message
+from rclpy.serialization import deserialize_message, serialize_message
 from tf2_msgs.msg import TFMessage
 
 from rosclaw.connectors.ros.diagnosis.coverage_audit import digest
@@ -193,6 +193,8 @@ def main():
         "valid",
         "bytes_hash",
         "bytes_size",
+        "invalid_pose_cdr",
+        "original_pose_frame",
         "frame",
         "projection",
         "source_binding",
@@ -215,6 +217,18 @@ def main():
             payload["original_source_sha256"] = "f" * 64
         elif fault == "bytes_size":
             payload["original_size_bytes"] += 1
+        elif fault == "invalid_pose_cdr":
+            rows[0]["payload"].update(
+                retained(b"invalid synthetic CDR source", "tf2_msgs/msg/TFMessage")
+            )
+        elif fault == "original_pose_frame":
+            message = deserialize_message(
+                base64.b64decode(rows[0]["payload"]["original_source_base64"]), TFMessage
+            )
+            message.transforms[0].header.frame_id = "foreign"
+            rows[0]["payload"].update(
+                retained(serialize_message(message), "tf2_msgs/msg/TFMessage")
+            )
         elif fault == "frame":
             rows[0]["pose_frame"] = "foreign"
         elif fault == "projection":

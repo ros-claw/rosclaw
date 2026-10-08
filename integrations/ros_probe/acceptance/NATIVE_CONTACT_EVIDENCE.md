@@ -15,11 +15,18 @@ Primary sources:
 - https://github.com/gazebosim/gz-sim/blob/gz-sim8_8.15.0/src/systems/physics/Physics.cc
 
 `rosclaw::PassiveContacts` is a separate plugin. It observes the actual World,
-Body world pose, ContactSensor configuration, Collision entities and initialized
+Body world pose from the physics-updated **Pose of a direct World child model**,
+ContactSensor configuration, Collision entities and initialized
 ContactSensorData in a const PostUpdate. Every actual Body collision must have
 an unambiguous declared sensor. The packet retains actual contact entity IDs
 and resolves names from actual same-world components. The plugin never creates
 or changes ECM components, sensor configuration or actuator state.
+The packet format is `rosclaw.gazebo_postupdate_contacts.v2`, with explicit
+`body_pose_component=PHYSICS_UPDATED_DIRECT_WORLD_MODEL_POSE`. The model
+WorldPose component is optional and not the source updated by native Physics;
+it is ignored. Nested models or a missing actual model Pose are refused. The
+earlier v1 SDK packets remain historical offline fixtures and are rejected by
+the v2 decoder.
 
 An empty initialized component is a measured **physics contact cache** snapshot,
 not a fabricated ROS message. The cache may retain unchanged values. Packet
@@ -50,7 +57,7 @@ A closed-original-byte replay is implemented in
 `closed_native_contact_evidence.py`: it reopens prepared sources, replays
 installed official TFMessage CDR and original JSON, checks genesis/sequence/hash
 chain and writer closure, and requires complete source brackets and no gaps.
-Its 15 synthetic serialization contracts and 9 actual observer callback/resource cleanup contracts
+Its 17 synthetic serialization contracts and 9 actual observer callback/resource cleanup contracts
 retain original bytes and fault traces. Backend qualification and the replay
 still need to be connected to final Native acceptance. No task or brush state is inferred here.
 
@@ -63,3 +70,5 @@ installed official SDK, without a Gazebo server, actuator or publisher call.
 Transport Node construction can initialize discovery; the SDK test container
 has `--network none`. Those contracts are not actual simulation episodes.
 The Python producer-file fixture uses synthetic bytes, not a loadable plugin.
+
+Current offline checkpoint: 20 original native SDK component cases, 59 Python native contact cases, 33 existing independent-contact cases and 33 generic renderer cases. All are offline contracts. The installed SDK fixture validates direct-model Pose with an absent or misleading optional WorldPose, source immutability, and rejection of nested models. No actual backend or third robot has been admitted.

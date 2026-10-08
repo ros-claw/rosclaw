@@ -20,7 +20,7 @@ struct PassiveContactsContractFixture
     {
       auto entity = ecm.CreateEntity(); ecm.CreateComponent(entity, Model());
       ecm.CreateComponent(entity, Name(name)); ecm.CreateComponent(entity, ParentEntity(world));
-      ecm.CreateComponent(entity, WorldPose(gz::math::Pose3d::Zero)); return entity;
+      ecm.CreateComponent(entity, Pose(gz::math::Pose3d::Zero)); return entity;
     };
     body = model("anonymous_body");
     auto floor = model("support_plane");
@@ -110,7 +110,7 @@ int main(int argc, char **argv)
   { F f; f.ecm.RemoveComponent<ContactSensorData>(f.collision); emit("native_missing_initialized_contact_data", f, false); }
   { F f; f.ecm.RemoveComponent<Sensor>(f.sensor); emit("native_missing_sensor_marker", f, false); }
   { F f; f.ecm.RemoveComponent<Name>(f.bodyLink); emit("native_missing_link_identity", f, false); }
-  { F f; f.ecm.RemoveComponent<WorldPose>(f.body); emit("native_missing_body_world_pose", f, false); }
+  { F f; f.ecm.RemoveComponent<Pose>(f.body); emit("native_missing_body_model_pose", f, false); }
   { F f; f.info.paused = true; emit("native_paused_physics_unknown", f, false); }
   { F f; f.info.dt = std::chrono::milliseconds(0); emit("native_nonadvancing_step_unknown", f, false); }
   { F f; f.ecm.CreateComponent(f.sensor, SensorTopic("/wrong")); emit("native_contradictory_topic_component", f, false); }
@@ -135,6 +135,22 @@ int main(int argc, char **argv)
     F f; f.ecm.RemoveComponent<ContactSensor>(f.sensor); f.ecm.RemoveComponent<Sensor>(f.sensor);
     f.ecm.RemoveComponent<ParentEntity>(f.sensor); f.ecm.RemoveComponent<Name>(f.sensor);
     f.AddSensor(false); emit("native_scoped_default_without_sensor_topic", f, true);
+  }
+  {
+    F f; f.ecm.CreateComponent(f.body, WorldPose(gz::math::Pose3d(9, 8, 7, 0, 0, 0)));
+    emit("native_optional_world_pose_is_not_physics_model_source", f, true);
+    if (f.Packet().find("\"body_world_pose\":[0,0,0,1,0,0,0]") == std::string::npos)
+      throw std::runtime_error("native model used optional stale WorldPose instead of physics Pose");
+  }
+  {
+    F f; f.ecm.Component<Pose>(f.body)->SetData(gz::math::Pose3d(1, 2, 3, 0, 0, 0), [](const auto &,const auto &){return false;});
+    emit("native_actual_model_pose_coordinates", f, true);
+    if (f.Packet().find("\"body_world_pose\":[1,2,3,1,0,0,0]") == std::string::npos)
+      throw std::runtime_error("native actual direct World model coordinates lost");
+  }
+  {
+    F f; f.ecm.Component<ParentEntity>(f.body)->SetData(f.bodyLink, [](const auto &,const auto &){return false;});
+    emit("native_nested_body_model_refused", f, false);
   }
   return 0;
 }
