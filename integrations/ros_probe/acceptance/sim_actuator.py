@@ -16,10 +16,10 @@ import rclpy
 from geometry_msgs.msg import Twist, TwistStamped
 from rclpy.clock import Clock, ClockType
 from rclpy.node import Node
+from runtime_policy import load_frozen_sim_runtime_policy
 from std_msgs.msg import Bool, String
 from std_srvs.srv import SetBool
 
-from rosclaw.connectors.ros.context.sim_runtime_policy import load_frozen_sim_runtime_policy
 from rosclaw.connectors.ros.diagnosis.coverage_audit import CoverageAuditLog
 from rosclaw.connectors.ros.verification.brush_timeline import BrushStateEvent
 

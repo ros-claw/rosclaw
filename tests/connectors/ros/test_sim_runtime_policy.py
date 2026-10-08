@@ -30,6 +30,7 @@ def runtime(request, monkeypatch, tmp_path):
         "map": namespace + "/floor",
         "nav_velocity": namespace + "/guarded",
         "drive_velocity": namespace + "/driver_input",
+        "independent_pose": namespace + "/measured_world_pose",
     }
 
     def augmented(*args):
@@ -38,6 +39,7 @@ def runtime(request, monkeypatch, tmp_path):
             (topics["physics"], "std_msgs/msg/String"),
             (topics["brush_events"], "std_msgs/msg/String"),
             (topics["drive_velocity"], "geometry_msgs/msg/TwistStamped"),
+            (topics["independent_pose"], "tf2_msgs/msg/TFMessage"),
             (namespace + "/ground_contact", "ros_gz_interfaces/msg/Contacts"),
         ]:
             model.graph["topics"].append({"name": name, "msg_type": kind})

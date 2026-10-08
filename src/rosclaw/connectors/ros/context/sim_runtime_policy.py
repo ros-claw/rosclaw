@@ -26,6 +26,7 @@ TOPIC_TYPES = {
     "map": "nav_msgs/msg/OccupancyGrid",
     "nav_velocity": "geometry_msgs/msg/Twist",
     "drive_velocity": "geometry_msgs/msg/TwistStamped",
+    "independent_pose": "tf2_msgs/msg/TFMessage",
 }
 
 
@@ -209,7 +210,9 @@ def load_frozen_sim_runtime_policy(root):
     path = root / "sim_runtime_policy.json"
     if not path.exists():
         config_path = root / "execution_config.json"
-        if config_path.exists() and "generic_execution_proposal" in _read_json(config_path):
+        if (root / "generic_execution_proposal.json").exists() or (
+            config_path.exists() and "generic_execution_proposal" in _read_json(config_path)
+        ):
             raise ValueError("generic fixture requires its frozen runtime policy")
         return None
     saved = _read_json(path)

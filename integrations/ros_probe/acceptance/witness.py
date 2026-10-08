@@ -31,12 +31,12 @@ from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from ros_gz_interfaces.msg import Contacts
+from runtime_policy import load_frozen_sim_runtime_policy
 from std_msgs.msg import Bool, String
 from std_srvs.srv import SetBool
 from tf2_msgs.msg import TFMessage
 from visualization_msgs.msg import Marker
 
-from rosclaw.connectors.ros.context.sim_runtime_policy import load_frozen_sim_runtime_policy
 from rosclaw.connectors.ros.diagnosis.coverage_audit import CoverageAuditLog, digest
 from rosclaw.connectors.ros.verification.brush_timeline import BrushStateEvent, BrushStateTimeline
 from rosclaw.connectors.ros.verification.coverage import CoverageVerifier
