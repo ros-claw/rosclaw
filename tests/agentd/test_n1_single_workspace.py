@@ -17,6 +17,7 @@ from pathlib import Path
 import pytest
 
 from rosclaw.agentd.pi_entry import find_pi_agent_entry
+from tests.agentd.test_h1_native_work import _FakeResponseIdentity
 from tests.agentd.test_product_journey import (
     PtySession,
     _chunk,
@@ -80,9 +81,12 @@ class _Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         length = int(self.headers.get("Content-Length", "0"))
         body = json.loads(self.rfile.read(length) or b"{}")
-        payload = self.fake.answer(body)
+        payload = _FakeResponseIdentity.apply(
+            self.fake.answer(body), stream=bool(body.get("stream")),
+        )
         self.send_response(200)
-        self.send_header("Content-Type", "text/event-stream")
+        ctype = "text/event-stream" if body.get("stream") else "application/json"
+        self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
         self.wfile.write(payload)
