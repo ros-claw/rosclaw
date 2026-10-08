@@ -84,11 +84,20 @@ class RuntimeClient:
             from rosclaw.core.event_bus import EventBus
             from rosclaw.core.runtime import Runtime, RuntimeConfig
 
+            memory_experiment = self.runtime_profile.get("ros_expert_memory_experiment")
+            overrides = {}
+            if memory_experiment is not None:
+                from rosclaw.connectors.ros.context.memory_worker_projection import (
+                    worker_runtime_overrides,
+                )
+
+                overrides = worker_runtime_overrides(memory_experiment)
             cfg = RuntimeConfig(
                 robot_id=self.robot_id,
                 event_bus=EventBus(),
                 sense_collector=self.runtime_profile.get("sense", {}).get("collector", "mock"),
                 sense_update_hz=self.runtime_profile.get("sense", {}).get("update_hz", 1.0),
+                **overrides,
             )
             rt = Runtime(cfg)
             rt.initialize()
@@ -273,6 +282,21 @@ class RuntimeClient:
         limit: int = 5,
         outcome_filter: str | None = None,
     ) -> dict[str, Any]:
+        memory_experiment = self.runtime_profile.get("ros_expert_memory_experiment")
+        if memory_experiment is not None:
+            from rosclaw.connectors.ros.context.memory_worker_projection import (
+                worker_runtime_overrides,
+            )
+
+            try:
+                worker_runtime_overrides(memory_experiment)
+            except ValueError as exc:
+                self._unavailable("query_memory", str(exc), code="MEMORY_INTERVENTION_INVALID")
+            self._unavailable(
+                "query_memory",
+                "Global historical retrieval is disabled in this registered worker; use the reviewed Native projection.",
+                code="MEMORY_RETRIEVAL_DISABLED",
+            )
         if self.fixture_mode:
             return self._fixture_payload({"experiences": [], "count": 0})
         adapter = self._adapters().get("memory")

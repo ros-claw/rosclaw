@@ -243,6 +243,14 @@ def native_memory_intervention(service, mission):
     if declaration is None:
         return None
     try:
+        if declaration.get("schema_version") == "rosclaw.memory_worker_projection.v1":
+            from rosclaw.connectors.ros.context.memory_worker_projection import (
+                retrieve_worker_projection,
+            )
+
+            return retrieve_worker_projection(
+                service._home, mission.body_binding.body_id, declaration
+            )
         return retrieve_intervention(service._home, mission.body_binding.body_id, declaration)
     except Exception as exc:
         return {
