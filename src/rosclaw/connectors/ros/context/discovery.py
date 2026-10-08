@@ -128,6 +128,8 @@ def discover_body_candidate(model: RosSystemModel, urdf_bytes: bytes, *, now=Non
         result["unknown_fields"].append("urdf.unique_matching_live_description")
     elif base:
         result["geometry"] = derive_collision_envelope(urdf_bytes, base_frame=base)
+        if not result["geometry"].get("model_identity"):
+            result["unknown_fields"].append("URDF.model_identity")
         if not result["geometry"]["complete"]:
             result["unknown_fields"].append("conservative_collision_geometry")
     actions = [

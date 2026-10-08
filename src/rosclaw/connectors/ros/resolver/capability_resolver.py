@@ -43,7 +43,7 @@ def resolve_capabilities(model: RosSystemModel, *, now: datetime | None = None) 
             signal.freshness_policy == "latched" or signal.last_message_age_ms <= signal.max_age_ms
         )
 
-    def nav_requirements(interface):
+    def nav_requirements(interface, semantic):
         from rosclaw.connectors.ros.diagnosis import diagnose
 
         namespace = interface["name"].rsplit("/", 1)[0]
@@ -73,13 +73,28 @@ def resolve_capabilities(model: RosSystemModel, *, now: datetime | None = None) 
             "sensing.lidar",
         ]:
             candidates = interfaces.get(role, [])
+            declared = bindings.get(role)
+            if isinstance(declared, dict):
+                candidates = [c for c in candidates if c["name"] == declared.get("name")]
             checks = [health(i) for i in candidates]
             requirements[role] = True if True in checks else (None if None in checks else False)
         if interface.get("action_type", "").startswith("nav2_msgs/") or interface.get(
             "action_type", ""
         ).startswith("opennav_"):
+            declared = bindings.get(semantic)
+            explicit_roles = declared.get("lifecycle_nodes") if isinstance(declared, dict) else None
+            valid_roles = (
+                isinstance(explicit_roles, dict)
+                and set(explicit_roles) == {"planner_server", "controller_server", "bt_navigator"}
+                and all(isinstance(n, str) and n for n in explicit_roles.values())
+                and len(set(explicit_roles.values())) == 3
+                and declared.get("name") == interface["name"]
+            )
+            if explicit_roles is not None:
+                requirements["nav2.lifecycle_binding"] = valid_roles
             for node in ["planner_server", "controller_server", "bt_navigator"]:
-                observed = states.get(namespace + "/" + node)
+                name = explicit_roles[node] if valid_roles else namespace + "/" + node
+                observed = states.get(name)
                 requirements[node + ".active"] = (
                     None
                     if observed is None or observed.state == "UNKNOWN"
@@ -142,8 +157,13 @@ def resolve_capabilities(model: RosSystemModel, *, now: datetime | None = None) 
                         parameters.get("cmd_vel_in_topic") == binding.get("input_topic")
                         and parameters.get("cmd_vel_out_topic") == binding.get("output_topic")
                         and bool(parameters.get("polygons"))
-                        and "scan" in parameters.get("observation_sources", [])
-                        and parameters.get("scan.topic") == binding.get("sensor_topic")
+                        and isinstance(parameters.get("observation_sources"), list)
+                        and any(
+                            isinstance(source, str)
+                            and source
+                            and parameters.get(source + ".topic") == binding.get("sensor_topic")
+                            for source in parameters.get("observation_sources", [])
+                        )
                     )
                 )
                 sensor = next(
@@ -227,7 +247,7 @@ def resolve_capabilities(model: RosSystemModel, *, now: datetime | None = None) 
             )
         for interface in interfaces.get(semantic, []):
             requirements = (
-                nav_requirements(interface)
+                nav_requirements(interface, semantic)
                 if semantic.startswith(("navigation.", "coverage."))
                 else {"signal.fresh": health(interface)}
             )

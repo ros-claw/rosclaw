@@ -39,8 +39,45 @@ READ_TYPES = {
     "nav_msgs/msg/Odometry",
     "nav_msgs/msg/OccupancyGrid",
     "geometry_msgs/msg/PoseWithCovarianceStamped",
+    "geometry_msgs/msg/Twist",
+    "geometry_msgs/msg/TwistStamped",
     "rosgraph_msgs/msg/Clock",
 }
+
+
+def readonly_parameter_names(names):
+    if (
+        type(names) is not list
+        or len(names) > 4096
+        or any(type(n) is not str for n in names)
+        or len(set(names)) != len(names)
+    ):
+        raise ValueError("unique bounded parameter names required")
+    topic_names = [n for n in names if n.endswith(".topic") and len(n) <= 256]
+    if len(topic_names) > 64:
+        raise ValueError("too many observation topic parameters")
+    whitelist = {
+        "use_sim_time",
+        "obstacle_layer.observation_sources",
+        "voxel_layer.observation_sources",
+        "global_frame",
+        "robot_base_frame",
+        "transform_tolerance",
+        "cmd_vel_in_topic",
+        "cmd_vel_out_topic",
+        "polygons",
+        "observation_sources",
+        "robot_description",
+    }
+    return [n for n in names if n in whitelist or n in topic_names]
+
+
+def latched_observation(topic, types, publishers):
+    return topic.endswith("/tf_static") or (
+        types == ["nav_msgs/msg/OccupancyGrid"]
+        and bool(publishers)
+        and all(p.qos_profile.durability == DurabilityPolicy.TRANSIENT_LOCAL for p in publishers)
+    )
 
 
 def utc_now():
@@ -91,13 +128,7 @@ class ReadOnlyProbe(Node):
                 continue
             qos = QoSProfile(depth=20, reliability=ReliabilityPolicy.BEST_EFFORT)
             endpoints = self.get_publishers_info_by_topic(topic)
-            latched = topic.endswith("/tf_static") or (
-                topic == "/map"
-                and endpoints
-                and all(
-                    p.qos_profile.durability == DurabilityPolicy.TRANSIENT_LOCAL for p in endpoints
-                )
-            )
+            latched = latched_observation(topic, types, endpoints)
             if latched:
                 qos = QoSProfile(depth=100, durability=DurabilityPolicy.TRANSIENT_LOCAL)
             try:
@@ -154,26 +185,13 @@ class ReadOnlyProbe(Node):
                     "captured_at": utc_now(),
                 }
             elif srv_type is ListParameters:
+                try:
+                    captured_names = readonly_parameter_names(response.result.names)
+                except ValueError as exc:
+                    self.errors.append(f"bounded parameter capture {node_name}: {exc}")
+                    return
                 parameter_request = GetParameters.Request()
-                parameter_request.names = [
-                    key
-                    for key in response.result.names
-                    if key
-                    in {
-                        "use_sim_time",
-                        "obstacle_layer.observation_sources",
-                        "voxel_layer.observation_sources",
-                        "global_frame",
-                        "robot_base_frame",
-                        "transform_tolerance",
-                        "cmd_vel_in_topic",
-                        "cmd_vel_out_topic",
-                        "polygons",
-                        "observation_sources",
-                        "scan.topic",
-                        "robot_description",
-                    }
-                ]
+                parameter_request.names = captured_names
                 if parameter_request.names:
                     self.read_rpc(node_name + "/get_parameters", GetParameters, parameter_request)
             else:
@@ -318,15 +336,7 @@ class ReadOnlyProbe(Node):
                         "source": "native:monotonic_receive",
                         "max_age_ms": 2000 if topic.endswith("/costmap") else 1000,
                         "freshness_policy": "latched"
-                        if topic.endswith("/tf_static")
-                        or (
-                            topic == "/map"
-                            and pubs
-                            and all(
-                                p.qos_profile.durability == DurabilityPolicy.TRANSIENT_LOCAL
-                                for p in pubs
-                            )
-                        )
+                        if latched_observation(topic, types, pubs)
                         else "stream",
                         "captured_at": stamp,
                         "rate_hz": 1 / statistics.mean(intervals) if intervals else None,
