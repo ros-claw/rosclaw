@@ -152,6 +152,49 @@ test("reserved names do not pollute prototypes", () => {
 	});
 });
 
+test("exactPaths schema rejects early before model override/auth", () => {
+	withTempHome(home => {
+		for (const exactPaths of [[], null, { write: [] }, { write: [42] }, { write: [""] },
+			{ write: ["../outside"] }, { write: ["file", "file"] }, { bash: ["file"] }, { read: ["file"] }]) {
+			const path = writePolicy(home, JSON.stringify({ allowedTools: ["write"], exactPaths }));
+			assertPolicyRejected(home, ["--tool-call-policy", path, "--provider", "invalid", "--model", "invalid"]);
+		}
+	});
+});
+
+test("exactPaths valid schema passes early parser without binding to policy parent", () => {
+	withTempHome(home => {
+		const path = writePolicy(home, JSON.stringify({ allowedTools: ["read", "write"],
+			exactPaths: { read: ["missing.txt"], write: ["new/leaf.txt"] }, maxTotalCalls: 0 }));
+		const { status, stderr } = runCli(["--tool-call-policy", path, "--resume", RESUME_SENTINEL], home);
+		assert.equal(status, 2); assert.doesNotMatch(stderr, /INVALID_TOOL_CALL_POLICY/); assert.match(stderr, /不存在/);
+	});
+});
+
+test("cross-language exactPaths lexical schema rejects all malformed path forms", () => {
+	withTempHome(home => {
+		for (const exactPaths of [false, { read: "file" }, { read: [false] },
+			{ read: ["   "] }, { read: ["\ufeff"] }, { read: ["x\0"] },
+			{ read: ["a/../x"] }, { read: ["a\\..\\x"] }, { read: ["x/"] },
+			JSON.parse('{"__proto__":["file"]}')]) {
+			const path = writePolicy(home, JSON.stringify({ allowedTools: ["read", "__proto__"], exactPaths }));
+			assertPolicyRejected(home, ["--tool-call-policy", path, "--provider", "invalid", "--model", "invalid"]);
+		}
+	});
+});
+
+test("cross-language exactPaths accepts empty map and explicit lexical files before binding", () => {
+	withTempHome(home => {
+		for (const exactPaths of [{}, { read: ["./relative.txt", "/tmp/explicit.txt", "\u0085", " file "] }]) {
+			const path = writePolicy(home, JSON.stringify({ allowedTools: ["read"], exactPaths }));
+			const { status, stderr } = runCli(["--tool-call-policy", path, "--resume", RESUME_SENTINEL], home);
+			assert.equal(status, 2);
+			assert.doesNotMatch(stderr, /INVALID_TOOL_CALL_POLICY/);
+			assert.match(stderr, /不存在/);
+		}
+	});
+});
+
 test("default without flag unchanged (no policy validation errors)", () => {
 	withTempHome((home) => {
 		const { status, stderr } = runCli(["--resume", RESUME_SENTINEL], home);

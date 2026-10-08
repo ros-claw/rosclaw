@@ -496,7 +496,7 @@ def _restore_home_env(previous: str | None) -> None:
 # 不得产生任何 home 变更或子进程副作用。
 # ---------------------------------------------------------------------------
 _TOOL_CALL_POLICY_KEYS = frozenset(
-    {"allowedTools", "maxCalls", "maxTotalCalls", "exactCommands", "visibleBudget"}
+    {"allowedTools", "maxCalls", "maxTotalCalls", "exactCommands", "visibleBudget", "exactPaths"}
 )
 # 与 JS Number.isSafeInteger 上限一致（JSON 1.0 这类整数值浮点可接受）。
 _TOOL_CALL_POLICY_MAX_SAFE_INT = 9007199254740991
@@ -522,6 +522,25 @@ def _policy_limit_ok(value: object) -> bool:
 def _policy_tool_name_ok(name: object) -> bool:
     """工具名：非空、已 trim 的字符串。"""
     return isinstance(name, str) and len(name) >= 1 and name == name.strip()
+
+
+_TOOL_CALL_PATH_TOOLS = frozenset({"read", "write", "edit", "rosclaw_deliver"})
+# ECMAScript String.trim whitespace (not Python's broader Unicode strip set).
+_TOOL_CALL_PATH_WHITESPACE = (
+    " \t\n\r\v\f\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005"
+    "\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff"
+)
+
+
+def _policy_exact_path_ok(value: object) -> bool:
+    """Pure schema parity with TS validPath; workspace binding is runtime-only."""
+    return (
+        isinstance(value, str)
+        and bool(value.strip(_TOOL_CALL_PATH_WHITESPACE))
+        and "\0" not in value
+        and ".." not in value.replace("\\", "/").split("/")
+        and not value.endswith("/")
+    )
 
 
 def _reject_nonstandard_constant(constant: str) -> None:
@@ -583,6 +602,19 @@ def _validate_tool_call_policy(raw_path: str) -> Path:
                 raise ValueError(f"maxCalls 键必须是 allowedTools 中声明的工具名：{key!r}")
             if not _policy_limit_ok(value):
                 raise ValueError(f"maxCalls[{key!r}] 必须是 0..2^53-1 的整数")
+    if "exactPaths" in data:
+        exact_paths = data["exactPaths"]
+        if not isinstance(exact_paths, dict):
+            raise ValueError("exactPaths 必须是 object")
+        for key, files in exact_paths.items():
+            if key not in tool_set or key not in _TOOL_CALL_PATH_TOOLS:
+                raise ValueError(f"exactPaths 键必须是 allowedTools 中的文件工具：{key!r}")
+            if not isinstance(files, list) or not files:
+                raise ValueError(f"exactPaths[{key!r}] 必须是非空数组")
+            if any(not _policy_exact_path_ok(file) for file in files):
+                raise ValueError(f"exactPaths[{key!r}] 含非法文件路径")
+            if len(set(files)) != len(files):
+                raise ValueError(f"exactPaths[{key!r}] 含重复文件路径")
     if "exactCommands" in data:
         exact = data["exactCommands"]
         if not isinstance(exact, dict):
