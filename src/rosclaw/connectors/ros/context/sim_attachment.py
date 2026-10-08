@@ -1,6 +1,7 @@
 """Explicit simulated cleaning declaration; no real cleaner inference."""
 
 import math
+from datetime import UTC, datetime
 
 from rosclaw.connectors.ros.diagnosis.coverage_audit import digest
 from rosclaw.connectors.ros.verification.coverage import CoverageVerifier, point_in_polygon
@@ -48,7 +49,14 @@ def validate_sim_attachment(declaration):
 
 
 def derive_allowed_region_grid(
-    measured_map, *, allowed_polygon, allowed_frame_id, attachment, physical_radius_m, start_pose
+    measured_map,
+    *,
+    allowed_polygon,
+    allowed_frame_id,
+    attachment,
+    physical_radius_m,
+    start_pose,
+    now=None,
 ):
     """Explicit arbitrary simple task polygon, observed spawn and measured map.
 
@@ -85,6 +93,26 @@ def derive_allowed_region_grid(
         raise ValueError(
             "matching independent spawn frame and conservative physical radius required"
         )
+    now = now or datetime.now(UTC)
+    try:
+        capture = datetime.fromisoformat(start_pose.get("captured_at"))
+        capture_age = (now - capture).total_seconds()
+    except (TypeError, ValueError) as exc:
+        raise ValueError("timezone-aware independent spawn capture required") from exc
+    source_age = start_pose.get("ground_truth_age_ms")
+    sim_time = start_pose.get("time_sec")
+    if (
+        start_pose.get("evidence_domain") != "GAZEBO_PHYSICS"
+        or not 0 <= capture_age < 0.3
+        or type(source_age) not in (int, float)
+        or not math.isfinite(source_age)
+        or not 0 <= source_age < 300
+        or type(sim_time) not in (int, float)
+        or not math.isfinite(sim_time)
+        or sim_time < 0
+    ):
+        raise ValueError("fresh complete independent SIM spawn evidence required")
+
     w, h, res = measured_map["width"], measured_map["height"], measured_map["resolution"]
     if (
         type(w) is not int
@@ -141,6 +169,7 @@ def derive_allowed_region_grid(
         "grid": grid,
         "grid_hash": digest(grid),
         "source_map_hash": digest(measured_map),
+        "source_spawn_hash": digest(start_pose),
         "allowed_polygon_hash": digest(allowed_polygon),
         "attachment_hash": cleaner["attachment_hash"],
         "legal_center_cells": centers,

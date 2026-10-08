@@ -1,6 +1,7 @@
 """Explicit SIM cleaner and non-origin, nonrectangular allowed task regions."""
 
 import copy
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -19,6 +20,9 @@ def attachment():
         "declaration_source": "owned_fixture_policy_test",
         "cleaning_polygon": [[-0.15, -0.2], [0.25, -0.2], [0.25, 0.2], [-0.15, 0.2]],
     }
+
+
+NOW = datetime(2026, 10, 8, tzinfo=UTC)
 
 
 def example():
@@ -41,6 +45,7 @@ def example():
             (4.2, -0.8),
         ],
         "allowed_frame_id": "floor_frame",
+        "now": NOW,
         "attachment": attachment(),
         "physical_radius_m": 0.1,
         "start_pose": {
@@ -49,6 +54,10 @@ def example():
             "frame_id": "floor_frame",
             "observation_complete": True,
             "source": "independent_gazebo_ground_truth_subscription",
+            "captured_at": NOW.isoformat(),
+            "ground_truth_age_ms": 10,
+            "time_sec": 7,
+            "evidence_domain": "GAZEBO_PHYSICS",
         },
     }
     return measured, args
@@ -130,5 +139,24 @@ def test_unknown_coordinate_or_spawn_evidence_is_rejected(fault):
         args["start_pose"]["x"] = 10
     else:
         measured["occupancy"] = [100] * 576
+    with pytest.raises(ValueError):
+        derive_allowed_region_grid(measured, **args)
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"captured_at": (NOW - timedelta(seconds=1)).isoformat()},
+        {"captured_at": (NOW + timedelta(seconds=1)).isoformat()},
+        {"captured_at": "2026-10-08T00:00:00"},
+        {"ground_truth_age_ms": 300},
+        {"ground_truth_age_ms": float("nan")},
+        {"time_sec": -1},
+        {"evidence_domain": "REAL"},
+    ],
+)
+def test_historical_or_untrusted_spawn_cannot_define_initial_connected_denominator(changes):
+    measured, args = example()
+    args["start_pose"].update(changes)
     with pytest.raises(ValueError):
         derive_allowed_region_grid(measured, **args)
