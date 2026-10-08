@@ -21,6 +21,7 @@ def main():
     parser.add_argument("--physics-plugin", type=Path, required=True)
     parser.add_argument("--contact-plugin", type=Path, required=True)
     parser.add_argument("--instrument-service-binary", type=Path, required=True)
+    parser.add_argument("--obstacle-count", type=int, choices=[1, 2], default=1)
     args = parser.parse_args()
     args.directory.mkdir(exist_ok=False)
     # Save the executed source and real ELF bytes before preparation.
@@ -58,6 +59,7 @@ def main():
             library_path=args.physics_plugin,
             mission_id="whole_source_stack_" + name,
             profile_name=name,
+            obstacle_count=args.obstacle_count,
         )
         declaration = {
             "schema_version": "rosclaw.backend_probe_fixture_declaration.v1",
@@ -107,6 +109,7 @@ def main():
             binding == decode_scene_json((output / "physics_fixture.json").read_bytes())["binding"]
         )
         assert binding == decode_scene_json((output / "physics.json").read_bytes())["binding"]
+        assert len(binding["obstacle_names"]) == args.obstacle_count + 1  # includes the owned probe
         assert set(binding["scene_model_names"]) == {
             model.get("name")
             for model in ET.parse(output / "world.sdf").getroot().findall("world/model")
@@ -134,6 +137,7 @@ def main():
                 "profile": name,
                 "body_snapshot_hash": spec["binding"]["body_snapshot_hash"],
                 "whole_source_preparation": "PASS",
+                "preloaded_task_blockers": args.obstacle_count,
                 "physical_acceptance": "NOT_RUN",
             }
         )

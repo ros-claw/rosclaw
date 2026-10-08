@@ -5,6 +5,7 @@ import importlib.util
 import json
 import sys
 import time
+from copy import deepcopy
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -120,12 +121,23 @@ def test_scenario_requires_bounded_preregistered_identity(monkeypatch, key, valu
 
 @pytest.mark.parametrize("actual_move", [True, False])
 @pytest.mark.parametrize("initially_near", [True, False])
+@pytest.mark.parametrize("case", ["D2", "D3"])
 def test_d2_controller_requires_new_actual_positions_after_each_ack(
-    tmp_path, monkeypatch, actual_move, initially_near
+    tmp_path, monkeypatch, actual_move, initially_near, case
 ):
     m = load(monkeypatch)
     b = binding()
     s = policy()
+    if case == "D3":
+        b["obstacle_names"].append("second_blocker")
+        b["scene_model_names"].append("second_blocker")
+        s.update(
+            case="D3",
+            second_obstacle_name="second_blocker",
+            second_target_xy=[-0.25, 0.25],
+            second_dwell_sim_sec=20,
+            gap_sim_sec=5,
+        )
     (tmp_path / "scenario.json").write_text(json.dumps(s))
     fixture = {
         "schema_version": "rosclaw.sim_physics_fixture.v1",
@@ -134,6 +146,10 @@ def test_d2_controller_requires_new_actual_positions_after_each_ack(
             {"name": "anonymous_blocker", "pose": [5, 0, 0.1, 0, 0, 0], "box_size": [0.7, 0.7, 0.2]}
         ],
     }
+    if case == "D3":
+        fixture["obstacles"].append(
+            {"name": "second_blocker", "pose": [5, 1, 0.1, 0, 0, 0], "box_size": [0.7, 0.7, 0.2]}
+        )
     (tmp_path / "physics.json").write_text(json.dumps(fixture))
     (tmp_path / "body.json").write_text(
         json.dumps({"effective_body_hash": b["body_snapshot_hash"], "physical_radius_m": 0.25})
@@ -142,6 +158,7 @@ def test_d2_controller_requires_new_actual_positions_after_each_ack(
     active = {}
     moves = []
     position = [5, 0]
+    second_position = [5, 1]
     tick = [0]
 
     class Cursor:
@@ -160,6 +177,13 @@ def test_d2_controller_requires_new_actual_positions_after_each_ack(
             body_xy = s["target_xy"] if initially_near and tick[0] <= 6 else [-1, -1]
             p["body"]["world_pose"][:2] = body_xy
             p["obstacles"][0]["world_pose"][:2] = position
+            if case == "D3":
+                second = deepcopy(p["obstacles"][0])
+                second.update(model_name="second_blocker", entity_id=103)
+                second["collision_geometry"][0]["entity_id"] = 105
+                second["world_pose"][:2] = second_position
+                p["obstacles"].append(second)
+                p["scene_models"].append({"model_name": "second_blocker", "entity_id": 103})
             row = source_row(p)
             active.update(
                 sample={
@@ -179,7 +203,11 @@ def test_d2_controller_requires_new_actual_positions_after_each_ack(
         assert name == "set_pose" and kind == "gz.msgs.Pose"
         moves.append(request)
         if actual_move:
-            position[:] = s["target_xy"] if len(moves) == 1 else [5, 0]
+            if len(moves) <= 2:
+                position[:] = s["target_xy"] if len(moves) == 1 else [5, 0]
+            else:
+                assert position == [5, 0]
+                second_position[:] = s["second_target_xy"] if len(moves) == 3 else [5, 1]
         return "data: true"
 
     monkeypatch.setattr(m, "AuditCursor", Cursor)
@@ -226,8 +254,12 @@ def test_d2_controller_requires_new_actual_positions_after_each_ack(
         assert rows[-1]["kind"] == "SCENARIO_FAILED"
         assert not any(r["kind"] == "ACTUAL_POSTUPDATE_POSITION_CONFIRMED" for r in rows)
         return
-    assert len(moves) == 2
+    assert len(moves) == (2 if case == "D2" else 4)
     confirmed = [r for r in rows if r["kind"] == "ACTUAL_POSTUPDATE_POSITION_CONFIRMED"]
-    assert [r["actual_xy"] for r in confirmed] == [[0.25, 0.25], [5, 0]]
+    expected_xy = [[0.25, 0.25], [5, 0]] + ([] if case == "D2" else [[-0.25, 0.25], [5, 1]])
+    assert [r["actual_xy"] for r in confirmed] == expected_xy
+    if case == "D3":
+        assert confirmed[2]["sim_time_sec"] - confirmed[1]["sim_time_sec"] >= s["gap_sim_sec"]
+        assert [r["blocking_stage"] for r in confirmed] == [0, 0, 1, 1]
     assert rows[-1]["kind"] == "PERTURBATION_COMPLETE_REQUIRES_NATIVE_AND_CREDIT_VALIDATION"
     assert all(r["physical_acceptance"] == "NOT_VERIFIED" for r in rows)

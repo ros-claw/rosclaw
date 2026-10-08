@@ -99,3 +99,38 @@ def test_preparation_rejects_invalid_prerequisites_before_output(bootstrap, faul
             output, urdf_path=urdf, library_path=library, mission_id=mission, profile_name=profile
         )
     assert not output.exists()
+
+
+def test_two_blockers_are_preloaded_under_same_frozen_denominator(bootstrap):
+    module, root, urdf, library = bootstrap
+    one = module.prepare_bindings(
+        root / "one", urdf_path=urdf, library_path=library, mission_id="one", profile_name="waffle"
+    )
+    two = module.prepare_bindings(
+        root / "two",
+        urdf_path=urdf,
+        library_path=library,
+        mission_id="two",
+        profile_name="waffle",
+        obstacle_count=2,
+    )
+    assert len(two["obstacles"]) == 2 and len(set(two["binding"]["obstacle_names"])) == 2
+    assert two["binding"]["grid"] == one["binding"]["grid"]
+    assert len(two["binding"]["scene_model_names"]) == len(one["binding"]["scene_model_names"]) + 1
+    assert all(row["pose"][0] == 5 for row in two["obstacles"])
+
+
+@pytest.mark.parametrize("count", [0, 3, True, None])
+def test_invalid_blocker_count_refuses_before_files(bootstrap, count):
+    module, root, urdf, library = bootstrap
+    target = root / "refused"
+    with pytest.raises(ValueError):
+        module.prepare_bindings(
+            target,
+            urdf_path=urdf,
+            library_path=library,
+            mission_id="invalid",
+            profile_name="waffle",
+            obstacle_count=count,
+        )
+    assert not target.exists()

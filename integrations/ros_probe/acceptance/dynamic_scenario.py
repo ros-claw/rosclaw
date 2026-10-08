@@ -60,7 +60,7 @@ def retained_packet(row, binding):
 def scenario_policy(spec, binding):
     if (
         spec.get("schema_version") != "rosclaw.dynamic_fixture_scenario.v1"
-        or spec.get("case") not in {"D2", "D4"}
+        or spec.get("case") not in {"D2", "D3", "D4"}
         or spec.get("run_id") != binding["run_id"]
         or spec.get("mission_id") != binding["mission_id"]
         or spec.get("obstacle_name") not in binding["obstacle_names"]
@@ -81,6 +81,23 @@ def scenario_policy(spec, binding):
         or any(type(v) not in (int, float) or not -1.2 <= v <= 1.2 for v in target)
     ):
         raise ValueError("bounded fixture target pair required")
+    if spec["case"] == "D3":
+        if (
+            spec.get("second_obstacle_name") not in binding["obstacle_names"]
+            or spec["second_obstacle_name"] == spec["obstacle_name"]
+        ):
+            raise ValueError("two disjoint preloaded blocker identities required")
+        second = spec.get("second_target_xy")
+        if (
+            type(second) is not list
+            or len(second) != 2
+            or second == target
+            or any(type(v) not in (int, float) or not -1.2 <= v <= 1.2 for v in second)
+        ):
+            raise ValueError("bounded distinct second target required")
+        for key, low, high in (("second_dwell_sim_sec", 10, 30), ("gap_sim_sec", 2, 30)):
+            if type(spec.get(key)) is not int or not low <= spec[key] <= high:
+                raise ValueError("frozen D3 dwell and nonconcurrent gap required")
     return spec
 
 
@@ -110,6 +127,7 @@ def main():
     mutation_after_ns = None
     confirmation_deadline = None
     clearance_wait_started = None
+    blocking_stage, withdrawn_at = 0, None
     with (root / "dynamic-scenario-events.jsonl").open("x", buffering=1) as log:
 
         def emit(kind, **values):
@@ -122,6 +140,8 @@ def main():
                         "run_id": binding["run_id"],
                         "mission_id": binding["mission_id"],
                         "physical_acceptance": "NOT_VERIFIED",
+                        "obstacle_name": name,
+                        "blocking_stage": blocking_stage,
                         **values,
                     }
                 )
@@ -194,6 +214,9 @@ def main():
                     state == "WAITING_FOR_CLEANING"
                     and first_on is not None
                     and sample["time_sec"] >= first_on + spec["introduce_after_cleaning_sim_sec"]
+                ) or (
+                    state == "WAITING_BETWEEN_BLOCKERS"
+                    and sample["time_sec"] >= withdrawn_at + spec["gap_sim_sec"]
                 ):
                     try:
                         request = pose_request(
@@ -202,7 +225,8 @@ def main():
                     except PlacementClearanceUnavailableError:
                         if clearance_wait_started is None:
                             clearance_wait_started = sample["time_sec"]
-                            with (root / "dynamic-placement-waits.jsonl").open("x") as waits:
+                            wait_path = root / "dynamic-placement-waits.jsonl"
+                            with wait_path.open("a" if wait_path.exists() else "x") as waits:
                                 waits.write(
                                     json.dumps(
                                         {
@@ -213,6 +237,8 @@ def main():
                                             "sim_time_sec": sample["time_sec"],
                                             "original_wall_timeout_sec": spec["wall_timeout_sec"],
                                             "physical_acceptance": "NOT_VERIFIED",
+                                            "blocking_stage": blocking_stage,
+                                            "obstacle_name": name,
                                             "before": sample,
                                         }
                                     )
@@ -256,6 +282,21 @@ def main():
                             sim_time_sec=pose.sim_time_sec,
                         )
                         if state == "CONFIRMING_WITHDRAWAL":
+                            if spec["case"] == "D3" and blocking_stage == 0:
+                                emit(
+                                    "FIRST_BLOCKER_WITHDRAWN_CONFIRMED",
+                                    packet_sha256=decoded["packet_sha256"],
+                                    sim_time_sec=pose.sim_time_sec,
+                                )
+                                withdrawn_at = pose.sim_time_sec
+                                blocking_stage = 1
+                                name = spec["second_obstacle_name"]
+                                parked = next(
+                                    o["pose"][:2] for o in fixture["obstacles"] if o["name"] == name
+                                )
+                                target = spec["second_target_xy"]
+                                state = "WAITING_BETWEEN_BLOCKERS"
+                                continue
                             emit("PERTURBATION_COMPLETE_REQUIRES_NATIVE_AND_CREDIT_VALIDATION")
                             return
                         occupied_at = pose.sim_time_sec
@@ -264,8 +305,14 @@ def main():
                         raise ValueError("service ACK lacks independent actual pose confirmation")
                 elif (
                     state == "OCCUPIED"
-                    and spec["case"] == "D2"
-                    and sample["time_sec"] >= occupied_at + spec["dwell_sim_sec"]
+                    and spec["case"] in {"D2", "D3"}
+                    and sample["time_sec"]
+                    >= occupied_at
+                    + (
+                        spec["dwell_sim_sec"]
+                        if blocking_stage == 0
+                        else spec["second_dwell_sim_sec"]
+                    )
                 ):
                     target = parked
                     request = pose_request(

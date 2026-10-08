@@ -224,7 +224,7 @@ def required_scenario_progress(root, scenario_bytes):
         raise ValueError("source-admitted dynamic fixture required")
     if (
         spec.get("schema_version") != "rosclaw.dynamic_fixture_scenario.v1"
-        or spec.get("case") not in {"D2", "D4"}
+        or spec.get("case") not in {"D2", "D3", "D4"}
         or not isinstance(spec.get("run_id"), str)
         or not spec["run_id"]
         or not isinstance(spec.get("mission_id"), str)

@@ -25,7 +25,9 @@ BACKEND_KEYS = {"contact_plugin_sha256", "instrument_service_binary_sha256", "so
 def validate_qualified_spec(value, base_validator):
     if (
         type(value) is not dict
-        or value.get("schema_version") != "rosclaw.dynamic_native_episode.v2"
+        or type(value.get("schema_version")) is not str
+        or value.get("schema_version")
+        not in {"rosclaw.dynamic_native_episode.v2", "rosclaw.dynamic_native_episode.v3"}
     ):
         raise ValueError("closed qualified Native episode v2 protocol required")
     source = value.get("backend_source")
@@ -36,9 +38,37 @@ def validate_qualified_spec(value, base_validator):
     for key in ("contact_plugin_sha256", "instrument_service_binary_sha256"):
         if type(source[key]) is not str or not re.fullmatch(r"[a-f0-9]{64}", source[key]):
             raise ValueError("exact original compiled backend ELF hash required")
-    base = {key: item for key, item in value.items() if key != "backend_source"}
+    is_d3 = value["schema_version"] == "rosclaw.dynamic_native_episode.v3"
+    scenario = value.get("scenario_source")
+    if is_d3:
+        if (
+            value.get("case") != "D3"
+            or type(scenario) is not dict
+            or set(scenario) != {"second_target_xy", "second_dwell_sim_sec", "gap_sim_sec"}
+        ):
+            raise ValueError("closed qualified two-blocker D3 scenario required")
+        target = scenario["second_target_xy"]
+        if (
+            type(target) is not list
+            or len(target) != 2
+            or any(type(v) not in (int, float) or not -1.2 <= v <= 1.2 for v in target)
+            or target == value.get("target_xy")
+        ):
+            raise ValueError("distinct explicit second blocker target required")
+        for key, low, high in (("second_dwell_sim_sec", 10, 30), ("gap_sim_sec", 2, 30)):
+            if type(scenario[key]) is not int or not low <= scenario[key] <= high:
+                raise ValueError("bounded frozen nonconcurrent D3 timings required")
+    excluded = {"backend_source"}
+    if is_d3:
+        excluded.add("scenario_source")
+    base = {key: item for key, item in value.items() if key not in excluded}
     base["schema_version"] = "rosclaw.dynamic_native_episode.v1"
-    return base_validator(base), source
+    if is_d3:
+        base["case"] = "D2"
+    base = base_validator(base)
+    if is_d3:
+        base["case"], base["scenario_source"] = "D3", scenario
+    return base, source
 
 
 def frozen_backend_files(source, contact_plugin, instrument_service_binary):
