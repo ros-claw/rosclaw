@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "rosclaw.coverage_causal_audit.v1",
+  "title": "Read-only causal audit summary",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "evidence_role",
+    "audit_complete",
+    "fixed_denominator_cells",
+    "canonical_verifier_replay_equal",
+    "observed_final_coverage_ratio",
+    "main_observed_coverage_ratio",
+    "total_metrics",
+    "plans",
+    "first_pass_missed_attribution",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "rosclaw.coverage_causal_audit.v1"
+    },
+    "evidence_role": {
+      "const": "historical_diagnostic_replay_not_new_physical_episode"
+    },
+    "audit_complete": {
+      "type": "boolean"
+    },
+    "fixed_denominator_cells": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "canonical_verifier_replay_equal": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "observed_final_coverage_ratio": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "main_observed_coverage_ratio": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "total_metrics": {
+      "type": "object"
+    },
+    "plans": {
+      "type": "array"
+    },
+    "first_pass_missed_attribution": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "limitations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "additionalProperties": true,
+  "description": "Exact verifier replay, observed phases and explicitly separate prediction; missing causal information remains UNKNOWN."
+}

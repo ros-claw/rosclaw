@@ -1,0 +1,24 @@
+{
+  "run_id": "f1e279292c684a769b569d84d9381c6a",
+  "git_sha": "2dcb77bd03de034963776c7e2e89db5070d3c57e",
+  "working_tree_dirty": false,
+  "source_hashes": {
+    "/home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/integrations/ros_probe/acceptance/daemon.py": "e2be5e96e25e5a4ba507e9f61651e9ab7d142dfebed1cb3a52896b36479f48c7",
+    "/home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/src/rosclaw/connectors/ros/mission/executor.py": "f23d251d276976640aecd61550af22542f5147186ae0c2827e974f1a58b2a2f1",
+    "/home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/src/rosclaw/connectors/ros/diagnosis/coverage_audit.py": "3715363cbd5445fa5dd454f80e3006ffdd391d7c5cb0fc7102de7589e43e8df2",
+    "/home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/src/rosclaw/connectors/ros/verification/coverage.py": "e7db3e9443ddfdfdd881c451c7539fa89ebe6e31c4ec7d0cfecde79b0d744c19",
+    "/home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/integrations/ros_probe/acceptance/stack.py": "e0030c217dfca593e07c4a7407ab22f2ec33ccc78502b096ff2545c8e85dbf03",
+    "/home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/integrations/ros_probe/acceptance/witness.py": "516518a4b337f10ff384db2e705034cecf3906a02376f5f1e00f42e9857f7fd6",
+    "/home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/integrations/ros_probe/acceptance/profiles.py": "99a2c7d759c45a7daee3b7fb402b4df29bdf9b5de66e6baa60de90e44bcd584a",
+    "/home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/integrations/ros_probe/acceptance/run.py": "00df55629ad99e5d7b0c3e3e2c5aaa722e5084835fb0a3c9fadae1407cfc825f",
+    "/home/nvidia/workspace/rosclaw/rosclaw_harness/rosclaw/integrations/ros_probe/acceptance/nav2_launch.py": "3901ae0fc5308582bda2461f043bbde7c8436a9bd47711b7f77e5505b2a8fec4",
+    "/tmp/ros-expert-next/n01-waffle-004/nav2.yaml": "351ba1dc8414cf0624759bbe11f5f4b6bd4883dc2b0d1e5d15537daa1b3e8a7b",
+    "/tmp/ros-expert-next/n01-waffle-004/execution_config.json": "72340087e299c1a9e5d0dcbe3d02b5c0df3d2f46abfc8869ec6c049bb7ab7522",
+    "/tmp/ros-expert-next/n01-waffle-004/robot.urdf": "2c26a554239ba6e544ecca5a6640cf879ecd7e3409f11fb334df9ce78aeb3c7e",
+    "/tmp/ros-expert-next/n01-waffle-004/measured_map.json": "4cbe10fb5666e05d051037244a0b8916fe1276f70477c157a4338877d6c65db4",
+    "/tmp/ros-expert-next/n01-waffle-004/world.sdf": "07915dc6fe79575e990fe9973f1ab45b9cbbf1cbd310a6b7bd876542879a6ad2"
+  },
+  "map_hash": "4cbe10fb5666e05d051037244a0b8916fe1276f70477c157a4338877d6c65db4",
+  "geometry_hash": "2c26a554239ba6e544ecca5a6640cf879ecd7e3409f11fb334df9ce78aeb3c7e",
+  "planner_revision": "65a6598c3587cb947978227c01af421e18576f0a"
+}

@@ -1,0 +1,22 @@
+{
+  "ros_connector": {
+    "passed": 303,
+    "deselected": 11
+  },
+  "architecture_security_agentd": {
+    "passed": 1025,
+    "skipped": 8,
+    "deselected": 2,
+    "warnings": 5,
+    "duration_sec": 3095.8,
+    "scope_note": "Run overlapped development; latest-head CI is authoritative"
+  },
+  "audit_focused": {
+    "passed": 6
+  },
+  "counts_are_overlapping": true,
+  "formal_run_audit_events_schema_valid": 55321,
+  "public_archive_exact_reconstruction": true,
+  "overlay_browser_visual_inspection": true,
+  "v1_done": false
+}

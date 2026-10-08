@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from rosclaw.connectors.ros.action_client import STATUS_SUCCEEDED
+from rosclaw.connectors.ros.diagnosis.coverage_audit import CoverageAuditLog, digest
 from rosclaw.connectors.ros.mission.recovery import MissedRegionRecovery
 from rosclaw.connectors.ros.verification.coverage import (
     CleaningPose,
@@ -152,6 +153,7 @@ class RosCoverageSimulationExecutor:
         grid,
         recovery_centers=(),
         lease_control=None,
+        audit_metadata=None,
     ):
         if not owner.startswith("daemon_"):
             raise ValueError("daemon ownership is required")
@@ -166,6 +168,22 @@ class RosCoverageSimulationExecutor:
         self.recovery_centers = tuple(recovery_centers)
         self.lease_control = lease_control or control
         self.lease_lock = self.control_lock if self.lease_control is control else threading.Lock()
+        self.audit = None
+        self.audit_start = 0
+        self.audit_metadata = dict(audit_metadata or {})
+
+    def _audit_event(self, kind, payload):
+        if self.audit is not None:
+            latest = getattr(self.witness, "latest", None)
+            sample = latest[1] if isinstance(latest, tuple) else latest or {}
+            self.audit.emit(
+                kind,
+                {
+                    **payload,
+                    "sample_offset": len(getattr(self.witness, "samples", ())) - self.audit_start,
+                },
+                sim_time=sample.get("time_sec"),
+            )
 
     def _service(self, name, arguments):
         # One response consumer per connection: concurrent RPC loops would
@@ -257,12 +275,15 @@ class RosCoverageSimulationExecutor:
         goal_deadline = min(deadline, time.monotonic() + goal_timeout_sec)
         with self.lock:
             self.goal_id = goal_id
+        self._audit_event("goal_started", {"nav_goal_id": goal_id, "stage": "REPAIR", "goal": args})
         self.client.send_goal(
             action=name,
             action_type=action_type,
             args=args,
             goal_id=goal_id,
-            on_feedback=lambda _: None,
+            on_feedback=lambda data: self._audit_event(
+                "nav_feedback", {"nav_goal_id": goal_id, "stage": "REPAIR", "values": data}
+            ),
             on_result=lambda status, values: (
                 result.update(status=status, result=values),
                 done.set(),
@@ -279,7 +300,9 @@ class RosCoverageSimulationExecutor:
                 if not done.wait(3):
                     raise RuntimeError("timed-out repair goal cancellation was not acknowledged")
                 result.update(timed_out=True, goal_timeout_sec=goal_timeout_sec)
+                self._audit_event("goal_ended", {"nav_goal_id": goal_id, "result": result})
                 return result
+        self._audit_event("goal_ended", {"nav_goal_id": goal_id, "result": result})
         return result
 
     def _repair(self, verifier, started, action_id, deadline):
@@ -320,6 +343,16 @@ class RosCoverageSimulationExecutor:
                 )
             if verifier.result()["coverage_ratio"] >= 0.98:
                 break
+            self._audit_event(
+                "coverage_progress",
+                {
+                    "stage": "REPAIR",
+                    "next_goal_index": index,
+                    "coverage_ratio": verifier.result()["coverage_ratio"],
+                    "covered_cells": len(verifier.visits),
+                    "consumed_samples": consumed - started,
+                },
+            )
             proposals = recovery.propose()
             if not proposals["ready"] or not self.recovery_centers:
                 break
@@ -428,10 +461,35 @@ class RosCoverageSimulationExecutor:
         if not self.execution_lock.acquire(blocking=False):
             return self._result(ActionState.BLOCKED, errors=[{"code": "ROS_SIMULATION_BUSY"}])
         try:
+            try:
+                self.audit = CoverageAuditLog(
+                    self.output
+                    / f"coverage-audit-{digest(action.action_id)}-{time.time_ns()}.jsonl",
+                    context={
+                        **self.audit_metadata,
+                        "action_id": action.action_id,
+                        "body_id": action.body_id,
+                        "body_snapshot_hash": self.body_snapshot_hash,
+                        "denominator_hash": digest(self.grid),
+                    },
+                )
+                self._audit_event("action_admitted", {"capability_id": action.capability_id})
+            except Exception:
+                logger.exception(
+                    "Passive audit unavailable; canonical verification remains authoritative"
+                )
             if action.capability_id == "localization.set_initial_pose":
                 return self._localize(action)
             return self._execute(action)
         finally:
+            if self.audit is not None:
+                try:
+                    summary = self.audit.close()
+                    Path(summary["path"] + ".summary.json").write_text(json.dumps(summary) + "\n")
+                except Exception:
+                    logger.exception("Passive audit summary failed")
+                finally:
+                    self.audit = None
             self.execution_lock.release()
 
     def _localize(self, action):
@@ -524,6 +582,7 @@ class RosCoverageSimulationExecutor:
             )
         self.stopping.clear()
         started = self.witness.mark()
+        self.audit_start = started
         completed, box = threading.Event(), {}
         goal_id = action.action_id
         dispatched = False
@@ -607,12 +666,27 @@ class RosCoverageSimulationExecutor:
                 args = {"pose": action.arguments["pose"]}
             with self.lock:
                 self.goal_id = goal_id
+            self._audit_event(
+                "goal_started",
+                {
+                    "nav_goal_id": goal_id,
+                    "stage": "MAIN_COVERAGE" if coverage else "NAVIGATION",
+                    "goal": args,
+                },
+            )
             self.client.send_goal(
                 action=name,
                 action_type=action_type,
                 args=args,
                 goal_id=goal_id,
-                on_feedback=lambda _data: None,
+                on_feedback=lambda data: self._audit_event(
+                    "nav_feedback",
+                    {
+                        "nav_goal_id": goal_id,
+                        "stage": "MAIN_COVERAGE" if coverage else "NAVIGATION",
+                        "values": data,
+                    },
+                ),
                 on_result=lambda status, result: (
                     box.update(status=status, result=result),
                     completed.set(),
@@ -636,6 +710,10 @@ class RosCoverageSimulationExecutor:
             if collision_count != 0:
                 raise RuntimeError("independent observer detected a collision")
             if coverage:
+                self._audit_event(
+                    "goal_ended",
+                    {"nav_goal_id": goal_id, "result": box, "consumed_samples": len(samples)},
+                )
                 verifier = CoverageVerifier(**self.grid)
                 repairs = self._repair(verifier, started, action.action_id, deadline)
                 samples = self.witness.since(started)
@@ -665,6 +743,9 @@ class RosCoverageSimulationExecutor:
                 for pose in evidence["trajectory"]:
                     verifier.observe(CleaningPose(**pose), frame_id="map")
                 ratio = verifier.result()["coverage_ratio"]
+                self._audit_event(
+                    "coverage_final", {"coverage_ratio": ratio, "sample_count": len(samples)}
+                )
                 if verifier.result()["trace_gaps"]:
                     raise RuntimeError("independent cleaning trajectory contains unverified gaps")
                 self.output.mkdir(parents=True, exist_ok=True)
@@ -749,6 +830,7 @@ class RosCoverageSimulationExecutor:
                     )
             with self.lock:
                 self.goal_id = None
+            self._audit_event("cleanup_attempted", {"stage": "CLEANUP"})
 
     def _result(self, state, *, verification=None, observations=None, errors=None, accepted=False):
         return ActionExecutionResult(

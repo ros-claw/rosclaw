@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "rosclaw.coverage_audit_event.v1",
+  "title": "Passive coverage audit event",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "kind",
+    "captured_at",
+    "wall_monotonic_sec",
+    "sim_time_sec",
+    "payload",
+    "sequence",
+    "previous_hash",
+    "artifact_sha256"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "rosclaw.coverage_audit_event.v1"
+    },
+    "kind": {
+      "type": "string",
+      "minLength": 1
+    },
+    "captured_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "wall_monotonic_sec": {
+      "type": "number"
+    },
+    "sim_time_sec": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "payload": {
+      "type": "object"
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "previous_hash": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "artifact_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  },
+  "additionalProperties": true,
+  "description": "Local integrity metadata and passive diagnosis only; never execution authority or coverage credit."
+}

@@ -12,7 +12,7 @@ from pathlib import Path
 from threading import Lock
 
 import rclpy
-from geometry_msgs.msg import PoseWithCovarianceStamped, Twist, TwistStamped
+from geometry_msgs.msg import PolygonStamped, PoseWithCovarianceStamped, Twist, TwistStamped
 from nav_msgs.msg import OccupancyGrid
 from nav_msgs.msg import Path as NavPath
 from profiles import PROFILES
@@ -25,6 +25,9 @@ from ros_gz_interfaces.msg import Contacts
 from std_msgs.msg import Bool, String
 from std_srvs.srv import SetBool
 from tf2_msgs.msg import TFMessage
+from visualization_msgs.msg import Marker
+
+from rosclaw.connectors.ros.diagnosis.coverage_audit import CoverageAuditLog, digest
 
 
 class Witness(Node):
@@ -52,6 +55,16 @@ class Witness(Node):
         self.contact_active = {}
         self.physics_collision_count = 0
         self.trace = Path("/evidence/witness.jsonl").open("a", buffering=1)  # noqa: SIM115 - node lifecycle closes it
+        self.plan_audit = CoverageAuditLog(
+            Path("/evidence") / f"plan-events-{time.time_ns()}.jsonl",
+            context={
+                "source": "passive_ros_debug_topics",
+                "evidence_domain": "SIMULATION",
+                "run_id": Path("/evidence/run_id.txt").read_text().strip()
+                if Path("/evidence/run_id.txt").exists()
+                else "UNKNOWN",
+            },
+        )
         self.publisher = self.create_publisher(String, "/rosclaw_sim/observation", 10)
         self.cleaning_state = self.create_publisher(Bool, "/rosclaw_sim/cleaning_state", 10)
         self.controller_watchdog = self.declare_parameter("controller_watchdog", True).value
@@ -85,6 +98,14 @@ class Witness(Node):
         self.create_subscription(
             NavPath, "/coverage_server/coverage_plan", self.coverage_path_observation, 10
         )
+        for topic in ["/coverage_server/field_boundary", "/coverage_server/planning_field"]:
+            self.create_subscription(
+                PolygonStamped,
+                topic,
+                lambda message, t=topic: self.polygon_observation(t, message),
+                10,
+            )
+        self.create_subscription(Marker, "/coverage_server/swaths", self.swath_observation, 10)
         self.create_subscription(
             OccupancyGrid,
             "/map",
@@ -124,29 +145,63 @@ class Witness(Node):
         )
 
     def path_observation(self, message):
-        Path("/evidence/navigation_path.json").write_text(
-            json.dumps(
-                {
-                    "frame_id": message.header.frame_id,
-                    "poses": [
-                        {"x": p.pose.position.x, "y": p.pose.position.y} for p in message.poses
-                    ],
-                }
-            )
-            + "\n"
-        )
+        self.record_path("/plan", message)
 
     def coverage_path_observation(self, message):
-        Path("/evidence/coverage_path.json").write_text(
-            json.dumps(
+        self.record_path("/coverage_server/coverage_plan", message)
+
+    def record_path(self, topic, message):
+        poses = []
+        for p in message.poses:
+            q = p.pose.orientation
+            poses.append(
                 {
-                    "frame_id": message.header.frame_id,
-                    "poses": [
-                        {"x": p.pose.position.x, "y": p.pose.position.y} for p in message.poses
-                    ],
+                    "x": p.pose.position.x,
+                    "y": p.pose.position.y,
+                    "yaw": math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z)),
                 }
             )
-            + "\n"
+        payload = {
+            "topic": topic,
+            "frame_id": message.header.frame_id,
+            "poses": poses,
+            "plan_id": digest(
+                {
+                    "topic": topic,
+                    "header_stamp": [message.header.stamp.sec, message.header.stamp.nanosec],
+                    "frame_id": message.header.frame_id,
+                    "poses": poses,
+                }
+            ),
+            "nav_goal_id": None,
+            "goal_binding": "requires_unique_daemon_interval_correlation",
+        }
+        self.plan_audit.emit(
+            "path", payload, sim_time=message.header.stamp.sec + message.header.stamp.nanosec / 1e9
+        )
+
+    def polygon_observation(self, topic, message):
+        self.plan_audit.emit(
+            "polygon",
+            {
+                "topic": topic,
+                "frame_id": message.header.frame_id,
+                "points": [[p.x, p.y] for p in message.polygon.points],
+            },
+            sim_time=message.header.stamp.sec + message.header.stamp.nanosec / 1e9,
+        )
+
+    def swath_observation(self, message):
+        self.plan_audit.emit(
+            "swaths",
+            {
+                "topic": "/coverage_server/swaths",
+                "frame_id": message.header.frame_id,
+                "marker_type": message.type,
+                "marker_action": message.action,
+                "points": [[p.x, p.y] for p in message.points],
+            },
+            sim_time=message.header.stamp.sec + message.header.stamp.nanosec / 1e9,
         )
 
     def set_cleaning(self, request, response):
@@ -273,11 +328,19 @@ def main():
     try:
         executor.spin()
     finally:
-        executor.shutdown()
-        node.publish_velocity(Twist())
-        node.trace.close()
-        node.destroy_node()
-        rclpy.shutdown()
+        try:
+            executor.shutdown()
+            if rclpy.ok():
+                node.publish_velocity(Twist())
+        finally:
+            # SIGINT may have invalidated the ROS context. Diagnostic flushing
+            # must not depend on a last ROS publish succeeding at shutdown.
+            node.trace.close()
+            summary = node.plan_audit.close()
+            Path(summary["path"] + ".summary.json").write_text(json.dumps(summary) + "\n")
+            node.destroy_node()
+            if rclpy.ok():
+                rclpy.shutdown()
 
 
 if __name__ == "__main__":

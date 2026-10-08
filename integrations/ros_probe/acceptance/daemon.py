@@ -1,9 +1,11 @@
 """Isolated rosclawd acceptance process; no execution Runtime in the agent."""
 
 import argparse
+import hashlib
 import json
 import logging
 import signal
+import subprocess
 import threading
 import time
 import uuid
@@ -111,6 +113,7 @@ def main():
         grid=config["grid"],
         recovery_centers=config["recovery_centers"],
         lease_control=transports[3],
+        audit_metadata=freeze_audit_source(root, config),
     )
     for capability in [
         "navigation.navigate_to_pose",
@@ -168,6 +171,45 @@ def main():
         runtime.stop()
         if ledger is not None:
             ledger.close()
+
+
+def freeze_audit_source(root, config):
+    """Freeze only public source/config bytes; never ledger keys or model auth."""
+    repository = Path(__file__).resolve().parents[3]
+    files = [
+        Path(__file__),
+        repository / "src/rosclaw/connectors/ros/mission/executor.py",
+        repository / "src/rosclaw/connectors/ros/diagnosis/coverage_audit.py",
+        repository / "src/rosclaw/connectors/ros/verification/coverage.py",
+        *[
+            Path(__file__).with_name(name)
+            for name in ["stack.py", "witness.py", "profiles.py", "run.py", "nav2_launch.py"]
+        ],
+        root / "nav2.yaml",
+        root / "execution_config.json",
+        root / "robot.urdf",
+        root / "measured_map.json",
+        root / "world.sdf",
+    ]
+    hashes = {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in files if p.exists()}
+    commit = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=repository, text=True
+    ).strip()
+    dirty = bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=repository))
+    metadata = {
+        "run_id": (root / "run_id.txt").read_text().strip()
+        if (root / "run_id.txt").exists()
+        else root.name,
+        "git_sha": commit,
+        "working_tree_dirty": dirty,
+        "source_hashes": hashes,
+        "map_hash": hashes.get(str(root / "measured_map.json")),
+        "geometry_hash": hashes.get(str(root / "robot.urdf")),
+        "planner_revision": "65a6598c3587cb947978227c01af421e18576f0a",
+    }
+    (root / "source-freeze.json").write_text(json.dumps(metadata, indent=2) + "\n")
+    # Keep high-rate events compact; reference the immutable source manifest.
+    return {k: v for k, v in metadata.items() if k != "source_hashes"}
 
 
 if __name__ == "__main__":

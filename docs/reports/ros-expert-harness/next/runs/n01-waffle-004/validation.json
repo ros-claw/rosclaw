@@ -1,0 +1,9 @@
+{
+  "segment_totals_equal": true,
+  "schema_events_validated": 55321,
+  "summary_schema_valid": true,
+  "physical_source_commit": "2dcb77bd03de034963776c7e2e89db5070d3c57e",
+  "review_source_commit": "c37d497f049c057fb017c8aa07765ed260edf1dc",
+  "physical_execution_functions_unchanged": true,
+  "limitation": "Physical acceptance is on recorded frozen source, not a new episode on review HEAD. Runtime delta hashes audit filename; offline audit and documentation subsequently repaired."
+}
