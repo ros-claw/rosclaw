@@ -14,6 +14,10 @@ from pathlib import Path
 from faults import observed, service
 
 
+class PlacementClearanceUnavailableError(ValueError):
+    """Fresh source is valid, but this scene-only move must wait for clearance."""
+
+
 def pose_request(fixture, body, sample, *, name, x, y):
     """Keep the closed scene and collision IDs intact; screen actual body clearance."""
     if (
@@ -54,7 +58,7 @@ def pose_request(fixture, body, sample, *, name, x, y):
         raise ValueError("positive actual fixture dimensions required")
     bound = math.hypot(*size) / 2
     if math.hypot(x - sample["x"], y - sample["y"]) <= radius + bound + 0.1:
-        raise ValueError("obstacle movement would violate actual body clearance")
+        raise PlacementClearanceUnavailableError("obstacle movement would violate actual body clearance")
     z, roll, pitch, yaw = obstacle["pose"][2:]
     if any(v != 0 for v in (roll, pitch, yaw)):
         raise ValueError("this fixture movement supports frozen axis-aligned boxes only")

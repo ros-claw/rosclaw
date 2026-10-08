@@ -119,8 +119,9 @@ def test_scenario_requires_bounded_preregistered_identity(monkeypatch, key, valu
 
 
 @pytest.mark.parametrize("actual_move", [True, False])
+@pytest.mark.parametrize("initially_near", [True, False])
 def test_d2_controller_requires_new_actual_positions_after_each_ack(
-    tmp_path, monkeypatch, actual_move
+    tmp_path, monkeypatch, actual_move, initially_near
 ):
     m = load(monkeypatch)
     b = binding()
@@ -156,13 +157,14 @@ def test_d2_controller_requires_new_actual_positions_after_each_ack(
                 paused=False,
                 captured_at_unix_ns=time.time_ns(),
             )
-            p["body"]["world_pose"][:2] = [-1, -1]
+            body_xy = s["target_xy"] if initially_near and tick[0] <= 6 else [-1, -1]
+            p["body"]["world_pose"][:2] = body_xy
             p["obstacles"][0]["world_pose"][:2] = position
             row = source_row(p)
             active.update(
                 sample={
-                    "x": -1,
-                    "y": -1,
+                    "x": body_xy[0],
+                    "y": body_xy[1],
                     "time_sec": p["sim_time_sec"],
                     "captured_at": datetime.now(UTC).isoformat(),
                     "cleaning_enabled": True,
@@ -205,6 +207,20 @@ def test_d2_controller_requires_new_actual_positions_after_each_ack(
         json.loads(line)
         for line in (tmp_path / "dynamic-scenario-events.jsonl").read_text().splitlines()
     ]
+    if initially_near:
+        waits = [
+            json.loads(line)
+            for line in (tmp_path / "dynamic-placement-waits.jsonl").read_text().splitlines()
+        ]
+        assert [r["kind"] for r in waits] == [
+            "WAITING_FOR_ACTUAL_BODY_CLEARANCE",
+            "ACTUAL_BODY_CLEARANCE_AVAILABLE",
+        ]
+        assert waits[0]["sim_time_sec"] == 40 and waits[1]["sim_time_sec"] == 70
+        assert waits[0]["original_wall_timeout_sec"] == 900
+        assert next(r for r in rows if r["kind"] == "FIRST_ENABLED_CLEANING")["sim_time_sec"] == 10
+    else:
+        assert not (tmp_path / "dynamic-placement-waits.jsonl").exists()
     if not actual_move:
         assert len(moves) == 1
         assert rows[-1]["kind"] == "SCENARIO_FAILED"

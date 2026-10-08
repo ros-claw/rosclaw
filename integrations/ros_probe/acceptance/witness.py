@@ -46,6 +46,25 @@ from rosclaw.connectors.ros.verification.occupancy_geometry import (
 )
 
 
+def rejected_physics_source(wire, error):
+    """Retain bounded original rejected DDS bytes without inventing an admitted packet."""
+    import hashlib
+
+    record = {
+        "error": str(error)[:512],
+        "evidence_role": "actual_rejected_source_not_observation_or_credit",
+        "source_admitted": False,
+    }
+    try:
+        raw = wire.encode("utf-8")
+    except (AttributeError, UnicodeError):
+        return {**record, "source_bytes_complete": False, "source_encoding_fault": True}
+    record.update(packet_sha256=hashlib.sha256(raw).hexdigest(), original_size_bytes=len(raw))
+    if len(raw) > 262144:
+        return {**record, "source_bytes_complete": False, "source_omission": "bounded_event_budget"}
+    return {**record, "source_bytes_complete": True, "raw_packet_utf8": wire}
+
+
 class Witness(Node):
     def __init__(self):
         super().__init__("rosclaw_sim_witness")
@@ -353,6 +372,9 @@ class Witness(Node):
             self.physics_queue.append((decoded, self.physics_last_received))
         except (ValueError, TypeError, KeyError, OSError) as exc:
             self.physics_fault = str(exc)
+            self.plan_audit.emit(
+                "physics_snapshot_rejected", rejected_physics_source(message.data, exc)
+            )
 
     def brush_event(self, message):
         if self.brush_fault is not None:

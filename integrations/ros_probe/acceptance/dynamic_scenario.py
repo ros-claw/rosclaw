@@ -16,7 +16,7 @@ from pathlib import Path
 
 from audit_cursor import AuditCursor
 from faults import observed, service
-from prepared_obstacle import pose_request
+from prepared_obstacle import PlacementClearanceUnavailableError, pose_request
 
 from rosclaw.connectors.ros.verification.occupancy_geometry import parse_physics_packet
 
@@ -113,6 +113,7 @@ def main():
     target = spec["target_xy"]
     mutation_after_ns = None
     confirmation_deadline = None
+    clearance_wait_started = None
     with (root / "dynamic-scenario-events.jsonl").open("x", buffering=1) as log:
 
         def emit(kind, **values):
@@ -198,9 +199,48 @@ def main():
                     and first_on is not None
                     and sample["time_sec"] >= first_on + spec["introduce_after_cleaning_sim_sec"]
                 ):
-                    request = pose_request(
-                        fixture, body, sample, name=name, x=target[0], y=target[1]
-                    )
+                    try:
+                        request = pose_request(
+                            fixture, body, sample, name=name, x=target[0], y=target[1]
+                        )
+                    except PlacementClearanceUnavailableError:
+                        if clearance_wait_started is None:
+                            clearance_wait_started = sample["time_sec"]
+                            with (root / "dynamic-placement-waits.jsonl").open("x") as waits:
+                                waits.write(
+                                    json.dumps(
+                                        {
+                                            "kind": "WAITING_FOR_ACTUAL_BODY_CLEARANCE",
+                                            "run_id": binding["run_id"],
+                                            "mission_id": binding["mission_id"],
+                                            "scenario_sha256": hashlib.sha256(raw).hexdigest(),
+                                            "sim_time_sec": sample["time_sec"],
+                                            "original_wall_timeout_sec": spec["wall_timeout_sec"],
+                                            "physical_acceptance": "NOT_VERIFIED",
+                                            "before": sample,
+                                        }
+                                    )
+                                    + "\n"
+                                )
+                        time.sleep(0.02)
+                        continue  # Original wall/SIM deadlines and first-ON time stay intact.
+                    if clearance_wait_started is not None:
+                        with (root / "dynamic-placement-waits.jsonl").open("a") as waits:
+                            waits.write(
+                                json.dumps(
+                                    {
+                                        "kind": "ACTUAL_BODY_CLEARANCE_AVAILABLE",
+                                        "run_id": binding["run_id"],
+                                        "mission_id": binding["mission_id"],
+                                        "scenario_sha256": hashlib.sha256(raw).hexdigest(),
+                                        "sim_time_sec": sample["time_sec"],
+                                        "physical_acceptance": "NOT_VERIFIED",
+                                        "before": sample,
+                                    }
+                                )
+                                + "\n"
+                            )
+                        clearance_wait_started = None
                     mutation_after_ns = time.time_ns()
                     emit("INTRODUCTION_REQUESTED", request=request, before=sample)
                     response = service("set_pose", "gz.msgs.Pose", request)
