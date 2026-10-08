@@ -1,0 +1,8 @@
+cmake_minimum_required(VERSION 3.16)
+project(rosclaw_backend_source_parser_contract LANGUAGES CXX)
+find_package(ament_cmake REQUIRED)
+find_package(hardware_interface REQUIRED)
+find_package(ros_gz_bridge REQUIRED)
+add_executable(source_parser_contract source_parser_contract.cc)
+target_compile_features(source_parser_contract PRIVATE cxx_std_17)
+ament_target_dependencies(source_parser_contract hardware_interface ros_gz_bridge)
