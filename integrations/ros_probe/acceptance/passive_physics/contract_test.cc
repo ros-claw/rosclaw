@@ -51,6 +51,29 @@ struct PassivePhysicsContractFixture
     info.iterations = 10;
   }
   std::string Packet() const { return observer.Packet(info, ecm, 0); }
+  void EnableBodyGeometry() { observer.includeBodyGeometry = true; }
+  void AddBodyGeometry(bool mesh = false)
+  {
+    using namespace gz::sim::components;
+    observer.includeBodyGeometry = true;
+    auto bodyLink = ecm.CreateEntity();
+    ecm.CreateComponent(bodyLink, ParentEntity(body));
+    ecm.CreateComponent(bodyLink, Pose(gz::math::Pose3d::Zero));
+    auto bodyCollision = ecm.CreateEntity();
+    ecm.CreateComponent(bodyCollision, Collision());
+    ecm.CreateComponent(bodyCollision, ParentEntity(bodyLink));
+    ecm.CreateComponent(bodyCollision, Pose(gz::math::Pose3d::Zero));
+    sdf::Geometry geometry;
+    if (mesh) geometry.SetType(sdf::GeometryType::MESH);
+    else {
+      sdf::Box box; box.SetSize(gz::math::Vector3d(0.4,0.3,0.2));
+      geometry.SetType(sdf::GeometryType::BOX); geometry.SetBoxShape(box);
+    }
+    ecm.CreateComponent(bodyCollision, Geometry(geometry));
+    auto wheelJoint = ecm.CreateEntity();
+    ecm.CreateComponent(wheelJoint, Joint());
+    ecm.CreateComponent(wheelJoint, ParentEntity(body));
+  }
 };
 }
 int main()
@@ -101,5 +124,24 @@ int main()
     PassivePhysicsContractFixture f;
     f.info.simTime=std::chrono::milliseconds(-1);
     emit("negative_time",f,false);
+  }
+  {
+    PassivePhysicsContractFixture f;
+    f.AddBodyGeometry();
+    emit("v2_actual_body_collision_with_joint",f,true);
+    const auto before=f.ecm.Component<Pose>(f.body)->Data();
+    emit("v2_read_only_repeated",f,true);
+    if (f.ecm.Component<Pose>(f.body)->Data()!=before)
+      throw std::runtime_error("passive body component read changed pose");
+  }
+  {
+    PassivePhysicsContractFixture f;
+    f.EnableBodyGeometry();
+    emit("v2_missing_body_geometry",f,false);
+  }
+  {
+    PassivePhysicsContractFixture f;
+    f.AddBodyGeometry(true);
+    emit("v2_unsupported_body_mesh",f,false);
   }
 }

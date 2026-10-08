@@ -8,6 +8,7 @@ Runtime source authentication and Native physical acceptance remain separate.
 """
 
 import hashlib
+import itertools
 import json
 import math
 import time
@@ -252,6 +253,7 @@ def parse_physics_packet(
     obstacle_names,
     scene_model_names,
     received_at_unix_ns=None,
+    maximum_body_planar_radius_m=None,
 ):
     """Validate complete simulator-side components before deriving any geometry.
 
@@ -272,7 +274,11 @@ def parse_physics_packet(
     if type(packet) is not dict or packet.get("complete") is not True:
         raise ValueError("complete physical component packet required")
     if (
-        packet.get("schema_version") != "rosclaw.gazebo_postupdate_observation.v1"
+        packet.get("schema_version")
+        not in (
+            "rosclaw.gazebo_postupdate_observation.v1",
+            "rosclaw.gazebo_postupdate_observation.v2",
+        )
         or packet.get("source") != "gazebo_ecm_postupdate"
         or packet.get("evidence_domain") != "GAZEBO_PHYSICS"
         or any(
@@ -339,9 +345,12 @@ def parse_physics_packet(
         return values
 
     body = packet.get("body")
+    body_geometry = packet["schema_version"] == "rosclaw.gazebo_postupdate_observation.v2"
     if (
         type(body) is not dict
-        or set(body) != {"model_name", "entity_id", "world_pose"}
+        or set(body)
+        != {"model_name", "entity_id", "world_pose"}
+        | ({"collision_geometry"} if body_geometry else set())
         or type(body["entity_id"]) is not int
         or body["model_name"] != body_model_name
         or body["entity_id"] != models[body_model_name]
@@ -353,27 +362,41 @@ def parse_physics_packet(
         raise ValueError("all declared obstacle components required")
     names, radii, geometry_rows, model_poses = set(), [], [], []
     collision_count = 0
-    for model in obstacles:
+    body_planar_radius = 0.0
+
+    def rotate(quaternion, vector):
+        x, y, z, w = quaternion
+        a, b, c = vector
+        tx, ty, tz = 2 * (y * c - z * b), 2 * (z * a - x * c), 2 * (x * b - y * a)
+        return (
+            a + w * tx + y * tz - z * ty,
+            b + w * ty + z * tx - x * tz,
+            c + w * tz + x * ty - y * tx,
+        )
+
+    for model in ([body] if body_geometry else []) + obstacles:
+        is_body = body_geometry and model is body
         if (
             type(model) is not dict
             or set(model) != {"model_name", "entity_id", "world_pose", "collision_geometry"}
             or type(model["model_name"]) is not str
             or type(model["entity_id"]) is not int
-            or model["model_name"] not in obstacle_names
+            or model["model_name"] not in ((body_model_name,) if is_body else obstacle_names)
             or model["model_name"] in names
             or model["entity_id"] != models[model["model_name"]]
         ):
             raise ValueError("actual obstacle identity missing or ambiguous")
         names.add(model["model_name"])
         position = pose(model["world_pose"])
-        model_poses.append(ModelPose(model["model_name"], position[0], position[1], stamp))
+        if not is_body:
+            model_poses.append(ModelPose(model["model_name"], position[0], position[1], stamp))
         collisions = model["collision_geometry"]
         if type(collisions) is not list or not 0 < len(collisions) <= 256:
             raise ValueError("bounded actual collision components required")
         maximum = 0
         for collision in collisions:
             collision_count += 1
-            if collision_count > 256 or type(collision) is not dict:
+            if collision_count > (512 if body_geometry else 256) or type(collision) is not dict:
                 raise ValueError("whole packet collision budget exceeded")
             entity = collision.get("entity_id")
             if type(entity) is not int or not 0 < entity < 2**64 or entity in ids:
@@ -423,6 +446,21 @@ def parse_physics_packet(
             ):
                 raise ValueError("reported envelope does not match actual components")
             maximum = max(maximum, math.nextafter(radius, math.inf))
+            if is_body:
+                half = (
+                    [v / 2 for v in sizes]
+                    if kind == "box"
+                    else (
+                        [sizes[0]] * 3 if kind == "sphere" else [sizes[0], sizes[0], sizes[1] / 2]
+                    )
+                )
+                for corner in itertools.product(*[(-v, v) for v in half]):
+                    rotated = rotate(relative[3:], corner)
+                    translated = [a + b for a, b in zip(rotated, relative[:3], strict=True)]
+                    actual = rotate(position[3:], translated)
+                    body_planar_radius = max(body_planar_radius, math.hypot(actual[0], actual[1]))
+        if is_body:
+            continue
         radii.append((model["model_name"], maximum))
         geometry_rows.append(
             {k: model[k] for k in ("model_name", "entity_id", "collision_geometry")}
@@ -437,7 +475,7 @@ def parse_physics_packet(
         }
     )
     geometry = PhysicsGeometry(geometry_hash, tuple(sorted(radii)))
-    return {
+    result = {
         "packet": packet,
         "packet_sha256": hashlib.sha256(raw).hexdigest(),
         "geometry": geometry,
@@ -445,3 +483,17 @@ def parse_physics_packet(
         "body_world_pose": body["world_pose"],
         "ground_truth_age_sec": (received - packet["captured_at_unix_ns"]) / 1e9,
     }
+    if body_geometry:
+        result["body_collision_geometry"] = body["collision_geometry"]
+        result["body_planar_radius_m"] = math.nextafter(body_planar_radius, math.inf)
+    if maximum_body_planar_radius_m is not None:
+        if (
+            type(maximum_body_planar_radius_m) not in (int, float)
+            or not 0 < maximum_body_planar_radius_m <= 10
+            or not body_geometry
+            or result["body_planar_radius_m"]
+            > math.nextafter(maximum_body_planar_radius_m, math.inf)
+        ):
+            raise ValueError("actual v2 Body geometry exceeds or lacks its frozen planar bound")
+        result["body_geometry_within_frozen_bound"] = True
+    return result

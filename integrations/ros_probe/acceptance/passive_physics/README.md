@@ -106,3 +106,33 @@ The source uses Gazebo8 `worldPose` and actual `Geometry`/`Collision`/`Pose`
 components. It avoids concurrent `generate_world_sdf`, whose Gazebo8 implementation
 explicitly notes an ECM thread-safety TODO:
 https://github.com/gazebosim/gz-sim/blob/gz-sim8/src/SimulationRunner.cc
+
+Opt-in `include_body_collision_geometry=true` produces v2 packets including
+actual Body collision primitives/relative poses from the same const PostUpdate
+ECM. Body joints are allowed because these are actual instantaneous component
+poses; articulated obstacles remain unsupported. Missing/mesh/unsupported Body
+geometry yields a complete=false v2 fault without partial Body/obstacle claims.
+The default v1 source/payload is preserved. Actual Body primitive snapshots do
+not replace conservative URDF bounds for all future articulation.
+
+The v2 parser validates primitive dimensions, unique collision IDs and the
+reported3D envelope against actual components, then recomputes a conservative
+world-XY Body envelope from primitive bounding-box corners and actual local/world
+quaternions. It uses spheres/cylinders' containing boxes, so it can overestimate.
+An optional frozen maximum_body_planar_radius_m requires v2 actual Body geometry
+and rejects an excessive bound;one outward floating-point ULP handles numerical
+rounding only. Source admission must separately approve model/base-frame
+identity and bind this limit to the actual compiled Body. No radius is inferred
+from the packet's claimed enclosing_radius_m. Body components are excluded
+from obstacle occupancy masks. Both live observer and historical raw replay use
+the configured constraint. Generic launch/source admission remains incomplete.
+
+Corrected offline SDK compile/CTest/ldd-r PASS,13 JSON records (the prior9 v1
+records plus4 v2 Body success/read-only/missing/mesh cases);no server, physics,
+actuator or publisher call. The first v2 build accidentally omitted the already
+documented Protobuf-prefix flags and also exposed a private-member access in
+the test;both failures were retained and corrected. Parser verification55
+focused cases PASS,full ROS700 passed/10 integration deselected/one existing
+warning in15.34s,module mypy and scoped Ruff/format PASS. No held-out robot has
+been selected or inspected;actual Body/plugin-load/Native physical gates remain
+NOT_RUN.

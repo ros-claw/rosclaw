@@ -89,6 +89,8 @@ class PassivePhysics : public gz::sim::System,
     this->bodyName = required("body_model_name");
     this->bodyHash = required("body_snapshot_hash");
     this->attachmentHash = required("attachment_hash");
+    this->includeBodyGeometry = config->HasElement("include_body_collision_geometry") &&
+        config->Get<bool>("include_body_collision_geometry");
     this->allowed.insert(this->bodyName);
     for (const auto &key : {"static_model", "obstacle_model"})
     {
@@ -136,7 +138,7 @@ class PassivePhysics : public gz::sim::System,
   }
 
   private: std::string CollisionGeometry(gz::sim::Entity model,
-      const gz::sim::EntityComponentManager &ecm) const
+      const gz::sim::EntityComponentManager &ecm, bool allowBodyJoints = false) const
   {
     bool articulated = false;
     ecm.Each<gz::sim::components::Joint>([&](const gz::sim::Entity entity, const auto *)
@@ -144,7 +146,8 @@ class PassivePhysics : public gz::sim::System,
       if (this->Descendant(entity, model, ecm)) articulated = true;
       return true;
     });
-    if (articulated) throw std::runtime_error("articulated obstacle unsupported");
+    if (articulated && !allowBodyJoints)
+      throw std::runtime_error("articulated obstacle unsupported");
     std::map<gz::sim::Entity, std::string> collisionRows;
     ecm.Each<gz::sim::components::Collision, gz::sim::components::Geometry>(
         [&](const gz::sim::Entity entity, const auto *, const auto *geometry)
@@ -200,8 +203,10 @@ class PassivePhysics : public gz::sim::System,
       const gz::sim::EntityComponentManager &ecm, std::uint64_t packetSequence) const
   {
     std::ostringstream packet;
-    packet << std::setprecision(17) << "{\"schema_version\":\"rosclaw.gazebo_postupdate_observation.v1\","
-        << "\"run_id\":" << Quote(this->runId) << ",\"body_snapshot_hash\":" << Quote(this->bodyHash)
+    const auto schema = this->includeBodyGeometry ?
+        "rosclaw.gazebo_postupdate_observation.v2" : "rosclaw.gazebo_postupdate_observation.v1";
+    packet << std::setprecision(17) << "{\"schema_version\":" << Quote(schema)
+        << ",\"run_id\":" << Quote(this->runId) << ",\"body_snapshot_hash\":" << Quote(this->bodyHash)
         << ",\"attachment_hash\":" << Quote(this->attachmentHash)
         << ",\"world_name\":" << Quote(this->worldName)
         << ",\"sequence\":" << packetSequence << ",\"sim_time_sec\":"
@@ -237,7 +242,11 @@ class PassivePhysics : public gz::sim::System,
       packet << ']';
       packet << ",\"body\":{\"model_name\":" << Quote(this->bodyName)
           << ",\"entity_id\":" << models.at(this->bodyName)
-          << ",\"world_pose\":" << PoseJson(gz::sim::worldPose(models.at(this->bodyName), ecm)) << '}';
+          << ",\"world_pose\":" << PoseJson(gz::sim::worldPose(models.at(this->bodyName), ecm));
+      if (this->includeBodyGeometry)
+        packet << ",\"collision_geometry\":" <<
+            this->CollisionGeometry(models.at(this->bodyName), ecm, true);
+      packet << '}';
       packet << ",\"obstacles\":[";
       bool first = true;
       for (const auto &name : this->obstacles)
@@ -255,7 +264,7 @@ class PassivePhysics : public gz::sim::System,
     {
       // A partially assembled object is never published. Fault has no free cells.
       packet.str(""); packet.clear();
-      packet << "{\"schema_version\":\"rosclaw.gazebo_postupdate_observation.v1\",\"run_id\":"
+      packet << "{\"schema_version\":" << Quote(schema) << ",\"run_id\":"
           << Quote(this->runId) << ",\"sequence\":" << packetSequence
           << ",\"sim_time_sec\":" << std::setprecision(17) << std::chrono::duration<double>(info.simTime).count()
           << ",\"source\":\"gazebo_ecm_postupdate\",\"evidence_domain\":\"GAZEBO_PHYSICS\",\"complete\":false,\"fault\":"
@@ -282,6 +291,7 @@ class PassivePhysics : public gz::sim::System,
   private: gz::transport::Node::Publisher publisher;
   private: std::chrono::steady_clock::duration lastTime{};
   private: bool published = false;
+  private: bool includeBodyGeometry = false;
   private: std::uint64_t sequence = 0;
 };
 }

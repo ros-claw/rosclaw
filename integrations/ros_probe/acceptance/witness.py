@@ -250,6 +250,7 @@ class Witness(Node):
                 },
                 obstacle_names=tuple(binding["obstacle_names"]),
                 scene_model_names=frozenset(binding["scene_model_names"]),
+                maximum_body_planar_radius_m=binding.get("maximum_body_planar_radius_m"),
             )
             if (
                 self.physics_sequence is not None

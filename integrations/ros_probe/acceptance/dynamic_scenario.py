@@ -47,6 +47,7 @@ def retained_packet(row, binding):
         obstacle_names=tuple(binding["obstacle_names"]),
         scene_model_names=frozenset(binding["scene_model_names"]),
         received_at_unix_ns=int(captured.timestamp() * 1e9),
+        maximum_body_planar_radius_m=binding.get("maximum_body_planar_radius_m"),
     )
     if (
         row["run_id"] != binding["run_id"]
