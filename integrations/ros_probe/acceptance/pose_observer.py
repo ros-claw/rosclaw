@@ -17,7 +17,10 @@ from tf2_msgs.msg import TFMessage
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", required=True)
+    parser.add_argument("--duration", type=int, default=90)
     args = parser.parse_args()
+    if not 60 <= args.duration <= 1920:
+        parser.error("owned passive observation duration must be between 60 and 1920 seconds")
     saved = json.loads(Path("/evidence/fixture_profile.json").read_text())
     profile = PROFILES[saved["name"]]
     if saved != profile.to_dict():
@@ -54,7 +57,7 @@ def main():
             observe,
             QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT),
         )
-        until = time.monotonic() + 90
+        until = time.monotonic() + args.duration
         try:
             while time.monotonic() < until:
                 rclpy.spin_once(node, timeout_sec=0.1)
