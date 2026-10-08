@@ -53,7 +53,7 @@ def test_source_isolated_primitive_has_typed_bridges_and_no_authority(module, tm
     assert model.findtext("link/collision/geometry/sphere/radius") == "0.05"
     assert model.findtext("link/sensor/contact/topic") == "/rosclaw_sim/backend_probe_contact"
     assert model.findtext("link/gravity") == "true"
-    assert model.findtext("plugin/update_frequency") == "20"
+    assert model.findtext("plugin/update_frequency") == "-1"  # every unpaused physics step
     assert json.loads((output / "physics_binding.json").read_bytes()) == result["binding"]
     source = importlib.import_module("native_contact_evidence")
     plugin = output / "synthetic-fixture.so"
@@ -122,3 +122,20 @@ def test_unbounded_or_robot_alias_fixture_refuses_before_output(module, tmp_path
     with pytest.raises(ValueError):
         module.prepare_probe_fixture(tmp_path / "probe", source)
     assert not (tmp_path / "probe").exists()
+
+
+def test_independent_probe_pose_cadence_covers_initial_component_phase_offset(module, tmp_path):
+    # Gazebo8.15 PosePublisher starts lastPosePubTime at0, whereas our probe
+    # component publisher emits its first unpaused step immediately. At dt10ms,
+    # throttling both to20Hz gives components10/60/110ms vs poses50/100/150ms:
+    # no exact timestamp pair. A negative PosePublisher frequency keeps period0.
+    output = tmp_path / "probe"
+    module.prepare_probe_fixture(output, declaration())
+    frequency = float(ET.parse(output / "robot.sdf").findtext("model/plugin/update_frequency"))
+    assert frequency < 0
+    steps = list(range(10, 201, 10))
+    component_steps = steps[::5]
+    legacy_pose_steps = [step for step in steps if step % 50 == 0]
+    assert not set(component_steps) & set(legacy_pose_steps)
+    actual_declared_pose_steps = steps if frequency <= 0 else legacy_pose_steps
+    assert set(component_steps) <= set(actual_declared_pose_steps)

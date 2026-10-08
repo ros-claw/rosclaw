@@ -71,3 +71,26 @@ whole-mission DDS qualification, real Gazebo contact/cache qualification,
 physical stop proof or Native task. No actuator or scene service starts.
 The earlier20Hz and100Hz transport passes remain retained; the final test adds
 stronger source-prefix/fault-origin assertions and an original driver copy.
+
+The pinned Gazebo8.15.0 PosePublisher implementation initializes its publication
+clock at0 and skips updates before a positive configured period. Its negative
+`update_frequency` leaves period0 and publishes every unpaused step. A20Hz
+probe contact producer which emits its first step immediately can otherwise
+have a permanent timestamp phase offset from a20Hz pose producer. The new
+instrument source therefore declares pose frequency-1, with contacts still20Hz.
+This follows the pinned primary source:
+https://github.com/gazebosim/gz-sim/blob/gz-sim8_8.15.0/src/systems/pose_publisher/PosePublisher.cc
+Source/CDR/SDF checks are not an actual loaded-plugin cadence measurement.
+
+`ProbeSceneGeometry` is a read-only additional spatial constraint. It requires
+same-step original scene and native component timestamps, exact model and
+complete collision-entity correspondence, actual primitive geometry, a body
+envelope within the sealed bound, the declared centered instrument sphere,
+measured isolated column, and actual robot/obstacle clearance. Source loss,
+paused physics, changed identity/shape, gaps and unsafe clearance latch failure.
+Normal articulated Body local poses may change inside the original bound;
+this cannot silently change primitive identity/dimensions. New exclusive world
+candidates request complete Body collision geometry, leaving original scenes
+unchanged. Its20 contracts use explicitly derived synthetic source packets.
+It remains unjoined to a controller and original-source closed replay and
+declares world ownership, backend/physical admission and authority unverified.
