@@ -193,3 +193,35 @@ enters canonical credit. Missing heading or causal observations remain UNKNOWN,
 including old runs' precise phase times. Predicted-but-missed cells are not
 automatically called tracking errors. Hash chains reject mutation/reordering
 and incomplete trailing records rather than silently repairing them.
+
+## Generic fixture Python dependencies (offline image build)
+
+The compiled generic Body loader needs Pydantic; the original known-body image
+contains ROS fixture dependencies only. `Dockerfile.generic-runtime` adds the
+five exact dependency wheels in `generic_runtime_requirements.lock`. The lock
+currently targets the owned Jazzy CPython3.12/aarch64 fixture. Another ABI or
+architecture requires its own reviewed lock; do not discard hash checks.
+No robot asset, profile, simulator or actuator is launched by this build.
+
+Prepare a fresh small context, copy the Dockerfile and lock, and download the
+matching wheels before the offline Docker build:
+
+```bash
+mkdir -p /tmp/ros-generic-context/generic_runtime_wheels
+cp integrations/ros_probe/acceptance/Dockerfile.generic-runtime /tmp/ros-generic-context/Dockerfile
+cp integrations/ros_probe/acceptance/generic_runtime_requirements.lock /tmp/ros-generic-context/generic_runtime_wheels/requirements.lock
+.venv/bin/python -m pip download --only-binary=:all: --require-hashes \
+  --platform manylinux_2_17_aarch64 --python-version 312 --implementation cp --abi cp312 \
+  -r /tmp/ros-generic-context/generic_runtime_wheels/requirements.lock \
+  --dest /tmp/ros-generic-context/generic_runtime_wheels
+docker image inspect --format '{{.Id}}' rosclaw/ros-expert-rebuilt:dad31022
+docker build --network none --pull=false -t rosclaw/ros-expert-generic-runtime:1008-v1 /tmp/ros-generic-context
+docker image inspect --format '{{.Id}}' rosclaw/ros-expert-generic-runtime:1008-v1
+```
+
+Freeze and verify the parent image ID before and after building; the validated parent is
+`sha256:c31355f34739eb4ea8b60de1414c57ce0eea8225aa9e3ce854b7ceb66ca4376e`.
+Freeze the resulting image ID in each future generic protocol. Import/reopen
+checks use `--network none`, the frozen source read-only and a synthetic compiled
+Body fixture read-only, and initialize no ROS Node or DDS connection. Passing
+those checks is no held-out model, source/contact or L0–L4 physical acceptance.

@@ -1,0 +1,8 @@
+# Fixture-only compiled Body validation dependencies; no simulator asset added.
+# Caller must freeze/verify the already-built parent image ID before and after.
+ARG BASE_IMAGE=rosclaw/ros-expert-rebuilt:dad31022
+FROM ${BASE_IMAGE}
+COPY generic_runtime_wheels /wheels
+RUN python3 -m pip install --no-cache-dir --no-index --find-links=/wheels \
+      --require-hashes --break-system-packages -r /wheels/requirements.lock && \
+    rm -rf /wheels
