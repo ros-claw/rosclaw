@@ -157,6 +157,7 @@ class BrushStateTimeline:
             event = self.events[0]
             enabled = event.enabled and event.sim_time_sec != sim_time_sec
             self.previous_pose_time = sim_time_sec
+            previous_pair_chain_hash = self.pair_chain_hash
             self.pair_chain_hash = digest(
                 {
                     "previous": self.pair_chain_hash,
@@ -175,6 +176,8 @@ class BrushStateTimeline:
                 "last_sequence": self.sequence,
                 "watermark_event_hash": self.watermark_event_hash,
                 "pair_chain_hash": self.pair_chain_hash,
+                "previous_pair_chain_hash": previous_pair_chain_hash,
+                "pose_sim_time_sec": sim_time_sec,
             }
         except (ValueError, TypeError) as exc:
             self.fault = str(exc)
@@ -193,3 +196,53 @@ class BrushStateTimeline:
             "pair_chain_hash": self.pair_chain_hash,
             "watermark_semantics": "exclusive; same-time state transitions receive no brush-on credit",
         }
+
+
+def validate_brush_pair(sample, binding, *, previous_chain=None):
+    """Check retained observer calculations, without authenticating a ROS sender.
+
+    Canonical daemon byte binding and the separately retained ordered source
+    audit remain necessary. Opaque source hashes alone confer no authority.
+    """
+    pair = sample.get("brush_state_pair")
+    if (
+        type(sample.get("time_sec")) not in (int, float)
+        or not math.isfinite(sample["time_sec"])
+        or sample["time_sec"] < 0
+        or sample.get("brush_source_binding") != binding
+        or sample.get("brush_source_fault") is not None
+        or type(pair) is not dict
+        or pair.get("status") != "PAIRED"
+        or type(pair.get("enabled")) is not bool
+        or pair["enabled"] != sample.get("cleaning_enabled")
+        or pair.get("pose_sim_time_sec") != sample.get("time_sec")
+        or type(pair.get("watermark_sim_time_sec")) not in (int, float)
+        or not math.isfinite(pair["watermark_sim_time_sec"])
+        or pair["watermark_sim_time_sec"] <= sample["time_sec"]
+        or type(pair.get("last_sequence")) is not int
+        or pair["last_sequence"] < 0
+        or any(
+            type(pair.get(k)) is not str or not pair[k]
+            for k in (
+                "state_event_hash",
+                "watermark_event_hash",
+                "pair_chain_hash",
+                "previous_pair_chain_hash",
+            )
+        )
+    ):
+        raise ValueError("unbound or unpaired independent brush state")
+    if previous_chain is not None and pair["previous_pair_chain_hash"] != previous_chain:
+        raise ValueError("brush pose pair chain gap/reorder")
+    expected = digest(
+        {
+            "previous": pair["previous_pair_chain_hash"],
+            "pose_sim_time_sec": sample["time_sec"],
+            "state_event_hash": pair["state_event_hash"],
+            "watermark_event_hash": pair["watermark_event_hash"],
+            "enabled": pair["enabled"],
+        }
+    )
+    if pair["pair_chain_hash"] != expected:
+        raise ValueError("brush pose pair digest mismatch")
+    return pair["pair_chain_hash"]

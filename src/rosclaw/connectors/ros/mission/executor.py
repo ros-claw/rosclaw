@@ -20,6 +20,7 @@ from rosclaw.connectors.ros.diagnosis.coverage_audit import CoverageAuditLog, di
 from rosclaw.connectors.ros.mission.boundary_pass import rectangular_boundary_targets
 from rosclaw.connectors.ros.mission.recovery import MissedRegionRecovery
 from rosclaw.connectors.ros.mission.repair_optimizer import rank_repair_poses
+from rosclaw.connectors.ros.verification.brush_timeline import validate_brush_pair
 from rosclaw.connectors.ros.verification.coverage import (
     CleaningPose,
     CoverageVerifier,
@@ -51,6 +52,7 @@ class SimulationWitness:
         ):
             raise ValueError("frozen independent brush source binding required")
         self.brush_binding = dict(brush_binding) if brush_binding is not None else None
+        self.brush_pair_chain = None
         self.transport = transport
         self.latest = None
         self.samples = []
@@ -111,23 +113,13 @@ class SimulationWitness:
     def _record(self, sample):
         with self.lock:
             if getattr(self, "brush_binding", None) is not None:
-                pair = sample.get("brush_state_pair")
-                valid = (
-                    sample.get("brush_source_binding") == self.brush_binding
-                    and sample.get("brush_source_fault") is None
-                    and type(pair) is dict
-                    and pair.get("status") == "PAIRED"
-                    and type(pair.get("enabled")) is bool
-                    and pair["enabled"] == sample.get("cleaning_enabled")
-                    and type(pair.get("watermark_sim_time_sec")) in (int, float)
-                    and math.isfinite(pair["watermark_sim_time_sec"])
-                    and pair["watermark_sim_time_sec"] > sample["time_sec"]
-                    and all(
-                        type(pair.get(k)) is str and pair[k]
-                        for k in ("state_event_hash", "watermark_event_hash", "pair_chain_hash")
+                try:
+                    self.brush_pair_chain = validate_brush_pair(
+                        sample,
+                        self.brush_binding,
+                        previous_chain=getattr(self, "brush_pair_chain", None),
                     )
-                )
-                if not valid:
+                except (ValueError, TypeError, KeyError):
                     sample = {
                         **sample,
                         "observation_complete": False,
@@ -968,6 +960,20 @@ class RosCoverageSimulationExecutor:
                             {k: s[k] for k in ("occupancy", "occupancy_hash")} for s in samples
                         ],
                     )
+                brush_binding = getattr(self.witness, "brush_binding", None)
+                if brush_binding is not None:
+                    evidence["brush_evidence_binding"] = dict(brush_binding)
+                    evidence["brush_evidence_samples"] = [
+                        {
+                            k: s[k]
+                            for k in (
+                                "brush_state_pair",
+                                "brush_source_binding",
+                                "brush_source_fault",
+                            )
+                        }
+                        for s in samples
+                    ]
                 calculated, temporal = replay_coverage(evidence)
                 ratio = calculated["coverage_ratio"]
                 self._audit_event(

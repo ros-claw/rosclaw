@@ -155,3 +155,81 @@ def test_negative_first_sim_timestamp_never_enters_credit():
         accounting.observe_sample(sample(-0.1, 0, 0.005, []))
     assert not accounting.verifier.visits
     assert accounting.result()["complete"] is False
+
+
+def brush_evidence():
+    from datetime import UTC, datetime
+
+    from rosclaw.connectors.ros.verification.brush_timeline import (
+        BrushStateEvent,
+        BrushStateTimeline,
+    )
+
+    binding = {
+        "run_id": "run",
+        "body_snapshot_hash": "bodyhash",
+        "attachment_hash": "brush",
+        "producer_id": "actuator",
+    }
+    timeline = BrushStateTimeline(**binding)
+    seq = 0
+
+    def append(stamp, enabled=False, kind="WATERMARK"):
+        nonlocal seq
+        event = BrushStateEvent(
+            **binding,
+            sequence=seq,
+            sim_time_sec=stamp,
+            kind=kind,
+            enabled=enabled,
+            captured_at=datetime.now(UTC).isoformat(),
+            complete=True,
+        )
+        seq += 1
+        timeline.append(event, artifact_hash=event.artifact_hash())
+
+    append(0)
+    append(0.01, True, "TRANSITION")
+    rows = [sample(0.05, 0, 0.005, []), sample(0.15, 1, 0.015, [])]
+    proofs = []
+    for row in rows:
+        append(row["time_sec"] + 0.01, True)
+        proofs.append(
+            {
+                "brush_state_pair": timeline.state_at(row["time_sec"]),
+                "brush_source_binding": binding.copy(),
+                "brush_source_fault": None,
+            }
+        )
+    ev = evidence(rows)
+    ev["brush_evidence_binding"], ev["brush_evidence_samples"] = binding, proofs
+    return ev
+
+
+def test_retained_brush_pair_chain_replays_without_sender_or_source_path():
+    ev = brush_evidence()
+    coverage, temporal = replay_coverage(ev)
+    assert coverage["coverage_ratio"] == 1 and temporal["complete"]
+    assert verify_mission(ev)["verification_status"] == "NOT_VERIFIED"
+
+
+@pytest.mark.parametrize(
+    "fault", ["missing", "pair_hash", "chain_gap", "body", "same_time", "override"]
+)
+def test_brush_artifact_corruption_refused_before_credit(fault):
+    ev = brush_evidence()
+    records = ev["brush_evidence_samples"]
+    if fault == "missing":
+        records.pop()
+    elif fault == "pair_hash":
+        records[1]["brush_state_pair"]["pair_chain_hash"] = "corrupted"
+    elif fault == "chain_gap":
+        records[1]["brush_state_pair"]["previous_pair_chain_hash"] = "GENESIS"
+    elif fault == "body":
+        records[1]["brush_source_binding"]["body_snapshot_hash"] = "other"
+    elif fault == "same_time":
+        records[1]["brush_state_pair"]["watermark_sim_time_sec"] = 0.15
+    else:
+        records[0]["cleaning_enabled"] = True
+    with pytest.raises(ValueError):
+        replay_coverage(ev)

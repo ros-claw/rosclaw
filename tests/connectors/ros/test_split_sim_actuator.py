@@ -231,7 +231,21 @@ def test_daemon_independent_brush_binding_and_pair_guard(fault):
         "state_event_hash": "state",
         "watermark_event_hash": "watermark",
         "pair_chain_hash": "chain",
+        "pose_sim_time_sec": 1.15,
+        "previous_pair_chain_hash": "GENESIS",
+        "last_sequence": 2,
     }
+    from rosclaw.connectors.ros.diagnosis.coverage_audit import digest
+
+    pair["pair_chain_hash"] = digest(
+        {
+            "previous": "GENESIS",
+            "pose_sim_time_sec": 1.15,
+            "state_event_hash": "state",
+            "watermark_event_hash": "watermark",
+            "enabled": True,
+        }
+    )
     record = {
         "time_sec": 1.15,
         "cleaning_enabled": True,

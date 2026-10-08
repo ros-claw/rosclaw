@@ -2,6 +2,7 @@
 
 from rosclaw.contracts.common import content_hash
 
+from .brush_timeline import validate_brush_pair
 from .coverage import CleaningPose, CoverageVerifier
 from .occupancy import OccupancyAccounting
 
@@ -15,6 +16,31 @@ def replay_coverage(evidence):
         raise ValueError("dynamic evidence requires its explicit versioned schema")
     if schema not in (None, "rosclaw.time_paired_mission_evidence.v1"):
         raise ValueError("unsupported mission evidence schema")
+    if any(k in evidence for k in ("brush_evidence_binding", "brush_evidence_samples")):
+        binding = evidence["brush_evidence_binding"]
+        brush_samples = evidence["brush_evidence_samples"]
+        if type(binding) is not dict or set(binding) != {
+            "run_id",
+            "body_snapshot_hash",
+            "attachment_hash",
+            "producer_id",
+        }:
+            raise ValueError("frozen brush evidence binding required")
+        if (
+            type(brush_samples) is not list
+            or not brush_samples
+            or len(brush_samples) != len(evidence["trajectory"])
+        ):
+            raise ValueError("one brush pair per trajectory pose required")
+        previous = None
+        for pose, proof in zip(evidence["trajectory"], brush_samples, strict=True):
+            if type(proof) is not dict or set(proof) != {
+                "brush_state_pair",
+                "brush_source_binding",
+                "brush_source_fault",
+            }:
+                raise ValueError("brush proof cannot replace trajectory fields")
+            previous = validate_brush_pair({**pose, **proof}, binding, previous_chain=previous)
     if not dynamic:
         for sample in evidence["trajectory"]:
             verifier.observe(CleaningPose(**sample), frame_id=evidence["frame_id"])
