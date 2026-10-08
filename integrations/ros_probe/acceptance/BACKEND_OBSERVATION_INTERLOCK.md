@@ -124,3 +124,27 @@ It requires all 80 original exact scene joins and checks that the first rejected
 original robot frame is the intentional sequence regression at iteration 401.
 Discovery alone does not prove a data connection. This contract starts no
 Gazebo world, scene service, actuator or Native mission.
+
+`prepare_backend_world` assembles both independent `PassiveContacts` instances,
+explicitly typed bridges, source-pinned library copies, all-step robot / sampled
+probe policies and the combined spatial observer config in an exclusive bundle.
+It preserves original inputs. It includes a separately declared passive pose
+bridge, expands `topic_name` into identical declared ROS/Gazebo names, and refuses
+control/service bridge roles, ambiguous names and missing types. It does not
+infer namespaces or live endpoints. The final bundle manifest hashes every
+final source; the earlier probe-world manifest is only its preparation substage.
+
+For the exclusive candidate world, conflicting visual names can be renamed
+without changing any nonvisual bytes. Collision names remain original; ambiguous
+visual frame references are unsupported. This source repair is not runtime
+physical equivalence or admission. The known vendor source contract preserves
+the full robot's custom `ros2_control` extension and checks its full SDF parse,
+as well as a clearly labelled standard-SDF-only schema projection. It never
+renames command/state interfaces to satisfy a generic uniqueness check.
+
+The additional compiled `backend_source_parser` invokes installed
+`hardware_interface::parse_control_resources_from_urdf` and
+`ros_gz_bridge::readFromYamlString` without creating a Node or Hardware instance.
+It checks the known differential-drive interfaces and exact bridge type/name/
+direction/queue/QoS correspondence after source normalization. Parsing source
+is not loading a controller, a Gazebo world, a system plugin or a Native task.
