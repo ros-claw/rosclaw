@@ -1,4 +1,4 @@
-"""Fresh D2 Native SIM episode through existing Agentd/MCP/daemon acceptance.
+"""Fresh D2/D4 Native SIM episode through existing Agentd/MCP/daemon acceptance.
 
 The fixture owns scene perturbations and passive observers. This host launcher
 opens no robot transport and executes no action implementation. P0 must already
@@ -21,6 +21,7 @@ from pathlib import Path
 from dynamic_bootstrap import prepare_bindings
 from dynamic_source_replay import replay_component_occupancy
 from independent_stop import collect_stop_geometry
+from negative_dynamic_acceptance import validate_d4_negative
 from paired_efficiency import command, wait_ready
 
 ROOT = Path(__file__).resolve().parent
@@ -57,11 +58,11 @@ def validate_episode_spec(spec):
     ):
         raise ValueError("closed frozen Native episode protocol required")
     if (
-        spec["case"] != "D2"
+        spec["case"] not in {"D2", "D4"}
         or type(spec["profile"]) is not str
         or spec["profile"] not in {"waffle", "burger"}
     ):
-        raise ValueError("implemented full Native acceptance is D2 on a known SIM fixture")
+        raise ValueError("implemented full Native entry is D2/D4 on a known SIM fixture")
     for key in ("source_commit", "p0_merge_commit"):
         if type(spec[key]) is not str or not re.fullmatch(r"[0-9a-f]{40}", spec[key]):
             raise ValueError("exact source and prior P0 merge commits required")
@@ -161,14 +162,15 @@ def run_episode(directory, protocol, plugin, vendor_urdf, native_profile_home):
     directory = directory.resolve()
     directory.mkdir(exist_ok=False)
     (directory / "episode-protocol.json").write_bytes(raw)
-    mission = f"n03_d2_{spec['profile']}_{spec['seed']}"
-    container = f"reh-n03-d2-{spec['profile']}-{spec['seed']}-{time.time_ns()}"
+    case = spec["case"]
+    mission = f"n03_{case.lower()}_{spec['profile']}_{spec['seed']}"
+    container = f"reh-n03-{case.lower()}-{spec['profile']}-{spec['seed']}-{time.time_ns()}"
     env = {**os.environ, "PYTHONPATH": str(REPOSITORY / "src")}
     children, logs = [], []
     launched = False
     result = {
         "status": "NOT_VERIFIED",
-        "case": "D2",
+        "case": case,
         "container": container,
         "source_commit": spec["source_commit"],
         "image_id": spec["image_id"],
@@ -193,6 +195,8 @@ def run_episode(directory, protocol, plugin, vendor_urdf, native_profile_home):
             child = subprocess.Popen(
                 argv, stdout=stream, stderr=subprocess.STDOUT, env=env, start_new_session=True
             )
+            if name == "native-run":
+                result.update(native_process_started=True, autonomous_llm=None)
             try:
                 code = child.wait(timeout=timeout)
                 if code:
@@ -221,7 +225,7 @@ def run_episode(directory, protocol, plugin, vendor_urdf, native_profile_home):
         )
         scenario = {
             "schema_version": "rosclaw.dynamic_fixture_scenario.v1",
-            "case": "D2",
+            "case": case,
             "run_id": physics["binding"]["run_id"],
             "mission_id": mission,
             "obstacle_name": physics["binding"]["obstacle_names"][0],
@@ -352,9 +356,14 @@ def run_episode(directory, protocol, plugin, vendor_urdf, native_profile_home):
                 endpoint,
                 "--required-scenario",
                 str(directory / "scenario.json"),
+                *(["--expected-safe-failure", "D4"] if case == "D4" else []),
             ],
             timeout=spec["mission_timeout_sec"] + 120,
         )
+        if case == "D4":
+            # The obstruction stays present until the genuine negative root
+            # finishes; stop only this owned scene controller, not the robot.
+            (directory / "stop-dynamic-scenario.json").write_text("{}\n")
         scenario_child.wait(timeout=10)
         if scenario_child.returncode or pose.poll() is not None:
             raise RuntimeError("owned scenario/independent pose source failed")
@@ -377,24 +386,25 @@ def run_episode(directory, protocol, plugin, vendor_urdf, native_profile_home):
         result.update(autonomous_llm=True, actual_sdk_turns=len(usage))
         stop = collect_stop_geometry(directory / "independent-pose.jsonl")
         (directory / "independent-stop.json").write_text(json.dumps(stop, indent=2) + "\n")
-        step(
-            "native-acceptance",
-            [
-                sys.executable,
-                str(ROOT / "cleaning_acceptance.py"),
-                "--root",
-                str(directory),
-                "--fixture",
-                str(directory),
-                "--output",
-                str(directory / "accepted"),
-                "--native",
-            ],
-        )
-        result.update(
-            live_canonical_acceptance="PASS_REQUIRES_CLOSED_SOURCE",
-            task_kernel_succeeded=True,
-        )
+        if case == "D2":
+            step(
+                "native-acceptance",
+                [
+                    sys.executable,
+                    str(ROOT / "cleaning_acceptance.py"),
+                    "--root",
+                    str(directory),
+                    "--fixture",
+                    str(directory),
+                    "--output",
+                    str(directory / "accepted"),
+                    "--native",
+                ],
+            )
+            result.update(
+                live_canonical_acceptance="PASS_REQUIRES_CLOSED_SOURCE",
+                task_kernel_succeeded=True,
+            )
     except (Exception, KeyboardInterrupt) as exc:
         result.update(status="FAIL", error=type(exc).__name__ + ": " + str(exc))
     finally:
@@ -436,6 +446,25 @@ def run_episode(directory, protocol, plugin, vendor_urdf, native_profile_home):
     if result["status"] != "FAIL":
         try:
             frozen()
+            if case == "D4":
+                negative = validate_d4_negative(directory, stop)
+                (directory / "negative-physical-acceptance.json").write_text(
+                    json.dumps(negative, indent=2) + "\n"
+                )
+                result.update(
+                    status="PASS",
+                    expected_safe_failure=True,
+                    task_kernel_succeeded=False,
+                    task_state=negative["task_state"],
+                    physical_acceptance="SIMULATION",
+                    closed_source_replay="PASS",
+                    independent_stop="PASS",
+                    independent_brush_off_and_lease_release="PASS",
+                )
+                (directory / "dynamic-native-result.json").write_text(
+                    json.dumps(result, indent=2) + "\n"
+                )
+                return result
             evidence_paths = [
                 p
                 for p in (directory / "actions").glob("rosevidence_*.json")
