@@ -41,7 +41,8 @@ class PassiveContacts : public gz::sim::System,
       throw std::runtime_error("actual contact world name differs from declared source");
     const auto topic = config->HasElement("topic") ? config->Get<std::string>("topic") :
         std::string("/rosclaw_sim/contact_components");
-    this->publisher = this->node.Advertise<gz::msgs::StringMsg>(native_contacts::PublisherTopic(topic));
+    this->componentTopic = native_contacts::PublisherTopic(topic);
+    this->publisher = this->node.Advertise<gz::msgs::StringMsg>(this->componentTopic);
   }
   public: std::string Packet(const gz::sim::UpdateInfo &info,
       const gz::sim::EntityComponentManager &ecm, std::uint64_t sequence) const
@@ -116,7 +117,8 @@ class PassiveContacts : public gz::sim::System,
   public: void PostUpdate(const gz::sim::UpdateInfo &info,
       const gz::sim::EntityComponentManager &ecm) override
   {
-    if (this->published && info.simTime >= this->lastTime && info.simTime - this->lastTime < std::chrono::milliseconds(50)) return;
+    if (!native_contacts::PublishThisStep(this->componentTopic, this->published,
+        this->lastTime, info.simTime, info.paused)) return;
     gz::msgs::StringMsg message;
     message.set_data(this->Packet(info, ecm, this->sequence++));
     this->publisher.Publish(message);
@@ -125,6 +127,7 @@ class PassiveContacts : public gz::sim::System,
   friend struct PassiveContactsContractFixture;
   private: gz::sim::Entity world = gz::sim::kNullEntity;
   private: std::string worldName, bodyName, runId, bodyHash, attachmentHash, producerId;
+  private: std::string componentTopic = "/rosclaw_sim/contact_components";
   private: gz::transport::Node node;
   private: gz::transport::Node::Publisher publisher;
   private: std::chrono::steady_clock::duration lastTime{};

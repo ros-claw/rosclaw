@@ -72,3 +72,14 @@ has `--network none`. Those contracts are not actual simulation episodes.
 The Python producer-file fixture uses synthetic bytes, not a loadable plugin.
 
 Current offline checkpoint: 20 original native SDK component cases, 59 Python native contact cases, 33 existing independent-contact cases and 33 generic renderer cases. All are offline contracts. The installed SDK fixture validates direct-model Pose with an absent or misleading optional WorldPose, source immutability, and rejection of nested models. No actual backend or third robot has been admitted.
+
+Complete robot-contact mode now uses native **policy v3** with explicit
+`ALL_POSTUPDATE_PHYSICS_STEPS` sampling. Robot packets retain wire schema v2,
+actual per-step source sequence and iterations; missing steps, missing sequence
+or a SIM delta inconsistent with step dt reject completeness. The simulator-owned
+robot observation producer emits every step. Its separate instrument endpoint
+keeps a 20 Hz stream for cache intervention proof. Paused instrument faults are
+not hidden by its cadence. Source policy v1/v2 point-cache archives are retained
+as sampled observations and cannot satisfy a v3 complete-contact gate. SDK cases
+now include three consecutive synthetic ECM steps with a one-step non-ground
+contact, retained as original source bytes in a separate fixture file.

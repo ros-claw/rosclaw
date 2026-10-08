@@ -162,5 +162,49 @@ int main(int argc, char **argv)
     catch (const std::runtime_error &) { refused = true; }
     if (!refused) throw std::runtime_error("native observer allowed non-observation publisher topic");
   }
+  for (const auto delta : {1, 10, 49})
+  {
+    if (!rosclaw::native_contacts::PublishThisStep("/rosclaw_sim/contact_components", true,
+        std::chrono::milliseconds(0), std::chrono::milliseconds(delta), false))
+      throw std::runtime_error("robot evidence skipped an actual physics step");
+    if (rosclaw::native_contacts::PublishThisStep("/rosclaw_sim/backend_probe_components", true,
+        std::chrono::milliseconds(0), std::chrono::milliseconds(delta), false))
+      throw std::runtime_error("instrument proof stream unexpectedly changed cadence");
+  }
+  if (!rosclaw::native_contacts::PublishThisStep("/rosclaw_sim/backend_probe_components", true,
+      std::chrono::milliseconds(0), std::chrono::milliseconds(1), true))
+    throw std::runtime_error("paused instrument source fault was hidden by throttle");
+  {
+    F f;
+    auto obstacle = f.ecm.CreateEntity();
+    f.ecm.CreateComponent(obstacle, Model()); f.ecm.CreateComponent(obstacle, Name("actual_obstacle"));
+    f.ecm.CreateComponent(obstacle, ParentEntity(f.world));
+    auto link = f.ecm.CreateEntity();
+    f.ecm.CreateComponent(link, Link()); f.ecm.CreateComponent(link, Name("obstacle_link"));
+    f.ecm.CreateComponent(link, ParentEntity(obstacle));
+    auto collider = f.ecm.CreateEntity();
+    f.ecm.CreateComponent(collider, Collision()); f.ecm.CreateComponent(collider, Name("obstacle_collision"));
+    f.ecm.CreateComponent(collider, ParentEntity(link));
+    for (std::uint64_t step = 0; step < 3; ++step)
+    {
+      f.GroundContact();
+      if (step == 1)
+      {
+        auto data = f.ecm.Component<ContactSensorData>(f.collision)->Data();
+        auto pair = data.add_contact();
+        pair->mutable_collision1()->set_id(f.collision);
+        pair->mutable_collision2()->set_id(collider);
+        f.ecm.Component<ContactSensorData>(f.collision)->SetData(data, [](const auto &, const auto &){return false;});
+      }
+      f.info.simTime = std::chrono::milliseconds(100 + step);
+      f.info.iterations = 100 + step;
+      if (!rosclaw::native_contacts::PublishThisStep("/rosclaw_sim/contact_components", step != 0,
+          std::chrono::milliseconds(99 + step), f.info.simTime, false))
+        throw std::runtime_error("short transient contact physics step omitted");
+      out << "{\"case\":\"native_all_step_transient_" << step
+          << "\",\"expected_complete\":true,\"packet\":"
+          << f.observer.Packet(f.info, f.ecm, step) << "}\n";
+    }
+  }
   return 0;
 }

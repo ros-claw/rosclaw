@@ -458,3 +458,117 @@ def test_probe_or_namespace_policy_cannot_alias_other_source_roles(evidence, fie
     native[field] = value
     with pytest.raises(ValueError):
         evidence.native_policy(native)
+
+
+def all_step_policy(packet):
+    result = policy(packet)
+    result.update(
+        schema_version="rosclaw.native_contact_policy.v3",
+        component_gz_topic="/rosclaw_sim/contact_components",
+        sampling_semantics="ALL_POSTUPDATE_PHYSICS_STEPS",
+    )
+    return result
+
+
+@pytest.mark.parametrize("fault", ["missing_iteration", "missing_sequence", "wrong_step_duration"])
+def test_all_step_robot_source_rejects_dropped_or_misaligned_physics_steps(evidence, fault):
+    packet = packet_named("native_actual_contact_entity_names")
+    tracker = evidence.NativeContactEvidence(all_step_policy(packet))
+    packet.update(sequence=0, iterations=100, sim_time_sec=0.1)
+    tracker.pose(0.1, 100, [0, 0, 0, 1, 0, 0, 0])
+    tracker.observe(
+        json.dumps(packet).encode(),
+        received_monotonic_sec=100,
+        received_unix_ns=packet["captured_at_unix_ns"] + 1_000_000,
+    )
+    packet.update(
+        sequence=1,
+        iterations=101,
+        sim_time_sec=0.101,
+        captured_at_unix_ns=packet["captured_at_unix_ns"] + 1_000_000,
+    )
+    if fault == "missing_iteration":
+        packet["iterations"] += 1
+    elif fault == "missing_sequence":
+        packet["sequence"] += 1
+    else:
+        packet["sim_time_sec"] += 0.001
+    tracker.pose(packet["sim_time_sec"], 100.001, [0, 0, 0, 1, 0, 0, 0])
+    with pytest.raises(ValueError, match="missing physics steps"):
+        tracker.observe(
+            json.dumps(packet).encode(),
+            received_monotonic_sec=100.001,
+            received_unix_ns=packet["captured_at_unix_ns"] + 1_000_000,
+        )
+    assert tracker.snapshot(100.002)["source_fault"]
+
+
+def test_all_step_policy_cannot_be_assigned_to_rate_limited_instrument(evidence):
+    packet = packet_named("native_actual_contact_entity_names")
+    p = all_step_policy(packet)
+    p["component_gz_topic"] = "/rosclaw_sim/backend_probe_components"
+    with pytest.raises(ValueError, match="all actual physics steps"):
+        evidence.native_policy(p)
+
+
+def transient_sdk_packets():
+    source = Path(__file__).parent / "fixtures/passive-native-all-step-contract-packets.jsonl"
+    return [json.loads(line)["packet"] for line in source.read_text().splitlines()]
+
+
+def test_original_sdk_one_step_contact_survives_return_to_clear_state(evidence):
+    packets = transient_sdk_packets()
+    tracker = evidence.NativeContactEvidence(all_step_policy(packets[0]))
+    for i, packet in enumerate(packets):
+        wall = 100 + i * 0.001
+        tracker.pose(packet["sim_time_sec"], wall, packet["body_world_pose"])
+        tracker.observe(
+            json.dumps(packet).encode(),
+            received_monotonic_sec=wall,
+            received_unix_ns=packet["captured_at_unix_ns"] + 1_000_000,
+        )
+    result = tracker.snapshot(100.0021)
+    assert result["observation_complete"] and result["collision_count"] == 1
+    assert result["active_contact_topics"] == []
+    assert result["physical_acceptance"] == "NOT_VERIFIED"
+
+
+def test_skipping_original_sdk_transient_packet_is_unknown_not_zero_evidence(evidence):
+    packets = transient_sdk_packets()
+    tracker = evidence.NativeContactEvidence(all_step_policy(packets[0]))
+    for i, packet in enumerate((packets[0], packets[2])):
+        wall = 100 + i * 0.002
+        tracker.pose(packet["sim_time_sec"], wall, packet["body_world_pose"])
+        if i:
+            with pytest.raises(ValueError, match="missing physics steps"):
+                tracker.observe(
+                    json.dumps(packet).encode(),
+                    received_monotonic_sec=wall,
+                    received_unix_ns=packet["captured_at_unix_ns"] + 1_000_000,
+                )
+        else:
+            tracker.observe(
+                json.dumps(packet).encode(),
+                received_monotonic_sec=wall,
+                received_unix_ns=packet["captured_at_unix_ns"] + 1_000_000,
+            )
+    result = tracker.snapshot(100.0021)
+    assert not result["observation_complete"] and result["source_fault"]
+    assert result["backend_health_admitted"] is False
+
+
+def test_complete_window_cannot_promote_legacy_point_policy(evidence, monkeypatch):
+    module = importlib.import_module("closed_native_contact_evidence")
+    packet = packet_named("native_actual_contact_entity_names")
+    with pytest.raises(ValueError, match="all-physics-step"):
+        module.closed_native_contact_window(
+            "unused.jsonl",
+            policy(packet),
+            plugin_path="unused.so",
+            pose_frame="world",
+            start_sim=0,
+            end_sim=3,
+            start_wall="2026-10-08T00:00:00+00:00",
+            end_wall="2026-10-08T00:00:03+00:00",
+            require_all_physics_steps=True,
+        )

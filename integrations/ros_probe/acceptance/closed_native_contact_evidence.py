@@ -53,10 +53,26 @@ def original_ros_bytes(payload, expected_type):
 
 
 def closed_native_contact_window(
-    path, policy, *, plugin_path, pose_frame, start_sim, end_sim, start_wall, end_wall
+    path,
+    policy,
+    *,
+    plugin_path,
+    pose_frame,
+    start_sim,
+    end_sim,
+    start_wall,
+    end_wall,
+    require_all_physics_steps=False,
 ):
     """Reopen original DDS bytes and require complete zero-contact window brackets."""
     native_policy(policy)
+    if type(require_all_physics_steps) is not bool or (
+        require_all_physics_steps
+        and policy.get("sampling_semantics") != "ALL_POSTUPDATE_PHYSICS_STEPS"
+    ):
+        raise ValueError(
+            "complete robot contact window requires explicit all-physics-step source policy"
+        )
     base = policy["contact_policy"]
     if type(pose_frame) is not str or not 0 < len(pose_frame) <= 256:
         raise ValueError("explicit independent world frame required")
@@ -228,6 +244,9 @@ def closed_native_contact_window(
         "summary_sha256": hashlib.sha256(summary_bytes).hexdigest(),
         "native_policy_hash": digest(policy),
         "backend_health_admitted": False,
+        "contact_sampling_semantics": policy.get(
+            "sampling_semantics", "SAMPLED_CONTACT_CACHE_ONLY"
+        ),
         "sample_count": len(selected),
         "collision_count": 0,
         "observation_complete": True,
