@@ -253,3 +253,53 @@ def test_original_source_writers_close_before_world_without_claiming_stop(
     record = json.loads((root / "backend-source-closed.json").read_text())
     assert record["physical_stop_proof"] == "NOT_MEASURED"
     assert record["physical_acceptance"] == "NOT_VERIFIED" and record["authorization"] is False
+
+
+def test_qualified_v2_keeps_actual_prior_merge_check_before_any_process(
+    modules, tmp_path, monkeypatch
+):
+    from tests.connectors.ros import test_dynamic_native_episode as original
+
+    _, episode, _ = modules
+    directory, protocol_path, plugin, urdf, home, spec = original.inputs.__wrapped__(tmp_path)
+    spec["schema_version"] = "rosclaw.dynamic_native_episode.v2"
+    contact, worker = tmp_path / "contact.so", tmp_path / "worker"
+    contact.write_bytes(b"\x7fELFsynthetic_not_loadable")
+    worker.write_bytes(b"\x7fELFsynthetic_not_executable")
+    spec["backend_source"] = {
+        "source_mode": "ALL_STEP_SPATIAL_ORIGINAL_SERVICE_WIRE_REQUIRED",
+        "contact_plugin_sha256": hashlib.sha256(contact.read_bytes()).hexdigest(),
+        "instrument_service_binary_sha256": hashlib.sha256(worker.read_bytes()).hexdigest(),
+    }
+    protocol_path.write_text(json.dumps(spec))
+    called = []
+
+    def command(argv, **kwargs):
+        called.append(argv)
+        if argv[:2] == ["git", "rev-parse"]:
+            return spec["source_commit"]
+        if argv[:2] == ["git", "status"]:
+            return ""
+        if argv[:3] == ["docker", "image", "inspect"]:
+            return spec["image_id"]
+        if argv[0] == "gh":
+            return json.dumps({"merged": False, "merge_commit_sha": None})
+        pytest.fail("unexpected dependency/process before actual merge check")
+
+    monkeypatch.setattr(episode, "command", command)
+    monkeypatch.setattr(episode.subprocess, "run", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        episode.subprocess, "Popen", lambda *args, **kwargs: pytest.fail("unexpected process")
+    )
+    with pytest.raises(ValueError, match="actual reviewed P0 PR merge"):
+        episode.run_episode(
+            directory,
+            protocol_path,
+            plugin,
+            urdf,
+            home,
+            contact_plugin=contact,
+            instrument_service_binary=worker,
+        )
+    assert not directory.exists()
+    assert any(argv[0] == "gh" for argv in called)
