@@ -178,3 +178,21 @@ Full ROS784 passed/10 integration deselected/one existing warning in18.82s;
 repository-required mypy121 files, scoped Ruff/format and compileall passed.
 Transport/action feedback in this test is synthetic and no physics is dispatched.
 Actual Native D1–D6 remain NOT_RUN pending P0 formal evaluation and merge.
+
+## Canonical BLOCKED partial temporal artifact is a negative terminal
+
+The negative Native collector now supports the real executor's safe BLOCKED
+result with a retained partial temporal evidence artifact, as well as FAILED
+with a diagnostic failed artifact. The BLOCKED branch is D4-only and requires
+exact source-admitted run/mission/Body/action identity, canonical artifact SHA,
+complete public temporal replay, coverage below98% and exact receipt/accounting
+agreement. A COMPLETED receipt, foreign identity, changed bytes or an unsupported
+case refuses. TaskKernel still must genuinely reach FAILED/BLOCKED. No state is
+changed. A new owned terminal artifact stops further authorization answers while
+the bounded existing60second propagation grace waits for the real task response.
+
+Thirty-one negative-terminal contracts passed, including nine BLOCKED/artifact
+substitution cases. Full ROS793 passed/10 integration deselected/one existing
+warning in17.47s. The independent scene, brush/contact, closed actual source and
+advancing stop checks remain required; no actual D4/D5 Native physics claim is
+made by these isolated database/receipt tests.

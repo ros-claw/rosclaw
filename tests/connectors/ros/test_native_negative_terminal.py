@@ -188,3 +188,56 @@ def test_negative_requires_typed_isolated_single_root_sources(negative, fault):
                 db.execute("update tasks set body_id='foreign'")
     with pytest.raises(ValueError):
         module.negative_native_progress(root, case, client)
+
+
+@pytest.mark.parametrize(
+    "fault", [None, "body", "mission", "run", "hash", "accounting", "state", "action", "case"]
+)
+def test_actual_canonical_blocked_partial_temporal_artifact_is_negative_only(negative, fault):
+    from rosclaw.connectors.ros.verification.mission import replay_coverage
+    from tests.connectors.ros.test_temporal_mission_runtime import evidence, sample
+
+    root, db, module, client, result = negative
+    ev = evidence([sample(0, 0, 0.005, [0]), sample(0.1, 1, 0.015, [0])])
+    ev.update(body_snapshot_hash="body_hash", action_ids=["failed_action"])
+    config = {
+        "body_id": "body",
+        "body_snapshot_hash": "body_hash",
+        "dynamic_fixture_admission": {"mission_id": "mission", "run_id": "run"},
+    }
+    (root / "execution_config.json").write_text(json.dumps(config))
+    coverage, temporal = replay_coverage(ev)
+    if fault == "body":
+        ev["body_snapshot_hash"] = "foreign"
+    elif fault == "mission":
+        ev["mission_id"] = "foreign"
+    elif fault == "run":
+        ev["occupancy_binding"]["run_id"] = "foreign"
+    elif fault == "action":
+        ev["action_ids"] = ["foreign"]
+    path = root / "actions/rosevidence_partial.json"
+    path.write_text(json.dumps(ev))
+    receipt = result["receipt"]
+    receipt["final_state"] = "COMPLETED" if fault == "state" else "BLOCKED"
+    receipt["verification_result"] = {
+        "mission_id": "mission",
+        "coverage_ratio": coverage["coverage_ratio"],
+        "time_paired_accounting": {} if fault == "accounting" else temporal,
+        "evidence_artifact": {
+            "path": str(path),
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        },
+    }
+    if fault == "hash":
+        path.write_text(path.read_text() + " ")
+    before = hashlib.sha256(db.read_bytes()).hexdigest()
+    if fault:
+        with pytest.raises(ValueError):
+            module.negative_native_progress(root, "D5" if fault == "case" else "D4", client)
+    else:
+        answer = module.negative_native_progress(root, "D4", client)
+        assert answer["physical_acceptance"] == "NOT_VERIFIED"
+        assert answer["task"]["state"] == "FAILED"
+        assert answer["canonical_receipts"][0]["receipt"]["final_state"] == "BLOCKED"
+        assert coverage["coverage_ratio"] == 0.5
+    assert hashlib.sha256(db.read_bytes()).hexdigest() == before

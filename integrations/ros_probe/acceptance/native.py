@@ -136,13 +136,21 @@ def negative_native_progress(root, case, receipt_client):
         ):
             raise ValueError("negative Native canonical receipt identity or terminal state differs")
         verification = receipt.get("verification_result")
+        blocked = receipt["final_state"] == "BLOCKED"
         artifact = verification.get("failure_artifact") if type(verification) is dict else None
+        temporal_artifact = blocked and artifact is None
+        if temporal_artifact:
+            artifact = verification.get("evidence_artifact") if type(verification) is dict else None
         if type(artifact) is not dict or type(artifact.get("path")) is not str:
             raise ValueError("canonical negative receipt requires retained failure artifact")
         path = Path(artifact["path"]).resolve()
         if (
             path.parent != (root / "actions").resolve()
-            or not path.name.endswith(".failed.json")
+            or (not path.name.endswith(".failed.json") and not temporal_artifact)
+            or (
+                temporal_artifact
+                and (path.suffix != ".json" or path.name.endswith(".verification.json"))
+            )
             or not path.is_file()
             or not 0 < path.stat().st_size <= 1_000_000_000
         ):
@@ -151,6 +159,37 @@ def negative_native_progress(root, case, receipt_client):
             sha = hashlib.file_digest(stream, "sha256").hexdigest()
         if sha != artifact.get("sha256"):
             raise ValueError("canonical retained failure artifact changed")
+        if temporal_artifact:
+            from rosclaw.connectors.ros.verification.mission import replay_coverage
+
+            evidence = json.loads(path.read_bytes())
+            admission = config.get("dynamic_fixture_admission")
+            if (
+                case != "D4"
+                or type(admission) is not dict
+                or type(evidence) is not dict
+                or evidence.get("schema_version") != "rosclaw.time_paired_mission_evidence.v1"
+                or evidence.get("body_id") != config["body_id"]
+                or evidence.get("body_snapshot_hash") != config["body_snapshot_hash"]
+                or evidence.get("mission_id") != admission.get("mission_id")
+                or evidence.get("mission_id") != verification.get("mission_id")
+                or evidence.get("action_ids") != [row["action_id"]]
+                or evidence.get("occupancy_binding", {}).get("run_id") != admission.get("run_id")
+            ):
+                raise ValueError(
+                    "canonical blocked artifact requires exact dynamic mission/Body/run"
+                )
+            coverage, temporal = replay_coverage(evidence)
+            if (
+                temporal is None
+                or not temporal["complete"]
+                or coverage["coverage_ratio"] >= 0.98
+                or temporal != verification.get("time_paired_accounting")
+                or coverage["coverage_ratio"] != verification.get("coverage_ratio")
+            ):
+                raise ValueError(
+                    "canonical blocked artifact differs from actual partial accounting"
+                )
         retained.append({"capability_id": row["capability_id"], **result})
     if not retained:
         return {
@@ -336,8 +375,24 @@ def main():
                     raise ValueError("required frozen scenario changed during Native task")
                 scenario_progress = required_scenario_progress(root, scenario_bytes)
             failed = list((root / "actions").glob("*.failed.json"))
+            blocked_artifacts = (
+                [
+                    p
+                    for p in (root / "actions").glob("rosevidence_*.json")
+                    if not p.name.endswith((".verification.json", ".failed.json"))
+                ]
+                if args.expected_safe_failure
+                else []
+            )
+            if len(blocked_artifacts) > 64:
+                raise ValueError("bounded negative Native artifact collection required")
+            terminal_artifact_seen = bool(failed or blocked_artifacts)
             output = session.clean[cursor:]
-            if not failed and failed_at is None and "ROSCLAW 授权请求".encode() in output:
+            if (
+                not terminal_artifact_seen
+                and failed_at is None
+                and "ROSCLAW 授权请求".encode() in output
+            ):
                 time.sleep(0.5)
                 session.send("y")
                 cursor = len(session.clean)
@@ -346,7 +401,7 @@ def main():
                     json.dumps({"stage": "operator_approved_simulation_card", "count": approvals}),
                     flush=True,
                 )
-            if failed:
+            if terminal_artifact_seen:
                 if not args.expected_safe_failure:
                     raise RuntimeError(
                         "canonical mission failed: " + json.loads(failed[0].read_text())["error"]
