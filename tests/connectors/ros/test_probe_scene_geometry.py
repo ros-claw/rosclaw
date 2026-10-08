@@ -255,3 +255,31 @@ def test_boolean_world_transform_does_not_masquerade_as_numeric_identity(fixture
     binding["world_to_map_xyyaw"] = [False, 0, 0]
     with pytest.raises(ValueError, match="frozen owned scene"):
         type(constraint)(binding, d, constraint.gate)
+
+
+@pytest.mark.parametrize("fault", ["duplicate", "nonfinite", "utf16", "depth", "oversized"])
+def test_original_scene_bytes_refuse_ambiguous_or_unbounded_json(fixture, fault):
+    constraint, scene, robot, probe, _, _, _ = fixture
+    raw = json.dumps(scene).encode()
+    expected = "scene"
+    if fault == "duplicate":
+        raw = raw[:-1] + b', "paused": false}'
+        expected = "duplicate"
+    elif fault == "nonfinite":
+        raw = raw[:-1] + b', "extra": NaN}'
+        expected = "nonfinite"
+    elif fault == "utf16":
+        raw = json.dumps(scene).encode("utf-16")
+    elif fault == "depth":
+        raw = b"[" * 2000 + b"0" + b"]" * 2000
+    else:
+        raw = b" " * 262145
+    with pytest.raises(ValueError, match=expected):
+        constraint.observe(
+            raw,
+            received_monotonic_sec=100,
+            received_unix_ns=scene["captured_at_unix_ns"] + 1_000_000,
+            robot_component_bytes=json.dumps(robot).encode(),
+            probe_component_bytes=json.dumps(probe).encode(),
+        )
+    assert constraint.fault

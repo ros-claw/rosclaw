@@ -7,6 +7,7 @@ a bad stream must latch. This checks transport/lifecycle, not physical evidence.
 
 import argparse
 import copy
+import hashlib
 import json
 import os
 import signal
@@ -30,9 +31,31 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--plugin", type=Path, required=True)
+    parser.add_argument("--with-spatial", action="store_true")
     args = parser.parse_args()
     args.output.mkdir(exist_ok=False)
     (args.output / "original-contract-driver.py").write_bytes(Path(__file__).read_bytes())
+    repo = Path(__file__).resolve().parents[3]
+    capture = args.output / "original-source-snapshot"
+    capture.mkdir()
+    inputs = [
+        *sorted((repo / "src").rglob("*.py")),
+        *sorted(Path(__file__).parent.glob("*.py")),
+        repo / "tests/connectors/ros/fixtures/passive-native-contact-contract-packets.jsonl",
+        repo / "tests/connectors/ros/fixtures/passive-ecm-body-v2-contract-packets.jsonl",
+    ]
+    source_hashes = {}
+    for path in inputs:
+        if path.is_symlink() or not path.is_file():
+            raise ValueError("original contract source must be a regular non-symlink file")
+        raw = path.read_bytes()
+        relative = str(path.relative_to(repo))
+        target = capture / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(raw)
+        source_hashes[relative] = hashlib.sha256(raw).hexdigest()
+    manifest = json.dumps(source_hashes, sort_keys=True, indent=2).encode() + b"\n"
+    (capture / "source-manifest.json").write_bytes(manifest)
     robot_root, probe_root, output = [
         args.output / name for name in ("robot", "instrument", "observer")
     ]
@@ -84,6 +107,63 @@ def main():
         "--duration",
         "60",
     ]
+    scene = None
+    if args.with_spatial:
+        sources = Path(__file__).resolve().parents[3] / "tests/connectors/ros/fixtures"
+        scene = next(
+            json.loads(line)["packet"]
+            for line in (sources / "passive-ecm-body-v2-contract-packets.jsonl")
+            .read_text()
+            .splitlines()
+            if json.loads(line)["case"].startswith("v2_")
+        )
+        b = robot_policy["contact_policy"]
+        declaration = json.loads((probe_root / "probe-fixture.json").read_text())["declaration"]
+        declaration.update(run_id=b["run_id"], robot_model_name=b["model_name"])
+        scene.update({k: b[k] for k in ("run_id", "body_snapshot_hash", "attachment_hash")})
+        scene.update(world_name=robot_policy["world_name"], paused=False)
+        scene["body"]["collision_geometry"][0]["entity_id"] = 6
+        scene["obstacles"][0]["world_pose"][:2] = [3, 3]
+        scene["obstacles"].append(
+            {
+                "model_name": "instrument_probe",
+                "entity_id": 40,
+                "world_pose": [6, 0, 0.05, 1, 0, 0, 0],
+                "collision_geometry": [
+                    {
+                        "entity_id": 46,
+                        "kind": "sphere",
+                        "radius": 0.05,
+                        "enclosing_radius_m": 0.05,
+                        "model_relative_pose": [0, 0, 0, 1, 0, 0, 0],
+                    }
+                ],
+            }
+        )
+        scene["scene_models"].append({"model_name": "instrument_probe", "entity_id": 40})
+        scene_binding = {
+            **{k: b[k] for k in ("run_id", "body_snapshot_hash", "attachment_hash")},
+            "body_model_name": b["model_name"],
+            "world_name": robot_policy["world_name"],
+            "obstacle_names": ["anonymous_blocker", "instrument_probe"],
+            "scene_model_names": [b["model_name"], "anonymous_blocker", "instrument_probe"],
+            "world_to_map_xyyaw": [0, 0, 0],
+            "map_world_identity_approved": True,
+            "frame_transform_source": "simulator_operator_fixture_policy",
+            "grid": {"cleaning_polygon": declaration["cleaning_polygon"]},
+        }
+        scene_dir = args.output / "explicit-synthetic-spatial-sources"
+        scene_dir.mkdir()
+        for name, value in (("binding.json", scene_binding), ("declaration.json", declaration)):
+            (scene_dir / name).write_text(json.dumps(value) + "\n")
+        argv += [
+            "--scene-binding",
+            str(scene_dir / "binding.json"),
+            "--probe-declaration",
+            str(scene_dir / "declaration.json"),
+            "--scene-directory",
+            str(scene_dir),
+        ]
     subprocess.run([*argv, "--prepare-only"], check=True, timeout=20)
     config = json.loads((output / "backend_actor_constraint.json").read_text())
     binding = {k: robot_policy["contact_policy"][k] for k in ("run_id", "body_snapshot_hash")}
@@ -140,6 +220,11 @@ def main():
         robot_components = node.create_publisher(String, robot_policy["component_topic"], qos)
         probe_pose = node.create_publisher(TFMessage, native["contact_policy"]["pose_topic"], qos)
         probe_components = node.create_publisher(String, native["component_topic"], qos)
+        scene_components = (
+            node.create_publisher(String, "/rosclaw_sim/physics_snapshot", qos)
+            if scene is not None
+            else None
+        )
 
         def envelope(message):
             received.append(json.loads(message.data))
@@ -153,16 +238,32 @@ def main():
             argv, stdout=child_log, stderr=subprocess.STDOUT, env=os.environ.copy()
         )
         deadline = time.monotonic() + 15
-        while any(
-            p.get_subscription_count() < 1
-            for p in (robot_pose, robot_components, probe_pose, probe_components)
-        ):
+        source_publishers = [robot_pose, robot_components, probe_pose, probe_components]
+        if scene_components is not None:
+            source_publishers.append(scene_components)
+        while any(p.get_subscription_count() < 1 for p in source_publishers):
             if child.poll() is not None or time.monotonic() >= deadline:
                 raise ValueError("actual observation subscriptions failed to discover")
             rclpy.spin_once(node, timeout_sec=0.02)
 
+        # Discovery can precede the initial BEST_EFFORT data connection.
+        # Settle without publishing packets or consuming source sequences.
+        # This setup interval never extends a mission deadline.
+        settle_until = time.monotonic() + 0.5
+        while time.monotonic() < settle_until:
+            rclpy.spin_once(node, timeout_sec=0.01)
+
         def frame(index, bad=False):
             sim = 1 + index * 0.01
+            if scene_components is not None and index % 5 == 0:
+                value = copy.deepcopy(scene)
+                value.update(
+                    sequence=index // 5,
+                    physics_iteration=index + 1,
+                    sim_time_sec=round(sim * 1e9) / 1e9,
+                    captured_at_unix_ns=time.time_ns(),
+                )
+                scene_components.publish(String(data=json.dumps(value)))
             for packet, pose_pub, component_pub, xyz in (
                 (robot, robot_pose, robot_components, [0, 0, 0]),
                 (probe, probe_pose, probe_components, [6, 0, 0.05]),
@@ -186,8 +287,8 @@ def main():
                 pose_pub.publish(TFMessage(transforms=[item]))
                 value = copy.deepcopy(packet)
                 value.update(
-                    sequence=index,
-                    iterations=index,
+                    sequence=index // 5 if packet is probe else index,
+                    iterations=index + 1,
                     sim_time_sec=item.header.stamp.sec + item.header.stamp.nanosec / 1e9,
                     physics_step_dt_sec=0.01,
                     body_world_pose=[*xyz, 1, 0, 0, 0],
@@ -256,20 +357,62 @@ def main():
         first_bad = json.loads(
             __import__("base64").b64decode(rejected[0]["payload"]["original_source_base64"])
         )
+        expected_error = (
+            "original spatial source step/sequence missing or regressed"
+            if args.with_spatial
+            else "repeated/regressed"
+        )
         if (
             first_bad["sequence"] != 0
-            or first_bad["iterations"] != 400
-            or "repeated/regressed" not in rejected[0]["payload"]["error"]
+            or first_bad["iterations"] != 401
+            or rejected[0]["payload"]["source_kind"] != "backend_robot_components"
+            or expected_error not in rejected[0]["payload"]["error"]
         ):
             raise ValueError("DDS first rejection was not the retained intentional sequence fault")
+        spatial_samples = [
+            event["payload"]["projection"]["snapshot"]["scene_geometry_constraint"]
+            for event in events
+            if args.with_spatial
+            and event["kind"] == "backend_observation_sample"
+            and event["payload"]["projection"]["snapshot"]["source_fault"] is None
+        ]
+        original_joins = [
+            joined
+            for event in events
+            for joined in event["payload"].get("projection", {}).get("joined_spatial_sources", [])
+        ]
+        if args.with_spatial and (
+            not any(s["scene_geometry_constraint_satisfied"] for s in spatial_samples)
+            or [j["original_sim_step_ns"] for j in original_joins]
+            != [1_000_000_000 + i * 50_000_000 for i in range(80)]
+        ):
+            raise ValueError("actual DDS spatial prefix did not join all 80 intended exact steps")
+        if any(
+            hashlib.sha256((repo / relative).read_bytes()).hexdigest() != sha
+            for relative, sha in source_hashes.items()
+        ):
+            raise ValueError(
+                "original Python/fixture contract sources changed during actual DDS run"
+            )
         report = {
             "status": "PASS_ACTUAL_DDS_OVER_EXPLICITLY_SYNTHETIC_SOURCES",
             "received_envelopes": len(received),
             "robot_source_rate_hz": 100,
             "last_accepted_robot_sequence": 399,
-            "first_rejected_robot_iteration": 400,
+            "first_rejected_robot_iteration": 401,
             "first_rejection_matches_retained_intentional_fault": True,
             "probe_source_rate_hz": 20,
+            "spatial_source_join_required": args.with_spatial,
+            "spatial_source_rate_hz": 20 if args.with_spatial else None,
+            "first_iteration_positive_even_at_initial_sequence_zero": True,
+            "completed_spatial_joins_before_intentional_fault": len(original_joins)
+            if args.with_spatial
+            else None,
+            "transport_settle_interval_sec": 0.5,
+            "original_source_files_captured": len(source_hashes),
+            "original_source_manifest_sha256": hashlib.sha256(manifest).hexdigest(),
+            "original_source_scope": "ALL_SRC_PYTHON_ACCEPTANCE_PYTHON_AND_TWO_SDK_DERIVED_FIXTURE_INPUTS",
+            "source_bytes_unchanged_during_run": True,
             "intact_unqualified_observations": len(valid),
             "faulted_observations": len(faulted),
             "observer_exit_code": code,

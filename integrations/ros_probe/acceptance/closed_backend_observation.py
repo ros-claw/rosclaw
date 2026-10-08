@@ -40,6 +40,8 @@ def closed_backend_observation(
     probe_plugin,
     robot_pose_frame,
     probe_pose_frame,
+    scene_binding=None,
+    probe_declaration=None,
 ):
     """Replay complete owned original sources with the online event engine."""
     engine = BackendObserverReplay(
@@ -47,6 +49,8 @@ def closed_backend_observation(
         probe_policy,
         robot_pose_frame=robot_pose_frame,
         probe_pose_frame=probe_pose_frame,
+        scene_binding=scene_binding,
+        probe_declaration=probe_declaration,
     )
     for root, policy, plugin in (
         (robot_directory, robot_policy, robot_plugin),
@@ -123,6 +127,7 @@ def closed_backend_observation(
                 "backend_robot_components",
                 "backend_probe_components",
                 "backend_probe_lift_ack",
+                "backend_scene_components",
             }:
                 unix = payload.get("received_unix_ns")
                 if (
@@ -169,6 +174,8 @@ def closed_backend_observation(
         "samples_replayed": sample_count,
         "robot_collision_count": engine.gate.robot.snapshot(engine.last_wall)["collision_count"],
         "probe_completed_cache_cycles": engine.gate.probe.tracker.cycles,
+        "spatial_source_join_required": engine.spatial is not None,
+        "completed_exact_scene_joins": engine.spatial.completed if engine.spatial else None,
         "actual_world_and_body_admission": "NOT_VERIFIED",
         "backend_health_admitted": False,
         "physical_acceptance": "NOT_VERIFIED",
