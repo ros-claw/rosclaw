@@ -10,6 +10,7 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
+import yaml
 from observations import latest_completed_observation
 
 from rosclaw.connectors.ros.verification.mission import verify_mission
@@ -26,6 +27,46 @@ def native_path_sources(root):
     if not streams:
         raise RuntimeError("Native path evidence is missing; no legacy snapshots or append log")
     return streams
+
+
+def mission_practice_episode(root, mission_id):
+    """Find exactly this mission's Practice record; never infer success from a name."""
+    sessions = root / "practice/sessions"
+    candidates = list(sessions.glob("*/episode.json")) + list(
+        sessions.glob("*/episodes/*/episode.json")
+    )
+    if len(candidates) > 64:
+        raise ValueError("isolated mission Practice lookup exceeds bound")
+    matching = {}
+    for candidate in candidates:
+        path = candidate.resolve()
+        if not path.is_relative_to(sessions.resolve()) or path.stat().st_size > 2_000_000:
+            raise ValueError("bounded local Practice record required")
+        record = json.loads(path.read_bytes())
+        if type(record) is not dict:
+            raise ValueError("Practice record must be an object")
+        if record.get("practice_id") == mission_id:
+            matching[path] = record
+    if len(matching) != 1:
+        raise ValueError("exactly one Practice record for the evidence mission required")
+    episode, record = next(iter(matching.items()))
+    if record.get("outcome") != "SUCCESS":
+        raise ValueError("evidence mission Practice was not closed successfully")
+    manifest = episode.with_name("manifest.yaml")
+    if not manifest.is_file() or not manifest.resolve().is_relative_to(sessions.resolve()):
+        raise ValueError("same local Practice episode manifest required")
+    if manifest.stat().st_size > 2_000_000:
+        raise ValueError("bounded local Practice manifest required")
+    metadata = yaml.safe_load(manifest.read_bytes())
+    if (
+        type(metadata) is not dict
+        or metadata.get("practice_id") != mission_id
+        or type(record.get("session_id")) is not str
+        or not record["session_id"]
+        or metadata.get("session_id") != record["session_id"]
+    ):
+        raise ValueError("Practice manifest mission/session identity mismatch")
+    return episode, manifest
 
 
 def main(root, fixture, output, native=False):
@@ -109,9 +150,7 @@ def main(root, fixture, output, native=False):
             queries[query] = rows[0]["id"]
     finally:
         memory.stop()
-    episode = root / "practice/sessions/gazebo-room-cleaning/episode.json"
-    if json.loads(episode.read_text())["outcome"] != "SUCCESS":
-        raise RuntimeError("Practice was not closed successfully")
+    episode, practice_manifest = mission_practice_episode(root, evidence["mission_id"])
     samples = []
     until = time.monotonic() + 3
     while time.monotonic() < until:
@@ -198,7 +237,7 @@ def main(root, fixture, output, native=False):
     archive(episode, "practice-episode.json")
     archive(memory_snapshot, "memory.snapshot.sqlite.gz", True)
     memory_snapshot.unlink()
-    archive(root / "practice/sessions/gazebo-room-cleaning/manifest.yaml", "practice-manifest.yaml")
+    archive(practice_manifest, "practice-manifest.yaml")
     for name in (
         "body.json",
         "execution_config.json",
