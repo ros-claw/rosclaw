@@ -47,6 +47,9 @@ source, selected main and repair strategies, and original per-Body deadlines.
 Statistics reject mismatched arm presets, altered baseline repair strategies,
 mixed candidate strategies or missing complete independent observations. Final
 analysis records its own source hash as well as every input hash.
+Each arm's deadline must match its pair, and deadlines/protocol hashes must
+remain identical across the entire frozen series. Extending one arm or
+changing both deadlines midway cannot produce an accepted efficiency median.
 
 Native supplemental acceptance supports current append-only path logs without
 requiring removed overwritten snapshot filenames. Its still-running observer
@@ -76,6 +79,6 @@ returning READY in215.19,210.84 and210.30 ms, below the500 ms bound. Input
 evidence SHA256 is
 `bca5084b5f923ff764ced9c53fcc9f7c910021e3d545aed4d1e08801c8e5add2`.
 These timings describe computation on a recorded mask, not physical efficiency.
-The complete local ROS suite passed344 tests with10 integration cases
+The complete local ROS suite passed348 tests with10 integration cases
 deselected; targeted mypy, Ruff and formatting passed. Physical pose-aware
 acceptance remains NOT_RUN.

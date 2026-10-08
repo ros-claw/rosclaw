@@ -22,6 +22,8 @@ def pair(seed, baseline, candidate):
         "source_commit": "source",
         "image_id": "image",
         "candidate": "perimeter",
+        "mission_timeout_sec": 900,
+        "protocol_sha256": "protocol",
     }
     p["runs"] = [
         {k: p[k] for k in ["profile", "seed", "source_commit", "image_id"]}
@@ -31,6 +33,7 @@ def pair(seed, baseline, candidate):
             "status": "PASS",
             "audit_complete": True,
             "complete_independent_observations": True,
+            "mission_timeout_sec": p["mission_timeout_sec"],
             "run_id": f"{seed}-{arm}",
             "coverage_ratio": 0.98,
             "collision_count": 0,
@@ -119,6 +122,29 @@ def test_repair_ablation_identity_and_complete_observations_are_required(fault):
         pairs[1]["candidate_repair_strategy"] = row["repair_strategy"] = "pose_aware"
     else:
         row["complete_independent_observations"] = False
+    result = analysis.analyze_pairs(
+        pairs, expected_seeds=[1, 2], profile="waffle", phase="evaluation"
+    )
+    assert result["failed_pairs"] and not result["complete_frozen_series"]
+    assert result["metrics"] == {} and not result["median_30_percent_target"]
+
+
+@pytest.mark.parametrize(
+    "fault", ["arm_deadline", "series_deadline", "protocol", "missing_deadline"]
+)
+def test_extended_deadlines_or_changed_protocol_cannot_form_a_frozen_comparison(fault):
+    pairs = [pair(1, 10, 1), pair(2, 20, 2)]
+    second = pairs[1]
+    if fault == "arm_deadline":
+        second["runs"][1]["mission_timeout_sec"] = 1800
+    elif fault == "series_deadline":
+        second["mission_timeout_sec"] = 1800
+        for row in second["runs"]:
+            row["mission_timeout_sec"] = 1800
+    elif fault == "protocol":
+        second["protocol_sha256"] = "changed"
+    else:
+        del second["mission_timeout_sec"]
     result = analysis.analyze_pairs(
         pairs, expected_seeds=[1, 2], profile="waffle", phase="evaluation"
     )

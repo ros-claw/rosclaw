@@ -50,7 +50,20 @@ def analyze_pairs(pairs, *, expected_seeds, profile, phase, bootstrap_samples=20
         else:
             arms = {r["arm"]: r for r in rows}
             strategy = pair.get("candidate_repair_strategy", "greedy")
-            identities.add((pair["source_commit"], pair["image_id"], pair["candidate"], strategy))
+            deadline = pair.get("mission_timeout_sec")
+            protocol = pair.get("protocol_sha256")
+            if type(deadline) is not int or not 60 <= deadline <= 1800 or not protocol:
+                problems.append("mission deadline or protocol binding missing")
+            identities.add(
+                (
+                    pair["source_commit"],
+                    pair["image_id"],
+                    pair["candidate"],
+                    strategy,
+                    deadline,
+                    protocol,
+                )
+            )
             for r in rows:
                 expected_preset = "baseline" if r["arm"] == "baseline" else pair["candidate"]
                 expected_strategy = "greedy" if r["arm"] == "baseline" else strategy
@@ -61,6 +74,11 @@ def analyze_pairs(pairs, *, expected_seeds, profile, phase, bootstrap_samples=20
                     problems.append("arm preset or repair strategy differs from frozen pair")
                 if r.get("complete_independent_observations") is not True:
                     problems.append("complete independent observations not recorded")
+                if (
+                    type(r.get("mission_timeout_sec")) is not int
+                    or r["mission_timeout_sec"] != deadline
+                ):
+                    problems.append("arm mission deadline differs from frozen pair")
                 if any(
                     r.get(k) != pair[k] for k in ["profile", "seed", "source_commit", "image_id"]
                 ):
@@ -106,7 +124,9 @@ def analyze_pairs(pairs, *, expected_seeds, profile, phase, bootstrap_samples=20
         failures.append(
             {
                 "seed": None,
-                "reasons": ["series source/image/candidate/repair changed; not a frozen series"],
+                "reasons": [
+                    "series source/image/candidate/repair/deadline/protocol changed; not a frozen series"
+                ],
             }
         )
     eligible = not missing and not failures and len(validated) == len(expected_seeds)
