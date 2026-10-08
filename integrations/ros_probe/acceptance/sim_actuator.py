@@ -5,6 +5,8 @@ rosclawd request_action. This bridge neither observes physics nor verifies a
 mission. A prepared frozen brush_binding.json is required for split mode.
 """
 
+import base64
+import hashlib
 import json
 import math
 import time
@@ -13,6 +15,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import rclpy
+from actuator_observation_constraint import ActuatorObservationConstraint, decode
 from geometry_msgs.msg import Twist, TwistStamped
 from rclpy.clock import Clock, ClockType
 from rclpy.node import Node
@@ -44,6 +47,16 @@ class SimulationActuator(Node):
         self.binding = load_binding("/evidence/brush_binding.json")
         self.cleaning, self.lease, self.lease_updates, self.sequence = False, 0, 0, 0
         self.fault = None
+        required = self.declare_parameter("require_backend_observation", False).value
+        if type(required) is not bool:
+            raise ValueError("explicit backend observation interlock boolean required")
+        self.observation_constraint = None
+        if required:
+            config = decode(Path("/evidence/backend_actor_constraint.json").read_text())
+            self.observation_constraint = ActuatorObservationConstraint(config, self.binding)
+            self.create_subscription(
+                String, "/rosclaw_sim/backend_observation_constraint", self.observation, 128
+            )
         self.last_event_time = None
         self.controller_watchdog = self.declare_parameter("controller_watchdog", True).value
         if runtime_policy is not None and not self.controller_watchdog:
@@ -83,6 +96,21 @@ class SimulationActuator(Node):
                 "source": "simulator_owned_actuator",
                 "evidence_domain": "SIMULATION",
             },
+        )
+        self.observation_audit = (
+            CoverageAuditLog(
+                Path("/evidence") / f"actor-observation-events-{time.time_ns()}.jsonl",
+                context={
+                    **self.binding,
+                    "source": "SIM_actor_observation_interlock",
+                    "constraint_policy_hash": self.observation_constraint.config[
+                        "constraint_policy_hash"
+                    ],
+                    "evidence_domain": "SIMULATION",
+                },
+            )
+            if required
+            else None
         )
         self.create_subscription(Twist, topics["nav_velocity"], self.command, 10)
         self.create_service(SetBool, endpoints["cleaning"], self.set_cleaning)
@@ -126,12 +154,69 @@ class SimulationActuator(Node):
         else:
             self.velocity.publish(message)
 
+    def observation(self, message):
+        constraint = self.observation_constraint
+        if constraint is None:
+            raise RuntimeError("backend observation interlock not configured")
+        wall = time.monotonic()
+        constraint.receive(message.data, wall)
+        raw = message.data.encode("utf-8", errors="surrogatepass")
+        payload = {
+            "received_monotonic_sec": wall,
+            "original_source_sha256": hashlib.sha256(raw).hexdigest(),
+            "original_size_bytes": len(raw),
+            "source_bytes_complete": len(raw) <= 4096,
+            "source_fault": constraint.fault,
+        }
+        if len(raw) <= 4096:
+            payload["original_source_base64"] = base64.b64encode(raw).decode("ascii")
+        self.observation_audit.emit("actor_observation_envelope_received", payload)
+        self.source_ready()
+
+    def source_ready(self):
+        constraint = self.observation_constraint
+        if constraint is None:
+            return True
+        sampled, sim = time.monotonic(), self.get_clock().now().nanoseconds / 1e9
+        ready = constraint.ready(sampled, sim)
+        lease_before = self.lease
+        if self.observation_audit.dropped or self.observation_audit.error:
+            constraint.fault = constraint.fault or "actor observation source audit incomplete"
+            ready = False
+        if not ready:
+            self.lease = 0
+            if constraint.fault:
+                self.fault = self.fault or constraint.fault
+            self.stop()
+            self.cleaning_state.publish(Bool(data=False))
+        self.observation_audit.emit(
+            "actor_observation_interlock_sample",
+            {
+                "sampled_monotonic_sec": sampled,
+                "actor_sim_time_sec": sim,
+                "source_ready": ready,
+                "source_sequence": constraint.last["sequence"] if constraint.last else None,
+                "source_fault": constraint.fault,
+                "lease_before": lease_before,
+                "lease_after": self.lease,
+                "cleaning_enabled": self.cleaning,
+                "authorization": False,
+            },
+        )
+        return ready
+
     def command(self, message):
-        if self.fault is None and not self.holding and time.monotonic() < self.lease:
+        if (
+            self.source_ready()
+            and self.fault is None
+            and not self.holding
+            and time.monotonic() < self.lease
+        ):
             self.publish_velocity(message)
 
     def set_hold(self, request, response):
-        if self.fault or (not request.data and time.monotonic() >= self.lease):
+        ready = self.source_ready()
+        if self.fault or (not request.data and (not ready or time.monotonic() >= self.lease)):
             response.success = False
             response.message = "SIM hold release requires a live healthy daemon lease"
             return response
@@ -152,7 +237,10 @@ class SimulationActuator(Node):
         return response
 
     def set_cleaning(self, request, response):
-        if self.fault or (request.data and (self.holding or time.monotonic() >= self.lease)):
+        ready = self.source_ready()
+        if self.fault or (
+            request.data and (not ready or self.holding or time.monotonic() >= self.lease)
+        ):
             response.success = False
             response.message = "SIM cleaner requires a live daemon lease and healthy event source"
             return response
@@ -173,11 +261,12 @@ class SimulationActuator(Node):
         return response
 
     def heartbeat(self, request, response):
-        self.lease = time.monotonic() + 1.5 if request.data and not self.fault else 0
+        ready = self.source_ready()
+        self.lease = time.monotonic() + 1.5 if request.data and ready and not self.fault else 0
         self.lease_updates += 1
         if not request.data:
             self.stop()
-        response.success = self.fault is None
+        response.success = self.fault is None and (not request.data or ready)
         return response
 
     def stop(self):
@@ -188,7 +277,7 @@ class SimulationActuator(Node):
 
     def tick(self):
         try:
-            if self.fault or time.monotonic() >= self.lease:
+            if not self.source_ready() or self.fault or time.monotonic() >= self.lease:
                 self.stop()
             self.event("WATERMARK")
             self.cleaning_state.publish(Bool(data=self.cleaning))
@@ -209,6 +298,11 @@ def main():
             if rclpy.ok():
                 node.stop()
         finally:
+            if node.observation_audit is not None:
+                observation_summary = node.observation_audit.close()
+                Path(observation_summary["path"] + ".summary.json").write_text(
+                    json.dumps(observation_summary) + "\n"
+                )
             summary = node.audit.close()
             Path(summary["path"] + ".summary.json").write_text(json.dumps(summary) + "\n")
             node.destroy_node()

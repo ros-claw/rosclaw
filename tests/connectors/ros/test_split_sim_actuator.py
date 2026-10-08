@@ -82,7 +82,14 @@ class FakeNode:
 
 
 def load_node(
-    filename, classname, monkeypatch, *, dynamic=False, runtime_policy=None, brush_binding=None
+    filename,
+    classname,
+    monkeypatch,
+    *,
+    dynamic=False,
+    runtime_policy=None,
+    brush_binding=None,
+    backend_required=False,
 ):
     tree = ast.parse((ROOT / filename).read_text())
     tree.body = [
@@ -93,9 +100,14 @@ def load_node(
 
     class ConfiguredNode(FakeNode):
         def declare_parameter(self, name, default):
+            if name == "require_backend_observation":
+                return SimpleNamespace(value=backend_required)
             if name == "dynamic_physics":
                 return SimpleNamespace(value=dynamic)
             return super().declare_parameter(name, default)
+
+    monkeypatch.syspath_prepend(str(ROOT))
+    from actuator_observation_constraint import ActuatorObservationConstraint, decode
 
     from rosclaw.connectors.ros.verification.coverage import CoverageVerifier
     from rosclaw.connectors.ros.verification.occupancy_geometry import (
@@ -107,11 +119,15 @@ def load_node(
         "Node": ConfiguredNode,
         "SimpleNamespace": SimpleNamespace,
         "load_frozen_sim_runtime_policy": lambda _: runtime_policy,
+        "ActuatorObservationConstraint": ActuatorObservationConstraint,
+        "decode": decode,
         "CoverageVerifier": CoverageVerifier,
         "OccupancyProjector": OccupancyProjector,
         "parse_physics_packet": parse_physics_packet,
         "Path": FakePath,
         "json": json,
+        "base64": __import__("base64"),
+        "hashlib": __import__("hashlib"),
         "math": math,
         "time": time,
         "datetime": datetime,
@@ -122,7 +138,9 @@ def load_node(
         "BrushStateEvent": BrushStateEvent,
         "BrushStateTimeline": BrushStateTimeline,
         "PROFILES": {"fixture": PROFILE},
-        "CoverageAuditLog": lambda *a, **kw: SimpleNamespace(emit=lambda *a, **kw: None),
+        "CoverageAuditLog": lambda *a, **kw: SimpleNamespace(
+            emit=lambda *a, **kw: None, dropped=0, error=None
+        ),
         "QoSProfile": lambda **kw: None,
         "ReliabilityPolicy": SimpleNamespace(BEST_EFFORT=None, RELIABLE=None),
         "DurabilityPolicy": SimpleNamespace(TRANSIENT_LOCAL=None),

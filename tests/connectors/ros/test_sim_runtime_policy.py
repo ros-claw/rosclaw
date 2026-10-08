@@ -407,7 +407,10 @@ def test_actual_generic_contact_handler_excludes_only_explicit_ground_model(
     assert node.physics_collision_count == 1
 
 
-def test_actual_generic_actuator_uses_declared_services_and_lease_stop(frozen_runtime, monkeypatch):
+@pytest.mark.parametrize("backend_required", [False, True])
+def test_actual_generic_actuator_uses_declared_services_and_lease_stop(
+    frozen_runtime, monkeypatch, backend_required
+):
     import time
     from types import SimpleNamespace
 
@@ -423,15 +426,41 @@ def test_actual_generic_actuator_uses_declared_services_and_lease_stop(frozen_ru
             "/evidence/run_id.txt": brush["run_id"],
         },
     )
-    actor = load_node("sim_actuator.py", "SimulationActuator", monkeypatch, runtime_policy=policy)
+    if backend_required:
+        FakePath.extra["/evidence/backend_actor_constraint.json"] = json.dumps(
+            {
+                "run_id": brush["run_id"],
+                "body_snapshot_hash": brush["body_snapshot_hash"],
+                "constraint_policy_hash": "a" * 64,
+            }
+        )
+    actor = load_node(
+        "sim_actuator.py",
+        "SimulationActuator",
+        monkeypatch,
+        runtime_policy=policy,
+        backend_required=backend_required,
+    )
     assert set(actor.services) == {policy["endpoints"][k] for k in ("lease", "hold", "cleaning")}
-    assert set(actor.subscriptions) == {policy["policy"]["topics"]["nav_velocity"]}
+    assert set(actor.subscriptions) == {policy["policy"]["topics"]["nav_velocity"]} | (
+        {"/rosclaw_sim/backend_observation_constraint"} if backend_required else set()
+    )
     assert set(actor.publishers) == {
         policy["policy"]["topics"][k] for k in ("drive_velocity", "cleaning_state", "brush_events")
     }
     assert not actor.set_cleaning(SimpleNamespace(data=True), SimpleNamespace()).success
     actor.tick()
-    actor.heartbeat(SimpleNamespace(data=True), SimpleNamespace())
+    if backend_required:
+        from tests.connectors.ros.test_actuator_observation_constraint import row
+
+        assert not actor.heartbeat(SimpleNamespace(data=True), SimpleNamespace()).success
+        envelope = {
+            **row(wall=time.monotonic()),
+            "run_id": brush["run_id"],
+            "body_snapshot_hash": brush["body_snapshot_hash"],
+        }
+        actor.observation(SimpleNamespace(data=json.dumps(envelope)))
+    assert actor.heartbeat(SimpleNamespace(data=True), SimpleNamespace()).success
     actor.sim_time = 1.1
     assert actor.set_cleaning(SimpleNamespace(data=True), SimpleNamespace()).success
     actor.lease = time.monotonic() - 1
