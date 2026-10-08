@@ -50,13 +50,6 @@
         "headland_width": 0.45,
         "swath_angle_rad": 0.0,
         "route_mode": "BOUSTROPHEDON"
-      },
-      {
-        "id": "perimeter",
-        "headland_width": 0.5,
-        "swath_angle_rad": 0.0,
-        "route_mode": "BOUSTROPHEDON",
-        "boundary_pass": "5 existing legal corner targets, Nav2 NavigateThroughPoses, bounded180s"
       }
     ],
     "burger": [
@@ -71,13 +64,6 @@
         "headland_width": 0.35,
         "swath_angle_rad": 0.0,
         "route_mode": "BOUSTROPHEDON"
-      },
-      {
-        "id": "perimeter",
-        "headland_width": 0.3,
-        "swath_angle_rad": 0.0,
-        "route_mode": "BOUSTROPHEDON",
-        "boundary_pass": "5 existing legal corner targets, Nav2 NavigateThroughPoses, bounded180s"
       }
     ]
   },
@@ -112,11 +98,5 @@
   ],
   "primary_reporting_definition": "Report 1 - median(candidate distance)/median(baseline distance) and same for SIM span, plus median paired per-run relative delta. All failed pairs invalidate safety gate and remain in success-rate denominator.",
   "offline_inputs_manifest_sha256": "3f55f570ed9aceb07e0569b0f6f1ed1a9394648b3e11e6a3223f562a0726c520",
-  "supersedes_initial_protocol_reason": "Verified Burger actual baseline headland0.3; initial0.5 assumption invalid. No N02 physical trial has run before either protocol.",
-  "pilot_amendment": {
-    "reason": "Diagonal rejected; headland main failed. Explicit legal Edges target coordination allowed in user plan section 5.1.",
-    "registered_before_perimeter_physical_trial": true,
-    "main_and_boundary_separately_reported": true,
-    "evaluation_freeze": "NOT_FROZEN"
-  }
+  "supersedes_initial_protocol_reason": "Verified Burger actual baseline headland0.3; initial0.5 assumption invalid. No N02 physical trial has run before either protocol."
 }

@@ -15,6 +15,7 @@ from pathlib import Path
 
 from rosclaw.connectors.ros.action_client import STATUS_SUCCEEDED
 from rosclaw.connectors.ros.diagnosis.coverage_audit import CoverageAuditLog, digest
+from rosclaw.connectors.ros.mission.boundary_pass import rectangular_boundary_targets
 from rosclaw.connectors.ros.mission.recovery import MissedRegionRecovery
 from rosclaw.connectors.ros.verification.coverage import (
     CleaningPose,
@@ -154,6 +155,7 @@ class RosCoverageSimulationExecutor:
         recovery_centers=(),
         lease_control=None,
         audit_metadata=None,
+        boundary_pass=False,
     ):
         if not owner.startswith("daemon_"):
             raise ValueError("daemon ownership is required")
@@ -171,6 +173,9 @@ class RosCoverageSimulationExecutor:
         self.audit = None
         self.audit_start = 0
         self.audit_metadata = dict(audit_metadata or {})
+        if type(boundary_pass) is not bool:
+            raise ValueError("boundary pass must be a configured boolean")
+        self.boundary_pass = boundary_pass
 
     def _audit_event(self, kind, payload):
         if self.audit is not None:
@@ -250,7 +255,9 @@ class RosCoverageSimulationExecutor:
             raise ValueError("coverage corners are repeated or self-intersecting")
         return {"polygons": [{"points": points + [dict(points[0])]}], "frame_id": frame}
 
-    def _run_goal(self, name, action_type, args, goal_id, deadline, *, goal_timeout_sec=45):
+    def _run_goal(
+        self, name, action_type, args, goal_id, deadline, *, goal_timeout_sec=45, stage="REPAIR"
+    ):
         if self.stopping.is_set() or time.monotonic() >= deadline:
             raise RuntimeError("simulation recovery stopped before dispatch")
         observed = self.witness.fresh()
@@ -275,14 +282,14 @@ class RosCoverageSimulationExecutor:
         goal_deadline = min(deadline, time.monotonic() + goal_timeout_sec)
         with self.lock:
             self.goal_id = goal_id
-        self._audit_event("goal_started", {"nav_goal_id": goal_id, "stage": "REPAIR", "goal": args})
+        self._audit_event("goal_started", {"nav_goal_id": goal_id, "stage": stage, "goal": args})
         self.client.send_goal(
             action=name,
             action_type=action_type,
             args=args,
             goal_id=goal_id,
             on_feedback=lambda data: self._audit_event(
-                "nav_feedback", {"nav_goal_id": goal_id, "stage": "REPAIR", "values": data}
+                "nav_feedback", {"nav_goal_id": goal_id, "stage": stage, "values": data}
             ),
             on_result=lambda status, values: (
                 result.update(status=status, result=values),
@@ -304,6 +311,53 @@ class RosCoverageSimulationExecutor:
                 return result
         self._audit_event("goal_ended", {"nav_goal_id": goal_id, "result": result})
         return result
+
+    def _boundary(self, initial_result, action_id, deadline):
+        """Optional legal targets; Nav2 owns paths and the witness owns credit."""
+        if not self.boundary_pass:
+            return {"status": "DISABLED"}
+        if initial_result.get("status") != STATUS_SUCCEEDED:
+            result = {"status": "SKIPPED", "reason": "upstream main goal did not succeed"}
+            self._audit_event("boundary_decision", result)
+            return result
+        targets = rectangular_boundary_targets(self.recovery_centers, self.witness.fresh())
+        if not targets:
+            result = {"status": "SKIPPED", "reason": "legal rectangular corners unavailable"}
+            self._audit_event("boundary_decision", result)
+            return result
+        self._audit_event(
+            "boundary_decision",
+            {
+                "status": "DISPATCH",
+                "targets": targets,
+                "waypoint_count": len(targets),
+                "evidence_role": "Nav2 targets, no predicted coverage credit",
+            },
+        )
+        poses = [
+            {
+                "header": {"frame_id": self.grid["frame_id"]},
+                "pose": {
+                    "position": {"x": p["x"], "y": p["y"], "z": 0.0},
+                    "orientation": {"z": math.sin(p["yaw"] / 2), "w": math.cos(p["yaw"] / 2)},
+                },
+            }
+            for p in targets
+        ]
+        result = self._run_goal(
+            "/navigate_through_poses",
+            "nav2_msgs/action/NavigateThroughPoses",
+            {"poses": poses},
+            f"{action_id}:boundary",
+            deadline,
+            goal_timeout_sec=180,
+            stage="BOUNDARY_PASS",
+        )
+        return {
+            "status": "SUCCEEDED" if result.get("status") == STATUS_SUCCEEDED else "FAILED",
+            "waypoint_count": len(targets),
+            "nav_goal_result": result,
+        }
 
     def _repair(self, verifier, started, action_id, deadline):
         """Bounded missed-cell goals; every connecting path is planned by Nav2."""
@@ -714,6 +768,15 @@ class RosCoverageSimulationExecutor:
                     "goal_ended",
                     {"nav_goal_id": goal_id, "result": box, "consumed_samples": len(samples)},
                 )
+                boundary_result = self._boundary(box, action.action_id, deadline)
+                if self.boundary_pass:
+                    self._audit_event(
+                        "primary_completed",
+                        {
+                            "consumed_samples": len(self.witness.since(started)),
+                            "boundary_result": boundary_result,
+                        },
+                    )
                 verifier = CoverageVerifier(**self.grid)
                 repairs = self._repair(verifier, started, action.action_id, deadline)
                 samples = self.witness.since(started)
@@ -757,6 +820,7 @@ class RosCoverageSimulationExecutor:
                     "coverage_ratio": ratio,
                     "recovery_attempts": repairs,
                     "initial_action_result": box,
+                    "boundary_action_result": boundary_result,
                     "independent_evidence_hashes": [content_hash("rosmissionevidence", evidence)],
                     "evidence_artifact": {
                         "path": str(path),

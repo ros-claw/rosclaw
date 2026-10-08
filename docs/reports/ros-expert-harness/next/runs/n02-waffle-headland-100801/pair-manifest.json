@@ -1,0 +1,11 @@
+{
+  "schema_version": "rosclaw.paired_efficiency_run.v1",
+  "phase": "pilot",
+  "protocol_sha256": "fffe833103d7598509b26e78e6ee9c589b9df3b25660417f012022bffe61024d",
+  "source_commit": "e9a1e3a9d2b9f2c9315e0b960d1663d767e207f9",
+  "image_id": "sha256:c31355f34739eb4ea8b60de1414c57ce0eea8225aa9e3ce854b7ceb66ca4376e",
+  "profile": "waffle",
+  "seed": 100801,
+  "candidate": "headland",
+  "v1_done": false
+}

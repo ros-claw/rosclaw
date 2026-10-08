@@ -1,0 +1,5 @@
+{
+  "status": "REJECTED_FOR_MAIN_OPTIMIZATION",
+  "reason": "Candidate upstream main abort error104, main47.4273%; distance20.43% and SIM14.67% improvement below30% target; one pilot pair, no median claim.",
+  "v1_done": false
+}

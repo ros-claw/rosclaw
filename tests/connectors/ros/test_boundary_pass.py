@@ -25,3 +25,43 @@ def test_missing_corner_or_degenerate_map_produces_no_boundary_action():
     assert rectangular_boundary_targets([], {"x": 0, "y": 0}) == ()
     with pytest.raises(ValueError, match="finite"):
         rectangular_boundary_targets([(float("nan"), 0), (1, 1)], {"x": 0, "y": 0})
+
+
+@pytest.mark.parametrize("nav_status, expected", [(4, "SUCCEEDED"), (6, "FAILED")])
+def test_boundary_dispatch_is_daemon_owned_bounded_and_never_grants_credit(
+    tmp_path, nav_status, expected
+):
+    from types import SimpleNamespace
+
+    from rosclaw.connectors.ros.mission.executor import RosCoverageSimulationExecutor
+
+    witness = SimpleNamespace(fresh=lambda: {"x": 0.9, "y": 0.9})
+    executor = RosCoverageSimulationExecutor(
+        owner="daemon_test",
+        client=None,
+        control=None,
+        witness=witness,
+        output=tmp_path,
+        body_id="fixture",
+        body_snapshot_hash="body",
+        grid={"frame_id": "map"},
+        recovery_centers=[(-1, -1), (-1, 1), (1, -1), (1, 1)],
+        boundary_pass=True,
+    )
+    calls = []
+    executor._run_goal = lambda *args, **kwargs: (
+        calls.append((args, kwargs)) or {"status": nav_status}
+    )
+    result = executor._boundary({"status": 4}, "root", 123)
+    assert result["status"] == expected
+    args, kwargs = calls[0]
+    assert args[:2] == ("/navigate_through_poses", "nav2_msgs/action/NavigateThroughPoses")
+    assert args[3:] == ("root:boundary", 123)
+    assert kwargs == {"goal_timeout_sec": 180, "stage": "BOUNDARY_PASS"}
+    assert len(args[2]["poses"]) == result["waypoint_count"] == 5
+    assert "coverage_ratio" not in result
+    assert executor._boundary({"status": 6}, "root", 123)["status"] == "SKIPPED"
+    assert len(calls) == 1
+    executor.boundary_pass = False
+    assert executor._boundary({"status": 4}, "root", 123)["status"] == "DISABLED"
+    assert len(calls) == 1

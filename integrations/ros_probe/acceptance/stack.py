@@ -218,6 +218,7 @@ def prepare(controller_watchdog=True, profile_name="waffle", coverage_preset="ba
                 "evidence_role": "fixture_configuration_not_measured_success",
                 "profile": profile_name,
                 "preset": coverage_preset,
+                "boundary_pass": coverage_preset == "perimeter",
                 "seed": seed,
                 "planning_parameters": candidate,
                 "start_pose": {"x": 0.0, "y": 0.0, "yaw": 0.0},
@@ -243,7 +244,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--profile", choices=PROFILES, default="waffle")
     parser.add_argument(
-        "--coverage-preset", choices=["baseline", "diagonal", "headland"], default="baseline"
+        "--coverage-preset", choices=["baseline", "diagonal", "headland", "perimeter"], default="baseline"
     )
     parser.add_argument("--seed", type=int)
     parser.add_argument("--fault-acceptance", action="store_true")

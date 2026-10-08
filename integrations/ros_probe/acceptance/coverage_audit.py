@@ -66,26 +66,36 @@ def audit(directory, output):
     if not events:
         audit_complete = False
     progress = next((r for r in events if r["kind"] == "coverage_progress"), None)
-    # Exact consumer offset, rather than guessed wall-clock/nearest-pose matching.
-    main_count = progress["payload"]["consumed_samples"] if progress else None
-    if main_count is None:
-        # A main pass can reach the threshold and never enter recovery.
-        ended = next(
-            (
-                r
-                for r in events
-                if r["kind"] == "goal_ended" and r["payload"]["nav_goal_id"] == receipt["action_id"]
-            ),
-            None,
-        )
-        main_count = ended["payload"].get("consumed_samples") if ended else None
+    ended = next(
+        (
+            r
+            for r in events
+            if r["kind"] == "goal_ended" and r["payload"]["nav_goal_id"] == receipt["action_id"]
+        ),
+        None,
+    )
+    primary = next((r for r in events if r["kind"] == "primary_completed"), None)
+    # Preserve the original no-boundary checkpoint definition for old episodes.
+    main_count = (
+        ended["payload"].get("consumed_samples")
+        if primary and ended
+        else progress["payload"]["consumed_samples"]
+        if progress
+        else ended["payload"].get("consumed_samples")
+        if ended
+        else None
+    )
+    primary_count = primary["payload"]["consumed_samples"] if primary else main_count
     starts = [(0, "MAIN_COVERAGE", receipt["action_id"])]
     for row in events:
-        if row["kind"] == "goal_started" and row["payload"].get("stage") == "REPAIR":
+        if row["kind"] == "goal_started" and row["payload"].get("stage") in (
+            "REPAIR",
+            "BOUNDARY_PASS",
+        ):
             starts.append(
                 (
                     min(len(trace), max(0, row["payload"]["sample_offset"])),
-                    "REPAIR",
+                    row["payload"]["stage"],
                     row["payload"]["nav_goal_id"],
                 )
             )
@@ -93,12 +103,15 @@ def audit(directory, output):
     segments = []
     before = 0
     main_cells = None
+    primary_cells = None
     historic_checkpoint_indices = []
     repairs = receipt["verification_result"].get("recovery_attempts", [])
     checkpoint_ratio = repairs[0]["coverage_before"] if repairs else None
     offsets = {s[0] for s in starts} | {len(trace)}
     if main_count is not None:
         offsets.add(main_count)
+    if primary_count is not None:
+        offsets.add(primary_count)
     cursor = 0
     for end in sorted(offsets):
         if end == 0:
@@ -112,6 +125,8 @@ def audit(directory, output):
             ):
                 historic_checkpoint_indices.append(index)
                 main_cells = set(verifier.visits)
+        if end == primary_count:
+            primary_cells = set(verifier.visits)
         if end == main_count:
             main_cells = set(verifier.visits)
         active = max((s for s in starts if s[0] <= cursor), key=lambda s: s[0])
@@ -267,6 +282,11 @@ def audit(directory, output):
         "canonical_verifier_replay_equal": saved_equal,
         "observed_final_coverage_ratio": verifier.result()["coverage_ratio"],
         "main_sample_count": main_count,
+        "primary_before_repair_sample_count": primary_count,
+        "primary_before_repair_coverage_ratio": len(primary_cells) / len(verifier.accessible)
+        if primary_cells is not None
+        else None,
+        "boundary_nav_goal_result": receipt["verification_result"].get("boundary_action_result"),
         "main_nav_goal_result": receipt["verification_result"].get("initial_action_result"),
         "historical_checkpoint_ratio": checkpoint_ratio if main_count is None else None,
         "historical_checkpoint_sample_range": [

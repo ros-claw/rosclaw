@@ -114,6 +114,7 @@ def main():
         recovery_centers=config["recovery_centers"],
         lease_control=transports[3],
         audit_metadata=freeze_audit_source(root, config),
+        boundary_pass=config.get("experiment", {}).get("boundary_pass", False),
     )
     for capability in [
         "navigation.navigate_to_pose",
@@ -179,6 +180,7 @@ def freeze_audit_source(root, config):
     files = [
         Path(__file__),
         repository / "src/rosclaw/connectors/ros/mission/executor.py",
+        repository / "src/rosclaw/connectors/ros/mission/boundary_pass.py",
         repository / "src/rosclaw/connectors/ros/diagnosis/coverage_audit.py",
         repository / "src/rosclaw/connectors/ros/verification/coverage.py",
         *[

@@ -209,6 +209,8 @@ def run_arm(pair, arm, args, ordinal, image_id, commit):
                     measured_distance_m=audit["total_metrics"]["observed_distance_m"],
                     sim_duration_sec=audit["total_metrics"]["sim_duration_sec"],
                     main_coverage_ratio=audit["main_observed_coverage_ratio"],
+                    primary_coverage_ratio=audit.get("primary_before_repair_coverage_ratio"),
+                    boundary_nav_goal_result=audit.get("boundary_nav_goal_result"),
                     coverage_ratio=accepted["coverage_ratio"],
                     canonical_duration_sec=accepted["duration_sec"],
                     collision_count=accepted["collision_count"],
@@ -236,7 +238,7 @@ def main():
     parser.add_argument("--directory", type=Path, required=True)
     parser.add_argument("--protocol", type=Path, required=True)
     parser.add_argument("--profile", choices=PROFILES, required=True)
-    parser.add_argument("--candidate", choices=["diagonal", "headland"], required=True)
+    parser.add_argument("--candidate", choices=["diagonal", "headland", "perimeter"], required=True)
     parser.add_argument("--seed", type=int, required=True)
     parser.add_argument("--phase", choices=["pilot", "evaluation"], default="pilot")
     parser.add_argument("--image", default="rosclaw/ros-expert-rebuilt:dad31022")
