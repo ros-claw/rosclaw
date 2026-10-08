@@ -15,7 +15,7 @@
 // 内部 harness 不得自行更新）。同样必须在 pi 模块加载前设定。
 // HP2-COMPAT: main owns InteractiveMode's public stop handle for error exit;
 // the protected helper cannot return that handle after run rejects.
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { VERSION } from "./version.js";
 // Type-only import（编译期擦除）——不会在 pi 模块加载前引入任何运行时依赖。
 import type { ToolCallBudget } from "./harness/pi/tool-call-budget.js";
@@ -396,6 +396,30 @@ async function main(): Promise<number> {
 	// 写回 leaseState=ACTIVE）——此前直接 leaseManager.bind，header 显示
 	// Action LOCKED 而动作实际可执行（假锁）。
 	const sessionId = runtime.session.sessionManager.getSessionId();
+	// A single sticky confirmation, shared by signal shutdown and main finally.
+	// A second caller must never turn a failed abort/dispose into a release.
+	let writerClose: Promise<void> | undefined;
+	let interactiveCloseFailure: unknown;
+	const confirmWriterClosed = (): Promise<void> => writerClose ??= (async () => {
+		// /resume may have replaced the initial session.
+		const session = runtime.session;
+		try {
+			await session.abort();
+			if (session.isIdle !== true) throw new Error("SESSION_CLOSE_IDLE_UNCONFIRMED");
+			await session.dispose();
+			if (session.isIdle !== true) throw new Error("SESSION_CLOSE_IDLE_UNCONFIRMED");
+			await runtime.dispose();
+			if (session.isIdle !== true) throw new Error("SESSION_CLOSE_IDLE_UNCONFIRMED");
+		} catch (err) {
+			// Local cancellation drains consumers, not release authority.
+			try {
+				session.agent.abort();
+				await session.waitForIdle();
+				await runtime.dispose();
+			} catch { /* Keep the first failure. */ }
+			throw new Error(`MAIN_EXIT_TEARDOWN_UNCONFIRMED: ${(err as Error).message}`);
+		}
+	})();
 	try {
 	if (missionId) {
 		const outcome = await coordinator.attachInitialMission(sessionId, missionId);
@@ -432,35 +456,70 @@ async function main(): Promise<number> {
 			verbose: false,
 			...(initialMessage ? { initialMessage } : {}),
 		});
+		// PI 1.0.4/1.1.0 compatibility seam: their private shutdown calls
+		// immediate process exit, and run() waits forever for editor input. Bridge only
+		// this instance's shutdown into main; never intercept process.exit or
+		// modify the SDK/prototype. Retain native terminal cleanup and signal
+		// ordering, but let the common confirmed close own writer release.
+		const shutdownMode = mode as unknown as {
+			shutdown(options?: { fromSignal?: boolean }): Promise<void>;
+			isShuttingDown: boolean;
+			themeController: { disableAutoSync(): void };
+			ui: { terminal: { drainInput(ms: number): Promise<void> } };
+		};
+		let completeShutdown!: () => void;
+		let failShutdown!: (err: unknown) => void;
+		const shutdownComplete = new Promise<void>((resolve, reject) => {
+			completeShutdown = resolve;
+			failShutdown = reject;
+		});
+		let shutdownTask: Promise<void> | undefined;
+		let stopped = false;
+		const stopConsumer = () => {
+			if (stopped) return;
+			mode.stop();
+			stopped = true;
+		};
+		shutdownMode.shutdown = (options) => shutdownTask ??= (async () => {
+			shutdownMode.isShuttingDown = true;
+			try {
+				// Signals dispose extensions before terminal writes, as in the SDK.
+				if (options?.fromSignal) await confirmWriterClosed();
+				shutdownMode.themeController.disableAutoSync();
+				await shutdownMode.ui.terminal.drainInput(1000);
+				stopConsumer();
+				await confirmWriterClosed();
+				// Preserve the product's persisted-session hint (patched SDK).
+				const manager = runtime.session.sessionManager;
+				const path = manager.getSessionFile();
+				if (!options?.fromSignal && process.stdout.isTTY && manager.isPersisted() && path && existsSync(path)) {
+					const name = manager.getSessionName?.() || "";
+					process.stdout.write(`To resume this session: 会话已保存${name ? `：${name}` : ""}\n继续：rosclaw continue\n查看全部：rosclaw sessions\n`);
+				}
+				completeShutdown();
+			} catch (err) {
+				interactiveCloseFailure = err;
+				// SDK dispatchers call shutdown with void. Route failure to main,
+				// not an unhandled rejection or a second successful shutdown.
+				failShutdown(err);
+			}
+		})();
 		try {
-			await mode.run();
+			await Promise.race([mode.run(), shutdownComplete]);
 			return 0;
 		} finally {
-			// Local consumer termination only, never remote idle confirmation.
-			mode.stop();
+			// Local consumer termination only, never writer confirmation.
+			try {
+				if (!stopped) { mode.stop(); stopped = true; }
+			} catch (err) {
+				interactiveCloseFailure ??= err;
+			}
 		}
 	} finally {
 		// UI/print completion is not proof that the SDK writer stopped.
-		// Capture the current session (which may have changed through /resume).
-		const session = runtime.session;
-		try {
-			await session.abort();
-			if (session.isIdle !== true) throw new Error("SESSION_CLOSE_IDLE_UNCONFIRMED");
-			await session.dispose();
-			if (session.isIdle !== true) throw new Error("SESSION_CLOSE_IDLE_UNCONFIRMED");
-			await runtime.dispose();
-			if (session.isIdle !== true) throw new Error("SESSION_CLOSE_IDLE_UNCONFIRMED");
-		} catch (err) {
-			// Host shutdown terminates local extension consumers even on abort
-			// failure. It cannot upgrade the sticky failed confirmation to success.
-			try {
-				// Best-effort local agent cancellation drains real terminal events;
-				// it is NOT a successful session abort receipt or release authority.
-				session.agent.abort();
-				await session.waitForIdle();
-				await runtime.dispose();
-			} catch { /* Keep the first failure. */ }
-			throw new Error(`MAIN_EXIT_TEARDOWN_UNCONFIRMED: ${(err as Error).message}`);
+		await confirmWriterClosed();
+		if (interactiveCloseFailure) {
+			throw new Error(`MAIN_EXIT_TEARDOWN_UNCONFIRMED: ${(interactiveCloseFailure as Error).message}`);
 		}
 		runtimeOwnership.releaseAll();
 		await leaseManager.release();
