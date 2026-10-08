@@ -19,16 +19,16 @@
 		"node": ">=22.19.0"
 	},
 	"dependencies": {
-		"@earendil-works/pi-coding-agent": "1.0.4",
-		"@earendil-works/pi-agent-core": "1.0.4",
-		"@earendil-works/pi-ai": "1.0.4",
-		"@earendil-works/pi-tui": "1.0.4"
+		"@earendil-works/pi-coding-agent": "1.1.0",
+		"@earendil-works/pi-agent-core": "1.1.0",
+		"@earendil-works/pi-ai": "1.1.0",
+		"@earendil-works/pi-tui": "1.1.0"
 	},
 	"overrides": {
-		"@earendil-works/pi-coding-agent": "1.0.4",
-		"@earendil-works/pi-agent-core": "1.0.4",
-		"@earendil-works/pi-ai": "1.0.4",
-		"@earendil-works/pi-tui": "1.0.4"
+		"@earendil-works/pi-coding-agent": "1.1.0",
+		"@earendil-works/pi-agent-core": "1.1.0",
+		"@earendil-works/pi-ai": "1.1.0",
+		"@earendil-works/pi-tui": "1.1.0"
 	},
 	"devDependencies": {
 		"@types/node": "^22.10.0",

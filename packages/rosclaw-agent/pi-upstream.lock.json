@@ -1,7 +1,15 @@
 {
-  "package_version": "1.0.3",
-  "source_commit": "d78dc83d633229d12f8b79631384c4c2717c399f",
+  "package_version": "1.1.0",
+  "source_commit": null,
+  "source_commit_status": "UNVERIFIED",
+  "source_commit_authority": "No independently verified official upstream gitHead authority supplied; registry package integrities bind the installed release, not a source commit.",
   "license": "MIT",
-  "package_lock_sha256": "3e5b0d1004e90c52954c3f8a110ced345708b5b5a67e82f2bfa2d39ee4315df4",
-  "characterization_suite_version": "1"
+  "package_lock_sha256": "7cafbdde1afd1cbfa013b35f79b3060252da9930384c0683b799e961bc680513",
+  "characterization_suite_version": "1",
+  "package_integrities": {
+    "@earendil-works/pi-coding-agent": "sha512-SeEi/4hdcHNgA9UWlefZl7ZZpm3dzi2OoxNjDHsBJ9o298LNOtbL4DGKgitlEj6uCTccvtw6f2hlCkTPVJ2RXg==",
+    "@earendil-works/pi-agent-core": "sha512-aX1KZomNCPmwYnXa3OivF3VYLJ+WPUkIJlEIZTgwdOZdY/+oToWTQ334WYpQeOz9POpiYFNMJLPwIhXQ4e48kg==",
+    "@earendil-works/pi-ai": "sha512-1T7LAkc/5Bvc0v6w4vAGVdCrli0o/E0pEmYKTnixu95vSFArBjvbhS/G4ZwI0RUePgf0Imcu0VyqlM4EcXxqfw==",
+    "@earendil-works/pi-tui": "sha512-v7wkS0y2ErZvZkSfemqd9RrBZJ5x6p8Ujsv7NdJj01IXJyFM0kNL6rMdcKcvTe7EVTd6ugvDB9VPZSoaBF9QxQ=="
+  }
 }
