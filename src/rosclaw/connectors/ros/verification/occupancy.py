@@ -13,6 +13,21 @@ from rosclaw.connectors.ros.diagnosis.coverage_audit import digest
 from rosclaw.connectors.ros.verification.coverage import CleaningPose, CoverageVerifier
 
 
+def coverage_grid_hash(verifier):
+    """Bind cell coordinates, frame and brush as well as the cell denominator."""
+    return digest(
+        {
+            "width": verifier.width,
+            "height": verifier.height,
+            "resolution": verifier.resolution,
+            "origin": verifier.origin,
+            "frame_id": verifier.frame_id,
+            "brush": verifier.polygon,
+            "accessible": sorted(verifier.accessible),
+        }
+    )
+
+
 @dataclass(frozen=True)
 class OccupancySnapshot:
     run_id: str
@@ -49,6 +64,7 @@ class OccupancyAccounting:
         self.snapshot_hashes = []
         self.fault = None
         self.denominator = frozenset(verifier.accessible)
+        self.grid_hash = coverage_grid_hash(verifier)
 
     def observe(self, pose, snapshot, *, artifact_hash):
         if self.fault:
@@ -101,6 +117,8 @@ class OccupancyAccounting:
                 raise ValueError("occupancy cells must be unique accessible integers")
             if frozenset(self.verifier.accessible) != self.denominator:
                 raise ValueError("coverage denominator changed")
+            if coverage_grid_hash(self.verifier) != self.grid_hash:
+                raise ValueError("coverage grid or brush geometry changed")
             self.verifier.set_temporary_blocked(list(cells))
             self.verifier.observe(pose, frame_id=snapshot.frame_id, interpolate=False)
             self.previous_time, self.previous_sequence = snapshot.sim_time_sec, snapshot.sequence

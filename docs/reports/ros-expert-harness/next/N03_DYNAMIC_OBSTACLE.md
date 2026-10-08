@@ -24,9 +24,15 @@ later reoccupation, no interpolation through blocked cells, immutable denominato
 source/hash/clock/sequence/frame/completeness failures. Full ROS contract suite
 passes342/10deselected (includes prior tests; not independent physical episodes).
 
-Remaining before live acceptance: full timestamp/capture/geometry contract,
+Remaining before live acceptance: full timestamp/capture contract,
 Gazebo model-pose and collision geometry producer, passive observer/actuator
 process split, executor and canonical artifact replay integration, bounded
 DEFERRED wait/revisit and actual Native D2/D4/D5/D6 episodes. Existing native
 historical runs cannot substitute. The accounting adapter is not currently
 wired into daemon dispatch. `v1_done=false`.
+
+## Sealed collision projection preparation
+
+The pure OccupancyProjector now reads exact bounded SDF bytes, binds their SHA256 and declared obstacle model set, and encloses all supported box/sphere/cylinder collision primitives (including link/collision offsets) in conservative model-centered discs. Visual-only, mesh, articulated/nested/included or ambiguous geometry fails closed. This can overestimate occupancy; it does not claim exact surface rasterization. One whole ground-truth packet must contain every declared model at the brush packet SIM timestamp in the frozen map frame. Missing/stale/duplicate/nonfinite observations and projection work over100000 cells return no partial snapshot. Both projector and accounting bind the full original grid/frame/brush geometry as well as the unchanged accessible denominator.
+
+Latest validation:56 focused occupancy/projection tests;393 ROS contracts pass/10 integration deselected/1 existing pkg_resources deprecation warning. Two-module mypy and Ruff/format pass. These synthetic tests are not physical episodes. Producer transport, actual Gazebo source binding/scene identity, geometry capture from the actual loaded world, monotonic/capture-time contract, passive observer/actuator separation, daemon integration and fresh Native D2/D4/D5/D6 remain NOT_RUN. No occupancy adapter is wired into dispatch yet.

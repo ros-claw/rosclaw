@@ -119,3 +119,21 @@ def test_integrity_and_denominator_are_checked_before_projection():
     with pytest.raises(ValueError, match="denominator"):
         observe(accounting, 0.5, s)
     assert accounting.verifier.visits == {}
+
+
+@pytest.mark.parametrize(
+    "attribute,value",
+    [
+        ("resolution", 0.5),
+        ("origin", (1, 0)),
+        ("frame_id", "odom"),
+        ("polygon", [(-0.1, -0.1), (0.1, -0.1), (0, 0.1)]),
+    ],
+)
+def test_grid_or_brush_mutation_latches_without_credit(attribute, value):
+    accounting = setup()
+    setattr(accounting.verifier, attribute, value)
+    with pytest.raises(ValueError):
+        observe(accounting, 0.5, sample(1, 0))
+    assert accounting.verifier.visits == {}
+    assert accounting.result()["complete"] is False
