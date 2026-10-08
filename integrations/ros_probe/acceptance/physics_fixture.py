@@ -203,3 +203,61 @@ def prepare_physics(output, *, config_path, library_path, brush_binding, profile
     world_tree.write(output / "world.sdf")
     (output / "bridge.yaml").write_text(yaml.safe_dump(bridge))
     return {"plugin_sha256": sha, "physical_acceptance": "NOT_RUN", "binding": binding}
+
+
+def admit_dynamic_daemon_config(output, config, *, mission_id, profile):
+    """Bind compiled Body/actual map to the prepared observer's source seal.
+
+    This does not make stale readiness live: rosclawd separately waits for a
+    fresh complete observation, and accounts every paired packet on dispatch.
+    The readiness file is produced by the fixture-owned passive observer, not
+    by an action argument. Same-UID fixtures prove no DDS authentication.
+    """
+    binding = json.loads((output / "physics_binding.json").read_text())
+    ready = json.loads((output / "physics_ready.json").read_text())
+    fixture = json.loads((output / "physics_fixture.json").read_text())
+    brush = json.loads((output / "brush_binding.json").read_text())
+    if (
+        type(brush) is not dict
+        or set(brush) != {"run_id", "body_snapshot_hash", "attachment_hash", "producer_id"}
+        or any(type(v) is not str or not v for v in brush.values())
+        or type(binding) is not dict
+        or type(ready) is not dict
+        or type(fixture) is not dict
+    ):
+        raise ValueError("complete prepared dynamic source files required")
+    if (
+        ready.get("binding") != binding
+        or fixture.get("binding") != binding
+        or ready.get("evidence_role") != "actual_component_source_admission_not_mission_acceptance"
+        or binding.get("body_snapshot_hash") != config["body_snapshot_hash"]
+        or binding.get("body_model_name") != profile.simulation_model
+        or binding.get("mission_id") != mission_id
+        or binding.get("grid") != config["grid"]
+        or binding.get("run_id") != (output / "run_id.txt").read_text().strip()
+        or any(
+            binding.get(k) != brush[k] for k in ("run_id", "body_snapshot_hash", "attachment_hash")
+        )
+    ):
+        raise ValueError("compiled Body/map/mission differs from frozen dynamic source")
+    if any(
+        type(ready.get(k)) is not str or not re.fullmatch(r"[0-9a-f]{64}", ready[k])
+        for k in ("geometry_hash", "initial_packet_sha256")
+    ):
+        raise ValueError("actual component geometry and initial packet hashes required")
+    if hashlib.sha256(
+        (output / "librosclaw_passive_physics.so").read_bytes()
+    ).hexdigest() != fixture.get("plugin_sha256"):
+        raise ValueError("prepared passive plugin bytes changed")
+    return {
+        **config,
+        "brush_binding": brush,
+        "physical_radius_m": profile.physical_radius_m,
+        "occupancy_binding": {"run_id": binding["run_id"], "geometry_hash": ready["geometry_hash"]},
+        "dynamic_fixture_admission": {
+            "mission_id": mission_id,
+            "initial_packet_sha256": ready["initial_packet_sha256"],
+            "source_role": ready["evidence_role"],
+            "physical_acceptance": "NOT_RUN",
+        },
+    }

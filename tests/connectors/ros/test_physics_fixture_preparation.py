@@ -192,3 +192,63 @@ def test_bad_configuration_rejected_before_source_output(scene, fault):
     with pytest.raises(ValueError):
         prepare(scene)
     assert {p.name: p.read_bytes() for p in scene[0].iterdir()} == before
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        None,
+        "body",
+        "mission",
+        "grid",
+        "geometry_hash",
+        "packet_hash",
+        "binding",
+        "plugin_bytes",
+        "run",
+        "brush",
+    ],
+)
+def test_daemon_admission_binds_compiled_body_and_actual_map_to_source_seal(scene, fault):
+    prepare(scene)
+    output, _, _, brush, profile, fixture = scene
+    binding = fixture["binding"]
+    output.joinpath("run_id.txt").write_text("run\n")
+    output.joinpath("brush_binding.json").write_text(
+        json.dumps({**brush, "producer_id": "actuator"})
+    )
+    ready = {
+        "binding": copy.deepcopy(binding),
+        "geometry_hash": "a" * 64,
+        "initial_packet_sha256": "b" * 64,
+        "evidence_role": "actual_component_source_admission_not_mission_acceptance",
+    }
+    config = {"body_snapshot_hash": "body", "grid": copy.deepcopy(binding["grid"])}
+    mission = "mission"
+    if fault == "body":
+        config["body_snapshot_hash"] = "other"
+    elif fault == "mission":
+        mission = "other"
+    elif fault == "grid":
+        config["grid"]["accessible_cells"].pop()
+    elif fault in ("geometry_hash", "packet_hash"):
+        ready["geometry_hash" if fault == "geometry_hash" else "initial_packet_sha256"] = "bad"
+    elif fault == "binding":
+        ready["binding"]["attachment_hash"] = "other"
+    elif fault == "plugin_bytes":
+        output.joinpath("librosclaw_passive_physics.so").write_bytes(b"changed")
+    elif fault == "run":
+        output.joinpath("run_id.txt").write_text("other\n")
+    elif fault == "brush":
+        output.joinpath("brush_binding.json").write_text(json.dumps({**brush, "producer_id": ""}))
+    output.joinpath("physics_ready.json").write_text(json.dumps(ready))
+    if fault:
+        with pytest.raises(ValueError):
+            MODULE.admit_dynamic_daemon_config(output, config, mission_id=mission, profile=profile)
+    else:
+        result = MODULE.admit_dynamic_daemon_config(
+            output, config, mission_id=mission, profile=profile
+        )
+        assert result["occupancy_binding"] == {"run_id": "run", "geometry_hash": "a" * 64}
+        assert result["physical_radius_m"] == 0.25
+        assert result["dynamic_fixture_admission"]["physical_acceptance"] == "NOT_RUN"

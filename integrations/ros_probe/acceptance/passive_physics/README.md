@@ -69,6 +69,15 @@ unpaired route input or computation exhaustion stop without partial proposals.
 These contracts passed the 517-test ROS suite and scoped mypy; actual dynamic
 Native episodes and their complete canonical receipts remain NOT_RUN.
 
+The scripted runner must explicitly request `--dynamic-physics`. It compares
+the newly compiled Body and actual measured static map with the prepared brush
+and physics bindings and the observer's `physics_ready.json` source seal. Mission
+id, closed binding, plugin bytes, geometry hash and initial packet digest must
+match before creating daemon configuration. A prepared dynamic scene cannot
+silently run with static accounting. Admission files do not replace rosclawd's
+fresh observation wait, action guards or replay. 27 preparation/admission tests,
+527 ROS tests, required mypy over121 files and Practice183 passed/9 skipped.
+
 The source uses Gazebo8 `worldPose` and actual `Geometry`/`Collision`/`Pose`
 components. It avoids concurrent `generate_world_sdf`, whose Gazebo8 implementation
 explicitly notes an ECM thread-safety TODO:

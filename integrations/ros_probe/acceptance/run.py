@@ -34,11 +34,15 @@ async def main():
     parser.add_argument(
         "--repair-strategy", choices=["greedy", "pose_aware", "pose_aware_robust"], default="greedy"
     )
+    parser.add_argument("--dynamic-physics", action="store_true")
+    parser.add_argument("--mission-id", default="gazebo-room-cleaning")
     args = parser.parse_args()
     if args.navigation_only and args.reject_smaller_scope:
         parser.error("navigation and scope-rejection cases are mutually exclusive")
     if not 60 <= args.mission_timeout <= 1800:
         parser.error("mission timeout must be between 60 and 1800 seconds")
+    if not args.mission_id or len(args.mission_id) > 256:
+        parser.error("bounded nonempty mission id required")
     root = args.directory.resolve()
     urdf_path = args.model_urdf or root / "robot.urdf"
     profile = profile_for_urdf(urdf_path, args.profile)
@@ -115,6 +119,19 @@ async def main():
     ]
     if (root / "experiment.json").exists():
         config["experiment"] = json.loads((root / "experiment.json").read_text())
+    if args.dynamic_physics:
+        from physics_fixture import admit_dynamic_daemon_config
+
+        config = admit_dynamic_daemon_config(
+            root, config, mission_id=args.mission_id, profile=profile
+        )
+    elif (root / "physics_binding.json").exists():
+        raise ValueError("prepared dynamic scene requires explicit time-paired daemon accounting")
+    elif (root / "brush_binding.json").exists():
+        binding = json.loads((root / "brush_binding.json").read_text())
+        if binding.get("body_snapshot_hash") != body_hash:
+            raise ValueError("prepared brush source differs from the compiled Body")
+        config["brush_binding"] = binding
     (root / "execution_config.json").write_text(json.dumps(config, indent=2) + "\n")
     if args.prepare_only:
         print(
@@ -163,7 +180,7 @@ async def main():
         (root / "solution.json").write_text(
             json.dumps(resolve_task(model, "完成整个房间清扫。"), indent=2) + "\n"
         )
-        mission_id = "gazebo-room-cleaning"
+        mission_id = args.mission_id
         (root / "task_graph.json").write_text(
             json.dumps(
                 compile_mission(model, "完成整个房间清扫。", mission_id=mission_id).model_dump(
