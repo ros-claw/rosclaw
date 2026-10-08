@@ -559,6 +559,34 @@ class _FakeModel:
         return b"".join(frames)
 
 
+class _FakeResponseIdentity:
+    """Allocate one process-unique ID per HTTP response, not per SSE chunk."""
+
+    _lock = threading.Lock()
+    _sequence = 0
+
+    @classmethod
+    def apply(cls, payload: bytes, *, stream: bool) -> bytes:
+        with cls._lock:
+            cls._sequence += 1
+            response_id = f"chatcmpl-fake-{cls._sequence}"
+
+        def rewrite(data: bytes) -> bytes:
+            message = json.loads(data)
+            message["id"] = response_id
+            return json.dumps(message, ensure_ascii=False).encode()
+
+        if not stream:
+            return rewrite(payload)
+        lines = []
+        for line in payload.splitlines(keepends=True):
+            if line.startswith(b"data: ") and line.strip() != b"data: [DONE]":
+                ending = line[len(line.rstrip(b"\r\n")):]
+                line = b"data: " + rewrite(line[6:].rstrip(b"\r\n")) + ending
+            lines.append(line)
+        return b"".join(lines)
+
+
 class _Handler(BaseHTTPRequestHandler):
     fake: _FakeModel  # class attr injected by factory
 
@@ -572,7 +600,9 @@ class _Handler(BaseHTTPRequestHandler):
 
             _th.Event().wait(120)
             return
-        payload = self.fake.answer(body)
+        payload = _FakeResponseIdentity.apply(
+            self.fake.answer(body), stream=bool(body.get("stream")),
+        )
         self.send_response(200)
         ctype = "text/event-stream" if body.get("stream") else "application/json"
         self.send_header("content-type", ctype)
