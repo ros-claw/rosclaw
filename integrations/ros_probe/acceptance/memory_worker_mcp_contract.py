@@ -14,7 +14,17 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 
-async def run(directory):
+async def run(directory, *, mode=None, isolated_output_root=False):
+    if mode not in (None, "M0", "M1", "M2"):
+        raise ValueError("one explicit registered memory mode required")
+    if isolated_output_root:
+        if (
+            mode is None
+            or (directory.parent / "group-identity-marker.txt").read_text() != mode + "\n"
+        ):
+            raise ValueError("exact separately mounted group output identity required")
+        if {p.name for p in directory.parent.iterdir()} != {"group-identity-marker.txt"}:
+            raise ValueError("separate group output must contain no other worker data")
     directory.mkdir(exist_ok=False)
     repo = Path(__file__).resolve().parents[3]
     original = directory / "original-executed-source"
@@ -46,6 +56,8 @@ async def run(directory):
         "uid": os.getuid(),
         "euid": os.geteuid(),
         "full_per_group_tool_isolation": "NOT_VERIFIED",
+        "single_group_output_root_checked": isolated_output_root,
+        "selected_mode": mode,
     }
     if Path("/proc/self/status").exists():
         raw = Path("/proc/self/status").read_bytes()
@@ -62,8 +74,12 @@ async def run(directory):
             line.split(":", 1)[0].strip() for line in raw.decode().splitlines() if ":" in line
         ]
     (directory / "actual-process-boundary.json").write_text(json.dumps(boundary, indent=2))
+    mounts = Path("/proc/self/mountinfo")
+    if mounts.exists():
+        (directory / "original-proc-self-mountinfo.txt").write_bytes(mounts.read_bytes())
     cases = []
-    for mode in ("M0", "M1", "M2"):
+    modes = (mode,) if mode is not None else ("M0", "M1", "M2")
+    for mode in modes:
         worker = directory / mode
         worker.mkdir(mode=0o700)
         profile = worker / "runtime.yaml"
@@ -143,4 +159,7 @@ async def run(directory):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--directory", type=Path, required=True)
-    asyncio.run(run(parser.parse_args().directory))
+    parser.add_argument("--mode", choices=("M0", "M1", "M2"))
+    parser.add_argument("--isolated-output-root", action="store_true")
+    args = parser.parse_args()
+    asyncio.run(run(args.directory, mode=args.mode, isolated_output_root=args.isolated_output_root))

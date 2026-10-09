@@ -27,3 +27,9 @@ The first actual stdio run failed because argparse eagerly resolved optional RH5
 Container attempt3 captures all eight executed sources, including CLI, before startup and confirms unchanged bytes afterwards. All three actual SDK calls return canonical `MEMORY_RETRIEVAL_DISABLED`. Original `/proc` evidence reports UID/EUID1000, CapEff0, NoNewPrivs1, and only the loopback network interface. The launcher uses read-only rootfs, all capabilities dropped, network-none, source/helper read-only mounts and an evidence output directory. The preceding failed attempt and successful attempt2 remain retained; attempt2 did not capture CLI in its before-execution list and is not used to prove that source boundary.
 
 This is a source-validation smoke test. The three modes share one container's output parent; it does not establish complete per-group tool isolation, perform a model task, open a ROS Node/World, or measure causal Memory benefit. Existing Pydantic-settings startup warnings remain visible in original stderr.
+
+## Three separately mounted source-smoke groups
+
+The source helper now accepts one explicit M0/M1/M2 mode. Three fresh restricted containers each mount only their own empty group output directory, with an exact identity marker checked before the helper creates a worker home. All three actual SDK refusals pass. Each container retains original mountinfo, eight before-execution sources, kernel process/network evidence, server stderr and tool response; the host retains original argv/image/helper hash before launch and the exit outcome. Source and helper mounts remain read-only and no history/credentials/other group directory is mounted.
+
+These three containers validate the source-smoke mounts and canonical retrieval behavior only. They have no model access, run no task, and do not establish the final Native shell/file/MCP tool boundary or matched causal benefit. Complete experiment isolation remains NOT_VERIFIED.
