@@ -20,7 +20,14 @@ ROOT = Path(__file__).resolve().parent
 OUTPUT = Path("/evidence")
 
 
-def prepare(controller_watchdog=True, profile_name="waffle", coverage_preset="baseline", seed=None):
+def prepare(
+    controller_watchdog=True,
+    profile_name="waffle",
+    coverage_preset="baseline",
+    seed=None,
+    *,
+    precise_repair_waypoints=False,
+):
     profile = PROFILES[profile_name]
     candidate = planning_parameters(profile, coverage_preset)
     controller_candidate = controller_parameters(profile, coverage_preset)
@@ -156,6 +163,23 @@ def prepare(controller_watchdog=True, profile_name="waffle", coverage_preset="ba
         default_coverage_bt_xml=get_package_share_directory("opennav_coverage_bt")
         + "/behavior_trees/navigate_w_basic_complete_coverage_nav_to_start.xml",
     )
+    if precise_repair_waypoints:
+        from precise_through_poses_bt import prepare_precise_through_poses_bt
+
+        original = (
+            Path(get_package_share_directory("nav2_bt_navigator"))
+            / "behavior_trees/navigate_through_poses_w_replanning_and_recovery.xml"
+        ).read_bytes()
+        prepare_precise_through_poses_bt(
+            OUTPUT,
+            original,
+            xy_goal_tolerance=params["controller_server"]["ros__parameters"][
+                "general_goal_checker"
+            ]["xy_goal_tolerance"],
+        )
+        params["bt_navigator"]["ros__parameters"]["default_nav_through_poses_bt_xml"] = str(
+            OUTPUT / "repair-through-poses.xml"
+        )
     params["amcl"]["ros__parameters"].update(
         set_initial_pose=True,
         initial_pose={"x": 0.0, "y": 0.0, "z": 0.0, "yaw": 0.0},
@@ -276,6 +300,7 @@ def main():
         ],
         default="baseline",
     )
+    parser.add_argument("--precise-repair-waypoints", action="store_true")
     parser.add_argument("--seed", type=int)
     parser.add_argument("--fault-acceptance", action="store_true")
     parser.add_argument(
@@ -298,7 +323,13 @@ def main():
     os.environ["PYTHONPATH"] = (
         str(ROOT.parents[2] / "src") + os.pathsep + os.getenv("PYTHONPATH", "")
     )
-    prepare(args.controller_watchdog, args.profile, args.coverage_preset, args.seed)
+    prepare(
+        args.controller_watchdog,
+        args.profile,
+        args.coverage_preset,
+        args.seed,
+        precise_repair_waypoints=args.precise_repair_waypoints,
+    )
     (OUTPUT / "run_id.txt").write_text(uuid.uuid4().hex + "\n")
     profile = PROFILES[args.profile]
     children = []

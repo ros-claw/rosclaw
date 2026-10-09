@@ -21,6 +21,12 @@ ROOT = Path(__file__).resolve().parent
 REPOSITORY = ROOT.parents[2]
 
 
+def validate_precise_repair_registration(protocol, enabled):
+    registered = protocol.get("precise_repair_waypoints", False)
+    if type(registered) is not bool or registered != enabled:
+        raise ValueError("precise waypoint BT differs from preregistered protocol")
+
+
 def repair_request_counts(directory):
     """Retain requested goals and waypoints separately; neither proves arrival."""
     from rosclaw.connectors.ros.diagnosis.coverage_audit import read_audit
@@ -162,6 +168,8 @@ def run_arm(pair, arm, args, ordinal, image_id, commit):
         "repair_strategy": "greedy"
         if arm == "baseline"
         else getattr(args, "candidate_repair_strategy", "greedy"),
+        "precise_repair_waypoints": arm == "candidate"
+        and getattr(args, "precise_repair_waypoints", False),
         "source_commit": commit,
         "mission_timeout_sec": args.mission_timeout,
         "image_id": image_id,
@@ -178,6 +186,8 @@ def run_arm(pair, arm, args, ordinal, image_id, commit):
             f"--controller-watchdog --profile {args.profile} --coverage-preset {row['preset']} "
             f"--seed {args.seed}"
         )
+        if row["precise_repair_waypoints"]:
+            stack += " --precise-repair-waypoints"
         command(
             [
                 "docker",
@@ -314,6 +324,7 @@ def main():
         choices=["greedy", "pose_aware", "pose_aware_robust", "pose_aware_robust_sequence"],
         default="greedy",
     )
+    parser.add_argument("--precise-repair-waypoints", action="store_true")
     parser.add_argument("--seed", type=int, required=True)
     parser.add_argument("--phase", choices=["pilot", "evaluation"], default="pilot")
     parser.add_argument("--image", default="rosclaw/ros-expert-rebuilt:dad31022")
@@ -325,6 +336,11 @@ def main():
 
     validate_ros_domain(args.domain_base)
     validate_ros_domain(args.domain_base + 1)
+    if (
+        args.precise_repair_waypoints
+        and args.candidate_repair_strategy != "pose_aware_robust_sequence"
+    ):
+        parser.error("precise waypoint BT requires the explicit continuous repair candidate")
     validate_seed(args.seed)
     planning_parameters(PROFILES[args.profile], args.candidate)
     if not 1024 <= args.port_base < 65535 or not 0 <= args.domain_base < 232:
@@ -333,6 +349,7 @@ def main():
         parser.error("mission timeout must be between 60 and 1800 seconds")
     protocol_bytes = args.protocol.read_bytes()
     protocol = json.loads(protocol_bytes)
+    validate_precise_repair_registration(protocol, args.precise_repair_waypoints)
     if args.seed not in protocol[f"{args.phase}_seeds"]:
         parser.error("seed is not preregistered for this phase")
     if args.phase == "evaluation" and not protocol.get("evaluation_freeze"):
@@ -343,7 +360,8 @@ def main():
     if args.phase == "evaluation":
         freeze = protocol["evaluation_freeze"]
         if (
-            freeze["source_commit"] != commit
+            freeze.get("precise_repair_waypoints", False) != args.precise_repair_waypoints
+            or freeze["source_commit"] != commit
             or freeze["selected_presets"].get(args.profile) != args.candidate
             or freeze.get("selected_repair_strategies", {}).get(args.profile, "greedy")
             != args.candidate_repair_strategy
@@ -368,6 +386,7 @@ def main():
         "seed": args.seed,
         "candidate": args.candidate,
         "candidate_repair_strategy": args.candidate_repair_strategy,
+        "precise_repair_waypoints": args.precise_repair_waypoints,
         "mission_timeout_sec": args.mission_timeout,
         "v1_done": False,
     }
