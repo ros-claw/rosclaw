@@ -24,6 +24,27 @@ def test_registration_matches_explicit_setting(module, protocol, enabled):
 
 
 @pytest.mark.parametrize(
+    "preset,strategy,enabled",
+    [
+        ("perimeter_stateless_overlap_continuous", "pose_aware_robust", True),
+        ("perimeter_stateless_clearance_continuous", "pose_aware_robust", True),
+        ("perimeter_stateless", "pose_aware_robust_sequence", True),
+        ("perimeter_stateless", "pose_aware_robust", False),
+    ],
+)
+def test_precise_boundary_is_independent_of_repair_without_relaxing_legacy_gate(
+    module, preset, strategy, enabled
+):
+    module.validate_precise_waypoint_candidate(preset, strategy, enabled)
+
+
+@pytest.mark.parametrize("strategy", ["greedy", "pose_aware_robust"])
+def test_legacy_nonsequence_repair_cannot_enable_unregistered_precise_bt(module, strategy):
+    with pytest.raises(ValueError, match="registered continuous boundary"):
+        module.validate_precise_waypoint_candidate("perimeter_stateless", strategy, True)
+
+
+@pytest.mark.parametrize(
     "protocol,enabled",
     [
         ({}, True),

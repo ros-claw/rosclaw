@@ -26,6 +26,19 @@ ROOT = Path(__file__).resolve().parent
 REPOSITORY = ROOT.parents[2]
 
 
+def validate_precise_waypoint_candidate(preset, repair_strategy, enabled):
+    # The same Nav2 through-poses BT serves the new boundary route, even when
+    # repair uses single NavigateToPose goals. Older candidates retain their gate.
+    if (
+        enabled
+        and repair_strategy != "pose_aware_robust_sequence"
+        and preset not in CONTINUOUS_BOUNDARY_PRESETS
+    ):
+        raise ValueError(
+            "precise waypoint BT requires continuous repair or registered continuous boundary"
+        )
+
+
 def validate_continuous_boundary_registration(protocol, preset, precise):
     if preset not in CONTINUOUS_BOUNDARY_PRESETS:
         return
@@ -375,11 +388,12 @@ def main():
 
     validate_ros_domain(args.domain_base)
     validate_ros_domain(args.domain_base + 1)
-    if (
-        args.precise_repair_waypoints
-        and args.candidate_repair_strategy != "pose_aware_robust_sequence"
-    ):
-        parser.error("precise waypoint BT requires the explicit continuous repair candidate")
+    try:
+        validate_precise_waypoint_candidate(
+            args.candidate, args.candidate_repair_strategy, args.precise_repair_waypoints
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
     validate_seed(args.seed)
     planning_parameters(PROFILES[args.profile], args.candidate)
     if not 1024 <= args.port_base < 65535 or not 0 <= args.domain_base < 232:
