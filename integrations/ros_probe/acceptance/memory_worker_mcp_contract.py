@@ -29,6 +29,7 @@ async def run(directory):
             repo / "src/rosclaw/mcp/server.py",
             repo / "src/rosclaw/agent/detectors.py",
             repo / "src/rosclaw/core/runtime.py",
+            repo / "src/rosclaw/cli.py",
         ]
     ):
         raw = path.read_bytes()
@@ -41,6 +42,26 @@ async def run(directory):
             indent=2,
         )
     )
+    boundary = {
+        "uid": os.getuid(),
+        "euid": os.geteuid(),
+        "full_per_group_tool_isolation": "NOT_VERIFIED",
+    }
+    if Path("/proc/self/status").exists():
+        raw = Path("/proc/self/status").read_bytes()
+        (directory / "original-proc-self-status.txt").write_bytes(raw)
+        parsed = dict(line.split(":", 1) for line in raw.decode().splitlines() if ":" in line)
+        boundary.update(
+            cap_eff=parsed.get("CapEff", "").strip(),
+            no_new_privileges=parsed.get("NoNewPrivs", "").strip(),
+        )
+    if Path("/proc/net/dev").exists():
+        raw = Path("/proc/net/dev").read_bytes()
+        (directory / "original-proc-net-dev.txt").write_bytes(raw)
+        boundary["network_interfaces"] = [
+            line.split(":", 1)[0].strip() for line in raw.decode().splitlines() if ":" in line
+        ]
+    (directory / "actual-process-boundary.json").write_text(json.dumps(boundary, indent=2))
     cases = []
     for mode in ("M0", "M1", "M2"):
         worker = directory / mode

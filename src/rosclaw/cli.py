@@ -390,9 +390,7 @@ def _run_doctor_task(goal: str, *, json_output: bool = False) -> int:
     else:
         checks = {
             "trajectory": any("plan" in t for t in kit.compute_tools),
-            "verifier": any(
-                "verify" in t for t in (*kit.compute_tools, *kit.observation_tools)
-            ),
+            "verifier": any("verify" in t for t in (*kit.compute_tools, *kit.observation_tools)),
             "executor": importlib.util.find_spec(kit.executor_module) is not None,
         }
         missing = [name for name in required if not checks.get(name, False)]
@@ -425,8 +423,10 @@ def _run_doctor_task(goal: str, *, json_output: bool = False) -> int:
         if missing:
             print(f"  missing:  {', '.join(missing)}")
             if remediation:
-                print(f"  remediation: {remediation['command']} "
-                      f"(idempotent, cancellable, no REAL authorization)")
+                print(
+                    f"  remediation: {remediation['command']} "
+                    f"(idempotent, cancellable, no REAL authorization)"
+                )
     return 0 if not missing else 1
 
 
@@ -6846,7 +6846,10 @@ def main() -> int:
         "version", help="Show version / installation diagnostics"
     )
     version_parser.add_argument(
-        "--diagnostic", "--verbose", dest="diagnostic", action="store_true",
+        "--diagnostic",
+        "--verbose",
+        dest="diagnostic",
+        action="store_true",
         help="Show installation composition (commits/digests/revisions)",
     )
     version_parser.add_argument("--json", action="store_true", help="JSON output")
@@ -7877,27 +7880,22 @@ def main() -> int:
 
     # P5 RH56 subcommands: rh56-shadow / preflight / arm / execute
     def _add_rh56_args(parser, *, with_policy: bool = True):
-        from rosclaw.body.rh56.resources import (
-            rh56_config_path,
-            rh56_reference_policy_path,
-        )
-
         if with_policy:
             parser.add_argument(
                 "--policy.path",
                 dest="policy_path",
-                default=str(rh56_reference_policy_path()),
+                default=None,
                 help="Policy directory (default: bundled RH56 reference policy)",
             )
         parser.add_argument("--body-id", default="rh56_right_01", help="Body instance ID")
         parser.add_argument(
             "--transport-profile",
-            default=str(rh56_config_path("rh56_right_rs485_v1.yaml")),
+            default=None,
             help="RH56 transport profile YAML",
         )
         parser.add_argument(
             "--calibration",
-            default=str(rh56_config_path("rh56_right_01_calibration.yaml")),
+            default=None,
             help="RH56 calibration YAML",
         )
         parser.add_argument("--task", default="hold_current", help="Reference task name")
@@ -8023,9 +8021,7 @@ def main() -> int:
     # host subcommand: HostOps privileged operations on the operator TTY
     # (doc §23). `authorize` authenticates locally via sudo; `execute` is
     # the internal root phase it re-launches.
-    host_parser = subparsers.add_parser(
-        "host", help="HostOps privileged operations (operator TTY)"
-    )
+    host_parser = subparsers.add_parser("host", help="HostOps privileged operations (operator TTY)")
     host_subparsers = host_parser.add_subparsers(dest="host_command")
     host_authorize_parser = host_subparsers.add_parser(
         "authorize", help="Authorize a pending skill job with local sudo"
@@ -8948,12 +8944,26 @@ def main() -> int:
     add_feedback_subparser(subparsers)
 
     args = parser.parse_args()
+    if (
+        args.command == "lerobot"
+        and args.lerobot_command == "rollout"
+        and args.lerobot_rollout_command in {"rh56-shadow", "preflight", "arm", "execute"}
+    ):
+        from rosclaw.body.rh56.resources import rh56_config_path, rh56_reference_policy_path
+
+        if getattr(args, "policy_path", None) is None:
+            args.policy_path = str(rh56_reference_policy_path())
+        if args.transport_profile is None:
+            args.transport_profile = str(rh56_config_path("rh56_right_rs485_v1.yaml"))
+        if args.calibration is None:
+            args.calibration = str(rh56_config_path("rh56_right_01_calibration.yaml"))
     with telemetry_command_hook(args):
         if args.command == "version":
             from rosclaw.version_diag import cmd_version
 
             return cmd_version(
-                diagnostic=bool(args.diagnostic), as_json=bool(args.json),
+                diagnostic=bool(args.diagnostic),
+                as_json=bool(args.json),
                 home=get_rosclaw_home(),  # P0-8：home 给运行时身份
             )
         if args.command == "init":
@@ -9022,9 +9032,15 @@ def main() -> int:
             app_parser.print_help()
             return 1
         elif args.command in (
-            "agentd", "chat", "worker", "eval", "learning",
+            "agentd",
+            "chat",
+            "worker",
+            "eval",
+            "learning",
             # WP-P0-1：会话可发现性顶层命令。
-            "sessions", "resume", "continue",
+            "sessions",
+            "resume",
+            "continue",
         ):
             return dispatch_agent_command(args)
         elif args.command == "provider":
