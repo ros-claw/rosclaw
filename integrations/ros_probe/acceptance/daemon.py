@@ -11,6 +11,7 @@ import time
 import uuid
 from pathlib import Path
 
+from experiments import validate_inner_ring_experiment
 from rosclaw.connectors.ros.action_client import Ros2ActionClient
 from rosclaw.connectors.ros.mission.executor import RosCoverageSimulationExecutor, SimulationWitness
 from rosclaw.connectors.ros.mission.remember import VerifiedMissionMemoryExecutor
@@ -36,6 +37,7 @@ def main():
     args = parser.parse_args()
     root = args.directory.resolve()
     config = json.loads((root / "execution_config.json").read_text())
+    validate_inner_ring_experiment(config.get("experiment", {}))
     runtime = Runtime(
         RuntimeConfig(
             robot_id=config["body_id"],

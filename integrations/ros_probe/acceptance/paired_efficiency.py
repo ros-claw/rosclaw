@@ -27,6 +27,22 @@ def validate_precise_repair_registration(protocol, enabled):
         raise ValueError("precise waypoint BT differs from preregistered protocol")
 
 
+def validate_inner_ring_registration(protocol, candidate):
+    if candidate != "perimeter_stateless_clearance_inner_ring":
+        return
+    expected = {
+        "candidate_boundary_stage_budget_sec": 360,
+        "candidate_inner_boundary_inset_cells": 1,
+    }
+    if any(
+        type(protocol.get(key)) is not int or protocol[key] != value
+        for key, value in expected.items()
+    ):
+        raise ValueError(
+            "inner ring requires preregistered stage budget and inset before World launch"
+        )
+
+
 def repair_request_counts(directory):
     """Retain requested goals and waypoints separately; neither proves arrival."""
     from rosclaw.connectors.ros.diagnosis.coverage_audit import read_audit
@@ -316,6 +332,7 @@ def main():
             "perimeter_stateless",
             "perimeter_stateless_headland",
             "perimeter_stateless_clearance",
+            "perimeter_stateless_clearance_inner_ring",
             "perimeter_stateless_overlap",
         ],
         required=True,
@@ -351,6 +368,7 @@ def main():
     protocol_bytes = args.protocol.read_bytes()
     protocol = json.loads(protocol_bytes)
     validate_precise_repair_registration(protocol, args.precise_repair_waypoints)
+    validate_inner_ring_registration(protocol, args.candidate)
     if args.seed not in protocol[f"{args.phase}_seeds"]:
         parser.error("seed is not preregistered for this phase")
     if args.phase == "evaluation" and not protocol.get("evaluation_freeze"):

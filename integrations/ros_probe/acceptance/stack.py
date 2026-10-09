@@ -251,18 +251,27 @@ def prepare(
                     "perimeter_stateless",
                     "perimeter_stateless_headland",
                     "perimeter_stateless_clearance",
+                    "perimeter_stateless_clearance_inner_ring",
                     "perimeter_stateless_overlap",
                 ),
-                "boundary_strategy": "sequential"
+                "boundary_strategy": "sequential_inner_ring"
+                if coverage_preset == "perimeter_stateless_clearance_inner_ring"
+                else "sequential"
                 if coverage_preset
                 in (
                     "perimeter_sequential",
                     "perimeter_stateless",
                     "perimeter_stateless_headland",
                     "perimeter_stateless_clearance",
+                    "perimeter_stateless_clearance_inner_ring",
                     "perimeter_stateless_overlap",
                 )
                 else "through_poses",
+                **(
+                    {"boundary_stage_budget_sec": 360, "inner_boundary_inset_cells": 1}
+                    if coverage_preset == "perimeter_stateless_clearance_inner_ring"
+                    else {}
+                ),
                 "seed": seed,
                 "planning_parameters": candidate,
                 "controller_parameters": controller_candidate,
@@ -299,6 +308,7 @@ def main():
             "perimeter_stateless",
             "perimeter_stateless_headland",
             "perimeter_stateless_clearance",
+            "perimeter_stateless_clearance_inner_ring",
             "perimeter_stateless_overlap",
         ],
         default="baseline",

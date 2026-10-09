@@ -114,3 +114,79 @@ def test_sequential_boundary_audits_each_goal_and_stops_on_failure_or_budget(
         assert kwargs["stage"] == "BOUNDARY_PASS"
         assert 0 < kwargs["goal_timeout_sec"] <= 45
     assert "coverage_ratio" not in result
+
+
+def test_inset_ring_uses_complete_existing_inner_edges_without_mutating_mask():
+    from rosclaw.connectors.ros.mission.boundary_pass import inset_rectangular_boundary_targets
+
+    centers = [(float(x), float(y)) for x in range(7) for y in range(7)]
+    before = copy.deepcopy(centers)
+    targets = inset_rectangular_boundary_targets(centers, {"x": 6, "y": 6}, resolution=1)
+    assert len(targets) == 9 and targets[0] == targets[-1]
+    assert all(
+        (p["x"], p["y"]) in centers and 1 <= p["x"] <= 5 and 1 <= p["y"] <= 5 for p in targets
+    )
+    assert centers == before
+    missing = [p for p in centers if p != (3, 1)]
+    assert inset_rectangular_boundary_targets(missing, {"x": 6, "y": 6}, resolution=1) == ()
+    assert inset_rectangular_boundary_targets(centers, {"x": 6, "y": 6}, resolution=0.5) == ()
+
+
+@pytest.mark.parametrize(
+    "inset,resolution", [(True, 1), (0, 1), (5, 1), (1.5, 1), (1, True), (1, 0), (1, float("nan"))]
+)
+def test_inset_ring_rejects_unregistered_or_nonfinite_grid_parameters(inset, resolution):
+    from rosclaw.connectors.ros.mission.boundary_pass import inset_rectangular_boundary_targets
+
+    with pytest.raises(ValueError):
+        inset_rectangular_boundary_targets(
+            [(0, 0)], {"x": 0, "y": 0}, resolution=resolution, inset_cells=inset
+        )
+
+
+@pytest.mark.parametrize("failure", [False, True, "budget", "thin"])
+def test_extra_ring_remains_bounded_daemon_goals_and_never_credits_cells(
+    tmp_path, monkeypatch, failure
+):
+    from types import SimpleNamespace
+
+    from rosclaw.connectors.ros.mission import executor as module
+
+    extent = 3 if failure == "thin" else 7
+    centers = [(float(x), float(y)) for x in range(extent) for y in range(extent)]
+    executor = module.RosCoverageSimulationExecutor(
+        owner="daemon_test",
+        client=None,
+        control=None,
+        witness=SimpleNamespace(fresh=lambda: {"x": extent - 1, "y": extent - 1}),
+        output=tmp_path,
+        body_id="fixture",
+        body_snapshot_hash="body",
+        grid={"frame_id": "map", "resolution": 1},
+        recovery_centers=centers,
+        boundary_centers=centers,
+        boundary_pass=True,
+        boundary_strategy="sequential_inner_ring",
+    )
+    calls = []
+
+    def fake_goal(*args, **kwargs):
+        calls.append((args, kwargs))
+        return {"status": 6 if failure is True and len(calls) == 10 else 4}
+
+    executor._run_goal = fake_goal
+    if failure == "budget":
+        stamps = iter([0, *([1] * 9), 361])
+        monkeypatch.setattr(module.time, "monotonic", lambda: next(stamps))
+    result = executor._boundary({"status": 4}, "root", 1000)
+    assert result["status"] == ("SUCCEEDED" if failure is False else "FAILED")
+    assert len(calls) == (
+        18 if failure is False else 10 if failure is True else 9 if failure == "budget" else 0
+    )
+    assert "coverage_ratio" not in result
+    for index, (args, kwargs) in enumerate(calls):
+        assert args[:2] == ("/navigate_to_pose", "nav2_msgs/action/NavigateToPose")
+        assert args[3:] == (f"root:boundary:{index}", 1000)
+        pose = args[2]["pose"]["pose"]["position"]
+        assert (pose["x"], pose["y"]) in centers
+        assert kwargs["stage"] == "BOUNDARY_PASS" and 0 < kwargs["goal_timeout_sec"] <= 45

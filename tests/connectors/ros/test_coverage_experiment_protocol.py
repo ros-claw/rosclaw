@@ -235,3 +235,108 @@ def test_repair_metrics_preserve_requested_waypoints_separately_from_goal_count(
         "repair_requested_goal_count": 2,
         "repair_requested_waypoint_count": 3,
     }
+
+
+def test_inner_ring_is_known_burger_opt_in_with_identical_planner_and_controller_settings():
+    burger = SimpleNamespace(name="burger", coverage_width_m=0.3, physical_radius_m=0.15)
+    old = "perimeter_stateless_clearance"
+    new = "perimeter_stateless_clearance_inner_ring"
+    assert experiments.planning_parameters(burger, old) == experiments.planning_parameters(
+        burger, new
+    )
+    assert experiments.controller_parameters(burger, old) == experiments.controller_parameters(
+        burger, new
+    )
+    with pytest.raises(ValueError, match="known Burger"):
+        experiments.planning_parameters(SimpleNamespace(name="waffle", coverage_width_m=0.5), new)
+
+
+@pytest.mark.parametrize(
+    "budget,inset", [(None, None), (180, 1), (360, 0), (360, True), (True, 1), (360, 2)]
+)
+def test_extra_ring_cannot_launch_under_an_old_or_changed_stage_registration(
+    monkeypatch, budget, inset
+):
+    runner = ROOT / "integrations/ros_probe/acceptance"
+    monkeypatch.syspath_prepend(str(runner))
+    spec = importlib.util.spec_from_file_location(
+        "inner_ring_pairs", runner / "paired_efficiency.py"
+    )
+    pairs = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(pairs)
+    protocol = {
+        "candidate_boundary_stage_budget_sec": budget,
+        "candidate_inner_boundary_inset_cells": inset,
+    }
+    with pytest.raises(ValueError, match="preregistered"):
+        pairs.validate_inner_ring_registration(protocol, "perimeter_stateless_clearance_inner_ring")
+    pairs.validate_inner_ring_registration({}, "perimeter_stateless_clearance")
+    pairs.validate_inner_ring_registration(
+        {"candidate_boundary_stage_budget_sec": 360, "candidate_inner_boundary_inset_cells": 1},
+        "perimeter_stateless_clearance_inner_ring",
+    )
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"preset": "perimeter_stateless_clearance"},
+        {"profile": "waffle"},
+        {"boundary_strategy": "sequential"},
+        {"boundary_pass": 1},
+        {"boundary_stage_budget_sec": 180},
+        {"inner_boundary_inset_cells": True},
+    ],
+)
+def test_daemon_rejects_changed_inner_ring_declarations_before_runtime(changes):
+    valid = {
+        "preset": "perimeter_stateless_clearance_inner_ring",
+        "profile": "burger",
+        "boundary_strategy": "sequential_inner_ring",
+        "boundary_pass": True,
+        "boundary_stage_budget_sec": 360,
+        "inner_boundary_inset_cells": 1,
+    }
+    experiments.validate_inner_ring_experiment(valid)
+    with pytest.raises(ValueError, match="registered known-Burger"):
+        experiments.validate_inner_ring_experiment({**valid, **changes})
+    experiments.validate_inner_ring_experiment({})
+
+
+def test_actual_daemon_cli_rejects_ring_mismatch_before_runtime_or_endpoint(tmp_path):
+    import os
+    import subprocess
+    import sys
+
+    (tmp_path / "execution_config.json").write_text(
+        json.dumps(
+            {
+                "experiment": {
+                    "preset": "perimeter_stateless_clearance_inner_ring",
+                    "profile": "burger",
+                    "boundary_strategy": "sequential_inner_ring",
+                    "boundary_pass": True,
+                    "boundary_stage_budget_sec": 180,
+                    "inner_boundary_inset_cells": 1,
+                }
+            }
+        )
+    )
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "integrations/ros_probe/acceptance/daemon.py"),
+            "--directory",
+            str(tmp_path),
+            "--endpoint",
+            "ws://127.0.0.1:1",
+        ],
+        env={**os.environ, "PYTHONPATH": str(ROOT / "src")},
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    assert result.returncode != 0
+    assert "inner boundary experiment must match the registered known-Burger stage" in result.stderr
+    assert "KeyError: 'body_id'" not in result.stderr
+    assert not (tmp_path / "home").exists() and not (tmp_path / "memory.sqlite").exists()

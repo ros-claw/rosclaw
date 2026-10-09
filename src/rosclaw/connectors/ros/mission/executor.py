@@ -16,7 +16,10 @@ from pathlib import Path
 
 from rosclaw.connectors.ros.action_client import STATUS_SUCCEEDED
 from rosclaw.connectors.ros.diagnosis.coverage_audit import CoverageAuditLog, digest
-from rosclaw.connectors.ros.mission.boundary_pass import rectangular_boundary_targets
+from rosclaw.connectors.ros.mission.boundary_pass import (
+    inset_rectangular_boundary_targets,
+    rectangular_boundary_targets,
+)
 from rosclaw.connectors.ros.mission.recovery import MissedRegionRecovery
 from rosclaw.connectors.ros.mission.repair_optimizer import rank_repair_poses
 from rosclaw.connectors.ros.verification.coverage import (
@@ -194,7 +197,7 @@ class RosCoverageSimulationExecutor:
         self.audit_metadata = dict(audit_metadata or {})
         if type(boundary_pass) is not bool:
             raise ValueError("boundary pass must be a configured boolean")
-        if boundary_strategy not in ("through_poses", "sequential"):
+        if boundary_strategy not in ("through_poses", "sequential", "sequential_inner_ring"):
             raise ValueError("unknown configured boundary strategy")
         self.boundary_pass = boundary_pass
         self.boundary_strategy = boundary_strategy
@@ -348,12 +351,24 @@ class RosCoverageSimulationExecutor:
         targets = rectangular_boundary_targets(
             self.boundary_centers,
             self.witness.fresh(),
-            edge_midpoints=self.boundary_strategy == "sequential",
+            edge_midpoints=self.boundary_strategy in {"sequential", "sequential_inner_ring"},
         )
         if not targets:
             result = {"status": "SKIPPED", "reason": "legal rectangular corners unavailable"}
             self._audit_event("boundary_decision", result)
             return result
+        if self.boundary_strategy == "sequential_inner_ring":
+            inner = inset_rectangular_boundary_targets(
+                self.boundary_centers, targets[-1], resolution=self.grid["resolution"]
+            )
+            if not inner:
+                result = {
+                    "status": "FAILED",
+                    "reason": "complete inset ring unavailable in original legal mask",
+                }
+                self._audit_event("boundary_decision", result)
+                return result
+            targets = targets + inner
         self._audit_event(
             "boundary_decision",
             {
@@ -374,8 +389,11 @@ class RosCoverageSimulationExecutor:
             }
             for p in targets
         ]
-        if self.boundary_strategy == "sequential":
-            until = time.monotonic() + 180
+        if self.boundary_strategy in {"sequential", "sequential_inner_ring"}:
+            # The new opt-in protocol explicitly registers two bounded rings.
+            # Global immutable action deadline and every goal/stop guard remain.
+            stage_budget = 360 if self.boundary_strategy == "sequential_inner_ring" else 180
+            until = time.monotonic() + stage_budget
             results = []
             for index, pose in enumerate(poses):
                 remaining = until - time.monotonic()

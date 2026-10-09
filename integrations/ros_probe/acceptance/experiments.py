@@ -24,7 +24,7 @@ def planning_parameters(profile, preset="baseline"):
         if profile.name != "burger":
             raise ValueError("safe-headland combination is preregistered only for Burger")
         params["default_headland_width"] = 0.35
-    elif preset == "perimeter_stateless_clearance":
+    elif preset in ("perimeter_stateless_clearance", "perimeter_stateless_clearance_inner_ring"):
         # Known-Burger diagnostic only. Source7a main-path tracking deviation
         # exceeded the 74mm static margin; 0.50m predicts 224mm clearance.
         # This is a hypothesis, not a physical safety/efficiency guarantee.
@@ -53,6 +53,7 @@ def controller_parameters(profile, preset="baseline"):
             "perimeter_stateless_headland",
             "perimeter_stateless_overlap",
             "perimeter_stateless_clearance",
+            "perimeter_stateless_clearance_inner_ring",
         )
         else {}
     )
@@ -70,3 +71,23 @@ def gazebo_arguments(world, seed=None):
     if seed is not None:
         args.extend(["--seed", str(seed)])
     return args + [str(world)]
+
+
+def validate_inner_ring_experiment(experiment):
+    """Fail before daemon Runtime startup if a new ring's declaration drifts."""
+    if (
+        experiment.get("preset") != "perimeter_stateless_clearance_inner_ring"
+        and experiment.get("boundary_strategy") != "sequential_inner_ring"
+    ):
+        return
+    if (
+        experiment.get("preset") != "perimeter_stateless_clearance_inner_ring"
+        or experiment.get("profile") != "burger"
+        or experiment.get("boundary_strategy") != "sequential_inner_ring"
+        or experiment.get("boundary_pass") is not True
+        or type(experiment.get("boundary_stage_budget_sec")) is not int
+        or experiment["boundary_stage_budget_sec"] != 360
+        or type(experiment.get("inner_boundary_inset_cells")) is not int
+        or experiment["inner_boundary_inset_cells"] != 1
+    ):
+        raise ValueError("inner boundary experiment must match the registered known-Burger stage")
