@@ -33,7 +33,7 @@ def validate_ros_domain(domain, *, ephemeral_range=None, participant_reserve=120
         "domain_id": domain,
         "participant_reserve": participant_reserve,
         "DDS_port_span": [first, last],
-        "observed_host_ephemeral_range": list(ephemeral_range),
+        "observed_kernel_ephemeral_range": list(ephemeral_range),
         "actual_container_network_namespace_verified": False,
         "transport_ready": False,
         "physical_acceptance": "NOT_MEASURED",

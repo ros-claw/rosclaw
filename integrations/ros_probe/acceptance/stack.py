@@ -285,6 +285,16 @@ def main():
         help="Require the bottom-level command timeout; disable only for explicit legacy fixture replay",
     )
     args = parser.parse_args()
+    from fixture_network import validate_ros_domain
+
+    # Read this process's actual kernel range before any simulator/ROS child.
+    # The host preflight alone cannot establish a container's network facts.
+    network = validate_ros_domain(int(os.environ.get("ROS_DOMAIN_ID", "0")))
+    network["source_process_network_namespace"] = os.readlink("/proc/self/ns/net")
+    network["source"] = "owned_stack_process_actual_kernel_port_range"
+    OUTPUT.mkdir(exist_ok=True)
+    with (OUTPUT / "container-network-preflight.json").open("x") as evidence:
+        json.dump(network, evidence, indent=2)
     os.environ["PYTHONPATH"] = (
         str(ROOT.parents[2] / "src") + os.pathsep + os.getenv("PYTHONPATH", "")
     )
