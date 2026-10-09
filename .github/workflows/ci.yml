@@ -301,10 +301,12 @@ jobs:
         # loadfile 保持文件内顺序（文件内顺序依赖不受影响）。
         # perf_serial（墙钟 SLO/基准）在并行负载下测量失真（main
         # bdcb115 实证 849ms>600ms 误红）——并行段排除、串行段补跑。
-        run: pytest -q -n auto --dist loadfile -m 'not slow and not integration and not deployment and not perf_serial'
+        # Embedded session fixtures are per worker; independent engines must
+        # run in the serial phase even when their tests live in separate files.
+        run: pytest -q -n auto --dist loadfile -m 'not slow and not integration and not deployment and not perf_serial and not embedded_seekdb'
 
-      - name: Run perf_serial suite (serial — wall-clock measurements must be unloaded)
-        run: pytest -q -p no:xdist -m 'perf_serial and not slow and not integration and not deployment'
+      - name: Run resource-sensitive suite (serial — wall-clock and embedded engine)
+        run: pytest -q -p no:xdist -m '(perf_serial or embedded_seekdb) and not slow and not integration and not deployment'
 
   product-acceptance:
     name: Product Acceptance
