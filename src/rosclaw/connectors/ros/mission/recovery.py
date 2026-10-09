@@ -79,7 +79,7 @@ class MissedRegionRecovery:
         if action_id in self.seen_action_ids:
             return
         if len(unique) == 2:
-            increments = {}
+            increments: dict[int, int] = {}
             for cells in unique:
                 for cell in cells:
                     increments[cell] = increments.get(cell, 0) + 1
