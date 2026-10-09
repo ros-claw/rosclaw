@@ -14,7 +14,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "ros2"))
-from probe import GetState, ReadOnlyProbe  # noqa: E402
+from probe import GetParameters, GetState, ReadOnlyProbe  # noqa: E402
 
 
 def main():
@@ -89,6 +89,33 @@ def main():
     assert recorded["source"] == "/robot/navigate_to_pose/_action/status"
     snapshot = ReadOnlyProbe.snapshot(fixture)
     assert snapshot["observations"]["action_statuses"] == fixture.action_observations
+    # Actual ROS GetParameters decoding, including plugin lists and integers.
+    parameter_callbacks = []
+    values = [
+        SimpleNamespace(type=9, string_array_value=["map", "lidar", "padding"]),
+        SimpleNamespace(type=2, integer_value=1),
+        SimpleNamespace(type=1, bool_value=False),
+    ]
+    parameter_future = SimpleNamespace(
+        add_done_callback=parameter_callbacks.append,
+        cancelled=lambda: False,
+        exception=lambda: None,
+        result=lambda: SimpleNamespace(values=values),
+    )
+    parameter_name = "/costmap/get_parameters"
+    fixture.clients_by_name[parameter_name] = SimpleNamespace(
+        service_is_ready=lambda: True,
+        call_async=lambda _: parameter_future,
+    )
+    request = GetParameters.Request()
+    request.names = ["plugins", "lidar.combination_method", "map.use_maximum"]
+    ReadOnlyProbe.read_rpc(fixture, parameter_name, GetParameters, request)
+    parameter_callbacks[0](parameter_future)
+    assert fixture.parameters["/costmap"] == {
+        "plugins": ["map", "lidar", "padding"],
+        "lidar.combination_method": 1,
+        "map.use_maximum": False,
+    }
     print(
         json.dumps(
             {
@@ -102,6 +129,7 @@ def main():
                     "late_rpc_identity",
                     "fresh_read_recovery",
                     "action_status_transition_observation",
+                    "plugin_parameter_types",
                 ],
             }
         )
