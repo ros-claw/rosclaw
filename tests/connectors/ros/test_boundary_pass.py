@@ -28,8 +28,9 @@ def test_missing_corner_or_degenerate_map_produces_no_boundary_action():
 
 
 @pytest.mark.parametrize("nav_status, expected", [(4, "SUCCEEDED"), (6, "FAILED")])
+@pytest.mark.parametrize("strategy,count", [("through_poses", 5), ("through_poses_midpoints", 9)])
 def test_boundary_dispatch_is_daemon_owned_bounded_and_never_grants_credit(
-    tmp_path, nav_status, expected
+    tmp_path, nav_status, expected, strategy, count
 ):
     from types import SimpleNamespace
 
@@ -45,8 +46,9 @@ def test_boundary_dispatch_is_daemon_owned_bounded_and_never_grants_credit(
         body_id="fixture",
         body_snapshot_hash="body",
         grid={"frame_id": "map"},
-        recovery_centers=[(-1, -1), (-1, 1), (1, -1), (1, 1)],
+        recovery_centers=[(-1, -1), (-1, 1), (1, -1), (1, 1), (0, -1), (0, 1), (-1, 0), (1, 0)],
         boundary_pass=True,
+        boundary_strategy=strategy,
     )
     calls = []
     executor._run_goal = lambda *args, **kwargs: (
@@ -58,9 +60,42 @@ def test_boundary_dispatch_is_daemon_owned_bounded_and_never_grants_credit(
     assert args[:2] == ("/navigate_through_poses", "nav2_msgs/action/NavigateThroughPoses")
     assert args[3:] == ("root:boundary", 123)
     assert kwargs == {"goal_timeout_sec": 180, "stage": "BOUNDARY_PASS"}
-    assert len(args[2]["poses"]) == result["waypoint_count"] == 5
+    assert len(args[2]["poses"]) == result["waypoint_count"] == count
     assert "coverage_ratio" not in result
     assert executor._boundary({"status": 6}, "root", 123)["status"] == "SKIPPED"
+    assert len(calls) == 1
+    executor.boundary_pass = False
+    assert executor._boundary({"status": 4}, "root", 123)["status"] == "DISABLED"
+    assert len(calls) == 1
+
+
+def test_continuous_boundary_preserves_timeout_result_and_missing_edge_dispatches_nothing(tmp_path):
+    from types import SimpleNamespace
+
+    from rosclaw.connectors.ros.mission.executor import RosCoverageSimulationExecutor
+
+    centers = [(-1, -1), (-1, 1), (1, -1), (1, 1), (0, -1), (0, 1), (-1, 0), (1, 0)]
+    executor = RosCoverageSimulationExecutor(
+        owner="daemon_test",
+        client=None,
+        control=None,
+        witness=SimpleNamespace(fresh=lambda: {"x": 1, "y": 1}),
+        output=tmp_path,
+        body_id="fixture",
+        body_snapshot_hash="body",
+        grid={"frame_id": "map"},
+        recovery_centers=centers,
+        boundary_pass=True,
+        boundary_strategy="through_poses_midpoints",
+    )
+    calls = []
+    original = {"status": 4, "timed_out": True, "result": {"error_code": 0}}
+    executor._run_goal = lambda *args, **kwargs: calls.append(args) or original
+    result = executor._boundary({"status": 4}, "root", 123)
+    assert result["status"] == "FAILED" and result["nav_goal_result"] is original
+    assert len(calls) == 1 and result["waypoint_count"] == 9
+    executor.boundary_centers = tuple(centers[:-1])
+    assert executor._boundary({"status": 4}, "root", 123)["status"] == "SKIPPED"
     assert len(calls) == 1
     executor.boundary_pass = False
     assert executor._boundary({"status": 4}, "root", 123)["status"] == "DISABLED"

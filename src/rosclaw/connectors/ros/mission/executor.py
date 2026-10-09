@@ -197,7 +197,12 @@ class RosCoverageSimulationExecutor:
         self.audit_metadata = dict(audit_metadata or {})
         if type(boundary_pass) is not bool:
             raise ValueError("boundary pass must be a configured boolean")
-        if boundary_strategy not in ("through_poses", "sequential", "sequential_inner_ring"):
+        if boundary_strategy not in (
+            "through_poses",
+            "through_poses_midpoints",
+            "sequential",
+            "sequential_inner_ring",
+        ):
             raise ValueError("unknown configured boundary strategy")
         self.boundary_pass = boundary_pass
         self.boundary_strategy = boundary_strategy
@@ -351,7 +356,8 @@ class RosCoverageSimulationExecutor:
         targets = rectangular_boundary_targets(
             self.boundary_centers,
             self.witness.fresh(),
-            edge_midpoints=self.boundary_strategy in {"sequential", "sequential_inner_ring"},
+            edge_midpoints=self.boundary_strategy
+            in {"through_poses_midpoints", "sequential", "sequential_inner_ring"},
         )
         if not targets:
             result = {"status": "SKIPPED", "reason": "legal rectangular corners unavailable"}
@@ -435,7 +441,9 @@ class RosCoverageSimulationExecutor:
             stage="BOUNDARY_PASS",
         )
         return {
-            "status": "SUCCEEDED" if result.get("status") == STATUS_SUCCEEDED else "FAILED",
+            "status": "SUCCEEDED"
+            if result.get("status") == STATUS_SUCCEEDED and not result.get("timed_out")
+            else "FAILED",
             "waypoint_count": len(targets),
             "nav_goal_result": result,
         }

@@ -15,10 +15,29 @@ from lifecycle_readiness import readiness
 from observations import latest_completed_observation
 from profiles import PROFILES
 
-from experiments import INNER_RING_PROFILES, planning_parameters, validate_seed
+from experiments import (
+    CONTINUOUS_BOUNDARY_PRESETS,
+    INNER_RING_PROFILES,
+    planning_parameters,
+    validate_seed,
+)
 
 ROOT = Path(__file__).resolve().parent
 REPOSITORY = ROOT.parents[2]
+
+
+def validate_continuous_boundary_registration(protocol, preset, precise):
+    if preset not in CONTINUOUS_BOUNDARY_PRESETS:
+        return
+    if (
+        precise is not True
+        or protocol.get("candidate_boundary_strategy") != "through_poses_midpoints"
+        or type(protocol.get("candidate_boundary_stage_budget_sec")) is not int
+        or protocol["candidate_boundary_stage_budget_sec"] != 180
+        or type(protocol.get("candidate_boundary_waypoint_count")) is not int
+        or protocol["candidate_boundary_waypoint_count"] != 9
+    ):
+        raise ValueError("continuous boundary protocol requires nine precise bounded waypoints")
 
 
 def validate_precise_repair_registration(protocol, enabled):
@@ -324,6 +343,7 @@ def main():
     parser.add_argument(
         "--candidate",
         choices=[
+            *CONTINUOUS_BOUNDARY_PRESETS,
             "baseline",
             "diagonal",
             "headland",
@@ -369,6 +389,9 @@ def main():
     protocol_bytes = args.protocol.read_bytes()
     protocol = json.loads(protocol_bytes)
     validate_precise_repair_registration(protocol, args.precise_repair_waypoints)
+    validate_continuous_boundary_registration(
+        protocol, args.candidate, args.precise_repair_waypoints
+    )
     validate_inner_ring_registration(protocol, args.candidate)
     if args.seed not in protocol[f"{args.phase}_seeds"]:
         parser.error("seed is not preregistered for this phase")

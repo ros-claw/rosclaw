@@ -7,9 +7,19 @@ INNER_RING_PROFILES = {
     "perimeter_stateless_inner_ring": "waffle",
 }
 
+CONTINUOUS_BOUNDARY_PRESETS = {
+    "perimeter_stateless_overlap_continuous": ("waffle", "perimeter_stateless_overlap"),
+    "perimeter_stateless_clearance_continuous": ("burger", "perimeter_stateless_clearance"),
+}
+
 
 def planning_parameters(profile, preset="baseline"):
     """Keep Body dimensions and original profile-specific baseline unchanged."""
+    if preset in CONTINUOUS_BOUNDARY_PRESETS:
+        expected, original = CONTINUOUS_BOUNDARY_PRESETS[preset]
+        if profile.name != expected:
+            raise ValueError("continuous boundary candidate requires its registered known profile")
+        return planning_parameters(profile, original)
     params = {
         "default_headland_width": profile.coverage_width_m,
         "default_swath_angle_type": "SET_ANGLE",
@@ -58,6 +68,8 @@ def planning_parameters(profile, preset="baseline"):
 def controller_parameters(profile, preset="baseline"):
     """Only goal-rotation statefulness differs; speed/stop guards stay original."""
     planning_parameters(profile, preset)
+    if preset in CONTINUOUS_BOUNDARY_PRESETS:
+        preset = CONTINUOUS_BOUNDARY_PRESETS[preset][1]
     return (
         {"stateful": False}
         if preset
@@ -71,6 +83,28 @@ def controller_parameters(profile, preset="baseline"):
         )
         else {}
     )
+
+
+def validate_continuous_boundary_experiment(experiment):
+    """Reject incomplete candidate declarations before starting the daemon."""
+    if type(experiment) is not dict:
+        raise ValueError("explicit experiment mapping required")
+    preset = experiment.get("preset")
+    registered = CONTINUOUS_BOUNDARY_PRESETS.get(preset) if isinstance(preset, str) else None
+    if registered is None and experiment.get("boundary_strategy") != "through_poses_midpoints":
+        return
+    if (
+        registered is None
+        or experiment.get("profile") != registered[0]
+        or experiment.get("boundary_strategy") != "through_poses_midpoints"
+        or experiment.get("boundary_pass") is not True
+        or experiment.get("precise_through_poses") is not True
+        or type(experiment.get("boundary_stage_budget_sec")) is not int
+        or experiment["boundary_stage_budget_sec"] != 180
+        or type(experiment.get("boundary_waypoint_count")) is not int
+        or experiment["boundary_waypoint_count"] != 9
+    ):
+        raise ValueError("continuous boundary experiment requires nine precise bounded waypoints")
 
 
 def validate_seed(seed):

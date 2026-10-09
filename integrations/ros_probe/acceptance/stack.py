@@ -15,6 +15,7 @@ from ament_index_python.packages import get_package_share_directory
 from profiles import PROFILES
 
 from experiments import (
+    CONTINUOUS_BOUNDARY_PRESETS,
     INNER_RING_PROFILES,
     controller_parameters,
     gazebo_arguments,
@@ -38,6 +39,8 @@ def prepare(
     candidate = planning_parameters(profile, coverage_preset)
     controller_candidate = controller_parameters(profile, coverage_preset)
     validate_seed(seed)
+    if coverage_preset in CONTINUOUS_BOUNDARY_PRESETS and precise_repair_waypoints is not True:
+        raise ValueError("continuous boundary candidate requires the precise through-poses BT")
     if profile_name == "burger" and not controller_watchdog:
         raise ValueError("Burger acceptance requires the bottom-level controller watchdog")
     OUTPUT.mkdir(exist_ok=True)
@@ -252,6 +255,7 @@ def prepare(
                 "preset": coverage_preset,
                 "boundary_pass": coverage_preset
                 in (
+                    *CONTINUOUS_BOUNDARY_PRESETS,
                     "perimeter",
                     "perimeter_sequential",
                     "perimeter_stateless",
@@ -261,7 +265,9 @@ def prepare(
                     "perimeter_stateless_inner_ring",
                     "perimeter_stateless_overlap",
                 ),
-                "boundary_strategy": "sequential_inner_ring"
+                "boundary_strategy": "through_poses_midpoints"
+                if coverage_preset in CONTINUOUS_BOUNDARY_PRESETS
+                else "sequential_inner_ring"
                 if coverage_preset in INNER_RING_PROFILES
                 else "sequential"
                 if coverage_preset
@@ -274,6 +280,15 @@ def prepare(
                     "perimeter_stateless_overlap",
                 )
                 else "through_poses",
+                **(
+                    {
+                        "boundary_stage_budget_sec": 180,
+                        "boundary_waypoint_count": 9,
+                        "precise_through_poses": True,
+                    }
+                    if coverage_preset in CONTINUOUS_BOUNDARY_PRESETS
+                    else {}
+                ),
                 **(
                     {"boundary_stage_budget_sec": 360, "inner_boundary_inset_cells": 1}
                     if coverage_preset in INNER_RING_PROFILES
@@ -307,6 +322,7 @@ def main():
     parser.add_argument(
         "--coverage-preset",
         choices=[
+            *CONTINUOUS_BOUNDARY_PRESETS,
             "baseline",
             "diagonal",
             "headland",

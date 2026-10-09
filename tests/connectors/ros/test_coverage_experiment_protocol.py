@@ -16,6 +16,89 @@ experiments = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(experiments)
 
 
+@pytest.mark.parametrize(
+    "name,width,preset,original",
+    [
+        ("waffle", 0.5, "perimeter_stateless_overlap_continuous", "perimeter_stateless_overlap"),
+        (
+            "burger",
+            0.3,
+            "perimeter_stateless_clearance_continuous",
+            "perimeter_stateless_clearance",
+        ),
+    ],
+)
+def test_continuous_boundary_keeps_planner_controller_and_body_unchanged(
+    name, width, preset, original
+):
+    profile = SimpleNamespace(name=name, coverage_width_m=width)
+    assert experiments.planning_parameters(profile, preset) == experiments.planning_parameters(
+        profile, original
+    )
+    assert experiments.controller_parameters(profile, preset) == experiments.controller_parameters(
+        profile, original
+    )
+    assert vars(profile) == {"name": name, "coverage_width_m": width}
+    wrong = SimpleNamespace(name="burger" if name == "waffle" else "waffle", coverage_width_m=width)
+    with pytest.raises(ValueError, match="registered known profile"):
+        experiments.planning_parameters(wrong, preset)
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"preset": "baseline"},
+        {"profile": "burger"},
+        {"boundary_strategy": "through_poses"},
+        {"boundary_pass": False},
+        {"precise_through_poses": False},
+        {"boundary_stage_budget_sec": 181},
+        {"boundary_stage_budget_sec": 180.0},
+        {"boundary_waypoint_count": 5},
+        {"boundary_waypoint_count": 9.0},
+    ],
+)
+def test_continuous_boundary_daemon_declaration_rejects_drift(change):
+    valid = {
+        "preset": "perimeter_stateless_overlap_continuous",
+        "profile": "waffle",
+        "boundary_strategy": "through_poses_midpoints",
+        "boundary_pass": True,
+        "precise_through_poses": True,
+        "boundary_stage_budget_sec": 180,
+        "boundary_waypoint_count": 9,
+    }
+    experiments.validate_continuous_boundary_experiment(valid)
+    with pytest.raises(ValueError, match="nine precise bounded"):
+        experiments.validate_continuous_boundary_experiment({**valid, **change})
+    experiments.validate_continuous_boundary_experiment({"preset": "baseline"})
+
+
+def test_continuous_boundary_pair_rejects_unregistered_or_imprecise_execution(monkeypatch):
+    runner = ROOT / "integrations/ros_probe/acceptance"
+    monkeypatch.syspath_prepend(str(runner))
+    spec = importlib.util.spec_from_file_location(
+        "continuous_boundary_pairs", runner / "paired_efficiency.py"
+    )
+    pairs = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(pairs)
+    preset = "perimeter_stateless_overlap_continuous"
+    valid = {
+        "candidate_boundary_strategy": "through_poses_midpoints",
+        "candidate_boundary_stage_budget_sec": 180,
+        "candidate_boundary_waypoint_count": 9,
+    }
+    pairs.validate_continuous_boundary_registration(valid, preset, True)
+    for protocol, precise in [
+        (valid, False),
+        ({}, True),
+        ({**valid, "candidate_boundary_stage_budget_sec": 360}, True),
+        ({**valid, "candidate_boundary_waypoint_count": 5}, True),
+    ]:
+        with pytest.raises(ValueError, match="nine precise bounded"):
+            pairs.validate_continuous_boundary_registration(protocol, preset, precise)
+
+
 def test_profile_specific_baseline_and_body_are_preserved():
     waffle = SimpleNamespace(name="waffle", coverage_width_m=0.5, physical_radius_m=0.25)
     burger = SimpleNamespace(name="burger", coverage_width_m=0.3, physical_radius_m=0.15)
