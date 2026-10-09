@@ -43,6 +43,29 @@ def require_isolated_environment():
     validate_ros_domain(int(os.environ.get("ROS_DOMAIN_ID", "0")))
 
 
+def bounded_launch_description(description, seconds):
+    """SDK process escalation fits within the outer three-second cleanup.
+
+    Without explicit configuration, installed launch defaults wait five seconds
+    before SIGTERM and another five before SIGKILL, outliving our supervisor.
+    """
+    from launch import LaunchDescription
+    from launch.actions import EmitEvent, SetLaunchConfiguration, TimerAction
+    from launch.events import Shutdown
+
+    return LaunchDescription(
+        [
+            SetLaunchConfiguration("sigterm_timeout", "0.5"),
+            SetLaunchConfiguration("sigkill_timeout", "0.5"),
+            *description.entities,
+            TimerAction(
+                period=float(validate_deadline_seconds(seconds)),
+                actions=[EmitEvent(event=Shutdown(reason="owned bootstrap deadline"))],
+            ),
+        ]
+    )
+
+
 def supervise_owned_launch(argv, output, *, seconds, check_source):
     """Own one new process group, refuse any early exit, always reap it.
 
@@ -121,16 +144,10 @@ def main():
     frozen_plan = hashlib.sha256(json.dumps(plan, sort_keys=True).encode()).digest()
     if args.sdk_child:
         from launch import LaunchService
-        from launch.actions import EmitEvent, TimerAction
-        from launch.events import Shutdown
 
         service = LaunchService()
-        description = build_bootstrap_launch_description("/evidence", declaration)
-        description.add_action(
-            TimerAction(
-                period=validate_deadline_seconds(args.seconds),
-                actions=[EmitEvent(event=Shutdown(reason="owned bootstrap deadline"))],
-            )
+        description = bounded_launch_description(
+            build_bootstrap_launch_description("/evidence", declaration), args.seconds
         )
         service.include_launch_description(description)
         return service.run()
