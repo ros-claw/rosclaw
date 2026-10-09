@@ -28,7 +28,7 @@ from generic_container_ownership import (
 )
 from generic_stack_source import read_prepared_generic_stack
 
-IMAGE_ID = "sha256:66f2c28aa505349a14d30b7365ab0b327abe0f9fb84e99ba2d182d65dec3f7b2"
+IMAGE_ID = "sha256:d16320799584a60035548fb298243bdd8b0d2cb5760675a9cb46b608ea211e56"
 
 
 def bootstrap_container_command(source, workspace, output, declaration, *, owner, domain, seconds):
@@ -81,7 +81,7 @@ def bootstrap_container_command(source, workspace, output, declaration, *, owner
         "bash",
         IMAGE_ID,
         "-c",
-        'source /opt/ros/jazzy/setup.bash && source /ws/install/setup.bash && exec python3 "$@"',
+        'source /opt/ros/jazzy/setup.bash && source /ws/install/setup.bash && source /opt/reh-control-metadata/setup.bash && exec python3 "$@"',
         "owned-generic-bootstrap",
         "/workspace/integrations/ros_probe/acceptance/generic_bootstrap_runtime.py",
         "--declaration",

@@ -1,0 +1,7 @@
+{
+  "upstream_commit": "b7f1a5d420443c7a079f4c81e80d5e39759acf4c",
+  "version": "4.48.1",
+  "archive_sha256": "333e7d95537ccf8d792e1b1c34c4bcf78f295894bd5f7fc1d1113b98a18e53eb",
+  "original_resource_manager_sha256": "9430e8121bf46b95a2fa3246c2c0cd6dac11be67982cb0fe6ae75c66d3ba2ecc",
+  "base_image_id": "sha256:66f2c28aa505349a14d30b7365ab0b327abe0f9fb84e99ba2d182d65dec3f7b2"
+}

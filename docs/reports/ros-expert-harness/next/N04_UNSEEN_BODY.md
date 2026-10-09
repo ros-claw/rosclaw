@@ -182,6 +182,74 @@ never started. The first source-capture helper failed on a module whose
 exposed a sub-millisecond final inspect timeout; this now ends at the immutable
 deadline and proceeds to cleanup. That failed attempt is also retained.
 
-The complete host/World run, staged fresh Graph/TF/map/sensor/independent-physics
-admission, guarded activation, live Body binding and Native task dispatch remain
-pending. Generic feature freeze=false; no held-out asset selected or inspected.
+The staged fresh Graph/TF/map/sensor/independent-physics admission, guarded
+activation, live Body binding and Native task dispatch remain pending. Generic
+feature freeze=false; no held-out asset selected or inspected.
+
+## Actual inactive development World and SDK metadata repair
+
+Source `ff354a041d96236dee52813c73b289dccf548741` wires successful inactive
+controller inspection to the existing read-only ROS discovery probe. Actual
+non-autostart Nav2 SDK execution captured all ten expected navigation nodes,
+each UNCONFIGURED. That Graph test had no World and grants no navigation readiness.
+
+Two subsequent owned host runs used only the existing synthetic development
+fixture, not a held-out robot. Seed200910 exercised a3-second immutable host
+deadline: World, model spawn, bridges and navigation started, then bounded
+cleanup verified the owned container stopped. Its registration was saved before
+dispatch but was not durably sealed before dispatch. Seed200911 was separately
+registered and durably sealed before its20-second source-check run. It stopped
+early because strict hardware introspection refused empty type/plugin fields.
+Both runs retained their original outputs and stopped containers. Neither
+activated a controller or dispatched a motion/cleaning task.
+
+The actual200911 manager reported both declared controllers inactive with
+unclaimed interfaces. All three parameter replies matched the sealed sources.
+The hardware was ACTIVE with the correct interfaces, but its type and plugin
+metadata were empty. The source validator remains strict: this is a failed
+source check, not successful Body admission.
+
+The installed gz_ros2_control1.2.20 plugin loads its actual class through
+pluginlib and then calls ResourceManager.import_component. In the installed
+ros2_control4.48.1 source, that import path skips the metadata registration in
+load_hardware. Primary sources:
+[simulator import](https://github.com/ros-controls/gz_ros2_control/blob/89ca76ed20842377f879c711c756d444c5b7c20b/gz_ros2_control/src/gz_ros2_control_plugin.cpp),
+[resource manager](https://github.com/ros-controls/ros2_control/blob/b7f1a5d420443c7a079f4c81e80d5e39759acf4c/hardware_interface/src/resource_manager.cpp).
+
+The isolated generic SDK overlay retains the same4.48.1 version and adds only
+the supplied HardwareInfo metadata during component initialization. It changes
+no header ABI, interface commands, lifecycle transitions, limits or scheduling.
+The patch requires the exact original source SHA and rejects repeated or changed
+inputs. The original stable coverage image and strict readiness checks stay
+unchanged. The generic host explicitly sources the standard overlay after its
+original SDK/workspace setup.
+
+An actual C++ SDK mock-import regression used the same compiled ELF in both
+images (SHA43b7e415459ab236383124aae37ac450cbcc8746fb9cfca6c52b67dca404486d).
+Original SDK libraries returned missing metadata; the overlay returned the
+supplied component name, system type and actual mock plugin name. Original ldd
+outputs identify the respective loaded libraries. Sources, headers and SDK ELFs
+were captured before calls and remained unchanged. This regression started no
+ROS Node, World or lifecycle activation; it is not physical acceptance.
+
+Build attempt01 failed because Docker interpreted a bare SHA as a registry
+reference. Attempt02 built a library but lacked a standard root overlay setup;
+that image is retained and rejected. Attempt03 uses colcon's standard overlay
+and produced immutable image
+`sha256:d16320799584a60035548fb298243bdd8b0d2cb5760675a9cb46b608ea211e56`.
+The guarded build helper reproduced that same image offline and verified the
+original base ID before/after and its complete unchanged layer prefix:
+
+```bash
+.venv/bin/python integrations/ros_probe/acceptance/control_metadata/build_image.py \
+  --archive /absolute/path/ros2_control-4.48.1.tar.gz \
+  --output /absolute/path/new-build-evidence \
+  --tag rosclaw/ros-expert-generic-runtime-metadata:local-check
+```
+
+The archive SHA and exact upstream commit are in committed source-lock.json.
+Four patch regression tests and the full ROS suite passed (1981 tests,
+10 integration deselected). Actual patched Gazebo manager inspection still
+requires a fresh registered development run after the active coverage pair.
+Held-out selection, feature freeze and full generic physical acceptance remain
+pending.

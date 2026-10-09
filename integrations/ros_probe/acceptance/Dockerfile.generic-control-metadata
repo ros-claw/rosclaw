@@ -1,0 +1,16 @@
+# Separate generic SDK repair; the stable coverage image is never modified.
+ARG BASE_IMAGE=rosclaw/ros-expert-generic-runtime:1008-v1
+FROM ${BASE_IMAGE} AS metadata_builder
+COPY ros2_control-4.48.1.tar.gz source-lock.json patch_import_metadata.py /metadata-source/
+RUN python3 -c 'import hashlib,json,pathlib; p=pathlib.Path("/metadata-source"); m=json.loads((p/"source-lock.json").read_text()); assert hashlib.sha256((p/"ros2_control-4.48.1.tar.gz").read_bytes()).hexdigest()==m["archive_sha256"]' && \
+    mkdir /metadata-vendor && tar -xzf /metadata-source/ros2_control-4.48.1.tar.gz -C /metadata-vendor --strip-components=1 && \
+    python3 /metadata-source/patch_import_metadata.py /metadata-vendor/hardware_interface/src/resource_manager.cpp > /metadata-source/applied-patch.json
+RUN python3 -c 'import subprocess; assert subprocess.check_output(["dpkg-query", "-W", "-f=${Version}", "ros-jazzy-hardware-interface"],text=True).split("-")[0] == "4.48.1"'
+RUN bash -c 'set -e; source /opt/ros/jazzy/setup.bash; source /ws/install/setup.bash; \
+    MAKEFLAGS=-j2 CMAKE_BUILD_PARALLEL_LEVEL=2 colcon --log-base /metadata-log build --paths /metadata-vendor/hardware_interface --merge-install --install-base /opt/reh-control-metadata --build-base /metadata-build --executor sequential --cmake-args -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF'
+FROM ${BASE_IMAGE}
+COPY --from=metadata_builder /opt/reh-control-metadata /opt/reh-control-metadata
+COPY --from=metadata_builder /metadata-source/source-lock.json /metadata-source/applied-patch.json /opt/reh-control-metadata/provenance/
+LABEL org.rosclaw.sdk-metadata-fix="ros2_control4.48.1-import-component-HardwareInfo"
+# The owned launcher must explicitly source this overlay after /ws/install.
+# No global preload, controller activation or Body admission is configured.

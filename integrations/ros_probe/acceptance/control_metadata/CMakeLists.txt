@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.16)
+project(rosclaw_import_metadata_contract LANGUAGES CXX)
+find_package(hardware_interface REQUIRED)
+add_executable(import_metadata_contract import_metadata_contract.cc)
+target_compile_features(import_metadata_contract PRIVATE cxx_std_17)
+target_link_libraries(import_metadata_contract PRIVATE hardware_interface::hardware_interface hardware_interface::mock_components)
