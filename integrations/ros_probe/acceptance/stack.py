@@ -250,6 +250,7 @@ def prepare(
                     "perimeter_sequential",
                     "perimeter_stateless",
                     "perimeter_stateless_headland",
+                    "perimeter_stateless_clearance",
                     "perimeter_stateless_overlap",
                 ),
                 "boundary_strategy": "sequential"
@@ -258,6 +259,7 @@ def prepare(
                     "perimeter_sequential",
                     "perimeter_stateless",
                     "perimeter_stateless_headland",
+                    "perimeter_stateless_clearance",
                     "perimeter_stateless_overlap",
                 )
                 else "through_poses",
@@ -296,6 +298,7 @@ def main():
             "perimeter_sequential",
             "perimeter_stateless",
             "perimeter_stateless_headland",
+            "perimeter_stateless_clearance",
             "perimeter_stateless_overlap",
         ],
         default="baseline",
