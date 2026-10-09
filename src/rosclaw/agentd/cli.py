@@ -574,6 +574,14 @@ def _chat_pi(home: Path, args: argparse.Namespace) -> int:
     规格 §2.1：Pi 是唯一主认知循环——Python AgentLoop 不接收用户 turn；
     agentd 只提供 pi-bridge/operator socket 与控制 token（具身内核服务）。
     """
+    from rosclaw.agentd.socket_paths import validate_native_socket_paths
+
+    try:
+        validate_native_socket_paths(home)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+
     import subprocess as _sp
     import threading
     import time
