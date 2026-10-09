@@ -126,6 +126,26 @@ def bootstrap_launch_plan(directory, declaration):
     }
 
 
+def required_process_exit_handler(action, role):
+    """Any required process exit terminates this owned bootstrap, including 0."""
+    from launch.actions import EmitEvent, RegisterEventHandler
+    from launch.event_handlers import OnProcessExit
+    from launch.events import Shutdown
+
+    return RegisterEventHandler(
+        OnProcessExit(
+            target_action=action,
+            on_exit=lambda event, context: [
+                EmitEvent(
+                    event=Shutdown(
+                        reason=f"owned bootstrap required {role} exited:{event.returncode}"
+                    )
+                )
+            ],
+        )
+    )
+
+
 def build_bootstrap_launch_description(directory, declaration, *, readiness_output=None):
     """Build SDK actions only. Never invoke LaunchService from this module."""
     if Path(directory) != Path("/evidence"):
@@ -272,8 +292,20 @@ def build_bootstrap_launch_description(directory, declaration, *, readiness_outp
             )
         )
 
+    navigation = list(build_launch_description(directory).entities)
+    required = [
+        (world, "World"),
+        (publisher, "URDF publisher"),
+        (bridge, "sensor bridge"),
+        (clock, "clock bridge"),
+    ]
+    required.extend(
+        (action, f"navigation process {index}") for index, action in enumerate(navigation)
+    )
     return LaunchDescription(
         [
+            # Register before starting any required child, including fast failures.
+            *(required_process_exit_handler(action, role) for action, role in required),
             world,
             publisher,
             bridge,
@@ -281,6 +313,6 @@ def build_bootstrap_launch_description(directory, declaration, *, readiness_outp
             RegisterEventHandler(OnProcessExit(target_action=spawn, on_exit=after_spawn)),
             spawn,
             *controller_handlers,
-            *build_launch_description(directory).entities,
+            *navigation,
         ]
     )
