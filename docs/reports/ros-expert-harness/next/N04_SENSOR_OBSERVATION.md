@@ -86,3 +86,20 @@ The captured scan has 360 ranges, all Infinity in this empty synthetic scene,
 and a Gazebo-scoped frame. Useful obstacle returns and matching ROS scan/TF frame
 identity are not yet verified. No controller activation, Body admission, held-out
 integration or cleaning task was performed. Original failures are unchanged.
+
+World 200918 repeated the same rate-only source with **no additional Gazebo
+subscription or exec**. It passed another complete 30-second ROS observation
+at approximately 20.00 Hz. The original ROS header frame is
+`synthetic_source_model/range_frame/actual_source_lidar`, whereas the observed
+static TF is `platform -> range_frame`. Historical discovery at the original
+capture time correctly remains UNKNOWN, including `tf.base_to_lidar`; inactive
+odometry and map are also unavailable. This is not Body admission.
+
+The synthetic operator source additionally declares `gz_frame_id=range_frame`
+to identify its actual URDF sensor link explicitly. Gazebo Sensors 8's
+[Sensor.cc](https://raw.githubusercontent.com/gazebosim/gz-sensors/gz-sensors8/src/Sensor.cc)
+describes that source extension; branch documentation is not proof of the
+installed SDK's behavior. A separately registered inactive SDK World must
+verify the resulting ROS header and TF using the actual pinned image. The
+production source generator still preserves supplied unfamiliar source bytes;
+it never repairs another robot's frame name by guessing.

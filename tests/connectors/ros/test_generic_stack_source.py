@@ -37,6 +37,7 @@ def synthetic_stack_inputs():
             # This is an explicit synthetic operator source, not a default
             # inferred or silently applied to an unknown robot's sensor.
             ET.SubElement(sensor, "update_rate").text = "20"
+            ET.SubElement(sensor, "gz_frame_id").text = "range_frame"
             lidar = ET.SubElement(sensor, "lidar")
             horizontal = ET.SubElement(ET.SubElement(lidar, "scan"), "horizontal")
             for key, value in {
