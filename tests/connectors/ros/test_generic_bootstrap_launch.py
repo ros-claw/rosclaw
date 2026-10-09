@@ -76,3 +76,10 @@ def test_wrong_resource_mount_path_refused_before_sdk_construction(source):
     module, directory, inputs, declaration = source
     with pytest.raises(ValueError, match="mounted"):
         module.build_bootstrap_launch_description(directory, declaration)
+
+
+@pytest.mark.parametrize("path", ["relative.json", "/evidence/readiness.json"])
+def test_probe_output_cannot_write_into_frozen_source_before_sdk_import(source, path):
+    module, _, _, declaration = source
+    with pytest.raises(ValueError, match="immutable source"):
+        module.build_bootstrap_launch_description("/evidence", declaration, readiness_output=path)

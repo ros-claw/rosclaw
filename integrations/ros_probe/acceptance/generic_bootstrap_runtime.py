@@ -142,17 +142,22 @@ def main():
     declaration = json.loads(original)
     plan = bootstrap_launch_plan("/evidence", declaration)
     frozen_plan = hashlib.sha256(json.dumps(plan, sort_keys=True).encode()).digest()
+    if args.output is None or args.output.resolve().is_relative_to(Path("/evidence")):
+        raise ValueError("fresh writable runtime output outside source mount required")
     if args.sdk_child:
         from launch import LaunchService
 
         service = LaunchService()
         description = bounded_launch_description(
-            build_bootstrap_launch_description("/evidence", declaration), args.seconds
+            build_bootstrap_launch_description(
+                "/evidence",
+                declaration,
+                readiness_output=args.output / "inactive-controller-readiness.json",
+            ),
+            args.seconds,
         )
         service.include_launch_description(description)
         return service.run()
-    if args.output is None or args.output.resolve().is_relative_to(Path("/evidence")):
-        raise ValueError("fresh writable runtime output outside source mount required")
 
     def check_source():
         require_read_only_workspace("/evidence")
@@ -175,6 +180,8 @@ def main():
                 str(args.declaration),
                 "--seconds",
                 str(args.seconds),
+                "--output",
+                str(args.output.resolve()),
                 "--sdk-child",
             ],
             args.output,

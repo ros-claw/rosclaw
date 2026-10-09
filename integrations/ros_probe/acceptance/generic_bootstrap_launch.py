@@ -7,6 +7,7 @@ source mounts before executing this description. Controllers remain inactive.
 import hashlib
 import json
 import math
+import sys
 from pathlib import Path
 
 from generic_navigation_launch import build_launch_description, navigation_launch_plan
@@ -125,10 +126,16 @@ def bootstrap_launch_plan(directory, declaration):
     }
 
 
-def build_bootstrap_launch_description(directory, declaration):
+def build_bootstrap_launch_description(directory, declaration, *, readiness_output=None):
     """Build SDK actions only. Never invoke LaunchService from this module."""
     if Path(directory) != Path("/evidence"):
         raise ValueError("bootstrap source must be mounted at its declared /evidence path")
+    if readiness_output is not None:
+        readiness_output = Path(readiness_output)
+        if not readiness_output.is_absolute() or readiness_output.resolve().is_relative_to(
+            Path("/evidence")
+        ):
+            raise ValueError("readiness evidence must be outside the immutable source mount")
     plan = bootstrap_launch_plan(directory, declaration)
     from launch import LaunchDescription
     from launch.actions import EmitEvent, ExecuteProcess, RegisterEventHandler
@@ -211,6 +218,60 @@ def build_bootstrap_launch_description(directory, declaration):
             return [EmitEvent(event=Shutdown(reason="owned generic SIM robot spawn failed"))]
         return controllers
 
+    controller_exits = {}
+    probe = (
+        ExecuteProcess(
+            cmd=[
+                sys.executable,
+                str(Path(__file__).with_name("generic_controller_readiness.py")),
+                "--output",
+                str(readiness_output),
+            ],
+            output="screen",
+        )
+        if readiness_output is not None
+        else None
+    )
+
+    def after_controller(role, event, context):
+        if role in controller_exits or event.returncode != 0:
+            return [
+                EmitEvent(
+                    event=Shutdown(reason="owned inactive controller spawn failed or repeated")
+                )
+            ]
+        controller_exits[role] = event.returncode
+        return [probe] if len(controller_exits) == len(controllers) and probe is not None else []
+
+    controller_handlers = [
+        RegisterEventHandler(
+            OnProcessExit(
+                target_action=controller,
+                on_exit=lambda event, context, role=role: after_controller(role, event, context),
+            )
+        )
+        for role, controller in enumerate(controllers)
+    ]
+    if probe is not None:
+        controller_handlers.append(
+            RegisterEventHandler(
+                OnProcessExit(
+                    target_action=probe,
+                    on_exit=lambda event, context: (
+                        []
+                        if event.returncode == 0
+                        else [
+                            EmitEvent(
+                                event=Shutdown(
+                                    reason="owned inactive controller source probe refused"
+                                )
+                            )
+                        ]
+                    ),
+                )
+            )
+        )
+
     return LaunchDescription(
         [
             world,
@@ -219,6 +280,7 @@ def build_bootstrap_launch_description(directory, declaration):
             clock,
             RegisterEventHandler(OnProcessExit(target_action=spawn, on_exit=after_spawn)),
             spawn,
+            *controller_handlers,
             *build_launch_description(directory).entities,
         ]
     )
