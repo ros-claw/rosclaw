@@ -22,6 +22,7 @@ from pathlib import Path
 
 from dynamic_bootstrap import prepare_bindings
 from dynamic_source_replay import replay_component_occupancy
+from fixture_network import validate_ros_domain
 from independent_stop import collect_stop_geometry
 from negative_dynamic_acceptance import validate_d4_negative
 from paired_efficiency import command, wait_ready
@@ -140,6 +141,9 @@ def run_episode(
         spec = validate_episode_spec(value)
         if contact_plugin is not None or instrument_service_binary is not None:
             raise ValueError("qualified original sources require explicit v2 protocol")
+    # Reject known host DDS/ephemeral overlap before any simulator launch.
+    # This is configuration evidence, not live DDS or container readiness.
+    network_preflight = validate_ros_domain(spec["domain"])
     plugin_raw, urdf_raw = plugin.read_bytes(), vendor_urdf.read_bytes()
     if (
         not 0 < len(plugin_raw) <= 20_000_000
@@ -191,6 +195,9 @@ def run_episode(
     directory = directory.resolve()
     directory.mkdir(exist_ok=False)
     (directory / "episode-protocol.json").write_bytes(raw)
+    (directory / "host-network-preflight.json").write_text(
+        json.dumps(network_preflight, indent=2) + "\n"
+    )
     case = spec["case"]
     mission = f"n03_{case.lower()}_{spec['profile']}_{spec['seed']}"
     container = f"reh-n03-{case.lower()}-{spec['profile']}-{spec['seed']}-{time.time_ns()}"
