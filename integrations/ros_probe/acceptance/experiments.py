@@ -45,7 +45,10 @@ def planning_parameters(profile, preset="baseline"):
         # Explicit known-fixture diagnostic: more overlap addresses measured
         # strip/endpoint misses without shrinking the real verifier brush or
         # changing robot geometry, speeds, controller guards or repair costs.
-        params["operation_width"] = {"waffle": 0.40, "burger": 0.27}[profile.name]
+        # New frozen development variant: Waffle's 0.35 m spacing has the
+        # same 0.50 m headland and sampled 0.124 m turn clearance as 0.40 m.
+        # Offline coverage gain is a prediction, not measured task credit.
+        params["operation_width"] = {"waffle": 0.35, "burger": 0.27}[profile.name]
         params["default_headland_width"] = {"waffle": 0.50, "burger": 0.35}[profile.name]
     elif preset not in ("baseline", "perimeter", "perimeter_sequential", "perimeter_stateless"):
         raise ValueError("unknown predeclared coverage preset")

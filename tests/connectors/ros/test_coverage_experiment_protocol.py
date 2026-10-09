@@ -188,7 +188,7 @@ def test_burger_combined_candidate_only_adds_screened_headland_to_stateless():
 
 
 @pytest.mark.parametrize(
-    "name,width,spacing,headland", [("waffle", 0.5, 0.4, 0.5), ("burger", 0.3, 0.27, 0.35)]
+    "name,width,spacing,headland", [("waffle", 0.5, 0.35, 0.5), ("burger", 0.3, 0.27, 0.35)]
 )
 def test_overlap_candidate_changes_only_spacing_of_existing_safe_main_configuration(
     name, width, spacing, headland
