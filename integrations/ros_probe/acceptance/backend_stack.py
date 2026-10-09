@@ -319,6 +319,11 @@ class RuntimeFaultLatch:
         self.children.withdraw_observation()
 
 
+def start_lifecycle_probe(children):
+    """Collect direct GetState replies as an owned mandatory dependency."""
+    return children.start("lifecycle_probe", ["python3", str(ROOT / "lifecycle_readiness.py")])
+
+
 def launch_backend_stack(args, plan, *, deadline):
     out, bundle = args.directory, args.directory / "backend-bundle"
     os.environ["GZ_PARTITION"] = plan["GZ_PARTITION"]
@@ -518,6 +523,7 @@ def launch_backend_stack(args, plan, *, deadline):
                 "node_names:=['coverage_server']",
             ],
         )
+        start_lifecycle_probe(children)
         children.start(
             "backend-rosbridge",
             [

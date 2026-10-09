@@ -23,3 +23,16 @@ and rechecked. No World, ROS Node, robot action or physical acceptance occurred.
 N03 physical runs still require the P0 merge gate. After that rebase, the backend
 startup must be joined to the new mandatory fresh GetState readiness path;
 backend lifecycle-probe integration and real startup remain pending.
+
+
+## Fresh direct lifecycle replies in both owned launch paths
+
+The shared startup gate now requires all seven fresh direct GetState replies,
+including coverage_server. Both the ordinary brush/physics fixture and the
+independent instrument backend launch the read-only lifecycle probe as an owned
+mandatory child. Its exit remains a dependency failure; producer-declared
+readiness and historic activation logs cannot replace live replies. Startup
+timeout preserves the original bounded reply snapshot and SHA-256 without
+retrying, resetting a deadline, or granting action/stop authority. Source tests
+cover stale reply retention and mandatory child loss. This is source preparation;
+no new Native dynamic World acceptance has been run.

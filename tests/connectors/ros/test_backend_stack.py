@@ -143,3 +143,28 @@ def test_backend_preflight_retains_actual_own_kernel_and_namespace(module, tmp_p
     assert json.loads((tmp_path / "container-network-preflight.json").read_text()) == record
     with pytest.raises(FileExistsError):
         module.preflight_backend_network(tmp_path)
+
+
+def test_backend_starts_owned_read_only_lifecycle_dependency(module):
+    calls = []
+    sentinel = object()
+
+    class Children:
+        def start(self, name, argv):
+            calls.append((name, argv))
+            return sentinel
+
+    assert module.start_lifecycle_probe(Children()) is sentinel
+    assert calls == [("lifecycle_probe", ["python3", str(module.ROOT / "lifecycle_readiness.py")])]
+    assert Path(calls[0][1][1]).is_file()
+
+
+def test_lifecycle_probe_exit_is_a_dependency_failure(module, tmp_path):
+    children = module.OwnedStackChildren(tmp_path, time.monotonic() + 10)
+    child = children.start("lifecycle_probe", [sys.executable, "-c", "raise SystemExit(7)"])
+    try:
+        child.wait(timeout=3)
+        with pytest.raises(ValueError, match="lifecycle_probe"):
+            children.check()
+    finally:
+        children.close()
