@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import itertools
 import json
 from pathlib import Path
 
@@ -18,9 +19,24 @@ from rosclaw.simforge.g1_ilc_validation import G1ILCFeedforwardCandidate
 from rosclaw.simforge.phase4_cli import _recovery_validation
 
 
+def _use_probe_clock(monkeypatch: pytest.MonkeyPatch, elapsed_ns: int) -> None:
+    """Control structural probes; production deadline enforcement stays real."""
+    from rosclaw.simforge import g1_feedback_evolution
+
+    def runtime_with_clock(**kwargs):
+        clock = itertools.count(step=elapsed_ns)
+        return build_g1_balance_runtime(**kwargs, compute_clock_ns=lambda: next(clock))
+
+    monkeypatch.setattr(g1_feedback_evolution, "build_g1_balance_runtime", runtime_with_clock)
+
+
+@pytest.mark.parametrize("elapsed_ns", [0, 1_000_000, 4_000_000])
 def test_feedback_evolution_builds_offline_candidate_and_fails_closed(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    elapsed_ns: int,
 ) -> None:
+    _use_probe_clock(monkeypatch, elapsed_ns)
     paths = _write_evidence(tmp_path)
 
     result = run_g1_feedback_evolution(
@@ -45,6 +61,24 @@ def test_feedback_evolution_builds_offline_candidate_and_fails_closed(
     assert persisted["activation"]["activated"] is False
 
 
+def test_feedback_evolution_rejects_probe_deadline_miss(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _use_probe_clock(monkeypatch, 4_000_001)
+    paths = _write_evidence(tmp_path)
+    result = run_g1_feedback_evolution(
+        **paths,
+        output_path=tmp_path / "overdue-evolution.json",
+        source_checkout=tmp_path / "source",
+    )
+    assert result.decision is FeedbackEvolutionDecision.REJECTED
+    checks = {check.gate: check for check in result.checks}
+    assert all(not checks[gate].passed and not checks[gate].missing for gate in ["F3", "F4", "F5"])
+    assert not result.activated
+    assert not result.registry_mutated
+    assert not result.hardware_command_sent
+
+
 def test_feedback_evolution_rejects_tampered_candidate_artifact(tmp_path: Path) -> None:
     paths = _write_evidence(tmp_path)
     ilc = json.loads(paths["ilc_path"].read_text(encoding="utf-8"))
@@ -62,7 +96,9 @@ def test_feedback_evolution_rejects_tampered_candidate_artifact(tmp_path: Path) 
 def test_feedback_evolution_cli_keeps_missing_evidence_nonzero(
     capsys: pytest.CaptureFixture[str],
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    _use_probe_clock(monkeypatch, 1_000_000)
     paths = _write_evidence(tmp_path)
     code = _recovery_validation(
         [

@@ -283,4 +283,5 @@ markers = [
     # xdist 实证（main=bdcb115 CI 红）：墙钟 SLO/基准断言在并行负载下
     # 测量失真——并行段排除、同 job 串行段补跑（测量必须无负载）。
     "perf_serial: wall-clock SLO/benchmark assertions; excluded from xdist parallel runs and executed in a dedicated serial step",
+    "embedded_seekdb: real shared embedded-engine fixture users; excluded from xdist and executed in the serial CI phase",
 ]
