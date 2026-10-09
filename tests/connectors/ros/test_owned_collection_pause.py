@@ -174,3 +174,40 @@ def test_registration_cannot_bind_other_body_or_choose_a_pid(modules, tmp_path):
     with pytest.raises(ValueError, match="closed preregistered"):
         pause_module.materialize_registered_policy(tmp_path, plan, path)
     assert not (tmp_path / "backend-collection-pause-policy.json").exists()
+
+
+def test_source_loss_retains_actual_owned_pause_and_original_unknown_source(modules, tmp_path):
+    stack, pause_module = modules
+    loss_module = importlib.import_module("collection_pause_fault")
+    children = stack.OwnedStackChildren(tmp_path, time.monotonic() + 10)
+    observer = children.start(
+        "backend-independent-observer", [sys.executable, "-c", "import time; time.sleep(20)"]
+    )
+    plan, path = policy(tmp_path)
+    pause = pause_module.OwnedCollectionPause(tmp_path, children, plan, path)
+    # These two files are explicitly synthetic source inputs, not physics proof.
+    (tmp_path / "backend-observer").mkdir()
+    (tmp_path / "backend-observer/backend-observation-latest.json").write_text(
+        json.dumps({"snapshot": {"sampled_monotonic_sec": time.monotonic() - 0.2}})
+    )
+    (tmp_path / "backend-collection-pause-before.json").write_text(
+        json.dumps({"policy_sha256": hashlib.sha256(path.read_bytes()).hexdigest()})
+    )
+    # Production materialization uses this exact owned policy filename.
+    (tmp_path / "backend-collection-pause-policy.json").write_bytes(path.read_bytes())
+    try:
+        pause.poll()
+        await_state(observer, True)
+        loss = loss_module.retain_source_loss(tmp_path, ValueError("synthetic source age fault"))
+        assert loss["collector_stale_at_first_fault"] is True
+        assert loss["post_fault_contact_state"] == "UNKNOWN_REQUIRES_INDEPENDENT_SOURCE"
+        assert loss["physical_stop_proof"] == "NOT_MEASURED" and loss["authorization"] is False
+        assert (
+            loss["originals"]["policy"]["sha256"] == hashlib.sha256(path.read_bytes()).hexdigest()
+        )
+        (tmp_path / "backend-collection-pause-request.json").write_text("{}")
+        with pytest.raises(ValueError, match="original registered request"):
+            loss_module.retain_source_loss(tmp_path, ValueError("synthetic fault"))
+    finally:
+        pause.resume()
+        children.close()

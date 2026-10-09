@@ -255,7 +255,7 @@ def test_original_source_writers_close_before_world_without_claiming_stop(
     assert record["physical_acceptance"] == "NOT_VERIFIED" and record["authorization"] is False
 
 
-@pytest.mark.parametrize("case", ["D2", "D3"])
+@pytest.mark.parametrize("case", ["D2", "D3", "D5"])
 def test_qualified_v2_keeps_actual_prior_merge_check_before_any_process(
     modules, tmp_path, monkeypatch, case
 ):
@@ -273,6 +273,12 @@ def test_qualified_v2_keeps_actual_prior_merge_check_before_any_process(
                 "second_dwell_sim_sec": 20,
                 "gap_sim_sec": 5,
             },
+        )
+    if case == "D5":
+        spec.update(
+            schema_version="rosclaw.dynamic_native_episode.v4",
+            case="D5",
+            scenario_source={"fault_kind": "OWNED_COLLECTION_PAUSE", "pause_wall_sec": 2},
         )
     contact, worker = tmp_path / "contact.so", tmp_path / "worker"
     contact.write_bytes(b"\x7fELFsynthetic_not_loadable")

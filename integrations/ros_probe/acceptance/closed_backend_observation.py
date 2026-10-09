@@ -44,10 +44,22 @@ def closed_backend_observation(
     probe_declaration=None,
     instrument_service_binary=None,
     instrument_service_binary_sha256=None,
+    prefix_projection=None,
 ):
     """Replay complete owned original sources with the online event engine."""
     if (instrument_service_binary is None) != (instrument_service_binary_sha256 is None):
         raise ValueError("complete frozen instrument SDK parser path/SHA required")
+    if prefix_projection is not None and (
+        type(prefix_projection) is not dict
+        or type(prefix_projection.get("snapshot")) is not dict
+        or prefix_projection["snapshot"].get("live_source_constraint_satisfied") is not True
+        or prefix_projection["snapshot"].get("source_fault") is not None
+        or prefix_projection["snapshot"].get("robot_collision_count") != 0
+        or prefix_projection["snapshot"].get("probe_completed_cache_cycles", 0) < 1
+    ):
+        raise ValueError("exact healthy original projection before registered source loss required")
+    prefix_reached = False
+    replay_count = 0
     sdk_rpc_replays = 0
     engine = BackendObserverReplay(
         robot_policy,
@@ -142,6 +154,10 @@ def closed_backend_observation(
                     or not 0 <= round(captured.timestamp() * 1e9) - unix < 300_000_000
                 ):
                     raise ValueError("joint original UNIX receipt differs from captured audit")
+            if prefix_reached:
+                # Preserve/check the entire original closed audit chain, but no
+                # post-fault source is replayed or promoted to healthy evidence.
+                continue
             if row["kind"] == "backend_probe_lift_ack" and instrument_service_binary is not None:
                 from closed_native_contact_evidence import original_ros_bytes
                 from instrument_service_evidence import verify_service_sdk_projection
@@ -160,6 +176,7 @@ def closed_backend_observation(
                 )
                 sdk_rpc_replays += 1
             actual = engine.apply(row["kind"], payload)
+            replay_count += 1
             if digest(payload.get("projection")) != digest(actual):
                 raise ValueError("joint retained online projection differs from original replay")
             expected_sim = actual.get("sim_time_sec")
@@ -169,6 +186,10 @@ def closed_backend_observation(
                 latest = actual
             if row.get("sim_time_sec") != expected_sim:
                 raise ValueError("joint audit SIM clock differs from original projection")
+            if prefix_projection is not None and actual == prefix_projection:
+                if row["kind"] != "backend_observation_sample":
+                    raise ValueError("registered healthy prefix must end at an actual observation")
+                prefix_reached = True
     if (
         (path.stat().st_dev, path.stat().st_ino, path.stat().st_size) != identity
         or summary_path.read_bytes() != summary_raw
@@ -186,8 +207,9 @@ def closed_backend_observation(
         latest is None
         or not latest["actor_envelope"]["live_source_constraint_satisfied"]
         or engine.gate.fault
-        or engine.gate.probe.pending
-        or engine.gate.probe.lift_transaction is not None
+        or (prefix_projection is not None and not prefix_reached)
+        or (prefix_projection is None and engine.gate.probe.pending)
+        or (prefix_projection is None and engine.gate.probe.lift_transaction is not None)
     ):
         raise ValueError("closed joined original source has no fresh qualified final constraint")
     return {
@@ -197,7 +219,16 @@ def closed_backend_observation(
         "original_source_sha256": source_hash.hexdigest(),
         "summary_sha256": hashlib.sha256(summary_raw).hexdigest(),
         "constraint_policy_hash": engine.gate.policy_hash,
-        "events_replayed": count,
+        "source_window": (
+            "PREFIX_BEFORE_REGISTERED_SOURCE_LOSS"
+            if prefix_projection is not None
+            else "FULL_CLOSED_SOURCE"
+        ),
+        "post_prefix_source_health": "UNKNOWN"
+        if prefix_projection is not None
+        else "FULL_REPLAY_REQUIRED",
+        "closed_audit_events_checked": count,
+        "events_replayed": replay_count,
         "samples_replayed": sample_count,
         "robot_collision_count": engine.gate.robot.snapshot(engine.last_wall)["collision_count"],
         "probe_completed_cache_cycles": engine.gate.probe.tracker.cycles,

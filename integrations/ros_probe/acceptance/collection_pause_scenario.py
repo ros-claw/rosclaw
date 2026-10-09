@@ -34,6 +34,7 @@ def eligible_cleaning_sample(sample, snapshot, brush_binding, *, unix_time, mono
         or not 0 <= monotonic_time - snapshot["sampled_monotonic_sec"] < 0.15
         or abs(sample["time_sec"] - snapshot["robot_sim_time_sec"]) > 0.15
         or sample.get("evidence_domain") != "GAZEBO_PHYSICS"
+        or type(sample.get("cleaning_enabled")) is not bool
         or sample.get("observation_complete") is not True
         or "brush_source_fault" not in sample
         or sample["brush_source_fault"] is not None

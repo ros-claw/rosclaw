@@ -130,6 +130,7 @@ def run_episode(
     if value.get("schema_version") in {
         "rosclaw.dynamic_native_episode.v2",
         "rosclaw.dynamic_native_episode.v3",
+        "rosclaw.dynamic_native_episode.v4",
     }:
         from qualified_backend_episode import frozen_backend_files, validate_qualified_spec
 
@@ -232,11 +233,34 @@ def run_episode(
 
                     started = time.monotonic()
                     deadline = started + timeout
+                    collector_fault_seen = False
                     try:
                         while child.poll() is None:
                             if time.monotonic() >= deadline:
                                 raise TimeoutError("immutable genuine Native deadline exhausted")
-                            qualified_projection(directory)
+                            if not collector_fault_seen:
+                                try:
+                                    qualified_projection(directory)
+                                except ValueError as source_error:
+                                    if case != "D5":
+                                        raise
+                                    from collection_pause_fault import retain_source_loss
+
+                                    loss = retain_source_loss(directory, source_error)
+                                    (directory / "backend-collection-source-loss.json").write_text(
+                                        json.dumps(loss, indent=2) + "\n"
+                                    )
+                                    stop_receipt = asyncio.run(
+                                        request_mcp_stop(
+                                            directory, "registered collector observation lost"
+                                        )
+                                    )
+                                    (directory / "backend-fault-mcp-stop-response.json").write_text(
+                                        json.dumps(stop_receipt, indent=2) + "\n"
+                                    )
+                                    # Preserve the genuine failed tool response and
+                                    # TaskKernel terminal; the immutable deadline remains.
+                                    collector_fault_seen = True
                             time.sleep(0.1)
                     except (Exception, KeyboardInterrupt):
                         try:
@@ -311,8 +335,9 @@ def run_episode(
             "introduce_after_cleaning_sim_sec": spec["introduce_after_cleaning_sim_sec"],
             "wall_timeout_sec": spec["mission_timeout_sec"] + 120,
         }
-        if case == "D3":
+        if case in {"D3", "D5"}:
             scenario.update(spec["scenario_source"])
+        if case == "D3":
             scenario["second_obstacle_name"] = physics["binding"]["obstacle_names"][1]
         (directory / "scenario.json").write_text(json.dumps(scenario, indent=2) + "\n")
         stack = (
@@ -366,6 +391,23 @@ def run_episode(
                 "--probe-declaration",
                 "/evidence/probe-declaration.json",
             ]
+            if case == "D5":
+                brush = json.loads((directory / "bootstrap/brush.json").read_bytes())
+                registration = {
+                    "schema_version": "rosclaw.collection_pause_registration.v1",
+                    "source": "operator_controlled_SIM_collection_fault",
+                    "approved": True,
+                    "run_id": brush["run_id"],
+                    "body_snapshot_hash": brush["body_snapshot_hash"],
+                    "pause_wall_sec": spec["scenario_source"]["pause_wall_sec"],
+                }
+                (directory / "collection-pause-registration.json").write_text(
+                    json.dumps(registration, indent=2) + "\n"
+                )
+                argv += [
+                    "--collection-pause-registration",
+                    "/evidence/collection-pause-registration.json",
+                ]
             stack = (
                 "source /opt/ros/jazzy/setup.bash && source /ws/install/setup.bash && "
                 + shlex.join(argv)
@@ -481,8 +523,9 @@ def run_episode(
                 container,
                 "bash",
                 "-c",
-                "source /opt/ros/jazzy/setup.bash && python3 /workspace/integrations/ros_probe/acceptance/dynamic_scenario.py "
-                "--directory /evidence --scenario /evidence/scenario.json",
+                "source /opt/ros/jazzy/setup.bash && python3 /workspace/integrations/ros_probe/acceptance/"
+                + ("collection_pause_scenario.py " if case == "D5" else "dynamic_scenario.py ")
+                + "--directory /evidence --scenario /evidence/scenario.json",
             ],
         )
         until = time.monotonic() + 10
@@ -501,7 +544,7 @@ def run_episode(
                 endpoint,
                 "--required-scenario",
                 str(directory / "scenario.json"),
-                *(["--expected-safe-failure", "D4"] if case == "D4" else []),
+                *(["--expected-safe-failure", case] if case in {"D4", "D5"} else []),
             ],
             timeout=spec["mission_timeout_sec"] + 120,
         )
@@ -531,7 +574,7 @@ def run_episode(
         result.update(autonomous_llm=True, actual_sdk_turns=len(usage))
         stop = collect_stop_geometry(directory / "independent-pose.jsonl")
         (directory / "independent-stop.json").write_text(json.dumps(stop, indent=2) + "\n")
-        if backend is not None:
+        if backend is not None and case != "D5":
             plan = json.loads((directory / "backend-stack-source-plan.json").read_bytes())
             request = {
                 key: plan[key] for key in ("run_id", "body_snapshot_hash", "constraint_policy_hash")
@@ -560,6 +603,23 @@ def run_episode(
                 timeout=120,
             )
             result["qualified_original_backend_closed_replay"] = "PASS_SOURCE_CORRESPONDENCE_ONLY"
+        if backend is not None and case == "D5":
+            step(
+                "closed-collection-prefix-source",
+                [
+                    "docker",
+                    "exec",
+                    "-e",
+                    "PYTHONPATH=/workspace/src",
+                    container,
+                    "bash",
+                    "-c",
+                    "source /opt/ros/jazzy/setup.bash && "
+                    "python3 /workspace/integrations/ros_probe/acceptance/qualified_backend_episode.py "
+                    "--directory /evidence --registered-collection-prefix",
+                ],
+                timeout=120,
+            )
         if case in {"D2", "D3"}:
             step(
                 "native-acceptance",
@@ -630,8 +690,13 @@ def run_episode(
     if result["status"] != "FAIL":
         try:
             frozen()
-            if case == "D4":
-                negative = validate_d4_negative(directory, stop)
+            if case in {"D4", "D5"}:
+                if case == "D5":
+                    from negative_collection_acceptance import validate_collection_negative
+
+                    negative = validate_collection_negative(directory, stop)
+                else:
+                    negative = validate_d4_negative(directory, stop)
                 (directory / "negative-physical-acceptance.json").write_text(
                     json.dumps(negative, indent=2) + "\n"
                 )
@@ -641,7 +706,9 @@ def run_episode(
                     task_kernel_succeeded=False,
                     task_state=negative["task_state"],
                     physical_acceptance="SIMULATION",
-                    closed_source_replay="PASS",
+                    closed_source_replay=(
+                        "PASS" if case == "D4" else "PREFIX_BEFORE_LOSS_POST_LOSS_UNKNOWN"
+                    ),
                     independent_stop="PASS",
                     independent_brush_off_and_lease_release="PASS",
                 )
