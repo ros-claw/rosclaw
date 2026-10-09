@@ -183,3 +183,33 @@ def test_overlap_candidate_changes_only_spacing_of_existing_safe_main_configurat
     }
     assert vars(profile) == {"name": name, "coverage_width_m": width}
     assert "operation_width" not in experiments.planning_parameters(profile, "baseline")
+
+
+def test_repair_metrics_preserve_requested_waypoints_separately_from_goal_count(
+    tmp_path, monkeypatch
+):
+    from rosclaw.connectors.ros.diagnosis.coverage_audit import CoverageAuditLog
+
+    runner = ROOT / "integrations/ros_probe/acceptance"
+    monkeypatch.syspath_prepend(str(runner))
+    spec = importlib.util.spec_from_file_location(
+        "coverage_pair_counts", runner / "paired_efficiency.py"
+    )
+    pairs = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(pairs)
+    audit = CoverageAuditLog(
+        tmp_path / "actions/coverage-audit-source.jsonl", context={"run_id": "source-only"}
+    )
+    audit.emit("goal_started", {"stage": "REPAIR", "nav_goal_id": "single", "goal": {"pose": {}}})
+    audit.emit(
+        "goal_started", {"stage": "REPAIR", "nav_goal_id": "sequence", "goal": {"poses": [{}, {}]}}
+    )
+    audit.emit(
+        "goal_started",
+        {"stage": "BOUNDARY_PASS", "nav_goal_id": "boundary", "goal": {"poses": [{}, {}]}},
+    )
+    audit.close()
+    assert pairs.repair_request_counts(tmp_path) == {
+        "repair_requested_goal_count": 2,
+        "repair_requested_waypoint_count": 3,
+    }

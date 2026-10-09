@@ -32,7 +32,9 @@ async def main():
     parser.add_argument("--profile", choices=PROFILES)
     parser.add_argument("--mission-timeout", type=int, default=900)
     parser.add_argument(
-        "--repair-strategy", choices=["greedy", "pose_aware", "pose_aware_robust"], default="greedy"
+        "--repair-strategy",
+        choices=["greedy", "pose_aware", "pose_aware_robust", "pose_aware_robust_sequence"],
+        default="greedy",
     )
     args = parser.parse_args()
     if args.navigation_only and args.reject_smaller_scope:

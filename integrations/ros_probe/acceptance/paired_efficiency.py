@@ -21,6 +21,36 @@ ROOT = Path(__file__).resolve().parent
 REPOSITORY = ROOT.parents[2]
 
 
+def repair_request_counts(directory):
+    """Retain requested goals and waypoints separately; neither proves arrival."""
+    from rosclaw.connectors.ros.diagnosis.coverage_audit import read_audit
+
+    goals, targets, identities = 0, 0, set()
+    for path in sorted((directory / "actions").glob("coverage-audit-*.jsonl")):
+        for row in read_audit(path):
+            if row["kind"] != "goal_started" or row["payload"].get("stage") != "REPAIR":
+                continue
+            payload = row["payload"]
+            identity = (row["run_id"], payload["nav_goal_id"])
+            if identity in identities:
+                raise ValueError("duplicate original repair goal identity")
+            identities.add(identity)
+            args = payload["goal"]
+            if set(args) == {"pose"}:
+                count = 1
+            elif (
+                set(args) == {"poses"}
+                and type(args["poses"]) is list
+                and 1 <= len(args["poses"]) <= 2
+            ):
+                count = len(args["poses"])
+            else:
+                raise ValueError("closed one/two waypoint repair request required")
+            goals += 1
+            targets += count
+    return {"repair_requested_goal_count": goals, "repair_requested_waypoint_count": targets}
+
+
 def command(args, **kwargs):
     return subprocess.check_output(args, text=True, **kwargs).strip()
 
@@ -223,6 +253,11 @@ def run_arm(pair, arm, args, ordinal, image_id, commit):
                     or audit["canonical_verifier_replay_equal"] is not True
                 ):
                     raise RuntimeError("diagnostic integrity or canonical replay gate failed")
+                request_counts = repair_request_counts(directory)
+                if request_counts["repair_requested_goal_count"] != sum(
+                    s["stage"] == "REPAIR" for s in segments
+                ):
+                    raise RuntimeError("original repair requests and measured segments disagree")
                 row.update(
                     status="PASS",
                     measured_distance_m=audit["total_metrics"]["observed_distance_m"],
@@ -242,6 +277,7 @@ def run_arm(pair, arm, args, ordinal, image_id, commit):
                     repair_goal_count=sum(s["stage"] == "REPAIR" for s in segments),
                     main_nav_goal_result=audit.get("main_nav_goal_result"),
                     optimization_status="PILOT_OBSERVATION_ONLY",
+                    **request_counts,
                 )
             except Exception as exc:
                 row.update(status="FAIL", failure=f"{type(exc).__name__}: {exc}")
@@ -275,7 +311,7 @@ def main():
     )
     parser.add_argument(
         "--candidate-repair-strategy",
-        choices=["greedy", "pose_aware", "pose_aware_robust"],
+        choices=["greedy", "pose_aware", "pose_aware_robust", "pose_aware_robust_sequence"],
         default="greedy",
     )
     parser.add_argument("--seed", type=int, required=True)
