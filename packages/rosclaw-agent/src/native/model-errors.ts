@@ -10,6 +10,7 @@ export type ModelErrorCode =
 	| "PROVIDER_QUOTA_EXHAUSTED"
 	| "PROVIDER_RATE_LIMITED"
 	| "PROVIDER_UNAVAILABLE"
+	| "PROVIDER_RESPONSE_TIMEOUT"
 	| "MODEL_NOT_FOUND"
 	| "MODEL_TOOL_CALL_UNSUPPORTED"
 	| "MODEL_CONTEXT_LIMIT"
@@ -28,7 +29,19 @@ export interface ClassifiedModelError {
 
 /** 分类 provider 错误文本（HTTP 状态 + 消息关键词）——确定性规则，
  *  不靠模型猜。 */
-export function classifyModelError(raw: string): ClassifiedModelError {
+export function classifyModelError(
+	raw: string,
+	context: { watchdogTimeout?: boolean } = {},
+): ClassifiedModelError {
+	// Only the local watchdog can supply this fact; provider error text cannot.
+	if (context.watchdogTimeout) {
+		return {
+			code: "PROVIDER_RESPONSE_TIMEOUT",
+			explanation: "模型响应停滞，已取消本次请求",
+			recovery: "检查网络或稍后重发；/model 换可用模型",
+			taskRecoverable: true,
+		};
+	}
 	const text = raw.toLowerCase();
 	// 顺序敏感：quota 在 generic 403/auth 之前。
 	if (

@@ -1240,6 +1240,8 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			// PR-H7（§8.4）：provider 错误分类——403 配额≠鉴权错误；
 			// 稳定错误码 + 用户可理解说明 + 恢复动作（task 可继续）。
 			const msg = event.message as { role?: string; stopReason?: string; errorMessage?: string };
+			const watchdogTimeout = msg.role === "assistant"
+				&& msg.stopReason === "aborted" && watchdogAbortedTurn;
 			if (msg.role === "assistant" && msg.stopReason === "aborted") {
 				if (watchdogAbortedTurn) {
 					watchdogAbortedTurn = false;
@@ -1265,9 +1267,9 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 					}
 				}
 			}
-			if (msg.role === "assistant" && (msg.stopReason === "error" || msg.errorMessage)) {
+			if (msg.role === "assistant" && (msg.stopReason === "error" || msg.errorMessage || watchdogTimeout)) {
 				const raw = String(msg.errorMessage ?? "");
-				const classified = classifyModelError(raw);
+				const classified = classifyModelError(raw, { watchdogTimeout });
 				let hasActiveTask = false;
 				try {
 					hasActiveTask = Boolean(await inputController.activeTaskId());
@@ -1329,6 +1331,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			},
 		});
 		pi.on("turn_start", async () => {
+			watchdogAbortedTurn = false;
 			stallWatchdog.turnStarted();
 		});
 		pi.on("message_update", async () => {
