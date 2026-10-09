@@ -55,6 +55,8 @@ class OperationManager:
         self._conn = conn
         self._procs: dict[str, asyncio.subprocess.Process] = {}
         self._drivers: dict[str, asyncio.Task] = {}
+        # Cleanup belongs to the operation, even if its requesting task leaves.
+        self._cancel_tasks: dict[str, asyncio.Task[None]] = {}
         # operation_id → (client, goal_id)——ROS 2 Action 操作（P1-B3）。
         self._actions: dict[str, tuple[object, str]] = {}
 
@@ -88,19 +90,35 @@ class OperationManager:
             "state, resumable, started_at, heartbeat_at, revision, goal_id, "
             "provider, exitcode_path) "
             "VALUES (?, ?, ?, ?, 'QUEUED', ?, ?, ?, ?, ?, ?, ?)",
-            (operation_id, task_id, attempt_id, kind,
-             1 if resumable else 0, now, now, revision, goal_id, provider,
-             exitcode_path),
+            (
+                operation_id,
+                task_id,
+                attempt_id,
+                kind,
+                1 if resumable else 0,
+                now,
+                now,
+                revision,
+                goal_id,
+                provider,
+                exitcode_path,
+            ),
         )
-        self._emit(task_id, "operation.queued",
-                   {"operation_id": operation_id, "goal_id": goal_id,
-                    "provider": provider, "kind": kind},
-                   operation_id=operation_id, attempt_id=attempt_id)
+        self._emit(
+            task_id,
+            "operation.queued",
+            {"operation_id": operation_id, "goal_id": goal_id, "provider": provider, "kind": kind},
+            operation_id=operation_id,
+            attempt_id=attempt_id,
+        )
         proc = await self._spawn(operation_id, argv, cwd, env, exitcode_path)
         self._procs[operation_id] = proc
-        self._transition(operation_id, "ADMITTED",
-                         event="operation.admitted",
-                         payload={"pid": proc.pid, "argv": argv[:5]})
+        self._transition(
+            operation_id,
+            "ADMITTED",
+            event="operation.admitted",
+            payload={"pid": proc.pid, "argv": argv[:5]},
+        )
         self._conn.execute(
             "UPDATE operations SET pid = ? WHERE operation_id = ?",
             (proc.pid, operation_id),
@@ -123,9 +141,11 @@ class OperationManager:
         spawn_env = dict(os.environ if env is None else env)
         spawn_env["OP_EXITCODE_FILE"] = exitcode_path
         wrapped = [
-            "sh", "-c",
+            "sh",
+            "-c",
             '"$@"; rc=$?; printf %s "$rc" > "$OP_EXITCODE_FILE"',
-            "op-wrap", *argv,
+            "op-wrap",
+            *argv,
         ]
         return await asyncio.create_subprocess_exec(
             *wrapped,
@@ -137,7 +157,10 @@ class OperationManager:
         )
 
     async def _drive(
-        self, operation_id: str, task_id: str, attempt_id: str,
+        self,
+        operation_id: str,
+        task_id: str,
+        attempt_id: str,
         proc: asyncio.subprocess.Process,
     ) -> None:
         """后台驱动：置 RUNNING → 读 stdout（output 事件 + heartbeat）
@@ -151,14 +174,23 @@ class OperationManager:
                     break
                 text = line.decode(errors="replace")[:_MAX_OUTPUT_CHUNK]
                 self._touch(operation_id, task_id)
-                self._emit(task_id, "operation.output", {"text": text},
-                           operation_id=operation_id, attempt_id=attempt_id)
+                self._emit(
+                    task_id,
+                    "operation.output",
+                    {"text": text},
+                    operation_id=operation_id,
+                    attempt_id=attempt_id,
+                )
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001 - 读失败是数据
-            self._emit(task_id, "operation.failed",
-                       {"error": f"reader: {exc}"[:300]},
-                       operation_id=operation_id, attempt_id=attempt_id)
+            self._emit(
+                task_id,
+                "operation.failed",
+                {"error": f"reader: {exc}"[:300]},
+                operation_id=operation_id,
+                attempt_id=attempt_id,
+            )
         returncode = await proc.wait()
         self._procs.pop(operation_id, None)
         current = self.get(operation_id)["state"]
@@ -176,16 +208,26 @@ class OperationManager:
         )
 
     async def _record_terminal(
-        self, operation_id: str, state: str, *, failure_code: str = "",
+        self,
+        operation_id: str,
+        state: str,
+        *,
+        failure_code: str = "",
         result_ref: str = "",
     ) -> None:
         self._write_terminal(
-            operation_id, state, failure_code=failure_code,
+            operation_id,
+            state,
+            failure_code=failure_code,
             result_ref=result_ref,
         )
 
     def _write_terminal(
-        self, operation_id: str, state: str, *, failure_code: str = "",
+        self,
+        operation_id: str,
+        state: str,
+        *,
+        failure_code: str = "",
         result_ref: str = "",
     ) -> None:
         """终态落账（终态不可逆——CANCELLED/LOST 不被迟到事件覆盖）。
@@ -205,8 +247,14 @@ class OperationManager:
         self._conn.execute(
             "UPDATE operations SET state = ?, ended_at = ?, heartbeat_at = ?, "
             "failure_code = ?, result_ref = ? WHERE operation_id = ?",
-            (state, now, now, failure_code,
-             result_ref or row.get("result_ref") or "", operation_id),
+            (
+                state,
+                now,
+                now,
+                failure_code,
+                result_ref or row.get("result_ref") or "",
+                operation_id,
+            ),
         )
         event_type = {
             "SUCCEEDED": "operation.completed",
@@ -214,10 +262,12 @@ class OperationManager:
             "CANCELLED": "operation.cancelled",
             "LOST": "operation.lost",
         }[state]
-        self._emit(row["task_id"], event_type,
-                   {"operation_id": operation_id, "state": state,
-                    "failure_code": failure_code},
-                   operation_id=operation_id)
+        self._emit(
+            row["task_id"],
+            event_type,
+            {"operation_id": operation_id, "state": state, "failure_code": failure_code},
+            operation_id=operation_id,
+        )
 
     # --------------------------------------------------------------
     # ROS 2 Action provider（P1-B3，0824 总纲 §12/P1-B）
@@ -252,14 +302,21 @@ class OperationManager:
             "state, resumable, started_at, heartbeat_at, revision, goal_id, "
             "provider, exitcode_path) "
             "VALUES (?, ?, ?, ?, 'QUEUED', 0, ?, ?, ?, ?, 'ros2_action', '')",
-            (operation_id, task_id, attempt_id, "action", now, now, revision,
-             goal_id),
+            (operation_id, task_id, attempt_id, "action", now, now, revision, goal_id),
         )
-        self._emit(task_id, "operation.queued",
-                   {"operation_id": operation_id, "goal_id": goal_id,
-                    "provider": "ros2_action", "action": action,
-                    "action_type": action_type},
-                   operation_id=operation_id, attempt_id=attempt_id)
+        self._emit(
+            task_id,
+            "operation.queued",
+            {
+                "operation_id": operation_id,
+                "goal_id": goal_id,
+                "provider": "ros2_action",
+                "action": action,
+                "action_type": action_type,
+            },
+            operation_id=operation_id,
+            attempt_id=attempt_id,
+        )
 
         loop = asyncio.get_running_loop()
 
@@ -288,26 +345,33 @@ class OperationManager:
                 state, code = "FAILED", f"action_status_{status}"
             self._actions.pop(operation_id, None)
             self._write_terminal(
-                operation_id, state,
-                failure_code=code, result_ref=result_ref,
+                operation_id,
+                state,
+                failure_code=code,
+                result_ref=result_ref,
             )
 
         client.send_goal(
-            action=action, action_type=action_type, args=args,
+            action=action,
+            action_type=action_type,
+            args=args,
             goal_id=goal_id,
             on_feedback=_marshal(_on_feedback),
             on_result=_marshal(_on_result),
         )
         self._actions[operation_id] = (client, goal_id)
-        self._transition(operation_id, "ADMITTED",
-                         event="operation.admitted",
-                         payload={"action": action, "goal_id": goal_id})
+        self._transition(
+            operation_id,
+            "ADMITTED",
+            event="operation.admitted",
+            payload={"action": action, "goal_id": goal_id},
+        )
         self._transition(operation_id, "RUNNING", event=None)
         return self.get(operation_id)
 
     async def wait(self, operation_id: str, *, timeout: float = 60.0) -> dict:
         """等终态（测试/短操作同步点——不是轮询生产路径）。"""
-        driver = self._drivers.get(operation_id)
+        driver = self._cancel_tasks.get(operation_id) or self._drivers.get(operation_id)
         if driver is not None:
             await asyncio.wait_for(asyncio.shield(driver), timeout=timeout)
         return self.get(operation_id)
@@ -318,7 +382,10 @@ class OperationManager:
         迟到完成在 CANCELING/CANCELLED 下都不覆盖（§12.1 取消握手）。
         """
         row = self.get(operation_id)
-        if not row or row["state"] in OPERATION_TERMINAL:
+        if not row or row["state"] in OPERATION_TERMINAL or row["state"] == "CANCELING":
+            # The first cancellation owns cleanup and its original reason.
+            # A repeated caller must not acknowledge a still-open process
+            # pipe as CANCELLED after that owner has taken its process handle.
             return
         now = _now()
         self._conn.execute(
@@ -326,9 +393,12 @@ class OperationManager:
             "heartbeat_at = ? WHERE operation_id = ?",
             (reason, now, operation_id),
         )
-        self._emit(row["task_id"], "operation.canceling",
-                   {"operation_id": operation_id, "reason": reason},
-                   operation_id=operation_id)
+        self._emit(
+            row["task_id"],
+            "operation.canceling",
+            {"operation_id": operation_id, "reason": reason},
+            operation_id=operation_id,
+        )
         action_ref = self._actions.get(operation_id)
         if action_ref is not None:
             # ROS 2 Action：cancel_goal 请求——终态由 action_result
@@ -346,32 +416,58 @@ class OperationManager:
             except Exception:  # noqa: BLE001 - 发送失败由 grace 落 CANCELLED
                 _LOG.warning(
                     "cancel_goal 发送失败（%s）——grace 落 CANCELLED",
-                    operation_id, exc_info=True,
+                    operation_id,
+                    exc_info=True,
                 )
             return
         proc = self._procs.pop(operation_id, None)
-        if proc is not None and proc.returncode is None:
-            # G-4（0916 三审 B-2）：杀整个进程组不只是 sh 包装——
-            # start_new_session=True 让 pgid==pid，孙子进程（渲染/
-            # 仿真/xvfb-run）原来在取消后成孤儿继续跑。
-            with contextlib.suppress(ProcessLookupError, PermissionError):
-                os.killpg(proc.pid, signal.SIGTERM)
-            try:
-                await asyncio.wait_for(proc.wait(), timeout=5)
-            except TimeoutError:
-                with contextlib.suppress(ProcessLookupError, PermissionError):
-                    os.killpg(proc.pid, signal.SIGKILL)
-        await self._record_terminal(operation_id, "CANCELLED",
-                                    failure_code=reason)
+        if proc is not None:
+            cleanup = asyncio.create_task(self._cancel_process(operation_id, proc, reason))
+            self._cancel_tasks[operation_id] = cleanup
+            cleanup.add_done_callback(self._observe_cancel_cleanup)
+            await asyncio.shield(cleanup)
+            return
+        await self._record_terminal(operation_id, "CANCELLED", failure_code=reason)
 
-    async def _cancel_grace(
-        self, operation_id: str, reason: str, grace_s: float = 5.0
+    @staticmethod
+    def _observe_cancel_cleanup(task: asyncio.Task[None]) -> None:
+        # A disconnected requester may no longer await the task. Preserve the
+        # exception for wait(), and report it without inventing a terminal state.
+        if not task.cancelled() and (error := task.exception()) is not None:
+            _LOG.error(
+                "Operation cancellation cleanup failed; ledger remains CANCELING",
+                exc_info=(type(error), error, error.__traceback__),
+            )
+
+    async def _cancel_process(
+        self, operation_id: str, proc: asyncio.subprocess.Process, reason: str
     ) -> None:
+        # start_new_session=True gives the owned group pgid==pid. The wrapper
+        # can already have exited while descendants retain the output pipe.
+        with contextlib.suppress(ProcessLookupError, PermissionError):
+            os.killpg(proc.pid, signal.SIGTERM)
+
+        async def reap_owned_process() -> None:
+            await proc.wait()
+            driver = self._drivers.get(operation_id)
+            if driver is not None:
+                # A grace timeout must not cancel the reader draining stdout.
+                await asyncio.shield(driver)
+
+        try:
+            await asyncio.wait_for(reap_owned_process(), timeout=5)
+        except TimeoutError:
+            with contextlib.suppress(ProcessLookupError, PermissionError):
+                os.killpg(proc.pid, signal.SIGKILL)
+            # A failed reap leaves CANCELING; no acknowledgement with open pipes.
+            await asyncio.wait_for(reap_owned_process(), timeout=5)
+        await self._record_terminal(operation_id, "CANCELLED", failure_code=reason)
+
+    async def _cancel_grace(self, operation_id: str, reason: str, grace_s: float = 5.0) -> None:
         """Action 取消宽限：action_result 未在宽限内到达也落
         CANCELLED（账本不再悬空）。"""
         await asyncio.sleep(grace_s)
-        await self._record_terminal(operation_id, "CANCELLED",
-                                    failure_code=reason)
+        await self._record_terminal(operation_id, "CANCELLED", failure_code=reason)
 
     # --------------------------------------------------------------
     # liveness（§12.2：只标 DEGRADED，永不 kill）
@@ -389,14 +485,16 @@ class OperationManager:
             stale = (now - heartbeat) > stale_after_s
             if stale and row["state"] != "DEGRADED":
                 self._transition(
-                    row["operation_id"], "DEGRADED",
+                    row["operation_id"],
+                    "DEGRADED",
                     event="operation.degraded",
                     payload={"stale_after_s": stale_after_s},
                 )
                 degraded += 1
             elif not stale and row["state"] == "DEGRADED":
-                self._transition(row["operation_id"], "RUNNING",
-                                 event="operation.resumed", payload={})
+                self._transition(
+                    row["operation_id"], "RUNNING", event="operation.resumed", payload={}
+                )
                 resumed += 1
         return {"degraded": degraded, "resumed": resumed}
 
@@ -422,23 +520,26 @@ class OperationManager:
             exitcode = self._read_exitcode(str(row["exitcode_path"] or ""))
             if exitcode is not None:
                 await self._record_terminal(
-                    op_id, "SUCCEEDED" if exitcode == 0 else "FAILED",
+                    op_id,
+                    "SUCCEEDED" if exitcode == 0 else "FAILED",
                     failure_code="" if exitcode == 0 else f"exit_{exitcode}",
                 )
                 report["terminated"] += 1
                 continue
             if pid > 0 and self._pid_alive(pid):
-                self._transition(op_id, "DEGRADED",
-                                 event="operation.reattached",
-                                 payload={"pid": pid})
+                self._transition(
+                    op_id, "DEGRADED", event="operation.reattached", payload={"pid": pid}
+                )
                 self._drivers[op_id] = asyncio.create_task(
-                    self._watch_pid(op_id, str(row["task_id"]), pid,
-                                    str(row["exitcode_path"] or ""))
+                    self._watch_pid(
+                        op_id, str(row["task_id"]), pid, str(row["exitcode_path"] or "")
+                    )
                 )
                 report["reattached"] += 1
                 continue
             await self._record_terminal(
-                op_id, "LOST",
+                op_id,
+                "LOST",
                 failure_code="restart_unverifiable",
             )
             report["lost"] += 1
@@ -460,12 +561,15 @@ class OperationManager:
         exitcode = self._read_exitcode(exitcode_path)
         if exitcode is not None:
             await self._record_terminal(
-                operation_id, "SUCCEEDED" if exitcode == 0 else "FAILED",
+                operation_id,
+                "SUCCEEDED" if exitcode == 0 else "FAILED",
                 failure_code="" if exitcode == 0 else f"exit_{exitcode}",
             )
         else:
             await self._record_terminal(
-                operation_id, "LOST", failure_code="exit_unverifiable",
+                operation_id,
+                "LOST",
+                failure_code="exit_unverifiable",
             )
 
     @staticmethod
@@ -513,9 +617,12 @@ class OperationManager:
             "UPDATE operations SET progress_json = ? WHERE operation_id = ?",
             (json.dumps(progress, ensure_ascii=False), operation_id),
         )
-        self._emit(str(row["task_id"]), "operation.progress",
-                   {"operation_id": operation_id, "progress": progress},
-                   operation_id=operation_id)
+        self._emit(
+            str(row["task_id"]),
+            "operation.progress",
+            {"operation_id": operation_id, "progress": progress},
+            operation_id=operation_id,
+        )
 
     # --------------------------------------------------------------
     # 查询/事件流
@@ -551,33 +658,39 @@ class OperationManager:
     # 内部
     # --------------------------------------------------------------
     def _operations_dir(self) -> Path:
-        db_file = self._conn.execute(
-            "PRAGMA database_list"
-        ).fetchone()["file"]
+        db_file = self._conn.execute("PRAGMA database_list").fetchone()["file"]
         directory = Path(str(db_file)).parent / "operations"
         directory.mkdir(parents=True, exist_ok=True)
         return directory
 
     def _transition(
-        self, operation_id: str, state: str, *,
-        event: str | None, payload: dict | None = None,
+        self,
+        operation_id: str,
+        state: str,
+        *,
+        event: str | None,
+        payload: dict | None = None,
     ) -> None:
         row = self.get(operation_id)
         # 终态不可逆；CANCELING 同样不可被普通迁移覆盖（取消流程持有
         # 账本——driver 迟到置 RUNNING 不得踩掉 CANCELING）。
-        if not row or row["state"] in OPERATION_TERMINAL or (
-            row["state"] == "CANCELING" and state != "CANCELLED"
+        if (
+            not row
+            or row["state"] in OPERATION_TERMINAL
+            or (row["state"] == "CANCELING" and state != "CANCELLED")
         ):
             return
         self._conn.execute(
-            "UPDATE operations SET state = ?, heartbeat_at = ? "
-            "WHERE operation_id = ?",
+            "UPDATE operations SET state = ?, heartbeat_at = ? WHERE operation_id = ?",
             (state, _now(), operation_id),
         )
         if event:
-            self._emit(str(row["task_id"]), event,
-                       {"operation_id": operation_id, **(payload or {})},
-                       operation_id=operation_id)
+            self._emit(
+                str(row["task_id"]),
+                event,
+                {"operation_id": operation_id, **(payload or {})},
+                operation_id=operation_id,
+            )
 
     def _touch(self, operation_id: str, task_id: str) -> None:
         """heartbeat——仅非终态（终态后心跳冻结）。"""
@@ -589,11 +702,24 @@ class OperationManager:
             (_now(), operation_id),
         )
 
-    def _emit(self, task_id: str, event_type: str, payload: dict,
-              *, operation_id: str = "", attempt_id: str = "") -> None:
+    def _emit(
+        self,
+        task_id: str,
+        event_type: str,
+        payload: dict,
+        *,
+        operation_id: str = "",
+        attempt_id: str = "",
+    ) -> None:
         self._conn.execute(
             "INSERT INTO task_events (task_id, attempt_id, operation_id, "
             "event_type, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-            (task_id, attempt_id or None, operation_id or None, event_type,
-             json.dumps(payload, ensure_ascii=False), _now()),
+            (
+                task_id,
+                attempt_id or None,
+                operation_id or None,
+                event_type,
+                json.dumps(payload, ensure_ascii=False),
+                _now(),
+            ),
         )

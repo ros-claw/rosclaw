@@ -130,6 +130,16 @@ def diagnose(
             add(
                 "ROS_TOPIC_001", "sensors", {"topic": expected}, "Inspect required topic publisher."
             )
+    observed_types = {t["name"]: t.get("msg_type") for t in model.graph.get("topics", [])}
+    for topic, expected_type in model.body.get("required_topic_types", {}).items():
+        observed_type = observed_types.get(topic)
+        if model.completeness.get("graph") and observed_type and observed_type != expected_type:
+            add(
+                "ROS_TOPIC_005",
+                "sensors",
+                {"topic": topic, "expected_type": expected_type, "observed_type": observed_type},
+                "Review Body topic binding and sensor conversion; verify type and QoS in isolation before changing a live graph.",
+            )
     from rosclaw.connectors.ros.resolver.semantics import is_initial_pose_command
 
     command_topics = {
@@ -187,6 +197,10 @@ def diagnose(
             {"clock_advancing": False},
             "Inspect simulation clock publisher.",
         )
+    if profile in {"all", "navigation"}:
+        from rosclaw.connectors.ros.diagnosis.action_lifecycle import action_lifecycle_issues
+
+        issues.extend(action_lifecycle_issues(model, now=now))
     for node in model.lifecycle:
         if node.state not in {"ACTIVE", "UNKNOWN"}:
             add(
@@ -231,6 +245,10 @@ def diagnose(
     ]:
         if model.navigation.get(key) is False:
             add(code, "navigation", {key: False}, repair)
+    if profile in {"all", "navigation"}:
+        from rosclaw.connectors.ros.diagnosis.nav2 import parameter_issues
+
+        issues.extend(parameter_issues(model, now=now))
     known_groups = {
         "tf": "tf",
         "qos": "qos",

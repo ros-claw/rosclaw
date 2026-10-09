@@ -246,6 +246,20 @@ def pytest_runtest_call(item):
     logging.getLogger().propagate = True
 
 
+@pytest.hookimpl(tryfirst=True)
+def pytest_collection_modifyitems(items):
+    """Keep real embedded-engine users in the existing serial CI phase.
+
+    Session fixtures are per xdist worker, not per test run. ``loadfile``
+    therefore starts independent engines when files share this fixture.
+    Mark the resolved fixture closure before pytest applies ``-m`` filters;
+    wrapped/indirect users must receive the same scheduling constraint.
+    """
+    for item in items:
+        if "shared_embedded_seekdb_target" in item.fixturenames:
+            item.add_marker(pytest.mark.embedded_seekdb)
+
+
 @pytest.fixture(scope="session")
 def shared_embedded_seekdb_target(tmp_path_factory) -> dict[str, str]:
     """The single real embedded SeekDB ``(path, database)`` target for this process.

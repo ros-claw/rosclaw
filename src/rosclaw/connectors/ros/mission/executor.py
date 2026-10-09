@@ -14,7 +14,7 @@ from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 
-from rosclaw.connectors.ros.action_client import STATUS_SUCCEEDED
+from rosclaw.connectors.ros.action_client import STATUS_CANCELED, STATUS_SUCCEEDED
 from rosclaw.connectors.ros.diagnosis.coverage_audit import CoverageAuditLog, digest
 from rosclaw.connectors.ros.mission.boundary_pass import (
     inset_rectangular_boundary_targets,
@@ -339,6 +339,8 @@ class RosCoverageSimulationExecutor:
                 self.client.cancel_goal(goal_id)
                 if not done.wait(3):
                     raise RuntimeError("timed-out repair goal cancellation was not acknowledged")
+                if result.get("status") != STATUS_CANCELED:
+                    raise RuntimeError("timed-out repair goal cancellation did not return CANCELED")
                 result.update(timed_out=True, goal_timeout_sec=goal_timeout_sec)
                 self._audit_event("goal_ended", {"nav_goal_id": goal_id, "result": result})
                 return result
@@ -680,12 +682,32 @@ class RosCoverageSimulationExecutor:
 
     def emergency_stop(self):
         self.stopping.set()
+        cancel_error = None
         with self.lock:
             if self.goal_id:
-                self.client.cancel_goal(self.goal_id)
-        result = self._service("/rosclaw_sim/cleaning", {"data": False})
-        lease = self._service("/rosclaw_sim/lease", {"data": False})
-        return {"acknowledged": result.ok and lease.ok, "physical_stop_verified": False}
+                try:
+                    self.client.cancel_goal(self.goal_id)
+                except Exception as exc:
+                    cancel_error = str(exc)
+        # Cancellation transport failure must not skip actuator disable or lease
+        # revocation. These are the existing SIM-only services, never raw motion.
+        responses = []
+        errors = [cancel_error] if cancel_error else []
+        for service in ["/rosclaw_sim/cleaning", "/rosclaw_sim/lease"]:
+            try:
+                response = self._service(service, {"data": False})
+                responses.append(
+                    response.ok and response.data.get("values", {}).get("success") is True
+                )
+            except Exception as exc:
+                responses.append(False)
+                errors.append(str(exc))
+        return {
+            "acknowledged": all(responses) and not errors,
+            "physical_stop_verified": False,
+            "cancel_error": cancel_error,
+            "errors": errors,
+        }
 
     def __call__(self, action):
         if (
@@ -1033,9 +1055,14 @@ class RosCoverageSimulationExecutor:
                 accepted=dispatched,
             )
         except Exception as exc:
+            cancel_error = None
             with self.lock:
                 if self.goal_id:
-                    self.client.cancel_goal(self.goal_id)
+                    try:
+                        self.client.cancel_goal(self.goal_id)
+                    except Exception as error:
+                        cancel_error = str(error)
+                        self._audit_event("cancel_dispatch_failed", {"error": cancel_error})
             # Preserve failed physical observations for diagnosis; this artifact
             # carries no verification claim and cannot authorize memory success.
             failure_artifact = None
@@ -1051,6 +1078,8 @@ class RosCoverageSimulationExecutor:
                             "body_id": action.body_id,
                             "verification_status": "NOT_VERIFIED",
                             "error": str(exc),
+                            "cancel_dispatch_error": cancel_error,
+                            "physical_stop_verified": False,
                             "observations": self.witness.since(started),
                         },
                         indent=2,
@@ -1066,7 +1095,11 @@ class RosCoverageSimulationExecutor:
             return self._result(
                 ActionState.FAILED,
                 accepted=dispatched,
-                verification={"failure_artifact": failure_artifact},
+                verification={
+                    "failure_artifact": failure_artifact,
+                    "cancel_dispatch_error": cancel_error,
+                    "physical_stop_verified": False,
+                },
                 errors=[{"code": "ROS_SIMULATION_FAILED", "message": str(exc)}],
             )
         finally:

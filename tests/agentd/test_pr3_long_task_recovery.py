@@ -52,20 +52,26 @@ class TestProcessStartGuidance:
         )
         res = await disp._process_start(req)
         summary = res.summary
-        assert "结束" in summary and "回合" in summary, (
-            f"summary 未指引结束回合: {summary}"
-        )
+        assert "结束" in summary and "回合" in summary, f"summary 未指引结束回合: {summary}"
         assert "推送" in summary or "通知" in summary
         assert "轮询" in summary or "sleep" in summary.lower(), (
             f"summary 未明确禁止轮询/sleep: {summary}"
         )
-        await service.close()
+        # The guidance assertion does not simulate a daemon crash. Reap this
+        # actual short operation before closing its SQLite store/event loop.
+        try:
+            rows = service._store.connection.execute(
+                "SELECT operation_id FROM operations"
+            ).fetchall()
+            assert len(rows) == 1
+            operation = await service._operation_manager.wait(rows[0]["operation_id"], timeout=5)
+            assert operation["state"] == "SUCCEEDED"
+        finally:
+            await service.close()
 
 
 class TestResumeReportOperations:
-    async def test_report_lists_terminal_operations_with_artifacts(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_report_lists_terminal_operations_with_artifacts(self, tmp_path: Path) -> None:
         """resume_report 必须列出终态 Operation 与产物路径——恢复后
         模型直接复用成功产物（0914 实证：模型不知 r1 渲染已成功，
         复制视频再登记）。"""
@@ -82,8 +88,12 @@ class TestResumeReportOperations:
             "INSERT INTO operations (operation_id, task_id, attempt_id, kind,"
             " state, resumable, started_at, ended_at) VALUES (?, ?, ?, ?, ?, 0, ?, ?)",
             (
-                "op_pr3_terminal", str(row["task_id"]), "main", "render",
-                "SUCCEEDED", "2026-09-14T00:00:00+00:00",
+                "op_pr3_terminal",
+                str(row["task_id"]),
+                "main",
+                "render",
+                "SUCCEEDED",
+                "2026-09-14T00:00:00+00:00",
                 "2026-09-14T00:01:30+00:00",
             ),
         )
@@ -103,7 +113,8 @@ class TestResumeReportOperations:
         )
         # 终态 Operation 行（SUCCEEDED/FAILED 可见）。
         assert any(
-            ("SUCCEEDED" in line or "已完成" in line) and "op" in line.lower()
+            ("SUCCEEDED" in line or "已完成" in line)
+            and "op" in line.lower()
             or "Operation" in line
             for line in lines
         ), f"报告未列终态 Operation: {lines}"

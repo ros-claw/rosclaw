@@ -22,12 +22,18 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import inspect
 import json
 import os
+import signal
 import sqlite3
+import subprocess
+import sys
 import time
 from pathlib import Path
+
+import pytest
 
 from rosclaw.task_kernel.operation_manager import (
     OPERATION_TERMINAL,
@@ -57,14 +63,10 @@ def _task(conn: sqlite3.Connection, task_id: str = "task_1") -> None:
 
 def _events(conn: sqlite3.Connection, task_id: str = "task_1") -> list[dict]:
     rows = conn.execute(
-        "SELECT event_type, payload_json FROM task_events WHERE task_id = ? "
-        "ORDER BY seq",
+        "SELECT event_type, payload_json FROM task_events WHERE task_id = ? ORDER BY seq",
         (task_id,),
     ).fetchall()
-    return [
-        {"type": r["event_type"], "payload": json.loads(r["payload_json"])}
-        for r in rows
-    ]
+    return [{"type": r["event_type"], "payload": json.loads(r["payload_json"])} for r in rows]
 
 
 class TestStateMachine:
@@ -75,7 +77,9 @@ class TestStateMachine:
 
         async def run():
             op = await mgr.start(
-                task_id="task_1", attempt_id="", kind="process",
+                task_id="task_1",
+                attempt_id="",
+                kind="process",
                 argv=["sh", "-c", "sleep 30"],
             )
             await mgr.cancel(op["operation_id"], reason="test-done")
@@ -97,7 +101,9 @@ class TestStateMachine:
 
         async def run():
             op = await mgr.start(
-                task_id="task_1", attempt_id="", kind="process",
+                task_id="task_1",
+                attempt_id="",
+                kind="process",
                 argv=["sh", "-c", "sleep 30"],
             )
             await mgr.cancel(op["operation_id"], reason="user-request")
@@ -118,7 +124,9 @@ class TestStateMachine:
 
         async def run():
             op = await mgr.start(
-                task_id="task_1", attempt_id="", kind="process",
+                task_id="task_1",
+                attempt_id="",
+                kind="process",
                 argv=["sh", "-c", "sleep 0.2"],
             )
             await mgr.cancel(op["operation_id"], reason="race")
@@ -127,6 +135,56 @@ class TestStateMachine:
 
         op_id = asyncio.run(run())
         assert mgr.get(op_id)["state"] == "CANCELLED"
+
+    @pytest.mark.parametrize("wrapper_exited", [False, True])
+    def test_cancel_drains_term_resistant_process_before_return(
+        self,
+        tmp_path: Path,
+        wrapper_exited: bool,
+    ) -> None:
+        """SIGKILL escalation must finish pipe cleanup before the caller closes its loop."""
+        conn = _conn(tmp_path)
+        _task(conn)
+        mgr = OperationManager(None, conn)
+
+        async def run():
+            op = await mgr.start(
+                task_id="task_1",
+                attempt_id="",
+                kind="process",
+                argv=[
+                    sys.executable,
+                    "-c",
+                    ("import os; os.fork() and os._exit(0); " if wrapper_exited else "")
+                    + "import signal,time; signal.signal(signal.SIGTERM,signal.SIG_IGN); "
+                    "print('term-resistant-ready',flush=True); time.sleep(30)",
+                ],
+            )
+            op_id = op["operation_id"]
+            proc = mgr._procs[op_id]
+            try:
+                async with asyncio.timeout(5):
+                    while not any(
+                        e["type"] == "operation.output"
+                        and "term-resistant-ready" in e["payload"].get("text", "")
+                        for e in _events(conn)
+                    ):
+                        await asyncio.sleep(0.01)
+                    if wrapper_exited:
+                        while proc.returncode is None:
+                            await asyncio.sleep(0.01)
+                        assert proc.returncode == 0
+                await mgr.cancel(op_id, reason="resistant-child")
+                assert proc.stdout is not None and proc.stdout.at_eof(), (
+                    "cancel returned with an undrained subprocess pipe"
+                )
+                assert (await mgr.wait(op_id, timeout=0.1))["state"] == "CANCELLED"
+            finally:
+                with contextlib.suppress(ProcessLookupError):
+                    os.killpg(proc.pid, signal.SIGKILL)
+                await mgr.wait(op_id, timeout=5)
+
+        asyncio.run(run())
 
     def test_late_result_never_overwrites_canceling(self, tmp_path: Path) -> None:
         """CI 实证（p1b3 flake 根治）：CANCELING 窗内到达的迟到
@@ -139,9 +197,15 @@ class TestStateMachine:
         mgr = OperationManager(None, conn)
 
         async def run():
-            op = await mgr.start(
-                task_id="task_1", attempt_id="", kind="process",
-                argv=["sh", "-c", "sleep 30"],
+            from tests.agentd.test_p1b3_ros2_action import FakeActionClient
+
+            op = await mgr.start_action(
+                task_id="task_1",
+                attempt_id="",
+                action="/fake/action",
+                action_type="test/action/Fake",
+                args={},
+                client=FakeActionClient(),
             )
             return op["operation_id"]
 
@@ -149,8 +213,7 @@ class TestStateMachine:
         # 直接置于 CANCELING（action 取消窗——listener 回调与
         # _write_terminal 同入口）。
         conn.execute(
-            "UPDATE operations SET state = 'CANCELING', cancel_reason = 'r' "
-            "WHERE operation_id = ?",
+            "UPDATE operations SET state = 'CANCELING', cancel_reason = 'r' WHERE operation_id = ?",
             (op_id,),
         )
         # 取消窗内的迟到完成：SUCCEEDED/FAILED 拒（取消流程持有账本）。
@@ -174,7 +237,9 @@ class TestLiveness:
 
         async def run():
             op = await mgr.start(
-                task_id="task_1", attempt_id="", kind="process",
+                task_id="task_1",
+                attempt_id="",
+                kind="process",
                 argv=["sh", "-c", "sleep 1.2; echo alive-again; sleep 30"],
             )
             op_id = op["operation_id"]
@@ -208,7 +273,9 @@ class TestLiveness:
 
         async def run():
             op = await mgr.start(
-                task_id="task_1", attempt_id="", kind="process",
+                task_id="task_1",
+                attempt_id="",
+                kind="process",
                 argv=["sh", "-c", "for i in 1 2 3 4 5 6; do echo hb; sleep 0.3; done; sleep 30"],
             )
             op_id = op["operation_id"]
@@ -224,28 +291,67 @@ class TestLiveness:
 
 
 class TestRestartRecovery:
-    def _start_op(self, conn: sqlite3.Connection, argv: list[str]) -> dict:
-        mgr = OperationManager(None, conn)
-        return asyncio.run(
-            mgr.start(task_id="task_1", attempt_id="", kind="process", argv=argv)
+    def _start_op(
+        self,
+        conn: sqlite3.Connection,
+        argv: list[str],
+        request: pytest.FixtureRequest,
+    ) -> dict:
+        # A real old manager process dies abruptly; its detached operation
+        # survives. Closing asyncio.run() in this pytest process instead left
+        # live subprocess transports attached to a closed event loop and
+        # leaked grandchildren into later tests.
+        database = conn.execute("PRAGMA database_list").fetchone()[2]
+        child = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                """
+import asyncio, json, os, sqlite3, sys
+from rosclaw.task_kernel.operation_manager import OperationManager
+conn = sqlite3.connect(sys.argv[1], check_same_thread=False)
+conn.row_factory = sqlite3.Row
+manager = OperationManager(None, conn)
+async def start_and_crash():
+    op = await manager.start(task_id='task_1', attempt_id='', kind='process',
+                             argv=json.loads(sys.argv[2]))
+    conn.commit()
+    os.write(1, json.dumps(op).encode())
+    os._exit(0)
+asyncio.run(start_and_crash())
+""",
+                database,
+                json.dumps(argv),
+            ],
+            check=True,
+            capture_output=True,
+            timeout=10,
         )
+        op = json.loads(child.stdout)
 
-    def test_reattach_when_pid_alive(self, tmp_path: Path) -> None:
+        def cleanup():
+            # Session/pgid belongs only to the operation started above.
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(int(op["pid"]), signal.SIGKILL)
+
+        request.addfinalizer(cleanup)
+        return op
+
+    def test_reattach_when_pid_alive(self, tmp_path: Path, request) -> None:
         conn = _conn(tmp_path)
         _task(conn)
-        op = self._start_op(conn, ["sh", "-c", "sleep 30"])
+        op = self._start_op(conn, ["sh", "-c", "sleep 30"], request)
         # 模拟重启：新 manager（内存驱动全丢），sweep 恢复。
         mgr2 = OperationManager(None, conn)
         report = asyncio.run(mgr2.recover_on_boot())
         row = mgr2.get(op["operation_id"])
         assert row["state"] != "LOST", "活 pid 被误判 LOST"
         assert report["reattached"] >= 1
-        os.kill(int(row["pid"]), 15)  # 清理
 
-    def test_dead_pid_with_exitcode_applies_terminal(self, tmp_path: Path) -> None:
+    def test_dead_pid_with_exitcode_applies_terminal(self, tmp_path: Path, request) -> None:
         conn = _conn(tmp_path)
         _task(conn)
-        op = self._start_op(conn, ["sh", "-c", "exit 3"])
+        op = self._start_op(conn, ["sh", "-c", "exit 3"], request)
         time.sleep(0.5)  # 进程已退出（exitcode 文件应由 wrapper 写）
         mgr2 = OperationManager(None, conn)
         asyncio.run(mgr2.recover_on_boot())
@@ -253,13 +359,13 @@ class TestRestartRecovery:
         assert row["state"] == "FAILED"
         assert "exit_3" in (row["failure_code"] or "")
 
-    def test_dead_pid_without_exitcode_is_honest_lost(self, tmp_path: Path) -> None:
+    def test_dead_pid_without_exitcode_is_honest_lost(self, tmp_path: Path, request) -> None:
         conn = _conn(tmp_path)
         _task(conn)
-        op = self._start_op(conn, ["sh", "-c", "sleep 30"])
+        op = self._start_op(conn, ["sh", "-c", "sleep 30"], request)
         op_id = op["operation_id"]
         pid = int(op["pid"])
-        os.kill(pid, 9)
+        os.killpg(pid, signal.SIGKILL)
         time.sleep(0.3)
         # 删掉 exitcode（模拟 agentd 被杀时进程也被杀、无退出记录）。
         for candidate in tmp_path.rglob(f"*{op_id}*exit*"):
@@ -290,6 +396,10 @@ class TestWaitOperationRemoved:
     def test_ts_surface_has_no_wait_operation(self) -> None:
         ts = (
             Path(__file__).resolve().parents[2]
-            / "packages" / "rosclaw-agent" / "src" / "tools" / "embodiment-exec.ts"
+            / "packages"
+            / "rosclaw-agent"
+            / "src"
+            / "tools"
+            / "embodiment-exec.ts"
         )
         assert "rosclaw_wait_operation" not in ts.read_text(encoding="utf-8")

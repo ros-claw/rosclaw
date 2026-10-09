@@ -30,6 +30,7 @@ from std_srvs.srv import Trigger
 
 PROBE_TOPIC = "/rosclaw_probe/snapshot"
 READ_TYPES = {
+    "action_msgs/msg/GoalStatusArray",
     "std_msgs/msg/Bool",
     "tf2_msgs/msg/TFMessage",
     "sensor_msgs/msg/LaserScan",
@@ -63,6 +64,7 @@ class ReadOnlyProbe(Node):
         self.clock_readings = deque(maxlen=200)
         self.packages = sorted(get_packages_with_prefixes())
         self.localization_observations = {}
+        self.action_observations = {}
         self.publisher = self.create_publisher(
             String, PROBE_TOPIC, QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
         )
@@ -88,7 +90,7 @@ class ReadOnlyProbe(Node):
                 continue
             qos = QoSProfile(depth=20, reliability=ReliabilityPolicy.BEST_EFFORT)
             endpoints = self.get_publishers_info_by_topic(topic)
-            latched = topic.endswith("/tf_static") or (
+            latched = topic.endswith(("/tf_static", "/_action/status")) or (
                 topic == "/map"
                 and endpoints
                 and all(
@@ -158,6 +160,7 @@ class ReadOnlyProbe(Node):
                     if key
                     in {
                         "use_sim_time",
+                        "plugins",
                         "obstacle_layer.observation_sources",
                         "voxel_layer.observation_sources",
                         "global_frame",
@@ -169,6 +172,15 @@ class ReadOnlyProbe(Node):
                         "observation_sources",
                         "scan.topic",
                     }
+                    or key.endswith(
+                        (
+                            ".plugin",
+                            ".enabled",
+                            ".use_maximum",
+                            ".combination_method",
+                            ".observation_sources",
+                        )
+                    )
                 ]
                 if parameter_request.names:
                     self.read_rpc(node_name + "/get_parameters", GetParameters, parameter_request)
@@ -180,6 +192,8 @@ class ReadOnlyProbe(Node):
                 for key, value in zip(request.names, response.values, strict=True):
                     if value.type == 1:
                         values[key] = value.bool_value
+                    elif value.type == 2:
+                        values[key] = value.integer_value
                     elif value.type == 3:
                         values[key] = value.double_value
                     elif value.type == 4:
@@ -194,6 +208,18 @@ class ReadOnlyProbe(Node):
 
     def observe(self, topic, message):
         self.samples.setdefault(topic, deque(maxlen=200)).append(time.monotonic())
+        if topic.endswith("/_action/status") and hasattr(message, "status_list"):
+            self.action_observations[topic.removesuffix("/_action/status")] = {
+                "source": topic,
+                "captured_at": utc_now(),
+                "goals": [
+                    {
+                        "goal_uuid": [int(value) for value in s.goal_info.goal_id.uuid],
+                        "status": s.status,
+                    }
+                    for s in message.status_list
+                ],
+            }
         if hasattr(message, "pose") and hasattr(message.pose, "covariance"):
             covariance = message.pose.covariance
             self.localization_observations[topic] = {
@@ -296,7 +322,7 @@ class ReadOnlyProbe(Node):
                         "source": "native:monotonic_receive",
                         "max_age_ms": 2000 if topic.endswith("/costmap") else 1000,
                         "freshness_policy": "latched"
-                        if topic.endswith("/tf_static")
+                        if topic.endswith(("/tf_static", "/_action/status"))
                         or (
                             topic == "/map"
                             and pubs
@@ -430,6 +456,7 @@ class ReadOnlyProbe(Node):
                 if self.clock_readings
                 else None,
                 "localization_quality": localization,
+                "action_statuses": getattr(self, "action_observations", {}),
             },
             "completeness": {
                 "graph": True,

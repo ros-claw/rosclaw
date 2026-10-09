@@ -45,11 +45,12 @@ test("R1-2a: write 接受任务 scratch 区（extraRoots）", async () => {
 	};
 	const target = join(scratch, "letters.py");
 	const out = await write.execute(
-		"c1", { path: target, content: "print('hi')" },
+		"c1", { path: target, content: "print('你好🤖')" },
 		new AbortController().signal, async () => {}, {},
 	);
 	assert.ok(!out.isError, out.content[0]?.text);
-	assert.equal(readFileSync(target, "utf-8"), "print('hi')");
+	assert.equal(readFileSync(target, "utf-8"), "print('你好🤖')");
+	assert.equal(out.content[0]?.text, `wrote ${target} (${readFileSync(target).byteLength} bytes)`);
 });
 
 test("R1-2a: 两个根之外仍拒绝（防逃逸）", async () => {
