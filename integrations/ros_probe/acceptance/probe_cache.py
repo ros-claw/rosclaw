@@ -73,6 +73,22 @@ def main():
     assert snapshot["observations"]["node_use_sim_time"] == {"/amcl": True}
     assert snapshot["lifecycle"][0]["state"] == "ACTIVE"
     assert snapshot["lifecycle"][0]["captured_at"] == fresh
+    # Real ROS GoalStatusArray decoding; status is a transition observation,
+    # never an independent physical-stop measurement.
+    from action_msgs.msg import GoalStatus, GoalStatusArray
+
+    fixture.samples = {}
+    fixture.action_observations = {}
+    status = GoalStatus()
+    status.goal_info.goal_id.uuid = list(range(16))
+    status.status = 6
+    message = GoalStatusArray(status_list=[status])
+    ReadOnlyProbe.observe(fixture, "/robot/navigate_to_pose/_action/status", message)
+    recorded = fixture.action_observations["/robot/navigate_to_pose"]
+    assert recorded["goals"] == [{"goal_uuid": list(range(16)), "status": 6}]
+    assert recorded["source"] == "/robot/navigate_to_pose/_action/status"
+    snapshot = ReadOnlyProbe.snapshot(fixture)
+    assert snapshot["observations"]["action_statuses"] == fixture.action_observations
     print(
         json.dumps(
             {
@@ -85,6 +101,7 @@ def main():
                     "historical_clock",
                     "late_rpc_identity",
                     "fresh_read_recovery",
+                    "action_status_transition_observation",
                 ],
             }
         )
