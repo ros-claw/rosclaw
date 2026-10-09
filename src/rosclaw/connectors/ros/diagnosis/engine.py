@@ -197,6 +197,10 @@ def diagnose(
             {"clock_advancing": False},
             "Inspect simulation clock publisher.",
         )
+    if profile in {"all", "navigation"}:
+        from rosclaw.connectors.ros.diagnosis.action_lifecycle import action_lifecycle_issues
+
+        issues.extend(action_lifecycle_issues(model, now=now))
     for node in model.lifecycle:
         if node.state not in {"ACTIVE", "UNKNOWN"}:
             add(
