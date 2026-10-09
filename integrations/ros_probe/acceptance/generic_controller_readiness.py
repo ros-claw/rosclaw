@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import math
 import time
 from pathlib import Path
 from xml.etree import ElementTree as ET
@@ -10,6 +11,40 @@ from generic_bootstrap_runtime import require_isolated_environment, require_read
 from generic_stack_source import read_prepared_generic_stack
 
 from rosclaw.connectors.ros.context.sim_navigation_source import _yaml
+
+
+def source_parameter_signature(value):
+    if type(value) is bool:
+        return 1, "bool_value", bool
+    if type(value) is int:
+        return 2, "integer_value", int
+    if type(value) is float and math.isfinite(value):
+        return 3, "double_value", float
+    if type(value) is str:
+        return 4, "string_value", str
+    if type(value) is list and value and all(type(item) is str for item in value):
+        return 9, "string_array_value", list
+    raise ValueError("source parameter type is unsupported or ambiguous")
+
+
+def flatten_source_parameters(parameters):
+    result = {}
+
+    def visit(prefix, values):
+        for key, value in values.items():
+            name = prefix + key
+            if type(value) is dict:
+                visit(name + ".", value)
+            else:
+                if name in result:
+                    raise ValueError("ambiguous flattened source parameter")
+                source_parameter_signature(value)
+                result[name] = value
+
+    visit("", parameters)
+    if not 0 < len(result) <= 256:
+        raise ValueError("bounded explicit source parameter set required")
+    return result
 
 
 def controller_expectations(directory):
@@ -56,6 +91,14 @@ def controller_expectations(directory):
         "hardware_plugin": plugin,
         "interfaces": interfaces,
         "interface_types": interface_types,
+        "node_parameters": {
+            node: flatten_source_parameters(parameters[node]["ros__parameters"])
+            for node in [
+                manager,
+                declaration["drive_controller"],
+                declaration["joint_state_broadcaster"],
+            ]
+        },
     }
 
 
@@ -125,6 +168,31 @@ def inactive_controller_readiness(expected, observations, *, now):
                     )
                 ):
                     reasons.append("hardware_" + kind + "_interfaces_differs_or_unavailable")
+    for node, parameters in expected["node_parameters"].items():
+        names = sorted(parameters)
+        row = observations.get("parameters:" + node)
+        if (
+            type(row) is not dict
+            or row.get("service") != node + "/get_parameters"
+            or type(row.get("received_monotonic_sec")) not in (int, float)
+            or not 0 <= now - row["received_monotonic_sec"] <= 2
+            or row.get("request_names") != names
+            or type(row.get("response")) is not dict
+            or type(row["response"].get("values")) is not list
+            or len(row["response"]["values"]) != len(names)
+        ):
+            reasons.append("parameters_missing_stale_or_request_differs:" + node)
+            continue
+        for name, value in zip(names, row["response"]["values"], strict=True):
+            kind, field, value_type = source_parameter_signature(parameters[name])
+            if (
+                type(value) is not dict
+                or type(value.get("type")) is not int
+                or value["type"] != kind
+                or type(value.get(field)) is not value_type
+                or value[field] != parameters[name]
+            ):
+                reasons.append("parameter_source_differs:" + node + ":" + name)
     return {
         "schema_version": "rosclaw.generic_inactive_controller_readiness.v1",
         "source": "actual_read_only_controller_manager_responses",
@@ -148,6 +216,7 @@ def main():
     deadline = time.monotonic() + 5
     import rclpy
     from controller_manager_msgs.srv import ListControllers, ListHardwareComponents
+    from rcl_interfaces.srv import GetParameters
     from rosidl_runtime_py.convert import message_to_ordereddict
 
     rclpy.init()
@@ -159,11 +228,26 @@ def main():
             ("hardware", ListHardwareComponents, "/list_hardware_components"),
         ):
             service = expected["controller_manager"] + suffix
-            clients[role] = (node.create_client(service_type, service), service_type, service)
+            clients[role] = (
+                node.create_client(service_type, service),
+                service_type.Request(),
+                service,
+                None,
+            )
+        for name, parameters in expected["node_parameters"].items():
+            service = name + "/get_parameters"
+            request = GetParameters.Request()
+            request.names = sorted(parameters)
+            clients["parameters:" + name] = (
+                node.create_client(GetParameters, service),
+                request,
+                service,
+                list(request.names),
+            )
         while time.monotonic() < deadline and len(observations) < len(clients):
-            for role, (client, service_type, service) in clients.items():
+            for role, (client, request, service, request_names) in clients.items():
                 if role not in pending and client.service_is_ready():
-                    pending[role] = client.call_async(service_type.Request())
+                    pending[role] = client.call_async(request)
                 future = pending.get(role)
                 if role not in observations and future is not None and future.done():
                     response = json.loads(json.dumps(message_to_ordereddict(future.result())))
@@ -174,6 +258,8 @@ def main():
                         "received_monotonic_sec": time.monotonic(),
                         "response": response,
                     }
+                    if request_names is not None:
+                        observations[role]["request_names"] = request_names
             rclpy.spin_once(node, timeout_sec=min(0.01, max(0, deadline - time.monotonic())))
         current = controller_expectations("/evidence")
         if current != expected:

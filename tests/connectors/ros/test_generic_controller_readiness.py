@@ -52,6 +52,24 @@ def fixture(monkeypatch, tmp_path):
             "response": {"component": [hardware]},
         },
     }
+    for node, parameters in expected["node_parameters"].items():
+        values = []
+        for name in sorted(parameters):
+            value = parameters[name]
+            kind, field = {
+                bool: (1, "bool_value"),
+                int: (2, "integer_value"),
+                float: (3, "double_value"),
+                str: (4, "string_value"),
+                list: (9, "string_array_value"),
+            }[type(value)]
+            values.append({"type": kind, field: deepcopy(value)})
+        observations["parameters:" + node] = {
+            "service": node + "/get_parameters",
+            "received_monotonic_sec": 100.0,
+            "request_names": sorted(parameters),
+            "response": {"values": values},
+        }
     return module, directory, expected, observations
 
 
@@ -168,3 +186,48 @@ def test_changed_sealed_source_refused_before_ros_import(fixture):
         stream.write(b"\n")
     with pytest.raises(ValueError):
         module.controller_expectations(directory)
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "missing",
+        "stale",
+        "service",
+        "names",
+        "missing_value",
+        "wrong_type",
+        "changed_watchdog",
+        "changed_wheels",
+    ],
+)
+def test_live_effective_source_parameters_required_before_next_stage(fixture, change):
+    module, _, expected, observations = fixture
+    node = "/declared_scope/custom_drive"
+    role = "parameters:" + node
+    row = observations[role]
+    if change == "missing":
+        observations.pop(role)
+    elif change == "stale":
+        row["received_monotonic_sec"] = 90
+    elif change == "service":
+        row["service"] = "/foreign/get_parameters"
+    elif change == "names":
+        row["request_names"] = list(reversed(row["request_names"]))
+    elif change == "missing_value":
+        row["response"]["values"].pop()
+    else:
+        name = "left_wheel_names" if change == "changed_wheels" else "cmd_vel_timeout"
+        value = row["response"]["values"][row["request_names"].index(name)]
+        if change == "wrong_type":
+            value["type"] = 4
+        elif change == "changed_watchdog":
+            value["double_value"] = 1.0
+        else:
+            value["string_array_value"] = ["foreign_axis"]
+    assert (
+        module.inactive_controller_readiness(expected, observations, now=100.1)[
+            "ready_for_next_stage"
+        ]
+        is False
+    )
