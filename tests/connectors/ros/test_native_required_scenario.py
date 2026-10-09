@@ -123,3 +123,30 @@ def test_partial_next_append_cannot_hide_completed_failure(tmp_path, monkeypatch
         stream.write(b'{"kind":"PERTURBATION_COMPLETE')
     with pytest.raises(RuntimeError, match="failed or stopped"):
         load(monkeypatch).required_scenario_progress(tmp_path, scenario)
+
+
+@pytest.mark.parametrize("case", ["D2", "D3"])
+def test_both_implemented_positive_cases_can_close_native_progress(monkeypatch, case):
+    load(monkeypatch).require_completed_dynamic_progress(
+        {"case": case, "perturbation_complete": True, "physical_acceptance": "NOT_VERIFIED"}
+    )
+
+
+@pytest.mark.parametrize(
+    "case,complete,acceptance",
+    [
+        ("D2", False, "NOT_VERIFIED"),
+        ("D3", False, "NOT_VERIFIED"),
+        ("D3", 1, "NOT_VERIFIED"),
+        ("D3", True, "PASS"),
+        ("D4", True, "NOT_VERIFIED"),
+        ("D5", True, "NOT_VERIFIED"),
+    ],
+)
+def test_incomplete_or_negative_cases_cannot_close_positive_native_progress(
+    monkeypatch, case, complete, acceptance
+):
+    with pytest.raises(RuntimeError, match="completed D2/D3"):
+        load(monkeypatch).require_completed_dynamic_progress(
+            {"case": case, "perturbation_complete": complete, "physical_acceptance": acceptance}
+        )
