@@ -921,13 +921,22 @@ class PiToolDispatcher:
         op = self._service._operation_manager.get(operation_id)
         if not op:
             raise ToolBridgeError("NOT_FOUND", "unknown operation")
-        await self._service._operation_manager.cancel(
-            operation_id, reason="model_request"
-        )
+        await self._service._operation_manager.cancel(operation_id, reason="model_request")
+        op = self._service._operation_manager.get(operation_id)
+        if not op:
+            raise ToolBridgeError("NOT_FOUND", "operation missing after cancellation request")
+        status = str(op["state"])
+        if status == "CANCELLED":
+            summary = f"operation {operation_id} 已取消"
+        elif status == "CANCELING":
+            summary = f"operation {operation_id} 取消已请求，等待执行端确认或进程回收"
+        else:
+            summary = f"operation {operation_id} 当前状态 {status}（已有终态保持不变）"
         return PiToolResultV1(
             request_id=request.request_id,
-            ok=True, status="CANCELLED",
-            summary=f"operation {operation_id} 已取消（账本先行）",
+            ok=True,
+            status=status,
+            summary=summary,
         )
 
     async def _request_action(self, request: PiToolRequestV1) -> PiToolResultV1:

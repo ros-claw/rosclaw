@@ -313,7 +313,7 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 				mkdirSync(dirname(p), { recursive: true });
 				writeFileSync(p, String(params.content), "utf-8");
 				return {
-					content: [{ type: "text" as const, text: `wrote ${p} (${String(params.content).length} bytes)` }],
+					content: [{ type: "text" as const, text: `wrote ${p} (${Buffer.byteLength(String(params.content), "utf-8")} bytes)` }],
 					details: { path: p },
 				};
 			} catch (err) {
