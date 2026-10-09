@@ -10,6 +10,7 @@ import math
 import sys
 from pathlib import Path
 
+from generic_bootstrap_observation import validate_observation_seconds
 from generic_navigation_launch import build_launch_description, navigation_launch_plan
 from generic_stack_source import read_prepared_generic_stack
 
@@ -56,8 +57,13 @@ def bootstrap_launch_plan(directory, declaration):
         "joint_state_topic",
         "clock_gz_topic",
     }
-    if type(declaration) is not dict or set(declaration) != keys:
+    if (
+        type(declaration) is not dict
+        or not keys <= set(declaration)
+        or set(declaration) - keys - {"discovery_duration_sec"}
+    ):
         raise ValueError("closed explicit owned SIM bootstrap declaration required")
+    discovery_seconds = validate_observation_seconds(declaration.get("discovery_duration_sec", 3))
     if (
         declaration["schema_version"] != "rosclaw.generic_bootstrap_source.v1"
         or declaration["source"] != "simulator_operator_fixture_policy"
@@ -112,6 +118,7 @@ def bootstrap_launch_plan(directory, declaration):
         "robot_description_topic": absolute_endpoint(controller["robot_description_topic"]),
         "joint_state_topic": joint_topic,
         "clock_gz_topic": clock_topic,
+        "discovery_duration_sec": discovery_seconds,
         "controller_namespace": namespace,
         "controller_spawners": spawners,
         "navigation": navigation,
@@ -276,10 +283,9 @@ def build_bootstrap_launch_description(directory, declaration, *, readiness_outp
         discovery = ExecuteProcess(
             cmd=[
                 sys.executable,
-                str(Path(__file__).parents[1] / "ros2/probe.py"),
-                "--once",
+                str(Path(__file__).with_name("generic_bootstrap_observation.py")),
                 "--duration",
-                "3",
+                str(plan["discovery_duration_sec"]),
                 "--output",
                 str(readiness_output.with_name("bootstrap-discovery.json")),
             ],

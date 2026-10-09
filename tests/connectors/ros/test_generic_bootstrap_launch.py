@@ -47,6 +47,18 @@ def test_source_world_spawn_controller_names_and_inactive_guards_preserved(sourc
     assert plan["requires_read_only_source_mount"] is True
     assert plan["requires_fresh_Graph_TF_map_sensor_and_independent_physics_admission"] is True
     assert plan["physical_acceptance"] == "NOT_RUN" and plan["authorization"] is False
+    assert plan["discovery_duration_sec"] == 3
+
+
+def test_explicit_readonly_observation_window_preserves_inactive_configuration(source):
+    module, directory, _, declaration = source
+    original = module.bootstrap_launch_plan(directory, declaration)
+    declaration["discovery_duration_sec"] = 30
+    extended = module.bootstrap_launch_plan(directory, declaration)
+    assert extended["discovery_duration_sec"] == 30
+    assert extended["bootstrap_declaration_hash"] != original["bootstrap_declaration_hash"]
+    for key in set(original) - {"discovery_duration_sec", "bootstrap_declaration_hash"}:
+        assert extended[key] == original[key]
 
 
 @pytest.mark.parametrize(
@@ -63,6 +75,11 @@ def test_source_world_spawn_controller_names_and_inactive_guards_preserved(sourc
         ("joint_state_topic", "relative"),
         ("joint_state_topic", "/clock"),
         ("joint_state_topic", "/explicit_motion"),
+        ("discovery_duration_sec", True),
+        ("discovery_duration_sec", 0),
+        ("discovery_duration_sec", 61),
+        ("discovery_duration_sec", float("nan")),
+        ("unexpected_authority", True),
     ],
 )
 def test_invalid_bootstrap_declarations_refused_without_sdk_import(source, key, value):
