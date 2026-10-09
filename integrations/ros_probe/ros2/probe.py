@@ -158,6 +158,7 @@ class ReadOnlyProbe(Node):
                     if key
                     in {
                         "use_sim_time",
+                        "plugins",
                         "obstacle_layer.observation_sources",
                         "voxel_layer.observation_sources",
                         "global_frame",
@@ -169,6 +170,15 @@ class ReadOnlyProbe(Node):
                         "observation_sources",
                         "scan.topic",
                     }
+                    or key.endswith(
+                        (
+                            ".plugin",
+                            ".enabled",
+                            ".use_maximum",
+                            ".combination_method",
+                            ".observation_sources",
+                        )
+                    )
                 ]
                 if parameter_request.names:
                     self.read_rpc(node_name + "/get_parameters", GetParameters, parameter_request)
@@ -180,6 +190,8 @@ class ReadOnlyProbe(Node):
                 for key, value in zip(request.names, response.values, strict=True):
                     if value.type == 1:
                         values[key] = value.bool_value
+                    elif value.type == 2:
+                        values[key] = value.integer_value
                     elif value.type == 3:
                         values[key] = value.double_value
                     elif value.type == 4:
