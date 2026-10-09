@@ -249,7 +249,38 @@ original base ID before/after and its complete unchanged layer prefix:
 
 The archive SHA and exact upstream commit are in committed source-lock.json.
 Four patch regression tests and the full ROS suite passed (1981 tests,
-10 integration deselected). Actual patched Gazebo manager inspection still
-requires a fresh registered development run after the active coverage pair.
-Held-out selection, feature freeze and full generic physical acceptance remain
-pending.
+10 integration deselected). Subsequently, registered and presealed development
+seed200912 executed source5c44f099 with the patched image after100904's complete
+pair/export/stop review. The actual manager reported hardware type=system and
+plugin=gz_ros2_control/GazeboSimSystem; both controllers remained inactive with
+unclaimed interfaces and exact original parameters. Strict source inspection
+passed without weakening its checks. Read-only discovery captured all ten
+declared Nav2 nodes UNCONFIGURED and an advancing World clock. The immutable
+20-second deadline then stopped the exact owned container (Running=false/Pid0).
+Full original source/log/reply evidence is sealed in1674 verified files under
+`n04-actual-patched-inactive-manager-and-graph-200912`.
+
+The same actual capture has no fresh odometry, map or lidar message. Closed
+replay at its original recorded timestamp returns UNKNOWN from the existing
+Body discovery code; it grants no binding or capability. No timestamp is
+rewritten and this replay cannot establish live freshness. Controllers were
+never activated; no motion/cleaning task or held-out asset was used.
+
+## Required TF chain freshness during discovery
+
+The actual development capture also includes a World-to-model truth transform
+whose ROS-clock age is unknown. Discovery previously required every transform
+in the entire snapshot to be current, so an unrelated truth/camera transform
+would block otherwise complete navigation chains. It now walks only the
+required directed ancestor chain for each map/odom/base/lidar pair. Every
+required dynamic edge retains its original age, future tolerance and receipt
+freshness checks. Missing edges, duplicate/conflicting parents, self loops and
+cycles refuse the candidate. Unrelated transforms cannot replace an edge or
+grant authority; a candidate remains an unverified proposal.
+
+Focused discovery contracts37 passed, including19 new path/freshness/conflict
+cases. Full ROS2000 passed/10 integration deselected; Practice183 passed/9
+skipped; required mypy plus changed discovery source122 files passed. Scoped
+lint/format, compileall and diff checks passed. Full staged admission, guarded
+activation, held-out selection, feature freeze and generic physical acceptance
+remain pending.

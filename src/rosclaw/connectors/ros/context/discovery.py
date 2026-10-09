@@ -4,9 +4,38 @@ import hashlib
 from datetime import UTC, datetime
 
 from rosclaw.connectors.ros.context.geometry import derive_collision_envelope
-from rosclaw.connectors.ros.diagnosis.engine import frame_connected
 from rosclaw.connectors.ros.intelligence import RosSystemModel
 from rosclaw.connectors.ros.resolver.semantics import SEMANTIC_TYPES
+
+
+def _fresh_frame_path(model, parent, child, now):
+    """Require one fresh directed ancestor chain for the requested frame pair.
+
+    Unrelated World/model or camera transforms do not establish or invalidate
+    this chain. Missing, repeated or conflicting required edges remain unknown.
+    This checks observations only and grants no Body binding or action authority.
+    """
+    if not model.completeness.get("tf") or parent == child:
+        return False
+    by_child = {}
+    for edge in model.transforms:
+        by_child.setdefault(edge.child, []).append(edge)
+    visited = set()
+    frame = child
+    while frame != parent:
+        edges = by_child.get(frame, ())
+        if frame in visited or len(edges) != 1:
+            return False
+        visited.add(frame)
+        edge = edges[0]
+        if not edge.static and not (
+            edge.age_ms is not None
+            and -edge.future_tolerance_ms <= edge.age_ms <= 1000
+            and -100 <= (now - edge.captured_at).total_seconds() * 1000 <= 5000
+        ):
+            return False
+        frame = edge.parent
+    return True
 
 
 def discover_body_candidate(model: RosSystemModel, urdf_bytes: bytes, *, now=None):
@@ -96,21 +125,11 @@ def discover_body_candidate(model: RosSystemModel, urdf_bytes: bytes, *, now=Non
             result["frames"][key] = value
         else:
             result["unknown_fields"].append("frames." + key)
-    transforms_current = model.completeness.get("tf") and all(
-        edge.static
-        or (
-            edge.age_ms is not None
-            and -edge.future_tolerance_ms <= edge.age_ms <= 1000
-            and -100 <= (now - edge.captured_at).total_seconds() * 1000 <= 5000
-        )
-        for edge in model.transforms
-    )
     for a, b in (("map", "odom"), ("odom", "base"), ("base", "lidar")):
         if (
-            not transforms_current
-            or a not in result["frames"]
+            a not in result["frames"]
             or b not in result["frames"]
-            or frame_connected(model, result["frames"][a], result["frames"][b]) is not True
+            or not _fresh_frame_path(model, result["frames"][a], result["frames"][b], now)
         ):
             result["unknown_fields"].append(f"tf.{a}_to_{b}")
     descriptions = [

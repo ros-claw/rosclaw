@@ -102,6 +102,60 @@ def test_namespace_sensor_and_frame_rename_need_no_profile(namespace, base, sens
     assert model.to_dict() == before
 
 
+@pytest.mark.parametrize("age", [None, 90000, -10000])
+def test_unrelated_unknown_stale_or_future_tf_does_not_replace_required_chain(age):
+    model, raw = fixture()
+    data = model.to_dict()
+    data["transforms"].append(
+        {
+            "parent": "unrelated_world",
+            "child": "independent_model_truth",
+            "source": "/unrelated_truth",
+            "captured_at": (NOW - timedelta(hours=1)).isoformat(),
+            "age_ms": age,
+        }
+    )
+    model = RosSystemModel(**data).seal()
+    before = model.to_dict()
+    result = discover_body_candidate(model, raw, now=NOW)
+    assert result["status"] == "PROPOSED" and result["unknown_fields"] == []
+    assert not result["authorization"] and not result["binding_verified"]
+    assert result["capabilities_granted"] == [] and model.to_dict() == before
+
+
+@pytest.mark.parametrize("edge_index", [0, 1, 2])
+@pytest.mark.parametrize("fault", ["unknown_age", "stale_age", "future_age", "old_receipt"])
+def test_every_required_tf_edge_retains_its_freshness_guard(edge_index, fault):
+    model, raw = fixture()
+    data = model.to_dict()
+    edge = data["transforms"][edge_index]
+    if fault == "old_receipt":
+        edge["captured_at"] = (NOW - timedelta(seconds=6)).isoformat()
+    else:
+        edge["age_ms"] = {"unknown_age": None, "stale_age": 1001, "future_age": -101}[fault]
+    result = discover_body_candidate(RosSystemModel(**data).seal(), raw, now=NOW)
+    assert result["status"] == "UNKNOWN"
+    assert any(key.startswith("tf.") for key in result["unknown_fields"])
+    assert not result["authorization"] and not result["binding_verified"]
+
+
+@pytest.mark.parametrize("fault", ["conflicting_parent", "duplicate_edge", "cycle", "self_loop"])
+def test_required_tf_chain_conflicts_and_cycles_refused(fault):
+    model, raw = fixture()
+    data = model.to_dict()
+    if fault in {"conflicting_parent", "duplicate_edge"}:
+        extra = dict(data["transforms"][1])
+        if fault == "conflicting_parent":
+            extra["parent"] = "foreign_odom"
+        data["transforms"].append(extra)
+    else:
+        data["transforms"][1]["parent"] = "laser_mount" if fault == "cycle" else "chassis"
+    result = discover_body_candidate(RosSystemModel(**data).seal(), raw, now=NOW)
+    assert result["status"] == "UNKNOWN"
+    assert "tf.odom_to_base" in result["unknown_fields"]
+    assert not result["authorization"] and not result["binding_verified"]
+
+
 @pytest.mark.parametrize(
     "fault",
     [
