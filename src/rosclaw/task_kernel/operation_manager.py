@@ -380,7 +380,10 @@ class OperationManager:
         迟到完成在 CANCELING/CANCELLED 下都不覆盖（§12.1 取消握手）。
         """
         row = self.get(operation_id)
-        if not row or row["state"] in OPERATION_TERMINAL:
+        if not row or row["state"] in OPERATION_TERMINAL or row["state"] == "CANCELING":
+            # The first cancellation owns cleanup and its original reason.
+            # A repeated caller must not acknowledge a still-open process
+            # pipe as CANCELLED after that owner has taken its process handle.
             return
         now = _now()
         self._conn.execute(
