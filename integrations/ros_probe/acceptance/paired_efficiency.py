@@ -15,7 +15,7 @@ from lifecycle_readiness import readiness
 from observations import latest_completed_observation
 from profiles import PROFILES
 
-from experiments import planning_parameters, validate_seed
+from experiments import INNER_RING_PROFILES, planning_parameters, validate_seed
 
 ROOT = Path(__file__).resolve().parent
 REPOSITORY = ROOT.parents[2]
@@ -28,7 +28,7 @@ def validate_precise_repair_registration(protocol, enabled):
 
 
 def validate_inner_ring_registration(protocol, candidate):
-    if candidate != "perimeter_stateless_clearance_inner_ring":
+    if candidate not in INNER_RING_PROFILES:
         return
     expected = {
         "candidate_boundary_stage_budget_sec": 360,
@@ -333,6 +333,7 @@ def main():
             "perimeter_stateless_headland",
             "perimeter_stateless_clearance",
             "perimeter_stateless_clearance_inner_ring",
+            "perimeter_stateless_inner_ring",
             "perimeter_stateless_overlap",
         ],
         required=True,

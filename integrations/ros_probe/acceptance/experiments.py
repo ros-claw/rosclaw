@@ -2,6 +2,11 @@
 
 import math
 
+INNER_RING_PROFILES = {
+    "perimeter_stateless_clearance_inner_ring": "burger",
+    "perimeter_stateless_inner_ring": "waffle",
+}
+
 
 def planning_parameters(profile, preset="baseline"):
     """Keep Body dimensions and original profile-specific baseline unchanged."""
@@ -31,6 +36,11 @@ def planning_parameters(profile, preset="baseline"):
         if profile.name != "burger":
             raise ValueError("clearance diagnostic is declared only for known Burger")
         params["default_headland_width"] = 0.50
+    elif preset == "perimeter_stateless_inner_ring":
+        # Existing Waffle planner, extra legal inset targets only. Nominal
+        # pilot replay is not actual Nav2 credit or a measured time saving.
+        if profile.name != "waffle":
+            raise ValueError("inner-ring diagnostic is declared only for known Waffle")
     elif preset == "perimeter_stateless_overlap":
         # Explicit known-fixture diagnostic: more overlap addresses measured
         # strip/endpoint misses without shrinking the real verifier brush or
@@ -54,6 +64,7 @@ def controller_parameters(profile, preset="baseline"):
             "perimeter_stateless_overlap",
             "perimeter_stateless_clearance",
             "perimeter_stateless_clearance_inner_ring",
+            "perimeter_stateless_inner_ring",
         )
         else {}
     )
@@ -75,14 +86,15 @@ def gazebo_arguments(world, seed=None):
 
 def validate_inner_ring_experiment(experiment):
     """Fail before daemon Runtime startup if a new ring's declaration drifts."""
-    if (
-        experiment.get("preset") != "perimeter_stateless_clearance_inner_ring"
-        and experiment.get("boundary_strategy") != "sequential_inner_ring"
-    ):
+    if type(experiment) is not dict:
+        raise ValueError("explicit experiment mapping required")
+    preset = experiment.get("preset")
+    expected_profile = INNER_RING_PROFILES.get(preset) if isinstance(preset, str) else None
+    if expected_profile is None and experiment.get("boundary_strategy") != "sequential_inner_ring":
         return
     if (
-        experiment.get("preset") != "perimeter_stateless_clearance_inner_ring"
-        or experiment.get("profile") != "burger"
+        expected_profile is None
+        or experiment.get("profile") != expected_profile
         or experiment.get("boundary_strategy") != "sequential_inner_ring"
         or experiment.get("boundary_pass") is not True
         or type(experiment.get("boundary_stage_budget_sec")) is not int
@@ -90,4 +102,4 @@ def validate_inner_ring_experiment(experiment):
         or type(experiment.get("inner_boundary_inset_cells")) is not int
         or experiment["inner_boundary_inset_cells"] != 1
     ):
-        raise ValueError("inner boundary experiment must match the registered known-Burger stage")
+        raise ValueError("inner boundary experiment must match the registered known-fixture stage")

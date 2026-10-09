@@ -14,7 +14,13 @@ import yaml
 from ament_index_python.packages import get_package_share_directory
 from profiles import PROFILES
 
-from experiments import controller_parameters, gazebo_arguments, planning_parameters, validate_seed
+from experiments import (
+    INNER_RING_PROFILES,
+    controller_parameters,
+    gazebo_arguments,
+    planning_parameters,
+    validate_seed,
+)
 
 ROOT = Path(__file__).resolve().parent
 OUTPUT = Path("/evidence")
@@ -252,10 +258,11 @@ def prepare(
                     "perimeter_stateless_headland",
                     "perimeter_stateless_clearance",
                     "perimeter_stateless_clearance_inner_ring",
+                    "perimeter_stateless_inner_ring",
                     "perimeter_stateless_overlap",
                 ),
                 "boundary_strategy": "sequential_inner_ring"
-                if coverage_preset == "perimeter_stateless_clearance_inner_ring"
+                if coverage_preset in INNER_RING_PROFILES
                 else "sequential"
                 if coverage_preset
                 in (
@@ -269,7 +276,7 @@ def prepare(
                 else "through_poses",
                 **(
                     {"boundary_stage_budget_sec": 360, "inner_boundary_inset_cells": 1}
-                    if coverage_preset == "perimeter_stateless_clearance_inner_ring"
+                    if coverage_preset in INNER_RING_PROFILES
                     else {}
                 ),
                 "seed": seed,
@@ -309,6 +316,7 @@ def main():
             "perimeter_stateless_headland",
             "perimeter_stateless_clearance",
             "perimeter_stateless_clearance_inner_ring",
+            "perimeter_stateless_inner_ring",
             "perimeter_stateless_overlap",
         ],
         default="baseline",

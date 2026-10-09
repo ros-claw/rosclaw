@@ -251,11 +251,25 @@ def test_inner_ring_is_known_burger_opt_in_with_identical_planner_and_controller
         experiments.planning_parameters(SimpleNamespace(name="waffle", coverage_width_m=0.5), new)
 
 
+def test_waffle_ring_retains_original_main_planner_and_controller_without_cross_body_use():
+    waffle = SimpleNamespace(name="waffle", coverage_width_m=0.5, physical_radius_m=0.25)
+    old, new = "perimeter_stateless", "perimeter_stateless_inner_ring"
+    assert experiments.planning_parameters(waffle, new) == experiments.planning_parameters(
+        waffle, old
+    )
+    assert experiments.controller_parameters(waffle, new) == experiments.controller_parameters(
+        waffle, old
+    )
+    with pytest.raises(ValueError, match="known Waffle"):
+        experiments.planning_parameters(SimpleNamespace(name="burger", coverage_width_m=0.3), new)
+
+
+@pytest.mark.parametrize("candidate", list(experiments.INNER_RING_PROFILES))
 @pytest.mark.parametrize(
     "budget,inset", [(None, None), (180, 1), (360, 0), (360, True), (True, 1), (360, 2)]
 )
 def test_extra_ring_cannot_launch_under_an_old_or_changed_stage_registration(
-    monkeypatch, budget, inset
+    monkeypatch, budget, inset, candidate
 ):
     runner = ROOT / "integrations/ros_probe/acceptance"
     monkeypatch.syspath_prepend(str(runner))
@@ -269,41 +283,46 @@ def test_extra_ring_cannot_launch_under_an_old_or_changed_stage_registration(
         "candidate_inner_boundary_inset_cells": inset,
     }
     with pytest.raises(ValueError, match="preregistered"):
-        pairs.validate_inner_ring_registration(protocol, "perimeter_stateless_clearance_inner_ring")
+        pairs.validate_inner_ring_registration(protocol, candidate)
     pairs.validate_inner_ring_registration({}, "perimeter_stateless_clearance")
     pairs.validate_inner_ring_registration(
         {"candidate_boundary_stage_budget_sec": 360, "candidate_inner_boundary_inset_cells": 1},
-        "perimeter_stateless_clearance_inner_ring",
+        candidate,
     )
 
 
+@pytest.mark.parametrize("preset,profile", list(experiments.INNER_RING_PROFILES.items()))
 @pytest.mark.parametrize(
     "changes",
     [
         {"preset": "perimeter_stateless_clearance"},
-        {"profile": "waffle"},
+        {"profile": "third_body"},
+        {"preset": []},
         {"boundary_strategy": "sequential"},
         {"boundary_pass": 1},
         {"boundary_stage_budget_sec": 180},
         {"inner_boundary_inset_cells": True},
     ],
 )
-def test_daemon_rejects_changed_inner_ring_declarations_before_runtime(changes):
+def test_daemon_rejects_changed_inner_ring_declarations_before_runtime(changes, preset, profile):
     valid = {
-        "preset": "perimeter_stateless_clearance_inner_ring",
-        "profile": "burger",
+        "preset": preset,
+        "profile": profile,
         "boundary_strategy": "sequential_inner_ring",
         "boundary_pass": True,
         "boundary_stage_budget_sec": 360,
         "inner_boundary_inset_cells": 1,
     }
     experiments.validate_inner_ring_experiment(valid)
-    with pytest.raises(ValueError, match="registered known-Burger"):
+    with pytest.raises(ValueError, match="registered known-fixture"):
         experiments.validate_inner_ring_experiment({**valid, **changes})
     experiments.validate_inner_ring_experiment({})
 
 
-def test_actual_daemon_cli_rejects_ring_mismatch_before_runtime_or_endpoint(tmp_path):
+@pytest.mark.parametrize("preset,profile", list(experiments.INNER_RING_PROFILES.items()))
+def test_actual_daemon_cli_rejects_ring_mismatch_before_runtime_or_endpoint(
+    tmp_path, preset, profile
+):
     import os
     import subprocess
     import sys
@@ -312,8 +331,8 @@ def test_actual_daemon_cli_rejects_ring_mismatch_before_runtime_or_endpoint(tmp_
         json.dumps(
             {
                 "experiment": {
-                    "preset": "perimeter_stateless_clearance_inner_ring",
-                    "profile": "burger",
+                    "preset": preset,
+                    "profile": profile,
                     "boundary_strategy": "sequential_inner_ring",
                     "boundary_pass": True,
                     "boundary_stage_budget_sec": 180,
@@ -337,6 +356,23 @@ def test_actual_daemon_cli_rejects_ring_mismatch_before_runtime_or_endpoint(tmp_
         timeout=15,
     )
     assert result.returncode != 0
-    assert "inner boundary experiment must match the registered known-Burger stage" in result.stderr
+    assert (
+        "inner boundary experiment must match the registered known-fixture stage" in result.stderr
+    )
     assert "KeyError: 'body_id'" not in result.stderr
     assert not (tmp_path / "home").exists() and not (tmp_path / "memory.sqlite").exists()
+
+
+@pytest.mark.parametrize("preset,profile", list(experiments.INNER_RING_PROFILES.items()))
+def test_inner_ring_cannot_swap_a_known_body_or_silently_use_the_other_preset(preset, profile):
+    with pytest.raises(ValueError, match="known-fixture"):
+        experiments.validate_inner_ring_experiment(
+            {
+                "preset": preset,
+                "profile": "burger" if profile == "waffle" else "waffle",
+                "boundary_strategy": "sequential_inner_ring",
+                "boundary_pass": True,
+                "boundary_stage_budget_sec": 360,
+                "inner_boundary_inset_cells": 1,
+            }
+        )
