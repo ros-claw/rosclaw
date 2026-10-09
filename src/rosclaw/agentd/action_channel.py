@@ -59,12 +59,11 @@ class DaemonActionChannel:
         self._actor_id = actor_id
         self._body_id = body_id
         self._body_hash = body_hash
-        self._sessions_by_capability: dict[str, str] = {}
 
-    async def _ensure_session(self, capability_id: str) -> str:
-        existing = self._sessions_by_capability.get(capability_id)
-        if existing is not None:
-            return existing
+    async def _create_action_session(self, capability_id: str) -> str:
+        # Every separately authorized non-real action owns a new session. A
+        # prior action's session may have expired while the model was thinking;
+        # it is never reused, revived or used to resubmit that earlier action.
         session_id = new_id("sess")
         await asyncio.to_thread(
             self._client.create_session,
@@ -76,7 +75,6 @@ class DaemonActionChannel:
             capability_scope=[capability_id],
             ttl_ms=30_000,
         )
-        self._sessions_by_capability[capability_id] = session_id
         return session_id
 
     async def request_nonreal_action(
@@ -93,7 +91,7 @@ class DaemonActionChannel:
         if mode not in {ExecutionMode.SIMULATION, ExecutionMode.SHADOW}:
             raise ActionChannelError(f"non-real channel does not accept {mode.value}")
         try:
-            session_id = await self._ensure_session(capability_id)
+            session_id = await self._create_action_session(capability_id)
         except DaemonClientError as exc:
             raise ActionChannelError(
                 f"daemon session failed (daemon offline?): {exc.code}: {exc}"
@@ -120,19 +118,43 @@ class DaemonActionChannel:
                 timeout_sec=timeout_sec,
             ),
         )
+        pending_error: BaseException | None = None
         try:
-            submitted = await asyncio.to_thread(self._client.request_action, envelope)
-        except DaemonClientError as exc:
-            raise ActionChannelError(f"daemon rejected action request: {exc.code}: {exc}") from exc
-        action_id = submitted.get("action_id", envelope.action_id)
-        try:
-            status = await asyncio.to_thread(
-                self._client.wait_for_action, action_id, timeout_sec=timeout_sec
-            )
-        except DaemonClientError as exc:
-            raise ActionChannelError(f"action did not finish: {exc.code}: {exc}") from exc
-        receipt = await asyncio.to_thread(self._client.get_execution_receipt, action_id)
-        return self._verify_outcome(action_id, status, receipt, envelope)
+            try:
+                submitted = await asyncio.to_thread(self._client.request_action, envelope)
+            except DaemonClientError as exc:
+                raise ActionChannelError(
+                    f"daemon rejected action request: {exc.code}: {exc}"
+                ) from exc
+            action_id = submitted.get("action_id", envelope.action_id)
+            try:
+                status = await asyncio.to_thread(
+                    self._client.wait_for_action, action_id, timeout_sec=timeout_sec
+                )
+            except DaemonClientError as exc:
+                raise ActionChannelError(f"action did not finish: {exc.code}: {exc}") from exc
+            receipt = await asyncio.to_thread(self._client.get_execution_receipt, action_id)
+            return self._verify_outcome(action_id, status, receipt, envelope)
+        except BaseException as exc:
+            pending_error = exc
+            raise
+        finally:
+            # Closing our own action-scoped session also invokes daemon orphan
+            # handling if a wait/cancellation failed. It never grants authority
+            # for another action or turns failed stopping into task success.
+            try:
+                await asyncio.to_thread(
+                    self._client.close_session,
+                    session_id,
+                    reason="nonreal_action_channel_finished",
+                )
+            except DaemonClientError as exc:
+                if pending_error is not None:
+                    pending_error.add_note(f"daemon session cleanup failed: {exc.code}")
+                else:
+                    raise ActionChannelError(
+                        f"daemon session cleanup failed: {exc.code}: {exc}"
+                    ) from exc
 
     async def request_sim_action(
         self,
