@@ -99,7 +99,10 @@ def _verified_function_calls(events: list[dict], response: dict, declared: froze
             )
         calls[identifier] = (index, item)
         call_ids.add(call_id)
-    added, done, deltas, arguments_done = {}, {}, {}, {}
+    added: dict[str, dict] = {}
+    done: dict[str, dict] = {}
+    deltas: dict[str, str] = {}
+    arguments_done: dict[str, str] = {}
     for event in events:
         kind = event.get("type", "")
         if kind in ("response.output_item.added", "response.output_item.done"):

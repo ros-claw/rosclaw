@@ -41,3 +41,11 @@ B1 已知机体静态清扫；B2 故障排查后清扫；B3 移动障碍与补�
 Run Manifest 必须包含实施方案列出的 benchmark/scenario/robot、fixture/world 哈希、种子与初始位姿、源码与镜像、ROS/Nav2/opennav 版本、实际模型与推理参数、token/墙钟/工具预算、工具权限、人工干预、Memory 模式、许可动作模式、任务结果、coverage/collision、证据引用和失败码。未知项写 UNKNOWN，不能从镜像标签或模型目录推断。
 
 正式运行前还须完成 N02 合并门、N03 实际动态验收、N04 未见 Body 的 L0–L4 与 N05 机器人任务的三组因果证据；模型目录可见不代表调用成功。产品间 Codex/Native 对照单列为实验 B，未验证两端实际同模型时标为 product-level comparison。
+
+## Run Manifest 与整组声明核对
+
+`src/rosclaw/connectors/ros/verification/fair_ab.py` 提供 `FairRunManifestV1`、具体的 `NativeInferenceParamsV1` 和 `audit_fair_ab_cohort()`。原计划的必需字段均保留，并补充地图、任务输入、提示词、初始仓库、Native 协议、安全网关策略哈希、工具次数预算、独立 worker/Memory/execution 标识、实际模型、usage 完整性及停止观察。
+
+A0–A3 feature_flags 与 Memory 模式固定对应；相同 seed 的初始条件必须一致，不同 seed 可以有不同起始位姿或场景字节。同一整组的源码、镜像、模型、推理参数、预算、权限及网关策略必须一致。5 个 pilot seed 要有全部 20 条记录，10 个 evaluation seed 要有全部 40 条记录；检查已提供的历史 seed 列表，拒绝重复、缺失、替换和共享资源标识。失败 run 计入整组，保留原始失败码和 evidence refs；人工干预逐条列出。
+
+未知观察用 null/UNKNOWN，不能默认成功、零碰撞或零人工协助。PASS 声明必须有原始证据引用、实际相同模型、完整 usage、至少 98% 覆盖、零碰撞和 verified stop。即便声明满足这些条件，整组核对也只输出 **DECLARATIONS_ONLY_NOT_EXECUTION_ACCEPTANCE**，始终 `evidence_bytes_verified=false`、`dispatch_authorized=false`、`robot_authorization=false`。它不读取证据原始字节、不检查实际进程隔离、不切换运行时 Harness 功能、不授予动作权限，也不证明因果收益。运行前后还必须由独立 operator 核对事实及 daemon Receipt，不能拿字段一致代替实测。
