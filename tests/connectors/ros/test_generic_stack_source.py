@@ -143,6 +143,45 @@ def test_prepared_handoff_captures_verified_bytes_without_live_admission(generat
     assert verified["manifest"] == manifest
     assert verified["captured_files"]["world.sdf"] == (out / "world.sdf").read_bytes()
     assert verified["live_admission"] is False and verified["authorization"] is False
+    declarations = json.loads(verified["captured_files"]["source-declarations.json"])
+    inputs = synthetic_stack_inputs()
+    assert declarations == {
+        "controller": inputs["controller_declaration"],
+        "navigation": inputs["navigation_declaration"],
+        "contact": inputs["contact_declaration"],
+        "attachment": inputs["attachment"],
+    }
+
+
+@pytest.mark.parametrize("fault", ["missing", "digest_mismatch", "wrong_type", "unknown_role"])
+def test_source_declarations_cannot_be_lost_or_rebound_in_resealed_inventory(
+    generator, tmp_path, fault
+):
+    from generic_stack_source import read_prepared_generic_stack
+
+    from rosclaw.connectors.ros.diagnosis.coverage_audit import digest
+
+    out = tmp_path / "stack"
+    manifest = generator(out, **synthetic_stack_inputs())
+    source = out / "source-declarations.json"
+    declarations = json.loads(source.read_text())
+    if fault == "missing":
+        del manifest["output_hashes"][source.name]
+    else:
+        if fault == "digest_mismatch":
+            declarations["controller"]["odom_topic"] = "/unreviewed_rebinding"
+        elif fault == "wrong_type":
+            declarations["controller"] = []
+        else:
+            declarations["extra_unreviewed_role"] = {}
+        source.write_text(json.dumps(declarations))
+        manifest["output_hashes"][source.name] = hashlib.sha256(source.read_bytes()).hexdigest()
+        if fault != "digest_mismatch":
+            manifest["declaration_hash"] = digest(declarations)
+    manifest["artifact_hash"] = digest({k: v for k, v in manifest.items() if k != "artifact_hash"})
+    (out / "generic-stack-source-manifest.json").write_text(json.dumps(manifest))
+    with pytest.raises(ValueError):
+        read_prepared_generic_stack(out)
 
 
 @pytest.mark.parametrize(

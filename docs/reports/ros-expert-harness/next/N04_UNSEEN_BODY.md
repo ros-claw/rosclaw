@@ -90,3 +90,27 @@ handled the actual SDK shutdown API, then exited zero. No World, controller,
 robot action or held-out asset was started. Executed helper/project/SDK sources
 were hashed before calls and rechecked. Complete staged Graph/TF/Body admission,
 guarded launch, generic feature freeze and held-out L0–L4 remain pending.
+
+## Preserve declarations for the runtime handoff
+
+The prepared workspace previously kept only a declaration digest, so later
+runtime stages could not recover the original controller, navigation, contact
+and cleaning-attachment inputs. Preparation now preserves their complete bytes
+in `source-declarations.json`, includes that file in the sealed inventory, and
+verifies its closed role set and original declaration digest on reopen. An
+optional frozen localization declaration is retained there as well. Invented
+roles, omitted declaration bytes, invalid types and rebindings against the
+original digest are refused. Earlier prepared workspaces without these bytes
+must be regenerated from their original inputs; retained historical evidence is
+never rewritten. This integrity handoff does not grant operator approval or
+Body/action admission.
+
+Focused source contracts49 passed; full ROS1896 passed/10 integration
+deselected. Scoped Ruff/format, compileall and diff checks passed. Core `src`
+is unchanged from the preceding121-file mypy/183-test Practice checkpoint.
+The fixed installed SDK reopened the new sealed synthetic workspace and built
+eleven unexecuted launch actions, while refusing the old workspace missing
+declaration bytes. Before calls, the helper captured109 imported project
+sources and then rechecked them. No DDS/Node/World was started. The prior actual
+unactivated Nav2 startup evidence remains attributed to its original source;
+complete generic runtime admission and held-out physical gates remain pending.

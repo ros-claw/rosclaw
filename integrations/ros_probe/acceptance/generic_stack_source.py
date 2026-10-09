@@ -132,6 +132,7 @@ def read_prepared_generic_stack(output):
         "controller-source-report.json",
         "navigation-source-report.json",
         "navigation-launch-source.json",
+        "source-declarations.json",
     }
     if not required <= set(hashes):
         raise ValueError("complete prepared runtime source inventory required")
@@ -147,6 +148,16 @@ def read_prepared_generic_stack(output):
         if hashlib.sha256(captured).hexdigest() != sha:
             raise ValueError("prepared workspace source hash mismatch")
         files[name] = captured
+    declarations = json.loads(files["source-declarations.json"])
+    required_declarations = {"controller", "navigation", "contact", "attachment"}
+    if (
+        type(declarations) is not dict
+        or not required_declarations <= set(declarations)
+        or set(declarations) - required_declarations - {"localization_initialization"}
+        or any(type(value) is not dict for value in declarations.values())
+        or digest(declarations) != manifest["declaration_hash"]
+    ):
+        raise ValueError("complete original source declarations must match the sealed digest")
     originals = manifest["source_hashes"]
     if (
         type(originals) is not dict
@@ -363,6 +374,9 @@ def prepare_generic_stack_source(
         (output / "localization-initialization-declaration.json").write_text(
             json.dumps(localization_initialization_declaration, indent=2) + "\n"
         )
+    # Preserve the actual policies, attachment and interface declarations. A
+    # digest alone cannot reconstruct inputs for staged runtime admission.
+    (output / "source-declarations.json").write_text(json.dumps(declarations, indent=2) + "\n")
     manifest = {
         "schema_version": "rosclaw.generic_stack_source.v1",
         "status": "PREPARED_NOT_LAUNCHED_OR_ADMITTED",
