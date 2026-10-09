@@ -114,3 +114,30 @@ declaration bytes. Before calls, the helper captured109 imported project
 sources and then rechecked them. No DDS/Node/World was started. The prior actual
 unactivated Nav2 startup evidence remains attributed to its original source;
 complete generic runtime admission and held-out physical gates remain pending.
+
+## Source-derived inactive SIM bootstrap description
+
+The owned bootstrap source now joins the frozen World/model, expanded robot
+description, declared sensor/contact bridges, exact World clock, explicit joint
+state topic, original spawn prior, controller-manager namespace and Nav2 plan.
+Controller/navigation reports must correspond to the preserved declarations;
+attachment/contact identities and controller parameter hashes are checked. The
+source refuses another World clock, aliased topic roles, non-SIM declarations,
+invalid seeds/heights or a resource mount other than `/evidence`.
+
+The SDK description proposes World/spawn/state/bridge processes and the existing
+non-autostart navigation nodes. It holds both controller spawners inactive until
+successful model creation; failed creation requests owned launch shutdown. This
+module constructs descriptions only and invokes no LaunchService. Execution
+still requires an owned immutable deadline supervisor and a read-only source
+mount, then fresh Graph/TF/map/sensor/independent-physics source admission and the
+existing Native/MCP/rosclawd task path. No source plan grants Body or action
+authority. The complete guarded runtime launcher remains pending.
+
+Focused contracts13 passed; full ROS1909 passed/10 integration deselected.
+Scoped Ruff/format, compileall and diff checks passed; Core src remains identical
+to the preceding mypy121/Practice183 checkpoint. In the fixed installed SDK,
+the helper captured114 sources before calls, verified15 installed executable
+roles and built17 unexecuted top-level actions plus two held inactive controller
+actions. Source/executable hashes stayed unchanged. No Node/DDS/World/action was
+started. Generic feature freeze=false; no held-out asset selected or inspected.
