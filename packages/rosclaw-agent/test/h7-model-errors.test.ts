@@ -49,3 +49,17 @@ test("二轮自审：403 并发限额 → PROVIDER_RATE_LIMITED（不是凭据/�
 	assert.equal(err.code, "PROVIDER_RATE_LIMITED", `误分类: ${err.code}`);
 	assert.match(err.recovery, /重试|换模型/);
 });
+
+
+test("known watchdog abort has stable timeout diagnosis and explicit retry", () => {
+	const error = classifyModelError("Request was aborted", { watchdogTimeout: true });
+	assert.equal(error.code, "PROVIDER_RESPONSE_TIMEOUT");
+	assert.ok(error.taskRecoverable);
+	assert.match(error.recovery, /重发/);
+	assert.doesNotMatch(error.recovery, /自动重试/);
+});
+
+test("provider text alone cannot claim a local watchdog timeout", () => {
+	assert.equal(classifyModelError("Request was aborted").code, "MODEL_UNKNOWN");
+	assert.equal(classifyModelError("401 unauthorized").code, "MODEL_CREDENTIAL_INVALID");
+});
