@@ -22,3 +22,25 @@ paths fixed the helper; attempt03 passed. Both attempts remain retained.
 This is AMCL source initialization, not observed localization or Body admission.
 The generic staged Graph/TF/cleaner bootstrap, guarded runtime launcher and all
 held-out L0–L4 physical gates remain pending. v1_done=false.
+
+## Prepared workspace handoff integrity
+
+`read_prepared_generic_stack` captures and verifies every manifest-listed source
+before a later launcher consumes it. It refuses missing or modified files,
+absolute/traversing paths, file and parent-directory symlinks, nonregular or
+oversized sources, changed file identities, incomplete original source
+identities, and omitted/rebound map pixels. Reads use anchored directory file
+descriptors and `O_NOFOLLOW`; captured bytes are returned to avoid a second
+unchecked read. The closed manifest's digest is verified, and any manifest
+claiming live admission or authorization is rejected. A rehashed self-consistent
+manifest remains integrity evidence only; external approval and actual source
+admission are still required.
+
+Host full ROS regression:1845 passed/10 integration deselected/one existing
+warning. Installed fixed generic SDK image source validation also passed with
+network disabled, root filesystem read-only, UID1000 and no capabilities. The
+helper captures its executed sources and parser identities before validation,
+then rechecks them; it checks generated workspace integrity as well as actual
+standard SDF, control-resource/RCL YAML, and Nav2 Map IO parsing. The robot/map
+are explicit synthetic contract fixtures. No World, Node or action was started.
+The staged live bootstrap/launcher and all held-out L0–L4 gates remain pending.

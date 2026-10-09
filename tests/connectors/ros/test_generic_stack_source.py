@@ -134,6 +134,61 @@ def test_join_preserves_actual_world_map_and_original_assets_and_seals_generated
     )
 
 
+def test_prepared_handoff_captures_verified_bytes_without_live_admission(generator, tmp_path):
+    from generic_stack_source import read_prepared_generic_stack
+
+    out = tmp_path / "stack"
+    manifest = generator(out, **synthetic_stack_inputs())
+    verified = read_prepared_generic_stack(out)
+    assert verified["manifest"] == manifest
+    assert verified["captured_files"]["world.sdf"] == (out / "world.sdf").read_bytes()
+    assert verified["live_admission"] is False and verified["authorization"] is False
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "modified",
+        "missing",
+        "escape",
+        "parent_link",
+        "file_link",
+        "authority",
+        "omitted_original",
+        "omitted_map_image",
+    ],
+)
+def test_prepared_handoff_refuses_unreviewed_or_escaped_sources(generator, tmp_path, fault):
+    from generic_stack_source import read_prepared_generic_stack
+
+    from rosclaw.connectors.ros.diagnosis.coverage_audit import digest
+
+    out = tmp_path / "stack"
+    manifest = generator(out, **synthetic_stack_inputs())
+    if fault == "modified":
+        (out / "world.sdf").write_text("unreviewed replacement")
+    elif fault == "missing":
+        (out / "world.sdf").unlink()
+    elif fault == "escape":
+        manifest["output_hashes"]["../outside"] = "0" * 64
+    elif fault == "parent_link":
+        (out / "original-sources").rename(tmp_path / "external-sources")
+        (out / "original-sources").symlink_to(tmp_path / "external-sources")
+    elif fault == "file_link":
+        (out / "world.sdf").rename(tmp_path / "external-world.sdf")
+        (out / "world.sdf").symlink_to(tmp_path / "external-world.sdf")
+    elif fault == "authority":
+        manifest["authorization"] = True
+    elif fault == "omitted_original":
+        del manifest["output_hashes"]["original-sources/robot.original.urdf"]
+    else:
+        del manifest["output_hashes"]["source_map.pgm"]
+    manifest["artifact_hash"] = digest({k: v for k, v in manifest.items() if k != "artifact_hash"})
+    (out / "generic-stack-source-manifest.json").write_text(json.dumps(manifest))
+    with pytest.raises((ValueError, OSError)):
+        read_prepared_generic_stack(out)
+
+
 @pytest.mark.parametrize(
     "fault",
     [

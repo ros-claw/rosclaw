@@ -11,7 +11,7 @@ from types import SimpleNamespace
 from xml.etree import ElementTree as ET
 
 import yaml
-from generic_stack_source import prepare_generic_stack_source
+from generic_stack_source import prepare_generic_stack_source, read_prepared_generic_stack
 
 from rosclaw.connectors.ros.context.sim_navigation_source import NODE_ROLES
 
@@ -58,6 +58,7 @@ def main():
         Path("/opt/ros/jazzy/share/nav2_bringup/params/nav2_params.yaml"),
         Path("/ws/src/opennav_coverage/opennav_coverage_demo/params/demo_params.yaml"),
         repo / "src/rosclaw/connectors/ros/context/sim_localization_source.py",
+        repo / "src/rosclaw/connectors/ros/diagnosis/coverage_audit.py",
     ]
     for i, path in enumerate(paths):
         raw = path.read_bytes()
@@ -123,6 +124,9 @@ def main():
             "world_to_map_xyyaw": [0, 0, 0],
         }
     manifest = prepare_generic_stack_source(root, **inputs)
+    handoff = read_prepared_generic_stack(root)
+    if handoff["manifest"] != manifest or handoff["authorization"] is not False:
+        raise ValueError("prepared workspace handoff integrity failed")
 
     def actual(label, argv, expect=True):
         result = subprocess.run(argv, capture_output=True, timeout=20)
@@ -184,6 +188,8 @@ def main():
         "actual_source_control_joints": len(wheels["left"] + wheels["right"]),
         "robot_SDF_validation_scope": "STANDARD_PROJECTION_ONLY_NONSTANDARD_ros2_control_SEPARATELY_PARSED_BY_HARDWARE_INTERFACE",
         "source_unchanged": True,
+        "prepared_source_handoff_verified": True,
+        "prepared_source_manifest_sha256": handoff["manifest_sha256"],
         "World_Node_action_or_model_started": False,
         "heldout_asset": "NOT_SELECTED",
         "physical_acceptance": "NOT_RUN",

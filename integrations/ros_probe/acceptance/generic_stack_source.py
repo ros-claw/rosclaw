@@ -7,7 +7,9 @@ The operator supplies complete expanded sources and all interface declarations.
 import hashlib
 import json
 import math
+import os
 import re
+import stat
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
@@ -22,6 +24,161 @@ from rosclaw.connectors.ros.context.sim_navigation_source import (
     prepare_sim_navigation_source,
 )
 from rosclaw.connectors.ros.diagnosis.coverage_audit import digest
+
+
+def read_prepared_generic_stack(output):
+    """Recheck frozen workspace bytes; this is not launch or live admission.
+
+    Return captured bytes so downstream parsing need not reopen unchecked files.
+    A self-consistent manifest is integrity evidence, not operator authorization.
+    """
+    output = Path(output)
+    if output.is_symlink() or not output.is_dir():
+        raise ValueError("one real prepared workspace directory required")
+
+    def read(name):
+        relative = Path(name)
+        if (
+            type(name) is not str
+            or relative.is_absolute()
+            or not relative.parts
+            or any(part in (".", "..") for part in relative.parts)
+            or str(relative) != name
+        ):
+            raise ValueError("closed relative workspace source path required")
+        parents = [os.open(output, os.O_RDONLY | os.O_NOFOLLOW | os.O_DIRECTORY)]
+        fd = None
+        try:
+            for part in relative.parts[:-1]:
+                parents.append(
+                    os.open(part, os.O_RDONLY | os.O_NOFOLLOW | os.O_DIRECTORY, dir_fd=parents[-1])
+                )
+            fd = os.open(
+                relative.parts[-1],
+                os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
+                dir_fd=parents[-1],
+            )
+            before = os.fstat(fd)
+            if not stat.S_ISREG(before.st_mode) or not 0 < before.st_size <= 16_000_000:
+                raise ValueError("bounded regular workspace source required")
+            with os.fdopen(fd, "rb", closefd=False) as stream:
+                raw = stream.read(16_000_001)
+            after = os.fstat(fd)
+
+            def identity(value):
+                return (
+                    value.st_dev,
+                    value.st_ino,
+                    value.st_size,
+                    value.st_mtime_ns,
+                    value.st_ctime_ns,
+                    value.st_mode,
+                )
+
+            if (
+                identity(before) != identity(after)
+                or len(raw) != before.st_size
+                or identity(os.stat(relative.parts[-1], dir_fd=parents[-1], follow_symlinks=False))
+                != identity(after)
+            ):
+                raise ValueError("workspace source changed during verification")
+            return raw
+        finally:
+            if fd is not None:
+                os.close(fd)
+            for parent in reversed(parents):
+                os.close(parent)
+
+    raw = read("generic-stack-source-manifest.json")
+    manifest = json.loads(raw)
+    if type(manifest) is not dict or set(manifest) != {
+        "schema_version",
+        "status",
+        "world_name",
+        "body_model_name",
+        "source_hashes",
+        "declaration_hash",
+        "output_hashes",
+        "contact_source_report",
+        "map_pixels_and_dimensions",
+        "requires_actual_Graph_TF_Body_and_loaded_source_admission",
+        "physical_acceptance",
+        "heldout_asset",
+        "authorization",
+        "artifact_hash",
+    }:
+        raise ValueError("closed prepared stack manifest required")
+    unsigned = {key: value for key, value in manifest.items() if key != "artifact_hash"}
+    if (
+        manifest["schema_version"] != "rosclaw.generic_stack_source.v1"
+        or manifest["status"] != "PREPARED_NOT_LAUNCHED_OR_ADMITTED"
+        or manifest["authorization"] is not False
+        or manifest["physical_acceptance"] != "NOT_RUN"
+        or manifest["requires_actual_Graph_TF_Body_and_loaded_source_admission"] is not True
+        or digest(unsigned) != manifest["artifact_hash"]
+    ):
+        raise ValueError("unlaunched integrity manifest cannot grant live admission")
+    hashes = manifest["output_hashes"]
+    if type(hashes) is not dict or not 1 <= len(hashes) <= 1024:
+        raise ValueError("bounded prepared source inventory required")
+    required = {
+        "robot.urdf",
+        "robot.sdf",
+        "world.sdf",
+        "bridge.yaml",
+        "map.yaml",
+        "nav2.yaml",
+        "controller_params.yaml",
+        "controller-source-report.json",
+        "navigation-source-report.json",
+        "navigation-launch-source.json",
+    }
+    if not required <= set(hashes):
+        raise ValueError("complete prepared runtime source inventory required")
+    files = {}
+    total_bytes = 0
+    for name, sha in hashes.items():
+        if type(sha) is not str or not re.fullmatch(r"[0-9a-f]{64}", sha):
+            raise ValueError("exact prepared source digest required")
+        captured = read(name)
+        total_bytes += len(captured)
+        if total_bytes > 128_000_000:
+            raise ValueError("prepared source inventory exceeds the capture budget")
+        if hashlib.sha256(captured).hexdigest() != sha:
+            raise ValueError("prepared workspace source hash mismatch")
+        files[name] = captured
+    originals = manifest["source_hashes"]
+    if (
+        type(originals) is not dict
+        or set(originals)
+        != {
+            "robot.original.urdf",
+            "robot.original.sdf",
+            "world.original.sdf",
+            "bridge.original.yaml",
+            "map.original.yaml",
+            "map.original.image",
+            "nav2.original.yaml",
+            "coverage.original.yaml",
+        }
+        or any(hashes.get("original-sources/" + name) != sha for name, sha in originals.items())
+    ):
+        raise ValueError("original source identities must remain in the sealed inventory")
+    map_source = _yaml(files["map.yaml"])
+    if type(map_source) is not dict or type(map_source.get("image")) is not str:
+        raise ValueError("explicit prepared source map image required")
+    if (
+        hashes["map.yaml"] != originals["map.original.yaml"]
+        or hashes.get(map_source["image"]) != originals["map.original.image"]
+    ):
+        raise ValueError("map metadata and referenced image must match the original source")
+    return {
+        "manifest": manifest,
+        "manifest_sha256": hashlib.sha256(raw).hexdigest(),
+        "captured_files": files,
+        "live_admission": False,
+        "authorization": False,
+    }
 
 
 def prepare_generic_stack_source(
