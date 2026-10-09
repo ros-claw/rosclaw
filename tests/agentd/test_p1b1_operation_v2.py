@@ -22,12 +22,18 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import inspect
 import json
 import os
+import signal
 import sqlite3
+import subprocess
+import sys
 import time
 from pathlib import Path
+
+import pytest
 
 from rosclaw.task_kernel.operation_manager import (
     OPERATION_TERMINAL,
@@ -139,9 +145,11 @@ class TestStateMachine:
         mgr = OperationManager(None, conn)
 
         async def run():
-            op = await mgr.start(
-                task_id="task_1", attempt_id="", kind="process",
-                argv=["sh", "-c", "sleep 30"],
+            from tests.agentd.test_p1b3_ros2_action import FakeActionClient
+
+            op = await mgr.start_action(
+                task_id="task_1", attempt_id="", action="/fake/action",
+                action_type="test/action/Fake", args={}, client=FakeActionClient(),
             )
             return op["operation_id"]
 
@@ -224,28 +232,56 @@ class TestLiveness:
 
 
 class TestRestartRecovery:
-    def _start_op(self, conn: sqlite3.Connection, argv: list[str]) -> dict:
-        mgr = OperationManager(None, conn)
-        return asyncio.run(
-            mgr.start(task_id="task_1", attempt_id="", kind="process", argv=argv)
+    def _start_op(
+        self, conn: sqlite3.Connection, argv: list[str], request: pytest.FixtureRequest,
+    ) -> dict:
+        # A real old manager process dies abruptly; its detached operation
+        # survives. Closing asyncio.run() in this pytest process instead left
+        # live subprocess transports attached to a closed event loop and
+        # leaked grandchildren into later tests.
+        database = conn.execute("PRAGMA database_list").fetchone()[2]
+        child = subprocess.run(
+            [sys.executable, "-c", """
+import asyncio, json, os, sqlite3, sys
+from rosclaw.task_kernel.operation_manager import OperationManager
+conn = sqlite3.connect(sys.argv[1], check_same_thread=False)
+conn.row_factory = sqlite3.Row
+manager = OperationManager(None, conn)
+async def start_and_crash():
+    op = await manager.start(task_id='task_1', attempt_id='', kind='process',
+                             argv=json.loads(sys.argv[2]))
+    conn.commit()
+    os.write(1, json.dumps(op).encode())
+    os._exit(0)
+asyncio.run(start_and_crash())
+""", database, json.dumps(argv)],
+            check=True, capture_output=True, timeout=10,
         )
+        op = json.loads(child.stdout)
 
-    def test_reattach_when_pid_alive(self, tmp_path: Path) -> None:
+        def cleanup():
+            # Session/pgid belongs only to the operation started above.
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(int(op["pid"]), signal.SIGKILL)
+
+        request.addfinalizer(cleanup)
+        return op
+
+    def test_reattach_when_pid_alive(self, tmp_path: Path, request) -> None:
         conn = _conn(tmp_path)
         _task(conn)
-        op = self._start_op(conn, ["sh", "-c", "sleep 30"])
+        op = self._start_op(conn, ["sh", "-c", "sleep 30"], request)
         # 模拟重启：新 manager（内存驱动全丢），sweep 恢复。
         mgr2 = OperationManager(None, conn)
         report = asyncio.run(mgr2.recover_on_boot())
         row = mgr2.get(op["operation_id"])
         assert row["state"] != "LOST", "活 pid 被误判 LOST"
         assert report["reattached"] >= 1
-        os.kill(int(row["pid"]), 15)  # 清理
 
-    def test_dead_pid_with_exitcode_applies_terminal(self, tmp_path: Path) -> None:
+    def test_dead_pid_with_exitcode_applies_terminal(self, tmp_path: Path, request) -> None:
         conn = _conn(tmp_path)
         _task(conn)
-        op = self._start_op(conn, ["sh", "-c", "exit 3"])
+        op = self._start_op(conn, ["sh", "-c", "exit 3"], request)
         time.sleep(0.5)  # 进程已退出（exitcode 文件应由 wrapper 写）
         mgr2 = OperationManager(None, conn)
         asyncio.run(mgr2.recover_on_boot())
@@ -253,13 +289,13 @@ class TestRestartRecovery:
         assert row["state"] == "FAILED"
         assert "exit_3" in (row["failure_code"] or "")
 
-    def test_dead_pid_without_exitcode_is_honest_lost(self, tmp_path: Path) -> None:
+    def test_dead_pid_without_exitcode_is_honest_lost(self, tmp_path: Path, request) -> None:
         conn = _conn(tmp_path)
         _task(conn)
-        op = self._start_op(conn, ["sh", "-c", "sleep 30"])
+        op = self._start_op(conn, ["sh", "-c", "sleep 30"], request)
         op_id = op["operation_id"]
         pid = int(op["pid"])
-        os.kill(pid, 9)
+        os.killpg(pid, signal.SIGKILL)
         time.sleep(0.3)
         # 删掉 exitcode（模拟 agentd 被杀时进程也被杀、无退出记录）。
         for candidate in tmp_path.rglob(f"*{op_id}*exit*"):
