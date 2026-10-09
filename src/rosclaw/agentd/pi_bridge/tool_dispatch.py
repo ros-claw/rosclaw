@@ -173,11 +173,21 @@ def _envelope_result(
             refs.append(ref)
         if refs:
             projection["artifact_refs"] = refs
+        summary = json.dumps(projection, ensure_ascii=False)
+        if len(summary) > 8000:
+            raise ToolBridgeError(
+                "CAPABILITY_OUTPUT_TOO_LARGE",
+                f"Complete {envelope.capability_id} projection is {len(summary)} "
+                "characters (limit 8000). No partial JSON was returned. "
+                "Request filtered/paginated output or inspect registered artifacts; "
+                "do not infer omitted fields. Repeating the same query cannot repair this.",
+                retryable=False,
+            )
         return PiToolResultV1(
             request_id=request.request_id,
             ok=True,
             status="COMPLETED",
-            summary=json.dumps(projection, ensure_ascii=False)[:8000],
+            summary=summary,
         )
     error = envelope.error
     code = error.code if error else "EXECUTOR_ERROR"
