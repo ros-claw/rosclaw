@@ -273,18 +273,49 @@ def build_bootstrap_launch_description(directory, declaration, *, readiness_outp
         for role, controller in enumerate(controllers)
     ]
     if probe is not None:
+        discovery = ExecuteProcess(
+            cmd=[
+                sys.executable,
+                str(Path(__file__).parents[1] / "ros2/probe.py"),
+                "--once",
+                "--duration",
+                "3",
+                "--output",
+                str(readiness_output.with_name("bootstrap-discovery.json")),
+            ],
+            output="screen",
+        )
+        source_probe_exited = False
+
+        def after_source_probe(event, context):
+            nonlocal source_probe_exited
+            if source_probe_exited or event.returncode != 0:
+                return [
+                    EmitEvent(
+                        event=Shutdown(reason="owned controller source probe refused or repeated")
+                    )
+                ]
+            source_probe_exited = True
+            return [discovery]
+
         controller_handlers.append(
             RegisterEventHandler(
                 OnProcessExit(
                     target_action=probe,
+                    on_exit=after_source_probe,
+                )
+            )
+        )
+        controller_handlers.append(
+            RegisterEventHandler(
+                OnProcessExit(
+                    target_action=discovery,
                     on_exit=lambda event, context: (
                         []
                         if event.returncode == 0
                         else [
                             EmitEvent(
-                                event=Shutdown(
-                                    reason="owned inactive controller source probe refused"
-                                )
+                                event=Shutdown(reason="owned readonly discovery capture failed")
                             )
                         ]
                     ),

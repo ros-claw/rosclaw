@@ -116,7 +116,15 @@ def run_owned_bootstrap(source, workspace, declaration, output, *, seconds, doma
     if subprocess.check_output(["git", "status", "--porcelain"], cwd=source):
         raise ValueError("exact clean source commit required before container creation")
     names = subprocess.check_output(
-        ["git", "ls-files", "-z", "src", "integrations/ros_probe/acceptance"], cwd=source
+        [
+            "git",
+            "ls-files",
+            "-z",
+            "src",
+            "integrations/ros_probe/acceptance",
+            "integrations/ros_probe/ros2",
+        ],
+        cwd=source,
     ).split(b"\0")
     output.mkdir(mode=0o700, parents=False, exist_ok=False)
     captured = {}
