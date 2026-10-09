@@ -124,3 +124,14 @@ async def test_real_is_rejected_before_session_or_dispatch():
     with pytest.raises(ActionChannelError, match="non-real channel"):
         await channel(client).request_nonreal_action(**kwargs(), execution_mode="REAL")
     assert not client.sessions and not client.actions
+
+
+async def test_cleanup_failure_inside_unrelated_exception_handler_is_not_hidden():
+    client = Client()
+    client.fail_close = True
+    try:
+        raise RuntimeError("unrelated prior error")
+    except RuntimeError as previous:
+        with pytest.raises(ActionChannelError, match="session cleanup failed"):
+            await channel(client).request_sim_action(**kwargs())
+        assert not getattr(previous, "__notes__", [])

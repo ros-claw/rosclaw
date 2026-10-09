@@ -11,7 +11,6 @@ reported as a completed task (总纲 §12.3).
 from __future__ import annotations
 
 import asyncio
-import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -119,6 +118,7 @@ class DaemonActionChannel:
                 timeout_sec=timeout_sec,
             ),
         )
+        pending_error: BaseException | None = None
         try:
             try:
                 submitted = await asyncio.to_thread(self._client.request_action, envelope)
@@ -135,11 +135,13 @@ class DaemonActionChannel:
                 raise ActionChannelError(f"action did not finish: {exc.code}: {exc}") from exc
             receipt = await asyncio.to_thread(self._client.get_execution_receipt, action_id)
             return self._verify_outcome(action_id, status, receipt, envelope)
+        except BaseException as exc:
+            pending_error = exc
+            raise
         finally:
             # Closing our own action-scoped session also invokes daemon orphan
             # handling if a wait/cancellation failed. It never grants authority
             # for another action or turns failed stopping into task success.
-            original_error = sys.exception()
             try:
                 await asyncio.to_thread(
                     self._client.close_session,
@@ -147,8 +149,8 @@ class DaemonActionChannel:
                     reason="nonreal_action_channel_finished",
                 )
             except DaemonClientError as exc:
-                if original_error is not None:
-                    original_error.add_note(f"daemon session cleanup failed: {exc.code}")
+                if pending_error is not None:
+                    pending_error.add_note(f"daemon session cleanup failed: {exc.code}")
                 else:
                     raise ActionChannelError(
                         f"daemon session cleanup failed: {exc.code}: {exc}"
