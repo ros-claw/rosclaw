@@ -29,6 +29,7 @@ class RegisteredModelBudgetV1(ContractModel):
     model: str = Field(min_length=1, max_length=128)
     reasoning_effort: Literal["low", "medium", "high", "xhigh", "max"]
     max_requests: StrictInt = Field(gt=0, le=512)
+    max_tool_calls: StrictInt = Field(default=64, gt=0, le=4096)
     max_output_tokens_per_request: StrictInt = Field(gt=0, le=128000)
     max_total_tokens: StrictInt = Field(gt=0, le=100000000)
     wall_budget_sec: StrictInt = Field(gt=0, le=7200)
@@ -42,6 +43,8 @@ class PendingModelRequest:
     original_request_sha256: str
     upstream_request_sha256: str
     output_cap: int
+    admitted_monotonic: float
+    declared_tools: frozenset[str]
 
 
 def _sha(raw: bytes) -> str:
@@ -57,7 +60,101 @@ def _closed_json(raw: bytes):
             result[name] = value
         return result
 
-    return json.loads(raw, object_pairs_hook=unique)
+    def invalid_constant(value):
+        raise ValueError("non-finite JSON constant")
+
+    try:
+        return json.loads(raw, object_pairs_hook=unique, parse_constant=invalid_constant)
+    except RecursionError as error:
+        raise ValueError("bounded JSON nesting required") from error
+
+
+def _verified_function_calls(events: list[dict], response: dict, declared: frozenset[str]) -> int:
+    output = response.get("output", [])
+    if type(output) is not list or any(type(item) is not dict for item in output):
+        raise ValueError("typed completed output required")
+    calls = {}
+    call_ids = set()
+    for index, item in enumerate(output):
+        kind = item.get("type")
+        if kind in ("message", "reasoning"):
+            continue
+        if kind != "function_call":
+            raise ValueError("only declared local function tools may be released")
+        identifier, call_id = item.get("id"), item.get("call_id")
+        if (
+            type(identifier) is not str
+            or not identifier
+            or identifier in calls
+            or type(call_id) is not str
+            or not call_id
+            or call_id in call_ids
+            or item.get("name") not in declared
+            or item.get("status") != "completed"
+            or type(item.get("arguments")) is not str
+            or type(_closed_json(item["arguments"].encode())) is not dict
+        ):
+            raise ValueError(
+                "unique completed declared function with JSON object arguments required"
+            )
+        calls[identifier] = (index, item)
+        call_ids.add(call_id)
+    added, done, deltas, arguments_done = {}, {}, {}, {}
+    for event in events:
+        kind = event.get("type", "")
+        if kind in ("response.output_item.added", "response.output_item.done"):
+            item = event.get("item")
+            if type(item) is not dict:
+                raise ValueError("typed streamed output required")
+            if item.get("type") in ("message", "reasoning"):
+                continue
+            if item.get("type") != "function_call":
+                raise ValueError("unknown streamed tool type")
+            identifier = item.get("id")
+            if type(identifier) is not str or identifier not in calls:
+                raise ValueError("streamed function absent from terminal")
+            index, terminal = calls[identifier]
+            target = added if kind.endswith("added") else done
+            if identifier in target or type(event.get("output_index")) is not int:
+                raise ValueError("unique indexed streamed function required")
+            if event["output_index"] != index or any(
+                item.get(key) != terminal[key] for key in ("name", "call_id")
+            ):
+                raise ValueError("streamed function identity mismatch")
+            if target is done and item != terminal:
+                raise ValueError("streamed completed function mismatch")
+            if target is added and item.get("arguments") != "":
+                raise ValueError("streamed function must begin with empty arguments")
+            target[identifier] = item
+        elif kind in (
+            "response.function_call_arguments.delta",
+            "response.function_call_arguments.done",
+        ):
+            identifier = event.get("item_id")
+            if type(identifier) is not str or identifier not in calls or identifier not in added:
+                raise ValueError("arguments require an original streamed function")
+            if (
+                type(event.get("output_index")) is not int
+                or event["output_index"] != calls[identifier][0]
+            ):
+                raise ValueError("streamed argument index mismatch")
+            if kind.endswith("delta"):
+                if identifier in arguments_done or type(event.get("delta")) is not str:
+                    raise ValueError("ordered typed argument deltas required")
+                deltas[identifier] = deltas.get(identifier, "") + event["delta"]
+            else:
+                if (
+                    identifier in arguments_done
+                    or event.get("arguments") != calls[identifier][1]["arguments"]
+                ):
+                    raise ValueError("completed streamed arguments mismatch")
+                arguments_done[identifier] = event["arguments"]
+    if added or done or deltas or arguments_done:
+        if set(added) != set(calls) or set(done) != set(calls) or set(arguments_done) != set(calls):
+            raise ValueError("complete stream and terminal correspondence required")
+        if any(deltas.get(key, "") != item["arguments"] for key, (_, item) in calls.items()):
+            raise ValueError("streamed deltas differ from completed arguments")
+    return len(calls)
 
 
 class ModelResponseBudget:
@@ -68,6 +165,8 @@ class ModelResponseBudget:
         self._deadline = self._started + self.registered.wall_budget_sec
         self._pending: PendingModelRequest | None = None
         self._requests = self._input = self._output = 0
+        self._proposed_tools = self._released_tools = 0
+        self._tool_usage_complete = True
         self._halt = ""
         self._usage_complete = True
         self._records: list[dict] = []
@@ -88,7 +187,8 @@ class ModelResponseBudget:
     def admit(self, raw: bytes, *, now: float) -> PendingModelRequest:
         if self._halt or self._pending is not None:
             raise ValueError("halted budget or model request already in flight")
-        if self._clock(now) >= self._deadline:
+        admitted = self._clock(now)
+        if admitted >= self._deadline:
             self._halt = "WALL_BUDGET_EXCEEDED"
             raise ValueError(self._halt)
         if self._requests >= self.registered.max_requests:
@@ -145,6 +245,11 @@ class ModelResponseBudget:
             )
         ):
             raise ValueError("bounded local function tool definitions required")
+        names = [tool.get("name") for tool in body.get("tools", [])]
+        if any(type(name) is not str or not 0 < len(name) <= 256 for name in names):
+            raise ValueError("named local function definitions required")
+        if len(set(names)) != len(names):
+            raise ValueError("unique local function definitions required")
         if "max_output_tokens" in body and (
             type(body["max_output_tokens"]) is not int or body["max_output_tokens"] != cap
         ):
@@ -153,7 +258,9 @@ class ModelResponseBudget:
         upstream = json.dumps(body, sort_keys=True, ensure_ascii=False, allow_nan=False).encode()
         if len(upstream) > self.registered.max_request_bytes:
             raise ValueError("bounded forwarded request required")
-        self._pending = PendingModelRequest(upstream, _sha(raw), _sha(upstream), cap)
+        self._pending = PendingModelRequest(
+            upstream, _sha(raw), _sha(upstream), cap, admitted, frozenset(names)
+        )
         self._requests += 1
         return self._pending
 
@@ -172,9 +279,15 @@ class ModelResponseBudget:
             "usage_verified": False,
             "status": "MODEL_RESPONSE_UNVERIFIABLE",
             "actual_usage": None,
+            "admitted_monotonic": pending.admitted_monotonic,
+            "finished_monotonic": None,
+            "tool_calls_verified": False,
+            "proposed_tool_calls": None,
+            "released_tool_calls": 0,
         }
         try:
             observed = self._clock(now)
+            result["finished_monotonic"] = observed
             if (
                 type(http_status) is not int
                 or http_status != 200
@@ -183,12 +296,14 @@ class ModelResponseBudget:
             ):
                 raise ValueError("bounded original successful SSE response required")
             terminal = []
+            events = []
             for line in raw.splitlines():
                 if not line.startswith(b"data: ") or line == b"data: [DONE]":
                     continue
                 event = _closed_json(line[6:])
                 if type(event) is not dict:
                     raise ValueError("typed SSE event required")
+                events.append(event)
                 if event.get("type") in ("error", "response.failed"):
                     raise ValueError("failed response cannot release tool arguments")
                 if event.get("type") in ("response.completed", "response.incomplete"):
@@ -230,9 +345,23 @@ class ModelResponseBudget:
             elif response.get("status") != "completed":
                 result["status"] = "MODEL_TERMINAL_STATUS_MISMATCH"
             else:
-                result.update(status="WITHIN_REGISTERED_RESPONSE_BUDGET", allow_response=True)
+                result["status"] = "MODEL_TOOL_CALLS_UNVERIFIABLE"
+                count = _verified_function_calls(events, response, pending.declared_tools)
+                self._proposed_tools += count
+                result.update(tool_calls_verified=True, proposed_tool_calls=count)
+                if self._released_tools + count > self.registered.max_tool_calls:
+                    result["status"] = "TOOL_CALL_BUDGET_EXCEEDED"
+                else:
+                    self._released_tools += count
+                    result.update(
+                        status="WITHIN_REGISTERED_RESPONSE_BUDGET",
+                        allow_response=True,
+                        released_tool_calls=count,
+                    )
         except (ValueError, TypeError, KeyError, OverflowError):
             pass  # Unverifiable responses never reach Native or tool execution.
+        if not result["tool_calls_verified"]:
+            self._tool_usage_complete = False
         if not result["usage_verified"]:
             self._usage_complete = False
         if not result["allow_response"]:
@@ -246,7 +375,16 @@ class ModelResponseBudget:
             "schema_version": "rosclaw.model_response_budget_ledger.v1",
             "budget_scope": "RESPONSE_RELEASE_GATE_NOT_PREBILLING_COST_CAP",
             "registration": self.registered.model_dump(mode="json"),
+            "started_monotonic": self._started,
+            "deadline_monotonic": self._deadline,
+            "last_observed_monotonic": self._last_clock,
             "requests_admitted": self._requests,
+            "verified_proposed_tool_calls": self._proposed_tools,
+            "released_tool_calls": self._released_tools,
+            "tool_usage_complete": self._tool_usage_complete and self._pending is None,
+            "overshoot_proposed_tool_calls": max(
+                0, self._proposed_tools - self.registered.max_tool_calls
+            ),
             "request_in_flight": self._pending is not None,
             "actual_input_tokens": self._input,
             "actual_output_tokens": self._output,
