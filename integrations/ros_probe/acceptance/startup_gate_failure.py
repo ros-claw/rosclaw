@@ -8,7 +8,7 @@ from pathlib import Path
 from observations import latest_completed_observation
 
 
-def retain_startup_failure(directory):
+def retain_startup_failure(directory, *, require_live_lifecycle=False):
     root = Path(directory)
     report = {
         "schema_version": "rosclaw.SIM_startup_gate_failure.v1",
@@ -38,6 +38,25 @@ def retain_startup_failure(directory):
         report["observation_error"] = str(error)
     if not (root / "measured_map.json").is_file():
         report["missing_requirements"].append("original_measured_map")
+    if require_live_lifecycle:
+        from lifecycle_readiness import readiness
+
+        try:
+            path = root / "lifecycle-readiness.json"
+            if path.is_symlink():
+                raise ValueError("owned regular lifecycle reply snapshot required")
+            with path.open("rb") as source:
+                raw = source.read(65537)
+            if len(raw) > 65536:
+                raise ValueError("bounded original lifecycle snapshot required")
+            snapshot = json.loads(raw)
+            report["original_lifecycle_response_snapshot"] = snapshot
+            report["original_lifecycle_response_sha256"] = hashlib.sha256(raw).hexdigest()
+            if not readiness(snapshot):
+                report["missing_requirements"].append("fresh_actual_ACTIVE_lifecycle_responses")
+        except (OSError, ValueError, TypeError) as error:
+            report["missing_requirements"].append("decodable_actual_lifecycle_responses")
+            report["lifecycle_response_error"] = str(error)
     for name in ("nav2.log", "coverage_lifecycle.log"):
         path = root / name
         try:

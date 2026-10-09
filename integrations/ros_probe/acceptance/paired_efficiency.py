@@ -11,6 +11,7 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
+from lifecycle_readiness import readiness
 from observations import latest_completed_observation
 from profiles import PROFILES
 
@@ -40,6 +41,7 @@ def wait_ready(directory, container, timeout=180):
                 and sample["collision_count"] == 0
                 and not sample["cleaning_enabled"]
                 and (directory / "measured_map.json").exists()
+                and readiness(json.loads((directory / "lifecycle-readiness.json").read_text()))
                 and all(
                     "Managed nodes are active" in (directory / name).read_text()
                     for name in ["nav2.log", "coverage_lifecycle.log"]
@@ -51,7 +53,7 @@ def wait_ready(directory, container, timeout=180):
         time.sleep(0.5)
     from startup_gate_failure import retain_startup_failure
 
-    failure = retain_startup_failure(directory)
+    failure = retain_startup_failure(directory, require_live_lifecycle=True)
     raise TimeoutError(
         "SIM startup constraints not satisfied: " + ", ".join(failure["missing_requirements"])
     )
