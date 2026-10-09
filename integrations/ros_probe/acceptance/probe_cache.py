@@ -89,6 +89,7 @@ def main():
     assert recorded["source"] == "/robot/navigate_to_pose/_action/status"
     snapshot = ReadOnlyProbe.snapshot(fixture)
     assert snapshot["observations"]["action_statuses"] == fixture.action_observations
+    json.dumps(snapshot, allow_nan=False)  # ROS UUID elements may be numpy.uint8.
     # Actual ROS GetParameters decoding, including plugin lists and integers.
     parameter_callbacks = []
     values = [

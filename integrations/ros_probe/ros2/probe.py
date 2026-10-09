@@ -213,7 +213,10 @@ class ReadOnlyProbe(Node):
                 "source": topic,
                 "captured_at": utc_now(),
                 "goals": [
-                    {"goal_uuid": list(s.goal_info.goal_id.uuid), "status": s.status}
+                    {
+                        "goal_uuid": [int(value) for value in s.goal_info.goal_id.uuid],
+                        "status": s.status,
+                    }
                     for s in message.status_list
                 ],
             }
