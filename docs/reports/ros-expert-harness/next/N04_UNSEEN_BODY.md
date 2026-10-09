@@ -59,3 +59,34 @@ process actions; it opens no DDS and admits no Body. A future runtime launcher
 must recheck and mount the sealed source read-only before launching, then
 complete independent Graph/TF/Body admission and guarded activation. Those
 runtime stages and held-out L0–L4 gates remain pending.
+
+## Source-derived lifecycle bootstrap checks
+
+The existing owned lifecycle probe now accepts a bounded, distinct list of
+explicit node identities. `--prepared-workspace` derives those identities from
+the sealed navigation launch plan before importing or initializing ROS. Generic
+namespaces are preserved in exact GetState service endpoints. The original
+seven-node fixture remains the default; its snapshot cannot substitute for a
+generic ten-node snapshot. Each required response must independently be fresh
+and ACTIVE, regardless of a producer's claimed `ready` value. The probe performs
+no lifecycle transition, admits no Body and grants no motion or stop proof.
+
+Host validation: focused contracts25 passed; full ROS1892 passed/10 integration
+deselected; Practice183 passed/9 skipped; required mypy121 files; scoped Ruff,
+format, compileall and diff checks passed. With network disabled, read-only
+root/source mounts, UID1000, no capabilities and isolated DDS domain83, actual
+synthetic typed GetState services confirmed fresh ACTIVE acceptance and fresh
+INACTIVE refusal for all ten source-derived names. This is synthetic DDS
+evidence, not real Nav2 activation or physical evidence.
+
+A separate installed-SDK fixture actually launched all ten declared Nav2 nodes
+and their non-autostart lifecycle manager from the sealed synthetic workspace.
+All ten actual GetState responses were UNCONFIGURED, and readiness remained
+false. The fixture then shut down all owned processes cleanly. The first attempt
+failed because the read-only container had no writable temporary directory;
+the helper also incorrectly awaited an optional shutdown return. Both failures
+are retained; a new attempt supplied a writable output temp directory and
+handled the actual SDK shutdown API, then exited zero. No World, controller,
+robot action or held-out asset was started. Executed helper/project/SDK sources
+were hashed before calls and rechecked. Complete staged Graph/TF/Body admission,
+guarded launch, generic feature freeze and held-out L0–L4 remain pending.
