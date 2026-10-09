@@ -85,3 +85,61 @@ def test_world_is_signalled_after_owned_sources_flush(module, tmp_path, monkeypa
     children.children = [("backend-gazebo", Child(1)), ("source", Child(2))]
     children.close()
     assert events == [(signal.SIGINT, 2), ("wait", 2), (signal.SIGINT, 1), ("wait", 1)]
+
+
+def test_backend_entry_refuses_domain_before_any_preparation(module, monkeypatch):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "backend_stack.py",
+            "--profile",
+            "waffle",
+            "--coverage-preset",
+            "baseline",
+            "--seed",
+            "100901",
+            "--duration",
+            "900",
+            "--brush-binding",
+            "/unused/brush",
+            "--physics-fixture",
+            "/unused/physics",
+            "--physics-plugin",
+            "/unused/passive",
+            "--contact-plugin",
+            "/unused/contact",
+            "--instrument-service-binary",
+            "/unused/instrument",
+            "--instrument-service-binary-sha256",
+            "0" * 64,
+            "--probe-declaration",
+            "/unused/probe",
+        ],
+    )
+
+    def reject(domain):
+        raise ValueError("kernel range overlap")
+
+    monkeypatch.setattr(module, "validate_ros_domain", reject)
+    monkeypatch.setattr(
+        module, "prepare_backend_stack", lambda *a: pytest.fail("prepared before preflight")
+    )
+    monkeypatch.setattr(
+        module, "launch_backend_stack", lambda *a, **k: pytest.fail("launched before preflight")
+    )
+    with pytest.raises(ValueError, match="kernel range overlap"):
+        module.main()
+
+
+def test_backend_preflight_retains_actual_own_kernel_and_namespace(module, tmp_path, monkeypatch):
+    monkeypatch.setenv("ROS_DOMAIN_ID", "81")
+    record = module.preflight_backend_network(tmp_path)
+    assert record["observed_kernel_ephemeral_range"] == [
+        int(v) for v in Path("/proc/sys/net/ipv4/ip_local_port_range").read_text().split()
+    ]
+    assert record["source_process_network_namespace"] == os.readlink("/proc/self/ns/net")
+    assert "observed_host_ephemeral_range" not in record
+    assert json.loads((tmp_path / "container-network-preflight.json").read_text()) == record
+    with pytest.raises(FileExistsError):
+        module.preflight_backend_network(tmp_path)
