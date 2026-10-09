@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<dds xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
+  <profiles>
+    <!-- Only service reply writers: topic/controller/lease QoS stays unchanged. -->
+    <publisher profile_name="service">
+      <qos>
+        <reliability>
+          <kind>RELIABLE</kind>
+          <max_blocking_time><sec>1</sec><nanosec>0</nanosec></max_blocking_time>
+        </reliability>
+      </qos>
+    </publisher>
+  </profiles>
+</dds>

@@ -341,6 +341,9 @@ def main():
     OUTPUT.mkdir(exist_ok=True)
     with (OUTPUT / "container-network-preflight.json").open("x") as evidence:
         json.dump(network, evidence, indent=2)
+    from fixture_middleware import configure_service_reply_discovery
+
+    os.environ.update(configure_service_reply_discovery(ROOT, OUTPUT, os.environ))
     os.environ["PYTHONPATH"] = (
         str(ROOT.parents[2] / "src") + os.pathsep + os.getenv("PYTHONPATH", "")
     )
