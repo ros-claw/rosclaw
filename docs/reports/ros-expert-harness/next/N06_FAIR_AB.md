@@ -114,3 +114,32 @@ Core/Native 为 `7dcc8861c9f5596cfa9d3201da4896ad04da2460`；宿主预算源码�
 不是本文件任务执行机器人停止，也不是ROS Action grace的独立物理停止证明。
 没有实际World、机器人任务、Memory因果收益或正式A0–A3结果。
 本节为文档更新，预算代码未变；不把此前真实任务重标为新的文档提交。
+
+## V6 当前镜像实际试验：两组通过、一组上游失败
+
+新 V6 镜像 `a22b88b52a6c6712cca1c8f0a88c85878e47040a2c5e9b7f7e7a8b809f2828d9`
+的 Core/Native 为 `4019018126b0844a3fe0013a20a643020dc344c6`，宿主预算
+源码实际为 `bb58cfda78173c2b33093c6bbc9fd6c84c31926d`，实现仍与704字节一致。
+V6另外修复并验证请求caller中断后的进程取消清理所有权；旧V5已通过的并发
+取消组件不包含该情形，历史成绩不能当作不存在这一后续缺陷的证明。
+
+第一份注册在模型调用前因helper保留旧OperationManager预期SHA失败，零请求、
+零根任务，原失败保留。另行登记的attempt02修正预期SHA，保持原模型/low及
+16请求、12释放工具、2048输出token/请求、120000总token、600秒预算：
+
+| 模式 | 请求 / 完成请求 | 释放工具 | 权威usage已核验token | 任务结果 |
+|---|---:|---:|---:|---|
+| M0 | 9 / 9 | 8 | 47784 | SUCCEEDED，Artifact SHA对应 |
+| M1 | 9 / 9 | 8 | 52050 | SUCCEEDED，Artifact SHA对应 |
+| M2 | 2 / 1 | 1 | 4003，usage不完整 | FAIL，上游HTTP503，无根任务交付 |
+
+M2第二次原始响应为HTTP503、`no healthy upstream`，没有权威usage。
+门禁以`MODEL_RESPONSE_UNVERIFIABLE`拒绝释放该响应和工具，停止任务，没有
+重试或替换。M2全部计费用量UNKNOWN；4003仅是第一次成功响应的已验证用量，
+不能称为M2最终总量。整组三任务试验为FAIL，安全拒绝行为PASS不改写任务结果。
+
+原请求/响应SHA、原始单调时钟预算决定、已释放工具与Native toolResult、两个
+交付Artifact及三个原容器停止/Pid0逐项独立复核。公开原件封存于harness
+`evidence/2026-10-09/n05-v6-attempt02-original-upstream-failure-and-two-deliveries`。
+精确上游故障根因UNKNOWN；未发生World、机器人任务、Memory因果或正式A0–A3。
+本节仅更新文档，不将实际bb58调用重标为本次文档提交。
