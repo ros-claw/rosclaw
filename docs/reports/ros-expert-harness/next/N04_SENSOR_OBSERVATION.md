@@ -103,3 +103,15 @@ installed SDK's behavior. A separately registered inactive SDK World must
 verify the resulting ROS header and TF using the actual pinned image. The
 production source generator still preserves supplied unfamiliar source bytes;
 it never repairs another robot's frame name by guessing.
+
+Actual pinned-image World 200919 subsequently passed the added header/TF gate:
+ROS reports `range_frame`, the original static `platform -> range_frame` edge
+is observed, and the complete 30.01-second window receives approximately
+20.06 Hz laser data (last sample age 28.11 ms). There were no additional Gazebo
+commands or subscriptions. Thirty original checkpoints and their SHA sidecars,
+SDK logs and the independently stopped exact container are retained. Historical
+discovery still correctly returns UNKNOWN because inactive odometry/map and
+the remaining full-admission requirements are unmet. Source `db4d974a` also
+passed 2,457 ROS/MCP/Practice tests, with 10 skips and 10 integration/deployment
+deselections in 101.67 seconds. This paragraph is a documentation-only follow-up;
+it does not attribute that regression run to a later source revision.
