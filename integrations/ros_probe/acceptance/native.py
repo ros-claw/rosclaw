@@ -251,6 +251,17 @@ def required_scenario_progress(root, scenario_bytes):
     }
 
 
+def require_completed_dynamic_progress(progress):
+    """Permit implemented positive cases; closed physical replay remains external."""
+    if (
+        type(progress) is not dict
+        or progress.get("case") not in {"D2", "D3"}
+        or progress.get("perturbation_complete") is not True
+        or progress.get("physical_acceptance") != "NOT_VERIFIED"
+    ):
+        raise RuntimeError("Native success requires the completed D2/D3 perturbation")
+
+
 def main():
     sys.path.insert(0, str(REPO))
     from tests.agentd.test_product_journey import PtySession
@@ -448,11 +459,7 @@ def main():
                 if result["verification_status"] != "PASS":
                     raise RuntimeError("mission not verified")
                 if scenario_progress is not None:
-                    if (
-                        scenario_progress["case"] != "D2"
-                        or not scenario_progress["perturbation_complete"]
-                    ):
-                        raise RuntimeError("Native success requires the completed D2 perturbation")
+                    require_completed_dynamic_progress(scenario_progress)
                     from rosclaw.connectors.ros.verification.dynamic_diagnostics import (
                         analyze_dynamic_credit,
                     )
@@ -466,7 +473,7 @@ def main():
                     )
                     if not diagnosis["d2_calculation_withdrawal_and_actual_revisit_present"]:
                         raise RuntimeError(
-                            "D2 requires actual enabled revisit of withdrawn unclean cells"
+                            "Dynamic success requires actual enabled revisit of withdrawn unclean cells"
                         )
                 print(
                     json.dumps(

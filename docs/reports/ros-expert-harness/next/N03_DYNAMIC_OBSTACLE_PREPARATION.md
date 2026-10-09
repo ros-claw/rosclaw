@@ -36,3 +36,17 @@ timeout preserves the original bounded reply snapshot and SHA-256 without
 retrying, resetting a deadline, or granting action/stop authority. Source tests
 cover stale reply retention and mandatory child loss. This is source preparation;
 no new Native dynamic World acceptance has been run.
+
+
+## D3 Native completion dispatch correction
+
+The full host entry and scenario-progress decoder already supported D3, but
+the Native positive completion branch still rejected every case except D2.
+It now permits completed D2 or D3 progress with exact boolean completion and
+NOT_VERIFIED fixture status. Negative D4/D5, unfinished perturbations and
+producer-claimed acceptance remain rejected. Actual enabled free-cell revisit
+diagnostics remain mandatory. D3 final acceptance still separately requires
+closed original component replay, four original introduction/withdrawal
+confirmations, nonconcurrent blocker masks and no old-mask leakage, canonical
+receipts, completed Native root task, Practice/Memory and independent stop.
+This fixes source dispatch; no actual D3 task has yet been accepted.
