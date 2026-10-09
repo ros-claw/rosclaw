@@ -1,5 +1,6 @@
 # T1 跨 UID operator e2e 镜像（CI 构建；本地无网可跳过）。
-FROM python:3.12-slim
+ARG ROSCLAW_E2E_BASE_IMAGE=python:3.12-slim
+FROM ${ROSCLAW_E2E_BASE_IMAGE}
 
 WORKDIR /repo
 # hatch force-include 引用 e-urdf-zoo/configs/worker_plugins/benchmarks 等

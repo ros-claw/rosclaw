@@ -2,6 +2,7 @@
 # T1 跨 UID operator e2e 主机封装：构建镜像（如需）并运行。
 # 用法：scripts/e2e/operator_cross_uid/run.sh
 # 环境：ROSCLAW_E2E_IMAGE 可覆盖镜像名。
+# ROSCLAW_E2E_BASE_IMAGE 可选择同一基础镜像的已验证分发地址。
 set -euo pipefail
 
 IMAGE="${ROSCLAW_E2E_IMAGE:-rosclaw-operator-cross-uid-e2e:local}"
@@ -14,7 +15,8 @@ fi
 
 if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
     echo "building $IMAGE ..." >&2
-    docker build -t "$IMAGE" -f "$REPO_ROOT/scripts/e2e/operator_cross_uid/Dockerfile" "$REPO_ROOT"
+    docker build --build-arg "ROSCLAW_E2E_BASE_IMAGE=${ROSCLAW_E2E_BASE_IMAGE:-python:3.12-slim}" \
+        -t "$IMAGE" -f "$REPO_ROOT/scripts/e2e/operator_cross_uid/Dockerfile" "$REPO_ROOT"
 fi
 
 exec docker run --rm "$IMAGE"

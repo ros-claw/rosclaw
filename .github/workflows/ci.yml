@@ -106,6 +106,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.0
       - name: Build and run four-UID operator e2e
+        env:
+          # Same Docker Official Python amd64 OCI manifest verified at both registries.
+          ROSCLAW_E2E_BASE_IMAGE: public.ecr.aws/docker/library/python@sha256:2b4f19dae3a777dfc3b76730bda1e82e1f66ab2a2686fa93ca78edbfb4f04ffe
         run: bash scripts/e2e/operator_cross_uid/run.sh
 
   type-check:
