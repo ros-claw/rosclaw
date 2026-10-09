@@ -355,3 +355,26 @@ records, real SQLite migrations and actual owned Linux sleeper signals, with no
 World, ROS transport or model call. New Native physics remains NOT_RUN until the
 frozen N02 formal review and actual PR624 merge. D1/D6 complete entry and remaining
 D5 fault subclasses remain pending. v1_done=false.
+
+## Future fixture DDS preflight and precise startup failure records
+
+The frozen formal Burger100828 baseline failed before action dispatch. Original
+logs show coverage_server configuration began, its change_state response timed
+out, and coverage bringup never completed. Original map, Nav2 startup and3374 of
+3406 independent samples were complete. The underlying DDS cause is UNKNOWN.
+No seed was rerun/replaced and the frozen source/image/driver remain unchanged.
+
+The host ephemeral range is32768–60999. Existing default domains201/202 overlap
+that range under the official DDS port formula. This is a confirmed configuration
+risk, not proof of this timeout's cause. Future fixture source now defaults to81/
+82 and checks a120-participant port reserve against the actual host proc range
+before any transport. The result explicitly does not verify the future container
+namespace or transport readiness. Startup timeout diagnostics preserve original
+observations/log hashes and identify the absent coverage bringup marker; a log
+marker is explicitly not a measurement of current lifecycle state. No readiness
+or stop condition was weakened, no retry was added and no deadline was extended.
+
+Validation: preflight/diagnostic17 passed; full ROS1349 passed/10 integration
+deselected/one existing warning in28.97s. The live frozen v2 formal sequence is
+untouched. Actual future DDS transport and startup recovery remain NOT_RUN.
+Primary reference: [official Jazzy ROS_DOMAIN_ID documentation](https://raw.githubusercontent.com/ros2/ros2_documentation/jazzy/source/Concepts/Intermediate/About-Domain-ID.rst).

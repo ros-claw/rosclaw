@@ -49,7 +49,12 @@ def wait_ready(directory, container, timeout=180):
         except (OSError, ValueError, KeyError):
             pass
         time.sleep(0.5)
-    raise TimeoutError("complete fresh independent SIM startup observations missing")
+    from startup_gate_failure import retain_startup_failure
+
+    failure = retain_startup_failure(directory)
+    raise TimeoutError(
+        "SIM startup constraints not satisfied: " + ", ".join(failure["missing_requirements"])
+    )
 
 
 def journey(directory, port, profile, timeout, repair_strategy="greedy"):
@@ -275,9 +280,13 @@ def main():
     parser.add_argument("--phase", choices=["pilot", "evaluation"], default="pilot")
     parser.add_argument("--image", default="rosclaw/ros-expert-rebuilt:dad31022")
     parser.add_argument("--port-base", type=int, default=20191)
-    parser.add_argument("--domain-base", type=int, default=201)
+    parser.add_argument("--domain-base", type=int, default=81)
     parser.add_argument("--mission-timeout", type=int, default=900)
     args = parser.parse_args()
+    from fixture_network import validate_ros_domain
+
+    validate_ros_domain(args.domain_base)
+    validate_ros_domain(args.domain_base + 1)
     validate_seed(args.seed)
     planning_parameters(PROFILES[args.profile], args.candidate)
     if not 1024 <= args.port_base < 65535 or not 0 <= args.domain_base < 232:
