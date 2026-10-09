@@ -278,6 +278,9 @@ def main():
         help="Require the bottom-level command timeout; disable only for explicit legacy fixture replay",
     )
     args = parser.parse_args()
+    from fixture_middleware import configure_service_reply_discovery
+
+    os.environ.update(configure_service_reply_discovery(ROOT, OUTPUT, os.environ))
     os.environ["PYTHONPATH"] = (
         str(ROOT.parents[2] / "src") + os.pathsep + os.getenv("PYTHONPATH", "")
     )
