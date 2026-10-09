@@ -44,3 +44,18 @@ then rechecks them; it checks generated workspace integrity as well as actual
 standard SDF, control-resource/RCL YAML, and Nav2 Map IO parsing. The robot/map
 are explicit synthetic contract fixtures. No World, Node or action was started.
 The staged live bootstrap/launcher and all held-out L0–L4 gates remain pending.
+
+
+## Unactivated generic Nav2 SDK launch description
+
+The generic launch source now consumes the sealed workspace inventory and
+checks its original navigation report, parameter digest, launch-spec digest,
+all ten standard executable roles, exact node identities and remappings.
+Namespace and lifecycle targets are derived from the explicit source; there
+is no third-body profile or fixed sensor/body frame. The SDK description
+retains the full parameter file, including child costmap parameters, and
+sets lifecycle autostart=false. Building this description creates unexecuted
+process actions; it opens no DDS and admits no Body. A future runtime launcher
+must recheck and mount the sealed source read-only before launching, then
+complete independent Graph/TF/Body admission and guarded activation. Those
+runtime stages and held-out L0–L4 gates remain pending.
