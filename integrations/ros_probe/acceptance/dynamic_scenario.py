@@ -60,7 +60,7 @@ def retained_packet(row, binding):
 def scenario_policy(spec, binding):
     if (
         spec.get("schema_version") != "rosclaw.dynamic_fixture_scenario.v1"
-        or spec.get("case") not in {"D2", "D3", "D4"}
+        or spec.get("case") not in {"D2", "D3", "D4", "D6"}
         or spec.get("run_id") != binding["run_id"]
         or spec.get("mission_id") != binding["mission_id"]
         or spec.get("obstacle_name") not in binding["obstacle_names"]
@@ -305,7 +305,7 @@ def main():
                         raise ValueError("service ACK lacks independent actual pose confirmation")
                 elif (
                     state == "OCCUPIED"
-                    and spec["case"] in {"D2", "D3"}
+                    and spec["case"] in {"D2", "D3", "D6"}
                     and sample["time_sec"]
                     >= occupied_at
                     + (

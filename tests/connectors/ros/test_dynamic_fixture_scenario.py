@@ -107,7 +107,7 @@ def test_retained_packet_consistency_failure_refused(monkeypatch, fault):
         ("target_xy", [float("nan"), 0]),
         ("run_id", "old"),
         ("mission_id", "old"),
-        ("case", "D6"),
+        ("case", "D1"),
         ("obstacle_name", "new"),
     ],
 )

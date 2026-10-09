@@ -132,6 +132,7 @@ def run_episode(
         "rosclaw.dynamic_native_episode.v2",
         "rosclaw.dynamic_native_episode.v3",
         "rosclaw.dynamic_native_episode.v4",
+        "rosclaw.dynamic_native_episode.v5",
     }:
         from qualified_backend_episode import frozen_backend_files, validate_qualified_spec
 
@@ -627,7 +628,7 @@ def run_episode(
                 ],
                 timeout=120,
             )
-        if case in {"D2", "D3"}:
+        if case in {"D2", "D3", "D6"}:
             step(
                 "native-acceptance",
                 [
@@ -754,6 +755,16 @@ def run_episode(
                 )
                 result["two_nonconcurrent_blockers_and_no_old_mask_source_leak"] = (
                     "PASS_SOURCE_CORRESPONDENCE_ONLY"
+                )
+            if case == "D6":
+                from qualified_backend_episode import require_d6_observed_credit
+
+                credit = require_d6_observed_credit(json.loads(evidence_paths[0].read_bytes()))
+                (directory / "closed-d6-credit-diagnostics.json").write_text(
+                    json.dumps(credit, indent=2) + "\n"
+                )
+                result["pending_blocked_brush_zero_credit_and_same_cell_free_revisit"] = (
+                    "PASS_SOURCE_CORRESPONDENCE_AND_CALCULATION_ONLY"
                 )
             result.update(
                 status="PASS",

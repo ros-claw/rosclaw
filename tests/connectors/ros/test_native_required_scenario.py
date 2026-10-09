@@ -51,6 +51,7 @@ def fixture(root, case="D2", kind="SCENARIO_STARTED"):
         ("D2", "PERTURBATION_COMPLETE_REQUIRES_NATIVE_AND_CREDIT_VALIDATION", True),
         ("D3", "SCENARIO_STARTED", False),
         ("D3", "PERTURBATION_COMPLETE_REQUIRES_NATIVE_AND_CREDIT_VALIDATION", True),
+        ("D6", "PERTURBATION_COMPLETE_REQUIRES_NATIVE_AND_CREDIT_VALIDATION", True),
     ],
 )
 def test_fixture_progress_never_promotes_physical_acceptance(
@@ -125,7 +126,7 @@ def test_partial_next_append_cannot_hide_completed_failure(tmp_path, monkeypatch
         load(monkeypatch).required_scenario_progress(tmp_path, scenario)
 
 
-@pytest.mark.parametrize("case", ["D2", "D3"])
+@pytest.mark.parametrize("case", ["D2", "D3", "D6"])
 def test_both_implemented_positive_cases_can_close_native_progress(monkeypatch, case):
     load(monkeypatch).require_completed_dynamic_progress(
         {"case": case, "perturbation_complete": True, "physical_acceptance": "NOT_VERIFIED"}
@@ -141,6 +142,8 @@ def test_both_implemented_positive_cases_can_close_native_progress(monkeypatch, 
         ("D3", True, "PASS"),
         ("D4", True, "NOT_VERIFIED"),
         ("D5", True, "NOT_VERIFIED"),
+        ("D6", False, "NOT_VERIFIED"),
+        ("D6", True, "PASS"),
     ],
 )
 def test_incomplete_or_negative_cases_cannot_close_positive_native_progress(

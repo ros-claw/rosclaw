@@ -31,6 +31,7 @@ def validate_qualified_spec(value, base_validator):
             "rosclaw.dynamic_native_episode.v2",
             "rosclaw.dynamic_native_episode.v3",
             "rosclaw.dynamic_native_episode.v4",
+            "rosclaw.dynamic_native_episode.v5",
         }
     ):
         raise ValueError("closed qualified Native episode v2 protocol required")
@@ -44,7 +45,15 @@ def validate_qualified_spec(value, base_validator):
             raise ValueError("exact original compiled backend ELF hash required")
     is_d3 = value["schema_version"] == "rosclaw.dynamic_native_episode.v3"
     is_d5 = value["schema_version"] == "rosclaw.dynamic_native_episode.v4"
+    is_d6 = value["schema_version"] == "rosclaw.dynamic_native_episode.v5"
     scenario = value.get("scenario_source")
+    if is_d6 and (
+        value.get("case") != "D6"
+        or type(scenario) is not dict
+        or scenario
+        != {"exposure_policy": "PENDING_BLOCKED_ENABLED_BRUSH_AND_SAME_CELL_FREE_REVISIT"}
+    ):
+        raise ValueError("closed qualified D6 actual pending-cell exposure policy required")
     if is_d5 and (
         value.get("case") != "D5"
         or type(scenario) is not dict
@@ -73,18 +82,36 @@ def validate_qualified_spec(value, base_validator):
             if type(scenario[key]) is not int or not low <= scenario[key] <= high:
                 raise ValueError("bounded frozen nonconcurrent D3 timings required")
     excluded = {"backend_source"}
-    if is_d3 or is_d5:
+    if is_d3 or is_d5 or is_d6:
         excluded.add("scenario_source")
     base = {key: item for key, item in value.items() if key not in excluded}
     base["schema_version"] = "rosclaw.dynamic_native_episode.v1"
-    if is_d3 or is_d5:
+    if is_d3 or is_d5 or is_d6:
         base["case"] = "D2"
     base = base_validator(base)
     if is_d3:
         base["case"], base["scenario_source"] = "D3", scenario
     if is_d5:
         base["case"], base["scenario_source"] = "D5", scenario
+    if is_d6:
+        base["case"], base["scenario_source"] = "D6", scenario
     return base, source
+
+
+def require_d6_observed_credit(evidence):
+    """Require nonvacuous exposure and same-cell actual free revisit, not authority."""
+    from rosclaw.connectors.ros.verification.dynamic_diagnostics import analyze_dynamic_credit
+
+    result = analyze_dynamic_credit(evidence)
+    if (
+        not result["d6_calculation_zero_false_credit"]
+        or not result["previously_unclean_blocked_enabled_brush_exposure_cells"]
+        or not result["previously_unclean_exposed_cells_actually_revisited_free"]
+    ):
+        raise ValueError(
+            "D6 requires actual pending blocked-brush exposure and same-cell free revisit"
+        )
+    return result
 
 
 def frozen_backend_files(source, contact_plugin, instrument_service_binary):

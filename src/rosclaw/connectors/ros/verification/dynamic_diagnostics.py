@@ -24,6 +24,7 @@ def analyze_dynamic_credit(evidence):
     previous_occupied = set()
     awaiting_revisit = set()
     exposed = set()
+    pending_exposed = set()
     revisited = set()
     false_credit = set()
     exposure_samples = 0
@@ -51,6 +52,7 @@ def analyze_dynamic_credit(evidence):
         if overlap:
             exposure_samples += 1
             exposed.update(overlap)
+            pending_exposed.update(overlap - before)
         actual_revisits = added & awaiting_revisit
         if actual_revisits - set(brush_only.visits) or actual_revisits & occupied:
             raise ValueError("withdrawal credit is not an actual enabled free-cell revisit")
@@ -67,6 +69,10 @@ def analyze_dynamic_credit(evidence):
         "fixed_denominator_cells": temporal["fixed_denominator_cells"],
         "blocked_enabled_brush_exposure_samples": exposure_samples,
         "blocked_enabled_brush_exposure_cells": sorted(exposed),
+        "previously_unclean_blocked_enabled_brush_exposure_cells": sorted(pending_exposed),
+        "previously_unclean_exposed_cells_actually_revisited_free": sorted(
+            pending_exposed & revisited
+        ),
         "false_new_credit_while_occupied_cells": sorted(false_credit),
         "withdrawals_of_previously_unclean_cells": withdrawals,
         "actual_enabled_free_revisit_cells": sorted(revisited),

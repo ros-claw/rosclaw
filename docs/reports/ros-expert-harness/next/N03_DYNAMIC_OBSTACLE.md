@@ -356,6 +356,33 @@ World, ROS transport or model call. New Native physics remains NOT_RUN until the
 frozen N02 formal review and actual PR624 merge. D1/D6 complete entry and remaining
 D5 fault subclasses remain pending. v1_done=false.
 
+## D6 prospective nonvacuous credit gate (2026-10-09)
+
+Qualified episode v5 explicitly binds D6 to the original all-step backend wire
+and a pending-cell exposure policy. It uses the existing preloaded blocker,
+unchanged placement clearance, bounded introduction/dwell/withdrawal and actual
+post-update packet confirmations. It does not command the robot to contact an
+obstacle or change the Body, brush, denominator, speed, leases or deadline.
+
+After the genuine Native root and live canonical acceptance, the host still
+requires closed original backend/source correspondence and independent stop.
+Only then does exact temporal replay check that at least one previously unclean
+cell was inside an enabled sampled brush footprint while occupied, received no
+new credit while occupied, and was later actually revisited with the brush on
+and the cell free. No overlap, brush-off exposure, prior valid credit alone,
+missing revisit and a revisit to another cell all refuse D6. Synthetic positive
+calculation remains NOT_VERIFIED and cannot confer a physical receipt.
+
+The actual reviewed PR624 merge is still checked before any simulator process.
+D6 physics is NOT_RUN; D1 and the remaining D5 subclasses are incomplete. The
+v5 source is preparation, not closure of N03 or v1.
+
+Validation: 113 focused tests; full ROS1393 passed/10 integration deselected
+in32.25s; Practice183 passed/9 skipped in34.37s; required mypy paths plus the
+changed diagnostics module122 files passed. All D6 data in these tests are
+explicitly synthetic. The earlier focused run retained one expected regression
+failure because D6 had previously been an unsupported-case refusal test.
+
 ## Future fixture DDS preflight and precise startup failure records
 
 The frozen formal Burger100828 baseline failed before action dispatch. Original
