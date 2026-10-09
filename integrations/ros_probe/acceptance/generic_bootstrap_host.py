@@ -22,6 +22,7 @@ from generic_container_ownership import (
     KIND,
     KIND_LABEL,
     OWNER_LABEL,
+    copy_owned_sdk_logs,
     inspect_owned_container,
     stop_owned_container,
     wait_owned_container,
@@ -173,6 +174,7 @@ def run_owned_bootstrap(source, workspace, declaration, output, *, seconds, doma
     owner, container_id = uuid.uuid4().hex, None
     outcome = "PREFLIGHT_FAILED"
     cleanup_verified, log_capture = False, "NOT_ATTEMPTED"
+    sdk_log_capture = {"status": "NOT_ATTEMPTED"}
 
     def check_source():
         if (
@@ -255,6 +257,15 @@ def run_owned_bootstrap(source, workspace, declaration, output, *, seconds, doma
                         log_capture = "CAPTURED" if reply.returncode == 0 else "DOCKER_LOGS_FAILED"
                     except subprocess.TimeoutExpired:
                         log_capture = "DOCKER_LOGS_TIMEOUT"
+                try:
+                    sdk_log_capture = copy_owned_sdk_logs(
+                        container_id, owner, output / "sdk-logs", expected_image=IMAGE_ID
+                    )
+                except Exception as error:  # Diagnostics never mask the original run outcome.
+                    sdk_log_capture = {
+                        "status": "FAILED",
+                        "error": type(error).__name__ + ":" + str(error),
+                    }
         finally:
             signal.signal(signal.SIGTERM, prior)
             (output / "host-result.json").write_text(
@@ -265,6 +276,7 @@ def run_owned_bootstrap(source, workspace, declaration, output, *, seconds, doma
                         "outcome": outcome,
                         "cleanup_verified": cleanup_verified,
                         "log_capture": log_capture,
+                        "sdk_log_capture": sdk_log_capture,
                         "controller_activation": False,
                         "live_body_admitted": False,
                         "authorization": False,

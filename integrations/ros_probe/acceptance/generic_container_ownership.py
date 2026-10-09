@@ -5,6 +5,7 @@ Unlike process-group cleanup, container teardown includes descendants that
 created their own sessions. Never select a container by a name prefix.
 """
 
+import hashlib
 import json
 import re
 import subprocess
@@ -14,6 +15,84 @@ from pathlib import Path
 OWNER_LABEL = "org.rosclaw.generic-bootstrap-owner"
 KIND_LABEL = "org.rosclaw.fixture-kind"
 KIND = "generic-inactive-bootstrap"
+
+SDK_LOG_PATHS = {
+    "ogre2.log": "/home/ubuntu/.gz/rendering/ogre2.log",
+    "sim-logs": "/home/ubuntu/.gz/sim/log",
+    "sdformat.log": "/home/ubuntu/.sdformat/sdformat.log",
+}
+
+
+def copy_owned_sdk_logs(container_id, owner, output, *, expected_image):
+    """Read logs from a stopped owned SDK layer; never restart or exec it.
+
+    Default renderer/server files are outside the mounted runtime output.
+    Missing or partial diagnostics never change the original run outcome.
+    """
+    before = inspect_owned_container(container_id, owner)
+    if (
+        before.get("Image") != expected_image
+        or before["State"]["Running"] is not False
+        or before["State"]["Pid"] != 0
+    ):
+        raise ValueError("exact pinned-image stopped owned container required for log recovery")
+    output = Path(output)
+    if not output.is_absolute() or output.resolve() != output or output.is_symlink():
+        raise ValueError("absolute non-symlink fresh log recovery directory required")
+    output.mkdir(mode=0o700, exist_ok=False)
+    copies = []
+    for name, source in SDK_LOG_PATHS.items():
+        current = inspect_owned_container(container_id, owner)
+        if current["State"] != before["State"] or current.get("Image") != expected_image:
+            raise ValueError("original stopped container changed before readonly log copy")
+        item = {"source_container_path": source, "destination": name}
+        try:
+            reply = subprocess.run(
+                ["docker", "cp", container_id + ":" + source, str(output / name)],
+                capture_output=True,
+                timeout=5,
+            )
+            item.update(
+                returncode=reply.returncode,
+                stdout=reply.stdout.decode(errors="replace"),
+                stderr=reply.stderr.decode(errors="replace"),
+            )
+        except subprocess.TimeoutExpired:
+            item["error"] = "Docker readonly copy timeout"
+        copies.append(item)
+    after = inspect_owned_container(container_id, owner)
+    if after["State"] != before["State"]:
+        raise ValueError("original stopped container state changed during readonly log recovery")
+    paths = sorted(output.rglob("*"))
+    if any(path.is_symlink() for path in paths):
+        raise ValueError("SDK log recovery contains symlinks; not accepted as public evidence")
+    files = {}
+    for path in paths:
+        if path.is_file():
+            raw = path.read_bytes()
+            files[str(path.relative_to(output))] = {
+                "sha256": hashlib.sha256(raw).hexdigest(),
+                "bytes": len(raw),
+            }
+    complete = bool(files) and all(
+        row.get("returncode") == 0 and (output / row["destination"]).exists() for row in copies
+    )
+    report = {
+        "schema_version": "rosclaw.owned_sdk_log_recovery.v1",
+        "status": "CAPTURED" if complete else "PARTIAL_OR_NOT_CAPTURED",
+        "container_id": container_id,
+        "image_id": expected_image,
+        "container_stopped_before_and_after": True,
+        "copies": copies,
+        "files": files,
+        "new_World_runs": 0,
+        "controller_activation": False,
+        "Body_admitted": False,
+        "physical_acceptance": "NOT_EVALUATED",
+    }
+    with (output / "sdk-log-recovery.json").open("x") as stream:
+        json.dump(report, stream, indent=2)
+    return report
 
 
 def inspect_owned_container(container_id, owner, *, timeout=5):

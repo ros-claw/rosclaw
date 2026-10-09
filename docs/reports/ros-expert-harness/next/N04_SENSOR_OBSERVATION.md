@@ -35,3 +35,25 @@ startup must have a separately frozen source/image/declaration/seed/deadline,
 wait for the registered N02 physical evaluation to release its environment,
 and retain original laser signals and any failures. Current laser root cause:
 **UNKNOWN**. Held-out Body, controller activation and cleaning: **NOT_RUN**.
+
+
+## Original stopped-container logs and diagnostic export
+
+Read-only copies from World 200913's original stopped container recovered its
+Ogre, server and SDFormat logs without restarting or executing the container.
+The original acceptance remains FAIL. GLX display warnings preceded successful
+EGL/Mesa OpenGL initialization. The server recorded the rendering thread ready
+at 12:43:38.128 UTC and advertised `/declared_gz_lidar` at 12:43:38.129 UTC.
+The original ROS observation ended at 12:43:40.726 UTC without laser messages.
+Topic advertisement is not evidence of published samples or ROS delivery;
+the missing delivery's root cause remains UNKNOWN. A permanent renderer
+initialization failure is inconsistent with these recovered logs.
+
+The owned bootstrap host now copies three fixed SDK diagnostic locations after
+verified container teardown. Each copy rechecks the exact container ID, owner,
+kind, pinned image and stopped state. It records command outcomes and hashes
+of regular files and rejects copied symlinks. Missing files, copy timeouts or
+incomplete exports remain diagnostic failures and never replace the original
+bootstrap outcome or physical acceptance. It never restarts or execs a container.
+This export can recover retained container-layer files; it cannot recover files
+from a discarded tmpfs. A later actual startup must still test export integration.
