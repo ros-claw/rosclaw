@@ -370,3 +370,44 @@ def test_unregistered_or_concurrent_d3_protocol_refuses_before_any_process(modul
         spec["schema_version"] = "rosclaw.dynamic_native_episode.v2"
     with pytest.raises(ValueError):
         qualified.validate_qualified_spec(spec, episode.validate_episode_spec)
+
+
+def test_d5_preregisters_only_owned_collector_pause_without_relaxing_backend(modules):
+    qualified, episode, _ = modules
+    spec = protocol()
+    spec.update(
+        schema_version="rosclaw.dynamic_native_episode.v4",
+        case="D5",
+        scenario_source={"fault_kind": "OWNED_COLLECTION_PAUSE", "pause_wall_sec": 2},
+    )
+    base, backend = qualified.validate_qualified_spec(spec, episode.validate_episode_spec)
+    assert base["case"] == "D5" and base["scenario_source"] == spec["scenario_source"]
+    assert base["mission_timeout_sec"] == specification()["mission_timeout_sec"]
+    assert backend == protocol()["backend_source"]
+    # Old public entry remains fail closed until the full D5 host is wired.
+    with pytest.raises(ValueError):
+        episode.validate_episode_spec(spec)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        {"pause_wall_sec": True},
+        {"pause_wall_sec": 0},
+        {"pause_wall_sec": 11},
+        {"fault_kind": "WORLD_PAUSE"},
+        {"pid": 1234},
+        {"reset_deadline": True},
+    ],
+)
+def test_d5_closed_policy_rejects_other_processes_and_deadline_changes(modules, mutation):
+    qualified, episode, _ = modules
+    spec = protocol()
+    spec.update(
+        schema_version="rosclaw.dynamic_native_episode.v4",
+        case="D5",
+        scenario_source={"fault_kind": "OWNED_COLLECTION_PAUSE", "pause_wall_sec": 2},
+    )
+    spec["scenario_source"].update(mutation)
+    with pytest.raises(ValueError, match="closed qualified D5"):
+        qualified.validate_qualified_spec(spec, episode.validate_episode_spec)

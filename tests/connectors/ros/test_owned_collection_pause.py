@@ -144,3 +144,33 @@ def test_registered_pause_automatically_resumes_at_frozen_wall_duration(modules,
     finally:
         pause.resume()
         children.close()
+
+
+def test_registered_declaration_binds_actual_constraint_before_launch(modules, tmp_path):
+    stack, pause_module = modules
+    plan, path = policy(tmp_path)
+    declaration = json.loads(path.read_bytes())
+    declaration.pop("constraint_policy_hash")
+    declaration["schema_version"] = "rosclaw.collection_pause_registration.v1"
+    path.write_text(json.dumps(declaration))
+    generated = pause_module.materialize_registered_policy(tmp_path, plan, path)
+    children = stack.OwnedStackChildren(tmp_path, time.monotonic() + 10)
+    pause_module.OwnedCollectionPause(tmp_path, children, plan, generated)
+    retained = json.loads(
+        (tmp_path / "backend-collection-pause-registration-original.json").read_bytes()
+    )
+    assert retained["registration_sha256"] == hashlib.sha256(path.read_bytes()).hexdigest()
+    assert retained["policy_sha256"] == hashlib.sha256(generated.read_bytes()).hexdigest()
+    assert retained["authorization"] is False
+
+
+def test_registration_cannot_bind_other_body_or_choose_a_pid(modules, tmp_path):
+    _, pause_module = modules
+    plan, path = policy(tmp_path)
+    declaration = json.loads(path.read_bytes())
+    declaration.pop("constraint_policy_hash")
+    declaration.update(schema_version="rosclaw.collection_pause_registration.v1", pid=1234)
+    path.write_text(json.dumps(declaration))
+    with pytest.raises(ValueError, match="closed preregistered"):
+        pause_module.materialize_registered_policy(tmp_path, plan, path)
+    assert not (tmp_path / "backend-collection-pause-policy.json").exists()
