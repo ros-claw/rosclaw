@@ -173,7 +173,7 @@ def tape(monkeypatch, tmp_path, request):
             )
         )
 
-    def validate():
+    def validate(**options):
         return module.closed_backend_observation(
             path,
             robot_policy,
@@ -185,6 +185,7 @@ def tape(monkeypatch, tmp_path, request):
             robot_pose_frame="synthetic_robot_world",
             probe_pose_frame="synthetic_probe_world",
             **spatial_options,
+            **options,
         )
 
     write()
@@ -289,3 +290,38 @@ def test_closed_tape_rejects_substitution_loss_and_unknown_source(tape, fault):
         path.write_text("{" + addition + content[1:])
     with pytest.raises(ValueError):
         validate()
+
+
+def test_registered_healthy_prefix_does_not_promote_faulted_suffix(tape):
+    _, rows, write, validate, _ = tape
+    prefix = copy.deepcopy(rows[-1]["payload"]["projection"])
+    assert prefix["snapshot"]["probe_completed_cache_cycles"] >= 1
+    suffix = copy.deepcopy(rows[-1])
+    suffix["payload"]["received_monotonic_sec"] += 0.01
+    suffix["wall_monotonic_sec"] += 0.01
+    suffix["payload"]["projection"]["snapshot"]["source_fault"] = "synthetic loss"
+    suffix["payload"]["projection"]["snapshot"]["live_source_constraint_satisfied"] = False
+    rows.append(suffix)
+    write()
+    with pytest.raises(ValueError):
+        validate()
+    result = validate(prefix_projection=prefix)
+    assert result["source_window"] == "PREFIX_BEFORE_REGISTERED_SOURCE_LOSS"
+    assert result["post_prefix_source_health"] == "UNKNOWN"
+    assert result["closed_audit_events_checked"] == result["events_replayed"] + 1
+    assert result["physical_acceptance"] == "NOT_VERIFIED"
+    assert result["authorization"] is False
+
+
+def test_prefix_substitution_or_audit_chain_corruption_refuses(tape):
+    path, rows, _, validate, _ = tape
+    prefix = copy.deepcopy(rows[-1]["payload"]["projection"])
+    prefix["snapshot"]["sampled_monotonic_sec"] += 0.001
+    with pytest.raises(ValueError):
+        validate(prefix_projection=prefix)
+    prefix = copy.deepcopy(rows[-1]["payload"]["projection"])
+    path.write_bytes(
+        path.read_bytes().replace(b'"artifact_sha256": "', b'"artifact_sha256": "bad', 1)
+    )
+    with pytest.raises(ValueError, match="hash"):
+        validate(prefix_projection=prefix)

@@ -262,11 +262,66 @@ def replay_closed_qualified(directory):
     return result
 
 
+def replay_registered_collection_prefix(directory):
+    """Original closed audit/SDK replay only through the actual healthy prefix."""
+    bundle = directory / "backend-bundle"
+    plan = decode_scene_json(bounded_source(directory / "backend-stack-source-plan.json"))
+    before = decode_scene_json(bounded_source(directory / "backend-collection-pause-before.json"))
+    bounds = decode_scene_json(
+        bounded_source(directory / "native-task-observation-boundaries.json")
+    )
+    stamp = before["backend_projection"]["snapshot"]["sampled_monotonic_sec"]
+    if not bounds["native_started_monotonic_sec"] < stamp < bounds["native_ended_monotonic_sec"]:
+        raise ValueError("healthy source prefix must occur during actual Native invocation")
+    result = closed_backend_observation(
+        directory / "backend-observer/backend-observation-events.jsonl",
+        decode_scene_json(bounded_source(bundle / "robot-source/native-policy.json")),
+        decode_scene_json(bounded_source(bundle / "instrument-source/probe-policy.json")),
+        robot_directory=bundle / "robot-source",
+        probe_directory=bundle / "instrument-source",
+        robot_plugin=bundle / "robot-source/librosclaw_passive_contacts.so",
+        probe_plugin=bundle / "instrument-source/librosclaw_passive_contacts.so",
+        robot_pose_frame=plan["world_name"],
+        probe_pose_frame=plan["world_name"],
+        scene_binding=decode_scene_json(
+            bounded_source(bundle / "world-source/physics_binding.json")
+        ),
+        probe_declaration=decode_scene_json(
+            bounded_source(bundle / "world-source/probe-declaration.json")
+        ),
+        instrument_service_binary=bundle / "instrument-source/owned_instrument_service",
+        instrument_service_binary_sha256=plan["instrument_service_binary_sha256"],
+        prefix_projection=before["backend_projection"],
+    )
+    if (
+        result["source_window"] != "PREFIX_BEFORE_REGISTERED_SOURCE_LOSS"
+        or result["post_prefix_source_health"] != "UNKNOWN"
+        or result["original_service_wire_required"] is not True
+        or result["original_service_SDK_wire_replays"] < 1
+        or result["spatial_source_join_required"] is not True
+        or result["completed_exact_scene_joins"] < 1
+        or result["robot_collision_count"] != 0
+        or result["probe_completed_cache_cycles"] < 1
+    ):
+        raise ValueError("exact pre-loss original SDK/robot/scene source required")
+    result.update(healthy_prefix_monotonic_sec=stamp, post_loss_robot_contacts="UNKNOWN")
+    (directory / "closed-collection-prefix-source.json").write_text(
+        json.dumps(result, indent=2) + "\n"
+    )
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--directory", required=True, type=Path)
+    parser.add_argument("--registered-collection-prefix", action="store_true")
     args = parser.parse_args()
-    print(json.dumps(replay_closed_qualified(args.directory)))
+    replay = (
+        replay_registered_collection_prefix
+        if args.registered_collection_prefix
+        else replay_closed_qualified
+    )
+    print(json.dumps(replay(args.directory)))
 
 
 if __name__ == "__main__":

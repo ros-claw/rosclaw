@@ -316,3 +316,42 @@ ROS regression:1321 passed/10 integration deselected/one existing warning in
 checks, not an actual Native World run. Full D5 Native orchestration, negative
 canonical receipts and independent actual stop measurement remain IN_PROGRESS.
 Other D5 fault subclasses and D1/D6 physical entry remain pending.
+
+## D5 Native collection-loss host and negative verifier
+
+The qualified v4 complete episode entry now recognizes D5's registered collector
+pause. It binds the operator declaration to prepared sources before launching
+the World. Actual prior PR624 merge, frozen source/image/ELFs and vendor input
+checks remain mandatory before any process. The scene controller observes fresh
+Brush ON and writes the owned request. Linux T-state confirmation is separate.
+
+On actual qualified-source loss after that registered pause, the host retains
+original policy/request/application/pre-fault/current-source bytes and requests
+`emergency_stop` through canonical stdio MCP. It leaves Native alive within its
+unchanged budget so the genuine failed response can reach TaskKernel and produce
+its negative canonical receipt. No task row is changed and no failed receipt is
+created by the host. Unexpected failures before the pause retain the original
+fail-closed path. A successful stop RPC still does not prove standstill.
+
+The original closed audit/SDK replay now has an explicit healthy-prefix mode.
+It checks the entire original writer chain and independently replays all original
+robot/probe/scene/SDK wire through the exact retained pre-loss projection. The
+suffix is UNKNOWN and cannot be consumed as full healthy-source acceptance. The
+default positive replay still requires the full healthy closed sequence. D5
+requires that prefix to occur during the actual Native invocation, at least one
+SDK original-wire replay/cache cycle/scene join, and unchanged source hashes.
+
+The negative verifier rereads actual TaskKernel SQLite and original canonical
+failure artifact, checks unchanged pause originals and original stale interval,
+rechecks SDK-prefix audit/summary hashes, and requires independent advancing
+pose standstill plus complete closed actuator OFF/lease-release evidence. Post-
+loss robot contacts remain UNKNOWN. This verdict is only the collector-pause
+subcase; it cannot close the other clock/geometry/sequence/frame/contact cases.
+
+Validation: full ROS1332 passed/10 integration deselected/one existing warning
+in27.43s; prefix replay20 passed; complete host-source focused66 passed; original
+loss/actuator/trigger focused29 passed. Tests use explicitly synthetic source
+records, real SQLite migrations and actual owned Linux sleeper signals, with no
+World, ROS transport or model call. New Native physics remains NOT_RUN until the
+frozen N02 formal review and actual PR624 merge. D1/D6 complete entry and remaining
+D5 fault subclasses remain pending. v1_done=false.
