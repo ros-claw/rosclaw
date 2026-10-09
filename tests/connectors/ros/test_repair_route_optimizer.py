@@ -119,7 +119,9 @@ def test_map_mismatch_and_invalid_costs_are_rejected():
         )
 
 
-@pytest.mark.parametrize("strategy", ["greedy", "pose_aware", "pose_aware_robust"])
+@pytest.mark.parametrize(
+    "strategy", ["greedy", "pose_aware", "pose_aware_robust", "pose_aware_robust_sequence"]
+)
 def test_budget_fallback_keeps_original_dispatch_and_requires_measured_pose(
     tmp_path, monkeypatch, strategy
 ):
@@ -226,3 +228,101 @@ def test_robust_mode_requires_boolean(value):
             {"x": 1.125, "y": 1.125, "yaw": 0},
             robust_footprint=value,
         )
+
+
+def test_continuous_sequence_sends_two_typed_targets_without_predicted_credit(
+    tmp_path, monkeypatch
+):
+    specification = grid(4, 1.0, [[-0.1, -0.1], [0.1, -0.1], [0.1, 0.1], [-0.1, 0.1]])
+    specification["accessible_cells"] = [5, 10]
+    verifier = CoverageVerifier(**specification)
+    observed, calls = [], []
+
+    class Witness:
+        def since(self, start):
+            return observed[start:]
+
+        def fresh(self):
+            return {"x": 1.5, "y": 1.5, "yaw": 0.0}
+
+    driver = executor_module.RosCoverageSimulationExecutor(
+        owner="daemon_mock",
+        client=None,
+        control=None,
+        witness=Witness(),
+        output=tmp_path,
+        body_id="mock",
+        body_snapshot_hash="mock",
+        grid=specification,
+        recovery_centers=[(0.5 + x, 0.5 + y) for y in range(4) for x in range(4)],
+        repair_strategy="pose_aware_robust_sequence",
+    )
+    poses = tuple(
+        repair_optimizer.RepairPose(x, y, yaw, (cell,), 0.5, 0.1, 5, 1, cell)
+        for x, y, yaw, cell in [(1.5, 1.5, 0.0, 5), (2.5, 2.5, math.pi / 2, 10)]
+    )
+    monkeypatch.setattr(
+        executor_module,
+        "rank_repair_poses",
+        lambda *a, **k: repair_optimizer.RepairSelection("READY", poses),
+    )
+    monkeypatch.setattr(driver, "_audit_event", lambda *a: None)
+
+    def goal(name, action_type, args, goal_id, deadline):
+        calls.append((name, action_type, args, goal_id))
+        if len(calls) > 1:
+            # The successful SDK action response did not establish arrival at
+            # its second predicted pose; only the first observation is credit.
+            assert set(verifier.visits) == {5}
+            raise RuntimeError("synthetic next-dispatch boundary")
+        assert name == "/navigate_through_poses"
+        assert action_type == "nav2_msgs/action/NavigateThroughPoses"
+        assert len(args["poses"]) == 2
+        assert [p["header"]["frame_id"] for p in args["poses"]] == ["map", "map"]
+        assert args["poses"][1]["pose"]["position"] == {"x": 2.5, "y": 2.5, "z": 0.0}
+        assert not verifier.visits
+        observed.append(
+            {
+                "x": 1.5,
+                "y": 1.5,
+                "yaw": 0.0,
+                "time_sec": 1.0,
+                "cleaning_enabled": True,
+                "observation_complete": True,
+                "collision_count": 0,
+            }
+        )
+        return {"status": 4, "result": {}}
+
+    monkeypatch.setattr(driver, "_run_goal", goal)
+    with pytest.raises(RuntimeError, match="next-dispatch"):
+        driver._repair(verifier, 0, "mock-action", time.monotonic() + 60)
+    assert set(verifier.visits) == {5}
+    assert verifier.result()["coverage_ratio"] == 0.5
+    assert len(verifier.accessible) == 2
+
+
+def test_sequence_retry_bookkeeping_counts_overlaps_without_claiming_credit():
+    from rosclaw.connectors.ros.mission.recovery import MissedRegionRecovery
+
+    verifier = CoverageVerifier(**grid(3, 1.0))
+    recovery = MissedRegionRecovery(verifier)
+    recovery.record_attempt_sequence([[1, 1, 2], [2, 3]], action_id="actual-parent-goal")
+    assert recovery.attempts == {1: 1, 2: 2, 3: 1}
+    recovery.record_attempt_sequence([[1, 1, 2], [2, 3]], action_id="actual-parent-goal")
+    assert recovery.attempts == {1: 1, 2: 2, 3: 1}
+    assert not verifier.visits
+
+
+def test_overlapping_pair_cannot_exceed_retry_budget_or_partially_mutate_bookkeeping():
+    from rosclaw.connectors.ros.mission.recovery import MissedRegionRecovery
+
+    verifier = CoverageVerifier(**grid(3, 1.0))
+    recovery = MissedRegionRecovery(verifier)
+    recovery.record_attempt_sequence([[1, 2], [2, 3]], action_id="first-parent")
+    before = dict(recovery.attempts)
+    with pytest.raises(ValueError, match="attempt budget"):
+        recovery.record_attempt_sequence([[2, 4], [2, 5]], action_id="refused-parent")
+    assert recovery.attempts == before
+    assert "refused-parent" not in recovery.seen_action_ids
+    assert not verifier.visits

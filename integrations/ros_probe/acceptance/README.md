@@ -277,3 +277,18 @@ exclusive latest-file writes, audit closure and official-byte replay with a
 synthetic delivery loop. Its seven cases include source loss, foreign contact,
 contact, timestamp regression and malformed stamps. It starts no real Node or
 DDS endpoint and remains offline contract evidence.
+# Precise intermediate repair waypoints (opt-in diagnostic)
+
+`paired_efficiency.py --precise-repair-waypoints` requires the same explicit
+boolean in the preregistered protocol and the continuous repair strategy.
+It applies only to the candidate arm. The owned stack retains its installed
+Nav2 through-poses BT and source hashes, changes intermediate pruning from
+0.7 m to the existing 0.025 m goal-checker tolerance, and checks pruning outside
+the original planner rate controller. Planning frequency, controller limits,
+recovery actions, leases, mission budgets, and independent coverage accounting
+are preserved. Unexpected installed BT structure is refused before launch.
+
+Source tests and registration with installed BehaviorTree.CPP/Nav2 plugins
+are compatibility evidence. Physical waypoint arrival and efficiency require
+fresh independently observed SIM runs; a reduced remaining-goal counter grants
+no coverage credit. Interrupted or failed diagnostic seeds are never replaced.

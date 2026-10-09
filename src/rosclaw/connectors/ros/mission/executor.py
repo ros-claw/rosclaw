@@ -232,7 +232,12 @@ class RosCoverageSimulationExecutor:
     ):
         if not owner.startswith("daemon_"):
             raise ValueError("daemon ownership is required")
-        if repair_strategy not in {"greedy", "pose_aware", "pose_aware_robust"}:
+        if repair_strategy not in {
+            "greedy",
+            "pose_aware",
+            "pose_aware_robust",
+            "pose_aware_robust_sequence",
+        }:
             raise ValueError("unknown configured SIM repair strategy")
         if not math.isfinite(repair_swath_yaw) or not 0 < repair_budget_ms <= 1000:
             raise ValueError("configured repair yaw/budget must be finite and bounded")
@@ -565,7 +570,8 @@ class RosCoverageSimulationExecutor:
             240, max(60, 2 * math.ceil(len(verifier.accessible) / max(1, len(offsets))))
         )
         index = 0
-        while index < goal_budget:
+        dispatched_targets = 0
+        while index < goal_budget and dispatched_targets < goal_budget:
             samples = self.witness.since(consumed)
             consumed += len(samples)
             for sample in samples:
@@ -683,7 +689,12 @@ class RosCoverageSimulationExecutor:
                 if ranking > best:
                     best, center = ranking, candidate
             heading = math.pi / 4
-            if self.repair_strategy in {"pose_aware", "pose_aware_robust"}:
+            selected_sequence = ()
+            if self.repair_strategy in {
+                "pose_aware",
+                "pose_aware_robust",
+                "pose_aware_robust_sequence",
+            }:
                 ready_cells = {c for proposal in proposals["ready"] for c in proposal["cells"]}
                 selection = rank_repair_poses(
                     self.grid,
@@ -693,7 +704,8 @@ class RosCoverageSimulationExecutor:
                     attempts=recovery.attempts,
                     swath_yaw=self.repair_swath_yaw,
                     budget_ms=self.repair_budget_ms,
-                    robust_footprint=self.repair_strategy == "pose_aware_robust",
+                    robust_footprint=self.repair_strategy
+                    in {"pose_aware_robust", "pose_aware_robust_sequence"},
                 )
                 self._audit_event(
                     "repair_candidate_selection",
@@ -710,6 +722,19 @@ class RosCoverageSimulationExecutor:
                     },
                 )
                 if selection.status == "READY":
+                    if self.repair_strategy == "pose_aware_robust_sequence":
+                        selected_sequence = selection.poses[
+                            : min(2, goal_budget - dispatched_targets)
+                        ]
+                        if len(selected_sequence) == 2:
+                            shared = set(selected_sequence[0].predicted_new_cells) & set(
+                                selected_sequence[1].predicted_new_cells
+                            )
+                            if any(
+                                recovery.attempts.get(c, 0) + 2 > recovery.max_attempts
+                                for c in shared
+                            ):
+                                selected_sequence = selected_sequence[:1]
                     selected = selection.poses[0]
                     center, heading = (selected.x, selected.y), selected.yaw
                     missed = sorted(ready_cells)
@@ -719,21 +744,51 @@ class RosCoverageSimulationExecutor:
                 for px, py in verifier.polygon
             ]
             goal_id = f"{action_id}:repair:{index}"
-            result = self._run_goal(
-                "/navigate_to_pose",
-                "nav2_msgs/action/NavigateToPose",
-                {
-                    "pose": {
-                        "header": {"frame_id": "map"},
+            if len(selected_sequence) == 2:
+                # Nav2 owns the continuous path; waypoint predictions never
+                # grant credit or imply either target was physically reached.
+                result = self._run_goal(
+                    "/navigate_through_poses",
+                    "nav2_msgs/action/NavigateThroughPoses",
+                    {
+                        "poses": [
+                            {
+                                "header": {"frame_id": "map"},
+                                "pose": {
+                                    "position": {"x": p.x, "y": p.y, "z": 0.0},
+                                    "orientation": {
+                                        "z": math.sin(p.yaw / 2),
+                                        "w": math.cos(p.yaw / 2),
+                                    },
+                                },
+                            }
+                            for p in selected_sequence
+                        ]
+                    },
+                    goal_id,
+                    deadline,
+                )
+                dispatched_targets += 2
+            else:
+                result = self._run_goal(
+                    "/navigate_to_pose",
+                    "nav2_msgs/action/NavigateToPose",
+                    {
                         "pose": {
-                            "position": {"x": center[0], "y": center[1], "z": 0.0},
-                            "orientation": {"z": math.sin(heading / 2), "w": math.cos(heading / 2)},
-                        },
-                    }
-                },
-                goal_id,
-                deadline,
-            )
+                            "header": {"frame_id": "map"},
+                            "pose": {
+                                "position": {"x": center[0], "y": center[1], "z": 0.0},
+                                "orientation": {
+                                    "z": math.sin(heading / 2),
+                                    "w": math.cos(heading / 2),
+                                },
+                            },
+                        }
+                    },
+                    goal_id,
+                    deadline,
+                )
+                dispatched_targets += 1
             nearby = [
                 i
                 for i in missed
@@ -747,11 +802,22 @@ class RosCoverageSimulationExecutor:
                     goal_polygon,
                 )
             ]
-            recovery.record_attempt(nearby or [cell], action_id=goal_id)
+            if len(selected_sequence) == 2:
+                # Per-cell retries account for both planned footprints, while
+                # the immutable measured verifier still owns all actual credit.
+                recovery.record_attempt_sequence(
+                    [list(p.predicted_new_cells) for p in selected_sequence], action_id=goal_id
+                )
+            else:
+                recovery.record_attempt(nearby or [cell], action_id=goal_id)
             records.append(
                 {
                     "goal_id": goal_id,
                     "target": center,
+                    "planned_targets": [(p.x, p.y, p.yaw) for p in selected_sequence]
+                    if selected_sequence
+                    else [(center[0], center[1], heading)],
+                    "waypoint_count": max(1, len(selected_sequence)),
                     "result": result,
                     "coverage_before": verifier.result()["coverage_ratio"],
                 }

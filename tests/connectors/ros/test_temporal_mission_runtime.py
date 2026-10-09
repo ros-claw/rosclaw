@@ -166,18 +166,29 @@ def temporal_executor(tmp_path, batches):
     return driver, calls
 
 
-def test_daemon_waits_with_brush_off_then_repairs_actual_withdrawn_cells(tmp_path, monkeypatch):
-    batches = [[sample(t, i, 0.005, [1])] for i, t in enumerate((0, 0.1, 0.2))]
-    batches.append([sample(0.3, 3, 0.005, [])])
+@pytest.mark.parametrize("waiting_polls", [3, 80])
+@pytest.mark.parametrize("strategy", ["greedy", "pose_aware_robust_sequence"])
+def test_daemon_waits_with_brush_off_then_repairs_actual_withdrawn_cells(
+    tmp_path, monkeypatch, waiting_polls, strategy
+):
+    # More polls than the 60-goal floor must not spend an unissued target.
+    batches = [[sample(i * 0.01, i, 0.005, [1])] for i in range(waiting_polls)]
+    batches.append([sample(waiting_polls * 0.01, waiting_polls, 0.005, [])])
     for batch in batches:
         batch[0]["cleaning_enabled"] = False
     driver, calls = temporal_executor(tmp_path, batches)
+    driver.repair_strategy = strategy
     monkeypatch.setattr(driver.stopping, "wait", lambda _: False)
     goals = []
 
     def goal(*args, **kwargs):
         goals.append(args)
-        batches.append([sample(0.4, 4, 0.005, []), sample(0.5, 5, 0.015, [])])
+        batches.append(
+            [
+                sample((waiting_polls + 1) * 0.01, waiting_polls + 1, 0.005, []),
+                sample((waiting_polls + 2) * 0.01, waiting_polls + 2, 0.015, []),
+            ]
+        )
         return {"status": 4}
 
     monkeypatch.setattr(driver, "_run_goal", goal)
@@ -192,6 +203,7 @@ def test_daemon_waits_with_brush_off_then_repairs_actual_withdrawn_cells(tmp_pat
         deadline_sim_time=1,
     )
     assert len(goals) == len(repairs) == 1
+    assert goals[0][3] == "action:repair:0"
     assert calls == [("/rosclaw_sim/hold", True), ("/rosclaw_sim/hold", False)]
     assert verifier.result()["coverage_ratio"] == 1
     assert not driver.waiting_for_obstacle.is_set()

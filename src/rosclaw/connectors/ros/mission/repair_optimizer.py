@@ -55,7 +55,7 @@ def rank_repair_poses(
     shortlist_size=24,
     robust_footprint=False,
 ):
-    """Return at most two predicted poses; the executor dispatches only the first.
+    """Return at most two predicted poses for an explicitly selected dispatch mode.
 
     Legal centers come from the existing Body/map preflight. Eight-neighbor
     costs prohibit corner cutting. This static estimate does not establish

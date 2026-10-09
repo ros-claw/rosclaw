@@ -20,7 +20,14 @@ ROOT = Path(__file__).resolve().parent
 OUTPUT = Path("/evidence")
 
 
-def prepare(controller_watchdog=True, profile_name="waffle", coverage_preset="baseline", seed=None):
+def prepare(
+    controller_watchdog=True,
+    profile_name="waffle",
+    coverage_preset="baseline",
+    seed=None,
+    *,
+    precise_repair_waypoints=False,
+):
     profile = PROFILES[profile_name]
     candidate = planning_parameters(profile, coverage_preset)
     controller_candidate = controller_parameters(profile, coverage_preset)
@@ -156,6 +163,23 @@ def prepare(controller_watchdog=True, profile_name="waffle", coverage_preset="ba
         default_coverage_bt_xml=get_package_share_directory("opennav_coverage_bt")
         + "/behavior_trees/navigate_w_basic_complete_coverage_nav_to_start.xml",
     )
+    if precise_repair_waypoints:
+        from precise_through_poses_bt import prepare_precise_through_poses_bt
+
+        original = (
+            Path(get_package_share_directory("nav2_bt_navigator"))
+            / "behavior_trees/navigate_through_poses_w_replanning_and_recovery.xml"
+        ).read_bytes()
+        prepare_precise_through_poses_bt(
+            OUTPUT,
+            original,
+            xy_goal_tolerance=params["controller_server"]["ros__parameters"][
+                "general_goal_checker"
+            ]["xy_goal_tolerance"],
+        )
+        params["bt_navigator"]["ros__parameters"]["default_nav_through_poses_bt_xml"] = str(
+            OUTPUT / "repair-through-poses.xml"
+        )
     params["amcl"]["ros__parameters"].update(
         set_initial_pose=True,
         initial_pose={"x": 0.0, "y": 0.0, "z": 0.0, "yaw": 0.0},
@@ -226,6 +250,7 @@ def prepare(controller_watchdog=True, profile_name="waffle", coverage_preset="ba
                     "perimeter_sequential",
                     "perimeter_stateless",
                     "perimeter_stateless_headland",
+                    "perimeter_stateless_clearance",
                     "perimeter_stateless_overlap",
                 ),
                 "boundary_strategy": "sequential"
@@ -234,6 +259,7 @@ def prepare(controller_watchdog=True, profile_name="waffle", coverage_preset="ba
                     "perimeter_sequential",
                     "perimeter_stateless",
                     "perimeter_stateless_headland",
+                    "perimeter_stateless_clearance",
                     "perimeter_stateless_overlap",
                 )
                 else "through_poses",
@@ -272,10 +298,12 @@ def main():
             "perimeter_sequential",
             "perimeter_stateless",
             "perimeter_stateless_headland",
+            "perimeter_stateless_clearance",
             "perimeter_stateless_overlap",
         ],
         default="baseline",
     )
+    parser.add_argument("--precise-repair-waypoints", action="store_true")
     parser.add_argument("--seed", type=int)
     parser.add_argument("--fault-acceptance", action="store_true")
     parser.add_argument(
@@ -304,10 +332,26 @@ def main():
         parser.error("physics fixture and pinned compiled plugin must be supplied together")
     if args.physics_fixture is not None and args.brush_binding is None:
         parser.error("physics fixture requires a prepared separate SIM actuator binding")
+    from fixture_network import validate_ros_domain
+
+    # Read this process's actual kernel range before any simulator/ROS child.
+    # The host preflight alone cannot establish a container's network facts.
+    network = validate_ros_domain(int(os.environ.get("ROS_DOMAIN_ID", "0")))
+    network["source_process_network_namespace"] = os.readlink("/proc/self/ns/net")
+    network["source"] = "owned_stack_process_actual_kernel_port_range"
+    OUTPUT.mkdir(exist_ok=True)
+    with (OUTPUT / "container-network-preflight.json").open("x") as evidence:
+        json.dump(network, evidence, indent=2)
     os.environ["PYTHONPATH"] = (
         str(ROOT.parents[2] / "src") + os.pathsep + os.getenv("PYTHONPATH", "")
     )
-    prepare(args.controller_watchdog, args.profile, args.coverage_preset, args.seed)
+    prepare(
+        args.controller_watchdog,
+        args.profile,
+        args.coverage_preset,
+        args.seed,
+        precise_repair_waypoints=args.precise_repair_waypoints,
+    )
     if args.brush_binding is not None:
         binding = json.loads(args.brush_binding.read_text())
         keys = {"run_id", "body_snapshot_hash", "attachment_hash", "producer_id"}

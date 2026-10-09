@@ -24,6 +24,13 @@ def planning_parameters(profile, preset="baseline"):
         if profile.name != "burger":
             raise ValueError("safe-headland combination is preregistered only for Burger")
         params["default_headland_width"] = 0.35
+    elif preset == "perimeter_stateless_clearance":
+        # Known-Burger diagnostic only. Source7a main-path tracking deviation
+        # exceeded the 74mm static margin; 0.50m predicts 224mm clearance.
+        # This is a hypothesis, not a physical safety/efficiency guarantee.
+        if profile.name != "burger":
+            raise ValueError("clearance diagnostic is declared only for known Burger")
+        params["default_headland_width"] = 0.50
     elif preset == "perimeter_stateless_overlap":
         # Explicit known-fixture diagnostic: more overlap addresses measured
         # strip/endpoint misses without shrinking the real verifier brush or
@@ -41,7 +48,12 @@ def controller_parameters(profile, preset="baseline"):
     return (
         {"stateful": False}
         if preset
-        in ("perimeter_stateless", "perimeter_stateless_headland", "perimeter_stateless_overlap")
+        in (
+            "perimeter_stateless",
+            "perimeter_stateless_headland",
+            "perimeter_stateless_overlap",
+            "perimeter_stateless_clearance",
+        )
         else {}
     )
 

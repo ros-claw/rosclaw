@@ -40,6 +40,28 @@ def test_seed_changes_only_sim_randomness_and_is_validated():
             experiments.gazebo_arguments("world.sdf", invalid)
 
 
+def test_clearance_diagnostic_changes_only_burger_headland_from_prior_candidate():
+    burger = SimpleNamespace(name="burger", coverage_width_m=0.3, physical_radius_m=0.15)
+    before = dict(vars(burger))
+    old = experiments.planning_parameters(burger, "perimeter_stateless_headland")
+    new = experiments.planning_parameters(burger, "perimeter_stateless_clearance")
+    assert {key for key in old if old[key] != new[key]} == {"default_headland_width"}
+    assert new["default_headland_width"] == 0.5
+    assert experiments.controller_parameters(
+        burger, "perimeter_stateless_clearance"
+    ) == experiments.controller_parameters(burger, "perimeter_stateless_headland")
+    assert vars(burger) == before
+    assert experiments.planning_parameters(burger)["default_headland_width"] == 0.3
+
+
+def test_clearance_diagnostic_cannot_silently_apply_to_another_body():
+    for name in ["waffle", "unseen_robot"]:
+        with pytest.raises(ValueError, match="only for known Burger"):
+            experiments.planning_parameters(
+                SimpleNamespace(name=name, coverage_width_m=0.5), "perimeter_stateless_clearance"
+            )
+
+
 def test_failed_journey_stops_owned_fixture_and_retains_failure(tmp_path, monkeypatch):
     runner = ROOT / "integrations/ros_probe/acceptance"
     monkeypatch.syspath_prepend(str(runner))
@@ -183,3 +205,33 @@ def test_overlap_candidate_changes_only_spacing_of_existing_safe_main_configurat
     }
     assert vars(profile) == {"name": name, "coverage_width_m": width}
     assert "operation_width" not in experiments.planning_parameters(profile, "baseline")
+
+
+def test_repair_metrics_preserve_requested_waypoints_separately_from_goal_count(
+    tmp_path, monkeypatch
+):
+    from rosclaw.connectors.ros.diagnosis.coverage_audit import CoverageAuditLog
+
+    runner = ROOT / "integrations/ros_probe/acceptance"
+    monkeypatch.syspath_prepend(str(runner))
+    spec = importlib.util.spec_from_file_location(
+        "coverage_pair_counts", runner / "paired_efficiency.py"
+    )
+    pairs = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(pairs)
+    audit = CoverageAuditLog(
+        tmp_path / "actions/coverage-audit-source.jsonl", context={"run_id": "source-only"}
+    )
+    audit.emit("goal_started", {"stage": "REPAIR", "nav_goal_id": "single", "goal": {"pose": {}}})
+    audit.emit(
+        "goal_started", {"stage": "REPAIR", "nav_goal_id": "sequence", "goal": {"poses": [{}, {}]}}
+    )
+    audit.emit(
+        "goal_started",
+        {"stage": "BOUNDARY_PASS", "nav_goal_id": "boundary", "goal": {"poses": [{}, {}]}},
+    )
+    audit.close()
+    assert pairs.repair_request_counts(tmp_path) == {
+        "repair_requested_goal_count": 2,
+        "repair_requested_waypoint_count": 3,
+    }
