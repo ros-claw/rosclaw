@@ -65,3 +65,26 @@ A0–A3 feature_flags 与 Memory 模式固定对应；相同 seed 的初始条�
 随后单独预登记的一请求超预算探针实际返回两个空参数函数。服务保留 added、arguments.done、output_item.done 与完整终态，但没有 arguments.delta；旧门禁安全地以 MODEL_TOOL_CALLS_UNVERIFIABLE 整批拒绝，没有释放 SSE 或执行工具。因此这次原始记录不能宣称已证明 TOOL_CALL_BUDGET_EXCEEDED。官方 [Responses 流式事件定义](https://developers.openai.com/api/reference/resources/responses/streaming-events) 区分部分 delta 与完整 arguments.done；省略空参数 delta 的具体形状来自本次真实原始响应，且固定 PI0.85.1 消费者也使用 arguments.done 更新最终参数。
 
 兼容修复仅允许没有 delta、但三处身份/完整参数都严格匹配的空 JSON 对象调用。非空参数仍需原始 delta 全量对应；已有 delta 不一致、任何 added/arguments.done/item.done 缺失均拒绝。七项新回归在旧源码为 3 FAIL/4 PASS，保留原始红测试；修复后预算与清单共 113 PASS。最初本地 venv 路径错误和测试 helper 重复关键字导致的失败也保留，不能当作有效旧源码反例。该修复不会追认历史任务执行新源码；真实新源码复验必须另行登记。
+
+
+## 修复后源码704的完整真实 Native 集成复验
+
+宿主预算门禁 `7043bbb4f5220db715219984d38cbb8dcd7df87e` 单独预登记并实际
+完成 M0/M1/M2 三组隔离合成文件任务。模型、推理参数和预算仍为
+`openai-codex/gpt-6.1-sol`、low、16请求、12释放工具调用、2048输出token/请求、
+120000总token、600秒。镜像内 Core/Native 仍为旧5aa的V4，不能把宿主预算
+源码704误称镜像源码。该镜像存在后来PR651修复的并发取消竞态；本文件任务
+拒绝process-start，不验收镜像进程取消，也没有机器人或World。
+
+| 模式 | 真实模型请求 | 释放工具调用 | 总 token | 原单调时钟耗时秒 |
+|---|---:|---:|---:|---:|
+| M0 | 9 | 8 | 44674 | 71.6957 |
+| M1 | 10 | 9 | 58522 | 77.1634 |
+| M2 | 10 | 9 | 62620 | 74.5255 |
+
+三组 TaskKernel SUCCEEDED，交付Artifact的SHA和长度与原始字节一致，原容器均
+停止/Pid0/exit0。独立复核用每笔真实请求与SSE、原始单调时间重建全部29次预算
+决定，账本逐字段一致；26个释放工具调用与Native的toolCall/toolResult完全对应。
+171个公开文件封存于 harness
+`evidence/2026-10-09/n06-source704-live-tool-gate-three-real-native-synthetic-tasks`。
+没有自动重试、替换失败、机器人验收、A0–A3正式对照或Memory因果收益结论。
