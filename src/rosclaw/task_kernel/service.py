@@ -23,15 +23,17 @@ from rosclaw.contracts.common import new_id
 from rosclaw.task_kernel.run_store import ensure_run, run_dir, zone_of
 
 #: root task 状态机（§9.4）：ACTIVE 子态 + TERMINAL。
-TASK_ACTIVE = frozenset({
-    "RUNNING",
-    "WAITING_OPERATION",
-    "WAITING_INPUT",
-    "WAITING_PERMISSION",
-    "PAUSED",
-    "VERIFYING",
-    "RECOVERING",
-})
+TASK_ACTIVE = frozenset(
+    {
+        "RUNNING",
+        "WAITING_OPERATION",
+        "WAITING_INPUT",
+        "WAITING_PERMISSION",
+        "PAUSED",
+        "VERIFYING",
+        "RECOVERING",
+    }
+)
 TASK_TERMINAL = frozenset({"SUCCEEDED", "BLOCKED", "FAILED", "CANCELLED"})
 TASK_STATES = TASK_ACTIVE | TASK_TERMINAL
 
@@ -47,8 +49,13 @@ class TaskKernel:
     # 输入事务（§9.3 Root Task 绑定算法）
     # --------------------------------------------------------------
     def persist_input(
-        self, *, mission_id: str, session_ref: str, message_id: str,
-        text: str, force_new: bool = False,
+        self,
+        *,
+        mission_id: str,
+        session_ref: str,
+        message_id: str,
+        text: str,
+        force_new: bool = False,
     ) -> dict[str, Any]:
         """P0-C（0824 总纲 §6.1）：输入先落会话，不立即创建 Task。
 
@@ -56,7 +63,8 @@ class TaskKernel:
         只读查询永远只走这条路——tasks=0 直到首个 effectful call
         或显式 /goal。"""
         existing = self._conn.execute(
-            "SELECT * FROM user_inputs WHERE message_id = ?", (message_id,),
+            "SELECT * FROM user_inputs WHERE message_id = ?",
+            (message_id,),
         ).fetchone()
         if existing is not None:
             return dict(existing)
@@ -67,19 +75,37 @@ class TaskKernel:
             "INSERT INTO user_inputs (input_id, mission_id, session_ref, "
             "message_id, text, text_digest, delivery_state, created_at) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (input_id, mission_id, session_ref, message_id, text,
-             f"sha256:{digest}", state, datetime.now(UTC).isoformat()),
+            (
+                input_id,
+                mission_id,
+                session_ref,
+                message_id,
+                text,
+                f"sha256:{digest}",
+                state,
+                datetime.now(UTC).isoformat(),
+            ),
         )
         return {
-            "input_id": input_id, "mission_id": mission_id,
-            "session_ref": session_ref, "message_id": message_id,
-            "text": text, "text_digest": f"sha256:{digest}",
-            "task_id": None, "delivery_state": "PERSISTED",
+            "input_id": input_id,
+            "mission_id": mission_id,
+            "session_ref": session_ref,
+            "message_id": message_id,
+            "text": text,
+            "text_digest": f"sha256:{digest}",
+            "task_id": None,
+            "delivery_state": "PERSISTED",
         }
 
     def ensure_task_for_effect(
-        self, *, mission_id: str, session_ref: str, backend_native_id: str,
-        cwd: str, mode: str = "SIMULATION", body_id: str = "",
+        self,
+        *,
+        mission_id: str,
+        session_ref: str,
+        backend_native_id: str,
+        cwd: str,
+        mode: str = "SIMULATION",
+        body_id: str = "",
         explicit_goal: str = "",
     ) -> dict[str, Any]:
         """P0-C（0824 总纲 §6.2）：首个 effectful call 的原子 admission。
@@ -95,8 +121,7 @@ class TaskKernel:
         ).fetchone()
         if row is None and not explicit_goal:
             raise ValueError(
-                "INPUT_MOTIVATION_MISSING: 无持久化输入——effectful "
-                "call 缺少动机输入，不猜目标"
+                "INPUT_MOTIVATION_MISSING: 无持久化输入——effectful call 缺少动机输入，不猜目标"
             )
         if row is not None and row["task_id"]:
             task = self.get_task(str(row["task_id"]))
@@ -113,19 +138,16 @@ class TaskKernel:
             mission_id=mission_id,
             session_ref=session_ref,
             backend_native_id=backend_native_id,
-            message_id=(
-                str(row["message_id"]) if row is not None
-                else f"goal_{new_id('msg')}"
-            ),
+            message_id=(str(row["message_id"]) if row is not None else f"goal_{new_id('msg')}"),
             text=explicit_goal or str(row["text"]),
-            cwd=cwd, mode=mode, body_id=body_id,
+            cwd=cwd,
+            mode=mode,
+            body_id=body_id,
             # 任务 workspace = 调用方解析的工作根（与 pi.task.bind
             # 同一语义——不传则回落 home/tasks/<id>/workspace）。
             workspace_root=cwd,
             # /newtask：该输入被显式要求开新任务。
-            force_new=(
-                row is not None and row["delivery_state"] == "FORCE_NEW"
-            ),
+            force_new=(row is not None and row["delivery_state"] == "FORCE_NEW"),
         )
         if row is not None:
             self._conn.execute(
@@ -163,8 +185,7 @@ class TaskKernel:
         now = datetime.now(UTC).isoformat()
         # 1. 重放幂等：message_id 唯一约束是兜底，先查。
         existing = self._conn.execute(
-            "SELECT task_id, revision FROM task_revisions "
-            "WHERE user_message_id = ?",
+            "SELECT task_id, revision FROM task_revisions WHERE user_message_id = ?",
             (message_id,),
         ).fetchone()
         if existing is not None:
@@ -192,18 +213,14 @@ class TaskKernel:
         # FORCE_NEW 输入落成旧任务 revision 3）。
         if active is not None and force_new:
             self._conn.execute(
-                "UPDATE task_session_bindings SET active = 0 "
-                "WHERE task_id = ? AND session_ref = ?",
+                "UPDATE task_session_bindings SET active = 0 WHERE task_id = ? AND session_ref = ?",
                 (active["task_id"], session_ref),
             )
             active = None
         if (
             active is not None
             and active["state"] in TASK_TERMINAL
-            and not (
-                active["state"] == "SUCCEEDED"
-                and not active["user_accepted_at"]
-            )
+            and not (active["state"] == "SUCCEEDED" and not active["user_accepted_at"])
         ):
             active = None  # 已终态且（非 SUCCEEDED 或已被用户接受）
         if active is not None and active["state"] == "SUCCEEDED":
@@ -222,7 +239,9 @@ class TaskKernel:
                 self._acceptance_for_revision(task_id, revision)
             )
             revised_spec = compile_task_spec(
-                task_id=task_id, revision=revision, goal_text=text,
+                task_id=task_id,
+                revision=revision,
+                goal_text=text,
                 body_id=str(active["body_id"] or ""),
                 mode=str(active["mode"] or "SIMULATION"),
                 acceptance_spec_id=acceptance_spec_id,
@@ -232,9 +251,16 @@ class TaskKernel:
                 "INSERT INTO task_revisions (task_id, revision, "
                 "user_message_id, goal_delta, task_spec_json, acceptance_json, "
                 "acceptance_spec_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (task_id, revision, message_id, text,
-                 revised_spec.model_dump_json(), acceptance_json,
-                 acceptance_spec_json, now),
+                (
+                    task_id,
+                    revision,
+                    message_id,
+                    text,
+                    revised_spec.model_dump_json(),
+                    acceptance_json,
+                    acceptance_spec_json,
+                    now,
+                ),
             )
             self._conn.execute(
                 "UPDATE tasks SET active_revision = ?, state = 'RUNNING', "
@@ -247,13 +273,18 @@ class TaskKernel:
                 "WHERE task_id = ? AND status = 'PASS'",
                 (task_id,),
             ).rowcount
-            self._emit(task_id, "verification.superseded",
-                       {"count": superseded, "reason": "user_rejected"},
-                       session_ref=session_ref)
-            self._emit(task_id, "task.revised",
-                       {"revision": revision, "delta": text[:200],
-                        "reopened_from": "SUCCEEDED"},
-                       session_ref=session_ref)
+            self._emit(
+                task_id,
+                "verification.superseded",
+                {"count": superseded, "reason": "user_rejected"},
+                session_ref=session_ref,
+            )
+            self._emit(
+                task_id,
+                "task.revised",
+                {"revision": revision, "delta": text[:200], "reopened_from": "SUCCEEDED"},
+                session_ref=session_ref,
+            )
             return {
                 "task_id": task_id,
                 "revision": revision,
@@ -276,22 +307,28 @@ class TaskKernel:
                 self._acceptance_for_revision(str(active["task_id"]), revision)
             )
             revised_spec = compile_task_spec(
-                task_id=str(active["task_id"]), revision=revision,
+                task_id=str(active["task_id"]),
+                revision=revision,
                 goal_text=text,
                 body_id=str(active["body_id"] or ""),
                 mode=str(active["mode"] or "SIMULATION"),
                 acceptance_spec_id=acceptance_spec_id,
-                language=(
-                    str(active["locale"] or "") if active["locale"] != "auto" else ""
-                ),
+                language=(str(active["locale"] or "") if active["locale"] != "auto" else ""),
             )
             self._conn.execute(
                 "INSERT INTO task_revisions (task_id, revision, "
                 "user_message_id, goal_delta, task_spec_json, acceptance_json, "
                 "acceptance_spec_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (str(active["task_id"]), revision, message_id, text,
-                 revised_spec.model_dump_json(), acceptance_json,
-                 acceptance_spec_json, now),
+                (
+                    str(active["task_id"]),
+                    revision,
+                    message_id,
+                    text,
+                    revised_spec.model_dump_json(),
+                    acceptance_json,
+                    acceptance_spec_json,
+                    now,
+                ),
             )
             self._conn.execute(
                 "UPDATE tasks SET active_revision = ?, terminal_reason = NULL, "
@@ -299,9 +336,12 @@ class TaskKernel:
                 "WHERE task_id = ?",
                 (revision, now, active["task_id"]),
             )
-            self._emit(active["task_id"], "task.revised",
-                       {"revision": revision, "delta": text[:200]},
-                       session_ref=session_ref)
+            self._emit(
+                active["task_id"],
+                "task.revised",
+                {"revision": revision, "delta": text[:200]},
+                session_ref=session_ref,
+            )
             return {
                 "task_id": str(active["task_id"]),
                 "revision": revision,
@@ -330,23 +370,25 @@ class TaskKernel:
             "INSERT INTO tasks (task_id, mission_id, root_goal, mode, body_id, "
             "workspace_path, state, active_revision, locale, created_at, "
             "updated_at) VALUES (?, ?, ?, ?, ?, ?, 'RUNNING', 1, ?, ?, ?)",
-            (task_id, mission_id, text, mode, body_id, str(workspace),
-             locale, now, now),
+            (task_id, mission_id, text, mode, body_id, str(workspace), locale, now, now),
         )
         # P1-C1：TaskSpecV2 随 revision 1 冻结（intent/subjects/
         # constraints 工单——root_goal 之外的契约视图）。
         from rosclaw.task_kernel.task_spec import compile_task_spec
 
         task_spec = compile_task_spec(
-            task_id=task_id, revision=1, goal_text=text,
-            body_id=body_id, mode=mode, acceptance_spec_id="",
+            task_id=task_id,
+            revision=1,
+            goal_text=text,
+            body_id=body_id,
+            mode=mode,
+            acceptance_spec_id="",
             language=locale if locale != "auto" else "",
         )
         self._conn.execute(
             "INSERT INTO task_revisions (task_id, revision, user_message_id, "
             "goal_delta, task_spec_json, created_at) VALUES (?, 1, ?, ?, ?, ?)",
-            (task_id, message_id, text,
-             task_spec.model_dump_json(), now),
+            (task_id, message_id, text, task_spec.model_dump_json(), now),
         )
         # harness session 登记（backend_native_id 幂等）。
         self._conn.execute(
@@ -375,8 +417,7 @@ class TaskKernel:
             ),
             encoding="utf-8",
         )
-        self._emit(task_id, "task.started", {"goal": text[:200]},
-                   session_ref=session_ref)
+        self._emit(task_id, "task.started", {"goal": text[:200]}, session_ref=session_ref)
         return {
             "task_id": task_id,
             "revision": 1,
@@ -390,21 +431,15 @@ class TaskKernel:
     # 查询/状态
     # --------------------------------------------------------------
     def get_task(self, task_id: str) -> dict | None:
-        row = self._conn.execute(
-            "SELECT * FROM tasks WHERE task_id = ?", (task_id,)
-        ).fetchone()
+        row = self._conn.execute("SELECT * FROM tasks WHERE task_id = ?", (task_id,)).fetchone()
         if row is None:
             return None
         task = dict(row)
         # WP-8：当前 revision 的运行目录（模型/界面可查）。
-        task["run_dir"] = str(
-            run_dir(self._home, task_id, int(task["active_revision"]))
-        )
+        task["run_dir"] = str(run_dir(self._home, task_id, int(task["active_revision"])))
         return task
 
-    def active_task_for_session(
-        self, mission_id: str, session_ref: str
-    ) -> dict | None:
+    def active_task_for_session(self, mission_id: str, session_ref: str) -> dict | None:
         """WP-8：session 的活跃 task + 运行目录/四区（pi.context
         接线——模型每轮知道写哪里）。"""
         row = self._conn.execute(
@@ -419,9 +454,7 @@ class TaskKernel:
             return None
         task = self.get_task(str(row["task_id"]))
         assert task is not None
-        run = ensure_run(
-            self._home, str(task["task_id"]), int(task["active_revision"])
-        )
+        run = ensure_run(self._home, str(task["task_id"]), int(task["active_revision"]))
         return {
             "task_id": str(task["task_id"]),
             "state": str(task["state"]),
@@ -433,8 +466,7 @@ class TaskKernel:
     def list_tasks(self, mission_id: str = "") -> list[dict]:
         if mission_id:
             rows = self._conn.execute(
-                "SELECT * FROM tasks WHERE mission_id = ? "
-                "ORDER BY created_at DESC",
+                "SELECT * FROM tasks WHERE mission_id = ? ORDER BY created_at DESC",
                 (mission_id,),
             ).fetchall()
         else:
@@ -455,7 +487,9 @@ class TaskKernel:
 
                 logging.getLogger(__name__).warning(
                     "task %s 已终态 %s——拒绝覆盖为 %s",
-                    task_id, row["state"], state,
+                    task_id,
+                    row["state"],
+                    state,
                 )
             return
         now = datetime.now(UTC).isoformat()
@@ -467,15 +501,18 @@ class TaskKernel:
             # Current terminal evidence belongs only to this transition. Active
             # reasons remain in task.state_changed events, not terminal_reason.
             # Empty terminal reasons must not inherit a previous success/block.
-            (state, now, (reason or None) if state in TASK_TERMINAL else None,
-             state, now if state == "SUCCEEDED" else "",
-             task_id),
+            (
+                state,
+                now,
+                (reason or None) if state in TASK_TERMINAL else None,
+                state,
+                now if state == "SUCCEEDED" else "",
+                task_id,
+            ),
         )
-        self._emit(task_id, "task.state_changed",
-                   {"state": state, "reason": reason[:200]})
+        self._emit(task_id, "task.state_changed", {"state": state, "reason": reason[:200]})
         if state in TASK_TERMINAL:
-            self._emit(task_id, "task.terminal",
-                       {"state": state, "reason": reason[:200]})
+            self._emit(task_id, "task.terminal", {"state": state, "reason": reason[:200]})
 
     def latest_task_for(self, mission_id: str, session_ref: str) -> dict | None:
         """P0-C：session 最近 task（含刚终态）——/activity /logs
@@ -502,24 +539,58 @@ class TaskKernel:
             return None
         return dict(row)
 
-    def _emit(self, task_id: str, event_type: str, payload: dict,
-              *, session_ref: str = "") -> None:
+    def _emit(self, task_id: str, event_type: str, payload: dict, *, session_ref: str = "") -> None:
         self._conn.execute(
             "INSERT INTO task_events (task_id, session_ref, event_type, "
             "payload_json, created_at) VALUES (?, ?, ?, ?, ?)",
-            (task_id, session_ref or None, event_type,
-             json.dumps(payload, ensure_ascii=False),
-             datetime.now(UTC).isoformat()),
+            (
+                task_id,
+                session_ref or None,
+                event_type,
+                json.dumps(payload, ensure_ascii=False),
+                datetime.now(UTC).isoformat(),
+            ),
         )
 
     # --------------------------------------------------------------
     # Artifact 登记 + 验收（PR-H4，§12：终态由 Verifier 决定）
     # --------------------------------------------------------------
+    def _store_declared_snapshot(self, content: bytes) -> Path:
+        """Persist admitted bytes, never reread the mutable delivery input.
+
+        A private exclusive directory and read-only file separate the registered
+        object from independent writers of the source artifact or schema.
+        """
+        import os
+        import tempfile
+
+        if not isinstance(content, bytes) or len(content) > 262144:
+            raise ValueError("DECLARED_SNAPSHOT_INVALID")
+        try:
+            directory = Path(tempfile.mkdtemp(prefix="declared-", dir=self._home))
+            file = directory / "artifact.json"
+            descriptor = os.open(file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(descriptor, "wb") as handle:
+                handle.write(content)
+                handle.flush()
+                os.fsync(handle.fileno())
+                os.fchmod(handle.fileno(), 0o400)
+            if file.is_symlink() or file.read_bytes() != content:
+                raise ValueError("DECLARED_SNAPSHOT_INVALID")
+            return file
+        except OSError as exc:
+            raise ValueError("DECLARED_SNAPSHOT_UNAVAILABLE") from exc
+
     def register_artifact(
-        self, *, task_id: str, path: str, media_type: str,
+        self,
+        *,
+        task_id: str,
+        path: str,
+        media_type: str,
         producer_operation_id: str = "",
         producer: str = "model:tool",
         metadata: dict | None = None,
+        validated_snapshot: bytes | None = None,
     ) -> dict[str, Any]:
         """登记交付物：实读文件算 sha256/size（不存在的文件拒绝登记）。
         登记才进交付列表——模型口头提到不算。
@@ -535,17 +606,24 @@ class TaskKernel:
         file = Path(path)
         if not file.is_absolute():
             file = workspace / file
+        if validated_snapshot is not None:
+            original_zone = zone_of(
+                self._home, task_id, int(task["active_revision"]), file.resolve()
+            )
+            if original_zone == "scratch" or (
+                original_zone == "evidence" and not producer.startswith("kernel:")
+            ):
+                raise ValueError("DECLARED_SNAPSHOT_ZONE_REJECTED")
+            file = self._store_declared_snapshot(validated_snapshot)
         file = file.resolve()
         if not file.exists():
-            raise ValueError(
-                f"artifact 不存在: {path}（解析根: {workspace}）"
-            )
+            raise ValueError(f"artifact 不存在: {path}（解析根: {workspace}）")
         content = file.read_bytes()
+        if validated_snapshot is not None and (file.is_symlink() or content != validated_snapshot):
+            raise ValueError("DECLARED_SNAPSHOT_CHANGED")
         # WP-8：运行区纪律——scratch 是草稿区，不得登记为交付物；
         # outputs/evidence 登记记录 zone（交付/证据可归因）。
-        zone = zone_of(
-            self._home, task_id, int(task["active_revision"]), file
-        )
+        zone = zone_of(self._home, task_id, int(task["active_revision"]), file)
         if zone == "scratch":
             raise ValueError(
                 f"SCRATCH_NOT_DELIVERABLE: {file} 在 scratch 草稿区——"
@@ -568,6 +646,38 @@ class TaskKernel:
             (task_id, digest),
         ).fetchone()
         if existing is not None:
+            if validated_snapshot is not None:
+                # Do not replay a legacy reference whose mutable path changed.
+                import os
+                import stat
+
+                old_file = Path(str(existing["path"]))
+                descriptor = None
+                try:
+                    descriptor = os.open(os.sep, os.O_RDONLY | os.O_DIRECTORY)
+                    for part in old_file.parts[1:-1]:
+                        next_fd = os.open(
+                            part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=descriptor
+                        )
+                        os.close(descriptor)
+                        descriptor = next_fd
+                    fd = os.open(
+                        old_file.name,
+                        os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
+                        dir_fd=descriptor,
+                    )
+                    with os.fdopen(fd, "rb") as handle:
+                        if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
+                            raise ValueError("DECLARED_SNAPSHOT_REPLAY_UNSAFE")
+                        if handle.read(262145) != validated_snapshot:
+                            raise ValueError("DECLARED_SNAPSHOT_REPLAY_CHANGED")
+                except OSError as exc:
+                    raise ValueError("DECLARED_SNAPSHOT_REPLAY_UNAVAILABLE") from exc
+                finally:
+                    if descriptor is not None:
+                        os.close(descriptor)
+                file.unlink()
+                file.parent.rmdir()
             record = dict(existing)
             record["metadata_json"] = str(existing["metadata_json"])
             record["idempotent_replay"] = True
@@ -603,25 +713,16 @@ class TaskKernel:
         elif lineage is not None:
             receipt_ref = str(lineage.get("render_receipt_path") or "")
             if not receipt_ref:
-                raise ValueError(
-                    "LINEAGE_UNREADABLE: lineage 缺 render_receipt_path"
-                )
+                raise ValueError("LINEAGE_UNREADABLE: lineage 缺 render_receipt_path")
             receipt_path = Path(receipt_ref)
             if not receipt_path.exists():
-                raise ValueError(
-                    f"LINEAGE_UNREADABLE: render receipt 不存在: "
-                    f"{receipt_path}"
-                )
+                raise ValueError(f"LINEAGE_UNREADABLE: render receipt 不存在: {receipt_path}")
             receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
-            lineage["render_receipt_digest"] = "sha256:" + hashlib.sha256(
-                receipt_path.read_bytes()
-            ).hexdigest()
-            lineage["input_trace_digest"] = str(
-                receipt.get("input_trace_digest", "")
+            lineage["render_receipt_digest"] = (
+                "sha256:" + hashlib.sha256(receipt_path.read_bytes()).hexdigest()
             )
-            lineage["trace_id"] = str(
-                lineage.get("trace_id") or receipt_path.parent.name
-            )
+            lineage["input_trace_digest"] = str(receipt.get("input_trace_digest", ""))
+            lineage["trace_id"] = str(lineage.get("trace_id") or receipt_path.parent.name)
             lineage["task_id"] = task_id
             lineage["revision"] = int(task["active_revision"])
             meta["lineage"] = lineage
@@ -634,14 +735,25 @@ class TaskKernel:
             "media_type, sha256, size_bytes, producer_operation_id, "
             "producer, metadata_json, created_at) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (artifact_id, task_id, int(task["active_revision"]),
-             str(file), media_type, record["sha256"],
-             len(content), producer_operation_id or None, producer,
-             meta_json, now),
+            (
+                artifact_id,
+                task_id,
+                int(task["active_revision"]),
+                str(file),
+                media_type,
+                record["sha256"],
+                len(content),
+                producer_operation_id or None,
+                producer,
+                meta_json,
+                now,
+            ),
         )
-        self._emit(task_id, "artifact.created",
-                   {"artifact_id": artifact_id, "path": str(file),
-                    "bytes": len(content)})
+        self._emit(
+            task_id,
+            "artifact.created",
+            {"artifact_id": artifact_id, "path": str(file), "bytes": len(content)},
+        )
         record["metadata_json"] = meta_json
         # 0901 P0-2：登记即投影——outputs/ 是即时投影视图（不等
         # coordinator PASS；PARTIAL/FAIL 任务的已产出交付物也必须
@@ -654,13 +766,20 @@ class TaskKernel:
             import logging
 
             logging.getLogger("rosclaw.projection").warning(
-                "project-on-register failed for %s", task_id, exc_info=True,
+                "project-on-register failed for %s",
+                task_id,
+                exc_info=True,
             )
         return record
 
     def finish_task(
-        self, *, task_id: str, summary: str, artifact_ids: list[str],
-        grade: str = "", tracking_max_error_m: float | None = None,
+        self,
+        *,
+        task_id: str,
+        summary: str,
+        artifact_ids: list[str],
+        grade: str = "",
+        tracking_max_error_m: float | None = None,
     ) -> dict[str, Any]:
         """FinishRequest（§12.1）：验收真跑 → SUCCEEDED / REPAIR_REQUIRED。
         终态幂等（重放不重复验证、不覆盖——返回原 receipt id）。
@@ -701,20 +820,23 @@ class TaskKernel:
                     if key in stored_checks:
                         result[key] = stored_checks[key]
             return result
-        artifacts = [
-            dict(r)
-            for r in self._conn.execute(
-                "SELECT * FROM artifacts WHERE task_id = ? AND "
-                "revision = ? AND "
-                f"artifact_id IN ({','.join('?' * max(len(artifact_ids), 1))})",
-                (task_id, int(task["active_revision"]), *artifact_ids),
-            ).fetchall()
-        ] if artifact_ids else []
+        artifacts = (
+            [
+                dict(r)
+                for r in self._conn.execute(
+                    "SELECT * FROM artifacts WHERE task_id = ? AND "
+                    "revision = ? AND "
+                    f"artifact_id IN ({','.join('?' * max(len(artifact_ids), 1))})",
+                    (task_id, int(task["active_revision"]), *artifact_ids),
+                ).fetchall()
+            ]
+            if artifact_ids
+            else []
+        )
         from rosclaw.task_kernel.verifier import verdict_for
 
         rev_row = self._conn.execute(
-            "SELECT acceptance_json FROM task_revisions WHERE task_id = ? "
-            "AND revision = ?",
+            "SELECT acceptance_json FROM task_revisions WHERE task_id = ? AND revision = ?",
             (task_id, int(task["active_revision"])),
         ).fetchone()
         frozen = json.loads(str(rev_row["acceptance_json"])) if rev_row else {}
@@ -781,8 +903,7 @@ class TaskKernel:
                 "SELECT COUNT(*) AS n FROM action_txns "
                 "WHERE mission_id = ? AND pi_session_id = ? "
                 "AND state = 'COMPLETED'",
-                (str(task["mission_id"]),
-                 str(binding["session_ref"]) if binding else ""),
+                (str(task["mission_id"]), str(binding["session_ref"]) if binding else ""),
             ).fetchone()
             lineage_rows = self._conn.execute(
                 "SELECT metadata_json FROM artifacts WHERE task_id = ? "
@@ -795,13 +916,17 @@ class TaskKernel:
             # （trace 引用 + task/revision 打戳——WP-4 产品路径）。
             # 裸手拼产物（无 lineage 元数据）两者皆无。
             lineage_present = any(
-                ((json.loads(str(r["metadata_json"]) or "{}")
-                  .get("lineage") or {}).get("render_receipt_digest"))
+                (
+                    (json.loads(str(r["metadata_json"]) or "{}").get("lineage") or {}).get(
+                        "render_receipt_digest"
+                    )
+                )
                 or (
-                    (json.loads(str(r["metadata_json"]) or "{}")
-                     .get("lineage") or {}).get("kind") == "preview_2d"
-                    and (json.loads(str(r["metadata_json"]) or "{}")
-                         .get("lineage") or {}).get("trace_id")
+                    (json.loads(str(r["metadata_json"]) or "{}").get("lineage") or {}).get("kind")
+                    == "preview_2d"
+                    and (json.loads(str(r["metadata_json"]) or "{}").get("lineage") or {}).get(
+                        "trace_id"
+                    )
                 )
                 for r in lineage_rows
             )
@@ -818,9 +943,12 @@ class TaskKernel:
                 "AND path LIKE '%/simulation_receipt.json'",
                 (task_id, int(task["active_revision"])),
             ).fetchone()
-            if (not int(plan_events["n"]) and not int(receipts["n"])
-                    and not lineage_present
-                    and not int(capability_receipt["n"])):
+            if (
+                not int(plan_events["n"])
+                and not int(receipts["n"])
+                and not lineage_present
+                and not int(capability_receipt["n"])
+            ):
                 authority_failure.append(
                     "PLAN_AUTHORITY_MISSING: 具身任务缺受信执行证据"
                     "（PlanGraph plan.node 事件 / Operator 链 COMPLETED "
@@ -831,9 +959,7 @@ class TaskKernel:
             # P0-G：canonical alias 唯一权威换算（不再手写前缀）。
             from rosclaw.cognition.alias import canonical_resource_id
 
-            robot_id = canonical_resource_id(
-                str(task["body_id"])
-            ).removeprefix("robot:")
+            robot_id = canonical_resource_id(str(task["body_id"])).removeprefix("robot:")
             resource_proofs = []
             for art in artifacts:
                 meta = json.loads(str(art.get("metadata_json") or "{}"))
@@ -841,25 +967,18 @@ class TaskKernel:
                 if resource:
                     resource_proofs.append(resource)
             if not resource_proofs:
-                provenance_failures.append(
-                    "RESOURCE_PROVENANCE_MISSING: 行为任务产物无资源证明"
-                )
+                provenance_failures.append("RESOURCE_PROVENANCE_MISSING: 行为任务产物无资源证明")
             else:
                 from rosclaw.cognition.resolver import resolve_resource
 
                 product_root = Path(__file__).resolve().parents[3]
-                manifest = resolve_resource(
-                    "robot", robot_id, product_root=product_root
-                )
+                manifest = resolve_resource("robot", robot_id, product_root=product_root)
                 if manifest is None:
                     provenance_failures.append(
-                        f"RESOURCE_PROVENANCE_MISSING: 无 {robot_id} 权威 "
-                        "manifest 可比对"
+                        f"RESOURCE_PROVENANCE_MISSING: 无 {robot_id} 权威 manifest 可比对"
                     )
                 else:
-                    expected_digest = manifest.get("digests", {}).get(
-                        "mjcf", ""
-                    )
+                    expected_digest = manifest.get("digests", {}).get("mjcf", "")
                     for proof in resource_proofs:
                         if proof.get("resource_id") != f"robot:{robot_id}":
                             provenance_failures.append(
@@ -871,15 +990,11 @@ class TaskKernel:
                             proof.get("canonical") is not True
                         ):
                             provenance_failures.append(
-                                "NON_CANONICAL_RESOURCE: "
-                                f"quality={proof.get('quality')}"
+                                f"NON_CANONICAL_RESOURCE: quality={proof.get('quality')}"
                             )
-                        if expected_digest and (
-                            proof.get("model_digest") != expected_digest
-                        ):
+                        if expected_digest and (proof.get("model_digest") != expected_digest):
                             provenance_failures.append(
-                                "RESOURCE_DIGEST_MISMATCH: 实际加载模型 "
-                                "与权威 manifest 摘要不符"
+                                "RESOURCE_DIGEST_MISMATCH: 实际加载模型 与权威 manifest 摘要不符"
                             )
         # WP-4：Evidence Graph 遍历——行为任务的媒体交付物（受信
         # 声明）必须有完整血缘：receipt digest 实算一致、renderer
@@ -918,9 +1033,7 @@ class TaskKernel:
                         "receipt/trace 血缘"
                     )
                     continue
-                if int(lineage.get("revision", -1)) != int(
-                    task["active_revision"]
-                ):
+                if int(lineage.get("revision", -1)) != int(task["active_revision"]):
                     graph_failures.append(
                         f"REVISION_SPLICE: 血缘 revision "
                         f"{lineage.get('revision')} != 活跃 "
@@ -929,40 +1042,30 @@ class TaskKernel:
                 # 证据产生时间必须 ≥ 当前 revision 开始时间（r1 跑的
                 # trace 不能服务 r2）。
                 rev_row2 = self._conn.execute(
-                    "SELECT created_at FROM task_revisions WHERE task_id = ? "
-                    "AND revision = ?",
+                    "SELECT created_at FROM task_revisions WHERE task_id = ? AND revision = ?",
                     (task_id, int(task["active_revision"])),
                 ).fetchone()
                 trace_json2 = (
-                    self._home / "sim" / "traces"
-                    / str(lineage.get("trace_id", "")) / "trace.json"
+                    self._home / "sim" / "traces" / str(lineage.get("trace_id", "")) / "trace.json"
                 )
                 if rev_row2 and trace_json2.exists():
                     from datetime import datetime as _dt
 
-                    rev_start = _dt.fromisoformat(
-                        str(rev_row2["created_at"])
-                    ).timestamp()
+                    rev_start = _dt.fromisoformat(str(rev_row2["created_at"])).timestamp()
                     produced_at = trace_json2.stat().st_mtime
                     if produced_at < rev_start - 1.0:  # 1s 时钟宽容
                         graph_failures.append(
                             "REVISION_SPLICE: trace 证据产生时间早于当前 "
                             "revision 开始——旧 revision 证据不得复用"
                         )
-                trace_json = (
-                    self._home / "sim" / "traces" / trace_id / "trace.json"
-                )
+                trace_json = self._home / "sim" / "traces" / trace_id / "trace.json"
                 if not trace_json.exists():
-                    graph_failures.append(
-                        f"LINEAGE_TRACE_MISSING: trace {trace_id} 不存在"
-                    )
+                    graph_failures.append(f"LINEAGE_TRACE_MISSING: trace {trace_id} 不存在")
                     continue
                 # renderer 输入 digest 校验只对场景渲染血缘（receipt
                 # 类）；preview_2d 是命令回放可视化，无此语义。
                 if lineage.get("kind") != "preview_2d":
-                    trace_digest = "sha256:" + hashlib.sha256(
-                        trace_json.read_bytes()
-                    ).hexdigest()
+                    trace_digest = "sha256:" + hashlib.sha256(trace_json.read_bytes()).hexdigest()
                     if str(lineage.get("input_trace_digest", "")) != trace_digest:
                         graph_failures.append(
                             "LINEAGE_DIGEST_MISMATCH: renderer 输入 digest 与 "
@@ -983,8 +1086,7 @@ class TaskKernel:
             ledger = [
                 dict(r)
                 for r in self._conn.execute(
-                    "SELECT * FROM artifacts WHERE task_id = ? "
-                    "AND revision = ?",
+                    "SELECT * FROM artifacts WHERE task_id = ? AND revision = ?",
                     (task_id, int(task["active_revision"])),
                 ).fetchall()
             ]
@@ -1025,8 +1127,7 @@ class TaskKernel:
             )
             verdict["task_semantic_verification"] = "CONFIGURED_CHECKS_ONLY"
         scope_fields = {
-            key: verdict[key]
-            for key in ("verification_scope", "task_semantic_verification")
+            key: verdict[key] for key in ("verification_scope", "task_semantic_verification")
         }
         now = datetime.now(UTC).isoformat()
         if verdict["status"] == "PASS":
@@ -1034,39 +1135,51 @@ class TaskKernel:
             # P0-5：误差事实与分级随验收行持久化（checks_json 是
             # 审计面——误差/分级不回填就无从复核"接近阈值"）。
             checks_payload: dict[str, Any] = {
-                "checks": verdict["checks"], **scope_fields,
+                "checks": verdict["checks"],
+                **scope_fields,
             }
             # 0902 R0-3：PASS 附带逐条 RequirementCoverage（审计面——
             # "每条要求都被证据满足"可复核，不是一句 PASS）。
             if grade:
                 checks_payload["grade"] = grade
             if tracking_max_error_m is not None:
-                checks_payload["tracking_max_error_m"] = float(
-                    tracking_max_error_m
-                )
+                checks_payload["tracking_max_error_m"] = float(tracking_max_error_m)
             self._conn.execute(
                 "INSERT INTO verifications (verification_id, task_id, "
                 "revision, status, checks_json, evidence_json, created_at) "
                 "VALUES (?, ?, ?, 'PASS', ?, ?, ?)",
-                (verification_id, task_id, int(task["active_revision"]),
-                 json.dumps(checks_payload, ensure_ascii=False),
-                 json.dumps({"artifact_ids": artifact_ids},
-                            ensure_ascii=False),
-                 now),
+                (
+                    verification_id,
+                    task_id,
+                    int(task["active_revision"]),
+                    json.dumps(checks_payload, ensure_ascii=False),
+                    json.dumps({"artifact_ids": artifact_ids}, ensure_ascii=False),
+                    now,
+                ),
             )
-            self._emit(task_id, "verification.completed",
-                       {"verification_id": verification_id, "status": "PASS",
-                        "checks": verdict["checks"], **scope_fields,
-                        **({"grade": grade} if grade else {})})
+            self._emit(
+                task_id,
+                "verification.completed",
+                {
+                    "verification_id": verification_id,
+                    "status": "PASS",
+                    "checks": verdict["checks"],
+                    **scope_fields,
+                    **({"grade": grade} if grade else {}),
+                },
+            )
             self.transition(task_id, "SUCCEEDED", reason="verification_passed")
             return {
-                "status": "SUCCEEDED", "verification_id": verification_id,
+                "status": "SUCCEEDED",
+                "verification_id": verification_id,
                 **scope_fields,
             }
         # REPAIR_REQUIRED：回同一 session（task 保持活跃——修复不新建）。
-        self._emit(task_id, "verification.completed",
-                   {"status": "FAIL", "failures": verdict["failures"],
-                    **scope_fields})
+        self._emit(
+            task_id,
+            "verification.completed",
+            {"status": "FAIL", "failures": verdict["failures"], **scope_fields},
+        )
         return {
             "status": "REPAIR_REQUIRED",
             "failures": verdict["failures"],
@@ -1075,9 +1188,13 @@ class TaskKernel:
         }
 
     #: 具身执行工具（用了这些 = 行为任务——受信证据规则才武装）。
-    _EMBODIMENT_TOOLS = frozenset({
-        "rosclaw_task", "rosclaw_execute", "rosclaw_request_action",
-    })
+    _EMBODIMENT_TOOLS = frozenset(
+        {
+            "rosclaw_task",
+            "rosclaw_execute",
+            "rosclaw_request_action",
+        }
+    )
 
     def note_tool_use(self, task_id: str, tool_name: str) -> None:
         """具身工具使用落账（dispatcher 在 _execute_validated 调用）——
@@ -1095,7 +1212,9 @@ class TaskKernel:
         return bool(row and row["c"] > 0)
 
     def _acceptance_for_revision(
-        self, task_id: str, revision: int,
+        self,
+        task_id: str,
+        revision: int,
     ) -> tuple[str, str, str]:
         """Carry the same root's explicit contract, with a fresh revision spec.
 
@@ -1116,7 +1235,9 @@ class TaskKernel:
         if not acceptance and not row["acceptance_spec_json"]:
             return raw, "", ""
         spec = compile_acceptance(
-            task_id=task_id, revision=revision, task_default=acceptance,
+            task_id=task_id,
+            revision=revision,
+            task_default=acceptance,
         )
         return raw, json.dumps(spec.to_canonical_dict(), ensure_ascii=False), spec.spec_id
 
@@ -1133,15 +1254,20 @@ class TaskKernel:
         # 模型经 rosclaw_task_finish 之外不设验收——kernel 设置的
         # acceptance 是任务级输入（task_default 源）。
         spec = compile_acceptance(
-            task_id=task_id, revision=revision, task_default=acceptance,
+            task_id=task_id,
+            revision=revision,
+            task_default=acceptance,
         )
         self._conn.execute(
             "UPDATE task_revisions SET acceptance_json = ?, "
             "acceptance_spec_json = ? "
             "WHERE task_id = ? AND revision = ?",
-            (json.dumps(acceptance, ensure_ascii=False),
-             json.dumps(spec.to_canonical_dict(), ensure_ascii=False),
-             task_id, revision),
+            (
+                json.dumps(acceptance, ensure_ascii=False),
+                json.dumps(spec.to_canonical_dict(), ensure_ascii=False),
+                task_id,
+                revision,
+            ),
         )
         # Explicit replacement must also update the current TaskSpec reference;
         # later continuations must not advertise the superseded contract ID.
@@ -1149,12 +1275,10 @@ class TaskKernel:
         if task_spec is not None:
             task_spec["acceptance_spec_id"] = spec.spec_id
             self._conn.execute(
-                "UPDATE task_revisions SET task_spec_json = ? "
-                "WHERE task_id = ? AND revision = ?",
+                "UPDATE task_revisions SET task_spec_json = ? WHERE task_id = ? AND revision = ?",
                 (json.dumps(task_spec, ensure_ascii=False), task_id, revision),
             )
-        self._emit(task_id, "acceptance.frozen",
-                   {"revision": revision, "spec_id": spec.spec_id})
+        self._emit(task_id, "acceptance.frozen", {"revision": revision, "spec_id": spec.spec_id})
 
     def get_acceptance_spec(self, task_id: str) -> dict | None:
         """当前活跃 revision 的冻结 AcceptanceSpecV2（dict 视图）。"""
@@ -1162,8 +1286,7 @@ class TaskKernel:
         if task is None:
             return None
         row = self._conn.execute(
-            "SELECT acceptance_spec_json FROM task_revisions "
-            "WHERE task_id = ? AND revision = ?",
+            "SELECT acceptance_spec_json FROM task_revisions WHERE task_id = ? AND revision = ?",
             (task_id, int(task["active_revision"])),
         ).fetchone()
         if row is None or not row["acceptance_spec_json"]:
@@ -1176,8 +1299,7 @@ class TaskKernel:
         if task is None:
             return None
         row = self._conn.execute(
-            "SELECT task_spec_json FROM task_revisions "
-            "WHERE task_id = ? AND revision = ?",
+            "SELECT task_spec_json FROM task_revisions WHERE task_id = ? AND revision = ?",
             (task_id, int(task["active_revision"])),
         ).fetchone()
         if row is None or not row["task_spec_json"]:
@@ -1200,15 +1322,12 @@ class TaskKernel:
         return [
             dict(r)
             for r in self._conn.execute(
-                "SELECT * FROM artifacts WHERE task_id = ? AND revision = ? "
-                "ORDER BY created_at",
+                "SELECT * FROM artifacts WHERE task_id = ? AND revision = ? ORDER BY created_at",
                 (task_id, rev),
             ).fetchall()
         ]
 
-    def artifact_refs_for(
-        self, task_id: str, revision: int | None = None
-    ) -> list[dict[str, Any]]:
+    def artifact_refs_for(self, task_id: str, revision: int | None = None) -> list[dict[str, Any]]:
         """R0-4（0826 体验审计 §5.R0-4）：用户可见 ArtifactRef 视图
         ——id/kind/media_type/size/digest/open_command。
 
@@ -1228,8 +1347,7 @@ class TaskKernel:
             ).fetchall()
         else:
             rows = self._conn.execute(
-                "SELECT * FROM artifacts WHERE task_id = ? AND revision = ? "
-                "ORDER BY created_at",
+                "SELECT * FROM artifacts WHERE task_id = ? AND revision = ? ORDER BY created_at",
                 (task_id, revision),
             ).fetchall()
         refs: list[dict[str, Any]] = []
@@ -1237,20 +1355,20 @@ class TaskKernel:
             artifact = dict(row)
             artifact_id = str(artifact["artifact_id"])
             raw_digest = str(artifact["sha256"])
-            refs.append({
-                "artifact_id": artifact_id,
-                "kind": artifact_delivery_kind(artifact),
-                "media_type": str(artifact["media_type"]),
-                "path": str(artifact["path"]),
-                "size_bytes": int(artifact["size_bytes"]),
-                "digest": (
-                    raw_digest
-                    if raw_digest.startswith("sha256:")
-                    else f"sha256:{raw_digest}"
-                ),
-                "producer": str(artifact.get("producer") or ""),
-                "open_command": f"rosclaw artifact open {artifact_id}",
-            })
+            refs.append(
+                {
+                    "artifact_id": artifact_id,
+                    "kind": artifact_delivery_kind(artifact),
+                    "media_type": str(artifact["media_type"]),
+                    "path": str(artifact["path"]),
+                    "size_bytes": int(artifact["size_bytes"]),
+                    "digest": (
+                        raw_digest if raw_digest.startswith("sha256:") else f"sha256:{raw_digest}"
+                    ),
+                    "producer": str(artifact.get("producer") or ""),
+                    "open_command": f"rosclaw artifact open {artifact_id}",
+                }
+            )
         return refs
 
     def accept_task(self, task_id: str) -> None:
@@ -1260,9 +1378,7 @@ class TaskKernel:
         if task is None:
             raise ValueError(f"unknown task {task_id!r}")
         if task["state"] != "SUCCEEDED":
-            raise ValueError(
-                f"任务未验收通过（{task['state']}）——不能接受"
-            )
+            raise ValueError(f"任务未验收通过（{task['state']}）——不能接受")
         if task["user_accepted_at"]:
             return  # 幂等
         now = datetime.now(UTC).isoformat()
@@ -1273,14 +1389,21 @@ class TaskKernel:
         self._emit(task_id, "task.accepted", {"accepted_at": now})
 
     def block_task(
-        self, *, task_id: str, reason_code: str, detail: str,
+        self,
+        *,
+        task_id: str,
+        reason_code: str,
+        detail: str,
         recovery: list[str] | None = None,
     ) -> None:
         """task_blocked（§12.1）：稳定原因码 + 恢复动作。"""
-        self._emit(task_id, "task.state_changed",
-                   {"state": "BLOCKED", "reason_code": reason_code,
-                    "recovery": recovery or []})
+        self._emit(
+            task_id,
+            "task.state_changed",
+            {"state": "BLOCKED", "reason_code": reason_code, "recovery": recovery or []},
+        )
         self.transition(
-            task_id, "BLOCKED",
+            task_id,
+            "BLOCKED",
             reason=f"{reason_code}: {detail}"[:300],
         )

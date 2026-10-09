@@ -356,6 +356,45 @@ def _read_declared_bounded(path: str, *, max_bytes: int, kind: str) -> bytes:
     return raw
 
 
+def _read_declared_recovery_bytes(path: str, *, max_bytes: int, kind: str) -> bytes:
+    """Bounded no-follow read for content-aware declared recovery."""
+    import stat
+
+    descriptor = None
+    try:
+        # Walk resolved absolute components without following replaced links.
+        descriptor = os.open(os.sep, os.O_RDONLY | os.O_DIRECTORY)
+        parts = path.split(os.sep)
+        for part in parts[1:-1]:
+            next_fd = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=descriptor)
+            os.close(descriptor)
+            descriptor = next_fd
+        file_fd = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=descriptor)
+        with os.fdopen(file_fd, "rb") as handle:
+            before = os.fstat(handle.fileno())
+            if not stat.S_ISREG(before.st_mode):
+                raise ToolBridgeError("DECLARED_SCHEMA_PATH_REJECTED", "非普通文件——拒绝读取")
+            raw = handle.read(max_bytes + 1)
+            after = os.fstat(handle.fileno())
+            if (before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (
+                after.st_size,
+                after.st_mtime_ns,
+                after.st_ctime_ns,
+            ):
+                raise ToolBridgeError("DECLARED_SCHEMA_PATH_REJECTED", "读取期间文件变化——拒绝登记")
+    except OSError as exc:
+        raise ToolBridgeError("DECLARED_SCHEMA_PATH_REJECTED", "无法安全读取声明输入") from exc
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+    if len(raw) > max_bytes:
+        raise ToolBridgeError(
+            "DECLARED_SCHEMA_BUDGET_EXCEEDED",
+            f"{kind} 超过字节上限 {max_bytes}——拒绝登记",
+        )
+    return raw
+
+
 def _declared_text_depth(text: str) -> int:
     """迭代扫描 JSON 结构深度（跳过字符串字面量与转义）——在任何
     递归解析之前执行，使 5000 层嵌套也得到 typed 预算错误而不是
@@ -736,7 +775,12 @@ class PiToolDispatcher:
         failures = getattr(self._service, "_tool_fail_fingerprints", None)
         if failures is None:
             failures = self._service._tool_fail_fingerprints = {}
-        if failures.get(fingerprint):
+        declared_delivery = (
+            request.tool_name == "rosclaw_deliver"
+            and isinstance(request.arguments.get("schema_path"), str)
+            and bool(request.arguments["schema_path"].strip())
+        )
+        if failures.get(fingerprint) and not declared_delivery:
             return PiToolResultV1(
                 request_id=request.request_id,
                 ok=False,
@@ -1243,7 +1287,7 @@ class PiToolDispatcher:
                 return real
         return None
 
-    def _validate_declared_delivery(self, request: PiToolRequestV1) -> None:
+    def _validate_declared_delivery(self, request: PiToolRequestV1) -> bytes:
         """Opt-in 本地 schema 校验（登记前）：schema 侧准入 → artifact
         侧预算 → 有界实例校验。任一不过 typed reject；本方法只读文
         件，绝不产生新行或修改输入。"""
@@ -1273,32 +1317,49 @@ class PiToolDispatcher:
             )
         if not _Path(schema_path).is_file():
             raise ToolBridgeError("DECLARED_SCHEMA_NOT_FOUND", "声明的 schema 文件不存在")
-        schema = _load_declared_json(
-            _read_declared_bounded(
-                schema_path,
-                max_bytes=_DECLARED_SCHEMA_MAX_BYTES,
-                kind="schema",
-            ),
-            max_bytes=_DECLARED_SCHEMA_MAX_BYTES,
-            max_nodes=_DECLARED_SCHEMA_MAX_NODES,
-            kind="schema",
-        )
-        _check_declared_schema(schema)
         artifact_arg = str(request.arguments.get("path", ""))
         artifact_path = self._resolve_declared_path(artifact_arg, roots)
         if artifact_path is None or not _Path(artifact_path).is_file():
             raise ToolBridgeError("DECLARED_ARTIFACT_NOT_FOUND", "待校验 artifact 文件不存在")
-        instance = _load_declared_json(
-            _read_declared_bounded(
-                artifact_path,
-                max_bytes=_DECLARED_ARTIFACT_MAX_BYTES,
-                kind="artifact",
-            ),
-            max_bytes=_DECLARED_ARTIFACT_MAX_BYTES,
-            max_nodes=_DECLARED_ARTIFACT_MAX_NODES,
-            kind="artifact",
+        # Read only after the ordinary binding/writer/effect/mode chain and
+        # root admission. The digest is private state, never a diagnostic.
+        import hashlib
+
+        schema_raw = _read_declared_recovery_bytes(
+            schema_path, max_bytes=_DECLARED_SCHEMA_MAX_BYTES, kind="schema"
         )
-        _validate_declared_instance(schema, instance)
+        artifact_raw = _read_declared_recovery_bytes(
+            artifact_path, max_bytes=_DECLARED_ARTIFACT_MAX_BYTES, kind="artifact"
+        )
+        fingerprint = (
+            _failure_fingerprint(request),
+            hashlib.sha256(schema_raw).digest(),
+            hashlib.sha256(artifact_raw).digest(),
+        )
+        failures = getattr(self._service, "_declared_content_failures", None)
+        if failures is None:
+            failures = self._service._declared_content_failures = set()
+        if fingerprint in failures:
+            raise ToolBridgeError("DOOM_LOOP", "声明校验输入字节未改变——拒绝重复失败")
+        try:
+            schema = _load_declared_json(
+                schema_raw,
+                max_bytes=_DECLARED_SCHEMA_MAX_BYTES,
+                max_nodes=_DECLARED_SCHEMA_MAX_NODES,
+                kind="schema",
+            )
+            _check_declared_schema(schema)
+            instance = _load_declared_json(
+                artifact_raw,
+                max_bytes=_DECLARED_ARTIFACT_MAX_BYTES,
+                max_nodes=_DECLARED_ARTIFACT_MAX_NODES,
+                kind="artifact",
+            )
+            _validate_declared_instance(schema, instance)
+        except ToolBridgeError:
+            failures.add(fingerprint)
+            raise
+        return artifact_raw
 
     async def _artifact_register(self, request: PiToolRequestV1) -> PiToolResultV1:
         """PR-H4：交付物登记（实读文件算 hash——口头提到不算）。
@@ -1311,8 +1372,25 @@ class PiToolDispatcher:
         # Opt-in 声明 schema：所有拒绝必须先于任何 task admission /
         # artifact 登记写入（零新行不变式）；只读文件，不改输入字节。
         schema_arg = request.arguments.get("schema_path")
+        snapshot = None
         if isinstance(schema_arg, str) and schema_arg.strip():
-            self._validate_declared_delivery(request)
+            snapshot = self._validate_declared_delivery(request)
+            # Recheck path safety before admission; bytes remain snapshot-bound.
+            # Do not realpath here: a newly installed link must fail closed.
+            from pathlib import Path
+
+            task = self._service._task_kernel.latest_task_for(
+                request.mission_id, request.pi_session_id
+            )
+            root = str(request.arguments.get("cwd") or (task or {}).get("workspace_path") or "")
+            for key, cap in (
+                ("schema_path", _DECLARED_SCHEMA_MAX_BYTES),
+                ("path", _DECLARED_ARTIFACT_MAX_BYTES),
+            ):
+                candidate = Path(str(request.arguments[key]))
+                if not candidate.is_absolute():
+                    candidate = Path(root) / candidate
+                _read_declared_recovery_bytes(str(candidate), max_bytes=cap, kind="input")
         kernel = self._service._task_kernel
         # The native product tool supplies its resolved ActiveTaskContext root.
         # Keep it when delivery admits the first task, rather than falling back
@@ -1372,6 +1450,7 @@ class PiToolDispatcher:
                 media_type=str(request.arguments.get("media_type", "application/octet-stream")),
                 producer="model:rosclaw_artifact_register",
                 metadata=delivery_metadata or None,
+                **({"validated_snapshot": snapshot} if snapshot is not None else {}),
             )
         except ValueError as exc:
             raise ToolBridgeError("ARTIFACT_MISSING", str(exc)) from exc
