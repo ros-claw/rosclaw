@@ -49,3 +49,19 @@ Run Manifest 必须包含实施方案列出的 benchmark/scenario/robot、fixtur
 A0–A3 feature_flags 与 Memory 模式固定对应；相同 seed 的初始条件必须一致，不同 seed 可以有不同起始位姿或场景字节。同一整组的源码、镜像、模型、推理参数、预算、权限及网关策略必须一致。5 个 pilot seed 要有全部 20 条记录，10 个 evaluation seed 要有全部 40 条记录；检查已提供的历史 seed 列表，拒绝重复、缺失、替换和共享资源标识。失败 run 计入整组，保留原始失败码和 evidence refs；人工干预逐条列出。
 
 未知观察用 null/UNKNOWN，不能默认成功、零碰撞或零人工协助。PASS 声明必须有原始证据引用、实际相同模型、完整 usage、至少 98% 覆盖、零碰撞和 verified stop。即便声明满足这些条件，整组核对也只输出 **DECLARATIONS_ONLY_NOT_EXECUTION_ACCEPTANCE**，始终 `evidence_bytes_verified=false`、`dispatch_authorized=false`、`robot_authorization=false`。它不读取证据原始字节、不检查实际进程隔离、不切换运行时 Harness 功能、不授予动作权限，也不证明因果收益。运行前后还必须由独立 operator 核对事实及 daemon Receipt，不能拿字段一致代替实测。
+
+## 新门禁的真实 Native 与空参数兼容性复验（2026-10-09）
+
+宿主门禁源码 `069a68411616ef4fe6fc70ec16fba9b6f41461f4` 独立登记了每组 12 次释放工具请求、16 次模型请求、2048 输出 token/请求、120000 总 token、600 秒。沿用精确 V4/Core+Native5aa 镜像与相同合成文件任务，M0/M1/M2 各自隔离运行。实际模型均为 gpt-6.1-sol/low；三组 TaskKernel SUCCEEDED、Artifact SHA/长度对应、容器全部停止/Pid0/exit0。
+
+| 模式 | 实际模型请求 | 实际释放工具调用 | 总 token | 原单调时钟耗时秒 |
+|---|---:|---:|---:|---:|
+| M0 | 10 | 9 | 57843 | 63.0173 |
+| M1 | 10 | 9 | 61653 | 61.8907 |
+| M2 | 9 | 8 | 48455 | 59.0350 |
+
+独立复核从原 Native 请求、仅增加输出上限的上游请求与 SSE 重建每笔预算决定，使用原始单调时间逐笔重算，与原账本完全一致。上游函数名、组合调用 ID、JSON 参数顺序对应真实 Native toolCall 和 toolResult；所有 26 个工具调用都有对应结果，未超过登记预算。174 个公开文件封存于 harness `evidence/2026-10-09/n06-live-tool-gate-three-real-native-synthetic-tasks`。这不是正式机器人 A/B，也不能因三次不同 token 用量推断 Memory 因果贡献。
+
+随后单独预登记的一请求超预算探针实际返回两个空参数函数。服务保留 added、arguments.done、output_item.done 与完整终态，但没有 arguments.delta；旧门禁安全地以 MODEL_TOOL_CALLS_UNVERIFIABLE 整批拒绝，没有释放 SSE 或执行工具。因此这次原始记录不能宣称已证明 TOOL_CALL_BUDGET_EXCEEDED。官方 [Responses 流式事件定义](https://developers.openai.com/api/reference/resources/responses/streaming-events) 区分部分 delta 与完整 arguments.done；省略空参数 delta 的具体形状来自本次真实原始响应，且固定 PI0.85.1 消费者也使用 arguments.done 更新最终参数。
+
+兼容修复仅允许没有 delta、但三处身份/完整参数都严格匹配的空 JSON 对象调用。非空参数仍需原始 delta 全量对应；已有 delta 不一致、任何 added/arguments.done/item.done 缺失均拒绝。七项新回归在旧源码为 3 FAIL/4 PASS，保留原始红测试；修复后预算与清单共 113 PASS。最初本地 venv 路径错误和测试 helper 重复关键字导致的失败也保留，不能当作有效旧源码反例。该修复不会追认历史任务执行新源码；真实新源码复验必须另行登记。

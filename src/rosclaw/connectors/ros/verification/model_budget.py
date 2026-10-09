@@ -155,8 +155,16 @@ def _verified_function_calls(events: list[dict], response: dict, declared: froze
     if added or done or deltas or arguments_done:
         if set(added) != set(calls) or set(done) != set(calls) or set(arguments_done) != set(calls):
             raise ValueError("complete stream and terminal correspondence required")
-        if any(deltas.get(key, "") != item["arguments"] for key, (_, item) in calls.items()):
-            raise ValueError("streamed deltas differ from completed arguments")
+        for key, (_, item) in calls.items():
+            if key in deltas:
+                if deltas[key] != item["arguments"]:
+                    raise ValueError("streamed deltas differ from completed arguments")
+            elif _closed_json(item["arguments"].encode()) != {}:
+                # The actual provider emits zero-argument {} calls without a
+                # delta. All three original added/done identities and the
+                # complete arguments.done above must still match exactly.
+                # Nonempty arguments retain strict delta correspondence.
+                raise ValueError("nonempty streamed arguments require original deltas")
     return len(calls)
 
 

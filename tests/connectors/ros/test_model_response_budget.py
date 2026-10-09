@@ -369,6 +369,67 @@ def test_streamed_tool_matches_terminal_and_timestamps_are_auditable():
     assert ledger["tool_usage_complete"]
 
 
+def no_argument_deltas(item, *, index=0, omit=None):
+    """Observed real zero-argument wire shape: added, args done, item done."""
+    events = [json.loads(line[6:]) for line in streamed(item).splitlines() if line]
+    return b"".join(
+        b"data: " + json.dumps({**event, "output_index": index}).encode() + b"\n\n"
+        for event in events
+        if event["type"] != "response.function_call_arguments.delta" and event["type"] != omit
+    )
+
+
+@pytest.mark.parametrize("arguments", ["{}", " { } "])
+def test_empty_arguments_without_deltas_require_complete_matching_done(arguments):
+    item = {**call(), "arguments": arguments}
+    budget = ModelResponseBudget(registered(), started_monotonic=10)
+    budget.admit(tool_request(), now=11)
+    decision = budget.finish(
+        no_argument_deltas(item) + response(output=[item]), http_status=200, now=12
+    )
+    assert decision["allow_response"] and decision["released_tool_calls"] == 1
+    assert decision["tool_calls_verified"]
+
+
+def test_zero_argument_batch_without_deltas_still_counts_all_tools_before_release():
+    items = [{**call(), "arguments": "{}"}, {**call("fc2", "call2"), "arguments": "{}"}]
+    wire = b"".join(no_argument_deltas(item, index=i) for i, item in enumerate(items))
+    budget = ModelResponseBudget(registered(max_tool_calls=1), started_monotonic=10)
+    budget.admit(tool_request(), now=11)
+    decision = budget.finish(wire + response(output=items), http_status=200, now=12)
+    assert decision["status"] == "TOOL_CALL_BUDGET_EXCEEDED"
+    assert decision["tool_calls_verified"] and decision["proposed_tool_calls"] == 2
+    assert not decision["allow_response"] and budget.snapshot()["released_tool_calls"] == 0
+    assert budget.snapshot()["actual_total_tokens"] == 15
+
+
+@pytest.mark.parametrize(
+    "omit",
+    [
+        "response.output_item.added",
+        "response.function_call_arguments.done",
+        "response.output_item.done",
+    ],
+)
+def test_zero_arguments_without_deltas_never_allow_missing_correspondence(omit):
+    item = {**call(), "arguments": "{}"}
+    budget = ModelResponseBudget(registered(), started_monotonic=10)
+    budget.admit(tool_request(), now=11)
+    decision = budget.finish(
+        no_argument_deltas(item, omit=omit) + response(output=[item]), http_status=200, now=12
+    )
+    assert not decision["allow_response"]
+
+
+def test_nonempty_arguments_still_require_exact_streamed_deltas():
+    item = call()
+    budget = ModelResponseBudget(registered(), started_monotonic=10)
+    budget.admit(tool_request(), now=11)
+    assert not budget.finish(
+        no_argument_deltas(item) + response(output=[item]), http_status=200, now=12
+    )["allow_response"]
+
+
 @pytest.mark.parametrize(
     "update",
     [
