@@ -20,6 +20,7 @@ from backend_probe_fixture import validate_probe_declaration
 from backend_probe_world import bounded_source
 from backend_world_bundle import prepare_backend_world
 from backend_world_ownership import WorldSourceOwner
+from fixture_network import validate_ros_domain
 from owned_collection_pause import OwnedCollectionPause, materialize_registered_policy
 from physics_fixture import prepare_physics
 from probe_scene_geometry import decode_scene_json
@@ -28,6 +29,18 @@ from profiles import PROFILES
 from experiments import gazebo_arguments
 
 ROOT = Path(__file__).resolve().parent
+
+
+def preflight_backend_network(output):
+    """Check this process's kernel before source preparation or ROS children."""
+    network = validate_ros_domain(int(os.environ.get("ROS_DOMAIN_ID", "0")))
+    if "observed_host_ephemeral_range" in network:
+        network["observed_kernel_ephemeral_range"] = network.pop("observed_host_ephemeral_range")
+    network["source_process_network_namespace"] = os.readlink("/proc/self/ns/net")
+    network["source"] = "owned_backend_stack_process_actual_kernel_port_range"
+    with (Path(output) / "container-network-preflight.json").open("x") as stream:
+        json.dump(network, stream, indent=2)
+    return network
 
 
 def prepare_backend_stack(args):
@@ -640,6 +653,8 @@ def main():
     if not args.prepare_only and args.directory != Path("/evidence"):
         raise ValueError("known-SIM runtime dependencies require owned /evidence root")
     deadline = time.monotonic() + args.duration
+    if not args.prepare_only:
+        preflight_backend_network(args.directory)
     plan = prepare_backend_stack(args)
     if args.prepare_only:
         print(json.dumps(plan))
