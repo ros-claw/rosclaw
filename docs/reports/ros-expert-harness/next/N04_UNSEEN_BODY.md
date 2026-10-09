@@ -141,3 +141,47 @@ the helper captured114 sources before calls, verified15 installed executable
 roles and built17 unexecuted top-level actions plus two held inactive controller
 actions. Source/executable hashes stayed unchanged. No Node/DDS/World/action was
 started. Generic feature freeze=false; no held-out asset selected or inspected.
+
+## Owned inactive runtime checkpoints after reboot recovery
+
+The runtime now enforces an immutable outer deadline, an actual read-only
+`/evidence` mount and an explicit isolated DDS/Gazebo environment. Installed
+launch's process escalation is set to0.5+0.5 seconds; its default5+5 seconds
+outlived the supervisor's cleanup grace. Actual harmless SDK descendants that
+ignore SIGINT/SIGTERM were reaped in about2.07 seconds with a1-second outer
+deadline and180-second inner timer. This is process cleanup, not physical stop
+verification. All fifteen required World/state/bridge/navigation process exits,
+including return code0, now request whole-launch shutdown. The actual SDK
+validated45 synthetic exit callbacks and three real harmless process exits.
+
+Both inactive controller spawners must exit successfully before a read-only
+probe starts. Original typed ListControllers/ListHardwareComponents and
+GetParameters replies must match the complete sealed hardware/interface and
+manager/drive/broadcaster parameter sources, with current timestamps. Actual
+synthetic DDS accepted exact inactive replies and refused active controllers or
+an altered watchdog parameter. These synthetic services are not an actual
+Gazebo controller manager or live Body admission.
+
+`generic_bootstrap_host.py` prepares one fixed-image, unprivileged, network-none
+container with all capabilities dropped. It captures tracked runtime sources,
+the complete sealed workspace and the original declaration before creation.
+Only separate runtime output is writable: none of the read-only source mounts
+may be exposed through a writable alias. Source/declaration changes and an
+unexpected container exit refuse the bootstrap; the outer deadline is never
+renewed. Cleanup addresses only the exact full container ID with its generated
+owner and fixture-kind labels, never a name-prefix selection. Original logs,
+inspection and cleanup status are retained without claiming physical success.
+
+Actual harmless Docker fixtures verified deadline, source-failure and early-exit
+cleanup, including descendants that create their own sessions and ignore
+SIGTERM. A foreign owner token was refused without stopping the container. An
+actual Docker create/inspect verified the fixed image, mount permissions,
+network isolation and unprivileged configuration; that bootstrap container was
+never started. The first source-capture helper failed on a module whose
+`__file__` was None before creation; it is retained. A later real deadline test
+exposed a sub-millisecond final inspect timeout; this now ends at the immutable
+deadline and proceeds to cleanup. That failed attempt is also retained.
+
+The complete host/World run, staged fresh Graph/TF/map/sensor/independent-physics
+admission, guarded activation, live Body binding and Native task dispatch remain
+pending. Generic feature freeze=false; no held-out asset selected or inspected.
