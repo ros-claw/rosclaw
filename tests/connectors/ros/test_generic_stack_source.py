@@ -195,3 +195,29 @@ def test_existing_workspace_is_preserved(generator, tmp_path):
     with pytest.raises(FileExistsError):
         generator(out, **synthetic_stack_inputs())
     assert (out / "keep").read_bytes() == b"original"
+
+
+def test_joined_source_retains_explicit_operator_initialization_prior(generator, tmp_path):
+    data = synthetic_stack_inputs()
+    data["localization_initialization_declaration"] = {
+        "schema_version": "rosclaw.sim_localization_initial_prior.v1",
+        "source": "simulator_operator_fixture_policy",
+        "approved": True,
+        "evidence_domain": "SIMULATION",
+        "source_pose_kind": "OPERATOR_FROZEN_SPAWN_PRIOR",
+        "world_name": data["contact_declaration"]["world_name"],
+        "map_frame": data["navigation_declaration"]["frames"]["map"],
+        "world_to_map_xyyaw": [0, 0, 0],
+    }
+    out = tmp_path / "explicit-prior"
+    manifest = generator(out, **data)
+    config = yaml.safe_load((out / "nav2.yaml").read_bytes())
+    node = data["navigation_declaration"]["nodes"]["localization"]
+    assert config[node]["ros__parameters"]["set_initial_pose"] is True
+    assert "localization-initialization-declaration.json" in manifest["output_hashes"]
+    assert (
+        json.loads((out / "localization-initialization-declaration.json").read_bytes())
+        == data["localization_initialization_declaration"]
+    )
+    assert manifest["physical_acceptance"] == "NOT_RUN"
+    assert manifest["authorization"] is False

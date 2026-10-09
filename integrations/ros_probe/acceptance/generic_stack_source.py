@@ -16,6 +16,7 @@ from backend_world_bundle import observation_bridge_rows
 from generic_contact_fixture import prepare_contact_fixture
 
 from rosclaw.connectors.ros.context.sim_controller_source import prepare_sim_controller_source
+from rosclaw.connectors.ros.context.sim_localization_source import apply_frozen_localization_prior
 from rosclaw.connectors.ros.context.sim_navigation_source import (
     _yaml,
     prepare_sim_navigation_source,
@@ -38,6 +39,7 @@ def prepare_generic_stack_source(
     controller_declaration,
     navigation_declaration,
     contact_declaration,
+    localization_initialization_declaration=None,
 ):
     source = {
         "robot.original.urdf": urdf_bytes,
@@ -73,6 +75,13 @@ def prepare_generic_stack_source(
         declaration=navigation_declaration,
         controller_report=controlled["report"],
     )
+    if localization_initialization_declaration is not None:
+        navigation = apply_frozen_localization_prior(
+            navigation,
+            world_name=actual.get("name"),
+            map_frame=navigation_declaration["frames"]["map"],
+            declaration=localization_initialization_declaration,
+        )
     if navigation_declaration["topics"]["odom"] != controller_declaration["odom_topic"]:
         raise ValueError("actual navigation/controller odometry source must be identical")
     if (
@@ -186,20 +195,24 @@ def prepare_generic_stack_source(
         ("navigation-launch-source.json", navigation["launch_nodes"]),
     ]:
         (output / name).write_text(json.dumps(data, indent=2) + "\n")
+    declarations = {
+        "controller": controller_declaration,
+        "navigation": navigation_declaration,
+        "contact": contact_declaration,
+        "attachment": attachment,
+    }
+    if localization_initialization_declaration is not None:
+        declarations["localization_initialization"] = localization_initialization_declaration
+        (output / "localization-initialization-declaration.json").write_text(
+            json.dumps(localization_initialization_declaration, indent=2) + "\n"
+        )
     manifest = {
         "schema_version": "rosclaw.generic_stack_source.v1",
         "status": "PREPARED_NOT_LAUNCHED_OR_ADMITTED",
         "world_name": contact_declaration["world_name"],
         "body_model_name": body_name,
         "source_hashes": {name: hashlib.sha256(raw).hexdigest() for name, raw in source.items()},
-        "declaration_hash": digest(
-            {
-                "controller": controller_declaration,
-                "navigation": navigation_declaration,
-                "contact": contact_declaration,
-                "attachment": attachment,
-            }
-        ),
+        "declaration_hash": digest(declarations),
         "output_hashes": {
             str(p.relative_to(output)): hashlib.sha256(p.read_bytes()).hexdigest()
             for p in sorted(output.rglob("*"))

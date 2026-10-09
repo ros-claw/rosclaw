@@ -21,9 +21,17 @@ def main():
     parser.add_argument("--directory", type=Path, required=True)
     parser.add_argument("--sdk-map-decoder", type=Path, required=True)
     parser.add_argument("--sdk-controller-parser", type=Path, required=True)
+    parser.add_argument("--initialization-prior", action="store_true")
     args = parser.parse_args()
     args.directory.mkdir(exist_ok=False)
     repo = Path(__file__).resolve().parents[3]
+    controller_test = repo / "tests/connectors/ros/test_sim_controller_source.py"
+    navigation_test = repo / "tests/connectors/ros/test_sim_navigation_source.py"
+    stack_test = repo / "tests/connectors/ros/test_generic_stack_source.py"
+    nav_template = Path("/opt/ros/jazzy/share/nav2_bringup/params/nav2_params.yaml")
+    coverage_template = Path(
+        "/ws/src/opennav_coverage/opennav_coverage_demo/params/demo_params.yaml"
+    )
     originals = args.directory / "original-executed-source"
     originals.mkdir()
     hashes = {}
@@ -49,6 +57,7 @@ def main():
         Path("/opt/ros/jazzy/lib/libmap_io.so"),
         Path("/opt/ros/jazzy/share/nav2_bringup/params/nav2_params.yaml"),
         Path("/ws/src/opennav_coverage/opennav_coverage_demo/params/demo_params.yaml"),
+        repo / "src/rosclaw/connectors/ros/context/sim_localization_source.py",
     ]
     for i, path in enumerate(paths):
         raw = path.read_bytes()
@@ -58,7 +67,7 @@ def main():
         json.dumps(hashes, indent=2)
     )
     values = {}
-    for node in ast.parse(paths[9].read_bytes()).body:
+    for node in ast.parse(controller_test.read_bytes()).body:
         if (
             isinstance(node, ast.Assign)
             and isinstance(node.targets[0], ast.Name)
@@ -68,12 +77,15 @@ def main():
     navglobals = {"NODE_ROLES": NODE_ROLES}
     assignments = [
         n
-        for n in ast.parse(paths[10].read_bytes()).body
+        for n in ast.parse(navigation_test.read_bytes()).body
         if isinstance(n, ast.Assign)
         and isinstance(n.targets[0], ast.Name)
         and n.targets[0].id in {"POLICY", "ATTACHMENT"}
     ]
-    exec(compile(ast.Module(body=assignments, type_ignores=[]), str(paths[10]), "exec"), navglobals)
+    exec(
+        compile(ast.Module(body=assignments, type_ignores=[]), str(navigation_test), "exec"),
+        navglobals,
+    )
     navigation = SimpleNamespace(
         POLICY=navglobals["POLICY"],
         ATTACHMENT=navglobals["ATTACHMENT"],
@@ -88,17 +100,28 @@ def main():
     }
     fn = next(
         n
-        for n in ast.parse(paths[8].read_bytes()).body
+        for n in ast.parse(stack_test.read_bytes()).body
         if isinstance(n, ast.FunctionDef) and n.name == "synthetic_stack_inputs"
     )
-    exec(compile(ast.Module(body=[fn], type_ignores=[]), str(paths[8]), "exec"), env)
+    exec(compile(ast.Module(body=[fn], type_ignores=[]), str(stack_test), "exec"), env)
     inputs = env["synthetic_stack_inputs"]()
     if (
-        inputs["nav2_bytes"] != paths[-2].read_bytes()
-        or inputs["coverage_bytes"] != paths[-1].read_bytes()
+        inputs["nav2_bytes"] != nav_template.read_bytes()
+        or inputs["coverage_bytes"] != coverage_template.read_bytes()
     ):
         raise ValueError("repository fixture differs from actual installed template bytes")
     root = args.directory / "synthetic-joined-source"
+    if args.initialization_prior:
+        inputs["localization_initialization_declaration"] = {
+            "schema_version": "rosclaw.sim_localization_initial_prior.v1",
+            "source": "simulator_operator_fixture_policy",
+            "approved": True,
+            "evidence_domain": "SIMULATION",
+            "source_pose_kind": "OPERATOR_FROZEN_SPAWN_PRIOR",
+            "world_name": inputs["contact_declaration"]["world_name"],
+            "map_frame": inputs["navigation_declaration"]["frames"]["map"],
+            "world_to_map_xyyaw": [0, 0, 0],
+        }
     manifest = prepare_generic_stack_source(root, **inputs)
 
     def actual(label, argv, expect=True):
