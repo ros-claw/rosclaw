@@ -18,7 +18,7 @@ import {
 import { resourcePolicy, trustFilterContextFiles } from "../../extension/resource-policy.js";
 import { verifyBundledSkills } from "../../extension/bundled-skills.js";
 import { createSharedModelRuntime } from "./pi-model-runtime.js";
-import { filterModelTools, MODEL_TOOL_NAMES } from "../../tools/surface.js";
+import { filterModelTools, MODEL_TOOL_NAMES, modelVisibleToolNames, registrationToolNames } from "../../tools/surface.js";
 import { buildWorkspacePackTools } from "../../tools/workspace-pack.js";
 import { buildProcessTools } from "../../tools/process-tools.js";
 import { buildProductPackTools } from "../../tools/product-pack.js";
@@ -182,11 +182,69 @@ export interface RosclawRuntime {
 	ownership: SessionWriterOwnership;
 }
 
+/** Cancel only prompts still in public SDK preflight, not subsequent prompts or
+ * already dispatched runs. PI's abort owns in-run cancellation; its typed
+ * preflightResult hook is the last public boundary before agent dispatch. */
+function installPreflightCancellation(session: AgentSessionRuntime["session"]): void {
+	const prompt = session.prompt.bind(session);
+	const abort = session.abort.bind(session);
+	type Identity = { cancelled: boolean; sentinel: Error };
+	const pending = new Set<Identity>();
+	// The SDK re-enters this.prompt with the same options for agent_settled
+	// actions. Their first promise resolves before any disposition is emitted.
+	const continuations = new WeakMap<NonNullable<Parameters<typeof session.prompt>[1]>, Identity>();
+	session.prompt = async (...args: Parameters<typeof session.prompt>) => {
+		const options = args[1];
+		const inherited = options && continuations.get(options);
+		const identity = inherited ?? { cancelled: false, sentinel: new Error("ROSCLAW_PREFLIGHT_CANCELLED") };
+		if (!inherited) {
+			pending.add(identity);
+			const wrapped: NonNullable<typeof options> = {
+				...options,
+				preflightResult: disposition => {
+					try {
+						if (disposition === "started" && identity.cancelled) throw identity.sentinel;
+						// Keep abort authority throughout the original synchronous callback.
+						// Its own error must win, even when it aborts and then throws.
+						options?.preflightResult?.(disposition);
+						if (disposition === "started" && identity.cancelled) throw identity.sentinel;
+					} finally {
+						pending.delete(identity);
+						continuations.delete(wrapped);
+					}
+				},
+			};
+			continuations.set(wrapped, identity);
+			args[1] = wrapped;
+		}
+		try {
+			return await prompt(...args);
+		} catch (error) {
+			pending.delete(identity);
+			if (args[1]) continuations.delete(args[1]);
+			// Message/name/shape are not authority: callback and SDK errors escape.
+			if (!identity.cancelled || error !== identity.sentinel) throw error;
+		}
+		// No disposition means accepted-but-deferred, not handled/queued/started.
+		// Leave its identity pending until the actual SDK continuation completes.
+	};
+	session.abort = (...args: Parameters<typeof session.abort>) => {
+		// Snapshot identities synchronously, before the SDK's first abort await.
+		for (const identity of pending) identity.cancelled = true;
+		return abort(...args);
+	};
+}
+
 export async function createRosclawRuntime(
 	options: RosclawRuntimeOptions,
 ): Promise<RosclawRuntime> {
 	const toolBudgetExtension = options.toolCallBudget === undefined
 		? undefined : createToolCallBudgetExtension(options.toolCallBudget, options.taskContext.workspaceRoot);
+	// Snapshot at admission: callers can mutate their policy after construction.
+	// The execution budget retains its own independent snapshot and deny hook.
+	const allowedModelToolNames = options.toolCallBudget === undefined
+		? undefined : Object.freeze([...options.toolCallBudget.allowedTools]);
+	const initialModelTools = modelVisibleToolNames(MODEL_TOOL_NAMES, allowedModelToolNames);
 	const active = new ActiveSessionContext({
 		sessionId: "",
 		missionId: options.missionId,
@@ -364,6 +422,7 @@ export async function createRosclawRuntime(
 								workspaceAutoBound: options.workspaceAutoBound === true,
 								taskContext: options.taskContext,
 								lateSession,
+								allowedModelToolNames,
 							}),
 						},
 					],
@@ -501,14 +560,21 @@ export async function createRosclawRuntime(
 				sessionManager,
 				sessionStartEvent,
 				...(initialOverride ? { model: options.explicitModel!.model, thinkingLevel: options.explicitThinking } : {}),
-				// PR-N5D：静态 allowlist 无法容纳物化工具名（snapshot
-				// 在 mission 绑定后才可知）——不再传 tools allowlist；
-				// 模型面由扩展在 session_start/before_agent_start 经
-				// setActiveToolsByName 精确激活（MODEL_TOOL_NAMES +
-				// 物化名），customTools 仍经 filterModelTools 过滤。
-				customTools,
+				// PI 1.1 treats `tools` as a permanent registration allowlist,
+				// not just initial activation. Omit it for the unrestricted legacy
+				// session; a restricted session authorizes future policy names too.
+				// Activation is separately intersected with actual available tools.
+				...(allowedModelToolNames === undefined ? {} : { tools: registrationToolNames(allowedModelToolNames) }),
+				// Custom tools are additive; never register a disallowed static tool
+				// in a restricted session. The default keeps its original definitions.
+				customTools: allowedModelToolNames === undefined ? customTools
+					: customTools.filter(tool => initialModelTools.includes(tool.name)),
 			});
+			installPreflightCancellation(result.session);
 			lateSession.session = result.session;
+			// session_start may have fired before lateSession was populated.
+			// Reassert the same restrictive surface on every new/resumed session.
+			result.session.setActiveToolsByName(initialModelTools);
 			// Public PI summary streams do not emit session token events.
 			// Observe their real provider events without altering normal turns
 			// or automatically aborting the summary/main task.
