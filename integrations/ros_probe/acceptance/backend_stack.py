@@ -20,7 +20,7 @@ from backend_probe_fixture import validate_probe_declaration
 from backend_probe_world import bounded_source
 from backend_world_bundle import prepare_backend_world
 from backend_world_ownership import WorldSourceOwner
-from owned_collection_pause import OwnedCollectionPause
+from owned_collection_pause import OwnedCollectionPause, materialize_registered_policy
 from physics_fixture import prepare_physics
 from probe_scene_geometry import decode_scene_json
 from profiles import PROFILES
@@ -630,7 +630,9 @@ def main():
     ):
         parser.add_argument("--" + name, required=True, type=Path)
     parser.add_argument("--instrument-service-binary-sha256", required=True)
-    parser.add_argument("--collection-pause-fixture", type=Path)
+    pause_options = parser.add_mutually_exclusive_group()
+    pause_options.add_argument("--collection-pause-fixture", type=Path)
+    pause_options.add_argument("--collection-pause-registration", type=Path)
     parser.add_argument("--prepare-only", action="store_true")
     args = parser.parse_args()
     if not 60 <= args.duration <= 1920:
@@ -642,6 +644,10 @@ def main():
     if args.prepare_only:
         print(json.dumps(plan))
         return
+    if args.collection_pause_registration is not None:
+        args.collection_pause_fixture = materialize_registered_policy(
+            args.directory, plan, args.collection_pause_registration
+        )
     launch_backend_stack(args, plan, deadline=deadline)
 
 

@@ -92,6 +92,28 @@ class OwnedCollectionPause:
             json.dump(record, output, indent=2)
         os.killpg(self.child.pid, signal.SIGSTOP)
         self.resume_at = time.monotonic() + self.policy["pause_wall_sec"]
+        confirmation_deadline = min(self.resume_at, time.monotonic() + 0.2)
+        while time.monotonic() < confirmation_deadline:
+            if self.child.poll() is not None:
+                raise ValueError("owned observer exited before Linux pause confirmation")
+            state = Path(f"/proc/{self.child.pid}/stat").read_text().rsplit(") ", 1)[1].split()[0]
+            if state == "T":
+                with (self.directory / "backend-collection-pause-applied.json").open("x") as out:
+                    json.dump(
+                        {
+                            "observer_pid": self.child.pid,
+                            "actual_linux_process_state": state,
+                            "confirmed_monotonic_sec": time.monotonic(),
+                            "resume_at_monotonic_sec": self.resume_at,
+                            "fixture_policy_sha256": hashlib.sha256(self.original).hexdigest(),
+                            "physical_stop_proof": "NOT_MEASURED",
+                        },
+                        out,
+                        indent=2,
+                    )
+                return
+            time.sleep(0.005)
+        raise ValueError("actual owned Linux collector pause was not confirmed")
 
     def resume(self):
         if self.child is None or self.done:
@@ -111,3 +133,42 @@ class OwnedCollectionPause:
                 indent=2,
             )
         self.done = True
+
+
+def materialize_registered_policy(directory, plan, registration_path):
+    """Bind preregistered operator fixture to actual prepared constraint sources."""
+    raw = bounded_source(Path(registration_path), 65536)
+    declaration = decode_scene_json(raw)
+    expected = {key: plan[key] for key in ("run_id", "body_snapshot_hash")}
+    if (
+        type(declaration) is not dict
+        or set(declaration) != {*expected, "schema_version", "source", "approved", "pause_wall_sec"}
+        or declaration["schema_version"] != "rosclaw.collection_pause_registration.v1"
+        or declaration["source"] != "operator_controlled_SIM_collection_fault"
+        or declaration["approved"] is not True
+        or any(declaration[k] != v for k, v in expected.items())
+        or type(declaration["pause_wall_sec"]) is not int
+        or not 1 <= declaration["pause_wall_sec"] <= 10
+    ):
+        raise ValueError("closed preregistered collector fixture and exact prepared Body required")
+    path = Path(directory) / "backend-collection-pause-policy.json"
+    policy = {
+        **declaration,
+        "schema_version": "rosclaw.collection_pause_fixture.v1",
+        "constraint_policy_hash": plan["constraint_policy_hash"],
+    }
+    with path.open("x") as output:
+        json.dump(policy, output, indent=2)
+    with (Path(directory) / "backend-collection-pause-registration-original.json").open("x") as out:
+        json.dump(
+            {
+                "registration_original_utf8": raw.decode("utf-8"),
+                "registration_sha256": hashlib.sha256(raw).hexdigest(),
+                "policy_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                "physical_acceptance": "NOT_VERIFIED",
+                "authorization": False,
+            },
+            out,
+            indent=2,
+        )
+    return path

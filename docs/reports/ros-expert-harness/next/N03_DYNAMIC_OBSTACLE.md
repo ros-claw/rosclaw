@@ -289,3 +289,30 @@ exclusions; its original log is retained. The successful run uses repository
 exclusions. No ROS Node, World, SDK transport or robot action was started by these
 checks. D5 actual Native failure receipt and independently measured physical stop
 are still NOT_RUN; this foundation is not D5 acceptance.
+
+## D5 collector trigger and actual Linux signal confirmation
+
+The source-only v4 protocol preregisters exactly the owned collector pause and
+its bounded duration. It preserves the original backend hashes and mission
+budget; the legacy complete episode entry still refuses v4 until the D5 host
+failure/receipt/stop chain is wired. A preregistered operator declaration binds
+to the actually prepared run/Body/constraint policy before process launch, with
+its original bytes and hashes retained. No arbitrary process identity or new
+robot authority can be supplied through that declaration.
+
+`collection_pause_scenario.py` opens no transport. It requires fresh measured
+Brush ON, a live lease, original Brush binding, complete same-time physics and a
+healthy qualified backend before writing the one-shot owned fixture request.
+Unknown sources, old timestamps, clock mismatch, contact, missing Brush source
+or an existing fault reject the trigger. It retains the pre-fault observation
+projection. That projection is derived evidence; complete original SDK audit
+replay and source authentication remain separate. Request completion explicitly
+does not claim the pause was applied or the robot stopped.
+
+The stack separately records actual Linux process state T after SIGSTOP before
+claiming collector pause application. World and witness remain untouched. Full
+ROS regression:1321 passed/10 integration deselected/one existing warning in
+26.65s; focused trigger/policy/process checks59 passed. These are source/process
+checks, not an actual Native World run. Full D5 Native orchestration, negative
+canonical receipts and independent actual stop measurement remain IN_PROGRESS.
+Other D5 fault subclasses and D1/D6 physical entry remain pending.
