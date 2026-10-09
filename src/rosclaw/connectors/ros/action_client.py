@@ -76,17 +76,28 @@ class Ros2ActionClient:
             raise RuntimeError(f"send_goal failed: {result.error}")
         self._ensure_listener()
 
-    def cancel_goal(self, goal_id: str) -> None:
-        """请求取消（终态由 action_result(CANCELED) 确认）。"""
+    def cancel_goal(self, goal_id: str) -> bool:
+        """Dispatch cancellation for a tracked goal; never claim server ack/stop.
+
+        False means there is no tracked active goal (possibly already terminal).
+        Transport failures raise, so callers cannot silently treat a disconnected
+        socket as successful cancellation. Confirmation still requires the
+        matching action_result(CANCELED), followed by independent stop evidence.
+        """
         with self._lock:
-            action = self._goals.get(goal_id, "")
-        self._transport.send(
+            action = self._goals.get(goal_id)
+        if action is None:
+            return False
+        result = self._transport.send(
             {
                 "op": "cancel_action_goal",
                 "action": action,
                 "id": goal_id,
             }
         )
+        if not result.is_ok:
+            raise RuntimeError(f"cancel_goal dispatch failed: {result.error}")
+        return True
 
     def close(self) -> None:
         self._closed = True
