@@ -284,3 +284,40 @@ skipped; required mypy plus changed discovery source122 files passed. Scoped
 lint/format, compileall and diff checks passed. Full staged admission, guarded
 activation, held-out selection, feature freeze and generic physical acceptance
 remain pending.
+
+## Explicit optional World sensor-system sources
+
+The200912 development World has no explicit Sensors/Contact systems and its
+actual discovery capture contains no lidar messages. This motivates a source
+candidate, not a confirmed single-cause diagnosis. An optional closed SIM
+operator declaration can now materialize standard Physics/UserCommands/Scene
+systems plus Sensors/Contact required by the materialized lidar/contact sources.
+Original World bytes remain archived; model geometry, robot, controller,
+navigation, bridge and map sources stay unchanged. The default still copies
+the original World unchanged. No body/model/frame name is inferred or hardcoded.
+
+Existing duplicate/rebound standard systems or conflicting render engines are
+refused. Reopening the sealed workspace recomputes the World proposal from its
+original bytes, instrumented robot and complete declaration. It refuses even a
+rehashed inventory that removes a required system, omits the report or changes
+the report to claim observed messages. Unknown sensor types remain explicitly
+unvalidated. No source declaration or loaded library grants Body admission.
+
+Focused World/join contracts46 passed; full ROS2018 passed/10 integration
+deselected. Core src is unchanged from de37e0d3's Practice183 and mypy122 gate.
+Actual installed SDK attempt03 captured148 project/input/parser/loader/ELF
+sources before calls, parsed the full generated World as Valid and loaded all
+five standard plugin libraries, reporting their actual v8 System classes.
+Plugin objects were not instantiated and no World/ROS Node was started. Public
+World aliases and actual sensor messages still require a later runtime test.
+
+Attempt01 expected unversioned class names in the loader CLI, which reports
+versioned classes; its original failure is retained. Attempt02 additionally ran
+the strict full-robot SDF CLI check. It rejected same-named command/state
+interfaces inside the opaque ros2_control extension, although the exact robot
+and controller sources were accepted by the actual200912 Gazebo manager. That
+failed full-robot CLI result is retained and is not relabeled PASS. Attempt03
+checks the changed World and proves robot/controller/navigation/bridge bytes
+identical to that previously manager-accepted source; the historical manager
+reply is not presented as live admission. No interfaces were renamed or
+removed. Complete physical sensor/contact and generic Body gates remain pending.

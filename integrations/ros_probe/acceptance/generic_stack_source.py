@@ -16,6 +16,7 @@ from xml.etree import ElementTree as ET
 import yaml
 from backend_world_bundle import observation_bridge_rows
 from generic_contact_fixture import prepare_contact_fixture
+from generic_world_system_source import prepare_world_system_source
 
 from rosclaw.connectors.ros.context.sim_controller_source import prepare_sim_controller_source
 from rosclaw.connectors.ros.context.sim_localization_source import apply_frozen_localization_prior
@@ -153,7 +154,9 @@ def read_prepared_generic_stack(output):
     if (
         type(declarations) is not dict
         or not required_declarations <= set(declarations)
-        or set(declarations) - required_declarations - {"localization_initialization"}
+        or set(declarations)
+        - required_declarations
+        - {"localization_initialization", "world_systems"}
         or any(type(value) is not dict for value in declarations.values())
         or digest(declarations) != manifest["declaration_hash"]
     ):
@@ -175,6 +178,18 @@ def read_prepared_generic_stack(output):
         or any(hashes.get("original-sources/" + name) != sha for name, sha in originals.items())
     ):
         raise ValueError("original source identities must remain in the sealed inventory")
+    if "world_systems" in declarations:
+        prepared_world = prepare_world_system_source(
+            files["original-sources/world.original.sdf"],
+            files["robot.sdf"],
+            declarations["world_systems"],
+        )
+        if (
+            files["world.sdf"] != prepared_world["world_bytes"]
+            or json.loads(files.get("world-system-source-report.json", b"null"))
+            != prepared_world["report"]
+        ):
+            raise ValueError("prepared World systems differ from the original explicit sources")
     map_source = _yaml(files["map.yaml"])
     if type(map_source) is not dict or type(map_source.get("image")) is not str:
         raise ValueError("explicit prepared source map image required")
@@ -208,6 +223,7 @@ def prepare_generic_stack_source(
     navigation_declaration,
     contact_declaration,
     localization_initialization_declaration=None,
+    world_systems_declaration=None,
 ):
     source = {
         "robot.original.urdf": urdf_bytes,
@@ -350,7 +366,16 @@ def prepare_generic_stack_source(
         (output / name).write_bytes(raw)
     for name in ("robot.sdf", "bridge.yaml"):
         (output / name).write_bytes((output / "contact-source" / name).read_bytes())
-    (output / "world.sdf").write_bytes(world_bytes)
+    if world_systems_declaration is not None:
+        prepared_world = prepare_world_system_source(
+            world_bytes, (output / "robot.sdf").read_bytes(), world_systems_declaration
+        )
+        (output / "world.sdf").write_bytes(prepared_world["world_bytes"])
+        (output / "world-system-source-report.json").write_text(
+            json.dumps(prepared_world["report"], indent=2) + "\n"
+        )
+    else:
+        (output / "world.sdf").write_bytes(world_bytes)
     (output / "map.yaml").write_bytes(map_yaml_bytes)
     (output / image).write_bytes(map_image_bytes)
     (output / "nav2.yaml").write_text(yaml.safe_dump(navigation["parameters"]))
@@ -374,6 +399,8 @@ def prepare_generic_stack_source(
         (output / "localization-initialization-declaration.json").write_text(
             json.dumps(localization_initialization_declaration, indent=2) + "\n"
         )
+    if world_systems_declaration is not None:
+        declarations["world_systems"] = world_systems_declaration
     # Preserve the actual policies, attachment and interface declarations. A
     # digest alone cannot reconstruct inputs for staged runtime admission.
     (output / "source-declarations.json").write_text(json.dumps(declarations, indent=2) + "\n")
