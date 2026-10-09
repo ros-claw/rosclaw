@@ -1542,6 +1542,10 @@ class PiToolDispatcher:
         task = kernel.active_task_for(request.mission_id, request.pi_session_id)
         if task is None:
             raise ToolBridgeError("NO_ACTIVE_TASK", "无活跃任务——先发送任务消息（输入事务绑定）")
+        from rosclaw.agentd.turn_store import TurnStore
+
+        turn = TurnStore(self._service._store.connection).latest_for_session(request.pi_session_id)
+        turn_id = str(turn["turn_id"]) if turn else str(task.get("caused_by_turn_id") or "")
         op = await self._service._operation_manager.start(
             task_id=task["task_id"],
             attempt_id="main",
@@ -1549,13 +1553,21 @@ class PiToolDispatcher:
             argv=["sh", "-c", command],
             cwd=task["workspace_path"],
         )
+        owner = {
+            **{key: op.get(key) for key in ("operation_id", "task_id", "revision", "state")},
+            "mission_id": request.mission_id,
+            "session_ref": request.pi_session_id,
+            "turn_id": turn_id,
+        }
+        receipts = getattr(self._service, "_ui_operation_receipts", None)
+        if receipts is None:
+            receipts = self._service._ui_operation_receipts = {}
+        receipts[str(op["operation_id"])] = dict(owner)
         return PiToolResultV1(
             request_id=request.request_id,
             ok=True,
             status="STARTED",
-            operation={
-                key: op.get(key) for key in ("operation_id", "task_id", "revision", "state")
-            },
+            operation=owner,
             summary=(
                 f"Operation 已启动：{op['operation_id']}（后台运行）。"
                 "command 由 sh -c 原样执行；Bash 语法必须显式调用 bash -c。"

@@ -67,7 +67,22 @@ import { AutoNamer } from "../session/auto-name.js";
 import { formatPolicyAutoNotice } from "../ui/tool-display.js";
 import { classifyNotice, NotificationLevelFilter } from "../ui/levels.js";
 
+export type UIReceiptOwner = Readonly<{
+	mission_id: string; session_ref: string; task_id: string; operation_id: string; turn_id: string;
+}>;
+const receiptStates = new Map<string, { owners: Map<string, UIReceiptOwner>; turns: Map<string, string> }>();
+export function ownedUIState(home: string) {
+	let state = receiptStates.get(home);
+	if (!state) {
+		state = { owners: new Map(), turns: new Map() };
+		receiptStates.set(home, state);
+	}
+	return state;
+}
+
 export interface RosclawExtensionOptions {
+	uiReceiptOwners?: Map<string, UIReceiptOwner>;
+	uiReceiptTurns?: Map<string, string>;
 	profile: "developer" | "robot";
 	version: string;
 	/** PNA-2：v2 系统提示词（native_agent_v2.md 内容，构建期打包）。 */
@@ -120,6 +135,9 @@ function makeDefaultOsIsolationProbe(rosclawHome: string): () => { isolationRead
 
 export function createRosclawExtension(options: RosclawExtensionOptions): ExtensionFactory {
 	const defaultOsIsolationProbe = makeDefaultOsIsolationProbe(options.rosclawHome);
+	const state = ownedUIState(options.rosclawHome);
+	const uiReceiptOwners = options.uiReceiptOwners ?? state.owners;
+	const uiReceiptTurns = options.uiReceiptTurns ?? state.turns;
 	return (pi) => {
 		// -- 品牌 + 单一状态源（六审 PR-SIX-1：Header/Footer 在同一次
 		//    refreshChrome 里用同一个 KernelSnapshotV1 重绘——不允许顶部
@@ -479,6 +497,16 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 						text,
 						source: "interactive",
 					});
+					const latest = await center.call("pi.turn.latest", { pi_session_id: sessionId });
+					const turn = (latest.turn ?? {}) as { turn_id?: unknown };
+					if (latest.ok === true && typeof turn.turn_id === "string" && turn.turn_id) {
+						// Durable turn authority supersedes a cached operation receipt.
+						// Do not cancel or claim to have stopped the previous turn's worker.
+						uiReceiptTurns.set(sessionId, turn.turn_id);
+						if (uiReceiptOwners.get(sessionId)?.turn_id !== turn.turn_id) {
+							uiReceiptOwners.delete(sessionId);
+						}
+					}
 				}
 			} catch {
 				// 落账失败不阻塞输入。
@@ -1205,6 +1233,15 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				const details = (event.result?.details ?? {}) as Record<string, unknown>;
 				if (event.isError || details.ok === false) return;
 				const operation = details.operation as Record<string, unknown> | undefined;
+				if (operation && ["mission_id", "session_ref", "task_id", "operation_id", "turn_id"].every(k => typeof operation[k] === "string" && operation[k] !== "")
+					&& operation.session_ref === options.active.current.sessionId
+					&& operation.mission_id === options.active.current.missionId
+					&& (!uiReceiptTurns.has(operation.session_ref as string)
+						|| uiReceiptTurns.get(operation.session_ref as string) === operation.turn_id)) {
+					const owner = Object.freeze({ ...operation }) as UIReceiptOwner;
+					uiReceiptOwners.set(owner.session_ref, owner);
+					uiReceiptTurns.set(owner.session_ref, owner.turn_id);
+				}
 				const text = JSON.stringify(event.result?.content ?? []);
 				const id = String(operation?.operation_id ?? text.match(/op_[a-f0-9]+/)?.[0] ?? "");
 				if (id) operationWatcher.track(id);
@@ -1248,42 +1285,13 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			center.noteProviderOk();
 			return undefined;
 		});
-		// G-4（0916 三审 B-2）：Esc/Ctrl-C 中断级联标记——pi 内部
-		// abort 只停模型回合，后台 operation（渲染/仿真子进程）照跑。
-		// watchdog 的停滞 abort 不是用户中断（不级联——后台操作与
-		// Provider 停滞无关，继续跑是对的）。
-		let watchdogAbortedTurn = false;
+		// Assistant message_end describes a model outcome, not the cause of abort.
+		// Only the typed editor-input adapter may request owner-bound cancellation;
+		// never infer user intent here or cascade to the legacy broad interrupt.
 		pi.on("message_end", async (event) => {
 			// PR-H7（§8.4）：provider 错误分类——403 配额≠鉴权错误；
 			// 稳定错误码 + 用户可理解说明 + 恢复动作（task 可继续）。
 			const msg = event.message as { role?: string; stopReason?: string; errorMessage?: string };
-			const requestCancelled = msg.stopReason === "aborted"
-				|| Boolean(msg.errorMessage && classifyModelError(msg.errorMessage).code === "MODEL_REQUEST_CANCELLED");
-			if (msg.role === "assistant" && requestCancelled) {
-				if (watchdogAbortedTurn) {
-					watchdogAbortedTurn = false;
-				} else {
-					// 用户 Esc/Ctrl-C：级联停本会话活跃 task 的在途
-					// operation（账本 CANCELLED + 进程组 killpg）。
-					try {
-						const missionId = options.active.current.missionId;
-						const sessionRef = options.active.current.sessionId;
-						const res = (await center.call("pi.session.interrupt", {
-							mission_id: missionId ?? "",
-							session_ref: sessionRef ?? "",
-						})) as { ok?: boolean; operations_cancelled?: number };
-						const stopped = res?.operations_cancelled ?? 0;
-						if (res?.ok && stopped > 0) {
-							latestCtx?.ui.notify(
-								`已中断——后台操作已停 ${stopped} 个（账本 CANCELLED）`,
-								"info",
-							);
-						}
-					} catch {
-						// 级联失败不掩盖中断本身（回合已停）。
-					}
-				}
-			}
 			const classified = classifyAssistantFailure(msg);
 			if (classified) {
 				const raw = msg.stopReason === "length" ? "stopReason=length" : String(msg.errorMessage ?? "");
@@ -1342,7 +1350,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				// 不得宣称"已取消"（假取消文案）；诚实提示手动中断。
 				if (latestCtx && !latestCtx.isIdle()) {
 					if (typeof latestCtx.abort === "function") {
-						watchdogAbortedTurn = true; // G-4：非用户中断，不级联
+						// Provider stall is not editor input and grants no cancellation authority.
 						latestCtx.abort();
 					} else if (latestCtx.hasUI) {
 						latestCtx.ui.notify(

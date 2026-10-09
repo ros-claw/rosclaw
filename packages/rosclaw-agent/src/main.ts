@@ -17,6 +17,8 @@
 // the protected helper cannot return that handle after run rejects.
 import { existsSync, readFileSync } from "node:fs";
 import { VERSION } from "./version.js";
+import { attachOwnedUIAbort } from "./ui-owned-cancellation.js";
+export { attachOwnedUIAbort } from "./ui-owned-cancellation.js";
 // Type-only import（编译期擦除）——不会在 pi 模块加载前引入任何运行时依赖。
 import type { ToolCallBudget } from "./harness/pi/tool-call-budget.js";
 // This module imports only node builtins at runtime; schema rejection stays pre-SDK/auth.
@@ -462,6 +464,13 @@ async function main(): Promise<number> {
 			verbose: false,
 			...(initialMessage ? { initialMessage } : {}),
 		});
+		const { ownedUIState } = await import("./extension/index.js");
+		const uiReceipts = ownedUIState(rosclawHome);
+		const ownedAbort = attachOwnedUIAbort(mode, {
+			rosclawHome,
+			current: () => uiReceipts.owners.get(runtime.session.sessionManager.getSessionId()),
+			turn: () => uiReceipts.turns.get(runtime.session.sessionManager.getSessionId()),
+		});
 		// PI 1.0.4/1.1.0 compatibility seam: their private shutdown calls
 		// immediate process exit, and run() waits forever for editor input. Bridge only
 		// this instance's shutdown into main; never intercept process.exit or
@@ -514,11 +523,12 @@ async function main(): Promise<number> {
 			await Promise.race([mode.run(), shutdownComplete]);
 			return 0;
 		} finally {
+			const cancellationOutcomes = await ownedAbort.drain();
 			// Local consumer termination only, never writer confirmation.
-			try {
-				if (!stopped) { mode.stop(); stopped = true; }
-			} catch (err) {
-				interactiveCloseFailure ??= err;
+			try { if (!stopped) { mode.stop(); stopped = true; } }
+			catch (err) { interactiveCloseFailure ??= err; }
+			if (cancellationOutcomes.some(outcome => !outcome.ok)) {
+				interactiveCloseFailure ??= new Error("OWNED_CANCEL_UNCONFIRMED");
 			}
 		}
 	} finally {

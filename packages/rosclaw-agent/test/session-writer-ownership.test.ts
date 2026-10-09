@@ -664,6 +664,18 @@ test("main.ts source wiring: ownership release on bind failure and normal exit (
 	assert.ok(teardown.indexOf("throw new Error(`MAIN_EXIT_TEARDOWN_UNCONFIRMED") < teardown.indexOf("runtimeOwnership.releaseAll()"));
 	assert.ok(/runtimeOwnership\.releaseAll\(\);\s*await leaseManager\.release\(\)/.test(teardown));
 	assert.ok(/finally \{[\s\S]{0,150}?mode\.stop\(\)/.test(main));
+	// Scope the ordering check to the actual mode.run() finally, not an
+	// unrelated earlier finally or a comment containing the same tokens.
+	const run = main.indexOf("await Promise.race([mode.run(), shutdownComplete])");
+	const drain = main.indexOf("await ownedAbort.drain()", run);
+	const stop = main.indexOf("mode.stop()", drain);
+	const close = main.indexOf("await confirmWriterClosed()", stop);
+	const release = main.indexOf("runtimeOwnership.releaseAll()", close);
+	assert.ok(run >= 0 && drain > run && stop > drain && close > stop && release > close);
+	assert.ok(main.slice(run, drain).includes("} finally {"));
+	assert.ok(main.slice(run, stop).includes("const cancellationOutcomes = await ownedAbort.drain()"));
+	assert.ok(main.slice(stop, close).includes("cancellationOutcomes.some(outcome => !outcome.ok)"));
+	assert.ok(main.slice(close, release).includes("if (interactiveCloseFailure)"));
 	assert.ok(!/process\.exit\(/.test(main), "natural exit must not hide live consumers");
 	assert.ok(/process\.exitCode = 2/.test(main));
 	// resume/continue 全部经 ownership 占有后 open。
