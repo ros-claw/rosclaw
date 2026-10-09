@@ -88,3 +88,29 @@ A0–A3 feature_flags 与 Memory 模式固定对应；相同 seed 的初始条�
 171个公开文件封存于 harness
 `evidence/2026-10-09/n06-source704-live-tool-gate-three-real-native-synthetic-tasks`。
 没有自动重试、替换失败、机器人验收、A0–A3正式对照或Memory因果收益结论。
+
+## 修复取消竞态后的 V5 镜像真实 Native 文件任务
+
+另外单独预注册并完成三组实际 Native 文件任务：镜像为
+`sha256:77956d3b249f6290308cffdf0e497453985fd4c03dcc5dc43d213ec891fea320`，
+Core/Native 为 `7dcc8861c9f5596cfa9d3201da4896ad04da2460`；宿主预算源码为
+`c2112ae51d2cf49b179beaa22058cfc233f6c52d`（实际预算实现与704字节一致）。
+这是新镜像运行，不能追认V4或旧源码任务。仍使用同一实际模型/low及上述
+16请求、12释放工具调用、2048输出token/请求、120000总token、600秒登记预算。
+
+| 模式 | 真实模型请求 | 释放工具调用 | 总 token | 原单调时钟耗时秒 |
+|---|---:|---:|---:|---:|
+| M0 | 9 | 8 | 44879 | 67.8139 |
+| M1 | 9 | 8 | 48261 | 62.1040 |
+| M2 | 10 | 9 | 59243 | 72.3116 |
+
+三组TaskKernel SUCCEEDED，交付Artifact SHA/长度与原始字节一致，原容器全部
+停止/Pid0/exit0。28次真实模型请求、25组toolCall/toolResult和原始单调预算账本
+逐笔独立核验，168公开文件封存于harness
+`evidence/2026-10-09/n05-v5-and-N06-current-real-native-file-tasks`。
+
+该V5镜像另外通过两种真实并发进程取消组件测试（wrapper存活/已退出且孙进程
+抗TERM），以及19字节中文/emoji Native写入；这属于独立隔离容器组件证据，
+不是本文件任务执行机器人停止，也不是ROS Action grace的独立物理停止证明。
+没有实际World、机器人任务、Memory因果收益或正式A0–A3结果。
+本节为文档更新，预算代码未变；不把此前真实任务重标为新的文档提交。
