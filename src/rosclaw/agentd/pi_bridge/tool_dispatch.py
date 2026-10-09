@@ -273,13 +273,32 @@ class PiToolDispatcher:
         conn = self._service._store.connection
         self._caller_pid = caller_pid
         self._caller_uid = caller_uid
+        from rosclaw.connectors.ros.context.memory_worker_effects import (
+            memory_worker_cache_binding,
+        )
+
+        memory_cache_binding = memory_worker_cache_binding(self._service._config.raw, request)
         # 1. idempotency：重放直接返回首个结果（不产生重复副作用）。
         row = conn.execute(
             "SELECT response_json FROM pi_tool_idempotency WHERE idempotency_key = ?",
             (request.idempotency_key,),
         ).fetchone()
         if row is not None:
-            return PiToolResultV1(**json.loads(row["response_json"]))
+            cached = PiToolResultV1(**json.loads(row["response_json"]))
+            if memory_cache_binding is not None and (
+                (getattr(cached, "details", None) or {}).get("memory_worker_cache_binding")
+                != memory_cache_binding
+            ):
+                refused = PiToolResultV1(
+                    request_id=request.request_id,
+                    ok=False,
+                    status="REJECTED",
+                    error_code="MEMORY_WORKER_CACHE_SCOPE_MISMATCH",
+                    summary="Cached reply is not bound to this Memory worker policy and request.",
+                )
+                await self._mirror_decision(request, refused)
+                return refused
+            return cached
         # 八审 §4 P0-6：doom-loop 熔断——同一工具同一参数出错后原样
         # 重复直接拒绝（不再消耗模型回合）；成功即重置，不误伤合法
         # 重复观测。进程级指纹（安全语义仍在 fail-closed 链上，熔断
@@ -327,6 +346,11 @@ class PiToolDispatcher:
             pass
         else:
             failures[fingerprint] = True
+        if memory_cache_binding is not None:
+            result.details = {
+                **(getattr(result, "details", None) or {}),
+                "memory_worker_cache_binding": memory_cache_binding,
+            }
         conn.execute(
             "INSERT OR IGNORE INTO pi_tool_idempotency "
             "(idempotency_key, request_id, tool_name, response_json, created_at) "
@@ -439,6 +463,20 @@ class PiToolDispatcher:
                     request.mission_id,
                     AgentEventType.TOOL_EFFECT_RESOLVED,
                     frozen.to_event_payload(),
+                )
+            from rosclaw.connectors.ros.context.memory_worker_effects import (
+                memory_worker_host_operation_refused,
+            )
+
+            if memory_worker_host_operation_refused(
+                service._config.raw,
+                tool_name=request.tool_name,
+                effect_class=frozen.effect_class,
+            ):
+                raise ToolBridgeError(
+                    "MEMORY_WORKER_HOST_OPERATION_DISABLED",
+                    "Registered Memory workers cannot start, inspect or control host "
+                    "process operations; use the separately confined Native workspace tools.",
                 )
         # 5. 分发。
         return await self._dispatch(request)
