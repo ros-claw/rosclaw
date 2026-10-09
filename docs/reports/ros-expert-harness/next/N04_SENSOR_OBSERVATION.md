@@ -57,3 +57,32 @@ incomplete exports remain diagnostic failures and never replace the original
 bootstrap outcome or physical acceptance. It never restarts or execs a container.
 This export can recover retained container-layer files; it cannot recover files
 from a discarded tmpfs. A later actual startup must still test export integration.
+
+## Rate-only synthetic source diagnostic, 2026-10-09
+
+Worlds 200914 and 200915 retained their FAIL with complete 30-second ROS
+observation windows. In 200915 a registered extra Gazebo subscriber timed out
+after 12 seconds with zero stdout bytes; Gazebo advertised a LaserScan publisher
+and the bridge subscriber. Topic advertisement alone was insufficient.
+
+A separately registered development World 200917 changed exactly one original
+synthetic operator input: the lidar declares `update_rate=20`. `always_on` stays
+absent. Robot geometry, URDF, controller, Nav2, map, World and bridge outputs
+remain byte-identical. This is an operator fixture correction, never an automatic
+change to an unfamiliar robot or a third hardcoded Body profile. The synthetic
+test-source builder now records that explicit rate too.
+
+World 200917 passed its inactive manager and graph/sensor observation: all ten
+Nav2 lifecycle nodes remained UNCONFIGURED; the strict inactive controller probe
+passed; ROS received approximately 20.15 Hz LaserScan with an 8.20 ms last-message
+age after the complete 30.01-second window. The registered Gazebo probe received
+one original JSON LaserScan. The source/image/declaration and raw evidence are
+recorded separately under recovery_2026-10-09 in the operator harness workspace.
+
+This supports the sensor scheduling hypothesis in this synthetic fixture, but
+does not prove a Gazebo implementation root cause. The additional subscriber
+may affect lazy sensor activation; a no-extra-subscriber follow-up is required.
+The captured scan has 360 ranges, all Infinity in this empty synthetic scene,
+and a Gazebo-scoped frame. Useful obstacle returns and matching ROS scan/TF frame
+identity are not yet verified. No controller activation, Body admission, held-out
+integration or cleaning task was performed. Original failures are unchanged.
