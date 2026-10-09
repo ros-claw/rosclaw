@@ -41,7 +41,7 @@ def specification():
         "dwell_sim_sec": 20,
         "introduce_after_cleaning_sim_sec": 10,
         "port": 22300,
-        "domain": 181,
+        "domain": 81,
         "model_provider": "actual_provider",
         "model": "actual_model",
     }
@@ -324,3 +324,23 @@ def test_full_sequence_closes_world_before_replay_and_retains_failures(
     if fault == "sdk":
         assert result["native_process_started"] is True
         assert result["autonomous_llm"] is None
+
+
+def test_domain_overlap_refuses_before_any_host_or_simulator_launch(launcher, inputs, monkeypatch):
+    directory, protocol, plugin, urdf, home, spec = inputs
+    spec["domain"] = 201
+    protocol.write_text(json.dumps(spec))
+    monkeypatch.setattr(
+        launcher,
+        "validate_ros_domain",
+        lambda domain: __import__("fixture_network").validate_ros_domain(
+            domain, ephemeral_range=(32768, 60999)
+        ),
+    )
+    monkeypatch.setattr(launcher, "command", lambda *a, **k: pytest.fail("unexpected host command"))
+    monkeypatch.setattr(
+        launcher.subprocess, "Popen", lambda *a, **k: pytest.fail("unexpected process launch")
+    )
+    with pytest.raises(ValueError, match="overlap"):
+        launcher.run_episode(directory, protocol, plugin, urdf, home)
+    assert not directory.exists()
