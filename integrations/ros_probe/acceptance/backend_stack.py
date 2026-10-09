@@ -20,6 +20,7 @@ from backend_probe_fixture import validate_probe_declaration
 from backend_probe_world import bounded_source
 from backend_world_bundle import prepare_backend_world
 from backend_world_ownership import WorldSourceOwner
+from owned_collection_pause import OwnedCollectionPause
 from physics_fixture import prepare_physics
 from probe_scene_geometry import decode_scene_json
 from profiles import PROFILES
@@ -315,6 +316,9 @@ def launch_backend_stack(args, plan, *, deadline):
         str(bundle / "world-source") + os.pathsep + os.getenv("GZ_SIM_SYSTEM_PLUGIN_PATH", "")
     )
     children = OwnedStackChildren(out, deadline)
+    collection_pause = OwnedCollectionPause(
+        out, children, plan, getattr(args, "collection_pause_fixture", None)
+    )
 
     def terminate(*_):
         raise KeyboardInterrupt
@@ -569,6 +573,10 @@ def launch_backend_stack(args, plan, *, deadline):
             if not world_alive:
                 fault.fail("owned World exited", world_alive=False)
                 raise ValueError("owned World exited; independent physical stop proof missing")
+            try:
+                collection_pause.poll()
+            except (ValueError, OSError, UnicodeError) as error:
+                fault.fail(error)
             if not fault.latched:
                 try:
                     unexpected = [
@@ -599,7 +607,10 @@ def launch_backend_stack(args, plan, *, deadline):
             # Host must request a guarded stop and measure it; process exit is not proof.
             time.sleep(0.05)
     finally:
-        children.close()
+        try:
+            collection_pause.resume()
+        finally:
+            children.close()
 
 
 def main():
@@ -619,6 +630,7 @@ def main():
     ):
         parser.add_argument("--" + name, required=True, type=Path)
     parser.add_argument("--instrument-service-binary-sha256", required=True)
+    parser.add_argument("--collection-pause-fixture", type=Path)
     parser.add_argument("--prepare-only", action="store_true")
     args = parser.parse_args()
     if not 60 <= args.duration <= 1920:

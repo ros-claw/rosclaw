@@ -269,3 +269,23 @@ After genuine task/source closure, `dynamic_two_blocker_replay.py` reuses the ex
 Validation: focused host/scenario/source contracts137 passed before the additional v3 early-merge refusal case; full ROS1293 passed/10 integration deselected/one existing warning in25.41s, source replay mypy and source/tests Ruff passed. Real source SDK preparation on both actual installed Waffle/Burger URDFs with two preloaded task blockers and the separate cache probe passed; generated Worlds passed installed SDF parsing and final/root physics inventories agreed. Executed source and real ELF bytes were captured before the SDK check. No Node, World, service or model call was started by it.
 
 D2/D3/D4 host orchestration is implemented but actual new Native physics tasks remain NOT_RUN pending the frozen N02 formal review/merge. D1/D5/D6 complete actual task entry and acceptance remain incomplete. v1_done=false.
+
+## D5 registered collection pause source foundation
+
+`OwnedCollectionPause` accepts a closed operator SIM fixture policy pinned to the
+same run, Body and constraint hashes. A matching request can pause only the exact
+owned independent observer child; no PID is accepted from input. Its duration is
+frozen to 1–10 wall seconds. The original policy/request hashes and observer PID
+are retained before SIGSTOP. The World, actor and independent witness are never
+signalled by this fixture. Resume runs even after a policy-change fault and during
+cleanup before child shutdown. Resuming never clears the source fault latch or
+asserts healthy data or physical standstill. Input files use bounded reads.
+
+Validation uses real owned Linux Python sleeper processes, not a simulated robot.
+The full ROS regression passed 1302 tests, with 10 integration tests deselected
+and one existing warning, in 25.98s; scoped Ruff passed. One earlier collection
+was interrupted before tests ran because its explicit marker overrode repository
+exclusions; its original log is retained. The successful run uses repository
+exclusions. No ROS Node, World, SDK transport or robot action was started by these
+checks. D5 actual Native failure receipt and independently measured physical stop
+are still NOT_RUN; this foundation is not D5 acceptance.
