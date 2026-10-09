@@ -11,6 +11,7 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
+from lifecycle_readiness import readiness
 from observations import latest_completed_observation
 from profiles import PROFILES
 
@@ -40,6 +41,7 @@ def wait_ready(directory, container, timeout=180):
                 and sample["collision_count"] == 0
                 and not sample["cleaning_enabled"]
                 and (directory / "measured_map.json").exists()
+                and readiness(json.loads((directory / "lifecycle-readiness.json").read_text()))
                 and all(
                     "Managed nodes are active" in (directory / name).read_text()
                     for name in ["nav2.log", "coverage_lifecycle.log"]
@@ -49,7 +51,12 @@ def wait_ready(directory, container, timeout=180):
         except (OSError, ValueError, KeyError):
             pass
         time.sleep(0.5)
-    raise TimeoutError("complete fresh independent SIM startup observations missing")
+    from startup_gate_failure import retain_startup_failure
+
+    failure = retain_startup_failure(directory, require_live_lifecycle=True)
+    raise TimeoutError(
+        "SIM startup constraints not satisfied: " + ", ".join(failure["missing_requirements"])
+    )
 
 
 def journey(directory, port, profile, timeout, repair_strategy="greedy"):
@@ -275,9 +282,13 @@ def main():
     parser.add_argument("--phase", choices=["pilot", "evaluation"], default="pilot")
     parser.add_argument("--image", default="rosclaw/ros-expert-rebuilt:dad31022")
     parser.add_argument("--port-base", type=int, default=20191)
-    parser.add_argument("--domain-base", type=int, default=201)
+    parser.add_argument("--domain-base", type=int, default=81)
     parser.add_argument("--mission-timeout", type=int, default=900)
     args = parser.parse_args()
+    from fixture_network import validate_ros_domain
+
+    validate_ros_domain(args.domain_base)
+    validate_ros_domain(args.domain_base + 1)
     validate_seed(args.seed)
     planning_parameters(PROFILES[args.profile], args.candidate)
     if not 1024 <= args.port_base < 65535 or not 0 <= args.domain_base < 232:

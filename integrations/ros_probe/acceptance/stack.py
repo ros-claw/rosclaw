@@ -450,6 +450,7 @@ def main():
                 f"controller_watchdog:={'true' if args.controller_watchdog else 'false'}",
             ],
         )
+        start("lifecycle_probe", ["python3", str(ROOT / "lifecycle_readiness.py")])
         start("probe", ["python3", str(ROOT.parent / "ros2/probe.py")])
         while True:
             for p in children:

@@ -77,7 +77,10 @@ def test_failed_journey_stops_owned_fixture_and_retains_failure(tmp_path, monkey
     assert (tmp_path / "candidate/protocol.json").read_text() == "{}"
 
 
-def test_startup_ready_does_not_wait_for_task_generated_snapshot(tmp_path, monkeypatch):
+@pytest.mark.parametrize("live_state", ["active", "inactive", "stale", "missing"])
+def test_startup_ready_requires_live_states_without_task_snapshot(
+    tmp_path, monkeypatch, live_state
+):
     runner = ROOT / "integrations/ros_probe/acceptance"
     monkeypatch.syspath_prepend(str(runner))
     spec = importlib.util.spec_from_file_location(
@@ -96,7 +99,38 @@ def test_startup_ready_does_not_wait_for_task_generated_snapshot(tmp_path, monke
     }
     monkeypatch.setattr(pairs, "command", lambda *args: "true")
     monkeypatch.setattr(pairs, "latest_completed_observation", lambda *args: sample)
-    pairs.wait_ready(tmp_path, "mock-owned", timeout=1)
+    from lifecycle_readiness import REQUIRED_NODES, SCHEMA
+
+    lifecycle = {
+        "schema_version": SCHEMA,
+        "source": "actual_read_only_GetState_responses",
+        "ready": True,
+        "responses": {
+            name: {
+                "service": "/" + name + "/get_state",
+                "state_id": 3,
+                "state_label": "active",
+                "received_monotonic_sec": pairs.time.monotonic(),
+            }
+            for name in REQUIRED_NODES
+        },
+    }
+    if live_state == "inactive":
+        lifecycle["responses"]["coverage_server"]["state_id"] = 2
+    elif live_state == "stale":
+        lifecycle["responses"]["coverage_server"]["received_monotonic_sec"] -= 3
+    elif live_state == "missing":
+        lifecycle["responses"]["coverage_server"] = None
+    (tmp_path / "lifecycle-readiness.json").write_text(json.dumps(lifecycle))
+    (tmp_path / "witness.jsonl").write_text(json.dumps(sample) + "\n")
+    if live_state == "active":
+        pairs.wait_ready(tmp_path, "mock-owned", timeout=1)
+    else:
+        with pytest.raises(TimeoutError, match="fresh_actual_ACTIVE_lifecycle_responses"):
+            pairs.wait_ready(tmp_path, "mock-owned", timeout=0.05)
+        retained = json.loads((tmp_path / "startup-gate-failure.json").read_text())
+        assert retained["readiness"] is False
+        assert retained["original_lifecycle_response_snapshot"] == lifecycle
     assert not (tmp_path / "snapshot.json").exists()
 
 
