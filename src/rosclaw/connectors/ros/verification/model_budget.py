@@ -251,7 +251,7 @@ class ModelResponseBudget:
             "actual_input_tokens": self._input,
             "actual_output_tokens": self._output,
             "actual_total_tokens": total,
-            "usage_complete": self._usage_complete,
+            "usage_complete": self._usage_complete and self._pending is None,
             "overshoot_tokens": max(0, total - self.registered.max_total_tokens),
             "halt_reason": self._halt,
             "records": deepcopy(self._records),
