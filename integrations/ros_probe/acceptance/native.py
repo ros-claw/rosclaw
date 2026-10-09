@@ -224,7 +224,7 @@ def required_scenario_progress(root, scenario_bytes):
         raise ValueError("source-admitted dynamic fixture required")
     if (
         spec.get("schema_version") != "rosclaw.dynamic_fixture_scenario.v1"
-        or spec.get("case") not in {"D2", "D3", "D4", "D5", "D6"}
+        or spec.get("case") not in {"D1", "D2", "D3", "D4", "D5", "D6"}
         or not isinstance(spec.get("run_id"), str)
         or not spec["run_id"]
         or not isinstance(spec.get("mission_id"), str)
@@ -255,11 +255,11 @@ def require_completed_dynamic_progress(progress):
     """Permit implemented positive cases; closed physical replay remains external."""
     if (
         type(progress) is not dict
-        or progress.get("case") not in {"D2", "D3", "D6"}
+        or progress.get("case") not in {"D1", "D2", "D3", "D6"}
         or progress.get("perturbation_complete") is not True
         or progress.get("physical_acceptance") != "NOT_VERIFIED"
     ):
-        raise RuntimeError("Native success requires the completed D2/D3/D6 perturbation")
+        raise RuntimeError("Native success requires the completed D2/D3/D6 or D1 perturbation")
 
 
 def main():

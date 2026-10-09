@@ -133,6 +133,7 @@ def run_episode(
         "rosclaw.dynamic_native_episode.v3",
         "rosclaw.dynamic_native_episode.v4",
         "rosclaw.dynamic_native_episode.v5",
+        "rosclaw.dynamic_native_episode.v6",
     }:
         from qualified_backend_episode import frozen_backend_files, validate_qualified_spec
 
@@ -345,6 +346,8 @@ def run_episode(
         }
         if case in {"D3", "D5"}:
             scenario.update(spec["scenario_source"])
+        if case == "D1":
+            scenario["crossing_source"] = spec["scenario_source"]
         if case == "D3":
             scenario["second_obstacle_name"] = physics["binding"]["obstacle_names"][1]
         (directory / "scenario.json").write_text(json.dumps(scenario, indent=2) + "\n")
@@ -628,7 +631,7 @@ def run_episode(
                 ],
                 timeout=120,
             )
-        if case in {"D2", "D3", "D6"}:
+        if case in {"D1", "D2", "D3", "D6"}:
             step(
                 "native-acceptance",
                 [
@@ -766,6 +769,16 @@ def run_episode(
                 result["pending_blocked_brush_zero_credit_and_same_cell_free_revisit"] = (
                     "PASS_SOURCE_CORRESPONDENCE_AND_CALCULATION_ONLY"
                 )
+            if case == "D1":
+                from crossing_source_replay import replay_crossing_scenario
+
+                crossing_result = replay_crossing_scenario(
+                    directory, json.loads(evidence_paths[0].read_bytes())
+                )
+                (directory / "closed-crossing-source-replay.json").write_text(
+                    json.dumps(crossing_result, indent=2) + "\n"
+                )
+                result["actual_main_swath_crossing"] = "PASS_SOURCE_CORRESPONDENCE_ONLY"
             result.update(
                 status="PASS",
                 task_kernel_succeeded=True,

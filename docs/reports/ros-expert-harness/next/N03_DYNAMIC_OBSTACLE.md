@@ -383,6 +383,48 @@ changed diagnostics module122 files passed. All D6 data in these tests are
 explicitly synthetic. The earlier focused run retained one expected regression
 failure because D6 had previously been an unsupported-case refusal test.
 
+## D1 prospective moving-blocker main-swath crossing (2026-10-09)
+
+Qualified episode v6 binds an explicit straight crossing to the original backend
+wire, source/image/Body/model and actual prior PR624 merge. The existing owned
+scene controller moves only the preloaded blocker. It confirms every small
+position update from a later original component packet; no robot action is
+sent by the scenario. This is a discrete SIM moving-blocker surrogate, not
+human walking dynamics or a hardware pedestrian safety claim.
+
+The closed policy limits updates to1..5cm, separates requests by at least0.25SIM
+seconds after the previous actual confirmation, bounds nominal traversal to
+10..30SIM seconds and fixes a maximum30SIM-second traversal deadline. The
+common dwell field must equal the nominal traversal duration in v6. Each step
+retains the original placement guard and additionally screens the entire short
+segment against the fresh body pose using the same original clearance margin.
+Unavailable clearance waits within existing deadlines; no robot/brush geometry,
+speed, denominator, lease or deadline is relaxed.
+
+The controller follows the existing daemon diagnostic audit from genesis and
+requires one admitted coverage action with an active MAIN_COVERAGE goal. It
+requires a transverse interior intersection with an actual passive map-frame
+LINE_LIST swath marker. Every crossing position confirmation must occur while
+that main goal remains active and cleaning remains enabled. A main goal ending
+before introduction fails immediately. The blocker is independently confirmed
+back at its original parked position before scenario completion.
+
+After Native/canonical acceptance and independent shutdown, closed replay
+matches every step and withdrawal to original component bytes, the canonical
+action ID, unchanged Body/geometry, the unique closed main goal interval, the
+original swath event and a complete enabled canonical trajectory interval. A
+service ACK, endpoints alone, a parallel or endpoint-touching path, wrong frame,
+missing step, stale receipt, changed geometry, missing brush interval or motion
+outside the main goal all refuse. Replay remains a source correspondence check;
+it cannot replace backend qualification, canonical receipts or physical stop.
+
+150 focused synthetic tests passed, including running the actual scenario loop
+against original-format component callbacks. D1 physics is NOT_RUN; v1 is not
+complete. All actual new dynamic tasks still require P0 review and merge.
+
+Full ROS1436 passed/10 integration deselected in32.34s; Practice183 passed/9
+skipped in32.97s; required mypy plus changed Core diagnostics122 files passed.
+
 ## Future fixture DDS preflight and precise startup failure records
 
 The frozen formal Burger100828 baseline failed before action dispatch. Original

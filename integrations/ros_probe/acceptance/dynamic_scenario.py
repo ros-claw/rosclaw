@@ -60,7 +60,7 @@ def retained_packet(row, binding):
 def scenario_policy(spec, binding):
     if (
         spec.get("schema_version") != "rosclaw.dynamic_fixture_scenario.v1"
-        or spec.get("case") not in {"D2", "D3", "D4", "D6"}
+        or spec.get("case") not in {"D1", "D2", "D3", "D4", "D6"}
         or spec.get("run_id") != binding["run_id"]
         or spec.get("mission_id") != binding["mission_id"]
         or spec.get("obstacle_name") not in binding["obstacle_names"]
@@ -98,6 +98,14 @@ def scenario_policy(spec, binding):
         for key, low, high in (("second_dwell_sim_sec", 10, 30), ("gap_sim_sec", 2, 30)):
             if type(spec.get(key)) is not int or not low <= spec[key] <= high:
                 raise ValueError("frozen D3 dwell and nonconcurrent gap required")
+    if spec["case"] == "D1":
+        from crossing_fixture import crossing_waypoints
+
+        points = crossing_waypoints(target, spec.get("crossing_source"))
+        if spec["dwell_sim_sec"] != math.ceil(
+            (len(points) - 1) * spec["crossing_source"]["interval_sim_sec"]
+        ):
+            raise ValueError("D1 nominal traversal duration differs from common dwell field")
     return spec
 
 
@@ -128,6 +136,12 @@ def main():
     confirmation_deadline = None
     clearance_wait_started = None
     blocking_stage, withdrawn_at = 0, None
+    crossing, crossing_index, crossing_started, swath_row, main_window = None, 0, None, None, None
+    if spec["case"] == "D1":
+        from crossing_fixture import MainCoverageWindow, crossing_waypoints
+
+        crossing = crossing_waypoints(spec["target_xy"], spec["crossing_source"])
+        main_window = MainCoverageWindow(root, binding)
     with (root / "dynamic-scenario-events.jsonl").open("x", buffering=1) as log:
 
         def emit(kind, **values):
@@ -162,6 +176,8 @@ def main():
                 if paths and cursor is None:
                     cursor = AuditCursor(paths[0], run_id=binding["run_id"])
                 for row in cursor.poll() if cursor is not None else ():
+                    if row["kind"] == "swaths":
+                        swath_row = row
                     if row["kind"] != "physics_snapshot_received":
                         continue
                     decoded = retained_packet(row, binding)
@@ -210,6 +226,27 @@ def main():
                     first_on = sample["time_sec"]
                     emit("FIRST_ENABLED_CLEANING", sim_time_sec=first_on)
                 body = json.loads((root / "body.json").read_text())
+                main_context = main_window.poll() if main_window is not None else None
+                if (
+                    crossing is not None
+                    and crossing_started is None
+                    and getattr(main_window, "finished", False)
+                ):
+                    raise ValueError("D1 main coverage ended before crossing introduction")
+                if (
+                    crossing_started is not None
+                    and state != "CONFIRMING_WITHDRAWAL"
+                    and not (state == "OCCUPIED" and crossing_index == len(crossing) - 1)
+                ):
+                    if main_context is None or not sample["cleaning_enabled"]:
+                        raise ValueError(
+                            "D1 crossing left the actual enabled main coverage interval"
+                        )
+                    if (
+                        sample["time_sec"] - crossing_started
+                        > spec["crossing_source"]["maximum_crossing_sim_sec"]
+                    ):
+                        raise TimeoutError("D1 immutable crossing SIM deadline")
                 if (
                     state == "WAITING_FOR_CLEANING"
                     and first_on is not None
@@ -218,6 +255,21 @@ def main():
                     state == "WAITING_BETWEEN_BLOCKERS"
                     and sample["time_sec"] >= withdrawn_at + spec["gap_sim_sec"]
                 ):
+                    if crossing is not None:
+                        from crossing_fixture import crossing_intersects_swaths
+
+                        if main_context is None or swath_row is None:
+                            time.sleep(0.02)
+                            continue
+                        if not crossing_intersects_swaths(
+                            crossing[0],
+                            crossing[-1],
+                            swath_row,
+                            frame_id=binding["grid"]["frame_id"],
+                        ):
+                            raise ValueError(
+                                "D1 declared traversal does not cross an actual main swath"
+                            )
                     try:
                         request = pose_request(
                             fixture, body, sample, name=name, x=target[0], y=target[1]
@@ -269,17 +321,37 @@ def main():
                     emit("INTRODUCTION_ACK_REQUIRES_ACTUAL_PACKET", response=response)
                     state = "CONFIRMING_INTRODUCTION"
                     confirmation_deadline = time.monotonic() + 5
-                elif state in {"CONFIRMING_INTRODUCTION", "CONFIRMING_WITHDRAWAL"}:
+                elif state in {
+                    "CONFIRMING_INTRODUCTION",
+                    "CONFIRMING_WITHDRAWAL",
+                    "CONFIRMING_CROSSING",
+                }:
                     if (
                         packet["captured_at_unix_ns"] > mutation_after_ns
                         and math.hypot(pose.x - target[0], pose.y - target[1]) < 0.001
                     ):
+                        if crossing is not None and state != "CONFIRMING_WITHDRAWAL":
+                            if main_context is None or not sample["cleaning_enabled"]:
+                                raise ValueError(
+                                    "D1 actual crossing confirmation lacks enabled main goal"
+                                )
+                            if crossing_started is None:
+                                crossing_started = pose.sim_time_sec
                         emit(
                             "ACTUAL_POSTUPDATE_POSITION_CONFIRMED",
                             state=state,
                             packet_sha256=decoded["packet_sha256"],
                             actual_xy=[pose.x, pose.y],
                             sim_time_sec=pose.sim_time_sec,
+                            **(
+                                {
+                                    "crossing_index": crossing_index,
+                                    "main_coverage": main_context,
+                                    "swath_event_sha256": swath_row["artifact_sha256"],
+                                }
+                                if crossing is not None
+                                else {}
+                            ),
                         )
                         if state == "CONFIRMING_WITHDRAWAL":
                             if spec["case"] == "D3" and blocking_stage == 0:
@@ -303,6 +375,51 @@ def main():
                         state = "OCCUPIED"
                     elif time.monotonic() > confirmation_deadline:
                         raise ValueError("service ACK lacks independent actual pose confirmation")
+                elif state == "OCCUPIED" and crossing is not None:
+                    from crossing_fixture import crossing_pose_request
+
+                    if crossing_index == len(crossing) - 1:
+                        target = parked
+                        request = pose_request(
+                            fixture, body, sample, name=name, x=target[0], y=target[1]
+                        )
+                        state = "CONFIRMING_WITHDRAWAL"
+                        emit(
+                            "CROSSING_TRAVERSAL_COMPLETE_REQUIRES_CLOSED_SOURCE",
+                            sim_time_sec=sample["time_sec"],
+                        )
+                    elif (
+                        sample["time_sec"]
+                        >= occupied_at + spec["crossing_source"]["interval_sim_sec"]
+                    ):
+                        target = crossing[crossing_index + 1]
+                        try:
+                            request = crossing_pose_request(
+                                fixture,
+                                body,
+                                sample,
+                                name=name,
+                                previous_xy=crossing[crossing_index],
+                                target_xy=target,
+                            )
+                        except PlacementClearanceUnavailableError:
+                            time.sleep(0.02)
+                            continue
+                        crossing_index += 1
+                        state = "CONFIRMING_CROSSING"
+                    else:
+                        time.sleep(0.02)
+                        continue
+                    mutation_after_ns = time.time_ns()
+                    emit(
+                        "CROSSING_MOVE_REQUESTED",
+                        request=request,
+                        before=sample,
+                        crossing_index=crossing_index,
+                    )
+                    response = service("set_pose", "gz.msgs.Pose", request)
+                    emit("CROSSING_MOVE_ACK_REQUIRES_ACTUAL_PACKET", response=response)
+                    confirmation_deadline = time.monotonic() + 5
                 elif (
                     state == "OCCUPIED"
                     and spec["case"] in {"D2", "D3", "D6"}

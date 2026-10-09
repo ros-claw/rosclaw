@@ -32,6 +32,7 @@ def validate_qualified_spec(value, base_validator):
             "rosclaw.dynamic_native_episode.v3",
             "rosclaw.dynamic_native_episode.v4",
             "rosclaw.dynamic_native_episode.v5",
+            "rosclaw.dynamic_native_episode.v6",
         }
     ):
         raise ValueError("closed qualified Native episode v2 protocol required")
@@ -46,7 +47,18 @@ def validate_qualified_spec(value, base_validator):
     is_d3 = value["schema_version"] == "rosclaw.dynamic_native_episode.v3"
     is_d5 = value["schema_version"] == "rosclaw.dynamic_native_episode.v4"
     is_d6 = value["schema_version"] == "rosclaw.dynamic_native_episode.v5"
+    is_d1 = value["schema_version"] == "rosclaw.dynamic_native_episode.v6"
     scenario = value.get("scenario_source")
+    if is_d1:
+        from crossing_fixture import crossing_waypoints
+
+        if value.get("case") != "D1":
+            raise ValueError("closed qualified D1 crossing required")
+        points = crossing_waypoints(value.get("target_xy"), scenario)
+        if value.get("dwell_sim_sec") != math.ceil(
+            (len(points) - 1) * scenario["interval_sim_sec"]
+        ):
+            raise ValueError("D1 common dwell field must equal nominal traversal duration")
     if is_d6 and (
         value.get("case") != "D6"
         or type(scenario) is not dict
@@ -82,11 +94,11 @@ def validate_qualified_spec(value, base_validator):
             if type(scenario[key]) is not int or not low <= scenario[key] <= high:
                 raise ValueError("bounded frozen nonconcurrent D3 timings required")
     excluded = {"backend_source"}
-    if is_d3 or is_d5 or is_d6:
+    if is_d3 or is_d5 or is_d6 or is_d1:
         excluded.add("scenario_source")
     base = {key: item for key, item in value.items() if key not in excluded}
     base["schema_version"] = "rosclaw.dynamic_native_episode.v1"
-    if is_d3 or is_d5 or is_d6:
+    if is_d3 or is_d5 or is_d6 or is_d1:
         base["case"] = "D2"
     base = base_validator(base)
     if is_d3:
@@ -95,6 +107,8 @@ def validate_qualified_spec(value, base_validator):
         base["case"], base["scenario_source"] = "D5", scenario
     if is_d6:
         base["case"], base["scenario_source"] = "D6", scenario
+    if is_d1:
+        base["case"], base["scenario_source"] = "D1", scenario
     return base, source
 
 
