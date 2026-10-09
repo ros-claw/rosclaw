@@ -350,17 +350,30 @@ class OperationManager:
                 )
             return
         proc = self._procs.pop(operation_id, None)
-        if proc is not None and proc.returncode is None:
+        if proc is not None:
             # G-4（0916 三审 B-2）：杀整个进程组不只是 sh 包装——
             # start_new_session=True 让 pgid==pid，孙子进程（渲染/
             # 仿真/xvfb-run）原来在取消后成孤儿继续跑。
             with contextlib.suppress(ProcessLookupError, PermissionError):
                 os.killpg(proc.pid, signal.SIGTERM)
+
+            async def reap_owned_process() -> None:
+                await proc.wait()
+                driver = self._drivers.get(operation_id)
+                if driver is not None:
+                    # The wrapper can exit before descendants close stdout.
+                    # Shield the reader so a grace timeout cannot cancel the
+                    # task responsible for draining and closing its pipe.
+                    await asyncio.shield(driver)
+
             try:
-                await asyncio.wait_for(proc.wait(), timeout=5)
+                await asyncio.wait_for(reap_owned_process(), timeout=5)
             except TimeoutError:
                 with contextlib.suppress(ProcessLookupError, PermissionError):
                     os.killpg(proc.pid, signal.SIGKILL)
+                # Do not report CANCELLED while pipe transports still belong
+                # to the caller's event loop. A failed reap leaves CANCELING.
+                await asyncio.wait_for(reap_owned_process(), timeout=5)
         await self._record_terminal(operation_id, "CANCELLED",
                                     failure_code=reason)
 

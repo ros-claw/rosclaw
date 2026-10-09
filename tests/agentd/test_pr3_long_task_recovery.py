@@ -59,7 +59,17 @@ class TestProcessStartGuidance:
         assert "轮询" in summary or "sleep" in summary.lower(), (
             f"summary 未明确禁止轮询/sleep: {summary}"
         )
-        await service.close()
+        # The guidance assertion does not simulate a daemon crash. Reap this
+        # actual short operation before closing its SQLite store/event loop.
+        try:
+            rows = service._store.connection.execute(
+                "SELECT operation_id FROM operations"
+            ).fetchall()
+            assert len(rows) == 1
+            operation = await service._operation_manager.wait(rows[0]["operation_id"], timeout=5)
+            assert operation["state"] == "SUCCEEDED"
+        finally:
+            await service.close()
 
 
 class TestResumeReportOperations:

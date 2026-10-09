@@ -134,6 +134,49 @@ class TestStateMachine:
         op_id = asyncio.run(run())
         assert mgr.get(op_id)["state"] == "CANCELLED"
 
+    @pytest.mark.parametrize("wrapper_exited", [False, True])
+    def test_cancel_drains_term_resistant_process_before_return(
+        self, tmp_path: Path, wrapper_exited: bool,
+    ) -> None:
+        """SIGKILL escalation must finish pipe cleanup before the caller closes its loop."""
+        conn = _conn(tmp_path)
+        _task(conn)
+        mgr = OperationManager(None, conn)
+
+        async def run():
+            op = await mgr.start(
+                task_id="task_1", attempt_id="", kind="process",
+                argv=[sys.executable, "-c",
+                      ("import os; os.fork() and os._exit(0); " if wrapper_exited else "") +
+                      "import signal,time; signal.signal(signal.SIGTERM,signal.SIG_IGN); "
+                      "print('term-resistant-ready',flush=True); time.sleep(30)"],
+            )
+            op_id = op["operation_id"]
+            proc = mgr._procs[op_id]
+            try:
+                async with asyncio.timeout(5):
+                    while not any(
+                        e["type"] == "operation.output"
+                        and "term-resistant-ready" in e["payload"].get("text", "")
+                        for e in _events(conn)
+                    ):
+                        await asyncio.sleep(0.01)
+                    if wrapper_exited:
+                        while proc.returncode is None:
+                            await asyncio.sleep(0.01)
+                        assert proc.returncode == 0
+                await mgr.cancel(op_id, reason="resistant-child")
+                assert proc.stdout is not None and proc.stdout.at_eof(), (
+                    "cancel returned with an undrained subprocess pipe"
+                )
+                assert (await mgr.wait(op_id, timeout=0.1))["state"] == "CANCELLED"
+            finally:
+                with contextlib.suppress(ProcessLookupError):
+                    os.killpg(proc.pid, signal.SIGKILL)
+                await mgr.wait(op_id, timeout=5)
+
+        asyncio.run(run())
+
     def test_late_result_never_overwrites_canceling(self, tmp_path: Path) -> None:
         """CI 实证（p1b3 flake 根治）：CANCELING 窗内到达的迟到
         action_result(SUCCEEDED) 曾覆盖 CANCELING（_write_terminal 只查
