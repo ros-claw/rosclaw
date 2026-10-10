@@ -71,6 +71,42 @@ def prepare_precise_through_poses_bt(output, original, *, xy_goal_tolerance):
     return report
 
 
+def prepare_repair_tracking_through_poses_bt(
+    output, original, *, xy_goal_tolerance, controller_lookahead_m, tracking_radius_m
+):
+    """Separate opt-in repair checkpoints; global/final precise policy remains.
+
+    Reuse the validated installed-tree transformation in an isolated directory.
+    Pruned intermediate targets grant neither arrival nor coverage credit.
+    """
+    root = Path(output)
+    with tempfile.TemporaryDirectory(prefix=".repair-tracking-bt-", dir=root) as temporary:
+        report = prepare_boundary_tracking_through_poses_bt(
+            temporary,
+            original,
+            xy_goal_tolerance=xy_goal_tolerance,
+            controller_lookahead_m=controller_lookahead_m,
+            tracking_radius_m=tracking_radius_m,
+        )
+        modified = (Path(temporary) / "boundary-through-poses.xml").read_bytes()
+    report = {
+        **report,
+        "schema_version": "rosclaw.repair_tracking_through_poses_source.v1",
+        "scope": "REPAIR_INTERMEDIATE_CHECKPOINTS_ONLY",
+    }
+    for name, raw in [
+        ("repair-tracking-through-poses.original.xml", original),
+        ("repair-tracking-through-poses.xml", modified),
+        (
+            "repair-tracking-through-poses-source.json",
+            (json.dumps(report, indent=2) + "\n").encode(),
+        ),
+    ]:
+        with (root / name).open("xb") as stream:
+            stream.write(raw)
+    return report
+
+
 def prepare_boundary_tracking_through_poses_bt(
     output, original, *, xy_goal_tolerance, controller_lookahead_m, tracking_radius_m
 ):

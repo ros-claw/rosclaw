@@ -33,7 +33,13 @@ async def main():
     parser.add_argument("--mission-timeout", type=int, default=900)
     parser.add_argument(
         "--repair-strategy",
-        choices=["greedy", "pose_aware", "pose_aware_robust", "pose_aware_robust_sequence"],
+        choices=[
+            "greedy",
+            "pose_aware",
+            "pose_aware_robust",
+            "pose_aware_robust_sequence",
+            "pose_aware_robust_tracking_sequence",
+        ],
         default="greedy",
     )
     args = parser.parse_args()

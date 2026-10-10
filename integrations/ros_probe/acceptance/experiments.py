@@ -35,6 +35,76 @@ BOUNDARY_TRACKING_PRESETS = frozenset(
     )
 )
 
+REPAIR_TRACKING_STRATEGY = "pose_aware_robust_tracking_sequence"
+REPAIR_TRACKING_FIELDS = (
+    "repair_tracking_sequence",
+    "repair_tracking_prune_radius_m",
+    "repair_tracking_bt_sha256",
+    "repair_shared_sequence_overhead",
+)
+
+
+def validate_repair_tracking_experiment(experiment):
+    if type(experiment) is not dict:
+        raise ValueError("explicit repair experiment mapping required")
+    enabled = experiment.get("repair_tracking_sequence", False)
+    if type(enabled) is not bool:
+        raise ValueError("repair tracking requires an explicit boolean")
+    if not enabled:
+        if any(k in experiment for k in REPAIR_TRACKING_FIELDS):
+            raise ValueError("repair tracking metadata requires its enabled candidate")
+        return
+    if (
+        experiment.get("preset") not in BOUNDARY_TRACKING_INSET_PRESETS
+        or experiment.get("profile") != BOUNDARY_TRACKING_INSET_PRESETS[experiment["preset"]][0]
+        or experiment.get("precise_through_poses") is not True
+        or type(experiment.get("repair_tracking_prune_radius_m")) is not float
+        or experiment["repair_tracking_prune_radius_m"] != 0.1
+        or not valid_boundary_tracking_sha256(experiment.get("repair_tracking_bt_sha256"))
+        or experiment.get("repair_shared_sequence_overhead") is not True
+    ):
+        raise ValueError("repair tracking requires a known inset fixture and source-bound 100mm BT")
+
+
+def validate_repair_tracking_runtime_registration(experiment, protocol):
+    validate_repair_tracking_experiment(experiment)
+    if experiment.get("repair_tracking_sequence") is not True:
+        if (
+            experiment.get("preset") in BOUNDARY_TRACKING_INSET_PRESETS
+            and isinstance(protocol, dict)
+            and any("candidate_" + field in protocol for field in REPAIR_TRACKING_FIELDS)
+        ):
+            raise ValueError("registered repair tracking is missing from generated candidate")
+        return
+    if not isinstance(protocol, dict) or protocol.get("precise_repair_waypoints") is not True:
+        raise ValueError("repair tracking requires a preregistered precise global BT")
+    strategies = protocol.get("selected_repair_strategies")
+    if (
+        not isinstance(strategies, dict)
+        or strategies.get(experiment["profile"]) != REPAIR_TRACKING_STRATEGY
+    ):
+        raise ValueError("repair tracking differs from preregistered repair strategy")
+    for field in REPAIR_TRACKING_FIELDS:
+        value = protocol.get("candidate_" + field)
+        if type(value) is not type(experiment[field]) or value != experiment[field]:
+            raise ValueError("repair tracking runtime differs from preregistered " + field)
+
+
+def validate_repair_tracking_candidate_registration(protocol, preset, strategy, precise):
+    if strategy != REPAIR_TRACKING_STRATEGY:
+        if any("candidate_" + k in protocol for k in REPAIR_TRACKING_FIELDS):
+            raise ValueError("repair tracking metadata requires its explicit repair strategy")
+        return
+    if preset not in BOUNDARY_TRACKING_INSET_PRESETS or precise is not True:
+        raise ValueError("repair tracking requires its known inset fixture and precise global BT")
+    experiment = {
+        "preset": preset,
+        "profile": BOUNDARY_TRACKING_INSET_PRESETS[preset][0],
+        "precise_through_poses": precise,
+        **{k: protocol.get("candidate_" + k) for k in REPAIR_TRACKING_FIELDS},
+    }
+    validate_repair_tracking_runtime_registration(experiment, protocol)
+
 
 def continuous_boundary_strategy(preset):
     if preset not in CONTINUOUS_BOUNDARY_PRESETS:
@@ -128,6 +198,7 @@ def validate_continuous_boundary_experiment(experiment):
     """Reject incomplete candidate declarations before starting the daemon."""
     if type(experiment) is not dict:
         raise ValueError("explicit experiment mapping required")
+    validate_repair_tracking_experiment(experiment)
     preset = experiment.get("preset")
     registered = CONTINUOUS_BOUNDARY_PRESETS.get(preset) if isinstance(preset, str) else None
     tracking = isinstance(preset, str) and preset in BOUNDARY_TRACKING_PRESETS

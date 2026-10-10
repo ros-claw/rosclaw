@@ -20,9 +20,11 @@ from experiments import (
     BOUNDARY_TRACKING_PRESETS,
     CONTINUOUS_BOUNDARY_PRESETS,
     INNER_RING_PROFILES,
+    REPAIR_TRACKING_STRATEGY,
     continuous_boundary_strategy,
     planning_parameters,
     valid_boundary_tracking_sha256,
+    validate_repair_tracking_candidate_registration,
     validate_seed,
 )
 
@@ -263,6 +265,8 @@ def run_arm(pair, arm, args, ordinal, image_id, commit):
         )
         if row["precise_repair_waypoints"]:
             stack += " --precise-repair-waypoints"
+        if row["repair_strategy"] == REPAIR_TRACKING_STRATEGY:
+            stack += " --repair-tracking-sequence"
         command(
             [
                 "docker",
@@ -400,7 +404,13 @@ def main():
     )
     parser.add_argument(
         "--candidate-repair-strategy",
-        choices=["greedy", "pose_aware", "pose_aware_robust", "pose_aware_robust_sequence"],
+        choices=[
+            "greedy",
+            "pose_aware",
+            "pose_aware_robust",
+            "pose_aware_robust_sequence",
+            REPAIR_TRACKING_STRATEGY,
+        ],
         default="greedy",
     )
     parser.add_argument("--precise-repair-waypoints", action="store_true")
@@ -430,6 +440,9 @@ def main():
     protocol_bytes = args.protocol.read_bytes()
     protocol = json.loads(protocol_bytes)
     validate_precise_repair_registration(protocol, args.precise_repair_waypoints)
+    validate_repair_tracking_candidate_registration(
+        protocol, args.candidate, args.candidate_repair_strategy, args.precise_repair_waypoints
+    )
     validate_continuous_boundary_registration(
         protocol, args.candidate, args.precise_repair_waypoints
     )

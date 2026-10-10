@@ -29,6 +29,7 @@ class RepairSelection:
     evaluated_poses: int = 0
     cost_model: str = "STATIC_LEGAL_CENTER_GRID_PREDICTION_ONLY"
     reward_model: str = "NOMINAL_SAMPLED_FOOTPRINT_PREDICTION_ONLY"
+    predicted_dispatch_cost_sec: float | None = None
 
 
 class _BudgetExceededError(Exception):
@@ -54,6 +55,7 @@ def rank_repair_poses(
     beam_width=3,
     shortlist_size=24,
     robust_footprint=False,
+    shared_sequence_overhead=False,
 ):
     """Return at most two predicted poses for an explicitly selected dispatch mode.
 
@@ -64,6 +66,8 @@ def rank_repair_poses(
     """
     if type(robust_footprint) is not bool:
         raise ValueError("robust footprint mode must be boolean")
+    if type(shared_sequence_overhead) is not bool:
+        raise ValueError("shared sequence overhead mode must be boolean")
     start = time.monotonic()
     if (
         not all(
@@ -83,17 +87,23 @@ def rank_repair_poses(
         if (time.monotonic() - start) * 1000 > budget_ms:
             raise _BudgetExceededError
 
-    def finish(status, poses=()):
+    def finish(status, poses=(), dispatch_cost=None):
         return RepairSelection(
             status,
             tuple(poses),
             (time.monotonic() - start) * 1000,
             evaluated,
+            cost_model=(
+                "STATIC_LEGAL_CENTER_GRID_SHARED_SEQUENCE_OVERHEAD_PREDICTION_ONLY"
+                if shared_sequence_overhead
+                else "STATIC_LEGAL_CENTER_GRID_PREDICTION_ONLY"
+            ),
             reward_model=(
                 "NINE_ONE_CELL_TRANSLATIONS_NOT_CALIBRATED_PROBABILITY"
                 if robust_footprint
                 else "NOMINAL_SAMPLED_FOOTPRINT_PREDICTION_ONLY"
             ),
+            predicted_dispatch_cost_sec=dispatch_cost if shared_sequence_overhead else None,
         )
 
     try:
@@ -318,6 +328,7 @@ def rank_repair_poses(
         if not shortlist:
             return finish("NO_CANDIDATE")
         best, best_utility = (shortlist[0],), shortlist[0].utility
+        best_cost = shortlist[0].estimated_cost_sec
         scenarios = {p: shifted_footprints(p) for p in shortlist} if robust_footprint else {}
         seen = set()
         for first in shortlist:
@@ -338,7 +349,11 @@ def rank_repair_poses(
                     second.x, second.y, second.yaw, {"x": first.x, "y": first.y, "yaw": first.yaw}
                 )
                 cost = first.estimated_cost_sec + access_next[second.center_cell] / drive_speed_mps
-                cost += turn / turn_speed_radps + goal_overhead_sec
+                # One continuous Nav2 action pays its dispatch overhead once.
+                # The legacy mode retains its original per-target estimate.
+                cost += turn / turn_speed_radps + (
+                    0.0 if shared_sequence_overhead else goal_overhead_sec
+                )
                 utility = (gain(first.predicted_new_cells) + gain(added)) / cost
                 if robust_footprint:
                     utility = (
@@ -351,8 +366,9 @@ def rank_repair_poses(
                     )
                 if utility > best_utility:
                     best, best_utility = (first, second), utility
+                    best_cost = cost
         check_budget()
-        return finish("READY", best)
+        return finish("READY", best, best_cost)
     except _BudgetExceededError:
         # Partial rankings do not masquerade as completed search.
         return finish("BUDGET_EXCEEDED")

@@ -168,6 +168,7 @@ class RosCoverageSimulationExecutor:
         repair_strategy="greedy",
         repair_swath_yaw=0.0,
         repair_budget_ms=500.0,
+        repair_tracking_bt_sha256=None,
     ):
         if not owner.startswith("daemon_"):
             raise ValueError("daemon ownership is required")
@@ -176,6 +177,7 @@ class RosCoverageSimulationExecutor:
             "pose_aware",
             "pose_aware_robust",
             "pose_aware_robust_sequence",
+            "pose_aware_robust_tracking_sequence",
         }:
             raise ValueError("unknown configured SIM repair strategy")
         if not math.isfinite(repair_swath_yaw) or not 0 < repair_budget_ms <= 1000:
@@ -183,6 +185,7 @@ class RosCoverageSimulationExecutor:
         self.repair_strategy = repair_strategy
         self.repair_swath_yaw = repair_swath_yaw
         self.repair_budget_ms = repair_budget_ms
+        self.repair_tracking_bt_sha256 = repair_tracking_bt_sha256
         self.owner, self.client, self.control, self.witness = owner, client, control, witness
         self.output, self.body_id, self.grid = Path(output), body_id, grid
         self.body_snapshot_hash = body_snapshot_hash
@@ -228,6 +231,31 @@ class RosCoverageSimulationExecutor:
             self._verified_boundary_tracking_bt()
         elif boundary_tracking_bt_sha256 is not None:
             raise ValueError("boundary tracking BT is unavailable to other boundary strategies")
+        if repair_strategy == "pose_aware_robust_tracking_sequence":
+            if (
+                not boundary_pass
+                or boundary_strategy != "through_poses_tracking_inset_corners"
+                or type(repair_tracking_bt_sha256) is not str
+                or len(repair_tracking_bt_sha256) != 64
+                or any(c not in "0123456789abcdef" for c in repair_tracking_bt_sha256)
+            ):
+                raise ValueError("repair tracking requires an enabled source-bound inset fixture")
+            self._verified_repair_tracking_bt()
+        elif repair_tracking_bt_sha256 is not None:
+            raise ValueError("repair tracking BT is unavailable to other repair strategies")
+
+    def _verified_repair_tracking_bt(self):
+        path = self.output.parent / "repair-tracking-through-poses.xml"
+        if path.is_symlink() or not path.is_file():
+            raise RuntimeError("owned repair tracking BT is missing or redirected")
+        with path.open("rb") as stream:
+            raw = stream.read(128_001)
+        if (
+            not 0 < len(raw) <= 128_000
+            or hashlib.sha256(raw).hexdigest() != self.repair_tracking_bt_sha256
+        ):
+            raise RuntimeError("owned repair tracking BT source SHA256 mismatch")
+        return "/evidence/repair-tracking-through-poses.xml"
 
     def _verified_boundary_tracking_bt(self):
         path = self.output.parent / "boundary-through-poses.xml"
@@ -618,6 +646,7 @@ class RosCoverageSimulationExecutor:
                 "pose_aware",
                 "pose_aware_robust",
                 "pose_aware_robust_sequence",
+                "pose_aware_robust_tracking_sequence",
             }:
                 ready_cells = {c for proposal in proposals["ready"] for c in proposal["cells"]}
                 selection = rank_repair_poses(
@@ -629,7 +658,16 @@ class RosCoverageSimulationExecutor:
                     swath_yaw=self.repair_swath_yaw,
                     budget_ms=self.repair_budget_ms,
                     robust_footprint=self.repair_strategy
-                    in {"pose_aware_robust", "pose_aware_robust_sequence"},
+                    in {
+                        "pose_aware_robust",
+                        "pose_aware_robust_sequence",
+                        "pose_aware_robust_tracking_sequence",
+                    },
+                    **(
+                        {"shared_sequence_overhead": True}
+                        if self.repair_strategy == "pose_aware_robust_tracking_sequence"
+                        else {}
+                    ),
                 )
                 self._audit_event(
                     "repair_candidate_selection",
@@ -639,6 +677,11 @@ class RosCoverageSimulationExecutor:
                         "elapsed_ms": selection.elapsed_ms,
                         "evaluated_poses": selection.evaluated_poses,
                         "cost_model": selection.cost_model,
+                        **(
+                            {"predicted_dispatch_cost_sec": selection.predicted_dispatch_cost_sec}
+                            if self.repair_strategy == "pose_aware_robust_tracking_sequence"
+                            else {}
+                        ),
                         "reward_model": selection.reward_model,
                         "predicted_sequence": [asdict(pose) for pose in selection.poses],
                         "credit_role": "prediction_only_never_measured_credit",
@@ -646,7 +689,10 @@ class RosCoverageSimulationExecutor:
                     },
                 )
                 if selection.status == "READY":
-                    if self.repair_strategy == "pose_aware_robust_sequence":
+                    if self.repair_strategy in {
+                        "pose_aware_robust_sequence",
+                        "pose_aware_robust_tracking_sequence",
+                    }:
                         selected_sequence = selection.poses[
                             : min(2, goal_budget - dispatched_targets)
                         ]
@@ -675,6 +721,11 @@ class RosCoverageSimulationExecutor:
                     "/navigate_through_poses",
                     "nav2_msgs/action/NavigateThroughPoses",
                     {
+                        **(
+                            {"behavior_tree": self._verified_repair_tracking_bt()}
+                            if self.repair_strategy == "pose_aware_robust_tracking_sequence"
+                            else {}
+                        ),
                         "poses": [
                             {
                                 "header": {"frame_id": "map"},
@@ -687,7 +738,7 @@ class RosCoverageSimulationExecutor:
                                 },
                             }
                             for p in selected_sequence
-                        ]
+                        ],
                     },
                     goal_id,
                     deadline,

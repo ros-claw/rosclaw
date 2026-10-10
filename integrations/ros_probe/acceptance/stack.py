@@ -24,6 +24,7 @@ from experiments import (
     gazebo_arguments,
     planning_parameters,
     validate_boundary_tracking_runtime_registration,
+    validate_repair_tracking_runtime_registration,
     validate_seed,
 )
 
@@ -38,11 +39,22 @@ def prepare(
     seed=None,
     *,
     precise_repair_waypoints=False,
+    repair_tracking_sequence=False,
 ):
     profile = PROFILES[profile_name]
     candidate = planning_parameters(profile, coverage_preset)
     controller_candidate = controller_parameters(profile, coverage_preset)
     validate_seed(seed)
+    if type(repair_tracking_sequence) is not bool or (
+        repair_tracking_sequence
+        and (
+            coverage_preset not in BOUNDARY_TRACKING_INSET_PRESETS
+            or precise_repair_waypoints is not True
+        )
+    ):
+        raise ValueError(
+            "repair tracking requires its explicit known inset fixture and precise global BT"
+        )
     if coverage_preset in CONTINUOUS_BOUNDARY_PRESETS and precise_repair_waypoints is not True:
         raise ValueError("continuous boundary candidate requires the precise through-poses BT")
     if profile_name == "burger" and not controller_watchdog:
@@ -177,10 +189,12 @@ def prepare(
         + "/behavior_trees/navigate_w_basic_complete_coverage_nav_to_start.xml",
     )
     boundary_tracking_experiment = {}
+    repair_tracking_experiment = {}
     if precise_repair_waypoints:
         from precise_through_poses_bt import (
             prepare_boundary_tracking_through_poses_bt,
             prepare_precise_through_poses_bt,
+            prepare_repair_tracking_through_poses_bt,
         )
 
         original = (
@@ -197,6 +211,24 @@ def prepare(
         params["bt_navigator"]["ros__parameters"]["default_nav_through_poses_bt_xml"] = str(
             OUTPUT / "repair-through-poses.xml"
         )
+        if repair_tracking_sequence:
+            repair_tracking = prepare_repair_tracking_through_poses_bt(
+                OUTPUT,
+                original,
+                xy_goal_tolerance=params["controller_server"]["ros__parameters"][
+                    "general_goal_checker"
+                ]["xy_goal_tolerance"],
+                controller_lookahead_m=params["controller_server"]["ros__parameters"]["FollowPath"][
+                    "lookahead_dist"
+                ],
+                tracking_radius_m=0.1,
+            )
+            repair_tracking_experiment = {
+                "repair_tracking_sequence": True,
+                "repair_tracking_prune_radius_m": 0.1,
+                "repair_tracking_bt_sha256": repair_tracking["source_output_sha256"],
+                "repair_shared_sequence_overhead": True,
+            }
         if coverage_preset in BOUNDARY_TRACKING_PRESETS:
             tracking = prepare_boundary_tracking_through_poses_bt(
                 OUTPUT,
@@ -325,6 +357,7 @@ def prepare(
                     else {}
                 ),
                 "seed": seed,
+                **repair_tracking_experiment,
                 "planning_parameters": candidate,
                 "controller_parameters": controller_candidate,
                 "start_pose": {"x": 0.0, "y": 0.0, "yaw": 0.0},
@@ -368,6 +401,7 @@ def main():
         default="baseline",
     )
     parser.add_argument("--precise-repair-waypoints", action="store_true")
+    parser.add_argument("--repair-tracking-sequence", action="store_true")
     parser.add_argument("--seed", type=int)
     parser.add_argument("--fault-acceptance", action="store_true")
     parser.add_argument(
@@ -399,11 +433,17 @@ def main():
         args.coverage_preset,
         args.seed,
         precise_repair_waypoints=args.precise_repair_waypoints,
+        repair_tracking_sequence=args.repair_tracking_sequence,
     )
     if args.coverage_preset in BOUNDARY_TRACKING_PRESETS:
         # Validate the generated BT against the frozen protocol before starting
         # Gazebo, ROS, observers, or the MCP/daemon task journey.
         validate_boundary_tracking_runtime_registration(
+            json.loads((OUTPUT / "experiment.json").read_text()),
+            json.loads((OUTPUT / "protocol.json").read_text()),
+        )
+    if args.coverage_preset in BOUNDARY_TRACKING_INSET_PRESETS:
+        validate_repair_tracking_runtime_registration(
             json.loads((OUTPUT / "experiment.json").read_text()),
             json.loads((OUTPUT / "protocol.json").read_text()),
         )

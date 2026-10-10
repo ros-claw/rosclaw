@@ -11,7 +11,12 @@ import time
 import uuid
 from pathlib import Path
 
-from experiments import validate_continuous_boundary_experiment, validate_inner_ring_experiment
+from experiments import (
+    REPAIR_TRACKING_STRATEGY,
+    validate_continuous_boundary_experiment,
+    validate_inner_ring_experiment,
+    validate_repair_tracking_runtime_registration,
+)
 from rosclaw.connectors.ros.action_client import Ros2ActionClient
 from rosclaw.connectors.ros.mission.executor import RosCoverageSimulationExecutor, SimulationWitness
 from rosclaw.connectors.ros.mission.remember import VerifiedMissionMemoryExecutor
@@ -39,6 +44,15 @@ def main():
     config = json.loads((root / "execution_config.json").read_text())
     validate_inner_ring_experiment(config.get("experiment", {}))
     validate_continuous_boundary_experiment(config.get("experiment", {}))
+    repair_tracking = config.get("experiment", {}).get("repair_tracking_sequence") is True
+    if repair_tracking != (config.get("repair_strategy") == REPAIR_TRACKING_STRATEGY):
+        raise ValueError(
+            "configured repair strategy differs from its generated tracking experiment"
+        )
+    if repair_tracking:
+        validate_repair_tracking_runtime_registration(
+            config["experiment"], json.loads((root / "protocol.json").read_text())
+        )
     runtime = Runtime(
         RuntimeConfig(
             robot_id=config["body_id"],
@@ -122,6 +136,7 @@ def main():
         boundary_centers=config.get("boundary_centers"),
         boundary_tracking_bt_sha256=config.get("experiment", {}).get("boundary_tracking_bt_sha256"),
         repair_strategy=config.get("repair_strategy", "greedy"),
+        repair_tracking_bt_sha256=config.get("experiment", {}).get("repair_tracking_bt_sha256"),
         repair_swath_yaw=config.get("experiment", {})
         .get("planning_parameters", {})
         .get("default_swath_angle", 0.0),
