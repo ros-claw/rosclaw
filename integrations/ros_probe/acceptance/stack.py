@@ -15,6 +15,7 @@ from ament_index_python.packages import get_package_share_directory
 from profiles import PROFILES
 
 from experiments import (
+    BOUNDARY_TRACKING_INSET_PRESETS,
     BOUNDARY_TRACKING_PRESETS,
     CONTINUOUS_BOUNDARY_PRESETS,
     INNER_RING_PROFILES,
@@ -211,6 +212,11 @@ def prepare(
             boundary_tracking_experiment = {
                 "boundary_tracking_prune_radius_m": 0.1,
                 "boundary_tracking_bt_sha256": tracking["source_output_sha256"],
+                **(
+                    {"boundary_corner_inset_cells": 1}
+                    if coverage_preset in BOUNDARY_TRACKING_INSET_PRESETS
+                    else {}
+                ),
             }
     params["amcl"]["ros__parameters"].update(
         set_initial_pose=True,

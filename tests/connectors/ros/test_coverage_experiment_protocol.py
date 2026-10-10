@@ -560,3 +560,72 @@ def test_boundary_tracking_actual_generated_digest_matches_frozen_protocol():
     with pytest.raises(ValueError, match="precise repair"):
         validate(experiment, {**protocol, "precise_repair_waypoints": False})
     validate({"preset": "baseline"}, None)
+
+
+@pytest.mark.parametrize(
+    "profile,base",
+    [("waffle", "perimeter_stateless_overlap"), ("burger", "perimeter_stateless_clearance")],
+)
+def test_tracking_corner_candidate_keeps_old_parameters_and_requires_one_cell(
+    monkeypatch, profile, base
+):
+    preset = base + "_boundary_tracking_inset_corners"
+    body = SimpleNamespace(name=profile, coverage_width_m=0.5 if profile == "waffle" else 0.3)
+    assert experiments.planning_parameters(body, preset) == experiments.planning_parameters(
+        body, base
+    )
+    assert experiments.controller_parameters(body, preset) == experiments.controller_parameters(
+        body, base
+    )
+    strategy = "through_poses_tracking_inset_corners"
+    assert experiments.continuous_boundary_strategy(preset) == strategy
+    valid = {
+        "preset": preset,
+        "profile": profile,
+        "boundary_strategy": strategy,
+        "boundary_pass": True,
+        "precise_through_poses": True,
+        "boundary_stage_budget_sec": 180,
+        "boundary_waypoint_count": 9,
+        "boundary_tracking_prune_radius_m": 0.1,
+        "boundary_tracking_bt_sha256": "a" * 64,
+        "boundary_corner_inset_cells": 1,
+    }
+    protocol = {"candidate_" + k: v for k, v in valid.items() if k.startswith("boundary_")}
+    protocol["precise_repair_waypoints"] = True
+    experiments.validate_continuous_boundary_experiment(valid)
+    experiments.validate_boundary_tracking_runtime_registration(valid, protocol)
+    monkeypatch.syspath_prepend(str(ROOT / "integrations/ros_probe/acceptance"))
+    spec = importlib.util.spec_from_file_location(
+        "corner_tracking_pair", ROOT / "integrations/ros_probe/acceptance/paired_efficiency.py"
+    )
+    pairs = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(pairs)
+    pairs.validate_continuous_boundary_registration(protocol, preset, True)
+    for bad in [None, 0, 2, True, 1.0, "1"]:
+        with pytest.raises(ValueError, match="one.*cell"):
+            experiments.validate_continuous_boundary_experiment(
+                {**valid, "boundary_corner_inset_cells": bad}
+            )
+        with pytest.raises(ValueError, match="one.*cell"):
+            pairs.validate_continuous_boundary_registration(
+                {**protocol, "candidate_boundary_corner_inset_cells": bad}, preset, True
+            )
+        with pytest.raises(ValueError, match="one-cell"):
+            experiments.validate_boundary_tracking_runtime_registration(
+                valid, {**protocol, "candidate_boundary_corner_inset_cells": bad}
+            )
+    original = {
+        **valid,
+        "preset": base + "_boundary_tracking",
+        "boundary_strategy": "through_poses_tracking_midpoints",
+    }
+    with pytest.raises(ValueError, match="registered candidate"):
+        experiments.validate_continuous_boundary_experiment(original)
+    original.pop("boundary_corner_inset_cells")
+    experiments.validate_continuous_boundary_experiment(original)
+    with pytest.raises(ValueError, match="registered candidate"):
+        experiments.validate_boundary_tracking_runtime_registration(
+            original,
+            {**protocol, "candidate_boundary_strategy": "through_poses_tracking_midpoints"},
+        )

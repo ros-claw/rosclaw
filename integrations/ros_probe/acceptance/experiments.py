@@ -7,7 +7,19 @@ INNER_RING_PROFILES = {
     "perimeter_stateless_inner_ring": "waffle",
 }
 
+BOUNDARY_TRACKING_INSET_PRESETS = {
+    "perimeter_stateless_overlap_boundary_tracking_inset_corners": (
+        "waffle",
+        "perimeter_stateless_overlap",
+    ),
+    "perimeter_stateless_clearance_boundary_tracking_inset_corners": (
+        "burger",
+        "perimeter_stateless_clearance",
+    ),
+}
+
 CONTINUOUS_BOUNDARY_PRESETS = {
+    **BOUNDARY_TRACKING_INSET_PRESETS,
     "perimeter_stateless_overlap_continuous": ("waffle", "perimeter_stateless_overlap"),
     "perimeter_stateless_clearance_continuous": ("burger", "perimeter_stateless_clearance"),
     "perimeter_stateless_overlap_boundary_tracking": ("waffle", "perimeter_stateless_overlap"),
@@ -17,6 +29,7 @@ CONTINUOUS_BOUNDARY_PRESETS = {
 
 BOUNDARY_TRACKING_PRESETS = frozenset(
     (
+        *BOUNDARY_TRACKING_INSET_PRESETS,
         "perimeter_stateless_overlap_boundary_tracking",
         "perimeter_stateless_clearance_boundary_tracking",
     )
@@ -26,6 +39,8 @@ BOUNDARY_TRACKING_PRESETS = frozenset(
 def continuous_boundary_strategy(preset):
     if preset not in CONTINUOUS_BOUNDARY_PRESETS:
         raise ValueError("registered continuous boundary preset required")
+    if preset in BOUNDARY_TRACKING_INSET_PRESETS:
+        return "through_poses_tracking_inset_corners"
     return (
         "through_poses_tracking_midpoints"
         if preset in BOUNDARY_TRACKING_PRESETS
@@ -116,12 +131,21 @@ def validate_continuous_boundary_experiment(experiment):
     preset = experiment.get("preset")
     registered = CONTINUOUS_BOUNDARY_PRESETS.get(preset) if isinstance(preset, str) else None
     tracking = isinstance(preset, str) and preset in BOUNDARY_TRACKING_PRESETS
+    inset = isinstance(preset, str) and preset in BOUNDARY_TRACKING_INSET_PRESETS
+    if "boundary_corner_inset_cells" in experiment and not inset:
+        raise ValueError("corner inset metadata requires its registered candidate")
+    if inset and (
+        type(experiment.get("boundary_corner_inset_cells")) is not int
+        or experiment["boundary_corner_inset_cells"] != 1
+    ):
+        raise ValueError("corner inset requires exactly one existing legal grid cell")
     tracking_keys = ("boundary_tracking_prune_radius_m", "boundary_tracking_bt_sha256")
     if any(k in experiment for k in tracking_keys) and not tracking:
         raise ValueError("boundary tracking metadata requires its registered candidate")
     if registered is None and experiment.get("boundary_strategy") not in (
         "through_poses_midpoints",
         "through_poses_tracking_midpoints",
+        "through_poses_tracking_inset_corners",
     ):
         return
     if (
@@ -188,6 +212,11 @@ def validate_boundary_tracking_runtime_registration(experiment, protocol):
         return
     if not isinstance(protocol, dict):
         raise ValueError("boundary tracking requires a preregistered runtime protocol")
+    if (
+        "candidate_boundary_corner_inset_cells" in protocol
+        and experiment.get("preset") not in BOUNDARY_TRACKING_INSET_PRESETS
+    ):
+        raise ValueError("corner inset metadata requires its registered candidate")
     for field in (
         "boundary_strategy",
         "boundary_stage_budget_sec",
@@ -198,5 +227,10 @@ def validate_boundary_tracking_runtime_registration(experiment, protocol):
         registered = protocol.get("candidate_" + field)
         if type(registered) is not type(experiment[field]) or registered != experiment[field]:
             raise ValueError("boundary tracking runtime differs from preregistered " + field)
+    if experiment.get("preset") in BOUNDARY_TRACKING_INSET_PRESETS and (
+        type(protocol.get("candidate_boundary_corner_inset_cells")) is not int
+        or protocol["candidate_boundary_corner_inset_cells"] != 1
+    ):
+        raise ValueError("corner inset differs from preregistered one-cell geometry")
     if protocol.get("precise_repair_waypoints") is not True:
         raise ValueError("boundary tracking runtime requires preregistered precise repair BT")

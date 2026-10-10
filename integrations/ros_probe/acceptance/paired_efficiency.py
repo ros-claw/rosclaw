@@ -16,6 +16,7 @@ from observations import latest_completed_observation
 from profiles import PROFILES
 
 from experiments import (
+    BOUNDARY_TRACKING_INSET_PRESETS,
     BOUNDARY_TRACKING_PRESETS,
     CONTINUOUS_BOUNDARY_PRESETS,
     INNER_RING_PROFILES,
@@ -44,6 +45,14 @@ def validate_precise_waypoint_candidate(preset, repair_strategy, enabled):
 
 def validate_continuous_boundary_registration(protocol, preset, precise):
     tracking = isinstance(preset, str) and preset in BOUNDARY_TRACKING_PRESETS
+    inset = isinstance(preset, str) and preset in BOUNDARY_TRACKING_INSET_PRESETS
+    if "candidate_boundary_corner_inset_cells" in protocol and not inset:
+        raise ValueError("corner inset metadata requires its registered candidate")
+    if inset and (
+        type(protocol.get("candidate_boundary_corner_inset_cells")) is not int
+        or protocol["candidate_boundary_corner_inset_cells"] != 1
+    ):
+        raise ValueError("corner inset requires exactly one existing legal grid cell")
     tracking_keys = (
         "candidate_boundary_tracking_prune_radius_m",
         "candidate_boundary_tracking_bt_sha256",

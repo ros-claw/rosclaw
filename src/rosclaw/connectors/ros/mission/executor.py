@@ -17,6 +17,7 @@ from pathlib import Path
 from rosclaw.connectors.ros.action_client import STATUS_CANCELED, STATUS_SUCCEEDED
 from rosclaw.connectors.ros.diagnosis.coverage_audit import CoverageAuditLog, digest
 from rosclaw.connectors.ros.mission.boundary_pass import (
+    inset_corner_boundary_targets,
     inset_rectangular_boundary_targets,
     rectangular_boundary_targets,
 )
@@ -202,6 +203,7 @@ class RosCoverageSimulationExecutor:
             "through_poses",
             "through_poses_midpoints",
             "through_poses_tracking_midpoints",
+            "through_poses_tracking_inset_corners",
             "sequential",
             "sequential_inner_ring",
         ):
@@ -212,7 +214,10 @@ class RosCoverageSimulationExecutor:
             recovery_centers if boundary_centers is None else boundary_centers
         )
         self.boundary_tracking_bt_sha256 = boundary_tracking_bt_sha256
-        if self.boundary_strategy == "through_poses_tracking_midpoints":
+        if self.boundary_strategy in {
+            "through_poses_tracking_midpoints",
+            "through_poses_tracking_inset_corners",
+        }:
             if (
                 not boundary_pass
                 or type(boundary_tracking_bt_sha256) is not str
@@ -385,17 +390,32 @@ class RosCoverageSimulationExecutor:
             result = {"status": "SKIPPED", "reason": "upstream main goal did not succeed"}
             self._audit_event("boundary_decision", result)
             return result
-        targets = rectangular_boundary_targets(
-            self.boundary_centers,
-            self.witness.fresh(),
-            edge_midpoints=self.boundary_strategy
-            in {
-                "through_poses_midpoints",
-                "through_poses_tracking_midpoints",
-                "sequential",
-                "sequential_inner_ring",
-            },
-        )
+        geometry = {}
+        entry = self.witness.fresh()
+        if self.boundary_strategy == "through_poses_tracking_inset_corners":
+            original = rectangular_boundary_targets(
+                self.boundary_centers, entry, edge_midpoints=True
+            )
+            targets = inset_corner_boundary_targets(
+                self.boundary_centers, entry, resolution=self.grid["resolution"]
+            )
+            geometry = {
+                "boundary_corner_inset_cells": 1,
+                "boundary_grid_resolution_m": self.grid["resolution"],
+                "original_targets": original,
+            }
+        else:
+            targets = rectangular_boundary_targets(
+                self.boundary_centers,
+                entry,
+                edge_midpoints=self.boundary_strategy
+                in {
+                    "through_poses_midpoints",
+                    "through_poses_tracking_midpoints",
+                    "sequential",
+                    "sequential_inner_ring",
+                },
+            )
         if not targets:
             result = {"status": "SKIPPED", "reason": "legal rectangular corners unavailable"}
             self._audit_event("boundary_decision", result)
@@ -419,13 +439,15 @@ class RosCoverageSimulationExecutor:
                 "targets": targets,
                 "waypoint_count": len(targets),
                 "strategy": self.boundary_strategy,
+                **geometry,
                 "evidence_role": "Nav2 targets, no predicted coverage credit",
                 **(
                     {
                         "boundary_tracking_bt_sha256": self.boundary_tracking_bt_sha256,
                         "boundary_tracking_prune_radius_m": 0.1,
                     }
-                    if self.boundary_strategy == "through_poses_tracking_midpoints"
+                    if self.boundary_strategy
+                    in {"through_poses_tracking_midpoints", "through_poses_tracking_inset_corners"}
                     else {}
                 ),
             },
@@ -483,7 +505,8 @@ class RosCoverageSimulationExecutor:
                 "poses": poses,
                 **(
                     {"behavior_tree": self._verified_boundary_tracking_bt()}
-                    if self.boundary_strategy == "through_poses_tracking_midpoints"
+                    if self.boundary_strategy
+                    in {"through_poses_tracking_midpoints", "through_poses_tracking_inset_corners"}
                     else {}
                 ),
             },
