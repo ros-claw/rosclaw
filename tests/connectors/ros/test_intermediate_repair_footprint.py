@@ -108,3 +108,25 @@ def test_intermediate_search_keeps_supported_centers_hidden_by_nominal_footprint
     assert first.center_cell in (2, 8)
     assert first.predicted_new_cells == (first.center_cell,)
     assert set(final.predicted_new_cells) - set(first.predicted_new_cells)
+
+
+@pytest.mark.parametrize("robust,model", [(False, "NOMINAL"), (True, "NINE_TRANSLATIONS")])
+def test_intermediate_reward_diagnostic_names_only_the_scenarios_actually_enabled(robust, model):
+    result = optimizer.rank_repair_poses(
+        {
+            "width": 1,
+            "height": 1,
+            "resolution": 0.1,
+            "origin": [0, 0],
+            "accessible_cells": [0],
+            "cleaning_polygon": [[-0.2, -0.2], [0.2, -0.2], [0.2, 0.2], [-0.2, 0.2]],
+        },
+        [],
+        set(),
+        {"x": 0.0, "y": 0.0, "yaw": 0.0},
+        shared_sequence_overhead=True,
+        robust_footprint=robust,
+        intermediate_tracking_radius_m=0.1,
+    )
+    assert result.status == "NO_CANDIDATE"
+    assert f"RADIUS_{model}_FINAL" in result.reward_model

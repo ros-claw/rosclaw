@@ -134,7 +134,11 @@ def rank_repair_poses(
                 else "STATIC_LEGAL_CENTER_GRID_PREDICTION_ONLY"
             ),
             reward_model=(
-                "INTERMEDIATE_INSCRIBED_DISK_MINUS_TRACKING_RADIUS_NINE_TRANSLATIONS_FINAL_ORIENTED_PREDICTION_ONLY"
+                (
+                    "INTERMEDIATE_INSCRIBED_DISK_MINUS_TRACKING_RADIUS_"
+                    + ("NINE_TRANSLATIONS" if robust_footprint else "NOMINAL")
+                    + "_FINAL_ORIENTED_PREDICTION_ONLY"
+                )
                 if intermediate_tracking_radius_m is not None
                 else "NINE_ONE_CELL_TRANSLATIONS_NOT_CALIBRATED_PROBABILITY"
                 if robust_footprint
