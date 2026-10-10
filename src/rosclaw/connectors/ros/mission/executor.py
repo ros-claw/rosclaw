@@ -664,7 +664,7 @@ class RosCoverageSimulationExecutor:
                         "pose_aware_robust_tracking_sequence",
                     },
                     **(
-                        {"shared_sequence_overhead": True}
+                        {"shared_sequence_overhead": True, "intermediate_tracking_radius_m": 0.1}
                         if self.repair_strategy == "pose_aware_robust_tracking_sequence"
                         else {}
                     ),

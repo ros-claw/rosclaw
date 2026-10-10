@@ -3,7 +3,7 @@
 import heapq
 import math
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from rosclaw.connectors.ros.verification.coverage import point_in_polygon
 
@@ -40,6 +40,31 @@ def _wrapped(angle):
     return (angle + math.pi) % (2 * math.pi) - math.pi
 
 
+def _intermediate_prediction_offsets(polygon, resolution, prune_radius, *, candidates=None):
+    """Yaw-independent geometric prediction, not a physical localization bound."""
+    if not point_in_polygon(0.0, 0.0, polygon):
+        return ()
+    distances = []
+    for (ax, ay), (bx, by) in zip(polygon, [*polygon[1:], polygon[0]], strict=True):
+        dx, dy = bx - ax, by - ay
+        length_squared = dx * dx + dy * dy
+        projection = (
+            max(0.0, min(1.0, -(ax * dx + ay * dy) / length_squared)) if length_squared else 0.0
+        )
+        distances.append(math.hypot(ax + projection * dx, ay + projection * dy))
+    radius = min(distances) - prune_radius
+    if radius <= 0:
+        return ()
+    if candidates is None:
+        extent = math.floor(radius / resolution)
+        candidates = (
+            (dx, dy) for dy in range(-extent, extent + 1) for dx in range(-extent, extent + 1)
+        )
+    return tuple(
+        (dx, dy) for dx, dy in candidates if math.hypot(dx * resolution, dy * resolution) <= radius
+    )
+
+
 def rank_repair_poses(
     grid,
     legal_centers,
@@ -56,6 +81,7 @@ def rank_repair_poses(
     shortlist_size=24,
     robust_footprint=False,
     shared_sequence_overhead=False,
+    intermediate_tracking_radius_m=None,
 ):
     """Return at most two predicted poses for an explicitly selected dispatch mode.
 
@@ -68,6 +94,15 @@ def rank_repair_poses(
         raise ValueError("robust footprint mode must be boolean")
     if type(shared_sequence_overhead) is not bool:
         raise ValueError("shared sequence overhead mode must be boolean")
+    if intermediate_tracking_radius_m is not None and (
+        type(intermediate_tracking_radius_m) is not float
+        or not math.isfinite(intermediate_tracking_radius_m)
+        or not 0 < intermediate_tracking_radius_m <= 1.0
+        or not shared_sequence_overhead
+    ):
+        raise ValueError(
+            "intermediate tracking requires an explicit bounded float radius and shared sequence dispatch"
+        )
     start = time.monotonic()
     if (
         not all(
@@ -99,7 +134,9 @@ def rank_repair_poses(
                 else "STATIC_LEGAL_CENTER_GRID_PREDICTION_ONLY"
             ),
             reward_model=(
-                "NINE_ONE_CELL_TRANSLATIONS_NOT_CALIBRATED_PROBABILITY"
+                "INTERMEDIATE_INSCRIBED_DISK_MINUS_TRACKING_RADIUS_NINE_TRANSLATIONS_FINAL_ORIENTED_PREDICTION_ONLY"
+                if intermediate_tracking_radius_m is not None
+                else "NINE_ONE_CELL_TRANSLATIONS_NOT_CALIBRATED_PROBABILITY"
                 if robust_footprint
                 else "NOMINAL_SAMPLED_FOOTPRINT_PREDICTION_ONLY"
             ),
@@ -238,12 +275,12 @@ def rank_repair_poses(
                 and (row + dy) * width + col + dx in remaining
             ) / len(shifts)
 
-        def shifted_footprints(pose):
+        def shifted_footprints(pose, footprint=None):
             col, row = pose.center_cell % width, pose.center_cell // width
             return tuple(
                 frozenset(
                     (row + dy + sy) * width + col + dx + sx
-                    for dx, dy in offsets[pose.yaw]
+                    for dx, dy in (offsets[pose.yaw] if footprint is None else footprint)
                     if 0 <= col + dx + sx < width
                     and 0 <= row + dy + sy < height
                     and (row + dy + sy) * width + col + dx + sx in remaining
@@ -330,10 +367,33 @@ def rank_repair_poses(
         best, best_utility = (shortlist[0],), shortlist[0].utility
         best_cost = shortlist[0].estimated_cost_sec
         scenarios = {p: shifted_footprints(p) for p in shortlist} if robust_footprint else {}
+        intermediate_offsets = None
+        if intermediate_tracking_radius_m is not None:
+            intermediate_offsets = _intermediate_prediction_offsets(
+                polygon, res, intermediate_tracking_radius_m, candidates=offsets[headings[0]]
+            )
+            check_budget()
         seen = set()
         for first in shortlist:
             if first.center_cell in seen:
                 continue
+            first_cells = first.predicted_new_cells
+            first_scenarios = scenarios.get(first)
+            if intermediate_offsets is not None:
+                col, row = first.center_cell % width, first.center_cell // width
+                first_cells = tuple(
+                    sorted(
+                        (row + dy) * width + col + dx
+                        for dx, dy in intermediate_offsets
+                        if 0 <= col + dx < width
+                        and 0 <= row + dy < height
+                        and (row + dy) * width + col + dx in remaining
+                    )
+                )
+                if not gain(first_cells):
+                    continue
+                if robust_footprint:
+                    first_scenarios = shifted_footprints(first, intermediate_offsets)
             seen.add(first.center_cell)
             if len(seen) > beam_width:
                 break
@@ -342,7 +402,7 @@ def rank_repair_poses(
                 check_budget()
                 if second.center_cell == first.center_cell or second.center_cell not in access_next:
                     continue
-                added = set(second.predicted_new_cells) - set(first.predicted_new_cells)
+                added = set(second.predicted_new_cells) - set(first_cells)
                 if not gain(added):
                     continue
                 turn = heading_cost(
@@ -354,18 +414,30 @@ def rank_repair_poses(
                 cost += turn / turn_speed_radps + (
                     0.0 if shared_sequence_overhead else goal_overhead_sec
                 )
-                utility = (gain(first.predicted_new_cells) + gain(added)) / cost
+                utility = (gain(first_cells) + gain(added)) / cost
                 if robust_footprint:
                     utility = (
                         sum(
                             gain(a | b)
-                            for a, b in zip(scenarios[first], scenarios[second], strict=True)
+                            for a, b in zip(first_scenarios, scenarios[second], strict=True)
                         )
                         / len(shifts)
                         / cost
                     )
                 if utility > best_utility:
-                    best, best_utility = (first, second), utility
+                    intermediate = first
+                    if intermediate_offsets is not None:
+                        first_gain = (
+                            sum(gain(s) for s in first_scenarios) / len(shifts)
+                            if robust_footprint
+                            else gain(first_cells)
+                        )
+                        intermediate = replace(
+                            first,
+                            predicted_new_cells=first_cells,
+                            utility=first_gain / first.estimated_cost_sec,
+                        )
+                    best, best_utility = (intermediate, second), utility
                     best_cost = cost
         check_budget()
         return finish("READY", best, best_cost)

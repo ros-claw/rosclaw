@@ -228,6 +228,7 @@ def test_only_two_pose_candidate_dispatch_uses_container_bt_and_observed_credit(
 
     def rank(*args, **kw):
         assert kw["shared_sequence_overhead"] is True and kw["robust_footprint"] is True
+        assert kw["intermediate_tracking_radius_m"] == 0.1
         return repair_optimizer.RepairSelection(status, poses[:count])
 
     calls = []
