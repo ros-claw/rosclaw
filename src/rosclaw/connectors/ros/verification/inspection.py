@@ -76,23 +76,30 @@ def classify_passage(
     observed = free | obstacles
     all_cells = {(x, y) for x in range(width) for y in range(height)}
     radius = clearance_cells
-    blocked = {
-        (x + dx, y + dy)
-        for x, y in obstacles
-        for dx in range(-radius, radius + 1)
-        for dy in range(-radius, radius + 1)
-        if 0 <= x + dx < width and 0 <= y + dy < height
-    }
+
+    def rectangle_counter(cells: set[Cell]):
+        # Integral counts keep runtime linear in grid size even for a large Body.
+        prefix = [[0] * (width + 1) for _ in range(height + 1)]
+        for y in range(height):
+            row_sum = 0
+            for x in range(width):
+                row_sum += (x, y) in cells
+                prefix[y + 1][x + 1] = prefix[y][x + 1] + row_sum
+
+        def count(x: int, y: int) -> tuple[int, int]:
+            x0, x1 = max(0, x - radius), min(width, x + radius + 1)
+            y0, y1 = max(0, y - radius), min(height, y + radius + 1)
+            total = prefix[y1][x1] - prefix[y0][x1] - prefix[y1][x0] + prefix[y0][x0]
+            return total, (x1 - x0) * (y1 - y0)
+
+        return count
+
+    obstacle_count, free_count = rectangle_counter(obstacles), rectangle_counter(free)
+    blocked = {point for point in all_cells if obstacle_count(*point)[0] > 0}
     safe = {
         (x, y)
         for x, y in free
-        if radius <= x < width - radius
-        and all(
-            (x + dx, y + dy) in free
-            for dx in range(-radius, radius + 1)
-            for dy in range(-radius, radius + 1)
-            if 0 <= y + dy < height
-        )
+        if radius <= x < width - radius and (counts := free_count(x, y))[0] == counts[1]
     }
     clear_path = _connects(
         safe, {(x, 0) for x in range(width)}, {(x, height - 1) for x in range(width)}
