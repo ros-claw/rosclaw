@@ -40,6 +40,8 @@ interface WatcherSink {
 interface OperationWatcherDeps {
 	call: (method: string, params: Record<string, unknown>) => Promise<Record<string, unknown>>;
 	sink: () => WatcherSink | undefined;
+	/** Local monotonic milliseconds, never worker time. */
+	now?: () => number;
 }
 
 interface KernelEvent {
@@ -75,7 +77,38 @@ export class OperationWatcher {
 	 *  （seq 游标已前进，靠本集合重试，不是重放事件）。 */
 	private readonly pendingTerminalTasks = new Set<string>();
 
+	private stopped = false;
+	private generation = 0;
+	private flight: Promise<void> | undefined;
+	private readonly health = new Map<string, number | undefined>();
+
 	constructor(private readonly deps: OperationWatcherDeps) {}
+
+	private healthUpdate(key: string, connected: boolean, quiet = false): void {
+		if (this.stopped) return;
+		const now = (this.deps.now ?? (() => performance.now()))();
+		if (connected) this.health.set(key, now);
+		else if (!this.health.has(key)) this.health.set(key, undefined);
+		const last = this.health.get(key);
+		const age = last === undefined ? "no successful observation yet"
+			: `last successful observation ${Math.max(0, Math.floor((now - last) / 1000))} seconds ago`;
+		this.deps.sink()?.setWidget?.(key, [connected
+			? `monitor connected/${quiet ? "no new output" : "observation received"}; ${age}; worker state unknown`
+			: `monitor unavailable/${age}; worker state unknown`]);
+	}
+
+	private retireHealth(key: string): void {
+		if (!this.health.delete(key)) return;
+		this.deps.sink()?.setWidget?.(key, undefined);
+	}
+
+	private pruneHealth(): void {
+		const owned = new Set([...this.tracked.values(), ...this.trackedTasks,
+			...this.pendingTerminalTasks, ...[...this.pendingTerminalOps.values()].map(op => String(op.task_id ?? ""))]);
+		for (const key of this.health.keys()) {
+			if (key.startsWith("monitor:task:") && !owned.has(key.slice(13))) this.retireHealth(key);
+		}
+	}
 
 	/** 模型启动 operation 时登记（tool_execution_end: process_start）。 */
 	track(operationId: string): void {
@@ -138,6 +171,7 @@ export class OperationWatcher {
 
 	start(): void {
 		if (this.timer) return;
+		this.stopped = false;
 		this.timer = setInterval(() => {
 			void this.tick().catch(() => undefined);
 		}, POLL_MS);
@@ -145,20 +179,26 @@ export class OperationWatcher {
 	}
 
 	stop(): void {
+		this.stopped = true;
+		this.generation++;
 		if (this.timer) clearInterval(this.timer);
 		this.timer = undefined;
+		for (const key of [...this.health.keys()]) this.retireHealth(key);
 	}
 
 	/** 注册解析（每个 op 仅一次）：task_id 是事件流订阅键。 */
-	private async resolvePending(): Promise<void> {
+	private async resolvePending(generation: number): Promise<void> {
 		for (const operationId of [...this.pending]) {
+			const key = `monitor:pending:${operationId}`;
 			try {
 				const result = await this.deps.call("pi.op.get", {
 					operation_id: operationId,
 				});
+				if (this.stopped || generation !== this.generation) return;
 				const op = (result.operation ?? {}) as Record<string, unknown>;
 				const taskId = String(op.task_id ?? "");
-				if (!taskId) continue; // 桥暂不可知——下周期再试（不报假死）
+				if (!taskId) { this.healthUpdate(key, false); continue; }
+				this.retireHealth(key);
 				this.pending.delete(operationId);
 				this.tracked.set(operationId, taskId);
 				this.operations.set(operationId, op);
@@ -171,13 +211,32 @@ export class OperationWatcher {
 					await this.handleTerminal(operationId, op);
 				}
 			} catch {
-				// 桥暂不可用——下周期再试。
+				if (this.stopped || generation !== this.generation) return;
+				this.healthUpdate(key, false);
 			}
 		}
 	}
 
-	private async tick(): Promise<void> {
-		await this.resolvePending();
+	private tick(): Promise<void> {
+		if (this.flight) return this.flight;
+		this.flight = this.poll(this.generation).finally(() => { this.flight = undefined; });
+		return this.flight;
+	}
+
+	private async poll(generation: number): Promise<void> {
+		if (this.stopped) {
+			// Explicit idle ticks may drain existing terminals, not resume observation.
+			for (const [operationId, op] of [...this.pendingTerminalOps]) {
+				await this.handleTerminal(operationId, op);
+			}
+			for (const taskId of [...this.pendingTerminalTasks]) {
+				await this.presentTerminal(taskId);
+			}
+			return;
+		}
+		await this.resolvePending(generation);
+		if (this.stopped || generation !== this.generation) return;
+		this.pruneHealth();
 		if (!this.tracked.size && !this.trackedTasks.size
 			&& !this.pendingTerminalTasks.size && !this.pendingTerminalOps.size) return;
 		const sink = this.deps.sink();
@@ -192,9 +251,13 @@ export class OperationWatcher {
 					task_id: taskId,
 					last_seq: this.seqByTask.get(taskId) ?? 0,
 				});
+				if (this.stopped || generation !== this.generation) return;
 				events = (result.events ?? []) as KernelEvent[];
+				this.healthUpdate(`monitor:task:${taskId}`, true, events.length === 0);
 			} catch {
-				continue; // 桥暂不可用——下周期从同游标重放（不重不漏）
+				if (this.stopped || generation !== this.generation) return;
+				this.healthUpdate(`monitor:task:${taskId}`, false);
+				continue; // Keep the cursor on observation failure.
 			}
 			for (const event of events) {
 				this.seqByTask.set(taskId, Math.max(
@@ -233,6 +296,7 @@ export class OperationWatcher {
 		for (const taskId of [...this.pendingTerminalTasks]) {
 			await this.presentTerminal(taskId);
 		}
+		if (!this.stopped && generation === this.generation) this.pruneHealth();
 	}
 
 	private upsertWidget(sink: WatcherSink | undefined, operationId: string, line: string): void {

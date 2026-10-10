@@ -1,0 +1,39 @@
+{
+  "scope": "LIMITED_NATIVE_SOURCE_SOFTWARE_ACCEPTANCE",
+  "product_author": "ROSClaw Native exec80243 and exec80717; exact mechanical export",
+  "base_commit": "ac3bcca197a0c35d5a6f0db920950e346a7968dd",
+  "source_sha256": {
+    "packages/rosclaw-agent/src/native/operation-watcher.ts": "24ff68292aa2d19aef745ea2e129d604df6cdffb6cbd07278695d71a83a42cc7",
+    "packages/rosclaw-agent/test/operation-monitor-health.test.ts": "e9071b9550b3784da9c8499c5e0a15c509194ea3e9e21020dc6f0bbd0584f09b",
+    "packages/rosclaw-agent/docs/operation-monitor-health.md": "f206ae690237e4544d72c8bb18bc6d3fafab85f78539b01e32cdfff06ad2e470"
+  },
+  "independent_root_receipts": [
+    {
+      "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_MONITOR_REPAIR80717_PROVENANCE_20261010_v1/receipt.json",
+      "sha256": "cd0c4ed0bb3c94219cf590f3fc564dba40330f5001809dc7399007881ee363a3"
+    },
+    {
+      "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_MONITOR_REPAIR80717_SOFTWARE_20261010_v1/receipt.json",
+      "sha256": "c205559cf309b1fcd1e715a289804f325c2bfd5fba1e7a3959118a7c92b9cb61"
+    },
+    {
+      "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_MONITOR_REPAIR80717_FULL_OUTPUT_20261010_v1/receipt.json",
+      "sha256": "fd88ef07abb79b772906315b4dceeb9f8f6d05bfc01bfa660cadfe9b3bc6ebb9"
+    }
+  ],
+  "tests": {
+    "focused_pass": 8,
+    "existing_regression_pass": 39,
+    "full_package_total": 610,
+    "full_package_pass": 607,
+    "full_package_fail": 0,
+    "full_package_existing_bwrap_skips": 3
+  },
+  "original_whole_results": {
+    "80243": "AGGREGATE_BUDGET_FAIL",
+    "80717": "FAIL_SOURCE_OR_OPERATOR_ORACLE:NATIVE_REPORT_COMPLETE_ACTUAL_CHECK_OBJECT_BINDING"
+  },
+  "report_binding_limitation": "Original report includes truthful build/check/diagnose; original operator oracle silently required exactly check/diagnose. Historical failures retained.",
+  "physics": "NOT_RUN",
+  "deployment": "NOT_AUTHORIZED_BY_THIS_RECORD"
+}
