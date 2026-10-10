@@ -7,6 +7,15 @@ import { createAssistantMessageEventStream, InMemoryCredentialStore, Type, type 
 import { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { createToolCallBudgetExtension, type ToolCallBudget } from "../src/harness/pi/tool-call-budget.js";
 
+test("compact enum strict validation and false suppression", () => {
+	for (const mode of [null, true, 1, "", "FULL", " compact", [], {}]) {
+		assert.throws(() => createToolCallBudgetExtension({ allowedTools: [], visibleBudgetMode: mode } as unknown as ToolCallBudget), /INVALID_TOOL_CALL_BUDGET/);
+	}
+	const h = hooks({ allowedTools: [], visibleBudget: false, visibleBudgetMode: "compact" });
+	assert.equal(h.tool_result, undefined);
+	assert.equal(h.before_agent_start, undefined);
+});
+
 const MARKER = "ROSCLAW_TOOL_POLICY_JSON:";
 const notice = (text: string) => {
 	const rows = String(text).split("\n").filter(line => line.startsWith(MARKER));

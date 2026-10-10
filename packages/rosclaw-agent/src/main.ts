@@ -62,7 +62,7 @@ interface CliArgs {
 // （inputs/prebody_cli/tool_call_policy.schema.json）一致；保留字段名
 // （__proto__ 等）作为 own data key 原样透传，不做重建赋值，不引入原型污染。
 const TOOL_CALL_POLICY_KEYS = new Set([
-	"allowedTools", "maxCalls", "maxTotalCalls", "exactCommands", "visibleBudget", "exactPaths",
+	"allowedTools", "maxCalls", "maxTotalCalls", "exactCommands", "visibleBudget", "exactPaths", "visibleBudgetMode",
 ]);
 
 function invalidToolCallPolicy(message: string): never {
@@ -150,6 +150,9 @@ export function loadToolCallPolicyFile(path: string): ToolCallBudget {
 	}
 	if (doc.visibleBudget !== undefined && typeof doc.visibleBudget !== "boolean") {
 		invalidToolCallPolicy("visibleBudget must be a boolean");
+	}
+	if (doc.visibleBudgetMode !== undefined && doc.visibleBudgetMode !== "full" && doc.visibleBudgetMode !== "compact") {
+		invalidToolCallPolicy("visibleBudgetMode must be full or compact");
 	}
 	return raw as ToolCallBudget;
 }

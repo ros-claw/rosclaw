@@ -117,14 +117,14 @@ def _artifact_rows(args: argparse.Namespace, artifact_id: str = ""):
     conn = store.connection
     if artifact_id:
         rows = conn.execute(
-            "SELECT * FROM artifacts WHERE artifact_id = ?", (artifact_id,),
+            "SELECT * FROM artifacts WHERE artifact_id = ?",
+            (artifact_id,),
         ).fetchall()
     else:
         task_id = str(getattr(args, "task", "") or "")
         if task_id:
             rows = conn.execute(
-                "SELECT * FROM artifacts WHERE task_id = ? "
-                "ORDER BY created_at DESC LIMIT 100",
+                "SELECT * FROM artifacts WHERE task_id = ? ORDER BY created_at DESC LIMIT 100",
                 (task_id,),
             ).fetchall()
         else:
@@ -145,11 +145,7 @@ def _artifact_view(row: dict) -> dict:
         "media_type": str(row["media_type"]),
         "path": str(row["path"]),
         "size_bytes": int(row["size_bytes"]),
-        "digest": (
-            raw_digest
-            if raw_digest.startswith("sha256:")
-            else f"sha256:{raw_digest}"
-        ),
+        "digest": (raw_digest if raw_digest.startswith("sha256:") else f"sha256:{raw_digest}"),
         "open_command": f"rosclaw artifact open {row['artifact_id']}",
     }
 
@@ -187,16 +183,15 @@ def cmd_artifact_open(args: argparse.Namespace) -> int:
         return 3
     import shutil
 
-    has_display = bool(
-        os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")
-    )
+    has_display = bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
     opener = shutil.which("xdg-open")
     if has_display and opener:
         import subprocess
 
         subprocess.Popen(  # noqa: S603 - 系统 opener，参数无拼接
             [opener, str(path)],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
         print(f"已用系统默认程序打开：{path}")
         return 0
@@ -419,18 +414,19 @@ def cmd_init(args: argparse.Namespace) -> int:
     # chat——严格 tool call 归 `rosclaw agentd doctor --deep`）。
     report = doctor(home)
     if getattr(args, "json", False):
-        print(json.dumps(
-            {"configure": summary, "doctor": report},
-            ensure_ascii=False, indent=2,
-        ))
+        print(
+            json.dumps(
+                {"configure": summary, "doctor": report},
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
     else:
         # 默认 ≤6 行人类摘要（不是一百行 JSON）。
         status = str(report.get("status", ""))
         effort = ""
         try:
-            settings = json.loads(
-                (home / "agent" / "settings.json").read_text(encoding="utf-8")
-            )
+            settings = json.loads((home / "agent" / "settings.json").read_text(encoding="utf-8"))
             effort = str(settings.get("defaultThinkingLevel", ""))
         except (OSError, ValueError):
             effort = ""
@@ -496,7 +492,15 @@ def _restore_home_env(previous: str | None) -> None:
 # 不得产生任何 home 变更或子进程副作用。
 # ---------------------------------------------------------------------------
 _TOOL_CALL_POLICY_KEYS = frozenset(
-    {"allowedTools", "maxCalls", "maxTotalCalls", "exactCommands", "visibleBudget", "exactPaths"}
+    {
+        "allowedTools",
+        "maxCalls",
+        "maxTotalCalls",
+        "exactCommands",
+        "visibleBudget",
+        "exactPaths",
+        "visibleBudgetMode",
+    }
 )
 # 与 JS Number.isSafeInteger 上限一致（JSON 1.0 这类整数值浮点可接受）。
 _TOOL_CALL_POLICY_MAX_SAFE_INT = 9007199254740991
@@ -631,6 +635,8 @@ def _validate_tool_call_policy(raw_path: str) -> Path:
                 raise ValueError(f"exactCommands[{key!r}] 含重复命令")
     if "visibleBudget" in data and not isinstance(data["visibleBudget"], bool):
         raise ValueError("visibleBudget 必须是 boolean")
+    if "visibleBudgetMode" in data and data["visibleBudgetMode"] not in ("full", "compact"):
+        raise ValueError("visibleBudgetMode must be full or compact")
     return path
 
 
@@ -640,16 +646,23 @@ def _model_override_argv(args: argparse.Namespace) -> list[str]:
     model = getattr(args, "model", None)
     if provider is None and model is None:
         return []
-    if not all(isinstance(v, str) and v and v == v.strip() and not v.startswith("-")
-               for v in (provider, model)):
-        raise ValueError("MODEL_OVERRIDE_PAIR_REQUIRED: --provider and --model are required together")
+    if not all(
+        isinstance(v, str) and v and v == v.strip() and not v.startswith("-")
+        for v in (provider, model)
+    ):
+        raise ValueError(
+            "MODEL_OVERRIDE_PAIR_REQUIRED: --provider and --model are required together"
+        )
     if getattr(args, "mission", None) or getattr(args, "mode", None) not in (None, "SIMULATION"):
-        raise ValueError("MODEL_OVERRIDE_INCOMPATIBLE_OPTIONS: explicit selection creates its own SIM scope")
+        raise ValueError(
+            "MODEL_OVERRIDE_INCOMPATIBLE_OPTIONS: explicit selection creates its own SIM scope"
+        )
     return ["--provider", provider, "--model", model]
 
 
-def _validate_native_model_selection(node: str, entry: str, home: Path,
-                                     override: list[str]) -> None:
+def _validate_native_model_selection(
+    node: str, entry: str, home: Path, override: list[str]
+) -> None:
     """Offline zero-fetch selection before kernel writes. Never bootstrap auth/login."""
     import subprocess
 
@@ -658,7 +671,10 @@ def _validate_native_model_selection(node: str, entry: str, home: Path,
     result = subprocess.run(
         [node, entry, "--validate-model-selection", *override],
         env=node_runtime_env(dict(os.environ, ROSCLAW_HOME=str(home), PI_OFFLINE="1")),
-        capture_output=True, text=True, timeout=15, check=False,
+        capture_output=True,
+        text=True,
+        timeout=15,
+        check=False,
     )
     if result.returncode != 0:
         # Native emits typed errors, not credentials or history.
@@ -1276,11 +1292,13 @@ def add_agent_subparsers(subparsers) -> None:
     p_continue.set_defaults(func=cmd_continue)
     for public_parser in (p_chat, p_resume, p_continue):
         public_parser.add_argument(
-            "--provider", default=None,
+            "--provider",
+            default=None,
             help="显式选择 provider（须同时 --model）；恢复时创建新 fork，保留源会话",
         )
         public_parser.add_argument(
-            "--model", default=None,
+            "--model",
+            default=None,
             help="显式选择 model；不改全局默认，普通恢复仍使用已记录模型",
         )
 
