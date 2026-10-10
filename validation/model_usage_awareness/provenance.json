@@ -1,0 +1,153 @@
+{
+  "schema": "NativeModelUsage6ExportProvenance.v1",
+  "status": "VALIDATED_COMPONENT_AWAIT_ROOT_COMMIT",
+  "parent_commit": "41c291345dba79022cb5480cd8a107ea71f4dd37",
+  "branch": "fix/native-model-usage-awareness-review-20261010",
+  "authors": {
+    "six_product_test_doc": "ROSClaw Native only",
+    "operator_validation_metadata": "Root-reviewed operator helpers; no Native code modifications"
+  },
+  "files": [
+    {
+      "kind": "ROSClaw_Native_product_test_doc",
+      "path": "packages/rosclaw-agent/src/main.ts",
+      "sha256": "2b005b79f3668e44a93de487bda26da0532061ea670f6b35c534a88fdedac9e1",
+      "source": "CLOSED86927/packages/rosclaw-agent/src/main.ts",
+      "byteexact": true
+    },
+    {
+      "kind": "ROSClaw_Native_product_test_doc",
+      "path": "packages/rosclaw-agent/src/harness/pi/tool-call-budget.ts",
+      "sha256": "c2cd2491c4c0f5b743a611fc52be04035481e9b030f6f36068cac99fae3aa897",
+      "source": "CLOSED86927/packages/rosclaw-agent/src/harness/pi/tool-call-budget.ts",
+      "byteexact": true
+    },
+    {
+      "kind": "ROSClaw_Native_product_test_doc",
+      "path": "packages/rosclaw-agent/test/model-usage-awareness.test.ts",
+      "sha256": "1db4b54593ea8a5f5bc31c3135d57d2ccc1b20212036813da3444d993db86114",
+      "source": "CLOSED86927/packages/rosclaw-agent/test/model-usage-awareness.test.ts",
+      "byteexact": true
+    },
+    {
+      "kind": "ROSClaw_Native_product_test_doc",
+      "path": "docs/model-usage-awareness.md",
+      "sha256": "47af37294d9069186b16bb2f25e4ccbb10bf4b903f79fb1b10ff4b385f003ade",
+      "source": "CLOSED86927/docs/model-usage-awareness.md",
+      "byteexact": true
+    },
+    {
+      "kind": "ROSClaw_Native_product_test_doc",
+      "path": "src/rosclaw/agentd/cli.py",
+      "sha256": "b8ce9ccf603c61a0567280782a96b71565ff65100ce6cce52b40b8ff16c0eb54",
+      "source": "CLOSED86927/src/rosclaw/agentd/cli.py",
+      "byteexact": true
+    },
+    {
+      "kind": "ROSClaw_Native_product_test_doc",
+      "path": "tests/agentd/test_cli_tool_call_policy.py",
+      "sha256": "fcf32bb7d0194050b223337ef930894dc94fdccbcff10fd39c418bb3612df944",
+      "source": "CLOSED86927/tests/agentd/test_cli_tool_call_policy.py",
+      "byteexact": true
+    },
+    {
+      "kind": "operator_only_validation_reference",
+      "path": "validation/model_usage_awareness/usage_sdk_oracle.mjs",
+      "sha256": "88ddabdfe0f4563bcb7b04a8f919f02e538dd83c6a6d71736907c5582cfab083",
+      "source": "reviewed_corrected_operator/usage_sdk_oracle.mjs",
+      "byteexact": true
+    },
+    {
+      "kind": "operator_only_validation_reference",
+      "path": "validation/model_usage_awareness/python_usage_oracle.py",
+      "sha256": "01a709ca54f99a9f29163a3e85c9b199c7527277a178ba318143f0d862d829d5",
+      "source": "reviewed_corrected_operator/python_usage_oracle.py",
+      "byteexact": false,
+      "original_reviewed_sha256": "975ee246985766f36ca2be3daa582fefba7bafd32ce33725d507528f88e03c4a",
+      "derivation": "Ruff formatting, import split/sort and listed unused removal, collision-free local Name alpha rename; normalized AST proof. No control/check/allowlist/exec changes.",
+      "prior_formatted_sha256": "d88e9d3aff20b74a8658e81e8181286b842cc6d5d1b0847d4df9c62b29b6f566",
+      "normalized_AST_equal": true
+    },
+    {
+      "kind": "operator_only_validation_reference",
+      "path": "validation/model_usage_awareness/node_effect_guard.cjs",
+      "sha256": "d35d9dbd6879be01c91b0d7857680056f827d69be06855344f80fa891dcfbc11",
+      "source": "reviewed_corrected_operator/node_effect_guard.cjs",
+      "byteexact": true
+    },
+    {
+      "kind": "operator_only_validation_reference",
+      "path": "validation/model_usage_awareness/candidate_worker.py",
+      "sha256": "41e30c22b246533e60bf260acdaf976a69cb1b1d43a58d23324a9cd77c1feb55",
+      "source": "reviewed_corrected_operator/candidate_worker.py",
+      "byteexact": false,
+      "original_reviewed_sha256": "4af4614e5335b7e1fa7e9cd81450e638988477061f6cf03c20b95561f00fd772",
+      "derivation": "Ruff formatting, import split/sort and listed unused removal, collision-free local Name alpha rename; normalized AST proof. No control/check/allowlist/exec changes.",
+      "prior_formatted_sha256": "1d5045ce778106035fed78f828c413cc93b291f24eaddec1d58b93dcd28b095a",
+      "normalized_AST_equal": true
+    }
+  ],
+  "evidence": {
+    "closed_index_sha256": "f826871360d7ac0bd4ea3c143f4245cfe5bb70284f7ff164c9edb780a86e9331",
+    "closed_literal_receipt_sha256": "5bf8ac1b1d8999a24e7335aada62b69141f4d0a0c44166115e7d5c41c169dcc7",
+    "Root_corrected_finite_receipt_sha256": "b4368084c24e81c26236ae8cce6d879cef64532e965184dd251c02785e731fd1",
+    "counts_sha256": "13518facdd2c1daa720f9c352e0095f4ffd9b9a1f06e7e1b86f00b46bd37de8d",
+    "Node_test_cases": 134,
+    "Python_test_cases": 96,
+    "SDK": {
+      "version": "1.1.0",
+      "real_prompts": 3,
+      "local_stream_requests": 4,
+      "tool_effects": 1,
+      "provider_requests": 0,
+      "next_request_settlement_verified": true,
+      "baseline_observer_only": false,
+      "message_start_end_identity_differs": true,
+      "public_tool_execution_end_structuredContent_verified": true,
+      "session_history_shape": "Original SDK omits structuredContent; do not extend history ABI",
+      "scope": "No production provider/TTY/bootstrap; genuine installed AgentSession and original lifecycle via local inert stream; no manual positive events"
+    },
+    "two_real_SDK_negatives_exit": [
+      1,
+      1
+    ],
+    "Native6_prepost_exact": true,
+    "dependencies_prepost_exact": true,
+    "passing_recorded_observations": 249,
+    "failing_recorded_observations": 0,
+    "observation_count_definition": "Includes grouped results, nested test results and operator assertions; not a count of independent tests.",
+    "Node_test_cases_definition": "134 Node test-case result records in the corrected bounded component worker.",
+    "Python_test_cases_definition": "96 Python test-case result records in the corrected bounded component worker."
+  },
+  "history": {
+    "exec86927": "AGGREGATE_BUDGET_FAIL remains, inclusive1592070 lowerbound, tail unknown; SQL1Ref/noSTOP/noDelivery",
+    "original_failure_classes": [
+      "trusted old CLI guard omission",
+      "Python operator mock signature mismatch",
+      "SDK operator startup/effective-system observation mismatch"
+    ],
+    "component_scope": "Offline source/component only, no provider/TTY/bootstrap/ROS/physics or complete paid task acceptance"
+  },
+  "excluded": [
+    "auth/privatehome/rawsessions/wire/installedassets/node_modules/runtime/dist",
+    "modelauth/token/account identifiers",
+    "absolute epoch ownership launchers"
+  ],
+  "operator_export_quality": {
+    "format_proof_sha256": "ffffb137ee8eecf2278b7f4f131824f81487785e505701d395214c7c63c866a0",
+    "two_python_AST_equivalent_format": false,
+    "remaining_targeted_ruff_errors": 0,
+    "remaining_rules": [],
+    "unsafe_or_logic_fixes_applied": false,
+    "Python_oracle_after_format": "16 passed",
+    "whole_repo_ruff_check": "Root observed FAIL373",
+    "whole_repo_ruff_format_check": "Root observed FAIL607files",
+    "CI_src_tests_ruff": "PASS",
+    "scope": "No whole-repository all-pass claim",
+    "lint_normalization_proof_sha256": "d0c2e10397156704667933ee45c1dcf6a1293d7c895eb2e11aa6147dba2dff0d",
+    "two_python_normalized_AST_equivalent": true,
+    "Python_oracle_after_cleanup": "16 passed",
+    "candidate_worker_archive_not_executed": true,
+    "no_new_product_evidence": true
+  }
+}

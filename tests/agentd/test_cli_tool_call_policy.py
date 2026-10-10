@@ -306,3 +306,79 @@ def test_exact_paths_cmd_chat_forwards_valid_policy(tmp_path, monkeypatch):
     assert cli.cmd_chat(args) == 0
     assert seen == [policy]
     assert not (tmp_path / "missing.txt").exists()
+
+
+def test_usage_awareness_cli_prehome(tmp_path, monkeypatch, capsys):
+    import rosclaw.agentd.cli as cli
+
+    config = {
+        "version": 1,
+        "lifetime": "runtime",
+        "inclusiveInputLimit": 1000,
+        "outputLimit": 100,
+        "deliveryReserveInput": 100,
+        "deliveryReserveOutput": 10,
+    }
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("invalid usage reached home/auth/Node")
+
+    monkeypatch.setattr(cli, "_home", forbidden)
+    monkeypatch.setattr(cli, "_cmd_chat_impl", forbidden)
+    invalid = [
+        None,
+        [],
+        {},
+        {**config, "extra": 1},
+        {**config, "version": True},
+        {**config, "version": 2},
+        {**config, "lifetime": "session"},
+        {**config, "deliveryReserveInput": 1001},
+        {**config, "outputLimit": 0},
+    ]
+    for key in (
+        "inclusiveInputLimit",
+        "outputLimit",
+        "deliveryReserveInput",
+        "deliveryReserveOutput",
+    ):
+        for value in (True, -1, 0.5, 9007199254740992, float("inf")):
+            invalid.append({**config, key: value})
+    for value in invalid:
+        policy = _write(tmp_path, {"allowedTools": [], "modelUsageAwareness": value})
+        args = build_parser().parse_args(["chat", "--tool-call-policy", policy])
+        assert cli.cmd_chat(args) == 2
+        assert "--tool-call-policy 无效" in capsys.readouterr().err
+
+
+def test_usage_awareness_cli_valid_forwarding(tmp_path, monkeypatch):
+    import rosclaw.agentd.cli as cli
+
+    config = {
+        "version": 1.0,
+        "lifetime": "runtime",
+        "inclusiveInputLimit": 1000.0,
+        "outputLimit": 100,
+        "deliveryReserveInput": 100,
+        "deliveryReserveOutput": 10,
+    }
+    policy = _write(tmp_path, {"allowedTools": [], "modelUsageAwareness": config})
+    monkeypatch.setattr(cli, "_home", lambda args: tmp_path / "home")
+    monkeypatch.setattr(cli, "_ensure_home_env", lambda home: None)
+    monkeypatch.setattr(cli, "_restore_home_env", lambda prev: None)
+    seen = []
+
+    def impl(args, home):
+        seen.append(args.tool_call_policy)
+        assert (
+            json.loads(__import__("pathlib").Path(args.tool_call_policy).read_text())[
+                "modelUsageAwareness"
+            ]
+            == config
+        )
+        return 0
+
+    monkeypatch.setattr(cli, "_cmd_chat_impl", impl)
+    args = build_parser().parse_args(["chat", "--tool-call-policy", policy])
+    assert cli.cmd_chat(args) == 0
+    assert seen == [policy]

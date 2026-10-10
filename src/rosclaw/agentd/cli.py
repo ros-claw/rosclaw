@@ -500,6 +500,7 @@ _TOOL_CALL_POLICY_KEYS = frozenset(
         "visibleBudget",
         "exactPaths",
         "visibleBudgetMode",
+        "modelUsageAwareness",
     }
 )
 # 与 JS Number.isSafeInteger 上限一致（JSON 1.0 这类整数值浮点可接受）。
@@ -637,6 +638,34 @@ def _validate_tool_call_policy(raw_path: str) -> Path:
         raise ValueError("visibleBudget 必须是 boolean")
     if "visibleBudgetMode" in data and data["visibleBudgetMode"] not in ("full", "compact"):
         raise ValueError("visibleBudgetMode must be full or compact")
+    if "modelUsageAwareness" in data:
+        usage = data["modelUsageAwareness"]
+        keys = {
+            "version",
+            "lifetime",
+            "inclusiveInputLimit",
+            "outputLimit",
+            "deliveryReserveInput",
+            "deliveryReserveOutput",
+        }
+        if (
+            not isinstance(usage, dict)
+            or set(usage) != keys
+            or not _policy_limit_ok(usage["version"])
+            or usage["version"] != 1
+            or usage["lifetime"] != "runtime"
+        ):
+            raise ValueError("invalid modelUsageAwareness")
+        for key in keys - {"version", "lifetime"}:
+            if not _policy_limit_ok(usage[key]):
+                raise ValueError("invalid modelUsageAwareness numeric value")
+        if (
+            usage["inclusiveInputLimit"] <= 0
+            or usage["outputLimit"] <= 0
+            or usage["deliveryReserveInput"] > usage["inclusiveInputLimit"]
+            or usage["deliveryReserveOutput"] > usage["outputLimit"]
+        ):
+            raise ValueError("invalid modelUsageAwareness reserve")
     return path
 
 
