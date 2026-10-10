@@ -7,7 +7,19 @@ INNER_RING_PROFILES = {
     "perimeter_stateless_inner_ring": "waffle",
 }
 
+BOUNDARY_OPEN_SEGMENT_PRESETS = {
+    "perimeter_stateless_overlap_boundary_tracking_open_segments": (
+        "waffle",
+        "perimeter_stateless_overlap",
+    ),
+    "perimeter_stateless_clearance_boundary_tracking_open_segments": (
+        "burger",
+        "perimeter_stateless_clearance",
+    ),
+}
+
 BOUNDARY_TRACKING_INSET_PRESETS = {
+    **BOUNDARY_OPEN_SEGMENT_PRESETS,
     "perimeter_stateless_overlap_boundary_tracking_inset_corners": (
         "waffle",
         "perimeter_stateless_overlap",
@@ -109,6 +121,8 @@ def validate_repair_tracking_candidate_registration(protocol, preset, strategy, 
 def continuous_boundary_strategy(preset):
     if preset not in CONTINUOUS_BOUNDARY_PRESETS:
         raise ValueError("registered continuous boundary preset required")
+    if preset in BOUNDARY_OPEN_SEGMENT_PRESETS:
+        return "through_poses_tracking_inset_open_segments"
     if preset in BOUNDARY_TRACKING_INSET_PRESETS:
         return "through_poses_tracking_inset_corners"
     return (
@@ -200,6 +214,7 @@ def validate_continuous_boundary_experiment(experiment):
         raise ValueError("explicit experiment mapping required")
     validate_repair_tracking_experiment(experiment)
     preset = experiment.get("preset")
+    validate_boundary_segment_registration(experiment, preset)
     registered = CONTINUOUS_BOUNDARY_PRESETS.get(preset) if isinstance(preset, str) else None
     tracking = isinstance(preset, str) and preset in BOUNDARY_TRACKING_PRESETS
     inset = isinstance(preset, str) and preset in BOUNDARY_TRACKING_INSET_PRESETS
@@ -217,6 +232,7 @@ def validate_continuous_boundary_experiment(experiment):
         "through_poses_midpoints",
         "through_poses_tracking_midpoints",
         "through_poses_tracking_inset_corners",
+        "through_poses_tracking_inset_open_segments",
     ):
         return
     if (
@@ -276,6 +292,16 @@ def validate_inner_ring_experiment(experiment):
         raise ValueError("inner boundary experiment must match the registered known-fixture stage")
 
 
+def validate_boundary_segment_registration(values, preset, *, prefix=""):
+    """The new opt-in strategy freezes exactly two open halves before launch."""
+    key = prefix + "boundary_segment_count"
+    if isinstance(preset, str) and preset in BOUNDARY_OPEN_SEGMENT_PRESETS:
+        if type(values.get(key)) is not int or values[key] != 2:
+            raise ValueError("open boundary requires exactly two registered segments")
+    elif key in values:
+        raise ValueError("boundary segment metadata requires its registered candidate")
+
+
 def validate_boundary_tracking_runtime_registration(experiment, protocol):
     """Reject a generated boundary BT that differs from the frozen protocol."""
     validate_continuous_boundary_experiment(experiment)
@@ -283,6 +309,7 @@ def validate_boundary_tracking_runtime_registration(experiment, protocol):
         return
     if not isinstance(protocol, dict):
         raise ValueError("boundary tracking requires a preregistered runtime protocol")
+    validate_boundary_segment_registration(protocol, experiment.get("preset"), prefix="candidate_")
     if (
         "candidate_boundary_corner_inset_cells" in protocol
         and experiment.get("preset") not in BOUNDARY_TRACKING_INSET_PRESETS

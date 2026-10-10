@@ -207,6 +207,7 @@ class RosCoverageSimulationExecutor:
             "through_poses_midpoints",
             "through_poses_tracking_midpoints",
             "through_poses_tracking_inset_corners",
+            "through_poses_tracking_inset_open_segments",
             "sequential",
             "sequential_inner_ring",
         ):
@@ -220,6 +221,7 @@ class RosCoverageSimulationExecutor:
         if self.boundary_strategy in {
             "through_poses_tracking_midpoints",
             "through_poses_tracking_inset_corners",
+            "through_poses_tracking_inset_open_segments",
         }:
             if (
                 not boundary_pass
@@ -234,7 +236,11 @@ class RosCoverageSimulationExecutor:
         if repair_strategy == "pose_aware_robust_tracking_sequence":
             if (
                 not boundary_pass
-                or boundary_strategy != "through_poses_tracking_inset_corners"
+                or boundary_strategy
+                not in {
+                    "through_poses_tracking_inset_corners",
+                    "through_poses_tracking_inset_open_segments",
+                }
                 or type(repair_tracking_bt_sha256) is not str
                 or len(repair_tracking_bt_sha256) != 64
                 or any(c not in "0123456789abcdef" for c in repair_tracking_bt_sha256)
@@ -420,7 +426,10 @@ class RosCoverageSimulationExecutor:
             return result
         geometry = {}
         entry = self.witness.fresh()
-        if self.boundary_strategy == "through_poses_tracking_inset_corners":
+        if self.boundary_strategy in {
+            "through_poses_tracking_inset_corners",
+            "through_poses_tracking_inset_open_segments",
+        }:
             original = rectangular_boundary_targets(
                 self.boundary_centers, entry, edge_midpoints=True
             )
@@ -432,6 +441,8 @@ class RosCoverageSimulationExecutor:
                 "boundary_grid_resolution_m": self.grid["resolution"],
                 "original_targets": original,
             }
+            if self.boundary_strategy == "through_poses_tracking_inset_open_segments":
+                geometry["boundary_segment_count"] = 2
         else:
             targets = rectangular_boundary_targets(
                 self.boundary_centers,
@@ -475,7 +486,11 @@ class RosCoverageSimulationExecutor:
                         "boundary_tracking_prune_radius_m": 0.1,
                     }
                     if self.boundary_strategy
-                    in {"through_poses_tracking_midpoints", "through_poses_tracking_inset_corners"}
+                    in {
+                        "through_poses_tracking_midpoints",
+                        "through_poses_tracking_inset_corners",
+                        "through_poses_tracking_inset_open_segments",
+                    }
                     else {}
                 ),
             },
@@ -490,6 +505,47 @@ class RosCoverageSimulationExecutor:
             }
             for p in targets
         ]
+        if self.boundary_strategy == "through_poses_tracking_inset_open_segments":
+            # A point goal checker can accept a closed path near its starting
+            # endpoint. Opposite-corner open halves avoid that ambiguity without
+            # increasing the original stage budget or awarding predicted credit.
+            if len(poses) != 9 or poses[0] != poses[-1] or poses[0] == poses[4]:
+                raise RuntimeError("two open boundary segments require nine closed route targets")
+            until = min(deadline, time.monotonic() + 180)
+            results = []
+            for index, segment in enumerate((poses[:5], poses[4:])):
+                remaining = until - time.monotonic()
+                if remaining <= 0:
+                    return {
+                        "status": "FAILED",
+                        "reason": "boundary stage budget exhausted",
+                        "waypoint_count": len(targets),
+                        "segment_count": 2,
+                        "nav_goal_results": results,
+                    }
+                result = self._run_goal(
+                    "/navigate_through_poses",
+                    "nav2_msgs/action/NavigateThroughPoses",
+                    {"poses": segment, "behavior_tree": self._verified_boundary_tracking_bt()},
+                    f"{action_id}:boundary:{index}",
+                    until,
+                    goal_timeout_sec=remaining,
+                    stage="BOUNDARY_PASS",
+                )
+                results.append(result)
+                if result.get("status") != STATUS_SUCCEEDED or result.get("timed_out"):
+                    return {
+                        "status": "FAILED",
+                        "waypoint_count": len(targets),
+                        "segment_count": 2,
+                        "nav_goal_results": results,
+                    }
+            return {
+                "status": "SUCCEEDED",
+                "waypoint_count": len(targets),
+                "segment_count": 2,
+                "nav_goal_results": results,
+            }
         if self.boundary_strategy in {"sequential", "sequential_inner_ring"}:
             # The new opt-in protocol explicitly registers two bounded rings.
             # Global immutable action deadline and every goal/stop guard remain.

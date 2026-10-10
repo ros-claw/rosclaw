@@ -24,6 +24,7 @@ from experiments import (
     continuous_boundary_strategy,
     planning_parameters,
     valid_boundary_tracking_sha256,
+    validate_boundary_segment_registration,
     validate_repair_tracking_candidate_registration,
     validate_seed,
 )
@@ -46,6 +47,7 @@ def validate_precise_waypoint_candidate(preset, repair_strategy, enabled):
 
 
 def validate_continuous_boundary_registration(protocol, preset, precise):
+    validate_boundary_segment_registration(protocol, preset, prefix="candidate_")
     tracking = isinstance(preset, str) and preset in BOUNDARY_TRACKING_PRESETS
     inset = isinstance(preset, str) and preset in BOUNDARY_TRACKING_INSET_PRESETS
     if "candidate_boundary_corner_inset_cells" in protocol and not inset:
