@@ -20,6 +20,10 @@ jobs:
   gate:
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    env:
+      # Required backend: missing/unknown capability is a hard CI failure.
+      # EGL is optional only on exact fresh native-loader absence evidence.
+      ROSCLAW_REQUIRED_RENDERER_BACKENDS: osmesa
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
@@ -30,10 +34,28 @@ jobs:
       - name: Install full data-flywheel extras
         run: uv pip install -e ".[dev,seekdb,embedding,knowledge]" --system
 
-      # WP-3：OSMesa 软渲染库——CI runner 无 GPU/EGL，MuJoCo 离屏渲染
-      # 后端探测需要 libosmesa6（缺库时渲染测试诚实失败，不跳过）。
+      # WP-3: provision the required software offscreen backend. Package
+      # installation is not capability proof; do not assume hosted EGL absence.
       - name: Install OSMesa (MuJoCo offscreen rendering)
         run: sudo apt-get update && sudo apt-get install -y libosmesa6 xvfb
+
+      # Renderer phase only (separate RootGO from SOURCE-only validation).
+      # Genuine constructor assertion, then exact production-prefix matrix.
+      # Optional EGL NOT_RUN entries remain skipped with typed detection
+      # evidence in JUnit; they must never be reported as full 8/8 PASS.
+      - name: Renderer capability — required offscreen construction and matrix
+        run: |
+          pytest tests/test_harnessbench_vision_oracle.py -q -rA \
+            -k 'required_renderer_backend_offscreen_capability or real_worker_renderer_platform_matrix' \
+            -o junit_family=legacy --junitxml=renderer-capability.xml
+
+      - name: Preserve renderer capability evidence (including failures and NOT_RUN)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: renderer-capability-evidence
+          path: renderer-capability.xml
+          if-no-files-found: error
 
       - name: Gate A — import / contract
         run: |

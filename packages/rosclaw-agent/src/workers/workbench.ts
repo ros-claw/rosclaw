@@ -261,7 +261,7 @@ export function buildWorkbenchTools(options: WorkbenchOptions): ToolDefinition[]
 					isError: true,
 				};
 			}
-			writeFileSync(p, text.replace(oldText, String(params.new_text)), "utf-8");
+			writeFileSync(p, text.replace(oldText, () => String(params.new_text)), "utf-8");
 			log(`edit ${p}`);
 			options.emitRecord?.("file_change", {
 				op: "edit",

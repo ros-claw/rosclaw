@@ -43,8 +43,10 @@ def _model_status(home: Path, *, probe: bool = False) -> dict:
     """模型配置状态。
 
     G-2（0916 三审 B-5）：默认**本地-only**——配置存在性（单源）
-    + 凭据存在性（env/auth.json，只看存在不验证），绝不发起联网
-    探测（看状态不烧模型 API）。probe=True 才走 doctor 全探测。
+    + 凭据存在性，绝不发起联网探测（看状态不烧模型 API）。
+    openai-codex 只读 home/agent/auth.json 的 PI OAuth 元数据及毫秒
+    到期时间；READY 仅表示本地未过期，不证明认证或权益，不刷新凭据。
+    其他 provider 保持 env/auth.json 存在性检查；probe=True 才走 doctor。
     """
     if not probe:
         try:
@@ -58,11 +60,59 @@ def _model_status(home: Path, *, probe: bool = False) -> dict:
                     "detail": "未配置模型——`rosclaw setup model`",
                 }
             if model.provider == "openai-codex":
+                import math
+                import time
+
+                credential_status = "INVALID"
+                try:
+                    auth = json.loads((home / "agent" / "auth.json").read_text(encoding="utf-8"))
+                    if isinstance(auth, dict):
+                        if model.provider not in auth:
+                            credential_status = "MISSING"
+                        else:
+                            entry = auth[model.provider]
+                            if isinstance(entry, dict):
+                                expires = entry.get("expires")
+                                valid = (
+                                    entry.get("type") == "oauth"
+                                    and all(
+                                        isinstance(entry.get(key), str) and entry[key].strip()
+                                        for key in ("access", "refresh")
+                                    )
+                                    and not isinstance(expires, bool)
+                                    and isinstance(expires, (int, float))
+                                    and math.isfinite(expires)
+                                )
+                                if valid:
+                                    credential_status = (
+                                        "UNEXPIRED_LOCAL"
+                                        if expires > time.time() * 1000
+                                        else "EXPIRED"
+                                    )
+                except FileNotFoundError:
+                    credential_status = "MISSING"
+                except Exception:  # noqa: BLE001 - 本地状态不崩溃，不泄露错误或凭据
+                    credential_status = "INVALID"
+                states = {
+                    "UNEXPIRED_LOCAL": "READY",
+                    "MISSING": "NEEDS_LOGIN",
+                    "INVALID": "NEEDS_LOGIN",
+                    "EXPIRED": "NEEDS_SETUP",
+                }
+                details = {
+                    "UNEXPIRED_LOCAL": "本地 OAuth 元数据完整且未过期；仅表示本地凭据在",
+                    "MISSING": "本地 OAuth 凭据缺失——chat 内 /login → openai-codex",
+                    "INVALID": "本地 OAuth 元数据无效或不可读取——检查本地设置或 /login",
+                    "EXPIRED": "本地 OAuth 凭据已过期；实际使用时可能刷新，无需一律重新登录",
+                }
                 return {
-                    "state": "NEEDS_LOGIN",
+                    "state": states[credential_status],
                     "provider": model.provider,
                     "model": model.model,
-                    "detail": "chat 内 /login → openai-codex (ChatGPT OAuth); 未验证登录",
+                    "credential_status": credential_status,
+                    "network_verified": False,
+                    "detail": details[credential_status]
+                    + "（仅本地检查，未联网验证，不证明认证成功或模型权益）",
                 }
             # 凭据按已配置 provider 判定（别家 key 不算数——
             # kimi 配置 + 只有 anthropic key 仍是 NEEDS_SETUP；

@@ -73,6 +73,8 @@ test("unreadable policy file rejects before runtime/auth", () => {
 });
 
 const INVALID_POLICIES: Array<[string, string]> = [
+	...[null, true, 1, "", "FULL", " compact", [], {}].map((mode): [string, string] =>
+		[`invalid visibleBudgetMode ${JSON.stringify(mode)}`, JSON.stringify({ allowedTools: [], visibleBudgetMode: mode })]),
 	["malformed JSON", "{"],
 	["root non-object (array)", "[]"],
 	["root non-object (string)", "\"x\""],
@@ -112,6 +114,8 @@ for (const [label, content] of INVALID_POLICIES) {
 }
 
 const VALID_POLICIES: Array<[string, string]> = [
+	["explicit full", JSON.stringify({ allowedTools: [], visibleBudgetMode: "full" })],
+	["compact hidden", JSON.stringify({ allowedTools: [], visibleBudgetMode: "compact", visibleBudget: false })],
 	["block-all empty allowedTools", JSON.stringify({ allowedTools: [] })],
 	["optional empty maps", JSON.stringify({ allowedTools: ["bash"], maxCalls: {}, exactCommands: {} })],
 	["full valid policy", JSON.stringify({

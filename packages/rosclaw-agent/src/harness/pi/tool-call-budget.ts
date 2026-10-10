@@ -1,4 +1,5 @@
 import type { ExtensionFactory, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { createHash } from "node:crypto";
 import { lstatSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
@@ -78,13 +79,27 @@ export interface ToolCallBudget {
 	exactPaths?: Readonly<Record<string, readonly string[]>>;
 	/** Opt-in model-visible policy snapshot notices. Default false keeps old notice-free output. */
 	visibleBudget?: boolean;
+	/** Result presentation only; omitted means full. Never changes admission. */
+	visibleBudgetMode?: "full" | "compact";
 }
 
 const POLICY_MARKER = "ROSCLAW_TOOL_POLICY_JSON:";
-const KNOWN_KEYS = ["allowedTools", "maxCalls", "maxTotalCalls", "exactCommands", "visibleBudget", "exactPaths"];
+const COMPACT_MARKER = "ROSCLAW_TOOL_BUDGET_COMPACT_JSON:";
+const KNOWN_KEYS = ["allowedTools", "maxCalls", "maxTotalCalls", "exactCommands", "visibleBudget", "exactPaths", "visibleBudgetMode"];
 
-function stripMarkerLines(text: string): string {
-	return text.split("\n").filter(line => !line.startsWith(POLICY_MARKER)).join("\n");
+function stripMarkerLines(text: string, compact = false): string {
+	return text.split("\n").filter(line => !line.startsWith(POLICY_MARKER)
+		&& !(compact && line.startsWith(COMPACT_MARKER))).join("\n");
+}
+
+// Recursive sorted-key JSON; arrays retain their effective order.
+function canonicalJSON(value: unknown): string {
+	if (Array.isArray(value)) return `[${value.map(canonicalJSON).join(",")}]`;
+	if (value !== null && typeof value === "object") {
+		const record = value as Record<string, unknown>;
+		return `{${Object.keys(record).sort().map(key => `${JSON.stringify(key)}:${canonicalJSON(record[key])}`).join(",")}}`;
+	}
+	return JSON.stringify(value)!;
 }
 
 export function createToolCallBudgetExtension(policy: ToolCallBudget, workspaceRoot?: string): ToolCallBudgetExtension {
@@ -125,6 +140,10 @@ export function createToolCallBudgetExtension(policy: ToolCallBudget, workspaceR
 	if (policy.visibleBudget !== undefined && typeof policy.visibleBudget !== "boolean") {
 		throw new Error("INVALID_TOOL_CALL_BUDGET_VISIBLE");
 	}
+	if (policy.visibleBudgetMode !== undefined && policy.visibleBudgetMode !== "full" && policy.visibleBudgetMode !== "compact") {
+		throw new Error("INVALID_TOOL_CALL_BUDGET_VISIBLE_MODE");
+	}
+	const compact = policy.visibleBudgetMode === "compact";
 	const paths = new Map<string, readonly string[]>();
 	let root: string | undefined;
 	let canonicalRoot: string | undefined;
@@ -174,7 +193,14 @@ export function createToolCallBudgetExtension(policy: ToolCallBudget, workspaceR
 			remainingTotal: maxTotal === undefined ? null : Math.max(0, maxTotal - usedTotal),
 		};
 	};
-	const notice = () => POLICY_MARKER + JSON.stringify(snapshot());
+	const { usedCalls: _used, usedTotal: _total, remainingCalls: _remaining, remainingTotal: _remainingTotal, ...staticPolicy } = snapshot();
+	const policyDigest = createHash("sha256").update(canonicalJSON(staticPolicy), "utf8").digest("hex");
+	const fullNotice = () => POLICY_MARKER + JSON.stringify(snapshot());
+	const notice = () => {
+		if (!compact) return fullNotice();
+		const { usedCalls, usedTotal, remainingCalls, remainingTotal } = snapshot();
+		return COMPACT_MARKER + JSON.stringify({ policyDigest, usedCalls, usedTotal, remainingCalls, remainingTotal });
+	};
 	const blocked = (code: string) => visible
 		? { block: true as const, reason: `${code}\n${notice()}` }
 		: { block: true as const, reason: code };
@@ -212,13 +238,13 @@ export function createToolCallBudgetExtension(policy: ToolCallBudget, workspaceR
 			event.input as Record<string, unknown> | undefined, !wrapped.has(event.toolName)));
 		if (!visible) return;
 		pi.on("before_agent_start", event => ({
-			systemPrompt: `${stripMarkerLines(event.systemPrompt)}\n${notice()}`,
+			systemPrompt: `${stripMarkerLines(event.systemPrompt, compact)}\n${fullNotice()}`,
 		}));
 		pi.on("tool_result", event => {
 			// Replace a prior own marker line (for example on an already-blocked
 			// result) instead of duplicating it; preserve all other text.
 			const content = event.content.map(part => part.type === "text"
-				? { ...part, text: stripMarkerLines(part.text) }
+				? { ...part, text: stripMarkerLines(part.text, compact) }
 				: part);
 			return {
 				content: [...content, { type: "text" as const, text: notice() }],

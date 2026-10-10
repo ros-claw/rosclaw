@@ -763,3 +763,125 @@ class TestDeclaredSchemaHardening:
         assert result.error_code == "DECLARED_SCHEMA_BUDGET_EXCEEDED"
         assert _declared_rows(service) == before
         await service.close()
+
+
+class TestNativeDeclaredContentRecovery:
+    async def _run_repair(self, tmp_path, repair):
+        service, mission = await _setup(tmp_path)
+        project = tmp_path / "project"
+        artifact, schema = _declared_files(project, {"const": 1}, 0)
+        dispatcher = PiToolDispatcher(service)
+
+        async def call(key):
+            return await dispatcher.execute(
+                _request(
+                    "rosclaw_deliver",
+                    mission=mission.mission_id,
+                    idem=key,
+                    arguments={
+                        "path": str(artifact),
+                        "schema_path": str(schema),
+                        "cwd": str(project),
+                        "role": "progress_report",
+                    },
+                )
+            )
+
+        try:
+            before = _declared_rows(service)
+            first = await call("native_first")
+            assert first.error_code == "DECLARED_SCHEMA_VALIDATION_FAILED"
+            assert _declared_rows(service) == before
+            assert (await call("native_unchanged")).error_code == "DOOM_LOOP"
+            if repair == "artifact":
+                artifact.write_text("1")
+            elif repair == "schema":
+                schema.write_text('{"const":0}')
+            elif repair == "invalid":
+                artifact.write_text("2")
+            fresh = await call("native_fresh")
+            assert (await call("native_first")).model_dump() == first.model_dump()
+            if repair in {"artifact", "schema"}:
+                assert fresh.ok and fresh.artifact_refs
+            elif repair == "invalid":
+                assert fresh.error_code == "DECLARED_SCHEMA_VALIDATION_FAILED"
+                assert (await call("native_invalid_repeat")).error_code == "DOOM_LOOP"
+                assert _declared_rows(service) == before
+            else:
+                assert fresh.error_code == "DOOM_LOOP"
+                assert _declared_rows(service) == before
+        finally:
+            await service.close()
+
+    async def test_native_artifact_only_samepath_repair(self, tmp_path):
+        await self._run_repair(tmp_path, "artifact")
+
+    async def test_native_schema_only_samepath_repair(self, tmp_path):
+        await self._run_repair(tmp_path, "schema")
+
+    async def test_native_changed_invalid_revalidated_and_bounded(self, tmp_path):
+        await self._run_repair(tmp_path, "invalid")
+
+    async def test_native_unchanged_bytes_and_immutable_replay(self, tmp_path):
+        await self._run_repair(tmp_path, "unchanged")
+
+
+class TestNativeDeclaredSnapshotRegistration:
+    async def _snapshot_race(self, tmp_path, change):
+        import hashlib
+
+        service, mission = await _setup(tmp_path)
+        project = tmp_path / "project"
+        artifact, schema = _declared_files(project, {"const": 1}, 1)
+        dispatcher = PiToolDispatcher(service)
+        request = _request(
+            "rosclaw_deliver",
+            mission=mission.mission_id,
+            idem="snapshot",
+            arguments={
+                "path": str(artifact),
+                "schema_path": str(schema),
+                "cwd": str(project),
+                "role": "progress_report",
+            },
+        )
+        try:
+            admitted = await dispatcher.execute(request)
+            assert admitted.ok
+            snapshot = dispatcher._validate_declared_delivery(request)
+            task = service._task_kernel.latest_task_for(mission.mission_id, request.pi_session_id)
+            assert task is not None
+            if change == "artifact":
+                artifact.write_text("2")
+            elif change == "schema":
+                schema.write_text('{"const":2}')
+            elif change == "growth":
+                artifact.write_text("2" * 300000)
+            else:
+                artifact.unlink()
+                artifact.symlink_to(schema)
+            record = service._task_kernel.register_artifact(
+                task_id=task["task_id"],
+                path=str(artifact),
+                media_type="application/json",
+                validated_snapshot=snapshot,
+            )
+            stored = Path(record["path"])
+            assert not stored.is_symlink()
+            assert stored.read_bytes() == snapshot
+            assert hashlib.sha256(stored.read_bytes()).hexdigest() == record["sha256"]
+            assert (await dispatcher.execute(request)).model_dump() == admitted.model_dump()
+        finally:
+            await service.close()
+
+    async def test_native_snapshot_artifact_writer(self, tmp_path):
+        await self._snapshot_race(tmp_path, "artifact")
+
+    async def test_native_snapshot_schema_writer(self, tmp_path):
+        await self._snapshot_race(tmp_path, "schema")
+
+    async def test_native_snapshot_growth(self, tmp_path):
+        await self._snapshot_race(tmp_path, "growth")
+
+    async def test_native_snapshot_symlink_replacement(self, tmp_path):
+        await self._snapshot_race(tmp_path, "symlink")

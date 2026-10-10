@@ -17,6 +17,8 @@
 // the protected helper cannot return that handle after run rejects.
 import { existsSync, readFileSync } from "node:fs";
 import { VERSION } from "./version.js";
+import { attachOwnedUIAbort } from "./ui-owned-cancellation.js";
+export { attachOwnedUIAbort } from "./ui-owned-cancellation.js";
 // Type-only import（编译期擦除）——不会在 pi 模块加载前引入任何运行时依赖。
 import type { ToolCallBudget } from "./harness/pi/tool-call-budget.js";
 // This module imports only node builtins at runtime; schema rejection stays pre-SDK/auth.
@@ -60,7 +62,7 @@ interface CliArgs {
 // （inputs/prebody_cli/tool_call_policy.schema.json）一致；保留字段名
 // （__proto__ 等）作为 own data key 原样透传，不做重建赋值，不引入原型污染。
 const TOOL_CALL_POLICY_KEYS = new Set([
-	"allowedTools", "maxCalls", "maxTotalCalls", "exactCommands", "visibleBudget", "exactPaths",
+	"allowedTools", "maxCalls", "maxTotalCalls", "exactCommands", "visibleBudget", "exactPaths", "visibleBudgetMode",
 ]);
 
 function invalidToolCallPolicy(message: string): never {
@@ -148,6 +150,9 @@ export function loadToolCallPolicyFile(path: string): ToolCallBudget {
 	}
 	if (doc.visibleBudget !== undefined && typeof doc.visibleBudget !== "boolean") {
 		invalidToolCallPolicy("visibleBudget must be a boolean");
+	}
+	if (doc.visibleBudgetMode !== undefined && doc.visibleBudgetMode !== "full" && doc.visibleBudgetMode !== "compact") {
+		invalidToolCallPolicy("visibleBudgetMode must be full or compact");
 	}
 	return raw as ToolCallBudget;
 }
@@ -462,6 +467,13 @@ async function main(): Promise<number> {
 			verbose: false,
 			...(initialMessage ? { initialMessage } : {}),
 		});
+		const { ownedUIState } = await import("./extension/index.js");
+		const uiReceipts = ownedUIState(rosclawHome);
+		const ownedAbort = attachOwnedUIAbort(mode, {
+			rosclawHome,
+			current: () => uiReceipts.owners.get(runtime.session.sessionManager.getSessionId()),
+			turn: () => uiReceipts.turns.get(runtime.session.sessionManager.getSessionId()),
+		});
 		// PI 1.0.4/1.1.0 compatibility seam: their private shutdown calls
 		// immediate process exit, and run() waits forever for editor input. Bridge only
 		// this instance's shutdown into main; never intercept process.exit or
@@ -514,11 +526,12 @@ async function main(): Promise<number> {
 			await Promise.race([mode.run(), shutdownComplete]);
 			return 0;
 		} finally {
+			const cancellationOutcomes = await ownedAbort.drain();
 			// Local consumer termination only, never writer confirmation.
-			try {
-				if (!stopped) { mode.stop(); stopped = true; }
-			} catch (err) {
-				interactiveCloseFailure ??= err;
+			try { if (!stopped) { mode.stop(); stopped = true; } }
+			catch (err) { interactiveCloseFailure ??= err; }
+			if (cancellationOutcomes.some(outcome => !outcome.ok)) {
+				interactiveCloseFailure ??= new Error("OWNED_CANCEL_UNCONFIRMED");
 			}
 		}
 	} finally {

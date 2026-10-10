@@ -25,6 +25,8 @@ def _write(tmp_path, payload) -> str:
 
 
 VALID = [
+    {"allowedTools": [], "visibleBudgetMode": "full"},
+    {"allowedTools": [], "visibleBudgetMode": "compact", "visibleBudget": False},
     {"allowedTools": []},
     {"allowedTools": ["bash", "read"]},
     {"allowedTools": [], "maxCalls": {}, "exactCommands": {}, "visibleBudget": False},
@@ -37,6 +39,10 @@ VALID = [
 ]
 
 INVALID = [
+    *[
+        {"allowedTools": [], "visibleBudgetMode": mode}
+        for mode in [None, True, 1, "", "FULL", " compact", [], {}]
+    ],
     "{",  # malformed JSON
     "[]",  # root 非 object
     "{}",  # 缺 allowedTools

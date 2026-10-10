@@ -99,6 +99,27 @@ export const REMOVED_FROM_MODEL: readonly string[] = [
 	"rosclaw_read_work_failure",
 ];
 
+/** The operator's explicit policy is a restriction, not a source of tool names.
+ * Undefined means the legacy default; an explicit empty array means no tools.
+ * Preserve available-name ordering so activation and initial SDK serialization agree. */
+export function modelVisibleToolNames(
+	available: readonly string[], allowedModelToolNames?: readonly string[],
+): string[] {
+	if (allowedModelToolNames === undefined) return [...available];
+	const allowed = new Set(allowedModelToolNames);
+	return available.filter(name => allowed.has(name));
+}
+
+/** SDK `tools` is a lifetime registration allowlist, not the first active list.
+ * In an unrestricted session omit the allowlist entirely: future capability
+ * tools have names that cannot be known when the session is constructed.
+ * Under a policy, authorize its names for registration (including future
+ * materialized names), while activation still intersects actual availability.
+ * A name here never creates or activates a tool by itself. */
+export function registrationToolNames(allowedModelToolNames?: readonly string[]): string[] | undefined {
+	return allowedModelToolNames === undefined ? undefined : [...allowedModelToolNames];
+}
+
 /** 过滤装配好的工具数组——模型只见 MODEL_TOOL_NAMES。 */
 export function filterModelTools<T extends { name: string }>(tools: T[]): T[] {
 	const allowed = new Set(MODEL_TOOL_NAMES);

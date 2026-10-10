@@ -383,6 +383,27 @@ class PiBridgeServer:
             except ValueError as exc:
                 return {"ok": False, "error": str(exc), "code": "SOURCE_FORBIDDEN"}
             return {"ok": True, "turn": turn}
+        if method == "pi.turn.latest":
+            # Read-only durable turn reconciliation for the current writer.
+            # Session knowledge alone is insufficient to read a turn or to
+            # resurrect an obsolete operation owner.
+            session_id = str(params.get("pi_session_id", ""))
+            binding = self._bindings.binding_for_session(session_id) if session_id else None
+            writer = self._bindings.writer_of(binding.mission_id) if binding else None
+            if (
+                binding is None
+                or writer is None
+                or writer.pi_session_id != session_id
+                or writer.owner_pid != peer_pid
+                or writer.owner_uid != int(principal.rsplit(":", 1)[-1])
+            ):
+                return {"ok": False, "code": "CALLER_MISMATCH"}
+            from rosclaw.agentd.turn_store import TurnStore
+
+            return {
+                "ok": True,
+                "turn": TurnStore(service._store.connection).latest_for_session(session_id),
+            }
         if method == "pi.intent.route":
             # WP-P0-5（总纲 §7.1）：确定性 Intent Router——已知任务
             # 零模型回合；未命中诚实 None（交模型路径）。
@@ -1693,8 +1714,62 @@ class PiBridgeServer:
             op = service._operation_manager.get(str(params.get("operation_id", "")))
             return {"ok": bool(op), "operation": op}
         if method == "pi.op.cancel":
+            # Legacy private operator control; UI uses the receipt-bound route below.
             return await service._operation_manager.cancel_many(
-                [str(params.get("operation_id", ""))],
+                [str(params.get("operation_id", ""))], reason="user_interrupt"
+            )
+        if method == "pi.op.cancel_owned":
+            from rosclaw.agentd.turn_store import TurnStore
+            from rosclaw.task_kernel.operation_manager import OPERATION_TERMINAL
+
+            keys = ("mission_id", "session_ref", "task_id", "operation_id", "turn_id")
+            if any(not isinstance(params.get(k), str) or not params[k] for k in keys):
+                return {"ok": False, "code": "OWNERSHIP_REQUIRED"}
+            mission_id = params["mission_id"]
+            session_ref = params["session_ref"]
+            binding = self._bindings.binding_for_session(session_ref)
+            writer = self._bindings.writer_of(mission_id)
+            if (
+                binding is None
+                or binding.mission_id != mission_id
+                or writer is None
+                or writer.pi_session_id != session_ref
+                or writer.owner_pid != peer_pid
+                or writer.owner_uid != int(principal.rsplit(":", 1)[-1])
+            ):
+                return {"ok": False, "code": "CALLER_MISMATCH"}
+            owner = getattr(service, "_ui_operation_receipts", {}).get(params["operation_id"])
+            if owner is None or any(owner.get(k) != params[k] for k in keys):
+                return {"ok": False, "code": "OWNERSHIP_MISMATCH"}
+            task = service._task_kernel.active_task_for(mission_id, session_ref)
+            turn = TurnStore(service._store.connection).latest_for_session(session_ref)
+            if (
+                task is None
+                or task["task_id"] != params["task_id"]
+                or task["active_revision"] != owner["revision"]
+                or turn is None
+                or turn["turn_id"] != params["turn_id"]
+            ):
+                return {"ok": False, "code": "OWNERSHIP_STALE"}
+            op = service._operation_manager.get(params["operation_id"])
+            if not op or op["task_id"] != params["task_id"]:
+                return {"ok": False, "code": "OWNERSHIP_MISMATCH"}
+            if op["state"] in OPERATION_TERMINAL:
+                # A terminal flag alone is not a stop receipt. Only this exact
+                # receipt's naturally completed, ended, PID-gone operation is
+                # already quiescent; FAILED/LOST remain unresolved here.
+                pid = op.get("pid")
+                if (
+                    op["state"] == "SUCCEEDED"
+                    and op.get("ended_at")
+                    and isinstance(pid, int)
+                    and pid > 0
+                    and not service._operation_manager._pid_alive(pid)
+                ):
+                    return {"ok": True, "code": "ALREADY_SUCCEEDED", "operations_cancelled": 0}
+                return {"ok": False, "code": "OPERATION_TERMINAL"}
+            return await service._operation_manager.cancel_many(
+                [params["operation_id"]], reason="user_interrupt"
             )
         if method == "pi.kernel.events":
             # seq 重放（断线从 last_seq+1——不重不漏）。

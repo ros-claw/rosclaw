@@ -56,7 +56,7 @@ import { WorkspaceStore } from "../session/workspace.js";
 import { buildCommandHandlers } from "./commands.js";
 import { guardInput } from "./input-guard.js";
 import { materializeCapabilityTools, type CapabilitySnapshot } from "../tools/materialize.js";
-import { MODEL_TOOL_NAMES } from "../tools/surface.js";
+import { MODEL_TOOL_NAMES, modelVisibleToolNames } from "../tools/surface.js";
 import { fetchEmbodiedContext, renderTrustedContext } from "./context-injection.js";
 import { registerCompactAnchor } from "./compact-anchor.js";
 import { appendFileSync, mkdirSync } from "node:fs";
@@ -67,7 +67,22 @@ import { AutoNamer } from "../session/auto-name.js";
 import { formatPolicyAutoNotice } from "../ui/tool-display.js";
 import { classifyNotice, NotificationLevelFilter } from "../ui/levels.js";
 
+export type UIReceiptOwner = Readonly<{
+	mission_id: string; session_ref: string; task_id: string; operation_id: string; turn_id: string;
+}>;
+const receiptStates = new Map<string, { owners: Map<string, UIReceiptOwner>; turns: Map<string, string> }>();
+export function ownedUIState(home: string) {
+	let state = receiptStates.get(home);
+	if (!state) {
+		state = { owners: new Map(), turns: new Map() };
+		receiptStates.set(home, state);
+	}
+	return state;
+}
+
 export interface RosclawExtensionOptions {
+	uiReceiptOwners?: Map<string, UIReceiptOwner>;
+	uiReceiptTurns?: Map<string, string>;
 	profile: "developer" | "robot";
 	version: string;
 	/** PNA-2：v2 系统提示词（native_agent_v2.md 内容，构建期打包）。 */
@@ -92,6 +107,8 @@ export interface RosclawExtensionOptions {
 	taskContext: import("../native/active-task-context.js").ActiveTaskContext;
 	/** PR-N5D：创建后回填的 session 引用（物化工具激活用）。 */
 	lateSession?: { session?: { setActiveToolsByName(names: string[]): void } };
+	/** Immutable runtime-admitted model surface restriction (undefined = legacy defaults). */
+	allowedModelToolNames?: readonly string[];
 	/** 0902 R1-c（§5.3）：OS 隔离探测（测试可注入）——默认消费
 	 *  doctor 落盘的 os-isolation.json，无记录时回落 bwrap 存在性。 */
 	osIsolationProbe?: () => { isolationReady: boolean };
@@ -120,6 +137,9 @@ function makeDefaultOsIsolationProbe(rosclawHome: string): () => { isolationRead
 
 export function createRosclawExtension(options: RosclawExtensionOptions): ExtensionFactory {
 	const defaultOsIsolationProbe = makeDefaultOsIsolationProbe(options.rosclawHome);
+	const state = ownedUIState(options.rosclawHome);
+	const uiReceiptOwners = options.uiReceiptOwners ?? state.owners;
+	const uiReceiptTurns = options.uiReceiptTurns ?? state.turns;
 	return (pi) => {
 		// -- 品牌 + 单一状态源（六审 PR-SIX-1：Header/Footer 在同一次
 		//    refreshChrome 里用同一个 KernelSnapshotV1 重绘——不允许顶部
@@ -132,23 +152,31 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 		// CAPABILITY_SNAPSHOT_CHANGED 拒绝，这里在下一回合前刷新）。
 		let materializedDigest = "";
 		const refreshCapabilityTools = async (): Promise<void> => {
+			const generation = uiGeneration;
+			const sessionId = options.active.current.sessionId;
 			const missionId = options.active.current.missionId;
 			if (!missionId) return;
 			const res = await center.call("pi.capability.snapshot", {
 				mission_id: missionId,
 			}) as { ok?: boolean; snapshot?: CapabilitySnapshot } | undefined;
+			if (generation !== uiGeneration || sessionId !== options.active.current.sessionId
+				|| missionId !== options.active.current.missionId) return;
 			if (!res?.ok || !res.snapshot) return;
 			const snap = res.snapshot;
 			if (snap.digest === materializedDigest) return;
 			const tools = materializeCapabilityTools(snap, {
 				center, active: options.active, rosclawHome: options.rosclawHome,
-			});
+			}).filter(tool => options.allowedModelToolNames === undefined
+				|| options.allowedModelToolNames.includes(tool.name));
+			// Registration is a separate SDK authorization from activation.
+			// Never register a capability outside the immutable runtime policy;
+			// names in the policy alone do not create a tool.
 			for (const tool of tools) pi.registerTool(tool);
 			materializedDigest = snap.digest;
-			options.lateSession?.session?.setActiveToolsByName([
+			options.lateSession?.session?.setActiveToolsByName(modelVisibleToolNames([
 				...MODEL_TOOL_NAMES,
 				...tools.map((tool) => tool.name),
-			]);
+			], options.allowedModelToolNames));
 		};
 		// WP-P0-3：恢复对账报告（恢复了什么/重新验证了什么/哪些权限
 		// 失效）——一次性展示，不重复。
@@ -157,6 +185,19 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 		let isolationNoticeShown = false;
 		let refreshChrome: () => void = () => undefined;
 		let probeTimer: ReturnType<typeof setInterval> | null = null;
+		let initialProbeTimer: ReturnType<typeof setTimeout> | null = null;
+		let uiGeneration = 0;
+		let uiSubscriptions: Array<() => void> = [];
+		const releaseUI = () => {
+			uiGeneration++;
+			for (const unsubscribe of uiSubscriptions.splice(0)) unsubscribe();
+			if (probeTimer !== null) clearInterval(probeTimer);
+			probeTimer = null;
+			if (initialProbeTimer !== null) clearTimeout(initialProbeTimer);
+			initialProbeTimer = null;
+			refreshChrome = () => undefined;
+			latestCtx = undefined;
+		};
 		// 十审 W2：Worker 完成推送——custom message 注入（不冒充用户
 		// 输入），投递账本持久化（重启/compact 不重复、不丢失）。
 		type LatestCtx = {
@@ -250,14 +291,16 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			},
 		});
 		pi.on("session_start", async (_event, ctx) => {
+			releaseUI();
+			materializedDigest = "";
 			latestCtx = ctx;
 			if (ctx.model) center.noteModel(ctx.model.name ?? ctx.model.id);
 			operationWatcher.start();
 			// PR-N5D：无静态 allowlist——启动即把激活面钉回
 			// MODEL_TOOL_NAMES（+已物化名，digest 变化后重钉）。
-			options.lateSession?.session?.setActiveToolsByName([
-				...MODEL_TOOL_NAMES,
-			]);
+			options.lateSession?.session?.setActiveToolsByName(
+				modelVisibleToolNames(MODEL_TOOL_NAMES, options.allowedModelToolNames),
+			);
 			if (options.workspaceAutoBound && workspaceStore.current) {
 				notifyLeveled(ctx, `已自动绑定 Project：${workspaceStore.current}（/workspace show 查看）`, "info");
 			}
@@ -286,10 +329,15 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			}
 		});
 		pi.on("session_shutdown", async () => {
+			releaseUI();
 			operationWatcher.stop();
+			stopProviderActivity();
+			stallWatchdog.turnEnded();
 		});
 		pi.on("session_start", async (_event, ctx) => {
 			if (!ctx.hasUI) return;
+			const generation = uiGeneration;
+			const isCurrent = () => generation === uiGeneration;
 			ctx.ui.setTitle(`ROSClaw Native Agent`);
 			if (!resumeReportShown) {
 				resumeReportShown = true;
@@ -298,6 +346,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 					const result = await center.call("pi.session.resume_report", {
 						pi_session_id: sessionId,
 					});
+					if (!isCurrent()) return;
 					const report = (result.report ?? {}) as {
 						verdict?: string; lines?: string[];
 					};
@@ -311,7 +360,11 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 					// 报告失败不阻塞会话——恢复本身已由 coordinator 完成。
 				}
 			}
+			// A rejected/delayed resume report must not install listeners or timers
+			// after shutdown (including the catch path above).
+			if (!isCurrent()) return;
 			refreshChrome = () => {
+				if (!isCurrent()) return;
 				const snap = center.snapshot(); // 一次读取，Header/Footer 共享
 				const loc = locale.effective;
 				ctx.ui.setHeader((_tui, _theme) => new Text(renderHeader(snap, loc)));
@@ -322,8 +375,8 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			refreshChrome();
 			// 统一订阅：任何状态变化（context/lease/operator/model/kernel/
 			// locale）触发同一次 chrome 重绘。
-			center.subscribe(() => refreshChrome());
-			locale.subscribe(() => refreshChrome());
+			uiSubscriptions.push(center.subscribe(() => { if (isCurrent()) refreshChrome(); }));
+			uiSubscriptions.push(locale.subscribe(() => { if (isCurrent()) refreshChrome(); }));
 			// R0-6：启动事务——bridge ping 有限重试（内核行为不耗
 			// token）；完成前 chrome 显示"正在准备"，不是假 Blocked。
 			void center.bootstrap();
@@ -334,8 +387,10 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			// 初始化——模态 overlay 会劫持按键（TUI 矩阵/perf 实测回归），
 			// widget 只展示不抢输入。
 			const runBootstrap = async (cmdCtx: typeof ctx) => {
+				if (!isCurrent()) return;
 				try {
 					const status = await center.call("pi.operator.status", {});
+					if (!isCurrent()) return;
 					if (status.running) {
 						cmdCtx.ui.notify(i18nT("operator.bootstrap_done", locale.effective), "info");
 						return;
@@ -343,6 +398,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 					const result = await center.call("pi.operator.bootstrap", {
 						mission_id: options.active.current.missionId ?? "",
 					});
+					if (!isCurrent()) return;
 					cmdCtx.ui.notify(
 						result.ok
 							? i18nT("operator.bootstrap_done", locale.effective)
@@ -357,7 +413,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			// 幂等：目标状态未变时不发 UDS 调用、不重绘（idle CPU 红线）。
 			let bootstrapWidgetState: "hidden" | "new" | "stopped" = "hidden";
 			const updateBootstrapWidget = async () => {
-				if (!ctx.hasUI) return;
+				if (!isCurrent() || !ctx.hasUI) return;
 				if (options.profile !== "developer") return;
 				if (options.active.current.mode !== "SIMULATION") return;
 				// 七审 §2.5：auto SIM 不需要 operator——不提示初始化。
@@ -380,9 +436,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				if (bootstrapWidgetState !== "hidden") return;
 				try {
 					const status = await center.call("pi.operator.status", {});
-					if (status.running) {
-						return;
-					}
+					if (!isCurrent() || status.running || center.snapshot().operator !== "OFFLINE") return;
 					const loc = locale.effective;
 					bootstrapWidgetState = status.enrolled ? "stopped" : "new";
 					ctx.ui.setWidget("rosclaw-operator", [
@@ -398,15 +452,15 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 					// 探测失败保持 OFFLINE 展示。
 				}
 			};
-			// operator 探测结果变化 → 统一刷新 widget（subscribe 链）。
-			center.subscribe(() => {
+			// Every shared-center listener belongs to this UI generation.
+			uiSubscriptions.push(center.subscribe(() => {
 				void updateBootstrapWidget();
-			});
+			}));
 			// 七审 PR-SEVEN-5：Robot Kit BROKEN → 用户输入前给一键修复
 			// （变化驱动——同一 BROKEN 状态只提示一次）。
 			let kitHintState: string | null = null;
-			center.subscribe(() => {
-				if (!ctx.hasUI) return;
+			uiSubscriptions.push(center.subscribe(() => {
+				if (!isCurrent() || !ctx.hasUI) return;
 				const kit = center.snapshot().robot_kit;
 				const state = kit?.state ?? null;
 				if (state === kitHintState) return;
@@ -426,10 +480,13 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 						"info",
 					);
 				}
-			});
-			setTimeout(() => {
+			}));
+			initialProbeTimer = setTimeout(() => {
+				if (!isCurrent()) return;
+				initialProbeTimer = null;
 				void center.probeOperator(true);
 			}, 800);
+			initialProbeTimer.unref();
 			pi.registerShortcut(ROSCLAW_SHORTCUTS.operatorBootstrap, {
 				description: i18nT("operator.bootstrap_title", locale.effective),
 				handler: async (shortcutCtx) => {
@@ -443,6 +500,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			// 走 subscribe/force 通道，周期探测只是兜底）。
 			if (probeTimer !== null) clearInterval(probeTimer);
 			probeTimer = setInterval(() => {
+				if (!isCurrent()) return;
 				void center.probeOperator();
 				void center.refreshCapabilities();
 				void center.refreshRobotInfo();
@@ -479,6 +537,16 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 						text,
 						source: "interactive",
 					});
+					const latest = await center.call("pi.turn.latest", { pi_session_id: sessionId });
+					const turn = (latest.turn ?? {}) as { turn_id?: unknown };
+					if (latest.ok === true && typeof turn.turn_id === "string" && turn.turn_id) {
+						// Durable turn authority supersedes a cached operation receipt.
+						// Do not cancel or claim to have stopped the previous turn's worker.
+						uiReceiptTurns.set(sessionId, turn.turn_id);
+						if (uiReceiptOwners.get(sessionId)?.turn_id !== turn.turn_id) {
+							uiReceiptOwners.delete(sessionId);
+						}
+					}
 				}
 			} catch {
 				// 落账失败不阻塞输入。
@@ -629,13 +697,24 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 
 		// -- 每轮注入最新具身上下文（PNA-2，规格 §14.2） ---------------------------
 		pi.on("before_agent_start", async (event, ctx) => {
+			const generation = uiGeneration;
+			const context = latestCtx;
+			const session = options.lateSession?.session;
+			const sessionId = options.active.current.sessionId;
+			const missionId = options.active.current.missionId;
+			const isCurrent = () => generation === uiGeneration && context === latestCtx
+				&& session === options.lateSession?.session
+				&& sessionId === options.active.current.sessionId
+				&& missionId === options.active.current.missionId;
 			// PR-N5D：回合开始前刷新物化工具面（digest 未变则零成本）。
 			await refreshCapabilityTools();
+			// Returning protects disposed getters; the runtime's exact preflight
+			// sentinel separately prevents this obsolete SDK prompt from dispatching.
+			if (!isCurrent()) return;
 			// header 模型名取真实当前 model（P0-NA-16：同一快照语义）。
 			const current = ctx.model as { name?: string; id?: string } | undefined;
 			const display = current ? String(current.name ?? current.id ?? "") : "";
 			if (display) center.noteModel(display);
-			const missionId = options.active.current.missionId;
 			if (!missionId) {
 				// PR-N2：用事件携带的 Pi 组装提示词（含可信项目上下文 +
 				// 内置签名 Skill + cwd）——此前每轮整体替换为
@@ -646,9 +725,10 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			const fetched = await fetchEmbodiedContext(
 				options.rosclawHome,
 				missionId,
-				options.active.current.sessionId,
+				sessionId,
 				(_home, method, params) => center.call(method, params),
 			);
+			if (!isCurrent()) return;
 			if (!fetched.stale && fetched.envelope) {
 				// P0-7：验证通过后写入精确 revision/body/mode。
 				options.active.applyEnvelope(fetched.envelope, fetched.contextLeaseId);
@@ -909,14 +989,20 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 		// 内容不变不重绘由 setWidget 侧保证）。
 		let activityWidgetOn = false;
 		const refreshActivityWidget = async (): Promise<void> => {
-			if (!activityWidgetOn || !latestCtx?.hasUI) return;
-			if (!(await inputController.latestTaskId())) {
-				latestCtx.ui.setWidget("rosclaw-activity", ["（当前没有绑定任务）"]);
+			const generation = uiGeneration;
+			const ctx = latestCtx;
+			const isCurrent = () => generation === uiGeneration && ctx === latestCtx && activityWidgetOn;
+			if (!activityWidgetOn || !ctx?.hasUI) return;
+			const taskId = await inputController.latestTaskId();
+			if (!isCurrent()) return;
+			if (!taskId) {
+				ctx.ui.setWidget("rosclaw-activity", ["（当前没有绑定任务）"]);
 				return;
 			}
 			try {
 				const events = await fetchTaskEvents();
-				latestCtx.ui.setWidget("rosclaw-activity", renderTaskActivity(events));
+				if (!isCurrent()) return;
+				ctx.ui.setWidget("rosclaw-activity", renderTaskActivity(events));
 			} catch {
 				// 桥暂不可用——保留旧内容，下回合再刷。
 			}
@@ -1205,6 +1291,15 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				const details = (event.result?.details ?? {}) as Record<string, unknown>;
 				if (event.isError || details.ok === false) return;
 				const operation = details.operation as Record<string, unknown> | undefined;
+				if (operation && ["mission_id", "session_ref", "task_id", "operation_id", "turn_id"].every(k => typeof operation[k] === "string" && operation[k] !== "")
+					&& operation.session_ref === options.active.current.sessionId
+					&& operation.mission_id === options.active.current.missionId
+					&& (!uiReceiptTurns.has(operation.session_ref as string)
+						|| uiReceiptTurns.get(operation.session_ref as string) === operation.turn_id)) {
+					const owner = Object.freeze({ ...operation }) as UIReceiptOwner;
+					uiReceiptOwners.set(owner.session_ref, owner);
+					uiReceiptTurns.set(owner.session_ref, owner.turn_id);
+				}
 				const text = JSON.stringify(event.result?.content ?? []);
 				const id = String(operation?.operation_id ?? text.match(/op_[a-f0-9]+/)?.[0] ?? "");
 				if (id) operationWatcher.track(id);
@@ -1248,42 +1343,13 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			center.noteProviderOk();
 			return undefined;
 		});
-		// G-4（0916 三审 B-2）：Esc/Ctrl-C 中断级联标记——pi 内部
-		// abort 只停模型回合，后台 operation（渲染/仿真子进程）照跑。
-		// watchdog 的停滞 abort 不是用户中断（不级联——后台操作与
-		// Provider 停滞无关，继续跑是对的）。
-		let watchdogAbortedTurn = false;
+		// Assistant message_end describes a model outcome, not the cause of abort.
+		// Only the typed editor-input adapter may request owner-bound cancellation;
+		// never infer user intent here or cascade to the legacy broad interrupt.
 		pi.on("message_end", async (event) => {
 			// PR-H7（§8.4）：provider 错误分类——403 配额≠鉴权错误；
 			// 稳定错误码 + 用户可理解说明 + 恢复动作（task 可继续）。
 			const msg = event.message as { role?: string; stopReason?: string; errorMessage?: string };
-			const requestCancelled = msg.stopReason === "aborted"
-				|| Boolean(msg.errorMessage && classifyModelError(msg.errorMessage).code === "MODEL_REQUEST_CANCELLED");
-			if (msg.role === "assistant" && requestCancelled) {
-				if (watchdogAbortedTurn) {
-					watchdogAbortedTurn = false;
-				} else {
-					// 用户 Esc/Ctrl-C：级联停本会话活跃 task 的在途
-					// operation（账本 CANCELLED + 进程组 killpg）。
-					try {
-						const missionId = options.active.current.missionId;
-						const sessionRef = options.active.current.sessionId;
-						const res = (await center.call("pi.session.interrupt", {
-							mission_id: missionId ?? "",
-							session_ref: sessionRef ?? "",
-						})) as { ok?: boolean; operations_cancelled?: number };
-						const stopped = res?.operations_cancelled ?? 0;
-						if (res?.ok && stopped > 0) {
-							latestCtx?.ui.notify(
-								`已中断——后台操作已停 ${stopped} 个（账本 CANCELLED）`,
-								"info",
-							);
-						}
-					} catch {
-						// 级联失败不掩盖中断本身（回合已停）。
-					}
-				}
-			}
 			const classified = classifyAssistantFailure(msg);
 			if (classified) {
 				const raw = msg.stopReason === "length" ? "stopReason=length" : String(msg.errorMessage ?? "");
@@ -1342,7 +1408,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				// 不得宣称"已取消"（假取消文案）；诚实提示手动中断。
 				if (latestCtx && !latestCtx.isIdle()) {
 					if (typeof latestCtx.abort === "function") {
-						watchdogAbortedTurn = true; // G-4：非用户中断，不级联
+						// Provider stall is not editor input and grants no cancellation authority.
 						latestCtx.abort();
 					} else if (latestCtx.hasUI) {
 						latestCtx.ui.notify(
@@ -1559,12 +1625,16 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			notify: (message, type) => undefined,
 		};
 		pi.on("session_start", async (event, ctx) => {
-			options.coordinator.setNotify((message, type) => notifyLeveled(ctx, message, type));
-			lifecycle.notify = (message, type) => notifyLeveled(ctx, message, type);
+			const generation = uiGeneration;
+			const notify: LifecycleDeps["notify"] = (message, type) => {
+				if (generation === uiGeneration) notifyLeveled(ctx, message, type);
+			};
+			options.coordinator.setNotify(notify);
+			lifecycle.notify = notify;
 			try {
 				await handleSessionStart(lifecycle, event.reason, sessionIdOf(ctx));
 			} catch (err) {
-				notifyLeveled(ctx, `session 绑定异常：${(err as Error).message}`, "error");
+				notify(`session 绑定异常：${(err as Error).message}`, "error");
 			}
 		});
 		pi.on("session_before_switch", async (event, ctx) => {
