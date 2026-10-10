@@ -3,6 +3,7 @@
 import hashlib
 import json
 import math
+import tempfile
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
@@ -66,5 +67,58 @@ def prepare_precise_through_poses_bt(output, original, *, xy_goal_tolerance):
         ("report", (json.dumps(report, indent=2) + "\n").encode()),
     ]:
         with paths[key].open("xb") as stream:
+            stream.write(raw)
+    return report
+
+
+def prepare_boundary_tracking_through_poses_bt(
+    output, original, *, xy_goal_tolerance, controller_lookahead_m, tracking_radius_m
+):
+    """Separate bounded boundary checkpoints; final goal and repair BT stay unchanged.
+
+    This known-fixture hypothesis uses the existing 100mm controller lookahead
+    for intermediate waypoint pruning. It grants no arrival or cleaning credit.
+    The existing precise source validator preserves every recovery/stop node.
+    """
+    if (
+        type(xy_goal_tolerance) not in (int, float)
+        or not math.isfinite(xy_goal_tolerance)
+        or not 0 < xy_goal_tolerance <= 0.05
+        or type(controller_lookahead_m) not in (int, float)
+        or controller_lookahead_m != 0.1
+        or type(tracking_radius_m) not in (int, float)
+        or tracking_radius_m != 0.1
+    ):
+        raise ValueError("boundary checkpoint requires registered 100mm existing lookahead")
+    root = Path(output)
+    with tempfile.TemporaryDirectory(prefix=".boundary-bt-", dir=root) as temporary:
+        precise = prepare_precise_through_poses_bt(
+            temporary, original, xy_goal_tolerance=xy_goal_tolerance
+        )
+        tree = ET.fromstring(
+            (Path(temporary) / "repair-through-poses.xml").read_bytes(),
+            parser=ET.XMLParser(target=ET.TreeBuilder(insert_comments=True)),
+        )
+    removal = tree.find(".//PipelineSequence[@name='NavigateWithReplanning']/RemovePassedGoals")
+    if removal is None or removal.get("radius") != str(xy_goal_tolerance):
+        raise ValueError("validated precise waypoint source required")
+    removal.set("radius", str(tracking_radius_m))
+    modified = ET.tostring(tree, encoding="utf-8", xml_declaration=True)
+    report = {
+        **precise,
+        "schema_version": "rosclaw.boundary_tracking_through_poses_source.v1",
+        "source_output_sha256": hashlib.sha256(modified).hexdigest(),
+        "prune_radius_m": tracking_radius_m,
+        "scope": "BOUNDARY_INTERMEDIATE_CHECKPOINTS_ONLY",
+        "unchanged_final_goal_xy_tolerance_m": xy_goal_tolerance,
+        "unchanged_controller_lookahead_m": controller_lookahead_m,
+        "global_precise_repair_bt_changed": False,
+    }
+    for name, raw in [
+        ("boundary-through-poses.original.xml", original),
+        ("boundary-through-poses.xml", modified),
+        ("boundary-through-poses-source.json", (json.dumps(report, indent=2) + "\n").encode()),
+    ]:
+        with (root / name).open("xb") as stream:
             stream.write(raw)
     return report

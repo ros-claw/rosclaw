@@ -21,6 +21,18 @@ spec.loader.exec_module(experiments)
     [
         ("waffle", 0.5, "perimeter_stateless_overlap_continuous", "perimeter_stateless_overlap"),
         (
+            "waffle",
+            0.5,
+            "perimeter_stateless_overlap_boundary_tracking",
+            "perimeter_stateless_overlap",
+        ),
+        (
+            "burger",
+            0.3,
+            "perimeter_stateless_clearance_boundary_tracking",
+            "perimeter_stateless_clearance",
+        ),
+        (
             "burger",
             0.3,
             "perimeter_stateless_clearance_continuous",
@@ -97,6 +109,59 @@ def test_continuous_boundary_pair_rejects_unregistered_or_imprecise_execution(mo
     ]:
         with pytest.raises(ValueError, match="nine precise bounded"):
             pairs.validate_continuous_boundary_registration(protocol, preset, precise)
+
+
+@pytest.mark.parametrize(
+    "preset,profile",
+    [
+        ("perimeter_stateless_overlap_boundary_tracking", "waffle"),
+        ("perimeter_stateless_clearance_boundary_tracking", "burger"),
+    ],
+)
+def test_tracking_boundary_protocol_and_daemon_require_registered_radius_and_digest(
+    monkeypatch, preset, profile
+):
+    valid = {
+        "preset": preset,
+        "profile": profile,
+        "boundary_pass": True,
+        "precise_through_poses": True,
+        "boundary_strategy": "through_poses_tracking_midpoints",
+        "boundary_stage_budget_sec": 180,
+        "boundary_waypoint_count": 9,
+        "boundary_tracking_prune_radius_m": 0.1,
+        "boundary_tracking_bt_sha256": "a" * 64,
+    }
+    experiments.validate_continuous_boundary_experiment(valid)
+    runner = ROOT / "integrations/ros_probe/acceptance"
+    monkeypatch.syspath_prepend(str(runner))
+    spec = importlib.util.spec_from_file_location(
+        "tracking_boundary_pairs", runner / "paired_efficiency.py"
+    )
+    pairs = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(pairs)
+    protocol = {"candidate_" + k: v for k, v in valid.items() if k.startswith("boundary_")}
+    pairs.validate_continuous_boundary_registration(protocol, preset, True)
+    for changes in [
+        {"boundary_tracking_prune_radius_m": 0.025},
+        {"boundary_tracking_prune_radius_m": 0.7},
+        {"boundary_tracking_prune_radius_m": True},
+        {"boundary_tracking_bt_sha256": None},
+        {"boundary_tracking_bt_sha256": "G" * 64},
+        {"boundary_tracking_bt_sha256": "a" * 63},
+    ]:
+        with pytest.raises(ValueError, match="100mm checkpoints"):
+            experiments.validate_continuous_boundary_experiment({**valid, **changes})
+        with pytest.raises(ValueError, match="100mm checkpoints"):
+            pairs.validate_continuous_boundary_registration(
+                {**protocol, **{"candidate_" + k: v for k, v in changes.items()}}, preset, True
+            )
+    with pytest.raises(ValueError, match="nine precise bounded"):
+        pairs.validate_continuous_boundary_registration(protocol, preset, False)
+    with pytest.raises(ValueError, match="registered candidate"):
+        experiments.validate_continuous_boundary_experiment({**valid, "preset": "baseline"})
+    with pytest.raises(ValueError, match="registered candidate"):
+        pairs.validate_continuous_boundary_registration(protocol, "baseline", True)
 
 
 def test_profile_specific_baseline_and_body_are_preserved():
@@ -459,3 +524,39 @@ def test_inner_ring_cannot_swap_a_known_body_or_silently_use_the_other_preset(pr
                 "inner_boundary_inset_cells": 1,
             }
         )
+
+
+def test_boundary_tracking_actual_generated_digest_matches_frozen_protocol():
+    experiment = {
+        "preset": "perimeter_stateless_overlap_boundary_tracking",
+        "profile": "waffle",
+        "boundary_pass": True,
+        "precise_through_poses": True,
+        "boundary_strategy": "through_poses_tracking_midpoints",
+        "boundary_stage_budget_sec": 180,
+        "boundary_waypoint_count": 9,
+        "boundary_tracking_prune_radius_m": 0.1,
+        "boundary_tracking_bt_sha256": "a" * 64,
+    }
+    protocol = {"candidate_" + k: v for k, v in experiment.items() if k.startswith("boundary_")}
+    protocol["precise_repair_waypoints"] = True
+    validate = experiments.validate_boundary_tracking_runtime_registration
+    validate(experiment, protocol)
+    for field, wrong in [
+        ("boundary_tracking_bt_sha256", "b" * 64),
+        ("boundary_tracking_prune_radius_m", 0.025),
+        ("boundary_stage_budget_sec", 180.0),
+        ("boundary_waypoint_count", 8),
+        ("boundary_strategy", "through_poses_midpoints"),
+    ]:
+        with pytest.raises(ValueError, match="preregistered"):
+            validate(experiment, {**protocol, "candidate_" + field: wrong})
+        missing = dict(protocol)
+        missing.pop("candidate_" + field)
+        with pytest.raises(ValueError, match="preregistered"):
+            validate(experiment, missing)
+    with pytest.raises(ValueError, match="runtime protocol"):
+        validate(experiment, None)
+    with pytest.raises(ValueError, match="precise repair"):
+        validate(experiment, {**protocol, "precise_repair_waypoints": False})
+    validate({"preset": "baseline"}, None)

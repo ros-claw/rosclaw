@@ -10,7 +10,31 @@ INNER_RING_PROFILES = {
 CONTINUOUS_BOUNDARY_PRESETS = {
     "perimeter_stateless_overlap_continuous": ("waffle", "perimeter_stateless_overlap"),
     "perimeter_stateless_clearance_continuous": ("burger", "perimeter_stateless_clearance"),
+    "perimeter_stateless_overlap_boundary_tracking": ("waffle", "perimeter_stateless_overlap"),
+    "perimeter_stateless_clearance_boundary_tracking": ("burger", "perimeter_stateless_clearance"),
 }
+
+
+BOUNDARY_TRACKING_PRESETS = frozenset(
+    (
+        "perimeter_stateless_overlap_boundary_tracking",
+        "perimeter_stateless_clearance_boundary_tracking",
+    )
+)
+
+
+def continuous_boundary_strategy(preset):
+    if preset not in CONTINUOUS_BOUNDARY_PRESETS:
+        raise ValueError("registered continuous boundary preset required")
+    return (
+        "through_poses_tracking_midpoints"
+        if preset in BOUNDARY_TRACKING_PRESETS
+        else "through_poses_midpoints"
+    )
+
+
+def valid_boundary_tracking_sha256(value):
+    return type(value) is str and len(value) == 64 and all(c in "0123456789abcdef" for c in value)
 
 
 def planning_parameters(profile, preset="baseline"):
@@ -91,12 +115,19 @@ def validate_continuous_boundary_experiment(experiment):
         raise ValueError("explicit experiment mapping required")
     preset = experiment.get("preset")
     registered = CONTINUOUS_BOUNDARY_PRESETS.get(preset) if isinstance(preset, str) else None
-    if registered is None and experiment.get("boundary_strategy") != "through_poses_midpoints":
+    tracking = isinstance(preset, str) and preset in BOUNDARY_TRACKING_PRESETS
+    tracking_keys = ("boundary_tracking_prune_radius_m", "boundary_tracking_bt_sha256")
+    if any(k in experiment for k in tracking_keys) and not tracking:
+        raise ValueError("boundary tracking metadata requires its registered candidate")
+    if registered is None and experiment.get("boundary_strategy") not in (
+        "through_poses_midpoints",
+        "through_poses_tracking_midpoints",
+    ):
         return
     if (
         registered is None
         or experiment.get("profile") != registered[0]
-        or experiment.get("boundary_strategy") != "through_poses_midpoints"
+        or experiment.get("boundary_strategy") != continuous_boundary_strategy(preset)
         or experiment.get("boundary_pass") is not True
         or experiment.get("precise_through_poses") is not True
         or type(experiment.get("boundary_stage_budget_sec")) is not int
@@ -105,6 +136,14 @@ def validate_continuous_boundary_experiment(experiment):
         or experiment["boundary_waypoint_count"] != 9
     ):
         raise ValueError("continuous boundary experiment requires nine precise bounded waypoints")
+    if tracking and (
+        type(experiment.get("boundary_tracking_prune_radius_m")) not in (int, float)
+        or experiment["boundary_tracking_prune_radius_m"] != 0.1
+        or not valid_boundary_tracking_sha256(experiment.get("boundary_tracking_bt_sha256"))
+    ):
+        raise ValueError(
+            "boundary tracking requires registered 100mm checkpoints and source SHA256"
+        )
 
 
 def validate_seed(seed):
@@ -140,3 +179,24 @@ def validate_inner_ring_experiment(experiment):
         or experiment["inner_boundary_inset_cells"] != 1
     ):
         raise ValueError("inner boundary experiment must match the registered known-fixture stage")
+
+
+def validate_boundary_tracking_runtime_registration(experiment, protocol):
+    """Reject a generated boundary BT that differs from the frozen protocol."""
+    validate_continuous_boundary_experiment(experiment)
+    if experiment.get("preset") not in BOUNDARY_TRACKING_PRESETS:
+        return
+    if not isinstance(protocol, dict):
+        raise ValueError("boundary tracking requires a preregistered runtime protocol")
+    for field in (
+        "boundary_strategy",
+        "boundary_stage_budget_sec",
+        "boundary_waypoint_count",
+        "boundary_tracking_prune_radius_m",
+        "boundary_tracking_bt_sha256",
+    ):
+        registered = protocol.get("candidate_" + field)
+        if type(registered) is not type(experiment[field]) or registered != experiment[field]:
+            raise ValueError("boundary tracking runtime differs from preregistered " + field)
+    if protocol.get("precise_repair_waypoints") is not True:
+        raise ValueError("boundary tracking runtime requires preregistered precise repair BT")

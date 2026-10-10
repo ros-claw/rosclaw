@@ -163,6 +163,7 @@ class RosCoverageSimulationExecutor:
         boundary_pass=False,
         boundary_strategy="through_poses",
         boundary_centers=None,
+        boundary_tracking_bt_sha256=None,
         repair_strategy="greedy",
         repair_swath_yaw=0.0,
         repair_budget_ms=500.0,
@@ -200,6 +201,7 @@ class RosCoverageSimulationExecutor:
         if boundary_strategy not in (
             "through_poses",
             "through_poses_midpoints",
+            "through_poses_tracking_midpoints",
             "sequential",
             "sequential_inner_ring",
         ):
@@ -209,6 +211,31 @@ class RosCoverageSimulationExecutor:
         self.boundary_centers = tuple(
             recovery_centers if boundary_centers is None else boundary_centers
         )
+        self.boundary_tracking_bt_sha256 = boundary_tracking_bt_sha256
+        if self.boundary_strategy == "through_poses_tracking_midpoints":
+            if (
+                not boundary_pass
+                or type(boundary_tracking_bt_sha256) is not str
+                or len(boundary_tracking_bt_sha256) != 64
+                or any(c not in "0123456789abcdef" for c in boundary_tracking_bt_sha256)
+            ):
+                raise ValueError("boundary tracking requires an enabled source-bound fixture BT")
+            self._verified_boundary_tracking_bt()
+        elif boundary_tracking_bt_sha256 is not None:
+            raise ValueError("boundary tracking BT is unavailable to other boundary strategies")
+
+    def _verified_boundary_tracking_bt(self):
+        path = self.output.parent / "boundary-through-poses.xml"
+        if path.is_symlink() or not path.is_file():
+            raise RuntimeError("owned boundary tracking BT is missing or redirected")
+        with path.open("rb") as stream:
+            raw = stream.read(128_001)
+        if (
+            not 0 < len(raw) <= 128_000
+            or hashlib.sha256(raw).hexdigest() != self.boundary_tracking_bt_sha256
+        ):
+            raise RuntimeError("owned boundary tracking BT source SHA256 mismatch")
+        return str(path)
 
     def _audit_event(self, kind, payload):
         if self.audit is not None:
@@ -359,7 +386,12 @@ class RosCoverageSimulationExecutor:
             self.boundary_centers,
             self.witness.fresh(),
             edge_midpoints=self.boundary_strategy
-            in {"through_poses_midpoints", "sequential", "sequential_inner_ring"},
+            in {
+                "through_poses_midpoints",
+                "through_poses_tracking_midpoints",
+                "sequential",
+                "sequential_inner_ring",
+            },
         )
         if not targets:
             result = {"status": "SKIPPED", "reason": "legal rectangular corners unavailable"}
@@ -385,6 +417,14 @@ class RosCoverageSimulationExecutor:
                 "waypoint_count": len(targets),
                 "strategy": self.boundary_strategy,
                 "evidence_role": "Nav2 targets, no predicted coverage credit",
+                **(
+                    {
+                        "boundary_tracking_bt_sha256": self.boundary_tracking_bt_sha256,
+                        "boundary_tracking_prune_radius_m": 0.1,
+                    }
+                    if self.boundary_strategy == "through_poses_tracking_midpoints"
+                    else {}
+                ),
             },
         )
         poses = [
@@ -436,7 +476,14 @@ class RosCoverageSimulationExecutor:
         result = self._run_goal(
             "/navigate_through_poses",
             "nav2_msgs/action/NavigateThroughPoses",
-            {"poses": poses},
+            {
+                "poses": poses,
+                **(
+                    {"behavior_tree": self._verified_boundary_tracking_bt()}
+                    if self.boundary_strategy == "through_poses_tracking_midpoints"
+                    else {}
+                ),
+            },
             f"{action_id}:boundary",
             deadline,
             goal_timeout_sec=180,

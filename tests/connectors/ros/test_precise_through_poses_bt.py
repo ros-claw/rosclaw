@@ -40,6 +40,68 @@ def test_only_pruning_location_and_existing_tolerance_change(tmp_path):
     assert json.loads((tmp_path / "repair-through-poses-source.json").read_text()) == report
 
 
+def test_boundary_checkpoint_bt_changes_only_radius_and_keeps_global_repair_bytes(tmp_path):
+    m.prepare_precise_through_poses_bt(tmp_path, ORIGINAL, xy_goal_tolerance=0.025)
+    before = {p.name: p.read_bytes() for p in tmp_path.iterdir()}
+    report = m.prepare_boundary_tracking_through_poses_bt(
+        tmp_path,
+        ORIGINAL,
+        xy_goal_tolerance=0.025,
+        controller_lookahead_m=0.1,
+        tracking_radius_m=0.1,
+    )
+    assert all((tmp_path / name).read_bytes() == raw for name, raw in before.items())
+
+    def parser():
+        return ET.XMLParser(target=ET.TreeBuilder(insert_comments=True))
+
+    precise = ET.fromstring(before["repair-through-poses.xml"], parser=parser())
+    boundary_raw = (tmp_path / "boundary-through-poses.xml").read_bytes()
+    boundary = ET.fromstring(boundary_raw, parser=parser())
+    removal = boundary.find(".//PipelineSequence/RemovePassedGoals")
+    assert removal.get("radius") == "0.1"
+    removal.set("radius", "0.025")
+    # Restore the sole boundary-specific change and compare the entire tree,
+    # including comments, planner/recovery nodes and all control attributes.
+    assert ET.tostring(boundary) == ET.tostring(precise)
+    assert report["source_output_sha256"] == hashlib.sha256(boundary_raw).hexdigest()
+    assert report["unchanged_final_goal_xy_tolerance_m"] == 0.025
+    assert report["unchanged_controller_lookahead_m"] == 0.1
+    assert report["global_precise_repair_bt_changed"] is False
+    assert report["physical_acceptance"] == "NOT_RUN"
+    assert report["authorization"] is False
+    assert report["actual_waypoint_reached"] == "NOT_MEASURED"
+    assert not any(p.name.startswith(".boundary-bt-") for p in tmp_path.iterdir())
+
+
+@pytest.mark.parametrize(
+    "radius", [True, 0.025, 0.05, 0.1001, 0.7, float("nan"), float("inf"), "0.1"]
+)
+def test_boundary_checkpoint_refuses_unregistered_radius_before_output(tmp_path, radius):
+    with pytest.raises(ValueError, match="registered 100mm"):
+        m.prepare_boundary_tracking_through_poses_bt(
+            tmp_path,
+            ORIGINAL,
+            xy_goal_tolerance=0.025,
+            controller_lookahead_m=0.1,
+            tracking_radius_m=radius,
+        )
+    assert not list(tmp_path.iterdir())
+
+
+@pytest.mark.parametrize("lookahead", [True, 0.05, 0.2, float("nan")])
+def test_boundary_checkpoint_cannot_silently_change_existing_lookahead(tmp_path, lookahead):
+    with pytest.raises(ValueError, match="existing lookahead"):
+        m.prepare_boundary_tracking_through_poses_bt(
+            tmp_path,
+            ORIGINAL,
+            xy_goal_tolerance=0.025,
+            controller_lookahead_m=lookahead,
+            tracking_radius_m=0.1,
+        )
+    assert not list(tmp_path.iterdir())
+
+
 @pytest.mark.parametrize("tolerance", [True, 0, -0.1, 0.051, float("nan"), float("inf"), "0.025"])
 def test_invalid_or_relaxed_tolerance_rejected_before_write(tmp_path, tolerance):
     with pytest.raises(ValueError):

@@ -120,6 +120,7 @@ def main():
         boundary_pass=config.get("experiment", {}).get("boundary_pass", False),
         boundary_strategy=config.get("experiment", {}).get("boundary_strategy", "through_poses"),
         boundary_centers=config.get("boundary_centers"),
+        boundary_tracking_bt_sha256=config.get("experiment", {}).get("boundary_tracking_bt_sha256"),
         repair_strategy=config.get("repair_strategy", "greedy"),
         repair_swath_yaw=config.get("experiment", {})
         .get("planning_parameters", {})
@@ -204,6 +205,7 @@ def freeze_audit_source(root, config):
                 "experiments.py",
                 "paired_efficiency.py",
                 "cleaning_acceptance.py",
+                "precise_through_poses_bt.py",
             ]
         ],
         root / "nav2.yaml",
@@ -213,6 +215,17 @@ def freeze_audit_source(root, config):
         root / "world.sdf",
         root / "experiment.json",
         root / "protocol.json",
+        *[
+            root / name
+            for name in (
+                "repair-through-poses.original.xml",
+                "repair-through-poses.xml",
+                "repair-through-poses-source.json",
+                "boundary-through-poses.original.xml",
+                "boundary-through-poses.xml",
+                "boundary-through-poses-source.json",
+            )
+        ],
     ]
     hashes = {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in files if p.exists()}
     commit = subprocess.check_output(

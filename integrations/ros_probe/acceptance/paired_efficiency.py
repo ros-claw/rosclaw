@@ -16,9 +16,12 @@ from observations import latest_completed_observation
 from profiles import PROFILES
 
 from experiments import (
+    BOUNDARY_TRACKING_PRESETS,
     CONTINUOUS_BOUNDARY_PRESETS,
     INNER_RING_PROFILES,
+    continuous_boundary_strategy,
     planning_parameters,
+    valid_boundary_tracking_sha256,
     validate_seed,
 )
 
@@ -40,17 +43,32 @@ def validate_precise_waypoint_candidate(preset, repair_strategy, enabled):
 
 
 def validate_continuous_boundary_registration(protocol, preset, precise):
-    if preset not in CONTINUOUS_BOUNDARY_PRESETS:
+    tracking = isinstance(preset, str) and preset in BOUNDARY_TRACKING_PRESETS
+    tracking_keys = (
+        "candidate_boundary_tracking_prune_radius_m",
+        "candidate_boundary_tracking_bt_sha256",
+    )
+    if any(k in protocol for k in tracking_keys) and not tracking:
+        raise ValueError("boundary tracking metadata requires its registered candidate")
+    if not isinstance(preset, str) or preset not in CONTINUOUS_BOUNDARY_PRESETS:
         return
     if (
         precise is not True
-        or protocol.get("candidate_boundary_strategy") != "through_poses_midpoints"
+        or protocol.get("candidate_boundary_strategy") != continuous_boundary_strategy(preset)
         or type(protocol.get("candidate_boundary_stage_budget_sec")) is not int
         or protocol["candidate_boundary_stage_budget_sec"] != 180
         or type(protocol.get("candidate_boundary_waypoint_count")) is not int
         or protocol["candidate_boundary_waypoint_count"] != 9
     ):
         raise ValueError("continuous boundary protocol requires nine precise bounded waypoints")
+    if tracking and (
+        type(protocol.get("candidate_boundary_tracking_prune_radius_m")) not in (int, float)
+        or protocol["candidate_boundary_tracking_prune_radius_m"] != 0.1
+        or not valid_boundary_tracking_sha256(protocol.get("candidate_boundary_tracking_bt_sha256"))
+    ):
+        raise ValueError(
+            "boundary tracking requires registered 100mm checkpoints and source SHA256"
+        )
 
 
 def validate_precise_repair_registration(protocol, enabled):

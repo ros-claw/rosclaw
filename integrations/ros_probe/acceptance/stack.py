@@ -15,11 +15,14 @@ from ament_index_python.packages import get_package_share_directory
 from profiles import PROFILES
 
 from experiments import (
+    BOUNDARY_TRACKING_PRESETS,
     CONTINUOUS_BOUNDARY_PRESETS,
     INNER_RING_PROFILES,
+    continuous_boundary_strategy,
     controller_parameters,
     gazebo_arguments,
     planning_parameters,
+    validate_boundary_tracking_runtime_registration,
     validate_seed,
 )
 
@@ -172,8 +175,12 @@ def prepare(
         default_coverage_bt_xml=get_package_share_directory("opennav_coverage_bt")
         + "/behavior_trees/navigate_w_basic_complete_coverage_nav_to_start.xml",
     )
+    boundary_tracking_experiment = {}
     if precise_repair_waypoints:
-        from precise_through_poses_bt import prepare_precise_through_poses_bt
+        from precise_through_poses_bt import (
+            prepare_boundary_tracking_through_poses_bt,
+            prepare_precise_through_poses_bt,
+        )
 
         original = (
             Path(get_package_share_directory("nav2_bt_navigator"))
@@ -189,6 +196,22 @@ def prepare(
         params["bt_navigator"]["ros__parameters"]["default_nav_through_poses_bt_xml"] = str(
             OUTPUT / "repair-through-poses.xml"
         )
+        if coverage_preset in BOUNDARY_TRACKING_PRESETS:
+            tracking = prepare_boundary_tracking_through_poses_bt(
+                OUTPUT,
+                original,
+                xy_goal_tolerance=params["controller_server"]["ros__parameters"][
+                    "general_goal_checker"
+                ]["xy_goal_tolerance"],
+                controller_lookahead_m=params["controller_server"]["ros__parameters"]["FollowPath"][
+                    "lookahead_dist"
+                ],
+                tracking_radius_m=0.1,
+            )
+            boundary_tracking_experiment = {
+                "boundary_tracking_prune_radius_m": 0.1,
+                "boundary_tracking_bt_sha256": tracking["source_output_sha256"],
+            }
     params["amcl"]["ros__parameters"].update(
         set_initial_pose=True,
         initial_pose={"x": 0.0, "y": 0.0, "z": 0.0, "yaw": 0.0},
@@ -265,7 +288,7 @@ def prepare(
                     "perimeter_stateless_inner_ring",
                     "perimeter_stateless_overlap",
                 ),
-                "boundary_strategy": "through_poses_midpoints"
+                "boundary_strategy": continuous_boundary_strategy(coverage_preset)
                 if coverage_preset in CONTINUOUS_BOUNDARY_PRESETS
                 else "sequential_inner_ring"
                 if coverage_preset in INNER_RING_PROFILES
@@ -285,6 +308,7 @@ def prepare(
                         "boundary_stage_budget_sec": 180,
                         "boundary_waypoint_count": 9,
                         "precise_through_poses": True,
+                        **boundary_tracking_experiment,
                     }
                     if coverage_preset in CONTINUOUS_BOUNDARY_PRESETS
                     else {}
@@ -370,6 +394,13 @@ def main():
         args.seed,
         precise_repair_waypoints=args.precise_repair_waypoints,
     )
+    if args.coverage_preset in BOUNDARY_TRACKING_PRESETS:
+        # Validate the generated BT against the frozen protocol before starting
+        # Gazebo, ROS, observers, or the MCP/daemon task journey.
+        validate_boundary_tracking_runtime_registration(
+            json.loads((OUTPUT / "experiment.json").read_text()),
+            json.loads((OUTPUT / "protocol.json").read_text()),
+        )
     (OUTPUT / "run_id.txt").write_text(uuid.uuid4().hex + "\n")
     profile = PROFILES[args.profile]
     children = []
