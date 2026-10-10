@@ -63,10 +63,32 @@ class MissedRegionRecovery:
         This records retry bookkeeping, not success. Only new measured poses
         can reduce missed regions in the independent verifier.
         """
-        if not action_id or not set(cells) <= self.verifier.accessible:
+        self.record_attempt_sequence([cells], action_id=action_id)
+
+    def record_attempt_sequence(self, groups, *, action_id: str) -> None:
+        """Count each planned footprint under one real goal id, idempotently.
+
+        An overlapping pair uses two attempts for its common cells. This
+        bookkeeping neither asserts arrival nor changes measured coverage.
+        """
+        if type(groups) not in (list, tuple) or not 1 <= len(groups) <= 2:
+            raise ValueError("one or two bounded planned footprints required")
+        unique = [set(cells) for cells in groups]
+        if not action_id or any(not cells <= self.verifier.accessible for cells in unique):
             raise ValueError("attempt requires action id and accessible region cells")
         if action_id in self.seen_action_ids:
             return
+        if len(unique) == 2:
+            increments: dict[int, int] = {}
+            for cells in unique:
+                for cell in cells:
+                    increments[cell] = increments.get(cell, 0) + 1
+            if any(
+                self.attempts.get(c, 0) + count > self.max_attempts
+                for c, count in increments.items()
+            ):
+                raise ValueError("planned pair exceeds existing per-cell attempt budget")
         self.seen_action_ids.add(action_id)
-        for cell in set(cells):
-            self.attempts[cell] = self.attempts.get(cell, 0) + 1
+        for cells in unique:
+            for cell in cells:
+                self.attempts[cell] = self.attempts.get(cell, 0) + 1

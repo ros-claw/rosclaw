@@ -11,13 +11,139 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
+from lifecycle_readiness import readiness
 from observations import latest_completed_observation
 from profiles import PROFILES
 
-from experiments import planning_parameters, validate_seed
+from experiments import (
+    BOUNDARY_TRACKING_INSET_PRESETS,
+    BOUNDARY_TRACKING_PRESETS,
+    CONTINUOUS_BOUNDARY_PRESETS,
+    INNER_RING_PROFILES,
+    REPAIR_TRACKING_STRATEGY,
+    continuous_boundary_strategy,
+    planning_parameters,
+    valid_boundary_tracking_sha256,
+    validate_boundary_segment_registration,
+    validate_repair_tracking_candidate_registration,
+    validate_seed,
+)
 
 ROOT = Path(__file__).resolve().parent
 REPOSITORY = ROOT.parents[2]
+
+
+def validate_precise_waypoint_candidate(preset, repair_strategy, enabled):
+    # The same Nav2 through-poses BT serves the new boundary route, even when
+    # repair uses single NavigateToPose goals. Older candidates retain their gate.
+    if (
+        enabled
+        and repair_strategy != "pose_aware_robust_sequence"
+        and preset not in CONTINUOUS_BOUNDARY_PRESETS
+    ):
+        raise ValueError(
+            "precise waypoint BT requires continuous repair or registered continuous boundary"
+        )
+
+
+def validate_continuous_boundary_registration(protocol, preset, precise):
+    validate_boundary_segment_registration(protocol, preset, prefix="candidate_")
+    tracking = isinstance(preset, str) and preset in BOUNDARY_TRACKING_PRESETS
+    inset = isinstance(preset, str) and preset in BOUNDARY_TRACKING_INSET_PRESETS
+    if "candidate_boundary_corner_inset_cells" in protocol and not inset:
+        raise ValueError("corner inset metadata requires its registered candidate")
+    if inset and (
+        type(protocol.get("candidate_boundary_corner_inset_cells")) is not int
+        or protocol["candidate_boundary_corner_inset_cells"] != 1
+    ):
+        raise ValueError("corner inset requires exactly one existing legal grid cell")
+    tracking_keys = (
+        "candidate_boundary_tracking_prune_radius_m",
+        "candidate_boundary_tracking_bt_sha256",
+    )
+    if any(k in protocol for k in tracking_keys) and not tracking:
+        raise ValueError("boundary tracking metadata requires its registered candidate")
+    if not isinstance(preset, str) or preset not in CONTINUOUS_BOUNDARY_PRESETS:
+        return
+    if (
+        precise is not True
+        or protocol.get("candidate_boundary_strategy") != continuous_boundary_strategy(preset)
+        or type(protocol.get("candidate_boundary_stage_budget_sec")) is not int
+        or protocol["candidate_boundary_stage_budget_sec"] != 180
+        or type(protocol.get("candidate_boundary_waypoint_count")) is not int
+        or protocol["candidate_boundary_waypoint_count"] != 9
+    ):
+        raise ValueError("continuous boundary protocol requires nine precise bounded waypoints")
+    if tracking and (
+        type(protocol.get("candidate_boundary_tracking_prune_radius_m")) not in (int, float)
+        or protocol["candidate_boundary_tracking_prune_radius_m"] != 0.1
+        or not valid_boundary_tracking_sha256(protocol.get("candidate_boundary_tracking_bt_sha256"))
+    ):
+        raise ValueError(
+            "boundary tracking requires registered 100mm checkpoints and source SHA256"
+        )
+
+
+def validate_precise_repair_registration(protocol, enabled):
+    registered = protocol.get("precise_repair_waypoints", False)
+    if type(registered) is not bool or registered != enabled:
+        raise ValueError("precise waypoint BT differs from preregistered protocol")
+
+
+def validate_inner_ring_registration(protocol, candidate):
+    if candidate not in INNER_RING_PROFILES:
+        return
+    expected = {
+        "candidate_boundary_stage_budget_sec": 360,
+        "candidate_inner_boundary_inset_cells": 1,
+    }
+    if any(
+        type(protocol.get(key)) is not int or protocol[key] != value
+        for key, value in expected.items()
+    ):
+        raise ValueError(
+            "inner ring requires preregistered stage budget and inset before World launch"
+        )
+
+
+def repair_request_counts(directory, *, repair_tracking=False):
+    """Retain requested goals and waypoints separately; neither proves arrival."""
+    from rosclaw.connectors.ros.diagnosis.coverage_audit import read_audit
+
+    if type(repair_tracking) is not bool:
+        raise ValueError("repair tracking count mode must be a boolean")
+    goals, targets, identities = 0, 0, set()
+    for path in sorted((directory / "actions").glob("coverage-audit-*.jsonl")):
+        for row in read_audit(path):
+            if row["kind"] != "goal_started" or row["payload"].get("stage") != "REPAIR":
+                continue
+            payload = row["payload"]
+            identity = (row["run_id"], payload["nav_goal_id"])
+            if identity in identities:
+                raise ValueError("duplicate original repair goal identity")
+            identities.add(identity)
+            args = payload["goal"]
+            if set(args) == {"pose"}:
+                count = 1
+            elif (
+                set(args) == {"poses"}
+                and type(args["poses"]) is list
+                and 1 <= len(args["poses"]) <= 2
+            ):
+                count = len(args["poses"])
+            elif (
+                repair_tracking
+                and set(args) == {"poses", "behavior_tree"}
+                and type(args["poses"]) is list
+                and len(args["poses"]) == 2
+                and args["behavior_tree"] == "/evidence/repair-tracking-through-poses.xml"
+            ):
+                count = 2
+            else:
+                raise ValueError("closed one/two waypoint repair request required")
+            goals += 1
+            targets += count
+    return {"repair_requested_goal_count": goals, "repair_requested_waypoint_count": targets}
 
 
 def command(args, **kwargs):
@@ -40,6 +166,7 @@ def wait_ready(directory, container, timeout=180):
                 and sample["collision_count"] == 0
                 and not sample["cleaning_enabled"]
                 and (directory / "measured_map.json").exists()
+                and readiness(json.loads((directory / "lifecycle-readiness.json").read_text()))
                 and all(
                     "Managed nodes are active" in (directory / name).read_text()
                     for name in ["nav2.log", "coverage_lifecycle.log"]
@@ -49,10 +176,15 @@ def wait_ready(directory, container, timeout=180):
         except (OSError, ValueError, KeyError):
             pass
         time.sleep(0.5)
-    raise TimeoutError("complete fresh independent SIM startup observations missing")
+    from startup_gate_failure import retain_startup_failure
+
+    failure = retain_startup_failure(directory, require_live_lifecycle=True)
+    raise TimeoutError(
+        "SIM startup constraints not satisfied: " + ", ".join(failure["missing_requirements"])
+    )
 
 
-def journey(directory, port, profile, timeout):
+def journey(directory, port, profile, timeout, repair_strategy="greedy"):
     env = {
         **os.environ,
         "PYTHONPATH": str(REPOSITORY / "src") + os.pathsep + os.getenv("PYTHONPATH", ""),
@@ -70,6 +202,8 @@ def journey(directory, port, profile, timeout):
                 profile,
                 "--mission-timeout",
                 str(timeout),
+                "--repair-strategy",
+                repair_strategy,
             ],
             stdout=log,
             stderr=subprocess.STDOUT,
@@ -120,7 +254,13 @@ def run_arm(pair, arm, args, ordinal, image_id, commit):
         "seed": args.seed,
         "arm": arm,
         "preset": "baseline" if arm == "baseline" else args.candidate,
+        "repair_strategy": "greedy"
+        if arm == "baseline"
+        else getattr(args, "candidate_repair_strategy", "greedy"),
+        "precise_repair_waypoints": arm == "candidate"
+        and getattr(args, "precise_repair_waypoints", False),
         "source_commit": commit,
+        "mission_timeout_sec": args.mission_timeout,
         "image_id": image_id,
         "directory": str(directory),
         "status": "RUNNING",
@@ -135,6 +275,10 @@ def run_arm(pair, arm, args, ordinal, image_id, commit):
             f"--controller-watchdog --profile {args.profile} --coverage-preset {row['preset']} "
             f"--seed {args.seed}"
         )
+        if row["precise_repair_waypoints"]:
+            stack += " --precise-repair-waypoints"
+        if row["repair_strategy"] == REPAIR_TRACKING_STRATEGY:
+            stack += " --repair-tracking-sequence"
         command(
             [
                 "docker",
@@ -165,7 +309,7 @@ def run_arm(pair, arm, args, ordinal, image_id, commit):
         launched = True
         row["container"] = name
         wait_ready(directory, name)
-        journey(directory, port, args.profile, args.mission_timeout)
+        journey(directory, port, args.profile, args.mission_timeout, row["repair_strategy"])
     except KeyboardInterrupt:
         row.update(status="INTERRUPTED", failure="Interrupted before paired arm completed")
         raise
@@ -199,11 +343,24 @@ def run_arm(pair, arm, args, ordinal, image_id, commit):
                     )
                 audit = json.loads((directory / "audit/plan-versus-execution.json").read_text())
                 accepted = json.loads((directory / "accepted/acceptance.json").read_text())
+                segments = [
+                    json.loads(line)
+                    for line in (directory / "audit/coverage-segment-metrics.jsonl")
+                    .read_text()
+                    .splitlines()
+                ]
                 if (
                     not audit["audit_complete"]
                     or audit["canonical_verifier_replay_equal"] is not True
                 ):
                     raise RuntimeError("diagnostic integrity or canonical replay gate failed")
+                request_counts = repair_request_counts(
+                    directory, repair_tracking=row["repair_strategy"] == REPAIR_TRACKING_STRATEGY
+                )
+                if request_counts["repair_requested_goal_count"] != sum(
+                    s["stage"] == "REPAIR" for s in segments
+                ):
+                    raise RuntimeError("original repair requests and measured segments disagree")
                 row.update(
                     status="PASS",
                     measured_distance_m=audit["total_metrics"]["observed_distance_m"],
@@ -219,8 +376,11 @@ def run_arm(pair, arm, args, ordinal, image_id, commit):
                     post_cleanup_yaw_change_rad=accepted["post_cleanup_yaw_change_rad"],
                     run_id=audit["run_id"],
                     audit_complete=True,
+                    complete_independent_observations=accepted["complete_independent_observations"],
+                    repair_goal_count=sum(s["stage"] == "REPAIR" for s in segments),
                     main_nav_goal_result=audit.get("main_nav_goal_result"),
                     optimization_status="PILOT_OBSERVATION_ONLY",
+                    **request_counts,
                 )
             except Exception as exc:
                 row.update(status="FAIL", failure=f"{type(exc).__name__}: {exc}")
@@ -241,22 +401,50 @@ def main():
     parser.add_argument(
         "--candidate",
         choices=[
+            *CONTINUOUS_BOUNDARY_PRESETS,
+            "baseline",
             "diagonal",
             "headland",
             "perimeter",
             "perimeter_sequential",
             "perimeter_stateless",
             "perimeter_stateless_headland",
+            "perimeter_stateless_clearance",
+            "perimeter_stateless_clearance_inner_ring",
+            "perimeter_stateless_inner_ring",
+            "perimeter_stateless_overlap",
         ],
         required=True,
     )
+    parser.add_argument(
+        "--candidate-repair-strategy",
+        choices=[
+            "greedy",
+            "pose_aware",
+            "pose_aware_robust",
+            "pose_aware_robust_sequence",
+            REPAIR_TRACKING_STRATEGY,
+        ],
+        default="greedy",
+    )
+    parser.add_argument("--precise-repair-waypoints", action="store_true")
     parser.add_argument("--seed", type=int, required=True)
     parser.add_argument("--phase", choices=["pilot", "evaluation"], default="pilot")
     parser.add_argument("--image", default="rosclaw/ros-expert-rebuilt:dad31022")
     parser.add_argument("--port-base", type=int, default=20191)
-    parser.add_argument("--domain-base", type=int, default=201)
+    parser.add_argument("--domain-base", type=int, default=81)
     parser.add_argument("--mission-timeout", type=int, default=900)
     args = parser.parse_args()
+    from fixture_network import validate_ros_domain
+
+    validate_ros_domain(args.domain_base)
+    validate_ros_domain(args.domain_base + 1)
+    try:
+        validate_precise_waypoint_candidate(
+            args.candidate, args.candidate_repair_strategy, args.precise_repair_waypoints
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
     validate_seed(args.seed)
     planning_parameters(PROFILES[args.profile], args.candidate)
     if not 1024 <= args.port_base < 65535 or not 0 <= args.domain_base < 232:
@@ -265,6 +453,14 @@ def main():
         parser.error("mission timeout must be between 60 and 1800 seconds")
     protocol_bytes = args.protocol.read_bytes()
     protocol = json.loads(protocol_bytes)
+    validate_precise_repair_registration(protocol, args.precise_repair_waypoints)
+    validate_repair_tracking_candidate_registration(
+        protocol, args.candidate, args.candidate_repair_strategy, args.precise_repair_waypoints
+    )
+    validate_continuous_boundary_registration(
+        protocol, args.candidate, args.precise_repair_waypoints
+    )
+    validate_inner_ring_registration(protocol, args.candidate)
     if args.seed not in protocol[f"{args.phase}_seeds"]:
         parser.error("seed is not preregistered for this phase")
     if args.phase == "evaluation" and not protocol.get("evaluation_freeze"):
@@ -275,11 +471,19 @@ def main():
     if args.phase == "evaluation":
         freeze = protocol["evaluation_freeze"]
         if (
-            freeze["source_commit"] != commit
+            freeze.get("precise_repair_waypoints", False) != args.precise_repair_waypoints
+            or freeze["source_commit"] != commit
             or freeze["selected_presets"].get(args.profile) != args.candidate
+            or freeze.get("selected_repair_strategies", {}).get(args.profile, "greedy")
+            != args.candidate_repair_strategy
         ):
             parser.error("source or candidate differs from preregistered evaluation freeze")
     image_id = command(["docker", "image", "inspect", "--format", "{{.Id}}", args.image])
+    if args.phase == "evaluation" and (
+        freeze.get("image_id") != image_id
+        or freeze.get("mission_timeout_sec", {}).get(args.profile) != args.mission_timeout
+    ):
+        parser.error("image or mission deadline differs from the evaluation freeze")
     pair = args.directory.resolve()
     pair.mkdir(parents=True, exist_ok=False)
     (pair / "protocol.json").write_bytes(protocol_bytes)
@@ -292,6 +496,9 @@ def main():
         "profile": args.profile,
         "seed": args.seed,
         "candidate": args.candidate,
+        "candidate_repair_strategy": args.candidate_repair_strategy,
+        "precise_repair_waypoints": args.precise_repair_waypoints,
+        "mission_timeout_sec": args.mission_timeout,
         "v1_done": False,
     }
     (pair / "pair-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")

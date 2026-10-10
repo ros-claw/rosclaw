@@ -56,3 +56,89 @@ def rectangular_boundary_targets(legal_centers, current_pose, *, edge_midpoints=
         nx, ny = corners[(index + 1) % len(corners)]
         targets.append({"x": x, "y": y, "yaw": math.atan2(ny - y, nx - x)})
     return tuple(targets + [dict(targets[0])])
+
+
+def inset_corner_boundary_targets(legal_centers, current_pose, *, resolution):
+    """Move only corner targets one existing grid cell inward.
+
+    Edge midpoints stay on the original envelope. This opt-in hypothesis adds
+    turn clearance without reducing the approved Body inset or creating a
+    motion path. Nav2 still owns reachability; observed brush poses own credit.
+    Missing inset corners or irregular grids dispatch no boundary action.
+    """
+    if type(resolution) not in (int, float) or not math.isfinite(resolution) or resolution <= 0:
+        raise ValueError("finite positive boundary grid resolution required")
+    if len(legal_centers) > 5000:
+        raise ValueError("bounded existing boundary center mask required")
+    if not all(
+        len(p) == 2 and all(type(v) in (int, float) and math.isfinite(v) for v in p)
+        for p in legal_centers
+    ):
+        raise ValueError("finite original boundary grid centers required")
+    original = rectangular_boundary_targets(legal_centers, current_pose, edge_midpoints=True)
+    if not original:
+        return ()
+    centers = frozenset(tuple(p) for p in legal_centers)
+    xs = sorted({p[0] for p in centers})
+    ys = sorted({p[1] for p in centers})
+    if min(len(xs), len(ys)) < 5 or any(
+        not math.isclose(b - a, resolution, rel_tol=1e-6, abs_tol=1e-9)
+        for axis in (xs, ys)
+        for a, b in zip(axis, axis[1:], strict=False)
+    ):
+        return ()
+    points = []
+    for index, target in enumerate(original[:-1]):
+        x, y = target["x"], target["y"]
+        if index % 2 == 0:
+            x = xs[1] if x == xs[0] else xs[-2]
+            y = ys[1] if y == ys[0] else ys[-2]
+        if (x, y) not in centers:
+            return ()
+        points.append((x, y))
+    if len(set(points)) != 8:
+        return ()
+    targets = []
+    for index, (x, y) in enumerate(points):
+        nx, ny = points[(index + 1) % len(points)]
+        targets.append({"x": x, "y": y, "yaw": math.atan2(ny - y, nx - x)})
+    return tuple(targets + [dict(targets[0])])
+
+
+def inset_rectangular_boundary_targets(legal_centers, current_pose, *, resolution, inset_cells=1):
+    """An additional inward ring within the EXISTING boundary mask.
+
+    This known-fixture candidate never expands the approved center domain.
+    Every grid center on its reference edges must already be legal. Nav2 still
+    owns the actual path; no prediction or target grants cleaning credit.
+    """
+    if type(inset_cells) is not int or not 1 <= inset_cells <= 4:
+        raise ValueError("boundary inset must be one to four whole grid cells")
+    if type(resolution) not in (int, float) or not math.isfinite(resolution) or resolution <= 0:
+        raise ValueError("finite positive boundary grid resolution required")
+    if not legal_centers:
+        return ()
+    if len(legal_centers) > 5000:
+        raise ValueError("bounded existing boundary center mask required")
+    centers = frozenset(tuple(p) for p in legal_centers)
+    if not all(
+        len(p) == 2 and all(type(v) in (int, float) and math.isfinite(v) for v in p)
+        for p in centers
+    ):
+        raise ValueError("finite original boundary grid centers required")
+    xs = sorted({p[0] for p in centers})
+    ys = sorted({p[1] for p in centers})
+    if min(len(xs), len(ys)) < 2 * inset_cells + 3:
+        return ()
+    if any(
+        not math.isclose(b - a, resolution, rel_tol=1e-6, abs_tol=1e-9)
+        for axis in (xs, ys)
+        for a, b in zip(axis, axis[1:], strict=False)
+    ):
+        return ()
+    xs, ys = xs[inset_cells:-inset_cells], ys[inset_cells:-inset_cells]
+    edges = {(x, y) for x in xs for y in (ys[0], ys[-1])}
+    edges.update((x, y) for x in (xs[0], xs[-1]) for y in ys)
+    if not edges <= centers:
+        return ()
+    return rectangular_boundary_targets(sorted(edges), current_pose, edge_midpoints=True)

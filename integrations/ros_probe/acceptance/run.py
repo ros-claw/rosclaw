@@ -31,6 +31,17 @@ async def main():
     parser.add_argument("--model-urdf", type=Path)
     parser.add_argument("--profile", choices=PROFILES)
     parser.add_argument("--mission-timeout", type=int, default=900)
+    parser.add_argument(
+        "--repair-strategy",
+        choices=[
+            "greedy",
+            "pose_aware",
+            "pose_aware_robust",
+            "pose_aware_robust_sequence",
+            "pose_aware_robust_tracking_sequence",
+        ],
+        default="greedy",
+    )
     args = parser.parse_args()
     if args.navigation_only and args.reject_smaller_scope:
         parser.error("navigation and scope-rejection cases are mutually exclusive")
@@ -72,6 +83,7 @@ async def main():
     config = {
         "body_id": body["body_id"],
         "body_snapshot_hash": body_hash,
+        "repair_strategy": args.repair_strategy,
         "grid": {
             "width": width,
             "height": height,

@@ -1,0 +1,9 @@
+{
+  "source": "Installed Nav2 behavior tree, preserved verbatim as a source-test fixture",
+  "upstream_project": "https://github.com/ros-navigation/navigation2",
+  "upstream_license": "Apache-2.0",
+  "installed_path": "/opt/ros/jazzy/share/nav2_bt_navigator/behavior_trees/navigate_through_poses_w_replanning_and_recovery.xml",
+  "container_image_id": "sha256:c31355f34739eb4ea8b60de1414c57ce0eea8225aa9e3ce854b7ceb66ca4376e",
+  "original_sha256": "bccb78a1f06cea2a88dd86b028c0e2c7c167ac1ab3b0b799f87099b5181a2876",
+  "physical_acceptance": "NOT_RUN"
+}

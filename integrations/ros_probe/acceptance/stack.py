@@ -14,17 +14,50 @@ import yaml
 from ament_index_python.packages import get_package_share_directory
 from profiles import PROFILES
 
-from experiments import controller_parameters, gazebo_arguments, planning_parameters, validate_seed
+from experiments import (
+    BOUNDARY_OPEN_SEGMENT_PRESETS,
+    BOUNDARY_TRACKING_INSET_PRESETS,
+    BOUNDARY_TRACKING_PRESETS,
+    CONTINUOUS_BOUNDARY_PRESETS,
+    INNER_RING_PROFILES,
+    continuous_boundary_strategy,
+    controller_parameters,
+    gazebo_arguments,
+    planning_parameters,
+    validate_boundary_tracking_runtime_registration,
+    validate_repair_tracking_runtime_registration,
+    validate_seed,
+)
 
 ROOT = Path(__file__).resolve().parent
 OUTPUT = Path("/evidence")
 
 
-def prepare(controller_watchdog=True, profile_name="waffle", coverage_preset="baseline", seed=None):
+def prepare(
+    controller_watchdog=True,
+    profile_name="waffle",
+    coverage_preset="baseline",
+    seed=None,
+    *,
+    precise_repair_waypoints=False,
+    repair_tracking_sequence=False,
+):
     profile = PROFILES[profile_name]
     candidate = planning_parameters(profile, coverage_preset)
     controller_candidate = controller_parameters(profile, coverage_preset)
     validate_seed(seed)
+    if type(repair_tracking_sequence) is not bool or (
+        repair_tracking_sequence
+        and (
+            coverage_preset not in BOUNDARY_TRACKING_INSET_PRESETS
+            or precise_repair_waypoints is not True
+        )
+    ):
+        raise ValueError(
+            "repair tracking requires its explicit known inset fixture and precise global BT"
+        )
+    if coverage_preset in CONTINUOUS_BOUNDARY_PRESETS and precise_repair_waypoints is not True:
+        raise ValueError("continuous boundary candidate requires the precise through-poses BT")
     if profile_name == "burger" and not controller_watchdog:
         raise ValueError("Burger acceptance requires the bottom-level controller watchdog")
     OUTPUT.mkdir(exist_ok=True)
@@ -156,6 +189,73 @@ def prepare(controller_watchdog=True, profile_name="waffle", coverage_preset="ba
         default_coverage_bt_xml=get_package_share_directory("opennav_coverage_bt")
         + "/behavior_trees/navigate_w_basic_complete_coverage_nav_to_start.xml",
     )
+    boundary_tracking_experiment = {}
+    repair_tracking_experiment = {}
+    if precise_repair_waypoints:
+        from precise_through_poses_bt import (
+            prepare_boundary_tracking_through_poses_bt,
+            prepare_precise_through_poses_bt,
+            prepare_repair_tracking_through_poses_bt,
+        )
+
+        original = (
+            Path(get_package_share_directory("nav2_bt_navigator"))
+            / "behavior_trees/navigate_through_poses_w_replanning_and_recovery.xml"
+        ).read_bytes()
+        prepare_precise_through_poses_bt(
+            OUTPUT,
+            original,
+            xy_goal_tolerance=params["controller_server"]["ros__parameters"][
+                "general_goal_checker"
+            ]["xy_goal_tolerance"],
+        )
+        params["bt_navigator"]["ros__parameters"]["default_nav_through_poses_bt_xml"] = str(
+            OUTPUT / "repair-through-poses.xml"
+        )
+        if repair_tracking_sequence:
+            repair_tracking = prepare_repair_tracking_through_poses_bt(
+                OUTPUT,
+                original,
+                xy_goal_tolerance=params["controller_server"]["ros__parameters"][
+                    "general_goal_checker"
+                ]["xy_goal_tolerance"],
+                controller_lookahead_m=params["controller_server"]["ros__parameters"]["FollowPath"][
+                    "lookahead_dist"
+                ],
+                tracking_radius_m=0.1,
+            )
+            repair_tracking_experiment = {
+                "repair_tracking_sequence": True,
+                "repair_tracking_prune_radius_m": 0.1,
+                "repair_tracking_bt_sha256": repair_tracking["source_output_sha256"],
+                "repair_shared_sequence_overhead": True,
+            }
+        if coverage_preset in BOUNDARY_TRACKING_PRESETS:
+            tracking = prepare_boundary_tracking_through_poses_bt(
+                OUTPUT,
+                original,
+                xy_goal_tolerance=params["controller_server"]["ros__parameters"][
+                    "general_goal_checker"
+                ]["xy_goal_tolerance"],
+                controller_lookahead_m=params["controller_server"]["ros__parameters"]["FollowPath"][
+                    "lookahead_dist"
+                ],
+                tracking_radius_m=0.1,
+            )
+            boundary_tracking_experiment = {
+                **(
+                    {"boundary_segment_count": 2}
+                    if coverage_preset in BOUNDARY_OPEN_SEGMENT_PRESETS
+                    else {}
+                ),
+                "boundary_tracking_prune_radius_m": 0.1,
+                "boundary_tracking_bt_sha256": tracking["source_output_sha256"],
+                **(
+                    {"boundary_corner_inset_cells": 1}
+                    if coverage_preset in BOUNDARY_TRACKING_INSET_PRESETS
+                    else {}
+                ),
+            }
     params["amcl"]["ros__parameters"].update(
         set_initial_pose=True,
         initial_pose={"x": 0.0, "y": 0.0, "z": 0.0, "yaw": 0.0},
@@ -222,16 +322,48 @@ def prepare(controller_watchdog=True, profile_name="waffle", coverage_preset="ba
                 "preset": coverage_preset,
                 "boundary_pass": coverage_preset
                 in (
+                    *CONTINUOUS_BOUNDARY_PRESETS,
                     "perimeter",
                     "perimeter_sequential",
                     "perimeter_stateless",
                     "perimeter_stateless_headland",
+                    "perimeter_stateless_clearance",
+                    "perimeter_stateless_clearance_inner_ring",
+                    "perimeter_stateless_inner_ring",
+                    "perimeter_stateless_overlap",
                 ),
-                "boundary_strategy": "sequential"
+                "boundary_strategy": continuous_boundary_strategy(coverage_preset)
+                if coverage_preset in CONTINUOUS_BOUNDARY_PRESETS
+                else "sequential_inner_ring"
+                if coverage_preset in INNER_RING_PROFILES
+                else "sequential"
                 if coverage_preset
-                in ("perimeter_sequential", "perimeter_stateless", "perimeter_stateless_headland")
+                in (
+                    "perimeter_sequential",
+                    "perimeter_stateless",
+                    "perimeter_stateless_headland",
+                    "perimeter_stateless_clearance",
+                    "perimeter_stateless_clearance_inner_ring",
+                    "perimeter_stateless_overlap",
+                )
                 else "through_poses",
+                **(
+                    {
+                        "boundary_stage_budget_sec": 180,
+                        "boundary_waypoint_count": 9,
+                        "precise_through_poses": True,
+                        **boundary_tracking_experiment,
+                    }
+                    if coverage_preset in CONTINUOUS_BOUNDARY_PRESETS
+                    else {}
+                ),
+                **(
+                    {"boundary_stage_budget_sec": 360, "inner_boundary_inset_cells": 1}
+                    if coverage_preset in INNER_RING_PROFILES
+                    else {}
+                ),
                 "seed": seed,
+                **repair_tracking_experiment,
                 "planning_parameters": candidate,
                 "controller_parameters": controller_candidate,
                 "start_pose": {"x": 0.0, "y": 0.0, "yaw": 0.0},
@@ -259,6 +391,7 @@ def main():
     parser.add_argument(
         "--coverage-preset",
         choices=[
+            *CONTINUOUS_BOUNDARY_PRESETS,
             "baseline",
             "diagonal",
             "headland",
@@ -266,9 +399,15 @@ def main():
             "perimeter_sequential",
             "perimeter_stateless",
             "perimeter_stateless_headland",
+            "perimeter_stateless_clearance",
+            "perimeter_stateless_clearance_inner_ring",
+            "perimeter_stateless_inner_ring",
+            "perimeter_stateless_overlap",
         ],
         default="baseline",
     )
+    parser.add_argument("--precise-repair-waypoints", action="store_true")
+    parser.add_argument("--repair-tracking-sequence", action="store_true")
     parser.add_argument("--seed", type=int)
     parser.add_argument("--fault-acceptance", action="store_true")
     parser.add_argument(
@@ -278,13 +417,42 @@ def main():
         help="Require the bottom-level command timeout; disable only for explicit legacy fixture replay",
     )
     args = parser.parse_args()
+    from fixture_network import validate_ros_domain
+
+    # Read this process's actual kernel range before any simulator/ROS child.
+    # The host preflight alone cannot establish a container's network facts.
+    network = validate_ros_domain(int(os.environ.get("ROS_DOMAIN_ID", "0")))
+    network["source_process_network_namespace"] = os.readlink("/proc/self/ns/net")
+    network["source"] = "owned_stack_process_actual_kernel_port_range"
+    OUTPUT.mkdir(exist_ok=True)
+    with (OUTPUT / "container-network-preflight.json").open("x") as evidence:
+        json.dump(network, evidence, indent=2)
     from fixture_middleware import configure_service_reply_discovery
 
     os.environ.update(configure_service_reply_discovery(ROOT, OUTPUT, os.environ))
     os.environ["PYTHONPATH"] = (
         str(ROOT.parents[2] / "src") + os.pathsep + os.getenv("PYTHONPATH", "")
     )
-    prepare(args.controller_watchdog, args.profile, args.coverage_preset, args.seed)
+    prepare(
+        args.controller_watchdog,
+        args.profile,
+        args.coverage_preset,
+        args.seed,
+        precise_repair_waypoints=args.precise_repair_waypoints,
+        repair_tracking_sequence=args.repair_tracking_sequence,
+    )
+    if args.coverage_preset in BOUNDARY_TRACKING_PRESETS:
+        # Validate the generated BT against the frozen protocol before starting
+        # Gazebo, ROS, observers, or the MCP/daemon task journey.
+        validate_boundary_tracking_runtime_registration(
+            json.loads((OUTPUT / "experiment.json").read_text()),
+            json.loads((OUTPUT / "protocol.json").read_text()),
+        )
+    if args.coverage_preset in BOUNDARY_TRACKING_INSET_PRESETS:
+        validate_repair_tracking_runtime_registration(
+            json.loads((OUTPUT / "experiment.json").read_text()),
+            json.loads((OUTPUT / "protocol.json").read_text()),
+        )
     (OUTPUT / "run_id.txt").write_text(uuid.uuid4().hex + "\n")
     profile = PROFILES[args.profile]
     children = []
@@ -446,6 +614,7 @@ def main():
                 f"controller_watchdog:={'true' if args.controller_watchdog else 'false'}",
             ],
         )
+        start("lifecycle_probe", ["python3", str(ROOT / "lifecycle_readiness.py")])
         start("probe", ["python3", str(ROOT.parent / "ros2/probe.py")])
         while True:
             for p in children:
