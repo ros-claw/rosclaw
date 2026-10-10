@@ -29,3 +29,11 @@ credit, a guarantee of actual arrival, or measured efficiency improvement.
 Actual Nav2 endpoint offsets and GT/map separation remain unresolved. Do not
 read formal holdout data to tune it. Any selected future physics requires a
 new frozen source, preregistration and the established acceptance gates.
+
+Candidate deduplication also retains distinct intermediate support when final
+footprints match. A two-hole regression verifies that useful continuous
+pairs remain selectable; the new model must not silently disable sequences.
+The earlier af01 prototype and its31-snapshot single-target result are retained
+separately. The initial positive-case fixture accidentally allowed one rotated
+brush pose to cover both holes; that test failure is retained, and the revised
+fixture separates the holes beyond every single-pose footprint diameter.

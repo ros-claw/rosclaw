@@ -352,12 +352,38 @@ def rank_repair_poses(
         diverse = sorted(
             leaders.values(), key=lambda p: (-p.utility, p.estimated_cost_sec, p.center_cell, p.yaw)
         )
+        intermediate_offsets = None
+        if intermediate_tracking_radius_m is not None:
+            intermediate_offsets = _intermediate_prediction_offsets(
+                polygon, res, intermediate_tracking_radius_m, candidates=offsets[headings[0]]
+            )
+            check_budget()
+
+        def intermediate_cells(pose):
+            col, row = pose.center_cell % width, pose.center_cell // width
+            return tuple(
+                sorted(
+                    (row + dy) * width + col + dx
+                    for dx, dy in intermediate_offsets
+                    if 0 <= col + dx < width
+                    and 0 <= row + dy < height
+                    and (row + dy) * width + col + dx in remaining
+                )
+            )
+
         shortlist, signatures = [], set()
         for pose in diverse + ranked:
             check_budget()
-            if pose.predicted_new_cells in signatures:
+            # Equal final footprints can have different supported intermediate
+            # centers. Retain that distinction only in the explicit mode.
+            signature = (
+                pose.predicted_new_cells
+                if intermediate_offsets is None
+                else (pose.predicted_new_cells, intermediate_cells(pose))
+            )
+            if signature in signatures:
                 continue
-            signatures.add(pose.predicted_new_cells)
+            signatures.add(signature)
             shortlist.append(pose)
             if len(shortlist) == shortlist_size:
                 break
@@ -367,12 +393,6 @@ def rank_repair_poses(
         best, best_utility = (shortlist[0],), shortlist[0].utility
         best_cost = shortlist[0].estimated_cost_sec
         scenarios = {p: shifted_footprints(p) for p in shortlist} if robust_footprint else {}
-        intermediate_offsets = None
-        if intermediate_tracking_radius_m is not None:
-            intermediate_offsets = _intermediate_prediction_offsets(
-                polygon, res, intermediate_tracking_radius_m, candidates=offsets[headings[0]]
-            )
-            check_budget()
         seen = set()
         for first in shortlist:
             if first.center_cell in seen:
@@ -380,16 +400,7 @@ def rank_repair_poses(
             first_cells = first.predicted_new_cells
             first_scenarios = scenarios.get(first)
             if intermediate_offsets is not None:
-                col, row = first.center_cell % width, first.center_cell // width
-                first_cells = tuple(
-                    sorted(
-                        (row + dy) * width + col + dx
-                        for dx, dy in intermediate_offsets
-                        if 0 <= col + dx < width
-                        and 0 <= row + dy < height
-                        and (row + dy) * width + col + dx in remaining
-                    )
-                )
+                first_cells = intermediate_cells(first)
                 if not gain(first_cells):
                     continue
                 if robust_footprint:

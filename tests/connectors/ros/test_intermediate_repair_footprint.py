@@ -83,3 +83,28 @@ def test_intermediate_prediction_cannot_silently_enable_a_legacy_dispatch_mode()
         optimizer.rank_repair_poses(
             {}, [], set(), {"x": 0.0, "y": 0.0, "yaw": 0.0}, intermediate_tracking_radius_m=0.1
         )
+
+
+def test_intermediate_search_keeps_supported_centers_hidden_by_nominal_footprint_deduplication():
+    grid = {
+        "width": 10,
+        "height": 1,
+        "resolution": 0.1,
+        "origin": [0, 0],
+        "accessible_cells": list(range(10)),
+        "cleaning_polygon": [[-0.16, -0.16], [0.16, -0.16], [0.16, 0.16], [-0.16, 0.16]],
+    }
+    result = optimizer.rank_repair_poses(
+        grid,
+        [(i * 0.1 + 0.05, 0.05) for i in range(10)],
+        {2, 8},
+        {"x": 0.05, "y": 0.05, "yaw": 0.0},
+        goal_overhead_sec=10,
+        shared_sequence_overhead=True,
+        intermediate_tracking_radius_m=0.1,
+    )
+    assert result.status == "READY" and len(result.poses) == 2
+    first, final = result.poses
+    assert first.center_cell in (2, 8)
+    assert first.predicted_new_cells == (first.center_cell,)
+    assert set(final.predicted_new_cells) - set(first.predicted_new_cells)
