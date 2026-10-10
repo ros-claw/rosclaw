@@ -1,5 +1,91 @@
 import type { ExtensionFactory, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+
+export interface ModelUsageAwareness {
+	version: 1;
+	lifetime: "runtime";
+	inclusiveInputLimit: number;
+	outputLimit: number;
+	deliveryReserveInput: number;
+	deliveryReserveOutput: number;
+}
+
+/** Pure, strict validation shared with the pre-SDK CLI. */
+export function validateModelUsageAwareness(value: unknown): asserts value is ModelUsageAwareness {
+	const keys = ["version", "lifetime", "inclusiveInputLimit", "outputLimit", "deliveryReserveInput", "deliveryReserveOutput"];
+	if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("INVALID_MODEL_USAGE_AWARENESS");
+	const v = value as Record<string, unknown>;
+	if (Object.keys(v).length !== keys.length || keys.some(k => !Object.hasOwn(v, k))
+		|| v.version !== 1 || v.lifetime !== "runtime") throw new Error("INVALID_MODEL_USAGE_AWARENESS");
+	for (const k of keys.slice(2)) {
+		if (typeof v[k] !== "number" || !Number.isSafeInteger(v[k]) || (v[k] as number) < 0) throw new Error("INVALID_MODEL_USAGE_AWARENESS");
+	}
+	if ((v.inclusiveInputLimit as number) <= 0 || (v.outputLimit as number) <= 0
+		|| (v.deliveryReserveInput as number) > (v.inclusiveInputLimit as number)
+		|| (v.deliveryReserveOutput as number) > (v.outputLimit as number)) throw new Error("INVALID_MODEL_USAGE_AWARENESS");
+}
+
+const USAGE_MARKER = "ROSCLAW_MODEL_USAGE_JSON:";
+const stripUsage = (text: string) => text.split("\n").filter(line => !line.startsWith(USAGE_MARKER)).join("\n");
+
+/** Serial public assistant lifecycle, not start/end object identity (SDK clones starts).
+ * Final-object identity is used ONLY to reject replayed ends, never values/timestamps. */
+function usageObserver(config: ModelUsageAwareness) {
+	const runtimeGeneration = randomUUID();
+	let sequence = 0, completedMainRequests = 0, knownInclusiveInput = 0, knownOutput = 0;
+	let pendingMainRequests = 0, unknownUsageRequests = 0, unaccountedCompaction = false;
+	let sessionId: string | undefined;
+	let pendingSession: string | undefined;
+	const settled = new WeakSet<object>();
+	const add = (a: number, b: number) => {
+		if (!Number.isSafeInteger(a + b)) { unknownUsageRequests++; return a; }
+		return a + b;
+	};
+	const notice = () => {
+		const remainingInputUpperBound = Math.max(0, config.inclusiveInputLimit - knownInclusiveInput);
+		const remainingOutputUpperBound = Math.max(0, config.outputLimit - knownOutput);
+		const reserveState = pendingMainRequests || unknownUsageRequests || unaccountedCompaction ? "unknown"
+			: remainingInputUpperBound <= config.deliveryReserveInput || remainingOutputUpperBound <= config.deliveryReserveOutput ? "finish_delivery" : "normal";
+		return USAGE_MARKER + JSON.stringify({ version: 1, runtimeGeneration, sequence, completedMainRequests,
+			knownInclusiveInput, knownOutput, remainingInputUpperBound, remainingOutputUpperBound,
+			pendingMainRequests, unknownUsageRequests, unaccountedCompaction, reserveState });
+	};
+	const factory: ExtensionFactory = pi => {
+		pi.on("session_start", (_event, ctx) => {
+			if (pendingMainRequests) { unknownUsageRequests += pendingMainRequests; pendingMainRequests = 0; }
+			pendingSession = undefined;
+			sessionId = ctx.sessionManager.getSessionId(); sequence++;
+		});
+		pi.on("message_start", (event, ctx) => {
+			if (event.message.role !== "assistant" || ctx.sessionManager.getSessionId() !== sessionId) return;
+			if (pendingMainRequests) unknownUsageRequests += pendingMainRequests;
+			pendingMainRequests = 1; pendingSession = sessionId; sequence++;
+		});
+		pi.on("message_end", (event, ctx) => {
+			const message = event.message;
+			if (message.role !== "assistant" || settled.has(message) || !pendingMainRequests
+				|| pendingSession !== ctx.sessionManager.getSessionId() || pendingSession !== sessionId) return;
+			settled.add(message); pendingMainRequests = 0; pendingSession = undefined; completedMainRequests++; sequence++;
+			const usage = message.usage;
+			const failed = message.stopReason === "error" || message.stopReason === "aborted";
+			let unknown = failed;
+			let input = 0, output = 0;
+			for (const key of ["input", "cacheRead", "cacheWrite", "output"] as const) {
+				const n = usage?.[key];
+				if (typeof n !== "number" || !Number.isSafeInteger(n) || n < 0) { unknown = true; continue; }
+				// Error/abort SDK defaults are not measurements; positive partials are lowerbounds.
+				if (failed && n === 0) continue;
+				if (key === "output") output = n;
+				else if (Number.isSafeInteger(input + n)) input += n;
+				else unknown = true;
+			}
+			knownInclusiveInput = add(knownInclusiveInput, input); knownOutput = add(knownOutput, output);
+			if (unknown) unknownUsageRequests++;
+		});
+		pi.on("session_before_compact", () => { unaccountedCompaction = true; sequence++; });
+	};
+	return { factory, notice };
+}
 import { lstatSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
@@ -81,11 +167,13 @@ export interface ToolCallBudget {
 	visibleBudget?: boolean;
 	/** Result presentation only; omitted means full. Never changes admission. */
 	visibleBudgetMode?: "full" | "compact";
+	/** Advisory observer only, never permissions or a provider hard cap. */
+	modelUsageAwareness?: ModelUsageAwareness;
 }
 
 const POLICY_MARKER = "ROSCLAW_TOOL_POLICY_JSON:";
 const COMPACT_MARKER = "ROSCLAW_TOOL_BUDGET_COMPACT_JSON:";
-const KNOWN_KEYS = ["allowedTools", "maxCalls", "maxTotalCalls", "exactCommands", "visibleBudget", "exactPaths", "visibleBudgetMode"];
+const KNOWN_KEYS = ["allowedTools", "maxCalls", "maxTotalCalls", "exactCommands", "visibleBudget", "exactPaths", "visibleBudgetMode", "modelUsageAwareness"];
 
 function stripMarkerLines(text: string, compact = false): string {
 	return text.split("\n").filter(line => !line.startsWith(POLICY_MARKER)
@@ -143,6 +231,8 @@ export function createToolCallBudgetExtension(policy: ToolCallBudget, workspaceR
 	if (policy.visibleBudgetMode !== undefined && policy.visibleBudgetMode !== "full" && policy.visibleBudgetMode !== "compact") {
 		throw new Error("INVALID_TOOL_CALL_BUDGET_VISIBLE_MODE");
 	}
+	if (Object.hasOwn(policy, "modelUsageAwareness")) validateModelUsageAwareness(policy.modelUsageAwareness);
+	const usage = policy.modelUsageAwareness ? usageObserver({ ...policy.modelUsageAwareness }) : undefined;
 	const compact = policy.visibleBudgetMode === "compact";
 	const paths = new Map<string, readonly string[]>();
 	let root: string | undefined;
@@ -236,18 +326,25 @@ export function createToolCallBudgetExtension(policy: ToolCallBudget, workspaceR
 	const extension: ExtensionFactory = pi => {
 		pi.on("tool_call", async event => check(event.toolName,
 			event.input as Record<string, unknown> | undefined, !wrapped.has(event.toolName)));
-		if (!visible) return;
-		pi.on("before_agent_start", event => ({
-			systemPrompt: `${stripMarkerLines(event.systemPrompt, compact)}\n${fullNotice()}`,
-		}));
+		usage?.factory(pi);
+		if (!visible && !usage) return;
+		pi.on("before_agent_start", event => {
+			let text = visible ? stripMarkerLines(event.systemPrompt, compact) : event.systemPrompt;
+			if (usage) text = stripUsage(text);
+			return { systemPrompt: text + (visible ? `\n${fullNotice()}` : "") + (usage ? `\n${usage.notice()}` : "") };
+		});
 		pi.on("tool_result", event => {
 			// Replace a prior own marker line (for example on an already-blocked
 			// result) instead of duplicating it; preserve all other text.
-			const content = event.content.map(part => part.type === "text"
-				? { ...part, text: stripMarkerLines(part.text, compact) }
-				: part);
+			const content = event.content.map(part => {
+				if (part.type !== "text") return part;
+				let text = visible ? stripMarkerLines(part.text, compact) : part.text;
+				if (usage) text = stripUsage(text);
+				return { ...part, text };
+			});
 			return {
-				content: [...content, { type: "text" as const, text: notice() }],
+				content: [...content, ...(visible ? [{ type: "text" as const, text: notice() }] : []),
+					...(usage ? [{ type: "text" as const, text: usage.notice() }] : [])],
 				structuredContent: event.structuredContent,
 			};
 		});
