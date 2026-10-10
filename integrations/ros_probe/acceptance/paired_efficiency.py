@@ -104,10 +104,12 @@ def validate_inner_ring_registration(protocol, candidate):
         )
 
 
-def repair_request_counts(directory):
+def repair_request_counts(directory, *, repair_tracking=False):
     """Retain requested goals and waypoints separately; neither proves arrival."""
     from rosclaw.connectors.ros.diagnosis.coverage_audit import read_audit
 
+    if type(repair_tracking) is not bool:
+        raise ValueError("repair tracking count mode must be a boolean")
     goals, targets, identities = 0, 0, set()
     for path in sorted((directory / "actions").glob("coverage-audit-*.jsonl")):
         for row in read_audit(path):
@@ -127,6 +129,14 @@ def repair_request_counts(directory):
                 and 1 <= len(args["poses"]) <= 2
             ):
                 count = len(args["poses"])
+            elif (
+                repair_tracking
+                and set(args) == {"poses", "behavior_tree"}
+                and type(args["poses"]) is list
+                and len(args["poses"]) == 2
+                and args["behavior_tree"] == "/evidence/repair-tracking-through-poses.xml"
+            ):
+                count = 2
             else:
                 raise ValueError("closed one/two waypoint repair request required")
             goals += 1
@@ -342,7 +352,9 @@ def run_arm(pair, arm, args, ordinal, image_id, commit):
                     or audit["canonical_verifier_replay_equal"] is not True
                 ):
                     raise RuntimeError("diagnostic integrity or canonical replay gate failed")
-                request_counts = repair_request_counts(directory)
+                request_counts = repair_request_counts(
+                    directory, repair_tracking=row["repair_strategy"] == REPAIR_TRACKING_STRATEGY
+                )
                 if request_counts["repair_requested_goal_count"] != sum(
                     s["stage"] == "REPAIR" for s in segments
                 ):

@@ -232,6 +232,11 @@ def test_only_two_pose_candidate_dispatch_uses_container_bt_and_observed_credit(
 
     calls = []
     deadline = time.monotonic() + 30
+    from rosclaw.connectors.ros.diagnosis.coverage_audit import CoverageAuditLog
+
+    audit = CoverageAuditLog(
+        tmp_path / "actions/coverage-audit-dispatch.jsonl", context={"run_id": "source-only"}
+    )
 
     def goal(name, action_type, args, goal_id, actual_deadline):
         assert not verifier.visits
@@ -252,6 +257,7 @@ def test_only_two_pose_candidate_dispatch_uses_container_bt_and_observed_credit(
                     math.pi / 4
                 )
         calls.append(args)
+        audit.emit("goal_started", {"stage": "REPAIR", "nav_goal_id": goal_id, "goal": args})
         observed.append(
             {
                 "x": 2.5,
@@ -268,8 +274,86 @@ def test_only_two_pose_candidate_dispatch_uses_container_bt_and_observed_credit(
     monkeypatch.setattr(executor_module, "rank_repair_poses", rank)
     driver._run_goal = goal
     records = driver._repair(verifier, 0, "root", deadline)
+    assert audit.close()["complete"] is True
     assert len(calls) == len(records) == 1 and records[0]["waypoint_count"] == max(1, count)
     assert verifier.result()["coverage_ratio"] == 1.0
+    paired = importlib.import_module("paired_efficiency")
+    assert paired.repair_request_counts(tmp_path, repair_tracking=True) == {
+        "repair_requested_goal_count": 1,
+        "repair_requested_waypoint_count": max(1, count),
+    }
+
+
+@pytest.mark.parametrize(
+    "tracking,goal",
+    [
+        (
+            False,
+            {"poses": [{}, {}], "behavior_tree": "/evidence/repair-tracking-through-poses.xml"},
+        ),
+        (
+            True,
+            {
+                "poses": [{}, {}],
+                "behavior_tree": "/home/operator/repair-tracking-through-poses.xml",
+            },
+        ),
+        (True, {"poses": [{}], "behavior_tree": "/evidence/repair-tracking-through-poses.xml"}),
+        (
+            True,
+            {"poses": [{}, {}, {}], "behavior_tree": "/evidence/repair-tracking-through-poses.xml"},
+        ),
+        (True, {"poses": [{}, {}], "behavior_tree": None}),
+        (True, {"pose": {}, "behavior_tree": "/evidence/repair-tracking-through-poses.xml"}),
+        (
+            True,
+            {
+                "poses": [{}, {}],
+                "behavior_tree": "/evidence/repair-tracking-through-poses.xml",
+                "unknown": 1,
+            },
+        ),
+        (1, {"pose": {}}),
+        ("true", {"pose": {}}),
+    ],
+)
+def test_tracking_audit_counts_reject_unregistered_request_shapes(
+    fixture_modules, tmp_path, tracking, goal
+):
+    from rosclaw.connectors.ros.diagnosis.coverage_audit import CoverageAuditLog
+
+    audit = CoverageAuditLog(
+        tmp_path / "actions/coverage-audit-invalid.jsonl", context={"run_id": "source-only"}
+    )
+    audit.emit("goal_started", {"stage": "REPAIR", "nav_goal_id": "repair", "goal": goal})
+    assert audit.close()["complete"] is True
+    paired = importlib.import_module("paired_efficiency")
+    with pytest.raises(ValueError):
+        paired.repair_request_counts(tmp_path, repair_tracking=tracking)
+
+
+def test_tracking_audit_counts_reject_duplicate_goal_identity(fixture_modules, tmp_path):
+    from rosclaw.connectors.ros.diagnosis.coverage_audit import CoverageAuditLog
+
+    for name in ("first", "second"):
+        audit = CoverageAuditLog(
+            tmp_path / f"actions/coverage-audit-{name}.jsonl", context={"run_id": "same-run"}
+        )
+        audit.emit(
+            "goal_started",
+            {
+                "stage": "REPAIR",
+                "nav_goal_id": "same-goal",
+                "goal": {
+                    "poses": [{}, {}],
+                    "behavior_tree": "/evidence/repair-tracking-through-poses.xml",
+                },
+            },
+        )
+        assert audit.close()["complete"] is True
+    paired = importlib.import_module("paired_efficiency")
+    with pytest.raises(ValueError, match="duplicate original repair goal identity"):
+        paired.repair_request_counts(tmp_path, repair_tracking=True)
 
 
 @pytest.mark.parametrize("arm,expected", [("candidate", True), ("baseline", False)])

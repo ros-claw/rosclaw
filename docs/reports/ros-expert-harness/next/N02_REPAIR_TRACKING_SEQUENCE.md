@@ -59,3 +59,19 @@ SDK generation and startup refusal probes, Native, full strict regression,
 original remote workflows, fresh SIM faults and fresh preregistered paired
 coverage/phase/stop replay remain separate required gates. No new physical seed
 is registered by this document and no formal holdout is resumed or replaced.
+
+## Pair audit request compatibility
+
+The pair runner counts a tracking repair only when the selected arm explicitly
+uses `pose_aware_robust_tracking_sequence`. Its two-target request must contain
+exactly `poses` and the fixed container path
+`/evidence/repair-tracking-through-poses.xml`. Legacy one/two-waypoint requests
+remain accepted. Baseline BT injection, host paths, extra fields, duplicate goal
+identities, and non-boolean counter modes remain rejected. Requested targets
+are diagnostic counts and grant no arrival or coverage credit.
+
+Source ab61d4f Waffle development seed109002 retained its original pair FAIL:
+the cleaning receipt passed, but the original counter rejected this BT field.
+A separate forensic replay can recover measured metrics without changing that
+original result. Burger109002 was not run after the coordinator halted. This
+compatibility fix does not certify efficiency or resume the failed queue.
