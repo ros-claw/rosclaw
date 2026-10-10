@@ -235,7 +235,10 @@ class RosCoverageSimulationExecutor:
             or hashlib.sha256(raw).hexdigest() != self.boundary_tracking_bt_sha256
         ):
             raise RuntimeError("owned boundary tracking BT source SHA256 mismatch")
-        return str(path)
+        # The daemon validates bytes on the host. Nav2 resolves the action's
+        # behavior_tree inside the owned fixture container, whose run directory
+        # is mounted at /evidence. Never send the host's absolute run path.
+        return "/evidence/boundary-through-poses.xml"
 
     def _audit_event(self, kind, payload):
         if self.audit is not None:

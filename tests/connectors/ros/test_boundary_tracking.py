@@ -65,7 +65,8 @@ def test_source_bound_boundary_override_keeps_original_targets_deadline_and_term
     assert args[:2] == ("/navigate_through_poses", "nav2_msgs/action/NavigateThroughPoses")
     assert args[3:] == ("root:boundary", 123)
     assert kwargs == {"goal_timeout_sec": 180, "stage": "BOUNDARY_PASS"}
-    assert args[2]["behavior_tree"] == str(tmp_path / "boundary-through-poses.xml")
+    assert args[2]["behavior_tree"] == "/evidence/boundary-through-poses.xml"
+    assert str(tmp_path) not in args[2]["behavior_tree"]
     assert len(args[2]["poses"]) == result["waypoint_count"] == 9
     assert all(
         (p["pose"]["position"]["x"], p["pose"]["position"]["y"]) in CENTERS

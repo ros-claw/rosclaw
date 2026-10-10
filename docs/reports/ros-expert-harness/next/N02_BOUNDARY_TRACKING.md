@@ -53,3 +53,12 @@ committed source. No new physical seed is registered by this document.
 Version-aligned primary references (not an installed-binary equivalence claim):
 [Nav2 1.3.13 RemovePassedGoals](https://raw.githubusercontent.com/ros-navigation/navigation2/1.3.13/nav2_behavior_tree/plugins/action/remove_passed_goals_action.cpp),
 [Nav2 1.3.13 NavigateThroughPoses](https://raw.githubusercontent.com/ros-navigation/navigation2/1.3.13/nav2_bt_navigator/src/navigators/navigate_through_poses.cpp).
+
+The daemon checks the original host-side file hash; the Nav2 goal uses the
+corresponding fixed container path `/evidence/boundary-through-poses.xml`.
+A regression first reproduced the wrong host-path dispatch (2 failed/7 passed)
+before correction. Source1c3a full strict was intentionally interrupted before
+any physical experiment (334 passed/3 skipped/2 deselected, exit2); its results
+remain retained and are not full strict acceptance. Its preregistered fault
+and coverage seeds were never started and will not be reused. The corrected
+source must pass fresh exact-head software, SDK and physical gates.
