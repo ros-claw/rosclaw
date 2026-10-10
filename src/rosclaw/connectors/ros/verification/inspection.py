@@ -5,9 +5,9 @@ with y as the passage direction. This does not infer visibility from a map, nor
 classify an unmeasured volume as free. A result is separate from task success.
 """
 
-from collections import deque
 import math
-from typing import Iterable
+from collections import deque
+from collections.abc import Iterable
 
 Cell = tuple[int, int]
 
