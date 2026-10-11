@@ -624,6 +624,7 @@ def add_ros_subparser(subparsers: argparse._SubParsersAction) -> argparse.Argume
         "diagnose",
         "discover-body",
         "review-navigation",
+        "compile-navigation-body",
         "resolve",
         "context",
         "mission",
@@ -631,15 +632,22 @@ def add_ros_subparser(subparsers: argparse._SubParsersAction) -> argparse.Argume
     ):
         expert_parser = ros_subparsers.add_parser(command, help=f"ROS Expert Harness: {command}")
         _add_common(expert_parser)
-        expert_parser.add_argument("--snapshot", help="Replay a sealed RosSystemModel JSON")
+        expert_parser.add_argument(
+            "--snapshot",
+            required=command == "compile-navigation-body",
+            help="Replay a sealed RosSystemModel JSON",
+        )
         expert_parser.add_argument("--graph", help="Saved RosGraphSnapshot JSON")
         expert_parser.add_argument("--native", help="Native probe JSON capture")
         expert_parser.add_argument("--body", help="Body binding JSON (never inferred from graph)")
         expert_parser.add_argument(
             "--deep", action="store_true", help="Require native sidecar observations"
         )
-        expert_parser.add_argument("--output", help="Write derived artifact")
-        if command in {"discover-body", "review-navigation"}:
+        if command == "compile-navigation-body":
+            expert_parser.set_defaults(output=None)
+        else:
+            expert_parser.add_argument("--output", help="Write derived artifact")
+        if command in {"discover-body", "review-navigation", "compile-navigation-body"}:
             expert_parser.add_argument(
                 "--urdf",
                 required=True,
@@ -649,11 +657,21 @@ def add_ros_subparser(subparsers: argparse._SubParsersAction) -> argparse.Argume
             expert_parser.add_argument(
                 "--interfaces", help="JSON mapping of roles to explicit ROS names"
             )
-        if command == "review-navigation":
+        if command in {"review-navigation", "compile-navigation-body"}:
             expert_parser.add_argument(
                 "--requirements",
                 required=True,
                 help="Explicit navigation observation requirements JSON",
+            )
+        if command == "compile-navigation-body":
+            expert_parser.add_argument(
+                "--policy", required=True, help="Source-bound SIM fixture policy JSON"
+            )
+            expert_parser.add_argument(
+                "--workspace",
+                dest="navigation_workspace",
+                required=True,
+                help="New simulator-owned Body workspace directory",
             )
         if command == "diagnose":
             expert_parser.add_argument(
@@ -683,6 +701,7 @@ def dispatch_ros_command(args: argparse.Namespace) -> int:
         "diagnose",
         "discover-body",
         "review-navigation",
+        "compile-navigation-body",
         "resolve",
         "context",
         "mission",
@@ -732,7 +751,7 @@ def cmd_ros_expert(args: argparse.Namespace) -> int:
     try:
         urdf = (
             _read_discovery_urdf(args.urdf)
-            if args.ros_command in {"discover-body", "review-navigation"}
+            if args.ros_command in {"discover-body", "review-navigation", "compile-navigation-body"}
             else None
         )
         interfaces = (
@@ -742,7 +761,12 @@ def cmd_ros_expert(args: argparse.Namespace) -> int:
         )
         requirements = (
             json.loads(_read_discovery_urdf(args.requirements, "navigation requirements"))
-            if args.ros_command == "review-navigation"
+            if args.ros_command in {"review-navigation", "compile-navigation-body"}
+            else None
+        )
+        policy = (
+            json.loads(_read_discovery_urdf(args.policy, "navigation fixture policy"))
+            if args.ros_command == "compile-navigation-body"
             else None
         )
         body = _load_json_or_yaml(Path(args.body)) if args.body else None
@@ -780,6 +804,15 @@ def cmd_ros_expert(args: argparse.Namespace) -> int:
 
             assert urdf is not None
             result = review_navigation_candidate(model, urdf, requirements)
+        elif command == "compile-navigation-body":
+            from rosclaw.connectors.ros.context.navigation_workspace import (
+                compile_navigation_body_workspace,
+            )
+
+            assert urdf is not None
+            result = compile_navigation_body_workspace(
+                args.navigation_workspace, model, urdf, requirements, policy=policy
+            )
         elif command == "resolve":
             result = resolve_task(model, args.task)
         elif command == "mission":

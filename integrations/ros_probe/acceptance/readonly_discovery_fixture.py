@@ -19,7 +19,10 @@ def main():
     parser.add_argument("--body-width", type=float, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--navigation-review", action="store_true")
+    parser.add_argument("--compile-navigation-body", action="store_true")
     args = parser.parse_args()
+    if args.compile_navigation_body and not args.navigation_review:
+        parser.error("--compile-navigation-body requires --navigation-review")
     args.output.mkdir(exist_ok=False)
     import rclpy
     from geometry_msgs.msg import TransformStamped
@@ -153,7 +156,15 @@ def main():
         if args.navigation_review:
             from navigation_observation_fixture import run_navigation_reviews
 
-            run_navigation_reviews(probe, args.output, urdf, requirements, navigation_state, spin)
+            run_navigation_reviews(
+                probe,
+                args.output,
+                urdf,
+                requirements,
+                navigation_state,
+                spin,
+                compile_body=args.compile_navigation_body,
+            )
             return
         spin(5)
         positive = capture("unique_fresh_streams", expected="PROPOSED")
