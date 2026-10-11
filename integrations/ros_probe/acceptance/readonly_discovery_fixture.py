@@ -20,9 +20,12 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--navigation-review", action="store_true")
     parser.add_argument("--compile-navigation-body", action="store_true")
+    parser.add_argument("--inspect-navigation-workspace", action="store_true")
     args = parser.parse_args()
     if args.compile_navigation_body and not args.navigation_review:
         parser.error("--compile-navigation-body requires --navigation-review")
+    if args.inspect_navigation_workspace and not args.compile_navigation_body:
+        parser.error("--inspect-navigation-workspace requires --compile-navigation-body")
     args.output.mkdir(exist_ok=False)
     import rclpy
     from geometry_msgs.msg import TransformStamped
@@ -164,6 +167,7 @@ def main():
                 navigation_state,
                 spin,
                 compile_body=args.compile_navigation_body,
+                inspect_body=args.inspect_navigation_workspace,
             )
             return
         spin(5)
