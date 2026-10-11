@@ -51,6 +51,12 @@ QoS capture remain UNKNOWN. No conventional topic, frame or node suffix is
 used to fill a missing role. Relative parameter topics remain UNKNOWN pending
 actual ROS-host expansion and remapping evidence.
 
+Localization and costmap headers must also be between 100 ms in the future
+and 1000 ms old in the observed ROS clock domain. Fresh receipt of an old
+message does not refresh its source timestamp. Older captures lacking this
+age evidence remain UNKNOWN. Covariance thresholds are 0.25 m² per position
+axis and 0.25 rad² for yaw; they are review criteria, not execution limits.
+
 The probe preserves both position covariance axes, so a negative axis cannot
 hide behind the previous maximum-of-two summary. It reads arbitrary `.topic`
 parameters. Twist/TwistStamped are checked through fresh graph endpoints;

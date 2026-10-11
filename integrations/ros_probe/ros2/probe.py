@@ -477,7 +477,15 @@ class ReadOnlyProbe(Node):
                 else None,
                 "localization_quality": localization,
                 "action_statuses": getattr(self, "action_observations", {}),
-                "message_frames": self.message_frames,
+                "message_frames": {
+                    topic: {
+                        **header,
+                        "stamp_age_ms": None
+                        if ros_now is None
+                        else (ros_now - header["stamp_sec"]) * 1000,
+                    }
+                    for topic, header in self.message_frames.items()
+                },
                 "urdf_descriptions": self.urdf_descriptions,
             },
             "completeness": {

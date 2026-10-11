@@ -98,6 +98,7 @@ def navigation_fixture(namespace="/sample", base="chassis", sensor="laser_mount"
             "source": name,
             "captured_at": NOW.isoformat(),
             "frame_id": "world",
+            "stamp_age_ms": 50,
         }
     # Validate the synthetic model through its public schema, not list mutation.
     return type(model)(**model.model_dump()).seal(), raw, requirements
@@ -149,10 +150,13 @@ def test_costmap_type_ambiguity_requires_explicit_map_selection():
         "localization_missing_axis",
         "localization_wrong_publisher",
         "localization_wrong_frame",
+        "localization_old_message_stamp",
         "costmap_stale",
         "costmap_missing",
         "costmap_duplicate_publisher",
         "costmap_wrong_type",
+        "costmap_old_message_stamp",
+        "costmap_missing_message_stamp",
         "monitor_parameters_stale",
         "monitor_relative_sensor",
         "monitor_sensor_mismatch",
@@ -210,6 +214,8 @@ def test_incomplete_or_faulty_evidence_never_proposes_navigation(fault):
         topic(req["localization_topic"])["publishers"] = ["/initial_pose_source"]
     elif fault == "localization_wrong_frame":
         model.observations["message_frames"][req["localization_topic"]]["frame_id"] = "local"
+    elif fault == "localization_old_message_stamp":
+        model.observations["message_frames"][req["localization_topic"]]["stamp_age_ms"] = 1001
     elif fault == "costmap_stale":
         signal(costmap).last_message_age_ms = 1001
     elif fault == "costmap_missing":
@@ -218,6 +224,10 @@ def test_incomplete_or_faulty_evidence_never_proposes_navigation(fault):
         signal(costmap).publisher_count = 2
     elif fault == "costmap_wrong_type":
         topic(costmap)["msg_type"] = "std_msgs/msg/String"
+    elif fault == "costmap_old_message_stamp":
+        model.observations["message_frames"][costmap]["stamp_age_ms"] = 1001
+    elif fault == "costmap_missing_message_stamp":
+        model.observations["message_frames"][costmap].pop("stamp_age_ms")
     elif fault == "monitor_parameters_stale":
         model.observations["parameter_captured_at"][monitor] = old
     elif fault == "monitor_relative_sensor":

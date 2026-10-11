@@ -126,6 +126,7 @@ def review_navigation_candidate(model, urdf_bytes, requirements, *, now=None):
             if (
                 header.get("source") != name
                 or not fresh(header.get("captured_at"))
+                or not finite_between(header.get("stamp_age_ms"), -100, 1000)
                 or header.get("frame_id") not in {frames.get("map"), frames.get("odom")}
                 or not header.get("frame_id")
             ):
