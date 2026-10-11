@@ -30,6 +30,7 @@ async def main():
     if config.get("executor_kind") != "navigation_only":
         raise ValueError("operator-prepared navigation-only Body required")
     os.environ["ROSCLAW_HOME"] = str(root / "home")
+    os.environ["ROSCLAW_ROS_EXPERT"] = "1"
     ready = root / "daemon_ready.json"
     if ready.exists():
         raise ValueError("fresh isolated journey directory required")
