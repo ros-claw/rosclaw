@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import logging
+import os
 import signal
 import subprocess
 import threading
@@ -11,8 +12,10 @@ import time
 import uuid
 from pathlib import Path
 
+from rosclaw.body.resolver import BodyResolver
 from rosclaw.connectors.ros.action_client import Ros2ActionClient
 from rosclaw.connectors.ros.mission.executor import RosCoverageSimulationExecutor, SimulationWitness
+from rosclaw.connectors.ros.mission.navigation_binding import SimulationNavigationBinding
 from rosclaw.connectors.ros.mission.remember import VerifiedMissionMemoryExecutor
 from rosclaw.connectors.ros.practice import RosPracticeAdapter
 from rosclaw.connectors.ros.transport.base import RosbridgeEndpoint
@@ -36,6 +39,24 @@ def main():
     args = parser.parse_args()
     root = args.directory.resolve()
     config = json.loads((root / "execution_config.json").read_text())
+    kind = config.get("executor_kind", "coverage")
+    if kind not in {"coverage", "navigation_only"}:
+        raise ValueError("unsupported simulation executor kind")
+    navigation_binding = None
+    if kind == "navigation_only":
+        resolver = BodyResolver(workspace=root / "home", body_id=config["body_id"])
+        if not resolver.effective_body_path.is_file():
+            raise ValueError("navigation-only executor requires an already compiled Body")
+        effective = resolver.get_effective_body(recompile_if_stale=False)
+        navigation_binding = SimulationNavigationBinding.from_body(effective)
+        if navigation_binding.body_snapshot_hash != config["body_snapshot_hash"]:
+            raise ValueError("navigation execution configuration Body hash mismatch")
+        if any(k in config for k in ("grid", "recovery_centers", "boundary_centers", "experiment")):
+            raise ValueError(
+                "navigation-only configuration must not contain coverage configuration"
+            )
+        if len(os.fsencode(root / "run/rosclawd.sock")) >= 104:
+            raise ValueError("use a shorter isolated directory for the rosclawd Unix socket")
     runtime = Runtime(
         RuntimeConfig(
             robot_id=config["body_id"],
@@ -74,8 +95,10 @@ def main():
             robot=config["body_id"],
             body_id=config["body_id"],
             payload={
-                "practice_id": "gazebo-room-cleaning",
-                "episode_id": "gazebo-room-cleaning",
+                "practice_id": "gazebo-navigation"
+                if navigation_binding
+                else "gazebo-room-cleaning",
+                "episode_id": "gazebo-navigation" if navigation_binding else "gazebo-room-cleaning",
                 "metadata": {"evidence_domain": "SIMULATION", "engine": "gazebo"},
             },
         )
@@ -91,7 +114,7 @@ def main():
                 raise ConnectionError(result.error)
             time.sleep(0.2)
     client = Ros2ActionClient(transports[0])
-    witness = SimulationWitness(transports[1])
+    witness = SimulationWitness(transports[1], navigation_binding=navigation_binding)
     deadline = time.monotonic() + 20
     while True:
         try:
@@ -110,28 +133,35 @@ def main():
         output=root / "actions",
         body_id=config["body_id"],
         body_snapshot_hash=config["body_snapshot_hash"],
-        grid=config["grid"],
-        recovery_centers=config["recovery_centers"],
+        grid=None if navigation_binding else config["grid"],
+        recovery_centers=() if navigation_binding else config["recovery_centers"],
         lease_control=transports[3],
         audit_metadata=freeze_audit_source(root, config),
         boundary_pass=config.get("experiment", {}).get("boundary_pass", False),
         boundary_strategy=config.get("experiment", {}).get("boundary_strategy", "through_poses"),
         boundary_centers=config.get("boundary_centers"),
+        navigation_binding=navigation_binding,
     )
-    for capability in [
-        "navigation.navigate_to_pose",
-        "coverage.execute",
-        "localization.set_initial_pose",
-    ]:
+    capabilities = (
+        ["navigation.navigate_to_pose"]
+        if navigation_binding
+        else [
+            "navigation.navigate_to_pose",
+            "coverage.execute",
+            "localization.set_initial_pose",
+        ]
+    )
+    for capability in capabilities:
         runtime.action_gateway.register_executor(capability, ExecutionMode.SIMULATION, executor)
     runtime.register_driver("gazebo_ros_expert", executor)
-    runtime.action_gateway.register_executor(
-        "ros.expert.remember",
-        ExecutionMode.SIMULATION,
-        VerifiedMissionMemoryExecutor(
-            runtime, evidence_directory=root / "actions", recorder_bus=recorder_bus
-        ),
-    )
+    if not navigation_binding:
+        runtime.action_gateway.register_executor(
+            "ros.expert.remember",
+            ExecutionMode.SIMULATION,
+            VerifiedMissionMemoryExecutor(
+                runtime, evidence_directory=root / "actions", recorder_bus=recorder_bus
+            ),
+        )
     state = root / "state" / ("persistent" if args.persistent_ledger else uuid.uuid4().hex)
     ledger = DaemonLedger(state / "control.sqlite") if args.persistent_ledger else None
     daemon = RosclawDaemon(
@@ -155,7 +185,9 @@ def main():
         transports[2].close()
         transports[3].close()
         if recorder.session is not None:
-            receipt = runtime.action_gateway.get_receipt("golden-coverage")
+            receipt = runtime.action_gateway.get_receipt(
+                "golden-navigation" if navigation_binding else "golden-coverage"
+            )
             final_state = receipt.final_state.value if receipt is not None else "INTERRUPTED"
             recorder_bus.publish(
                 RuntimeEvent(
@@ -164,8 +196,14 @@ def main():
                     robot=config["body_id"],
                     body_id=config["body_id"],
                     payload={
-                        "outcome": "PARTIAL" if final_state == "DEGRADED" else "FAILURE",
-                        "failure_labels": ["coverage:" + final_state],
+                        "outcome": "SUCCESS"
+                        if navigation_binding and final_state == "COMPLETED"
+                        else "PARTIAL"
+                        if final_state == "DEGRADED"
+                        else "FAILURE",
+                        "failure_labels": []
+                        if navigation_binding and final_state == "COMPLETED"
+                        else [("navigation:" if navigation_binding else "coverage:") + final_state],
                     },
                 )
             )
@@ -182,6 +220,7 @@ def freeze_audit_source(root, config):
     files = [
         Path(__file__),
         repository / "src/rosclaw/connectors/ros/mission/executor.py",
+        repository / "src/rosclaw/connectors/ros/mission/navigation_binding.py",
         repository / "src/rosclaw/connectors/ros/mission/boundary_pass.py",
         repository / "src/rosclaw/connectors/ros/diagnosis/coverage_audit.py",
         repository / "src/rosclaw/connectors/ros/verification/coverage.py",

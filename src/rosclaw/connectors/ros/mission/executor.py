@@ -16,6 +16,7 @@ from pathlib import Path
 from rosclaw.connectors.ros.action_client import STATUS_CANCELED, STATUS_SUCCEEDED
 from rosclaw.connectors.ros.diagnosis.coverage_audit import CoverageAuditLog, digest
 from rosclaw.connectors.ros.mission.boundary_pass import rectangular_boundary_targets
+from rosclaw.connectors.ros.mission.navigation_binding import SimulationNavigationBinding
 from rosclaw.connectors.ros.mission.recovery import MissedRegionRecovery
 from rosclaw.connectors.ros.verification.coverage import (
     CleaningPose,
@@ -37,7 +38,17 @@ logger = logging.getLogger(__name__)
 class SimulationWitness:
     """Read-only receiver on a separate connection from the action client."""
 
-    def __init__(self, transport):
+    def __init__(self, transport, *, navigation_binding=None):
+        if navigation_binding is not None and not isinstance(
+            navigation_binding, SimulationNavigationBinding
+        ):
+            raise ValueError("immutable SIM navigation binding required")
+        self.navigation_binding = navigation_binding
+        self.topic = (
+            navigation_binding.observation_topic
+            if navigation_binding
+            else "/rosclaw_sim/observation"
+        )
         self.transport = transport
         self.latest = None
         self.samples = []
@@ -49,7 +60,7 @@ class SimulationWitness:
             {
                 "op": "subscribe",
                 "id": "ros-expert-witness",
-                "topic": "/rosclaw_sim/observation",
+                "topic": self.topic,
                 "type": "std_msgs/msg/String",
             }
         )
@@ -64,7 +75,7 @@ class SimulationWitness:
             if not result.ok:
                 continue
             data = result.data or {}
-            if data.get("topic") != "/rosclaw_sim/observation":
+            if data.get("topic") != self.topic:
                 continue
             try:
                 sample = json.loads(data["msg"]["data"])
@@ -85,7 +96,10 @@ class SimulationWitness:
                 ):
                     continue
                 if (
-                    type(sample.get("cleaning_enabled")) is not bool
+                    (
+                        self.navigation_binding is None
+                        and type(sample.get("cleaning_enabled")) is not bool
+                    )
                     or type(sample.get("observation_complete")) is not bool
                     or type(sample.get("collision_count")) is not int
                     or sample["collision_count"] < 0
@@ -106,6 +120,11 @@ class SimulationWitness:
                     self.action_fault = (
                         "independent simulation witness detected collision during action"
                     )
+                elif getattr(self, "navigation_binding", None):
+                    try:
+                        self.navigation_binding.validate_observation(sample)
+                    except ValueError as exc:
+                        self.action_fault = str(exc)
 
     def fresh(self):
         with self.lock:
@@ -120,6 +139,11 @@ class SimulationWitness:
                 raise RuntimeError("independent simulation witness is incomplete")
             if sample["collision_count"]:
                 raise RuntimeError("independent simulation witness detected collision")
+            if getattr(self, "navigation_binding", None):
+                try:
+                    self.navigation_binding.validate_observation(sample)
+                except ValueError as exc:
+                    raise RuntimeError(str(exc)) from exc
             return sample
 
     def mark(self):
@@ -158,9 +182,32 @@ class RosCoverageSimulationExecutor:
         boundary_pass=False,
         boundary_strategy="through_poses",
         boundary_centers=None,
+        navigation_binding=None,
     ):
         if not owner.startswith("daemon_"):
             raise ValueError("daemon ownership is required")
+        if navigation_binding is not None and (
+            not isinstance(navigation_binding, SimulationNavigationBinding)
+            or navigation_binding.body_id != body_id
+            or navigation_binding.body_snapshot_hash != body_snapshot_hash
+            or getattr(witness, "navigation_binding", None) != navigation_binding
+            or grid is not None
+            or recovery_centers
+            or boundary_pass
+            or boundary_centers
+        ):
+            raise ValueError(
+                "navigation-only executor requires a matching immutable Body/witness binding without coverage configuration"
+            )
+        self.navigation_binding = navigation_binding
+        self.lease_service = (
+            navigation_binding.lease_service if navigation_binding else "/rosclaw_sim/lease"
+        )
+        self.shutdown_services = (
+            (self.lease_service,)
+            if navigation_binding
+            else ("/rosclaw_sim/cleaning", self.lease_service)
+        )
         self.owner, self.client, self.control, self.witness = owner, client, control, witness
         self.output, self.body_id, self.grid = Path(output), body_id, grid
         self.body_snapshot_hash = body_snapshot_hash
@@ -169,6 +216,7 @@ class RosCoverageSimulationExecutor:
         self.lock = threading.Lock()
         self.execution_lock = threading.Lock()
         self.control_lock = threading.Lock()
+        self.lease_enable_lock = threading.RLock()
         self.recovery_centers = tuple(recovery_centers)
         self.lease_control = lease_control or control
         self.lease_lock = self.control_lock if self.lease_control is control else threading.Lock()
@@ -201,10 +249,26 @@ class RosCoverageSimulationExecutor:
     def _service(self, name, arguments):
         # One response consumer per connection: concurrent RPC loops would
         # otherwise consume and discard each other's request IDs.
-        with self.control_lock:
+        with self.lease_enable_lock, self.control_lock:
+            if arguments.get("data") is True and self.stopping.is_set():
+                raise RuntimeError("simulation execution is stopping")
             return self.control.call_service(
                 name, arguments, service_type="std_srvs/srv/SetBool", timeout_sec=0.5
             )
+
+    def _renew_service(self, name, *, timeout_sec):
+        with self.lease_enable_lock, self.lease_lock:
+            if self.stopping.is_set():
+                raise RuntimeError("simulation execution is stopping")
+            return self.lease_control.call_service(
+                name, {"data": True}, service_type="std_srvs/srv/SetBool", timeout_sec=timeout_sec
+            )
+
+    def _send_navigation_goal(self, **kwargs):
+        with self.lease_enable_lock:
+            if self.stopping.is_set():
+                raise RuntimeError("simulation execution stopped before goal dispatch")
+            self.client.send_goal(**kwargs)
 
     def _coverage_goal(self, arguments):
         """Bind the rectangular fixture's approved area to its fixed denominator.
@@ -541,7 +605,7 @@ class RosCoverageSimulationExecutor:
     def emergency_stop(self):
         self.stopping.set()
         cancel_error = None
-        with self.lock:
+        with self.lease_enable_lock, self.lock:
             if self.goal_id:
                 try:
                     self.client.cancel_goal(self.goal_id)
@@ -551,7 +615,7 @@ class RosCoverageSimulationExecutor:
         # revocation. These are the existing SIM-only services, never raw motion.
         responses = []
         errors = [cancel_error] if cancel_error else []
-        for service in ["/rosclaw_sim/cleaning", "/rosclaw_sim/lease"]:
+        for service in self.shutdown_services:
             try:
                 response = self._service(service, {"data": False})
                 responses.append(
@@ -560,9 +624,17 @@ class RosCoverageSimulationExecutor:
             except Exception as exc:
                 responses.append(False)
                 errors.append(str(exc))
+        physical_stop_verified = False
+        if self.navigation_binding and all(responses):
+            physical_stop_verified = self._observe_navigation_stop(datetime.now(UTC))
         return {
             "acknowledged": all(responses) and not errors,
-            "physical_stop_verified": False,
+            "physical_stop_verified": physical_stop_verified,
+            "physical_stop_observed": physical_stop_verified,
+            "verification_source": "gazebo_ground_truth_and_revoked_sim_lease"
+            if physical_stop_verified
+            else None,
+            "execution_mode": "SIMULATION",
             "cancel_error": cancel_error,
             "errors": errors,
         }
@@ -578,6 +650,12 @@ class RosCoverageSimulationExecutor:
                 "navigation.navigate_to_pose",
                 "localization.set_initial_pose",
             }
+            or (
+                self.navigation_binding is not None
+                and (
+                    action.capability_id != "navigation.navigate_to_pose" or self.stopping.is_set()
+                )
+            )
         ):
             return self._result(ActionState.BLOCKED, errors=[{"code": "SIMULATION_ONLY"}])
         if not self.execution_lock.acquire(blocking=False):
@@ -697,12 +775,23 @@ class RosCoverageSimulationExecutor:
         coverage = action.capability_id == "coverage.execute"
         try:
             coverage_goal = self._coverage_goal(action.arguments) if coverage else None
-        except (KeyError, TypeError, ValueError) as exc:
+            navigation_goal = (
+                self._navigation_goal(action.arguments) if self.navigation_binding else None
+            )
+        except (KeyError, TypeError, ValueError, RuntimeError) as exc:
             return self._result(
                 ActionState.BLOCKED,
-                errors=[{"code": "COVERAGE_SCOPE_REJECTED", "message": str(exc)}],
+                errors=[
+                    {
+                        "code": "NAVIGATION_SCOPE_REJECTED"
+                        if self.navigation_binding
+                        else "COVERAGE_SCOPE_REJECTED",
+                        "message": str(exc),
+                    }
+                ],
             )
-        self.stopping.clear()
+        if not self.navigation_binding:
+            self.stopping.clear()
         started = self.witness.mark()
         self.audit_start = started
         completed, box = threading.Event(), {}
@@ -710,6 +799,8 @@ class RosCoverageSimulationExecutor:
         dispatched = False
         heartbeat_stop = threading.Event()
         deadline = time.monotonic() + action.verification_policy.timeout_sec
+        if self.navigation_binding:
+            deadline = min(deadline, time.monotonic() + self.navigation_binding.max_duration_sec)
 
         def maintain_lease():
             last_log = time.monotonic()
@@ -717,13 +808,7 @@ class RosCoverageSimulationExecutor:
             while not heartbeat_stop.wait(0.2):
                 try:
                     observed = self.witness.fresh()
-                    with self.lease_lock:
-                        response = self.lease_control.call_service(
-                            "/rosclaw_sim/lease",
-                            {"data": True},
-                            service_type="std_srvs/srv/SetBool",
-                            timeout_sec=0.5,
-                        )
+                    response = self._renew_service(self.lease_service, timeout_sec=0.5)
                     count += 1
                     if time.monotonic() - last_log >= 5:
                         logger.info("Simulation daemon lease renewed %s times", count)
@@ -740,7 +825,15 @@ class RosCoverageSimulationExecutor:
                                 remaining,
                             )
                             continue
-                    if not response.ok or time.monotonic() > deadline or self.stopping.is_set():
+                    if (
+                        not response.ok
+                        or (
+                            self.navigation_binding
+                            and response.data.get("values", {}).get("success") is not True
+                        )
+                        or time.monotonic() > deadline
+                        or self.stopping.is_set()
+                    ):
                         logger.error(
                             "Simulation heartbeat stopped: ok=%s error=%s deadline=%s stopping=%s",
                             response.ok,
@@ -755,13 +848,7 @@ class RosCoverageSimulationExecutor:
                         and not observed["cleaning_enabled"]
                         and not heartbeat_stop.is_set()
                     ):
-                        with self.lease_lock:
-                            enabled = self.lease_control.call_service(
-                                "/rosclaw_sim/cleaning",
-                                {"data": True},
-                                service_type="std_srvs/srv/SetBool",
-                                timeout_sec=0.3,
-                            )
+                        enabled = self._renew_service("/rosclaw_sim/cleaning", timeout_sec=0.3)
                         if not enabled.ok or not enabled.data.get("values", {}).get("success"):
                             raise RuntimeError("active simulation cleaning re-enable rejected")
                 except Exception:
@@ -772,7 +859,11 @@ class RosCoverageSimulationExecutor:
         heartbeat_thread = threading.Thread(target=maintain_lease, daemon=True)
         try:
             self.witness.fresh()
-            self._service("/rosclaw_sim/lease", {"data": True})
+            enabled = self._service(self.lease_service, {"data": True})
+            if self.navigation_binding and (
+                not enabled.ok or enabled.data.get("values", {}).get("success") is not True
+            ):
+                raise RuntimeError("simulation navigation lease enable was not acknowledged")
             heartbeat_thread.start()
             if coverage:
                 response = self._service("/rosclaw_sim/cleaning", {"data": True})
@@ -784,8 +875,17 @@ class RosCoverageSimulationExecutor:
                 )
                 args = coverage_goal
             else:
-                name, action_type = "/navigate_to_pose", "nav2_msgs/action/NavigateToPose"
-                args = {"pose": action.arguments["pose"]}
+                name = (
+                    self.navigation_binding.action_name
+                    if self.navigation_binding
+                    else "/navigate_to_pose"
+                )
+                action_type = "nav2_msgs/action/NavigateToPose"
+                args = (
+                    navigation_goal
+                    if self.navigation_binding
+                    else {"pose": action.arguments["pose"]}
+                )
             with self.lock:
                 self.goal_id = goal_id
             self._audit_event(
@@ -796,7 +896,7 @@ class RosCoverageSimulationExecutor:
                     "goal": args,
                 },
             )
-            self.client.send_goal(
+            self._send_navigation_goal(
                 action=name,
                 action_type=action_type,
                 args=args,
@@ -822,6 +922,8 @@ class RosCoverageSimulationExecutor:
                     completed.wait(3)
                     raise RuntimeError("simulation action interrupted or timed out")
             time.sleep(0.2)
+            if self.navigation_binding and (self.stopping.is_set() or time.monotonic() > deadline):
+                raise RuntimeError("simulation navigation interrupted or timed out")
             samples = self.witness.since(started)
             final = self.witness.fresh()
             if box.get("status") != STATUS_SUCCEEDED and not coverage:
@@ -898,14 +1000,37 @@ class RosCoverageSimulationExecutor:
             else:
                 target = args["pose"]["pose"]["position"]
                 distance = math.hypot(final["x"] - target["x"], final["y"] - target["y"])
-                if distance > 0.15:
+                tolerance = (
+                    self.navigation_binding.goal_position_tolerance_m
+                    if self.navigation_binding
+                    else 0.15
+                )
+                if distance > tolerance:
                     raise RuntimeError("ground truth did not reach navigation goal")
                 verification = {"goal_distance_m": distance, "collision_count": collision_count}
+                if self.navigation_binding:
+                    for sample in samples:
+                        self.navigation_binding.validate_observation(sample)
+                    orientation = args["pose"]["pose"]["orientation"]
+                    yaw = 2 * math.atan2(orientation["z"], orientation["w"])
+                    error = abs((final["yaw"] - yaw + math.pi) % (2 * math.pi) - math.pi)
+                    if error > self.navigation_binding.goal_yaw_tolerance_rad:
+                        raise RuntimeError("ground truth did not reach navigation orientation")
+                    verification["goal_yaw_error_rad"] = error
             heartbeat_stop.set()
             heartbeat_thread.join(timeout=2)
-            disabled = self._service("/rosclaw_sim/cleaning", {"data": False})
-            if not disabled.ok or not disabled.data.get("values", {}).get("success"):
-                raise RuntimeError("simulated cleaning disable was not acknowledged")
+            if self.navigation_binding:
+                verification["physical_stop_verified"] = self._stop_navigation()
+                if (
+                    self.stopping.is_set()
+                    or time.monotonic() > deadline
+                    or not verification["physical_stop_verified"]
+                ):
+                    raise RuntimeError("independent navigation stop was not verified")
+            else:
+                disabled = self._service("/rosclaw_sim/cleaning", {"data": False})
+                if not disabled.ok or not disabled.data.get("values", {}).get("success"):
+                    raise RuntimeError("simulated cleaning disable was not acknowledged")
             return self._result(
                 ActionState.DEGRADED if coverage and ratio < 0.98 else ActionState.COMPLETED,
                 verification=verification,
@@ -964,7 +1089,7 @@ class RosCoverageSimulationExecutor:
             heartbeat_stop.set()
             if heartbeat_thread.is_alive():
                 heartbeat_thread.join(timeout=2)
-            for service in ["/rosclaw_sim/cleaning", "/rosclaw_sim/lease"]:
+            for service in self.shutdown_services:
                 try:
                     self._service(service, {"data": False})
                 except Exception:
@@ -974,6 +1099,59 @@ class RosCoverageSimulationExecutor:
             with self.lock:
                 self.goal_id = None
             self._audit_event("cleanup_attempted", {"stage": "CLEANUP"})
+
+    def _navigation_goal(self, arguments):
+        binding = self.navigation_binding
+        if type(arguments) is not dict or set(arguments) != {"pose"}:
+            raise ValueError("navigation arguments must contain only a pose")
+        args = json.loads(json.dumps(arguments))
+        goal = args["pose"]
+        position, orientation = goal["pose"]["position"], goal["pose"]["orientation"]
+        numbers = [position[k] for k in ("x", "y", "z")] + [
+            orientation[k] for k in ("x", "y", "z", "w")
+        ]
+        if (
+            goal["header"]["frame_id"] != binding.frame_id
+            or any(type(v) not in (int, float) or not math.isfinite(v) for v in numbers)
+            or position["z"] != 0
+            or orientation["x"] != 0
+            or orientation["y"] != 0
+            or abs(orientation["z"] ** 2 + orientation["w"] ** 2 - 1) > 1e-6
+        ):
+            raise ValueError("finite planar pose in the bound map frame required")
+        start = self.witness.fresh()
+        binding.validate_observation(start)
+        if (
+            math.hypot(position["x"] - start["x"], position["y"] - start["y"])
+            > binding.max_goal_distance_m
+        ):
+            raise ValueError("navigation target exceeds the bound small-motion distance")
+        return args
+
+    def _observe_navigation_stop(self, requested_at):
+        deadline, stationary_since = time.monotonic() + 2, None
+        while time.monotonic() < deadline:
+            try:
+                sample = self.witness.fresh()
+                captured = datetime.fromisoformat(sample["captured_at"])
+                if captured >= requested_at and self.navigation_binding.stopped(sample):
+                    if stationary_since is None:
+                        stationary_since = sample["time_sec"]
+                    elif sample["time_sec"] - stationary_since >= 0.1:
+                        return True
+                else:
+                    stationary_since = None
+            except (RuntimeError, ValueError, KeyError, TypeError):
+                return False
+            time.sleep(0.02)
+        return False
+
+    def _stop_navigation(self):
+        requested_at = datetime.now(UTC)
+        response = self._service(self.lease_service, {"data": False})
+        if not response.ok or response.data.get("values", {}).get("success") is not True:
+            return False
+        return self._observe_navigation_stop(requested_at)
 
     def _result(self, state, *, verification=None, observations=None, errors=None, accepted=False):
         return ActionExecutionResult(
