@@ -271,6 +271,7 @@ def main():
     )
     parser.add_argument("--seed", type=int)
     parser.add_argument("--fault-acceptance", action="store_true")
+    parser.add_argument("--navigation-only", action="store_true")
     parser.add_argument(
         "--controller-watchdog",
         action=argparse.BooleanOptionalAction,
@@ -287,6 +288,36 @@ def main():
     prepare(args.controller_watchdog, args.profile, args.coverage_preset, args.seed)
     (OUTPUT / "run_id.txt").write_text(uuid.uuid4().hex + "\n")
     profile = PROFILES[args.profile]
+    if args.navigation_only:
+        from fixture_body import configure_fixture_body
+
+        body_hash = configure_fixture_body(
+            OUTPUT / "home",
+            {
+                "body_id": profile.body_id,
+                "physical_radius_m": profile.physical_radius_m,
+                "cleaning_polygon": profile.cleaning_polygon,
+            },
+            OUTPUT / "robot.urdf",
+            navigation_run_id=(OUTPUT / "run_id.txt").read_text().strip(),
+        )
+        (OUTPUT / "execution_config.json").write_text(
+            json.dumps(
+                {
+                    "executor_kind": "navigation_only",
+                    "body_id": profile.body_id,
+                    "body_snapshot_hash": body_hash,
+                },
+                indent=2,
+            )
+            + "\n"
+        )
+        params = yaml.safe_load((OUTPUT / "nav2.yaml").read_text())
+        navigator = params["bt_navigator"]["ros__parameters"]
+        navigator["navigators"] = ["navigate_to_pose"]
+        navigator.pop("navigate_complete_coverage", None)
+        navigator.pop("default_coverage_bt_xml", None)
+        (OUTPUT / "nav2.yaml").write_text(yaml.safe_dump(params))
     children = []
     labels = {}
     exited = set()
@@ -384,38 +415,39 @@ def main():
                 "use_sim_time:=true",
             ],
         )
-        start(
-            "coverage",
-            [
-                "ros2",
-                "run",
-                "opennav_coverage",
-                "opennav_coverage",
-                "--ros-args",
-                "--params-file",
-                str(OUTPUT / "nav2.yaml"),
-                "-p",
-                "use_sim_time:=true",
-            ],
-        )
-        start(
-            "coverage_lifecycle",
-            [
-                "ros2",
-                "run",
-                "nav2_lifecycle_manager",
-                "lifecycle_manager",
-                "--ros-args",
-                "-r",
-                "__node:=coverage_lifecycle_manager",
-                "-p",
-                "use_sim_time:=true",
-                "-p",
-                "autostart:=true",
-                "-p",
-                "node_names:=['coverage_server']",
-            ],
-        )
+        if not args.navigation_only:
+            start(
+                "coverage",
+                [
+                    "ros2",
+                    "run",
+                    "opennav_coverage",
+                    "opennav_coverage",
+                    "--ros-args",
+                    "--params-file",
+                    str(OUTPUT / "nav2.yaml"),
+                    "-p",
+                    "use_sim_time:=true",
+                ],
+            )
+            start(
+                "coverage_lifecycle",
+                [
+                    "ros2",
+                    "run",
+                    "nav2_lifecycle_manager",
+                    "lifecycle_manager",
+                    "--ros-args",
+                    "-r",
+                    "__node:=coverage_lifecycle_manager",
+                    "-p",
+                    "use_sim_time:=true",
+                    "-p",
+                    "autostart:=true",
+                    "-p",
+                    "node_names:=['coverage_server']",
+                ],
+            )
         start(
             "rosbridge",
             [

@@ -4,6 +4,7 @@ Runs only in the isolated simulation container. Ground truth is received from
 Gazebo, independently of Nav2 localization and action results.
 """
 
+import hashlib
 import json
 import math
 import time
@@ -34,7 +35,9 @@ from std_srvs.srv import SetBool
 from tf2_msgs.msg import TFMessage
 from visualization_msgs.msg import Marker
 
+from rosclaw.body.resolver import BodyResolver
 from rosclaw.connectors.ros.diagnosis.coverage_audit import CoverageAuditLog, digest
+from rosclaw.connectors.ros.mission.navigation_binding import SimulationNavigationBinding
 
 
 class Witness(Node):
@@ -44,6 +47,27 @@ class Witness(Node):
         self.profile = PROFILES[saved_profile["name"]]
         if saved_profile != self.profile.to_dict():
             raise ValueError("fixture observer profile differs from supported geometry")
+        self.navigation_binding = None
+        config_path = Path("/evidence/execution_config.json")
+        if config_path.exists():
+            config = json.loads(config_path.read_text())
+            if config.get("executor_kind") == "navigation_only":
+                effective = BodyResolver(
+                    workspace=Path("/evidence/home"), body_id=config["body_id"]
+                ).get_effective_body(recompile_if_stale=False)
+                self.navigation_binding = SimulationNavigationBinding.from_body(effective)
+                if (
+                    self.navigation_binding.body_snapshot_hash != config["body_snapshot_hash"]
+                    or self.navigation_binding.run_id
+                    != Path("/evidence/run_id.txt").read_text().strip()
+                    or effective.provider_interfaces["ros_capability_bindings"][
+                        "safety.simulation_observation"
+                    ]["urdf_sha256"]
+                    != hashlib.sha256(Path("/evidence/robot.urdf").read_bytes()).hexdigest()
+                    or self.navigation_binding.frame_id != "map"
+                ):
+                    raise ValueError("navigation observer Body/model/run/frame mismatch")
+        self.previous_measured_pose = None
         self.cleaning = False
         self.observation_lock = Lock()
         self.pose = None
@@ -72,8 +96,18 @@ class Witness(Node):
                 else "UNKNOWN",
             },
         )
-        self.publisher = self.create_publisher(String, "/rosclaw_sim/observation", 10)
-        self.cleaning_state = self.create_publisher(Bool, "/rosclaw_sim/cleaning_state", 10)
+        self.publisher = self.create_publisher(
+            String,
+            self.navigation_binding.observation_topic
+            if self.navigation_binding
+            else "/rosclaw_sim/observation",
+            10,
+        )
+        self.cleaning_state = (
+            None
+            if self.navigation_binding
+            else self.create_publisher(Bool, "/rosclaw_sim/cleaning_state", 10)
+        )
         self.controller_watchdog = self.declare_parameter("controller_watchdog", True).value
         self.velocity = self.create_publisher(
             TwistStamped if self.controller_watchdog else Twist,
@@ -150,14 +184,20 @@ class Witness(Node):
                 reliability=ReliabilityPolicy.RELIABLE,
             ),
         )
+        if not self.navigation_binding:
+            self.create_service(
+                SetBool,
+                "/rosclaw_sim/cleaning",
+                self.set_cleaning,
+                callback_group=self.control_callbacks,
+            )
         self.create_service(
             SetBool,
-            "/rosclaw_sim/cleaning",
-            self.set_cleaning,
+            self.navigation_binding.lease_service
+            if self.navigation_binding
+            else "/rosclaw_sim/lease",
+            self.heartbeat,
             callback_group=self.control_callbacks,
-        )
-        self.create_service(
-            SetBool, "/rosclaw_sim/lease", self.heartbeat, callback_group=self.control_callbacks
         )
         self.create_timer(
             0.05, self.tick, callback_group=self.control_callbacks, clock=self.wall_clock
@@ -365,7 +405,8 @@ class Witness(Node):
                 )
             self.publish_velocity(Twist())
             self.cleaning = False
-        self.cleaning_state.publish(Bool(data=self.cleaning))
+        if self.cleaning_state is not None:
+            self.cleaning_state.publish(Bool(data=self.cleaning))
         if pose is None:
             return
         if self.published_time == pose["time_sec"]:
@@ -398,6 +439,28 @@ class Witness(Node):
             and all(0 <= now - contact_seen.get(t, 0) < 1 for t in self.wheel_topics),
             "contact_stream_ages_ms": {t: (now - seen) * 1000 for t, seen in contact_seen.items()},
         }
+        if self.navigation_binding:
+            previous = self.previous_measured_pose
+            self.previous_measured_pose = pose
+            # Velocity comes from successive Gazebo poses, never Nav2 commands.
+            if previous is None or pose["time_sec"] <= previous["time_sec"]:
+                return
+            dt = pose["time_sec"] - previous["time_sec"]
+            dyaw = math.atan2(
+                math.sin(pose["yaw"] - previous["yaw"]),
+                math.cos(pose["yaw"] - previous["yaw"]),
+            )
+            sample.pop("cleaning_enabled")
+            sample.update(
+                body_id=self.navigation_binding.body_id,
+                body_snapshot_hash=self.navigation_binding.body_snapshot_hash,
+                run_id=self.navigation_binding.run_id,
+                frame_id=self.navigation_binding.frame_id,
+                lease_enabled=now < self.lease,
+                linear_speed_mps=math.hypot(pose["x"] - previous["x"], pose["y"] - previous["y"])
+                / dt,
+                angular_speed_rps=dyaw / dt,
+            )
         self.trace.write(json.dumps(sample) + "\n")
         self.publisher.publish(String(data=json.dumps(sample)))
 

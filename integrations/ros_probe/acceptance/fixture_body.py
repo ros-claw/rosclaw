@@ -16,7 +16,9 @@ from rosclaw.body.resolver import BodyResolver
 from rosclaw.body.schema import BodyYaml, CalibrationYaml, EurdfProfile
 
 
-def configure_fixture_body(home: Path, specification: dict, urdf_path: Path):
+def configure_fixture_body(
+    home: Path, specification: dict, urdf_path: Path, *, navigation_run_id: str | None = None
+):
     raw = urdf_path.read_bytes()
     robot = ET.fromstring(raw)
     if robot.tag != "robot" or robot.find("link[@name='base_footprint']") is None:
@@ -103,6 +105,46 @@ def configure_fixture_body(home: Path, specification: dict, urdf_path: Path):
             },
         }
     )
+    if navigation_run_id is not None:
+        if not navigation_run_id.strip():
+            raise ValueError("navigation fixture requires a fresh run identity")
+        profile.description = "Pinned vendor model for navigation-only SIM acceptance."
+        profile.capability_hints = {"all": ["navigation.navigate_to_pose"]}
+        profile.provider_interfaces = {
+            "ros_capability_bindings": {
+                "navigation.navigate_to_pose": {
+                    "name": "/navigate_to_pose",
+                    "action_type": "nav2_msgs/action/NavigateToPose",
+                },
+                "safety.simulation_lease": {
+                    "name": "/rosclaw_sim/lease",
+                    "srv_type": "std_srvs/srv/SetBool",
+                },
+                "safety.simulation_observation": {
+                    "name": "/rosclaw_sim/observation",
+                    "msg_type": "std_msgs/msg/String",
+                    "evidence_domain": "GAZEBO_PHYSICS",
+                    "run_id": navigation_run_id,
+                    "urdf_sha256": hashlib.sha256(raw).hexdigest(),
+                },
+            }
+        }
+        profile.safety["navigation_simulation"] = {
+            "max_goal_distance_m": 1.0,
+            "max_duration_sec": 60.0,
+            "goal_position_tolerance_m": 0.15,
+            "goal_yaw_tolerance_rad": 0.2,
+            "max_speed_mps": 0.4,
+            "max_yaw_rate_rps": 1.5,
+            "stop_speed_mps": 0.01,
+            "stop_yaw_rate_rps": 0.03,
+        }
+        profile.metadata = {
+            "evidence_domain": "SIMULATION",
+            "urdf_sha256": hashlib.sha256(raw).hexdigest(),
+            "physical_radius_m": specification["physical_radius_m"],
+            "fixture_scope": "known_vendor_navigation_only_not_held_out_adaptation",
+        }
     resolver = BodyResolver(workspace=home)
     resolver.ensure_body_dir()
     resolver.eurdf_profile_path.write_text(yaml.safe_dump(profile.to_dict(), sort_keys=False))
