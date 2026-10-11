@@ -689,7 +689,9 @@ def add_ros_subparser(subparsers: argparse._SubParsersAction) -> argparse.Argume
         "inspect-navigation-workspace", help="Read-only compiled navigation artifact integrity"
     )
     _add_common(workspace_parser)
-    workspace_parser.add_argument("--workspace", required=True, help="Compiled fixture workspace")
+    workspace_parser.add_argument(
+        "--workspace", dest="navigation_workspace", required=True, help="Compiled fixture workspace"
+    )
     workspace_parser.add_argument(
         "--expected-manifest-hash", help="Separately pinned manifest hash"
     )
@@ -713,7 +715,7 @@ def dispatch_ros_command(args: argparse.Namespace) -> int:
 
         try:
             result = inspect_navigation_body_workspace(
-                args.workspace,
+                args.navigation_workspace,
                 expected_manifest_hash=args.expected_manifest_hash,
                 expected_body_hash=args.expected_body_hash,
             )

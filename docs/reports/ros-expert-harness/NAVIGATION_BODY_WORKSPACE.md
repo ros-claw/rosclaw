@@ -78,7 +78,10 @@ compiler interoperability, without a World, motion, or Body admission.
 
 `ros inspect-navigation-workspace --workspace /tmp/new-navigation-workspace
 --json` reads the closed compiler workspace without a Runtime, ROS connection,
-resolver fallback, workspace installation, recompile-on-disk or other writes.
+resolver fallback, workspace installation, recompile-on-disk or writes to the
+compiled workspace. The CLI keeps its artifact directory separate from the
+runtime home used by normal telemetry, so completion events cannot alter the
+reviewed compiler inventory.
 Optional `--expected-manifest-hash` and `--expected-body-hash` pin values obtained
 separately by the caller. Self-consistent hashes alone do not identify a trusted
 publisher or prove which sources the simulator actually loaded.

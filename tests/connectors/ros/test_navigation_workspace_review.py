@@ -260,11 +260,29 @@ def test_manifest_cannot_add_an_external_member(tmp_path):
     assert outside.read_text() == "not a compiler source"
 
 
-@pytest.mark.parametrize("fault", [None, "tamper", "pin"])
-def test_actual_pinned_inspection_cli_is_read_only_and_explicit_about_history(tmp_path, fault):
+@pytest.mark.parametrize(
+    "fault,runtime_home_exists", [(None, False), (None, True), ("tamper", False), ("pin", False)]
+)
+def test_actual_pinned_inspection_cli_is_read_only_and_explicit_about_history(
+    tmp_path, fault, runtime_home_exists
+):
     root, _ = workspace(tmp_path)
     if fault == "tamper":
         (root / "execution_config.json").write_text("{}")
+    if runtime_home_exists:
+        (tmp_path / "private-home").mkdir()
+
+    def capture():
+        return {
+            str(p.relative_to(root)): (
+                p.read_bytes() if p.is_file() else None,
+                p.stat().st_mtime_ns,
+                p.stat().st_ctime_ns,
+            )
+            for p in [root, *root.rglob("*")]
+        }
+
+    before = capture()
     repository = Path(__file__).resolve().parents[3]
     argv = [
         sys.executable,
@@ -296,4 +314,5 @@ def test_actual_pinned_inspection_cli_is_read_only_and_explicit_about_history(tm
     if fault is None:
         assert result["status"] == "ARTIFACT_INTEGRITY_VERIFIED_NOT_ADMITTED"
         assert result["current_navigation_readiness"] == "NOT_EVALUATED"
-    assert not (tmp_path / "private-home").exists()
+    assert (tmp_path / "private-home").exists() is runtime_home_exists
+    assert capture() == before
