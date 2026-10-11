@@ -17,6 +17,17 @@ from rosclaw.memory.interface import MemoryInterface
 from rosclaw.memory.seekdb_client import SQLiteStructuredStore
 
 
+def native_path_sources(root):
+    """Legacy snapshots or current append-only streams, never guessed paths."""
+    legacy = [root / name for name in ("coverage_path.json", "navigation_path.json")]
+    if all(path.is_file() for path in legacy):
+        return legacy
+    streams = sorted(root.glob("plan-events-*.jsonl"))
+    if not streams:
+        raise RuntimeError("Native path evidence is missing; no legacy snapshots or append log")
+    return streams
+
+
 def main(root, fixture, output, native=False):
     receipt_export = None
     if native:
@@ -138,8 +149,15 @@ def main(root, fixture, output, native=False):
         source.backup(target)
     files = []
 
-    def archive(source, name, compressed=False):
+    def archive(source, name, compressed=False, live_prefix=False):
         raw = source.read_bytes()
+        if live_prefix:
+            # The independent observer is still needed for the standstill
+            # check. Capture complete lines only; final EOF/chain validation
+            # remains a separate mandatory audit after stack shutdown.
+            raw = raw[: raw.rfind(b"\n") + 1]
+            if not raw:
+                raise RuntimeError("Native path observation prefix is empty")
         target = output / name
         target.write_bytes(gzip.compress(raw, mtime=0) if compressed else raw)
         files.append(
@@ -148,6 +166,7 @@ def main(root, fixture, output, native=False):
                 "source_sha256": hashlib.sha256(raw).hexdigest(),
                 "archive_sha256": hashlib.sha256(target.read_bytes()).hexdigest(),
                 "gzip": compressed,
+                **({"source_role": "LIVE_PREFIX_NOT_FINAL_AUDIT"} if live_prefix else {}),
             }
         )
 
@@ -189,11 +208,16 @@ def main(root, fixture, output, native=False):
     ):
         archive(root / name, name + ".gz", True)
     for name in (
-        ("fixture_profile.json", "coverage_path.json", "navigation_path.json", "probe.log")
+        ("fixture_profile.json", "probe.log")
         if native
         else ("snapshot.json", "task_graph.json", "solution.json")
     ):
         archive(root / name, name + ".gz", True)
+    if native:
+        for source in native_path_sources(root):
+            is_stream = source.suffix == ".jsonl"
+            name = source.name + (".live-prefix.gz" if is_stream else ".gz")
+            archive(source, name, True, live_prefix=is_stream)
     result = {
         "status": "PASS",
         "source_commit": json.loads((root / "source-freeze.json").read_text())["git_sha"],

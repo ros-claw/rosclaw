@@ -44,13 +44,43 @@ def analyze_pairs(pairs, *, expected_seeds, profile, phase, bootstrap_samples=20
     run_ids = set()
     for pair in selected:
         problems = []
+        if pair.get("status") != "PASS":
+            problems.append("whole paired run did not pass")
         rows = pair.get("runs", [])
         if len(rows) != 2 or {r.get("arm") for r in rows} != {"baseline", "candidate"}:
             problems.append("two distinct arms required")
         else:
             arms = {r["arm"]: r for r in rows}
-            identities.add((pair["source_commit"], pair["image_id"], pair["candidate"]))
+            strategy = pair.get("candidate_repair_strategy", "greedy")
+            deadline = pair.get("mission_timeout_sec")
+            protocol = pair.get("protocol_sha256")
+            if type(deadline) is not int or not 60 <= deadline <= 1800 or not protocol:
+                problems.append("mission deadline or protocol binding missing")
+            identities.add(
+                (
+                    pair["source_commit"],
+                    pair["image_id"],
+                    pair["candidate"],
+                    strategy,
+                    deadline,
+                    protocol,
+                )
+            )
             for r in rows:
+                expected_preset = "baseline" if r["arm"] == "baseline" else pair["candidate"]
+                expected_strategy = "greedy" if r["arm"] == "baseline" else strategy
+                if (
+                    r.get("preset") != expected_preset
+                    or r.get("repair_strategy", "greedy") != expected_strategy
+                ):
+                    problems.append("arm preset or repair strategy differs from frozen pair")
+                if r.get("complete_independent_observations") is not True:
+                    problems.append("complete independent observations not recorded")
+                if (
+                    type(r.get("mission_timeout_sec")) is not int
+                    or r["mission_timeout_sec"] != deadline
+                ):
+                    problems.append("arm mission deadline differs from frozen pair")
                 if any(
                     r.get(k) != pair[k] for k in ["profile", "seed", "source_commit", "image_id"]
                 ):
@@ -96,7 +126,9 @@ def analyze_pairs(pairs, *, expected_seeds, profile, phase, bootstrap_samples=20
         failures.append(
             {
                 "seed": None,
-                "reasons": ["series source/image/candidate changed; not a frozen series"],
+                "reasons": [
+                    "series source/image/candidate/repair/deadline/protocol changed; not a frozen series"
+                ],
             }
         )
     eligible = not missing and not failures and len(validated) == len(expected_seeds)
@@ -156,8 +188,16 @@ def main():
     parser.add_argument("--phase", choices=["pilot", "evaluation"], required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    protocol = json.loads(args.protocol.read_text())
+    protocol_bytes = args.protocol.read_bytes()
+    protocol = json.loads(protocol_bytes)
     pairs = [json.loads(p.read_text()) for p in args.pairs]
+    protocol_hash = hashlib.sha256(protocol_bytes).hexdigest()
+    if any(
+        p.get("protocol_sha256") != protocol_hash
+        for p in pairs
+        if p.get("profile") == args.profile and p.get("phase") == args.phase
+    ):
+        raise ValueError("retained pair differs from exact supplied preregistration bytes")
     report = analyze_pairs(
         pairs,
         expected_seeds=protocol[f"{args.phase}_seeds"],
@@ -169,6 +209,11 @@ def main():
         if not freeze or any(
             p["source_commit"] != freeze["source_commit"]
             or p["candidate"] != freeze["selected_presets"].get(args.profile)
+            or p["image_id"] != freeze.get("image_id")
+            or p.get("mission_timeout_sec")
+            != freeze.get("mission_timeout_sec", {}).get(args.profile)
+            or p.get("candidate_repair_strategy", "greedy")
+            != freeze.get("selected_repair_strategies", {}).get(args.profile, "greedy")
             for p in pairs
             if p["profile"] == args.profile and p["phase"] == args.phase
         ):
@@ -176,6 +221,7 @@ def main():
     report["input_sha256"] = {
         str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in [args.protocol, *args.pairs]
     }
+    report["analysis_source_sha256"] = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open("x") as stream:
         stream.write(json.dumps(report, indent=2) + "\n")

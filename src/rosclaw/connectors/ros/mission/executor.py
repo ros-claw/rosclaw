@@ -10,13 +10,19 @@ import logging
 import math
 import threading
 import time
+from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 
 from rosclaw.connectors.ros.action_client import STATUS_CANCELED, STATUS_SUCCEEDED
 from rosclaw.connectors.ros.diagnosis.coverage_audit import CoverageAuditLog, digest
-from rosclaw.connectors.ros.mission.boundary_pass import rectangular_boundary_targets
+from rosclaw.connectors.ros.mission.boundary_pass import (
+    inset_corner_boundary_targets,
+    inset_rectangular_boundary_targets,
+    rectangular_boundary_targets,
+)
 from rosclaw.connectors.ros.mission.recovery import MissedRegionRecovery
+from rosclaw.connectors.ros.mission.repair_optimizer import rank_repair_poses
 from rosclaw.connectors.ros.verification.coverage import (
     CleaningPose,
     CoverageVerifier,
@@ -158,9 +164,28 @@ class RosCoverageSimulationExecutor:
         boundary_pass=False,
         boundary_strategy="through_poses",
         boundary_centers=None,
+        boundary_tracking_bt_sha256=None,
+        repair_strategy="greedy",
+        repair_swath_yaw=0.0,
+        repair_budget_ms=500.0,
+        repair_tracking_bt_sha256=None,
     ):
         if not owner.startswith("daemon_"):
             raise ValueError("daemon ownership is required")
+        if repair_strategy not in {
+            "greedy",
+            "pose_aware",
+            "pose_aware_robust",
+            "pose_aware_robust_sequence",
+            "pose_aware_robust_tracking_sequence",
+        }:
+            raise ValueError("unknown configured SIM repair strategy")
+        if not math.isfinite(repair_swath_yaw) or not 0 < repair_budget_ms <= 1000:
+            raise ValueError("configured repair yaw/budget must be finite and bounded")
+        self.repair_strategy = repair_strategy
+        self.repair_swath_yaw = repair_swath_yaw
+        self.repair_budget_ms = repair_budget_ms
+        self.repair_tracking_bt_sha256 = repair_tracking_bt_sha256
         self.owner, self.client, self.control, self.witness = owner, client, control, witness
         self.output, self.body_id, self.grid = Path(output), body_id, grid
         self.body_snapshot_hash = body_snapshot_hash
@@ -177,13 +202,82 @@ class RosCoverageSimulationExecutor:
         self.audit_metadata = dict(audit_metadata or {})
         if type(boundary_pass) is not bool:
             raise ValueError("boundary pass must be a configured boolean")
-        if boundary_strategy not in ("through_poses", "sequential"):
+        if boundary_strategy not in (
+            "through_poses",
+            "through_poses_midpoints",
+            "through_poses_tracking_midpoints",
+            "through_poses_tracking_inset_corners",
+            "through_poses_tracking_inset_open_segments",
+            "sequential",
+            "sequential_inner_ring",
+        ):
             raise ValueError("unknown configured boundary strategy")
         self.boundary_pass = boundary_pass
         self.boundary_strategy = boundary_strategy
         self.boundary_centers = tuple(
             recovery_centers if boundary_centers is None else boundary_centers
         )
+        self.boundary_tracking_bt_sha256 = boundary_tracking_bt_sha256
+        if self.boundary_strategy in {
+            "through_poses_tracking_midpoints",
+            "through_poses_tracking_inset_corners",
+            "through_poses_tracking_inset_open_segments",
+        }:
+            if (
+                not boundary_pass
+                or type(boundary_tracking_bt_sha256) is not str
+                or len(boundary_tracking_bt_sha256) != 64
+                or any(c not in "0123456789abcdef" for c in boundary_tracking_bt_sha256)
+            ):
+                raise ValueError("boundary tracking requires an enabled source-bound fixture BT")
+            self._verified_boundary_tracking_bt()
+        elif boundary_tracking_bt_sha256 is not None:
+            raise ValueError("boundary tracking BT is unavailable to other boundary strategies")
+        if repair_strategy == "pose_aware_robust_tracking_sequence":
+            if (
+                not boundary_pass
+                or boundary_strategy
+                not in {
+                    "through_poses_tracking_inset_corners",
+                    "through_poses_tracking_inset_open_segments",
+                }
+                or type(repair_tracking_bt_sha256) is not str
+                or len(repair_tracking_bt_sha256) != 64
+                or any(c not in "0123456789abcdef" for c in repair_tracking_bt_sha256)
+            ):
+                raise ValueError("repair tracking requires an enabled source-bound inset fixture")
+            self._verified_repair_tracking_bt()
+        elif repair_tracking_bt_sha256 is not None:
+            raise ValueError("repair tracking BT is unavailable to other repair strategies")
+
+    def _verified_repair_tracking_bt(self):
+        path = self.output.parent / "repair-tracking-through-poses.xml"
+        if path.is_symlink() or not path.is_file():
+            raise RuntimeError("owned repair tracking BT is missing or redirected")
+        with path.open("rb") as stream:
+            raw = stream.read(128_001)
+        if (
+            not 0 < len(raw) <= 128_000
+            or hashlib.sha256(raw).hexdigest() != self.repair_tracking_bt_sha256
+        ):
+            raise RuntimeError("owned repair tracking BT source SHA256 mismatch")
+        return "/evidence/repair-tracking-through-poses.xml"
+
+    def _verified_boundary_tracking_bt(self):
+        path = self.output.parent / "boundary-through-poses.xml"
+        if path.is_symlink() or not path.is_file():
+            raise RuntimeError("owned boundary tracking BT is missing or redirected")
+        with path.open("rb") as stream:
+            raw = stream.read(128_001)
+        if (
+            not 0 < len(raw) <= 128_000
+            or hashlib.sha256(raw).hexdigest() != self.boundary_tracking_bt_sha256
+        ):
+            raise RuntimeError("owned boundary tracking BT source SHA256 mismatch")
+        # The daemon validates bytes on the host. Nav2 resolves the action's
+        # behavior_tree inside the owned fixture container, whose run directory
+        # is mounted at /evidence. Never send the host's absolute run path.
+        return "/evidence/boundary-through-poses.xml"
 
     def _audit_event(self, kind, payload):
         if self.audit is not None:
@@ -330,15 +424,53 @@ class RosCoverageSimulationExecutor:
             result = {"status": "SKIPPED", "reason": "upstream main goal did not succeed"}
             self._audit_event("boundary_decision", result)
             return result
-        targets = rectangular_boundary_targets(
-            self.boundary_centers,
-            self.witness.fresh(),
-            edge_midpoints=self.boundary_strategy == "sequential",
-        )
+        geometry = {}
+        entry = self.witness.fresh()
+        if self.boundary_strategy in {
+            "through_poses_tracking_inset_corners",
+            "through_poses_tracking_inset_open_segments",
+        }:
+            original = rectangular_boundary_targets(
+                self.boundary_centers, entry, edge_midpoints=True
+            )
+            targets = inset_corner_boundary_targets(
+                self.boundary_centers, entry, resolution=self.grid["resolution"]
+            )
+            geometry = {
+                "boundary_corner_inset_cells": 1,
+                "boundary_grid_resolution_m": self.grid["resolution"],
+                "original_targets": original,
+            }
+            if self.boundary_strategy == "through_poses_tracking_inset_open_segments":
+                geometry["boundary_segment_count"] = 2
+        else:
+            targets = rectangular_boundary_targets(
+                self.boundary_centers,
+                entry,
+                edge_midpoints=self.boundary_strategy
+                in {
+                    "through_poses_midpoints",
+                    "through_poses_tracking_midpoints",
+                    "sequential",
+                    "sequential_inner_ring",
+                },
+            )
         if not targets:
             result = {"status": "SKIPPED", "reason": "legal rectangular corners unavailable"}
             self._audit_event("boundary_decision", result)
             return result
+        if self.boundary_strategy == "sequential_inner_ring":
+            inner = inset_rectangular_boundary_targets(
+                self.boundary_centers, targets[-1], resolution=self.grid["resolution"]
+            )
+            if not inner:
+                result = {
+                    "status": "FAILED",
+                    "reason": "complete inset ring unavailable in original legal mask",
+                }
+                self._audit_event("boundary_decision", result)
+                return result
+            targets = targets + inner
         self._audit_event(
             "boundary_decision",
             {
@@ -346,7 +478,21 @@ class RosCoverageSimulationExecutor:
                 "targets": targets,
                 "waypoint_count": len(targets),
                 "strategy": self.boundary_strategy,
+                **geometry,
                 "evidence_role": "Nav2 targets, no predicted coverage credit",
+                **(
+                    {
+                        "boundary_tracking_bt_sha256": self.boundary_tracking_bt_sha256,
+                        "boundary_tracking_prune_radius_m": 0.1,
+                    }
+                    if self.boundary_strategy
+                    in {
+                        "through_poses_tracking_midpoints",
+                        "through_poses_tracking_inset_corners",
+                        "through_poses_tracking_inset_open_segments",
+                    }
+                    else {}
+                ),
             },
         )
         poses = [
@@ -359,8 +505,52 @@ class RosCoverageSimulationExecutor:
             }
             for p in targets
         ]
-        if self.boundary_strategy == "sequential":
-            until = time.monotonic() + 180
+        if self.boundary_strategy == "through_poses_tracking_inset_open_segments":
+            # A point goal checker can accept a closed path near its starting
+            # endpoint. Opposite-corner open halves avoid that ambiguity without
+            # increasing the original stage budget or awarding predicted credit.
+            if len(poses) != 9 or poses[0] != poses[-1] or poses[0] == poses[4]:
+                raise RuntimeError("two open boundary segments require nine closed route targets")
+            until = min(deadline, time.monotonic() + 180)
+            results = []
+            for index, segment in enumerate((poses[:5], poses[4:])):
+                remaining = until - time.monotonic()
+                if remaining <= 0:
+                    return {
+                        "status": "FAILED",
+                        "reason": "boundary stage budget exhausted",
+                        "waypoint_count": len(targets),
+                        "segment_count": 2,
+                        "nav_goal_results": results,
+                    }
+                result = self._run_goal(
+                    "/navigate_through_poses",
+                    "nav2_msgs/action/NavigateThroughPoses",
+                    {"poses": segment, "behavior_tree": self._verified_boundary_tracking_bt()},
+                    f"{action_id}:boundary:{index}",
+                    until,
+                    goal_timeout_sec=remaining,
+                    stage="BOUNDARY_PASS",
+                )
+                results.append(result)
+                if result.get("status") != STATUS_SUCCEEDED or result.get("timed_out"):
+                    return {
+                        "status": "FAILED",
+                        "waypoint_count": len(targets),
+                        "segment_count": 2,
+                        "nav_goal_results": results,
+                    }
+            return {
+                "status": "SUCCEEDED",
+                "waypoint_count": len(targets),
+                "segment_count": 2,
+                "nav_goal_results": results,
+            }
+        if self.boundary_strategy in {"sequential", "sequential_inner_ring"}:
+            # The new opt-in protocol explicitly registers two bounded rings.
+            # Global immutable action deadline and every goal/stop guard remain.
+            stage_budget = 360 if self.boundary_strategy == "sequential_inner_ring" else 180
+            until = time.monotonic() + stage_budget
             results = []
             for index, pose in enumerate(poses):
                 remaining = until - time.monotonic()
@@ -395,14 +585,24 @@ class RosCoverageSimulationExecutor:
         result = self._run_goal(
             "/navigate_through_poses",
             "nav2_msgs/action/NavigateThroughPoses",
-            {"poses": poses},
+            {
+                "poses": poses,
+                **(
+                    {"behavior_tree": self._verified_boundary_tracking_bt()}
+                    if self.boundary_strategy
+                    in {"through_poses_tracking_midpoints", "through_poses_tracking_inset_corners"}
+                    else {}
+                ),
+            },
             f"{action_id}:boundary",
             deadline,
             goal_timeout_sec=180,
             stage="BOUNDARY_PASS",
         )
         return {
-            "status": "SUCCEEDED" if result.get("status") == STATUS_SUCCEEDED else "FAILED",
+            "status": "SUCCEEDED"
+            if result.get("status") == STATUS_SUCCEEDED and not result.get("timed_out")
+            else "FAILED",
             "waypoint_count": len(targets),
             "nav_goal_result": result,
         }
@@ -429,7 +629,10 @@ class RosCoverageSimulationExecutor:
         goal_budget = min(
             240, max(60, 2 * math.ceil(len(verifier.accessible) / max(1, len(offsets))))
         )
+        dispatched_targets = 0
         for index in range(goal_budget):
+            if dispatched_targets >= goal_budget:
+                break
             samples = self.witness.since(consumed)
             consumed += len(samples)
             for sample in samples:
@@ -493,22 +696,130 @@ class RosCoverageSimulationExecutor:
                 )
                 if ranking > best:
                     best, center = ranking, candidate
+            heading = math.pi / 4
+            selected_sequence = ()
+            if self.repair_strategy in {
+                "pose_aware",
+                "pose_aware_robust",
+                "pose_aware_robust_sequence",
+                "pose_aware_robust_tracking_sequence",
+            }:
+                ready_cells = {c for proposal in proposals["ready"] for c in proposal["cells"]}
+                selection = rank_repair_poses(
+                    self.grid,
+                    self.recovery_centers,
+                    ready_cells,
+                    current,
+                    attempts=recovery.attempts,
+                    swath_yaw=self.repair_swath_yaw,
+                    budget_ms=self.repair_budget_ms,
+                    robust_footprint=self.repair_strategy
+                    in {
+                        "pose_aware_robust",
+                        "pose_aware_robust_sequence",
+                        "pose_aware_robust_tracking_sequence",
+                    },
+                    **(
+                        {"shared_sequence_overhead": True, "intermediate_tracking_radius_m": 0.1}
+                        if self.repair_strategy == "pose_aware_robust_tracking_sequence"
+                        else {}
+                    ),
+                )
+                self._audit_event(
+                    "repair_candidate_selection",
+                    {
+                        "strategy": self.repair_strategy,
+                        "status": selection.status,
+                        "elapsed_ms": selection.elapsed_ms,
+                        "evaluated_poses": selection.evaluated_poses,
+                        "cost_model": selection.cost_model,
+                        **(
+                            {"predicted_dispatch_cost_sec": selection.predicted_dispatch_cost_sec}
+                            if self.repair_strategy == "pose_aware_robust_tracking_sequence"
+                            else {}
+                        ),
+                        "reward_model": selection.reward_model,
+                        "predicted_sequence": [asdict(pose) for pose in selection.poses],
+                        "credit_role": "prediction_only_never_measured_credit",
+                        "fallback": selection.status != "READY",
+                    },
+                )
+                if selection.status == "READY":
+                    if self.repair_strategy in {
+                        "pose_aware_robust_sequence",
+                        "pose_aware_robust_tracking_sequence",
+                    }:
+                        selected_sequence = selection.poses[
+                            : min(2, goal_budget - dispatched_targets)
+                        ]
+                        if len(selected_sequence) == 2:
+                            shared = set(selected_sequence[0].predicted_new_cells) & set(
+                                selected_sequence[1].predicted_new_cells
+                            )
+                            if any(
+                                recovery.attempts.get(c, 0) + 2 > recovery.max_attempts
+                                for c in shared
+                            ):
+                                selected_sequence = selected_sequence[:1]
+                    selected = selection.poses[0]
+                    center, heading = (selected.x, selected.y), selected.yaw
+                    missed = sorted(ready_cells)
+            cosine_goal, sine_goal = math.cos(heading), math.sin(heading)
+            goal_polygon = [
+                (px * cosine_goal - py * sine_goal, px * sine_goal + py * cosine_goal)
+                for px, py in verifier.polygon
+            ]
             goal_id = f"{action_id}:repair:{index}"
-            result = self._run_goal(
-                "/navigate_to_pose",
-                "nav2_msgs/action/NavigateToPose",
-                {
-                    "pose": {
-                        "header": {"frame_id": "map"},
+            if len(selected_sequence) == 2:
+                # Nav2 owns the continuous path; waypoint predictions never
+                # grant credit or imply either target was physically reached.
+                result = self._run_goal(
+                    "/navigate_through_poses",
+                    "nav2_msgs/action/NavigateThroughPoses",
+                    {
+                        **(
+                            {"behavior_tree": self._verified_repair_tracking_bt()}
+                            if self.repair_strategy == "pose_aware_robust_tracking_sequence"
+                            else {}
+                        ),
+                        "poses": [
+                            {
+                                "header": {"frame_id": "map"},
+                                "pose": {
+                                    "position": {"x": p.x, "y": p.y, "z": 0.0},
+                                    "orientation": {
+                                        "z": math.sin(p.yaw / 2),
+                                        "w": math.cos(p.yaw / 2),
+                                    },
+                                },
+                            }
+                            for p in selected_sequence
+                        ],
+                    },
+                    goal_id,
+                    deadline,
+                )
+                dispatched_targets += 2
+            else:
+                result = self._run_goal(
+                    "/navigate_to_pose",
+                    "nav2_msgs/action/NavigateToPose",
+                    {
                         "pose": {
-                            "position": {"x": center[0], "y": center[1], "z": 0.0},
-                            "orientation": {"z": math.sin(math.pi / 8), "w": math.cos(math.pi / 8)},
-                        },
-                    }
-                },
-                goal_id,
-                deadline,
-            )
+                            "header": {"frame_id": "map"},
+                            "pose": {
+                                "position": {"x": center[0], "y": center[1], "z": 0.0},
+                                "orientation": {
+                                    "z": math.sin(heading / 2),
+                                    "w": math.cos(heading / 2),
+                                },
+                            },
+                        }
+                    },
+                    goal_id,
+                    deadline,
+                )
+                dispatched_targets += 1
             nearby = [
                 i
                 for i in missed
@@ -519,14 +830,25 @@ class RosCoverageSimulationExecutor:
                     self.grid["origin"][1]
                     + (i // self.grid["width"] + 0.5) * self.grid["resolution"]
                     - center[1],
-                    polygon,
+                    goal_polygon,
                 )
             ]
-            recovery.record_attempt(nearby or [cell], action_id=goal_id)
+            if len(selected_sequence) == 2:
+                # Per-cell retries account for both planned footprints, while
+                # the immutable measured verifier still owns all actual credit.
+                recovery.record_attempt_sequence(
+                    [list(p.predicted_new_cells) for p in selected_sequence], action_id=goal_id
+                )
+            else:
+                recovery.record_attempt(nearby or [cell], action_id=goal_id)
             records.append(
                 {
                     "goal_id": goal_id,
                     "target": center,
+                    "planned_targets": [(p.x, p.y, p.yaw) for p in selected_sequence]
+                    if selected_sequence
+                    else [(center[0], center[1], heading)],
+                    "waypoint_count": max(1, len(selected_sequence)),
                     "result": result,
                     "coverage_before": verifier.result()["coverage_ratio"],
                 }

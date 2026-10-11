@@ -11,6 +11,12 @@ import time
 import uuid
 from pathlib import Path
 
+from experiments import (
+    REPAIR_TRACKING_STRATEGY,
+    validate_continuous_boundary_experiment,
+    validate_inner_ring_experiment,
+    validate_repair_tracking_runtime_registration,
+)
 from rosclaw.connectors.ros.action_client import Ros2ActionClient
 from rosclaw.connectors.ros.mission.executor import RosCoverageSimulationExecutor, SimulationWitness
 from rosclaw.connectors.ros.mission.remember import VerifiedMissionMemoryExecutor
@@ -36,6 +42,17 @@ def main():
     args = parser.parse_args()
     root = args.directory.resolve()
     config = json.loads((root / "execution_config.json").read_text())
+    validate_inner_ring_experiment(config.get("experiment", {}))
+    validate_continuous_boundary_experiment(config.get("experiment", {}))
+    repair_tracking = config.get("experiment", {}).get("repair_tracking_sequence") is True
+    if repair_tracking != (config.get("repair_strategy") == REPAIR_TRACKING_STRATEGY):
+        raise ValueError(
+            "configured repair strategy differs from its generated tracking experiment"
+        )
+    if repair_tracking:
+        validate_repair_tracking_runtime_registration(
+            config["experiment"], json.loads((root / "protocol.json").read_text())
+        )
     runtime = Runtime(
         RuntimeConfig(
             robot_id=config["body_id"],
@@ -117,6 +134,12 @@ def main():
         boundary_pass=config.get("experiment", {}).get("boundary_pass", False),
         boundary_strategy=config.get("experiment", {}).get("boundary_strategy", "through_poses"),
         boundary_centers=config.get("boundary_centers"),
+        boundary_tracking_bt_sha256=config.get("experiment", {}).get("boundary_tracking_bt_sha256"),
+        repair_strategy=config.get("repair_strategy", "greedy"),
+        repair_tracking_bt_sha256=config.get("experiment", {}).get("repair_tracking_bt_sha256"),
+        repair_swath_yaw=config.get("experiment", {})
+        .get("planning_parameters", {})
+        .get("default_swath_angle", 0.0),
     )
     for capability in [
         "navigation.navigate_to_pose",
@@ -183,6 +206,7 @@ def freeze_audit_source(root, config):
         Path(__file__),
         repository / "src/rosclaw/connectors/ros/mission/executor.py",
         repository / "src/rosclaw/connectors/ros/mission/boundary_pass.py",
+        repository / "src/rosclaw/connectors/ros/mission/repair_optimizer.py",
         repository / "src/rosclaw/connectors/ros/diagnosis/coverage_audit.py",
         repository / "src/rosclaw/connectors/ros/verification/coverage.py",
         *[
@@ -196,6 +220,7 @@ def freeze_audit_source(root, config):
                 "experiments.py",
                 "paired_efficiency.py",
                 "cleaning_acceptance.py",
+                "precise_through_poses_bt.py",
             ]
         ],
         root / "nav2.yaml",
@@ -205,6 +230,17 @@ def freeze_audit_source(root, config):
         root / "world.sdf",
         root / "experiment.json",
         root / "protocol.json",
+        *[
+            root / name
+            for name in (
+                "repair-through-poses.original.xml",
+                "repair-through-poses.xml",
+                "repair-through-poses-source.json",
+                "boundary-through-poses.original.xml",
+                "boundary-through-poses.xml",
+                "boundary-through-poses-source.json",
+            )
+        ],
     ]
     hashes = {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in files if p.exists()}
     commit = subprocess.check_output(
