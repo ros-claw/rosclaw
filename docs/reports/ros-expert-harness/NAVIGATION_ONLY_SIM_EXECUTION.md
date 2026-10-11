@@ -92,6 +92,9 @@ sink and bottom-level controller watchdog still apply.
 
 `navigation_run.py --directory <fresh-evidence> --endpoint <loopback-rosbridge>`
 submits a 0.35 m target through the real MCP wrapper and a separate daemon.
+Use a short evidence directory: the encoded `run/rosclawd.sock` path must
+be shorter than 104 bytes. Both journey and navigation daemon preflight this
+before starting execution infrastructure.
 It requires a canonical COMPLETED receipt. The observer derives linear and
 angular speeds from successive Gazebo ground-truth poses, independently of
 Nav2 commands, localization and action results. These known Waffle/Burger

@@ -24,6 +24,8 @@ async def main():
     parser.add_argument("--endpoint", required=True)
     args = parser.parse_args()
     root = args.directory.resolve()
+    if len(os.fsencode(root / "run/rosclawd.sock")) >= 104:
+        raise ValueError("use a shorter isolated directory for the rosclawd Unix socket")
     config = json.loads((root / "execution_config.json").read_text())
     if config.get("executor_kind") != "navigation_only":
         raise ValueError("operator-prepared navigation-only Body required")

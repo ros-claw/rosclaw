@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import logging
+import os
 import signal
 import subprocess
 import threading
@@ -54,6 +55,8 @@ def main():
             raise ValueError(
                 "navigation-only configuration must not contain coverage configuration"
             )
+        if len(os.fsencode(root / "run/rosclawd.sock")) >= 104:
+            raise ValueError("use a shorter isolated directory for the rosclawd Unix socket")
     runtime = Runtime(
         RuntimeConfig(
             robot_id=config["body_id"],

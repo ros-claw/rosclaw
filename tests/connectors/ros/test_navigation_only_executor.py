@@ -397,7 +397,7 @@ def test_emergency_revoke_follows_inflight_renewal_and_refuses_later_enable(tmp_
         executor._send_navigation_goal()
 
 
-@pytest.mark.parametrize("fault", ["unknown_kind", "hash", "grid", "tampered_body"])
+@pytest.mark.parametrize("fault", ["unknown_kind", "hash", "grid", "tampered_body", "long_socket"])
 def test_actual_daemon_refuses_invalid_navigation_configuration_before_runtime(tmp_path, fault):
     import json
     import os
@@ -417,8 +417,11 @@ def test_actual_daemon_refuses_invalid_navigation_configuration_before_runtime(t
         config["body_snapshot_hash"] = "wrong"
     elif fault == "grid":
         config["grid"] = {}
-    else:
+    elif fault == "tampered_body":
         body.frames["map"] = "tampered"
+    elif fault == "long_socket":
+        tmp_path = tmp_path / ("long-navigation-evidence-directory-" * 4)
+        tmp_path.mkdir()
     folder = tmp_path / "home/body/refs"
     folder.mkdir(parents=True)
     (folder / "effective_body.json").write_text(json.dumps(body.to_dict()))
@@ -448,6 +451,7 @@ def test_actual_daemon_refuses_invalid_navigation_configuration_before_runtime(t
         "hash": "configuration Body hash mismatch",
         "grid": "must not contain coverage configuration",
         "tampered_body": "compiled Body hash mismatch",
+        "long_socket": "shorter isolated directory",
     }[fault]
     assert expected in result.stderr
     assert (
