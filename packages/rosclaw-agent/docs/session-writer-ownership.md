@@ -120,6 +120,49 @@ visible when teardown succeeds. Exit uses exitCode, never forced process.exit,
 so live resources are not hidden. Pending teardown keeps ownership indefinitely.
 Existing protected adapter single-flight/sticky behavior is unchanged.
 
+## Sourceguard-only maintenance (2026-10-11)
+
+This change leaves production wiring untouched and changes only the block body
+of the named main.ts ownership guard plus this document. The former 150-character
+finally-to-stop check rejected valid wiring with cancellation draining and nested
+try/if cleanup. Its replacement tokenizes source (comments excluded, literals
+atomic), balances blocks and identifies the innermost try enclosing the actual
+mode.run statement and its outer try. Exact token comparisons require consumer
+stop in that run's finally and confirmation/sticky-failure checks before
+ownership-then-lease release in the enclosing finally. Early release in the
+outer body is refused. Local mutation controls reject a removed stop, an
+unrelated finally stop, early release and missing confirmation. This is a
+source-wiring regression guard, not a general TypeScript parser or a universal
+control-flow proof; intentional wiring changes require review of its expected
+structure. All pre-existing bind-failure, teardown, natural-exit and resume
+assertions remain, as do all other callback bodies, imports and helpers.
+
+Focused verification includes the whole ownership module alongside the original
+116 required rows, installed offline SDK controls and parity checks. It does not
+run the six interactive host controls: ROOT separately repeats the complete
+unfiltered default npm suite with the same final source and proper dependency
+topology. Prior default spec-reporter evidence remains 635 tests / 21 suites,
+631 PASS, 1 FAIL, 3 original bwrap SKIP, whole-suite FAIL; this source repair does
+not rewrite that historical result or claim a TAP total. Previous paid/native
+failures and the unsafe-fetch control remain historical evidence. No qualified
+production estimator, paid-provider, robot, container or physics capability is
+established here. Current receipts alone determine this focused SOURCE result.
+
+### Final whitespace-only correction
+
+The current correction replaces only the remaining legacy literal
+`includes("} finally {")` assertion with an exact comparison of the six lexical
+tokens immediately before the real cancellation drain: `} finally { const
+cancellationOutcomes =`. Equivalent whitespace is accepted without widening a
+character-distance regex. The existing balanced-block verification of the actual
+run's inner/outer finally, all four real-source mutation negatives, and every
+other callback assertion remain byte-for-byte unchanged. Production is frozen;
+this is only a sourceguard formatting correction, not another wiring repair.
+The previous 151.121-second HTTP503/request-10 UNKNOWN-usage episode, CHECK PASS
+and RUN 16 PASS / 1 FAIL with no Native report, remains a failed whole episode;
+an authentication failure is not inferred. Fresh receipts qualify only this new
+SOURCE episode, with no robotics, API or neural-network credit.
+
 ## Evidence and limits
 
 Native tests cover same-PID exclusion, aliases, token-only release, stale dead/PID

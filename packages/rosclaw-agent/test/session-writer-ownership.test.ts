@@ -663,7 +663,70 @@ test("main.ts source wiring: ownership release on bind failure and normal exit (
 	assert.ok(/await session\.abort\(\);[\s\S]*isIdle !== true[\s\S]*await session\.dispose\(\);[\s\S]*isIdle !== true[\s\S]*await runtime\.dispose\(\);/.test(teardown));
 	assert.ok(teardown.indexOf("throw new Error(`MAIN_EXIT_TEARDOWN_UNCONFIRMED") < teardown.indexOf("runtimeOwnership.releaseAll()"));
 	assert.ok(/runtimeOwnership\.releaseAll\(\);\s*await leaseManager\.release\(\)/.test(teardown));
-	assert.ok(/finally \{[\s\S]{0,150}?mode\.stop\(\)/.test(main));
+	// Lexical tokens exclude comments and keep literals atomic. Balanced blocks,
+	// not character distance, identify the try/finally that owns mode.run().
+	const tokens = (source: string): string[] => (source.match(
+		/\/\*[\s\S]*?\*\/|\/\/[^\n]*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`|[A-Za-z_$][\w$]*|\?\?=|!==|=>|[^\s]/g,
+	) ?? []).filter(token => !token.startsWith("//") && !token.startsWith("/*"));
+	const verifyRunFinally = (source: string): void => {
+		const code = tokens(source);
+		const needle = tokens("await Promise.race([mode.run(), shutdownComplete]);");
+		const runs = code.flatMap((_, i) => needle.every((token, j) => code[i + j] === token) ? [i] : []);
+		assert.equal(runs.length, 1, "one actual mode.run statement");
+		const pairs = new Map<number, number>();
+		const stack: number[] = [];
+		for (let i = 0; i < code.length; i++) {
+			if (code[i] === "{") stack.push(i);
+			if (code[i] === "}") {
+				const open = stack.pop();
+				assert.notEqual(open, undefined, "balanced source blocks");
+				pairs.set(open!, i);
+			}
+		}
+		assert.equal(stack.length, 0);
+		const enclosing = [...pairs.keys()].filter(open => open < runs[0]
+			&& pairs.get(open)! > runs[0] && code[open - 1] === "try").sort((a, b) => b - a);
+		assert.ok(enclosing.length >= 2, "run has inner and outer teardown scopes");
+		const finallyTokens = (open: number): string[] => {
+			const end = pairs.get(open)!;
+			assert.equal(code[end + 1], "finally", "same try owns this finally");
+			assert.equal(code[end + 2], "{");
+			const close = pairs.get(end + 2);
+			assert.notEqual(close, undefined);
+			return code.slice(end + 3, close);
+		};
+		assert.deepEqual(finallyTokens(enclosing[0]), tokens(`
+			const cancellationOutcomes = await ownedAbort.drain();
+			try {
+				if (!stopped) { mode.stop(); stopped = true; }
+			} catch (err) { interactiveCloseFailure ??= err; }
+			if (cancellationOutcomes.some(outcome => !outcome.ok)) {
+				interactiveCloseFailure ??= new Error("OWNED_CANCEL_UNCONFIRMED");
+			}
+		`), "run finally drains cancellation and stops its own consumer");
+		assert.deepEqual(finallyTokens(enclosing[1]), tokens(`
+			await confirmWriterClosed();
+			if (interactiveCloseFailure) {
+				throw new Error(\`MAIN_EXIT_TEARDOWN_UNCONFIRMED: \${(interactiveCloseFailure as Error).message}\`);
+			}
+			runtimeOwnership.releaseAll();
+			await leaseManager.release();
+		`), "outer finally confirms and preserves sticky failure before ownership/lease release");
+		const outerBody = code.slice(enclosing[1] + 1, pairs.get(enclosing[1]));
+		assert.ok(!outerBody.join(" ").includes("runtimeOwnership . releaseAll ( )"), "no early release in run/bind body");
+	};
+	verifyRunFinally(main);
+	const runTail = main.indexOf("await Promise.race([mode.run(), shutdownComplete])");
+	assert.ok(runTail >= 0);
+	const mutateTail = (from: string, to: string): string => {
+		const tail = main.slice(runTail);
+		assert.ok(tail.includes(from), "negative control must mutate real teardown");
+		return main.slice(0, runTail) + tail.replace(from, to);
+	};
+	assert.throws(() => verifyRunFinally(mutateTail("mode.stop();", "")), "removed stop rejected");
+	assert.throws(() => verifyRunFinally(mutateTail("mode.stop();", "") + "\ntry {} finally { mode.stop(); }"), "unrelated stop rejected");
+	assert.throws(() => verifyRunFinally(mutateTail("await ownedAbort.drain();", "await ownedAbort.drain(); runtimeOwnership.releaseAll();")), "early release rejected");
+	assert.throws(() => verifyRunFinally(mutateTail("await confirmWriterClosed();", "")), "missing confirmation rejected");
 	// Scope the ordering check to the actual mode.run() finally, not an
 	// unrelated earlier finally or a comment containing the same tokens.
 	const run = main.indexOf("await Promise.race([mode.run(), shutdownComplete])");
@@ -672,7 +735,7 @@ test("main.ts source wiring: ownership release on bind failure and normal exit (
 	const close = main.indexOf("await confirmWriterClosed()", stop);
 	const release = main.indexOf("runtimeOwnership.releaseAll()", close);
 	assert.ok(run >= 0 && drain > run && stop > drain && close > stop && release > close);
-	assert.ok(main.slice(run, drain).includes("} finally {"));
+	assert.deepEqual(tokens(main.slice(run, drain)).slice(-6), tokens("} finally { const cancellationOutcomes ="));
 	assert.ok(main.slice(run, stop).includes("const cancellationOutcomes = await ownedAbort.drain()"));
 	assert.ok(main.slice(stop, close).includes("cancellationOutcomes.some(outcome => !outcome.ok)"));
 	assert.ok(main.slice(close, release).includes("if (interactiveCloseFailure)"));
