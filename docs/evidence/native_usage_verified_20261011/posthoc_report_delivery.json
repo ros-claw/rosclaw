@@ -1,0 +1,26 @@
+{
+  "status": "ROOT_POSTHOC_VALIDATOR_PASS_ORIGINAL_WHOLE_FAIL_RETAINED",
+  "source11_unchanged": true,
+  "receipt_sha256": "1a85837318dd54993b9f2ea298b12ebab1729f64d0c1f527a49efd43d6a3feee",
+  "original_whole_error": "PROJECTION_READ_EXACT_ARGUMENTS",
+  "original_elapsed_s": 205.09572059300262,
+  "original_whole_rewritten": false,
+  "acceptor_sha256": "dae8ddb36852f1d478affed3eb16191740ecadfdf013afc330f0cf2087c72698",
+  "external_binder_sha256": "ca0f3631a372f4746357b3b6531e90dc3272721899ecbbaccc2258292c33683e",
+  "acceptor_result_sha256": "b36381d66ada18538744fe218c3991bcae1557e8a4902db837de8d096565754a",
+  "actual_read_optional_arguments": {
+    "offset": null,
+    "limit": null
+  },
+  "compatibility_fix": "External audit binder allows only path plus omitted or null offset/limit; actual ranges and unknown keys remain rejected. Production code was unchanged.",
+  "validation": "Original full real session, SQLite registration bindings, strict decoder and source acceptor replay all passed after the external binder correction. No synthetic substitute or model rerun.",
+  "registration_bindings": 4,
+  "observations": 134,
+  "observation_count_is_not_distinct_tests": true,
+  "new_provider_calls": 0,
+  "new_Native_or_SDK_tests": 0,
+  "original_failures_retained": true,
+  "legal_returns": 0,
+  "qualified_videos": 0,
+  "secrets_or_session_bodies_exported": false
+}
