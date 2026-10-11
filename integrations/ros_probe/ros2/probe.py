@@ -40,8 +40,6 @@ READ_TYPES = {
     "nav_msgs/msg/Odometry",
     "nav_msgs/msg/OccupancyGrid",
     "geometry_msgs/msg/PoseWithCovarianceStamped",
-    "geometry_msgs/msg/Twist",
-    "geometry_msgs/msg/TwistStamped",
     "rosgraph_msgs/msg/Clock",
 }
 

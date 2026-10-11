@@ -53,7 +53,8 @@ actual ROS-host expansion and remapping evidence.
 
 The probe preserves both position covariance axes, so a negative axis cannot
 hide behind the previous maximum-of-two summary. It reads arbitrary `.topic`
-parameters and passively observes Twist/TwistStamped graph streams.
+parameters. Twist/TwistStamped are checked through fresh graph endpoints;
+the probe does not subscribe to velocity commands or alter that topology.
 
 `PROPOSED` means the listed observations support submission for binding review.
 It does not establish collision polygon geometry, obstacle response, speed or

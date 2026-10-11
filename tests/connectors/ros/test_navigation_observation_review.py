@@ -161,7 +161,7 @@ def test_costmap_type_ambiguity_requires_explicit_map_selection():
         "velocity_bypass",
         "velocity_wrong_publisher",
         "velocity_mixed_types",
-        "velocity_duplicate_signal",
+        "velocity_duplicate_topic",
         "qos_incomplete",
         "qos_incompatible",
         "candidate_stale",
@@ -234,8 +234,8 @@ def test_incomplete_or_faulty_evidence_never_proposes_navigation(fault):
         topic(req["velocity_output_topic"])["publishers"] = [req["lifecycle_nodes"]["controller"]]
     elif fault == "velocity_mixed_types":
         topic(req["velocity_output_topic"])["msg_type"] = "geometry_msgs/msg/TwistStamped"
-    elif fault == "velocity_duplicate_signal":
-        model.signals.append(signal(req["velocity_input_topic"]).model_copy())
+    elif fault == "velocity_duplicate_topic":
+        model.graph["topics"].append(deepcopy(topic(req["velocity_input_topic"])))
     elif fault == "qos_incompatible":
         model.qos["incompatible_pairs"] = [{"topic": costmap}]
     elif fault == "candidate_stale":

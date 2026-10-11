@@ -96,7 +96,14 @@ def review_navigation_candidate(model, urdf_bytes, requirements, *, now=None):
     def stream(name, allowed_types, *, messages=True):
         topics = [t for t in model.graph.get("topics", []) if t.get("name") == name]
         signals = [s for s in model.signals if s.topic == name]
-        if len(topics) != 1 or topics[0].get("msg_type") not in allowed_types or len(signals) != 1:
+        if len(topics) != 1 or topics[0].get("msg_type") not in allowed_types:
+            unknown.append("unique_typed_stream:" + name)
+            return None
+        if not messages:
+            # Graph capture already passed discovery's age/completeness gate.
+            # Do not subscribe to commands and alter the topology under review.
+            return topics[0]
+        if len(signals) != 1:
             unknown.append("unique_typed_stream:" + name)
             return None
         signal = signals[0]

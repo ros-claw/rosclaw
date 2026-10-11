@@ -118,7 +118,9 @@ def run_navigation_reviews(probe, output, urdf, requirements, state, spin):
         if name == "bad_covariance":
             state.update(lifecycle=3, variance=-0.01)
         spin(6)
-        native = probe.snapshot()
+        # The deployed probe publishes JSON; preserve that wire type boundary
+        # (ROS covariance arrays can otherwise contain NumPy scalar values).
+        native = json.loads(json.dumps(probe.snapshot()))
         graph = RosGraphSnapshot.from_dict(
             {
                 "ros_version": "ros2",
