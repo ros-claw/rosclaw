@@ -53,6 +53,9 @@ URDF, requirements, navigation review, fixture policy, compiled Body and output
 file digests. Geometry and provenance are included in the immutable Body's
 provider evidence. The Body is reopened through `BodyResolver` and checked with
 the same `SimulationNavigationBinding` used by the daemon.
+The complete source snapshot, requirements, policy and navigation review are
+also retained inside the workspace and included in its output file digests;
+their hashes are not stand-ins for the underlying inspectable evidence.
 
 The result is `CONTRACT_COMPILED_NOT_ADMITTED`, with `binding_verified: false`,
 `physical_acceptance_level: NOT_RUN`, no dispatched action and no REAL use.
@@ -62,3 +65,11 @@ separate gates. Synthetic renamed/size variants and CLI tests are compiler
 contracts, not unseen-Body L1/L2. Freeze the complete generic adapter before
 selecting a held-out asset. Existing known-model physics evidence from the
 navigation executor does not promote this compiler to physical acceptance.
+
+The existing owned synthetic SDK fixture additionally supports
+`--navigation-review --compile-navigation-body`. It compiles only its fresh
+positive case and refuses inactive lifecycle and invalid covariance before
+creating their destinations. Its action server rejects every goal and its
+velocity subscribers reject any command. Declared witness/lease endpoints are
+not launched by this fixture. This checks actual ROS SDK observations and
+compiler interoperability, without a World, motion, or Body admission.

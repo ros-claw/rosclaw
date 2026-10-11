@@ -198,6 +198,31 @@ def test_existing_body_workspace_is_never_overwritten(tmp_path):
     assert list(destination.iterdir()) == [marker] and marker.read_text() == "preserve"
 
 
+def test_relative_destination_preserves_reopen_and_relative_file_digests(tmp_path, monkeypatch):
+    model, raw, requirements, policy = source()
+    monkeypatch.chdir(tmp_path)
+    manifest = compile_navigation_body_workspace(
+        "relative-fixture", model, raw, requirements, policy=policy, now=NOW
+    )
+    for name, digest in manifest["file_sha256"].items():
+        assert not Path(name).is_absolute()
+        assert (
+            hashlib.sha256((tmp_path / "relative-fixture" / name).read_bytes()).hexdigest()
+            == digest
+        )
+
+
+def test_dangling_destination_symlink_is_refused_before_target_write(tmp_path):
+    model, raw, requirements, policy = source()
+    destination, target = tmp_path / "link", tmp_path / "target"
+    destination.symlink_to(target)
+    with pytest.raises(ValueError, match="symlink"):
+        compile_navigation_body_workspace(
+            destination, model, raw, requirements, policy=policy, now=NOW
+        )
+    assert destination.is_symlink() and not target.exists()
+
+
 @pytest.mark.parametrize("fault", [None, "policy", "stale", "tamper", "policy_symlink"])
 def test_actual_pinned_cli_compiles_or_refuses_without_runtime(tmp_path, fault):
     model, raw, requirements, policy = source("/cli/renamed", "platform", "range_frame", 0.6)

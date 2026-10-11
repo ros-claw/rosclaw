@@ -181,6 +181,9 @@ def compile_navigation_body_workspace(
         sandbox={"compatible_engines": ["gazebo"], "preferred_engine": "gazebo"},
     )
     destination = Path(destination)
+    if destination.is_symlink():
+        raise ValueError("new workspace destination must not be a symlink")
+    destination = destination.resolve()
     destination.mkdir(parents=False, exist_ok=False)
     resolver = BodyResolver(workspace=destination)
     resolver.ensure_body_dir()
@@ -231,6 +234,16 @@ def compile_navigation_body_workspace(
     }
     config_path = destination / "execution_config.json"
     config_path.write_text(json.dumps(config, indent=2) + "\n")
+    evidence_paths = []
+    for name, value in (
+        ("source-snapshot.json", model.to_dict()),
+        ("navigation-requirements.json", requirements),
+        ("fixture-policy.json", policy),
+        ("navigation-review.json", review),
+    ):
+        path = destination / name
+        path.write_text(json.dumps(value, indent=2, allow_nan=False) + "\n")
+        evidence_paths.append(path)
     manifest = {
         "schema_version": "rosclaw.navigation_body_workspace.v1",
         "status": "CONTRACT_COMPILED_NOT_ADMITTED",
@@ -256,6 +269,7 @@ def compile_navigation_body_workspace(
                 resolver.effective_body_path,
                 urdf_path,
                 config_path,
+                *evidence_paths,
             )
         },
     }

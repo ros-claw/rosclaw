@@ -99,7 +99,7 @@ def prepare_navigation_fixture(source, executor, namespace):
     return nodes, requirements, state
 
 
-def run_navigation_reviews(probe, output, urdf, requirements, state, spin):
+def run_navigation_reviews(probe, output, urdf, requirements, state, spin, *, compile_body=False):
     from rosclaw.connectors.ros.context.discovery import discover_body_candidate
     from rosclaw.connectors.ros.context.navigation_review import review_navigation_candidate
     from rosclaw.connectors.ros.discovery.graph import RosGraphSnapshot
@@ -144,11 +144,61 @@ def run_navigation_reviews(probe, output, urdf, requirements, state, spin):
                 "unselected map ambiguity must remain unknown"
             )
         assert not result["authorization"] and not result["binding_verified"]
+        if compile_body:
+            from rosclaw.connectors.ros.context.navigation_workspace import (
+                compile_navigation_body_workspace,
+            )
+
+            policy = {
+                "schema_version": "rosclaw.navigation_sim_fixture_policy.v1",
+                "source": "simulator_operator_fixture_policy",
+                "approved": True,
+                "policy_id": "synthetic-sdk-navigation-contract",
+                "body_id": "synthetic-observed-base",
+                "source_snapshot_hash": model.snapshot_hash,
+                "source_urdf_sha256": result["candidate"]["source_urdf_sha256"],
+                "navigation_requirements_hash": result["requirements_hash"],
+                "navigation_limits": {
+                    "max_goal_distance_m": 0.5,
+                    "max_duration_sec": 30.0,
+                    "goal_position_tolerance_m": 0.05,
+                    "goal_yaw_tolerance_rad": 0.1,
+                    "max_speed_mps": 0.2,
+                    "max_yaw_rate_rps": 0.5,
+                    "stop_speed_mps": 0.005,
+                    "stop_yaw_rate_rps": 0.01,
+                },
+                "witness_declaration": {
+                    "observation_topic": requirements["velocity_consumer_node"]
+                    + "/independent_truth",
+                    "lease_service": requirements["velocity_consumer_node"] + "/sim_deadman",
+                    "run_id": "synthetic-sdk-contract",
+                },
+            }
+            (output / f"{name}.fixture-policy.json").write_text(json.dumps(policy, indent=2) + "\n")
+            destination = output / (name + "-compiled")
+            if expected == "PROPOSED":
+                manifest = compile_navigation_body_workspace(
+                    destination, model, urdf, requirements, policy=policy
+                )
+                assert manifest["status"] == "CONTRACT_COMPILED_NOT_ADMITTED"
+            else:
+                try:
+                    compile_navigation_body_workspace(
+                        destination, model, urdf, requirements, policy=policy
+                    )
+                except ValueError:
+                    pass
+                else:
+                    raise AssertionError("unknown SDK source compiled a Body")
+                assert not destination.exists()
         cases.append(
             {"case": name, "status": result["status"], "unknown_fields": result["unknown_fields"]}
         )
     report = {
-        "status": "PASS_SYNTHETIC_SDK_NAVIGATION_OBSERVATIONS_ONLY",
+        "status": "PASS_SYNTHETIC_SDK_NAVIGATION_BODY_COMPILATION_NOT_ADMISSION"
+        if compile_body
+        else "PASS_SYNTHETIC_SDK_NAVIGATION_OBSERVATIONS_ONLY",
         "cases": cases,
         "Worlds": 0,
         "navigation_goals_sent": 0,
