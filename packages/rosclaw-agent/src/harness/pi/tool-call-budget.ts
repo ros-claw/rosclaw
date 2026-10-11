@@ -1,5 +1,43 @@
 import type { ExtensionFactory, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { createHash, randomUUID } from "node:crypto";
+import type { StreamFn } from "@earendil-works/pi-agent-core";
+/** No production estimator is qualified. Strict mode is an UNKNOWN-deny
+ * policy, not an estimate, token cap, or replacement for measured SDK usage. */
+export interface ModelUsagePreadmission {
+    version: 1;
+    mode: "strict";
+}
+export function validateModelUsagePreadmission(value: unknown): asserts value is ModelUsagePreadmission {
+    if (!value || typeof value !== "object" || Array.isArray(value))
+        throw new Error("INVALID_MODEL_USAGE_PREADMISSION");
+    const v = value as Record<string, unknown>;
+    if (Object.keys(v).length !== 2 || !Object.hasOwn(v, "version") || !Object.hasOwn(v, "mode")
+        || v.version !== 1 || v.mode !== "strict")
+        throw new Error("INVALID_MODEL_USAGE_PREADMISSION");
+}
+export class ModelUsagePreadmissionDenied extends Error {
+    readonly code = "MODEL_USAGE_PREADMISSION_UNKNOWN_TOKEN_BOUND";
+    readonly status = "UNKNOWN";
+    readonly recoverable = true;
+    constructor() {
+        super("MODEL_USAGE_PREADMISSION_UNKNOWN_TOKEN_BOUND: no qualified request/model/provider/version-bound estimator; strict request refused before transport");
+        this.name = "ModelUsagePreadmissionDenied";
+    }
+}
+/** ROSClaw-owned outer boundary. Omission returns the original function by
+ * identity. Strict cannot delegate to a provider, even during compaction or
+ * retry. There is intentionally no policy-supplied bound/estimator escape hatch.
+ * Rejection creates no reservation or measured zero; existing error/abort usage
+ * observation retains explicit uncertainty. No credentials/settings are changed. */
+export function gateModelUsageStream(original: StreamFn, policy?: ModelUsagePreadmission): StreamFn {
+    if (policy === undefined)
+        return original;
+    validateModelUsagePreadmission(policy);
+    // Capture admission, not the caller's mutable policy object.
+    return function (this: unknown, ..._args: Parameters<StreamFn>) {
+        throw new ModelUsagePreadmissionDenied();
+    };
+}
 export interface ModelUsageAwareness {
     version: 1;
     lifetime: "runtime";
@@ -199,10 +237,12 @@ export interface ToolCallBudget {
     visibleBudgetMode?: "full" | "compact";
     /** Advisory observer only, never permissions or a provider hard cap. */
     modelUsageAwareness?: ModelUsageAwareness;
+    /** Explicit strict UNKNOWN-deny at the runtime outer stream boundary. */
+    modelUsagePreadmission?: ModelUsagePreadmission;
 }
 const POLICY_MARKER = "ROSCLAW_TOOL_POLICY_JSON:";
 const COMPACT_MARKER = "ROSCLAW_TOOL_BUDGET_COMPACT_JSON:";
-const KNOWN_KEYS = ["allowedTools", "maxCalls", "maxTotalCalls", "exactCommands", "visibleBudget", "exactPaths", "visibleBudgetMode", "modelUsageAwareness"];
+const KNOWN_KEYS = ["allowedTools", "maxCalls", "maxTotalCalls", "exactCommands", "visibleBudget", "exactPaths", "visibleBudgetMode", "modelUsageAwareness", "modelUsagePreadmission"];
 function stripMarkerLines(text: string, compact = false): string {
     return text.split("\n").filter(line => !line.startsWith(POLICY_MARKER)
         && !(compact && line.startsWith(COMPACT_MARKER))).join("\n");
@@ -262,6 +302,8 @@ export function createToolCallBudgetExtension(policy: ToolCallBudget, workspaceR
     }
     if (Object.hasOwn(policy, "modelUsageAwareness"))
         validateModelUsageAwareness(policy.modelUsageAwareness);
+    if (Object.hasOwn(policy, "modelUsagePreadmission"))
+        validateModelUsagePreadmission(policy.modelUsagePreadmission);
     const usage = policy.modelUsageAwareness ? usageObserver({ ...policy.modelUsageAwareness }) : undefined;
     const compact = policy.visibleBudgetMode === "compact";
     const paths = new Map<string, readonly string[]>();

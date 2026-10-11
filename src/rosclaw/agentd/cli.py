@@ -501,6 +501,7 @@ _TOOL_CALL_POLICY_KEYS = frozenset(
         "exactPaths",
         "visibleBudgetMode",
         "modelUsageAwareness",
+        "modelUsagePreadmission",
     }
 )
 # 与 JS Number.isSafeInteger 上限一致（JSON 1.0 这类整数值浮点可接受）。
@@ -666,6 +667,16 @@ def _validate_tool_call_policy(raw_path: str) -> Path:
             or usage["deliveryReserveOutput"] > usage["outputLimit"]
         ):
             raise ValueError("invalid modelUsageAwareness reserve")
+    if "modelUsagePreadmission" in data:
+        preadmission = data["modelUsagePreadmission"]
+        if (
+            not isinstance(preadmission, dict)
+            or set(preadmission) != {"version", "mode"}
+            or not _policy_limit_ok(preadmission["version"])
+            or preadmission["version"] != 1
+            or preadmission["mode"] != "strict"
+        ):
+            raise ValueError("invalid modelUsagePreadmission")
     return path
 
 

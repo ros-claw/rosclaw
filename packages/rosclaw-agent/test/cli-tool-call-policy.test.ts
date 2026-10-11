@@ -207,3 +207,40 @@ test("default without flag unchanged (no policy validation errors)", () => {
 		assert.match(stderr, /不存在/, stderr);
 	});
 });
+
+test("preadmission policy rejects before runtime/auth", () => {
+	withTempHome((home) => {
+		const config = { version: 1, mode: "strict" };
+		const invalid: unknown[] = [
+			null, [], true, {}, { version: 1 }, { mode: "strict" },
+			{ ...config, extra: 1 }, { ...config, inputBound: 1 },
+			{ ...config, estimator: "chars" }, { ...config, tokenizer: "unsupported" },
+		];
+		for (const version of [null, true, false, "1", 0, 2, -1, 0.5, 9007199254740992]) {
+			invalid.push({ ...config, version });
+		}
+		for (const mode of [null, true, 1, [], {}, "", "STRICT", " strict", "awareness"]) {
+			invalid.push({ ...config, mode });
+		}
+		for (const value of invalid) {
+			const path = writePolicy(home, JSON.stringify({ allowedTools: [], modelUsagePreadmission: value }));
+			assertPolicyRejected(home, ["--tool-call-policy", path, "--provider", "invalid", "--model", "invalid"]);
+		}
+		for (const version of ["1e999", "NaN", "Infinity", "-Infinity"]) {
+			const path = writePolicy(home, `{"allowedTools":[],"modelUsagePreadmission":{"version":${version},"mode":"strict"}}`);
+			assertPolicyRejected(home, ["--tool-call-policy", path, "--provider", "invalid", "--model", "invalid"]);
+		}
+	});
+});
+
+test("preadmission valid integral version passes early parser", () => {
+	withTempHome((home) => {
+		for (const version of ["1", "1.0", "1e0"]) {
+			const path = writePolicy(home, `{"allowedTools":["read"],"maxCalls":{"read":1},"maxTotalCalls":1,"exactPaths":{"read":["missing.txt"]},"visibleBudget":true,"visibleBudgetMode":"compact","modelUsagePreadmission":{"version":${version},"mode":"strict"}}`);
+			const { status, stderr } = runCli(["--tool-call-policy", path, "--resume", RESUME_SENTINEL], home);
+			assert.equal(status, 2, `stderr=${stderr}`);
+			assert.doesNotMatch(stderr, /INVALID_TOOL_CALL_POLICY/, stderr);
+			assert.match(stderr, /不存在/, stderr);
+		}
+	});
+});

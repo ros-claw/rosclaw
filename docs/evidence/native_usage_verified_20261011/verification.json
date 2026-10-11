@@ -1,0 +1,103 @@
+{
+  "status": "INDEPENDENT_SOURCE_COMPONENT_AND_DEFAULT_NPM_ACCEPTED_WHOLE_FAILURE_PRESERVED",
+  "provenance": "Product and functional tests authored by ROSClaw Native; Root reviewed, tested frozen bytes and published exact source.",
+  "source11": [
+    {
+      "path": "packages/rosclaw-agent/src/harness/pi/tool-call-budget.ts",
+      "size": 24422,
+      "sha256": "8c5cc90a2ac41c73b65fc1f4d74cb9416e51008c5a0f5416d7c9dc91a361015c"
+    },
+    {
+      "path": "packages/rosclaw-agent/src/harness/pi/pi-runtime.ts",
+      "size": 38695,
+      "sha256": "bb721873c0353c4d5e067eb59e6fe345d78d535839e5bebb801e7a89bfd92b70"
+    },
+    {
+      "path": "packages/rosclaw-agent/src/main.ts",
+      "size": 29374,
+      "sha256": "8c83341c6de2b2fdc6746c2d19790fbd686f8a88993e1c18e85f5db6e06bad07"
+    },
+    {
+      "path": "packages/rosclaw-agent/src/extension/index.ts",
+      "size": 72240,
+      "sha256": "211e2aaafec597433bb5bd95d4827200ab8feb3b4ac2aca722955403c4092c9b"
+    },
+    {
+      "path": "docs/model-usage-awareness.md",
+      "size": 23931,
+      "sha256": "57636146bc06e599f2f27b3779b13d93a57fb903f16f16361dbf55f6652c6374"
+    },
+    {
+      "path": "packages/rosclaw-agent/test/cli-tool-call-policy.test.ts",
+      "size": 11681,
+      "sha256": "5d0fa660ac20631b7670f76a63d0da56dd6d274ba2255caa759aacb8203f116a"
+    },
+    {
+      "path": "packages/rosclaw-agent/test/model-usage-preadmission.test.ts",
+      "size": 33146,
+      "sha256": "9df8b1d8ef11c5a77a4b0555701f87652fe622b9d733f1852bcbf6296dd38bc4"
+    },
+    {
+      "path": "src/rosclaw/agentd/cli.py",
+      "size": 59735,
+      "sha256": "2098ae8c7b8281497fb3b82eea72292fa9535024f27c076e9b6346aaf6a0233b"
+    },
+    {
+      "path": "tests/agentd/test_cli_tool_call_policy.py",
+      "size": 18033,
+      "sha256": "5c046ba91fb0780412f2baf26b47c1e5de4c914be4ecef9cac39af735ae470ef"
+    },
+    {
+      "path": "packages/rosclaw-agent/test/session-writer-ownership.test.ts",
+      "size": 37083,
+      "sha256": "d69c1abfc44a4ce38c1a732ef3125acd202f215972929d2f774e338e3baa80c0"
+    },
+    {
+      "path": "packages/rosclaw-agent/docs/session-writer-ownership.md",
+      "size": 12596,
+      "sha256": "61c4944ac6dded03c9f2f4d82b9c234b6ce9c2c42810609d5348e4e8c2dcae11"
+    }
+  ],
+  "ownership_module": {
+    "tests": 17,
+    "pass": 17,
+    "fail": 0,
+    "scope": "real runtime ownership, failure paths, source wiring and four mutation controls"
+  },
+  "default_npm": {
+    "command": "npm test",
+    "unfiltered": true,
+    "default_concurrency": true,
+    "counts": {
+      "tests": 635,
+      "suites": 21,
+      "pass": 632,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 3,
+      "todo": 0
+    },
+    "elapsed_outer_s": 15.33121648998349,
+    "image": "sha256:c3c5545ce25528f70a63f266924b40c80e95bf8e27c233f4108f4d5fda5c0eb4",
+    "network": "none",
+    "auth_mounted": false,
+    "owned_container_removed": true,
+    "source_prepost_exact": true,
+    "stdout_sha256": "794419b477dba1a78cde789e8a166af0d32cd2518772def71c5a9b654fb235ce"
+  },
+  "historical_whole_frozen5": {
+    "status": "PASS",
+    "observations": 116,
+    "warning": "observations are not distinct leaf tests"
+  },
+  "latest_native_whole": {
+    "status": "SOURCE_FAILED",
+    "reason": "original98 accounting rejects18 newly required ownership records as unexpected; original98 count98 no missing/duplicate and ownership17 PASS",
+    "acceptor_rescored": false
+  },
+  "limits": [
+    "3 original bwrap cases SKIP remain NOT_RUN",
+    "No robot, physical tennis, DDS, video or production token-estimator claim",
+    "Prior provider503 and pre-fix default npm failure preserved"
+  ]
+}

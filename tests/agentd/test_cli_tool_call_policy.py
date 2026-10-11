@@ -382,3 +382,116 @@ def test_usage_awareness_cli_valid_forwarding(tmp_path, monkeypatch):
     args = build_parser().parse_args(["chat", "--tool-call-policy", policy])
     assert cli.cmd_chat(args) == 0
     assert seen == [policy]
+
+
+def test_preadmission_invalid_prehome(tmp_path, monkeypatch, capsys):
+    import rosclaw.agentd.cli as cli
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("invalid preadmission reached home/auth/Node")
+
+    monkeypatch.setattr(cli, "_home", forbidden)
+    monkeypatch.setattr(cli, "_cmd_chat_impl", forbidden)
+    config = {"version": 1, "mode": "strict"}
+    invalid = [
+        None,
+        [],
+        True,
+        {},
+        {"version": 1},
+        {"mode": "strict"},
+        {**config, "extra": 1},
+        {**config, "inputBound": 1},
+        {**config, "estimator": "chars"},
+        {**config, "tokenizer": "unsupported"},
+    ]
+    for version in (None, True, False, "1", 0, 2, -1, 0.5, 9007199254740992):
+        invalid.append({**config, "version": version})
+    for mode in (None, True, 1, [], {}, "", "STRICT", " strict", "awareness"):
+        invalid.append({**config, "mode": mode})
+    for value in invalid:
+        policy = _write(tmp_path, {"allowedTools": [], "modelUsagePreadmission": value})
+        with pytest.raises(ValueError):
+            _validate_tool_call_policy(policy)
+        args = build_parser().parse_args(["chat", "--tool-call-policy", policy])
+        assert cli.cmd_chat(args) == 2
+        err = capsys.readouterr().err
+        assert "--tool-call-policy 无效" in err
+        assert "Traceback" not in err
+
+
+def test_preadmission_valid_unchanged_forwarding(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    import rosclaw.agentd.cli as cli
+
+    payload = {
+        "allowedTools": ["read"],
+        "maxCalls": {"read": 1},
+        "maxTotalCalls": 1,
+        "exactPaths": {"read": ["missing.txt"]},
+        "visibleBudget": True,
+        "visibleBudgetMode": "compact",
+        "modelUsagePreadmission": {"version": 1.0, "mode": "strict"},
+    }
+    target = tmp_path / "policy dir" / "policy.json"
+    target.parent.mkdir()
+    original = json.dumps(payload)
+    target.write_text(original)
+    link = tmp_path / "policy-link.json"
+    link.symlink_to(target)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(cli, "_home", lambda args: tmp_path / "unused-home")
+    monkeypatch.setattr(cli, "_ensure_home_env", lambda home: None)
+    monkeypatch.setattr(cli, "_restore_home_env", lambda prev: None)
+    seen = []
+
+    def impl(args, home):
+        seen.append(args.tool_call_policy)
+        assert args.tool_call_policy == str(target.resolve())
+        assert Path(args.tool_call_policy).read_text() == original
+        assert json.loads(Path(args.tool_call_policy).read_text()) == payload
+        return 0
+
+    monkeypatch.setattr(cli, "_cmd_chat_impl", impl)
+    args = build_parser().parse_args(["chat", "--tool-call-policy", "policy-link.json"])
+    assert cli.cmd_chat(args) == 0
+    assert seen == [str(target.resolve())]
+    assert Path.cwd() == tmp_path
+    assert target.read_text() == original
+    assert not (tmp_path / "unused-home").exists()
+    assert not (tmp_path / "missing.txt").exists()
+
+
+def test_preadmission_json_number_schema_parity(tmp_path):
+    for version in ("1", "1.0", "1e0"):
+        policy = _write(
+            tmp_path,
+            '{"allowedTools":[],"modelUsagePreadmission":{"version":'
+            + version
+            + ',"mode":"strict"}}',
+        )
+        assert str(_validate_tool_call_policy(policy)) == policy
+    for version in (
+        "true",
+        "false",
+        "null",
+        '"1"',
+        "0",
+        "2",
+        "-1",
+        "0.5",
+        "9007199254740992",
+        "1e999",
+        "NaN",
+        "Infinity",
+        "-Infinity",
+    ):
+        policy = _write(
+            tmp_path,
+            '{"allowedTools":[],"modelUsagePreadmission":{"version":'
+            + version
+            + ',"mode":"strict"}}',
+        )
+        with pytest.raises(ValueError):
+            _validate_tool_call_policy(policy)
