@@ -224,8 +224,20 @@ def test_dangling_destination_symlink_is_refused_before_target_write(tmp_path):
     assert destination.is_symlink() and not target.exists()
 
 
-@pytest.mark.parametrize("fault", [None, "policy", "stale", "tamper", "policy_symlink"])
-def test_actual_pinned_cli_compiles_or_refuses_without_runtime(tmp_path, fault):
+@pytest.mark.parametrize(
+    "fault,runtime_home_exists",
+    [
+        (None, False),
+        (None, True),
+        ("policy", False),
+        ("stale", False),
+        ("tamper", False),
+        ("policy_symlink", False),
+    ],
+)
+def test_actual_pinned_cli_compiles_or_refuses_without_runtime(
+    tmp_path, fault, runtime_home_exists
+):
     model, raw, requirements, policy = source("/cli/renamed", "platform", "range_frame", 0.6)
     now = datetime.now(UTC)
     model.captured_at = now
@@ -261,6 +273,8 @@ def test_actual_pinned_cli_compiles_or_refuses_without_runtime(tmp_path, fault):
         policy_path.symlink_to("policy.json")
     repository = Path(__file__).resolve().parents[3]
     destination = tmp_path / "compiled"
+    if runtime_home_exists:
+        (tmp_path / "private-home").mkdir()
     completed = subprocess.run(
         [
             # Pin the child to pytest's interpreter. System-install CI has no
@@ -298,6 +312,9 @@ def test_actual_pinned_cli_compiles_or_refuses_without_runtime(tmp_path, fault):
     assert destination.exists() is (fault is None)
     if fault is None:
         assert result["status"] == "CONTRACT_COMPILED_NOT_ADMITTED"
+        assert {
+            str(p.relative_to(destination)) for p in destination.rglob("*") if p.is_file()
+        } == set(result["file_sha256"]) | {"navigation-body-workspace.json"}
         binding = SimulationNavigationBinding.from_body(
             BodyResolver(workspace=destination).get_effective_body(recompile_if_stale=False)
         )

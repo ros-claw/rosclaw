@@ -668,7 +668,10 @@ def add_ros_subparser(subparsers: argparse._SubParsersAction) -> argparse.Argume
                 "--policy", required=True, help="Source-bound SIM fixture policy JSON"
             )
             expert_parser.add_argument(
-                "--workspace", required=True, help="New simulator-owned Body workspace directory"
+                "--workspace",
+                dest="navigation_workspace",
+                required=True,
+                help="New simulator-owned Body workspace directory",
             )
         if command == "diagnose":
             expert_parser.add_argument(
@@ -808,7 +811,7 @@ def cmd_ros_expert(args: argparse.Namespace) -> int:
 
             assert urdf is not None
             result = compile_navigation_body_workspace(
-                args.workspace, model, urdf, requirements, policy=policy
+                args.navigation_workspace, model, urdf, requirements, policy=policy
             )
         elif command == "resolve":
             result = resolve_task(model, args.task)
