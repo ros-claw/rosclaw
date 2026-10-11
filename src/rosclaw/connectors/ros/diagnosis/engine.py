@@ -259,11 +259,27 @@ def diagnose(
     selected = (
         list(known_groups.values()) if profile in {"all", "navigation"} else [known_groups[profile]]
     )
+    if profile in {"all", "navigation", "sensors"}:
+        selected.append("graph")
     unknown = sorted(k for k in selected if not model.completeness.get(k, False))
+    if profile in {"all", "navigation", "sensors"}:
+        # A complete collection window does not imply every declared sensor
+        # has a measured rate or an observed message type.
+        for topic in model.body.get("required_topic_types", {}):
+            if not observed_types.get(topic):
+                unknown.append(f"topic_type:{topic}")
+        for topic in model.body.get("minimum_rates", {}):
+            if not any(s.topic == topic and s.rate_hz is not None for s in model.signals):
+                unknown.append(f"signal_rate:{topic}")
+    if profile in {"all", "navigation"}:
+        unknown.extend(
+            f"lifecycle:{node.name}" for node in model.lifecycle if node.state == "UNKNOWN"
+        )
     if profile in {"all", "navigation", "tf"} and any(
         not edge.static and edge.age_ms is None for edge in model.transforms
     ):
         unknown.append("tf_timing")
+    unknown = sorted(set(unknown))
     status = (
         "BLOCKED"
         if any(i["severity"] == "blocking" for i in issues)
