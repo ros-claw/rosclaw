@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import subprocess
+import sys
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -262,7 +263,9 @@ def test_actual_pinned_cli_compiles_or_refuses_without_runtime(tmp_path, fault):
     destination = tmp_path / "compiled"
     completed = subprocess.run(
         [
-            str(repository / ".venv/bin/python"),
+            # Pin the child to pytest's interpreter. System-install CI has no
+            # repository .venv; local pytest still uses the pinned launcher.
+            sys.executable,
             "-m",
             "rosclaw.entrypoint",
             "ros",
