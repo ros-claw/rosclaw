@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import subprocess
+import sys
 from datetime import timedelta
 from pathlib import Path
 
@@ -266,7 +267,7 @@ def test_actual_pinned_inspection_cli_is_read_only_and_explicit_about_history(tm
         (root / "execution_config.json").write_text("{}")
     repository = Path(__file__).resolve().parents[3]
     argv = [
-        str(repository / ".venv/bin/python"),
+        sys.executable,
         "-m",
         "rosclaw.entrypoint",
         "ros",
