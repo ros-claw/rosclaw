@@ -359,6 +359,39 @@ def test_navigation_stopping_state_is_not_cleared_by_a_new_action(tmp_path):
     assert executor.stopping.is_set() and not control.calls and not client.sent
 
 
+@pytest.mark.parametrize("stop_observed", [True, False])
+def test_real_runtime_stop_aggregation_preserves_sim_witness_evidence(tmp_path, stop_observed):
+    from rosclaw.core.runtime import Runtime, RuntimeConfig
+
+    executor, _, witness, control, _ = make_executor(tmp_path)
+    witness.lease = True
+    control.ignore_stop = not stop_observed
+    runtime = Runtime(
+        RuntimeConfig(
+            enable_event_persistence=False,
+            enable_tracing=False,
+            enable_firewall=False,
+            enable_memory=False,
+            enable_practice=False,
+            enable_skill_manager=False,
+            enable_knowledge=False,
+            enable_how=False,
+            enable_auto=False,
+            enable_provider=False,
+            enable_sense=False,
+        )
+    )
+    runtime.register_driver("navigation_sim", executor)
+    receipt = runtime.request_emergency_stop("synthetic contract", timeout_sec=3)
+    assert receipt.driver_acknowledged is True
+    assert receipt.physical_stop_observed is stop_observed
+    assert receipt.stopped is stop_observed
+    assert receipt.execution_mode == "SIMULATION"
+    assert receipt.verification_source == (
+        "gazebo_ground_truth_and_revoked_sim_lease" if stop_observed else None
+    )
+
+
 def test_emergency_revoke_follows_inflight_renewal_and_refuses_later_enable(tmp_path):
     executor, _, witness, control, _ = make_executor(tmp_path)
     entered, release = threading.Event(), threading.Event()

@@ -630,6 +630,11 @@ class RosCoverageSimulationExecutor:
         return {
             "acknowledged": all(responses) and not errors,
             "physical_stop_verified": physical_stop_verified,
+            "physical_stop_observed": physical_stop_verified,
+            "verification_source": "gazebo_ground_truth_and_revoked_sim_lease"
+            if physical_stop_verified
+            else None,
+            "execution_mode": "SIMULATION",
             "cancel_error": cancel_error,
             "errors": errors,
         }
