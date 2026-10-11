@@ -1,0 +1,54 @@
+{
+  "status": "ROOT_ACCEPTED_NARROW_SOURCE_COMPONENT_ONLY",
+  "base_commit": "70557e1a9ba55e8b29c8a177e127c8258a664516",
+  "implementation_author": "ROSClaw Native, ChatGPT-backed, exec46034",
+  "root_role": "Supervision, review, independent verification and byteexact export; no authored production/test change",
+  "source4_sha256": {
+    "packages/rosclaw-agent/src/harness/pi/tool-call-budget.ts": "ee35a0cf116d28af74affdfb01eb9cf61069b2fd27d7d605bbef4172caea3bb4",
+    "packages/rosclaw-agent/test/model-usage-awareness.test.ts": "a01b120a3e5966b568cab7a1db1d7abad88ff17f694c0d8ffbb9433b73ba6894",
+    "docs/model-usage-awareness.md": "f98b1411236b3768872cd13e9c86c6271de78e72e186485b0ae774d0717dccc0",
+    "packages/rosclaw-agent/src/native/operation-watcher.ts": "24ff68292aa2d19aef745ea2e129d604df6cdffb6cbd07278695d71a83a42cc7"
+  },
+  "original_episode": {
+    "status": "AGGREGATE_BUDGET_FAIL",
+    "known_inclusive_input_lower_bound": 1230803,
+    "known_output_lower_bound": 8873,
+    "usage_complete": false,
+    "normal_STOP": false,
+    "native_report_status": "SOURCE_FAILED",
+    "registered_final_artifacts": 6,
+    "task_state": "RUNNING in immutable stopped ledger; registration does not finish task"
+  },
+  "independent_verification": {
+    "status": "PASS_FINAL98_INDEPENDENT_COMPONENT_NOT_ORIGINAL_WHOLE",
+    "observations_passed": 98,
+    "observations_failed": 0,
+    "observation_definition": "Includes grouped Node suites and operator assertions; not 98 independent tests",
+    "elapsed_s": 10.720987406006316,
+    "strict_TS_compile": true,
+    "offline_Node_suites": 8,
+    "PI_version": "1.1.0",
+    "SDK_local_requests": 12,
+    "SDK_idle_custom_turns": 5,
+    "provider_requests": 0,
+    "captured_full8_closed": 21,
+    "component_receipt_sha256": "cc38d986f9e0f742d1d47058c9f5f3e506a56ddb4ab9d0c68281220715cf095b",
+    "independent_closure_receipt_sha256": "6e2e7f39161886b394f0c7675f9936b54f0411eb1dc43e43470a2c23b73fae91",
+    "strict_literal_SQL_review_receipt_sha256": "5335266377a0074c213f55d8813b11fc800d1572d5bc82738b1c8c0eb669e2fa"
+  },
+  "review": {
+    "production_change": "Only createToolCallBudgetExtension gains context_with_system projection; 21 other top-level TS statements unchanged after comment-free printer normalization",
+    "test_change": "Original eight tests preserved; five genuine SDK tests added. Disabled-mode comparison ignores only top-level user timestamps across independent fixtures",
+    "watcher_change": "None",
+    "manual_prompt_boundary": "PI forced system prompt projection can retain turn-start leading notice during a manual prompt; existing toolresult notices settle subsequent usage. Scope is genuine idle custom wakeups",
+    "formatter_failure": "Original optional formatter partially wrote production file then rejected test AST string comparison; preserved, no acceptance inferred from formatter",
+    "final_native_test_repair": "Timestamp normalization written after final Native run; exact final repair first verified by this independent replay"
+  },
+  "not_claimed": [
+    "Original whole-task success",
+    "Production provider/TTY end-to-end wakeup",
+    "ROS or physics success",
+    "Legal tennis returns or qualified delivery videos",
+    "Hosted CI terminal success before observed"
+  ]
+}

@@ -159,3 +159,98 @@ test("usage-reserve-default-compatibility", async () => {
 		assert.equal(toolText.split("\n").find((l: string) => l.startsWith(marker)), plainText.split("\n").find((l: string) => l.startsWith(marker)));
 	} finally { await plain.close(); await enabled.close(); }
 });
+
+// Managed idle entry: real SDK turns, no manually invoked positive callbacks.
+async function managedFixture(enabled = true, partial = false) {
+	const home = await mkdtemp(join(tmpdir(), "managed-usage-sdk-"));
+	const settings = SettingsManager.inMemory({ compaction: { enabled: false, keepRecentTokens: 1 }, retry: { enabled: false } });
+	const runtime = await ModelRuntime.create({ credentials: new InMemoryCredentialStore(), modelsPath: null, modelsStorePath: join(home, "catalog"), allowModelNetwork: false, refreshOnCreate: false });
+	const model: Model<"openai-completions"> = { id: "managed", name: "managed", api: "openai-completions", provider: "fixture", baseUrl: "http://invalid.local", reasoning: false, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 8192, maxTokens: 100 };
+	runtime.registerProvider(model.provider, { api: model.api, baseUrl: model.baseUrl, apiKey: "INERT", models: [model] });
+	let beforeStarts = 0;
+	const compactions: any[] = [], payloads: any[][] = [];
+	const loader = new DefaultResourceLoader({ cwd: home, agentDir: home, settingsManager: settings, noExtensions: true, noSkills: true, noContextFiles: true, noPromptTemplates: true, noThemes: true,
+		extensionFactories: [{ name: "usage", factory: createToolCallBudgetExtension({ allowedTools: [], ...(enabled ? { modelUsageAwareness: conf } : {}) }) }, { name: "observe", factory: pi => {
+			pi.on("before_agent_start", () => { beforeStarts++; });
+			pi.on("session_before_compact", e => { compactions.push(e); return { cancel: true }; });
+		} }] });
+	await loader.reload();
+	const { session } = await createAgentSession({ cwd: home, agentDir: home, model: runtime.getModel(model.provider, model.id)!, modelRuntime: runtime, sessionManager: SessionManager.inMemory(home), settingsManager: settings, resourceLoader: loader, tools: [], thinkingLevel: "off" });
+	let requests = 0;
+	session.agent.streamFunction = ((_m: unknown, context: any) => {
+		assert.ok(++requests <= 8);
+		payloads.push(structuredClone(context.messages));
+		const msg: any = { role: "assistant", api: model.api, provider: model.provider, model: model.id, timestamp: 100, content: [{ type: "text", text: "DONE" }], usage: partial && requests === 1 ? { ...usage, input: 9, cacheRead: -1, cacheWrite: undefined, output: 0 } : { ...usage }, stopReason: partial && requests === 1 ? "aborted" : "stop" };
+		const stream = createAssistantMessageEventStream();
+		stream.push(partial && requests === 1 ? { type: "error", reason: "aborted", error: msg } : { type: "done", reason: "stop", message: msg });
+		return stream;
+	}) as typeof session.agent.streamFunction;
+	await session.bindExtensions({});
+	return { session, payloads, compactions, get beforeStarts() { return beforeStarts; }, get requests() { return requests; }, async close() { session.dispose(); await rm(home, { recursive: true, force: true }); } };
+}
+
+async function managedTurn(f: Awaited<ReturnType<typeof managedFixture>>, state: string) {
+	assert.ok(f.session.isIdle);
+	const content = `后台 Operation owned-${state} 已终止：${state}。用 process_output 查看输出，然后在同一任务里继续（验证/修复/交付）。`;
+	const details = { operation_id: `owned-${state}`, state };
+	await f.session.sendCustomMessage({ customType: "rosclaw.operation.result", content, display: false, details }, { triggerTurn: true });
+	assert.ok(f.session.isIdle);
+	const custom = f.payloads.at(-1)!.find(m => m.role === "custom" && m.details?.operation_id === details.operation_id);
+	// The public stream converter can render custom messages as user text;
+	// persisted SDK history is authoritative for custom type and binding.
+	const persisted = f.session.messages.find((m: any) => m.role === "custom" && m.details?.operation_id === details.operation_id) as any;
+	assert.ok(persisted); assert.equal(persisted.content, content); assert.deepEqual(persisted.details, details); assert.equal(persisted.display, false);
+	assert.ok(custom || f.payloads.at(-1)!.some(m => textOf(m).includes(content)));
+	return f.payloads.at(-1)!;
+}
+
+function leadingUsage(messages: any[]) {
+	assert.equal(messages[0].role, "system");
+	assert.equal(messages.filter(m => m.role === "system").length, 1);
+	const n = notes(textOf(messages[0]));
+	assert.equal(n.length, 1, "ONE_CURRENT_LEADING_USAGE_REQUIRED");
+	return n[0];
+}
+
+for (const [state, name] of [["SUCCEEDED", "success"], ["FAILED", "failure"], ["CANCELLED", "cancellation"]]) {
+	test(`managed idle terminal ${name} uses fresh leading usage`, async () => {
+		const f = await managedFixture(); try {
+			await f.session.prompt("manual inert prompt"); assert.ok(f.session.isIdle);
+			assert.equal(f.requests, 1); assert.equal(f.beforeStarts, 1);
+			const initial = leadingUsage(f.payloads[0]); assert.equal(initial.completedMainRequests, 0);
+			const messages = await managedTurn(f, state);
+			assert.equal(f.beforeStarts, 1, "idle triggerTurn bypasses before_agent_start");
+			const n = leadingUsage(messages);
+			assert.equal(n.completedMainRequests, 1); assert.equal(n.knownInclusiveInput, 21); assert.equal(n.knownOutput, 5); assert.equal(n.pendingMainRequests, 0);
+			assert.equal(n.runtimeGeneration, initial.runtimeGeneration); assert.ok(n.sequence > initial.sequence);
+			await f.session.prompt("manual after idle");
+			assert.equal(leadingUsage(f.payloads[2]).completedMainRequests, 2);
+			assert.equal(f.beforeStarts, 2);
+		} finally { await f.close(); }
+	});
+}
+
+test("managed wakeup preserves unknown and compaction lowerbounds", async () => {
+	const f = await managedFixture(true, true); try {
+		await f.session.prompt("partial abort");
+		const n = leadingUsage(await managedTurn(f, "FAILED"));
+		assert.equal(n.completedMainRequests, 1); assert.equal(n.knownInclusiveInput, 9); assert.equal(n.knownOutput, 0); assert.equal(n.unknownUsageRequests, 1); assert.equal(n.reserveState, "unknown");
+		await f.session.prompt("history ".repeat(512));
+		await assert.rejects(f.session.compact(), /^Error: Compaction cancelled$/);
+		assert.equal(f.compactions.length, 1); assert.equal(f.compactions[0].reason, "manual"); assert.ok(f.compactions[0].preparation);
+		const after = leadingUsage(await managedTurn(f, "SUCCEEDED"));
+		assert.equal(after.completedMainRequests, 3); assert.equal(after.knownInclusiveInput, 51); assert.equal(after.knownOutput, 10); assert.equal(after.unknownUsageRequests, 1); assert.equal(after.unaccountedCompaction, true); assert.equal(after.reserveState, "unknown");
+	} finally { await f.close(); }
+});
+
+test("managed wakeup preserves body and default-disabled compatibility", async () => {
+	const plain = await managedFixture(false); const enabled = await managedFixture(); try {
+		for (const f of [plain, enabled]) { await f.session.prompt("manual"); await managedTurn(f, "CANCELLED"); assert.equal(f.requests, 2); assert.equal(f.beforeStarts, 1); }
+		assert.ok(plain.payloads.every(p => p.flatMap(m => notes(textOf(m))).length === 0));
+		assert.equal(leadingUsage(enabled.payloads[1]).completedMainRequests, 1);
+		// Independent sessions have independent wall-clock timestamps. Compare
+		// every other public payload field, retaining assistant measured usage.
+		const withoutSystems = (p: any[]) => p.filter(m => m.role !== "system").map(({ timestamp: _timestamp, ...message }) => message);
+		assert.deepEqual(withoutSystems(enabled.payloads[1]), withoutSystems(plain.payloads[1]));
+	} finally { await plain.close(); await enabled.close(); }
+});
