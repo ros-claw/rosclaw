@@ -7,6 +7,7 @@ Run with the ROS host's Python after sourcing ROS. No ROSClaw dependency.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import statistics
@@ -43,6 +44,14 @@ READ_TYPES = {
 }
 
 
+def latched_observation(topic, types, publishers):
+    return topic.endswith(("/tf_static", "/_action/status")) or (
+        types == ["nav_msgs/msg/OccupancyGrid"]
+        and bool(publishers)
+        and all(p.qos_profile.durability == DurabilityPolicy.TRANSIENT_LOCAL for p in publishers)
+    )
+
+
 def utc_now():
     return datetime.now(UTC).isoformat()
 
@@ -65,6 +74,8 @@ class ReadOnlyProbe(Node):
         self.packages = sorted(get_packages_with_prefixes())
         self.localization_observations = {}
         self.action_observations = {}
+        self.message_frames = {}
+        self.urdf_descriptions = {}
         self.publisher = self.create_publisher(
             String, PROBE_TOPIC, QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
         )
@@ -90,13 +101,7 @@ class ReadOnlyProbe(Node):
                 continue
             qos = QoSProfile(depth=20, reliability=ReliabilityPolicy.BEST_EFFORT)
             endpoints = self.get_publishers_info_by_topic(topic)
-            latched = topic.endswith(("/tf_static", "/_action/status")) or (
-                topic == "/map"
-                and endpoints
-                and all(
-                    p.qos_profile.durability == DurabilityPolicy.TRANSIENT_LOCAL for p in endpoints
-                )
-            )
+            latched = latched_observation(topic, types, endpoints)
             if latched:
                 qos = QoSProfile(depth=100, durability=DurabilityPolicy.TRANSIENT_LOCAL)
             try:
@@ -171,6 +176,7 @@ class ReadOnlyProbe(Node):
                         "polygons",
                         "observation_sources",
                         "scan.topic",
+                        "robot_description",
                     }
                     or key.endswith(
                         (
@@ -197,7 +203,17 @@ class ReadOnlyProbe(Node):
                     elif value.type == 3:
                         values[key] = value.double_value
                     elif value.type == 4:
-                        values[key] = value.string_value
+                        if key == "robot_description":
+                            raw = value.string_value.encode("utf-8")
+                            self.urdf_descriptions[node_name] = {
+                                "source": name,
+                                "captured_at": utc_now(),
+                                "sha256": hashlib.sha256(raw).hexdigest(),
+                                "size_bytes": len(raw),
+                                "complete": 0 < len(raw) <= 5_000_000,
+                            }
+                        else:
+                            values[key] = value.string_value
                     elif value.type == 9:
                         values[key] = list(value.string_array_value)
                 self.parameters[node_name] = values
@@ -208,6 +224,15 @@ class ReadOnlyProbe(Node):
 
     def observe(self, topic, message):
         self.samples.setdefault(topic, deque(maxlen=200)).append(time.monotonic())
+        if hasattr(message, "header"):
+            header = message.header
+            self.message_frames[topic] = {
+                "source": topic,
+                "frame_id": header.frame_id,
+                "child_frame_id": getattr(message, "child_frame_id", None),
+                "stamp_sec": header.stamp.sec + header.stamp.nanosec / 1e9,
+                "captured_at": utc_now(),
+            }
         if topic.endswith("/_action/status") and hasattr(message, "status_list"):
             self.action_observations[topic.removesuffix("/_action/status")] = {
                 "source": topic,
@@ -322,15 +347,7 @@ class ReadOnlyProbe(Node):
                         "source": "native:monotonic_receive",
                         "max_age_ms": 2000 if topic.endswith("/costmap") else 1000,
                         "freshness_policy": "latched"
-                        if topic.endswith(("/tf_static", "/_action/status"))
-                        or (
-                            topic == "/map"
-                            and pubs
-                            and all(
-                                p.qos_profile.durability == DurabilityPolicy.TRANSIENT_LOCAL
-                                for p in pubs
-                            )
-                        )
+                        if latched_observation(topic, types, pubs)
                         else "stream",
                         "captured_at": stamp,
                         "rate_hz": 1 / statistics.mean(intervals) if intervals else None,
@@ -457,6 +474,8 @@ class ReadOnlyProbe(Node):
                 else None,
                 "localization_quality": localization,
                 "action_statuses": getattr(self, "action_observations", {}),
+                "message_frames": self.message_frames,
+                "urdf_descriptions": self.urdf_descriptions,
             },
             "completeness": {
                 "graph": True,

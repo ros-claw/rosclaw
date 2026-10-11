@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import stat
 from pathlib import Path
 from typing import Any
 
@@ -617,7 +619,15 @@ def add_ros_subparser(subparsers: argparse._SubParsersAction) -> argparse.Argume
     )
     _add_common(stop_parser)
 
-    for command in ("inspect-system", "diagnose", "resolve", "context", "mission", "performance"):
+    for command in (
+        "inspect-system",
+        "diagnose",
+        "discover-body",
+        "resolve",
+        "context",
+        "mission",
+        "performance",
+    ):
         expert_parser = ros_subparsers.add_parser(command, help=f"ROS Expert Harness: {command}")
         _add_common(expert_parser)
         expert_parser.add_argument("--snapshot", help="Replay a sealed RosSystemModel JSON")
@@ -628,6 +638,12 @@ def add_ros_subparser(subparsers: argparse._SubParsersAction) -> argparse.Argume
             "--deep", action="store_true", help="Require native sidecar observations"
         )
         expert_parser.add_argument("--output", help="Write derived artifact")
+        if command == "discover-body":
+            expert_parser.add_argument(
+                "--urdf",
+                required=True,
+                help="Expanded URDF file matching the observed robot_description",
+            )
         if command == "diagnose":
             expert_parser.add_argument(
                 "--profile",
@@ -651,7 +667,15 @@ def add_ros_subparser(subparsers: argparse._SubParsersAction) -> argparse.Argume
 def dispatch_ros_command(args: argparse.Namespace) -> int:
     """Dispatch the selected ``ros`` subcommand."""
     cmd = getattr(args, "ros_command", None)
-    if cmd in {"inspect-system", "diagnose", "resolve", "context", "mission", "performance"}:
+    if cmd in {
+        "inspect-system",
+        "diagnose",
+        "discover-body",
+        "resolve",
+        "context",
+        "mission",
+        "performance",
+    }:
         return cmd_ros_expert(args)
     if cmd == "ping":
         return cmd_ros_ping(args)
@@ -672,6 +696,19 @@ def dispatch_ros_command(args: argparse.Namespace) -> int:
     return 1
 
 
+def _read_discovery_urdf(path: str) -> bytes:
+    """Bound a regular expanded-URDF input before any live discovery read."""
+    descriptor = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
+    with os.fdopen(descriptor, "rb") as stream:
+        metadata = os.fstat(stream.fileno())
+        if not stat.S_ISREG(metadata.st_mode) or not 0 < metadata.st_size <= 5_000_000:
+            raise ValueError("bounded nonempty regular URDF file required")
+        raw = stream.read(5_000_001)
+        if not 0 < len(raw) <= 5_000_000:
+            raise ValueError("URDF input size outside bounded limit")
+        return raw
+
+
 def cmd_ros_expert(args: argparse.Namespace) -> int:
     from rosclaw.connectors.ros.context import compile_agent_summary
     from rosclaw.connectors.ros.diagnosis import diagnose
@@ -681,6 +718,7 @@ def cmd_ros_expert(args: argparse.Namespace) -> int:
     from rosclaw.connectors.ros.resolver import resolve_capabilities, resolve_task
 
     try:
+        urdf = _read_discovery_urdf(args.urdf) if args.ros_command == "discover-body" else None
         body = _load_json_or_yaml(Path(args.body)) if args.body else None
         if args.snapshot:
             model = load_system(_load_json_or_yaml(Path(args.snapshot)))
@@ -706,6 +744,11 @@ def cmd_ros_expert(args: argparse.Namespace) -> int:
             result = performance_graph(model).model_dump(mode="json")
         elif command == "diagnose":
             result = diagnose(model, profile=args.profile)
+        elif command == "discover-body":
+            from rosclaw.connectors.ros.context.discovery import discover_body_candidate
+
+            assert urdf is not None
+            result = discover_body_candidate(model, urdf)
         elif command == "resolve":
             result = resolve_task(model, args.task)
         elif command == "mission":
