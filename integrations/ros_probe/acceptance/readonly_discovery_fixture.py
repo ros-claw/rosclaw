@@ -18,6 +18,7 @@ def main():
     parser.add_argument("--sensor-frame", required=True)
     parser.add_argument("--body-width", type=float, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--navigation-review", action="store_true")
     args = parser.parse_args()
     args.output.mkdir(exist_ok=False)
     import rclpy
@@ -101,6 +102,13 @@ def main():
     executor = SingleThreadedExecutor()
     executor.add_node(source)
     executor.add_node(probe)
+    navigation_nodes = {}
+    if args.navigation_review:
+        from navigation_observation_fixture import prepare_navigation_fixture
+
+        navigation_nodes, requirements, navigation_state = prepare_navigation_fixture(
+            source, executor, namespace
+        )
     cases = []
 
     def spin(seconds):
@@ -142,6 +150,11 @@ def main():
         return model
 
     try:
+        if args.navigation_review:
+            from navigation_observation_fixture import run_navigation_reviews
+
+            run_navigation_reviews(probe, args.output, urdf, requirements, navigation_state, spin)
+            return
         spin(5)
         positive = capture("unique_fresh_streams", expected="PROPOSED")
         (args.output / "robot.urdf").write_bytes(urdf)
@@ -176,6 +189,8 @@ def main():
         action.destroy()
         probe.destroy_node()
         source.destroy_node()
+        for node in navigation_nodes.values():
+            node.destroy_node()
         rclpy.shutdown()
 
 

@@ -623,6 +623,7 @@ def add_ros_subparser(subparsers: argparse._SubParsersAction) -> argparse.Argume
         "inspect-system",
         "diagnose",
         "discover-body",
+        "review-navigation",
         "resolve",
         "context",
         "mission",
@@ -638,11 +639,21 @@ def add_ros_subparser(subparsers: argparse._SubParsersAction) -> argparse.Argume
             "--deep", action="store_true", help="Require native sidecar observations"
         )
         expert_parser.add_argument("--output", help="Write derived artifact")
-        if command == "discover-body":
+        if command in {"discover-body", "review-navigation"}:
             expert_parser.add_argument(
                 "--urdf",
                 required=True,
                 help="Expanded URDF file matching the observed robot_description",
+            )
+        if command == "discover-body":
+            expert_parser.add_argument(
+                "--interfaces", help="JSON mapping of roles to explicit ROS names"
+            )
+        if command == "review-navigation":
+            expert_parser.add_argument(
+                "--requirements",
+                required=True,
+                help="Explicit navigation observation requirements JSON",
             )
         if command == "diagnose":
             expert_parser.add_argument(
@@ -671,6 +682,7 @@ def dispatch_ros_command(args: argparse.Namespace) -> int:
         "inspect-system",
         "diagnose",
         "discover-body",
+        "review-navigation",
         "resolve",
         "context",
         "mission",
@@ -696,16 +708,16 @@ def dispatch_ros_command(args: argparse.Namespace) -> int:
     return 1
 
 
-def _read_discovery_urdf(path: str) -> bytes:
+def _read_discovery_urdf(path: str, description: str = "URDF") -> bytes:
     """Bound a regular expanded-URDF input before any live discovery read."""
     descriptor = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
     with os.fdopen(descriptor, "rb") as stream:
         metadata = os.fstat(stream.fileno())
         if not stat.S_ISREG(metadata.st_mode) or not 0 < metadata.st_size <= 5_000_000:
-            raise ValueError("bounded nonempty regular URDF file required")
+            raise ValueError(f"bounded nonempty regular {description} file required")
         raw = stream.read(5_000_001)
         if not 0 < len(raw) <= 5_000_000:
-            raise ValueError("URDF input size outside bounded limit")
+            raise ValueError(f"{description} input size outside bounded limit")
         return raw
 
 
@@ -718,7 +730,21 @@ def cmd_ros_expert(args: argparse.Namespace) -> int:
     from rosclaw.connectors.ros.resolver import resolve_capabilities, resolve_task
 
     try:
-        urdf = _read_discovery_urdf(args.urdf) if args.ros_command == "discover-body" else None
+        urdf = (
+            _read_discovery_urdf(args.urdf)
+            if args.ros_command in {"discover-body", "review-navigation"}
+            else None
+        )
+        interfaces = (
+            json.loads(_read_discovery_urdf(args.interfaces, "interface requirements"))
+            if getattr(args, "interfaces", None)
+            else None
+        )
+        requirements = (
+            json.loads(_read_discovery_urdf(args.requirements, "navigation requirements"))
+            if args.ros_command == "review-navigation"
+            else None
+        )
         body = _load_json_or_yaml(Path(args.body)) if args.body else None
         if args.snapshot:
             model = load_system(_load_json_or_yaml(Path(args.snapshot)))
@@ -748,7 +774,12 @@ def cmd_ros_expert(args: argparse.Namespace) -> int:
             from rosclaw.connectors.ros.context.discovery import discover_body_candidate
 
             assert urdf is not None
-            result = discover_body_candidate(model, urdf)
+            result = discover_body_candidate(model, urdf, interface_names=interfaces)
+        elif command == "review-navigation":
+            from rosclaw.connectors.ros.context.navigation_review import review_navigation_candidate
+
+            assert urdf is not None
+            result = review_navigation_candidate(model, urdf, requirements)
         elif command == "resolve":
             result = resolve_task(model, args.task)
         elif command == "mission":
