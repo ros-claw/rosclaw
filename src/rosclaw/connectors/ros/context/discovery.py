@@ -39,7 +39,9 @@ def _fresh_frame_path(model, parent, child, now):
     return True
 
 
-def discover_body_candidate(model: RosSystemModel, urdf_bytes: bytes, *, now=None):
+def discover_body_candidate(
+    model: RosSystemModel, urdf_bytes: bytes, *, now=None, interface_names=None
+):
     """Select only unique fresh typed streams and matching captured URDF bytes.
 
     No default frame, topic, model profile, cleaner or command interface exists.
@@ -51,6 +53,19 @@ def discover_body_candidate(model: RosSystemModel, urdf_bytes: bytes, *, now=Non
         raise ValueError("ROS snapshot hash mismatch")
     if type(urdf_bytes) is not bytes:
         raise TypeError("expanded URDF bytes required")
+    roles = {
+        "state.odometry",
+        "mapping.occupancy_map",
+        "sensing.lidar",
+        "navigation.navigate_to_pose",
+    }
+    if interface_names is not None and (
+        type(interface_names) is not dict
+        or not set(interface_names) <= roles
+        or any(type(n) is not str or not n.startswith("/") for n in interface_names.values())
+    ):
+        raise ValueError("interface_names must map supported roles to explicit absolute ROS names")
+    interface_names = interface_names or {}
     result = {
         "schema_version": "rosclaw.body_discovery_candidate.v1",
         "status": "UNKNOWN",
@@ -67,6 +82,8 @@ def discover_body_candidate(model: RosSystemModel, urdf_bytes: bytes, *, now=Non
         "cleaning_attachment": None,
         "physical_acceptance_level": "NOT_RUN",
     }
+    if interface_names:
+        result["requested_interface_names"] = dict(interface_names)
     if not -100 <= model.age_ms(now) <= 5000 or not model.completeness.get("graph"):
         result["unknown_fields"].append("fresh_complete_graph")
         return result
@@ -87,6 +104,8 @@ def discover_body_candidate(model: RosSystemModel, urdf_bytes: bytes, *, now=Non
         for topic in model.graph.get("topics", []):
             name = topic.get("name")
             if SEMANTIC_TYPES.get(topic.get("msg_type")) != semantic:
+                continue
+            if semantic in interface_names and name != interface_names[semantic]:
                 continue
             observed = signals.get(name, ())
             signal = observed[0] if len(observed) == 1 else None
@@ -158,6 +177,10 @@ def discover_body_candidate(model: RosSystemModel, urdf_bytes: bytes, *, now=Non
         dict(a)
         for a in model.graph.get("actions", [])
         if a.get("action_type") == "nav2_msgs/action/NavigateToPose"
+        and (
+            "navigation.navigate_to_pose" not in interface_names
+            or a.get("name") == interface_names["navigation.navigate_to_pose"]
+        )
     ]
     result["interfaces"]["navigation.navigate_to_pose"] = actions
     if len(actions) != 1:

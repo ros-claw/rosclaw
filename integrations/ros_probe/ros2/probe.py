@@ -40,6 +40,8 @@ READ_TYPES = {
     "nav_msgs/msg/Odometry",
     "nav_msgs/msg/OccupancyGrid",
     "geometry_msgs/msg/PoseWithCovarianceStamped",
+    "geometry_msgs/msg/Twist",
+    "geometry_msgs/msg/TwistStamped",
     "rosgraph_msgs/msg/Clock",
 }
 
@@ -185,6 +187,7 @@ class ReadOnlyProbe(Node):
                             ".use_maximum",
                             ".combination_method",
                             ".observation_sources",
+                            ".topic",
                         )
                     )
                 ]
@@ -251,6 +254,8 @@ class ReadOnlyProbe(Node):
                 "source": topic,
                 "captured_at": utc_now(),
                 "position_variance": max(covariance[0], covariance[7]),
+                "x_variance": covariance[0],
+                "y_variance": covariance[7],
                 "yaw_variance": covariance[35],
             }
         if hasattr(message, "clock"):
