@@ -1,6 +1,6 @@
 # ADR 0017: independent SIM source binding, without execution authority
 
-Date: 2026-10-12. Status: proposed; actual positive observed, final matrix pending.
+Date: 2026-10-12. Status: proposed; nine actual source cases passed, integration pending.
 Scope: G1 only, following accepted G0 integration. No held-out model selection,
 L1 readiness, L2 action, Memory experiment, hardware, or coverage tuning.
 
@@ -143,7 +143,30 @@ recomputed results. SDK/synthetic contract tests alone cannot close G1.
 | Unresolved mesh/include/pose, missing geometry or sensor mount | UNKNOWN |
 | Only self-consistent JSON hashes / publisher claims | UNKNOWN |
 
-G1 remains NOT_DONE until its actual positive and negative matrix passes.
+The actual known-fixture matrix has passed on source `637ccafd`: a positive,
+collision shrinking, asset replacement, World reset, witness exit/rename,
+wrong ROS domain, extra dynamic entity and duplicate publisher endpoint. All
+native models were independently recomputed from original ROS wire snapshots;
+all nine source reviews replayed exactly. Only the separately labelled REPLAY
+matrix mutates Body/manifest/run pins; it is not additional physical runs.
+
+The final fixture includes a separate, one-shot operator SIM initializer with
+explicit read-only pinned pose/covariance input. It calls the existing
+SetInitialPose service after actual Nav2 activation. This setup process is
+neither the passive observer nor an Agent tool, and does not issue actions or
+velocities. The covariance review threshold is unchanged. Its original command,
+input/response and subsequent observations are retained. Publisher fault
+injection creates an endpoint without sending any message.
+
+Source review now requires a recent ECM monotonic sample (at most 500 ms),
+paired original ROS clock value/receive monotonic time, and actual independent
+physics sample freshness/pose correspondence. A successful reset service reply
+is insufficient: the fixture must observe clock rollback. Stale pre-reset ECM
+cannot authenticate a new running state. Captures assume the same Linux host
+monotonic clock without a separate container time namespace.
+
+G1 remains integration-pending until its independent PR and actual-main checks
+close. [Implementation and acceptance](../reports/ros-expert-harness/SIM_SOURCE_BINDING.md).
 G0 external dependency failures do not permit bypass or an alternative live
 readiness claim. Hold implementation PR/integration until #670 has normal
 source checks, merge-tree proof and actual-main checks.
