@@ -68,6 +68,7 @@ def _frame_transform(model, frame_id, base, stamp_sec, now, age, *, static_only=
         if (
             len(observations) != 1
             or observations[0].source != row["source"]
+            or observations[0].static is not row["static"]
             or observations[0].captured_at.isoformat() != row["captured_at"]
         ):
             raise ValueError("original TF value/observation binding required")
@@ -349,6 +350,10 @@ def review_sim_navigation_readiness(workspace, request, *, policy, policy_hash, 
                         or len(pub) != 1
                         or pub[0].get("publishers") != [node]
                         or pub[0].get("msg_type") != "geometry_msgs/msg/PolygonStamped"
+                        or header.get("source") != footprint_topic
+                        or header.get("frame_id") != observed.get("frame_id")
+                        or header.get("stamp_sec") != observed.get("stamp_sec")
+                        or not _fresh(header.get("captured_at"), now, age)
                         or not _number(header.get("stamp_age_ms"))
                         or not 0 <= header["stamp_age_ms"] <= min(age, 1000)
                         or observed.get("frame_id") != params.get("global_frame")

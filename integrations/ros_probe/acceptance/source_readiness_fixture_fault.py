@@ -14,6 +14,8 @@ from pathlib import Path
 
 import rclpy
 from gazebo_source_witness.prepare import check_prepared_assets
+from lifecycle_msgs.msg import Transition
+from lifecycle_msgs.srv import ChangeState
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import LaserScan
@@ -105,33 +107,49 @@ def main():
                 child = subprocess.Popen(argv)
         elif args.mode == "tf_loss":
             details["owned_process_fault"] = pause("nav2")
-        elif args.mode in {"clock_freeze", "nav2_inactive"}:
-            argv = (
-                [
-                    "gz",
-                    "service",
-                    "-s",
-                    "/world/ros_expert/control",
-                    "--reqtype",
-                    "gz.msgs.WorldControl",
-                    "--reptype",
-                    "gz.msgs.Boolean",
-                    "--timeout",
-                    "5000",
-                    "--req",
-                    "pause: true",
-                ]
-                if args.mode == "clock_freeze"
-                else ["ros2", "lifecycle", "set", "/collision_monitor", "deactivate"]
+        elif args.mode == "nav2_inactive":
+            rclpy.init(args=["--ros-args", "-p", "use_sim_time:=true"])
+            node = Node("rosclaw_operator_inactive_fault")
+            client = node.create_client(ChangeState, "/collision_monitor/change_state")
+            if not client.wait_for_service(timeout_sec=5):
+                raise RuntimeError("owned lifecycle service unavailable")
+            request = ChangeState.Request()
+            request.transition.id = Transition.TRANSITION_DEACTIVATE
+            future = client.call_async(request)
+            rclpy.spin_until_future_complete(node, future, timeout_sec=5)
+            response = future.result() if future.done() else None
+            details["lifecycle_response"] = {
+                "service": "/collision_monitor/change_state",
+                "transition_id": int(request.transition.id),
+                "success": response.success if response else None,
+            }
+            (OUT / "readiness-fault-rpc-original.json").write_text(
+                json.dumps(details, indent=2) + "\n"
             )
+            if response is None or response.success is not True:
+                raise RuntimeError("owned lifecycle fault not acknowledged")
+        elif args.mode == "clock_freeze":
+            argv = [
+                "gz",
+                "service",
+                "-s",
+                "/world/ros_expert/control",
+                "--reqtype",
+                "gz.msgs.WorldControl",
+                "--reptype",
+                "gz.msgs.Boolean",
+                "--timeout",
+                "5000",
+                "--req",
+                "pause: true",
+            ]
             details["operator_fault_argv"] = argv
             result = subprocess.run(argv, capture_output=True, text=True, timeout=10)
             details.update(returncode=result.returncode, stdout=result.stdout, stderr=result.stderr)
-            if (
-                result.returncode
-                or (args.mode == "clock_freeze" and "true" not in result.stdout)
-                or (args.mode == "nav2_inactive" and "successful" not in result.stdout.lower())
-            ):
+            (OUT / "readiness-fault-rpc-original.json").write_text(
+                json.dumps(details, indent=2) + "\n"
+            )
+            if result.returncode or "true" not in result.stdout:
                 raise RuntimeError("owned SIM fault did not acknowledge")
         else:
             rclpy.init(args=["--ros-args", "-p", "use_sim_time:=true"])

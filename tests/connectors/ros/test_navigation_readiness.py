@@ -76,7 +76,13 @@ def setup(tmp_path):
             "stamp_sec": 5,
             "points": [[-0.3, -0.3, 0], [0.3, -0.3, 0], [0.3, 0.3, 0], [-0.3, 0.3, 0]],
         }
-        model.observations["message_frames"][ft] = {"stamp_age_ms": 50}
+        model.observations["message_frames"][ft] = {
+            "stamp_age_ms": 50,
+            "source": ft,
+            "frame_id": "world",
+            "stamp_sec": 5,
+            "captured_at": NOW.isoformat(),
+        }
     capture["physics_witness"]["sample"].update(
         body_id="synthetic-observed-base",
         evidence_domain="GAZEBO_PHYSICS",
