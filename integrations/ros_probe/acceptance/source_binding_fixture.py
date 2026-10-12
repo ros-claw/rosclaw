@@ -516,7 +516,7 @@ def main():
         for log in witness_logs:
             log.close()
         node.destroy_node()
-        rclpy.shutdown()
+        rclpy.try_shutdown()
 
 
 if __name__ == "__main__":

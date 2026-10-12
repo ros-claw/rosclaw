@@ -185,3 +185,51 @@ def test_pin_and_prefix_validation(tmp_path, monkeypatch):
             )
     finally:
         reader.close()
+
+
+def test_contiguous_multiple_segments_can_arrive_between_polls(tmp_path, monkeypatch):
+    reader, sample, _ = stream_fixture(tmp_path, monkeypatch)
+    try:
+        for _ in range(2):
+            sample = advance(sample)
+            append(tmp_path / "ecm.jsonl", sample)
+        digest = hashlib.sha256((tmp_path / "ecm.jsonl").read_bytes()).hexdigest()
+        for index in (1, 2):
+            sample = advance(sample)
+            sample["source_stream"] = reader.pins.header(index, sample["sample"], digest)
+            raw = encode(sample)
+            (tmp_path / f"ecm.jsonl.segment-{index:06}.jsonl").write_bytes(raw)
+            digest = hashlib.sha256(raw).hexdigest()
+        report = poll(reader, sample)
+        assert report["continuous"] and len(report["segment_chain"]) == 2
+    finally:
+        reader.close()
+
+
+def test_live_clock_is_sampled_after_consuming_concurrent_writes(tmp_path, monkeypatch):
+    reader, first, module = stream_fixture(tmp_path, monkeypatch)
+    sample = advance(first)
+    append(tmp_path / "ecm.jsonl", sample)
+
+    def after_read():
+        assert reader.last_sample == sample["sample"]
+        return sample["observer_monotonic_ns"] + 1
+
+    monkeypatch.setattr(module.time, "monotonic_ns", after_read)
+    try:
+        report = reader.poll()
+        assert report["continuous"]
+        assert report["reviewed_at_monotonic_ns"] == sample["observer_monotonic_ns"] + 1
+    finally:
+        reader.close()
+
+
+def test_header_float_cannot_impersonate_an_integer_pin(tmp_path, monkeypatch):
+    reader, first, _ = stream_fixture(tmp_path, monkeypatch)
+    try:
+        sample = advance(first)
+        sample["source_stream"]["segment_index"] = 0.0
+        append(tmp_path / "ecm.jsonl", sample)
+        assert poll(reader, sample)["terminal"]
+    finally:
+        reader.close()

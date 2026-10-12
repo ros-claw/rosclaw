@@ -13,6 +13,7 @@ import json
 import os
 import re
 import stat
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -76,7 +77,7 @@ class SimulationSourceStreamReader:
         accepted_prefix: bytes,
         expected_prefix_sha256: str,
         guard_inputs: dict,
-        now_monotonic_ns: int,
+        now_monotonic_ns: int | None = None,
     ):
         if not re.fullmatch(r"[A-Za-z0-9_-]+\.jsonl", basename):
             raise ValueError("single explicit source basename required")
@@ -159,7 +160,8 @@ class SimulationSourceStreamReader:
         self.last_sample = sample["sample"]
         self.count += 1
 
-    def poll(self, *, now_monotonic_ns: int):
+    def poll(self, *, now_monotonic_ns: int | None = None):
+        reviewed_now = now_monotonic_ns
         if self.failed_reason is None:
             try:
                 if self.closed:
@@ -210,7 +212,10 @@ class SimulationSourceStreamReader:
                             if (
                                 number == 0
                                 or number >= self.pins.max_segments
-                                or number > self.index + 1
+                                or any(
+                                    self._name(n) not in names
+                                    for n in range(self.index + 1, number + 1)
+                                )
                             ):
                                 raise ValueError("source segment gap or capacity overflow")
                     if next_name not in names:
@@ -238,7 +243,11 @@ class SimulationSourceStreamReader:
                     self.offset = self.count = 0
                     self.digest = hashlib.sha256()
                     self._open_segment()
-                result = self.guard.observe(self.last_raw, now_monotonic_ns=now_monotonic_ns)
+                # Read first, then sample the live clock: a writer may append a
+                # new record during this poll. Explicit timestamps are replay
+                # and contract inputs only; never use a pre-read live time.
+                reviewed_now = time.monotonic_ns() if reviewed_now is None else reviewed_now
+                result = self.guard.observe(self.last_raw, now_monotonic_ns=reviewed_now)
                 if not result["continuous"]:
                     raise ValueError(result["reason"])
                 if self.index + 1 == self.pins.max_segments and (
@@ -261,6 +270,9 @@ class SimulationSourceStreamReader:
             "continuous": self.failed_reason is None,
             "terminal": self.failed_reason is not None,
             "reason": self.failed_reason,
+            "reviewed_at_monotonic_ns": time.monotonic_ns()
+            if reviewed_now is None
+            else reviewed_now,
             "last_sample": self.last_sample,
             "segment_index": self.index,
             "segment_chain": list(self.segment_chain),
