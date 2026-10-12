@@ -28,6 +28,8 @@ def sha(value):
 def fixture(tmp_path):
     model, raw, requirements, policy = source()
     model.environment["domain_id"] = "101"
+    model.observations["clock_time_sec"] = 0.3
+    model.observations["clock_received_monotonic_ns"] = 600_000_000
     model.seal()
     policy["source_snapshot_hash"] = model.snapshot_hash
     root = tmp_path / "compiled"
@@ -79,6 +81,7 @@ def fixture(tmp_path):
             for key in ["world_id", "run_id", "robot_entity", "ros_domain", "namespace"]
         },
         "observed_at": NOW.isoformat(),
+        "host_monotonic_ns": 700_000_000,
         "assets_before": deepcopy(assets),
         "assets_after": deepcopy(assets),
         "container_before": deepcopy(container),
@@ -273,6 +276,8 @@ def test_pinned_complete_capture_matches_without_authority_or_writes(tmp_path):
         "witness_sample_velocity",
         "witness_implementation",
         "world_alignment",
+        "observer_stale",
+        "ros_clock_diverged",
     ],
 )
 def test_observed_faults_are_refused_even_when_capture_is_resealed(tmp_path, fault):
@@ -395,6 +400,11 @@ def test_observed_faults_are_refused_even_when_capture_is_resealed(tmp_path, fau
         capture["physics_witness"]["implementation_sha256"] = "wrong"
     elif fault == "world_alignment":
         launch["physics_world_frame_alignment"] = "UNVERIFIED"
+    elif fault == "observer_stale":
+        capture["host_monotonic_ns"] += 1_000_000_000
+    elif fault == "ros_clock_diverged":
+        model.observations["clock_time_sec"] = 40
+        model.seal()
     root, request, kwargs = pack(parts)
     result = review_sim_source_binding(root, request, **kwargs)
     assert result["result"] in {"MISMATCH", "UNKNOWN"}, result

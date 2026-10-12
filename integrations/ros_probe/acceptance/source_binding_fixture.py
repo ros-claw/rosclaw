@@ -307,6 +307,7 @@ def main():
         witness_process = process_fact(witness.pid)
         witness_alive = True
         if fault == "world_reset":
+            before_reset_clock = node.get_clock().now().nanoseconds
             reset_argv = [
                 "gz",
                 "service",
@@ -330,6 +331,14 @@ def main():
             save("fault-reset-exit.json", {"returncode": reset.returncode})
             if reset.returncode:
                 raise RuntimeError("actual reset injection failed")
+            spin_until(lambda: node.get_clock().now().nanoseconds < before_reset_clock, 5)
+            save(
+                "fault-reset-applied.json",
+                {
+                    "before_ros_clock_ns": before_reset_clock,
+                    "after_ros_clock_ns": node.get_clock().now().nanoseconds,
+                },
+            )
         elif fault == "witness_exit":
             stop(witness)
             save(

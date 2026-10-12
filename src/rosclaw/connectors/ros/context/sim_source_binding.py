@@ -529,6 +529,26 @@ def review_sim_source_binding(
             samples = [_json(x) for x in ecm_bytes.splitlines() if x.strip()]
             if not 2 <= len(samples) <= 600:
                 raise ValueError("bounded advancing ECM capture required")
+            host_monotonic = capture["host_monotonic_ns"]
+            if type(host_monotonic) is not int or not 0 <= (
+                host_monotonic - samples[-1]["observer_monotonic_ns"]
+            ) / 1e6 <= min(age, 500):
+                unknown.append("ECM_OBSERVER_STOPPED_OR_STALE")
+            ros_clock = model.observations.get("clock_time_sec")
+            ros_received = model.observations.get("clock_received_monotonic_ns")
+            if type(ros_received) is not int or ros_received < 0:
+                raise ValueError("original ROS clock receive monotonic time required")
+            clock_sample = min(
+                samples, key=lambda x: abs(x["observer_monotonic_ns"] - ros_received)
+            )
+            if (
+                type(ros_clock) not in (int, float)
+                or not math.isfinite(ros_clock)
+                or ros_clock < 0
+                or abs(clock_sample["observer_monotonic_ns"] - ros_received) > 500_000_000
+                or abs(ros_clock - clock_sample["sim_time_ns"] / 1e9) > 0.2
+            ):
+                unknown.append("ROS_ECM_CLOCK_CORRESPONDENCE_UNVERIFIED")
             entity, previous = None, None
             for sample in samples:
                 if any(
@@ -643,7 +663,7 @@ def review_sim_source_binding(
             physics = witness["sample"]
             physics_stamp = datetime.fromisoformat(physics["captured_at"])
             if (
-                not 0 <= (now - physics_stamp).total_seconds() * 1000 <= age
+                not 0 <= (now - physics_stamp).total_seconds() * 1000 <= min(age, 500)
                 or physics["observation_complete"] is not True
                 or physics["source_only_observer"] is not True
                 or physics["lease_enabled"] is not False
