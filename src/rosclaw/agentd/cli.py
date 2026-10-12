@@ -1010,10 +1010,12 @@ def _chat_pi(home: Path, args: argparse.Namespace) -> int:
     from rosclaw.agentd.pi_entry import node_runtime_env
 
     env = node_runtime_env(env)
+    child_outcome = 0
+    close_failed = False
     try:
-        return _sp.call(argv, env=env)  # noqa: S603 - fixed entry
+        child_outcome = _sp.call(argv, env=env)  # noqa: S603 - fixed entry
     except KeyboardInterrupt:
-        return 0
+        child_outcome = 0
     finally:
         server.should_exit = True
         # 六审 SIX-6：先等服务真正停下，再在同一 loop 上跑 close——
@@ -1023,6 +1025,7 @@ def _chat_pi(home: Path, args: argparse.Namespace) -> int:
             asyncio.run_coroutine_threadsafe(service.close(), server_loop).result(timeout=15)
         except Exception as exc:  # noqa: BLE001 - 退出路径诚实记录
             print(f"内核关闭异常：{type(exc).__name__}: {exc}", file=sys.stderr)
+            close_failed = True
         finally:
             server_loop.call_soon_threadsafe(server_loop.stop)
             thread.join(timeout=5)
@@ -1030,6 +1033,7 @@ def _chat_pi(home: Path, args: argparse.Namespace) -> int:
         # 不碰——managed_operatord 只在本进程启动时非空）。
         if managed_operatord is not None:
             managed_operatord.terminate()
+    return 2 if close_failed and child_outcome == 0 else child_outcome
 
 
 def _select_continuation_target(node: str, entry: str, home: Path) -> dict[str, str]:

@@ -1,0 +1,77 @@
+{
+  "schema": "Root.PythonChatCloseOutcome.UnitAcceptance.v1",
+  "status": "ROOT_ACCEPTED_NATIVE_PYTHON_CHAT_CLOSE_OUTCOME3_INDEPENDENT_UNIT25_ONLY",
+  "source_files": [
+    {
+      "path": "src/rosclaw/agentd/cli.py",
+      "size": 59431,
+      "sha256": "49fc1e0f2799529df99a26759a1222fd620e9bd68cb2c07d4dafa726370e5a47"
+    },
+    {
+      "path": "tests/agentd/test_chat_pi_close_outcome.py",
+      "size": 6300,
+      "sha256": "84a19d98284be842e71b9fd1c3e23cc5e36f3a122474019e24f4152beb5bf804"
+    },
+    {
+      "path": "docs/PYTHON_CHAT_CLOSE_OUTCOME.md",
+      "size": 3033,
+      "sha256": "45f688dfb32c9b973f2c770ccf0d710c70f7fc443c8c0eddee9b2efd276fb352"
+    }
+  ],
+  "source_author": "ROSClaw Native",
+  "root_changes": "Mechanical Ruff import sorting and formatting only; fixture/test/assertion AST and import bindings preserved.",
+  "verification": {
+    "ordinary_tests": 25,
+    "new_tests": 18,
+    "baseline_tests": 7,
+    "phase_events": 75,
+    "all_pass": true,
+    "Ruff_check": "PASS",
+    "Ruff_format_check": "PASS",
+    "protected_files_prepost_exact": 4417,
+    "counts_sha256": "2a716d1635d2efa5a54a0fd70eb5713dafc0fd46b55c1dc71ee921ff3f985dc2",
+    "mechanical_derivation_sha256": "2d2aed11c7e183ecc710c4d9b65875e0642078ba97df8d9fa1f1c08ee01a6739"
+  },
+  "historical_failures_preserved": [
+    {
+      "kind": "Original Native mission",
+      "status": "PROVIDER_ERROR",
+      "provider_message": "Our servers are currently overloaded. Please try again later.",
+      "elapsed_s": 334.6728332709754,
+      "usage_complete": false,
+      "known_usage_lower_bound": {
+        "input": 53634,
+        "cacheRead": 699904,
+        "cacheWrite": 0,
+        "output": 4588
+      },
+      "whole_success_credit": false,
+      "SQL_delivery_success_credit": false,
+      "actual_episode_sha256": "f1342e7477f249cd3e248ae24a3b4869c5cb26449af9827480a22def39f5d207"
+    },
+    {
+      "kind": "Original two RUNs",
+      "status": "collection failed because trusted worker forbade required NumPy dependency",
+      "calls_total": 3,
+      "pytest_starts": 2,
+      "elapsed_s": 2.8440649840049446
+    },
+    {
+      "kind": "Independent verifier v1",
+      "status": "cwd/full8 mismatch; original evidence retained"
+    },
+    {
+      "kind": "Independent verifier v2",
+      "status": "longTMPDIR caused3baseline failures; original evidence retained"
+    }
+  ],
+  "claims_not_made": [
+    "full CLI/PTY lifecycle",
+    "actual AgentService.close cancellation or handoff",
+    "Node SDK",
+    "real producer/process shutdown",
+    "ROS/DDS/robot/engine",
+    "original Native wholePASS"
+  ],
+  "stacked_base": "fix/native-managed-wakeup-usage-review-20261011"
+}
