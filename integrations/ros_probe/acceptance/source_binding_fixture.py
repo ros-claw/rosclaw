@@ -198,6 +198,55 @@ def main():
             "-p",
             "execution_config_path:=" + str(config),
         ]
+        if settings.get("generic_source_observer") is True:
+            from simulation_witness_sources import _ground_names
+
+            world_bytes = Path("/assets/world.sdf").read_bytes()
+            urdf_bytes = Path("/assets/robot.urdf").read_bytes()
+            import xml.etree.ElementTree as ET
+
+            world = ET.fromstring(world_bytes).find("world")
+            robots = [
+                m.get("name")
+                for m in world.findall("model")
+                if m.findtext("static", "false") not in {"true", "1"}
+            ]
+            if len(robots) != 1:
+                raise ValueError("known-source generic observer fixture requires one robot")
+            contacts = json.loads(Path("/assets/contact_topics.json").read_text())
+            inputs = {
+                "schema_version": "rosclaw.simulation_witness_sources.v1",
+                "run_id": settings["run_id"],
+                "world_id": world.get("name"),
+                "robot_entity": robots[0],
+                "observer_node": "/rosclaw_sim_witness",
+                "map_frame": "map",
+                "source_urdf_sha256": hashlib.sha256(urdf_bytes).hexdigest(),
+                "world_sdf_sha256": hashlib.sha256(world_bytes).hexdigest(),
+                "topics": {
+                    "observation": "/rosclaw_sim/observation",
+                    "lease": "/rosclaw_sim/lease",
+                    "ground_truth": "/rosclaw_sim/ground_truth",
+                    "localization": requirements["localization_topic"],
+                    "velocity_input": requirements["velocity_output_topic"],
+                    "drive_command": "/drive_controller/cmd_vel",
+                    "collision_monitor_state": "/collision_monitor_state",
+                },
+                "contact_topics": contacts,
+                "ground_witness_topics": [t for t in contacts if "/wheel_" in t],
+                "ground_collision_names": sorted(
+                    _ground_names(world_bytes, world.get("name"), robots[0])
+                ),
+                "drive_twist_stamped": True,
+            }
+            path = OUT / f"{name}-observer-sources.json"
+            save(path.name, inputs)
+            args += [
+                "-p",
+                "observer_sources_path:=" + str(path),
+                "-p",
+                "observer_sources_sha256:=" + hashlib.sha256(path.read_bytes()).hexdigest(),
+            ]
         if name == "renamed-source-witness":
             args += ["-r", "__node:=rosclaw_renamed_source_witness"]
         save(f"{name}-argv.json", args)

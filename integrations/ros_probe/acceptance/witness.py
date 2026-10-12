@@ -7,6 +7,7 @@ Gazebo, independently of Nav2 localization and action results.
 import hashlib
 import json
 import math
+import os
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -30,6 +31,8 @@ from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from ros_gz_interfaces.msg import Contacts
+from rosidl_runtime_py.convert import message_to_ordereddict
+from simulation_witness_sources import SimulationWitnessSources
 from std_msgs.msg import Bool, String
 from std_srvs.srv import SetBool
 from tf2_msgs.msg import TFMessage
@@ -48,10 +51,30 @@ class Witness(Node):
         execution_config = Path(
             self.declare_parameter("execution_config_path", "/evidence/execution_config.json").value
         )
-        saved_profile = json.loads(Path("/evidence/fixture_profile.json").read_text())
-        self.profile = PROFILES[saved_profile["name"]]
-        if saved_profile != self.profile.to_dict():
-            raise ValueError("fixture observer profile differs from supported geometry")
+        source_path = self.declare_parameter("observer_sources_path", "").value
+        source_pin = self.declare_parameter("observer_sources_sha256", "").value
+        if bool(source_path) != bool(source_pin):
+            raise ValueError("observer inputs require a separate operator SHA pin")
+        self.sources = None
+        self.profile = None
+        if source_path:
+            if not self.source_only:
+                raise ValueError(
+                    "generic observer is source-only; L2 continuity acceptance is not implemented"
+                )
+            self.sources = SimulationWitnessSources.from_bytes(
+                Path(source_path).read_bytes(),
+                expected_sha256=source_pin,
+                urdf_bytes=Path("/evidence/robot.urdf").read_bytes(),
+                world_sdf_bytes=Path("/evidence/world.sdf").read_bytes(),
+            )
+            if self.get_fully_qualified_name() != self.sources.observer_node:
+                raise ValueError("actual observer identity differs from pinned source inputs")
+        else:
+            saved_profile = json.loads(Path("/evidence/fixture_profile.json").read_text())
+            self.profile = PROFILES[saved_profile["name"]]
+            if saved_profile != self.profile.to_dict():
+                raise ValueError("fixture observer profile differs from supported geometry")
         self.navigation_binding = None
         config_path = execution_config
         if config_path.exists():
@@ -69,9 +92,27 @@ class Witness(Node):
                         "safety.simulation_observation"
                     ]["urdf_sha256"]
                     != hashlib.sha256(Path("/evidence/robot.urdf").read_bytes()).hexdigest()
-                    or self.navigation_binding.frame_id != "map"
+                    or self.navigation_binding.frame_id
+                    != (self.sources.map_frame if self.sources else "map")
                 ):
                     raise ValueError("navigation observer Body/model/run/frame mismatch")
+        if self.sources:
+            if self.sources.run_id != Path("/evidence/run_id.txt").read_text().strip():
+                raise ValueError("observer input run differs from current World")
+            if self.navigation_binding:
+                if (
+                    self.navigation_binding.run_id != self.sources.run_id
+                    or self.navigation_binding.observation_topic
+                    != self.sources.topic("observation")
+                    or self.navigation_binding.lease_service != self.sources.topic("lease")
+                ):
+                    raise ValueError(
+                        "immutable navigation Body differs from pinned observer routes"
+                    )
+            elif not self.source_only:
+                raise ValueError(
+                    "generic bootstrap is source-only until an immutable Body is bound"
+                )
         self.source_received_control_messages = 0
         self.previous_measured_pose = None
         self.cleaning = False
@@ -84,10 +125,25 @@ class Witness(Node):
         self.collision_count = 0
         self.in_collision = False
         self.published_time = None
-        self.contact_topics = json.loads(Path("/evidence/contact_topics.json").read_text())
-        self.wheel_topics = [t for t in self.contact_topics if "/wheel_" in t]
-        if len(self.wheel_topics) != 2:
+        self.contact_topics = (
+            list(self.sources.contact_topics)
+            if self.sources
+            else json.loads(Path("/evidence/contact_topics.json").read_text())
+        )
+        self.wheel_topics = (
+            list(self.sources.ground_witness_topics)
+            if self.sources
+            else [t for t in self.contact_topics if "/wheel_" in t]
+        )
+        if not self.sources and len(self.wheel_topics) != 2:
             raise ValueError("fixture requires two independently observed wheel contact streams")
+        self.contact_trace = (
+            Path(f"/evidence/contact-messages-{os.getpid()}.jsonl").open("x", buffering=1)  # noqa: SIM115 - node lifecycle closes evidence stream
+            if self.sources
+            else None
+        )
+        self.contact_trace_bytes = 0
+        self.contact_trace_rows = 0
         self.contact_seen = {}
         self.contact_active = {}
         self.physics_collision_count = 0
@@ -106,21 +162,28 @@ class Witness(Node):
             String,
             self.navigation_binding.observation_topic
             if self.navigation_binding
-            else "/rosclaw_sim/observation",
+            else self.source_topic("observation", "/rosclaw_sim/observation"),
             10,
         )
         self.cleaning_state = (
             None
-            if self.navigation_binding
+            if self.navigation_binding or self.sources
             else self.create_publisher(Bool, "/rosclaw_sim/cleaning_state", 10)
         )
-        self.controller_watchdog = self.declare_parameter("controller_watchdog", True).value
+        self.controller_watchdog = (
+            self.sources.drive_twist_stamped
+            if self.sources
+            else self.declare_parameter("controller_watchdog", True).value
+        )
         self.velocity = (
             None
             if self.source_only
             else self.create_publisher(
                 TwistStamped if self.controller_watchdog else Twist,
-                "/drive_controller/cmd_vel" if self.controller_watchdog else "/cmd_vel",
+                self.source_topic(
+                    "drive_command",
+                    "/drive_controller/cmd_vel" if self.controller_watchdog else "/cmd_vel",
+                ),
                 10,
             )
         )
@@ -130,20 +193,27 @@ class Witness(Node):
         self.wall_clock = Clock(clock_type=ClockType.STEADY_TIME)
         self.create_subscription(
             TFMessage,
-            "/rosclaw_sim/ground_truth",
+            self.source_topic("ground_truth", "/rosclaw_sim/ground_truth"),
             self.observe,
             QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT),
             callback_group=self.pose_callbacks,
         )
-        self.create_subscription(PoseWithCovarianceStamped, "/amcl_pose", self.localized, 10)
-        self.create_subscription(Twist, "/nav_cmd_vel", self.command, 10)
+        self.create_subscription(
+            PoseWithCovarianceStamped,
+            self.source_topic("localization", "/amcl_pose"),
+            self.localized,
+            10,
+        )
+        self.create_subscription(
+            Twist, self.source_topic("velocity_input", "/nav_cmd_vel"), self.command, 10
+        )
         self.create_subscription(
             CollisionMonitorState,
-            "/collision_monitor_state",
+            self.source_topic("collision_monitor_state", "/collision_monitor_state"),
             self.collision_monitor_observation,
             10,
         )
-        if not self.source_only:
+        if not self.source_only and not self.sources:
             for topic in ["/cmd_vel_smoothed", "/nav_cmd_vel"]:
                 self.create_subscription(
                     Twist,
@@ -152,19 +222,20 @@ class Witness(Node):
                     10,
                 )
         self.create_subscription(Bool, "/is_rotating_to_heading", self.rotation_observation, 10)
-        self.create_subscription(
-            NavPath,
-            "/received_global_plan",
-            lambda message: self.record_path("/received_global_plan", message),
-            10,
-        )
-        for topic in ["/lookahead_point", "/curvature_lookahead_point"]:
+        if not self.sources:
             self.create_subscription(
-                PointStamped,
-                topic,
-                lambda message, t=topic: self.carrot_observation(t, message),
+                NavPath,
+                "/received_global_plan",
+                lambda message: self.record_path("/received_global_plan", message),
                 10,
             )
+            for topic in ["/lookahead_point", "/curvature_lookahead_point"]:
+                self.create_subscription(
+                    PointStamped,
+                    topic,
+                    lambda message, t=topic: self.carrot_observation(t, message),
+                    10,
+                )
         for topic in self.contact_topics:
             self.create_subscription(
                 Contacts,
@@ -173,46 +244,50 @@ class Witness(Node):
                 10,
                 callback_group=self.contact_callbacks,
             )
-        self.create_subscription(NavPath, "/plan", self.path_observation, 10)
-        self.create_subscription(
-            NavPath, "/coverage_server/coverage_plan", self.coverage_path_observation, 10
-        )
-        for topic in ["/coverage_server/field_boundary", "/coverage_server/planning_field"]:
+        if not self.sources:
+            self.create_subscription(NavPath, "/plan", self.path_observation, 10)
             self.create_subscription(
-                PolygonStamped,
-                topic,
-                lambda message, t=topic: self.polygon_observation(t, message),
-                10,
+                NavPath, "/coverage_server/coverage_plan", self.coverage_path_observation, 10
             )
-        self.create_subscription(Marker, "/coverage_server/swaths", self.swath_observation, 10)
-        self.create_subscription(
-            OccupancyGrid,
-            "/map",
-            self.map_observation,
-            QoSProfile(
-                depth=1,
-                durability=DurabilityPolicy.TRANSIENT_LOCAL,
-                reliability=ReliabilityPolicy.RELIABLE,
-            ),
-        )
-        if not self.navigation_binding:
-            self.create_service(
-                SetBool,
-                "/rosclaw_sim/cleaning",
-                self.set_cleaning,
-                callback_group=self.control_callbacks,
+            for topic in ["/coverage_server/field_boundary", "/coverage_server/planning_field"]:
+                self.create_subscription(
+                    PolygonStamped,
+                    topic,
+                    lambda message, t=topic: self.polygon_observation(t, message),
+                    10,
+                )
+            self.create_subscription(Marker, "/coverage_server/swaths", self.swath_observation, 10)
+            self.create_subscription(
+                OccupancyGrid,
+                "/map",
+                self.map_observation,
+                QoSProfile(
+                    depth=1,
+                    durability=DurabilityPolicy.TRANSIENT_LOCAL,
+                    reliability=ReliabilityPolicy.RELIABLE,
+                ),
             )
+            if not self.navigation_binding:
+                self.create_service(
+                    SetBool,
+                    "/rosclaw_sim/cleaning",
+                    self.set_cleaning,
+                    callback_group=self.control_callbacks,
+                )
         self.create_service(
             SetBool,
             self.navigation_binding.lease_service
             if self.navigation_binding
-            else "/rosclaw_sim/lease",
+            else self.source_topic("lease", "/rosclaw_sim/lease"),
             self.heartbeat,
             callback_group=self.control_callbacks,
         )
         self.create_timer(
             0.05, self.tick, callback_group=self.control_callbacks, clock=self.wall_clock
         )
+
+    def source_topic(self, role, legacy):
+        return self.sources.topic(role) if self.sources else legacy
 
     def map_observation(self, message):
         Path("/evidence/measured_map.json").write_text(
@@ -350,15 +425,44 @@ class Witness(Node):
             "y": message.pose.pose.position.y,
             "yaw": math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z)),
             "frame_id": message.header.frame_id,
-            "source": "amcl_pose",
+            "source": self.source_topic("localization", "amcl_pose"),
             "captured_at": datetime.now(UTC).isoformat(),
             "time_sec": message.header.stamp.sec + message.header.stamp.nanosec / 1e9,
             "covariance": list(message.pose.covariance),
         }
 
     def contacts(self, topic, message):
+        if self.contact_trace is not None:
+            raw = (
+                json.dumps(
+                    {
+                        "schema_version": "rosclaw.original_sim_contact_message.v1",
+                        "topic": topic,
+                        "run_id": self.sources.run_id,
+                        "captured_at": datetime.now(UTC).isoformat(),
+                        "received_monotonic_ns": time.monotonic_ns(),
+                        "message": message_to_ordereddict(message),
+                    },
+                    allow_nan=False,
+                )
+                + "\n"
+            )
+            self.contact_trace_bytes += len(raw.encode("utf-8"))
+            self.contact_trace_rows += 1
+            if (
+                self.contact_trace_bytes > 30_000_000
+                or self.contact_trace_rows > 20_000
+                or len(raw) > 500_000
+            ):
+                raise RuntimeError("bounded original contact capture exhausted")
+            self.contact_trace.write(raw)
         touching = any(
-            "floor::" not in c.collision1.name and "floor::" not in c.collision2.name
+            (
+                c.collision1.name not in self.sources.ground_collision_names
+                and c.collision2.name not in self.sources.ground_collision_names
+            )
+            if self.sources
+            else ("floor::" not in c.collision1.name and "floor::" not in c.collision2.name)
             for c in message.contacts
         )
         with self.observation_lock:
@@ -397,7 +501,9 @@ class Witness(Node):
 
     def observe(self, message):
         for t in message.transforms:
-            if t.child_frame_id == self.profile.simulation_model:
+            if t.child_frame_id == (
+                self.sources.robot_entity if self.sources else self.profile.simulation_model
+            ):
                 q = t.transform.rotation
                 pose = {
                     "x": t.transform.translation.x,
@@ -436,7 +542,11 @@ class Witness(Node):
         # disc encloses this configured robot's physical footprint. This is
         # independent post-physics geometric collision observation, not Nav2's
         # prediction or a claim from the caller. Ground contact is excluded.
-        touching = max(abs(pose["x"]), abs(pose["y"])) + self.profile.physical_radius_m >= 1.5
+        touching = (
+            False
+            if self.sources
+            else max(abs(pose["x"]), abs(pose["y"])) + self.profile.physical_radius_m >= 1.5
+        )
         if touching and not self.in_collision:
             self.collision_count += 1
         self.in_collision = touching
@@ -452,9 +562,11 @@ class Witness(Node):
             "localization": self.localization,
             "evidence_domain": "GAZEBO_PHYSICS",
             "collision_count": max(self.collision_count, physics_collision_count),
-            "geometry_collision_count": self.collision_count,
+            "geometry_collision_count": None if self.sources else self.collision_count,
             "physics_collision_count": physics_collision_count,
-            "collision_source": "gazebo_contacts_and_ground_truth_geometry",
+            "collision_source": "gazebo_contacts"
+            if self.sources
+            else "gazebo_contacts_and_ground_truth_geometry",
             # Non-contacting sensors publish only on contact. Wheel/ground
             # contacts continuously witness the live physics contact pipeline.
             "ground_truth_age_ms": (now - last_pose) * 1000,
@@ -504,6 +616,8 @@ def main():
             # SIGINT may have invalidated the ROS context. Diagnostic flushing
             # must not depend on a last ROS publish succeeding at shutdown.
             node.trace.close()
+            if node.contact_trace is not None:
+                node.contact_trace.close()
             summary = node.plan_audit.close()
             Path(summary["path"] + ".summary.json").write_text(json.dumps(summary) + "\n")
             node.destroy_node()

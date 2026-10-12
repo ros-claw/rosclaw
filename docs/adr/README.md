@@ -26,3 +26,5 @@
 依据文档：《ROSClaw Native Agent、Worker Fabric 与多机器人 Team Fabric 实施总纲 v1.0》（2026-08-01）。
 
 - [0018: Fresh SIM navigation readiness](0018-fresh-sim-navigation-readiness.md)
+
+- [0019: Profile-free SIM source observation](0019-profile-free-sim-source-observer.md)
