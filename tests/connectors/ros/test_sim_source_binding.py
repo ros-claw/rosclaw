@@ -426,7 +426,7 @@ def test_unresolved_sources_never_get_default_geometry(xml):
         sdf_inventory(xml, robot_entity="fixture")
 
 
-def test_source_match_preserves_blocked_localization_review_without_claiming_L1(tmp_path):
+def test_source_match_preserves_blocked_localization_review_without_claiming_l1(tmp_path):
     parts = fixture(tmp_path)
     model = parts[-1]
     for quality in model.observations["localization_quality"]:
@@ -442,7 +442,7 @@ def test_source_match_preserves_blocked_localization_review_without_claiming_L1(
     assert result["L1"] == result["L2"] == "NOT_RUN"
 
 
-def test_localization_publisher_ambiguity_is_never_deferred_to_L1(tmp_path):
+def test_localization_publisher_ambiguity_is_never_deferred_to_l1(tmp_path):
     parts = fixture(tmp_path)
     model = parts[-1]
     topic = next(t for t in model.graph["topics"] if t["name"] == "/sample/estimated_pose")
@@ -452,3 +452,47 @@ def test_localization_publisher_ambiguity_is_never_deferred_to_L1(tmp_path):
     result = review_sim_source_binding(root, request, **kwargs)
     assert result["result"] == "UNKNOWN"
     assert "ROS_SOURCE:unique_typed_localization_publisher" in result["unknown_reasons"]
+
+
+@pytest.mark.parametrize("fault", ["none", "plane_size", "plane_pose", "model_pose", "dynamic"])
+def test_complete_static_world_plane_and_effective_frames(tmp_path, fault):
+    parts = list(fixture(tmp_path))
+    _, _, launch, _, samples, _, world, _ = parts
+    tree = ET.fromstring(world)
+    floor = ET.fromstring(
+        '<model name="floor"><static>true</static><link name="ground"><collision name="surface"><geometry><plane><normal>0 0 1</normal><size>10 10</size></plane></geometry></collision></link></model>'
+    )
+    tree.find("world").append(floor)
+    if fault == "dynamic":
+        floor.find("static").text = "false"
+    parts[6] = ET.tostring(tree)
+    launch["asset_sha256"]["world.sdf"] = sha(parts[6])
+    for sample in samples:
+        sample["models"].append(
+            {"name": "floor", "entity": 10, "static": fault != "dynamic", "world_pose": [0] * 6}
+        )
+        sample["collisions"].append(
+            {
+                "entity": 12,
+                "name": "surface",
+                "pose": [0] * 6,
+                "world_pose": [0] * 6,
+                "geometry_sdf": "<geometry><plane><normal>0 0 1</normal><size>10 10</size></plane></geometry>",
+                "ancestry": [
+                    {"entity": 11, "name": "ground", "model": False, "world": False},
+                    {"entity": 10, "name": "floor", "model": True, "world": False},
+                    {"entity": 1, "name": "owned_world", "model": False, "world": True},
+                ],
+            }
+        )
+    if fault == "plane_size":
+        samples[-1]["collisions"][-1]["geometry_sdf"] = samples[-1]["collisions"][-1][
+            "geometry_sdf"
+        ].replace("10 10", "5 5")
+    elif fault == "plane_pose":
+        samples[-1]["collisions"][-1]["world_pose"][0] = 0.1
+    elif fault == "model_pose":
+        samples[-1]["models"][-1]["world_pose"][0] = 0.1
+    root, request, kwargs = pack(parts)
+    result = review_sim_source_binding(root, request, **kwargs)
+    assert result["result"] == ("MATCHED" if fault == "none" else "MISMATCH"), result

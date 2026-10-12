@@ -71,7 +71,7 @@ def _pose(element):
     return _numbers(element.text or "", 6)
 
 
-def _geometry(element):
+def _geometry(element, *, allow_plane=False):
     if element is None or len(element) != 1:
         raise ValueError("one resolved collision primitive required")
     shape = element[0]
@@ -80,18 +80,22 @@ def _geometry(element):
         "sphere": (("radius", 1),),
         "cylinder": (("radius", 1), ("length", 1)),
     }
+    if allow_plane:
+        fields["plane"] = (("normal", 3), ("size", 2))
     if shape.tag not in fields:
         raise ValueError("unsupported collision geometry: " + shape.tag)
+    if shape.tag == "plane" and not any(_numbers(shape.findtext("normal", ""), 3)):
+        raise ValueError("nonzero static plane normal required")
     return (
         shape.tag,
         tuple(
-            (name, _numbers(shape.findtext(name, ""), count, positive=True))
+            (name, _numbers(shape.findtext(name, ""), count, positive=name != "normal"))
             for name, count in fields[shape.tag]
         ),
     )
 
 
-def sdf_inventory(raw, *, robot_entity, world_name=None):
+def sdf_inventory(raw, *, robot_entity, world_name=None, allow_plane=False):
     """Read expanded SDF, preserving link/joint structure and all collisions."""
     root = _xml(raw)
     if root.tag != "sdf" or root.findall(".//include"):
@@ -171,7 +175,7 @@ def sdf_inventory(raw, *, robot_entity, world_name=None):
                     name,
                     member.get("name"),
                     _pose(member.find("pose")),
-                    _geometry(member.find("geometry")),
+                    _geometry(member.find("geometry"), allow_plane=allow_plane),
                 )
             )
         for member in link.findall("sensor"):
@@ -204,7 +208,7 @@ def sdf_inventory(raw, *, robot_entity, world_name=None):
     }
 
 
-def _loaded_inventory(sample, entity):
+def _loaded_inventory(sample, entity, *, allow_plane=False):
     result = {"collisions": [], "sensors": []}
     for field in result:
         for row in sample[field]:
@@ -223,7 +227,7 @@ def _loaded_inventory(sample, entity):
                 raise ValueError("explicit nonnested member parent link required")
             pose = _numbers(" ".join(str(x) for x in row["pose"]), 6)
             value = (
-                _geometry(_xml(row["geometry_sdf"].encode()))
+                _geometry(_xml(row["geometry_sdf"].encode()), allow_plane=allow_plane)
                 if field == "collisions"
                 else row["kind"]
             )
@@ -514,7 +518,7 @@ def review_sim_source_binding(
                 wrapper = ET.Element("sdf")
                 wrapper.append(source_model)
                 static_sources[name] = (
-                    sdf_inventory(ET.tostring(wrapper), robot_entity=name),
+                    sdf_inventory(ET.tostring(wrapper), robot_entity=name, allow_plane=True),
                     _transform(_pose(source_model.find("pose"))),
                 )
             if (
@@ -563,7 +567,27 @@ def review_sim_source_binding(
                         unknown.append("WORLD_STATIC_ENTITY_UNVERIFIED:" + static_name)
                         continue
                     observed_static = static_models[0]
-                    static_loaded = _loaded_inventory(sample, observed_static["entity"])
+                    static_loaded = _loaded_inventory(
+                        sample, observed_static["entity"], allow_plane=True
+                    )
+                    static_inverse = _inverse(_transform(observed_static["world_pose"]))
+                    for field in ("collisions", "sensors"):
+                        for row in sample[field]:
+                            if not any(
+                                x["entity"] == observed_static["entity"] for x in row["ancestry"]
+                            ):
+                                continue
+                            name = (row["ancestry"][0]["name"], row["name"])
+                            actual_pose = _compose(static_inverse, _transform(row["world_pose"]))
+                            if name not in static_source["member_transforms"] or not _pose_matches(
+                                actual_pose,
+                                static_source["member_transforms"][name],
+                                position_tolerance,
+                                rotation_tolerance,
+                            ):
+                                mismatch.append(
+                                    "WORLD_STATIC_EFFECTIVE_FRAME_MISMATCH:" + static_name
+                                )
                     if (
                         static_loaded["collisions"] != static_source["collisions"]
                         or static_loaded["sensors"] != static_source["sensors"]

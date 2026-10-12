@@ -260,7 +260,14 @@ def main():
                 state["physics"]
                 and state["physics"].get("body_snapshot_hash") == manifest["body_snapshot_hash"]
                 and state["physics"]["observation_complete"]
-                and state["review"]["candidate"]["frames"]
+                and not (
+                    set(state["review"]["unknown_fields"])
+                    - {
+                        "fresh_localization_estimate_and_covariance",
+                        "fresh_navigation_frame:" + requirements["localization_topic"],
+                        "fresh_unique_stream:" + requirements["localization_topic"],
+                    }
+                )
             ),
             30,
         )
