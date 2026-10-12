@@ -1,0 +1,51 @@
+{
+  "status": "ROOT_ACCEPTED_FINAL6_DEFAULT_NPM_GENUINE_DISTRO_TOOLS",
+  "source_acceptance_sha256": "1ca7a740a28c1309fc06ceabac5c105abf460910da7e61c9838a18e2b14eba4c",
+  "source6": {
+    "packages/rosclaw-agent/src/extension/index.ts": "211e2aaafec597433bb5bd95d4827200ab8feb3b4ac2aca722955403c4092c9b",
+    "packages/rosclaw-agent/test/sdk-extension-managed-cancel.lifecycle.integration.test.ts": "8e461a69dc7dff58c946c2e7fa20a1783bdac8603229b2f2b865631554286f3a",
+    "packages/rosclaw-agent/test/pi-extension-forwarding-bootstrap.integration.test.ts": "f04138d59119a44f393868f3fb79663284f2ad0a8f7c0c400d1e23e0a30e16d1",
+    "packages/rosclaw-agent/test/fixtures/pi-lifecycle-owned-bootstrap.ts": "946c1f3c86b611d6d0114fa1d1ef004bce464deb1d8d68351e94d2e622fef865",
+    "packages/rosclaw-agent/docs/PI_EXTENSION_LIFECYCLE_EVIDENCE.md": "55825663abd7459a64bd5cfd29d15fd63317a75693525c2bfd5978348784acf5",
+    ".github/workflows/ci.yml": "96dced71a2b32f6ae9ba0479c1ef93995b2a28cb138a9816a1b0186028e062f0"
+  },
+  "raw_reporter_sha256": "c93b1e07397c2ca22002853e3b71a3e13a96b68feebaa08d6b98509f6e4495eb",
+  "raw_reporter_bytes": 54322,
+  "raw_reporter_full_review": true,
+  "terminal_summary": {
+    "tests": 630,
+    "suites": 21,
+    "pass": 627,
+    "fail": 0,
+    "cancelled": 0,
+    "skipped": 3,
+    "todo": 0
+  },
+  "focused_genuine7_each_exactly_once": [
+    "PI_PORTABLE_BOOTSTRAP_BEFORE_SDK",
+    "PI_FORWARDING_ACK_AND_REJECTION",
+    "PI_FORWARDING_THROW_RECOVERY",
+    "PI_FORWARDING_REQUEUE_ORDER_OWNERSHIP",
+    "FULL_EXTENSION_SDK_FINALIZED_RESULT",
+    "BUSY_TO_IDLE_EXTENSION_WAKEUP",
+    "OWNER_CANCEL_CAUSE_BOUNDARY"
+  ],
+  "image": "sha256:c48ccf37d26e2deedf7becf683fb7c1dcf8bdd2a7f427cc8e9fb0e7ad3725117",
+  "owned_container_removed": true,
+  "post_source_hashes_exact": true,
+  "elapsed_s": 18.281888378958683,
+  "cumulative_elapsed_s": 36.93770242593018,
+  "limitations": [
+    "3 original bwrap capability skips",
+    "SDK executions uncounted at full suite scope",
+    "remote CI pending",
+    "full CLI and physics acceptance not established"
+  ],
+  "objective_complete": false,
+  "mechanical_publication_derivation": {
+    "path": "packages/rosclaw-agent/docs/PI_EXTENSION_LIFECYCLE_EVIDENCE.md",
+    "operation": "Remove one empty EOF line only; no semantic/source/test change",
+    "Native_sha256": "55825663abd7459a64bd5cfd29d15fd63317a75693525c2bfd5978348784acf5",
+    "published_sha256": "793114d010d26800f9fbea3655b416a19da533f538c2c7dc6743e3ebbde1ffdf"
+  }
+}
