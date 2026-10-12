@@ -1533,6 +1533,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			options.rosclawHome,
 			options.active.current.sessionId,
 			options.active.current.missionId ?? "",
+			(_home, method, params) => center.call(method, params),
 		);
 		// BOUNDED-IDENTITY：把真实 mirror 的诊断接到 /tokens（上方已注册
 		// 的惰性 accessor 在此指向实际实例）。
