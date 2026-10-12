@@ -194,16 +194,35 @@ def main():
         witness = launch_witness(
             "initial-source-witness", OUT / "home", OUT / "execution_config.json"
         )
-        spin_until(lambda: state["model"] and state["physics"]
-                   and state["physics"]["observation_complete"]
-                   and all(any(row.name == name and row.state == "ACTIVE"
-                               for row in state["model"].lifecycle)
-                           for name in requirements["lifecycle_nodes"].values()), 30)
-        initializer_argv = ["python3", str(ROOT / "source_fixture_initialization.py"),
-                            "--operator-owned-source-fixture", "--inventory-sha256",
-                            settings["inventory_sha256"], "--run-id", settings["run_id"]
+        spin_until(
+            lambda: (
+                state["model"]
+                and state["physics"]
+                and state["physics"]["observation_complete"]
+                and all(
+                    any(
+                        row.name == name and row.state == "ACTIVE"
+                        for row in state["model"].lifecycle
+                    )
+                    for name in requirements["lifecycle_nodes"].values()
+                )
+            ),
+            30,
+        )
+        initializer_argv = [
+            "python3",
+            str(ROOT / "source_fixture_initialization.py"),
+            "--operator-owned-source-fixture",
+            "--inventory-sha256",
+            settings["inventory_sha256"],
+            "--run-id",
+            settings["run_id"],
+        ]
         save("operator-initialization-argv.json", initializer_argv)
-        with (OUT / "operator-initialization-original.stdout").open("xb") as stdout, (OUT / "operator-initialization-original.stderr").open("xb") as stderr:
+        with (
+            (OUT / "operator-initialization-original.stdout").open("xb") as stdout,
+            (OUT / "operator-initialization-original.stderr").open("xb") as stderr,
+        ):
             initialized = subprocess.run(initializer_argv, stdout=stdout, stderr=stderr, timeout=25)
         save("operator-initialization-exit.json", {"returncode": initialized.returncode})
         if initialized.returncode:

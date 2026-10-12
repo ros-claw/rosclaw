@@ -12,10 +12,9 @@ import time
 from pathlib import Path
 
 import rclpy
+from gazebo_source_witness.prepare import check_prepared_assets
 from nav2_msgs.srv import SetInitialPose
 from rclpy.node import Node
-
-from gazebo_source_witness.prepare import check_prepared_assets
 
 
 def main():
