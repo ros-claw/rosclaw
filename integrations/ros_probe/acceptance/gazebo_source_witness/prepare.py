@@ -136,6 +136,20 @@ def prepare(run_id, *, repair_visual_uris=False):
     urdf = ET.parse(output / "robot.urdf").getroot()
     repairs = stage_visual_resources(urdf, output, repair_missing=repair_visual_uris)
     ET.ElementTree(urdf).write(output / "robot.urdf")
+    # A CLI YAML plain scalar folds XML whitespace. A typed YAML string keeps
+    # the live parameter byte-identical to the independently pinned asset.
+    (output / "robot-state-params.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "robot_state_publisher": {
+                    "ros__parameters": {
+                        "use_sim_time": True,
+                        "robot_description": (output / "robot.urdf").read_text(),
+                    }
+                }
+            }
+        )
+    )
     # The actual conversion command is recorded and its result is preserved.
     argv = ["gz", "sdf", "-p", "/assets/robot.urdf"]
     # /assets is a read-only bind of this fresh staging tree during prep;

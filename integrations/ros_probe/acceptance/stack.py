@@ -394,6 +394,19 @@ def main():
                 "use_sim_time:=true",
             ],
         )
+        if not args.prepared_assets:
+            (OUTPUT / "robot-state-params.yaml").write_text(
+                yaml.safe_dump(
+                    {
+                        "robot_state_publisher": {
+                            "ros__parameters": {
+                                "use_sim_time": True,
+                                "robot_description": (OUTPUT / "robot.urdf").read_text(),
+                            }
+                        }
+                    }
+                )
+            )
         start(
             "robot_state",
             [
@@ -402,10 +415,8 @@ def main():
                 "robot_state_publisher",
                 "robot_state_publisher",
                 "--ros-args",
-                "-p",
-                "use_sim_time:=true",
-                "-p",
-                "robot_description:=" + (OUTPUT / "robot.urdf").read_text(),
+                "--params-file",
+                str(OUTPUT / "robot-state-params.yaml"),
             ],
         )
         if args.controller_watchdog:
