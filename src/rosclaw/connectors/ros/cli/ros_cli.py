@@ -685,6 +685,18 @@ def add_ros_subparser(subparsers: argparse._SubParsersAction) -> argparse.Argume
             expert_parser.add_argument("operation", choices=["plan"])
             expert_parser.add_argument("--mission-id", default="ros_coverage_mission")
 
+    workspace_parser = ros_subparsers.add_parser(
+        "inspect-navigation-workspace", help="Read-only compiled navigation artifact integrity"
+    )
+    _add_common(workspace_parser)
+    workspace_parser.add_argument(
+        "--workspace", dest="navigation_workspace", required=True, help="Compiled fixture workspace"
+    )
+    workspace_parser.add_argument(
+        "--expected-manifest-hash", help="Separately pinned manifest hash"
+    )
+    workspace_parser.add_argument("--expected-body-hash", help="Separately pinned Body hash")
+
     return ros_parser
 
 
@@ -696,6 +708,20 @@ def add_ros_subparser(subparsers: argparse._SubParsersAction) -> argparse.Argume
 def dispatch_ros_command(args: argparse.Namespace) -> int:
     """Dispatch the selected ``ros`` subcommand."""
     cmd = getattr(args, "ros_command", None)
+    if cmd == "inspect-navigation-workspace":
+        from rosclaw.connectors.ros.context.navigation_workspace_review import (
+            inspect_navigation_body_workspace,
+        )
+
+        try:
+            result = inspect_navigation_body_workspace(
+                args.navigation_workspace,
+                expected_manifest_hash=args.expected_manifest_hash,
+                expected_body_hash=args.expected_body_hash,
+            )
+            return _maybe_json(args, {"ok": True, "action": cmd, **result})
+        except (ValueError, OSError) as exc:
+            return _maybe_json(args, {"ok": False, "action": cmd, "error": str(exc)})
     if cmd in {
         "inspect-system",
         "diagnose",

@@ -73,3 +73,67 @@ creating their destinations. Its action server rejects every goal and its
 velocity subscribers reject any command. Declared witness/lease endpoints are
 not launched by this fixture. This checks actual ROS SDK observations and
 compiler interoperability, without a World, motion, or Body admission.
+
+## Read-only artifact inspection
+
+`ros inspect-navigation-workspace --workspace /tmp/new-navigation-workspace
+--json` reads the closed compiler workspace without a Runtime, ROS connection,
+resolver fallback, workspace installation, recompile-on-disk or writes to the
+compiled workspace. The CLI keeps its artifact directory separate from the
+runtime home used by normal telemetry, so completion events cannot alter the
+reviewed compiler inventory.
+Optional `--expected-manifest-hash` and `--expected-body-hash` pin values obtained
+separately by the caller. Self-consistent hashes alone do not identify a trusted
+publisher or prove which sources the simulator actually loaded.
+
+The inspector checks the manifest and all eleven output digests, reconstructs
+the sealed system, replays its navigation review at the **original review time**,
+and shares the compiler's pure profile/instance preparation. It recompiles the
+captured e-URDF/Body/calibration in memory and compares the cached Body and
+immutable executor binding, source hashes, lock and execution configuration.
+Added actuator providers, capabilities or REAL agent policy are refused even
+if their file hashes and cached Body were recomputed. Compiler output rules
+remain identical; the profile/instance preparation is shared, not reimplemented.
+
+Only the compiler's files and its standard empty `body/snapshots` and
+`body/refs/generated` directories are accepted. Unexpected maintenance records,
+generated sources or other files are refused. Root/member symlinks, duplicate
+JSON/YAML keys, YAML aliases, non-regular or empty files, inputs above 5 MB per
+file and captures above 30 MB are refused. Directory descriptors, inventories
+and file identity/size/mtime/ctime checks reject observed changes during review.
+This is a review of captured bytes, not a promise of future file immutability.
+
+The result is `ARTIFACT_INTEGRITY_VERIFIED_NOT_ADMITTED`. It displays source
+capture time, inspection time, snapshot age and original review time. Historical
+artifacts may pass integrity review; `current_navigation_readiness` stays
+`NOT_EVALUATED`, `physical_source_provenance` stays `NOT_VERIFIED`, physical
+acceptance stays `NOT_RUN`, and neither Body binding nor REAL use is granted.
+The compile CLI still refuses stale inputs. The subsequent simulator/daemon
+source-admission gate must separately verify current loaded source, independent
+observer/contact identity, frame alignment and guarded physical receipts.
+
+The owned SDK fixture optionally accepts `--inspect-navigation-workspace`
+together with `--navigation-review --compile-navigation-body`. It inspects only
+the fresh positive compiled workspace using both expected hashes, retains the
+inspection report outside that closed workspace, and leaves the two negative
+cases uncompiled. No World, goal or velocity command is added.
+
+
+## Integration dependency failure (2026-10-12)
+
+PR #670 original source a20b1504 failed CI/CD run 38162554420 in the
+Humble Docker deployment job: packages.ros.org could not resolve, then apt
+could not locate ros-humble-rosbridge-server. This is the observed dependency
+index failure; it does not establish who caused the DNS failure. The PR's
+original seven files did not change Docker/Compose/workflows. Preserve that
+failed run rather than recategorizing it as successful.
+
+The Humble bridge image now retries transport downloads at most three times,
+with thirty-second network timeouts, and treats any index refresh error as
+fatal. It keeps official repositories and signature validation. It stores
+signed InRelease records, index hashes, repository configuration and installed
+package versions under /usr/share/rosclaw-build-evidence for independent
+deployment review. No workflow or smoke assertion is skipped. The repaired
+source receives new checks; only real passing source and post-merge checks
+can close integration. ARM64 Jazzy SDK evidence cannot replace this amd64
+Humble deployment job.

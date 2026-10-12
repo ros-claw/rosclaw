@@ -99,13 +99,18 @@ def prepare_navigation_fixture(source, executor, namespace):
     return nodes, requirements, state
 
 
-def run_navigation_reviews(probe, output, urdf, requirements, state, spin, *, compile_body=False):
+def run_navigation_reviews(
+    probe, output, urdf, requirements, state, spin, *, compile_body=False, inspect_body=False
+):
+    if inspect_body and not compile_body:
+        raise ValueError("workspace inspection requires compiled fixture artifacts")
     from rosclaw.connectors.ros.context.discovery import discover_body_candidate
     from rosclaw.connectors.ros.context.navigation_review import review_navigation_candidate
     from rosclaw.connectors.ros.discovery.graph import RosGraphSnapshot
     from rosclaw.connectors.ros.intelligence import build_system_model
 
     cases = []
+    inspections = []
     (output / "requirements.json").write_text(json.dumps(requirements, indent=2) + "\n")
     (output / "robot.urdf").write_bytes(urdf)
     for name, expected in (
@@ -182,6 +187,22 @@ def run_navigation_reviews(probe, output, urdf, requirements, state, spin, *, co
                     destination, model, urdf, requirements, policy=policy
                 )
                 assert manifest["status"] == "CONTRACT_COMPILED_NOT_ADMITTED"
+                if inspect_body:
+                    from rosclaw.connectors.ros.context.navigation_workspace_review import (
+                        inspect_navigation_body_workspace,
+                    )
+
+                    inspection = inspect_navigation_body_workspace(
+                        destination,
+                        expected_manifest_hash=manifest["manifest_hash"],
+                        expected_body_hash=manifest["body_snapshot_hash"],
+                    )
+                    assert inspection["status"] == "ARTIFACT_INTEGRITY_VERIFIED_NOT_ADMITTED"
+                    assert inspection["current_navigation_readiness"] == "NOT_EVALUATED"
+                    (output / f"{name}.workspace-inspection.json").write_text(
+                        json.dumps(inspection, indent=2) + "\n"
+                    )
+                    inspections.append({"case": name, **inspection})
             else:
                 try:
                     compile_navigation_body_workspace(
@@ -196,10 +217,13 @@ def run_navigation_reviews(probe, output, urdf, requirements, state, spin, *, co
             {"case": name, "status": result["status"], "unknown_fields": result["unknown_fields"]}
         )
     report = {
-        "status": "PASS_SYNTHETIC_SDK_NAVIGATION_BODY_COMPILATION_NOT_ADMISSION"
+        "status": "PASS_SYNTHETIC_SDK_NAVIGATION_BODY_COMPILATION_AND_INSPECTION_NOT_ADMISSION"
+        if inspect_body
+        else "PASS_SYNTHETIC_SDK_NAVIGATION_BODY_COMPILATION_NOT_ADMISSION"
         if compile_body
         else "PASS_SYNTHETIC_SDK_NAVIGATION_OBSERVATIONS_ONLY",
         "cases": cases,
+        "workspace_inspections": inspections,
         "Worlds": 0,
         "navigation_goals_sent": 0,
         "velocity_messages_sent": 0,

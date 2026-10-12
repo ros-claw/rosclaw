@@ -32,6 +32,102 @@ def compile_navigation_body_workspace(
     A compiled snapshot still needs independent source admission and guarded
     physics acceptance; policy.approved is a fixture declaration, not a Permit.
     """
+    review, policy, profile = _prepare_navigation_profile(
+        model, urdf_bytes, requirements, policy=policy, now=now
+    )
+    candidate, profile_id = review["candidate"], profile.profile_id
+    review_hash = content_hash("navobservationreview", review)
+    policy_hash = content_hash("navfixturepolicy", policy)
+    destination = Path(destination)
+    if destination.is_symlink():
+        raise ValueError("new workspace destination must not be a symlink")
+    destination = destination.resolve()
+    destination.mkdir(parents=False, exist_ok=False)
+    resolver = BodyResolver(workspace=destination)
+    resolver.ensure_body_dir()
+    resolver.eurdf_profile_path.write_text(yaml.safe_dump(profile.to_dict(), sort_keys=False))
+    urdf_path = resolver.eurdf_profile_path.with_name("robot.urdf")
+    urdf_path.write_bytes(urdf_bytes)
+    checksum = compute_checksum(resolver.eurdf_profile_path)
+    uri = f"rosclaw://eurdf/{profile_id}@1.0.0"
+    resolver.eurdf_lock_path.write_text(
+        yaml.safe_dump(
+            {
+                "schema_version": "rosclaw.eurdf_lock.v1",
+                "profile_id": profile_id,
+                "profile_version": "1.0.0",
+                "uri": uri,
+                "source": "observed_navigation_SIM_fixture",
+                "checksum": checksum,
+            }
+        )
+    )
+    body = _navigation_instance(policy, profile_id, uri, checksum)
+    resolver.body_yaml_path.write_text(yaml.safe_dump(body.to_dict(), sort_keys=False))
+    resolver.calibration_yaml_path.write_text(yaml.safe_dump(CalibrationYaml().to_dict()))
+    effective = resolver.recompile_effective_body()
+    reopened = BodyResolver(workspace=destination).get_effective_body(recompile_if_stale=False)
+    binding = SimulationNavigationBinding.from_body(reopened)
+    if (
+        effective.compute_hash() != binding.body_snapshot_hash
+        or hashlib.sha256(urdf_path.read_bytes()).hexdigest() != candidate["source_urdf_sha256"]
+    ):
+        raise ValueError("compiled Body/URDF source changed")
+    config = {
+        "executor_kind": "navigation_only",
+        "body_id": binding.body_id,
+        "body_snapshot_hash": binding.body_snapshot_hash,
+    }
+    config_path = destination / "execution_config.json"
+    config_path.write_text(json.dumps(config, indent=2) + "\n")
+    evidence_paths = []
+    for name, value in (
+        ("source-snapshot.json", model.to_dict()),
+        ("navigation-requirements.json", requirements),
+        ("fixture-policy.json", policy),
+        ("navigation-review.json", review),
+    ):
+        path = destination / name
+        path.write_text(json.dumps(value, indent=2, allow_nan=False) + "\n")
+        evidence_paths.append(path)
+    manifest = {
+        "schema_version": "rosclaw.navigation_body_workspace.v1",
+        "status": "CONTRACT_COMPILED_NOT_ADMITTED",
+        "body_snapshot_hash": binding.body_snapshot_hash,
+        "source_snapshot_hash": model.snapshot_hash,
+        "source_urdf_sha256": candidate["source_urdf_sha256"],
+        "navigation_review_hash": review_hash,
+        "fixture_policy_hash": policy_hash,
+        "requirements_hash": review["requirements_hash"],
+        "evidence_domain": "SIMULATION",
+        "binding_verified": False,
+        "physical_acceptance_level": "NOT_RUN",
+        "usable_for_real_execution": False,
+        "execution_entry": "request_action",
+        "direct_actions_dispatched": False,
+        "file_sha256": {
+            str(p.relative_to(destination)): hashlib.sha256(p.read_bytes()).hexdigest()
+            for p in (
+                resolver.eurdf_profile_path,
+                resolver.eurdf_lock_path,
+                resolver.body_yaml_path,
+                resolver.calibration_yaml_path,
+                resolver.effective_body_path,
+                urdf_path,
+                config_path,
+                *evidence_paths,
+            )
+        },
+    }
+    manifest["manifest_hash"] = content_hash("navbodyworkspace", manifest)
+    (destination / "navigation-body-workspace.json").write_text(
+        json.dumps(manifest, indent=2) + "\n"
+    )
+    return manifest
+
+
+def _prepare_navigation_profile(model, urdf_bytes, requirements, *, policy, now=None):
+    """Pure common preparation for compilation and read-only artifact replay."""
     review = review_navigation_candidate(model, urdf_bytes, requirements, now=now)
     if review["status"] != "PROPOSED":
         raise ValueError(
@@ -180,31 +276,12 @@ def compile_navigation_body_workspace(
         },
         sandbox={"compatible_engines": ["gazebo"], "preferred_engine": "gazebo"},
     )
-    destination = Path(destination)
-    if destination.is_symlink():
-        raise ValueError("new workspace destination must not be a symlink")
-    destination = destination.resolve()
-    destination.mkdir(parents=False, exist_ok=False)
-    resolver = BodyResolver(workspace=destination)
-    resolver.ensure_body_dir()
-    resolver.eurdf_profile_path.write_text(yaml.safe_dump(profile.to_dict(), sort_keys=False))
-    urdf_path = resolver.eurdf_profile_path.with_name("robot.urdf")
-    urdf_path.write_bytes(urdf_bytes)
-    checksum = compute_checksum(resolver.eurdf_profile_path)
-    uri = f"rosclaw://eurdf/{profile_id}@1.0.0"
-    resolver.eurdf_lock_path.write_text(
-        yaml.safe_dump(
-            {
-                "schema_version": "rosclaw.eurdf_lock.v1",
-                "profile_id": profile_id,
-                "profile_version": "1.0.0",
-                "uri": uri,
-                "source": "observed_navigation_SIM_fixture",
-                "checksum": checksum,
-            }
-        )
-    )
-    body = BodyYaml(
+    return review, policy, profile
+
+
+def _navigation_instance(policy, profile_id, uri, checksum):
+    """Shared closed SIM-only instance definition; grants no execution authority."""
+    return BodyYaml(
         body_instance={"id": policy["body_id"], "robot_model": profile_id},
         model_ref={"eurdf_uri": uri, "checksum": checksum},
         installed_components={
@@ -217,64 +294,3 @@ def compile_navigation_body_workspace(
             "evidence_domain": "SIMULATION",
         },
     )
-    resolver.body_yaml_path.write_text(yaml.safe_dump(body.to_dict(), sort_keys=False))
-    resolver.calibration_yaml_path.write_text(yaml.safe_dump(CalibrationYaml().to_dict()))
-    effective = resolver.recompile_effective_body()
-    reopened = BodyResolver(workspace=destination).get_effective_body(recompile_if_stale=False)
-    binding = SimulationNavigationBinding.from_body(reopened)
-    if (
-        effective.compute_hash() != binding.body_snapshot_hash
-        or hashlib.sha256(urdf_path.read_bytes()).hexdigest() != candidate["source_urdf_sha256"]
-    ):
-        raise ValueError("compiled Body/URDF source changed")
-    config = {
-        "executor_kind": "navigation_only",
-        "body_id": binding.body_id,
-        "body_snapshot_hash": binding.body_snapshot_hash,
-    }
-    config_path = destination / "execution_config.json"
-    config_path.write_text(json.dumps(config, indent=2) + "\n")
-    evidence_paths = []
-    for name, value in (
-        ("source-snapshot.json", model.to_dict()),
-        ("navigation-requirements.json", requirements),
-        ("fixture-policy.json", policy),
-        ("navigation-review.json", review),
-    ):
-        path = destination / name
-        path.write_text(json.dumps(value, indent=2, allow_nan=False) + "\n")
-        evidence_paths.append(path)
-    manifest = {
-        "schema_version": "rosclaw.navigation_body_workspace.v1",
-        "status": "CONTRACT_COMPILED_NOT_ADMITTED",
-        "body_snapshot_hash": binding.body_snapshot_hash,
-        "source_snapshot_hash": model.snapshot_hash,
-        "source_urdf_sha256": candidate["source_urdf_sha256"],
-        "navigation_review_hash": review_hash,
-        "fixture_policy_hash": policy_hash,
-        "requirements_hash": review["requirements_hash"],
-        "evidence_domain": "SIMULATION",
-        "binding_verified": False,
-        "physical_acceptance_level": "NOT_RUN",
-        "usable_for_real_execution": False,
-        "execution_entry": "request_action",
-        "direct_actions_dispatched": False,
-        "file_sha256": {
-            str(p.relative_to(destination)): hashlib.sha256(p.read_bytes()).hexdigest()
-            for p in (
-                resolver.eurdf_profile_path,
-                resolver.eurdf_lock_path,
-                resolver.body_yaml_path,
-                resolver.calibration_yaml_path,
-                resolver.effective_body_path,
-                urdf_path,
-                config_path,
-                *evidence_paths,
-            )
-        },
-    }
-    manifest["manifest_hash"] = content_hash("navbodyworkspace", manifest)
-    (destination / "navigation-body-workspace.json").write_text(
-        json.dumps(manifest, indent=2) + "\n"
-    )
-    return manifest
