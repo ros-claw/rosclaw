@@ -396,6 +396,7 @@ def main():
                 check=True,
                 timeout=30,
             )
+        bridge_configuration = OUTPUT / "bridge.yaml"
         if args.readiness_fault_fixture:
             bridge_items = yaml.safe_load((OUTPUT / "bridge.yaml").read_text())
             scan_items = [
@@ -406,7 +407,8 @@ def main():
             if len(scan_items) != 1:
                 raise ValueError("explicit unique operator fixture scan bridge required")
             (OUTPUT / "scan-bridge.yaml").write_text(yaml.safe_dump(scan_items))
-            (OUTPUT / "bridge.yaml").write_text(
+            bridge_configuration = OUTPUT / "readiness-main-bridge.yaml"
+            bridge_configuration.write_text(
                 yaml.safe_dump([x for x in bridge_items if x not in scan_items])
             )
             start(
@@ -432,7 +434,7 @@ def main():
                 "parameter_bridge",
                 "--ros-args",
                 "-p",
-                f"config_file:={OUTPUT / 'bridge.yaml'}",
+                f"config_file:={bridge_configuration}",
                 "-p",
                 "use_sim_time:=true",
             ],
