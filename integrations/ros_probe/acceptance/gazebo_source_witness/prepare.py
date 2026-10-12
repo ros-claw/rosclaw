@@ -233,6 +233,11 @@ def prepare(run_id, *, repair_visual_uris=False):
     (output / "bridge.yaml").write_text(yaml.safe_dump(bridge))
     (output / "contact_topics.json").write_text(json.dumps(topics))
     params = yaml.safe_load((output / "nav2.yaml").read_text())
+    # This zero-motion source fixture needs genuine scan-driven AMCL updates.
+    # Zero odometry thresholds process measured settling/jitter without goals,
+    # initialpose publication, covariance widening, or timestamp fabrication.
+    params["amcl"]["ros__parameters"]["update_min_d"] = 0.0
+    params["amcl"]["ros__parameters"]["update_min_a"] = 0.0
     navigator = params["bt_navigator"]["ros__parameters"]
     navigator["navigators"] = ["navigate_to_pose"]
     navigator.pop("navigate_complete_coverage", None)
