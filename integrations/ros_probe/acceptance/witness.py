@@ -72,6 +72,7 @@ class Witness(Node):
                     or self.navigation_binding.frame_id != "map"
                 ):
                     raise ValueError("navigation observer Body/model/run/frame mismatch")
+        self.source_received_control_messages = 0
         self.previous_measured_pose = None
         self.cleaning = False
         self.observation_lock = Lock()
@@ -142,13 +143,14 @@ class Witness(Node):
             self.collision_monitor_observation,
             10,
         )
-        for topic in ["/cmd_vel_smoothed", "/nav_cmd_vel"]:
-            self.create_subscription(
-                Twist,
-                topic,
-                lambda message, t=topic: self.velocity_observation(t, message),
-                10,
-            )
+        if not self.source_only:
+            for topic in ["/cmd_vel_smoothed", "/nav_cmd_vel"]:
+                self.create_subscription(
+                    Twist,
+                    topic,
+                    lambda message, t=topic: self.velocity_observation(t, message),
+                    10,
+                )
         self.create_subscription(Bool, "/is_rotating_to_heading", self.rotation_observation, 10)
         self.create_subscription(
             NavPath,
@@ -376,6 +378,9 @@ class Witness(Node):
         return response
 
     def command(self, message):
+        if self.source_only:
+            self.source_received_control_messages += 1
+            return
         if time.monotonic() < self.lease:
             self.publish_velocity(message)
 
@@ -437,6 +442,9 @@ class Witness(Node):
         self.in_collision = touching
         sample = {
             **pose,
+            "source_only_observer": self.source_only,
+            "source_received_control_messages": self.source_received_control_messages,
+            "source_published_velocity_messages": 0 if self.source_only else None,
             "captured_at": datetime.now(UTC).isoformat(),
             "cleaning_enabled": self.cleaning,
             "lease_remaining_sec": self.lease - now,
