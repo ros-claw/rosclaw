@@ -84,6 +84,12 @@ def main():
         "witness_exit",
         "witness_rename",
         "duplicate_publisher",
+        "sensor_stop",
+        "clock_freeze",
+        "tf_loss",
+        "nav2_inactive",
+        "qos_mismatch",
+        "namespace_mismatch",
     }:
         raise ValueError("unsupported explicit disposable SIM fault")
     requirements = {
@@ -123,6 +129,15 @@ def main():
         "--seed",
         "101201",
     ]
+    if fault in {
+        "sensor_stop",
+        "clock_freeze",
+        "tf_loss",
+        "nav2_inactive",
+        "qos_mismatch",
+        "namespace_mismatch",
+    }:
+        argv.append("--readiness-fault-fixture")
     save("stack-argv.json", argv)
     stack = subprocess.Popen(
         argv, stdout=stack_log, stderr=subprocess.STDOUT, start_new_session=True
@@ -382,6 +397,32 @@ def main():
                 args, stdout=log, stderr=subprocess.STDOUT, start_new_session=True
             )
             save("fault-endpoint-process.json", process_fact(auxiliary.pid))
+        elif fault in {
+            "sensor_stop",
+            "clock_freeze",
+            "tf_loss",
+            "nav2_inactive",
+            "qos_mismatch",
+            "namespace_mismatch",
+        }:
+            args = [
+                "python3",
+                str(ROOT / "source_readiness_fixture_fault.py"),
+                "--inventory-sha256",
+                settings["inventory_sha256"],
+                "--run-id",
+                settings["run_id"],
+                "--mode",
+                fault,
+            ]
+            save("readiness-fault-argv.json", args)
+            log = (OUT / "readiness-fault-original.log").open("x")
+            witness_logs.append(log)
+            auxiliary = subprocess.Popen(
+                args, stdout=log, stderr=subprocess.STDOUT, start_new_session=True
+            )
+            save("readiness-fault-process.json", process_fact(auxiliary.pid))
+            spin_until(lambda: (OUT / "readiness-fault-applied.json").exists(), 15)
         if fault != "none":
             end = time.monotonic() + 3
             spin_until(lambda: time.monotonic() >= end, 5)

@@ -276,6 +276,7 @@ def main():
     parser.add_argument("--source-only-observer", action="store_true")
     parser.add_argument("--external-source-witness", action="store_true")
     parser.add_argument("--fault-acceptance", action="store_true")
+    parser.add_argument("--readiness-fault-fixture", action="store_true")
     parser.add_argument("--navigation-only", action="store_true")
     parser.add_argument(
         "--controller-watchdog",
@@ -290,6 +291,10 @@ def main():
         raise ValueError(
             "external witness requires the explicitly prepared read-only source fixture"
         )
+    if args.readiness_fault_fixture and not (
+        args.external_source_witness and args.source_only_observer and args.prepared_assets
+    ):
+        raise ValueError("readiness faults require the explicit source-only disposable fixture")
     from fixture_middleware import configure_service_reply_discovery
 
     os.environ.update(configure_service_reply_discovery(ROOT, OUTPUT, os.environ))
@@ -363,6 +368,10 @@ def main():
         p = subprocess.Popen(argv, stdout=log, stderr=subprocess.STDOUT)
         children.append(p)
         labels[p] = name
+        if args.readiness_fault_fixture:
+            (OUTPUT / "owned-stack-processes.json").write_text(
+                json.dumps({labels[c]: {"pid": c.pid, "argv": c.args} for c in children}) + "\n"
+            )
         return p
 
     try:
@@ -386,6 +395,33 @@ def main():
                 ],
                 check=True,
                 timeout=30,
+            )
+        if args.readiness_fault_fixture:
+            bridge_items = yaml.safe_load((OUTPUT / "bridge.yaml").read_text())
+            scan_items = [
+                x
+                for x in bridge_items
+                if x.get("topic_name") == "scan" or x.get("ros_topic_name") == "/scan"
+            ]
+            if len(scan_items) != 1:
+                raise ValueError("explicit unique operator fixture scan bridge required")
+            (OUTPUT / "scan-bridge.yaml").write_text(yaml.safe_dump(scan_items))
+            (OUTPUT / "bridge.yaml").write_text(
+                yaml.safe_dump([x for x in bridge_items if x not in scan_items])
+            )
+            start(
+                "scan_bridge",
+                [
+                    "ros2",
+                    "run",
+                    "ros_gz_bridge",
+                    "parameter_bridge",
+                    "--ros-args",
+                    "-p",
+                    f"config_file:={OUTPUT / 'scan-bridge.yaml'}",
+                    "-p",
+                    "use_sim_time:=true",
+                ],
             )
         start(
             "bridge",
