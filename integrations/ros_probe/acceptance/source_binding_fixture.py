@@ -78,7 +78,13 @@ def observer_facts():
 def main():
     settings = json.loads(Path("/settings.json").read_text())
     fault = settings.get("fault", "none")
-    if fault not in {"none", "world_reset", "witness_exit"}:
+    if fault not in {
+        "none",
+        "world_reset",
+        "witness_exit",
+        "witness_rename",
+        "duplicate_publisher",
+    }:
         raise ValueError("unsupported explicit disposable SIM fault")
     requirements = {
         "interface_names": {
@@ -122,6 +128,7 @@ def main():
         argv, stdout=stack_log, stderr=subprocess.STDOUT, start_new_session=True
     )
     witness = None
+    auxiliary = None
     witness_logs = []
     rclpy.init(args=["--ros-args", "-p", "use_sim_time:=true"])
     node = Node("rosclaw_source_capture")
@@ -176,6 +183,8 @@ def main():
             "-p",
             "execution_config_path:=" + str(config),
         ]
+        if name == "renamed-source-witness":
+            args += ["-r", "__node:=rosclaw_renamed_source_witness"]
         save(f"{name}-argv.json", args)
         return subprocess.Popen(args, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
 
@@ -187,6 +196,8 @@ def main():
                 raise RuntimeError("bounded passive capture condition not achieved")
             if stack.poll() is not None or (witness and witness.poll() is not None):
                 raise RuntimeError("owned source stack or witness exited unexpectedly")
+            if auxiliary and auxiliary.poll() is not None:
+                raise RuntimeError("explicit endpoint-only fault process exited unexpectedly")
             rclpy.spin_once(node, timeout_sec=0.05)
 
     try:
@@ -347,6 +358,30 @@ def main():
             )
             witness = None
             witness_alive = False
+        elif fault == "witness_rename":
+            stop(witness)
+            state["physics"] = None
+            witness = launch_witness(
+                "renamed-source-witness", compiled, compiled / "execution_config.json"
+            )
+            spin_until(lambda: state["physics"] and state["physics"]["observation_complete"], 8)
+            witness_process = process_fact(witness.pid)
+        elif fault == "duplicate_publisher":
+            args = [
+                "python3",
+                str(ROOT / "source_fixture_endpoint_fault.py"),
+                "--inventory-sha256",
+                settings["inventory_sha256"],
+                "--run-id",
+                settings["run_id"],
+            ]
+            save("fault-endpoint-argv.json", args)
+            log = (OUT / "fault-endpoint-original.log").open("x")
+            witness_logs.append(log)
+            auxiliary = subprocess.Popen(
+                args, stdout=log, stderr=subprocess.STDOUT, start_new_session=True
+            )
+            save("fault-endpoint-process.json", process_fact(auxiliary.pid))
         if fault != "none":
             end = time.monotonic() + 3
             spin_until(lambda: time.monotonic() >= end, 5)
@@ -378,6 +413,8 @@ def main():
             flush=True,
         )
     finally:
+        if auxiliary:
+            stop(auxiliary)
         if witness:
             stop(witness)
         stop(stack)
