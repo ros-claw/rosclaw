@@ -126,6 +126,29 @@ def main():
         os.link(temporary, out / "source-inventory-fault-trigger.json")
         temporary.unlink()
     elif args.mode == "entity_replaced":
+        original = json.loads((out / "continuity-latest-original-sample.json").read_text())
+        original_entity = next(
+            m["entity"] for m in original["models"] if m["name"] == "turtlebot3_waffle"
+        )
+
+        def wait_for_inventory(replaced):
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline:
+                paths = sorted(out.glob("ecm-original.jsonl*"))
+                raw = paths[-1].read_bytes()
+                raw = raw[: raw.rfind(b"\n") + 1]
+                if raw:
+                    sample = json.loads(raw.splitlines()[-1])
+                    ids = [
+                        m["entity"] for m in sample["models"] if m["name"] == "turtlebot3_waffle"
+                    ]
+                    if (replaced and len(ids) == 1 and ids[0] != original_entity) or (
+                        not replaced and not ids
+                    ):
+                        return {"sample": sample["sample"], "robot_entity_ids": ids}
+                time.sleep(0.01)
+            raise RuntimeError("actual ECM did not confirm owned model replacement stage")
+
         model = world.find("model[@name='turtlebot3_waffle']")
         if model is None:
             raise ValueError("original owned robot model required")
@@ -133,10 +156,19 @@ def main():
         sdf.append(model)
         Path("/tmp/continuity-replacement-model.sdf").write_bytes(ET.tostring(sdf))
         gz("remove", "gz.msgs.Entity", 'name: "turtlebot3_waffle", type: MODEL')
+        removed = wait_for_inventory(False)
         gz(
             "create",
             "gz.msgs.EntityFactory",
             'sdf_filename: "/tmp/continuity-replacement-model.sdf", allow_renaming: false',
+        )
+        replacement = wait_for_inventory(True)
+        commands.append(
+            {
+                "original_entity": original_entity,
+                "actual_removed_ECM": removed,
+                "actual_replacement_ECM": replacement,
+            }
         )
     with (out / f"continuity-fault-{args.mode}-original.json").open("x") as f:
         json.dump(
