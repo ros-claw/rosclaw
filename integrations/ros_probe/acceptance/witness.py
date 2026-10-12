@@ -43,17 +43,22 @@ from rosclaw.connectors.ros.mission.navigation_binding import SimulationNavigati
 class Witness(Node):
     def __init__(self):
         super().__init__("rosclaw_sim_witness")
+        self.source_only = self.declare_parameter("read_only_source_observer", False).value
+        body_workspace = Path(self.declare_parameter("body_workspace", "/evidence/home").value)
+        execution_config = Path(
+            self.declare_parameter("execution_config_path", "/evidence/execution_config.json").value
+        )
         saved_profile = json.loads(Path("/evidence/fixture_profile.json").read_text())
         self.profile = PROFILES[saved_profile["name"]]
         if saved_profile != self.profile.to_dict():
             raise ValueError("fixture observer profile differs from supported geometry")
         self.navigation_binding = None
-        config_path = Path("/evidence/execution_config.json")
+        config_path = execution_config
         if config_path.exists():
             config = json.loads(config_path.read_text())
             if config.get("executor_kind") == "navigation_only":
                 effective = BodyResolver(
-                    workspace=Path("/evidence/home"), body_id=config["body_id"]
+                    workspace=body_workspace, body_id=config["body_id"]
                 ).get_effective_body(recompile_if_stale=False)
                 self.navigation_binding = SimulationNavigationBinding.from_body(effective)
                 if (
@@ -67,6 +72,7 @@ class Witness(Node):
                     or self.navigation_binding.frame_id != "map"
                 ):
                     raise ValueError("navigation observer Body/model/run/frame mismatch")
+        self.source_received_control_messages = 0
         self.previous_measured_pose = None
         self.cleaning = False
         self.observation_lock = Lock()
@@ -109,10 +115,14 @@ class Witness(Node):
             else self.create_publisher(Bool, "/rosclaw_sim/cleaning_state", 10)
         )
         self.controller_watchdog = self.declare_parameter("controller_watchdog", True).value
-        self.velocity = self.create_publisher(
-            TwistStamped if self.controller_watchdog else Twist,
-            "/drive_controller/cmd_vel" if self.controller_watchdog else "/cmd_vel",
-            10,
+        self.velocity = (
+            None
+            if self.source_only
+            else self.create_publisher(
+                TwistStamped if self.controller_watchdog else Twist,
+                "/drive_controller/cmd_vel" if self.controller_watchdog else "/cmd_vel",
+                10,
+            )
         )
         self.control_callbacks = MutuallyExclusiveCallbackGroup()
         self.pose_callbacks = MutuallyExclusiveCallbackGroup()
@@ -133,13 +143,14 @@ class Witness(Node):
             self.collision_monitor_observation,
             10,
         )
-        for topic in ["/cmd_vel_smoothed", "/nav_cmd_vel"]:
-            self.create_subscription(
-                Twist,
-                topic,
-                lambda message, t=topic: self.velocity_observation(t, message),
-                10,
-            )
+        if not self.source_only:
+            for topic in ["/cmd_vel_smoothed", "/nav_cmd_vel"]:
+                self.create_subscription(
+                    Twist,
+                    topic,
+                    lambda message, t=topic: self.velocity_observation(t, message),
+                    10,
+                )
         self.create_subscription(Bool, "/is_rotating_to_heading", self.rotation_observation, 10)
         self.create_subscription(
             NavPath,
@@ -357,16 +368,25 @@ class Witness(Node):
             self.contact_active[topic] = touching
 
     def heartbeat(self, request, response):
+        if self.source_only:
+            response.success = False
+            response.message = "source-only observation never enables a lease"
+            return response
         self.lease = time.monotonic() + 1.5 if request.data else 0
         self.lease_updates += 1
         response.success = True
         return response
 
     def command(self, message):
+        if self.source_only:
+            self.source_received_control_messages += 1
+            return
         if time.monotonic() < self.lease:
             self.publish_velocity(message)
 
     def publish_velocity(self, message):
+        if self.source_only:
+            return
         if self.controller_watchdog:
             stamped = TwistStamped()
             stamped.header.stamp = self.get_clock().now().to_msg()
@@ -422,6 +442,9 @@ class Witness(Node):
         self.in_collision = touching
         sample = {
             **pose,
+            "source_only_observer": self.source_only,
+            "source_received_control_messages": self.source_received_control_messages,
+            "source_published_velocity_messages": 0 if self.source_only else None,
             "captured_at": datetime.now(UTC).isoformat(),
             "cleaning_enabled": self.cleaning,
             "lease_remaining_sec": self.lease - now,

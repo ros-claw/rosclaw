@@ -21,5 +21,6 @@
 | [0014](0014-simulation-harness.md) | Simulation Harness 架构冻结——MuJoCo 不是 Harness Backend | Accepted |
 | [0015](0015-single-simulation-stack.md) | 单一仿真栈——SimulationRuntime 为唯一仿真内核（agentd/sim_render 降级 deprecated 适配层） | Accepted |
 | [0016](0016-ros-expert-harness-boundaries.md) | ROS Expert Harness boundaries | Proposed |
+| [0017](0017-independent-sim-source-binding.md) | Independent SIM source binding | Proposed |
 
 依据文档：《ROSClaw Native Agent、Worker Fabric 与多机器人 Team Fabric 实施总纲 v1.0》（2026-08-01）。

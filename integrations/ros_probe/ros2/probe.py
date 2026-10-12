@@ -101,6 +101,11 @@ class ReadOnlyProbe(Node):
                 continue
             qos = QoSProfile(depth=20, reliability=ReliabilityPolicy.BEST_EFFORT)
             endpoints = self.get_publishers_info_by_topic(topic)
+            # Subscriber discovery can precede publisher discovery. Choosing
+            # VOLATILE here permanently misses a later latched map sample.
+            # Wait for actual publisher QoS instead of guessing from the name.
+            if not endpoints:
+                continue
             latched = latched_observation(topic, types, endpoints)
             if latched:
                 qos = QoSProfile(depth=100, durability=DurabilityPolicy.TRANSIENT_LOCAL)
@@ -472,6 +477,10 @@ class ReadOnlyProbe(Node):
                 "node_parameters": parameters,
                 "parameter_captured_at": self.parameter_captured_at,
                 "clock_advancing": clock_advancing,
+                "clock_time_sec": self.clock_readings[-1][1] if recent_clock_values else None,
+                "clock_received_monotonic_ns": int(self.clock_readings[-1][0] * 1e9)
+                if recent_clock_values
+                else None,
                 "clock_last_receive_age_ms": (wall - self.clock_readings[-1][0]) * 1000
                 if self.clock_readings
                 else None,
