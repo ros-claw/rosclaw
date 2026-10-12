@@ -23,7 +23,9 @@ def test_exact_original_lines_survive_rotation_with_valid_sha_chain(tmp_path, mo
     for line in lines:
         writer.write(line)
     writer.close()
-    chain = [json.loads(row) for row in (tmp_path / "contacts.chain.jsonl").read_text().splitlines()]
+    chain = [
+        json.loads(row) for row in (tmp_path / "contacts.chain.jsonl").read_text().splitlines()
+    ]
     assert len(chain) == 3
     originals = b""
     previous = ""
