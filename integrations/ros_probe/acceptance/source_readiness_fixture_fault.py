@@ -187,7 +187,7 @@ def main():
             child.wait(timeout=5)
         if node:
             node.destroy_node()
-            rclpy.shutdown()
+            rclpy.try_shutdown()
         (OUT / "readiness-fault-cleanup.json").write_text(
             json.dumps(
                 {

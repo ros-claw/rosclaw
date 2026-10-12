@@ -456,6 +456,7 @@ def main():
     finally:
         if auxiliary:
             stop(auxiliary)
+            save("auxiliary-process-exit.json", {"returncode": auxiliary.returncode})
         if witness:
             stop(witness)
         stop(stack)
