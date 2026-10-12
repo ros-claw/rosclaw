@@ -11,6 +11,7 @@ import xml.etree.ElementTree as ET
 from datetime import UTC, datetime
 
 from rosclaw.body.schema import EffectiveBody
+from rosclaw.connectors.ros.context.geometry import IDENTITY, ZERO, _compose, _inverse, _origin
 from rosclaw.connectors.ros.context.navigation_review import review_navigation_candidate
 from rosclaw.connectors.ros.context.navigation_workspace_review import _inspect, _json, _Reader
 from rosclaw.connectors.ros.mission.navigation_binding import SimulationNavigationBinding
@@ -36,7 +37,27 @@ def _numbers(text, count, *, positive=False):
     if positive and min(values) <= 0:
         raise ValueError("positive geometry dimensions required")
     # Subnanometre serialization normalization, never a task tolerance.
-    return tuple(round(x, 9) + 0.0 for x in values)
+    normalized = tuple(round(x, 9) + 0.0 for x in values)
+    if positive and min(normalized) <= 0:
+        raise ValueError("geometry below supported serialization precision")
+    return normalized
+
+
+def _transform(pose):
+    element = ET.Element("frame")
+    ET.SubElement(
+        element, "origin", xyz=" ".join(map(str, pose[:3])), rpy=" ".join(map(str, pose[3:]))
+    )
+    return _origin(element)
+
+
+def _pose_matches(actual, expected, position_tolerance, rotation_tolerance):
+    ar, ap = actual
+    er, ep = expected
+    return (
+        max(abs(a - b) for a, b in zip(ap, ep, strict=True)) <= position_tolerance
+        and max(abs(ar[i][j] - er[i][j]) for i in range(3) for j in range(3)) <= rotation_tolerance
+    )
 
 
 def _pose(element):
@@ -111,6 +132,19 @@ def sdf_inventory(raw, *, robot_entity, world_name=None):
     for node in model.findall("frame"):
         if node.get("attached_to", "__model__") not in references:
             raise ValueError("unresolved SDF frame attachment")
+    transforms = {"__model__": (IDENTITY, ZERO)}
+    local = {
+        node.get("name"): _transform(_numbers(node.findtext("pose", "0 0 0 0 0 0"), 6))
+        for node in nodes
+    }
+
+    def resolve(name):
+        if name not in transforms:
+            transforms[name] = _compose(resolve(references[name]), local[name])
+        return transforms[name]
+
+    for name in references:
+        resolve(name)
     collisions, sensors, structure, links = [], [], [], set()
     model = models[0]
     for link in model.findall("link"):
@@ -156,6 +190,14 @@ def sdf_inventory(raw, *, robot_entity, world_name=None):
         "collisions": sorted(collisions),
         "sensors": sorted(sensors),
         "structure": (sorted(structure), joints),
+        "member_transforms": {
+            (name, member.get("name")): _compose(
+                transforms[name], _transform(_pose(member.find("pose")))
+            )
+            for link in model.findall("link")
+            for name in [link.get("name")]
+            for member in [*link.findall("collision"), *link.findall("sensor")]
+        },
     }
 
 
@@ -263,6 +305,7 @@ def review_sim_source_binding(
         "L1": "NOT_RUN",
         "L2": "NOT_RUN",
         "workspace_modified": False,
+        "evidence_refs": [],
     }
     try:
         if (
@@ -272,6 +315,16 @@ def review_sim_source_binding(
             mismatch.append("INDEPENDENT_OPERATOR_PIN_MISMATCH")
             raise ValueError("do not consume unpinned source claims")
         launch, capture = _json(launch_bytes), _json(capture_bytes)
+        evidence["evidence_refs"] = [
+            {"role": role, "sha256": _sha(raw)}
+            for role, raw in (
+                ("operator_launch", launch_bytes),
+                ("operator_capture", capture_bytes),
+                ("converted_sdf", converted_sdf_bytes),
+                ("world_sdf", world_sdf_bytes),
+                ("original_ecm", ecm_bytes),
+            )
+        ]
         if (
             launch["schema_version"] != "rosclaw.sim_source_launch.v1"
             or capture["schema_version"] != "rosclaw.sim_source_capture.v1"
@@ -354,6 +407,8 @@ def review_sim_source_binding(
             or witness["body_hash"] != request["body_snapshot_hash"]
         ):
             unknown.append("PHYSICS_WITNESS_PROVENANCE_UNVERIFIED")
+        if witness["implementation_sha256"] != launch["physics_witness_implementation_sha256"]:
+            unknown.append("PHYSICS_WITNESS_IMPLEMENTATION_MISMATCH")
         if str(model.environment.get("domain_id")) != str(request["expected_ros_domain"]):
             mismatch.append("ROS_DOMAIN_MISMATCH")
         with _Reader(workspace) as reader:
@@ -395,6 +450,23 @@ def review_sim_source_binding(
                 robot_entity=request["expected_robot_entity"],
                 world_name=request["sim_world_id"],
             )
+            position_tolerance = launch["geometry_pose_tolerance_m"]
+            rotation_tolerance = launch["geometry_rotation_matrix_tolerance"]
+            if (
+                type(position_tolerance) not in (int, float)
+                or not 0 < position_tolerance <= 0.0001
+                or type(rotation_tolerance) not in (int, float)
+                or not 0 < rotation_tolerance <= 0.001
+            ):
+                raise ValueError(
+                    "bounded explicit stationary geometry comparison precision required"
+                )
+            world_models = _xml(world_sdf_bytes).find("world").findall("model")
+            expected_models = [x.get("name") for x in world_models]
+            if len(set(expected_models)) != len(expected_models) or any(
+                x.findall("model") or not x.get("name") for x in world_models
+            ):
+                raise ValueError("unique nonnested complete World model inventory required")
             if (
                 converted["collisions"] != expected["collisions"]
                 or converted["structure"] != expected["structure"]
@@ -415,6 +487,8 @@ def review_sim_source_binding(
                 if sample["observer_run_label"] != request["sim_run_id"]:
                     mismatch.append("OBSERVER_RUN_MISMATCH")
                 worlds = sample["worlds"]
+                if sorted(x["name"] for x in sample["models"]) != sorted(expected_models):
+                    mismatch.append("WORLD_MODEL_INVENTORY_MISMATCH")
                 models = [
                     x for x in sample["models"] if x["name"] == request["expected_robot_entity"]
                 ]
@@ -441,6 +515,25 @@ def review_sim_source_binding(
                     unknown.append("CLOCK_OR_CAPTURE_SEQUENCE_DISCONTINUITY")
                 previous = sample
                 loaded = _loaded_inventory(sample, entity)
+                model_inverse = _inverse(
+                    _transform(_numbers(" ".join(map(str, models[0]["world_pose"])), 6))
+                )
+                for field in ("collisions", "sensors"):
+                    for row in sample[field]:
+                        if not any(x["entity"] == entity for x in row["ancestry"]):
+                            continue
+                        name = (row["ancestry"][0]["name"], row["name"])
+                        actual_pose = _compose(
+                            model_inverse,
+                            _transform(_numbers(" ".join(map(str, row["world_pose"])), 6)),
+                        )
+                        if name not in expected["member_transforms"] or not _pose_matches(
+                            actual_pose,
+                            expected["member_transforms"][name],
+                            position_tolerance,
+                            rotation_tolerance,
+                        ):
+                            mismatch.append("LOADED_MEMBER_EFFECTIVE_FRAME_MISMATCH")
                 if (
                     loaded["collisions"] != expected["collisions"]
                     or loaded["sensors"] != expected["sensors"]
@@ -448,6 +541,45 @@ def review_sim_source_binding(
                     mismatch.append("LOADED_GEOMETRY_OR_SENSOR_MOUNT_MISMATCH")
                 evidence["loaded_geometry_fingerprint"] = content_hash("simgeometry", loaded)
             evidence["model_entity_id"] = entity
+            physics = witness["sample"]
+            physics_stamp = datetime.fromisoformat(physics["captured_at"])
+            if (
+                not 0 <= (now - physics_stamp).total_seconds() * 1000 <= age
+                or physics["observation_complete"] is not True
+                or physics["source_only_observer"] is not True
+                or physics["lease_enabled"] is not False
+                or physics["source_received_control_messages"] != 0
+                or physics["source_published_velocity_messages"] != 0
+            ):
+                unknown.append("PHYSICS_SOURCE_ONLY_OBSERVATION_UNVERIFIED")
+            if (
+                physics["body_snapshot_hash"] != binding.body_snapshot_hash
+                or physics["run_id"] != binding.run_id
+                or physics["frame_id"] != binding.frame_id
+            ):
+                mismatch.append("PHYSICS_SAMPLE_BODY_RUN_FRAME_MISMATCH")
+            physics_time = physics["time_sec"]
+            if type(physics_time) not in (int, float) or not math.isfinite(physics_time):
+                raise ValueError("finite independent physics timestamp required")
+            nearest = min(samples, key=lambda x: abs(x["sim_time_ns"] / 1e9 - physics_time))
+            nearest_models = [x for x in nearest["models"] if x["entity"] == entity]
+            # The P0 fixture uses a separately declared identity World/map alignment.
+            # A different alignment requires a supported external transform proof.
+            if launch["physics_world_frame_alignment"] != "IDENTITY":
+                unknown.append("UNSUPPORTED_PHYSICS_WORLD_FRAME_ALIGNMENT")
+            if abs(nearest["sim_time_ns"] / 1e9 - physics_time) > 0.2 or len(nearest_models) != 1:
+                unknown.append("PHYSICS_ECM_TIME_CORRESPONDENCE_UNVERIFIED")
+            else:
+                pose = nearest_models[0]["world_pose"]
+                observed = _numbers(" ".join(str(physics[k]) for k in ("x", "y", "yaw")), 3)
+                if (
+                    max(abs(observed[i] - pose[i]) for i in range(2)) > position_tolerance
+                    or abs(
+                        math.atan2(math.sin(observed[2] - pose[5]), math.cos(observed[2] - pose[5]))
+                    )
+                    > rotation_tolerance
+                ):
+                    mismatch.append("PHYSICS_ECM_POSE_MISMATCH")
             reader.unchanged()
     except (
         ValueError,

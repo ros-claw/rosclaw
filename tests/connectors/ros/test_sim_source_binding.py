@@ -50,6 +50,10 @@ def fixture(tmp_path):
         "image_digest": "sha256:" + "a" * 64,
         "observer_library_sha256": "b" * 64,
         "physics_witness_identity": "/sample/independent_truth",
+        "physics_witness_implementation_sha256": "d" * 64,
+        "physics_world_frame_alignment": "IDENTITY",
+        "geometry_pose_tolerance_m": 0.00001,
+        "geometry_rotation_matrix_tolerance": 0.001,
         "asset_sha256": assets,
         "conversion": {
             "argv": ["gz", "sdf", "-p", "/assets/robot.urdf"],
@@ -92,6 +96,22 @@ def fixture(tmp_path):
             "body_hash": manifest["body_snapshot_hash"],
             "entity_id": 2,
             "world_entity_id": 1,
+            "implementation_sha256": launch["physics_witness_implementation_sha256"],
+            "sample": {
+                "captured_at": NOW.isoformat(),
+                "time_sec": 0.3,
+                "observation_complete": True,
+                "source_only_observer": True,
+                "lease_enabled": False,
+                "source_received_control_messages": 0,
+                "source_published_velocity_messages": 0,
+                "body_snapshot_hash": manifest["body_snapshot_hash"],
+                "run_id": launch["run_id"],
+                "frame_id": "world",
+                "x": 0,
+                "y": 0,
+                "yaw": 0,
+            },
         },
     }
     samples = []
@@ -108,12 +128,13 @@ def fixture(tmp_path):
                 "observer_monotonic_ns": (index + 1) * 200_000_000,
                 "sample": index,
                 "worlds": [{"name": launch["world_id"], "entity": 1}],
-                "models": [{"name": robot, "entity": 2}],
+                "models": [{"name": robot, "entity": 2, "world_pose": [0] * 6}],
                 "collisions": [
                     {
                         "entity": 4,
                         "name": "base",
                         "pose": [0] * 6,
+                        "world_pose": [0] * 6,
                         "geometry_sdf": "<geometry><box><size>0.4 0.3 0.2</size></box></geometry>",
                         "ancestry": [
                             {"entity": 3, "name": "chassis", "model": False, "world": False},
@@ -238,6 +259,20 @@ def test_pinned_complete_capture_matches_without_authority_or_writes(tmp_path):
         "duplicate_publisher",
         "native_wrong_domain",
         "missing_ecm_geometry",
+        "unexpected_model",
+        "effective_link_displacement",
+        "witness_sample_stale",
+        "witness_sample_body",
+        "witness_sample_run",
+        "witness_sample_frame",
+        "witness_sample_incomplete",
+        "witness_sample_time",
+        "witness_sample_pose",
+        "witness_sample_lease",
+        "witness_sample_control",
+        "witness_sample_velocity",
+        "witness_implementation",
+        "world_alignment",
     ],
 )
 def test_observed_faults_are_refused_even_when_capture_is_resealed(tmp_path, fault):
@@ -326,6 +361,40 @@ def test_observed_faults_are_refused_even_when_capture_is_resealed(tmp_path, fau
         model.seal()
     elif fault == "missing_ecm_geometry":
         samples[-1]["collisions"][0].pop("geometry_sdf")
+    elif fault == "unexpected_model":
+        samples[-1]["models"].append({"name": "unexpected", "entity": 99, "world_pose": [0] * 6})
+    elif fault == "effective_link_displacement":
+        samples[-1]["collisions"][0]["world_pose"][0] = 0.1
+    elif fault == "witness_sample_stale":
+        capture["physics_witness"]["sample"]["captured_at"] = (
+            NOW - timedelta(seconds=2)
+        ).isoformat()
+    elif fault in {"witness_sample_body", "witness_sample_run", "witness_sample_frame"}:
+        key = {
+            "witness_sample_body": "body_snapshot_hash",
+            "witness_sample_run": "run_id",
+            "witness_sample_frame": "frame_id",
+        }[fault]
+        capture["physics_witness"]["sample"][key] = "wrong"
+    elif fault == "witness_sample_incomplete":
+        capture["physics_witness"]["sample"]["observation_complete"] = False
+    elif fault == "witness_sample_time":
+        capture["physics_witness"]["sample"]["time_sec"] = 40
+    elif fault == "witness_sample_pose":
+        capture["physics_witness"]["sample"]["x"] = 0.1
+    elif fault == "witness_sample_lease":
+        capture["physics_witness"]["sample"]["lease_enabled"] = True
+    elif fault in {"witness_sample_control", "witness_sample_velocity"}:
+        key = (
+            "source_received_control_messages"
+            if fault == "witness_sample_control"
+            else "source_published_velocity_messages"
+        )
+        capture["physics_witness"]["sample"][key] = 1
+    elif fault == "witness_implementation":
+        capture["physics_witness"]["implementation_sha256"] = "wrong"
+    elif fault == "world_alignment":
+        launch["physics_world_frame_alignment"] = "UNVERIFIED"
     root, request, kwargs = pack(parts)
     result = review_sim_source_binding(root, request, **kwargs)
     assert result["result"] in {"MISMATCH", "UNKNOWN"}, result

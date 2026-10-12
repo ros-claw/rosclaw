@@ -274,6 +274,7 @@ def main():
     parser.add_argument("--expected-prepared-assets-sha256")
     parser.add_argument("--run-id")
     parser.add_argument("--source-only-observer", action="store_true")
+    parser.add_argument("--external-source-witness", action="store_true")
     parser.add_argument("--fault-acceptance", action="store_true")
     parser.add_argument("--navigation-only", action="store_true")
     parser.add_argument(
@@ -283,6 +284,12 @@ def main():
         help="Require the bottom-level command timeout; disable only for explicit legacy fixture replay",
     )
     args = parser.parse_args()
+    if args.external_source_witness and not (
+        args.prepared_assets and args.source_only_observer and args.navigation_only
+    ):
+        raise ValueError(
+            "external witness requires the explicitly prepared read-only source fixture"
+        )
     from fixture_middleware import configure_service_reply_discovery
 
     os.environ.update(configure_service_reply_discovery(ROOT, OUTPUT, os.environ))
@@ -500,20 +507,21 @@ def main():
             "rosapi",
             ["ros2", "run", "rosapi", "rosapi_node", "--ros-args", "-p", "use_sim_time:=true"],
         )
-        start(
-            "witness",
-            [
-                "python3",
-                str(ROOT / "witness.py"),
-                "--ros-args",
-                "-p",
-                "use_sim_time:=true",
-                "-p",
-                f"controller_watchdog:={'true' if args.controller_watchdog else 'false'}",
-                "-p",
-                f"read_only_source_observer:={'true' if args.source_only_observer else 'false'}",
-            ],
-        )
+        if not args.external_source_witness:
+            start(
+                "witness",
+                [
+                    "python3",
+                    str(ROOT / "witness.py"),
+                    "--ros-args",
+                    "-p",
+                    "use_sim_time:=true",
+                    "-p",
+                    f"controller_watchdog:={'true' if args.controller_watchdog else 'false'}",
+                    "-p",
+                    f"read_only_source_observer:={'true' if args.source_only_observer else 'false'}",
+                ],
+            )
         start("probe", ["python3", str(ROOT.parent / "ros2/probe.py")])
         while True:
             for p in children:
