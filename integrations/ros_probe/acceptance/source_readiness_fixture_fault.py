@@ -4,12 +4,12 @@ Not an Agent tool. Never creates a velocity publisher or navigation goal.
 """
 
 import argparse
-from contextlib import suppress
 import json
 import os
 import signal
 import subprocess
 import time
+from contextlib import suppress
 from pathlib import Path
 
 import rclpy
