@@ -1,5 +1,6 @@
 import type { ExtensionFactory, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { createHash, randomUUID } from "node:crypto";
+import { validateModelRequestAdmission, type ModelRequestAdmissionPolicy } from "./model-request-admission.js";
 export interface ModelUsageAwareness {
     version: 1;
     lifetime: "runtime";
@@ -199,10 +200,12 @@ export interface ToolCallBudget {
     visibleBudgetMode?: "full" | "compact";
     /** Advisory observer only, never permissions or a provider hard cap. */
     modelUsageAwareness?: ModelUsageAwareness;
+    /** Actual dispatch restriction, independent of the advisory observer. */
+    modelRequestAdmission?: ModelRequestAdmissionPolicy;
 }
 const POLICY_MARKER = "ROSCLAW_TOOL_POLICY_JSON:";
 const COMPACT_MARKER = "ROSCLAW_TOOL_BUDGET_COMPACT_JSON:";
-const KNOWN_KEYS = ["allowedTools", "maxCalls", "maxTotalCalls", "exactCommands", "visibleBudget", "exactPaths", "visibleBudgetMode", "modelUsageAwareness"];
+const KNOWN_KEYS = ["allowedTools", "maxCalls", "maxTotalCalls", "exactCommands", "visibleBudget", "exactPaths", "visibleBudgetMode", "modelUsageAwareness", "modelRequestAdmission"];
 function stripMarkerLines(text: string, compact = false): string {
     return text.split("\n").filter(line => !line.startsWith(POLICY_MARKER)
         && !(compact && line.startsWith(COMPACT_MARKER))).join("\n");
@@ -260,6 +263,8 @@ export function createToolCallBudgetExtension(policy: ToolCallBudget, workspaceR
     if (policy.visibleBudgetMode !== undefined && policy.visibleBudgetMode !== "full" && policy.visibleBudgetMode !== "compact") {
         throw new Error("INVALID_TOOL_CALL_BUDGET_VISIBLE_MODE");
     }
+    if (Object.hasOwn(policy, "modelRequestAdmission"))
+        validateModelRequestAdmission(policy.modelRequestAdmission);
     if (Object.hasOwn(policy, "modelUsageAwareness"))
         validateModelUsageAwareness(policy.modelUsageAwareness);
     const usage = policy.modelUsageAwareness ? usageObserver({ ...policy.modelUsageAwareness }) : undefined;

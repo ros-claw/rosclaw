@@ -23,6 +23,7 @@ export { attachOwnedUIAbort } from "./ui-owned-cancellation.js";
 import type { ToolCallBudget } from "./harness/pi/tool-call-budget.js";
 // This module imports only node builtins at runtime; schema rejection stays pre-SDK/auth.
 import { validateExactPaths, validateModelUsageAwareness } from "./harness/pi/tool-call-budget.js";
+import { validateModelRequestAdmission } from "./harness/pi/model-request-admission.js";
 
 process.env.PI_SKIP_VERSION_CHECK = "1";
 if (process.argv.includes("--continuation-target")) process.env.PI_OFFLINE = "1";
@@ -62,7 +63,7 @@ interface CliArgs {
 // （inputs/prebody_cli/tool_call_policy.schema.json）一致；保留字段名
 // （__proto__ 等）作为 own data key 原样透传，不做重建赋值，不引入原型污染。
 const TOOL_CALL_POLICY_KEYS = new Set([
-	"allowedTools", "maxCalls", "maxTotalCalls", "exactCommands", "visibleBudget", "exactPaths", "visibleBudgetMode", "modelUsageAwareness",
+	"allowedTools", "maxCalls", "maxTotalCalls", "exactCommands", "visibleBudget", "exactPaths", "visibleBudgetMode", "modelUsageAwareness", "modelRequestAdmission",
 ]);
 
 function invalidToolCallPolicy(message: string): never {
@@ -153,6 +154,10 @@ export function loadToolCallPolicyFile(path: string): ToolCallBudget {
 	}
 	if (doc.visibleBudgetMode !== undefined && doc.visibleBudgetMode !== "full" && doc.visibleBudgetMode !== "compact") {
 		invalidToolCallPolicy("visibleBudgetMode must be full or compact");
+	}
+	if (Object.hasOwn(doc, "modelRequestAdmission")) {
+		try { validateModelRequestAdmission(doc.modelRequestAdmission); }
+		catch (error) { invalidToolCallPolicy(error instanceof Error ? error.message : "invalid modelRequestAdmission"); }
 	}
 	if (Object.hasOwn(doc, "modelUsageAwareness")) {
 		try { validateModelUsageAwareness(doc.modelUsageAwareness); }

@@ -501,6 +501,7 @@ _TOOL_CALL_POLICY_KEYS = frozenset(
         "exactPaths",
         "visibleBudgetMode",
         "modelUsageAwareness",
+        "modelRequestAdmission",
     }
 )
 # 与 JS Number.isSafeInteger 上限一致（JSON 1.0 这类整数值浮点可接受）。
@@ -638,6 +639,37 @@ def _validate_tool_call_policy(raw_path: str) -> Path:
         raise ValueError("visibleBudget 必须是 boolean")
     if "visibleBudgetMode" in data and data["visibleBudgetMode"] not in ("full", "compact"):
         raise ValueError("visibleBudgetMode must be full or compact")
+    if "modelRequestAdmission" in data:
+        admission = data["modelRequestAdmission"]
+        keys = {
+            "version",
+            "lifetime",
+            "guarantee",
+            "inclusiveInputLimit",
+            "outputLimit",
+            "requestReserveInput",
+            "requestReserveOutput",
+        }
+        if (
+            not isinstance(admission, dict)
+            or set(admission) != keys
+            or not _policy_limit_ok(admission["version"])
+            or admission["version"] != 1
+            or admission["lifetime"] != "runtime"
+        ):
+            raise ValueError("INVALID_MODEL_REQUEST_ADMISSION")
+        if admission["guarantee"] == "strict_billing":
+            raise ValueError("MODEL_REQUEST_BILLING_GUARANTEE_UNSUPPORTED")
+        if admission["guarantee"] != "local_reservation":
+            raise ValueError("INVALID_MODEL_REQUEST_ADMISSION")
+        for key in keys - {"version", "lifetime", "guarantee"}:
+            if not _policy_limit_ok(admission[key]) or admission[key] <= 0:
+                raise ValueError("INVALID_MODEL_REQUEST_ADMISSION")
+        if (
+            admission["requestReserveInput"] > admission["inclusiveInputLimit"]
+            or admission["requestReserveOutput"] > admission["outputLimit"]
+        ):
+            raise ValueError("INVALID_MODEL_REQUEST_ADMISSION")
     if "modelUsageAwareness" in data:
         usage = data["modelUsageAwareness"]
         keys = {

@@ -24,7 +24,18 @@ def _write(tmp_path, payload) -> str:
     return str(p)
 
 
+ADMISSION = {
+    "version": 1,
+    "lifetime": "runtime",
+    "guarantee": "local_reservation",
+    "inclusiveInputLimit": 100,
+    "outputLimit": 100,
+    "requestReserveInput": 80,
+    "requestReserveOutput": 10,
+}
+
 VALID = [
+    {"allowedTools": [], "modelRequestAdmission": ADMISSION},
     {"allowedTools": [], "visibleBudgetMode": "full"},
     {"allowedTools": [], "visibleBudgetMode": "compact", "visibleBudget": False},
     {"allowedTools": []},
@@ -349,6 +360,63 @@ def test_usage_awareness_cli_prehome(tmp_path, monkeypatch, capsys):
         args = build_parser().parse_args(["chat", "--tool-call-policy", policy])
         assert cli.cmd_chat(args) == 2
         assert "--tool-call-policy 无效" in capsys.readouterr().err
+
+
+def test_model_request_admission_python_node_parity_prehome(tmp_path, monkeypatch, capsys):
+    import re
+    from pathlib import Path
+
+    import rosclaw.agentd.cli as cli
+
+    root = Path(__file__).resolve().parents[2]
+    source = (root / "packages/rosclaw-agent/test/model-request-admission.test.ts").read_text()
+    wire = re.search(r"const ADMISSION_PARITY_JSON = String.raw`(.*?)`;", source, re.S)
+    assert wire is not None
+    data = json.loads(wire.group(1))
+    cases = []
+    for case in data["cases"]:
+        if "field" in case:
+            value = {**data["base"], case["field"]: json.loads(case["raw"])}
+        else:
+            value = json.loads(case["raw"]) if "raw" in case else dict(data["base"])
+        cases.append((case["caseID"], value, case["accepted"]))
+    for field in data["integerFields"]:
+        for number in data["invalidNumbers"]:
+            cases.append(
+                (
+                    f"{field}-{number['id']}",
+                    {**data["base"], field: json.loads(number["raw"])},
+                    False,
+                )
+            )
+    for field in data["missingFields"]:
+        value = dict(data["base"])
+        del value[field]
+        cases.append((f"missing-{field}", value, False))
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("invalid admission reached home/provider/auth")
+
+    monkeypatch.setattr(cli, "_home", forbidden)
+    monkeypatch.setattr(cli, "_cmd_chat_impl", forbidden)
+    results = []
+    for case_id, value, expected in cases:
+        path = _write(tmp_path, {"allowedTools": [], "modelRequestAdmission": value})
+        try:
+            cli._validate_tool_call_policy(path)
+            accepted = True
+        except ValueError:
+            accepted = False
+        assert accepted is expected, case_id
+        results.append({"caseID": case_id, "result": "ACCEPT" if accepted else "REJECT"})
+        if not expected:
+            args = build_parser().parse_args(["chat", "--tool-call-policy", path])
+            assert cli.cmd_chat(args) == 2
+    # Emit actual isolated Python parser outcomes for independent Root comparison.
+    # Pytest normally captures successful output; disabling capture is not a subprocess.
+    with capsys.disabled():
+        print("ADMISSION_PARITY_Python=" + json.dumps(results, separators=(",", ":")))
+    assert not (tmp_path / "home").exists()
 
 
 def test_usage_awareness_cli_valid_forwarding(tmp_path, monkeypatch):
