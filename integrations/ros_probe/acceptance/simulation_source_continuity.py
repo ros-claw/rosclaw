@@ -73,7 +73,12 @@ def _identity(sample: dict, world_id: str, robot_entity: str) -> bytes:
             for row in sample[role]:
                 if any(a["entity"] == entity for a in row["ancestry"]):
                     members.append(
-                        (role, row["ancestry"][0]["name"], row["name"], _integer(row["entity"]))
+                        (
+                            role,
+                            _canonical(row["ancestry"]).decode(),
+                            row["name"],
+                            _integer(row["entity"]),
+                        )
                     )
         if len({x[3] for x in members}) != len(members):
             raise ValueError("member entity identities are not unique")
@@ -182,7 +187,11 @@ class SimulationSourceContinuityGuard:
                 if sample["sample"] == self.last_counters[-1]:
                     if canonical != self.last_bytes:
                         raise ValueError("same counter was reused with different source data")
-                elif any(sample[k] <= self.last_counters[i] for i, k in enumerate(_COUNTERS)):
+                elif (
+                    sample["sample"] != self.last_counters[-1] + 1
+                    or any(sample[k] <= self.last_counters[i] for i, k in enumerate(_COUNTERS))
+                    or sample["observer_monotonic_ns"] - self.last_counters[-2] > self.max_age_ns
+                ):
                     raise ValueError("source clock/capture sequence regressed or froze")
                 else:
                     object.__setattr__(self, "last_counters", tuple(sample[k] for k in _COUNTERS))

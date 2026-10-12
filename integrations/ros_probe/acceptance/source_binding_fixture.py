@@ -491,7 +491,10 @@ def main():
                 "native_samples": len(reviews),
             },
         )
-        spin_until(lambda: (OUT / "host_capture_ack.json").exists(), 20)
+        live_seconds = settings.get("live_continuity_hold_seconds", 0)
+        if type(live_seconds) is not int or not 0 <= live_seconds <= 120:
+            raise ValueError("bounded read-only continuity supervision window required")
+        spin_until(lambda: (OUT / "host_capture_ack.json").exists(), 20 + live_seconds)
         print(
             json.dumps(
                 {

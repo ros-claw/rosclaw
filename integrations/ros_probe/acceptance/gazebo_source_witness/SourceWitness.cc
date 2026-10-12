@@ -6,6 +6,10 @@
 #include <cerrno>
 #include <fcntl.h>
 #include <unistd.h>
+#include <sys/random.h>
+#include <openssl/evp.h>
+#include <iomanip>
+#include <sstream>
 #include <nlohmann/json.hpp>
 #include <gz/plugin/Register.hh>
 #include <gz/sim/System.hh>
@@ -34,18 +38,42 @@ using namespace gz::sim;
 class SourceWitness final : public System, public ISystemConfigure,
                             public ISystemPostUpdate, public ISystemReset {
  public:
-  ~SourceWitness() override { if (fd >= 0) ::close(fd); }
+  ~SourceWitness() override {
+    if (fd >= 0) ::close(fd);
+    if (digest) EVP_MD_CTX_free(digest);
+  }
 
   void Configure(const Entity &, const std::shared_ptr<const sdf::Element> &sdf,
                  EntityComponentManager &, EventManager &) override {
     if (!sdf->HasElement("output") || !sdf->HasElement("run_id"))
       throw std::runtime_error("explicit observer output and run_id required");
     run = sdf->Get<std::string>("run_id");
-    const auto output = sdf->Get<std::string>("output");
+    output = sdf->Get<std::string>("output");
     if (run.empty() || run.size() > 128 || output.empty())
       throw std::runtime_error("bounded observer configuration required");
     fd = ::open(output.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
     if (fd < 0) throw std::runtime_error("fresh exclusive observer file required");
+    segmented = sdf->HasElement("segment_max_samples") || sdf->HasElement("segment_max_bytes") ||
+                sdf->HasElement("max_segments");
+    if (segmented) {
+      if (!sdf->HasElement("segment_max_samples") || !sdf->HasElement("segment_max_bytes") ||
+          !sdf->HasElement("max_segments"))
+        throw std::runtime_error("complete explicit evidence budget required");
+      segmentMaxSamples = sdf->Get<uint64_t>("segment_max_samples");
+      segmentMaxBytes = sdf->Get<uint64_t>("segment_max_bytes");
+      maxSegments = sdf->Get<uint64_t>("max_segments");
+      if (!segmentMaxSamples || segmentMaxSamples > 600 || segmentMaxBytes < 500000 ||
+          segmentMaxBytes > 30000000 || !maxSegments || maxSegments > 64 ||
+          segmentMaxBytes * maxSegments > 120000000)
+        throw std::runtime_error("bounded evidence budget required");
+      unsigned char entropy[16];
+      if (::getrandom(entropy, sizeof(entropy), 0) != sizeof(entropy))
+        throw std::runtime_error("independent observer epoch unavailable");
+      epoch = Hex(entropy, sizeof(entropy));
+      digest = EVP_MD_CTX_new();
+      if (!digest || EVP_DigestInit_ex(digest, EVP_sha256(), nullptr) != 1)
+        throw std::runtime_error("source evidence digest unavailable");
+    }
   }
 
   void Reset(const UpdateInfo &, EntityComponentManager &) override {
@@ -55,10 +83,11 @@ class SourceWitness final : public System, public ISystemConfigure,
 
   void PostUpdate(const UpdateInfo &info, const EntityComponentManager &ecm) override {
     const auto now = std::chrono::steady_clock::now();
-    if (fd < 0 || samples >= 600 || now - lastSample < std::chrono::milliseconds(100)) return;
+    if (fd < 0 || (!segmented && samples >= 600) ||
+        now - lastSample < std::chrono::milliseconds(100)) return;
     lastSample = now;
     Json record = {{"schema_version", "rosclaw.gazebo_ecm_source_sample.v1"},
-                   {"observer_run_label", run}, {"sample", samples++},
+                   {"observer_run_label", run}, {"sample", samples},
                    {"sim_time_ns", info.simTime.count()}, {"iterations", info.iterations},
                    {"paused", info.paused}, {"reset_epoch", resetEpoch},
                    {"observer_monotonic_ns", std::chrono::duration_cast<std::chrono::nanoseconds>(now.time_since_epoch()).count()},
@@ -100,11 +129,18 @@ class SourceWitness final : public System, public ISystemConfigure,
     for (const auto &name : {"worlds", "models", "collisions", "sensors"}) {
       if (record[name].size() > 4096) record["inventory_complete"] = false;
     }
-    const auto line = record.dump() + "\n";
-    if (line.size() > 500000 || totalBytes + line.size() > 30000000) {
+    if (segmented) StampSegment(record);
+    auto line = record.dump() + "\n";
+    if (segmented && (segmentSamples >= segmentMaxSamples ||
+                      totalBytes + line.size() > segmentMaxBytes)) {
+      if (!Rotate()) return;
+      StampSegment(record);
+      line = record.dump() + "\n";
+    }
+    if (line.size() > 500000 || totalBytes + line.size() >
+        (segmented ? segmentMaxBytes : 30000000)) {
       ::close(fd); fd = -1; return;
     }
-    totalBytes += line.size();
     size_t written = 0;
     while (written < line.size()) {
       const auto n = ::write(fd, line.data() + written, line.size() - written);
@@ -112,9 +148,50 @@ class SourceWitness final : public System, public ISystemConfigure,
       if (n <= 0) { ::close(fd); fd = -1; return; }
       written += static_cast<size_t>(n);
     }
+    if (segmented && EVP_DigestUpdate(digest, line.data(), line.size()) != 1) {
+      ::close(fd); fd = -1; return;
+    }
+    totalBytes += line.size();
+    ++samples; ++segmentSamples;
   }
 
  private:
+  static std::string Hex(const unsigned char *bytes, size_t size) {
+    std::ostringstream out;
+    for (size_t i = 0; i < size; ++i)
+      out << std::hex << std::setw(2) << std::setfill('0') << static_cast<unsigned>(bytes[i]);
+    return out.str();
+  }
+  void StampSegment(Json &record) const {
+    record["source_stream"] = {
+      {"schema_version", "rosclaw.ecm_segment.v1"}, {"observer_epoch", epoch},
+      {"observer_pid", ::getpid()}, {"segment_index", segmentIndex},
+      {"segment_first_sample", segmentFirstSample},
+      {"previous_segment_sha256", previousDigest},
+      {"segment_max_samples", segmentMaxSamples}, {"segment_max_bytes", segmentMaxBytes},
+      {"max_segments", maxSegments}, {"sample_interval_ms", 100}};
+  }
+  bool Rotate() {
+    // Finalize before opening the next exclusive segment. Capacity exhaustion
+    // closes the stream permanently; freshness watchdogs must fail closed.
+    unsigned char bytes[EVP_MAX_MD_SIZE]; unsigned int size = 0;
+    const bool ok = EVP_DigestFinal_ex(digest, bytes, &size) == 1 && size == 32;
+    const bool synced = ::fdatasync(fd) == 0;
+    ::close(fd); fd = -1;
+    if (!ok || !synced) return false;
+    previousDigest = Hex(bytes, size);
+    if (++segmentIndex >= maxSegments) return false;
+    std::ostringstream suffix;
+    suffix << ".segment-" << std::setw(6) << std::setfill('0') << segmentIndex << ".jsonl";
+    fd = ::open((output + suffix.str()).c_str(),
+                O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
+    if (fd < 0) return false;
+    if (EVP_DigestInit_ex(digest, EVP_sha256(), nullptr) != 1) {
+      ::close(fd); fd = -1; return false;
+    }
+    totalBytes = 0; segmentSamples = 0; segmentFirstSample = samples;
+    return true;
+  }
   static Json Identity(Entity e, const EntityComponentManager &ecm) {
     Json out = {{"entity", e}, {"ancestry", Json::array()}, {"pose", nullptr}};
     if (const auto name = ecm.Component<components::Name>(e)) out["name"] = name->Data();
@@ -138,6 +215,11 @@ class SourceWitness final : public System, public ISystemConfigure,
   }
   int fd = -1;
   std::string run;
+  std::string output, epoch, previousDigest;
+  bool segmented = false;
+  EVP_MD_CTX *digest = nullptr;
+  uint64_t segmentIndex = 0, segmentSamples = 0, segmentFirstSample = 0;
+  uint64_t segmentMaxSamples = 600, segmentMaxBytes = 30000000, maxSegments = 1;
   uint64_t samples = 0, resetEpoch = 0;
   size_t totalBytes = 0;
   std::chrono::steady_clock::time_point lastSample{};
