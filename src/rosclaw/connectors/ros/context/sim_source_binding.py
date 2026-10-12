@@ -438,8 +438,34 @@ def review_sim_source_binding(
                 _json(files["navigation-requirements.json"]),
                 now=now,
             )
-            if review["status"] != "PROPOSED":
-                unknown.extend("ROS_RUNTIME:" + x for x in review["unknown_fields"])
+            # Source identity and fresh L1 readiness are separate gates. Keep
+            # the complete L1 review visible; a stationary AMCL estimate is
+            # never made fresh by the source binder. Publisher identity still
+            # must be unique even when localization freshness is deferred.
+            requirements = _json(files["navigation-requirements.json"])
+            localization = requirements["localization_topic"]
+            localization_sources = [
+                t for t in model.graph.get("topics", []) if t.get("name") == localization
+            ]
+            if (
+                len(localization_sources) != 1
+                or localization_sources[0].get("msg_type")
+                != "geometry_msgs/msg/PoseWithCovarianceStamped"
+                or localization_sources[0].get("publishers")
+                != [requirements["lifecycle_nodes"]["localization"]]
+            ):
+                unknown.append("ROS_SOURCE:unique_typed_localization_publisher")
+            deferred = {
+                "fresh_localization_estimate_and_covariance",
+                "fresh_navigation_frame:" + localization,
+                "fresh_unique_stream:" + localization,
+            }
+            evidence["navigation_observation_review"] = review
+            evidence["current_navigation_readiness"] = "NOT_EVALUATED"
+            evidence["deferred_L1_checks"] = sorted(deferred & set(review["unknown_fields"]))
+            unknown.extend(
+                "ROS_RUNTIME:" + x for x in review["unknown_fields"] if x not in deferred
+            )
             if review["candidate"]["frames"] != request["expected_frames"]:
                 mismatch.append("BODY_ROS_FRAME_MISMATCH")
             for rows in review["candidate"]["interfaces"].values():

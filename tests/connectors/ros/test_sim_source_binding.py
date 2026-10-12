@@ -424,3 +424,31 @@ def test_self_reported_capture_cannot_supply_its_own_trust_pin(tmp_path, pin):
 def test_unresolved_sources_never_get_default_geometry(xml):
     with pytest.raises(ValueError):
         sdf_inventory(xml, robot_entity="fixture")
+
+
+def test_source_match_preserves_blocked_localization_review_without_claiming_L1(tmp_path):
+    parts = fixture(tmp_path)
+    model = parts[-1]
+    for quality in model.observations["localization_quality"]:
+        if quality["source"] == "/sample/estimated_pose":
+            quality["x_variance"] = -0.01
+    model.seal()
+    root, request, kwargs = pack(parts)
+    result = review_sim_source_binding(root, request, **kwargs)
+    assert result["result"] == "MATCHED", result
+    assert result["navigation_observation_review"]["status"] == "UNKNOWN"
+    assert "fresh_localization_estimate_and_covariance" in result["deferred_L1_checks"]
+    assert result["current_navigation_readiness"] == "NOT_EVALUATED"
+    assert result["L1"] == result["L2"] == "NOT_RUN"
+
+
+def test_localization_publisher_ambiguity_is_never_deferred_to_L1(tmp_path):
+    parts = fixture(tmp_path)
+    model = parts[-1]
+    topic = next(t for t in model.graph["topics"] if t["name"] == "/sample/estimated_pose")
+    topic["publishers"].append("/sample/untrusted_localization")
+    model.seal()
+    root, request, kwargs = pack(parts)
+    result = review_sim_source_binding(root, request, **kwargs)
+    assert result["result"] == "UNKNOWN"
+    assert "ROS_SOURCE:unique_typed_localization_publisher" in result["unknown_reasons"]

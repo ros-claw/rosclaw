@@ -260,7 +260,7 @@ def main():
                 state["physics"]
                 and state["physics"].get("body_snapshot_hash") == manifest["body_snapshot_hash"]
                 and state["physics"]["observation_complete"]
-                and state["review"]["status"] == "PROPOSED"
+                and state["review"]["candidate"]["frames"]
             ),
             30,
         )

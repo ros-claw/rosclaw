@@ -1,6 +1,6 @@
-# ADR 0047: independent SIM source binding, without execution authority
+# ADR 0017: independent SIM source binding, without execution authority
 
-Date: 2026-10-12. Status: proposed implementation contract; G1 NOT RUN.
+Date: 2026-10-12. Status: proposed; actual positive observed, final matrix pending.
 Scope: G1 only, following accepted G0 integration. No held-out model selection,
 L1 readiness, L2 action, Memory experiment, hardware, or coverage tuning.
 
@@ -95,6 +95,34 @@ malformed inputs fail closed. Returning MATCHED never changes historical Body
 status, authorizes an action or declares current L1 readiness.
 
 ## Acceptance matrix before G1 can close
+
+G1 records the full current navigation review, including any stale localization
+or invalid covariance, but defers those three localization freshness/quality
+checks to G2. It separately requires the unique typed localization publisher;
+domain, frames, TF, advancing clock, source identity and exclusive command
+routes still fail closed. This fixed stage separation is not an `allow_unknown`
+input. A source match may coexist with blocked L1; L1 remains NOT_RUN. The
+existing compiler still requires a genuinely PROPOSED original observation.
+
+The P0 geometry comparison supports expanded primitive collisions in a single
+dynamic robot and static primitive World models. It compares actual local AND
+effective member transforms at a stationary configuration. Operator-pinned
+precision is bounded to 0.1 mm translation and 0.001 matrix-element rotation;
+moving articulation beyond that precision is not supported. Mesh collisions,
+unresolved includes/frames and nonidentity physics World/map alignment are
+UNKNOWN. The source witness reports actual Static components and complete model
+inventory, not robot-name guesses. It retains source paths as informative only.
+
+The known-fixture staging uses typed YAML for the exact robot_description and
+zero AMCL motion-update thresholds for genuine scan-driven observations. No
+covariance threshold, source timestamp or observed value is rewritten. The
+Jazzy AMCL set-initial-pose path initializes a zero-covariance estimate; repeated
+stationary updates can emit tiny negative covariance through floating-point
+cancellation. Those original UNKNOWN reviews and the bounded failed attempt
+are retained, rather than normalizing their observations.
+
+References: [Jazzy AMCL source](https://api.nav2.org/nav2-jazzy/html/amcl__node_8cpp_source.html),
+[ROS parameter files](https://docs.ros.org/en/jazzy/How-To-Guides/Node-arguments.html).
 
 Use a known Body in a new actual Gazebo instance, zero action goals and zero
 velocity commands. Retain original runtime logs, effective collision samples,
