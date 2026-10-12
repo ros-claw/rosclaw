@@ -270,6 +270,10 @@ def main():
         default="baseline",
     )
     parser.add_argument("--seed", type=int)
+    parser.add_argument("--prepared-assets", type=Path)
+    parser.add_argument("--expected-prepared-assets-sha256")
+    parser.add_argument("--run-id")
+    parser.add_argument("--source-only-observer", action="store_true")
     parser.add_argument("--fault-acceptance", action="store_true")
     parser.add_argument("--navigation-only", action="store_true")
     parser.add_argument(
@@ -285,8 +289,25 @@ def main():
     os.environ["PYTHONPATH"] = (
         str(ROOT.parents[2] / "src") + os.pathsep + os.getenv("PYTHONPATH", "")
     )
-    prepare(args.controller_watchdog, args.profile, args.coverage_preset, args.seed)
-    (OUTPUT / "run_id.txt").write_text(uuid.uuid4().hex + "\n")
+    if args.prepared_assets:
+        if (
+            not args.source_only_observer
+            or not args.expected_prepared_assets_sha256
+            or not args.run_id
+        ):
+            raise ValueError(
+                "prepared source assets require explicit source-only run and external inventory pin"
+            )
+        from gazebo_source_witness.prepare import check_prepared_assets
+
+        check_prepared_assets(args.prepared_assets, args.expected_prepared_assets_sha256, OUTPUT)
+    else:
+        prepare(args.controller_watchdog, args.profile, args.coverage_preset, args.seed)
+    if args.run_id and (
+        len(args.run_id) != 32 or any(c not in "0123456789abcdef" for c in args.run_id)
+    ):
+        raise ValueError("fresh explicit hexadecimal fixture run required")
+    (OUTPUT / "run_id.txt").write_text((args.run_id or uuid.uuid4().hex) + "\n")
     profile = PROFILES[args.profile]
     if args.navigation_only:
         from fixture_body import configure_fixture_body
@@ -317,7 +338,8 @@ def main():
         navigator["navigators"] = ["navigate_to_pose"]
         navigator.pop("navigate_complete_coverage", None)
         navigator.pop("default_coverage_bt_xml", None)
-        (OUTPUT / "nav2.yaml").write_text(yaml.safe_dump(params))
+        if not args.prepared_assets:
+            (OUTPUT / "nav2.yaml").write_text(yaml.safe_dump(params))
     children = []
     labels = {}
     exited = set()
@@ -339,24 +361,25 @@ def main():
     try:
         start("gazebo", gazebo_arguments(OUTPUT / "world.sdf", args.seed))
         time.sleep(3)
-        subprocess.run(
-            [
-                "ros2",
-                "run",
-                "ros_gz_sim",
-                "create",
-                "-world",
-                "ros_expert",
-                "-file",
-                str(OUTPUT / "robot.sdf"),
-                "-name",
-                profile.simulation_model,
-                "-z",
-                "0.05",
-            ],
-            check=True,
-            timeout=30,
-        )
+        if not args.prepared_assets:
+            subprocess.run(
+                [
+                    "ros2",
+                    "run",
+                    "ros_gz_sim",
+                    "create",
+                    "-world",
+                    "ros_expert",
+                    "-file",
+                    str(OUTPUT / "robot.sdf"),
+                    "-name",
+                    profile.simulation_model,
+                    "-z",
+                    "0.05",
+                ],
+                check=True,
+                timeout=30,
+            )
         start(
             "bridge",
             [
@@ -476,6 +499,8 @@ def main():
                 "use_sim_time:=true",
                 "-p",
                 f"controller_watchdog:={'true' if args.controller_watchdog else 'false'}",
+                "-p",
+                f"read_only_source_observer:={'true' if args.source_only_observer else 'false'}",
             ],
         )
         start("probe", ["python3", str(ROOT.parent / "ros2/probe.py")])
