@@ -248,3 +248,38 @@ def test_policy_pin_is_independent(tmp_path):
     root, request, inputs = pack(parts)
     with pytest.raises(ValueError, match="operator readiness policy"):
         review_sim_navigation_readiness(root, request, policy=policy, policy_hash="wrong", **inputs)
+
+
+def test_covariance_serialization_roundoff_is_not_sensor_uncertainty(tmp_path):
+    parts, policy = setup(tmp_path)
+    covariance = parts[-1].observations["localization_quality"][0]["covariance"]
+    covariance[1] = -5.271526297516281e-6
+    covariance[6] = -5.271526297516282e-6
+    assert run(parts, policy)["status"] == "READY_FOR_SIM_TEST"
+
+
+@pytest.mark.parametrize("offset,expected", [(0, "READY_FOR_SIM_TEST"), (0.2, "BLOCKED")])
+def test_costmap_base_uses_original_fixed_transform(tmp_path, offset, expected):
+    from rosclaw.connectors.ros.intelligence.system_model import Transform
+
+    parts, policy = setup(tmp_path)
+    model = parts[-1]
+    edge = Transform(
+        parent="chassis", child="nav_base", source="/tf_static", captured_at=NOW, static=True
+    )
+    model.transforms.append(edge)
+    model.observations["transform_values"].append(
+        {
+            "parent": edge.parent,
+            "child": edge.child,
+            "source": edge.source,
+            "captured_at": NOW.isoformat(),
+            "static": True,
+            "stamp_sec": 0,
+            "translation": [offset, 0, 0.01],
+            "rotation_xyzw": [0, 0, 0, 1],
+        }
+    )
+    for node in policy["costmaps"].values():
+        model.observations["node_parameters"][node]["robot_base_frame"] = "nav_base"
+    assert run(parts, policy)["status"] == expected

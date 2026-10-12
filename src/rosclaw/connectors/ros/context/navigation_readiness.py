@@ -50,7 +50,7 @@ def _contains_circle(points, radius):
     return all(x > 0 for x in signs) or all(x < 0 for x in signs)
 
 
-def _footprint_in_base(model, footprint, base, now, age):
+def _frame_transform(model, frame_id, base, stamp_sec, now, age, *, static_only=False):
     """Resolve original numeric TF, never infer an odom/map identity transform."""
     rows = model.observations.get("transform_values", [])
     if type(rows) is not list or len(rows) > 4096:
@@ -60,6 +60,8 @@ def _footprint_in_base(model, footprint, base, now, age):
         raise ValueError("unique TF parents required")
     graph = {}
     for row in rows:
+        if static_only and row["static"] is not True:
+            continue
         observations = [
             r for r in model.transforms if r.parent == row["parent"] and r.child == row["child"]
         ]
@@ -77,8 +79,7 @@ def _footprint_in_base(model, footprint, base, now, age):
         if not row["static"] and (
             not _fresh(row["captured_at"], now, age)
             or not _number(row.get("stamp_sec"))
-            or abs(row["stamp_sec"] - footprint["stamp_sec"]) * 1000
-            > 1000 + observations[0].future_tolerance_ms
+            or abs(row["stamp_sec"] - stamp_sec) * 1000 > 1000 + observations[0].future_tolerance_ms
         ):
             raise ValueError("time-corresponding live numeric TF required")
         x, y, z, w = q
@@ -90,7 +91,7 @@ def _footprint_in_base(model, footprint, base, now, age):
         transform = (rotation, tuple(p))
         graph.setdefault(row["child"], []).append((row["parent"], transform))
         graph.setdefault(row["parent"], []).append((row["child"], _inverse(transform)))
-    queue, visited, target = [(footprint["frame_id"], (IDENTITY, ZERO))], set(), None
+    queue, visited, target = [(frame_id, (IDENTITY, ZERO))], set(), None
     while queue:
         frame, transform = queue.pop()
         if frame in visited:
@@ -104,6 +105,11 @@ def _footprint_in_base(model, footprint, base, now, age):
         )
     if target is None:
         raise ValueError("complete footprint-to-Body TF required")
+    return target
+
+
+def _footprint_in_base(model, footprint, base, now, age):
+    target = _frame_transform(model, footprint["frame_id"], base, footprint["stamp_sec"], now, age)
     points = footprint["points"]
     if type(points) is not list or not 3 <= len(points) <= 128:
         raise ValueError("bounded effective footprint required")
@@ -250,7 +256,11 @@ def review_sim_navigation_readiness(workspace, request, *, policy, policy_hash, 
                         + c[0][2] * (c[1][0] * c[2][1] - c[1][1] * c[2][0])
                     )
                     if (
-                        any(c[i][j] != c[j][i] for i in range(3) for j in range(3))
+                        any(
+                            not math.isclose(c[i][j], c[j][i], rel_tol=1e-12, abs_tol=1e-15)
+                            for i in range(3)
+                            for j in range(3)
+                        )
                         or any(
                             v < 0 or v > limits[k]
                             for v, k in zip(diagonal, ("x", "y", "yaw"), strict=True)
@@ -276,7 +286,6 @@ def review_sim_navigation_readiness(workspace, request, *, policy, policy_hash, 
                         or len(rows) != 1
                         or rows[0].get("publishers") != [node]
                         or params.get("use_sim_time") is not True
-                        or params.get("robot_base_frame") != frames["base"]
                         or params.get("global_frame") not in {frames["map"], frames["odom"]}
                     ):
                         unknown.append("FRESH_BOUND_COSTMAP_CONFIGURATION:" + topic)
@@ -293,18 +302,38 @@ def review_sim_navigation_readiness(workspace, request, *, policy, policy_hash, 
                         for p in plugins
                     ):
                         unknown.append("COSTMAP_LIDAR_SOURCE_UNVERIFIED:" + topic)
+                    base_transform = _frame_transform(
+                        model,
+                        params.get("robot_base_frame"),
+                        frames["base"],
+                        0,
+                        now,
+                        age,
+                        static_only=True,
+                    )
+                    if (
+                        any(abs(base_transform[0][2][i]) > 1e-6 for i in (0, 1))
+                        or abs(base_transform[0][2][2] - 1) > 1e-6
+                    ):
+                        raise ValueError("planar fixed costmap base transform required")
                     footprint = params.get("footprint")
                     if type(footprint) is not str:
                         unknown.append("EXPLICIT_COSTMAP_FOOTPRINT_REQUIRED:" + topic)
                     else:
                         polygon = _json(footprint) if footprint.strip() else []
                         if polygon:
-                            contains = _contains_circle(polygon, radius)
+                            transformed = []
+                            for point in polygon:
+                                rotated = _apply(base_transform[0], [*point, 0])
+                                transformed.append(
+                                    [rotated[i] + base_transform[1][i] for i in range(2)]
+                                )
+                            contains = _contains_circle(transformed, radius)
                         else:
                             nav_radius = params.get("robot_radius")
                             if not _number(nav_radius) or nav_radius <= 0:
                                 raise ValueError("finite positive costmap circle required")
-                            contains = nav_radius >= radius
+                            contains = nav_radius >= radius + math.hypot(*base_transform[1][:2])
                         if not contains:
                             blocked.append("COSTMAP_FOOTPRINT_UNDERSIZES_BODY:" + topic)
                     footprint_topic = policy["footprint_topics"][topic]
