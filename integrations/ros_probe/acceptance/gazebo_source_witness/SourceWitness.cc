@@ -14,6 +14,7 @@
 #include <gz/sim/components/GpuLidar.hh>
 #include <gz/sim/components/Lidar.hh>
 #include <gz/sim/components/Imu.hh>
+#include <gz/sim/components/NavSat.hh>
 #include <gz/sim/components/ContactSensor.hh>
 #include <gz/sim/components/Collision.hh>
 #include <gz/sim/components/Geometry.hh>
@@ -91,6 +92,7 @@ class SourceWitness final : public System, public ISystemConfigure,
       sensor["kind"] = ecm.Component<components::GpuLidar>(e) ? "gpu_lidar" :
                        ecm.Component<components::Lidar>(e) ? "lidar" :
                        ecm.Component<components::Imu>(e) ? "imu" :
+                       ecm.Component<components::NavSat>(e) ? "navsat" :
                        ecm.Component<components::ContactSensor>(e) ? "contact" : "UNKNOWN";
       if (record["sensors"].size() >= 4096) { record["inventory_complete"] = false; return false; }
       record["sensors"].push_back(sensor); return true;

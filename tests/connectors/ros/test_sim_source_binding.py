@@ -508,3 +508,34 @@ def test_complete_static_world_plane_and_effective_frames(tmp_path, fault):
     root, request, kwargs = pack(parts)
     result = review_sim_source_binding(root, request, **kwargs)
     assert result["result"] == ("MATCHED" if fault == "none" else "MISMATCH"), result
+
+
+@pytest.mark.parametrize(
+    "loaded_kind,expected", [("navsat", "MATCHED"), ("imu", "MISMATCH"), ("UNKNOWN", "UNKNOWN")]
+)
+def test_additional_vendor_sensor_requires_exact_loaded_type(tmp_path, loaded_kind, expected):
+    parts = list(fixture(tmp_path))
+    root, request, launch, capture, samples, converted, world, model = parts
+    sensor = b'<sensor name="position_fix" type="navsat"><pose>0 0 0.1 0 0 0</pose></sensor>'
+    converted = converted.replace(b"</link>", sensor + b"</link>")
+    world = world.replace(b"</link>", sensor + b"</link>")
+    launch["asset_sha256"].update({"converted.sdf": sha(converted), "world.sdf": sha(world)})
+    launch["conversion"]["output_sha256"] = sha(converted)
+    capture["assets_before"] = deepcopy(launch["asset_sha256"])
+    capture["assets_after"] = deepcopy(launch["asset_sha256"])
+    for sample in samples:
+        sample["sensors"] = [
+            {
+                "entity": 5,
+                "name": "position_fix",
+                "kind": loaded_kind,
+                "pose": [0, 0, 0.1, 0, 0, 0],
+                "world_pose": [0, 0, 0.1, 0, 0, 0],
+                "ancestry": deepcopy(sample["collisions"][0]["ancestry"]),
+            }
+        ]
+    parts[5:7] = [converted, world]
+    root, request, kwargs = pack(parts)
+    result = review_sim_source_binding(root, request, **kwargs)
+    assert result["result"] == expected, result
+    assert result["execution_authority"] == "NONE"
