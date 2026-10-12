@@ -247,6 +247,8 @@ def main():
                 "-p",
                 "observer_sources_sha256:=" + hashlib.sha256(path.read_bytes()).hexdigest(),
             ]
+        if settings.get("live_continuity_hold_seconds", 0):
+            args += ["-p", "max_contact_segments:=4"]
         if name == "renamed-source-witness":
             args += ["-r", "__node:=rosclaw_renamed_source_witness"]
         save(f"{name}-argv.json", args)

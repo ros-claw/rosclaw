@@ -35,3 +35,11 @@ a disposable fixture. Other operator actors reset/pause or replace the owned
 model. Observer-kill/stale target the in-process Gazebo observer; World loss/pause
 is a disclosed collateral effect, not an isolated observer-causality experiment.
 All seven planned live cases must retain original data and cleanup evidence.
+
+Two original positive live attempts exposed a second evidence budget: the
+independent contact logger reached its existing 30-MB cap and exited, taking the
+owned source stack down. Both failures remain preserved. Explicit live fixtures
+now request at most four exclusive contact segments, each retaining the existing
+30-MB / 20,000-row / 500-KB-line bounds, with a durable SHA256 chain. Exhaustion
+remains terminal. Default captures remain one segment. No freshness tolerance,
+contact classification, source geometry or actuator permissions were relaxed.
