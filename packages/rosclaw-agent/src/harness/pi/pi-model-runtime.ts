@@ -6,9 +6,30 @@
  * thinking），凭据永远由子进程从同一加固凭据存储读取。
  */
 
-import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
+
+/** Opt-in only: agent retries and provider-internal retries are distinct.
+ * Cache warming bypasses agent.streamFunction, so disable it before services exist.
+ * Keep loaded/default settings untouched on the absent-option path. */
+export function modelAdmissionSettings(loaded: SettingsManager): SettingsManager {
+	return SettingsManager.inMemory({
+		...loaded.getSettings(),
+		retry: { enabled: false, maxRetries: 0, provider: { maxRetries: 0 } },
+		cacheWarming: "off",
+	});
+}
 
 import { credentialStoreFor } from "../../credentials/store.js";
+import type { AgentSession } from "@earendil-works/pi-coding-agent";
+import type { ModelRequestAdmission } from "./model-request-admission.js";
+
+/** Shared actual SDK dispatch seam, installed once per replacement session. */
+export function installModelRequestAdmission(session: AgentSession, gate: ModelRequestAdmission): void {
+	session.agent.streamFunction = gate.wrap(session.agent.streamFunction, () => session.isCompacting);
+	// compact() waits for or aborts main runs before dispatch. Refuse at entry,
+	// rather than letting unsupported summaries disturb a pending reservation.
+	session.compact = async () => gate.refuseSummary();
+}
 
 export async function createSharedModelRuntime(
 	agentDir: string,

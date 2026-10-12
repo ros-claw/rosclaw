@@ -17,7 +17,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { resourcePolicy, trustFilterContextFiles } from "../../extension/resource-policy.js";
 import { verifyBundledSkills } from "../../extension/bundled-skills.js";
-import { createSharedModelRuntime } from "./pi-model-runtime.js";
+import { createSharedModelRuntime, installModelRequestAdmission, modelAdmissionSettings } from "./pi-model-runtime.js";
 import { filterModelTools, MODEL_TOOL_NAMES, modelVisibleToolNames, registrationToolNames } from "../../tools/surface.js";
 import { buildWorkspacePackTools } from "../../tools/workspace-pack.js";
 import { buildProcessTools } from "../../tools/process-tools.js";
@@ -31,6 +31,7 @@ import { LocaleManager } from "../../i18n/locale.js";
 import { defaultOperatorSocket } from "../../bridge/operatord-client.js";
 import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
 import { observeCompactionStream } from "./compaction-stream.js";
+import { ModelRequestAdmission } from "./model-request-admission.js";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { getSupportedThinkingLevels, type Model, type Api } from "@earendil-works/pi-ai";
@@ -180,6 +181,8 @@ export interface RosclawRuntime {
 	leaseManager: SessionLeaseManager;
 	/** 本 runtime 的 session writer owner（正常退出/close 时 releaseAll）。 */
 	ownership: SessionWriterOwnership;
+	/** Runtime-lifetime ledger; explicit safe allowance increase does not clear usage. */
+	modelRequestAdmission?: ModelRequestAdmission;
 }
 
 /** Cancel only prompts still in public SDK preflight, not subsequent prompts or
@@ -238,6 +241,8 @@ function installPreflightCancellation(session: AgentSessionRuntime["session"]): 
 export async function createRosclawRuntime(
 	options: RosclawRuntimeOptions,
 ): Promise<RosclawRuntime> {
+	const modelRequestAdmission = options.toolCallBudget?.modelRequestAdmission === undefined
+		? undefined : new ModelRequestAdmission(options.toolCallBudget.modelRequestAdmission);
 	const toolBudgetExtension = options.toolCallBudget === undefined
 		? undefined : createToolCallBudgetExtension(options.toolCallBudget, options.taskContext.workspaceRoot);
 	// Snapshot at admission: callers can mutate their policy after construction.
@@ -282,9 +287,11 @@ export async function createRosclawRuntime(
 	// 覆盖）。
 	const locale = new LocaleManager(agentDir);
 	const loadedSettings = SettingsManager.create(options.cwd, agentDir);
-	const settingsManager = options.explicitModel
-		? SettingsManager.inMemory({ ...loadedSettings.getSettings(), retry: { enabled: false, maxRetries: 0 } })
-		: loadedSettings;
+	const settingsManager = modelRequestAdmission
+		? modelAdmissionSettings(loadedSettings)
+		: options.explicitModel
+			? SettingsManager.inMemory({ ...loadedSettings.getSettings(), retry: { enabled: false, maxRetries: 0 } })
+			: loadedSettings;
 	// P1-1：raw reasoning 默认不显示（live + resumed history 同策；
 	// debug 可在 /settings 手动打开）。
 	settingsManager.setHideThinkingBlock(true);
@@ -591,6 +598,11 @@ export async function createRosclawRuntime(
 					},
 				},
 			);
+			if (modelRequestAdmission) {
+				// Install outside observation: refusal precedes provider invocation and
+				// does not create a misleading summary-start billing record.
+				installModelRequestAdmission(result.session, modelRequestAdmission);
+			}
 			return {
 				...result,
 				services,
@@ -644,5 +656,5 @@ export async function createRosclawRuntime(
 			throw err;
 		}
 	}) as AgentSessionRuntime["switchSession"];
-	return { runtime, active, coordinator, leaseManager, ownership };
+	return { runtime, active, coordinator, leaseManager, ownership, modelRequestAdmission };
 }
