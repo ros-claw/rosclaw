@@ -457,7 +457,7 @@ def test_localization_publisher_ambiguity_is_never_deferred_to_l1(tmp_path):
 @pytest.mark.parametrize("fault", ["none", "plane_size", "plane_pose", "model_pose", "dynamic"])
 def test_complete_static_world_plane_and_effective_frames(tmp_path, fault):
     parts = list(fixture(tmp_path))
-    _, _, launch, _, samples, _, world, _ = parts
+    _, _, launch, capture, samples, _, world, _ = parts
     tree = ET.fromstring(world)
     floor = ET.fromstring(
         '<model name="floor"><static>true</static><link name="ground"><collision name="surface"><geometry><plane><normal>0 0 1</normal><size>10 10</size></plane></geometry></collision></link></model>'
@@ -467,6 +467,8 @@ def test_complete_static_world_plane_and_effective_frames(tmp_path, fault):
         floor.find("static").text = "false"
     parts[6] = ET.tostring(tree)
     launch["asset_sha256"]["world.sdf"] = sha(parts[6])
+    capture["assets_before"] = deepcopy(launch["asset_sha256"])
+    capture["assets_after"] = deepcopy(launch["asset_sha256"])
     for sample in samples:
         sample["models"].append(
             {"name": "floor", "entity": 10, "static": fault != "dynamic", "world_pose": [0] * 6}
