@@ -28,3 +28,5 @@
 - [0018: Fresh SIM navigation readiness](0018-fresh-sim-navigation-readiness.md)
 
 - [0019: Profile-free SIM source observation](0019-profile-free-sim-source-observer.md)
+
+- [0020: Passive SIM source continuity](0020-passive-sim-source-continuity.md) — terminal read-only groundwork, not execution admission.
