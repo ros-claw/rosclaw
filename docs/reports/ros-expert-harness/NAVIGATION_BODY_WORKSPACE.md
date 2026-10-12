@@ -117,3 +117,23 @@ together with `--navigation-review --compile-navigation-body`. It inspects only
 the fresh positive compiled workspace using both expected hashes, retains the
 inspection report outside that closed workspace, and leaves the two negative
 cases uncompiled. No World, goal or velocity command is added.
+
+
+## Integration dependency failure (2026-10-12)
+
+PR #670 original source a20b1504 failed CI/CD run 38162554420 in the
+Humble Docker deployment job: packages.ros.org could not resolve, then apt
+could not locate ros-humble-rosbridge-server. This is the observed dependency
+index failure; it does not establish who caused the DNS failure. The PR's
+original seven files did not change Docker/Compose/workflows. Preserve that
+failed run rather than recategorizing it as successful.
+
+The Humble bridge image now retries transport downloads at most three times,
+with thirty-second network timeouts, and treats any index refresh error as
+fatal. It keeps official repositories and signature validation. It stores
+signed InRelease records, index hashes, repository configuration and installed
+package versions under /usr/share/rosclaw-build-evidence for independent
+deployment review. No workflow or smoke assertion is skipped. The repaired
+source receives new checks; only real passing source and post-merge checks
+can close integration. ARM64 Jazzy SDK evidence cannot replace this amd64
+Humble deployment job.

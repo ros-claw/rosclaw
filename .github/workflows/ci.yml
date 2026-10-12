@@ -459,6 +459,25 @@ jobs:
       - name: Run ROS deployment smoke test
         run: pytest tests/connectors/ros/integration/test_ros2_container_smoke.py -v -m deployment
 
+      - name: Preserve signed ROS deployment build provenance
+        run: |
+          docker image inspect rosclaw/ros2-humble-bridge:latest \
+            > "${RUNNER_TEMP}/ros-humble-build-image.json"
+          docker run --rm --network none --read-only --entrypoint sh \
+            rosclaw/ros2-humble-bridge:latest -c \
+            'test -s /usr/share/rosclaw-build-evidence/packages.tsv && test -s /usr/share/rosclaw-build-evidence/apt-index-sha256.txt && tar -C /usr/share/rosclaw-build-evidence -cf - .' \
+            > "${RUNNER_TEMP}/ros-humble-build-provenance.tar"
+          sha256sum "${RUNNER_TEMP}/ros-humble-build-image.json" \
+            "${RUNNER_TEMP}/ros-humble-build-provenance.tar"
+
+      - name: Upload signed ROS deployment build provenance
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: ros-humble-build-provenance
+          path: |
+            ${{ runner.temp }}/ros-humble-build-image.json
+            ${{ runner.temp }}/ros-humble-build-provenance.tar
+
   build:
     name: Build Package
     runs-on: ubuntu-latest
