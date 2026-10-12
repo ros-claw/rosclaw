@@ -40,6 +40,7 @@ READ_TYPES = {
     "nav_msgs/msg/Odometry",
     "nav_msgs/msg/OccupancyGrid",
     "geometry_msgs/msg/PoseWithCovarianceStamped",
+    "geometry_msgs/msg/PolygonStamped",
     "rosgraph_msgs/msg/Clock",
 }
 
@@ -76,6 +77,7 @@ class ReadOnlyProbe(Node):
         self.action_observations = {}
         self.message_frames = {}
         self.urdf_descriptions = {}
+        self.footprint_observations = {}
         self.publisher = self.create_publisher(
             String, PROBE_TOPIC, QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
         )
@@ -182,6 +184,9 @@ class ReadOnlyProbe(Node):
                         "observation_sources",
                         "scan.topic",
                         "robot_description",
+                        "robot_radius",
+                        "footprint",
+                        "footprint_padding",
                     }
                     or key.endswith(
                         (
@@ -256,10 +261,19 @@ class ReadOnlyProbe(Node):
             self.localization_observations[topic] = {
                 "source": topic,
                 "captured_at": utc_now(),
+                "covariance": list(covariance),
                 "position_variance": max(covariance[0], covariance[7]),
                 "x_variance": covariance[0],
                 "y_variance": covariance[7],
                 "yaw_variance": covariance[35],
+            }
+        if hasattr(message, "polygon") and hasattr(message, "header"):
+            self.footprint_observations[topic] = {
+                "source": topic,
+                "captured_at": utc_now(),
+                "frame_id": message.header.frame_id,
+                "stamp_sec": message.header.stamp.sec + message.header.stamp.nanosec / 1e9,
+                "points": [[p.x, p.y, p.z] for p in message.polygon.points],
             }
         if hasattr(message, "clock"):
             value = message.clock.sec + message.clock.nanosec / 1e9
@@ -270,6 +284,17 @@ class ReadOnlyProbe(Node):
                 self.edges[(transform.header.frame_id, transform.child_frame_id)] = {
                     "parent": transform.header.frame_id,
                     "child": transform.child_frame_id,
+                    "translation": [
+                        transform.transform.translation.x,
+                        transform.transform.translation.y,
+                        transform.transform.translation.z,
+                    ],
+                    "rotation_xyzw": [
+                        transform.transform.rotation.x,
+                        transform.transform.rotation.y,
+                        transform.transform.rotation.z,
+                        transform.transform.rotation.w,
+                    ],
                     "static": topic.endswith("/tf_static"),
                     "source": topic,
                     "captured_at": utc_now(),
@@ -485,6 +510,8 @@ class ReadOnlyProbe(Node):
                 if self.clock_readings
                 else None,
                 "localization_quality": localization,
+                "costmap_footprints": self.footprint_observations,
+                "transform_values": list(self.edges.values()),
                 "action_statuses": getattr(self, "action_observations", {}),
                 "message_frames": {
                     topic: {
