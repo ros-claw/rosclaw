@@ -238,6 +238,24 @@ def prepare(run_id, *, repair_visual_uris=False):
     # initialpose publication, covariance widening, or timestamp fabrication.
     params["amcl"]["ros__parameters"]["update_min_d"] = 0.0
     params["amcl"]["ros__parameters"]["update_min_a"] = 0.0
+    # Explicit operator initialization, separate from passive source observers.
+    # The 5 mm / 0.01 rad uncertainty describes this known disposable fixture;
+    # it does not change any review threshold or confer action authority.
+    (output / "source-initialization.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "rosclaw.owned_sim_source_initialization.v1",
+                "run_id": run_id,
+                "service": "/set_initial_pose",
+                "frame_id": "map",
+                "pose": params["amcl"]["ros__parameters"]["initial_pose"],
+                "covariance_diagonal": [0.000025, 0.000025, 0.0001],
+                "operator_owned_disposable_sim_only": True,
+            },
+            indent=2,
+        )
+        + "\n"
+    )
     navigator = params["bt_navigator"]["ros__parameters"]
     navigator["navigators"] = ["navigate_to_pose"]
     navigator.pop("navigate_complete_coverage", None)
