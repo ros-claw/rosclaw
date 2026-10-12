@@ -77,6 +77,9 @@ def observer_facts():
 
 def main():
     settings = json.loads(Path("/settings.json").read_text())
+    fault = settings.get("fault", "none")
+    if fault not in {"none", "world_reset", "witness_exit"}:
+        raise ValueError("unsupported explicit disposable SIM fault")
     requirements = {
         "interface_names": {
             "mapping.occupancy_map": "/map",
@@ -261,13 +264,51 @@ def main():
             ),
             30,
         )
+        witness_process = process_fact(witness.pid)
+        witness_alive = True
+        if fault == "world_reset":
+            reset_argv = [
+                "gz",
+                "service",
+                "-s",
+                "/world/ros_expert/control",
+                "--reqtype",
+                "gz.msgs.WorldControl",
+                "--reptype",
+                "gz.msgs.Boolean",
+                "--timeout",
+                "5000",
+                "--req",
+                "reset: {all: true}",
+            ]
+            save("fault-reset-argv.json", reset_argv)
+            with (
+                (OUT / "fault-reset-original.stdout").open("xb") as stdout,
+                (OUT / "fault-reset-original.stderr").open("xb") as stderr,
+            ):
+                reset = subprocess.run(reset_argv, stdout=stdout, stderr=stderr, timeout=8)
+            save("fault-reset-exit.json", {"returncode": reset.returncode})
+            if reset.returncode:
+                raise RuntimeError("actual reset injection failed")
+        elif fault == "witness_exit":
+            stop(witness)
+            save(
+                "fault-witness-exit.json",
+                {"returncode": witness.returncode, "process": witness_process},
+            )
+            witness = None
+            witness_alive = False
+        if fault != "none":
+            end = time.monotonic() + 3
+            spin_until(lambda: time.monotonic() >= end, 5)
+        save("compiled-witness-liveness.json", {"alive": witness_alive})
         save("latest-native.json", state["native"])
         save("latest-system.json", state["model"].to_dict())
         save("latest-navigation-review.json", state["review"])
         save("latest-physics-witness.json", state["physics"])
         save("all-navigation-reviews.json", reviews)
         save("observer-process-facts.json", observer_facts())
-        save("compiled-witness-process.json", process_fact(witness.pid))
+        save("compiled-witness-process.json", witness_process)
         save(
             "capture_ready.json",
             {

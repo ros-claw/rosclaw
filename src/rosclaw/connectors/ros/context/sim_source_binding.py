@@ -25,6 +25,9 @@ def _sha(raw):
 
 
 def _xml(raw):
+    if type(raw) is not bytes or b"\0" in raw:
+        raise ValueError("UTF-8 XML bytes required")
+    raw.decode("utf-8", errors="strict")
     if len(raw) > 5_000_000 or any(x in raw for x in (b"<!DOCTYPE", b"<!ENTITY", b"${", b"$(")):
         raise ValueError("bounded resolved XML required")
     return ET.fromstring(raw)
@@ -213,6 +216,9 @@ def _loaded_inventory(sample, entity):
                 or ancestry[0].get("model")
                 or ancestry[0].get("world")
                 or sum(x.get("model") is True for x in ancestry) != 1
+                or sum(x.get("world") is True for x in ancestry) != 1
+                or ancestry[-1].get("world") is not True
+                or ancestry[-1]["entity"] != sample["worlds"][0]["entity"]
             ):
                 raise ValueError("explicit nonnested member parent link required")
             pose = _numbers(" ".join(str(x) for x in row["pose"]), 6)
@@ -467,6 +473,24 @@ def review_sim_source_binding(
                 x.findall("model") or not x.get("name") for x in world_models
             ):
                 raise ValueError("unique nonnested complete World model inventory required")
+            static_sources = {}
+            for source_model in world_models:
+                name = source_model.get("name")
+                declared_static = source_model.findtext("static", "false")
+                if declared_static not in {"true", "false", "1", "0"}:
+                    raise ValueError("explicit SDF static boolean required")
+                if name == request["expected_robot_entity"]:
+                    if declared_static in {"true", "1"}:
+                        mismatch.append("SOURCE_ROBOT_DECLARED_STATIC")
+                    continue
+                if declared_static not in {"true", "1"}:
+                    mismatch.append("ADDITIONAL_DYNAMIC_WORLD_MODEL")
+                wrapper = ET.Element("sdf")
+                wrapper.append(source_model)
+                static_sources[name] = (
+                    sdf_inventory(ET.tostring(wrapper), robot_entity=name),
+                    _transform(_pose(source_model.find("pose"))),
+                )
             if (
                 converted["collisions"] != expected["collisions"]
                 or converted["structure"] != expected["structure"]
@@ -477,6 +501,11 @@ def review_sim_source_binding(
                 raise ValueError("bounded advancing ECM capture required")
             entity, previous = None, None
             for sample in samples:
+                if any(
+                    type(sample[key]) is not int or sample[key] < 0
+                    for key in ("sim_time_ns", "iterations", "observer_monotonic_ns", "sample")
+                ):
+                    raise ValueError("nonnegative integer ECM clock and capture counters required")
                 if (
                     sample["schema_version"] != "rosclaw.gazebo_ecm_source_sample.v1"
                     or sample["inventory_complete"] is not True
@@ -500,6 +529,26 @@ def review_sim_source_binding(
                     mismatch.append("WORLD_OR_MODEL_NOT_UNIQUE")
                     continue
                 current = models[0]["entity"]
+                if models[0]["static"] is not False:
+                    unknown.append("LOADED_ROBOT_STATIC_STATE_UNVERIFIED")
+                for static_name, (static_source, static_pose) in static_sources.items():
+                    static_models = [x for x in sample["models"] if x["name"] == static_name]
+                    if len(static_models) != 1 or static_models[0]["static"] is not True:
+                        unknown.append("WORLD_STATIC_ENTITY_UNVERIFIED:" + static_name)
+                        continue
+                    observed_static = static_models[0]
+                    static_loaded = _loaded_inventory(sample, observed_static["entity"])
+                    if (
+                        static_loaded["collisions"] != static_source["collisions"]
+                        or static_loaded["sensors"] != static_source["sensors"]
+                        or not _pose_matches(
+                            _transform(observed_static["world_pose"]),
+                            static_pose,
+                            position_tolerance,
+                            rotation_tolerance,
+                        )
+                    ):
+                        mismatch.append("WORLD_STATIC_GEOMETRY_OR_POSE_MISMATCH:" + static_name)
                 if entity is not None and current != entity:
                     unknown.append("MODEL_ENTITY_REPLACED")
                 entity = current
@@ -550,6 +599,8 @@ def review_sim_source_binding(
                 or physics["lease_enabled"] is not False
                 or physics["source_received_control_messages"] != 0
                 or physics["source_published_velocity_messages"] != 0
+                or type(physics["source_received_control_messages"]) is not int
+                or type(physics["source_published_velocity_messages"]) is not int
             ):
                 unknown.append("PHYSICS_SOURCE_ONLY_OBSERVATION_UNVERIFIED")
             if (
@@ -559,7 +610,11 @@ def review_sim_source_binding(
             ):
                 mismatch.append("PHYSICS_SAMPLE_BODY_RUN_FRAME_MISMATCH")
             physics_time = physics["time_sec"]
-            if type(physics_time) not in (int, float) or not math.isfinite(physics_time):
+            if (
+                type(physics_time) not in (int, float)
+                or not math.isfinite(physics_time)
+                or physics_time < 0
+            ):
                 raise ValueError("finite independent physics timestamp required")
             nearest = min(samples, key=lambda x: abs(x["sim_time_ns"] / 1e9 - physics_time))
             nearest_models = [x for x in nearest["models"] if x["entity"] == entity]

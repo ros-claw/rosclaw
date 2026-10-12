@@ -23,6 +23,7 @@
 #include <gz/sim/components/Pose.hh>
 #include <gz/sim/components/Sensor.hh>
 #include <gz/sim/components/World.hh>
+#include <gz/sim/components/Static.hh>
 #include <sdf/Element.hh>
 
 namespace rosclaw {
@@ -72,6 +73,8 @@ class SourceWitness final : public System, public ISystemConfigure,
         const components::Model *, const components::Name *name) {
       Json model = Identity(e, ecm); model["name"] = name->Data();
       model["source_file_path"] = Model(e).SourceFilePath(ecm);
+      const auto isStatic = ecm.Component<components::Static>(e);
+      model["static"] = isStatic ? Json(isStatic->Data()) : Json(nullptr);
       if (record["models"].size() >= 4096) { record["inventory_complete"] = false; return false; }
       record["models"].push_back(model); return true;
     });

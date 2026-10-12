@@ -128,7 +128,7 @@ def fixture(tmp_path):
                 "observer_monotonic_ns": (index + 1) * 200_000_000,
                 "sample": index,
                 "worlds": [{"name": launch["world_id"], "entity": 1}],
-                "models": [{"name": robot, "entity": 2, "world_pose": [0] * 6}],
+                "models": [{"name": robot, "entity": 2, "world_pose": [0] * 6, "static": False}],
                 "collisions": [
                     {
                         "entity": 4,
