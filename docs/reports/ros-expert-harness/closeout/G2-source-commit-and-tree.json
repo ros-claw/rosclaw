@@ -1,0 +1,10 @@
+{
+  "source": "cf8d106387b3550b47dd677c2b5459d8a3b0b2bf",
+  "merge_commit": "d734fa44d9c0681e8b4e9ad3b5fa34bd7dc09745",
+  "source_tree": "59e7354e2cc7b5b035f55b2f62fb65b0c151831b",
+  "merge_tree": "59e7354e2cc7b5b035f55b2f62fb65b0c151831b",
+  "exact_tree_equal": true,
+  "G2_done": true,
+  "G3_done": false,
+  "v1_done": false
+}

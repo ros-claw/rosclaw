@@ -117,8 +117,9 @@ Actual model calls: 0. Actual navigation actions: 0.
 
 ## Remaining exit criteria
 
-G2 normal integration (#675) and its fresh actual-main known/J100 L1 still need
-their complete original gates. This source-stream foundation requires review,
+G2 normal integration (#675), all original source/main CI and two fresh actual-main
+known/J100 L1 Worlds are accepted; see closeout/G2-source-and-main-review.md.
+This source-stream foundation still requires review,
 normal CI and actual-main proof. Full P0-1 additionally needs continuously
 current ROS health and independently bound Body/run/daemon generation. G3 L2
 then needs the explicit governed admission/sink, three J100 seeds with position
@@ -126,3 +127,9 @@ and yaw goals, and ten execution faults through canonical MCP/rosclawd.
 G4 repair/rollback episodes and G5 actual paired model experiments remain NOT_RUN.
 J100 prior L1 is adapted cross-family evidence; zero-code-change generalization
 and REAL success are not claimed. `v1_done=false`.
+
+A subsequent retrospective diagnostic rebuilt 75 original Native snapshots after
+initial L1 in the passive positive World. The covariance subcheck rejected 57
+under the unchanged strict PSD rules. This is not full/live L1 acceptance; it
+reinforces that source continuity does not prove continued ROS health. No
+original data or covariance threshold was changed.
