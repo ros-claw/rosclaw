@@ -44,6 +44,7 @@ def main():
         serve_passive_observation(root, config, persistent_ledger=args.persistent_ledger)
         return
     from rosclaw.practice.recorder import PracticeRecorder
+
     if kind not in {"coverage", "navigation_only"}:
         raise ValueError("unsupported simulation executor kind")
     navigation_binding = None
@@ -219,7 +220,7 @@ def main():
 
 
 def serve_passive_observation(root, config, *, persistent_ledger):
-    """Existing SDK rosclawd, with no transports, executors, drivers or leases.
+    """Existing SDK rosclawd, with no ROS transports/executors/drivers/leases.
 
     This role only binds an independently compiled Body/run to this actual
     daemon generation. It does not admit SIM actions or enable the generic sink.
@@ -280,8 +281,9 @@ def serve_passive_observation(root, config, *, persistent_ledger):
     try:
         daemon.start()
         status = service.get_runtime_status(PeerCredentials(os.getpid(), os.getuid(), os.getgid()))
-        if status["drivers"] or status["registered_executors"]:
-            raise RuntimeError("passive rosclawd must have zero drivers/executors")
+        builtin_sandbox = {"sandbox.reach:SIMULATION", "sandbox.reach:FIXTURE"}
+        if status["drivers"] or set(status["registered_executors"]) - builtin_sandbox:
+            raise RuntimeError("passive rosclawd must have zero robot drivers/executors")
         ready = {
             **config,
             "pid": os.getpid(),
@@ -292,6 +294,7 @@ def serve_passive_observation(root, config, *, persistent_ledger):
                 (root / "execution_config.json").read_bytes()
             ).hexdigest(),
             "source_only": True,
+            "builtin_sandbox_executors": status["registered_executors"],
             "L2": "NOT_RUN",
             "firewall_fixture_enabled": False,
         }

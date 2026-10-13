@@ -51,7 +51,13 @@ def review_passive_daemon_status(status, pins, *, client_pid):
         or status.get("ledger", {}).get("write_failed") is not False
     ):
         reasons.append("DAEMON_LEDGER_RECOVERY_OR_ESTOP_UNHEALTHY")
-    if status.get("drivers") != [] or status.get("registered_executors") != []:
+    executors = status.get("registered_executors")
+    builtin_sandbox = {"sandbox.reach:SIMULATION", "sandbox.reach:FIXTURE"}
+    if (
+        status.get("drivers") != []
+        or type(executors) is not list
+        or any(type(value) is not str or value not in builtin_sandbox for value in executors)
+    ):
         reasons.append("PASSIVE_DAEMON_HAS_EXECUTION_PATH")
     return reasons
 
