@@ -29,7 +29,8 @@ def sha(raw):
 def review_passive_daemon_status(status, pins, *, client_pid):
     """Pure rejection reasons; status must come from an actual DaemonClient."""
     if type(status) is not dict or any(
-        type(status.get(key)) is not dict for key in ("client_peer", "recovery", "ledger")
+        type(status.get(key)) is not dict
+        for key in ("client_peer", "recovery", "ledger", "watchdog", "queue", "permits", "sessions")
     ):
         return ["DAEMON_MALFORMED_OR_MISSING_LEDGER_STATUS"]
     reasons = []
@@ -42,6 +43,9 @@ def review_passive_daemon_status(status, pins, *, client_pid):
         or status.get("southbound_owner") != "rosclawd"
         or status.get("client_peer", {}).get("pid") != client_pid
         or status.get("runtime_state") != "RUNNING"
+        or status.get("supervision_state") != "DISARMED"
+        or status["watchdog"].get("running") is not True
+        or status["watchdog"].get("healthy") is not True
     ):
         reasons.append("DAEMON_NOT_INDEPENDENTLY_HEALTHY")
     if (
@@ -59,6 +63,14 @@ def review_passive_daemon_status(status, pins, *, client_pid):
         or any(type(value) is not str or value not in builtin_sandbox for value in executors)
     ):
         reasons.append("PASSIVE_DAEMON_HAS_EXECUTION_PATH")
+    if (
+        status["queue"].get("QUEUED") != 0
+        or status["queue"].get("RUNNING") != 0
+        or status["permits"].get("active") != 0
+        or status["sessions"].get("active") != 0
+        or status.get("hardware_actions_executed") != 0
+    ):
+        reasons.append("PASSIVE_DAEMON_HAS_ACTIVE_AUTHORITY_OR_ACTION")
     return reasons
 
 
