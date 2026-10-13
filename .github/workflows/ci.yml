@@ -13,6 +13,11 @@ on:
         required: false
         default: false
 
+# Release metadata/checksums verified against astral-sh/uv 0.13.0 assets.
+# setup-uv v8 still fetches a manifest for exact versions; keep it offline.
+env:
+  UV_INSTALL_MANIFEST: 'data:application/json,{"version":"0.13.0","artifacts":[{"platform":"x86_64-unknown-linux-gnu","url":"https://github.com/astral-sh/uv/releases/download/0.13.0/uv-x86_64-unknown-linux-gnu.tar.gz","archive_format":"tar.gz","sha256":"1468ebd5a5541121837c5a2817b9972ba6090fa6caa3d142620850a47fb75154"},{"platform":"aarch64-apple-darwin","url":"https://github.com/astral-sh/uv/releases/download/0.13.0/uv-aarch64-apple-darwin.tar.gz","archive_format":"tar.gz","sha256":"a9c1b29002cf3c83f07fa9cd8a887a3be0107d90e23189721221e7257db8e3d6"}]}'
+
 jobs:
   lint:
     name: Lint
@@ -26,9 +31,11 @@ jobs:
           python-version: '3.11'
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v8.3.2
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
-          version: 'latest'
+          version: '0.13.0'
+          manifest-file: ${{ env.UV_INSTALL_MANIFEST }}
+          checksum: '1468ebd5a5541121837c5a2817b9972ba6090fa6caa3d142620850a47fb75154'
 
       - name: Install dependencies
         run: uv pip install -e ".[dev]" --system
@@ -82,9 +89,11 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install uv
-        uses: astral-sh/setup-uv@v8.3.2
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
-          version: 'latest'
+          version: '0.13.0'
+          manifest-file: ${{ env.UV_INSTALL_MANIFEST }}
+          checksum: '1468ebd5a5541121837c5a2817b9972ba6090fa6caa3d142620850a47fb75154'
       - name: Install dependencies
         run: uv pip install -e ".[dev]" --system
       - name: Run acceptance + evidence pack tests
@@ -123,9 +132,11 @@ jobs:
           python-version: '3.11'
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v8.3.2
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
-          version: 'latest'
+          version: '0.13.0'
+          manifest-file: ${{ env.UV_INSTALL_MANIFEST }}
+          checksum: '1468ebd5a5541121837c5a2817b9972ba6090fa6caa3d142620850a47fb75154'
 
       - name: Install dependencies
         run: uv pip install -e ".[dev]" --system
@@ -170,9 +181,11 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v8.3.2
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
-          version: 'latest'
+          version: '0.13.0'
+          manifest-file: ${{ env.UV_INSTALL_MANIFEST }}
+          checksum: '1468ebd5a5541121837c5a2817b9972ba6090fa6caa3d142620850a47fb75154'
 
       - name: Install dependencies
         run: uv pip install -e ".[dev]" --system
@@ -235,9 +248,11 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v8.3.2
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
-          version: 'latest'
+          version: '0.13.0'
+          manifest-file: ${{ env.UV_INSTALL_MANIFEST }}
+          checksum: ${{ runner.os == 'macOS' && runner.arch == 'ARM64' && 'a9c1b29002cf3c83f07fa9cd8a887a3be0107d90e23189721221e7257db8e3d6' || '1468ebd5a5541121837c5a2817b9972ba6090fa6caa3d142620850a47fb75154' }}
 
       - name: Install dependencies
         run: uv pip install -e ".[dev]" --system
@@ -292,9 +307,11 @@ jobs:
           python-version: '3.11'
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v8.3.2
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
-          version: 'latest'
+          version: '0.13.0'
+          manifest-file: ${{ env.UV_INSTALL_MANIFEST }}
+          checksum: '1468ebd5a5541121837c5a2817b9972ba6090fa6caa3d142620850a47fb75154'
 
       - name: Install dependencies
         run: uv pip install -e ".[dev]" --system
@@ -330,9 +347,11 @@ jobs:
           python-version: '3.11'
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v8.3.2
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
-          version: 'latest'
+          version: '0.13.0'
+          manifest-file: ${{ env.UV_INSTALL_MANIFEST }}
+          checksum: '1468ebd5a5541121837c5a2817b9972ba6090fa6caa3d142620850a47fb75154'
 
       - name: Install default runtime
         run: uv pip install -e . --system
@@ -365,9 +384,11 @@ jobs:
           python-version: '3.11'
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v8.3.2
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
-          version: 'latest'
+          version: '0.13.0'
+          manifest-file: ${{ env.UV_INSTALL_MANIFEST }}
+          checksum: '1468ebd5a5541121837c5a2817b9972ba6090fa6caa3d142620850a47fb75154'
 
       - name: Build root-owned wheel environment
         run: |
@@ -401,9 +422,11 @@ jobs:
           python-version: '3.11'
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v8.3.2
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
-          version: 'latest'
+          version: '0.13.0'
+          manifest-file: ${{ env.UV_INSTALL_MANIFEST }}
+          checksum: '1468ebd5a5541121837c5a2817b9972ba6090fa6caa3d142620850a47fb75154'
 
       - name: Install dependencies
         run: uv pip install -e ".[dev]" --system
@@ -424,9 +447,11 @@ jobs:
           python-version: '3.11'
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v8.3.2
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
-          version: 'latest'
+          version: '0.13.0'
+          manifest-file: ${{ env.UV_INSTALL_MANIFEST }}
+          checksum: '1468ebd5a5541121837c5a2817b9972ba6090fa6caa3d142620850a47fb75154'
 
       - name: Install dependencies
         run: uv pip install -e ".[dev]" --system
@@ -449,9 +474,11 @@ jobs:
           python-version: '3.11'
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v8.3.2
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
-          version: 'latest'
+          version: '0.13.0'
+          manifest-file: ${{ env.UV_INSTALL_MANIFEST }}
+          checksum: '1468ebd5a5541121837c5a2817b9972ba6090fa6caa3d142620850a47fb75154'
 
       - name: Install dependencies
         run: uv pip install -e ".[dev]" --system
