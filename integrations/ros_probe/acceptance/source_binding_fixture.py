@@ -274,6 +274,7 @@ def main():
         return subprocess.Popen(args, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
 
     def spin_until(condition, seconds):
+        nonlocal passive_daemon
         deadline = time.monotonic() + seconds
         while not condition():
             if time.monotonic() >= deadline:
@@ -283,6 +284,36 @@ def main():
                 raise RuntimeError("owned source stack or witness exited unexpectedly")
             if auxiliary and auxiliary.poll() is not None:
                 raise RuntimeError("explicit endpoint-only fault process exited unexpectedly")
+            restart = OUT / "passive-daemon-restart-request.json"
+            if passive_daemon and restart.exists():
+                request = json.loads(restart.read_text())
+                ready = json.loads(
+                    (OUT / "supervision" / f"daemon-ready-{passive_daemon.pid}.json").read_text()
+                )
+                if (
+                    set(request) != {"run_id", "expected_pid", "expected_generation"}
+                    or request["run_id"] != settings["run_id"]
+                    or request["expected_pid"] != passive_daemon.pid
+                    or request["expected_generation"] != ready["daemon_instance_id"]
+                    or (OUT / "passive-daemon-restart-consumed.json").exists()
+                ):
+                    raise ValueError("one explicitly owned passive daemon replacement required")
+                restart.rename(OUT / "passive-daemon-restart-consumed.json")
+                previous = passive_daemon.pid
+                stop(passive_daemon)
+                save(
+                    "passive-daemon-original-generation-exit.json",
+                    {
+                        "pid": previous,
+                        "returncode": passive_daemon.returncode,
+                        "daemon_instance_id": ready["daemon_instance_id"],
+                    },
+                )
+                argv = json.loads((OUT / "passive-daemon-argv.json").read_text())
+                passive_daemon = subprocess.Popen(
+                    argv, stdout=passive_log, stderr=subprocess.STDOUT, start_new_session=True
+                )
+                save("passive-daemon-replacement-process.json", process_fact(passive_daemon.pid))
             if passive_daemon and passive_daemon.poll() is not None:
                 raise RuntimeError("owned passive rosclawd exited unexpectedly")
             rclpy.spin_once(node, timeout_sec=0.05)
