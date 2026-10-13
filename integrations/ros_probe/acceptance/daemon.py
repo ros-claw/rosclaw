@@ -26,7 +26,6 @@ from rosclaw.daemon.protocol import PeerCredentials
 from rosclaw.daemon.server import RosclawDaemon
 from rosclaw.daemon.service import DaemonControlPlane
 from rosclaw.kernel import ExecutionMode
-from rosclaw.practice.recorder import PracticeRecorder
 from rosclaw.runtime.bus import RuntimeBus
 from rosclaw.runtime.event import RuntimeEvent
 
@@ -44,6 +43,7 @@ def main():
     if kind == "passive_observation":
         serve_passive_observation(root, config, persistent_ledger=args.persistent_ledger)
         return
+    from rosclaw.practice.recorder import PracticeRecorder
     if kind not in {"coverage", "navigation_only"}:
         raise ValueError("unsupported simulation executor kind")
     navigation_binding = None
