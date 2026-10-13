@@ -35,13 +35,9 @@ class TestFirstPartyKitActivation:
         catalog = service._tool_catalog
         for tool_id in ("ur5e.move_joints", "ur5e.move_to_pose", "ur5e.stop"):
             descriptor = catalog.get(tool_id)
-            assert descriptor is not None, (
-                f"clean install 缺 {tool_id}——第一方 kit 未自动激活"
-            )
+            assert descriptor is not None, f"clean install 缺 {tool_id}——第一方 kit 未自动激活"
         # executor 必须按 source 路由存在（不是只有目录条目）。
-        assert service._sim_executors.get("mcp:ur5e-sim") is not None, (
-            "kit 激活但 executor 未装配"
-        )
+        assert service._sim_executors.get("mcp:ur5e-sim") is not None, "kit 激活但 executor 未装配"
         await service.close()
 
     async def test_kit_activation_reports_health(self, tmp_path: Path) -> None:
@@ -73,7 +69,11 @@ class TestFirstPartyKitActivation:
         pkg = Path(rosclaw.__file__).parent
         candidates = list(pkg.glob("sim/kits/*.json")) + list(pkg.glob("sim/kits/*.yaml"))
         assert candidates, "包内无 robot kit manifest（sim/kits/）"
-        content = candidates[0].read_text(encoding="utf-8")
+        content = next(
+            p.read_text(encoding="utf-8")
+            for p in candidates
+            if "rosclaw/ur5e-sim" in p.read_text(encoding="utf-8")
+        )
         assert "rosclaw/ur5e-sim" in content
         assert "executor" in content
 
@@ -82,17 +82,13 @@ class TestJourneyFixtureBan:
     """七审 §6 PR-SEVEN-1.8/§7 CI 结构门禁。"""
 
     def test_journey_has_no_handwritten_mcp_servers(self) -> None:
-        source = (REPO / "tests" / "agentd" / "test_product_journey.py").read_text(
-            encoding="utf-8"
-        )
+        source = (REPO / "tests" / "agentd" / "test_product_journey.py").read_text(encoding="utf-8")
         assert "mcp_servers:" not in source, (
             "Product Journey 仍手写 mcp_servers——证明的是注入配置不是开箱即用"
         )
 
     def test_journey_has_no_repo_source_paths(self) -> None:
-        source = (REPO / "tests" / "agentd" / "test_product_journey.py").read_text(
-            encoding="utf-8"
-        )
+        source = (REPO / "tests" / "agentd" / "test_product_journey.py").read_text(encoding="utf-8")
         assert "REPO / 'src'" not in source and 'REPO / "src"' not in source, (
             "Product Journey 仍引用仓库源码路径作为 executor"
         )

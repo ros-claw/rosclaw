@@ -1,0 +1,114 @@
+{
+  "schema_version": "rosclaw.robot_kit.v1",
+  "kit_id": "rosclaw/microduck-sim",
+  "robot_type": "microduck",
+  "display_name": "Microduck Duckverse (SIMULATION)",
+  "keywords": [
+    "microduck",
+    "duckverse",
+    "last duck standing"
+  ],
+  "body_instance_template": "microduck-lavender",
+  "mode": "SIMULATION",
+  "capability_sources": [
+    "mcp:microduck-sim"
+  ],
+  "executor": {
+    "kind": "python_module",
+    "module": "microduck_lab.integrations.rosclaw_adapter",
+    "identity": "mcp:microduck-sim"
+  },
+  "approval_policy": {
+    "simulation_state_only": "auto",
+    "real_world": "forbidden"
+  },
+  "health_probes": [
+    "catalog_discovery",
+    "executor_roundtrip"
+  ],
+  "capabilities": {
+    "observation": [
+      "microduck.get_game_status"
+    ],
+    "action": [
+      "microduck.start_game"
+    ],
+    "compute": []
+  },
+  "timeout_ms": 600000,
+  "output_schemas": {
+    "microduck.get_game_status": {
+      "type": "object",
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "evidence_domain": {
+          "const": "simulation"
+        },
+        "busy": {
+          "type": "boolean"
+        },
+        "last_game": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "body_profiles": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        }
+      },
+      "required": [
+        "ok",
+        "evidence_domain",
+        "busy",
+        "last_game",
+        "body_profiles"
+      ],
+      "additionalProperties": false
+    },
+    "microduck.start_game": {
+      "type": "object",
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "evidence_domain": {
+          "const": "simulation"
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "audit_path": {
+          "type": "string"
+        },
+        "audit_sha256": {
+          "type": "string"
+        },
+        "outcome": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "ok",
+        "evidence_domain",
+        "run_id",
+        "audit_path",
+        "audit_sha256",
+        "outcome"
+      ],
+      "additionalProperties": true
+    }
+  },
+  "verifier_notes": {
+    "microduck.get_game_status": "SIMULATION RESULT / SAME-EXECUTOR EVIDENCE: use archived control/contact replay for deterministic verification; no hardware evidence"
+  },
+  "env_refs": [
+    "MICRODUCK_ROOT",
+    "MICRODUCK_PYTHON"
+  ]
+}

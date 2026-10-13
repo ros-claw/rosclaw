@@ -284,7 +284,7 @@ class AgentService:
             shared_client = PersistentMcpClient(
                 command=str(sim_server.get("command", "")),
                 args=tuple(str(a) for a in sim_server.get("args", []) or []),
-                env=kit_spawn_env(),
+                env=kit_spawn_env(tuple(str(r) for r in sim_server.get("env_refs", []) or ())),
             )
             self._shared_mcp_client = shared_client
             server_name = str(sim_server.get("name", "sim"))
@@ -594,7 +594,7 @@ class AgentService:
             shared = PersistentMcpClient(
                 command=str(spec["command"]),
                 args=tuple(spec["args"]),
-                env=kit_spawn_env(),
+                env=kit_spawn_env(tuple(str(r) for r in spec.get("env_refs", []) or ())),
             )
             self._shared_mcp_client = shared
             self._sim_executors[kit.executor_identity] = SimActionChannel(
@@ -826,7 +826,8 @@ class AgentService:
                 import logging
 
                 logging.getLogger("rosclaw.conformance").warning(
-                    "plan-ref conformance probe failed", exc_info=True,
+                    "plan-ref conformance probe failed",
+                    exc_info=True,
                 )
         body_id = mission.body_binding.body_id if mission is not None else ""
         mode = mission.mode.value if mission is not None else "SIMULATION"

@@ -36,6 +36,10 @@ class RobotKitV1:
     #: 七审 PR-SEVEN-5：自然语言 Robot Resolver 关键词（机械臂/arm →
     #: arm kit）。匹配只基于 manifest 声明——无匹配即诚实空候选。
     keywords: tuple[str, ...] = ()
+    output_schemas: dict[str, dict[str, Any]] = field(default_factory=dict)
+    verifier_notes: dict[str, str] = field(default_factory=dict)
+    timeout_ms: int = 5000
+    env_refs: tuple[str, ...] = ()
 
 
 def load_first_party_kits() -> list[RobotKitV1]:
@@ -60,6 +64,10 @@ def load_first_party_kits() -> list[RobotKitV1]:
                 compute_tools=tuple(capabilities.get("compute") or ()),
                 approval_policy=dict(raw.get("approval_policy") or {}),
                 keywords=tuple(str(k) for k in raw.get("keywords") or ()),
+                output_schemas=dict(raw.get("output_schemas") or {}),
+                verifier_notes=dict(raw.get("verifier_notes") or {}),
+                timeout_ms=int(raw.get("timeout_ms", 5000)),
+                env_refs=tuple(str(k) for k in raw.get("env_refs") or ()),
             )
         )
     return kits
@@ -128,10 +136,16 @@ def kit_server_spec(kit: RobotKitV1) -> dict[str, Any]:
         "effect_domain": "SIMULATION_STATE_ONLY",
         # PR-N5B：第一方 kit 显式声明 output_schema（canonical 输出
         # 验证依据；N5E 将收紧为 binding manifest）。
-        "output_schemas": dict(_UR5E_OUTPUT_SCHEMAS),
+        "output_schemas": dict(
+            kit.output_schemas or (_UR5E_OUTPUT_SCHEMAS if kit.robot_type == "ur5e" else {})
+        ),
         # WP-6：验证类工具的诚实标注（证据强度是模型/治理的决策
         # 依据——命令回放校验不得冒充独立验收证据）。
-        "verifier_notes": dict(_UR5E_VERIFIER_NOTES),
+        "verifier_notes": dict(
+            kit.verifier_notes or (_UR5E_VERIFIER_NOTES if kit.robot_type == "ur5e" else {})
+        ),
+        "timeout_ms": kit.timeout_ms,
+        "env_refs": list(kit.env_refs),
     }
 
 
@@ -219,8 +233,7 @@ _UR5E_OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
             "trajectory_hash": {"type": "string"},
             "label": {"type": "string"},
         },
-        "required": ["ok", "evidence_domain", "evidence_level",
-                     "artifact", "trajectory_hash"],
+        "required": ["ok", "evidence_domain", "evidence_level", "artifact", "trajectory_hash"],
         "additionalProperties": False,
     },
     "ur5e.verify_drawing": {
