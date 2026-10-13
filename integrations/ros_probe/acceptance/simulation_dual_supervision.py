@@ -142,6 +142,7 @@ def main():
                 health = status = source = None
                 pointer = None
                 body_sha = config_sha = None
+                health_monotonic_ns = None
                 try:
                     pointer = json.loads((root / "live-native-pointer.json").read_bytes())
                     if not re.fullmatch(r"original-native-[0-9]{3,6}\.json", pointer["file"]):
@@ -162,6 +163,7 @@ def main():
                         ),
                         native=native,
                     )
+                    health_monotonic_ns = time.monotonic_ns()
                     health = review_current_sim_navigation_health(
                         root / "generic-compiled",
                         request,
@@ -169,7 +171,6 @@ def main():
                         policy=enrollment["policy"],
                         policy_hash=enrollment["policy_hash"],
                     )
-                    health_monotonic_ns = time.monotonic_ns()
                     if health["status"] != "HEALTHY_SIM_OBSERVATION_ONLY":
                         raise ValueError("CURRENT_ROS_HEALTH:" + health["status"])
                     status = client.get_runtime_status()
@@ -201,6 +202,7 @@ def main():
                     "monotonic_ns": now,
                     "native_pointer": pointer,
                     "health": health,
+                    "health_review_monotonic_ns": health_monotonic_ns,
                     "daemon_status": status,
                     "source": source,
                     "daemon_body_file_sha256": body_sha,
