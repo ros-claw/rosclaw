@@ -8,8 +8,10 @@ The external supervisor must separately inspect and pin the running instance.
 import hashlib
 import json
 import os
+import shutil
 import signal
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -144,6 +146,8 @@ def main():
     )
     witness = None
     auxiliary = None
+    passive_daemon = None
+    passive_log = None
     witness_logs = []
     rclpy.init(args=["--ros-args", "-p", "use_sim_time:=true"])
     node = Node("rosclaw_source_capture")
@@ -168,6 +172,21 @@ def main():
         index = len(reviews)
         save(f"original-native-{index:03}.json", native)
         save(f"sealed-system-{index:03}.json", model.to_dict())
+        if settings.get("live_dual_supervision", False):
+            original = OUT / f"original-native-{index:03}.json"
+            pointer = OUT / "live-native-pointer.tmp"
+            pointer.write_text(
+                json.dumps(
+                    {
+                        "file": original.name,
+                        "sha256": hashlib.sha256(original.read_bytes()).hexdigest(),
+                        "captured_at": native["captured_at"],
+                        "received_monotonic_ns": time.monotonic_ns(),
+                    }
+                )
+                + "\n"
+            )
+            pointer.replace(OUT / "live-native-pointer.json")
         reviews.append({"index": index, "captured_at": native["captured_at"], "review": review})
         state.update(native=native, model=model, review=review)
 
@@ -264,6 +283,8 @@ def main():
                 raise RuntimeError("owned source stack or witness exited unexpectedly")
             if auxiliary and auxiliary.poll() is not None:
                 raise RuntimeError("explicit endpoint-only fault process exited unexpectedly")
+            if passive_daemon and passive_daemon.poll() is not None:
+                raise RuntimeError("owned passive rosclawd exited unexpectedly")
             rclpy.spin_once(node, timeout_sec=0.05)
 
     try:
@@ -477,6 +498,37 @@ def main():
         if fault != "none":
             end = time.monotonic() + 3
             spin_until(lambda: time.monotonic() >= end, 5)
+        if settings.get("live_dual_supervision", False):
+            daemon_root = OUT / "supervision"
+            (daemon_root / "home").mkdir(parents=True)
+            shutil.copytree(compiled / "body", daemon_root / "home/body")
+            body_config = json.loads((compiled / "execution_config.json").read_text())
+            daemon_config = {
+                "schema_version": "rosclaw.passive_daemon_fixture.v1",
+                **body_config,
+                "executor_kind": "passive_observation",
+                "run_id": settings["run_id"],
+                "manifest_hash": manifest["manifest_hash"],
+            }
+            (daemon_root / "execution_config.json").write_text(
+                json.dumps(daemon_config, indent=2) + "\n"
+            )
+            daemon_argv = [
+                sys.executable,
+                str(ROOT / "daemon.py"),
+                "--directory",
+                str(daemon_root),
+                "--persistent-ledger",
+            ]
+            save("passive-daemon-argv.json", daemon_argv)
+            passive_log = (OUT / "passive-daemon-original.log").open("x")
+            passive_daemon = subprocess.Popen(
+                daemon_argv, stdout=passive_log, stderr=subprocess.STDOUT, start_new_session=True
+            )
+            spin_until(
+                lambda: (daemon_root / f"daemon-ready-{passive_daemon.pid}.json").exists(), 20
+            )
+            save("passive-daemon-process.json", process_fact(passive_daemon.pid))
         save("compiled-witness-liveness.json", {"alive": witness_alive})
         save("latest-native.json", state["native"])
         save("latest-system.json", state["model"].to_dict())
@@ -508,6 +560,11 @@ def main():
             flush=True,
         )
     finally:
+        if passive_daemon:
+            stop(passive_daemon)
+            save("passive-daemon-exit.json", {"returncode": passive_daemon.returncode})
+        if passive_log:
+            passive_log.close()
         if auxiliary:
             stop(auxiliary)
             save("auxiliary-process-exit.json", {"returncode": auxiliary.returncode})

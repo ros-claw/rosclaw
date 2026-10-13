@@ -22,6 +22,7 @@ from rosclaw.connectors.ros.transport.base import RosbridgeEndpoint
 from rosclaw.connectors.ros.transport.rosbridge import RosbridgeTransport
 from rosclaw.core.runtime import Runtime, RuntimeConfig
 from rosclaw.daemon.ledger import DaemonLedger
+from rosclaw.daemon.protocol import PeerCredentials
 from rosclaw.daemon.server import RosclawDaemon
 from rosclaw.daemon.service import DaemonControlPlane
 from rosclaw.kernel import ExecutionMode
@@ -40,6 +41,9 @@ def main():
     root = args.directory.resolve()
     config = json.loads((root / "execution_config.json").read_text())
     kind = config.get("executor_kind", "coverage")
+    if kind == "passive_observation":
+        serve_passive_observation(root, config, persistent_ledger=args.persistent_ledger)
+        return
     if kind not in {"coverage", "navigation_only"}:
         raise ValueError("unsupported simulation executor kind")
     navigation_binding = None
@@ -212,6 +216,92 @@ def main():
         runtime.stop()
         if ledger is not None:
             ledger.close()
+
+
+def serve_passive_observation(root, config, *, persistent_ledger):
+    """Existing SDK rosclawd, with no transports, executors, drivers or leases.
+
+    This role only binds an independently compiled Body/run to this actual
+    daemon generation. It does not admit SIM actions or enable the generic sink.
+    """
+    keys = {
+        "schema_version",
+        "executor_kind",
+        "body_id",
+        "body_snapshot_hash",
+        "run_id",
+        "manifest_hash",
+    }
+    if (
+        set(config) != keys
+        or not persistent_ledger
+        or config["schema_version"] != "rosclaw.passive_daemon_fixture.v1"
+        or len(os.fsencode(root / "run/rosclawd.sock")) >= 104
+    ):
+        raise ValueError("closed passive daemon configuration and persistent ledger required")
+    resolver = BodyResolver(workspace=root / "home", body_id=config["body_id"])
+    effective = resolver.get_effective_body(recompile_if_stale=False)
+    binding = SimulationNavigationBinding.from_body(effective)
+    if (
+        binding.body_snapshot_hash != config["body_snapshot_hash"]
+        or binding.run_id != config["run_id"]
+    ):
+        raise ValueError("passive daemon immutable Body/run mismatch")
+    body_raw = resolver.effective_body_path.read_bytes()
+    runtime = Runtime(
+        RuntimeConfig(
+            robot_id=config["body_id"],
+            workspace_home=str(root / "home"),
+            enable_firewall=False,
+            enable_memory=False,
+            enable_practice=False,
+            enable_skill_manager=False,
+            enable_knowledge=False,
+            enable_how=False,
+            enable_auto=False,
+            enable_provider=False,
+            enable_sense=False,
+            enable_recovery_loop=False,
+            enable_event_persistence=False,
+            enable_tracing=False,
+            seekdb_backend="sqlite",
+            seekdb_path=str(root / "memory.sqlite"),
+        )
+    )
+    runtime.initialize()
+    runtime.start()
+    state = root / "state" / "passive"
+    ledger = DaemonLedger(state / "control.sqlite")
+    service = DaemonControlPlane(runtime=runtime, state_dir=state, ledger=ledger)
+    daemon = RosclawDaemon(service=service, socket_path=root / "run/rosclawd.sock")
+    stopped = threading.Event()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        signal.signal(sig, lambda *_: stopped.set())
+    try:
+        daemon.start()
+        status = service.get_runtime_status(PeerCredentials(os.getpid(), os.getuid(), os.getgid()))
+        if status["drivers"] or status["registered_executors"]:
+            raise RuntimeError("passive rosclawd must have zero drivers/executors")
+        ready = {
+            **config,
+            "pid": os.getpid(),
+            "uid": os.getuid(),
+            "daemon_instance_id": status["daemon_instance_id"],
+            "effective_body_file_sha256": hashlib.sha256(body_raw).hexdigest(),
+            "execution_config_sha256": hashlib.sha256(
+                (root / "execution_config.json").read_bytes()
+            ).hexdigest(),
+            "source_only": True,
+            "L2": "NOT_RUN",
+            "firewall_fixture_enabled": False,
+        }
+        with (root / f"daemon-ready-{os.getpid()}.json").open("x") as stream:
+            stream.write(json.dumps(ready, indent=2) + "\n")
+        stopped.wait()
+    finally:
+        daemon.stop()
+        runtime.stop()
+        ledger.close()
 
 
 def freeze_audit_source(root, config):
