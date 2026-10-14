@@ -32,3 +32,5 @@
 - [0020: Passive SIM source continuity](0020-passive-sim-source-continuity.md) — terminal read-only groundwork, not execution admission.
 
 - [0021: Bounded passive ECM stream supervision](0021-bounded-live-source-stream.md)
+
+- [0022: Current SIM health and passive daemon generation](0022-current-sim-health-and-daemon-generation.md)

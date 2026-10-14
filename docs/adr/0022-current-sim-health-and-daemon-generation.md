@@ -1,0 +1,13 @@
+# ADR 0022: Current SIM health and passive daemon generation
+
+Status: implemented, local actual SIM verified; source/main integration pending.
+
+Initial stopped G1/L1 is a point-in-time observation. Passive ECM continuity alone does not prove current navigation health. Current ROS facts must be re-evaluated from original Native bytes against the unchanged compiled Body and operator policy, and tied to the current daemon generation.
+
+`review_current_sim_navigation_health` shares the existing L1 facts implementation for localization covariance, graph/lifecycle, TF, costmap source and configured/effective footprint. It deliberately accepts no historic source PASS or stopped physics capture. Its HEALTHY_SIM_OBSERVATION_ONLY result has no execution authority and explicitly leaves source binding and daemon generation NOT_EVALUATED. Existing initial L1 still separately requires stopped/no-lease source evidence. Policies and strict covariance/footprint limits are unchanged.
+
+The SDK passive supervisor joins current source-stream polling, that freshly recomputed health observation and actual DaemonClient runtime.status from an independent existing rosclawd. Enrollment separately pins accepted initial G1/L1, immutable Body/manifest/run, observer epoch/PID/cursors and actual daemon PID/UID/instance ID. The daemon role registers no robot executor/driver or ROS transport. Canonical Runtime still advertises its two sandbox.reach registrations; no sandbox action occurs and MuJoCo is unavailable in this SDK image. Same UID demonstrates process separation only. Firewall is disabled in this fixture and is not claimed verified.
+
+Every successful poll verifies daemon/watchdog/ledger/recovery state, DISARMED status, no active authority/actions, and original Body/config hashes. The start-to-end health review and ECM source observation each have a 500 ms monotonic budget. ROS data uses its distinct existing 5000 ms operator policy plus the existing stricter typed-stream/header checks. All loss is terminal. Restarted healthy rosclawd has a new generation and cannot satisfy the old pins. New enrollment is explicit and does not resume any old action/lease.
+
+Operator fixture repair raised global/local costmap update/publication to 5 Hz after the prior 1 Hz global updates produced an actual 1040 ms stamp and correctly failed the unchanged 1000 ms frame check. Only these cadence keys changed; geometry, routes and all eight Body limits are unchanged. No threshold was loosened. The full-source observer remains read-only, with its generic actuator path still refused. This ADR does not admit L2, hardware, or Memory claims.
