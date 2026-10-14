@@ -10,6 +10,7 @@ import hashlib
 import json
 import math
 import os
+import stat
 import subprocess
 import tempfile
 import time
@@ -22,6 +23,44 @@ from simulation_current_facts import _read
 from simulation_owned_entity_fault import latest_owned_ecm
 from simulation_unadmitted_sink import require_unadmitted_sink
 from simulation_witness_sources import SimulationWitnessSources
+
+
+def recent_original_contacts_clear(root, sources):
+    """Cumulative episode counts cannot establish that a contact has ended."""
+    seen = set()
+    for path in root.glob("contact-messages-*.jsonl"):
+        if ".chain." in path.name:
+            continue
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        try:
+            info = os.fstat(fd)
+            if not stat.S_ISREG(info.st_mode) or not 0 < info.st_size <= 30_000_000:
+                raise ValueError("bounded original contact segment required")
+            offset = max(0, info.st_size - 1_000_000)
+            raw = os.pread(fd, min(info.st_size, 1_000_000), offset)
+        finally:
+            os.close(fd)
+        now_ns = time.monotonic_ns()
+        lines = raw[: raw.rfind(b"\n") + 1].splitlines()
+        if offset:
+            lines = lines[1:]
+        for line in lines:
+            row = json.loads(line)
+            age = now_ns - row["received_monotonic_ns"]
+            if age < 0:
+                raise ValueError("future original contact rejected")
+            if age > 300_000_000:
+                continue
+            if row["run_id"] != sources.run_id or row["topic"] not in sources.contact_topics:
+                raise ValueError("contact run/topic differs from declared original")
+            seen.add(row["topic"])
+            for contact in row["message"]["contacts"]:
+                if all(
+                    contact[k]["name"] not in sources.ground_collision_names
+                    for k in ["collision1", "collision2"]
+                ):
+                    return False
+    return set(sources.ground_witness_topics).issubset(seen)
 
 
 def collider_bytes(sample, robot, name):
@@ -102,6 +141,8 @@ def run_trial(root, assets, policy):
                 if positive
                 else (counter == 0 if label == "baseline_zero" else counter == stable_counter)
             )
+            if label == "after_removal_zero":
+                matches = matches and recent_original_contacts_clear(root, sources)
             if row["observation_complete"] and matches:
                 if not samples or row["captured_at"] != samples[-1]["captured_at"]:
                     samples.append(row)

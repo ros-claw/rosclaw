@@ -1,9 +1,11 @@
 """Synthetic geometric selection checks; never actual contact acceptance."""
 
 import importlib
+import json
 import math
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -58,3 +60,43 @@ def test_ambiguous_or_invalid_surface_never_produces_test_collider(module, probl
         original["collisions"][1]["world_pose"][0] = math.nan
     with pytest.raises(ValueError):
         module.collider_bytes(original, "declared_body", "trial_collider")
+
+
+@pytest.mark.parametrize("condition", ["clear", "active", "stale", "missing", "wrong_run"])
+def test_raw_contacts_require_fresh_complete_streams_and_no_active_nonfloor_pair(
+    module, tmp_path, monkeypatch, condition
+):
+    monkeypatch.setattr(module.time, "monotonic_ns", lambda: 1_000_000_000)
+    sources = SimpleNamespace(
+        run_id="run",
+        contact_topics=("left", "right", "base"),
+        ground_witness_topics=("left", "right"),
+        ground_collision_names=("floor",),
+    )
+    rows = [
+        {
+            "run_id": "run",
+            "topic": topic,
+            "received_monotonic_ns": 950_000_000,
+            "message": {"contacts": []},
+        }
+        for topic in ["left", "right"]
+    ]
+    if condition == "active":
+        rows[0]["message"]["contacts"] = [
+            {"collision1": {"name": "body"}, "collision2": {"name": "trial"}}
+        ]
+    elif condition == "stale":
+        rows[0]["received_monotonic_ns"] = 1
+    elif condition == "missing":
+        rows.pop()
+    elif condition == "wrong_run":
+        rows[0]["run_id"] = "other"
+    (tmp_path / "contact-messages-1.jsonl").write_text(
+        "".join(json.dumps(row) + "\n" for row in rows)
+    )
+    if condition == "wrong_run":
+        with pytest.raises(ValueError, match="run/topic"):
+            module.recent_original_contacts_clear(tmp_path, sources)
+    else:
+        assert module.recent_original_contacts_clear(tmp_path, sources) is (condition == "clear")
