@@ -52,6 +52,7 @@ class GovernedSimulationSink(Node):
         self.p03_sha256 = p03_sha256
         self.binding = self.admission = self.facts = self.client = self.gate = None
         self.monitor = None
+        self.observation_worker = SdkCurrentFactsProcess.prepare_process()
         self.key = self.velocity = None
         self.failed_reason = None
         self.deadline_ns = self.lease_updates = self.received = self.published = self.zeroes = 0
@@ -142,6 +143,7 @@ class GovernedSimulationSink(Node):
                 enrollment_sha256=envelope["payload"]["facts_enrollment_sha256"],
                 admission=admission,
                 binding=self.binding,
+                prepared_process=self.observation_worker,
             )
             self.monitor.start()
         except BaseException:
@@ -376,6 +378,8 @@ def main():
             node._zero()
         if node.monitor is not None:
             node.monitor.close()
+        else:
+            SdkCurrentFactsProcess.close_owned_process(node.observation_worker)
         if node.facts is not None:
             node.facts.close()
         node.events.close()

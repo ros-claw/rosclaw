@@ -22,7 +22,7 @@ from rosclaw.daemon.client import DaemonClient
 
 
 class SdkCurrentFactsProcess:
-    def __init__(self, *, root, enrollment_sha256, admission, binding):
+    def __init__(self, *, root, enrollment_sha256, admission, binding, prepared_process=None):
         self.root = Path(root)
         self.path = self.root / "execution-control/current-monitor.json"
         self.config = {
@@ -31,21 +31,28 @@ class SdkCurrentFactsProcess:
             "admission": admission,
             "body_id": binding.body_id,
         }
-        self.process = None
+        self.process = prepared_process
         self.failed_reason = None
         self._started = False
         self.ready = False
         self._startup_deadline_ns = None
 
-    def start(self):
-        if self._started or self.failed_reason:
-            raise ValueError("SDK current process cannot be restarted")
-        self._started = True
-        self.process = subprocess.Popen(
+    @staticmethod
+    def prepare_process():
+        # Import the pure SDK worker during passive fixture bootstrap. It waits
+        # on stdin and cannot collect facts or acknowledge admission yet.
+        return subprocess.Popen(
             [sys.executable, str(Path(__file__).resolve()), "--worker"],
             stdin=subprocess.PIPE,
             stdout=subprocess.DEVNULL,
         )
+
+    def start(self):
+        if self._started or self.failed_reason:
+            raise ValueError("SDK current process cannot be restarted")
+        self._started = True
+        if self.process is None:
+            self.process = self.prepare_process()
         self.process.stdin.write(json.dumps(self.config, allow_nan=False).encode() + b"\n")
         self.process.stdin.close()
         self._startup_deadline_ns = time.monotonic_ns() + 500_000_000
@@ -99,13 +106,17 @@ class SdkCurrentFactsProcess:
 
     def close(self):
         self.failed_reason = self.failed_reason or "SDK_CURRENT_PROCESS_CLOSED"
-        if self.process is not None and self.process.poll() is None:
-            self.process.terminate()
+        self.close_owned_process(self.process)
+
+    @staticmethod
+    def close_owned_process(process):
+        if process is not None and process.poll() is None:
+            process.terminate()
             try:
-                self.process.wait(timeout=1)
+                process.wait(timeout=1)
             except subprocess.TimeoutExpired:
-                self.process.kill()
-                self.process.wait(timeout=1)
+                process.kill()
+                process.wait(timeout=1)
 
 
 def run_worker(config):
