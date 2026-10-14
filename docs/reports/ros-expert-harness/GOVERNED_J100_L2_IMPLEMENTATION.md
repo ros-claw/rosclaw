@@ -36,3 +36,23 @@ actual independently guarded unique velocity sink, daemon proof production,
 three fresh J100 seeds with position and yaw actions through canonical MCP,
 all ten execution fault cases, raw independent physical verification and normal
 source/main PR integration. G4 and G5 remain unaccepted.
+
+Current preparation evidence (2026-10-14): the full ROS suite passed 913 tests
+(10 deselected), and 110 focused guard/health contracts passed. A fresh readonly
+World on source `c16a2cf333d1f6ee0c4e736360637b9caa888481` passed five seconds
+of strict current-facts review: 68 health rows, 142 raw source samples and 5,356
+original contacts independently recomputed, with zero unexpected contacts,
+leases, goals or velocity publications. The first World refused a fixture
+evidence symlink; the fix pins the explicit readonly original asset mount.
+Both original Worlds are preserved in the 652-file public archive
+`evidence/2026-10-14/L2-current-facts-sourceC16A2CF3-readonly-originals`, manifest
+SHA256 `be0ce1a71c3db0c8aef3156f5050ccab988204da91899887c8b8b1b00ceeb9c5`.
+This is stricter readonly preparation, not a completed L2 action.
+
+The SDK daemon proof producer now binds actual internal runtime status and
+current source/ROS facts, checks conservative action/stop evidence capacity,
+writes private authenticated proofs atomically and records bounded original
+proof/health/status audit rows. Nineteen synthetic producer contracts passed,
+including generation loss, insufficient capacity and replaced-directory cleanup.
+It still needs composition with the existing daemon and the actual ROS sink;
+its software tests are not physical proof or independent socket enrollment.
