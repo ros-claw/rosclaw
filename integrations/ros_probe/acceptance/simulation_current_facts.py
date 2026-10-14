@@ -48,12 +48,17 @@ def _read(path, limit):
 
 
 class CurrentSimulationFacts:
-    def __init__(self, directory, *, enrollment_sha256):
+    def __init__(self, directory, *, assets_directory, enrollment_sha256):
         self.directory = Path(directory)
         info = self.directory.stat(follow_symlinks=False)
         if not stat.S_ISDIR(info.st_mode):
             raise ValueError("independent original evidence directory required")
         self._directory_identity = info.st_dev, info.st_ino
+        self.assets_directory = Path(assets_directory)
+        assets_info = self.assets_directory.stat(follow_symlinks=False)
+        if not stat.S_ISDIR(assets_info.st_mode):
+            raise ValueError("explicit immutable original assets directory required")
+        self._assets_identity = assets_info.st_dev, assets_info.st_ino
         self.failed_reason = None
         self.reader = None
         raw = _read(self.directory / "execution-facts-enrollment.json", 64_000)
@@ -111,7 +116,7 @@ class CurrentSimulationFacts:
             ("robot.urdf", "urdf_sha256", 5_000_000),
             ("world.sdf", "world_sha256", 20_000_000),
         ):
-            if _sha(_read(self.directory / name, limit)) != e[key]:
+            if _sha(_read(self.assets_directory / name, limit)) != e[key]:
                 raise ValueError("independent original URDF/World SHA mismatch")
         self.enrollment = e
         self.reader = SimulationSourceStreamReader(
@@ -133,11 +138,16 @@ class CurrentSimulationFacts:
                 info.st_mode
             ):
                 raise ValueError("original evidence directory replaced")
+            info = self.assets_directory.stat(follow_symlinks=False)
+            if (info.st_dev, info.st_ino) != self._assets_identity or not stat.S_ISDIR(
+                info.st_mode
+            ):
+                raise ValueError("original asset directory replaced")
             for name, key, limit in (
                 ("robot.urdf", "urdf_sha256", 5_000_000),
                 ("world.sdf", "world_sha256", 20_000_000),
             ):
-                if _sha(_read(self.directory / name, limit)) != self.enrollment[key]:
+                if _sha(_read(self.assets_directory / name, limit)) != self.enrollment[key]:
                     raise ValueError("enrolled original URDF/World bytes changed")
             pointer = json.loads(_read(self.directory / "live-native-pointer.json", 4096))
             if (
@@ -213,11 +223,14 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--enrollment-sha256", required=True)
     parser.add_argument("--duration", type=float, required=True)
+    parser.add_argument("--assets-directory", type=Path, required=True)
     args = parser.parse_args()
     if not 0 < args.duration <= 10:
         raise ValueError("bounded SDK read-only observation duration <=10s required")
     root = Path("/evidence")
-    collector = CurrentSimulationFacts(root, enrollment_sha256=args.enrollment_sha256)
+    collector = CurrentSimulationFacts(
+        root, assets_directory=args.assets_directory, enrollment_sha256=args.enrollment_sha256
+    )
     started = time.monotonic_ns()
     rows, reason = 0, None
     try:
