@@ -456,6 +456,7 @@ async def main():
                             "rosbridge_disconnect",
                             "collision_monitor_disabled",
                             "out_of_bounds_goal",
+                            "wrong_body_hash",
                         }
                         and actor_code == 0
                     ):
@@ -652,11 +653,9 @@ async def main():
         and fault_checks.get("old_lease_probe_returncode") == 0
         and fault_checks.get("old_action_refused")
         and fault_checks.get("actual_before_dispatch_unadmitted_refusal")
-        and (
-            fault_checks.get("terminal_receipt_missing")
-            if fault_policy["case"] == "wrong_body_hash"
-            else isinstance(fault_receipt, dict) and fault_receipt.get("final_state") == "BLOCKED"
-        )
+        and not fault_checks.get("terminal_receipt_missing")
+        and isinstance(fault_receipt, dict)
+        and fault_receipt.get("final_state") == "BLOCKED"
     )
     fault_pass = before_pass or bool(
         fault_policy

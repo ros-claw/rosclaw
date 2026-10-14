@@ -667,6 +667,20 @@ class RosCoverageSimulationExecutor:
 
     def __call__(self, action):
         if (
+            action.execution_mode is ExecutionMode.SIMULATION
+            and action.body_id == self.body_id
+            and action.body_snapshot_hash != self.body_snapshot_hash
+        ):
+            return self._result(
+                ActionState.BLOCKED,
+                errors=[
+                    {
+                        "code": "BODY_SNAPSHOT_MISMATCH",
+                        "message": "action Body snapshot differs from the immutable SIM executor binding",
+                    }
+                ],
+            )
+        if (
             action.execution_mode is not ExecutionMode.SIMULATION
             or action.body_id != self.body_id
             or action.body_snapshot_hash != self.body_snapshot_hash

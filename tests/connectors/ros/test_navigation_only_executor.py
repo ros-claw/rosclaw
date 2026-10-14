@@ -217,6 +217,18 @@ def test_supervision_admission_loss_blocks_enable_and_latches_future_action(tmp_
     assert executor(action).final_state is ActionState.BLOCKED
 
 
+def test_wrong_body_hash_has_precise_refusal_before_supervision_or_dispatch(tmp_path):
+    executor, action, witness, control, client = make_executor(
+        tmp_path, supervision_factory=SyntheticSupervision
+    )
+    action.body_snapshot_hash = "0" * 64
+    result = executor(action)
+    assert result.final_state is ActionState.BLOCKED
+    assert result.errors[0]["code"] == "BODY_SNAPSHOT_MISMATCH"
+    assert executor.navigation_supervision.admitted is None
+    assert not control.calls and not client.sent and not witness.lease
+
+
 def test_source_loss_between_enable_and_send_never_dispatches_goal(tmp_path):
     executor, action, witness, control, client = make_executor(
         tmp_path, supervision_factory=SyntheticSupervision

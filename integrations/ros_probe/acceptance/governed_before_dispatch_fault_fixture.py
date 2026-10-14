@@ -82,14 +82,16 @@ def main():
     request = json.loads(_read(root / "governed-action-0-request-original.json", 32768))
     refusal = json.loads(_read(rejected if rejected.exists() else receipt_path, 256000))
     if policy["case"] == "wrong_body_hash":
-        if request["body_snapshot_hash"] == binding.body_snapshot_hash or not rejected.exists():
-            raise ValueError(
-                "actual wrong immutable Body hash request must be rejected before ticket"
-            )
-        if not any(
-            word in refusal["original_error"].lower() for word in ["snapshot", "body", "hash"]
+        receipt = refusal.get("receipt", {})
+        if (
+            request["body_snapshot_hash"] == binding.body_snapshot_hash
+            or receipt.get("body_snapshot_hash") != request["body_snapshot_hash"]
+            or receipt.get("final_state") != "BLOCKED"
+            or not any(e.get("code") == "BODY_SNAPSHOT_MISMATCH" for e in receipt.get("errors", []))
         ):
-            raise ValueError("MCP refusal did not identify the invalid Body context")
+            raise ValueError(
+                "actual wrong Body hash must have original snapshot-mismatch BLOCKED receipt"
+            )
     else:
         receipt = refusal.get("receipt", {})
         if receipt.get("final_state") != "BLOCKED" or not any(
