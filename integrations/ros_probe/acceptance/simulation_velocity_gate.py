@@ -19,7 +19,16 @@ from rosclaw.connectors.ros.mission.navigation_binding import SimulationNavigati
 
 
 class SimulationVelocityGate:
-    def __init__(self, *, binding, pins, key, collect_local, clock=time.monotonic_ns):
+    def __init__(
+        self,
+        *,
+        binding,
+        pins,
+        key,
+        collect_local,
+        clock=time.monotonic_ns,
+        collect_at_least_source=None,
+    ):
         if (
             not isinstance(binding, SimulationNavigationBinding)
             or not isinstance(pins, ExecutionProofPins)
@@ -28,6 +37,7 @@ class SimulationVelocityGate:
             or binding.run_id != pins.run_id
             or not callable(collect_local)
             or not callable(clock)
+            or (collect_at_least_source is not None and not callable(collect_at_least_source))
         ):
             raise ValueError(
                 "matching immutable SIM Body/run and independent SDK collector required"
@@ -35,6 +45,7 @@ class SimulationVelocityGate:
         self.binding, self.pins = binding, pins
         self._verifier = ExecutionProofVerifier(pins=pins, key=key)
         self._collect_local, self._clock = collect_local, clock
+        self._collect_at_least_source = collect_at_least_source
         self._deadline = 0
         self._started = False
         self.failed_reason = None
@@ -59,7 +70,14 @@ class SimulationVelocityGate:
             # Record the start before actual IO/review; collection time counts
             # against freshness and may not extend the authenticated deadline.
             started = now
-            local = self._collect_local()
+            if self._collect_at_least_source is None:
+                local = self._collect_local()
+            else:
+                # Authenticate before asking the independent process to catch
+                # up. The same proof and old lease are checked AGAIN after
+                # waiting, so synchronization never extends either deadline.
+                requested = self._verifier.verify(raw, now_ns=now)
+                local = self._collect_at_least_source(requested["source_sample"])
             now = self._clock()
             if self._started and now >= self._deadline:
                 raise ValueError("ACTION_LEASE_EXPIRED_DURING_COLLECTION")

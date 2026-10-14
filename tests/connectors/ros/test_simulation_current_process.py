@@ -99,3 +99,35 @@ def test_close_terminates_owned_child_and_prevents_restart(fixture):
         monitor.start()
     with pytest.raises(ValueError, match="CLOSED"):
         monitor.get()
+
+
+def test_cursor_barrier_waits_for_independent_observation_without_extending_expiry(
+    fixture, monkeypatch
+):
+    monitor, _, clock, original, publish = fixture
+    original["facts"]["source"] = {"last_sample": 24}
+    publish()
+    module = importlib.import_module("simulation_current_process")
+
+    def advance(_):
+        clock[0] += 2_000_000
+        original["facts"]["source"]["last_sample"] = 25
+        publish()
+
+    monkeypatch.setattr(module.time, "sleep", advance)
+    assert monitor.get_at_least_source(25)["source"]["last_sample"] == 25
+    assert original["facts"]["valid_until_monotonic_ns"] == 1_100_000_000
+
+
+def test_stalled_cursor_cannot_hide_expired_observation(fixture, monkeypatch):
+    monitor, _, clock, original, publish = fixture
+    original["facts"]["source"] = {"last_sample": 24}
+    publish()
+    module = importlib.import_module("simulation_current_process")
+
+    def advance(_):
+        clock[0] += 2_000_000
+
+    monkeypatch.setattr(module.time, "sleep", advance)
+    with pytest.raises(ValueError, match="window expired"):
+        monitor.get_at_least_source(25)

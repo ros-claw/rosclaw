@@ -209,3 +209,36 @@ def test_collection_cannot_cross_lease_deadline_even_if_new_proof_would_be_valid
     gate._collect_local = slow_collection
     with pytest.raises(ValueError, match="EXPIRED_DURING_COLLECTION"):
         gate.validate_command(command(), raw=raw)
+
+
+def test_authenticated_cursor_barrier_and_old_deadline_rechecked(setup_gate):
+    gate, raw, clock, local = setup_gate
+    calls = []
+
+    def collect(sample):
+        calls.append(sample)
+        return local
+
+    gate._collect_at_least_source = collect
+    gate.refresh_lease(raw)
+    assert calls == [25]
+
+    def delayed(sample):
+        assert sample == 25
+        clock[0] += 250_000_000
+        return local
+
+    gate._collect_at_least_source = delayed
+    with pytest.raises(ValueError, match="EXPIRED_DURING_COLLECTION"):
+        gate.refresh_lease(raw)
+
+
+def test_tampered_proof_cannot_request_cursor_wait(setup_gate):
+    gate, raw, _, _ = setup_gate
+
+    def forbidden(sample):
+        pytest.fail("unauthenticated proof reached independent cursor barrier")
+
+    gate._collect_at_least_source = forbidden
+    with pytest.raises(ValueError, match="latched"):
+        gate.refresh_lease(raw.replace(b'"source_sample":25', b'"source_sample":26'))

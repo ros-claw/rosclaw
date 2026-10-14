@@ -108,6 +108,18 @@ class SdkCurrentFactsProcess:
         self.failed_reason = self.failed_reason or "SDK_CURRENT_PROCESS_CLOSED"
         self.close_owned_process(self.process)
 
+    def get_at_least_source(self, sample):
+        if type(sample) is not int or sample < 0:
+            self._fail("authenticated source cursor required")
+        deadline = time.monotonic_ns() + 100_000_000
+        while True:
+            facts = self.get()
+            if facts["source"]["last_sample"] >= sample:
+                return facts
+            if time.monotonic_ns() >= deadline:
+                self._fail("independent source cursor did not catch up within 100ms")
+            time.sleep(0.002)
+
     @staticmethod
     def close_owned_process(process):
         if process is not None and process.poll() is None:

@@ -152,10 +152,14 @@ class GovernedSimulationSink(Node):
             facts.close()
             raise
 
-    def _current_local(self, *, require_active=True):
+    def _current_local(self, minimum_source_sample=None, *, require_active=True):
         if self.admission is None or time.monotonic_ns() >= self.admission["expires_ns"]:
             raise ValueError("explicit SDK operator context unavailable or expired")
-        facts = self.monitor.get()
+        facts = (
+            self.monitor.get()
+            if minimum_source_sample is None
+            else self.monitor.get_at_least_source(minimum_source_sample)
+        )
         status = facts["daemon_status"]
         a = self.admission
         review_active_sim_daemon(
@@ -256,7 +260,11 @@ class GovernedSimulationSink(Node):
                     **{k: self.admission[k] for k in keys}, action_id=action_id
                 )
                 self.gate = SimulationVelocityGate(
-                    binding=self.binding, pins=pins, key=self.key, collect_local=self._current_local
+                    binding=self.binding,
+                    pins=pins,
+                    key=self.key,
+                    collect_local=self._current_local,
+                    collect_at_least_source=self._current_local,
                 )
                 self.action_id = action_id
             elif action_id != self.action_id:
