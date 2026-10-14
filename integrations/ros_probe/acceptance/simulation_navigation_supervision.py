@@ -282,6 +282,49 @@ class SdkNavigationExecutionSupervision(NavigationExecutionSupervision):
             )
             self._write_private("admission.json", raw_context)
             self._admission_expires_ns = context["expires_ns"]
+            # Initial enrollment replays historical source bytes. Complete
+            # this no-motion handshake before starting a fresh proof lifetime.
+            ready_deadline = min(self._deadline, time.monotonic_ns() + 500_000_000)
+            while True:
+                acknowledged = self.lease_observation.read()
+                if not acknowledged["known"] or acknowledged["status"]["terminal"]:
+                    raise ValueError("independent SDK sink admission became unavailable")
+                if (
+                    acknowledged["status"].get("daemon_instance_id")
+                    == self._pins["daemon_instance_id"]
+                ):
+                    break
+                if time.monotonic_ns() >= ready_deadline:
+                    raise ValueError(
+                        "bounded independent SDK sink admission acknowledgment expired"
+                    )
+                time.sleep(0.01)
+            self._record(
+                {
+                    "event": "SDK_SINK_ADMISSION_ACKNOWLEDGED",
+                    "sink_observation": acknowledged,
+                    "monotonic_ns": time.monotonic_ns(),
+                }
+            )
+            started = time.monotonic_ns()
+            facts = self.facts.collect()
+            sink = self.lease_observation.read()
+            status = self._status()
+            review_active_sim_daemon(
+                status,
+                instance_id=self._pins["daemon_instance_id"],
+                pid=os.getpid(),
+                uid=os.geteuid(),
+                body_id=self.binding.body_id,
+            )
+            now = time.monotonic_ns()
+            if (
+                not sink["known"]
+                or sink["status"]["terminal"]
+                or now >= self._deadline
+                or now - started > 250_000_000
+            ):
+                raise ValueError("fresh post-admission proof observations unavailable or expired")
         if now >= self._admission_expires_ns:
             raise ValueError("operator SDK context expired; no automatic readmission")
         self._sequence += 1

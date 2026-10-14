@@ -120,7 +120,11 @@ def producer(module, tmp_path):
             self.terminal = False
 
         def read(self):
-            return {"known": True, "lease_enabled": False, "status": {"terminal": self.terminal}}
+            return {
+                "known": True,
+                "lease_enabled": False,
+                "status": {"terminal": self.terminal, "daemon_instance_id": "daemon_synthetic"},
+            }
 
     p03_raw = json.dumps(synthetic_p03_review()).encode()
     guard = module.SdkNavigationExecutionSupervision(
@@ -200,3 +204,48 @@ def test_terminal_sink_cannot_be_hidden_by_healthy_source_and_daemon(producer):
     with pytest.raises(ValueError, match="sink state"):
         guard.check("synthetic-position")
     assert not (private / "proof.json").exists()
+
+
+def test_first_proof_uses_fresh_facts_after_independent_admission_ack(producer):
+    guard, facts, _, _, private = producer
+    original_read = guard.lease_observation.read
+    original_collect = facts.collect
+    state = {"polls": 0, "ack_ns": None, "fresh_collect_after_ack": False}
+
+    def delayed_ack():
+        result = original_read()
+        if (private / "admission.json").exists():
+            assert not (private / "proof.json").exists()
+            state["polls"] += 1
+            if state["polls"] < 3:
+                result["status"]["daemon_instance_id"] = None
+            elif state["ack_ns"] is None:
+                state["ack_ns"] = time.monotonic_ns()
+        return result
+
+    def collect():
+        if state["ack_ns"] is not None:
+            state["fresh_collect_after_ack"] = True
+        return original_collect()
+
+    guard.lease_observation.read = delayed_ack
+    facts.collect = collect
+    guard.begin("synthetic-position", duration_sec=1.0)
+    proof = json.loads((private / "proof.json").read_text())["payload"]
+    assert state["fresh_collect_after_ack"]
+    assert proof["health_review_ns"] >= state["ack_ns"]
+    assert proof["issued_ns"] >= state["ack_ns"]
+    assert proof["expires_ns"] - proof["issued_ns"] <= 250_000_000
+
+
+def test_wrong_admission_generation_never_produces_motion_proof(producer):
+    guard, _, _, _, private = producer
+    guard.lease_observation.read = lambda: {
+        "known": True,
+        "status": {"terminal": False, "daemon_instance_id": "another-generation"},
+    }
+    with pytest.raises(ValueError, match="acknowledgment expired"):
+        guard.begin("synthetic-position", duration_sec=0.01)
+    assert not (private / "proof.json").exists()
+    with pytest.raises(ValueError, match="latched"):
+        guard.begin("synthetic-yaw", duration_sec=1.0)
