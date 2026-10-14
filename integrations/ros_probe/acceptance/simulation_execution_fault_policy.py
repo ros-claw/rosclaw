@@ -39,7 +39,7 @@ def parse_governed_motion_fault_policy(
         type(policy) is not dict
         or set(policy) != {"schema_version", "case", "phase", *pins}
         or policy["schema_version"] != "rosclaw.governed_sim_fault.v1"
-        or policy["case"] not in {"daemon_sigkill", "emergency_stop"}
+        or policy["case"] not in {"daemon_sigkill", "emergency_stop", "lease_loss"}
         or policy["phase"] != "during_motion"
         or any(policy[k] != v for k, v in pins.items())
     ):

@@ -17,10 +17,16 @@ import time
 from pathlib import Path
 
 from simulation_execution_fault_policy import parse_governed_motion_fault_policy
+from simulation_source_capture import BoundedSourceJsonlCapture
 
 from rosclaw.daemon.client import DaemonClient
 from rosclaw.mcp import tools
 from rosclaw.mcp.adapters.runtime_client import RuntimeClient
+
+
+def read_nonrenewing_action_status(client, action_id):
+    """The owner observes lease expiry without DaemonClient's automatic renewal."""
+    return client.call("action.status", {"action_id": action_id})
 
 
 async def main():
@@ -100,6 +106,8 @@ async def main():
     last_request = None
     emergency_stop_result = None
     fault_receipt = None
+    lease_renewal_stopped = False
+    nonrenewing_status_capture = None
 
     def export_public_action_artifacts():
         target = evidence / "public-action-artifacts"
@@ -206,6 +214,13 @@ async def main():
                     json.dumps(actor_argv) + "\n"
                 )
                 actor = subprocess.Popen(actor_argv)
+                setup_deadline = time.monotonic_ns() + 10_000_000_000
+                while not (evidence / "governed-fault-actor-ready-original.json").exists():
+                    if actor.poll() is not None or time.monotonic_ns() >= setup_deadline:
+                        raise ValueError(
+                            "SDK operator actor did not initialize before canonical action"
+                        )
+                    await asyncio.sleep(0.05)
 
             for index, goal in enumerate(policy["goals"]):
                 if fault_policy and index > 0:
@@ -230,8 +245,56 @@ async def main():
                 (evidence / f"governed-action-{index}-ticket-original.json").write_text(
                     json.dumps(ticket, indent=2) + "\n"
                 )
+                if fault_policy and fault_policy["case"] == "lease_loss":
+                    if (
+                        ticket["action_lease"]["ttl_ms"] != 10_000
+                        or ticket["action_lease"]["renew_interval_ms"] != 3_000
+                    ):
+                        raise ValueError(
+                            "original canonical lease defaults changed; do not shorten them"
+                        )
+                    nonrenewing_status_capture = BoundedSourceJsonlCapture(
+                        evidence / "governed-nonrenewing-action-status-original.jsonl",
+                        max_segments=1,
+                        max_bytes=10_000_000,
+                        max_rows=500,
+                        max_line_bytes=64_000,
+                    )
                 deadline = time.monotonic() + goal["timeout_sec"] + 5
                 while True:
+                    lease_trigger = evidence / "governed-lease-loss-trigger-original.json"
+                    if (
+                        fault_policy
+                        and fault_policy["case"] == "lease_loss"
+                        and not lease_renewal_stopped
+                        and lease_trigger.exists()
+                    ):
+                        trigger = json.loads(lease_trigger.read_text())
+                        if trigger["policy_sha256"] != args.fault_policy_sha256:
+                            raise ValueError("original motion-triggered lease-loss context changed")
+                        observed = await asyncio.to_thread(
+                            read_nonrenewing_action_status, client, goal["action_id"]
+                        )
+                        if (
+                            observed["action_lease"]["last_renewed_at"]
+                            != ticket["action_lease"]["last_renewed_at"]
+                        ):
+                            raise ValueError(
+                                "first physical motion followed an automatic renewal; do not alter the default lease"
+                            )
+                        lease_renewal_stopped = True
+                        (evidence / "governed-lease-renewal-stopped-original.json").write_text(
+                            json.dumps(
+                                {
+                                    "monotonic_ns": time.monotonic_ns(),
+                                    "original_status_at_stop": observed,
+                                    "action_lease_ttl_changed": False,
+                                    "policy_sha256": args.fault_policy_sha256,
+                                },
+                                indent=2,
+                            )
+                            + "\n"
+                        )
                     trigger_path = evidence / "governed-emergency-stop-trigger-original.json"
                     if (
                         fault_policy
@@ -265,8 +328,26 @@ async def main():
                             )
                             + "\n"
                         )
-                    action_status = await tools._get_action_status(goal["action_id"])
+                    if lease_renewal_stopped:
+                        action_status = await asyncio.to_thread(
+                            read_nonrenewing_action_status, client, goal["action_id"]
+                        )
+                        nonrenewing_status_capture.write(
+                            json.dumps(
+                                {
+                                    "monotonic_ns": time.monotonic_ns(),
+                                    "method": "action.status",
+                                    "renews_lease": False,
+                                    "original_status": action_status,
+                                }
+                            )
+                            + "\n"
+                        )
+                    else:
+                        action_status = await tools._get_action_status(goal["action_id"])
                     if action_status["state"] in {"FINISHED", "CANCELLED"}:
+                        if lease_renewal_stopped:
+                            await tools._get_action_status(goal["action_id"])
                         break
                     if daemon.poll() is not None or time.monotonic() >= deadline:
                         raise TimeoutError("canonical governed SIM action did not terminate")
@@ -304,7 +385,7 @@ async def main():
                             actor.kill()
                             actor_code = actor.wait(timeout=2)
                     missing = not (evidence / "governed-action-0-receipt-original.json").exists()
-                    if fault_policy["case"] == "emergency_stop" and actor_code == 0:
+                    if fault_policy["case"] in {"emergency_stop", "lease_loss"} and actor_code == 0:
                         try:
                             drained = client.get_execution_receipt(policy["goals"][0]["action_id"])
                             (
@@ -383,6 +464,13 @@ async def main():
                                 and status["daemon_instance_id"] == ready["daemon_instance_id"]
                                 and emergency_stop_result is not None
                             )
+                        elif fault_policy["case"] == "lease_loss":
+                            fault_checks["canonical_action_lease_expired"] = (
+                                lease_renewal_stopped
+                                and fault_receipt is not None
+                                and "ACTION_LEASE_EXPIRED" in json.dumps(fault_receipt)
+                                and emergency_stop_result is None
+                            )
                     else:
                         fault_checks = {
                             "actor_returncode": actor_code,
@@ -408,6 +496,8 @@ async def main():
                     lease_probe.wait(timeout=2)
             if lease_probe_log is not None:
                 lease_probe_log.close()
+            if nonrenewing_status_capture is not None:
+                nonrenewing_status_capture.close()
             (evidence / "governed-owner-shutdown-request-original.json").write_text(
                 json.dumps(
                     {
@@ -440,7 +530,11 @@ async def main():
         and (
             fault_checks.get("terminal_receipt_missing")
             if fault_policy["case"] == "daemon_sigkill"
-            else fault_checks.get("canonical_emergency_stop_latched")
+            else (
+                fault_checks.get("canonical_emergency_stop_latched")
+                if fault_policy["case"] == "emergency_stop"
+                else fault_checks.get("canonical_action_lease_expired")
+            )
             and not fault_checks.get("terminal_receipt_missing")
             and isinstance(fault_receipt, dict)
             and fault_receipt.get("final_state") in {"FAILED", "CANCELLED"}
@@ -462,6 +556,8 @@ async def main():
             "PASS_EXPECTED_DAEMON_SIGKILL_SAFE_STOP_AND_OLD_REQUEST_REFUSAL_LOCAL"
             if fault_pass and fault_policy["case"] == "daemon_sigkill"
             else "PASS_CANONICAL_MCP_ESTOP_SAFE_STOP_AND_OLD_REQUEST_REFUSAL_LOCAL"
+            if fault_pass and fault_policy["case"] == "emergency_stop"
+            else "PASS_CANONICAL_ACTION_LEASE_EXPIRY_SAFE_STOP_AND_OLD_REQUEST_REFUSAL_LOCAL"
             if fault_pass
             else "FAILED_ORIGINAL_EXECUTION_FAULT_ACCEPTANCE"
         )

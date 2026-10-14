@@ -89,3 +89,40 @@ def test_emergency_stop_has_same_body_world_action_scope_but_is_not_sigkill(fixt
     assert module.parse_governed_motion_fault_policy(raw, expected_sha256=digest, **pins) == policy
     with pytest.raises(ValueError, match="SIGKILL policy"):
         module.parse_daemon_sigkill_policy(raw, expected_sha256=digest, **pins)
+
+
+def test_lease_loss_is_bound_to_actual_default_lease_owner_scope(fixture):
+    module, pins, policy = fixture
+    policy["case"] = "lease_loss"
+    raw = json.dumps(policy).encode()
+    assert (
+        module.parse_governed_motion_fault_policy(
+            raw, expected_sha256=hashlib.sha256(raw).hexdigest(), **pins
+        )["case"]
+        == "lease_loss"
+    )
+
+
+def test_readonly_expiry_observation_never_calls_auto_renewing_status(monkeypatch):
+    monkeypatch.syspath_prepend(
+        str(Path(__file__).resolve().parents[3] / "integrations/ros_probe/acceptance")
+    )
+    runner = importlib.import_module("governed_navigation_run")
+    calls = []
+
+    class OwnerClient:
+        def get_action_status(self, *args):
+            pytest.fail("lease-loss observation invoked automatic renewal")
+
+        def renew_action_lease(self, *args):
+            pytest.fail("lease-loss observation renewed canonical lease")
+
+        def call(self, method, params):
+            calls.append((method, params))
+            return {"state": "RUNNING", "action_lease": {"active": True}}
+
+    assert (
+        runner.read_nonrenewing_action_status(OwnerClient(), "original-action")["state"]
+        == "RUNNING"
+    )
+    assert calls == [("action.status", {"action_id": "original-action"})]

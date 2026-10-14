@@ -85,6 +85,19 @@ def main():
     ready = json.loads(_read(root / "governed-daemon-ready-original.json", 16384))
     if ready["pid"] != args.daemon_pid:
         raise ValueError("actual owned daemon PID required")
+    with (root / "governed-fault-actor-ready-original.json").open("x") as f:
+        json.dump(
+            {
+                "policy_sha256": args.policy_sha256,
+                "case": policy["case"],
+                "run_id": binding.run_id,
+                "body_snapshot_hash": binding.body_snapshot_hash,
+                "ready_monotonic_ns": time.monotonic_ns(),
+                "requests_sent": 0,
+            },
+            f,
+        )
+        f.write("\n")
     deadline = time.monotonic_ns() + 15_000_000_000
     while True:
         sample = fresh_physics(root, binding)
@@ -129,7 +142,7 @@ def main():
         f.write("\n")
     if policy["case"] == "daemon_sigkill":
         os.kill(args.daemon_pid, signal.SIGKILL)
-    else:
+    elif policy["case"] == "emergency_stop":
         with (root / "governed-emergency-stop-trigger-original.json").open("x") as f:
             json.dump({"policy_sha256": args.policy_sha256, "injection": injection}, f)
             f.write("\n")
@@ -140,10 +153,16 @@ def main():
                     "canonical MCP E-stop was not observed after actual motion trigger"
                 )
             time.sleep(0.01)
+    else:
+        with (root / "governed-lease-loss-trigger-original.json").open("x") as f:
+            json.dump({"policy_sha256": args.policy_sha256, "injection": injection}, f)
+            f.write("\n")
     samples = []
     stable_since = None
     last_stamp = None
-    deadline = time.monotonic_ns() + 3_000_000_000
+    deadline = time.monotonic_ns() + (
+        13_000_000_000 if policy["case"] == "lease_loss" else 3_000_000_000
+    )
     while time.monotonic_ns() < deadline:
         sample = fresh_physics(root, binding)
         if sample["captured_at"] != last_stamp and datetime.fromisoformat(
@@ -168,7 +187,9 @@ def main():
     outcome = {
         "status": "PASS_ACTUAL_DAEMON_SIGKILL_INDEPENDENT_STABLE_STOP_LOCAL"
         if policy["case"] == "daemon_sigkill"
-        else "PASS_ACTUAL_CANONICAL_ESTOP_INDEPENDENT_STABLE_STOP_LOCAL",
+        else "PASS_ACTUAL_CANONICAL_ESTOP_INDEPENDENT_STABLE_STOP_LOCAL"
+        if policy["case"] == "emergency_stop"
+        else "PASS_CANONICAL_ACTION_LEASE_LOSS_INDEPENDENT_STABLE_STOP_LOCAL",
         "case": policy["case"],
         "policy_sha256": args.policy_sha256,
         "injection": injection,
