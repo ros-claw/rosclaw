@@ -131,7 +131,7 @@ def main():
         "--seed",
         "101201",
     ]
-    if fault in {
+    if settings.get("live_dual_supervision", False) or fault in {
         "sensor_stop",
         "clock_freeze",
         "tf_loss",

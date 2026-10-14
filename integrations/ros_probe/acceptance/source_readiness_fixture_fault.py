@@ -87,6 +87,7 @@ def main():
         details = {
             "mode": args.mode,
             "run_id": args.run_id,
+            "before_monotonic_ns": time.monotonic_ns(),
             "velocity_publishers_created": 0,
             "goals_sent": 0,
         }
@@ -170,6 +171,7 @@ def main():
                 ),
             )
             details["subscription"] = {"topic": "/scan", "durability": "TRANSIENT_LOCAL"}
+        details["fault_applied_monotonic_ns"] = time.monotonic_ns()
         (OUT / "readiness-fault-applied.json").write_text(json.dumps(details, indent=2) + "\n")
         deadline = time.monotonic() + args.hold_seconds
         while time.monotonic() < deadline:
@@ -195,6 +197,7 @@ def main():
             json.dumps(
                 {
                     "resumed_owned_pids": paused,
+                    "cleanup_monotonic_ns": time.monotonic_ns(),
                     "replacement_returncode": child.returncode if child else None,
                 }
             )
