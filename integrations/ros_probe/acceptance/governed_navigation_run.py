@@ -464,6 +464,7 @@ async def main():
                             "out_of_bounds_goal",
                             "wrong_body_hash",
                             "wrong_run_id",
+                            "entity_replaced",
                         }
                         and actor_code == 0
                     ):
@@ -602,6 +603,19 @@ async def main():
                                 and emergency_stop_result is None
                                 and not lease_renewal_stopped
                             )
+                        elif fault_policy["case"] == "entity_replaced":
+                            effect = json.loads(
+                                (
+                                    evidence / "governed-fault-actor-outcome-original.json"
+                                ).read_text()
+                            )["fault_effect"]["actual_original_model_replacement"]
+                            fault_checks["actual_entity_identity_changed_without_reenrollment"] = (
+                                effect["original_body_removed"] is True
+                                and effect["replacement_body_reenrolled"] is False
+                                and effect["original_entity_id"] != effect["replacement_entity_id"]
+                                and emergency_stop_result is None
+                                and not lease_renewal_stopped
+                            )
                     else:
                         fault_checks = {
                             "actor_returncode": actor_code,
@@ -685,6 +699,8 @@ async def main():
                 if fault_policy["case"] == "lidar_stream_lost"
                 else fault_checks.get("original_collision_monitor_disabled_and_restored")
                 if fault_policy["case"] == "collision_monitor_disabled"
+                else fault_checks.get("actual_entity_identity_changed_without_reenrollment")
+                if fault_policy["case"] == "entity_replaced"
                 else fault_checks.get("original_navigation_sockets_disconnected")
             )
             and not fault_checks.get("terminal_receipt_missing")

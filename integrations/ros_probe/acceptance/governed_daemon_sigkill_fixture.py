@@ -19,6 +19,7 @@ from simulation_execution_fault_policy import (
     MOTION_FAULT_ACTOR_STATUS,
     parse_governed_motion_fault_policy,
 )
+from simulation_owned_entity_fault import latest_owned_ecm, replace_owned_model
 from simulation_owned_lifecycle_fault import OwnedCollisionMonitorFault
 from simulation_owned_process_fault import pause_owned_process, resume_owned_process
 
@@ -160,7 +161,11 @@ def main():
         f.write("\n")
     paused = None
     fault_effect = {}
-    if policy["case"] == "collision_monitor_disabled":
+    if policy["case"] == "entity_replaced":
+        fault_effect["actual_original_model_replacement"] = replace_owned_model(
+            root, Path("/assets"), policy
+        )
+    elif policy["case"] == "collision_monitor_disabled":
         fault_effect["actual_collision_monitor_deactivation"] = lifecycle_fault.disable()
     elif policy["case"] == "daemon_sigkill":
         os.kill(args.daemon_pid, signal.SIGKILL)
@@ -203,13 +208,31 @@ def main():
             raise ValueError("original daemon socket closure context changed")
         fault_effect["actual_navigation_socket_disconnect"] = effect
     samples = []
+    transition_unknowns = []
     stable_since = None
     last_stamp = None
     deadline = time.monotonic_ns() + (
         13_000_000_000 if policy["case"] == "lease_loss" else 3_000_000_000
     )
     while time.monotonic_ns() < deadline:
-        sample = fresh_physics(root, binding)
+        try:
+            sample = fresh_physics(root, binding)
+            stopped = binding.stopped(sample)
+        except ValueError as exc:
+            if policy["case"] != "entity_replaced":
+                raise
+            transition_unknowns.append(
+                {
+                    "monotonic_ns": time.monotonic_ns(),
+                    "original_physics": last_physics(root),
+                    "unknown_reason": str(exc),
+                }
+            )
+            if len(transition_unknowns) > 400:
+                raise ValueError("bounded entity transition observation budget exhausted") from exc
+            stable_since = None
+            time.sleep(0.01)
+            continue
         if sample["captured_at"] != last_stamp and datetime.fromisoformat(
             sample["captured_at"]
         ) >= datetime.fromisoformat(utc):
@@ -217,7 +240,7 @@ def main():
             samples.append(sample)
             if len(samples) > 400:
                 raise ValueError("bounded original post-fault physical sample budget exhausted")
-            if sample["lease_enabled"] is False and binding.stopped(sample):
+            if sample["lease_enabled"] is False and stopped:
                 stable_since = stable_since or datetime.fromisoformat(sample["captured_at"])
                 if (
                     datetime.fromisoformat(sample["captured_at"]) - stable_since
@@ -231,6 +254,16 @@ def main():
     terminal = json.loads(_read(root / "governed-sink-terminal.json", 16384))
     if not terminal["status"]["terminal"] or terminal["status"]["lease_expires_ns"] != 0:
         raise ValueError("terminal final sink stop required")
+    if policy["case"] == "entity_replaced":
+        effect = fault_effect["actual_original_model_replacement"]
+        final = latest_owned_ecm(root, policy)
+        ids = [m["entity"] for m in final["sample"]["models"] if m["name"] == effect["robot_name"]]
+        if ids != [effect["replacement_entity_id"]] or effect["original_entity_id"] in ids:
+            raise ValueError(
+                "original entity absence and unchanged replacement required after stop"
+            )
+        effect["final_original_replacement_ECM"] = final
+        effect["transition_unknowns"] = transition_unknowns
     if lifecycle_fault is not None:
         fault_effect["restoration_after_independent_terminal_stop"] = (
             lifecycle_fault.restore_after_terminal_stop()
