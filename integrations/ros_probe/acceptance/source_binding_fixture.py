@@ -137,7 +137,10 @@ def main():
         key_fd = os.open(control / "fixture.key", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(key_fd, "wb") as key_file:
             key_file.write(os.urandom(32))
-    save("requirements.json", requirements)
+    save(
+        "observed-requirements.json" if prepared_sources is not None else "requirements.json",
+        requirements,
+    )
     stack_log = (OUT / "stack-original.log").open("x")
     argv = [
         "python3",
