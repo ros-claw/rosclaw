@@ -148,3 +148,29 @@ def test_atomic_replacement_race_reopens_latest_but_never_returns_expired_snapsh
     result = monitor.get()
     assert result["health_review_ns"] == clock[0]
     assert monitor.failed_reason is None
+
+
+def test_native_pointer_clock_is_sampled_after_concurrent_publication(monkeypatch, tmp_path):
+    monkeypatch.syspath_prepend(
+        str(Path(__file__).resolve().parents[3] / "integrations/ros_probe/acceptance")
+    )
+    module = importlib.import_module("simulation_current_facts")
+    clock = [10_000_000_000]
+    pointer = {
+        "file": "original-native-001.json",
+        "sha256": "a" * 64,
+        "captured_at": "original",
+        "received_monotonic_ns": 10_001_000_000,
+    }
+
+    def concurrent_read(*args):
+        clock[0] += 2_000_000
+        return json.dumps(pointer).encode()
+
+    monkeypatch.setattr(module, "_read", concurrent_read)
+    monkeypatch.setattr(module.time, "monotonic_ns", lambda: clock[0])
+    actual, observed = module.read_current_native_pointer(tmp_path)
+    assert actual == pointer and observed == 10_002_000_000
+    pointer["received_monotonic_ns"] = clock[0] + 3_000_000
+    with pytest.raises(ValueError, match="bounded current original Native pointer"):
+        module.read_current_native_pointer(tmp_path)

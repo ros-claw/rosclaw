@@ -47,6 +47,23 @@ def _read(path, limit):
         os.close(fd)
 
 
+def read_current_native_pointer(directory):
+    pointer = json.loads(_read(Path(directory) / "live-native-pointer.json", 4096))
+    # The producer may publish a new pointer during actual file IO. A clock
+    # sampled before opening it can falsely call that real observation future.
+    observed_ns = time.monotonic_ns()
+    if (
+        type(pointer) is not dict
+        or set(pointer) != {"file", "sha256", "captured_at", "received_monotonic_ns"}
+        or type(pointer["file"]) is not str
+        or re.fullmatch(r"original-native-[0-9]{3,6}\.json", pointer["file"]) is None
+        or type(pointer["received_monotonic_ns"]) is not int
+        or not 0 <= observed_ns - pointer["received_monotonic_ns"] <= 500_000_000
+    ):
+        raise ValueError("bounded current original Native pointer required")
+    return pointer, observed_ns
+
+
 class CurrentSimulationFacts:
     def __init__(self, directory, *, assets_directory, enrollment_sha256):
         self.directory = Path(directory)
@@ -158,16 +175,7 @@ class CurrentSimulationFacts:
             ):
                 if _sha(_read(self.assets_directory / name, limit)) != self.enrollment[key]:
                     raise ValueError("enrolled original URDF/World bytes changed")
-            pointer = json.loads(_read(self.directory / "live-native-pointer.json", 4096))
-            if (
-                type(pointer) is not dict
-                or set(pointer) != {"file", "sha256", "captured_at", "received_monotonic_ns"}
-                or type(pointer["file"]) is not str
-                or re.fullmatch(r"original-native-[0-9]{3,6}\.json", pointer["file"]) is None
-                or type(pointer["received_monotonic_ns"]) is not int
-                or not 0 <= started - pointer["received_monotonic_ns"] <= 500_000_000
-            ):
-                raise ValueError("bounded current original Native pointer required")
+            pointer, pointer_read_ns = read_current_native_pointer(self.directory)
             raw = _read(self.directory / pointer["file"], 10_000_000)
             native = json.loads(raw)
             if _sha(raw) != pointer["sha256"] or native["captured_at"] != pointer["captured_at"]:
@@ -224,6 +232,7 @@ class CurrentSimulationFacts:
                 "health_review_ns": started,
                 "completed_ns": ended,
                 "native_pointer": pointer,
+                "native_pointer_read_ns": pointer_read_ns,
             }
             if freshness_horizon_ms:
                 observed = json.loads(self.reader.last_raw)["observer_monotonic_ns"]
