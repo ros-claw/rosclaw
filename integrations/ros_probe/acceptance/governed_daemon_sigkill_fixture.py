@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from simulation_current_facts import _read
+from simulation_execution_fault_policy import parse_daemon_sigkill_policy
 
 from rosclaw.body.resolver import BodyResolver
 from rosclaw.connectors.ros.mission.navigation_binding import SimulationNavigationBinding
@@ -66,30 +67,21 @@ def main():
         raise ValueError("owned isolated disposable SIM fault required")
     root = Path("/evidence")
     raw = _read(root / "governed-fault.json", 4096)
-    if hashlib.sha256(raw).hexdigest() != args.policy_sha256:
-        raise ValueError("pinned original fault policy required")
-    policy = json.loads(raw)
-    if (
-        set(policy)
-        != {"schema_version", "run_id", "body_snapshot_hash", "world_sha256", "case", "phase"}
-        or policy["schema_version"] != "rosclaw.governed_sim_fault.v1"
-        or policy["case"] != "daemon_sigkill"
-        or policy["phase"] != "during_motion"
-    ):
-        raise ValueError("closed daemon-SIGKILL during-motion operator policy required")
     config = json.loads(_read(root / "generic-compiled/execution_config.json", 16384))
     binding = SimulationNavigationBinding.from_body(
         BodyResolver(
             workspace=root / "generic-compiled", body_id=config["body_id"]
         ).get_effective_body(recompile_if_stale=False)
     )
-    if (
-        policy["body_snapshot_hash"] != binding.body_snapshot_hash
-        or policy["run_id"] != binding.run_id
-        or hashlib.sha256(_read(Path("/assets/world.sdf"), 20_000_000)).hexdigest()
-        != policy["world_sha256"]
-    ):
-        raise ValueError("actual fault Body/run/World binding required")
+    goals = json.loads(_read(root / "governed-goals.json", 16_000))
+    policy = parse_daemon_sigkill_policy(
+        raw,
+        expected_sha256=args.policy_sha256,
+        run_id=binding.run_id,
+        body_snapshot_hash=binding.body_snapshot_hash,
+        world_sha256=hashlib.sha256(_read(Path("/assets/world.sdf"), 20_000_000)).hexdigest(),
+        action_id=goals["goals"][0]["action_id"],
+    )
     ready = json.loads(_read(root / "governed-daemon-ready-original.json", 16384))
     if ready["pid"] != args.daemon_pid:
         raise ValueError("actual owned daemon PID required")

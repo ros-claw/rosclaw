@@ -16,6 +16,8 @@ import sys
 import time
 from pathlib import Path
 
+from simulation_execution_fault_policy import parse_daemon_sigkill_policy
+
 from rosclaw.daemon.client import DaemonClient
 from rosclaw.mcp import tools
 from rosclaw.mcp.adapters.runtime_client import RuntimeClient
@@ -53,24 +55,14 @@ async def main():
     fault_policy = None
     if args.fault_policy_sha256:
         fault_raw = (evidence / "governed-fault.json").read_bytes()
-        if (
-            not 0 < len(fault_raw) <= 4096
-            or hashlib.sha256(fault_raw).hexdigest() != args.fault_policy_sha256
-        ):
-            raise ValueError("pinned bounded operator fault policy required")
-        fault_policy = json.loads(fault_raw)
-        if (
-            set(fault_policy)
-            != {"schema_version", "run_id", "body_snapshot_hash", "world_sha256", "case", "phase"}
-            or fault_policy["schema_version"] != "rosclaw.governed_sim_fault.v1"
-            or fault_policy["case"] != "daemon_sigkill"
-            or fault_policy["phase"] != "during_motion"
-            or fault_policy["run_id"] != policy["run_id"]
-            or fault_policy["body_snapshot_hash"] != base["body_snapshot_hash"]
-            or fault_policy["world_sha256"] != facts["world_sha256"]
-            or fault_policy["action_id"] != policy["goals"][0]["action_id"]
-        ):
-            raise ValueError("closed owned daemon-SIGKILL motion fault policy required")
+        fault_policy = parse_daemon_sigkill_policy(
+            fault_raw,
+            expected_sha256=args.fault_policy_sha256,
+            run_id=policy["run_id"],
+            body_snapshot_hash=base["body_snapshot_hash"],
+            world_sha256=facts["world_sha256"],
+            action_id=policy["goals"][0]["action_id"],
+        )
     p03_raw = (evidence / "P03-accepted-review.json").read_bytes()
     config = {
         "schema_version": "rosclaw.governed_navigation_fixture.v1",
