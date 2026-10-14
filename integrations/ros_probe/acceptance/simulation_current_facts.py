@@ -197,9 +197,11 @@ class CurrentSimulationFacts:
             )
             source = self.reader.poll()
             horizon_check = None
+            horizon_started_ns = None
             if freshness_horizon_ms:
                 # This projects only the AGE of these already observed facts;
                 # it does not predict future lifecycle or physical state.
+                horizon_started_ns = time.monotonic_ns()
                 horizon_check = review_current_sim_navigation_health(
                     self.directory / "generic-compiled",
                     self.enrollment["request"],
@@ -241,7 +243,7 @@ class CurrentSimulationFacts:
                 result.update(
                     age_horizon_check=horizon_check,
                     valid_until_monotonic_ns=min(
-                        started + freshness_horizon_ms * 1_000_000,
+                        horizon_started_ns + freshness_horizon_ms * 1_000_000,
                         observed + 500_000_000,
                         pointer["received_monotonic_ns"] + 500_000_000,
                     ),
