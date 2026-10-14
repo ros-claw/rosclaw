@@ -185,7 +185,7 @@ def test_safety_horizon_cannot_hide_future_observations(tmp_path, future_fact):
             "captured_at"
         ] = future.isoformat()
     else:
-        node = next(iter(model.observations["parameter_captured_at"]))
+        node = "/sample/collision_monitor"
         model.observations["parameter_captured_at"][node] = future.isoformat()
     model.seal()
     result = review_current_sim_navigation_health(
@@ -223,3 +223,33 @@ def test_margin_tightens_stream_age_without_requiring_periodic_map_or_commands(t
         freshness_margin_ms=100,
     )
     assert "CURRENT_LIVE_STREAM_AGE_EXCEEDED:/sample/scan2" in result["unknown_reasons"]
+
+
+def test_unrelated_node_parameters_do_not_replace_required_safety_configuration(tmp_path):
+    parts = prepared(tmp_path)
+    parts[2]["max_age_ms"] = 500
+    stamps = parts[-1].observations["parameter_captured_at"]
+    stamps["/unrelated/passive_observer"] = (NOW - timedelta(seconds=2)).isoformat()
+    assert review(parts)["status"] == "HEALTHY_SIM_OBSERVATION_ONLY"
+    stamps["/sample/collision_monitor"] = (NOW - timedelta(milliseconds=501)).isoformat()
+    result = review(parts)
+    assert "CURRENT_PARAMETER_AGE_EXCEEDED:/sample/collision_monitor" in result["unknown_reasons"]
+
+
+def test_future_costmap_configuration_cannot_be_hidden_by_margin(tmp_path):
+    root, request, policy, model = prepared(tmp_path)
+    node = next(iter(policy["costmaps"].values()))
+    model.observations["parameter_captured_at"][node] = (
+        NOW + timedelta(milliseconds=50)
+    ).isoformat()
+    model.seal()
+    result = review_current_sim_navigation_health(
+        root,
+        request,
+        model=model,
+        policy=policy,
+        policy_hash=content_hash("navreadinesspolicy", policy),
+        now=NOW,
+        freshness_margin_ms=100,
+    )
+    assert "CURRENT_PARAMETER_AGE_EXCEEDED:" + node in result["unknown_reasons"]

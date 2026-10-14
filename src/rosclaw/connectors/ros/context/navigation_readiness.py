@@ -23,7 +23,7 @@ def _fresh(stamp, now, age):
         return False
 
 
-def _review_live_stream_ages(model, requirements, review, now, observed_at, age, unknown):
+def _review_live_stream_ages(model, requirements, review, policy, now, observed_at, age, unknown):
     """Age original live data through review time, including any safety margin.
 
     A latched occupancy map and idle command topics need no periodic messages.
@@ -65,7 +65,12 @@ def _review_live_stream_ages(model, requirements, review, now, observed_at, age,
             and _fresh(rows[0].captured_at.isoformat(), now, age)
         ):
             unknown.append("CURRENT_LIFECYCLE_AGE_EXCEEDED:" + role)
-    for node, stamp in model.observations.get("parameter_captured_at", {}).items():
+    # Bound safety-relevant configuration, not unrelated discovered nodes.
+    for node in {
+        requirements["lifecycle_nodes"]["collision_monitor"],
+        *policy["costmaps"].values(),
+    }:
+        stamp = model.observations.get("parameter_captured_at", {}).get(node)
         if not (_fresh(stamp, observed_at, age) and _fresh(stamp, now, age)):
             unknown.append("CURRENT_PARAMETER_AGE_EXCEEDED:" + node)
     # The projected horizon must never turn future-dated original facts valid.
@@ -316,7 +321,9 @@ def _review_current_ros_facts(
                     model, files["body/refs/robot.urdf"], requirements, now=now
                 )
                 unknown.extend("NAVIGATION:" + r for r in review["unknown_fields"])
-            _review_live_stream_ages(model, requirements, review, now, observed_at, age, unknown)
+            _review_live_stream_ages(
+                model, requirements, review, policy, now, observed_at, age, unknown
+            )
             if set(policy["costmaps"]) != set(requirements["costmap_topics"]):
                 raise ValueError("explicit exact costmap topic associations required")
             limits = policy["variance_limits"]
