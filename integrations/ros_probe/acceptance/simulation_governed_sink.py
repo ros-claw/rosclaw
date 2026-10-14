@@ -17,6 +17,7 @@ from pathlib import Path
 
 import rclpy
 from geometry_msgs.msg import Twist, TwistStamped
+from rclpy._rclpy_pybind11 import RCLError
 from rclpy.clock import Clock, ClockType
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
@@ -350,8 +351,13 @@ def main():
         p03_sha256=args.p03_review_sha256,
     )
     try:
-        with suppress(ExternalShutdownException, KeyboardInterrupt):
-            rclpy.spin(node)
+        try:
+            with suppress(ExternalShutdownException, KeyboardInterrupt):
+                rclpy.spin(node)
+        except RCLError:
+            if rclpy.ok():
+                raise
+
     finally:
         node.deadline_ns = 0
         if rclpy.ok():
