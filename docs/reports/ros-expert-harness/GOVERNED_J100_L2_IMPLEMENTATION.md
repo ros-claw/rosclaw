@@ -57,7 +57,7 @@ original pointer can legitimately be published during collection.
 Prepared source bringup uses pinned declarations for namespaces, frames, scanner,
 controllers and routes. J100 remains an explicitly adapted official four-wheel
 robot, not zero-shot onboarding. Staging changes are declared before World launch:
-costmap update/publication 5 Hz, commands at 80% of Body bounds and Nav2 goal
+costmap update/publication 10 Hz, commands at 80% of Body bounds and Nav2 goal
 checking at half the Body tolerance. An explicitly pinned SDK operator helper
 calls AMCL `request_nomotion_update` at 10 Hz so actual laser/odometry filtering
 continues while stopped. It publishes no pose, TF, velocity or goal, and does not
@@ -70,37 +70,63 @@ wheels, installed offline without host package changes:
 The original P03 base layers remain intact. Canonical MCP tools import and execute
 inside the SDK; there are no Runtime or MCP stubs in the physical proof path.
 
-Two fresh pilot Worlds on source `43d8b0a0` completed both canonical position and
-yaw goals and passed independent raw review:
+Three strict-age seed Worlds on source `18625857` completed all six canonical
+position/yaw goals and passed independent raw recomputation. Earlier source
+`50c36d15` also has a sealed three-seed functional matrix; it does not establish
+the corrected cumulative stream-age checks. All eight Body bounds remain fixed.
 
-| Seed | Initial x/y/yaw | Health rows | ECM samples | Original contact pairs | Unexpected contacts |
-| --- | --- | ---: | ---: | ---: | ---: |
-| 101 | 0 / 0 / 0 | 282 | 192 | 7472 | 0 |
-| 202 | 0.12 / -0.12 / 0.2 | 275 | 209 | 8132 | 0 |
+All ten exact execution faults now have independent local original evidence:
+`collision_monitor_disabled`, `lidar_stream_lost`, `out_of_bounds_goal`,
+`entity_replaced`, `wrong_body_hash`, `wrong_run_id`, `daemon_sigkill`,
+`lease_loss`, `emergency_stop`, `rosbridge_disconnect`. These developmental runs
+span different source commits and do not replace the final uniform matrix.
 
-Independent review recomputes initial G1/L1, current ROS health, source continuity,
-original contact classification, canonical goal errors, matching raw physics,
-lease-closed stopped samples and exported public artifact SHAs. Worker terminal
-rows in these pilots lack their own clock; original sink terminal timestamps
-independently occur after explicit owner shutdown. That evidence limitation is
-recorded, and subsequent worker rows include their own monotonic timestamps.
+Before-dispatch invalid Body hashes and out-of-bounds goals produce original
+BLOCKED receipts with zero admission, lease updates and forwarded commands.
+The wrong-run trial changes only the SDK-signed operator context run; the
+canonical request stays valid and unchanged. Authentication succeeds, identity
+validation rejects it before admission, and the original action remains FAILED.
+No Agent reads the private signing key or signs an execution permit.
 
-Earlier development failures remain intact. They exposed fixture output collisions,
-bootstrap delay, premature proof expiry, synchronous callback overload, background
-observation lag, stopped localization publication, concurrent pointer publication
-and atomic inode replacement. A partial motion or a FAILED receipt never counts
-as completed L2. Seed 303 exposed the atomic-read race and requires a fresh World
-on the corrected source. All three seeds must be verified again on final source
-and actual merged main before closing normal acceptance.
+During-motion trials use actual independent motion to trigger SDK-owned fault
+actors. Scan and rosbridge faults affect only declared owned components;
+collision-monitor lifecycle deactivation uses the observed lifecycle services.
+After independent stop, restored components cannot revive the old action or
+lease. SIGKILL honestly lacks a terminal daemon receipt. Other original FAILED,
+CANCELLED or TIMED_OUT receipts retain their actual verification fields; separate
+physical stop evidence never promotes a failed action to COMPLETED.
 
-Current software verification: 1016 ROS tests passed, 10 deselected (one existing
-deprecation warning); the prescribed mypy scope passed 121 files. Changed SDK
-contracts and formatting pass. Whole-repository static checks retain existing
-baseline failures and are not represented as green.
+Entity replacement removes the original entity and inserts the exact original
+model XML. Original ECM must establish old ID absence and new ID presence.
+The source guard stays permanently latched. The existing robot_state_publisher
+sets its byte-identical original description to initialize the replacement's
+controller; there is no new publisher or fabricated TF. Expired loading records
+remain UNKNOWN. Independent review recomputes replacement stationarity directly
+from ECM world poses indexed by the new entity ID, never the removed body's speed.
+Source `325ac3ca` established 1.995 seconds of replacement stationarity and actual
+old-action/lease rejection, with the original FAILED receipt preserved.
 
-Still required for G3: the final three-seed matrix, all ten exact execution fault
-Worlds with original actors and independent fail-stop/old-lease rejection,
-actual contact-monitor sensitivity, sealed evidence and normal source/main PR
-integration. G4 requires five real engineering repair/revalidation/rollback
-fixtures. G5 requires 54 actual same-model A/B/C episodes with original usage
-and causal memory traces. Those gates remain unaccepted; `v1_done=false`.
+An independent contact-sensitivity World on source `040ca8b3` inserts one static
+SDK-owned test collider at the observed original chassis surface, then removes
+it. Raw records establish a zero/positive/zero sequence: 0, 35, 0 nonfloor pairs
+in independently reviewed windows of at least 300 ms. Across the whole World,
+57 actual nonfloor pairs are retained. Original robot ID remains unchanged,
+with zero goals and zero forwarded commands. Inventory drift intentionally
+latches source supervision; this instrumentation trial does not isolate a
+collision-only stop cause. Cumulative contact episode counts alone proved
+insufficient: the corrected fixture also requires fresh, complete original
+contact messages without an active nonfloor pair. The earlier failed attempt
+and its original claimed local outcome remain preserved.
+
+Current software verification includes 1,134 ROS tests before the contact
+fixture; subsequent original logs record the expanded regression separately.
+The prescribed mypy scope passes 121 files. Changed SDK contracts and formatting
+pass. Whole-repository Ruff and formatting retain existing baseline failures.
+
+Still required for G3: one final-source three-seed matrix and all ten exact
+fault Worlds, contact sensitivity, sealed public evidence, normal source/main
+CI and PR integration, and fresh actual-main physical revalidation. G4 requires
+five real engineering repair/revalidation/rollback episodes. G5 requires 54
+actual same-model A/B/C episodes with original usage and causal memory traces.
+Those gates remain unaccepted; actual model experiment calls = 0 and
+`v1_done=false`.
