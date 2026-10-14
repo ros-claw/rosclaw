@@ -8,12 +8,12 @@ rebuilds current ROS facts, checks source continuity and uses actual clocks.
 import argparse
 import hashlib
 import json
-import os
 import re
 import stat
 import time
 from pathlib import Path
 
+from simulation_atomic_read import read_bounded_regular as _read
 from simulation_source_stream import SimulationSourceStreamReader, SourceStreamPins
 
 from rosclaw.connectors.ros.context.navigation_readiness import (
@@ -28,27 +28,10 @@ def _sha(raw):
     return hashlib.sha256(raw).hexdigest()
 
 
-def _read(path, limit):
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-    try:
-        before = os.fstat(fd)
-        if not stat.S_ISREG(before.st_mode) or not 0 < before.st_size <= limit:
-            raise ValueError("bounded original regular file required")
-        raw = os.read(fd, limit + 1)
-        after = os.fstat(fd)
-        if len(raw) != before.st_size or (
-            before.st_size,
-            before.st_mtime_ns,
-            before.st_ctime_ns,
-        ) != (after.st_size, after.st_mtime_ns, after.st_ctime_ns):
-            raise ValueError("original observation changed during read")
-        return raw
-    finally:
-        os.close(fd)
-
-
 def read_current_native_pointer(directory):
-    pointer = json.loads(_read(Path(directory) / "live-native-pointer.json", 4096))
+    pointer = json.loads(
+        _read(Path(directory) / "live-native-pointer.json", 4096, allow_atomic_unlink=True)
+    )
     # The producer may publish a new pointer during actual file IO. A clock
     # sampled before opening it can falsely call that real observation future.
     observed_ns = time.monotonic_ns()

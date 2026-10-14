@@ -238,7 +238,7 @@ class GovernedSimulationSink(Node):
                 response.success = False
                 response.message = "bootstrap refuses lease without explicit SDK operator admission"
                 return response
-            raw = _read(self.control / "proof.json", 8192)
+            raw = _read(self.control / "proof.json", 8192, allow_atomic_unlink=True)
             action_id = json.loads(raw)["payload"]["action_id"]
             if self.gate is None:
                 if (
@@ -296,7 +296,7 @@ class GovernedSimulationSink(Node):
                 "angular": {k: getattr(message.angular, k) for k in ("x", "y", "z")},
             }
             checked = self.gate.validate_command(
-                command, raw=_read(self.control / "proof.json", 8192)
+                command, raw=_read(self.control / "proof.json", 8192, allow_atomic_unlink=True)
             )
             if checked is None:
                 raise ValueError("command has no current independently guarded lease")
@@ -322,7 +322,9 @@ class GovernedSimulationSink(Node):
                     self._write_status()
                     return
                 if self.gate is not None:
-                    self.gate.watchdog(_read(self.control / "proof.json", 8192))
+                    self.gate.watchdog(
+                        _read(self.control / "proof.json", 8192, allow_atomic_unlink=True)
+                    )
                 elif self.admission is not None:
                     self._current_local(require_active=False)
             if self.gate is None or self.failed_reason is not None:

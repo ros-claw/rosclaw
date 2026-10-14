@@ -28,10 +28,12 @@ def fixture(monkeypatch, tmp_path):
     original = {
         "schema_version": "rosclaw.sdk_current_monitor.v1",
         "pid": 123,
+        "observed_monotonic_ns": clock[0],
         "terminal": False,
         "reason": None,
         "facts": {
             "health_review_ns": clock[0],
+            "completed_ns": clock[0],
             "valid_until_monotonic_ns": clock[0] + 100_000_000,
             "health": {"status": "healthy"},
         },
@@ -94,7 +96,7 @@ def test_close_terminates_owned_child_and_prevents_restart(fixture):
     process.terminate = lambda: events.append("terminate")
     process.wait = lambda **kw: events.append(("wait", kw["timeout"]))
     monitor.close()
-    assert events == ["terminate", ("wait", 1)]
+    assert events == ["terminate", ("wait", 2)]
     with pytest.raises(ValueError, match="cannot be restarted"):
         monitor.start()
     with pytest.raises(ValueError, match="CLOSED"):
@@ -140,11 +142,13 @@ def test_atomic_replacement_race_reopens_latest_but_never_returns_expired_snapsh
     expired = json.dumps(original).encode()
     clock[0] += 100_000_000
     original["facts"]["health_review_ns"] = clock[0]
+    original["facts"]["completed_ns"] = clock[0]
+    original["observed_monotonic_ns"] = clock[0]
     original["facts"]["valid_until_monotonic_ns"] = clock[0] + 100_000_000
     fresh = json.dumps(original).encode()
     reads = iter([expired, fresh])
     module = importlib.import_module("simulation_current_process")
-    monkeypatch.setattr(module, "_read", lambda *args: next(reads))
+    monkeypatch.setattr(module, "_read", lambda *args, **kwargs: next(reads))
     result = monitor.get()
     assert result["health_review_ns"] == clock[0]
     assert monitor.failed_reason is None
@@ -163,7 +167,7 @@ def test_native_pointer_clock_is_sampled_after_concurrent_publication(monkeypatc
         "received_monotonic_ns": 10_001_000_000,
     }
 
-    def concurrent_read(*args):
+    def concurrent_read(*args, **kwargs):
         clock[0] += 2_000_000
         return json.dumps(pointer).encode()
 

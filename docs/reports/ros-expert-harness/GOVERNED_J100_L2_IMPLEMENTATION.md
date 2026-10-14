@@ -1,85 +1,96 @@
-# Governed generic SIM navigation: implementation in progress
+# Governed generic SIM navigation: implementation and remaining acceptance
 
-P03 merged normally in PR #678 at `f361423b040312777676f94ce81b92a21bc7ddf8`.
-Its three source and four main original workflows passed; twelve fresh actual-main
-Worlds passed independent raw recomputation and read-only artifact inspection.
-P03 is passive observation only. It does not authorize L2 motion.
+P03 merged normally in PR #678 at
+`f361423b040312777676f94ce81b92a21bc7ddf8`. Three source and four main original
+workflows passed. Twelve fresh actual-main passive Worlds passed independent
+raw recomputation and pinned read-only CLI inspection. P03 grants no motion.
 
-This next implementation adds a daemon-configured supplementary observation
-guard at admission, lease enable/renewal, goal dispatch, execution polling and
-completion. Loss sets the executor's permanent stopping state; lease revocation
-and cancellation remain available on failure. The configured guard never replaces
-canonical MCP request_action, Session, Lease, Permit, executor or Receipt checks.
+The next implementation retains canonical MCP `request_action` → the independent
+existing `rosclawd`, with its Session, Lease, Permit, executor and Receipt checks.
+It adds daemon-configured supplementary supervision before admission, lease
+operations, dispatch, execution polling and completion. Loss permanently latches
+stopping; lease revocation and cancellation remain available. There is no REAL
+executor, Agent ROS transport, Agent Runtime or MCP actuator primitive.
 
-SDK execution supervision proofs bind Body/hash, typed workspace manifest hash,
-World SHA, run, source epoch, daemon generation and action. HMAC proofs have a
-maximum 250 ms lifetime, monotonic sequence/source cursor checks and permanent
-rejection on expiry, tampering, replay, identity change or clock rollback. Keys
-are fixture-private; proofs are supplementary observations, never permits.
+The SDK proof producer binds immutable Body/hash/workspace manifest, actual World
+SHA, run, source epoch, daemon generation and action. Authenticated observations
+expire within 250 ms. Monotonic sequence/cursor checks reject rollback, tampering,
+replay and identity changes. Private fixture keys remain outside public evidence.
+Proofs supplement the canonical governance chain; they are not permits.
 
-The SDK final velocity gate requires both a current daemon proof and independent
-current ROS/ECM observations. It rejects nonfinite, nonplanar or excessive Twist
-values against all unchanged compiled Body limits. Lease loss and revocation
-are terminal for that action. The gate is a pure state machine: an actual SDK ROS
-sink and its zero-command/watchdog cleanup still need to be composed and accepted.
+A separate SDK ROS sink starts without a drive publisher. Explicit authenticated
+operator admission and a current canonical lease are both required before it
+can forward commands. Its final gate checks finite planar commands and unchanged
+Body limits, fresh authenticated proof and independently observed ROS/ECM facts.
+Lease expiry is checked before and after collection. Synchronizing an independently
+observed source cursor waits at most 100 ms and never extends proof or lease expiry.
+The original four-wheel J100 stamped controller retains its 200 ms watchdog.
 
-The independent current-facts collector rebuilds the system model from original
-Native bytes, checks SHA/time/Body/run/immutable URDF and World bytes, and polls
-the bounded source reader. Execution preparation strengthens the passive policy
-to <=500 ms ROS data age. An explicit read-only probe cadence option supports
-100 ms snapshots; its default remains one second. A faster snapshot is not itself
-evidence of fresh sensor, lifecycle, parameter, localization or map observations.
+Current facts come from original SHA-bound Native bytes and the pinned bounded
+ECM stream. The collector checks immutable enrollment, Body workspace, URDF and
+World bytes every cycle. ROS/source age is at most 500 ms. The ROS consumer uses
+an SDK-owned pure observation subprocess, keeping full model/Body review outside
+ROS control callbacks. Its daemon observer independently checks actual socket
+peer PID/UID, generation, watchdog, durable ledger, E-stop and SIM executor scope,
+with an independent 250 ms deadline. No observer can renew a lease or dispatch an
+action. Exit, expiry, failed observation and clock rollback latch permanently.
 
-Contract tests are synthetic software checks. Current-facts World tests are
-read-only tests. Neither closes L2. Still required: explicit SDK admission,
-actual independently guarded unique velocity sink, daemon proof production,
-three fresh J100 seeds with position and yaw actions through canonical MCP,
-all ten execution fault cases, raw independent physical verification and normal
-source/main PR integration. G4 and G5 remain unaccepted.
+A conservative age margin of up to 100 ms is evaluated once on the original
+facts. Actual review time is distinct from projected age-evaluation time; this
+projects age only, not future lifecycle or physical state. Consumers check actual
+monotonic deadlines. Atomic snapshot readers distinguish an unlinked immutable
+old inode from in-place mutation; immutable assets retain strict ctime checking,
+and mutable snapshots retain size/mtime, bounded regular-file and no-follow checks.
+Native freshness clocks are sampled after actual pointer reads, because a new
+original pointer can legitimately be published during collection.
 
-Current preparation evidence (2026-10-14): the full ROS suite passed 913 tests
-(10 deselected), and 110 focused guard/health contracts passed. A fresh readonly
-World on source `c16a2cf333d1f6ee0c4e736360637b9caa888481` passed five seconds
-of strict current-facts review: 68 health rows, 142 raw source samples and 5,356
-original contacts independently recomputed, with zero unexpected contacts,
-leases, goals or velocity publications. The first World refused a fixture
-evidence symlink; the fix pins the explicit readonly original asset mount.
-Both original Worlds are preserved in the 652-file public archive
-`evidence/2026-10-14/L2-current-facts-sourceC16A2CF3-readonly-originals`, manifest
-SHA256 `be0ce1a71c3db0c8aef3156f5050ccab988204da91899887c8b8b1b00ceeb9c5`.
-This is stricter readonly preparation, not a completed L2 action.
+Prepared source bringup uses pinned declarations for namespaces, frames, scanner,
+controllers and routes. J100 remains an explicitly adapted official four-wheel
+robot, not zero-shot onboarding. Staging changes are declared before World launch:
+costmap update/publication 5 Hz, commands at 80% of Body bounds and Nav2 goal
+checking at half the Body tolerance. An explicitly pinned SDK operator helper
+calls AMCL `request_nomotion_update` at 10 Hz so actual laser/odometry filtering
+continues while stopped. It publishes no pose, TF, velocity or goal, and does not
+reinitialize localization. Original URDF geometry/inertias/joints and all eight
+compiled Body limits remain unchanged.
 
-The SDK daemon proof producer now binds actual internal runtime status and
-current source/ROS facts, checks conservative action/stop evidence capacity,
-writes private authenticated proofs atomically and records bounded original
-proof/health/status audit rows. Nineteen synthetic producer contracts passed,
-including generation loss, insufficient capacity and replaced-directory cleanup.
-It still needs composition with the existing daemon and the actual ROS sink;
-its software tests are not physical proof or independent socket enrollment.
+The isolated ARM64 SDK image contains 33 exact official-SHA-checked dependency
+wheels, installed offline without host package changes:
+`sha256:d3a808fc091bec017657a2706cb9723799a5ea56f5e9f997663e4dc884cd78b5`.
+The original P03 base layers remain intact. Canonical MCP tools import and execute
+inside the SDK; there are no Runtime or MCP stubs in the physical proof path.
 
-The derived isolated SDK image now includes six exact wheel releases checked
-against official PyPI SHA256 metadata and installed with build networking
-disabled. Image `sha256:1966af6ad6bb7d1d6669aed5f3d3d4e5accde2651a8b84c3adf8f33ab1a389dc`
-preserves all original P03 base layers. In a fresh World on `d965de9e`, the existing
-full SIM navigation daemon started with verified actual socket PID/generation,
-healthy watchdog, durable ledger and zero sessions, permits, actions or hardware
-executions. A read-only Git metadata mount preserves source freeze checks.
-A prior World failed because that mount was missing; all failures remain intact.
-Same-UID startup establishes a process boundary, not a REAL privilege boundary.
-The same World passed 67 strictly fresh current-health rows and independent raw
-recomputation of 151 source samples and 5,794 contacts, zero unexpected contacts.
-The 823-file sealed archive is
-`evidence/2026-10-14/L2-SDK-sourceD965DE9E-original-startup-and-offline-image`,
-manifest SHA256 `aec2b1155ce74db9f2203acbf9a1fccd4282651ba0ae5ff0990379ab1912286c`.
+Two fresh pilot Worlds on source `43d8b0a0` completed both canonical position and
+yaw goals and passed independent raw review:
 
-A separate SDK sink process and independent physics-witness observation path
-are now implemented for bootstrap verification. The observer relinquishes its
-velocity subscription and lease service only for a closed, SHA-pinned external
-sink context. Missing/stale control state remains UNKNOWN, never a verified
-revoke. The sink has no velocity publisher before authenticated explicit
-admission plus an actual canonical lease. Commands and watchdogs independently
-join current ROS/source facts, real daemon socket credentials, action-scoped
-proof and unchanged Body limits. Source-facts enrollment bytes are also pinned
-throughout collection. Combined focused synthetic contracts passed 170 tests.
-Bootstrap behavior still requires a new original World; actual governed daemon
-admission and J100 motion acceptance remain NOT_RUN.
+| Seed | Initial x/y/yaw | Health rows | ECM samples | Original contact pairs | Unexpected contacts |
+| --- | --- | ---: | ---: | ---: | ---: |
+| 101 | 0 / 0 / 0 | 282 | 192 | 7472 | 0 |
+| 202 | 0.12 / -0.12 / 0.2 | 275 | 209 | 8132 | 0 |
+
+Independent review recomputes initial G1/L1, current ROS health, source continuity,
+original contact classification, canonical goal errors, matching raw physics,
+lease-closed stopped samples and exported public artifact SHAs. Worker terminal
+rows in these pilots lack their own clock; original sink terminal timestamps
+independently occur after explicit owner shutdown. That evidence limitation is
+recorded, and subsequent worker rows include their own monotonic timestamps.
+
+Earlier development failures remain intact. They exposed fixture output collisions,
+bootstrap delay, premature proof expiry, synchronous callback overload, background
+observation lag, stopped localization publication, concurrent pointer publication
+and atomic inode replacement. A partial motion or a FAILED receipt never counts
+as completed L2. Seed 303 exposed the atomic-read race and requires a fresh World
+on the corrected source. All three seeds must be verified again on final source
+and actual merged main before closing normal acceptance.
+
+Current software verification: 1016 ROS tests passed, 10 deselected (one existing
+deprecation warning); the prescribed mypy scope passed 121 files. Changed SDK
+contracts and formatting pass. Whole-repository static checks retain existing
+baseline failures and are not represented as green.
+
+Still required for G3: the final three-seed matrix, all ten exact execution fault
+Worlds with original actors and independent fail-stop/old-lease rejection,
+actual contact-monitor sensitivity, sealed evidence and normal source/main PR
+integration. G4 requires five real engineering repair/revalidation/rollback
+fixtures. G5 requires 54 actual same-model A/B/C episodes with original usage
+and causal memory traces. Those gates remain unaccepted; `v1_done=false`.

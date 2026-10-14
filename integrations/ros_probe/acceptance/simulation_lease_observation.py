@@ -6,11 +6,12 @@ unknown: a missing status file must never be interpreted as a verified revoke.
 """
 
 import json
-import os
 import re
 import stat
 import time
 from pathlib import Path
+
+from simulation_atomic_read import read_bounded_regular
 
 
 class ExternalSimulationLeaseObservation:
@@ -49,23 +50,13 @@ class ExternalSimulationLeaseObservation:
             info = self.directory.stat(follow_symlinks=False)
             if not stat.S_ISDIR(info.st_mode) or (info.st_dev, info.st_ino) != self._identity:
                 raise ValueError("lease observation fixture directory replaced")
-            fd = os.open(
-                self.directory / self.filename, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
+            raw = read_bounded_regular(
+                self.directory / self.filename, 4096, allow_atomic_unlink=True
             )
-            try:
-                before = os.fstat(fd)
-                if not stat.S_ISREG(before.st_mode) or not 0 < before.st_size <= 4096:
-                    raise ValueError("bounded original regular sink status required")
-                raw = os.read(fd, 4097)
-                after = os.fstat(fd)
-                if len(raw) != before.st_size or (
-                    before.st_size,
-                    before.st_mtime_ns,
-                    before.st_ctime_ns,
-                ) != (after.st_size, after.st_mtime_ns, after.st_ctime_ns):
-                    raise ValueError("sink status changed during original read")
-            finally:
-                os.close(fd)
+            if now_monotonic_ns is None:
+                now = time.monotonic_ns()
+                if now < self._last_clock:
+                    raise ValueError("lease observation clock invalid or rolled back")
             status = json.loads(raw)
             keys = {
                 "schema_version",

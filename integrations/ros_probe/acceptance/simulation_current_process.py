@@ -8,6 +8,7 @@ is supplementary observation only. Exit, stale output or any failure latches.
 import argparse
 import json
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -79,9 +80,17 @@ class SdkCurrentFactsProcess:
             if self.process is None or self.process.poll() is not None:
                 raise ValueError("independent observation process exited")
             for attempt in range(2):
-                result = json.loads(_read(self.path, 64_000))
+                result = json.loads(_read(self.path, 64_000, allow_atomic_unlink=True))
                 if (
-                    set(result) != {"schema_version", "pid", "terminal", "reason", "facts"}
+                    set(result)
+                    != {
+                        "schema_version",
+                        "pid",
+                        "terminal",
+                        "reason",
+                        "facts",
+                        "observed_monotonic_ns",
+                    }
                     or result["schema_version"] != "rosclaw.sdk_current_monitor.v1"
                     or type(result["pid"]) is not int
                     or result["pid"] != self.process.pid
@@ -95,7 +104,9 @@ class SdkCurrentFactsProcess:
                 facts = result["facts"]
                 now = time.monotonic_ns()
                 if (
-                    type(facts["health_review_ns"]) is not int
+                    type(result["observed_monotonic_ns"]) is not int
+                    or not facts["completed_ns"] <= result["observed_monotonic_ns"] <= now
+                    or type(facts["health_review_ns"]) is not int
                     or type(facts["valid_until_monotonic_ns"]) is not int
                     or not facts["health_review_ns"] <= now < facts["valid_until_monotonic_ns"]
                     or now - facts["health_review_ns"] > 500_000_000
@@ -132,10 +143,10 @@ class SdkCurrentFactsProcess:
         if process is not None and process.poll() is None:
             process.terminate()
             try:
-                process.wait(timeout=1)
+                process.wait(timeout=2)
             except subprocess.TimeoutExpired:
                 process.kill()
-                process.wait(timeout=1)
+                process.wait(timeout=2)
 
 
 def run_worker(config):
@@ -211,6 +222,7 @@ def run_worker(config):
             result = {
                 "schema_version": "rosclaw.sdk_current_monitor.v1",
                 "pid": os.getpid(),
+                "observed_monotonic_ns": time.monotonic_ns(),
                 "terminal": False,
                 "reason": None,
                 "facts": current,
@@ -222,6 +234,7 @@ def run_worker(config):
         result = {
             "schema_version": "rosclaw.sdk_current_monitor.v1",
             "pid": os.getpid(),
+            "observed_monotonic_ns": time.monotonic_ns(),
             "terminal": True,
             "reason": str(exc)[:2500],
             "facts": None,
@@ -241,6 +254,11 @@ def run_worker(config):
 
 
 if __name__ == "__main__":
+
+    def shutdown_owned_worker(signum, frame):
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGTERM, shutdown_owned_worker)
     parser = argparse.ArgumentParser()
     parser.add_argument("--worker", action="store_true", required=True)
     parser.parse_args()
