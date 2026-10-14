@@ -281,8 +281,45 @@ def test_healthy_supervision_preserves_independent_goal_and_stop_verification(tm
     assert (
         0 < executor.navigation_supervision.duration <= executor.navigation_binding.max_duration_sec
     )
+
     assert result.verification_result["physical_stop_verified"] is True
     assert not witness.lease and executor._supervised_action_id is None
+
+
+@pytest.mark.parametrize("first_renewal_accepted", [True, False])
+def test_supervised_dispatch_requires_first_actual_renewal_acknowledgement(
+    tmp_path, first_renewal_accepted
+):
+    executor, action, _, control, client = make_executor(
+        tmp_path, supervision_factory=SyntheticSupervision
+    )
+    original = control.call_service
+    renewals = []
+
+    def service(name, arguments, **kwargs):
+        # Initial enable uses the control transport; renewals have the guarded
+        # 150 ms RPC bound. A failed renewal must prevent every goal dispatch.
+        if arguments["data"] and kwargs.get("timeout_sec") == 0.15:
+            renewals.append(name)
+            if not first_renewal_accepted:
+                return RosTransportResult(ok=True, data={"values": {"success": False}})
+        return original(name, arguments, **kwargs)
+
+    control.call_service = service
+    original_send = client.send_goal
+
+    def send(**kwargs):
+        assert renewals and first_renewal_accepted
+        return original_send(**kwargs)
+
+    client.send_goal = send
+    result = executor(action)
+    assert renewals
+    if first_renewal_accepted:
+        assert result.final_state is ActionState.COMPLETED and client.sent
+    else:
+        assert result.final_state is ActionState.FAILED and not client.sent
+        assert executor.stopping.is_set()
 
 
 @pytest.mark.parametrize(

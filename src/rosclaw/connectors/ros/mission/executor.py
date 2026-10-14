@@ -838,6 +838,7 @@ class RosCoverageSimulationExecutor:
         goal_id = action.action_id
         dispatched = False
         heartbeat_stop = threading.Event()
+        heartbeat_ready = threading.Event()
         deadline = time.monotonic() + action.verification_policy.timeout_sec
         if self.navigation_binding:
             deadline = min(deadline, time.monotonic() + self.navigation_binding.max_duration_sec)
@@ -845,7 +846,9 @@ class RosCoverageSimulationExecutor:
         def maintain_lease():
             last_log = time.monotonic()
             count = 0
-            while not heartbeat_stop.wait(0.05 if self.navigation_supervision else 0.2):
+            wait_sec = 0 if self.navigation_supervision else 0.2
+            while not heartbeat_stop.wait(wait_sec):
+                wait_sec = 0.05 if self.navigation_supervision else 0.2
                 try:
                     observed = self.witness.fresh()
                     response = self._renew_service(
@@ -886,7 +889,9 @@ class RosCoverageSimulationExecutor:
                             self.stopping.is_set(),
                         )
                         self.stopping.set()
+                        heartbeat_ready.set()
                         break
+                    heartbeat_ready.set()
                     if (
                         coverage
                         and not observed["cleaning_enabled"]
@@ -898,6 +903,7 @@ class RosCoverageSimulationExecutor:
                 except Exception:
                     logger.exception("Simulation heartbeat observer/service failure")
                     self.stopping.set()
+                    heartbeat_ready.set()
                     break
 
         heartbeat_thread = threading.Thread(target=maintain_lease, daemon=True)
@@ -918,6 +924,12 @@ class RosCoverageSimulationExecutor:
             ):
                 raise RuntimeError("simulation navigation lease enable was not acknowledged")
             heartbeat_thread.start()
+            if self.navigation_supervision is not None and (
+                not heartbeat_ready.wait(0.5) or self.stopping.is_set()
+            ):
+                raise RuntimeError(
+                    "first supervised lease renewal was not acknowledged before dispatch"
+                )
             if coverage:
                 response = self._service("/rosclaw_sim/cleaning", {"data": True})
                 if not response.ok or not response.data.get("values", {}).get("success"):

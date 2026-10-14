@@ -138,3 +138,12 @@ bounded preparation stage before starting its unchanged ACTIVE-lifecycle and
 complete-physics window. The milestone grants no readiness or execution authority.
 Execution freshness and every Body limit remain unchanged. The original timeout
 and incomplete matrix remain retained.
+
+A subsequent seed-202 uniform-matrix World failed safely before forwarding any
+command: initial lease acknowledgement left 106 ms of its original proof-bound
+lifetime, while the delayed first heartbeat plus guarded checks reached renewal
+35 ms after expiry. Guarded navigation now performs its first heartbeat without
+the initial sleep and requires an actual successful first renewal before goal
+dispatch. Expiry, proof lifetime and old-lease rejection remain unchanged. A
+failed first renewal dispatches no goal; both acknowledgement cases are tested.
+The original failed World and incomplete matrix remain preserved.
