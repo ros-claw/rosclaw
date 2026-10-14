@@ -441,6 +441,7 @@ def freeze_audit_source(root, config):
                 "cleaning_acceptance.py",
                 "simulation_current_facts.py",
                 "simulation_current_process.py",
+                "simulation_daemon_observation.py",
                 "simulation_velocity_gate.py",
                 "prepared_source_stack.py",
                 "localization_refresh_fixture.py",

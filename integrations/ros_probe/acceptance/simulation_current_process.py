@@ -15,7 +15,7 @@ from contextlib import suppress
 from pathlib import Path
 
 from simulation_current_facts import CurrentSimulationFacts, _read
-from simulation_navigation_supervision import review_active_sim_daemon
+from simulation_daemon_observation import BoundedDaemonObservation
 from simulation_source_capture import BoundedSourceJsonlCapture
 
 from rosclaw.daemon.client import DaemonClient
@@ -145,6 +145,7 @@ def run_worker(config):
     identity = os.fstat(directory_fd)
     facts = None
     audit = None
+    daemon_monitor = None
 
     def publish(result):
         current = control.stat(follow_symlinks=False)
@@ -191,37 +192,18 @@ def run_worker(config):
             max_rows=5000,
             max_line_bytes=64_000,
         )
+        daemon_monitor = BoundedDaemonObservation(
+            client=client, admission=a, body_id=config["body_id"]
+        )
+        daemon_monitor.start()
         while True:
-            if time.monotonic_ns() >= a["expires_ns"]:
-                raise ValueError("explicit SDK admission expired")
-            daemon_review_started_ns = time.monotonic_ns()
-            status = client.get_runtime_status()
-            if (
-                status["daemon_peer"]["pid"] != a["daemon_pid"]
-                or status["daemon_peer"]["uid"] != a["daemon_uid"]
-                or status["client_peer"]["pid"] != os.getpid()
-                or status["process_separated"] is not True
-            ):
-                raise ValueError("actual independent daemon socket peer changed")
-            review_active_sim_daemon(
-                status,
-                instance_id=a["daemon_instance_id"],
-                pid=a["daemon_pid"],
-                uid=a["daemon_uid"],
-                body_id=config["body_id"],
-                expected_running=None,
-            )
-            daemon_review_completed_ns = time.monotonic_ns()
-            # Socket/ledger inspection can wait behind canonical daemon work.
-            # Take the short ROS age-margin observation AFTER that RPC, rather
-            # than consuming its cache window while waiting for the socket.
-            # The earlier daemon observation has its own <=250ms deadline.
             current = facts.collect(freshness_horizon_ms=100)
-            current["daemon_status"] = status
-            current["daemon_review_started_ns"] = daemon_review_started_ns
-            current["daemon_review_completed_ns"] = daemon_review_completed_ns
+            daemon = daemon_monitor.snapshot()
+            current["daemon_status"] = daemon["status"]
+            current["daemon_review_started_ns"] = daemon["started_ns"]
+            current["daemon_review_completed_ns"] = daemon["completed_ns"]
             current["valid_until_monotonic_ns"] = min(
-                current["valid_until_monotonic_ns"], daemon_review_started_ns + 250_000_000
+                current["valid_until_monotonic_ns"], daemon["valid_until_ns"]
             )
             current["worker_publish_prepared_ns"] = time.monotonic_ns()
             if time.monotonic_ns() >= current["valid_until_monotonic_ns"]:
@@ -249,6 +231,8 @@ def run_worker(config):
         publish(result)
         raise
     finally:
+        if daemon_monitor is not None:
+            daemon_monitor.close()
         if facts is not None:
             facts.close()
         if audit is not None:
