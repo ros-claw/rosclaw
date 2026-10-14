@@ -24,6 +24,7 @@ from simulation_current_facts import CurrentSimulationFacts, _read
 from simulation_execution_proof import ExecutionProofPins, _canonical
 from simulation_navigation_supervision import review_active_sim_daemon
 from simulation_sink_admission import authenticate_sink_admission
+from simulation_source_capture import BoundedSourceJsonlCapture
 from simulation_velocity_gate import SimulationVelocityGate
 from simulation_witness_sources import SimulationWitnessSources
 from std_srvs.srv import SetBool
@@ -53,6 +54,13 @@ class GovernedSimulationSink(Node):
         self.deadline_ns = self.lease_updates = self.received = self.published = self.zeroes = 0
         self.action_id = None
         self.used_actions = set()
+        self.events = BoundedSourceJsonlCapture(
+            self.root / "governed-sink-events-original.jsonl",
+            max_segments=1,
+            max_bytes=30_000_000,
+            max_rows=5000,
+            max_line_bytes=32_000,
+        )
         self.create_subscription(Twist, self.sources.topic("velocity_input"), self.command, 1)
         self.create_service(SetBool, self.sources.topic("lease"), self.heartbeat)
         self.wall_clock = Clock(clock_type=ClockType.STEADY_TIME)
@@ -152,7 +160,22 @@ class GovernedSimulationSink(Node):
             body_id=self.binding.body_id,
             expected_running=1 if require_active else None,
         )
+        self._event("CURRENT_LOCAL_FACTS", facts=facts, daemon_status=status)
         return facts
+
+    def _event(self, event, **fields):
+        self.events.write(
+            json.dumps(
+                {
+                    "event": event,
+                    "monotonic_ns": time.monotonic_ns(),
+                    "run_id": self.sources.run_id,
+                    **fields,
+                },
+                allow_nan=False,
+            )
+            + "\n"
+        )
 
     def _physical_stopped(self):
         fd = os.open(self.root / "witness.jsonl", os.O_RDONLY | os.O_NOFOLLOW)
@@ -186,6 +209,7 @@ class GovernedSimulationSink(Node):
 
     def heartbeat(self, request, response):
         try:
+            self._event("LEASE_REQUEST", enabled=request.data, admitted=self.admission is not None)
             if not request.data:
                 if self.gate is not None:
                     self.gate.revoke()
@@ -200,6 +224,7 @@ class GovernedSimulationSink(Node):
             self._bootstrap_binding()
             self._try_admission()
             if self.admission is None:
+                self._event("LEASE_REJECTED_BEFORE_ADMISSION")
                 response.success = False
                 response.message = "bootstrap refuses lease without explicit SDK operator admission"
                 return response
@@ -239,6 +264,7 @@ class GovernedSimulationSink(Node):
                     TwistStamped, self.sources.topic("drive_command"), 1
                 )
             self._write_status()
+            self._event("LEASE_RENEWED", action_id=self.action_id, expires_ns=self.deadline_ns)
             response.success = True
         except Exception as exc:
             self._fatal(exc)
@@ -265,6 +291,7 @@ class GovernedSimulationSink(Node):
             stamped.twist = message
             self.velocity.publish(stamped)
             self.published += 1
+            self._event("VELOCITY_ACCEPTED", action_id=self.action_id, command=checked)
         except Exception as exc:
             self._fatal(exc)
 
@@ -331,6 +358,7 @@ def main():
             node._zero()
         if node.facts is not None:
             node.facts.close()
+        node.events.close()
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
