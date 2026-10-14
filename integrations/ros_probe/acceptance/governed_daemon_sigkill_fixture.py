@@ -13,6 +13,7 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
+from simulation_completed_artifact import publish_completed_fault_outcome
 from simulation_current_facts import _read
 from simulation_execution_fault_policy import parse_governed_motion_fault_policy
 
@@ -170,6 +171,8 @@ def main():
         ) >= datetime.fromisoformat(utc):
             last_stamp = sample["captured_at"]
             samples.append(sample)
+            if len(samples) > 400:
+                raise ValueError("bounded original post-fault physical sample budget exhausted")
             if sample["lease_enabled"] is False and binding.stopped(sample):
                 stable_since = stable_since or datetime.fromisoformat(sample["captured_at"])
                 if (
@@ -202,9 +205,7 @@ def main():
         "G3_done": False,
         "v1_done": False,
     }
-    with (root / "governed-fault-actor-outcome-original.json").open("x") as f:
-        json.dump(outcome, f, indent=2)
-        f.write("\n")
+    publish_completed_fault_outcome(root, outcome)
     print(json.dumps({"status": outcome["status"], "samples": len(samples)}), flush=True)
 
 

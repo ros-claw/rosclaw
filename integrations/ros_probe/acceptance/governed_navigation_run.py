@@ -537,7 +537,12 @@ async def main():
             )
             and not fault_checks.get("terminal_receipt_missing")
             and isinstance(fault_receipt, dict)
-            and fault_receipt.get("final_state") in {"FAILED", "CANCELLED"}
+            and fault_receipt.get("final_state")
+            in (
+                {"FAILED", "CANCELLED", "TIMED_OUT"}
+                if fault_policy["case"] == "lease_loss"
+                else {"FAILED", "CANCELLED"}
+            )
         )
     )
     outcome = {

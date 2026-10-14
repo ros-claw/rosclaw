@@ -12,6 +12,7 @@ import os
 import time
 from pathlib import Path
 
+from simulation_completed_artifact import read_completed_fault_outcome
 from simulation_current_facts import _read, read_current_native_pointer
 from simulation_witness_sources import SimulationWitnessSources
 
@@ -79,12 +80,12 @@ def main():
             )
             f.write("\n")
         deadline = time.monotonic_ns() + 20_000_000_000
-        actor_path = root / "governed-fault-actor-outcome-original.json"
+        actor_path = root / "governed-fault-stop-confirmed-original.json"
         while not actor_path.exists():
             if time.monotonic_ns() >= deadline:
                 raise ValueError("actual injected fault and independent stop did not arrive")
             time.sleep(0.01)
-        actor = json.loads(_read(actor_path, 256_000))
+        actor = read_completed_fault_outcome(root, expected_policy_sha256=args.policy_sha256)
         if (
             actor["status"]
             != (

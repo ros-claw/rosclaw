@@ -443,6 +443,7 @@ def freeze_audit_source(root, config):
                 "simulation_current_process.py",
                 "governed_navigation_run.py",
                 "simulation_execution_fault_policy.py",
+                "simulation_completed_artifact.py",
                 "governed_daemon_sigkill_fixture.py",
                 "governed_old_lease_probe.py",
                 "simulation_atomic_read.py",
