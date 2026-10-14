@@ -144,7 +144,6 @@ class GovernedSimulationSink(Node):
                 binding=self.binding,
             )
             self.monitor.start()
-            self._current_local(require_active=True)
         except BaseException:
             if self.monitor is not None:
                 self.monitor.close()
@@ -305,6 +304,13 @@ class GovernedSimulationSink(Node):
             if self.failed_reason is None:
                 self._bootstrap_binding()
                 self._try_admission()
+                if (
+                    self.monitor is not None
+                    and not self.monitor.ready
+                    and not self.monitor.poll_ready()
+                ):
+                    self._write_status()
+                    return
                 if self.gate is not None:
                     self.gate.watchdog(_read(self.control / "proof.json", 8192))
                 elif self.admission is not None:
@@ -328,7 +334,9 @@ class GovernedSimulationSink(Node):
             "published_velocity_messages": self.published,
             "stop_zero_messages": self.zeroes,
             "action_id": self.action_id,
-            "daemon_instance_id": self.admission["daemon_instance_id"] if self.admission else None,
+            "daemon_instance_id": self.admission["daemon_instance_id"]
+            if self.admission and self.monitor is not None and self.monitor.ready
+            else None,
         }
         temporary = self.root / "governed-sink-status.tmp"
         temporary.write_text(json.dumps(status) + "\n")

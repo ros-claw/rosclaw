@@ -11,8 +11,8 @@ import os
 import subprocess
 import sys
 import time
-from pathlib import Path
 from contextlib import suppress
+from pathlib import Path
 
 from simulation_current_facts import CurrentSimulationFacts, _read
 from simulation_navigation_supervision import review_active_sim_daemon
@@ -34,6 +34,8 @@ class SdkCurrentFactsProcess:
         self.process = None
         self.failed_reason = None
         self._started = False
+        self.ready = False
+        self._startup_deadline_ns = None
 
     def start(self):
         if self._started or self.failed_reason:
@@ -46,12 +48,18 @@ class SdkCurrentFactsProcess:
         )
         self.process.stdin.write(json.dumps(self.config, allow_nan=False).encode() + b"\n")
         self.process.stdin.close()
-        deadline = time.monotonic_ns() + 500_000_000
-        while not self.path.exists():
-            if self.process.poll() is not None or time.monotonic_ns() >= deadline:
-                self._fail("SDK independent observation startup unavailable")
-            time.sleep(0.005)
+        self._startup_deadline_ns = time.monotonic_ns() + 500_000_000
+
+    def poll_ready(self):
+        if self.failed_reason or self.process is None or self.process.poll() is not None:
+            self._fail("SDK independent observation startup unavailable")
+        if not self.path.exists():
+            if time.monotonic_ns() >= self._startup_deadline_ns:
+                self._fail("SDK independent observation startup expired")
+            return False
         self.get()
+        self.ready = True
+        return True
 
     def _fail(self, reason):
         self.failed_reason = self.failed_reason or str(reason)[:2500]
