@@ -17,7 +17,9 @@ import time
 from pathlib import Path
 
 from simulation_execution_fault_policy import (
+    BEFORE_FAULT_JOURNEY_STATUS,
     MOTION_FAULT_JOURNEY_STATUS,
+    parse_governed_before_dispatch_fault_policy,
     parse_governed_motion_fault_policy,
 )
 from simulation_source_capture import BoundedSourceJsonlCapture
@@ -64,7 +66,12 @@ async def main():
     fault_policy = None
     if args.fault_policy_sha256:
         fault_raw = (evidence / "governed-fault.json").read_bytes()
-        fault_policy = parse_governed_motion_fault_policy(
+        parse_fault = (
+            parse_governed_before_dispatch_fault_policy
+            if json.loads(fault_raw).get("phase") == "before_dispatch"
+            else parse_governed_motion_fault_policy
+        )
+        fault_policy = parse_fault(
             fault_raw,
             expected_sha256=args.fault_policy_sha256,
             run_id=policy["run_id"],
@@ -207,7 +214,13 @@ async def main():
                 )
                 actor_argv = [
                     sys.executable,
-                    str(Path(__file__).with_name("governed_daemon_sigkill_fixture.py")),
+                    str(
+                        Path(__file__).with_name(
+                            "governed_before_dispatch_fault_fixture.py"
+                            if fault_policy["phase"] == "before_dispatch"
+                            else "governed_daemon_sigkill_fixture.py"
+                        )
+                    ),
                     "--policy-sha256",
                     args.fault_policy_sha256,
                     "--daemon-pid",
@@ -242,11 +255,55 @@ async def main():
                     "timeout_sec": goal["timeout_sec"],
                     "wait_timeout_sec": 0,
                 }
+                if fault_policy and fault_policy["phase"] == "before_dispatch":
+                    original = json.loads(json.dumps(request))
+                    if fault_policy["case"] == "wrong_body_hash":
+                        request["body_snapshot_hash"] = "0" * 64
+                    elif fault_policy["case"] == "out_of_bounds_goal":
+                        body = json.loads(
+                            (
+                                evidence / "generic-compiled/body/refs/effective_body.json"
+                            ).read_text()
+                        )
+                        request["arguments"] = json.loads(json.dumps(request["arguments"]))
+                        request["arguments"]["pose"]["pose"]["position"]["x"] += (
+                            2 * body["safety"]["navigation_simulation"]["max_goal_distance_m"]
+                        )
+                    with (evidence / "governed-fault-injection-original.json").open("x") as stream:
+                        json.dump(
+                            {
+                                "case": fault_policy["case"],
+                                "phase": "before_dispatch",
+                                "run_id": policy["run_id"],
+                                "body_snapshot_hash": base["body_snapshot_hash"],
+                                "before_monotonic_ns": time.monotonic_ns(),
+                                "original_valid_request": original,
+                                "actual_invalid_request": request,
+                            },
+                            stream,
+                            indent=2,
+                        )
                 (evidence / f"governed-action-{index}-request-original.json").write_text(
                     json.dumps(request, indent=2) + "\n"
                 )
                 last_request = request
-                ticket = await tools._request_action(**request)
+                try:
+                    request_started_ns = time.monotonic_ns()
+                    ticket = await tools._request_action(**request)
+                except Exception as request_error:
+                    (
+                        evidence / f"governed-action-{index}-request-rejected-original.json"
+                    ).write_text(
+                        json.dumps(
+                            {
+                                "original_error": str(request_error),
+                                "before_monotonic_ns": request_started_ns,
+                                "after_monotonic_ns": time.monotonic_ns(),
+                            }
+                        )
+                        + "\n"
+                    )
+                    raise
                 (evidence / f"governed-action-{index}-ticket-original.json").write_text(
                     json.dumps(ticket, indent=2) + "\n"
                 )
@@ -398,6 +455,7 @@ async def main():
                             "lidar_stream_lost",
                             "rosbridge_disconnect",
                             "collision_monitor_disabled",
+                            "out_of_bounds_goal",
                         }
                         and actor_code == 0
                     ):
@@ -468,6 +526,8 @@ async def main():
                             "old_action_refused": old_action_refused,
                             "terminal_receipt_missing": missing,
                         }
+                        if fault_policy["phase"] == "before_dispatch":
+                            fault_checks["actual_before_dispatch_unadmitted_refusal"] = True
                         if fault_policy["case"] == "emergency_stop":
                             status = await tools._get_runtime_status()
                             (
@@ -583,8 +643,24 @@ async def main():
                 json.dumps({"pid": daemon.pid, "returncode": code}) + "\n"
             )
             export_public_action_artifacts()
-    fault_pass = bool(
+    before_pass = bool(
         fault_policy
+        and fault_policy["phase"] == "before_dispatch"
+        and code == 0
+        and fault_checks
+        and fault_checks.get("actor_returncode") == 0
+        and fault_checks.get("old_lease_probe_returncode") == 0
+        and fault_checks.get("old_action_refused")
+        and fault_checks.get("actual_before_dispatch_unadmitted_refusal")
+        and (
+            fault_checks.get("terminal_receipt_missing")
+            if fault_policy["case"] == "wrong_body_hash"
+            else isinstance(fault_receipt, dict) and fault_receipt.get("final_state") == "BLOCKED"
+        )
+    )
+    fault_pass = before_pass or bool(
+        fault_policy
+        and fault_policy["phase"] == "during_motion"
         and code == (-signal.SIGKILL if fault_policy["case"] == "daemon_sigkill" else 0)
         and fault_checks
         and fault_checks.get("actor_returncode") == 0
@@ -627,7 +703,7 @@ async def main():
     }
     if fault_policy:
         outcome["status"] = (
-            MOTION_FAULT_JOURNEY_STATUS[fault_policy["case"]]
+            {**MOTION_FAULT_JOURNEY_STATUS, **BEFORE_FAULT_JOURNEY_STATUS}[fault_policy["case"]]
             if fault_pass
             else "FAILED_ORIGINAL_EXECUTION_FAULT_ACCEPTANCE"
         )

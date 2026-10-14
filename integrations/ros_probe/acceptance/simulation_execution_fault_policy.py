@@ -22,6 +22,15 @@ MOTION_FAULT_JOURNEY_STATUS = {
     "rosbridge_disconnect": "PASS_ROSBRIDGE_DISCONNECT_SAFE_STOP_AND_OLD_REQUEST_REFUSAL_LOCAL",
 }
 
+BEFORE_FAULT_ACTOR_STATUS = {
+    "wrong_body_hash": "PASS_ACTUAL_WRONG_BODY_HASH_REFUSAL_INDEPENDENT_NO_MOTION_LOCAL",
+    "out_of_bounds_goal": "PASS_ACTUAL_OUT_OF_BOUNDS_REFUSAL_INDEPENDENT_NO_MOTION_LOCAL",
+}
+BEFORE_FAULT_JOURNEY_STATUS = {
+    "wrong_body_hash": "PASS_WRONG_BODY_HASH_BEFORE_DISPATCH_NO_MOTION_AND_OLD_REQUEST_REFUSAL_LOCAL",
+    "out_of_bounds_goal": "PASS_OUT_OF_BOUNDS_BEFORE_DISPATCH_NO_MOTION_AND_OLD_REQUEST_REFUSAL_LOCAL",
+}
+
 
 def _closed_object(pairs):
     result = {}
@@ -34,6 +43,27 @@ def _closed_object(pairs):
 
 def parse_governed_motion_fault_policy(
     raw, *, expected_sha256, run_id, body_snapshot_hash, world_sha256, action_id
+):
+    return _parse_fault_policy(
+        raw,
+        expected_sha256=expected_sha256,
+        run_id=run_id,
+        body_snapshot_hash=body_snapshot_hash,
+        world_sha256=world_sha256,
+        action_id=action_id,
+        cases=MOTION_FAULT_ACTOR_STATUS,
+        phase="during_motion",
+    )
+
+
+def parse_governed_before_dispatch_fault_policy(raw, **pins):
+    return _parse_fault_policy(
+        raw, **pins, cases=BEFORE_FAULT_ACTOR_STATUS, phase="before_dispatch"
+    )
+
+
+def _parse_fault_policy(
+    raw, *, expected_sha256, run_id, body_snapshot_hash, world_sha256, action_id, cases, phase
 ):
     if (
         type(raw) is not bytes
@@ -57,11 +87,11 @@ def parse_governed_motion_fault_policy(
         type(policy) is not dict
         or set(policy) != {"schema_version", "case", "phase", *pins}
         or policy["schema_version"] != "rosclaw.governed_sim_fault.v1"
-        or policy["case"] not in MOTION_FAULT_ACTOR_STATUS
-        or policy["phase"] != "during_motion"
+        or policy["case"] not in cases
+        or policy["phase"] != phase
         or any(policy[k] != v for k, v in pins.items())
     ):
-        raise ValueError("closed Body/run/World/action-bound during-motion fault policy required")
+        raise ValueError("closed Body/run/World/action-bound " + phase + " fault policy required")
     return policy
 
 

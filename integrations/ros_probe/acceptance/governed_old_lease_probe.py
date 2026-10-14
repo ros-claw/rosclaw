@@ -14,7 +14,8 @@ from pathlib import Path
 
 from simulation_completed_artifact import read_completed_fault_outcome
 from simulation_current_facts import _read, read_current_native_pointer
-from simulation_execution_fault_policy import MOTION_FAULT_ACTOR_STATUS
+from simulation_execution_fault_policy import BEFORE_FAULT_ACTOR_STATUS, MOTION_FAULT_ACTOR_STATUS
+from simulation_unadmitted_sink import require_unadmitted_sink
 from simulation_witness_sources import SimulationWitnessSources
 
 from rosclaw.connectors.ros.transport.base import RosbridgeEndpoint
@@ -32,6 +33,9 @@ def main():
     if hashlib.sha256(raw).hexdigest() != args.policy_sha256:
         raise ValueError("explicit original fault pin required")
     policy = json.loads(raw)
+    before_dispatch = (
+        policy.get("phase") == "before_dispatch" and policy.get("case") in BEFORE_FAULT_ACTOR_STATUS
+    )
     source_raw = _read(Path("/assets/observer-sources.json"), 128_000)
     sources = SimulationWitnessSources.from_bytes(
         source_raw,
@@ -88,7 +92,8 @@ def main():
             time.sleep(0.01)
         actor = read_completed_fault_outcome(root, expected_policy_sha256=args.policy_sha256)
         if (
-            actor["status"] != MOTION_FAULT_ACTOR_STATUS[policy["case"]]
+            actor["status"]
+            != {**MOTION_FAULT_ACTOR_STATUS, **BEFORE_FAULT_ACTOR_STATUS}[policy["case"]]
             or actor["policy_sha256"] != args.policy_sha256
             or actor["case"] != policy["case"]
             or actor["run_id"] != policy["run_id"]
@@ -98,7 +103,11 @@ def main():
         before = json.loads(
             _read(root / "governed-sink-status.json", 4096, allow_atomic_unlink=True)
         )
-        if (
+        if before_dispatch:
+            before = require_unadmitted_sink(
+                root, run_id=policy["run_id"], body_snapshot_hash=policy["body_snapshot_hash"]
+            )
+        elif (
             before["terminal"] is not True
             or before["lease_expires_ns"] != 0
             or before["run_id"] != policy["run_id"]
@@ -121,14 +130,20 @@ def main():
         after = json.loads(
             _read(root / "governed-sink-status.json", 4096, allow_atomic_unlink=True)
         )
-        if (
+        if before_dispatch:
+            after = require_unadmitted_sink(
+                root, run_id=policy["run_id"], body_snapshot_hash=policy["body_snapshot_hash"]
+            )
+        elif (
             after["terminal"] is not True
             or after["lease_expires_ns"] != 0
             or after["published_velocity_messages"] != before["published_velocity_messages"]
         ):
             raise ValueError("terminal sink changed or forwarded a command during old-lease probe")
         result = {
-            "status": "PASS_OLD_LEASE_ACTUALLY_REJECTED_BY_TERMINAL_SDK_SINK",
+            "status": "PASS_OLD_LEASE_ACTUALLY_REJECTED_BY_UNADMITTED_SDK_SINK"
+            if before_dispatch
+            else "PASS_OLD_LEASE_ACTUALLY_REJECTED_BY_TERMINAL_SDK_SINK",
             "policy_sha256": args.policy_sha256,
             "run_id": policy["run_id"],
             "body_snapshot_hash": policy["body_snapshot_hash"],

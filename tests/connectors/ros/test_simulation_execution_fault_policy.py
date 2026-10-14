@@ -40,6 +40,20 @@ def test_original_policy_explicitly_binds_first_action(fixture):
     )
 
 
+@pytest.mark.parametrize("case", ["wrong_body_hash", "out_of_bounds_goal"])
+def test_before_dispatch_policy_cannot_be_used_as_motion_fault(fixture, case):
+    module, pins, policy = fixture
+    policy.update(case=case, phase="before_dispatch")
+    raw = json.dumps(policy).encode()
+    digest = hashlib.sha256(raw).hexdigest()
+    assert (
+        module.parse_governed_before_dispatch_fault_policy(raw, expected_sha256=digest, **pins)
+        == policy
+    )
+    with pytest.raises(ValueError, match="closed Body/run/World/action"):
+        module.parse_governed_motion_fault_policy(raw, expected_sha256=digest, **pins)
+
+
 @pytest.mark.parametrize(
     "field",
     [

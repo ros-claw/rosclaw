@@ -490,6 +490,8 @@ def freeze_audit_source(root, config):
                 "simulation_owned_lifecycle_fault.py",
                 "simulation_rosbridge_disconnect_fixture.py",
                 "governed_daemon_sigkill_fixture.py",
+                "governed_before_dispatch_fault_fixture.py",
+                "simulation_unadmitted_sink.py",
                 "governed_old_lease_probe.py",
                 "simulation_atomic_read.py",
                 "simulation_daemon_observation.py",
