@@ -79,6 +79,40 @@ async def main():
     os.environ["ROSCLAW_HOME"] = str(root / "home")
     os.environ["ROSCLAW_ROS_EXPERT"] = "1"
     result, error = [], None
+
+    def export_public_action_artifacts():
+        target = evidence / "public-action-artifacts"
+        target.mkdir(exist_ok=True)
+        index = []
+        source = root / "actions"
+        if source.is_dir():
+            for file in sorted(source.iterdir()):
+                if (
+                    not file.is_file()
+                    or file.is_symlink()
+                    or not file.name.startswith(("rosevidence_", "coverage-audit-"))
+                    or file.suffix not in {".json", ".jsonl"}
+                ):
+                    continue
+                raw = file.read_bytes()
+                destination = target / file.name
+                if destination.exists() and destination.read_bytes() != raw:
+                    raise ValueError("already exported original action artifact changed")
+                if not destination.exists():
+                    with destination.open("xb") as output:
+                        output.write(raw)
+                index.append(
+                    {
+                        "source": str(file),
+                        "public_file": file.name,
+                        "sha256": hashlib.sha256(raw).hexdigest(),
+                        "bytes": len(raw),
+                    }
+                )
+        (evidence / "public-action-artifacts-index.json").write_text(
+            json.dumps(index, indent=2) + "\n"
+        )
+
     with (evidence / "governed-daemon-original.log").open("x") as log:
         daemon = subprocess.Popen(
             argv, stdout=log, stderr=subprocess.STDOUT, start_new_session=True
@@ -187,6 +221,7 @@ async def main():
             (evidence / "governed-daemon-exit-original.json").write_text(
                 json.dumps({"pid": daemon.pid, "returncode": code}) + "\n"
             )
+            export_public_action_artifacts()
     outcome = {
         "status": "FAILED_ORIGINAL_GOVERNED_SIM_JOURNEY"
         if error or code != 0

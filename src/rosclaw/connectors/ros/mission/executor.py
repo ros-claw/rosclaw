@@ -831,7 +831,7 @@ class RosCoverageSimulationExecutor:
         def maintain_lease():
             last_log = time.monotonic()
             count = 0
-            while not heartbeat_stop.wait(0.1 if self.navigation_supervision else 0.2):
+            while not heartbeat_stop.wait(0.05 if self.navigation_supervision else 0.2):
                 try:
                     observed = self.witness.fresh()
                     response = self._renew_service(
