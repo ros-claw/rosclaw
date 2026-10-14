@@ -118,8 +118,8 @@ insufficient: the corrected fixture also requires fresh, complete original
 contact messages without an active nonfloor pair. The earlier failed attempt
 and its original claimed local outcome remain preserved.
 
-Current software verification includes 1,134 ROS tests before the contact
-fixture; subsequent original logs record the expanded regression separately.
+Current software verification includes 1,143 ROS tests after contact clearance
+repair, with 11 deselected and one existing dependency deprecation warning.
 The prescribed mypy scope passes 121 files. Changed SDK contracts and formatting
 pass. Whole-repository Ruff and formatting retain existing baseline failures.
 
@@ -130,3 +130,11 @@ five real engineering repair/revalidation/rollback episodes. G5 requires 54
 actual same-model A/B/C episodes with original usage and causal memory traces.
 Those gates remain unaccepted; actual model experiment calls = 0 and
 `v1_done=false`.
+
+The first final-source matrix stopped before action dispatch because the initial
+30-second ROS readiness window included controller subprocess bringup. The SDK
+now records an owned, run-bound process-spawn milestone; capture waits for that
+bounded preparation stage before starting its unchanged ACTIVE-lifecycle and
+complete-physics window. The milestone grants no readiness or execution authority.
+Execution freshness and every Body limit remain unchanged. The original timeout
+and incomplete matrix remain retained.

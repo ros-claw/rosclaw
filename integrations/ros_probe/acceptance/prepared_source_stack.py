@@ -5,6 +5,7 @@ The external source witness and governed sink are separate owned processes.
 """
 
 import json
+import os
 import signal
 import subprocess
 import time
@@ -148,6 +149,23 @@ def main():
         start(
             "rosapi",
             ["ros2", "run", "rosapi", "rosapi_node", "--ros-args", "-p", "use_sim_time:=true"],
+        )
+        # This is only a process-spawn milestone, never ROS/physics readiness.
+        # The capture owner separately requires actual ACTIVE lifecycle and
+        # complete physical observations after the components have started.
+        (OUT / "prepared-stack-spawned-original.json").write_text(
+            json.dumps(
+                {
+                    "run_id": settings["run_id"],
+                    "monotonic_ns": time.monotonic_ns(),
+                    "owner_pid": os.getpid(),
+                    "children": owned,
+                    "ROS_readiness": "NOT_EVALUATED",
+                    "execution_authority": "NONE",
+                },
+                indent=2,
+            )
+            + "\n"
         )
         while True:
             for process in children:

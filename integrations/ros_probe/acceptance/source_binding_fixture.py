@@ -456,6 +456,13 @@ def main():
         witness = launch_witness(
             "initial-source-witness", OUT / "home", OUT / "execution_config.json"
         )
+        if prepared_sources is not None:
+            # Controller bringup has its own bounded SDK subprocess wait. Do
+            # not spend the lifecycle/physics window before Nav2 is spawned.
+            spin_until(lambda: (OUT / "prepared-stack-spawned-original.json").exists(), 75)
+            spawned = json.loads((OUT / "prepared-stack-spawned-original.json").read_text())
+            if spawned["run_id"] != settings["run_id"] or spawned["owner_pid"] != stack.pid:
+                raise ValueError("owned prepared process milestone identity differs")
         spin_until(
             lambda: (
                 state["model"]
