@@ -22,7 +22,7 @@ from rclpy.clock import Clock, ClockType
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from simulation_current_facts import CurrentSimulationFacts, _read
-from simulation_current_monitor import BoundedCurrentFactsMonitor
+from simulation_current_process import SdkCurrentFactsProcess
 from simulation_execution_proof import ExecutionProofPins, _canonical
 from simulation_navigation_supervision import review_active_sim_daemon
 from simulation_sink_admission import authenticate_sink_admission
@@ -137,8 +137,11 @@ class GovernedSimulationSink(Node):
                 timeout_sec=0.1,
             )
             self.admission, self.key, self.facts = admission, key, facts
-            self.monitor = BoundedCurrentFactsMonitor(
-                facts=facts, daemon_observer=self._observe_daemon
+            self.monitor = SdkCurrentFactsProcess(
+                root=self.root,
+                enrollment_sha256=envelope["payload"]["facts_enrollment_sha256"],
+                admission=admission,
+                binding=self.binding,
             )
             self.monitor.start()
             self._current_local(require_active=True)
@@ -147,28 +150,6 @@ class GovernedSimulationSink(Node):
                 self.monitor.close()
             facts.close()
             raise
-
-    def _observe_daemon(self):
-        if self.admission is None or time.monotonic_ns() >= self.admission["expires_ns"]:
-            raise ValueError("explicit SDK operator context unavailable or expired")
-        status = self.client.get_runtime_status()
-        a = self.admission
-        if (
-            status["daemon_peer"]["pid"] != a["daemon_pid"]
-            or status["daemon_peer"]["uid"] != a["daemon_uid"]
-            or status["client_peer"]["pid"] != os.getpid()
-            or status["process_separated"] is not True
-        ):
-            raise ValueError("actual independent daemon socket peer changed")
-        review_active_sim_daemon(
-            status,
-            instance_id=a["daemon_instance_id"],
-            pid=a["daemon_pid"],
-            uid=a["daemon_uid"],
-            body_id=self.binding.body_id,
-            expected_running=None,
-        )
-        return status
 
     def _current_local(self, *, require_active=True):
         if self.admission is None or time.monotonic_ns() >= self.admission["expires_ns"]:
