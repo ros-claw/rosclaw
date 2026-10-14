@@ -131,3 +131,91 @@ def test_freshness_margin_is_bounded_and_cannot_relax_age(tmp_path, margin):
             now=NOW,
             freshness_margin_ms=margin,
         )
+
+
+@pytest.mark.parametrize(
+    "topic",
+    [
+        "/sample/position_feedback",
+        "/sample/scan2",
+        "/sample/estimated_pose",
+        "/sample/near_grid",
+        "/sample/far_grid",
+    ],
+)
+@pytest.mark.parametrize("message_age,elapsed", [(501, 0), (450, 51)])
+def test_each_live_stream_uses_policy_and_elapsed_age(tmp_path, topic, message_age, elapsed):
+    parts = prepared(tmp_path)
+    parts[2]["max_age_ms"] = 500
+    signal = next(s for s in parts[-1].signals if s.topic == topic)
+    signal.last_message_age_ms = message_age
+    result = review(parts, NOW + timedelta(milliseconds=elapsed))
+    assert "CURRENT_LIVE_STREAM_AGE_EXCEEDED:" + topic in result["unknown_reasons"]
+    assert result["status"] == "UNKNOWN"
+
+
+@pytest.mark.parametrize("bad_age", [None, -1, float("nan"), float("inf")])
+def test_missing_or_invalid_original_stream_age_fails_closed(tmp_path, bad_age):
+    parts = prepared(tmp_path)
+    signal = next(s for s in parts[-1].signals if s.topic == "/sample/scan2")
+    signal.last_message_age_ms = bad_age
+    result = review(parts)
+    assert result["status"] == "UNKNOWN"
+    assert any(
+        r in result["unknown_reasons"]
+        for r in (
+            "CURRENT_LIVE_STREAM_AGE_EXCEEDED:/sample/scan2",
+            "CURRENT_UNIQUE_LIVE_INTERFACE_REQUIRED:sensing.lidar",
+        )
+    )
+
+
+@pytest.mark.parametrize("future_fact", ["snapshot", "signal", "localization", "tf", "parameter"])
+def test_safety_horizon_cannot_hide_future_observations(tmp_path, future_fact):
+    root, request, policy, model = prepared(tmp_path)
+    future = NOW + timedelta(milliseconds=50)
+    if future_fact == "snapshot":
+        model.captured_at = future
+    elif future_fact == "signal":
+        model.signals[0].captured_at = future
+    elif future_fact == "localization":
+        model.observations["localization_quality"][0]["captured_at"] = future.isoformat()
+    elif future_fact == "tf":
+        next(r for r in model.observations["transform_values"] if not r["static"])[
+            "captured_at"
+        ] = future.isoformat()
+    else:
+        node = next(iter(model.observations["parameter_captured_at"]))
+        model.observations["parameter_captured_at"][node] = future.isoformat()
+    model.seal()
+    result = review_current_sim_navigation_health(
+        root,
+        request,
+        model=model,
+        policy=policy,
+        policy_hash=content_hash("navreadinesspolicy", policy),
+        now=NOW,
+        freshness_margin_ms=100,
+    )
+    assert result["status"] == "UNKNOWN", result
+
+
+def test_margin_tightens_stream_age_without_requiring_periodic_map_or_commands(tmp_path):
+    root, request, policy, model = prepared(tmp_path)
+    policy["max_age_ms"] = 500
+    for signal in model.signals:
+        if signal.topic in {"/sample/floor", "/sample/unfiltered", "/sample/filtered"}:
+            signal.last_message_age_ms = 900
+    scan = next(s for s in model.signals if s.topic == "/sample/scan2")
+    scan.last_message_age_ms = 401
+    assert review((root, request, policy, model))["status"] == "HEALTHY_SIM_OBSERVATION_ONLY"
+    result = review_current_sim_navigation_health(
+        root,
+        request,
+        model=model,
+        policy=policy,
+        policy_hash=content_hash("navreadinesspolicy", policy),
+        now=NOW,
+        freshness_margin_ms=100,
+    )
+    assert "CURRENT_LIVE_STREAM_AGE_EXCEEDED:/sample/scan2" in result["unknown_reasons"]

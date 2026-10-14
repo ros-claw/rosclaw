@@ -28,7 +28,17 @@ The original four-wheel J100 stamped controller retains its 200 ms watchdog.
 
 Current facts come from original SHA-bound Native bytes and the pinned bounded
 ECM stream. The collector checks immutable enrollment, Body workspace, URDF and
-World bytes every cycle. ROS/source age is at most 500 ms. The ROS consumer uses
+World bytes every cycle. Execution policy bounds snapshot/source age to 500 ms.
+An independent raw review found that earlier pilots did not apply that bound
+to every live stream: the candidate check used capture-time message age and
+separate fixed thresholds. The current implementation additionally checks
+odometry, lidar, localization and both costmap streams using original message
+age plus elapsed time, with the execution policy and conservative margin.
+Lifecycle and parameter observations use the same policy. Future observation
+timestamps are checked against actual review time before projecting age.
+Earlier accepted local pilots remain evidence for their original source and
+policy implementation; they do not establish this corrected strict-age gate.
+Fresh final-source and actual-main runs are required. The ROS consumer uses
 an SDK-owned pure observation subprocess, keeping full model/Body review outside
 ROS control callbacks. Its daemon observer independently checks actual socket
 peer PID/UID, generation, watchdog, durable ledger, E-stop and SIM executor scope,

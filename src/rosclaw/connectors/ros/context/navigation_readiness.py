@@ -23,6 +23,63 @@ def _fresh(stamp, now, age):
         return False
 
 
+def _review_live_stream_ages(model, requirements, review, now, observed_at, age, unknown):
+    """Age original live data through review time, including any safety margin.
+
+    A latched occupancy map and idle command topics need no periodic messages.
+    Future observations are rejected against the actual clock, never the
+    projected safety horizon.
+    """
+    topics = {
+        requirements["localization_topic"],
+        *requirements["costmap_topics"],
+    }
+    for role in ("state.odometry", "sensing.lidar"):
+        rows = review["candidate"]["interfaces"].get(role, [])
+        if len(rows) != 1:
+            unknown.append("CURRENT_UNIQUE_LIVE_INTERFACE_REQUIRED:" + role)
+        else:
+            topics.add(rows[0]["name"])
+    for topic in sorted(topics):
+        signals = [s for s in model.signals if s.topic == topic]
+        if len(signals) != 1:
+            unknown.append("CURRENT_UNIQUE_LIVE_STREAM_REQUIRED:" + topic)
+            continue
+        signal = signals[0]
+        elapsed = (now - signal.captured_at).total_seconds() * 1000
+        if (
+            not _fresh(signal.captured_at.isoformat(), observed_at, age)
+            or not _number(signal.last_message_age_ms)
+            or signal.last_message_age_ms < 0
+            or signal.last_message_age_ms + elapsed > age
+        ):
+            unknown.append("CURRENT_LIVE_STREAM_AGE_EXCEEDED:" + topic)
+    elapsed = model.age_ms(now)
+    clock_age = model.observations.get("clock_last_receive_age_ms")
+    if not _number(clock_age) or clock_age < 0 or clock_age + elapsed > age:
+        unknown.append("CURRENT_SIM_CLOCK_AGE_EXCEEDED")
+    for role, node in requirements["lifecycle_nodes"].items():
+        rows = [r for r in model.lifecycle if r.name == node]
+        if len(rows) != 1 or not (
+            _fresh(rows[0].captured_at.isoformat(), observed_at, age)
+            and _fresh(rows[0].captured_at.isoformat(), now, age)
+        ):
+            unknown.append("CURRENT_LIFECYCLE_AGE_EXCEEDED:" + role)
+    for node, stamp in model.observations.get("parameter_captured_at", {}).items():
+        if not (_fresh(stamp, observed_at, age) and _fresh(stamp, now, age)):
+            unknown.append("CURRENT_PARAMETER_AGE_EXCEEDED:" + node)
+    # The projected horizon must never turn future-dated original facts valid.
+    rows = [
+        *model.observations.get("localization_quality", []),
+        *model.observations.get("costmap_footprints", {}).values(),
+        *model.observations.get("message_frames", {}).values(),
+        *[r for r in model.observations.get("transform_values", []) if not r.get("static")],
+    ]
+    for row in rows:
+        if not _fresh(row.get("captured_at"), observed_at, age):
+            unknown.append("CURRENT_ORIGINAL_FACT_TIMESTAMP_INVALID:" + str(row.get("source")))
+
+
 def _contains_circle(points, radius):
     """Require a strictly convex polygon whose every half-plane contains circle."""
     if type(points) is not list or not 3 <= len(points) <= 128:
@@ -235,11 +292,13 @@ def _review_current_ros_facts(
     blocked,
     *,
     stopped_capture_bytes=None,
+    observed_at=None,
 ):
     """Shared pure facts; stopped source capture belongs only to initial L1."""
     try:
         age = policy["max_age_ms"]
-        if not 0 <= model.age_ms(now) <= age:
+        observed_at = observed_at or now
+        if not 0 <= model.age_ms(observed_at) <= age or not 0 <= model.age_ms(now) <= age:
             unknown.append("STALE_L1_CAPTURE")
         with _Reader(workspace) as reader:
             files = reader.read()
@@ -257,6 +316,7 @@ def _review_current_ros_facts(
                     model, files["body/refs/robot.urdf"], requirements, now=now
                 )
                 unknown.extend("NAVIGATION:" + r for r in review["unknown_fields"])
+            _review_live_stream_ages(model, requirements, review, now, observed_at, age, unknown)
             if set(policy["costmaps"]) != set(requirements["costmap_topics"]):
                 raise ValueError("explicit exact costmap topic associations required")
             limits = policy["variance_limits"]
@@ -448,7 +508,7 @@ def review_current_sim_navigation_health(
     evaluated_at = now + timedelta(milliseconds=freshness_margin_ms)
     unknown, blocked = [], []
     _review_current_ros_facts(
-        workspace, request, policy, model, evaluated_at, None, unknown, blocked
+        workspace, request, policy, model, evaluated_at, None, unknown, blocked, observed_at=now
     )
     return {
         "schema_version": "rosclaw.current_sim_navigation_health.v1",
