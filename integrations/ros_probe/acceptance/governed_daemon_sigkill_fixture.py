@@ -1,7 +1,7 @@
-"""Owned SDK daemon-SIGKILL fault: actual motion trigger and independent stop.
+"""Owned SDK SIGKILL/MCP E-stop faults: actual motion trigger and independent stop.
 
 This operator fixture imports no ROS, Runtime, driver, publisher or goal client.
-It kills only the pinned daemon child inside this disposable container.
+SIGKILL targets only the pinned daemon child; E-stop is requested by canonical MCP.
 """
 
 import argparse

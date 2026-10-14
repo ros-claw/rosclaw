@@ -359,7 +359,9 @@ async def main():
                         refusal.update(
                             action_id=last_request["action_id"],
                             monotonic_ns=time.monotonic_ns(),
-                            purpose="explicit old-action rejection test after confirmed SIGKILL and independent stop",
+                            purpose="explicit old-action rejection test after confirmed "
+                            + fault_policy["case"]
+                            + " and independent stop",
                         )
                         (evidence / "governed-old-action-refusal-original.json").write_text(
                             json.dumps(refusal, indent=2) + "\n"
