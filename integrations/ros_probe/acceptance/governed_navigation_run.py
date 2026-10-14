@@ -16,7 +16,7 @@ import sys
 import time
 from pathlib import Path
 
-from simulation_execution_fault_policy import parse_daemon_sigkill_policy
+from simulation_execution_fault_policy import parse_governed_motion_fault_policy
 
 from rosclaw.daemon.client import DaemonClient
 from rosclaw.mcp import tools
@@ -55,7 +55,7 @@ async def main():
     fault_policy = None
     if args.fault_policy_sha256:
         fault_raw = (evidence / "governed-fault.json").read_bytes()
-        fault_policy = parse_daemon_sigkill_policy(
+        fault_policy = parse_governed_motion_fault_policy(
             fault_raw,
             expected_sha256=args.fault_policy_sha256,
             run_id=policy["run_id"],
@@ -98,6 +98,8 @@ async def main():
     lease_probe_log = None
     fault_checks = None
     last_request = None
+    emergency_stop_result = None
+    fault_receipt = None
 
     def export_public_action_artifacts():
         target = evidence / "public-action-artifacts"
@@ -230,6 +232,39 @@ async def main():
                 )
                 deadline = time.monotonic() + goal["timeout_sec"] + 5
                 while True:
+                    trigger_path = evidence / "governed-emergency-stop-trigger-original.json"
+                    if (
+                        fault_policy
+                        and fault_policy["case"] == "emergency_stop"
+                        and emergency_stop_result is None
+                        and trigger_path.exists()
+                    ):
+                        trigger = json.loads(trigger_path.read_text())
+                        if trigger["policy_sha256"] != args.fault_policy_sha256:
+                            raise ValueError("original motion-triggered E-stop context changed")
+                        started_ns = time.monotonic_ns()
+                        emergency_stop_result = await tools._emergency_stop(
+                            "owned disposable SIM during-motion acceptance " + policy["run_id"]
+                        )
+                        if (
+                            emergency_stop_result.get("requested_source") != "mcp.emergency_stop"
+                            or emergency_stop_result.get("authenticated_peer", {}).get("pid")
+                            != os.getpid()
+                        ):
+                            raise ValueError(
+                                "actual canonical MCP daemon-authenticated E-stop required"
+                            )
+                        (evidence / "governed-emergency-stop-MCP-original.json").write_text(
+                            json.dumps(
+                                {
+                                    "before_monotonic_ns": started_ns,
+                                    "after_monotonic_ns": time.monotonic_ns(),
+                                    "original_response": emergency_stop_result,
+                                },
+                                indent=2,
+                            )
+                            + "\n"
+                        )
                     action_status = await tools._get_action_status(goal["action_id"])
                     if action_status["state"] in {"FINISHED", "CANCELLED"}:
                         break
@@ -261,19 +296,6 @@ async def main():
         finally:
             if fault_policy:
                 try:
-                    missing = not (evidence / "governed-action-0-receipt-original.json").exists()
-                    (evidence / "governed-missing-terminal-receipt-original.json").write_text(
-                        json.dumps(
-                            {
-                                "action_id": policy["goals"][0]["action_id"],
-                                "terminal_receipt_missing": missing,
-                                "reason": "original daemon SIGKILL; no terminal receipt fabricated",
-                                "original_error": error,
-                                "monotonic_ns": time.monotonic_ns(),
-                            }
-                        )
-                        + "\n"
-                    )
                     actor_code = None
                     if actor is not None:
                         try:
@@ -281,6 +303,50 @@ async def main():
                         except subprocess.TimeoutExpired:
                             actor.kill()
                             actor_code = actor.wait(timeout=2)
+                    missing = not (evidence / "governed-action-0-receipt-original.json").exists()
+                    if fault_policy["case"] == "emergency_stop" and actor_code == 0:
+                        try:
+                            drained = client.get_execution_receipt(policy["goals"][0]["action_id"])
+                            (
+                                evidence
+                                / "governed-action-0-receipt-after-fault-drain-original.json"
+                            ).write_text(json.dumps(drained, indent=2) + "\n")
+                            fault_receipt = drained.get("receipt")
+                            missing = not isinstance(fault_receipt, dict)
+                            if not missing and not result:
+                                result.append(
+                                    {
+                                        "action_id": fault_receipt["action_id"],
+                                        "final_state": fault_receipt["final_state"],
+                                        "verification": fault_receipt["verification_result"],
+                                    }
+                                )
+                        except Exception as drain_error:
+                            missing = True
+                            (
+                                evidence / "governed-terminal-receipt-drain-error-original.json"
+                            ).write_text(
+                                json.dumps(
+                                    {
+                                        "original_error": str(drain_error),
+                                        "monotonic_ns": time.monotonic_ns(),
+                                    }
+                                )
+                                + "\n"
+                            )
+                    (evidence / "governed-missing-terminal-receipt-original.json").write_text(
+                        json.dumps(
+                            {
+                                "action_id": policy["goals"][0]["action_id"],
+                                "terminal_receipt_missing": missing,
+                                "case": fault_policy["case"],
+                                "reason": "original observation; no terminal receipt fabricated",
+                                "original_error": error,
+                                "monotonic_ns": time.monotonic_ns(),
+                            }
+                        )
+                        + "\n"
+                    )
                     old_action_refused = False
                     if actor_code == 0 and last_request is not None:
                         probe_code = lease_probe.wait(timeout=8)
@@ -304,6 +370,17 @@ async def main():
                             "old_action_refused": old_action_refused,
                             "terminal_receipt_missing": missing,
                         }
+                        if fault_policy["case"] == "emergency_stop":
+                            status = await tools._get_runtime_status()
+                            (
+                                evidence / "governed-emergency-stop-latched-status-original.json"
+                            ).write_text(json.dumps(status, indent=2) + "\n")
+                            fault_checks["canonical_emergency_stop_latched"] = (
+                                status["emergency_stop_latched"] is True
+                                and status["supervision_state"] == "ESTOPPED"
+                                and status["daemon_instance_id"] == ready["daemon_instance_id"]
+                                and emergency_stop_result is not None
+                            )
                     else:
                         fault_checks = {
                             "actor_returncode": actor_code,
@@ -353,12 +430,19 @@ async def main():
             export_public_action_artifacts()
     fault_pass = bool(
         fault_policy
-        and code == -signal.SIGKILL
+        and code == (-signal.SIGKILL if fault_policy["case"] == "daemon_sigkill" else 0)
         and fault_checks
         and fault_checks.get("actor_returncode") == 0
         and fault_checks.get("old_lease_probe_returncode") == 0
         and fault_checks.get("old_action_refused")
-        and fault_checks.get("terminal_receipt_missing")
+        and (
+            fault_checks.get("terminal_receipt_missing")
+            if fault_policy["case"] == "daemon_sigkill"
+            else fault_checks.get("canonical_emergency_stop_latched")
+            and not fault_checks.get("terminal_receipt_missing")
+            and isinstance(fault_receipt, dict)
+            and fault_receipt.get("final_state") in {"FAILED", "CANCELLED"}
+        )
     )
     outcome = {
         "status": "FAILED_ORIGINAL_GOVERNED_SIM_JOURNEY"
@@ -374,8 +458,10 @@ async def main():
     if fault_policy:
         outcome["status"] = (
             "PASS_EXPECTED_DAEMON_SIGKILL_SAFE_STOP_AND_OLD_REQUEST_REFUSAL_LOCAL"
+            if fault_pass and fault_policy["case"] == "daemon_sigkill"
+            else "PASS_CANONICAL_MCP_ESTOP_SAFE_STOP_AND_OLD_REQUEST_REFUSAL_LOCAL"
             if fault_pass
-            else "FAILED_ORIGINAL_DAEMON_SIGKILL_ACCEPTANCE"
+            else "FAILED_ORIGINAL_EXECUTION_FAULT_ACCEPTANCE"
         )
     with (evidence / "governed-journey-original-outcome.json").open("x") as stream:
         stream.write(json.dumps(outcome, indent=2) + "\n")

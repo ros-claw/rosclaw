@@ -86,7 +86,12 @@ def main():
             time.sleep(0.01)
         actor = json.loads(_read(actor_path, 256_000))
         if (
-            actor["status"] != "PASS_ACTUAL_DAEMON_SIGKILL_INDEPENDENT_STABLE_STOP_LOCAL"
+            actor["status"]
+            != (
+                "PASS_ACTUAL_DAEMON_SIGKILL_INDEPENDENT_STABLE_STOP_LOCAL"
+                if policy["case"] == "daemon_sigkill"
+                else "PASS_ACTUAL_CANONICAL_ESTOP_INDEPENDENT_STABLE_STOP_LOCAL"
+            )
             or actor["policy_sha256"] != args.policy_sha256
         ):
             raise ValueError("actual injected fault and independent stop required first")

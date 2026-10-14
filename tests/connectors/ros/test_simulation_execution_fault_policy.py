@@ -79,3 +79,13 @@ def test_closed_original_policy_and_hash_are_required(fixture, fault):
         digest = "f" * 64
     with pytest.raises(ValueError):
         module.parse_daemon_sigkill_policy(raw, expected_sha256=digest, **pins)
+
+
+def test_emergency_stop_has_same_body_world_action_scope_but_is_not_sigkill(fixture):
+    module, pins, policy = fixture
+    policy["case"] = "emergency_stop"
+    raw = json.dumps(policy).encode()
+    digest = hashlib.sha256(raw).hexdigest()
+    assert module.parse_governed_motion_fault_policy(raw, expected_sha256=digest, **pins) == policy
+    with pytest.raises(ValueError, match="SIGKILL policy"):
+        module.parse_daemon_sigkill_policy(raw, expected_sha256=digest, **pins)

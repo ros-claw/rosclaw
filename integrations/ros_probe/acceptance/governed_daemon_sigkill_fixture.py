@@ -14,7 +14,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from simulation_current_facts import _read
-from simulation_execution_fault_policy import parse_daemon_sigkill_policy
+from simulation_execution_fault_policy import parse_governed_motion_fault_policy
 
 from rosclaw.body.resolver import BodyResolver
 from rosclaw.connectors.ros.mission.navigation_binding import SimulationNavigationBinding
@@ -74,7 +74,7 @@ def main():
         ).get_effective_body(recompile_if_stale=False)
     )
     goals = json.loads(_read(root / "governed-goals.json", 16_000))
-    policy = parse_daemon_sigkill_policy(
+    policy = parse_governed_motion_fault_policy(
         raw,
         expected_sha256=args.policy_sha256,
         run_id=binding.run_id,
@@ -110,14 +110,15 @@ def main():
     before = time.monotonic_ns()
     utc = datetime.now(UTC).isoformat()
     injection = {
-        "case": "daemon_sigkill",
+        "case": policy["case"],
         "phase": "during_motion",
         "run_id": binding.run_id,
         "body_snapshot_hash": binding.body_snapshot_hash,
         "daemon_pid": args.daemon_pid,
         "daemon_instance_id": ready["daemon_instance_id"],
         "daemon_start_time": args.daemon_start_time,
-        "signal": "SIGKILL",
+        "signal": "SIGKILL" if policy["case"] == "daemon_sigkill" else None,
+        "canonical_tool": "emergency_stop" if policy["case"] == "emergency_stop" else None,
         "before_monotonic_ns": before,
         "captured_at": utc,
         "actual_prior_physics": sample,
@@ -126,7 +127,19 @@ def main():
     with (root / "governed-fault-injection-original.json").open("x") as f:
         json.dump(injection, f, indent=2)
         f.write("\n")
-    os.kill(args.daemon_pid, signal.SIGKILL)
+    if policy["case"] == "daemon_sigkill":
+        os.kill(args.daemon_pid, signal.SIGKILL)
+    else:
+        with (root / "governed-emergency-stop-trigger-original.json").open("x") as f:
+            json.dump({"policy_sha256": args.policy_sha256, "injection": injection}, f)
+            f.write("\n")
+        deadline = time.monotonic_ns() + 3_000_000_000
+        while not (root / "governed-emergency-stop-MCP-original.json").exists():
+            if time.monotonic_ns() >= deadline:
+                raise ValueError(
+                    "canonical MCP E-stop was not observed after actual motion trigger"
+                )
+            time.sleep(0.01)
     samples = []
     stable_since = None
     last_stamp = None
@@ -153,13 +166,18 @@ def main():
     if not terminal["status"]["terminal"] or terminal["status"]["lease_expires_ns"] != 0:
         raise ValueError("terminal final sink stop required")
     outcome = {
-        "status": "PASS_ACTUAL_DAEMON_SIGKILL_INDEPENDENT_STABLE_STOP_LOCAL",
+        "status": "PASS_ACTUAL_DAEMON_SIGKILL_INDEPENDENT_STABLE_STOP_LOCAL"
+        if policy["case"] == "daemon_sigkill"
+        else "PASS_ACTUAL_CANONICAL_ESTOP_INDEPENDENT_STABLE_STOP_LOCAL",
+        "case": policy["case"],
         "policy_sha256": args.policy_sha256,
         "injection": injection,
         "after_monotonic_ns": time.monotonic_ns(),
         "original_post_fault_physics": samples,
         "actual_terminal_sink": terminal,
-        "missing_terminal_receipt": "EXPECTED_AFTER_SIGKILL_REPORTED_SEPARATELY",
+        "terminal_receipt_expectation": "MISSING_AFTER_SIGKILL_REPORTED_SEPARATELY"
+        if policy["case"] == "daemon_sigkill"
+        else "REQUIRE_ORIGINAL_FAILED_OR_CANCELLED_RECEIPT",
         "G3_done": False,
         "v1_done": False,
     }

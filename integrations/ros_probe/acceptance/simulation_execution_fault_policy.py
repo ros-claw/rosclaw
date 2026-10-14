@@ -14,7 +14,7 @@ def _closed_object(pairs):
     return result
 
 
-def parse_daemon_sigkill_policy(
+def parse_governed_motion_fault_policy(
     raw, *, expected_sha256, run_id, body_snapshot_hash, world_sha256, action_id
 ):
     if (
@@ -39,9 +39,16 @@ def parse_daemon_sigkill_policy(
         type(policy) is not dict
         or set(policy) != {"schema_version", "case", "phase", *pins}
         or policy["schema_version"] != "rosclaw.governed_sim_fault.v1"
-        or policy["case"] != "daemon_sigkill"
+        or policy["case"] not in {"daemon_sigkill", "emergency_stop"}
         or policy["phase"] != "during_motion"
         or any(policy[k] != v for k, v in pins.items())
     ):
-        raise ValueError("closed Body/run/World/action-bound during-motion SIGKILL policy required")
+        raise ValueError("closed Body/run/World/action-bound during-motion fault policy required")
+    return policy
+
+
+def parse_daemon_sigkill_policy(raw, **pins):
+    policy = parse_governed_motion_fault_policy(raw, **pins)
+    if policy["case"] != "daemon_sigkill":
+        raise ValueError("closed Body/run/World/action-bound SIGKILL policy required")
     return policy
