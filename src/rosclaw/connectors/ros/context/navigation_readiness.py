@@ -1,7 +1,7 @@
 """Fresh, pure SIM L1 review. No runtime, transport, admission or authority."""
 
 import math
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from rosclaw.body.schema import EffectiveBody
 from rosclaw.connectors.ros.context.geometry import IDENTITY, ZERO, _apply, _compose, _inverse
@@ -420,7 +420,7 @@ def _review_current_ros_facts(
 
 
 def review_current_sim_navigation_health(
-    workspace, request, *, model, policy, policy_hash, now=None
+    workspace, request, *, model, policy, policy_hash, now=None, freshness_margin_ms=0
 ):
     """Recompute current ROS health against immutable Body; no source admission.
 
@@ -442,9 +442,14 @@ def review_current_sim_navigation_health(
     ):
         raise ValueError("closed independent immutable Body/run health pins required")
     _validate_policy(request, policy, policy_hash)
+    if type(freshness_margin_ms) is not int or not 0 <= freshness_margin_ms <= 100:
+        raise ValueError("bounded conservative freshness margin <=100ms required")
     now = now or datetime.now(UTC)
+    evaluated_at = now + timedelta(milliseconds=freshness_margin_ms)
     unknown, blocked = [], []
-    _review_current_ros_facts(workspace, request, policy, model, now, None, unknown, blocked)
+    _review_current_ros_facts(
+        workspace, request, policy, model, evaluated_at, None, unknown, blocked
+    )
     return {
         "schema_version": "rosclaw.current_sim_navigation_health.v1",
         "status": "BLOCKED"
@@ -460,6 +465,14 @@ def review_current_sim_navigation_health(
         "source_snapshot_hash": model.snapshot_hash,
         "policy_hash": policy_hash,
         "reviewed_at": now.isoformat(),
+        **(
+            {
+                "age_evaluation_at": evaluated_at.isoformat(),
+                "freshness_margin_ms": freshness_margin_ms,
+            }
+            if freshness_margin_ms
+            else {}
+        ),
         "execution_authority": "NONE",
         "real_authority": False,
         "source_binding": "NOT_EVALUATED",

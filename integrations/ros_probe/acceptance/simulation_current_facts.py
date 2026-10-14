@@ -12,7 +12,6 @@ import os
 import re
 import stat
 import time
-from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from simulation_source_stream import SimulationSourceStreamReader, SourceStreamPins
@@ -188,32 +187,20 @@ class CurrentSimulationFacts:
                 )
                 self._cached_native_sha256 = pointer["sha256"]
             model = self._cached_model
+            # Evaluate the stricter age margin once. This does not predict
+            # future state; actual review time and age-evaluation time remain
+            # distinct in the original report. No second Body/model review is
+            # needed on the same immutable bytes.
+            horizon_started_ns = time.monotonic_ns()
             health = review_current_sim_navigation_health(
                 self.directory / "generic-compiled",
                 self.enrollment["request"],
                 model=model,
                 policy=self.enrollment["policy"],
                 policy_hash=self.enrollment["policy_hash"],
+                freshness_margin_ms=freshness_horizon_ms,
             )
             source = self.reader.poll()
-            horizon_check = None
-            horizon_started_ns = None
-            if freshness_horizon_ms:
-                # This projects only the AGE of these already observed facts;
-                # it does not predict future lifecycle or physical state.
-                horizon_started_ns = time.monotonic_ns()
-                horizon_check = review_current_sim_navigation_health(
-                    self.directory / "generic-compiled",
-                    self.enrollment["request"],
-                    model=model,
-                    policy=self.enrollment["policy"],
-                    policy_hash=self.enrollment["policy_hash"],
-                    now=datetime.now(UTC) + timedelta(milliseconds=freshness_horizon_ms),
-                )
-                if horizon_check["status"] != "HEALTHY_SIM_OBSERVATION_ONLY":
-                    raise ValueError(
-                        "current observations lack the requested bounded freshness margin"
-                    )
             ended = time.monotonic_ns()
             if (
                 health["status"] != "HEALTHY_SIM_OBSERVATION_ONLY"
@@ -241,7 +228,7 @@ class CurrentSimulationFacts:
             if freshness_horizon_ms:
                 observed = json.loads(self.reader.last_raw)["observer_monotonic_ns"]
                 result.update(
-                    age_horizon_check=horizon_check,
+                    age_horizon_check=health,
                     valid_until_monotonic_ns=min(
                         horizon_started_ns + freshness_horizon_ms * 1_000_000,
                         observed + 500_000_000,

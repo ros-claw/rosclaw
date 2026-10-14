@@ -93,3 +93,41 @@ def test_health_request_cannot_accept_caller_supplied_ready_or_generation(tmp_pa
     parts[1]["READY"] = True
     with pytest.raises(ValueError, match="closed independent"):
         review(parts)
+
+
+def test_conservative_age_margin_keeps_actual_review_clock_and_original_limits(tmp_path):
+    root, request, policy, model = prepared(tmp_path)
+    model.seal()
+    kwargs = {
+        "model": model,
+        "policy": policy,
+        "policy_hash": content_hash("navreadinesspolicy", policy),
+    }
+    strict = review_current_sim_navigation_health(
+        root, request, now=NOW, freshness_margin_ms=100, **kwargs
+    )
+    explicit = review_current_sim_navigation_health(
+        root, request, now=NOW + timedelta(milliseconds=100), **kwargs
+    )
+    assert strict["reviewed_at"] == NOW.isoformat()
+    assert strict["age_evaluation_at"] == explicit["reviewed_at"]
+    assert strict["freshness_margin_ms"] == 100
+    for field in explicit:
+        if field != "reviewed_at":
+            assert strict[field] == explicit[field]
+    assert strict["policy_hash"] == content_hash("navreadinesspolicy", policy)
+
+
+@pytest.mark.parametrize("margin", [-1, 101, True, 0.1])
+def test_freshness_margin_is_bounded_and_cannot_relax_age(tmp_path, margin):
+    root, request, policy, model = prepared(tmp_path)
+    with pytest.raises(ValueError, match="conservative freshness margin"):
+        review_current_sim_navigation_health(
+            root,
+            request,
+            model=model,
+            policy=policy,
+            policy_hash=content_hash("navreadinesspolicy", policy),
+            now=NOW,
+            freshness_margin_ms=margin,
+        )

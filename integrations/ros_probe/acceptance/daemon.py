@@ -424,6 +424,7 @@ def freeze_audit_source(root, config):
         Path(__file__),
         repository / "src/rosclaw/connectors/ros/mission/executor.py",
         repository / "src/rosclaw/connectors/ros/mission/navigation_binding.py",
+        repository / "src/rosclaw/connectors/ros/context/navigation_readiness.py",
         repository / "src/rosclaw/connectors/ros/mission/boundary_pass.py",
         repository / "src/rosclaw/connectors/ros/diagnosis/coverage_audit.py",
         repository / "src/rosclaw/connectors/ros/verification/coverage.py",
