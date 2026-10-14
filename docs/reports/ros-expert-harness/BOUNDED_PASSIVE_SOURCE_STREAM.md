@@ -1,3 +1,5 @@
+> Subsequent current ROS/daemon-generation work is locally verified in [CURRENT_ROS_DAEMON_DUAL_SUPERVISION.md](CURRENT_ROS_DAEMON_DUAL_SUPERVISION.md). This document preserves the earlier source-only scope; normal source/main integration is still pending.
+
 # Bounded passive source-stream local acceptance
 
 Status: **local passive source foundation only**. This does not close G3 or the
