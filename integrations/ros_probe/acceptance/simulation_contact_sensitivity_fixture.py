@@ -17,6 +17,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime
 from pathlib import Path
 
+from governed_daemon_sigkill_fixture import last_physics
 from simulation_current_facts import _read
 from simulation_owned_entity_fault import latest_owned_ecm
 from simulation_unadmitted_sink import require_unadmitted_sink
@@ -81,7 +82,7 @@ def run_trial(root, assets, policy):
         stable_counter = None
         deadline = time.monotonic() + 5
         while time.monotonic() < deadline:
-            row = json.loads(_read(root / "latest-physics-witness.json", 128000))
+            row = last_physics(root)
             age = time.time() - datetime.fromisoformat(row["captured_at"]).timestamp()
             if not 0 <= age <= 0.3:
                 time.sleep(0.02)
