@@ -110,6 +110,14 @@ def producer(module, tmp_path):
     private = tmp_path / "private"
     private.mkdir(mode=0o700)
     facts, status, key = SyntheticFacts(), healthy_status(), bytes(range(32))
+
+    class SyntheticLeaseObservation(module.ExternalSimulationLeaseObservation):
+        def __init__(self):
+            self.terminal = False
+
+        def read(self):
+            return {"known": True, "lease_enabled": False, "status": {"terminal": self.terminal}}
+
     guard = module.SdkNavigationExecutionSupervision(
         binding=binding,
         facts=facts,
@@ -118,6 +126,7 @@ def producer(module, tmp_path):
         key=key,
         proof_file=private / "proof.json",
         audit_file=tmp_path / "daemon-supervision-original.jsonl",
+        lease_observation=SyntheticLeaseObservation(),
         allowed_action_ids=("synthetic-position", "synthetic-yaw"),
     )
     try:
@@ -175,3 +184,12 @@ def test_replaced_private_directory_cannot_redirect_cleanup(producer, tmp_path):
         guard.check("synthetic-position")
     assert unrelated.read_bytes() == b"must survive"
     assert not (original / "proof.json").exists()
+
+
+def test_terminal_sink_cannot_be_hidden_by_healthy_source_and_daemon(producer):
+    guard, _, _, _, private = producer
+    guard.begin("synthetic-position", duration_sec=1.0)
+    guard.lease_observation.terminal = True
+    with pytest.raises(ValueError, match="sink state"):
+        guard.check("synthetic-position")
+    assert not (private / "proof.json").exists()

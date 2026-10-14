@@ -21,6 +21,7 @@ from simulation_execution_proof import (
     ExecutionProofPins,
     sign_execution_proof,
 )
+from simulation_lease_observation import ExternalSimulationLeaseObservation
 
 from rosclaw.connectors.ros.mission.navigation_supervision import NavigationExecutionSupervision
 
@@ -104,11 +105,13 @@ class SdkNavigationExecutionSupervision(NavigationExecutionSupervision):
         key,
         proof_file,
         audit_file,
+        lease_observation,
         allowed_action_ids,
     ):
         super().__init__(binding)
         if (
             not isinstance(facts, CurrentSimulationFacts)
+            or not isinstance(lease_observation, ExternalSimulationLeaseObservation)
             or not callable(daemon_status)
             or type(key) is not bytes
             or len(key) != 32
@@ -137,6 +140,7 @@ class SdkNavigationExecutionSupervision(NavigationExecutionSupervision):
         for action_id in allowed_action_ids:
             ExecutionProofPins(**self._pins, action_id=action_id)
         self.facts, self._status, self._key = facts, daemon_status, key
+        self.lease_observation = lease_observation
         self.proof_file = Path(proof_file)
         info = self.proof_file.parent.stat(follow_symlinks=False)
         if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
@@ -226,6 +230,9 @@ class SdkNavigationExecutionSupervision(NavigationExecutionSupervision):
         ):
             raise ValueError("private proof directory changed")
         facts = self.facts.collect()
+        sink = self.lease_observation.read()
+        if not sink["known"] or sink["status"]["terminal"]:
+            raise ValueError("independent SDK sink state unavailable or terminal")
         status = self._status()
         review_active_sim_daemon(
             status,
@@ -266,6 +273,7 @@ class SdkNavigationExecutionSupervision(NavigationExecutionSupervision):
             {
                 "event": "PROOF_PREPARED",
                 "facts": facts,
+                "sink_observation": sink,
                 "daemon_status": status,
                 "proof": json.loads(raw),
                 "monotonic_ns": time.monotonic_ns(),
