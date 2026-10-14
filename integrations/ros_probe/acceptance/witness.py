@@ -138,7 +138,8 @@ class Witness(Node):
                     "status_file",
                 }
                 or metadata["schema_version"] != "rosclaw.external_sim_sink_observation.v1"
-                or metadata["sink_node"] != "/rosclaw_governed_sink"
+                or metadata["sink_node"]
+                != self.sources.observer_node.rsplit("/", 1)[0] + "/rosclaw_governed_sink"
                 or metadata["run_id"] != self.sources.run_id
                 or metadata["source_inputs_sha256"] != source_pin
                 or metadata["lease_service"] != self.sources.topic("lease")

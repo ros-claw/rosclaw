@@ -124,8 +124,14 @@ def main():
         "velocity_output_topic": "/nav_cmd_vel",
         "velocity_consumer_node": "/rosclaw_sim_witness",
     }
+    prepared_sources = None
+    if Path("/assets/bringup.json").is_file():
+        requirements = json.loads(Path("/assets/requirements.json").read_text())
+        prepared_sources = json.loads(Path("/assets/observer-sources.json").read_text())
+    sink_namespace = prepared_sources["observer_node"].rsplit("/", 1)[0] if prepared_sources else ""
+    sink_node = sink_namespace + "/rosclaw_governed_sink"
     if governed is not None:
-        requirements["velocity_consumer_node"] = "/rosclaw_governed_sink"
+        requirements["velocity_consumer_node"] = sink_node
         control = OUT / "execution-control"
         control.mkdir(mode=0o700)
         key_fd = os.open(control / "fixture.key", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -146,7 +152,7 @@ def main():
         "--run-id",
         settings["run_id"],
         "--seed",
-        "101201",
+        str(settings.get("seed", 101201)),
     ]
     if "probe_snapshot_period_sec" in settings:
         period = settings["probe_snapshot_period_sec"]
@@ -167,6 +173,8 @@ def main():
         }
     ):
         argv.append("--readiness-fault-fixture")
+    if prepared_sources is not None:
+        argv = ["python3", str(ROOT / "prepared_source_stack.py")]
     save("stack-argv.json", argv)
     stack = subprocess.Popen(
         argv, stdout=stack_log, stderr=subprocess.STDOUT, start_new_session=True
@@ -230,7 +238,14 @@ def main():
         observed,
         QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL),
     )
-    node.create_subscription(String, "/rosclaw_sim/observation", physics, 10)
+    node.create_subscription(
+        String,
+        prepared_sources["topics"]["observation"]
+        if prepared_sources
+        else "/rosclaw_sim/observation",
+        physics,
+        10,
+    )
 
     def launch_witness(name, workspace, config):
         nonlocal governed_sink, governed_log
@@ -252,50 +267,55 @@ def main():
         if settings.get("generic_source_observer") is True:
             from simulation_witness_sources import _ground_names
 
-            world_bytes = Path("/assets/world.sdf").read_bytes()
-            urdf_bytes = Path("/assets/robot.urdf").read_bytes()
-            import xml.etree.ElementTree as ET
+            if prepared_sources is not None:
+                inputs = dict(prepared_sources)
+            else:
+                world_bytes = Path("/assets/world.sdf").read_bytes()
+                urdf_bytes = Path("/assets/robot.urdf").read_bytes()
+                import xml.etree.ElementTree as ET
 
-            world = ET.fromstring(world_bytes).find("world")
-            robots = [
-                m.get("name")
-                for m in world.findall("model")
-                if m.findtext("static", "false") not in {"true", "1"}
-            ]
-            if len(robots) != 1:
-                raise ValueError("known-source generic observer fixture requires one robot")
-            contacts = json.loads(Path("/assets/contact_topics.json").read_text())
-            import yaml
+                world = ET.fromstring(world_bytes).find("world")
+                robots = [
+                    m.get("name")
+                    for m in world.findall("model")
+                    if m.findtext("static", "false") not in {"true", "1"}
+                ]
+                if len(robots) != 1:
+                    raise ValueError("known-source generic observer fixture requires one robot")
+                contacts = json.loads(Path("/assets/contact_topics.json").read_text())
+                import yaml
 
-            nav = yaml.safe_load(Path("/assets/nav2.yaml").read_text())
-            map_frame = nav["global_costmap"]["global_costmap"]["ros__parameters"]["global_frame"]
-            if type(map_frame) is not str or not map_frame:
-                raise ValueError("operator-declared global map frame required")
-            inputs = {
-                "schema_version": "rosclaw.simulation_witness_sources.v1",
-                "run_id": settings["run_id"],
-                "world_id": world.get("name"),
-                "robot_entity": robots[0],
-                "observer_node": "/rosclaw_sim_witness",
-                "map_frame": map_frame,
-                "source_urdf_sha256": hashlib.sha256(urdf_bytes).hexdigest(),
-                "world_sdf_sha256": hashlib.sha256(world_bytes).hexdigest(),
-                "topics": {
-                    "observation": "/rosclaw_sim/observation",
-                    "lease": "/rosclaw_sim/lease",
-                    "ground_truth": "/rosclaw_sim/ground_truth",
-                    "localization": requirements["localization_topic"],
-                    "velocity_input": requirements["velocity_output_topic"],
-                    "drive_command": "/drive_controller/cmd_vel",
-                    "collision_monitor_state": "/collision_monitor_state",
-                },
-                "contact_topics": contacts,
-                "ground_witness_topics": [t for t in contacts if "/wheel_" in t],
-                "ground_collision_names": sorted(
-                    _ground_names(world_bytes, world.get("name"), robots[0])
-                ),
-                "drive_twist_stamped": True,
-            }
+                nav = yaml.safe_load(Path("/assets/nav2.yaml").read_text())
+                map_frame = nav["global_costmap"]["global_costmap"]["ros__parameters"][
+                    "global_frame"
+                ]
+                if type(map_frame) is not str or not map_frame:
+                    raise ValueError("operator-declared global map frame required")
+                inputs = {
+                    "schema_version": "rosclaw.simulation_witness_sources.v1",
+                    "run_id": settings["run_id"],
+                    "world_id": world.get("name"),
+                    "robot_entity": robots[0],
+                    "observer_node": "/rosclaw_sim_witness",
+                    "map_frame": map_frame,
+                    "source_urdf_sha256": hashlib.sha256(urdf_bytes).hexdigest(),
+                    "world_sdf_sha256": hashlib.sha256(world_bytes).hexdigest(),
+                    "topics": {
+                        "observation": "/rosclaw_sim/observation",
+                        "lease": "/rosclaw_sim/lease",
+                        "ground_truth": "/rosclaw_sim/ground_truth",
+                        "localization": requirements["localization_topic"],
+                        "velocity_input": requirements["velocity_output_topic"],
+                        "drive_command": "/drive_controller/cmd_vel",
+                        "collision_monitor_state": "/collision_monitor_state",
+                    },
+                    "contact_topics": contacts,
+                    "ground_witness_topics": [t for t in contacts if "/wheel_" in t],
+                    "ground_collision_names": sorted(
+                        _ground_names(world_bytes, world.get("name"), robots[0])
+                    ),
+                    "drive_twist_stamped": True,
+                }
             path = OUT / f"{name}-observer-sources.json"
             save(path.name, inputs)
             args += [
@@ -308,7 +328,7 @@ def main():
                 source_sha = hashlib.sha256(path.read_bytes()).hexdigest()
                 metadata = {
                     "schema_version": "rosclaw.external_sim_sink_observation.v1",
-                    "sink_node": "/rosclaw_governed_sink",
+                    "sink_node": sink_node,
                     "run_id": settings["run_id"],
                     "source_inputs_sha256": source_sha,
                     "lease_service": inputs["topics"]["lease"],
@@ -337,6 +357,8 @@ def main():
                         "--ros-args",
                         "-p",
                         "use_sim_time:=true",
+                        "-r",
+                        "__ns:=" + sink_namespace,
                     ]
                     save("governed-sink-argv.json", sink_argv)
                     governed_log = (OUT / "governed-sink-original.log").open("x")
@@ -347,7 +369,11 @@ def main():
                         start_new_session=True,
                     )
                     save("governed-sink-process.json", process_fact(governed_sink.pid))
-                expected_body = json.loads(config.read_text())["body_snapshot_hash"]
+                expected_body = (
+                    json.loads(config.read_text())["body_snapshot_hash"]
+                    if config.exists()
+                    else None
+                )
                 deadline = time.monotonic() + 10
                 while True:
                     if governed_sink.poll() is not None:
@@ -364,6 +390,9 @@ def main():
                     if time.monotonic() >= deadline:
                         raise RuntimeError("governed bootstrap Body enrollment timeout")
                     rclpy.spin_once(node, timeout_sec=0.05)
+        if prepared_sources is not None:
+            observer_namespace, observer_name = prepared_sources["observer_node"].rsplit("/", 1)
+            args += ["-r", "__ns:=" + observer_namespace, "-r", "__node:=" + observer_name]
         if settings.get("live_continuity_hold_seconds", 0):
             args += ["-p", "max_contact_segments:=4"]
         if name == "renamed-source-witness":
@@ -419,7 +448,8 @@ def main():
             rclpy.spin_once(node, timeout_sec=0.05)
 
     try:
-        spin_until(lambda: (OUT / "execution_config.json").exists(), 20)
+        if prepared_sources is None:
+            spin_until(lambda: (OUT / "execution_config.json").exists(), 20)
         witness = launch_witness(
             "initial-source-witness", OUT / "home", OUT / "execution_config.json"
         )
@@ -478,7 +508,7 @@ def main():
             "source": "simulator_operator_fixture_policy",
             "approved": True,
             "policy_id": "G1-known-source-readonly-capture",
-            "body_id": "g1-observed-known-base",
+            "body_id": settings.get("observed_body_id", "g1-observed-known-base"),
             "source_snapshot_hash": model.snapshot_hash,
             "source_urdf_sha256": review["candidate"]["source_urdf_sha256"],
             "navigation_requirements_hash": review["requirements_hash"],
@@ -493,8 +523,12 @@ def main():
                 "stop_yaw_rate_rps": 0.01,
             },
             "witness_declaration": {
-                "observation_topic": "/rosclaw_sim/observation",
-                "lease_service": "/rosclaw_sim/lease",
+                "observation_topic": prepared_sources["topics"]["observation"]
+                if prepared_sources
+                else "/rosclaw_sim/observation",
+                "lease_service": prepared_sources["topics"]["lease"]
+                if prepared_sources
+                else "/rosclaw_sim/lease",
                 "run_id": settings["run_id"],
             },
         }

@@ -1,11 +1,17 @@
 """Existing Nav2 servers with the final velocity output behind a leased sink."""
 
+import json
+from pathlib import Path
+
 from launch import LaunchDescription
 from launch_ros.actions import Node
 
 
 def generate_launch_description():
     params = "/evidence/nav2.yaml"
+    descriptor_path = Path("/evidence/bringup.json")
+    descriptor = json.loads(descriptor_path.read_text()) if descriptor_path.exists() else None
+    namespace = descriptor["namespace"] if descriptor else ""
     servers = [
         ("nav2_map_server", "map_server", "map_server", []),
         ("nav2_amcl", "amcl", "amcl", []),
@@ -32,9 +38,18 @@ def generate_launch_description():
             package=package,
             executable=executable,
             name=name,
+            namespace=namespace,
             output="screen",
             parameters=[params, {"use_sim_time": True, "yaml_filename": "/evidence/map.yaml"}],
-            remappings=remaps,
+            remappings=(
+                [("/tf", "tf"), ("/tf_static", "tf_static")]
+                if descriptor and descriptor["tf_topics_relative"]
+                else []
+            )
+            + [
+                (source, namespace + target if namespace and target.startswith("/") else target)
+                for source, target in remaps
+            ],
         )
         for package, executable, name, remaps in servers
     ]
@@ -43,9 +58,14 @@ def generate_launch_description():
             package="nav2_lifecycle_manager",
             executable="lifecycle_manager",
             name="lifecycle_manager_navigation",
+            namespace=namespace,
             output="screen",
             parameters=[
-                {"use_sim_time": True, "autostart": True, "node_names": [row[2] for row in servers]}
+                {
+                    "use_sim_time": True,
+                    "autostart": descriptor["autostart"] if descriptor else True,
+                    "node_names": [row[2] for row in servers],
+                }
             ],
         )
     )

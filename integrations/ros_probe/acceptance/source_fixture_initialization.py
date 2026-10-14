@@ -28,12 +28,16 @@ def main():
         raise ValueError("isolated disposable SIM fixture required")
     check_prepared_assets("/assets", args.inventory_sha256, "/tmp/source-initializer-assets")
     config = json.loads(Path("/assets/source-initialization.json").read_text())
+    sources_path = Path("/assets/observer-sources.json")
+    sources = json.loads(sources_path.read_text()) if sources_path.is_file() else None
+    expected_namespace = sources["observer_node"].rsplit("/", 1)[0] if sources else ""
+    expected_frame = sources["map_frame"] if sources else "map"
     if (
         config["schema_version"] != "rosclaw.owned_sim_source_initialization.v1"
         or config["run_id"] != args.run_id
         or config["operator_owned_disposable_sim_only"] is not True
-        or config["service"] != "/set_initial_pose"
-        or config["frame_id"] != "map"
+        or config["service"] != expected_namespace + "/set_initial_pose"
+        or config["frame_id"] != expected_frame
     ):
         raise ValueError("explicit known SIM initialization identity required")
     pose, covariance = config["pose"], config["covariance_diagonal"]
