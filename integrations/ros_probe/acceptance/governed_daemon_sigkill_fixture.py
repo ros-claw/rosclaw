@@ -19,10 +19,13 @@ from simulation_execution_fault_policy import (
     MOTION_FAULT_ACTOR_STATUS,
     parse_governed_motion_fault_policy,
 )
+from simulation_owned_lifecycle_fault import OwnedCollisionMonitorFault
 from simulation_owned_process_fault import pause_owned_process, resume_owned_process
 
 from rosclaw.body.resolver import BodyResolver
 from rosclaw.connectors.ros.mission.navigation_binding import SimulationNavigationBinding
+from rosclaw.connectors.ros.transport.base import RosbridgeEndpoint
+from rosclaw.connectors.ros.transport.rosbridge import RosbridgeTransport
 
 
 def last_physics(root):
@@ -90,6 +93,16 @@ def main():
     ready = json.loads(_read(root / "governed-daemon-ready-original.json", 16384))
     if ready["pid"] != args.daemon_pid:
         raise ValueError("actual owned daemon PID required")
+    lifecycle_fault = transport = None
+    if policy["case"] == "collision_monitor_disabled":
+        transport = RosbridgeTransport(
+            RosbridgeEndpoint.from_url("ws://127.0.0.1:9090"), max_retries=0
+        )
+        lifecycle_fault = OwnedCollisionMonitorFault(
+            root, transport, run_id=binding.run_id, body_snapshot_hash=binding.body_snapshot_hash
+        )
+        if not transport.connect().ok:
+            raise ValueError("owned existing SDK lifecycle bridge unavailable")
     with (root / "governed-fault-actor-ready-original.json").open("x") as f:
         json.dump(
             {
@@ -147,7 +160,9 @@ def main():
         f.write("\n")
     paused = None
     fault_effect = {}
-    if policy["case"] == "daemon_sigkill":
+    if policy["case"] == "collision_monitor_disabled":
+        fault_effect["actual_collision_monitor_deactivation"] = lifecycle_fault.disable()
+    elif policy["case"] == "daemon_sigkill":
         os.kill(args.daemon_pid, signal.SIGKILL)
     elif policy["case"] == "emergency_stop":
         with (root / "governed-emergency-stop-trigger-original.json").open("x") as f:
@@ -216,6 +231,11 @@ def main():
     terminal = json.loads(_read(root / "governed-sink-terminal.json", 16384))
     if not terminal["status"]["terminal"] or terminal["status"]["lease_expires_ns"] != 0:
         raise ValueError("terminal final sink stop required")
+    if lifecycle_fault is not None:
+        fault_effect["restoration_after_independent_terminal_stop"] = (
+            lifecycle_fault.restore_after_terminal_stop()
+        )
+        transport.close()
     if paused is not None:
         pointer, _ = read_current_native_pointer(root)
         native_raw = _read(root / pointer["file"], 10_000_000)

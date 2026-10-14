@@ -397,6 +397,7 @@ async def main():
                             "lease_loss",
                             "lidar_stream_lost",
                             "rosbridge_disconnect",
+                            "collision_monitor_disabled",
                         }
                         and actor_code == 0
                     ):
@@ -517,6 +518,22 @@ async def main():
                                 and emergency_stop_result is None
                                 and not lease_renewal_stopped
                             )
+                        elif fault_policy["case"] == "collision_monitor_disabled":
+                            effect = json.loads(
+                                (
+                                    evidence / "governed-fault-actor-outcome-original.json"
+                                ).read_text()
+                            )["fault_effect"]
+                            fault_checks["original_collision_monitor_disabled_and_restored"] = (
+                                effect["actual_collision_monitor_deactivation"]["actual_state_id"]
+                                == 2
+                                and effect["restoration_after_independent_terminal_stop"][
+                                    "actual_state_id"
+                                ]
+                                == 3
+                                and emergency_stop_result is None
+                                and not lease_renewal_stopped
+                            )
                     else:
                         fault_checks = {
                             "actor_returncode": actor_code,
@@ -583,6 +600,8 @@ async def main():
                 if fault_policy["case"] == "lease_loss"
                 else fault_checks.get("original_lidar_stream_loss_observed")
                 if fault_policy["case"] == "lidar_stream_lost"
+                else fault_checks.get("original_collision_monitor_disabled_and_restored")
+                if fault_policy["case"] == "collision_monitor_disabled"
                 else fault_checks.get("original_navigation_sockets_disconnected")
             )
             and not fault_checks.get("terminal_receipt_missing")
