@@ -18,7 +18,7 @@ from simulation_execution_fault_policy import (
     BEFORE_FAULT_ACTOR_STATUS,
     parse_governed_before_dispatch_fault_policy,
 )
-from simulation_unadmitted_sink import require_unadmitted_sink
+from simulation_unadmitted_sink import require_rejected_run_sink, require_unadmitted_sink
 
 from rosclaw.body.resolver import BodyResolver
 from rosclaw.connectors.ros.mission.navigation_binding import SimulationNavigationBinding
@@ -81,7 +81,30 @@ def main():
         time.sleep(0.01)
     request = json.loads(_read(root / "governed-action-0-request-original.json", 32768))
     refusal = json.loads(_read(rejected if rejected.exists() else receipt_path, 256000))
-    if policy["case"] == "wrong_body_hash":
+    wrong_run_effect = None
+    if policy["case"] == "wrong_run_id":
+        receipt = refusal.get("receipt", {})
+        if (
+            receipt.get("final_state") != "FAILED"
+            or request["body_snapshot_hash"] != binding.body_snapshot_hash
+        ):
+            raise ValueError("valid canonical request must fail before dispatch on wrong SDK run")
+        records = []
+        for path in root.glob("daemon-supervision-*original.jsonl"):
+            records.extend(json.loads(line) for line in _read(path, 2_000_000).splitlines())
+        effects = [
+            row for row in records if row.get("event") == "OPERATOR_WRONG_RUN_CONTEXT_INJECTED"
+        ]
+        if len(effects) != 1 or effects[0]["policy_sha256"] != args.policy_sha256:
+            raise ValueError("original SDK operator wrong-run injection audit required")
+        wrong_run_effect = effects[0]
+        context = wrong_run_effect["actual_rejected_context"]["payload"]
+        if (
+            context["run_id"] != binding.run_id + "-wrong-run"
+            or context["body_snapshot_hash"] != binding.body_snapshot_hash
+        ):
+            raise ValueError("actual wrong-run context must preserve immutable Body")
+    elif policy["case"] == "wrong_body_hash":
         receipt = refusal.get("receipt", {})
         if (
             request["body_snapshot_hash"] == binding.body_snapshot_hash
@@ -113,13 +136,14 @@ def main():
         or status["queue"]["QUEUED"] != 0
     ):
         raise ValueError("same actual daemon must be idle after rejected intent")
+    check_sink = (
+        require_rejected_run_sink if policy["case"] == "wrong_run_id" else require_unadmitted_sink
+    )
     samples, stable, last = [], None, None
     deadline = time.monotonic_ns() + 3_000_000_000
     while time.monotonic_ns() < deadline:
         sample = fresh_physics(root, binding)
-        require_unadmitted_sink(
-            root, run_id=binding.run_id, body_snapshot_hash=binding.body_snapshot_hash
-        )
+        check_sink(root, run_id=binding.run_id, body_snapshot_hash=binding.body_snapshot_hash)
         if not binding.stopped(sample):
             raise ValueError("invalid intent caused physical motion")
         if sample["captured_at"] != last:
@@ -145,9 +169,10 @@ def main():
         "daemon_status_after_refusal": status,
         "after_monotonic_ns": time.monotonic_ns(),
         "original_post_fault_physics": samples,
-        "actual_unadmitted_sink": require_unadmitted_sink(
+        "actual_unadmitted_sink": check_sink(
             root, run_id=binding.run_id, body_snapshot_hash=binding.body_snapshot_hash
         ),
+        "actual_wrong_run_context_effect": wrong_run_effect,
         "G3_done": False,
         "v1_done": False,
     }

@@ -33,9 +33,10 @@ def main():
     if hashlib.sha256(raw).hexdigest() != args.policy_sha256:
         raise ValueError("explicit original fault pin required")
     policy = json.loads(raw)
-    before_dispatch = (
-        policy.get("phase") == "before_dispatch" and policy.get("case") in BEFORE_FAULT_ACTOR_STATUS
-    )
+    before_dispatch = policy.get("phase") == "before_dispatch" and policy.get("case") in {
+        "wrong_body_hash",
+        "out_of_bounds_goal",
+    }
     source_raw = _read(Path("/assets/observer-sources.json"), 128_000)
     sources = SimulationWitnessSources.from_bytes(
         source_raw,

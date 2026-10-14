@@ -40,7 +40,7 @@ def test_original_policy_explicitly_binds_first_action(fixture):
     )
 
 
-@pytest.mark.parametrize("case", ["wrong_body_hash", "out_of_bounds_goal"])
+@pytest.mark.parametrize("case", ["wrong_body_hash", "out_of_bounds_goal", "wrong_run_id"])
 def test_before_dispatch_policy_cannot_be_used_as_motion_fault(fixture, case):
     module, pins, policy = fixture
     policy.update(case=case, phase="before_dispatch")

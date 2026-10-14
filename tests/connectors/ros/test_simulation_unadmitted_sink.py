@@ -70,3 +70,26 @@ def test_any_admission_proof_or_dangling_symlink_prevents_probe(fixture, name, s
         path.write_text("{}")
     with pytest.raises(ValueError, match="any operator admission"):
         run(fixture)
+
+
+@pytest.mark.parametrize("fault", [None, "authentication", "published", "accepted"])
+def test_rejected_run_requires_identity_failure_and_zero_prior_admission(fixture, fault):
+    module, root, sink = fixture
+    sink["terminal"] = True
+    reason = "operator context Body/World/run/source differs from independent facts"
+    if fault == "authentication":
+        reason = "SDK operator admission authentication failed"
+    if fault == "published":
+        sink["published_velocity_messages"] = 1
+    if fault == "accepted":
+        sink["daemon_instance_id"] = "accepted-instance"
+    (root / "governed-sink-terminal.json").write_text(
+        json.dumps({"reason": reason, "status": sink})
+    )
+    if fault:
+        with pytest.raises(ValueError, match="before any SDK admission"):
+            module.require_rejected_run_sink(root, run_id="run", body_snapshot_hash="body")
+    else:
+        assert (
+            module.require_rejected_run_sink(root, run_id="run", body_snapshot_hash="body") == sink
+        )

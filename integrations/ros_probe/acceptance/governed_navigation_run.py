@@ -107,6 +107,8 @@ async def main():
     ]
     if fault_policy and fault_policy["case"] == "rosbridge_disconnect":
         argv += ["--operator-rosbridge-disconnect-sha256", args.fault_policy_sha256]
+    if fault_policy and fault_policy["case"] == "wrong_run_id":
+        argv += ["--operator-wrong-run-context-sha256", args.fault_policy_sha256]
     (evidence / "governed-daemon-argv.json").write_text(json.dumps(argv) + "\n")
     os.environ["ROSCLAW_HOME"] = str(root / "home")
     os.environ["ROSCLAW_ROS_EXPERT"] = "1"
@@ -279,6 +281,10 @@ async def main():
                                 "before_monotonic_ns": time.monotonic_ns(),
                                 "original_valid_request": original,
                                 "actual_invalid_request": request,
+                                "canonical_request_modified": request != original,
+                                "fault_location": "SDK_operator_admission.run_id"
+                                if fault_policy["case"] == "wrong_run_id"
+                                else "canonical_action_request",
                             },
                             stream,
                             indent=2,
@@ -457,6 +463,7 @@ async def main():
                             "collision_monitor_disabled",
                             "out_of_bounds_goal",
                             "wrong_body_hash",
+                            "wrong_run_id",
                         }
                         and actor_code == 0
                     ):
@@ -655,7 +662,8 @@ async def main():
         and fault_checks.get("actual_before_dispatch_unadmitted_refusal")
         and not fault_checks.get("terminal_receipt_missing")
         and isinstance(fault_receipt, dict)
-        and fault_receipt.get("final_state") == "BLOCKED"
+        and fault_receipt.get("final_state")
+        == ("FAILED" if fault_policy["case"] == "wrong_run_id" else "BLOCKED")
     )
     fault_pass = before_pass or bool(
         fault_policy

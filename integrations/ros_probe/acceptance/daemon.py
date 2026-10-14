@@ -37,16 +37,19 @@ def main():
     parser.add_argument("--endpoint", default="ws://127.0.0.1:19090")
     parser.add_argument("--persistent-ledger", action="store_true")
     parser.add_argument("--operator-rosbridge-disconnect-sha256")
+    parser.add_argument("--operator-wrong-run-context-sha256")
     args = parser.parse_args()
     root = args.directory.resolve()
     config = json.loads((root / "execution_config.json").read_text())
     kind = config.get("executor_kind", "coverage")
-    if args.operator_rosbridge_disconnect_sha256 and (
+    if (args.operator_rosbridge_disconnect_sha256 or args.operator_wrong_run_context_sha256) and (
         kind != "governed_navigation"
         or not Path("/.dockerenv").is_file()
         or os.environ.get("ROS_LOCALHOST_ONLY") != "1"
     ):
         raise ValueError("explicit isolated governed SIM operator fault role required")
+    if args.operator_rosbridge_disconnect_sha256 and args.operator_wrong_run_context_sha256:
+        raise ValueError("one explicit operator fault per original World required")
     if kind == "passive_observation":
         serve_passive_observation(root, config, persistent_ledger=args.persistent_ledger)
         return
@@ -135,6 +138,25 @@ def main():
             )
             if disconnect_policy["case"] != "rosbridge_disconnect":
                 raise ValueError("original operator disconnect case required")
+        except BaseException:
+            governed_facts.close()
+            raise
+    wrong_run_raw = None
+    if args.operator_wrong_run_context_sha256:
+        from simulation_execution_fault_policy import parse_governed_before_dispatch_fault_policy
+
+        try:
+            wrong_run_raw = _read(Path("/evidence/governed-fault.json"), 4096)
+            wrong_run_policy = parse_governed_before_dispatch_fault_policy(
+                wrong_run_raw,
+                expected_sha256=args.operator_wrong_run_context_sha256,
+                run_id=navigation_binding.run_id,
+                body_snapshot_hash=navigation_binding.body_snapshot_hash,
+                world_sha256=governed_facts.enrollment["world_sha256"],
+                action_id=governed_context["allowed_action_ids"][0],
+            )
+            if wrong_run_policy["case"] != "wrong_run_id":
+                raise ValueError("explicit original wrong-run context case required")
         except BaseException:
             governed_facts.close()
             raise
@@ -272,7 +294,17 @@ def main():
                 daemon_instance_id=instance,
                 action_id=action_id,
             )
-        supervision = SdkNavigationExecutionSupervision(
+        supervision_type = SdkNavigationExecutionSupervision
+        operator_fault = {}
+        if wrong_run_raw is not None:
+            from simulation_rejected_run_context_fixture import RejectedRunContextSupervision
+
+            supervision_type = RejectedRunContextSupervision
+            operator_fault = {
+                "operator_fault_raw": wrong_run_raw,
+                "operator_fault_sha256": args.operator_wrong_run_context_sha256,
+            }
+        supervision = supervision_type(
             binding=navigation_binding,
             facts=governed_facts,
             daemon_instance_id=instance,
@@ -289,6 +321,7 @@ def main():
             p03_review_raw=p03_raw,
             p03_review_sha256=governed_context["P03_review_sha256"],
             allowed_action_ids=tuple(governed_context["allowed_action_ids"]),
+            **operator_fault,
         )
         executor.navigation_supervision = supervision
     daemon = RosclawDaemon(
@@ -500,6 +533,7 @@ def freeze_audit_source(root, config):
                 "localization_refresh_fixture.py",
                 "simulation_execution_proof.py",
                 "simulation_navigation_supervision.py",
+                "simulation_rejected_run_context_fixture.py",
                 "simulation_governed_sink.py",
                 "simulation_sink_admission.py",
                 "simulation_lease_observation.py",
