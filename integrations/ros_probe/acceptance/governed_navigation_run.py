@@ -24,6 +24,7 @@ from rosclaw.mcp.adapters.runtime_client import RuntimeClient
 async def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--goal-policy-sha256", required=True)
+    parser.add_argument("--fault-policy-sha256")
     args = parser.parse_args()
     evidence = Path("/evidence")
     raw = (evidence / "governed-goals.json").read_bytes()
@@ -49,6 +50,27 @@ async def main():
         or policy["run_id"] != facts["request"]["sim_run_id"]
     ):
         raise ValueError("operator goals differ from actual compiled Body/run")
+    fault_policy = None
+    if args.fault_policy_sha256:
+        fault_raw = (evidence / "governed-fault.json").read_bytes()
+        if (
+            not 0 < len(fault_raw) <= 4096
+            or hashlib.sha256(fault_raw).hexdigest() != args.fault_policy_sha256
+        ):
+            raise ValueError("pinned bounded operator fault policy required")
+        fault_policy = json.loads(fault_raw)
+        if (
+            set(fault_policy)
+            != {"schema_version", "run_id", "body_snapshot_hash", "world_sha256", "case", "phase"}
+            or fault_policy["schema_version"] != "rosclaw.governed_sim_fault.v1"
+            or fault_policy["case"] != "daemon_sigkill"
+            or fault_policy["phase"] != "during_motion"
+            or fault_policy["run_id"] != policy["run_id"]
+            or fault_policy["body_snapshot_hash"] != base["body_snapshot_hash"]
+            or fault_policy["world_sha256"] != facts["world_sha256"]
+            or fault_policy["action_id"] != policy["goals"][0]["action_id"]
+        ):
+            raise ValueError("closed owned daemon-SIGKILL motion fault policy required")
     p03_raw = (evidence / "P03-accepted-review.json").read_bytes()
     config = {
         "schema_version": "rosclaw.governed_navigation_fixture.v1",
@@ -79,6 +101,9 @@ async def main():
     os.environ["ROSCLAW_HOME"] = str(root / "home")
     os.environ["ROSCLAW_ROS_EXPERT"] = "1"
     result, error = [], None
+    actor = None
+    fault_checks = None
+    last_request = None
 
     def export_public_action_artifacts():
         target = evidence / "public-action-artifacts"
@@ -150,7 +175,28 @@ async def main():
                 daemon_client=client,
             )
             tools.set_client(runtime_client)
+            if fault_policy:
+                start_time = (
+                    Path(f"/proc/{daemon.pid}/stat").read_text().split(")", 1)[1].split()[19]
+                )
+                actor_argv = [
+                    sys.executable,
+                    str(Path(__file__).with_name("governed_daemon_sigkill_fixture.py")),
+                    "--policy-sha256",
+                    args.fault_policy_sha256,
+                    "--daemon-pid",
+                    str(daemon.pid),
+                    "--daemon-start-time",
+                    start_time,
+                ]
+                (evidence / "governed-fault-actor-argv-original.json").write_text(
+                    json.dumps(actor_argv) + "\n"
+                )
+                actor = subprocess.Popen(actor_argv)
+
             for index, goal in enumerate(policy["goals"]):
+                if fault_policy and index > 0:
+                    break
                 if set(goal) != {"action_id", "arguments", "timeout_sec"}:
                     raise ValueError("closed bounded SIM goal required")
                 request = {
@@ -166,6 +212,7 @@ async def main():
                 (evidence / f"governed-action-{index}-request-original.json").write_text(
                     json.dumps(request, indent=2) + "\n"
                 )
+                last_request = request
                 ticket = await tools._request_action(**request)
                 (evidence / f"governed-action-{index}-ticket-original.json").write_text(
                     json.dumps(ticket, indent=2) + "\n"
@@ -201,11 +248,84 @@ async def main():
         except Exception as exc:
             error = str(exc)[:2500]
         finally:
+            if fault_policy:
+                try:
+                    missing = not (evidence / "governed-action-0-receipt-original.json").exists()
+                    (evidence / "governed-missing-terminal-receipt-original.json").write_text(
+                        json.dumps(
+                            {
+                                "action_id": policy["goals"][0]["action_id"],
+                                "terminal_receipt_missing": missing,
+                                "reason": "original daemon SIGKILL; no terminal receipt fabricated",
+                                "original_error": error,
+                                "monotonic_ns": time.monotonic_ns(),
+                            }
+                        )
+                        + "\n"
+                    )
+                    actor_code = None
+                    if actor is not None:
+                        try:
+                            actor_code = actor.wait(timeout=20)
+                        except subprocess.TimeoutExpired:
+                            actor.kill()
+                            actor_code = actor.wait(timeout=2)
+                    old_action_refused = False
+                    if actor_code == 0 and last_request is not None:
+                        probe_argv = [
+                            sys.executable,
+                            str(Path(__file__).with_name("governed_old_lease_probe.py")),
+                            "--policy-sha256",
+                            args.fault_policy_sha256,
+                        ]
+                        with (evidence / "governed-old-lease-probe-original.log").open(
+                            "x"
+                        ) as probe_log:
+                            probe_code = subprocess.run(
+                                probe_argv, stdout=probe_log, stderr=subprocess.STDOUT, timeout=8
+                            ).returncode
+                        try:
+                            old_action_result = await tools._request_action(**last_request)
+                            refusal = {"refused": False, "unexpected_result": old_action_result}
+                        except Exception as exc:
+                            old_action_refused = True
+                            refusal = {"refused": True, "original_error": str(exc)[:2500]}
+                        refusal.update(
+                            action_id=last_request["action_id"],
+                            monotonic_ns=time.monotonic_ns(),
+                            purpose="explicit old-action rejection test after confirmed SIGKILL and independent stop",
+                        )
+                        (evidence / "governed-old-action-refusal-original.json").write_text(
+                            json.dumps(refusal, indent=2) + "\n"
+                        )
+                        fault_checks = {
+                            "actor_returncode": actor_code,
+                            "old_lease_probe_returncode": probe_code,
+                            "old_action_refused": old_action_refused,
+                            "terminal_receipt_missing": missing,
+                        }
+                    else:
+                        fault_checks = {
+                            "actor_returncode": actor_code,
+                            "terminal_receipt_missing": missing,
+                            "old_action_refused": False,
+                            "old_lease_probe_returncode": None,
+                        }
+                except Exception as fault_error:
+                    fault_checks = {"acceptance_error": str(fault_error)[:2500]}
+            if actor is not None and actor.poll() is None:
+                actor.terminate()
+                try:
+                    actor.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    actor.kill()
+                    actor.wait(timeout=2)
             (evidence / "governed-owner-shutdown-request-original.json").write_text(
                 json.dumps(
                     {
                         "monotonic_ns": time.monotonic_ns(),
-                        "completed_goals": len(result),
+                        "completed_goals": sum(row["final_state"] == "COMPLETED" for row in result),
+                        "terminal_goals": len(result),
                         "error": error,
                     }
                 )
@@ -222,20 +342,36 @@ async def main():
                 json.dumps({"pid": daemon.pid, "returncode": code}) + "\n"
             )
             export_public_action_artifacts()
+    fault_pass = bool(
+        fault_policy
+        and code == -signal.SIGKILL
+        and fault_checks
+        and fault_checks.get("actor_returncode") == 0
+        and fault_checks.get("old_lease_probe_returncode") == 0
+        and fault_checks.get("old_action_refused")
+        and fault_checks.get("terminal_receipt_missing")
+    )
     outcome = {
         "status": "FAILED_ORIGINAL_GOVERNED_SIM_JOURNEY"
         if error or code != 0
         else "PASS_TWO_CANONICAL_GOVERNED_SIM_GOALS_LOCAL_ONLY",
         "error": error,
         "daemon_returncode": code,
+        "fault_checks": fault_checks,
         "goals": result,
         "G3_done": False,
         "v1_done": False,
     }
+    if fault_policy:
+        outcome["status"] = (
+            "PASS_EXPECTED_DAEMON_SIGKILL_SAFE_STOP_AND_OLD_REQUEST_REFUSAL_LOCAL"
+            if fault_pass
+            else "FAILED_ORIGINAL_DAEMON_SIGKILL_ACCEPTANCE"
+        )
     with (evidence / "governed-journey-original-outcome.json").open("x") as stream:
         stream.write(json.dumps(outcome, indent=2) + "\n")
     print(json.dumps(outcome), flush=True)
-    if error or code != 0:
+    if (fault_policy and not fault_pass) or (not fault_policy and (error or code != 0)):
         raise SystemExit(1)
 
 
