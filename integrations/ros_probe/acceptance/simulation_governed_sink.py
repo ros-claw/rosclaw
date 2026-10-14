@@ -11,12 +11,14 @@ import hmac
 import json
 import os
 import time
+from contextlib import suppress
 from datetime import UTC, datetime
 from pathlib import Path
 
 import rclpy
 from geometry_msgs.msg import Twist, TwistStamped
 from rclpy.clock import Clock, ClockType
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from simulation_current_facts import CurrentSimulationFacts, _read
 from simulation_execution_proof import ExecutionProofPins, _canonical
@@ -321,7 +323,8 @@ def main():
         p03_sha256=args.p03_review_sha256,
     )
     try:
-        rclpy.spin(node)
+        with suppress(ExternalShutdownException, KeyboardInterrupt):
+            rclpy.spin(node)
     finally:
         node.deadline_ns = 0
         if rclpy.ok():
