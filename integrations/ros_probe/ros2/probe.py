@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import statistics
 import time
@@ -58,7 +59,13 @@ def utc_now():
 
 
 class ReadOnlyProbe(Node):
-    def __init__(self):
+    def __init__(self, *, snapshot_period_sec=1.0):
+        if (
+            type(snapshot_period_sec) not in (int, float)
+            or not math.isfinite(snapshot_period_sec)
+            or not 0.1 <= snapshot_period_sec <= 1.0
+        ):
+            raise ValueError("read-only snapshot period must be 0.1..1.0 seconds")
         super().__init__("rosclaw_readonly_probe")
         self.samples = {}
         self.subscriptions_by_topic = {}
@@ -85,7 +92,9 @@ class ReadOnlyProbe(Node):
         self.refresh_service = self.create_service(Trigger, "/rosclaw_probe/refresh", self.refresh)
         # A paused simulation clock must not freeze its own diagnostic probe.
         self.wall_clock = Clock(clock_type=ClockType.STEADY_TIME)
-        self.timer = self.create_timer(1.0, self.publish_snapshot, clock=self.wall_clock)
+        self.timer = self.create_timer(
+            snapshot_period_sec, self.publish_snapshot, clock=self.wall_clock
+        )
 
     def refresh(self, _request, response):
         self.discover_reads()
@@ -548,11 +557,12 @@ class ReadOnlyProbe(Node):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--once", action="store_true")
+    parser.add_argument("--snapshot-period-sec", type=float, default=1.0)
     parser.add_argument("--duration", type=float, default=3.0)
     parser.add_argument("--output", type=Path)
     args, ros_args = parser.parse_known_args()
     rclpy.init(args=ros_args)
-    node = ReadOnlyProbe()
+    node = ReadOnlyProbe(snapshot_period_sec=args.snapshot_period_sec)
     try:
         if args.once:
             deadline = time.monotonic() + args.duration

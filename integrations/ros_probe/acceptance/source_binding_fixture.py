@@ -131,6 +131,11 @@ def main():
         "--seed",
         "101201",
     ]
+    if "probe_snapshot_period_sec" in settings:
+        period = settings["probe_snapshot_period_sec"]
+        if type(period) not in (int, float) or not 0.1 <= period <= 1.0:
+            raise ValueError("explicit read-only probe cadence must be 0.1..1.0 seconds")
+        argv.extend(["--probe-snapshot-period-sec", str(period)])
     if settings.get("live_dual_supervision", False) or fault in {
         "sensor_stop",
         "clock_freeze",
