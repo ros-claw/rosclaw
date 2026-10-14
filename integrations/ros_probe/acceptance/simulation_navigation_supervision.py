@@ -25,7 +25,7 @@ from simulation_execution_proof import (
 from rosclaw.connectors.ros.mission.navigation_supervision import NavigationExecutionSupervision
 
 
-def review_active_sim_daemon(status, *, instance_id, pid, uid, body_id):
+def review_active_sim_daemon(status, *, instance_id, pid, uid, body_id, expected_running=1):
     """Actual daemon-internal status, distinct from passive socket observation.
 
     An internal call has process_separated=False by construction; independent
@@ -73,7 +73,9 @@ def review_active_sim_daemon(status, *, instance_id, pid, uid, body_id):
         or status["ledger"].get("integrity_verified") is not True
         or status["ledger"].get("write_failed") is not False
         or status["recovery"].get("required") is not False
-        or status["queue"].get("RUNNING") != 1
+        or type(status["queue"].get("RUNNING")) is not int
+        or status["queue"]["RUNNING"]
+        not in ({0, 1} if expected_running is None else {expected_running})
     ):
         raise ValueError("actual SIM daemon watchdog, ledger or active execution unhealthy")
     expected = {

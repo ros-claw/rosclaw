@@ -56,3 +56,30 @@ proof/health/status audit rows. Nineteen synthetic producer contracts passed,
 including generation loss, insufficient capacity and replaced-directory cleanup.
 It still needs composition with the existing daemon and the actual ROS sink;
 its software tests are not physical proof or independent socket enrollment.
+
+The derived isolated SDK image now includes six exact wheel releases checked
+against official PyPI SHA256 metadata and installed with build networking
+disabled. Image `sha256:1966af6ad6bb7d1d6669aed5f3d3d4e5accde2651a8b84c3adf8f33ab1a389dc`
+preserves all original P03 base layers. In a fresh World on `d965de9e`, the existing
+full SIM navigation daemon started with verified actual socket PID/generation,
+healthy watchdog, durable ledger and zero sessions, permits, actions or hardware
+executions. A read-only Git metadata mount preserves source freeze checks.
+A prior World failed because that mount was missing; all failures remain intact.
+Same-UID startup establishes a process boundary, not a REAL privilege boundary.
+The same World passed 67 strictly fresh current-health rows and independent raw
+recomputation of 151 source samples and 5,794 contacts, zero unexpected contacts.
+The 823-file sealed archive is
+`evidence/2026-10-14/L2-SDK-sourceD965DE9E-original-startup-and-offline-image`,
+manifest SHA256 `aec2b1155ce74db9f2203acbf9a1fccd4282651ba0ae5ff0990379ab1912286c`.
+
+A separate SDK sink process and independent physics-witness observation path
+are now implemented for bootstrap verification. The observer relinquishes its
+velocity subscription and lease service only for a closed, SHA-pinned external
+sink context. Missing/stale control state remains UNKNOWN, never a verified
+revoke. The sink has no velocity publisher before authenticated explicit
+admission plus an actual canonical lease. Commands and watchdogs independently
+join current ROS/source facts, real daemon socket credentials, action-scoped
+proof and unchanged Body limits. Source-facts enrollment bytes are also pinned
+throughout collection. Combined focused synthetic contracts passed 170 tests.
+Bootstrap behavior still requires a new original World; actual governed daemon
+admission and J100 motion acceptance remain NOT_RUN.

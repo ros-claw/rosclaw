@@ -1,8 +1,9 @@
 """SDK-owned passive known-fixture capture and real-observation Body compilation.
 
-Only the isolated operator fixture launches ROS processes. No action client,
-velocity publisher, initial-pose publication, daemon or Runtime is created.
-The external supervisor must separately inspect and pin the running instance.
+Only the isolated operator fixture launches ROS processes. The physical witness
+is read-only. Explicit roles may add a passive daemon or a separate governed
+sink; the sink refuses leases until independent operator SIM admission. The
+external supervisor separately inspects and pins the running instance.
 """
 
 import hashlib
@@ -79,6 +80,15 @@ def observer_facts():
 
 def main():
     settings = json.loads(Path("/settings.json").read_text())
+    governed = settings.get("governed_sink")
+    if governed is not None and (
+        type(governed) is not dict
+        or set(governed) != {"schema_version", "P03_review_sha256"}
+        or governed["schema_version"] != "rosclaw.governed_sink_bootstrap.v1"
+        or type(governed["P03_review_sha256"]) is not str
+        or len(governed["P03_review_sha256"]) != 64
+    ):
+        raise ValueError("explicit closed governed SDK sink bootstrap required")
     fault = settings.get("fault", "none")
     if fault not in {
         "none",
@@ -114,6 +124,13 @@ def main():
         "velocity_output_topic": "/nav_cmd_vel",
         "velocity_consumer_node": "/rosclaw_sim_witness",
     }
+    if governed is not None:
+        requirements["velocity_consumer_node"] = "/rosclaw_governed_sink"
+        control = OUT / "execution-control"
+        control.mkdir(mode=0o700)
+        key_fd = os.open(control / "fixture.key", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(key_fd, "wb") as key_file:
+            key_file.write(os.urandom(32))
     save("requirements.json", requirements)
     stack_log = (OUT / "stack-original.log").open("x")
     argv = [
@@ -153,6 +170,8 @@ def main():
     auxiliary = None
     passive_daemon = None
     passive_log = None
+    governed_sink = None
+    governed_log = None
     witness_logs = []
     rclpy.init(args=["--ros-args", "-p", "use_sim_time:=true"])
     node = Node("rosclaw_source_capture")
@@ -207,6 +226,7 @@ def main():
     node.create_subscription(String, "/rosclaw_sim/observation", physics, 10)
 
     def launch_witness(name, workspace, config):
+        nonlocal governed_sink, governed_log
         log = (OUT / f"{name}-original.log").open("x")
         witness_logs.append(log)
         args = [
@@ -238,13 +258,19 @@ def main():
             if len(robots) != 1:
                 raise ValueError("known-source generic observer fixture requires one robot")
             contacts = json.loads(Path("/assets/contact_topics.json").read_text())
+            import yaml
+
+            nav = yaml.safe_load(Path("/assets/nav2.yaml").read_text())
+            map_frame = nav["global_costmap"]["global_costmap"]["ros__parameters"]["global_frame"]
+            if type(map_frame) is not str or not map_frame:
+                raise ValueError("operator-declared global map frame required")
             inputs = {
                 "schema_version": "rosclaw.simulation_witness_sources.v1",
                 "run_id": settings["run_id"],
                 "world_id": world.get("name"),
                 "robot_entity": robots[0],
                 "observer_node": "/rosclaw_sim_witness",
-                "map_frame": "map",
+                "map_frame": map_frame,
                 "source_urdf_sha256": hashlib.sha256(urdf_bytes).hexdigest(),
                 "world_sdf_sha256": hashlib.sha256(world_bytes).hexdigest(),
                 "topics": {
@@ -271,6 +297,66 @@ def main():
                 "-p",
                 "observer_sources_sha256:=" + hashlib.sha256(path.read_bytes()).hexdigest(),
             ]
+            if governed is not None:
+                source_sha = hashlib.sha256(path.read_bytes()).hexdigest()
+                metadata = {
+                    "schema_version": "rosclaw.external_sim_sink_observation.v1",
+                    "sink_node": "/rosclaw_governed_sink",
+                    "run_id": settings["run_id"],
+                    "source_inputs_sha256": source_sha,
+                    "lease_service": inputs["topics"]["lease"],
+                    "velocity_input": inputs["topics"]["velocity_input"],
+                    "status_file": "governed-sink-status.json",
+                }
+                metadata_path = OUT / f"{name}-external-sink-observation.json"
+                save(metadata_path.name, metadata)
+                args += [
+                    "-p",
+                    "external_sink_observation_path:=" + str(metadata_path),
+                    "-p",
+                    "external_sink_observation_sha256:="
+                    + hashlib.sha256(metadata_path.read_bytes()).hexdigest(),
+                ]
+                if governed_sink is None:
+                    sink_argv = [
+                        "python3",
+                        str(ROOT / "simulation_governed_sink.py"),
+                        "--sources-path",
+                        str(path),
+                        "--sources-sha256",
+                        source_sha,
+                        "--p03-review-sha256",
+                        governed["P03_review_sha256"],
+                        "--ros-args",
+                        "-p",
+                        "use_sim_time:=true",
+                    ]
+                    save("governed-sink-argv.json", sink_argv)
+                    governed_log = (OUT / "governed-sink-original.log").open("x")
+                    governed_sink = subprocess.Popen(
+                        sink_argv,
+                        stdout=governed_log,
+                        stderr=subprocess.STDOUT,
+                        start_new_session=True,
+                    )
+                    save("governed-sink-process.json", process_fact(governed_sink.pid))
+                expected_body = json.loads(config.read_text())["body_snapshot_hash"]
+                deadline = time.monotonic() + 10
+                while True:
+                    if governed_sink.poll() is not None:
+                        raise RuntimeError("owned governed sink exited before witness enrollment")
+                    status_path = OUT / "governed-sink-status.json"
+                    if status_path.exists():
+                        sink_status = json.loads(status_path.read_text())
+                        if sink_status["terminal"]:
+                            raise RuntimeError(
+                                "owned governed sink became terminal before admission"
+                            )
+                        if sink_status["body_snapshot_hash"] == expected_body:
+                            break
+                    if time.monotonic() >= deadline:
+                        raise RuntimeError("governed bootstrap Body enrollment timeout")
+                    rclpy.spin_once(node, timeout_sec=0.05)
         if settings.get("live_continuity_hold_seconds", 0):
             args += ["-p", "max_contact_segments:=4"]
         if name == "renamed-source-witness":
@@ -321,6 +407,8 @@ def main():
                 save("passive-daemon-replacement-process.json", process_fact(passive_daemon.pid))
             if passive_daemon and passive_daemon.poll() is not None:
                 raise RuntimeError("owned passive rosclawd exited unexpectedly")
+            if governed_sink and governed_sink.poll() is not None:
+                raise RuntimeError("owned governed sink exited unexpectedly")
             rclpy.spin_once(node, timeout_sec=0.05)
 
     try:
@@ -606,6 +694,11 @@ def main():
             save("auxiliary-process-exit.json", {"returncode": auxiliary.returncode})
         if witness:
             stop(witness)
+        if governed_sink:
+            stop(governed_sink)
+            save("governed-sink-exit.json", {"returncode": governed_sink.returncode})
+        if governed_log:
+            governed_log.close()
         stop(stack)
         stack_log.close()
         for log in witness_logs:

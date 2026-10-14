@@ -32,6 +32,7 @@ from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from ros_gz_interfaces.msg import Contacts
 from rosidl_runtime_py.convert import message_to_ordereddict
+from simulation_lease_observation import ExternalSimulationLeaseObservation
 from simulation_source_capture import BoundedSourceJsonlCapture
 from simulation_witness_sources import SimulationWitnessSources
 from std_msgs.msg import Bool, String
@@ -114,6 +115,44 @@ class Witness(Node):
                 raise ValueError(
                     "generic bootstrap is source-only until an immutable Body is bound"
                 )
+        self.external_lease_observation = None
+        observation_path = self.declare_parameter("external_sink_observation_path", "").value
+        observation_sha = self.declare_parameter("external_sink_observation_sha256", "").value
+        if bool(observation_path) != bool(observation_sha):
+            raise ValueError("external sink observation requires an independent SHA pin")
+        if observation_path:
+            raw = Path(observation_path).read_bytes()
+            metadata = json.loads(raw)
+            if (
+                not self.source_only
+                or self.sources is None
+                or hashlib.sha256(raw).hexdigest() != observation_sha
+                or set(metadata)
+                != {
+                    "schema_version",
+                    "sink_node",
+                    "run_id",
+                    "source_inputs_sha256",
+                    "lease_service",
+                    "velocity_input",
+                    "status_file",
+                }
+                or metadata["schema_version"] != "rosclaw.external_sim_sink_observation.v1"
+                or metadata["sink_node"] != "/rosclaw_governed_sink"
+                or metadata["run_id"] != self.sources.run_id
+                or metadata["source_inputs_sha256"] != source_pin
+                or metadata["lease_service"] != self.sources.topic("lease")
+                or metadata["velocity_input"] != self.sources.topic("velocity_input")
+            ):
+                raise ValueError("explicit read-only external sink observation context required")
+            self.external_lease_observation = ExternalSimulationLeaseObservation(
+                Path("/evidence"),
+                filename=metadata["status_file"],
+                run_id=self.sources.run_id,
+                body_snapshot_hash=self.navigation_binding.body_snapshot_hash
+                if self.navigation_binding
+                else None,
+            )
         self.source_received_control_messages = 0
         self.previous_measured_pose = None
         self.cleaning = False
@@ -206,9 +245,10 @@ class Witness(Node):
             self.localized,
             10,
         )
-        self.create_subscription(
-            Twist, self.source_topic("velocity_input", "/nav_cmd_vel"), self.command, 10
-        )
+        if self.external_lease_observation is None:
+            self.create_subscription(
+                Twist, self.source_topic("velocity_input", "/nav_cmd_vel"), self.command, 10
+            )
         self.create_subscription(
             CollisionMonitorState,
             self.source_topic("collision_monitor_state", "/collision_monitor_state"),
@@ -276,14 +316,15 @@ class Witness(Node):
                     self.set_cleaning,
                     callback_group=self.control_callbacks,
                 )
-        self.create_service(
-            SetBool,
-            self.navigation_binding.lease_service
-            if self.navigation_binding
-            else self.source_topic("lease", "/rosclaw_sim/lease"),
-            self.heartbeat,
-            callback_group=self.control_callbacks,
-        )
+        if self.external_lease_observation is None:
+            self.create_service(
+                SetBool,
+                self.navigation_binding.lease_service
+                if self.navigation_binding
+                else self.source_topic("lease", "/rosclaw_sim/lease"),
+                self.heartbeat,
+                callback_group=self.control_callbacks,
+            )
         self.create_timer(
             0.05, self.tick, callback_group=self.control_callbacks, clock=self.wall_clock
         )
@@ -510,6 +551,16 @@ class Witness(Node):
                     self.last_pose = time.monotonic()
 
     def tick(self):
+        external_status = None
+        if self.external_lease_observation is not None:
+            external_status = self.external_lease_observation.read()
+            self.lease = (
+                external_status["status"]["lease_expires_ns"] / 1e9
+                if external_status["known"] and not external_status["status"]["terminal"]
+                else 0
+            )
+            if external_status["known"]:
+                self.lease_updates = external_status["status"]["lease_updates"]
         # Pose coordinates and their real receive time must be one snapshot.
         # Dedicated callbacks prevent path/map disk writes starving ground truth.
         with self.observation_lock:
@@ -585,11 +636,15 @@ class Witness(Node):
                 body_snapshot_hash=self.navigation_binding.body_snapshot_hash,
                 run_id=self.navigation_binding.run_id,
                 frame_id=self.navigation_binding.frame_id,
-                lease_enabled=now < self.lease,
+                lease_enabled=external_status["lease_enabled"]
+                if external_status is not None
+                else now < self.lease,
                 linear_speed_mps=math.hypot(pose["x"] - previous["x"], pose["y"] - previous["y"])
                 / dt,
                 angular_speed_rps=dyaw / dt,
             )
+        if external_status is not None:
+            sample["independent_control_sink_observation"] = external_status
         self.trace.write(json.dumps(sample) + "\n")
         self.publisher.publish(String(data=json.dumps(sample)))
 

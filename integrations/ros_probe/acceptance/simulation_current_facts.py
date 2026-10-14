@@ -64,6 +64,7 @@ class CurrentSimulationFacts:
         raw = _read(self.directory / "execution-facts-enrollment.json", 64_000)
         if type(enrollment_sha256) is not str or _sha(raw) != enrollment_sha256:
             raise ValueError("independent execution facts enrollment SHA mismatch")
+        self.enrollment_sha256 = enrollment_sha256
         e = json.loads(raw)
         keys = {
             "schema_version",
@@ -133,6 +134,11 @@ class CurrentSimulationFacts:
             raise ValueError("current SIM facts permanently latched: " + self.failed_reason)
         try:
             started = time.monotonic_ns()
+            if (
+                _sha(_read(self.directory / "execution-facts-enrollment.json", 64_000))
+                != self.enrollment_sha256
+            ):
+                raise ValueError("immutable execution facts Body/run enrollment changed")
             info = self.directory.stat(follow_symlinks=False)
             if (info.st_dev, info.st_ino) != self._directory_identity or not stat.S_ISDIR(
                 info.st_mode
