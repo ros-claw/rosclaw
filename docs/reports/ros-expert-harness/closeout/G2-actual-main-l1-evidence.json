@@ -1,0 +1,17 @@
+{
+  "status": "PASS_G3_FOUNDATION_ACTUAL_MAIN_KNOWN_AND_ADAPTED_HELDOUT_L1_AND_PINNED_CLI",
+  "source": "d734fa44d9c0681e8b4e9ad3b5fa34bd7dc09745",
+  "original_Worlds": 2,
+  "L1": "READY_FOR_SIM_TEST",
+  "source_binding": "MATCHED",
+  "goals": 0,
+  "velocity_publications": 0,
+  "independent_raw_recomputation": "PASS",
+  "CLI": "PASS_READONLY_ARTIFACT_ONLY",
+  "archive": "evidence/2026-10-12/G3-actual-main-d734fa44-capture03-two-original-Worlds-CLI",
+  "archive_manifest_sha256": "cdbf754b0068f7ac4d3fb7a9edf6b3e017dbd3e225bc81def059064aa5544eb1",
+  "zero_shot_acceptance": false,
+  "L2": "NOT_RUN",
+  "G3_done": false,
+  "v1_done": false
+}

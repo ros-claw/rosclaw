@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 
 from rosclaw.body.schema import EffectiveBody
 from rosclaw.connectors.ros.context.geometry import IDENTITY, ZERO, _apply, _compose, _inverse
+from rosclaw.connectors.ros.context.navigation_review import review_navigation_candidate
 from rosclaw.connectors.ros.context.navigation_workspace_review import _inspect, _json, _Reader
 from rosclaw.connectors.ros.context.sim_source_binding import review_sim_source_binding
 from rosclaw.connectors.ros.mission.navigation_binding import SimulationNavigationBinding
@@ -135,6 +136,58 @@ def review_sim_navigation_readiness(workspace, request, *, policy, policy_hash, 
     """
     now = source_inputs.get("now") or datetime.now(UTC)
     source_inputs = {**source_inputs, "now": now}
+    _validate_policy(request, policy, policy_hash)
+    source = review_sim_source_binding(workspace, request, **source_inputs)
+    result = {
+        "schema_version": "rosclaw.sim_navigation_readiness.v1",
+        "status": "UNKNOWN",
+        "source_binding": source,
+        "policy_hash": policy_hash,
+        "source_snapshot_hash": source_inputs["model"].snapshot_hash,
+        "manifest_hash": request["manifest_hash"],
+        "body_snapshot_hash": request["body_snapshot_hash"],
+        "sim_run_id": request["sim_run_id"],
+        "reviewed_at": now.isoformat(),
+        "blocked_reasons": [],
+        "unknown_reasons": [],
+        "execution_authority": "NONE",
+        "real_authority": False,
+        "workspace_modified": False,
+        "L2": "NOT_RUN",
+        "unverified_checks": [
+            "obstacle_response",
+            "speed_limit_enforcement",
+            "daemon_admission",
+            "physical_navigation",
+        ],
+    }
+    unknown, blocked = result["unknown_reasons"], result["blocked_reasons"]
+    unknown.extend("SOURCE:" + r for r in source["unknown_reasons"])
+    blocked.extend("SOURCE:" + r for r in source["mismatch_reasons"])
+    review = source.get("navigation_observation_review")
+    if review is None:
+        unknown.append("FRESH_NAVIGATION_REVIEW_UNAVAILABLE")
+    else:
+        # No localization or other navigation check is deferred in L1.
+        unknown.extend("NAVIGATION:" + r for r in review["unknown_fields"])
+    _review_current_ros_facts(
+        workspace,
+        request,
+        policy,
+        source_inputs["model"],
+        now,
+        review,
+        unknown,
+        blocked,
+        stopped_capture_bytes=source_inputs["capture_bytes"],
+    )
+    result["unknown_reasons"] = sorted(set(unknown))
+    result["blocked_reasons"] = sorted(set(blocked))
+    result["status"] = "BLOCKED" if blocked else "UNKNOWN" if unknown else "READY_FOR_SIM_TEST"
+    return result
+
+
+def _validate_policy(request, policy, policy_hash):
     keys = {
         "schema_version",
         "policy_id",
@@ -169,43 +222,24 @@ def review_sim_navigation_readiness(workspace, request, *, policy, policy_hash, 
         or any(type(n) is not str or not n.startswith("/") for n in policy["costmaps"].values())
     ):
         raise ValueError("independently pinned, closed bounded operator readiness policy required")
-    source = review_sim_source_binding(workspace, request, **source_inputs)
-    result = {
-        "schema_version": "rosclaw.sim_navigation_readiness.v1",
-        "status": "UNKNOWN",
-        "source_binding": source,
-        "policy_hash": policy_hash,
-        "source_snapshot_hash": source_inputs["model"].snapshot_hash,
-        "manifest_hash": request["manifest_hash"],
-        "body_snapshot_hash": request["body_snapshot_hash"],
-        "sim_run_id": request["sim_run_id"],
-        "reviewed_at": now.isoformat(),
-        "blocked_reasons": [],
-        "unknown_reasons": [],
-        "execution_authority": "NONE",
-        "real_authority": False,
-        "workspace_modified": False,
-        "L2": "NOT_RUN",
-        "unverified_checks": [
-            "obstacle_response",
-            "speed_limit_enforcement",
-            "daemon_admission",
-            "physical_navigation",
-        ],
-    }
-    unknown, blocked = result["unknown_reasons"], result["blocked_reasons"]
-    unknown.extend("SOURCE:" + r for r in source["unknown_reasons"])
-    blocked.extend("SOURCE:" + r for r in source["mismatch_reasons"])
-    review = source.get("navigation_observation_review")
-    if review is None:
-        unknown.append("FRESH_NAVIGATION_REVIEW_UNAVAILABLE")
-    else:
-        # No localization or other navigation check is deferred in L1.
-        unknown.extend("NAVIGATION:" + r for r in review["unknown_fields"])
+
+
+def _review_current_ros_facts(
+    workspace,
+    request,
+    policy,
+    model,
+    now,
+    review,
+    unknown,
+    blocked,
+    *,
+    stopped_capture_bytes=None,
+):
+    """Shared pure facts; stopped source capture belongs only to initial L1."""
     try:
-        model = source_inputs["model"]
         age = policy["max_age_ms"]
-        if not 0 <= model.age_ms(now) <= age or not _fresh(source["observed_at"], now, age):
+        if not 0 <= model.age_ms(now) <= age:
             unknown.append("STALE_L1_CAPTURE")
         with _Reader(workspace) as reader:
             files = reader.read()
@@ -218,6 +252,11 @@ def review_sim_navigation_readiness(workspace, request, *, policy, policy_hash, 
             ):
                 blocked.append("BODY_RUN_MISMATCH")
             requirements = _json(files["navigation-requirements.json"])
+            if review is None:
+                review = review_navigation_candidate(
+                    model, files["body/refs/robot.urdf"], requirements, now=now
+                )
+                unknown.extend("NAVIGATION:" + r for r in review["unknown_fields"])
             if set(policy["costmaps"]) != set(requirements["costmap_topics"]):
                 raise ValueError("explicit exact costmap topic associations required")
             limits = policy["variance_limits"]
@@ -363,10 +402,10 @@ def review_sim_navigation_readiness(workspace, request, *, policy, policy_hash, 
                         polygon = _footprint_in_base(model, observed, frames["base"], now, age)
                         if not _contains_circle(polygon, radius):
                             blocked.append("EFFECTIVE_FOOTPRINT_UNDERSIZES_BODY:" + topic)
-            capture = _json(source_inputs["capture_bytes"])
-            sample = capture["physics_witness"]["sample"]
-            if not binding.stopped(sample):
-                blocked.append("BODY_NOT_STOPPED_WITH_LEASE_CLOSED")
+            if stopped_capture_bytes is not None:
+                sample = _json(stopped_capture_bytes)["physics_witness"]["sample"]
+                if not binding.stopped(sample):
+                    blocked.append("BODY_NOT_STOPPED_WITH_LEASE_CLOSED")
             reader.unchanged()
     except (
         ValueError,
@@ -378,7 +417,54 @@ def review_sim_navigation_readiness(workspace, request, *, policy, policy_hash, 
         IndexError,
     ) as exc:
         unknown.append("UNVERIFIED_L1_FACT:" + str(exc)[:500])
-    result["unknown_reasons"] = sorted(set(unknown))
-    result["blocked_reasons"] = sorted(set(blocked))
-    result["status"] = "BLOCKED" if blocked else "UNKNOWN" if unknown else "READY_FOR_SIM_TEST"
-    return result
+
+
+def review_current_sim_navigation_health(
+    workspace, request, *, model, policy, policy_hash, now=None
+):
+    """Recompute current ROS health against immutable Body; no source admission.
+
+    This deliberately accepts no historical G1 PASS or physics capture. An SDK
+    supervisor must independently join source continuity, Body/run and daemon
+    generation. HEALTHY is an expiring observation, never a permit or L1 grant.
+    """
+    keys = {"schema_version", "manifest_hash", "body_snapshot_hash", "sim_run_id", "max_age_ms"}
+    if (
+        type(request) is not dict
+        or set(request) != keys
+        or request["schema_version"] != "rosclaw.current_sim_navigation_health_request.v1"
+        or not _number(request["max_age_ms"])
+        or not 0 < request["max_age_ms"] <= 10000
+        or any(
+            type(request[k]) is not str or not request[k] or len(request[k]) > 512
+            for k in ("manifest_hash", "body_snapshot_hash", "sim_run_id")
+        )
+    ):
+        raise ValueError("closed independent immutable Body/run health pins required")
+    _validate_policy(request, policy, policy_hash)
+    now = now or datetime.now(UTC)
+    unknown, blocked = [], []
+    _review_current_ros_facts(workspace, request, policy, model, now, None, unknown, blocked)
+    return {
+        "schema_version": "rosclaw.current_sim_navigation_health.v1",
+        "status": "BLOCKED"
+        if blocked
+        else "UNKNOWN"
+        if unknown
+        else "HEALTHY_SIM_OBSERVATION_ONLY",
+        "unknown_reasons": sorted(set(unknown)),
+        "blocked_reasons": sorted(set(blocked)),
+        "body_snapshot_hash": request["body_snapshot_hash"],
+        "manifest_hash": request["manifest_hash"],
+        "sim_run_id": request["sim_run_id"],
+        "source_snapshot_hash": model.snapshot_hash,
+        "policy_hash": policy_hash,
+        "reviewed_at": now.isoformat(),
+        "execution_authority": "NONE",
+        "real_authority": False,
+        "source_binding": "NOT_EVALUATED",
+        "daemon_generation": "NOT_EVALUATED",
+        "initial_L1": "NOT_REPLACED",
+        "L2": "NOT_RUN",
+        "workspace_modified": False,
+    }

@@ -27,6 +27,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--inventory-sha256", required=True)
     parser.add_argument("--run-id", required=True)
+    parser.add_argument("--hold-seconds", type=float, default=45)
     parser.add_argument(
         "--mode",
         required=True,
@@ -40,6 +41,8 @@ def main():
         ],
     )
     args = parser.parse_args()
+    if not 5 <= args.hold_seconds <= 45:
+        raise ValueError("bounded operator fault hold required")
     if not Path("/.dockerenv").is_file() or os.environ.get("ROS_LOCALHOST_ONLY") != "1":
         raise ValueError("isolated disposable operator SIM required")
     check_prepared_assets("/assets", args.inventory_sha256, "/tmp/readiness-fault-assets")
@@ -84,6 +87,7 @@ def main():
         details = {
             "mode": args.mode,
             "run_id": args.run_id,
+            "before_monotonic_ns": time.monotonic_ns(),
             "velocity_publishers_created": 0,
             "goals_sent": 0,
         }
@@ -167,8 +171,9 @@ def main():
                 ),
             )
             details["subscription"] = {"topic": "/scan", "durability": "TRANSIENT_LOCAL"}
+        details["fault_applied_monotonic_ns"] = time.monotonic_ns()
         (OUT / "readiness-fault-applied.json").write_text(json.dumps(details, indent=2) + "\n")
-        deadline = time.monotonic() + 45
+        deadline = time.monotonic() + args.hold_seconds
         while time.monotonic() < deadline:
             if child and child.poll() is not None:
                 raise RuntimeError("namespace fault bridge exited")
@@ -192,6 +197,7 @@ def main():
             json.dumps(
                 {
                     "resumed_owned_pids": paused,
+                    "cleanup_monotonic_ns": time.monotonic_ns(),
                     "replacement_returncode": child.returncode if child else None,
                 }
             )

@@ -8,8 +8,10 @@ The external supervisor must separately inspect and pin the running instance.
 import hashlib
 import json
 import os
+import shutil
 import signal
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -129,7 +131,7 @@ def main():
         "--seed",
         "101201",
     ]
-    if fault in {
+    if settings.get("live_dual_supervision", False) or fault in {
         "sensor_stop",
         "clock_freeze",
         "tf_loss",
@@ -144,6 +146,8 @@ def main():
     )
     witness = None
     auxiliary = None
+    passive_daemon = None
+    passive_log = None
     witness_logs = []
     rclpy.init(args=["--ros-args", "-p", "use_sim_time:=true"])
     node = Node("rosclaw_source_capture")
@@ -168,6 +172,21 @@ def main():
         index = len(reviews)
         save(f"original-native-{index:03}.json", native)
         save(f"sealed-system-{index:03}.json", model.to_dict())
+        if settings.get("live_dual_supervision", False):
+            original = OUT / f"original-native-{index:03}.json"
+            pointer = OUT / "live-native-pointer.tmp"
+            pointer.write_text(
+                json.dumps(
+                    {
+                        "file": original.name,
+                        "sha256": hashlib.sha256(original.read_bytes()).hexdigest(),
+                        "captured_at": native["captured_at"],
+                        "received_monotonic_ns": time.monotonic_ns(),
+                    }
+                )
+                + "\n"
+            )
+            pointer.replace(OUT / "live-native-pointer.json")
         reviews.append({"index": index, "captured_at": native["captured_at"], "review": review})
         state.update(native=native, model=model, review=review)
 
@@ -247,12 +266,15 @@ def main():
                 "-p",
                 "observer_sources_sha256:=" + hashlib.sha256(path.read_bytes()).hexdigest(),
             ]
+        if settings.get("live_continuity_hold_seconds", 0):
+            args += ["-p", "max_contact_segments:=4"]
         if name == "renamed-source-witness":
             args += ["-r", "__node:=rosclaw_renamed_source_witness"]
         save(f"{name}-argv.json", args)
         return subprocess.Popen(args, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
 
     def spin_until(condition, seconds):
+        nonlocal passive_daemon
         deadline = time.monotonic() + seconds
         while not condition():
             if time.monotonic() >= deadline:
@@ -262,6 +284,38 @@ def main():
                 raise RuntimeError("owned source stack or witness exited unexpectedly")
             if auxiliary and auxiliary.poll() is not None:
                 raise RuntimeError("explicit endpoint-only fault process exited unexpectedly")
+            restart = OUT / "passive-daemon-restart-request.json"
+            if passive_daemon and restart.exists():
+                request = json.loads(restart.read_text())
+                ready = json.loads(
+                    (OUT / "supervision" / f"daemon-ready-{passive_daemon.pid}.json").read_text()
+                )
+                if (
+                    set(request) != {"run_id", "expected_pid", "expected_generation"}
+                    or request["run_id"] != settings["run_id"]
+                    or request["expected_pid"] != passive_daemon.pid
+                    or request["expected_generation"] != ready["daemon_instance_id"]
+                    or (OUT / "passive-daemon-restart-consumed.json").exists()
+                ):
+                    raise ValueError("one explicitly owned passive daemon replacement required")
+                restart.rename(OUT / "passive-daemon-restart-consumed.json")
+                previous = passive_daemon.pid
+                stop(passive_daemon)
+                save(
+                    "passive-daemon-original-generation-exit.json",
+                    {
+                        "pid": previous,
+                        "returncode": passive_daemon.returncode,
+                        "daemon_instance_id": ready["daemon_instance_id"],
+                    },
+                )
+                argv = json.loads((OUT / "passive-daemon-argv.json").read_text())
+                passive_daemon = subprocess.Popen(
+                    argv, stdout=passive_log, stderr=subprocess.STDOUT, start_new_session=True
+                )
+                save("passive-daemon-replacement-process.json", process_fact(passive_daemon.pid))
+            if passive_daemon and passive_daemon.poll() is not None:
+                raise RuntimeError("owned passive rosclawd exited unexpectedly")
             rclpy.spin_once(node, timeout_sec=0.05)
 
     try:
@@ -475,6 +529,37 @@ def main():
         if fault != "none":
             end = time.monotonic() + 3
             spin_until(lambda: time.monotonic() >= end, 5)
+        if settings.get("live_dual_supervision", False):
+            daemon_root = OUT / "supervision"
+            (daemon_root / "home").mkdir(parents=True)
+            shutil.copytree(compiled / "body", daemon_root / "home/body")
+            body_config = json.loads((compiled / "execution_config.json").read_text())
+            daemon_config = {
+                "schema_version": "rosclaw.passive_daemon_fixture.v1",
+                **body_config,
+                "executor_kind": "passive_observation",
+                "run_id": settings["run_id"],
+                "manifest_hash": manifest["manifest_hash"],
+            }
+            (daemon_root / "execution_config.json").write_text(
+                json.dumps(daemon_config, indent=2) + "\n"
+            )
+            daemon_argv = [
+                sys.executable,
+                str(ROOT / "daemon.py"),
+                "--directory",
+                str(daemon_root),
+                "--persistent-ledger",
+            ]
+            save("passive-daemon-argv.json", daemon_argv)
+            passive_log = (OUT / "passive-daemon-original.log").open("x")
+            passive_daemon = subprocess.Popen(
+                daemon_argv, stdout=passive_log, stderr=subprocess.STDOUT, start_new_session=True
+            )
+            spin_until(
+                lambda: (daemon_root / f"daemon-ready-{passive_daemon.pid}.json").exists(), 20
+            )
+            save("passive-daemon-process.json", process_fact(passive_daemon.pid))
         save("compiled-witness-liveness.json", {"alive": witness_alive})
         save("latest-native.json", state["native"])
         save("latest-system.json", state["model"].to_dict())
@@ -491,7 +576,10 @@ def main():
                 "native_samples": len(reviews),
             },
         )
-        spin_until(lambda: (OUT / "host_capture_ack.json").exists(), 20)
+        live_seconds = settings.get("live_continuity_hold_seconds", 0)
+        if type(live_seconds) is not int or not 0 <= live_seconds <= 120:
+            raise ValueError("bounded read-only continuity supervision window required")
+        spin_until(lambda: (OUT / "host_capture_ack.json").exists(), 20 + live_seconds)
         print(
             json.dumps(
                 {
@@ -503,6 +591,11 @@ def main():
             flush=True,
         )
     finally:
+        if passive_daemon:
+            stop(passive_daemon)
+            save("passive-daemon-exit.json", {"returncode": passive_daemon.returncode})
+        if passive_log:
+            passive_log.close()
         if auxiliary:
             stop(auxiliary)
             save("auxiliary-process-exit.json", {"returncode": auxiliary.returncode})
@@ -513,7 +606,7 @@ def main():
         for log in witness_logs:
             log.close()
         node.destroy_node()
-        rclpy.shutdown()
+        rclpy.try_shutdown()
 
 
 if __name__ == "__main__":

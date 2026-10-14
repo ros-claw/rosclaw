@@ -32,6 +32,7 @@ from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from ros_gz_interfaces.msg import Contacts
 from rosidl_runtime_py.convert import message_to_ordereddict
+from simulation_source_capture import BoundedSourceJsonlCapture
 from simulation_witness_sources import SimulationWitnessSources
 from std_msgs.msg import Bool, String
 from std_srvs.srv import SetBool
@@ -138,12 +139,13 @@ class Witness(Node):
         if not self.sources and len(self.wheel_topics) != 2:
             raise ValueError("fixture requires two independently observed wheel contact streams")
         self.contact_trace = (
-            Path(f"/evidence/contact-messages-{os.getpid()}.jsonl").open("x", buffering=1)  # noqa: SIM115 - node lifecycle closes evidence stream
+            BoundedSourceJsonlCapture(
+                Path(f"/evidence/contact-messages-{os.getpid()}.jsonl"),
+                max_segments=self.declare_parameter("max_contact_segments", 1).value,
+            )
             if self.sources
             else None
         )
-        self.contact_trace_bytes = 0
-        self.contact_trace_rows = 0
         self.contact_seen = {}
         self.contact_active = {}
         self.physics_collision_count = 0
@@ -447,14 +449,6 @@ class Witness(Node):
                 )
                 + "\n"
             )
-            self.contact_trace_bytes += len(raw.encode("utf-8"))
-            self.contact_trace_rows += 1
-            if (
-                self.contact_trace_bytes > 30_000_000
-                or self.contact_trace_rows > 20_000
-                or len(raw) > 500_000
-            ):
-                raise RuntimeError("bounded original contact capture exhausted")
             self.contact_trace.write(raw)
         touching = any(
             (
