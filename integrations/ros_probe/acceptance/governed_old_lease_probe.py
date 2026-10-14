@@ -1,6 +1,8 @@
-"""SDK-only negative lease probe, restricted to an already terminal SIM sink.
+"""SDK-only negative lease probe through the existing fixture rosbridge.
 
-No publisher, goal, Runtime or daemon is created. Never probes a healthy sink.
+No DDS participant, publisher, goal, Runtime or daemon is created. The socket
+is prepared passively; the only lease RPC is AFTER independently confirmed
+terminal stop. Never probes a healthy sink and never retries a lease request.
 """
 
 import argparse
@@ -10,11 +12,11 @@ import os
 import time
 from pathlib import Path
 
-import rclpy
-from rclpy.node import Node
-from simulation_current_facts import _read
+from simulation_current_facts import _read, read_current_native_pointer
 from simulation_witness_sources import SimulationWitnessSources
-from std_srvs.srv import SetBool
+
+from rosclaw.connectors.ros.transport.base import RosbridgeEndpoint
+from rosclaw.connectors.ros.transport.rosbridge import RosbridgeTransport
 
 
 def main():
@@ -37,16 +39,28 @@ def main():
     )
     if sources.run_id != policy["run_id"]:
         raise ValueError("original SIM run required")
-    rclpy.init(args=["--ros-args", "-p", "use_sim_time:=true"])
-    node = Node("rosclaw_fixture_old_lease_refusal")
+    pointer, _ = read_current_native_pointer(root)
+    native_raw = _read(root / pointer["file"], 10_000_000)
+    if hashlib.sha256(native_raw).hexdigest() != pointer["sha256"]:
+        raise ValueError("original Native bytes required")
+    native = json.loads(native_raw)
+    if [x for x in native["graph"]["services"] if x.get("name") == sources.topic("lease")] != [
+        {"name": sources.topic("lease"), "srv_type": "std_srvs/srv/SetBool"}
+    ]:
+        raise ValueError("actual original final-sink lease service declaration required")
+    transport = RosbridgeTransport(RosbridgeEndpoint.from_url("ws://127.0.0.1:9090"), max_retries=0)
     try:
-        client = node.create_client(SetBool, sources.topic("lease"))
-        # Passive DDS discovery is completed BEFORE the canonical action.
-        # Its fixture setup budget matches the original initializer, and
-        # changes no proof, lease, ROS-age or Body execution deadline.
         setup_started_ns = time.monotonic_ns()
-        if not client.wait_for_service(timeout_sec=8):
-            raise ValueError("actual sink lease service required")
+        connected = transport.connect()
+        if not connected.ok:
+            raise ValueError("owned existing SDK rosbridge unavailable: " + str(connected.error))
+        resources = {}
+        for directory in [Path("/sys/fs/cgroup"), Path("/sys/fs/cgroup/pids")]:
+            for name in ["pids.current", "pids.max", "pids.peak", "pids.events"]:
+                path = directory / name
+                if path.is_file():
+                    with path.open() as stream:
+                        resources[str(path)] = stream.read(256)
         with (root / "governed-old-lease-probe-ready-original.json").open("x") as f:
             json.dump(
                 {
@@ -57,6 +71,9 @@ def main():
                     "ROS_DOMAIN_ID": os.environ.get("ROS_DOMAIN_ID"),
                     "requests_sent": 0,
                     "velocity_publishers_created": 0,
+                    "DDS_participants_created": 0,
+                    "transport": "existing isolated SDK rosbridge",
+                    "resource_observation": resources,
                 },
                 f,
             )
@@ -66,7 +83,7 @@ def main():
         while not actor_path.exists():
             if time.monotonic_ns() >= deadline:
                 raise ValueError("actual injected fault and independent stop did not arrive")
-            rclpy.spin_once(node, timeout_sec=0.05)
+            time.sleep(0.01)
         actor = json.loads(_read(actor_path, 256_000))
         if (
             actor["status"] != "PASS_ACTUAL_DAEMON_SIGKILL_INDEPENDENT_STABLE_STOP_LOCAL"
@@ -83,13 +100,19 @@ def main():
             or before["body_snapshot_hash"] != policy["body_snapshot_hash"]
         ):
             raise ValueError("never probe a nonterminal or differently bound sink")
-        request = SetBool.Request()
-        request.data = True
         started = time.monotonic_ns()
-        future = client.call_async(request)
-        rclpy.spin_until_future_complete(node, future, timeout_sec=1)
-        if not future.done() or future.result().success is not False:
-            raise ValueError("old final-sink lease was not actually rejected")
+        response = transport.call_service(
+            sources.topic("lease"),
+            {"data": True},
+            service_type="std_srvs/srv/SetBool",
+            timeout_sec=1,
+        )
+        values = (response.data or {}).get("values", {})
+        if response.ok is not True or values.get("success") is not False:
+            raise ValueError(
+                "old lease was not actually rejected by a successful service exchange: "
+                + str(response.error)
+            )
         after = json.loads(
             _read(root / "governed-sink-status.json", 4096, allow_atomic_unlink=True)
         )
@@ -106,13 +129,15 @@ def main():
             "body_snapshot_hash": policy["body_snapshot_hash"],
             "service": sources.topic("lease"),
             "requested_enable": True,
-            "response_success": future.result().success,
-            "response_message": future.result().message,
+            "response_success": values["success"],
+            "response_message": values.get("message"),
+            "actual_original_service_exchange": response.data,
             "before_monotonic_ns": started,
             "after_monotonic_ns": time.monotonic_ns(),
             "sink_before": before,
             "sink_after": after,
             "velocity_publishers_created": 0,
+            "DDS_participants_created": 0,
             "goals_sent": 0,
         }
         with (root / "governed-old-lease-refusal-original.json").open("x") as f:
@@ -120,9 +145,7 @@ def main():
             f.write("\n")
         print(json.dumps({"status": result["status"]}), flush=True)
     finally:
-        node.destroy_node()
-        if rclpy.ok():
-            rclpy.shutdown()
+        transport.close()
 
 
 if __name__ == "__main__":
