@@ -22,10 +22,13 @@ class BoundedCurrentFactsMonitor:
         self._thread = None
         self._latest = None
         self.failed_reason = None
+        self.last_collection_started_ns = self.last_collection_completed_ns = None
 
     def _collect(self):
+        self.last_collection_started_ns = time.monotonic_ns()
         facts = self.facts.collect(freshness_horizon_ms=100)
         facts["daemon_status"] = self._daemon_observer()
+        self.last_collection_completed_ns = time.monotonic_ns()
         if time.monotonic_ns() >= facts["valid_until_monotonic_ns"]:
             raise ValueError("fresh observation expired during actual daemon check")
         return facts
@@ -65,7 +68,11 @@ class BoundedCurrentFactsMonitor:
                 <= now
                 < self._latest["valid_until_monotonic_ns"]
             ):
-                self.failed_reason = "CURRENT_OBSERVATION_WINDOW_EXPIRED_OR_CLOCK_INVALID"
+                self.failed_reason = (
+                    "CURRENT_OBSERVATION_WINDOW_EXPIRED_OR_CLOCK_INVALID"
+                    f" now={now} started={self.last_collection_started_ns}"
+                    f" completed={self.last_collection_completed_ns}"
+                )
                 self._latest = None
                 raise ValueError("SDK current monitor permanently latched: " + self.failed_reason)
             return copy.deepcopy(self._latest)
