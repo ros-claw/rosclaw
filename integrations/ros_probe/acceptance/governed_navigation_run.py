@@ -16,7 +16,10 @@ import sys
 import time
 from pathlib import Path
 
-from simulation_execution_fault_policy import parse_governed_motion_fault_policy
+from simulation_execution_fault_policy import (
+    MOTION_FAULT_JOURNEY_STATUS,
+    parse_governed_motion_fault_policy,
+)
 from simulation_source_capture import BoundedSourceJsonlCapture
 
 from rosclaw.daemon.client import DaemonClient
@@ -385,7 +388,11 @@ async def main():
                             actor.kill()
                             actor_code = actor.wait(timeout=2)
                     missing = not (evidence / "governed-action-0-receipt-original.json").exists()
-                    if fault_policy["case"] in {"emergency_stop", "lease_loss"} and actor_code == 0:
+                    if (
+                        fault_policy["case"]
+                        in {"emergency_stop", "lease_loss", "lidar_stream_lost"}
+                        and actor_code == 0
+                    ):
                         try:
                             drained = client.get_execution_receipt(policy["goals"][0]["action_id"])
                             (
@@ -471,6 +478,21 @@ async def main():
                                 and "ACTION_LEASE_EXPIRED" in json.dumps(fault_receipt)
                                 and emergency_stop_result is None
                             )
+                        elif fault_policy["case"] == "lidar_stream_lost":
+                            actor_result = json.loads(
+                                (
+                                    evidence / "governed-fault-actor-outcome-original.json"
+                                ).read_text()
+                            )
+                            effect = actor_result["fault_effect"]
+                            fault_checks["original_lidar_stream_loss_observed"] = (
+                                effect["original_lidar_signal_before_resume"]["last_message_age_ms"]
+                                > 500
+                                and effect["actual_owned_scan_bridge_pause"]["label"]
+                                == "scan_bridge"
+                                and emergency_stop_result is None
+                                and not lease_renewal_stopped
+                            )
                     else:
                         fault_checks = {
                             "actor_returncode": actor_code,
@@ -534,6 +556,8 @@ async def main():
                 fault_checks.get("canonical_emergency_stop_latched")
                 if fault_policy["case"] == "emergency_stop"
                 else fault_checks.get("canonical_action_lease_expired")
+                if fault_policy["case"] == "lease_loss"
+                else fault_checks.get("original_lidar_stream_loss_observed")
             )
             and not fault_checks.get("terminal_receipt_missing")
             and isinstance(fault_receipt, dict)
@@ -558,11 +582,7 @@ async def main():
     }
     if fault_policy:
         outcome["status"] = (
-            "PASS_EXPECTED_DAEMON_SIGKILL_SAFE_STOP_AND_OLD_REQUEST_REFUSAL_LOCAL"
-            if fault_pass and fault_policy["case"] == "daemon_sigkill"
-            else "PASS_CANONICAL_MCP_ESTOP_SAFE_STOP_AND_OLD_REQUEST_REFUSAL_LOCAL"
-            if fault_pass and fault_policy["case"] == "emergency_stop"
-            else "PASS_CANONICAL_ACTION_LEASE_EXPIRY_SAFE_STOP_AND_OLD_REQUEST_REFUSAL_LOCAL"
+            MOTION_FAULT_JOURNEY_STATUS[fault_policy["case"]]
             if fault_pass
             else "FAILED_ORIGINAL_EXECUTION_FAULT_ACCEPTANCE"
         )

@@ -4,6 +4,20 @@ import hashlib
 import json
 import re
 
+MOTION_FAULT_ACTOR_STATUS = {
+    "daemon_sigkill": "PASS_ACTUAL_DAEMON_SIGKILL_INDEPENDENT_STABLE_STOP_LOCAL",
+    "emergency_stop": "PASS_ACTUAL_CANONICAL_ESTOP_INDEPENDENT_STABLE_STOP_LOCAL",
+    "lease_loss": "PASS_CANONICAL_ACTION_LEASE_LOSS_INDEPENDENT_STABLE_STOP_LOCAL",
+    "lidar_stream_lost": "PASS_ACTUAL_LIDAR_STREAM_LOSS_INDEPENDENT_STABLE_STOP_LOCAL",
+}
+
+MOTION_FAULT_JOURNEY_STATUS = {
+    "daemon_sigkill": "PASS_EXPECTED_DAEMON_SIGKILL_SAFE_STOP_AND_OLD_REQUEST_REFUSAL_LOCAL",
+    "emergency_stop": "PASS_CANONICAL_MCP_ESTOP_SAFE_STOP_AND_OLD_REQUEST_REFUSAL_LOCAL",
+    "lease_loss": "PASS_CANONICAL_ACTION_LEASE_EXPIRY_SAFE_STOP_AND_OLD_REQUEST_REFUSAL_LOCAL",
+    "lidar_stream_lost": "PASS_LIDAR_STREAM_LOSS_SAFE_STOP_AND_OLD_REQUEST_REFUSAL_LOCAL",
+}
+
 
 def _closed_object(pairs):
     result = {}
@@ -39,7 +53,7 @@ def parse_governed_motion_fault_policy(
         type(policy) is not dict
         or set(policy) != {"schema_version", "case", "phase", *pins}
         or policy["schema_version"] != "rosclaw.governed_sim_fault.v1"
-        or policy["case"] not in {"daemon_sigkill", "emergency_stop", "lease_loss"}
+        or policy["case"] not in MOTION_FAULT_ACTOR_STATUS
         or policy["phase"] != "during_motion"
         or any(policy[k] != v for k, v in pins.items())
     ):

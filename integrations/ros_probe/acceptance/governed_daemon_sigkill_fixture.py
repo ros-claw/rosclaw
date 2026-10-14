@@ -14,8 +14,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from simulation_completed_artifact import publish_completed_fault_outcome
-from simulation_current_facts import _read
-from simulation_execution_fault_policy import parse_governed_motion_fault_policy
+from simulation_current_facts import _read, read_current_native_pointer
+from simulation_execution_fault_policy import (
+    MOTION_FAULT_ACTOR_STATUS,
+    parse_governed_motion_fault_policy,
+)
+from simulation_owned_process_fault import pause_owned_process, resume_owned_process
 
 from rosclaw.body.resolver import BodyResolver
 from rosclaw.connectors.ros.mission.navigation_binding import SimulationNavigationBinding
@@ -141,6 +145,8 @@ def main():
     with (root / "governed-fault-injection-original.json").open("x") as f:
         json.dump(injection, f, indent=2)
         f.write("\n")
+    paused = None
+    fault_effect = {}
     if policy["case"] == "daemon_sigkill":
         os.kill(args.daemon_pid, signal.SIGKILL)
     elif policy["case"] == "emergency_stop":
@@ -154,10 +160,14 @@ def main():
                     "canonical MCP E-stop was not observed after actual motion trigger"
                 )
             time.sleep(0.01)
-    else:
+    elif policy["case"] == "lease_loss":
         with (root / "governed-lease-loss-trigger-original.json").open("x") as f:
             json.dump({"policy_sha256": args.policy_sha256, "injection": injection}, f)
             f.write("\n")
+    elif policy["case"] == "lidar_stream_lost":
+        paused = pause_owned_process(root, "scan_bridge")
+        fault_effect["actual_owned_scan_bridge_pause"] = paused
+        fault_effect["pause_completed_monotonic_ns"] = time.monotonic_ns()
     samples = []
     stable_since = None
     last_stamp = None
@@ -187,13 +197,25 @@ def main():
     terminal = json.loads(_read(root / "governed-sink-terminal.json", 16384))
     if not terminal["status"]["terminal"] or terminal["status"]["lease_expires_ns"] != 0:
         raise ValueError("terminal final sink stop required")
+    if paused is not None:
+        pointer, _ = read_current_native_pointer(root)
+        native_raw = _read(root / pointer["file"], 10_000_000)
+        if hashlib.sha256(native_raw).hexdigest() != pointer["sha256"]:
+            raise ValueError("original post-loss Native bytes changed")
+        topic = json.loads(_read(Path("/assets/requirements.json"), 32_000))["interface_names"][
+            "sensing.lidar"
+        ]
+        signals = [x for x in json.loads(native_raw)["signals"] if x["topic"] == topic]
+        if len(signals) != 1 or signals[0]["last_message_age_ms"] <= 500:
+            raise ValueError("actual original lidar stream loss was not observed")
+        fault_effect["native_pointer_before_resume"] = pointer
+        fault_effect["original_lidar_signal_before_resume"] = signals[0]
+        fault_effect["resume_after_independent_terminal_stop"] = resume_owned_process(paused)
+        fault_effect["resume_monotonic_ns"] = time.monotonic_ns()
     outcome = {
-        "status": "PASS_ACTUAL_DAEMON_SIGKILL_INDEPENDENT_STABLE_STOP_LOCAL"
-        if policy["case"] == "daemon_sigkill"
-        else "PASS_ACTUAL_CANONICAL_ESTOP_INDEPENDENT_STABLE_STOP_LOCAL"
-        if policy["case"] == "emergency_stop"
-        else "PASS_CANONICAL_ACTION_LEASE_LOSS_INDEPENDENT_STABLE_STOP_LOCAL",
+        "status": MOTION_FAULT_ACTOR_STATUS[policy["case"]],
         "case": policy["case"],
+        "fault_effect": fault_effect,
         "policy_sha256": args.policy_sha256,
         "injection": injection,
         "after_monotonic_ns": time.monotonic_ns(),

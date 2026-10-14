@@ -14,6 +14,7 @@ from pathlib import Path
 
 from simulation_completed_artifact import read_completed_fault_outcome
 from simulation_current_facts import _read, read_current_native_pointer
+from simulation_execution_fault_policy import MOTION_FAULT_ACTOR_STATUS
 from simulation_witness_sources import SimulationWitnessSources
 
 from rosclaw.connectors.ros.transport.base import RosbridgeEndpoint
@@ -87,15 +88,11 @@ def main():
             time.sleep(0.01)
         actor = read_completed_fault_outcome(root, expected_policy_sha256=args.policy_sha256)
         if (
-            actor["status"]
-            != (
-                "PASS_ACTUAL_DAEMON_SIGKILL_INDEPENDENT_STABLE_STOP_LOCAL"
-                if policy["case"] == "daemon_sigkill"
-                else "PASS_ACTUAL_CANONICAL_ESTOP_INDEPENDENT_STABLE_STOP_LOCAL"
-                if policy["case"] == "emergency_stop"
-                else "PASS_CANONICAL_ACTION_LEASE_LOSS_INDEPENDENT_STABLE_STOP_LOCAL"
-            )
+            actor["status"] != MOTION_FAULT_ACTOR_STATUS[policy["case"]]
             or actor["policy_sha256"] != args.policy_sha256
+            or actor["case"] != policy["case"]
+            or actor["run_id"] != policy["run_id"]
+            or actor["body_snapshot_hash"] != policy["body_snapshot_hash"]
         ):
             raise ValueError("actual injected fault and independent stop required first")
         before = json.loads(
