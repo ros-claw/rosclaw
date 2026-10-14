@@ -6,6 +6,7 @@ must independently enroll the same operator context and recompute local facts.
 """
 
 import hashlib
+import hmac
 import json
 import math
 import os
@@ -19,9 +20,11 @@ from simulation_current_facts import CurrentSimulationFacts
 from simulation_execution_proof import (
     MAX_PROOF_LIFETIME_NS,
     ExecutionProofPins,
+    _canonical,
     sign_execution_proof,
 )
 from simulation_lease_observation import ExternalSimulationLeaseObservation
+from simulation_sink_admission import verify_p03_prerequisite
 
 from rosclaw.connectors.ros.mission.navigation_supervision import NavigationExecutionSupervision
 
@@ -106,9 +109,13 @@ class SdkNavigationExecutionSupervision(NavigationExecutionSupervision):
         proof_file,
         audit_file,
         lease_observation,
+        p03_review_raw,
+        p03_review_sha256,
         allowed_action_ids,
     ):
         super().__init__(binding)
+        self.p03_merge = verify_p03_prerequisite(p03_review_raw, expected_sha256=p03_review_sha256)
+        self.p03_sha256 = p03_review_sha256
         if (
             not isinstance(facts, CurrentSimulationFacts)
             or not isinstance(lease_observation, ExternalSimulationLeaseObservation)
@@ -167,6 +174,7 @@ class SdkNavigationExecutionSupervision(NavigationExecutionSupervision):
         self._action_id = None
         self._deadline = 0
         self._sequence = 0
+        self._admission_expires_ns = 0
         self.failed_reason = None
 
     def begin(self, action_id, *, duration_sec):
@@ -244,6 +252,38 @@ class SdkNavigationExecutionSupervision(NavigationExecutionSupervision):
         now = time.monotonic_ns()
         if not 0 <= now - started <= 250_000_000 or now >= self._deadline:
             raise ValueError("SDK proof production exceeded current execution window")
+        if self._admission_expires_ns == 0:
+            context = {
+                **self._pins,
+                "schema_version": "rosclaw.governed_sim_sink_admission.v1",
+                "daemon_pid": os.getpid(),
+                "daemon_uid": os.geteuid(),
+                "allowed_action_ids": list(self._allowed),
+                "facts_enrollment_sha256": self.facts.enrollment_sha256,
+                "P03_review_sha256": self.p03_sha256,
+                "P03_merge_commit": self.p03_merge,
+                "issued_ns": now,
+                "expires_ns": now + 120_000_000_000,
+            }
+            raw_context = _canonical(
+                {
+                    "payload": context,
+                    "hmac_sha256": hmac.new(
+                        self._key, _canonical(context), hashlib.sha256
+                    ).hexdigest(),
+                }
+            )
+            self._record(
+                {
+                    "event": "SDK_OPERATOR_CONTEXT_PREPARED",
+                    "context": json.loads(raw_context),
+                    "monotonic_ns": now,
+                }
+            )
+            self._write_private("admission.json", raw_context)
+            self._admission_expires_ns = context["expires_ns"]
+        if now >= self._admission_expires_ns:
+            raise ValueError("operator SDK context expired; no automatic readmission")
         self._sequence += 1
         payload = {
             **self._pins,
@@ -279,7 +319,22 @@ class SdkNavigationExecutionSupervision(NavigationExecutionSupervision):
                 "monotonic_ns": time.monotonic_ns(),
             }
         )
-        temporary = self.proof_file.name + ".tmp"
+        self._write_private(self.proof_file.name, raw)
+        if time.monotonic_ns() >= payload["expires_ns"]:
+            raise ValueError("supervision proof expired before durable publication")
+        self._record(
+            {
+                "event": "PROOF_PUBLISHED",
+                "sequence": self._sequence,
+                "proof_sha256": hashlib.sha256(raw).hexdigest(),
+                "monotonic_ns": time.monotonic_ns(),
+            }
+        )
+        if time.monotonic_ns() >= payload["expires_ns"]:
+            raise ValueError("supervision proof expired during original audit persistence")
+
+    def _write_private(self, name, raw):
+        temporary = name + ".tmp"
         fd = os.open(
             temporary,
             os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
@@ -293,7 +348,7 @@ class SdkNavigationExecutionSupervision(NavigationExecutionSupervision):
                 os.fsync(stream.fileno())
             os.replace(
                 temporary,
-                self.proof_file.name,
+                name,
                 src_dir_fd=self._directory_fd,
                 dst_dir_fd=self._directory_fd,
             )
@@ -301,19 +356,6 @@ class SdkNavigationExecutionSupervision(NavigationExecutionSupervision):
         finally:
             with suppress(FileNotFoundError):
                 os.unlink(temporary, dir_fd=self._directory_fd)
-        if time.monotonic_ns() >= payload["expires_ns"]:
-            raise ValueError("supervision proof expired before durable publication")
-
-        self._record(
-            {
-                "event": "PROOF_PUBLISHED",
-                "sequence": self._sequence,
-                "proof_sha256": hashlib.sha256(raw).hexdigest(),
-                "monotonic_ns": time.monotonic_ns(),
-            }
-        )
-        if time.monotonic_ns() >= payload["expires_ns"]:
-            raise ValueError("supervision proof expired during original audit persistence")
 
     def _record(self, row):
         raw = json.dumps(row, allow_nan=False) + "\n"

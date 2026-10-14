@@ -580,3 +580,78 @@ def test_actual_daemon_refuses_invalid_navigation_configuration_before_runtime(t
     assert (
         not (tmp_path / "memory.sqlite").exists() and not (tmp_path / "run/rosclawd.sock").exists()
     )
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "no_ledger",
+        "missing_policy",
+        "extra_field",
+        "wrong_schema",
+        "duplicate_actions",
+        "too_many_actions",
+    ],
+)
+def test_governed_role_cannot_start_runtime_without_closed_operator_policy(fault):
+    import json
+    import os
+    import subprocess
+    import sys
+    import tempfile
+    from pathlib import Path
+
+    body = compiled_body()
+    with tempfile.TemporaryDirectory(prefix="reh-governed-contract-") as directory:
+        root = Path(directory)
+        refs = root / "home/body/refs"
+        refs.mkdir(parents=True)
+        (refs / "effective_body.json").write_text(json.dumps(body.to_dict()))
+        (refs.parent / "body.yaml").write_text("body_instance:\n  id: mobile\n")
+        config = {
+            "schema_version": "rosclaw.governed_navigation_fixture.v1",
+            "executor_kind": "governed_navigation",
+            "body_id": body.body_instance_id,
+            "body_snapshot_hash": body.effective_body_hash,
+            "supervision": {
+                "schema_version": "rosclaw.governed_navigation_supervision.v1",
+                "facts_enrollment_sha256": "a" * 64,
+                "P03_review_sha256": "b" * 64,
+                "allowed_action_ids": ["position", "yaw"],
+            },
+        }
+        if fault == "missing_policy":
+            config.pop("supervision")
+        elif fault == "extra_field":
+            config["approved"] = True
+        elif fault == "wrong_schema":
+            config["supervision"]["schema_version"] = "unknown"
+        elif fault == "duplicate_actions":
+            config["supervision"]["allowed_action_ids"] = ["position", "position"]
+        elif fault == "too_many_actions":
+            config["supervision"]["allowed_action_ids"] = ["position", "yaw", "extra"]
+        (root / "execution_config.json").write_text(json.dumps(config))
+        repository = Path(__file__).resolve().parents[3]
+        argv = [
+            sys.executable,
+            str(repository / "integrations/ros_probe/acceptance/daemon.py"),
+            "--directory",
+            str(root),
+        ]
+        if fault != "no_ledger":
+            argv.append("--persistent-ledger")
+        result = subprocess.run(
+            argv,
+            cwd=repository,
+            env={
+                **os.environ,
+                "PYTHONPATH": str(repository / "src"),
+                "ROSCLAW_HOME": str(root / "home"),
+            },
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        assert result.returncode == 1 and "ValueError" in result.stderr
+        assert "Initializing ROSClaw Runtime" not in result.stderr
+        assert not (root / "memory.sqlite").exists() and not (root / "run/rosclawd.sock").exists()

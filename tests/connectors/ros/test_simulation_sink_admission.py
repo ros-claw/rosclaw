@@ -14,12 +14,7 @@ from rosclaw.connectors.ros.mission.navigation_binding import SimulationNavigati
 from tests.connectors.ros.test_navigation_only_executor import compiled_body
 
 
-@pytest.fixture
-def context(monkeypatch):
-    monkeypatch.syspath_prepend(
-        str(Path(__file__).resolve().parents[3] / "integrations/ros_probe/acceptance")
-    )
-    m = importlib.import_module("simulation_sink_admission")
+def synthetic_p03_review():
     names = ["CI/CD", "First Boot Acceptance", "Data Flywheel Gate"]
     p03 = {
         "status": "PASS_P03_NORMAL_INTEGRATION_CURRENT_ROS_SOURCE_DAEMON_BINDING_NOT_L2",
@@ -44,6 +39,16 @@ def context(monkeypatch):
             "daemon_generation_binding": "PASS",
         },
     }
+    return p03
+
+
+@pytest.fixture
+def context(monkeypatch):
+    monkeypatch.syspath_prepend(
+        str(Path(__file__).resolve().parents[3] / "integrations/ros_probe/acceptance")
+    )
+    m = importlib.import_module("simulation_sink_admission")
+    p03 = synthetic_p03_review()
     p03_raw = json.dumps(p03).encode()
     digest = hashlib.sha256(p03_raw).hexdigest()
     binding = SimulationNavigationBinding.from_body(compiled_body())

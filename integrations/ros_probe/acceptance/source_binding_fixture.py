@@ -153,14 +153,19 @@ def main():
         if type(period) not in (int, float) or not 0.1 <= period <= 1.0:
             raise ValueError("explicit read-only probe cadence must be 0.1..1.0 seconds")
         argv.extend(["--probe-snapshot-period-sec", str(period)])
-    if settings.get("live_dual_supervision", False) or fault in {
-        "sensor_stop",
-        "clock_freeze",
-        "tf_loss",
-        "nav2_inactive",
-        "qos_mismatch",
-        "namespace_mismatch",
-    }:
+    if (
+        settings.get("live_dual_supervision", False)
+        or governed is not None
+        or fault
+        in {
+            "sensor_stop",
+            "clock_freeze",
+            "tf_loss",
+            "nav2_inactive",
+            "qos_mismatch",
+            "namespace_mismatch",
+        }
+    ):
         argv.append("--readiness-fault-fixture")
     save("stack-argv.json", argv)
     stack = subprocess.Popen(
@@ -196,7 +201,9 @@ def main():
         index = len(reviews)
         save(f"original-native-{index:03}.json", native)
         save(f"sealed-system-{index:03}.json", model.to_dict())
-        if settings.get("live_dual_supervision", False):
+        if settings.get("live_dual_supervision", False) or settings.get(
+            "live_current_facts", False
+        ):
             original = OUT / f"original-native-{index:03}.json"
             pointer = OUT / "live-native-pointer.tmp"
             pointer.write_text(

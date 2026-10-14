@@ -45,10 +45,11 @@ def main():
         return
     from rosclaw.practice.recorder import PracticeRecorder
 
-    if kind not in {"coverage", "navigation_only"}:
+    if kind not in {"coverage", "navigation_only", "governed_navigation"}:
         raise ValueError("unsupported simulation executor kind")
     navigation_binding = None
-    if kind == "navigation_only":
+    governed_facts = governed_context = p03_raw = None
+    if kind in {"navigation_only", "governed_navigation"}:
         resolver = BodyResolver(workspace=root / "home", body_id=config["body_id"])
         if not resolver.effective_body_path.is_file():
             raise ValueError("navigation-only executor requires an already compiled Body")
@@ -62,6 +63,56 @@ def main():
             )
         if len(os.fsencode(root / "run/rosclawd.sock")) >= 104:
             raise ValueError("use a shorter isolated directory for the rosclawd Unix socket")
+        if kind == "governed_navigation":
+            from simulation_current_facts import CurrentSimulationFacts, _read
+            from simulation_sink_admission import verify_p03_prerequisite
+
+            if (
+                set(config)
+                != {
+                    "schema_version",
+                    "executor_kind",
+                    "body_id",
+                    "body_snapshot_hash",
+                    "supervision",
+                }
+                or config["schema_version"] != "rosclaw.governed_navigation_fixture.v1"
+                or not args.persistent_ledger
+                or type(config["supervision"]) is not dict
+                or set(config["supervision"])
+                != {
+                    "schema_version",
+                    "facts_enrollment_sha256",
+                    "P03_review_sha256",
+                    "allowed_action_ids",
+                }
+                or config["supervision"]["schema_version"]
+                != "rosclaw.governed_navigation_supervision.v1"
+            ):
+                raise ValueError("closed governed SIM role and persistent control ledger required")
+            governed_context = config["supervision"]
+            actions = governed_context["allowed_action_ids"]
+            if (
+                type(actions) is not list
+                or not 1 <= len(actions) <= 2
+                or any(type(x) is not str for x in actions)
+                or len(set(actions)) != len(actions)
+            ):
+                raise ValueError("one or two unique operator-scoped action IDs required")
+            p03_raw = _read(Path("/evidence/P03-accepted-review.json"), 128_000)
+            verify_p03_prerequisite(p03_raw, expected_sha256=governed_context["P03_review_sha256"])
+            governed_facts = CurrentSimulationFacts(
+                Path("/evidence"),
+                assets_directory=Path("/assets"),
+                enrollment_sha256=governed_context["facts_enrollment_sha256"],
+            )
+            if (
+                governed_facts.enrollment["request"]["body_snapshot_hash"]
+                != navigation_binding.body_snapshot_hash
+                or governed_facts.enrollment["request"]["sim_run_id"] != navigation_binding.run_id
+            ):
+                governed_facts.close()
+                raise ValueError("governed daemon differs from enrolled actual Body/run")
     runtime = Runtime(
         RuntimeConfig(
             robot_id=config["body_id"],
@@ -169,8 +220,54 @@ def main():
         )
     state = root / "state" / ("persistent" if args.persistent_ledger else uuid.uuid4().hex)
     ledger = DaemonLedger(state / "control.sqlite") if args.persistent_ledger else None
+    service = DaemonControlPlane(runtime=runtime, state_dir=state, ledger=ledger)
+    supervision = None
+    if kind == "governed_navigation":
+        from simulation_current_facts import _read
+        from simulation_execution_proof import ExecutionProofPins
+        from simulation_lease_observation import ExternalSimulationLeaseObservation
+        from simulation_navigation_supervision import SdkNavigationExecutionSupervision
+
+        control = Path("/evidence/execution-control")
+        key_info = (control / "fixture.key").stat(follow_symlinks=False)
+        if key_info.st_uid != os.getuid() or key_info.st_mode & 0o077:
+            raise ValueError("private operator SDK context key required")
+        peer = PeerCredentials(os.getpid(), os.getuid(), os.getgid())
+        instance = service.get_runtime_status(peer)["daemon_instance_id"]
+        # Enrollment occurs before the socket starts serving any action. The
+        # SDK operator policy is closed; action arguments cannot replace it.
+        for action_id in governed_context["allowed_action_ids"]:
+            ExecutionProofPins(
+                body_id=navigation_binding.body_id,
+                body_snapshot_hash=navigation_binding.body_snapshot_hash,
+                manifest_hash=governed_facts.enrollment["request"]["manifest_hash"],
+                run_id=navigation_binding.run_id,
+                world_sha256=governed_facts.enrollment["world_sha256"],
+                observer_epoch=governed_facts.enrollment["source_pins"]["observer_epoch"],
+                daemon_instance_id=instance,
+                action_id=action_id,
+            )
+        supervision = SdkNavigationExecutionSupervision(
+            binding=navigation_binding,
+            facts=governed_facts,
+            daemon_instance_id=instance,
+            daemon_status=lambda: service.get_runtime_status(peer),
+            key=_read(control / "fixture.key", 32),
+            proof_file=control / "proof.json",
+            audit_file=Path("/evidence") / f"daemon-supervision-{instance}-original.jsonl",
+            lease_observation=ExternalSimulationLeaseObservation(
+                Path("/evidence"),
+                filename="governed-sink-status.json",
+                run_id=navigation_binding.run_id,
+                body_snapshot_hash=navigation_binding.body_snapshot_hash,
+            ),
+            p03_review_raw=p03_raw,
+            p03_review_sha256=governed_context["P03_review_sha256"],
+            allowed_action_ids=tuple(governed_context["allowed_action_ids"]),
+        )
+        executor.navigation_supervision = supervision
     daemon = RosclawDaemon(
-        service=DaemonControlPlane(runtime=runtime, state_dir=state, ledger=ledger),
+        service=service,
         socket_path=root / "run/rosclawd.sock",
     )
     stopped = threading.Event()
@@ -178,13 +275,26 @@ def main():
         signal.signal(sig, lambda *_: stopped.set())
     try:
         daemon.start()
-        (root / "daemon_ready.json").write_text(
-            json.dumps({"pid": __import__("os").getpid(), "body_id": config["body_id"]})
-        )
+        ready = {"pid": os.getpid(), "body_id": config["body_id"]}
+        if kind == "governed_navigation":
+            ready.update(
+                schema_version="rosclaw.governed_daemon_ready.v1",
+                body_snapshot_hash=navigation_binding.body_snapshot_hash,
+                run_id=navigation_binding.run_id,
+                daemon_instance_id=instance,
+                manifest_hash=governed_facts.enrollment["request"]["manifest_hash"],
+                uid=os.getuid(),
+                execution_config_sha256=hashlib.sha256(
+                    (root / "execution_config.json").read_bytes()
+                ).hexdigest(),
+            )
+        (root / "daemon_ready.json").write_text(json.dumps(ready))
         stopped.wait()
     finally:
         executor.emergency_stop()
         daemon.stop()
+        if supervision is not None:
+            supervision.close()
         witness.close()
         client.close()
         transports[2].close()
@@ -328,6 +438,14 @@ def freeze_audit_source(root, config):
                 "experiments.py",
                 "paired_efficiency.py",
                 "cleaning_acceptance.py",
+                "simulation_current_facts.py",
+                "simulation_execution_proof.py",
+                "simulation_navigation_supervision.py",
+                "simulation_governed_sink.py",
+                "simulation_sink_admission.py",
+                "simulation_lease_observation.py",
+                "simulation_source_stream.py",
+                "simulation_source_continuity.py",
             ]
         ],
         root / "nav2.yaml",
@@ -352,8 +470,18 @@ def freeze_audit_source(root, config):
         "source_hashes": hashes,
         "map_hash": hashes.get(str(root / "measured_map.json")),
         "geometry_hash": hashes.get(str(root / "robot.urdf")),
-        "planner_revision": "65a6598c3587cb947978227c01af421e18576f0a",
+        "planner_revision": None
+        if config.get("executor_kind") == "governed_navigation"
+        else "65a6598c3587cb947978227c01af421e18576f0a",
     }
+    if config.get("executor_kind") == "governed_navigation":
+        import xml.etree.ElementTree as ET
+
+        package = Path("/opt/ros/jazzy/share/nav2_planner/package.xml")
+        metadata["navigation_adapter_revision"] = commit
+        metadata["planner_package_version"] = (
+            ET.parse(package).getroot().findtext("version") if package.is_file() else None
+        )
     (root / "source-freeze.json").write_text(json.dumps(metadata, indent=2) + "\n")
     # Keep high-rate events compact; reference the immutable source manifest.
     return {k: v for k, v in metadata.items() if k != "source_hashes"}

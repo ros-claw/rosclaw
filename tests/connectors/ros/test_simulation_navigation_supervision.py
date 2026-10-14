@@ -1,6 +1,8 @@
 """Synthetic SDK daemon supervision producer contracts, never motion proof."""
 
+import hashlib
 import importlib
+import json
 import os
 import time
 from pathlib import Path
@@ -10,6 +12,7 @@ import pytest
 
 from rosclaw.connectors.ros.mission.navigation_binding import SimulationNavigationBinding
 from tests.connectors.ros.test_navigation_only_executor import compiled_body
+from tests.connectors.ros.test_simulation_sink_admission import synthetic_p03_review
 
 
 def healthy_status(body_id="mobile"):
@@ -93,6 +96,7 @@ def producer(module, tmp_path):
                 "world_sha256": "c" * 64,
                 "source_pins": {"observer_epoch": "d" * 32},
             }
+            self.enrollment_sha256 = "f" * 64
             self.capacity = True
             self.reader = SimpleNamespace(capacity_covers=lambda **_: self.capacity)
 
@@ -118,6 +122,7 @@ def producer(module, tmp_path):
         def read(self):
             return {"known": True, "lease_enabled": False, "status": {"terminal": self.terminal}}
 
+    p03_raw = json.dumps(synthetic_p03_review()).encode()
     guard = module.SdkNavigationExecutionSupervision(
         binding=binding,
         facts=facts,
@@ -127,6 +132,8 @@ def producer(module, tmp_path):
         proof_file=private / "proof.json",
         audit_file=tmp_path / "daemon-supervision-original.jsonl",
         lease_observation=SyntheticLeaseObservation(),
+        p03_review_raw=p03_raw,
+        p03_review_sha256=hashlib.sha256(p03_raw).hexdigest(),
         allowed_action_ids=("synthetic-position", "synthetic-yaw"),
     )
     try:
