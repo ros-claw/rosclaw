@@ -131,3 +131,20 @@ def test_stalled_cursor_cannot_hide_expired_observation(fixture, monkeypatch):
     monkeypatch.setattr(module.time, "sleep", advance)
     with pytest.raises(ValueError, match="window expired"):
         monitor.get_at_least_source(25)
+
+
+def test_atomic_replacement_race_reopens_latest_but_never_returns_expired_snapshot(
+    fixture, monkeypatch
+):
+    monitor, _, clock, original, _ = fixture
+    expired = json.dumps(original).encode()
+    clock[0] += 100_000_000
+    original["facts"]["health_review_ns"] = clock[0]
+    original["facts"]["valid_until_monotonic_ns"] = clock[0] + 100_000_000
+    fresh = json.dumps(original).encode()
+    reads = iter([expired, fresh])
+    module = importlib.import_module("simulation_current_process")
+    monkeypatch.setattr(module, "_read", lambda *args: next(reads))
+    result = monitor.get()
+    assert result["health_review_ns"] == clock[0]
+    assert monitor.failed_reason is None

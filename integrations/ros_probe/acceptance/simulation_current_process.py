@@ -78,29 +78,36 @@ class SdkCurrentFactsProcess:
         try:
             if self.process is None or self.process.poll() is not None:
                 raise ValueError("independent observation process exited")
-            result = json.loads(_read(self.path, 64_000))
-            if (
-                set(result) != {"schema_version", "pid", "terminal", "reason", "facts"}
-                or result["schema_version"] != "rosclaw.sdk_current_monitor.v1"
-                or type(result["pid"]) is not int
-                or result["pid"] != self.process.pid
-                or result["terminal"] is not False
-                or result["reason"] is not None
-            ):
-                raise ValueError(
-                    "independent observation terminal or identity changed: "
-                    + str(result.get("reason"))
-                )
-            facts = result["facts"]
-            now = time.monotonic_ns()
-            if (
-                type(facts["health_review_ns"]) is not int
-                or type(facts["valid_until_monotonic_ns"]) is not int
-                or not facts["health_review_ns"] <= now < facts["valid_until_monotonic_ns"]
-                or now - facts["health_review_ns"] > 500_000_000
-            ):
-                raise ValueError("independent observation window expired or clock invalid")
-            return facts
+            for attempt in range(2):
+                result = json.loads(_read(self.path, 64_000))
+                if (
+                    set(result) != {"schema_version", "pid", "terminal", "reason", "facts"}
+                    or result["schema_version"] != "rosclaw.sdk_current_monitor.v1"
+                    or type(result["pid"]) is not int
+                    or result["pid"] != self.process.pid
+                    or result["terminal"] is not False
+                    or result["reason"] is not None
+                ):
+                    raise ValueError(
+                        "independent observation terminal or identity changed: "
+                        + str(result.get("reason"))
+                    )
+                facts = result["facts"]
+                now = time.monotonic_ns()
+                if (
+                    type(facts["health_review_ns"]) is not int
+                    or type(facts["valid_until_monotonic_ns"]) is not int
+                    or not facts["health_review_ns"] <= now < facts["valid_until_monotonic_ns"]
+                    or now - facts["health_review_ns"] > 500_000_000
+                ):
+                    if attempt == 0 and now >= facts["valid_until_monotonic_ns"]:
+                        # The worker atomically replaces this file. A reader can
+                        # hold the old inode across scheduling while a newer
+                        # valid observation is already published. Reopen ONCE;
+                        # never return the expired snapshot or wait out loss.
+                        continue
+                    raise ValueError("independent observation window expired or clock invalid")
+                return facts
         except (OSError, ValueError, TypeError, KeyError) as exc:
             self._fail(exc)
 
