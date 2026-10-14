@@ -72,7 +72,7 @@ def _review_live_stream_ages(model, requirements, review, now, observed_at, age,
     rows = [
         *model.observations.get("localization_quality", []),
         *model.observations.get("costmap_footprints", {}).values(),
-        *model.observations.get("message_frames", {}).values(),
+        *[r for name, r in model.observations.get("message_frames", {}).items() if name in topics],
         *[r for r in model.observations.get("transform_values", []) if not r.get("static")],
     ]
     for row in rows:

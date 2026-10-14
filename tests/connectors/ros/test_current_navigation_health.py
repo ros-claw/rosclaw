@@ -203,6 +203,10 @@ def test_safety_horizon_cannot_hide_future_observations(tmp_path, future_fact):
 def test_margin_tightens_stream_age_without_requiring_periodic_map_or_commands(tmp_path):
     root, request, policy, model = prepared(tmp_path)
     policy["max_age_ms"] = 500
+    # The latched map may precede the current execution window.
+    model.observations["message_frames"]["/sample/floor"]["captured_at"] = (
+        NOW - timedelta(seconds=2)
+    ).isoformat()
     for signal in model.signals:
         if signal.topic in {"/sample/floor", "/sample/unfiltered", "/sample/filtered"}:
             signal.last_message_age_ms = 900
