@@ -439,6 +439,7 @@ def freeze_audit_source(root, config):
                 "paired_efficiency.py",
                 "cleaning_acceptance.py",
                 "simulation_current_facts.py",
+                "simulation_current_monitor.py",
                 "simulation_execution_proof.py",
                 "simulation_navigation_supervision.py",
                 "simulation_governed_sink.py",

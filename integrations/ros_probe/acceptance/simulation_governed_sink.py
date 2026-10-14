@@ -22,6 +22,7 @@ from rclpy.clock import Clock, ClockType
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from simulation_current_facts import CurrentSimulationFacts, _read
+from simulation_current_monitor import BoundedCurrentFactsMonitor
 from simulation_execution_proof import ExecutionProofPins, _canonical
 from simulation_navigation_supervision import review_active_sim_daemon
 from simulation_sink_admission import authenticate_sink_admission
@@ -50,6 +51,7 @@ class GovernedSimulationSink(Node):
             raise ValueError("generic leased sink requires the actual stamped controller watchdog")
         self.p03_sha256 = p03_sha256
         self.binding = self.admission = self.facts = self.client = self.gate = None
+        self.monitor = None
         self.key = self.velocity = None
         self.failed_reason = None
         self.deadline_ns = self.lease_updates = self.received = self.published = self.zeroes = 0
@@ -135,15 +137,20 @@ class GovernedSimulationSink(Node):
                 timeout_sec=0.1,
             )
             self.admission, self.key, self.facts = admission, key, facts
+            self.monitor = BoundedCurrentFactsMonitor(
+                facts=facts, daemon_observer=self._observe_daemon
+            )
+            self.monitor.start()
             self._current_local(require_active=True)
         except BaseException:
+            if self.monitor is not None:
+                self.monitor.close()
             facts.close()
             raise
 
-    def _current_local(self, *, require_active=True):
+    def _observe_daemon(self):
         if self.admission is None or time.monotonic_ns() >= self.admission["expires_ns"]:
             raise ValueError("explicit SDK operator context unavailable or expired")
-        facts = self.facts.collect()
         status = self.client.get_runtime_status()
         a = self.admission
         if (
@@ -153,6 +160,22 @@ class GovernedSimulationSink(Node):
             or status["process_separated"] is not True
         ):
             raise ValueError("actual independent daemon socket peer changed")
+        review_active_sim_daemon(
+            status,
+            instance_id=a["daemon_instance_id"],
+            pid=a["daemon_pid"],
+            uid=a["daemon_uid"],
+            body_id=self.binding.body_id,
+            expected_running=None,
+        )
+        return status
+
+    def _current_local(self, *, require_active=True):
+        if self.admission is None or time.monotonic_ns() >= self.admission["expires_ns"]:
+            raise ValueError("explicit SDK operator context unavailable or expired")
+        facts = self.monitor.get()
+        status = facts["daemon_status"]
+        a = self.admission
         review_active_sim_daemon(
             status,
             instance_id=a["daemon_instance_id"],
@@ -362,6 +385,8 @@ def main():
         node.deadline_ns = 0
         if rclpy.ok():
             node._zero()
+        if node.monitor is not None:
+            node.monitor.close()
         if node.facts is not None:
             node.facts.close()
         node.events.close()

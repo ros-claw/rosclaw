@@ -12,6 +12,7 @@ import os
 import re
 import stat
 import time
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from simulation_source_stream import SimulationSourceStreamReader, SourceStreamPins
@@ -120,6 +121,7 @@ class CurrentSimulationFacts:
             if _sha(_read(self.assets_directory / name, limit)) != e[key]:
                 raise ValueError("independent original URDF/World SHA mismatch")
         self.enrollment = e
+        self._cached_native_sha256 = self._cached_model = None
         self.reader = SimulationSourceStreamReader(
             self.directory,
             "ecm-original.jsonl",
@@ -129,7 +131,9 @@ class CurrentSimulationFacts:
             guard_inputs=e["guard_inputs"],
         )
 
-    def collect(self):
+    def collect(self, *, freshness_horizon_ms=0):
+        if type(freshness_horizon_ms) is not int or not 0 <= freshness_horizon_ms <= 100:
+            raise ValueError("bounded independent freshness lookahead <=100ms required")
         if self.failed_reason is not None:
             raise ValueError("current SIM facts permanently latched: " + self.failed_reason)
         try:
@@ -169,18 +173,21 @@ class CurrentSimulationFacts:
             native = json.loads(raw)
             if _sha(raw) != pointer["sha256"] or native["captured_at"] != pointer["captured_at"]:
                 raise ValueError("original Native SHA or capture timestamp changed")
-            model = build_system_model(
-                RosGraphSnapshot.from_dict(
-                    {
-                        "ros_version": "ros2",
-                        "distro": "jazzy",
-                        "endpoint": "fixture://actual-gazebo-source",
-                        "captured_at": native["captured_at"],
-                        **native["graph"],
-                    }
-                ),
-                native=native,
-            )
+            if self._cached_native_sha256 != pointer["sha256"]:
+                self._cached_model = build_system_model(
+                    RosGraphSnapshot.from_dict(
+                        {
+                            "ros_version": "ros2",
+                            "distro": "jazzy",
+                            "endpoint": "fixture://actual-gazebo-source",
+                            "captured_at": native["captured_at"],
+                            **native["graph"],
+                        }
+                    ),
+                    native=native,
+                )
+                self._cached_native_sha256 = pointer["sha256"]
+            model = self._cached_model
             health = review_current_sim_navigation_health(
                 self.directory / "generic-compiled",
                 self.enrollment["request"],
@@ -189,6 +196,22 @@ class CurrentSimulationFacts:
                 policy_hash=self.enrollment["policy_hash"],
             )
             source = self.reader.poll()
+            horizon_check = None
+            if freshness_horizon_ms:
+                # This projects only the AGE of these already observed facts;
+                # it does not predict future lifecycle or physical state.
+                horizon_check = review_current_sim_navigation_health(
+                    self.directory / "generic-compiled",
+                    self.enrollment["request"],
+                    model=model,
+                    policy=self.enrollment["policy"],
+                    policy_hash=self.enrollment["policy_hash"],
+                    now=datetime.now(UTC) + timedelta(milliseconds=freshness_horizon_ms),
+                )
+                if horizon_check["status"] != "HEALTHY_SIM_OBSERVATION_ONLY":
+                    raise ValueError(
+                        "current observations lack the requested bounded freshness margin"
+                    )
             ended = time.monotonic_ns()
             if (
                 health["status"] != "HEALTHY_SIM_OBSERVATION_ONLY"
@@ -206,13 +229,26 @@ class CurrentSimulationFacts:
                         sort_keys=True,
                     )[:2000]
                 )
-            return {
+            result = {
                 "health": health,
                 "source": source,
                 "health_review_ns": started,
                 "completed_ns": ended,
                 "native_pointer": pointer,
             }
+            if freshness_horizon_ms:
+                observed = json.loads(self.reader.last_raw)["observer_monotonic_ns"]
+                result.update(
+                    age_horizon_check=horizon_check,
+                    valid_until_monotonic_ns=min(
+                        started + freshness_horizon_ms * 1_000_000,
+                        observed + 500_000_000,
+                        pointer["received_monotonic_ns"] + 500_000_000,
+                    ),
+                )
+                if result["valid_until_monotonic_ns"] <= ended:
+                    raise ValueError("bounded freshness window expired during collection")
+            return result
         except (ValueError, TypeError, KeyError, OSError, RuntimeError) as exc:
             self.failed_reason = str(exc)[:2500]
             raise ValueError(
