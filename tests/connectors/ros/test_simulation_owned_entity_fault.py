@@ -94,6 +94,30 @@ def test_unacknowledged_removal_never_attempts_recreation(fixture, monkeypatch):
     assert len(calls) == 1
 
 
+def test_expired_loading_observation_is_unknown_until_a_fresh_new_id(fixture, monkeypatch):
+    module, root, assets, policy, _ = fixture
+    records = iter(
+        [
+            {"sample": {"models": [{"name": "declared_robot", "entity": 10}]}},
+            {"sample": {"models": []}},
+            module.ExpiredOwnedEcmObservationError("synthetic source gap"),
+            {"sample": {"models": [{"name": "declared_robot", "entity": 20}]}},
+        ]
+    )
+
+    def latest(*args):
+        row = next(records)
+        if isinstance(row, Exception):
+            raise row
+        return row
+
+    monkeypatch.setattr(module, "latest_owned_ecm", latest)
+    result = module.replace_owned_model(root, assets, policy)
+    assert (
+        result["replacement_entity_id"] == 20 and len(result["loading_observation_unknowns"]) == 1
+    )
+
+
 @pytest.mark.parametrize("fault", [None, "run", "observer_pid", "stale", "future", "symlink"])
 def test_latest_source_requires_fresh_original_run_and_observer(tmp_path, monkeypatch, fault):
     monkeypatch.syspath_prepend(

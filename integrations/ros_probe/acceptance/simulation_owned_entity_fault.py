@@ -19,6 +19,10 @@ from simulation_current_facts import _read
 from simulation_witness_sources import SimulationWitnessSources
 
 
+class ExpiredOwnedEcmObservationError(ValueError):
+    """An observation gap is UNKNOWN, never evidence of current identity."""
+
+
 def latest_owned_ecm(root, policy):
     paths = sorted(
         p
@@ -48,13 +52,19 @@ def latest_owned_ecm(root, policy):
         sample["observer_run_label"] != policy["run_id"]
         or sample["source_stream"]["observer_epoch"] != pins["observer_epoch"]
         or sample["source_stream"]["observer_pid"] != pins["observer_pid"]
-        or not 0 <= time.monotonic_ns() - sample["observer_monotonic_ns"] <= 500_000_000
     ):
         raise ValueError("fresh unchanged observer identity/run required")
+    age = time.monotonic_ns() - sample["observer_monotonic_ns"]
+    if age < 0:
+        raise ValueError("future original ECM clock rejected")
+    if age > 500_000_000:
+        raise ExpiredOwnedEcmObservationError(
+            "original ECM expired during model loading; current identity UNKNOWN"
+        )
     return {"original_record_sha256": hashlib.sha256(line).hexdigest(), "sample": sample}
 
 
-def replace_owned_model(root, assets, policy):
+def replace_owned_model(root, assets, policy, *, description_refresh=None):
     world_raw = _read(assets / "world.sdf", 20_000_000)
     if hashlib.sha256(world_raw).hexdigest() != policy["world_sha256"]:
         raise ValueError("original pinned World required for model replacement")
@@ -83,6 +93,7 @@ def replace_owned_model(root, assets, policy):
     with (root / "governed-replacement-model-original.sdf").open("xb") as stream:
         stream.write(model_raw)
     operations = []
+    stale_unknowns = []
 
     def gz(service, kind, request):
         started = time.monotonic_ns()
@@ -117,7 +128,14 @@ def replace_owned_model(root, assets, policy):
     def wait_inventory(replaced):
         deadline = time.monotonic_ns() + 5_000_000_000
         while time.monotonic_ns() < deadline:
-            row = latest_owned_ecm(root, policy)
+            try:
+                row = latest_owned_ecm(root, policy)
+            except ExpiredOwnedEcmObservationError as exc:
+                stale_unknowns.append(
+                    {"monotonic_ns": time.monotonic_ns(), "unknown_reason": str(exc)}
+                )
+                time.sleep(0.02)
+                continue
             current = [m["entity"] for m in row["sample"]["models"] if m["name"] == robot]
             if (not replaced and not current) or (
                 replaced and len(current) == 1 and current[0] != original_id
@@ -129,14 +147,20 @@ def replace_owned_model(root, assets, policy):
     started = time.monotonic_ns()
     gz("remove", "gz.msgs.Entity", f"name: {json.dumps(robot)}, type: MODEL")
     removed = wait_inventory(False)
+    description_effect = None
     with tempfile.NamedTemporaryFile(prefix="owned-model-replacement-", suffix=".sdf") as temporary:
         temporary.write(model_raw)
         temporary.flush()
+        log_offset = (
+            (root / "gazebo.log").stat().st_size if description_refresh is not None else None
+        )
         gz(
             "create",
             "gz.msgs.EntityFactory",
             f"sdf_filename: {json.dumps(temporary.name)}, allow_renaming: false",
         )
+        if description_refresh is not None:
+            description_effect = description_refresh.after_create(log_offset)
         replacement = wait_inventory(True)
     replacement_id = next(
         m["entity"] for m in replacement["sample"]["models"] if m["name"] == robot
@@ -155,5 +179,7 @@ def replace_owned_model(root, assets, policy):
         "original_removed_ECM": removed,
         "original_replacement_ECM": replacement,
         "actual_original_operations": operations,
+        "identical_original_description_refresh": description_effect,
+        "loading_observation_unknowns": stale_unknowns,
         "physical_stop_scope": "original entity absent; independent replacement-entity physics after identity loss; never old-entity speed",
     }
