@@ -116,6 +116,12 @@ def main():
             raise RuntimeError("declared source controllers did not initialize")
         children.remove(spawner)
         start("nav2", ["ros2", "launch", str(ROOT / "nav2_launch.py")])
+        if Path("/assets/localization-refresh.json").is_file():
+            if "governed_sink" not in settings:
+                raise ValueError("localization refresh requires explicit governed SIM fixture")
+            start(
+                "localization_refresh", ["python3", str(ROOT / "localization_refresh_fixture.py")]
+            )
         start(
             "probe",
             [
