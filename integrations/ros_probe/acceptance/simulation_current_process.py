@@ -194,7 +194,7 @@ def run_worker(config):
         while True:
             if time.monotonic_ns() >= a["expires_ns"]:
                 raise ValueError("explicit SDK admission expired")
-            current = facts.collect(freshness_horizon_ms=100)
+            daemon_review_started_ns = time.monotonic_ns()
             status = client.get_runtime_status()
             if (
                 status["daemon_peer"]["pid"] != a["daemon_pid"]
@@ -211,7 +211,19 @@ def run_worker(config):
                 body_id=config["body_id"],
                 expected_running=None,
             )
+            daemon_review_completed_ns = time.monotonic_ns()
+            # Socket/ledger inspection can wait behind canonical daemon work.
+            # Take the short ROS age-margin observation AFTER that RPC, rather
+            # than consuming its cache window while waiting for the socket.
+            # The earlier daemon observation has its own <=250ms deadline.
+            current = facts.collect(freshness_horizon_ms=100)
             current["daemon_status"] = status
+            current["daemon_review_started_ns"] = daemon_review_started_ns
+            current["daemon_review_completed_ns"] = daemon_review_completed_ns
+            current["valid_until_monotonic_ns"] = min(
+                current["valid_until_monotonic_ns"], daemon_review_started_ns + 250_000_000
+            )
+            current["worker_publish_prepared_ns"] = time.monotonic_ns()
             if time.monotonic_ns() >= current["valid_until_monotonic_ns"]:
                 raise ValueError("observation expired during actual daemon check")
             result = {
