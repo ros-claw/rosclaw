@@ -28,12 +28,6 @@ def main():
     if hashlib.sha256(raw).hexdigest() != args.policy_sha256:
         raise ValueError("explicit original fault pin required")
     policy = json.loads(raw)
-    actor = json.loads(_read(root / "governed-fault-actor-outcome-original.json", 256_000))
-    if (
-        actor["status"] != "PASS_ACTUAL_DAEMON_SIGKILL_INDEPENDENT_STABLE_STOP_LOCAL"
-        or actor["policy_sha256"] != args.policy_sha256
-    ):
-        raise ValueError("actual injected fault and independent stop required first")
     source_raw = _read(Path("/assets/observer-sources.json"), 128_000)
     sources = SimulationWitnessSources.from_bytes(
         source_raw,
@@ -43,20 +37,52 @@ def main():
     )
     if sources.run_id != policy["run_id"]:
         raise ValueError("original SIM run required")
-    before = json.loads(_read(root / "governed-sink-status.json", 4096, allow_atomic_unlink=True))
-    if (
-        before["terminal"] is not True
-        or before["lease_expires_ns"] != 0
-        or before["run_id"] != policy["run_id"]
-        or before["body_snapshot_hash"] != policy["body_snapshot_hash"]
-    ):
-        raise ValueError("never probe a nonterminal or differently bound sink")
     rclpy.init(args=["--ros-args", "-p", "use_sim_time:=true"])
     node = Node("rosclaw_fixture_old_lease_refusal")
     try:
         client = node.create_client(SetBool, sources.topic("lease"))
-        if not client.wait_for_service(timeout_sec=1):
+        # Passive DDS discovery is completed BEFORE the canonical action.
+        # Its fixture setup budget matches the original initializer, and
+        # changes no proof, lease, ROS-age or Body execution deadline.
+        setup_started_ns = time.monotonic_ns()
+        if not client.wait_for_service(timeout_sec=8):
             raise ValueError("actual sink lease service required")
+        with (root / "governed-old-lease-probe-ready-original.json").open("x") as f:
+            json.dump(
+                {
+                    "run_id": policy["run_id"],
+                    "service": sources.topic("lease"),
+                    "setup_started_ns": setup_started_ns,
+                    "ready_monotonic_ns": time.monotonic_ns(),
+                    "ROS_DOMAIN_ID": os.environ.get("ROS_DOMAIN_ID"),
+                    "requests_sent": 0,
+                    "velocity_publishers_created": 0,
+                },
+                f,
+            )
+            f.write("\n")
+        deadline = time.monotonic_ns() + 20_000_000_000
+        actor_path = root / "governed-fault-actor-outcome-original.json"
+        while not actor_path.exists():
+            if time.monotonic_ns() >= deadline:
+                raise ValueError("actual injected fault and independent stop did not arrive")
+            rclpy.spin_once(node, timeout_sec=0.05)
+        actor = json.loads(_read(actor_path, 256_000))
+        if (
+            actor["status"] != "PASS_ACTUAL_DAEMON_SIGKILL_INDEPENDENT_STABLE_STOP_LOCAL"
+            or actor["policy_sha256"] != args.policy_sha256
+        ):
+            raise ValueError("actual injected fault and independent stop required first")
+        before = json.loads(
+            _read(root / "governed-sink-status.json", 4096, allow_atomic_unlink=True)
+        )
+        if (
+            before["terminal"] is not True
+            or before["lease_expires_ns"] != 0
+            or before["run_id"] != policy["run_id"]
+            or before["body_snapshot_hash"] != policy["body_snapshot_hash"]
+        ):
+            raise ValueError("never probe a nonterminal or differently bound sink")
         request = SetBool.Request()
         request.data = True
         started = time.monotonic_ns()

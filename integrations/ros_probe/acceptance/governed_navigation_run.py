@@ -94,6 +94,8 @@ async def main():
     os.environ["ROSCLAW_ROS_EXPERT"] = "1"
     result, error = [], None
     actor = None
+    lease_probe = None
+    lease_probe_log = None
     fault_checks = None
     last_request = None
 
@@ -168,6 +170,23 @@ async def main():
             )
             tools.set_client(runtime_client)
             if fault_policy:
+                probe_argv = [
+                    sys.executable,
+                    str(Path(__file__).with_name("governed_old_lease_probe.py")),
+                    "--policy-sha256",
+                    args.fault_policy_sha256,
+                ]
+                lease_probe_log = (evidence / "governed-old-lease-probe-original.log").open("x")
+                lease_probe = subprocess.Popen(
+                    probe_argv, stdout=lease_probe_log, stderr=subprocess.STDOUT
+                )
+                setup_deadline = time.monotonic_ns() + 10_000_000_000
+                while not (evidence / "governed-old-lease-probe-ready-original.json").exists():
+                    if lease_probe.poll() is not None or time.monotonic_ns() >= setup_deadline:
+                        raise ValueError(
+                            "passive SDK lease probe did not initialize before canonical action"
+                        )
+                    await asyncio.sleep(0.05)
                 start_time = (
                     Path(f"/proc/{daemon.pid}/stat").read_text().split(")", 1)[1].split()[19]
                 )
@@ -264,18 +283,7 @@ async def main():
                             actor_code = actor.wait(timeout=2)
                     old_action_refused = False
                     if actor_code == 0 and last_request is not None:
-                        probe_argv = [
-                            sys.executable,
-                            str(Path(__file__).with_name("governed_old_lease_probe.py")),
-                            "--policy-sha256",
-                            args.fault_policy_sha256,
-                        ]
-                        with (evidence / "governed-old-lease-probe-original.log").open(
-                            "x"
-                        ) as probe_log:
-                            probe_code = subprocess.run(
-                                probe_argv, stdout=probe_log, stderr=subprocess.STDOUT, timeout=8
-                            ).returncode
+                        probe_code = lease_probe.wait(timeout=8)
                         try:
                             old_action_result = await tools._request_action(**last_request)
                             refusal = {"refused": False, "unexpected_result": old_action_result}
@@ -312,6 +320,15 @@ async def main():
                 except subprocess.TimeoutExpired:
                     actor.kill()
                     actor.wait(timeout=2)
+            if lease_probe is not None and lease_probe.poll() is None:
+                lease_probe.terminate()
+                try:
+                    lease_probe.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    lease_probe.kill()
+                    lease_probe.wait(timeout=2)
+            if lease_probe_log is not None:
+                lease_probe_log.close()
             (evidence / "governed-owner-shutdown-request-original.json").write_text(
                 json.dumps(
                     {
