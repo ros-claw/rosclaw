@@ -36,10 +36,17 @@ def main():
     parser.add_argument("--directory", type=Path, required=True)
     parser.add_argument("--endpoint", default="ws://127.0.0.1:19090")
     parser.add_argument("--persistent-ledger", action="store_true")
+    parser.add_argument("--operator-rosbridge-disconnect-sha256")
     args = parser.parse_args()
     root = args.directory.resolve()
     config = json.loads((root / "execution_config.json").read_text())
     kind = config.get("executor_kind", "coverage")
+    if args.operator_rosbridge_disconnect_sha256 and (
+        kind != "governed_navigation"
+        or not Path("/.dockerenv").is_file()
+        or os.environ.get("ROS_LOCALHOST_ONLY") != "1"
+    ):
+        raise ValueError("explicit isolated governed SIM operator fault role required")
     if kind == "passive_observation":
         serve_passive_observation(root, config, persistent_ledger=args.persistent_ledger)
         return
@@ -113,6 +120,24 @@ def main():
             ):
                 governed_facts.close()
                 raise ValueError("governed daemon differs from enrolled actual Body/run")
+    disconnect_policy = None
+    if args.operator_rosbridge_disconnect_sha256:
+        from simulation_execution_fault_policy import parse_governed_motion_fault_policy
+
+        try:
+            disconnect_policy = parse_governed_motion_fault_policy(
+                _read(Path("/evidence/governed-fault.json"), 4096),
+                expected_sha256=args.operator_rosbridge_disconnect_sha256,
+                run_id=navigation_binding.run_id,
+                body_snapshot_hash=navigation_binding.body_snapshot_hash,
+                world_sha256=governed_facts.enrollment["world_sha256"],
+                action_id=governed_context["allowed_action_ids"][0],
+            )
+            if disconnect_policy["case"] != "rosbridge_disconnect":
+                raise ValueError("original operator disconnect case required")
+        except BaseException:
+            governed_facts.close()
+            raise
     runtime = Runtime(
         RuntimeConfig(
             robot_id=config["body_id"],
@@ -271,6 +296,19 @@ def main():
         socket_path=root / "run/rosclawd.sock",
     )
     stopped = threading.Event()
+    disconnect_fixture = None
+    if disconnect_policy is not None:
+        from simulation_rosbridge_disconnect_fixture import OwnedRosbridgeDisconnectFixture
+
+        disconnect_fixture = OwnedRosbridgeDisconnectFixture(
+            root=Path("/evidence"),
+            policy=disconnect_policy,
+            policy_sha256=args.operator_rosbridge_disconnect_sha256,
+            binding=navigation_binding,
+            transports=transports,
+            daemon_status=lambda: service.get_runtime_status(peer),
+            instance_id=instance,
+        )
     for sig in [signal.SIGINT, signal.SIGTERM]:
         signal.signal(sig, lambda *_: stopped.set())
     try:
@@ -289,7 +327,11 @@ def main():
                 ).hexdigest(),
             )
         (root / "daemon_ready.json").write_text(json.dumps(ready))
-        stopped.wait()
+        if disconnect_fixture is None:
+            stopped.wait()
+        else:
+            while not stopped.wait(0.01):
+                disconnect_fixture.poll()
     finally:
         executor.emergency_stop()
         daemon.stop()
@@ -445,6 +487,7 @@ def freeze_audit_source(root, config):
                 "simulation_execution_fault_policy.py",
                 "simulation_completed_artifact.py",
                 "simulation_owned_process_fault.py",
+                "simulation_rosbridge_disconnect_fixture.py",
                 "governed_daemon_sigkill_fixture.py",
                 "governed_old_lease_probe.py",
                 "simulation_atomic_read.py",

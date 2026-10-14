@@ -98,6 +98,8 @@ async def main():
         "ws://127.0.0.1:9090",
         "--persistent-ledger",
     ]
+    if fault_policy and fault_policy["case"] == "rosbridge_disconnect":
+        argv += ["--operator-rosbridge-disconnect-sha256", args.fault_policy_sha256]
     (evidence / "governed-daemon-argv.json").write_text(json.dumps(argv) + "\n")
     os.environ["ROSCLAW_HOME"] = str(root / "home")
     os.environ["ROSCLAW_ROS_EXPERT"] = "1"
@@ -390,7 +392,12 @@ async def main():
                     missing = not (evidence / "governed-action-0-receipt-original.json").exists()
                     if (
                         fault_policy["case"]
-                        in {"emergency_stop", "lease_loss", "lidar_stream_lost"}
+                        in {
+                            "emergency_stop",
+                            "lease_loss",
+                            "lidar_stream_lost",
+                            "rosbridge_disconnect",
+                        }
                         and actor_code == 0
                     ):
                         try:
@@ -493,6 +500,23 @@ async def main():
                                 and emergency_stop_result is None
                                 and not lease_renewal_stopped
                             )
+                        elif fault_policy["case"] == "rosbridge_disconnect":
+                            effect = json.loads(
+                                (
+                                    evidence / "governed-rosbridge-disconnect-effect-original.json"
+                                ).read_text()
+                            )
+                            fault_checks["original_navigation_sockets_disconnected"] = (
+                                len(effect["original_navigation_sockets_after"]) == 4
+                                and all(
+                                    x["closed"] and x["websocket_released"]
+                                    for x in effect["original_navigation_sockets_after"]
+                                )
+                                and effect["new_connections_opened"] == 0
+                                and effect["physics_server_signals_sent"] == 0
+                                and emergency_stop_result is None
+                                and not lease_renewal_stopped
+                            )
                     else:
                         fault_checks = {
                             "actor_returncode": actor_code,
@@ -558,6 +582,8 @@ async def main():
                 else fault_checks.get("canonical_action_lease_expired")
                 if fault_policy["case"] == "lease_loss"
                 else fault_checks.get("original_lidar_stream_loss_observed")
+                if fault_policy["case"] == "lidar_stream_lost"
+                else fault_checks.get("original_navigation_sockets_disconnected")
             )
             and not fault_checks.get("terminal_receipt_missing")
             and isinstance(fault_receipt, dict)

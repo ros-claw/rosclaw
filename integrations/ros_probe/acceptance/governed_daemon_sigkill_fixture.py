@@ -168,6 +168,25 @@ def main():
         paused = pause_owned_process(root, "scan_bridge")
         fault_effect["actual_owned_scan_bridge_pause"] = paused
         fault_effect["pause_completed_monotonic_ns"] = time.monotonic_ns()
+    elif policy["case"] == "rosbridge_disconnect":
+        pending = root / "governed-rosbridge-disconnect-trigger.pending"
+        with pending.open("x") as f:
+            json.dump({"policy_sha256": args.policy_sha256, "injection": injection}, f)
+            f.write("\n")
+        pending.rename(root / "governed-rosbridge-disconnect-trigger-original.json")
+        deadline = time.monotonic_ns() + 3_000_000_000
+        effect_path = root / "governed-rosbridge-disconnect-effect-original.json"
+        while not effect_path.exists():
+            if time.monotonic_ns() >= deadline:
+                raise ValueError("actual owned navigation socket disconnect was not observed")
+            time.sleep(0.01)
+        effect = json.loads(_read(effect_path, 32_000))
+        if effect["policy_sha256"] != args.policy_sha256 or not all(
+            x["closed"] and x["websocket_released"]
+            for x in effect["original_navigation_sockets_after"]
+        ):
+            raise ValueError("original daemon socket closure context changed")
+        fault_effect["actual_navigation_socket_disconnect"] = effect
     samples = []
     stable_since = None
     last_stamp = None
