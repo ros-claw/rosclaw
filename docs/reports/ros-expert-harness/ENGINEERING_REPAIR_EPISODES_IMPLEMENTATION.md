@@ -6,7 +6,9 @@ separate from the frozen G3 source and grants no Agent ROS or Runtime authority.
 
 The explicit isolated SDK failure-capture role preserves current original Native,
 system, candidate-review and physical observations with an unadmitted zero-command
-sink. It requires UNKNOWN/BLOCKED, records L1 NOT_READY and L2 NOT_RUN, and does
+sink. It requires an UNKNOWN/BLOCKED engineering assessment, preserves the separate
+original candidate result (which can remain PROPOSED), records L1 NOT_READY and
+L2 NOT_RUN, and does
 not compile a navigation workspace from an unready candidate. Only the actual
 localization service must be active to perform the operator's initial pose setup;
 that preparation condition is distinct from a readiness assessment. Ordinary
@@ -28,3 +30,10 @@ Initial software checks: 24 focused role/freshness/configuration tests pass;
 expanded ROS regression: 1,169 pass, 11 deselected with one existing dependency
 deprecation warning. Actual before/after/rollback episodes have not yet passed.
 No G4 acceptance or actual model experiment is claimed by these software tests.
+
+The circle geometry diagnostic uses the original unique costmap publisher, fresh
+parameter readback, matching base frame, explicitly empty footprint polygon and
+unchanged URDF envelope. An undersized circle blocks engineering review without
+promoting discovery to Body binding or bypassing the full L1 geometry checks.
+The first footprint capture timeout is retained: discovery correctly remained
+PROPOSED with collision geometry explicitly unverified.
