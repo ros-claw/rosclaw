@@ -18,6 +18,10 @@ UNKNOWN = "UNKNOWN"
 CGL_SHA256 = "b836c7148846cd0d6ea1f461c3ad60eade74e2687b10d9c68a7de06db50467c0"
 INIT_SHA256 = "075193793fb0743385eb37d0ca46ac3949a6eb1db6ad5bf41091bc588d96d41b"
 GL_SHA256 = "7a5572ab18e9a0aa2265ef6fc6d11019c61b2acffcd38d49a912fb38116d38ef"
+PUBLIC_GL_GET_SHA256 = "8450ad54ba0a814585cc8d52660b7686861fe1c26181c885ff19cdb982ec824e"
+PUBLIC_GL_INIT_SHA256 = "83028a306ab5e9f25b8a3018b7922beb0013612dea37aafdeaacb658758f149d"
+PUBLIC_GL_VERSION_SHA256 = "9e576704e0493d6868e7c0c396f3654a76eabe3630572d05d45bd1530fa02873"
+PUBLIC_GL_ARRAY_SHA256 = "b101de94b04b53854f359a381004315af7dca033d27deb152ac6ca96fa47c77f"
 FRAMEWORK = "/System/Library/Frameworks/OpenGL.framework/OpenGL"
 # (Exact symbolic token, exact numeric token). Zero is the array terminator.
 _BASE = (
@@ -53,6 +57,64 @@ CANDIDATES = (
     ("legacy_no_sampling_unrestricted_acceleration", _BASE + _END),
 )
 GL_FIELDS = ("GL_VENDOR", "GL_RENDERER", "GL_VERSION")
+
+
+_CGL_STAGE_STATE = [0, 0]
+
+
+def _cgl_stage_event(stage, phase, detail=None):
+    """Process-wide progress budget; exact-type allowlist never inspects handles.
+
+    Counters reserve space before writing. Sink errors cannot change ownership
+    flow. No arbitrary value, exception message, address or path is serialized.
+    """
+    _state = _CGL_STAGE_STATE
+    if _state[0] >= 128 or _state[1] >= 65536:
+        return
+    stages = (
+        "boundary",
+        "binding",
+        "choose",
+        "create",
+        "current",
+        "query",
+        "GL_VENDOR",
+        "GL_RENDERER",
+        "GL_VERSION",
+        "detach",
+        "release_context",
+        "release_pixel_format",
+    )
+    event = {
+        "stage": stage if type(stage) is str and stage in stages else "UNKNOWN",
+        "phase": phase if type(phase) is str and phase in ("pre", "post") else "UNKNOWN",
+    }
+    if type(detail) is dict:
+        status = detail.get("status")
+        rc = detail.get("rc")
+        if type(status) is str and status in (
+            "NOT_RUN",
+            "ATTEMPTED",
+            "OK",
+            "FAIL",
+            "ERROR",
+            "UNAVAILABLE",
+            "RETAINED_UNSAFE_TO_RELEASE",
+        ):
+            event["status"] = status
+        if type(rc) is int and -2147483648 <= rc <= 2147483647:
+            event["rc"] = rc
+    line = json.dumps(event, ensure_ascii=True, separators=(",", ":")) + "\n"
+    size = len(line.encode("ascii"))
+    if size > 1024 or _state[1] + size > 65536:
+        return
+    _state[0] += 1
+    _state[1] += size
+    try:
+        sys.stderr.write(line)
+        sys.stderr.flush()
+    except Exception:
+        return  # Progress delivery failure is not a native success or a retry.
 
 
 def candidate_records():
@@ -107,12 +169,14 @@ def _attempts(backend, report):
         report["attempted_count"] += 1
         touched_current = False
         try:
+            _cgl_stage_event("choose", "pre")
             chosen = _invoke(
                 row["choose"],
                 lambda candidate=candidate, handles=handles: backend.choose(
                     candidate["numeric"], handles
                 ),
             )
+            _cgl_stage_event("choose", "post", row["choose"])
             row["choose"]["npix"] = handles["npix"]
             row["choose"]["pixel_format_null"] = not bool(handles["pix"])
             if (
@@ -122,19 +186,25 @@ def _attempts(backend, report):
                 or handles["npix"] <= 0
             ):
                 continue
+            _cgl_stage_event("create", "pre")
             created = _invoke(row["creation"], lambda handles=handles: backend.create(handles))
+            _cgl_stage_event("create", "post", row["creation"])
             row["creation"]["context_null"] = not bool(handles["ctx"])
             if not created or not handles["ctx"]:
                 continue
             report["created_count"] += 1
             touched_current = True  # Also restore if SetCurrent fails or raises.
+            _cgl_stage_event("current", "pre")
             if not _invoke(
                 row["make_current"], lambda handles=handles: backend.set_current(handles["ctx"])
             ):
+                _cgl_stage_event("current", "post", row["make_current"])
                 continue
+            _cgl_stage_event("current", "post", row["make_current"])
             report["current_count"] += 1
             for name in GL_FIELDS:
                 field = row["query"][name]
+                _cgl_stage_event(name, "pre")
                 try:
                     value = backend.query(name)
                     if value:
@@ -143,6 +213,7 @@ def _attempts(backend, report):
                         field.update(status="UNAVAILABLE")
                 except Exception as exc:
                     field.update(status="ERROR", error_type=type(exc).__name__[:80])
+                _cgl_stage_event(name, "post", field)
             row["succeeded"] = all(v["status"] == "OK" for v in row["query"].values())
         finally:
             row["owned"] = {
@@ -151,9 +222,11 @@ def _attempts(backend, report):
             }
             detached = True
             if touched_current:
+                _cgl_stage_event("detach", "pre")
                 detached = _invoke(
                     row["cleanup"]["restore_prior_null"], lambda: backend.set_current(None)
                 )
+                _cgl_stage_event("detach", "post", row["cleanup"]["restore_prior_null"])
             for key, method, label in (
                 ("ctx", backend.release_context, "release_context"),
                 ("pix", backend.release_pixel_format, "release_pixel_format"),
@@ -166,11 +239,13 @@ def _attempts(backend, report):
                     handles[key] = None  # Transfer once, even when release raises.
                     stage = row["cleanup"][label]
                     stage["status"] = "ATTEMPTED"
+                    _cgl_stage_event(label, "pre")
                     try:
                         method(owned)  # Upstream release restype is None, not a CGL RC.
                         stage["status"] = "OK"
                     except Exception as exc:
                         stage.update(status="ERROR", error_type=type(exc).__name__[:80])
+                    _cgl_stage_event(label, "post", stage)
             cleanup_ok = all(v["status"] in ("OK", "NOT_RUN") for v in row["cleanup"].values())
             row["succeeded"] = row["succeeded"] and cleanup_ok
             report["succeeded_count"] += int(row["succeeded"])
@@ -200,6 +275,7 @@ class _NativeBoundary:
     """Use installed upstream declarations unchanged, never checked wrappers."""
 
     def __init__(self, metadata):
+        _cgl_stage_event("binding", "pre")
         import ctypes
 
         self.ctypes = ctypes
@@ -232,6 +308,7 @@ class _NativeBoundary:
         self.cgl = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.cgl)
         metadata["native_binding"] = "installed_hash_pinned_upstream_raw_symbols"
+        _cgl_stage_event("binding", "post", {"status": "OK"})
 
     def choose(self, attrs, handles):
         c, b = self.ctypes, self.cgl
@@ -264,33 +341,59 @@ class _NativeBoundary:
         self.cgl._CGLReleasePixelFormat(self.cgl.CGLPixelFormatObj(handle))
 
     def query(self, name):
-        # Import only AFTER successful SetCurrent. Signature and constants come
-        # from hash-pinned generated GL1.0 source, not local C declarations.
-        from OpenGL.raw.GL.VERSION import GL_1_0
+        # Only after SetCurrent. Public glget owns the c_char_p declaration;
+        # do not alter a restype locally or dereference a raw GLubyteArray.
+        _cgl_stage_event("query", "pre")
+        try:
+            from OpenGL import GL
+            from OpenGL.arrays import arraydatatype
+            from OpenGL.GL import glget
+            from OpenGL.GL.VERSION import GL_1_1
+            from OpenGL.raw.GL.VERSION import GL_1_0
 
-        if not self.query_verified:
-            actual_source = _hash_file(GL_1_0.__file__)
-            library = str(getattr(GL_1_0._p.PLATFORM.GL, "_name", UNKNOWN))[:512]
-            self.metadata["loaded_gl_1_0_source"] = actual_source
-            self.metadata["query_library"] = {"requested_library": library, **_hash_file(library)}
-            if actual_source["sha256"] != GL_SHA256 or library != FRAMEWORK:
-                raise RuntimeError("UNVERIFIED_QUERY_BINDING")
-            self.query_verified = True
-        ptr = GL_1_0.glGetString(getattr(GL_1_0, name))
-        if ptr is None:
-            return None
-        if isinstance(ptr, bytes):
-            return ptr.split(b"\0", 1)[0][:512].decode("utf-8", "replace")
-        if not bool(ptr):
-            return None
-        # Bounded scan avoids an unbounded string_at read. GL owns this pointer.
-        output = bytearray()
-        for i in range(512):
-            byte = ptr[i]
-            if not byte:
-                break
-            output.append(byte)
-        return output.decode("utf-8", "replace")
+            if name not in GL_FIELDS:
+                raise ValueError("UNSUPPORTED_QUERY_FIELD")
+            if not self.query_verified:
+                sources = (
+                    ("public_gl", GL, PUBLIC_GL_INIT_SHA256),
+                    ("public_glget", glget, PUBLIC_GL_GET_SHA256),
+                    ("public_gl_1_1", GL_1_1, PUBLIC_GL_VERSION_SHA256),
+                    ("public_arraydatatype", arraydatatype, PUBLIC_GL_ARRAY_SHA256),
+                    ("raw_gl_1_0", GL_1_0, GL_SHA256),
+                )
+                provenance = {label: _hash_file(module.__file__) for label, module, _ in sources}
+                self.metadata["query_sources"] = provenance
+                library = getattr(GL_1_0._p.PLATFORM.GL, "_name", None)
+                if type(library) is not str or library != FRAMEWORK:
+                    raise RuntimeError("UNVERIFIED_QUERY_LIBRARY")
+                self.metadata["query_library"] = {
+                    "requested_library": library,
+                    **_hash_file(library),
+                }
+                if any(provenance[label]["sha256"] != pin for label, _, pin in sources):
+                    raise RuntimeError("UNVERIFIED_PUBLIC_QUERY_SOURCE")
+                if (
+                    GL.glGetString is not glget.glGetString
+                    or glget._simple is not GL_1_1
+                    or glget.glGetString is not GL_1_1.glGetString
+                ):
+                    raise RuntimeError("UNVERIFIED_PUBLIC_QUERY_CHAIN")
+                self.metadata["query_api"] = "OpenGL.GL.glGetString; public glget c_char_p"
+                self.query_verified = True
+            value = GL.glGetString(getattr(GL, name))
+            if value is None:
+                _cgl_stage_event("query", "post", {"status": "UNAVAILABLE"})
+                return None
+            if type(value) is not bytes:
+                raise TypeError("PUBLIC_GL_STRING_NOT_BYTES_OR_NONE")
+            # c_char_p relies on the API's NUL-terminated C string contract.
+            # This is a Python processing cap, NOT a hard bound on the C read.
+            result = value[:512].split(b"\0", 1)[0].decode("utf-8", "replace")
+        except Exception:
+            _cgl_stage_event("query", "post", {"status": "ERROR"})
+            raise
+        _cgl_stage_event("query", "post", {"status": "OK"})
+        return result
 
 
 def probe(system=None, boundary_factory=None):
@@ -321,9 +424,12 @@ def probe(system=None, boundary_factory=None):
 
     def worker():
         try:
+            _cgl_stage_event("boundary", "pre")
             backend = (boundary_factory or _NativeBoundary)(report["metadata"])
+            _cgl_stage_event("boundary", "post", {"status": "OK"})
             _attempts(backend, report)
         except Exception as exc:
+            _cgl_stage_event("boundary", "post", {"status": "ERROR"})
             report.update(status="BOUNDARY_ERROR", error_type=type(exc).__name__[:80])
 
     # Never touch the invoking thread's current context. CGL current contexts

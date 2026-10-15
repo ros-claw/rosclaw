@@ -7,7 +7,9 @@ No test constructs _NativeBoundary or imports a graphics/provider package.
 import builtins
 import importlib.util
 import json
+import sys
 import threading
+import types
 from pathlib import Path
 
 import pytest
@@ -316,3 +318,232 @@ def test_main_cleanup_failure_overrides_previous_success(probe_module, monkeypat
         monkeypatch.setattr(probe_module, "probe", lambda result=result: result)
         assert probe_module.main() == expected
         assert json.loads(capsys.readouterr().out) == result
+
+
+def test_actual_query_public_bytes_none_pointer_and_source_gates(probe_module, monkeypatch):
+    # Synthetic modules only: execute the real query method, never __init__.
+    names = (
+        "OpenGL",
+        "OpenGL.GL",
+        "OpenGL.GL.glget",
+        "OpenGL.GL.VERSION",
+        "OpenGL.GL.VERSION.GL_1_1",
+        "OpenGL.arrays",
+        "OpenGL.arrays.arraydatatype",
+        "OpenGL.raw",
+        "OpenGL.raw.GL",
+        "OpenGL.raw.GL.VERSION",
+        "OpenGL.raw.GL.VERSION.GL_1_0",
+    )
+    modules = {name: types.ModuleType(name) for name in names}
+    for name, module in modules.items():
+        module.__file__ = "fake:" + name
+        module.__path__ = []
+        monkeypatch.setitem(sys.modules, name, module)
+        parent, _, child = name.rpartition(".")
+        if parent:
+            setattr(modules[parent], child, module)
+    gl = modules["OpenGL.GL"]
+    glget = modules["OpenGL.GL.glget"]
+    version = modules["OpenGL.GL.VERSION.GL_1_1"]
+    raw = modules["OpenGL.raw.GL.VERSION.GL_1_0"]
+    raw._p = types.SimpleNamespace(
+        PLATFORM=types.SimpleNamespace(GL=types.SimpleNamespace(_name=probe_module.FRAMEWORK))
+    )
+    response = [b"fake-vendor"]
+    requests = []
+
+    def public_get_string(token):
+        requests.append(token)
+        return response[0]
+
+    def forbidden_raw(token):
+        raise AssertionError("raw glGetString must not be called")
+
+    gl.glGetString = glget.glGetString = version.glGetString = public_get_string
+    glget._simple = version
+    raw.glGetString = forbidden_raw
+    for index, name in enumerate(probe_module.GL_FIELDS):
+        setattr(gl, name, index + 1)
+    pins = {
+        "fake:OpenGL.GL": "83028a306ab5e9f25b8a3018b7922beb0013612dea37aafdeaacb658758f149d",
+        "fake:OpenGL.GL.glget": "8450ad54ba0a814585cc8d52660b7686861fe1c26181c885ff19cdb982ec824e",
+        "fake:OpenGL.GL.VERSION.GL_1_1": "9e576704e0493d6868e7c0c396f3654a76eabe3630572d05d45bd1530fa02873",
+        "fake:OpenGL.arrays.arraydatatype": "b101de94b04b53854f359a381004315af7dca033d27deb152ac6ca96fa47c77f",
+        "fake:OpenGL.raw.GL.VERSION.GL_1_0": probe_module.GL_SHA256,
+    }
+    hashed = []
+
+    def fake_hash(path):
+        hashed.append(path)
+        return {"sha256": pins.get(path, "UNKNOWN"), "status": "FAKE_METADATA"}
+
+    monkeypatch.setattr(probe_module, "_hash_file", fake_hash)
+
+    class Sink:
+        def __init__(self):
+            self.lines = []
+            self.flushes = 0
+
+        def write(self, line):
+            self.lines.append(line)
+
+        def flush(self):
+            self.flushes += 1
+
+    sink = Sink()
+    monkeypatch.setattr(probe_module.sys, "stderr", sink)
+    boundary = Boundary()
+    boundary.metadata = {}
+    boundary.query_verified = False
+    boundary.query = types.MethodType(probe_module._NativeBoundary.query, boundary)
+    report = probe_module.probe(system="Darwin", boundary_factory=lambda metadata: boundary)
+    assert report["succeeded_count"] == 3
+    assert requests == [1, 2, 3] * 3
+    assert set(pins).issubset(hashed)
+    assert boundary.metadata["query_sources"]["public_glget"]["sha256"] == pins[glget.__file__]
+    assert "c_char_p" in boundary.metadata["query_api"]
+    events = [json.loads(line) for line in sink.lines]
+    pairs = [(e["stage"], e["phase"]) for e in events]
+    for stage in (
+        "boundary",
+        "choose",
+        "create",
+        "current",
+        "GL_VENDOR",
+        "GL_RENDERER",
+        "GL_VERSION",
+        "query",
+        "detach",
+        "release_context",
+        "release_pixel_format",
+    ):
+        assert (stage, "pre") in pairs and (stage, "post") in pairs
+        assert pairs.index((stage, "pre")) < pairs.index((stage, "post"))
+    assert pairs.index(("detach", "post")) < pairs.index(("release_context", "pre"))
+    assert pairs.index(("release_context", "post")) < pairs.index(("release_pixel_format", "pre"))
+    assert sink.flushes == len(sink.lines)
+
+    for value, expected in (
+        (None, None),
+        (b"", ""),
+        (b"abc\0ignored", "abc"),
+        (b"x" * 600 + b"\0", "x" * 512),
+        (b"\xff", "\ufffd"),
+    ):
+        response[0] = value
+        assert boundary.query("GL_VENDOR") == expected
+
+    class PoisonPointer:
+        def trap(self, *args):
+            raise AssertionError("pointer inspected")
+
+        __bool__ = __getitem__ = __str__ = __repr__ = __int__ = __iter__ = trap
+
+    for value in (PoisonPointer(), 0, "not bytes", bytearray(b"not bytes")):
+        response[0] = value
+        with pytest.raises(TypeError, match="PUBLIC_GL_STRING_NOT_BYTES_OR_NONE"):
+            boundary.query("GL_VENDOR")
+    response[0] = b"safe"
+    for path in tuple(pins):
+        expected_pin = pins[path]
+        pins[path] = "0" * 64
+        boundary.query_verified = False
+        before = len(requests)
+        with pytest.raises(RuntimeError, match="UNVERIFIED_PUBLIC_QUERY_SOURCE"):
+            boundary.query("GL_VENDOR")
+        assert len(requests) == before
+        pins[path] = expected_pin
+    gl.glGetString = forbidden_raw
+    boundary.query_verified = False
+    with pytest.raises(RuntimeError, match="UNVERIFIED_PUBLIC_QUERY_CHAIN"):
+        boundary.query("GL_VENDOR")
+    gl.glGetString = public_get_string
+    raw._p.PLATFORM.GL._name = "not-the-framework"
+    with pytest.raises(RuntimeError, match="UNVERIFIED_QUERY_LIBRARY"):
+        boundary.query("GL_VENDOR")
+
+
+def test_stage_serializer_adversarial_budget_and_flush(probe_module, monkeypatch):
+    class Poison:
+        def trap(self, *args):
+            raise AssertionError("arbitrary object inspected")
+
+        __bool__ = __getitem__ = __str__ = __repr__ = __int__ = __iter__ = trap
+
+    class Sink:
+        def __init__(self):
+            self.lines = []
+            self.flushes = 0
+
+        def write(self, line):
+            self.lines.append(line)
+
+        def flush(self):
+            self.flushes += 1
+
+    sink = Sink()
+    monkeypatch.setattr(probe_module.sys, "stderr", sink)
+    secret = "address-or-secret-must-not-appear" * 10000
+    poison = Poison()
+    for _ in range(200):
+        probe_module._cgl_stage_event(
+            poison, secret, {"status": poison, "rc": poison, "secret": secret}
+        )
+    assert len(sink.lines) == sink.flushes == 128
+    assert all(json.loads(line) == {"stage": "UNKNOWN", "phase": "UNKNOWN"} for line in sink.lines)
+    assert all(len(line.encode("ascii")) <= 1024 for line in sink.lines)
+    assert sum(len(line.encode("ascii")) for line in sink.lines) <= 65536
+    probe_module._CGL_STAGE_STATE[:] = [0, 65530]
+    probe_module._cgl_stage_event("choose", "pre")
+    assert len(sink.lines) == 128
+    probe_module._CGL_STAGE_STATE[:] = [0, 0]
+    probe_module._cgl_stage_event("choose", "post", {"rc": True, "status": secret})
+    assert json.loads(sink.lines[-1]) == {"stage": "choose", "phase": "post"}
+    probe_module._cgl_stage_event("choose", "post", {"rc": 10002, "status": "FAIL"})
+    assert json.loads(sink.lines[-1])["rc"] == 10002
+
+    def broken_write(line):
+        raise OSError("sink unavailable")
+
+    monkeypatch.setattr(sink, "write", broken_write)
+    probe_module._cgl_stage_event("detach", "pre")  # Must not interrupt cleanup.
+
+
+def test_stage_error_post_and_cleanup_order_remain_observable(probe_module, monkeypatch):
+    writes = []
+    flushed = []
+
+    class Sink:
+        def write(self, line):
+            writes.append(json.loads(line))
+
+        def flush(self):
+            flushed.append(len(writes))
+
+    monkeypatch.setattr(probe_module.sys, "stderr", Sink())
+    report, boundary = run(probe_module, "query_fail")
+    assert report["succeeded_count"] == 0
+    assert len(writes) == len(flushed)
+    vendor = [e for e in writes if e["stage"] == "GL_VENDOR"]
+    assert vendor == [
+        event
+        for _ in range(3)
+        for event in (
+            {"stage": "GL_VENDOR", "phase": "pre"},
+            {"stage": "GL_VENDOR", "phase": "post", "status": "ERROR"},
+        )
+    ]
+    for i in range(3):
+        detach = boundary.events.index(("set", None), i * 9)
+        assert boundary.events[detach + 1] == ("release_context", f"c{i}")
+        assert boundary.events[detach + 2] == ("release_pixel_format", f"p{i}")
+    writes.clear()
+    flushed.clear()
+    probe_module._CGL_STAGE_STATE[:] = [0, 0]
+    report, _ = run(probe_module, "detach_fail")
+    assert report["status"] == "STOPPED_CLEANUP_FAILURE"
+    assert {"stage": "detach", "phase": "post", "status": "FAIL", "rc": 10004} in writes
+    assert not any(e["stage"] == "release_context" for e in writes)
+    assert writes[-1] == {"stage": "release_pixel_format", "phase": "post", "status": "OK"}
+    assert len(writes) == len(flushed)

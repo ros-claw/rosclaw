@@ -190,3 +190,93 @@ model/STEP/NN/rendering, ROS and containers remain **NOT_RUN** in this phase.
 Only source text authoring/review occurred, using the native host authoring
 model; this does not claim zero total SDK/provider activity. No shell, checker,
 standalone SDK test or production-provider test was executed.
+
+## Public string crashfix source revision (2026-10-15)
+
+This append supersedes the earlier raw-string implementation and its claimed
+512-byte read bound. Status: **SOURCE_AUTHORED_NOT_RUNTIME_VALIDATED**. The
+current prompt is `history_inputs/TASK_PROMPT.txt`; this revision is source
+creation only, not a repeat of either historical native attempt.
+
+Both historical SIGSEGVs and their incurred costs remain retained evidence;
+none is reset, reclassified as a Choose failure, or replaced with a success.
+The supplied confirmed trace records default and no-sampling-accelerated Choose
+RC 10002 / npix 0. The third, unrestricted-acceleration array obtained Choose
+RC 0 / npix 1, Create RC 0 and SetCurrent RC 0 before GL_VENDOR manual `ptr[i]`
+segfaulted. Its process exited -11 after 1.0707981250000103 seconds, with empty
+stdout and no native report. The actual pointer value and first bad index
+remain **UNKNOWN**. No unsupported numeric cost for the other crash is inferred.
+The original source PASS and fifteen-test pure PASS are historical source/fake
+checks, **not Mac availability evidence**. The strong camera oracle remains
+unchanged; neither these checks nor the trace establishes pixel fidelity.
+
+### Public API and provenance
+
+`_NativeBoundary.query` now calls **OpenGL.GL.glGetString**. The copied installed
+PyOpenGL 3.1.10 public chain is the basis: public `OpenGL/GL/__init__.py` imports
+`glget`; `OpenGL/GL/glget.py` selects `_simple.glGetString` from public
+`VERSION/GL_1_1.py` and assigns `ctypes.c_char_p`. The diagnostic does **not**
+set restype, redeclare a prototype, or call the raw GL1.0 string function.
+Before the first query call, actual loaded public initializer, glget, public
+GL1.1, arraydatatype and raw GL1.0 files are hashed and checked. Public callable
+alias identities and the existing requested framework identity are checked as
+well. `metadata.query_sources` retains those observed hashes even on a source
+mismatch; `metadata.query_api` identifies the public c_char_p route on success.
+The four new public source pins are from the copied confirmed crash receipt,
+not inferred from the raw GL1.0 pin. These checks are source provenance, not a
+claim of authenticated process memory or complete dyld binary identity.
+
+Only exact Python `bytes` or `None` are accepted from this call. None is
+unavailable; other objects raise `TypeError` without truth probing, indexing,
+casting, address logging, or pointer dereference. Bytes are sliced to at most
+512 **before** NUL splitting and UTF-8 replacement decoding. Embedded NUL and
+empty strings are handled without a manual C-pointer loop. The public
+`c_char_p` conversion relies on OpenGL's **NUL-terminated C-string API contract**:
+512 is only a Python input-processing limit, **not a hard 512-byte C read
+bound**, and not a guarantee against every driver/native crash. Logged stage
+records contain no string contents. The frozen report code still truncates
+returned Python text to 512 characters; JSON escaping and replacement decoding
+can expand serialized byte size. No new GL requests or retries are added.
+
+### Flushed progress, not completion evidence
+
+One `_cgl_stage_event` helper emits allowlisted JSON lines to stderr and flushes
+each write. Its process-lifetime budget is at most 128 events, 1024 ASCII bytes
+per event and 64 KiB total reserved output, including newlines. It never echoes
+arbitrary objects, strings, exceptions, paths, handles, addresses, credentials
+or environment dumps. Sink exceptions are suppressed so logging cannot change
+the existing ownership/cleanup algorithm. A broken sink cannot guarantee log
+persistence. Budget exhaustion silently stops logging; it never retries native
+work. No file or native operation is introduced by this helper.
+
+Standalone helper calls surround Choose/Create/MakeCurrent, each GL field,
+detach and actual resource releases. Constructor/binding entry and successful
+return are also marked. The query method marks its own entry and ordinary
+return/error. A fatal native signal may leave only the last flushed **pre**;
+missing post is not a fabricated return code. Python exceptions give typed
+ERROR progress; release still records no invented numeric RC. An unsafe detach
+still quarantines its context and performs no context-release call/event.
+Original CGL method bodies, three arrays, handshake/cleanup statements and exit
+semantics are preserved. Events are progress observations, never proof of
+native success, full GL availability, rendering, camera fidelity or physics.
+
+### New pure tests and next evidence boundary
+
+Three tests are appended, for **eighteen** authored tests total; the original
+fifteen tests/assertions remain intact. One executes the actual query method
+bound to a fake boundary using fake public OpenGL modules and independently
+supplied pinned metadata. It covers bytes, None, NUL/length/decoding cases,
+poison-pointer rejection, source/library/alias gates and flushed stage ordering
+through ordinary cleanup. Two further tests cover adversarial serialization,
+all three output budgets, broken stderr, query-error post events, and detach
+failure quarantine/order. No production `_NativeBoundary` constructor, native
+load, real OpenGL/provider call, or model is used by these new tests.
+
+The fix and all eighteen current pure tests are **NOT_RUN here**. No Bash,
+checker, standalone SDK test, actual CGL, ROS, Docker/container, STEP, NN,
+model physics or rendering was executed. Authoring used the native host/model;
+this is explicitly **not** a zero-total-provider-activity claim. Independent
+Root review must perform Ruff, then pure tests, then any separately authorized
+third actual macOS run. Actual native availability and the original camera
+failure remain unresolved until fresh independent evidence. Source registration
+alone supplies no runtime/platform credit.
