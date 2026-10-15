@@ -44,3 +44,16 @@ accepted. Allocation, actual evaluator integration, provenance filtering,
 original logs, failures and statistical report must be independently checked.
 No formal 54-episode model result, Memory benefit, full v1 or hardware acceptance
 is asserted by these protocol and runner software tests.
+
+The external sdk_operator module accepts explicit operator material/recovery
+paths, retains original preparation failures, allows at most two fresh zero-
+admission preparation Worlds, and evaluates each proposal through the existing
+canonical SDK fixture plus independent original source/stop reviewers. Cleanup
+requires exact container ID, evidence mount, pinned SDK image and network-none.
+It never turns World termination into physical-stop evidence. Formal source/run
+seeds, all helper hashes and the actual training store must be frozen before the
+54-episode study. Native CLI tool deviations fail the external protocol while
+retaining any provider-reported usage. Model-referenced Memory aliases must have
+actually passed admission before the proposal. Rejected-record labels/counts
+are kept in the operator audit, preventing the admission filter from exposing
+the hidden evaluation class to the model.
