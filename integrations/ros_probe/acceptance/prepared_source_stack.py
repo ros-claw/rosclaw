@@ -27,7 +27,7 @@ def main():
         raise ValueError("pinned prepared assets differ from this actual SIM run")
     descriptor = json.loads(Path("/assets/bringup.json").read_text())
     if (
-        set(descriptor)
+        set(descriptor) - {"scan_bridge_state", "additional_command_endpoint"}
         != {
             "schema_version",
             "namespace",
@@ -45,6 +45,30 @@ def main():
         or not descriptor["controllers"]["names"]
     ):
         raise ValueError("closed pinned operator bringup descriptor required")
+    scan_state = descriptor.get("scan_bridge_state", "running")
+    if scan_state not in {"running", "paused_after_initialization"}:
+        raise ValueError("explicit engineering scan bridge state required")
+    if (
+        scan_state != "running"
+        and settings.get("engineering_capture", {}).get("case") != "scan_stale"
+    ):
+        raise ValueError("paused scan bridge requires explicit engineering capture role")
+    extra = descriptor.get("additional_command_endpoint")
+    if extra is not None and (
+        type(extra) is not dict
+        or set(extra) != {"enabled", "topic", "msg_type"}
+        or type(extra["enabled"]) is not bool
+        or type(extra["topic"]) is not str
+        or not extra["topic"].startswith("/")
+        or extra["msg_type"] != "geometry_msgs/msg/Twist"
+    ):
+        raise ValueError("closed additional command endpoint declaration required")
+    if (
+        extra
+        and extra["enabled"]
+        and settings.get("engineering_capture", {}).get("case") != "duplicate_velocity_route"
+    ):
+        raise ValueError("extra endpoint requires explicit engineering capture role")
     children, logs, owned = [], [], {}
 
     def start(name, argv):
@@ -150,6 +174,11 @@ def main():
             "rosapi",
             ["ros2", "run", "rosapi", "rosapi_node", "--ros-args", "-p", "use_sim_time:=true"],
         )
+        if extra and extra["enabled"]:
+            start(
+                "engineering_extra_endpoint",
+                ["python3", str(ROOT / "simulation_engineering_endpoint_fixture.py")],
+            )
         # This is only a process-spawn milestone, never ROS/physics readiness.
         # The capture owner separately requires actual ACTIVE lifecycle and
         # complete physical observations after the components have started.

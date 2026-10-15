@@ -80,6 +80,9 @@ def observer_facts():
 
 def main():
     settings = json.loads(Path("/settings.json").read_text())
+    from simulation_engineering_capture import validate_engineering_capture
+
+    engineering_capture = validate_engineering_capture(settings)
     governed = settings.get("governed_sink")
     if governed is not None and (
         type(governed) is not dict
@@ -473,7 +476,13 @@ def main():
                         row.name == name and row.state == "ACTIVE"
                         for row in state["model"].lifecycle
                     )
-                    for name in requirements["lifecycle_nodes"].values()
+                    # A failure capture needs the real localization service
+                    # for initial pose setup, not a claim that Nav2 is ready.
+                    for name in (
+                        [requirements["lifecycle_nodes"]["localization"]]
+                        if engineering_capture
+                        else requirements["lifecycle_nodes"].values()
+                    )
                 )
             ),
             30,
@@ -496,6 +505,11 @@ def main():
         save("operator-initialization-exit.json", {"returncode": initialized.returncode})
         if initialized.returncode:
             raise RuntimeError("explicit operator SIM initialization failed")
+        if engineering_capture:
+            from simulation_engineering_capture import capture_failure
+
+            capture_failure(OUT, engineering_capture, state, spin_until, save)
+            return
         spin_until(
             lambda: (
                 state["review"]
