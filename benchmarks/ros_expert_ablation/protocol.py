@@ -53,7 +53,8 @@ def admit_memory(record, *, evaluation_case, evaluation_runs, urdf_sha256):
     examples may inform workflow; retrieval alone is not a model benefit.
     """
     return (
-        record.get("independently_verified") is True
+        evaluation_case != "j100_navigation_onboarding"
+        and record.get("independently_verified") is True
         and record.get("claim_scope") == "SIMULATION_ONLY"
         and record.get("training_only") is True
         and record.get("fault_case_id") in CASES
@@ -61,7 +62,10 @@ def admit_memory(record, *, evaluation_case, evaluation_runs, urdf_sha256):
         and record.get("source_urdf_sha256") == urdf_sha256
         and isinstance(record.get("episode_sha256"), str)
         and len(record["episode_sha256"]) == 64
-        and bool(record.get("world_runs"))
+        and all(c in "0123456789abcdef" for c in record["episode_sha256"])
+        and isinstance(record.get("world_runs"), list)
+        and bool(record["world_runs"])
+        and all(isinstance(run, str) and run for run in record["world_runs"])
         and not set(record["world_runs"]).intersection(evaluation_runs)
     )
 
@@ -79,7 +83,7 @@ def usage_from_events(events):
         raise ValueError("actual provider usage missing or malformed")
     if usage["cached_input_tokens"] > usage["input_tokens"]:
         raise ValueError("cached input tokens exceed input tokens")
-    return {k: usage[k] for k in fields}
+    return dict(usage)
 
 
 def validate_complete_results(rows):
