@@ -7,7 +7,7 @@ def permits_unavailable_status_retry(effect, policy, ready, *, policy_sha256, er
     """An unavailable read is UNKNOWN; this never creates a terminal receipt."""
     if (
         not isinstance(error, MCPError)
-        or error.code != "ROSCLAWD_UNAVAILABLE"
+        or error.code != "DAEMON_UNAVAILABLE"
         or error.details.get("operation") != "get_action_status"
         or "rosclawd is unavailable" not in str(error)
         or "timed out" not in str(error)

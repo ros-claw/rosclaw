@@ -52,7 +52,7 @@ def test_bound_original_fault_allows_only_read_retry(module):
         r,
         policy_sha256="hash",
         error=MCPError(
-            "ROSCLAWD_UNAVAILABLE",
+            "DAEMON_UNAVAILABLE",
             "rosclawd is unavailable: timed out",
             details={"operation": "get_action_status"},
         ),
@@ -80,7 +80,7 @@ def test_bound_original_fault_allows_only_read_retry(module):
 def test_unbound_or_unconfirmed_fault_cannot_hide_status_errors(module, fault):
     e, p, r = data()
     error = MCPError(
-        "ROSCLAWD_UNAVAILABLE",
+        "DAEMON_UNAVAILABLE",
         "rosclawd is unavailable: timed out",
         details={"operation": "get_action_status"},
     )
@@ -110,4 +110,20 @@ def test_unbound_or_unconfirmed_fault_cannot_hide_status_errors(module, fault):
         error = RuntimeError("invalid original receipt")
     assert not module.permits_unavailable_status_retry(
         e, p, r, policy_sha256="hash", error=error, now_ns=3
+    )
+
+
+def test_actual_adapter_preserves_daemon_unavailable_code(module):
+    from rosclaw.daemon.client import DaemonUnavailableError
+    from rosclaw.mcp.adapters.runtime_client import RuntimeClient
+
+    with pytest.raises(MCPError) as captured:
+        RuntimeClient._raise_daemon_error(
+            None,
+            "get_action_status",
+            DaemonUnavailableError("DAEMON_UNAVAILABLE", "rosclawd is unavailable: timed out"),
+        )
+    effect, policy, ready = data()
+    assert module.permits_unavailable_status_retry(
+        effect, policy, ready, policy_sha256="hash", error=captured.value, now_ns=3
     )
