@@ -28,6 +28,7 @@ from simulation_source_capture import BoundedSourceJsonlCapture
 from rosclaw.daemon.client import DaemonClient
 from rosclaw.mcp import tools
 from rosclaw.mcp.adapters.runtime_client import RuntimeClient
+from rosclaw.mcp.schemas.common import MCPError
 
 
 def read_nonrenewing_action_status(client, action_id):
@@ -418,7 +419,7 @@ async def main():
                     else:
                         try:
                             action_status = await tools._get_action_status(goal["action_id"])
-                        except RuntimeError as unavailable:
+                        except MCPError as unavailable:
                             effect_path = (
                                 evidence / "governed-rosbridge-disconnect-effect-original.json"
                             )

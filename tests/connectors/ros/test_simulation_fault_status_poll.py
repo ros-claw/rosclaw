@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pytest
 
+from rosclaw.mcp.schemas.common import MCPError
+
 
 @pytest.fixture
 def module(monkeypatch):
@@ -49,7 +51,11 @@ def test_bound_original_fault_allows_only_read_retry(module):
         p,
         r,
         policy_sha256="hash",
-        error=RuntimeError("rosclawd is unavailable: timed out"),
+        error=MCPError(
+            "ROSCLAWD_UNAVAILABLE",
+            "rosclawd is unavailable: timed out",
+            details={"operation": "get_action_status"},
+        ),
         now_ns=3,
     )
 
@@ -67,11 +73,17 @@ def test_bound_original_fault_allows_only_read_retry(module):
         "future",
         "not_closed",
         "other_error",
+        "wrong_code",
+        "wrong_operation",
     ],
 )
 def test_unbound_or_unconfirmed_fault_cannot_hide_status_errors(module, fault):
     e, p, r = data()
-    error = RuntimeError("rosclawd is unavailable: timed out")
+    error = MCPError(
+        "ROSCLAWD_UNAVAILABLE",
+        "rosclawd is unavailable: timed out",
+        details={"operation": "get_action_status"},
+    )
     if fault == "run":
         e["run_id"] = "other"
     elif fault == "body":
@@ -90,6 +102,10 @@ def test_unbound_or_unconfirmed_fault_cannot_hide_status_errors(module, fault):
         e["after_monotonic_ns"] = 4
     elif fault == "not_closed":
         e["original_navigation_sockets_after"][0]["closed"] = False
+    elif fault == "wrong_code":
+        error.code = "AUTHORIZATION_REQUIRED"
+    elif fault == "wrong_operation":
+        error.details["operation"] = "request_action"
     else:
         error = RuntimeError("invalid original receipt")
     assert not module.permits_unavailable_status_retry(
