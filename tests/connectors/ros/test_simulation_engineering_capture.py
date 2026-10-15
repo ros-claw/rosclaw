@@ -36,6 +36,7 @@ def settings(case):
     "case",
     sorted(
         [
+            "j100_navigation_onboarding",
             "map_to_odom_missing",
             "scan_stale",
             "nav2_lifecycle_inactive",
@@ -139,7 +140,16 @@ def test_original_capture_requires_current_native_and_physics(
     assert module.current_capture(state) is expected
 
 
-def test_unready_capture_preserves_missing_body_and_execution_config(module, tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    "case,candidate_status,l1",
+    [
+        ("map_to_odom_missing", "UNKNOWN", "NOT_READY"),
+        ("j100_navigation_onboarding", "PROPOSED", "NOT_EVALUATED"),
+    ],
+)
+def test_unready_capture_preserves_missing_body_and_execution_config(
+    module, tmp_path, monkeypatch, case, candidate_status, l1
+):
     sink = {
         "run_id": "owned-run",
         "body_snapshot_hash": None,
@@ -163,7 +173,7 @@ def test_unready_capture_preserves_missing_body_and_execution_config(module, tmp
         "native": {"captured_at": stamp, "completeness": {"graph": True}},
         "physics": {"captured_at": stamp, "observation_complete": True, "body_snapshot_hash": None},
         "review": {
-            "status": "UNKNOWN",
+            "status": candidate_status,
             "candidate": {},
             "reviewed_at": stamp,
             "source_snapshot_hash": "synthetic",
@@ -181,11 +191,9 @@ def test_unready_capture_preserves_missing_body_and_execution_config(module, tmp
     def save(name, value):
         (tmp_path / name).write_text(json.dumps(value))
 
-    module.capture_failure(
-        tmp_path, settings("map_to_odom_missing")["engineering_capture"], state, spin, save
-    )
+    module.capture_failure(tmp_path, settings(case)["engineering_capture"], state, spin, save)
     marker = json.loads((tmp_path / "engineering-capture-ready.json").read_text())
-    assert marker["L1"] == "NOT_READY" and marker["L2"] == "NOT_RUN"
+    assert marker["L1"] == l1 and marker["L2"] == "NOT_RUN"
     assert marker["body_snapshot_hash"] is None and marker["navigation_workspace_compiled"] is False
     assert not (tmp_path / "execution_config.json").exists()
 
