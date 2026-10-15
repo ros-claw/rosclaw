@@ -1,0 +1,175 @@
+{
+  "status": "PROPOSED_SELECTED8_DECLARATION_AND_TYPE_EVIDENCE_ONLY_NO_GO",
+  "original_sdk_run": 38744341222,
+  "original_sdk_job": 116453920237,
+  "original_sdk_job_status": "FAIL_EXIT2_LITERAL_CLOSURE_MISSING_RETAINED",
+  "original_capture_receipt_sha256": "cf89998d61e66d2498e7677a594eb4ad17192398a6b4d16b7c134a1d6c237151",
+  "original_sdk_manifest_sha256": "2eb701e5e0f60e11a3a99b57ec338e16eb85d9e137f3e0280d451823716016e4",
+  "sdk_version": "26.5",
+  "machine": "arm64",
+  "selected_headers": [
+    {
+      "relative_sdk_path": "System/Library/Frameworks/OpenGL.framework/Versions/A/Headers/OpenGL.h",
+      "bytes": 6713,
+      "sha256": "875e10229940be9cbb2c8186829c92d2d22108514bdb6fd67ad20746dd1f94c5",
+      "local_capture_path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_MACOS_SDK_ONLY_ACTUAL_CAPTURE_20261015_v1/headers/System/Library/Frameworks/OpenGL.framework/Versions/A/Headers/OpenGL.h"
+    },
+    {
+      "relative_sdk_path": "System/Library/Frameworks/OpenGL.framework/Versions/A/Headers/CGLTypes.h",
+      "bytes": 21403,
+      "sha256": "6e7f302c334dbb33790df6a42c184b380585ffab12768fd54be3d04075f0a9ce",
+      "local_capture_path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_MACOS_SDK_ONLY_ACTUAL_CAPTURE_20261015_v1/headers/System/Library/Frameworks/OpenGL.framework/Versions/A/Headers/CGLTypes.h"
+    },
+    {
+      "relative_sdk_path": "System/Library/Frameworks/OpenGL.framework/Versions/A/Headers/CGLCurrent.h",
+      "bytes": 467,
+      "sha256": "e8930268ae3caa5079441b2880e78cd2bf2f398c37ea00d7ba0b28fff7273fa2",
+      "local_capture_path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_MACOS_SDK_ONLY_ACTUAL_CAPTURE_20261015_v1/headers/System/Library/Frameworks/OpenGL.framework/Versions/A/Headers/CGLCurrent.h"
+    },
+    {
+      "relative_sdk_path": "System/Library/Frameworks/OpenGL.framework/Versions/A/Headers/gltypes.h",
+      "bytes": 1410,
+      "sha256": "87fea68798fafe4b86137c21504fecfe19bbfc77f405a733859c67ffe56787ac",
+      "local_capture_path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_MACOS_SDK_ONLY_ACTUAL_CAPTURE_20261015_v1/headers/System/Library/Frameworks/OpenGL.framework/Versions/A/Headers/gltypes.h"
+    },
+    {
+      "relative_sdk_path": "System/Library/Frameworks/OpenGL.framework/Versions/A/Headers/OpenGLAvailability.h",
+      "bytes": 775,
+      "sha256": "a20b898c700fe09d3eaba49752531d407c53c1bf14fbb6052d98b3b1e21b9201",
+      "local_capture_path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_MACOS_SDK_ONLY_ACTUAL_CAPTURE_20261015_v1/headers/System/Library/Frameworks/OpenGL.framework/Versions/A/Headers/OpenGLAvailability.h"
+    },
+    {
+      "relative_sdk_path": "usr/include/stdint.h",
+      "bytes": 5556,
+      "sha256": "9d070aad02d9f2ba1f2248d093b4194b62cf8d363778c737d1110f4736e5ed3c",
+      "local_capture_path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_MACOS_SDK_ONLY_ACTUAL_CAPTURE_20261015_v1/headers/usr/include/stdint.h"
+    },
+    {
+      "relative_sdk_path": "usr/include/sys/_types/_int32_t.h",
+      "bytes": 1417,
+      "sha256": "77127195e57f1690402377ddd72e3dcda684ddf591346f08ef4772dddcbbc281",
+      "local_capture_path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_MACOS_SDK_ONLY_ACTUAL_CAPTURE_20261015_v1/headers/usr/include/sys/_types/_int32_t.h"
+    },
+    {
+      "relative_sdk_path": "usr/include/machine/_types.h",
+      "bytes": 1614,
+      "sha256": "f27264f8fdec9f164b4fc2b556f666ed7c5c0e5b88fd9f23db0b731ffa6cf864",
+      "local_capture_path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_MACOS_SDK_ONLY_ACTUAL_CAPTURE_20261015_v1/headers/usr/include/machine/_types.h"
+    },
+    {
+      "relative_sdk_path": "usr/include/arm/_types.h",
+      "bytes": 4470,
+      "sha256": "4f0bde85f9a41cc7d30fff22ebd7e8f4eb206a55a926eda012a2e7481e3524fa",
+      "local_capture_path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_MACOS_SDK_ONLY_ACTUAL_CAPTURE_20261015_v1/headers/usr/include/arm/_types.h"
+    },
+    {
+      "relative_sdk_path": "usr/include/Availability.h",
+      "bytes": 28849,
+      "sha256": "d39d74d343b5f3dc147525c5f4ba99c1ae9133bccc57eb6205a74d0ba99d92cb",
+      "local_capture_path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_MACOS_SDK_ONLY_ACTUAL_CAPTURE_20261015_v1/headers/usr/include/Availability.h"
+    },
+    {
+      "relative_sdk_path": "usr/include/os/availability.h",
+      "bytes": 14940,
+      "sha256": "620185ddfad2c157028a978ff08796a9c63aafe4e7c674921e9f0b8dda3a5092",
+      "local_capture_path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_MACOS_SDK_ONLY_ACTUAL_CAPTURE_20261015_v1/headers/usr/include/os/availability.h"
+    },
+    {
+      "relative_sdk_path": "usr/include/sys/cdefs.h",
+      "bytes": 42609,
+      "sha256": "ac1a889ee7e6f3025e01be9981d26751489b9e63e926035201cae07ab9e6576f",
+      "local_capture_path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_MACOS_SDK_ONLY_ACTUAL_CAPTURE_20261015_v1/headers/usr/include/sys/cdefs.h"
+    },
+    {
+      "relative_sdk_path": "usr/include/sys/_types/_va_list.h",
+      "bytes": 1714,
+      "sha256": "688c84ca73e82898609ae7282c820e896e4b82b7dc14f4fc92b4263df5827de2",
+      "local_capture_path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/ROOT_MACOS_SDK_ONLY_ACTUAL_CAPTURE_20261015_v1/headers/usr/include/sys/_types/_va_list.h"
+    }
+  ],
+  "prototypes": {
+    "CGLChoosePixelFormat": {
+      "declaration": "extern CGLError CGLChoosePixelFormat(const CGLPixelFormatAttribute *attribs, CGLPixelFormatObj OPENGL_NULLABLE * OPENGL_NONNULL pix, GLint *npix) OPENGL_DEPRECATED(10.0, 10.14);",
+      "header": "System/Library/Frameworks/OpenGL.framework/Versions/A/Headers/OpenGL.h",
+      "line": 31,
+      "normalized": "extern CGLError CGLChoosePixelFormat(const CGLPixelFormatAttribute *attribs, CGLPixelFormatObj OPENGL_NULLABLE * OPENGL_NONNULL pix, GLint *npix) OPENGL_DEPRECATED(10.0, 10.14);"
+    },
+    "CGLCreateContext": {
+      "declaration": "extern CGLError CGLCreateContext(CGLPixelFormatObj pix, CGLContextObj OPENGL_NULLABLE share, CGLContextObj OPENGL_NULLABLE * OPENGL_NONNULL ctx) OPENGL_DEPRECATED(10.0, 10.14);",
+      "header": "System/Library/Frameworks/OpenGL.framework/Versions/A/Headers/OpenGL.h",
+      "line": 48,
+      "normalized": "extern CGLError CGLCreateContext(CGLPixelFormatObj pix, CGLContextObj OPENGL_NULLABLE share, CGLContextObj OPENGL_NULLABLE * OPENGL_NONNULL ctx) OPENGL_DEPRECATED(10.0, 10.14);"
+    },
+    "CGLGetCurrentContext": {
+      "declaration": "extern CGLContextObj OPENGL_NULLABLE CGLGetCurrentContext(void);",
+      "header": "System/Library/Frameworks/OpenGL.framework/Versions/A/Headers/CGLCurrent.h",
+      "line": 20,
+      "normalized": "extern CGLContextObj OPENGL_NULLABLE CGLGetCurrentContext(void);"
+    },
+    "CGLLockContext": {
+      "declaration": "extern CGLError CGLLockContext(CGLContextObj ctx) OPENGL_AVAILABLE(10_4) OPENGL_DEPRECATED(10.4, 10.14);",
+      "header": "System/Library/Frameworks/OpenGL.framework/Versions/A/Headers/OpenGL.h",
+      "line": 110,
+      "normalized": "extern CGLError CGLLockContext(CGLContextObj ctx) OPENGL_AVAILABLE(10_4) OPENGL_DEPRECATED(10.4, 10.14);"
+    },
+    "CGLReleaseContext": {
+      "declaration": "extern void CGLReleaseContext(CGLContextObj ctx) OPENGL_AVAILABLE(10_5) OPENGL_DEPRECATED(10.4, 10.14);",
+      "header": "System/Library/Frameworks/OpenGL.framework/Versions/A/Headers/OpenGL.h",
+      "line": 52,
+      "normalized": "extern void CGLReleaseContext(CGLContextObj ctx) OPENGL_AVAILABLE(10_5) OPENGL_DEPRECATED(10.4, 10.14);"
+    },
+    "CGLReleasePixelFormat": {
+      "declaration": "extern void CGLReleasePixelFormat(CGLPixelFormatObj pix) OPENGL_AVAILABLE(10_5) OPENGL_DEPRECATED(10.5, 10.14);",
+      "header": "System/Library/Frameworks/OpenGL.framework/Versions/A/Headers/OpenGL.h",
+      "line": 34,
+      "normalized": "extern void CGLReleasePixelFormat(CGLPixelFormatObj pix) OPENGL_AVAILABLE(10_5) OPENGL_DEPRECATED(10.5, 10.14);"
+    },
+    "CGLSetCurrentContext": {
+      "declaration": "extern CGLError CGLSetCurrentContext(CGLContextObj OPENGL_NULLABLE ctx);",
+      "header": "System/Library/Frameworks/OpenGL.framework/Versions/A/Headers/CGLCurrent.h",
+      "line": 19,
+      "normalized": "extern CGLError CGLSetCurrentContext(CGLContextObj OPENGL_NULLABLE ctx);"
+    },
+    "CGLUnlockContext": {
+      "declaration": "extern CGLError CGLUnlockContext(CGLContextObj ctx) OPENGL_AVAILABLE(10_4) OPENGL_DEPRECATED(10.4, 10.14);",
+      "header": "System/Library/Frameworks/OpenGL.framework/Versions/A/Headers/OpenGL.h",
+      "line": 112,
+      "normalized": "extern CGLError CGLUnlockContext(CGLContextObj ctx) OPENGL_AVAILABLE(10_4) OPENGL_DEPRECATED(10.4, 10.14);"
+    }
+  },
+  "installed_primary": [
+    {
+      "relative_path": "mujoco/rendering/classic/renderer.py",
+      "path": "/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/mujoco/rendering/classic/renderer.py",
+      "bytes": 11874,
+      "sha256": "c193df6a8b8cc1659819abd0ded5c17dab0e3e64edb7af6a1e8d249bb4a4a548",
+      "expected_linux_sha256": "c193df6a8b8cc1659819abd0ded5c17dab0e3e64edb7af6a1e8d249bb4a4a548",
+      "matches_expected": true
+    },
+    {
+      "relative_path": "mujoco/cgl/__init__.py",
+      "path": "/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/mujoco/cgl/__init__.py",
+      "bytes": 2367,
+      "sha256": "075193793fb0743385eb37d0ca46ac3949a6eb1db6ad5bf41091bc588d96d41b",
+      "expected_linux_sha256": "075193793fb0743385eb37d0ca46ac3949a6eb1db6ad5bf41091bc588d96d41b",
+      "matches_expected": true
+    },
+    {
+      "relative_path": "mujoco/cgl/cgl.py",
+      "path": "/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/mujoco/cgl/cgl.py",
+      "bytes": 5215,
+      "sha256": "b836c7148846cd0d6ea1f461c3ad60eade74e2687b10d9c68a7de06db50467c0",
+      "expected_linux_sha256": "b836c7148846cd0d6ea1f461c3ad60eade74e2687b10d9c68a7de06db50467c0",
+      "matches_expected": true
+    }
+  ],
+  "binding_source": {
+    "path": "/home/nvidia/workspace/tennis/experiments/harness_audit_20261003/M20_OWNED_DARWIN_TYPED_PRIMARY_CLEANUP_REPAIR_NO_GO_20261015_v1/seed_source_0.txt",
+    "sha256": "4dd5948d4978330238132dcc9246f49581b675f40a9a3644695a8e8f63f04063",
+    "CGL_API_signature_dict_ast_sha256": "28d7b00d324693733a37f6321c62abb5d3fddee6b4705e87850d016150474a4f",
+    "later_final_factory_requirement": "same signatures AST required; Rootbind actual acceptedpublishedfactoryfile SHA separately"
+  },
+  "full_literal_include_closure_complete": false,
+  "selected_acceptance_scope": "Exact observed selected8declarations +opaque/GLint/enum source evidence; no complete SDKclosure/compiler ABI guarantee",
+  "enum_width_limitation": "CGLError and CGLPixelFormatAttribute are C enums, no compiledsizeof/enumflags evidence. c_int mapping consistent with default Darwin32-bit enum ABI and pinned installedMuJoCo CGL bindings, not established by these headertexts alone."
+}

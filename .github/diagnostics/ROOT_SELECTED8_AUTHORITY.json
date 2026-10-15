@@ -1,0 +1,15 @@
+{
+  "status": "ROOT_SELECTED8_DECLARATION_SCOPE_ACCEPTED_NOT_FULL_CLOSURE",
+  "Root_manual_selected8_scope_approval": true,
+  "original_sdk_only_FAILURE_preserved": true,
+  "compiled_enum_ABI_not_claimed": true,
+  "selected_manifest_sha256": "e6a1e421798e3a7e44abda1b1b930b50349a3ab8e8c64e316fbfb452ae43d994",
+  "factory_path": "/Users/runner/work/rosclaw/rosclaw/src/rosclaw/sim/backends/mujoco/owned_renderer.py",
+  "factory_sha256": "cb0f0c47f64f01de2c34c3a49b6d0a12953e492feba5de3e85a683382e771544",
+  "accepted_source_receipt_sha256": "d92e758a877b717165ee66f5ad8ba26b9a4c937edbc4ccf73afd3435e94fd188",
+  "actual_camera_separate_grant": true,
+  "actual_camera_grant_case": "ROOT_RGB_NATIVE_ORIGINAL_SIM_20261015_V1",
+  "actual_product_head": "fd3a3cdbc053909bedd4c1bfa1dc0b4b30742f28",
+  "prior_actual_run": 38754562951,
+  "prior_Mac_whole_FAIL_preserved": true
+}
