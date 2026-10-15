@@ -366,18 +366,36 @@ class RosGraphDiscovery:
         )
 
     def list_actions(self) -> list[RosActionInfo]:
-        # rosapi/action_servers is available in rosbridge for ROS2.
+        # Both pinned ROS versions return action_servers; retain the legacy
+        # actions alias, but never let conflicting declarations hide an action.
         result = self._call_rosapi("action_servers")
-        if not result.ok:
+        if not result.ok or result.error:
             logger.debug("list_actions not supported or failed: %s", result.error)
+            return []
+        if isinstance(result.data, dict) and result.data.get("result") is False:
             return []
 
         values = _extract_values(result.data)
-        action_names = values.get("actions") or values.get("action_servers") or []
+        if (
+            "actions" in values
+            and "action_servers" in values
+            and values["actions"] != values["action_servers"]
+        ):
+            raise ValueError("ROS_ACTION_METADATA_INVALID: conflicting action name arrays")
+        action_names = values.get("action_servers", values.get("actions", []))
+        if not isinstance(action_names, list) or any(
+            not isinstance(name, str) or not name.strip() or name != name.strip()
+            for name in action_names
+        ):
+            raise ValueError("ROS_ACTION_METADATA_INVALID: expected action name array")
 
         infos: list[RosActionInfo] = []
         for name in action_names:
             action_type = self._get_action_type(name)
+            if not action_type:
+                logger.warning("ROS_ACTION_TYPE_UNRESOLVED: %s", name)
+            # Keep unresolved actions so the compiler's nonempty-type gate
+            # rejects the snapshot instead of manufacturing partial success.
             info = RosActionInfo(name=name, action_type=action_type)
             self._classify_action(info)
             infos.append(info)
@@ -469,9 +487,31 @@ class RosGraphDiscovery:
         return [node] if node else []
 
     def _get_action_type(self, action: str) -> str:
-        # There is no standard rosapi action_type service; return empty.
-        # Providers may override this by subscribing to the action topics.
-        return ""
+        # The pinned ROS1 rosapi has no ActionType service. Do not invent a
+        # type from the action name or from generated topic suffixes.
+        if self._profile.version != RosVersion.ROS2:
+            return ""
+        if not isinstance(action, str) or not action.strip() or action != action.strip():
+            return ""
+
+        result = self._call_rosapi("action_type", {"action": action})
+        if not result.ok or result.error:
+            logger.debug("action_type unavailable for %s: %s", action, result.error)
+            return ""
+        if isinstance(result.data, dict) and result.data.get("result") is False:
+            return ""
+        raw = _extract_values(result.data).get("type")
+        # ActionType.srv returns one string, not an array. Reject ambiguous or
+        # malformed metadata rather than selecting a candidate or coercing it.
+        if not isinstance(raw, str):
+            return ""
+        raw = raw.strip()
+        if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*/(?:action/)?[A-Za-z][A-Za-z0-9_]*", raw):
+            return ""
+
+        from rosclaw.connectors.ros.discovery.normalizer import normalize_action_type
+
+        return normalize_action_type(raw, self._profile.version)
 
     def _denormalize_msg(self, canonical: str) -> str:
         if self._profile.version == RosVersion.ROS1:
