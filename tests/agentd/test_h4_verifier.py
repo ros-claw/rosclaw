@@ -119,7 +119,7 @@ class TestFinishVerifier:
             task_id=task["task_id"], path=str(produced),
             media_type="text/plain",
         )
-        produced.write_text("tampered\n")
+        (Path(artifact["path"]).chmod(0o600), Path(artifact["path"]).write_text("tampered\n"))
         result = kernel.finish_task(
             task_id=task["task_id"], summary="完成",
             artifact_ids=[artifact["artifact_id"]],

@@ -40,7 +40,7 @@ async def test_first_delivery_binds_native_workspace(tmp_path, relative):
             (result.artifact_refs[0],),
         ).fetchone()
         assert artifact["task_id"] == task["task_id"]
-        assert Path(artifact["path"]).resolve() == source.resolve()
+        assert Path(artifact["path"]).resolve() != source.resolve() and Path(artifact["path"]).read_bytes() == source.read_bytes() and __import__("json").loads(artifact["metadata_json"])["source_path"] == str(source.resolve())
     finally:
         await service.close()
 

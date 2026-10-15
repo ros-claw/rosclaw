@@ -1,22 +1,14 @@
-"""交付投影视图（0827 体验审计 P0-4）。
+"""Non-authoritative outputs view: verified, independent copies, never hardlinks.
 
-outputs/ 是 ArtifactStore 的**投影视图**，不是第二个交付真相：
-登记产物由内核自动投影到运行 outputs/ 区（hardlink 优先、copy
-兜底）——内核内部文件操作，不经模型 Shell、不依赖 bwrap。
-
-纪律：
-- 投影失败绝不翻转交付判定（DELIVERED + workspace_projection
-  DEGRADED——账本/open_command 仍是权威）；
-- 账本路径不被投影改写（内容寻址的 ArtifactStore 是唯一真相）；
-- 幂等：同 sha256 投影不重复。
+Projection failure degrades the view, not registration. Ledger paths remain
+unchanged; only current-revision non-evidence payloads are projected.
 """
 
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
-import os
-import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -29,11 +21,9 @@ _LOG = logging.getLogger("rosclaw.projection")
 
 
 def project_deliverables(kernel: TaskKernel, task_id: str) -> str:
-    """把任务登记产物投影到运行 outputs/ 区。返回 OK/DEGRADED。
+    """Project verified current-revision bytes; return OK or DEGRADED."""
+    from rosclaw.task_kernel.service import read_artifact_payload
 
-    0902 复核 H1：只投影**当前 revision**——旧 revision 产物进新
-    revision 的 outputs/ 就是 0902 事故的交付面（验收层 fail-closed
-    但交付视图 fail-open）。"""
     task = kernel.get_task(task_id)
     if task is None:
         return "DEGRADED"
@@ -42,41 +32,42 @@ def project_deliverables(kernel: TaskKernel, task_id: str) -> str:
         run = ensure_run(kernel._home, task_id, revision)
         outputs = Path(str(run["zones"]["outputs"]))
         if not outputs.is_dir():
-            raise OSError(f"outputs 区不是目录：{outputs}")
+            raise OSError(f"outputs is not a directory: {outputs}")
         degraded = False
         rows = kernel._conn.execute(
-            "SELECT artifact_id, path, sha256 FROM artifacts "
-            "WHERE task_id = ? AND revision = ?",
+            "SELECT * FROM artifacts WHERE task_id = ? AND revision = ?",
             (task_id, revision),
         ).fetchall()
         for row in rows:
             src = Path(str(row["path"]))
-            zone = zone_of(kernel._home, task_id, revision, src)
-            if zone == "outputs":
-                continue  # 已在交付区——无需投影
+            meta = json.loads(str(row["metadata_json"]))
+            zone = meta.get("zone") or zone_of(kernel._home, task_id, revision, src)
             if zone == "evidence":
-                continue  # 证据区（verify_*.json）不进交付视图
-            if not src.exists():
-                degraded = True
-                _LOG.warning("projection source missing: %s", src)
                 continue
-            target = outputs / src.name
-            if target.exists():
-                if hashlib.sha256(target.read_bytes()).hexdigest() == str(
-                    row["sha256"]
-                ):
-                    continue  # 幂等：同内容已投影
-                target = outputs / f"{row['artifact_id']}_{src.name}"
             try:
-                os.link(src, target)
-            except OSError:
-                try:
-                    shutil.copy2(src, target)
-                except OSError as exc:
-                    degraded = True
-                    _LOG.warning(
-                        "projection failed: %s → %s: %s", src, target, exc,
-                    )
+                content = read_artifact_payload(src, str(row["sha256"]), int(row["size_bytes"]))
+                name = Path(meta.get("source_path") or src).name
+                target = outputs / name
+                # Exclusive creation also rejects dangling symlinks. Existing
+                # aliases are never overwritten, even when externally modified.
+                if target.exists() or target.is_symlink():
+                    if (not target.is_symlink() and target.is_file()
+                            and target.stat().st_ino != src.stat().st_ino
+                            and target.stat().st_size == len(content)
+                            and hashlib.sha256(target.read_bytes()).hexdigest() == row["sha256"]):
+                        continue
+                    target = outputs / f"{row['artifact_id']}_{name}"
+                if target.exists() or target.is_symlink():
+                    if (not target.is_symlink() and target.is_file()
+                            and target.stat().st_ino != src.stat().st_ino
+                            and target.read_bytes() == content):
+                        continue
+                    raise ValueError("ARTIFACT_PROJECTION_CONFLICT")
+                with target.open("xb") as handle:
+                    handle.write(content)
+            except (OSError, ValueError) as exc:
+                degraded = True
+                _LOG.warning("projection failed for %s: %s", src, exc)
         return "DEGRADED" if degraded else "OK"
     except OSError as exc:
         _LOG.warning("projection degraded for %s: %s", task_id, exc)

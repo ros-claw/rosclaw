@@ -97,7 +97,7 @@ class TestArtifactCliContract:
 
     def test_missing_file_rc3(self, tmp_path, monkeypatch, capsys) -> None:
         home, art_id, payload = _home_with_artifact(tmp_path)
-        payload.unlink()  # 登记后文件被删——诚实报缺失
+        (lambda conn: (Path(conn.execute("SELECT path FROM artifacts WHERE artifact_id = ?", (art_id,)).fetchone()[0]).unlink(), conn.close()))(sqlite3.connect(home / "agentd" / "missions.db"))  # 登记后文件被删——诚实报缺失
         rc, out = _run(["artifact", "open", art_id], home, monkeypatch, capsys)
         assert rc == 3 and "缺失" in out
 

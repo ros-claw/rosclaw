@@ -127,7 +127,16 @@ def verdict_for(
     failures = verify_artifacts(artifacts, workspace)
     # PR-N4（§8.4）：正式任务产物引用测试夹具 → 直接失败。
     for artifact in artifacts:
-        if "tests/fixtures" in str(artifact.get("path", "")):
+        import json
+
+        metadata = json.loads(artifact.get("metadata_json") or "{}")
+        source_path = (
+            metadata.get("source_path", "")
+            if metadata.get("payload_storage") == "owned_snapshot_v1" else ""
+        )
+        if any("tests/fixtures" in str(path) for path in (
+            artifact.get("path", ""), source_path,
+        )):
             failures.append(
                 "RESOURCE_PROVENANCE_FAILED: 产物引用测试夹具 "
                 f"{Path(str(artifact['path'])).name}——正式任务不得使用 "

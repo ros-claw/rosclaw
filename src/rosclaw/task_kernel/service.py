@@ -38,6 +38,46 @@ TASK_TERMINAL = frozenset({"SUCCEEDED", "BLOCKED", "FAILED", "CANCELLED"})
 TASK_STATES = TASK_ACTIVE | TASK_TERMINAL
 
 
+def read_artifact_payload(path: Path, sha256: str, size_bytes: int) -> bytes:
+    """Read one regular payload without following any symlink; verify ledger bytes.
+
+    Shared by replay, projection and export, including legacy mutable rows.
+    This detects corruption, not historical recovery or hostile same-UID writes.
+    """
+    import os
+    import stat
+
+    directory = None
+    try:
+        if not path.is_absolute():
+            raise ValueError("ARTIFACT_PAYLOAD_UNSAFE")
+        directory = os.open(os.sep, os.O_RDONLY | os.O_DIRECTORY)
+        for part in path.parts[1:-1]:
+            child = os.open(
+                part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory
+            )
+            os.close(directory)
+            directory = child
+        fd = os.open(
+            path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory
+        )
+        with os.fdopen(fd, "rb") as handle:
+            info = os.fstat(handle.fileno())
+            if not stat.S_ISREG(info.st_mode):
+                raise ValueError("ARTIFACT_PAYLOAD_UNSAFE")
+            if info.st_size != size_bytes:
+                raise ValueError("ARTIFACT_PAYLOAD_CHANGED")
+            content = handle.read(size_bytes + 1)
+        if len(content) != size_bytes or hashlib.sha256(content).hexdigest() != sha256:
+            raise ValueError("ARTIFACT_PAYLOAD_CHANGED")
+        return content
+    except OSError as exc:
+        raise ValueError("ARTIFACT_PAYLOAD_UNAVAILABLE") from exc
+    finally:
+        if directory is not None:
+            os.close(directory)
+
+
 class TaskKernel:
     """tasks/revisions/bindings 的事务权威（agentd 进程内）。"""
 
@@ -606,6 +646,7 @@ class TaskKernel:
         file = Path(path)
         if not file.is_absolute():
             file = workspace / file
+        source_file = file.resolve()
         if validated_snapshot is not None:
             original_zone = zone_of(
                 self._home, task_id, int(task["active_revision"]), file.resolve()
@@ -623,7 +664,7 @@ class TaskKernel:
             raise ValueError("DECLARED_SNAPSHOT_CHANGED")
         # WP-8：运行区纪律——scratch 是草稿区，不得登记为交付物；
         # outputs/evidence 登记记录 zone（交付/证据可归因）。
-        zone = zone_of(self._home, task_id, int(task["active_revision"]), file)
+        zone = zone_of(self._home, task_id, int(task["active_revision"]), source_file)
         if zone == "scratch":
             raise ValueError(
                 f"SCRATCH_NOT_DELIVERABLE: {file} 在 scratch 草稿区——"
@@ -637,47 +678,30 @@ class TaskKernel:
                 f"EVIDENCE_KERNEL_ONLY: {file} 在 evidence 受信区——"
                 "该目录只接受内核管道登记；模型的交付物请写 outputs/"
             )
-        # P0-E：幂等 upsert——同 task 同内容（sha256）返回既有
-        # ArtifactRef（同文件登记十次仍只有一个引用；内容变化才
-        # 产生新引用——内容寻址，不是路径寻址）。
+        # Content identity alone cannot confer another role/revision/producer.
         digest = hashlib.sha256(content).hexdigest()
-        existing = self._conn.execute(
-            "SELECT * FROM artifacts WHERE task_id = ? AND sha256 = ?",
-            (task_id, digest),
-        ).fetchone()
-        if existing is not None:
-            if validated_snapshot is not None:
-                # Do not replay a legacy reference whose mutable path changed.
-                import os
-                import stat
-
-                old_file = Path(str(existing["path"]))
-                descriptor = None
-                try:
-                    descriptor = os.open(os.sep, os.O_RDONLY | os.O_DIRECTORY)
-                    for part in old_file.parts[1:-1]:
-                        next_fd = os.open(
-                            part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=descriptor
-                        )
-                        os.close(descriptor)
-                        descriptor = next_fd
-                    fd = os.open(
-                        old_file.name,
-                        os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
-                        dir_fd=descriptor,
-                    )
-                    with os.fdopen(fd, "rb") as handle:
-                        if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
-                            raise ValueError("DECLARED_SNAPSHOT_REPLAY_UNSAFE")
-                        if handle.read(262145) != validated_snapshot:
-                            raise ValueError("DECLARED_SNAPSHOT_REPLAY_CHANGED")
-                except OSError as exc:
-                    raise ValueError("DECLARED_SNAPSHOT_REPLAY_UNAVAILABLE") from exc
-                finally:
-                    if descriptor is not None:
-                        os.close(descriptor)
-                file.unlink()
-                file.parent.rmdir()
+        candidates = self._conn.execute(
+            "SELECT * FROM artifacts WHERE task_id = ? AND sha256 = ? "
+            "AND revision = ? AND producer = ? "
+            "AND COALESCE(producer_operation_id, '') = ? AND media_type = ?",
+            (task_id, digest, int(task["active_revision"]), producer,
+             producer_operation_id or "", media_type),
+        ).fetchall()
+        for existing in candidates:
+            old_meta = json.loads(str(existing["metadata_json"]))
+            if (old_meta.get("role") != (metadata or {}).get("role")
+                    or (old_meta.get("zone") or "") != zone):
+                continue
+            try:
+                read_artifact_payload(
+                    Path(str(existing["path"])), digest, int(existing["size_bytes"])
+                )
+                if old_meta.get("payload_storage") != "owned_snapshot_v1":
+                    raise ValueError("ARTIFACT_LEGACY_REPLAY_UNOWNED")
+            finally:
+                if validated_snapshot is not None:
+                    file.unlink()
+                    file.parent.rmdir()
             record = dict(existing)
             record["metadata_json"] = str(existing["metadata_json"])
             record["idempotent_replay"] = True
@@ -726,6 +750,29 @@ class TaskKernel:
             lineage["task_id"] = task_id
             lineage["revision"] = int(task["active_revision"])
             meta["lineage"] = lineage
+        # Kernel-owned provenance overrides caller metadata. Ordinary payloads
+        # have no declared-JSON size cap and retain their original basename.
+        meta["source_path"] = str(source_file)
+        if validated_snapshot is None:
+            import os
+            import tempfile
+
+            directory = Path(tempfile.mkdtemp(prefix="artifact-", dir=self._home))
+            file = directory / source_file.name
+            try:
+                fd = os.open(file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                with os.fdopen(fd, "wb") as handle:
+                    handle.write(content)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                    os.fchmod(handle.fileno(), 0o400)
+                read_artifact_payload(file, digest, len(content))
+            except (OSError, ValueError):
+                file.unlink(missing_ok=True)
+                directory.rmdir()
+                raise
+        meta["payload_storage"] = "owned_snapshot_v1"
+        record["path"] = str(file)
         meta_json = json.dumps(meta, ensure_ascii=False)
         # 0902 R0-1：产物打 revision 戳——验收/交付只认当前 revision
         # 的产物（0902 实证：旧 revision 的 scene 视频在新 revision

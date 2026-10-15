@@ -138,7 +138,9 @@ def _artifact_view(row: dict) -> dict:
     from rosclaw.task_kernel.deliverables import artifact_delivery_kind
 
     raw_digest = str(row["sha256"])
+    meta = json.loads(row.get("metadata_json") or "{}")
     return {
+        "source_path": meta.get("source_path", str(row["path"])),
         "artifact_id": str(row["artifact_id"]),
         "task_id": str(row["task_id"]),
         "kind": artifact_delivery_kind(row),
@@ -198,6 +200,7 @@ def cmd_artifact_open(args: argparse.Namespace) -> int:
     # SSH/纯终端：给可复制路径 + 导出提示（OSC 8 链接是有显示时
     # 的增强，不是依赖）。
     print(f"{path}")
+    print(f"source (provenance only): {view['source_path']}")
     print(f"（无显示环境——导出查看：rosclaw artifact export {view['artifact_id']} <path>）")
     return 0
 
@@ -226,6 +229,7 @@ def cmd_artifact_show(args: argparse.Namespace) -> int:
     print(f"digest:    {view['digest']}")
     print(f"task:      {view['task_id']}")
     print(f"path:      {view['path']}")
+    print(f"source (provenance only): {view['source_path']}")
     if lineage:
         print(f"lineage:   {json.dumps(lineage, ensure_ascii=False)[:200]}")
     return 0
@@ -237,32 +241,70 @@ def cmd_artifact_path(args: argparse.Namespace) -> int:
     if conn is None or not rows:
         print(f"未知交付物 {args.artifact_id!r}", file=sys.stderr)
         return 2
-    print(_artifact_view(rows[0])["path"])
+    view = _artifact_view(rows[0])
+    print(view["path"])
     return 0
 
 
 def cmd_artifact_export(args: argparse.Namespace) -> int:
-    import shutil
+    import contextlib
+    import secrets
+
+    from rosclaw.task_kernel.service import read_artifact_payload
 
     conn, rows = _artifact_rows(args, str(args.artifact_id))
     if conn is None or not rows:
         print(f"未知交付物 {args.artifact_id!r}（rosclaw artifact list 可查）")
         return 2
-    view = _artifact_view(rows[0])
-    src = Path(view["path"])
-    if not src.exists():
-        print(f"交付物文件缺失：{src}（账本登记于 {view['task_id']}）")
+    row = rows[0]
+    view = _artifact_view(row)
+    try:
+        content = read_artifact_payload(
+            Path(view["path"]), str(row["sha256"]), int(row["size_bytes"])
+        )
+    except ValueError as exc:
+        print(str(exc))
         return 3
-    dest = Path(str(args.dest))
-    if dest.is_dir():
-        dest = dest / src.name
-    # W07 §11.2/§6.4：目标已存在不静默覆盖（与 api.export 的
-    # EXPORT_TARGET_EXISTS 同一纪律——导出是证据链动作）。
-    if dest.exists():
-        print(f"导出目标已存在：{dest}（不静默覆盖——换个路径或先删除）")
+    dest = Path(os.path.abspath(str(args.dest)))
+    if dest.is_symlink():
+        print("EXPORT_TARGET_UNSAFE")
         return 4
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(src, dest)
+    if dest.is_dir():
+        dest = dest / Path(view["source_path"]).name
+    directory = None
+    temporary = ".artifact-export-" + secrets.token_hex(16)
+    created = False
+    try:
+        # Walk/create directories via pinned descriptors, never symlinks.
+        directory = os.open(os.sep, os.O_RDONLY | os.O_DIRECTORY)
+        for part in dest.parts[1:-1]:
+            with contextlib.suppress(FileExistsError):
+                os.mkdir(part, dir_fd=directory)
+            child = os.open(
+                part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory
+            )
+            os.close(directory)
+            directory = child
+        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600, dir_fd=directory)
+        created = True
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        # Publish only a complete verified copy; link is exclusive, including
+        # dangling symlinks. This inode is independent of the authoritative one.
+        os.link(temporary, dest.name, src_dir_fd=directory, dst_dir_fd=directory)
+    except OSError as exc:
+        if isinstance(exc, FileExistsError):
+            print(f"EXPORT_TARGET_REJECTED: 目标已存在: {dest}")
+        else:
+            print(f"EXPORT_TARGET_REJECTED: {exc}")
+        return 4
+    finally:
+        if directory is not None:
+            if created:
+                os.unlink(temporary, dir_fd=directory)
+            os.close(directory)
     print(f"已导出：{dest}（{view['size_bytes']}B，{view['digest'][:19]}…）")
     return 0
 
