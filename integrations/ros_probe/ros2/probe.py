@@ -182,6 +182,8 @@ class ReadOnlyProbe(Node):
                     if key
                     in {
                         "use_sim_time",
+                        "tf_broadcast",
+                        "node_names",
                         "plugins",
                         "obstacle_layer.observation_sources",
                         "voxel_layer.observation_sources",

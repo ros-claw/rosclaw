@@ -274,7 +274,7 @@ class RosCoverageSimulationExecutor:
         with self.lease_enable_lock, self.lease_lock:
             if self.stopping.is_set():
                 raise RuntimeError("simulation execution is stopping")
-            self._check_navigation_supervision()
+            self._check_navigation_supervision(renewal=True)
             return self.lease_control.call_service(
                 name, {"data": True}, service_type="std_srvs/srv/SetBool", timeout_sec=timeout_sec
             )
@@ -286,12 +286,15 @@ class RosCoverageSimulationExecutor:
             self._check_navigation_supervision()
             self.client.send_goal(**kwargs)
 
-    def _check_navigation_supervision(self):
+    def _check_navigation_supervision(self, *, renewal=False):
         if self.navigation_supervision is not None:
             try:
                 if self._supervised_action_id is None:
                     raise RuntimeError("no admitted navigation supervision action")
-                self.navigation_supervision.check(self._supervised_action_id)
+                if renewal:
+                    self.navigation_supervision.check_renewal(self._supervised_action_id)
+                else:
+                    self.navigation_supervision.check(self._supervised_action_id)
             except Exception:
                 self.stopping.set()
                 raise
@@ -847,8 +850,13 @@ class RosCoverageSimulationExecutor:
             last_log = time.monotonic()
             count = 0
             wait_sec = 0 if self.navigation_supervision else 0.2
-            while not heartbeat_stop.wait(wait_sec):
-                wait_sec = 0.05 if self.navigation_supervision else 0.2
+            next_renewal = time.monotonic() + wait_sec
+            while not heartbeat_stop.wait(max(0, next_renewal - time.monotonic())):
+                # Include supervision and RPC work in the guarded 50 ms period.
+                # A full extra sleep after each ACK can exhaust the unchanged
+                # SDK lease. Missed periods never extend a deadline or replay
+                # accumulated renewals; the next check still requires live facts.
+                next_renewal = time.monotonic() + 0.05
                 try:
                     observed = self.witness.fresh()
                     response = self._renew_service(
@@ -905,6 +913,9 @@ class RosCoverageSimulationExecutor:
                     self.stopping.set()
                     heartbeat_ready.set()
                     break
+                finally:
+                    if self.navigation_supervision is None:
+                        next_renewal = time.monotonic() + 0.2
 
         heartbeat_thread = threading.Thread(target=maintain_lease, daemon=True)
         try:

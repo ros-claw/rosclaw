@@ -22,11 +22,13 @@ from simulation_execution_fault_policy import (
     parse_governed_before_dispatch_fault_policy,
     parse_governed_motion_fault_policy,
 )
+from simulation_fault_status_poll import permits_unavailable_status_retry
 from simulation_source_capture import BoundedSourceJsonlCapture
 
 from rosclaw.daemon.client import DaemonClient
 from rosclaw.mcp import tools
 from rosclaw.mcp.adapters.runtime_client import RuntimeClient
+from rosclaw.mcp.schemas.common import MCPError
 
 
 def read_nonrenewing_action_status(client, action_id):
@@ -329,7 +331,10 @@ async def main():
                         max_line_bytes=64_000,
                     )
                 deadline = time.monotonic() + goal["timeout_sec"] + 5
+                unavailable_status_reads = 0
                 while True:
+                    if daemon.poll() is not None or time.monotonic() >= deadline:
+                        raise TimeoutError("canonical governed SIM action did not terminate")
                     lease_trigger = evidence / "governed-lease-loss-trigger-original.json"
                     if (
                         fault_policy
@@ -412,7 +417,54 @@ async def main():
                             + "\n"
                         )
                     else:
-                        action_status = await tools._get_action_status(goal["action_id"])
+                        try:
+                            action_status = await tools._get_action_status(goal["action_id"])
+                        except MCPError as unavailable:
+                            effect_path = (
+                                evidence / "governed-rosbridge-disconnect-effect-original.json"
+                            )
+                            if (
+                                fault_policy is None
+                                or fault_policy["case"] != "rosbridge_disconnect"
+                                or not effect_path.is_file()
+                                or effect_path.stat().st_size > 32000
+                                or daemon.poll() is not None
+                                or time.monotonic() >= deadline
+                                or unavailable_status_reads >= 32
+                            ):
+                                raise
+                            effect = json.loads(effect_path.read_text())
+                            if not permits_unavailable_status_retry(
+                                effect,
+                                fault_policy,
+                                ready,
+                                policy_sha256=args.fault_policy_sha256,
+                                error=unavailable,
+                                now_ns=time.monotonic_ns(),
+                            ):
+                                raise
+                            unavailable_status_reads += 1
+                            path = (
+                                evidence
+                                / f"governed-action-{index}-status-unavailable-{unavailable_status_reads:03}-original.json"
+                            )
+                            with path.open("x") as stream:
+                                json.dump(
+                                    {
+                                        "status": "UNKNOWN_ORIGINAL_READ_UNAVAILABLE",
+                                        "original_error": str(unavailable),
+                                        "monotonic_ns": time.monotonic_ns(),
+                                        "unchanged_goal_observation_deadline": deadline,
+                                        "receipt_fabricated": False,
+                                    },
+                                    stream,
+                                )
+                            await asyncio.sleep(min(0.1, max(0, deadline - time.monotonic())))
+                            continue
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError(
+                            "canonical governed SIM action observation deadline expired"
+                        )
                     if action_status["state"] in {"FINISHED", "CANCELLED"}:
                         if lease_renewal_stopped:
                             await tools._get_action_status(goal["action_id"])

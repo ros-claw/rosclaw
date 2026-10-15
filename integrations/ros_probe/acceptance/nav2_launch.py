@@ -5,6 +5,7 @@ from pathlib import Path
 
 from launch import LaunchDescription
 from launch_ros.actions import Node
+from simulation_prepared_lifecycle_config import managed_lifecycle_nodes
 
 
 def generate_launch_description():
@@ -64,7 +65,9 @@ def generate_launch_description():
                 {
                     "use_sim_time": True,
                     "autostart": descriptor["autostart"] if descriptor else True,
-                    "node_names": [row[2] for row in servers],
+                    "node_names": managed_lifecycle_nodes(
+                        Path(params).read_bytes(), namespace, [row[2] for row in servers]
+                    ),
                 }
             ],
         )
