@@ -123,3 +123,20 @@ def test_minimal_actual_staging_patch_keeps_original_files(files):
         json.loads(files["nav2.yaml"])["/robot"]["amcl"]["ros__parameters"]["tf_broadcast"] is False
     )
     assert t.staging["nav2.yaml"]["/robot"]["amcl"]["ros__parameters"]["tf_broadcast"] is True
+
+
+def test_memory_arm_requires_actual_query_before_staging_proposal(files):
+    t = tools(files, "C", memory_query=lambda q: {"admitted": []})
+    patch = {
+        "changes": [
+            {
+                "file": "nav2.yaml",
+                "pointer": "/~1robot/amcl/ros__parameters/tf_broadcast",
+                "value": True,
+            }
+        ]
+    }
+    with pytest.raises(ValueError, match="query provenance-bound"):
+        t.call("propose_patch", patch)
+    t.call("query_memory", {"query": "workflow"})
+    assert t.call("propose_patch", patch)["status"].startswith("PROPOSED_STAGING")

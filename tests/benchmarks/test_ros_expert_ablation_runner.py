@@ -127,3 +127,17 @@ def test_late_positive_physics_does_not_pass_wall_time_budget(tmp_path):
         not result["verified_success"]
         and result["status"] == "FRESH_WORLD_VALIDATION_EXCEEDED_EPISODE_BUDGET"
     )
+
+
+def test_model_cannot_claim_unadmitted_memory_or_trigger_validation(tmp_path):
+    claimed = decision("finish")
+    claimed["memory_refs_used"] = ["invented-ref"]
+
+    def must_not_evaluate(*args, **kwargs):
+        raise AssertionError("unadmitted memory claim must stop before evaluation")
+
+    result = run_episode(
+        {}, Tools(), tmp_path / "episode", must_not_evaluate, model_client=client([claimed])
+    )
+    assert result["status"] == "UNADMITTED_MEMORY_REFERENCE_IN_MODEL_DECISION"
+    assert not result["verified_success"] and not result["tests"]

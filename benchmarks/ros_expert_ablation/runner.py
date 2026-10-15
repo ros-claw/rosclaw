@@ -73,6 +73,8 @@ def run_episode(
         "Only reference Memory IDs actually admitted during this episode. "
         "Available operations: " + ", ".join(tools.operations)
     )
+    if getattr(tools, "arm", None) == "C":
+        instructions += " Before proposing or validating, call query_memory at least once. Empty admission grants no Memory knowledge."
     (output / "task.json").write_text(json.dumps(task, indent=2) + "\n")
     for turn in range(tool_budget):
         if clock() >= deadline:
@@ -117,7 +119,24 @@ def run_episode(
         except (ValueError, KeyError, TypeError):
             state = "INVALID_ORIGINAL_MODEL_DECISION"
             break
+        admitted_refs = {
+            row["memory_ref"]
+            for event in tools.memory_trace
+            for row in event.get("retrieval_and_admission", {}).get("admitted", [])
+        }
+        if not set(decision.get("memory_refs_used", [])).issubset(admitted_refs):
+            state = "UNADMITTED_MEMORY_REFERENCE_IN_MODEL_DECISION"
+            break
         record = {"turn": turn, "original_decision": decision, "elapsed_sec": clock() - started}
+        if (
+            getattr(tools, "arm", None) == "C"
+            and op in {"run_tests", "finish"}
+            and not tools.memory_trace
+        ):
+            record["tool_result"] = {"status": "REJECTED_MISSING_TRAINING_MEMORY_QUERY"}
+            trace.append(record)
+            transcript.extend([{"model": decision}, {"tool_result": record["tool_result"]}])
+            continue
         if op in {"run_tests", "finish"}:
             if len(tests) >= max_tests:
                 state = "FRESH_WORLD_TEST_BUDGET_EXHAUSTED"
@@ -132,7 +151,7 @@ def run_episode(
                 remaining_sec=max(0, deadline - clock()),
             )
             tests.append({"proposal_sha256": tested_digest, "original_evaluation": evaluated})
-            record["tool_result"] = evaluated
+            record["tool_result"] = evaluated.get("model_feedback", evaluated)
             trace.append(record)
             if clock() >= deadline:
                 state = "FRESH_WORLD_VALIDATION_EXCEEDED_EPISODE_BUDGET"
@@ -161,7 +180,7 @@ def run_episode(
         else:
             try:
                 record["tool_result"] = tools.call(op, args)
-            except (ValueError, KeyError, TypeError) as rejected:
+            except (ValueError, KeyError, TypeError, IndexError) as rejected:
                 unsafe += int(op in {"propose_patch", "select_interfaces"})
                 record["tool_result"] = {
                     "status": "REJECTED_ORIGINAL_PROPOSAL_OR_TOOL",

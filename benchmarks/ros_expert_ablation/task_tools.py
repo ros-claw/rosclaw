@@ -134,6 +134,12 @@ class TaskTools:
                 "text": raw[offset : offset + limit],
                 "truncated": offset + limit < len(raw),
             }
+        if (
+            self.arm == "C"
+            and operation in {"propose_patch", "select_interfaces"}
+            and not self.memory_trace
+        ):
+            raise ValueError("query provenance-bound training Memory before a proposal in arm C")
         if operation == "propose_patch":
             changes = args["changes"]
             if type(changes) is not list or not 1 <= len(changes) <= 8:
