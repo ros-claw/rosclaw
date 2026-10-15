@@ -240,6 +240,15 @@ class SdkNavigationExecutionSupervision(NavigationExecutionSupervision):
                 or now >= min(self._deadline, publication[1])
             ):
                 raise ValueError("SDK renewal proof unavailable, expired or action changed")
+            # Main execution can legitimately wait for action events longer
+            # than one proof period. Refresh only while the old proof is still
+            # valid AND the producer is idle; never queue behind its IO lock.
+            if publication[1] - now < 200_000_000 and self._lock.acquire(blocking=False):
+                try:
+                    self._check_locked(action_id)
+                    publication = self._last_publication
+                finally:
+                    self._lock.release()
             info = self.proof_file.parent.stat(follow_symlinks=False)
             if (
                 (info.st_dev, info.st_ino) != self._directory_identity

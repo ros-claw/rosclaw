@@ -11,7 +11,9 @@ The supervision interface now defaults check_renewal to the existing full check.
 The isolated SDK override validates an immutable snapshot of the last durably
 published AND audited proof, its unchanged original expiry, action identity,
 private directory and current independently observed receiver nonterminal state.
-It does not wait on the proof producer's lock or generate another proof. Before
+It never waits on the proof producer's lock. If the old proof remains valid, is
+older than 50 ms and the producer is idle, renewal may collect and durably publish
+a fresh proof with the original 250 ms cap. It never refreshes an expired proof. Before
 admission, dispatch and every main execution check, synchronous current-facts
 collection and fresh HMAC proof production remain unchanged.
 
@@ -28,3 +30,8 @@ Software contracts explicitly hold the expensive producer lock while checking
 renewal, forbid duplicate collection, assert unchanged proof bytes/deadline,
 and reject expiry, revival and current receiver terminal state. Actual G4 repaired
 Worlds plus final-source/main full matrices remain required before acceptance.
+
+The first read-only renewal development World failed because main execution can
+wait longer than a proof period for action events; that original failure is
+preserved. Nonblocking opportunistic production while the previous proof is
+still valid addresses that liveness gap without queued duplicate collection.

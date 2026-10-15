@@ -288,3 +288,17 @@ def test_renewal_refuses_current_receiver_terminal_state(module, producer):
     with pytest.raises(ValueError, match="latched"):
         guard.check_renewal("synthetic-position")
     assert not (private / "proof.json").exists()
+
+
+def test_idle_producer_can_refresh_still_valid_renewal_proof(module, producer, monkeypatch):
+    guard, _, _, _, private = producer
+    guard.begin("synthetic-position", duration_sec=1)
+    old = guard._last_publication
+    now = old[1] - 175_000_000
+    monkeypatch.setattr(module.time, "monotonic_ns", lambda: now)
+    guard.check_renewal("synthetic-position")
+    assert guard._last_publication[2] > old[2]
+    assert guard._last_publication[1] > old[1]
+    payload = json.loads((private / "proof.json").read_bytes())["payload"]
+    assert payload["expires_ns"] - payload["issued_ns"] <= 250_000_000
+    assert payload["expires_ns"] <= guard._deadline
