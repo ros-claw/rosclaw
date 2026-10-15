@@ -2140,11 +2140,12 @@ os.environ["MUJOCO_GL"] = backend
 os.environ["PYOPENGL_PLATFORM"] = "darwin" if sys.platform == "darwin" and backend == "cgl" else backend
 
 import mujoco
+from rosclaw.sim.backends.mujoco.owned_renderer import create_renderer
 from PIL import Image
 
 request = json.loads(open(sys.argv[2], encoding="utf-8").read())
 model = mujoco.MjModel.from_xml_path(request["model_path"])
-renderer = mujoco.Renderer(model, request["height"], request["width"])
+renderer = create_renderer(model, request["height"], request["width"])
 frames = []
 for snapshot in request["states"]:
     data = mujoco.MjData(model)
@@ -2228,6 +2229,7 @@ os.environ["MUJOCO_GL"] = backend
 os.environ["PYOPENGL_PLATFORM"] = "darwin" if sys.platform == "darwin" and backend == "cgl" else backend
 
 import mujoco
+from rosclaw.sim.backends.mujoco.owned_renderer import create_renderer
 import numpy as np
 from PIL import Image
 
@@ -2241,7 +2243,7 @@ if vector.size != mujoco.mj_stateSize(model,spec) or not np.isfinite(vector).all
 mujoco.mj_setState(model,data,vector,spec)
 mujoco.mj_forward(model, data)
 
-renderer = mujoco.Renderer(model, request["height"], request["width"])
+renderer = create_renderer(model, request["height"], request["width"])
 renderer.update_scene(data, camera=request["camera"])
 kind = request["kind"]
 if kind == "camera_depth":

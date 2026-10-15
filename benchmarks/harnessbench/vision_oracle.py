@@ -23,6 +23,7 @@ from benchmarks.harnessbench.dynamic_oracle import same_compiled_body
 _WORKER = r"""
 import json, math, sys
 import mujoco
+from rosclaw.sim.backends.mujoco.owned_renderer import create_renderer
 import numpy as np
 r = json.load(open(sys.argv[1]))
 m = mujoco.MjModel.from_xml_string(r["xml"])
@@ -48,7 +49,7 @@ focal = 480 / (2 * math.tan(math.radians(float(m.cam_fovy[cid])) / 2))
 if local[2] >= 0:
     raise ValueError("TARGET_BEHIND_CAMERA")
 pixel = [320 + focal * local[0] / -local[2], 240 - focal * local[1] / -local[2]]
-renderer = mujoco.Renderer(m, 480, 640)
+renderer = create_renderer(m, 480, 640)
 renderer.update_scene(d, camera=r["camera"])
 renderer.enable_segmentation_rendering()
 seg = np.asarray(renderer.render(), dtype=np.int32).copy()
