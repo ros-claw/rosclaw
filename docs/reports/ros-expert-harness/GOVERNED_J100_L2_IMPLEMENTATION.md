@@ -57,7 +57,8 @@ original pointer can legitimately be published during collection.
 Prepared source bringup uses pinned declarations for namespaces, frames, scanner,
 controllers and routes. J100 remains an explicitly adapted official four-wheel
 robot, not zero-shot onboarding. Staging changes are declared before World launch:
-costmap update/publication 10 Hz, commands at 80% of Body bounds and Nav2 goal
+costmap update/publication 10 Hz, commands at 0.08 m/s and 0.24 rad/s (80% of the earlier G2 conservative
+0.1/0.3 policy, below the unchanged G3 Body 0.2/0.5 bounds) and Nav2 goal
 checking at half the Body tolerance. An explicitly pinned SDK operator helper
 calls AMCL `request_nomotion_update` at 10 Hz so actual laser/odometry filtering
 continues while stopped. It publishes no pose, TF, velocity or goal, and does not
