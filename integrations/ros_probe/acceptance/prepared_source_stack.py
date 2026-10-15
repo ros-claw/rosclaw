@@ -156,13 +156,21 @@ def main():
                 str(settings.get("probe_snapshot_period_sec", 1.0)),
             ],
         )
+        bridge_command = ["ros2", "run", "rosbridge_server", "rosbridge_websocket"]
+        if settings.get("governed_sink") is not None:
+            sources = json.loads(Path("/assets/observer-sources.json").read_text())
+            if sources["run_id"] != settings["run_id"]:
+                raise ValueError("declared SDK lease source run changed")
+            bridge_command = [
+                "python3",
+                str(ROOT / "simulation_persistent_lease_bridge.py"),
+                "--lease-service",
+                sources["topics"]["lease"],
+            ]
         start(
             "rosbridge",
             [
-                "ros2",
-                "run",
-                "rosbridge_server",
-                "rosbridge_websocket",
+                *bridge_command,
                 "--ros-args",
                 "-p",
                 "port:=9090",
