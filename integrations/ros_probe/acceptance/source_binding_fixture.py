@@ -508,6 +508,7 @@ def main():
         if engineering_capture:
             from simulation_engineering_capture import capture_failure
 
+            save("engineering-original-requirements.json", requirements)
             capture_failure(OUT, engineering_capture, state, spin_until, save)
             return
         spin_until(
