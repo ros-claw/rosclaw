@@ -697,6 +697,9 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 
 		// -- 每轮注入最新具身上下文（PNA-2，规格 §14.2） ---------------------------
 		pi.on("before_agent_start", async (event, ctx) => {
+			// Pi 1.2 also enters here for idle custom triggerTurn. Refresh on
+			// both start variants; never enqueue a second turn from this hook.
+			// Keep the SDK-assembled prompt and reject stale owners after awaits.
 			const generation = uiGeneration;
 			const context = latestCtx;
 			const session = options.lateSession?.session;

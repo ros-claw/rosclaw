@@ -1,24 +1,33 @@
-# ROSClaw 上游薄补丁（NA-FIX-3，规格 §5/§23.4）
+# Pi 1.2.0 thin patches
 
-目标包：`@earendil-works/pi-coding-agent@1.0.1`（commit a7229ddc21810d6245105978033b7df645ecc2f7）。
-预算：< 60 LOC。只加通用扩展点，不 fork AgentLoop/Provider/Session 格式。
+Target: official `@earendil-works/pi-coding-agent@1.2.0` in the reviewed isolated closure. Mandatory resume and builtin-policy anchors remain exact; the bounded build must establish their compatibility. No AgentLoop/provider fork or missing-anchor warning fallback.
 
-## patch-01：AppIdentity / resumeCommandFormatter
+- patch-01 returns product `rosclaw continue` / `rosclaw sessions` hints, not an upstream session command.
+- patch-02 blocks disabled builtin commands before dispatch.
+- patch-05 uses the top-level four-string PI120_FORCED_PROMPT_COMPAT_PATCH literal to replace only the exact official _installAgentForcedPromptProjection body. Forced startup intent and current tools are projected before the captured official context transform, allowing fresh request-time notices to survive. Undefined forced text passes through unchanged. Hidden declarations remain filtered by the captured chain, and canonical messages are not mutated. The exact preimage is mandatory; a missing anchor remains a hard failure. No constructor/import/export or other SDK method is patched.
+- The owned-copy checker extracts the literal before executing the patcher, proves outside-body/constructor invariance, then instruments. The patcher imports no SDK. Unchanged targets are never opened for write, so reapplication preserves counter instrumentation on a 0400 AgentSession without chmod.
+- Optional legacy-hint and reasoning-strip retirement entries only remove previously applied patches; pristine absence is expected. Provider continuation reasoning remains upstream-owned.
 
-- 位置：`dist/modes/interactive/interactive-mode.js` 的 `formatResumeCommand`
-- 内容：退出提示输出 `rosclaw continue` 和 `rosclaw sessions`，不暴露内部 session id（绝不输出
-  `pi --session` / `--session-dir`——用户必须经 ROSClaw runtime 恢复：
-  agentd kernel + SessionBinding + lease + ResourcePolicy + 工具表）。
+Postinstall script remains unchanged in the manifest. The isolated checker is not a default npm install qualification. Tests must verify idempotence, missing mandatory anchors, resume formatting and builtin predispatch behavior against the actual dependency source, without changing pristine resources.
 
-## patch-02：BuiltinCommandPolicy（dispatch 前置）
+## Phase 8 fixture-only comparison
 
-- 位置：`defaultEditor.onSubmit` 内建命令 dispatch 前
-- 内容：`globalThis.__rosclawBuiltinPolicy.disabled` 集合中的内建命令
-  在任何内建 dispatch 之前被拦截（ROBOT profile 的 /trust /share
-  /import /reload 强制语义——P0-8：input hook 在 dispatch 之后，单靠
-  InputGuard 拦不住内建）。
+The thin-patch fixture now appends the mandatory `dist/core/agent-session.js` target using the existing agent root; its original generic copy, snapshots and idempotence checks cover that target too. The lifecycle fixture awaits the public `session.bindExtensions({})` after session creation and before assigning the synthetic stream or sending any request. No assertion, stream body or production patch is changed. The mandatory exact-body patch remains mandatory in every patcher invocation. Only the diagnostic original-SDK variant is mechanically restored after build by the trusted checker, with constructor instrumentation retained; that baseline is not final product scope. BUILD then original_SDK_Node then patched_SDK_Node use the same twelve selected source bytes. Results and Root independent comparison/SQL closure remain pending; this append is not acceptance evidence.
 
-应用方式：`npm install` 后 postinstall 自动执行
-`node patches/apply-upstream-patches.mjs`。锚点文本在上游升级后若
-漂移，补丁应用器**硬失败**（拒绝产出静默不生效的包）——升级 Pi 时
-必须人工复核锚点并重新生成。
+## Phase 9 synthetic admission boundary (pre-BUILD intent)
+
+Only the lifecycle stream RHS, three zero/false-initialized diagnostics and six settlement assertions change. Every old assertion remains, including dispatches=3: dispatches now measures synthetic transport admission after the real SDK signal check. All callback invocations remain counted; the fourth callback must actually observe options.signal.aborted. That callback returns a protocol-valid direct error stream with stopReason aborted, empty content and zero usage placeholders meaning unavailable usage, never the successful synthetic usage (2/1/3/4). The SDK transcript must settle aborted and the original busy/queue assertions remain intact. No private event injection, provider import, injected fetch or new SDK patch is added. Zero synthetic admission is not measured actual-fetch zero or full cancellation certification. Official-provider pre-fetch rejection is STATIC source evidence only. Literal patch retirement remains deferred; the mandatory patch is unchanged.
+
+The new order is BUILD, original_SDK_Node, patched_SDK_Node, no edits after successful BUILD. Prior original and patched SDK failures (dispatch 4 != 3 after freshness/permissions/sentinel passed) remain failures, not a proven product bug; the fourth signal was not recorded there. Root manual semantic/source review remains required even if the byte/AST guard passes. All twenty historical reservations, fees, UNKNOWN requests and failures remain charged. Default 1.1 and old artifacts remain untouched; no full-suite, remote CI, provider, physical or release acceptance claim.
+
+## Fullsuite compatibility source repair (author-only, 2026-10-15)
+
+This section supersedes earlier single-method-only descriptions for this candidate; it does not retire or change PI120_FORCED_PROMPT_COMPAT_PATCH. A second pure literal, PI120_START_RUN_COMPAT_PATCH, targets only the exact official 1.2.0 AgentSession._startRun body in `@earendil-works/pi-coding-agent/dist/core/agent-session.js`. Its version field must match the installed package manifest exactly. A missing manifest, unknown version, missing method, duplicate method or unknown preimage fails closed. There is no SDK import or execution in the patcher.
+
+The official `onStarted` callback runs after preparation but outside both cleanup paths. The added catch handles only that synchronous callback throwing: release the SDK busy flag, clear failed-response/run-prompt options, flush held messages, resolve idle waiters and rethrow the exact original error. It does not call agent.prompt, emit agent_settled, consume deferred actions or change the native abort authority. No runtime adapter change is needed: the wrapper still consumes only its own cancelled identity's sentinel; foreign errors, even matching its text, escape unchanged. Existing real-SDK zero-dispatch cancellation assertions and 15-second timeouts remain intact. Additional tests specify foreign-error identity, idle-waiter release, genuine deferred success and future-prompt usability. These are authored expectations, not executed outcomes.
+
+The AppIdentity / resumeCommandFormatter mechanism here is patch-01's literal formatter override in `dist/modes/interactive/interactive-mode.js`, inserted before the existing `const args = [APP_NAME]` resume-command assembly. It uses `sessionManager.getSessionName?.()` for an optional display name and returns the product hints `rosclaw continue` and `rosclaw sessions`; it does not expose a session ID or delegate to an external CLI. Those names describe the existing override purpose, not a newly installed SDK API hook. Patch-01b still removes a stale `rosclaw chat --resume` return. Neither resume behavior nor its mandatory regression test is changed by this repair.
+
+The new fixture proof requires the literal, compares its preimage with an independent verbatim official body, uses actual installed source, checks constructor and all outside-body bytes, refuses drift and checks no-write idempotence on a read-only fixture copy. Installed SDK files are never chmodded by that test. Patcher reapplication still avoids opening unchanged targets for write. The Root owned-copy checker MUST be independently extended to admit exactly these two reviewed methods, prove constructor/full outside-AST invariance, then instrument the reviewed whole-source SHA; its old single-method proof cannot qualify this new candidate. No execution of an uninstrumented SDK is authorized here.
+
+Authoring outcome: source and tests authored only; BUILD, static parser execution and all functional suites are NOT_RUN. Root must review the full eight diffs and assertion reachability after closure, then independently run unfiltered agent and TUI suites on the same final snapshot under a new finite allocation. Historical 6FAIL/2cancel/3skip and TUI29PASS remain unchanged; compatibility, default promotion and provider lifecycle qualification remain pending.

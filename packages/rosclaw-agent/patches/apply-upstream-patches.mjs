@@ -1,4 +1,5 @@
-/** 上游薄补丁应用器（NA-FIX-3 + HOTFIX-4）：patch-package 风格。
+/** Pi 1.2 compatibility: retain exact mandatory anchors and retirement rules.
+ * 上游薄补丁应用器（NA-FIX-3 + HOTFIX-4）：patch-package 风格。
  *
  * 每个补丁：anchor（必须精确存在）→ replacement。锚点缺失即硬失败——
  * 静默不生效比构建失败更危险。
@@ -11,7 +12,180 @@ import { fileURLToPath } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 const T = (...parts) => join(here, "..", "node_modules", ...parts);
 
+// Literal ABI: the owned-copy checker applies only this exact method body.
+const PI120_FORCED_PROMPT_COMPAT_PATCH = {
+	target: "@earendil-works/pi-coding-agent/dist/core/agent-session.js",
+	method: "_installAgentForcedPromptProjection",
+	anchor: `{
+        const previousTransformContext = this.agent.transformContext;
+        this.agent.transformContext = async (messages, signal) => {
+            const transformed = previousTransformContext ? await previousTransformContext(messages, signal) : messages;
+            const forced = this._runSystemPromptOptions?.forceSystemPrompt;
+            if (forced === undefined)
+                return transformed;
+            const current = getCurrentSystemMessage(transformed);
+            const head = {
+                role: "system",
+                content: forced,
+                ...(current?.toolsAdded ? { toolsAdded: current.toolsAdded } : {}),
+                timestamp: current?.timestamp ?? Date.now(),
+            };
+            return [head, ...transformed.filter((message) => message.role !== "system")];
+        };
+    }`,
+	replacement: `{
+        const previousTransformContext = this.agent.transformContext;
+        this.agent.transformContext = async (messages, signal) => {
+            const forced = this._runSystemPromptOptions?.forceSystemPrompt;
+            let projected = messages;
+            if (forced !== undefined) {
+                const current = getCurrentSystemMessage(messages);
+                const head = {
+                    role: "system",
+                    content: forced,
+                    ...(current?.toolsAdded ? { toolsAdded: current.toolsAdded } : {}),
+                    timestamp: current?.timestamp ?? Date.now(),
+                };
+                projected = [head, ...messages.filter((message) => message.role !== "system")];
+            }
+            return previousTransformContext ? await previousTransformContext(projected, signal) : projected;
+        };
+    }`,
+};
+
+// Pure literal ABI for the separately reviewed 1.2.0 preflight cleanup only.
+// No run exists when onStarted throws: do not synthesize agent_settled.
+const PI120_START_RUN_COMPAT_PATCH = {
+	target: "@earendil-works/pi-coding-agent/dist/core/agent-session.js",
+	version: "1.2.0",
+	method: "_startRun",
+	anchor: `{
+        this._isAgentRunActive = true;
+        this._agentRunAbortRequested = false;
+        let messages;
+        try {
+            messages = await this._prepareRun(trigger);
+        }
+        catch (error) {
+            this._isAgentRunActive = false;
+            this._flushPendingBashMessages();
+            this._flushPendingCustomMessages();
+            this._resolveIdleWaitIfIdle();
+            throw error;
+        }
+        // Messages held while the run was starting go before its starting messages, as they would
+        // have while idle. No run exists yet, so they cannot split a tool call from its result.
+        this._flushPendingBashMessages();
+        this._flushPendingCustomMessages();
+        onStarted?.();
+        // Compaction before the prompt may have scheduled a retry; the new prompt replaces it.
+        this._failedResponse = undefined;
+        this._recordSelection();
+        // The run records the loadout in the transcript; restored tools that did not register by now
+        // are dropped, so a tool that never registers does not stay pending.
+        this._pendingToolNames.clear();
+        try {
+            await this.agent.prompt(messages);
+            while (!this._agentRunAbortRequested) {
+                if (await this._handlePostAgentRun()) {
+                    if (this._agentRunAbortRequested)
+                        break;
+                    await this.agent.continue();
+                    continue;
+                }
+                if (this._agentRunAbortRequested || !(await this._runBeforeSettleBoundary()))
+                    break;
+                if (this._agentRunAbortRequested)
+                    break;
+                await this.agent.continue();
+            }
+        }
+        finally {
+            if (this._agentRunAbortRequested)
+                this._finishCancelledRetry();
+            this._failedResponse = undefined;
+            this._runSystemPromptOptions = undefined;
+            this._flushPendingBashMessages();
+            this._flushPendingCustomMessages();
+            await this._emitAgentSettled();
+        }
+    }`,
+	replacement: `{
+        this._isAgentRunActive = true;
+        this._agentRunAbortRequested = false;
+        let messages;
+        try {
+            messages = await this._prepareRun(trigger);
+        }
+        catch (error) {
+            this._isAgentRunActive = false;
+            this._flushPendingBashMessages();
+            this._flushPendingCustomMessages();
+            this._resolveIdleWaitIfIdle();
+            throw error;
+        }
+        // Messages held while the run was starting go before its starting messages, as they would
+        // have while idle. No run exists yet, so they cannot split a tool call from its result.
+        this._flushPendingBashMessages();
+        this._flushPendingCustomMessages();
+        try {
+            onStarted?.();
+        }
+        catch (error) {
+            this._isAgentRunActive = false;
+            this._failedResponse = undefined;
+            this._runSystemPromptOptions = undefined;
+            this._flushPendingBashMessages();
+            this._flushPendingCustomMessages();
+            this._resolveIdleWaitIfIdle();
+            throw error;
+        }
+        // Compaction before the prompt may have scheduled a retry; the new prompt replaces it.
+        this._failedResponse = undefined;
+        this._recordSelection();
+        // The run records the loadout in the transcript; restored tools that did not register by now
+        // are dropped, so a tool that never registers does not stay pending.
+        this._pendingToolNames.clear();
+        try {
+            await this.agent.prompt(messages);
+            while (!this._agentRunAbortRequested) {
+                if (await this._handlePostAgentRun()) {
+                    if (this._agentRunAbortRequested)
+                        break;
+                    await this.agent.continue();
+                    continue;
+                }
+                if (this._agentRunAbortRequested || !(await this._runBeforeSettleBoundary()))
+                    break;
+                if (this._agentRunAbortRequested)
+                    break;
+                await this.agent.continue();
+            }
+        }
+        finally {
+            if (this._agentRunAbortRequested)
+                this._finishCancelledRetry();
+            this._failedResponse = undefined;
+            this._runSystemPromptOptions = undefined;
+            this._flushPendingBashMessages();
+            this._flushPendingCustomMessages();
+            await this._emitAgentSettled();
+        }
+    }`,
+};
+
 const PATCHES = [
+	{
+		...PI120_START_RUN_COMPAT_PATCH,
+		target: T(...PI120_START_RUN_COMPAT_PATCH.target.split("/")),
+		versionTarget: T("@earendil-works", "pi-coding-agent", "package.json"),
+		name: "patch-06: preflight callback error cleanup",
+	},
+	{
+		...PI120_FORCED_PROMPT_COMPAT_PATCH,
+		target: T(...PI120_FORCED_PROMPT_COMPAT_PATCH.target.split("/")),
+		name: "patch-05: forced startup projection before request context transforms",
+	},
 	{
 		// WP-P0-1：清理旧版 hint（'rosclaw chat --resume <id>'）——旧
 		// patch 已应用的 node_modules 会残留旧 return（先 return 先生效）。
@@ -153,8 +327,26 @@ for (const patch of PATCHES) {
 }
 
 for (const [target, patches] of grouped) {
-	let source = readFileSync(target, "utf8");
+	const originalSource = readFileSync(target, "utf8");
+	let source = originalSource;
 	for (const patch of patches) {
+		if (patch.versionTarget) {
+			const installed = JSON.parse(readFileSync(patch.versionTarget, "utf8"));
+			if (installed.version !== patch.version) {
+				console.error(`PATCH VERSION MISMATCH: ${patch.name}`);
+				process.exit(1);
+			}
+			// Admit only one complete known method, pristine OR patched, never a
+			// fragment, ambiguous duplicate, missing method or unknown preimage.
+			const signature = `    async ${patch.method}(trigger, onStarted) `;
+			const pristine = source.split(signature + patch.anchor).length - 1;
+			const applied = source.split(signature + patch.replacement).length - 1;
+			const methods = source.split(`    async ${patch.method}(`).length - 1;
+			if (methods !== 1 || pristine + applied !== 1) {
+				console.error(`PATCH ANCHOR MISSING: ${patch.name}`);
+				process.exit(1);
+			}
+		}
 		// retire 条目：锚点（已打的补丁文本）在场才恢复——空 replacement
 		// 或锚点即原文前缀时，"already applied" 恒真会跳过恢复（实证）。
 		if (patch.retire) {
@@ -182,6 +374,8 @@ for (const [target, patches] of grouped) {
 		source = source.replace(patch.anchor, patch.replacement);
 		console.log(`[applied] ${patch.name}`);
 	}
-	writeFileSync(target, source);
+	// An already-patched, instrumented SDK may be read-only. Preserve every byte
+	// (including constructor instrumentation) without attempting an open for write.
+	if (source !== originalSource) writeFileSync(target, source);
 }
 console.log("upstream patches applied");
