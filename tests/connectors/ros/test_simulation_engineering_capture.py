@@ -1,8 +1,10 @@
 """Synthetic SDK role and freshness boundaries; no physical repair claim."""
 
 import importlib
+import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -85,3 +87,46 @@ def test_original_capture_requires_current_native_and_physics(
         "physics": {"captured_at": (now - timedelta(seconds=physics_age)).isoformat()},
     }
     assert module.current_capture(state) is expected
+
+
+def test_unready_capture_preserves_missing_body_and_execution_config(module, tmp_path, monkeypatch):
+    sink = {
+        "run_id": "owned-run",
+        "body_snapshot_hash": None,
+        "terminal": False,
+        "action_id": None,
+        "daemon_instance_id": None,
+        "lease_expires_ns": 0,
+        "lease_updates": 0,
+        "received_commands": 0,
+        "published_velocity_messages": 0,
+    }
+    (tmp_path / "governed-sink-status.json").write_text(json.dumps(sink))
+    (tmp_path / "initial-source-witness-observer-sources.json").write_text(
+        json.dumps({"run_id": "owned-run"})
+    )
+    stamp = datetime.now(UTC).isoformat()
+    state = {
+        "native": {"captured_at": stamp},
+        "physics": {"captured_at": stamp, "observation_complete": True, "body_snapshot_hash": None},
+        "review": {"status": "UNKNOWN"},
+        "model": SimpleNamespace(to_dict=lambda: {"synthetic": True}),
+    }
+    clock = iter([0, 3])
+    monkeypatch.setattr(module.time, "monotonic", lambda: next(clock))
+
+    def spin(condition, _seconds):
+        if (tmp_path / "engineering-capture-ready.json").exists():
+            (tmp_path / "host_capture_ack.json").write_text("{}")
+        assert condition()
+
+    def save(name, value):
+        (tmp_path / name).write_text(json.dumps(value))
+
+    module.capture_failure(
+        tmp_path, settings("map_to_odom_missing")["engineering_capture"], state, spin, save
+    )
+    marker = json.loads((tmp_path / "engineering-capture-ready.json").read_text())
+    assert marker["L1"] == "NOT_READY" and marker["L2"] == "NOT_RUN"
+    assert marker["body_snapshot_hash"] is None and marker["navigation_workspace_compiled"] is False
+    assert not (tmp_path / "execution_config.json").exists()

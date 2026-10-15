@@ -54,9 +54,14 @@ def validate_engineering_capture(settings):
 
 def capture_failure(root, policy, state, spin_until, save):
     """Require original non-ready ROS facts and an untouched zero-command sink."""
-    config = json.loads((root / "execution_config.json").read_text())
+    config_path = root / "execution_config.json"
+    config = json.loads(config_path.read_text()) if config_path.exists() else {}
+    sources = json.loads((root / "initial-source-witness-observer-sources.json").read_text())
+    if sources["run_id"] != policy["run_id"]:
+        raise ValueError("original source-only observer run differs")
+    body_hash = config.get("body_snapshot_hash")
     sink_before = require_unadmitted_sink(
-        root, run_id=policy["run_id"], body_snapshot_hash=config["body_snapshot_hash"]
+        root, run_id=policy["run_id"], body_snapshot_hash=body_hash
     )
     process_fault = None
     try:
@@ -82,7 +87,7 @@ def capture_failure(root, policy, state, spin_until, save):
             15,
         )
         sink_after = require_unadmitted_sink(
-            root, run_id=policy["run_id"], body_snapshot_hash=config["body_snapshot_hash"]
+            root, run_id=policy["run_id"], body_snapshot_hash=body_hash
         )
         save("engineering-original-native.json", state["native"])
         save("engineering-original-system.json", state["model"].to_dict())
@@ -96,6 +101,8 @@ def capture_failure(root, policy, state, spin_until, save):
                 "sink_before": sink_before,
                 "sink_after": sink_after,
                 "navigation_workspace_compiled": False,
+                "body_snapshot_hash": body_hash,
+                "physical_binding_scope": "SOURCE_ONLY_UNENROLLED; no Body-bound or lease-enabled physical observation claimed",
                 "navigation_goals_sent": 0,
                 "L1": "NOT_READY",
                 "L2": "NOT_RUN",
