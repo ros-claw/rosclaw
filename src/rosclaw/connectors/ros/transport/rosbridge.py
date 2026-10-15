@@ -206,35 +206,80 @@ class RosbridgeTransport:
                 request_id=request_id,
             )
 
+        # One budget, including time spent sending/connecting and retrying.
+        # connect()/send() cannot be interrupted here; their blocking boundary
+        # still uses the endpoint timeout, not this request's remaining budget.
+        budget = timeout_sec if timeout_sec is not None else self.endpoint.timeout_sec
+        deadline = time.monotonic() + max(0.0, budget)
         last_error: str | None = None
         for _attempt in range(self._max_retries + 1):
+            if time.monotonic() >= deadline:
+                break
             send_result = self.send(message)
             if not send_result.ok:
                 last_error = send_result.error
                 self._invalidate()
                 continue
 
-            deadline = timeout_sec if timeout_sec is not None else self.endpoint.timeout_sec
-            for _ in range(10):  # bounded spin on unsolicited messages
-                recv_result = self.receive(timeout_sec=deadline)
+            while time.monotonic() < deadline:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                recv_result = self.receive(timeout_sec=remaining)
+                if time.monotonic() >= deadline:
+                    break
                 if not recv_result.ok:
                     last_error = recv_result.error
                     self._invalidate()
                     break
-                data = recv_result.data or {}
-                if data.get("id") == request_id:
+                data = recv_result.data
+                if data is None:  # receive's normal idle-poll semantics
+                    continue
+                if not isinstance(data, dict):
                     return RosTransportResult(
-                        ok=True,
-                        data=data,
+                        ok=False,
+                        error="malformed rosbridge envelope",
                         raw=recv_result.raw,
                         request_id=request_id,
                     )
-                # Unsolicited message (publish, service response for another id)
-                logger.debug("Ignoring unsolicited rosbridge message: %s", data.get("op"))
+                if data.get("id") != request_id:
+                    continue
 
+                error = None
+                op = data.get("op")
+                if op == "status":
+                    level = data.get("level")
+                    if level == "error":
+                        error = str(data.get("msg") or "rosbridge error status")
+                    elif level not in {"info", "warning", "none"}:
+                        error = "malformed rosbridge status"
+                    elif message.get("op") == "call_service":
+                        continue  # progress is not a service response
+                elif message.get("op") == "call_service":
+                    if op != "service_response":
+                        error = "malformed service response operation"
+                    elif data.get("service", message.get("service")) != message.get("service"):
+                        error = "mismatched service response"
+                    elif data.get("result") is False:
+                        error = "service response result:false"
+                    elif "result" in data and data["result"] is not True:
+                        error = "malformed service response result"
+                    elif not isinstance(data.get("values"), dict):
+                        error = "malformed service response values"
+                elif not isinstance(op, str) or not op:
+                    error = "malformed rosbridge operation"
+                return RosTransportResult(
+                    ok=error is None,
+                    error=error,
+                    data=data,
+                    raw=recv_result.raw,
+                    request_id=request_id,
+                )
+
+        expired = time.monotonic() >= deadline
         return RosTransportResult(
             ok=False,
-            error=last_error or "request failed",
+            error="request deadline exceeded" if expired else (last_error or "request failed"),
             request_id=request_id,
         )
 
