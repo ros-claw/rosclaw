@@ -304,6 +304,21 @@ jobs:
       - name: Install OSMesa (MuJoCo offscreen rendering)
         run: sudo apt-get update && sudo apt-get install -y libosmesa6 xvfb
 
+      - name: Set up Node for recorded continuation prerequisites
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.19.0'
+          cache: 'npm'
+          cache-dependency-path: packages/rosclaw-agent/package-lock.json
+
+      - name: Install locked agent dependencies for recorded continuation
+        run: npm ci --include=dev
+        working-directory: packages/rosclaw-agent
+
+      - name: Build agent CLI for recorded continuation
+        run: npm run build
+        working-directory: packages/rosclaw-agent
+
       - name: Run full non-deployment suite
         # 0911 验证：套件已并行安全（collection 确定性 sorted 参数化 +
         # AF_UNIX 短路径修复；本地 -n 8 全量实证 7245 通过零并行噪声）。
