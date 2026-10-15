@@ -75,6 +75,53 @@ def test_ordinary_source_fixture_keeps_existing_role(module):
 
 
 @pytest.mark.parametrize(
+    "radius,age,polygon,frame,publishers,expected",
+    [
+        (0.2, 0.1, "[]", "base", ["/costmap"], "BLOCKED"),
+        (0.4, 0.1, "[]", "base", ["/costmap"], "PROPOSED"),
+        (0.2, 0.6, "[]", "base", ["/costmap"], "PROPOSED"),
+        (0.2, -0.1, "[]", "base", ["/costmap"], "PROPOSED"),
+        (0.2, 0.1, "[[1,1]]", "base", ["/costmap"], "PROPOSED"),
+        (0.2, 0.1, "[]", "other", ["/costmap"], "PROPOSED"),
+        (0.2, 0.1, "[]", "base", ["/costmap", "/other"], "PROPOSED"),
+        (float("nan"), 0.1, "[]", "base", ["/costmap"], "PROPOSED"),
+    ],
+)
+def test_geometry_failure_requires_original_unambiguous_current_parameters(
+    module, radius, age, polygon, frame, publishers, expected
+):
+    now = datetime.now(UTC)
+    review = {
+        "status": "PROPOSED",
+        "reviewed_at": now.isoformat(),
+        "source_snapshot_hash": "synthetic",
+        "candidate": {
+            "geometry": {"complete": True, "physical_radius_m": 0.369},
+            "frames": {"base": "base"},
+        },
+    }
+    native = {
+        "graph": {"topics": [{"name": "/costmap/data", "publishers": publishers}]},
+        "observations": {
+            "node_parameters": {
+                "/costmap": {
+                    "robot_radius": radius,
+                    "footprint": polygon,
+                    "robot_base_frame": frame,
+                }
+            },
+            "parameter_captured_at": {"/costmap": (now - timedelta(seconds=age)).isoformat()},
+        },
+    }
+    result = module.review_engineering_failure(
+        native, review, {"costmap_topics": ["/costmap/data"]}
+    )
+    assert result["status"] == expected
+    assert result["original_candidate_status"] == review["status"] == "PROPOSED"
+    assert result["authorization"] is result["binding_verified"] is False
+
+
+@pytest.mark.parametrize(
     "native_age,physics_age,expected",
     [(0.1, 0.1, True), (0.6, 0.1, False), (0.1, 0.4, False), (-1, 0.1, False)],
 )
@@ -108,11 +155,19 @@ def test_unready_capture_preserves_missing_body_and_execution_config(module, tmp
     (tmp_path / "initial-source-witness-observer-sources.json").write_text(
         json.dumps({"run_id": "owned-run"})
     )
+    (tmp_path / "engineering-original-requirements.json").write_text(
+        json.dumps({"costmap_topics": []})
+    )
     stamp = datetime.now(UTC).isoformat()
     state = {
         "native": {"captured_at": stamp, "completeness": {"graph": True}},
         "physics": {"captured_at": stamp, "observation_complete": True, "body_snapshot_hash": None},
-        "review": {"status": "UNKNOWN"},
+        "review": {
+            "status": "UNKNOWN",
+            "candidate": {},
+            "reviewed_at": stamp,
+            "source_snapshot_hash": "synthetic",
+        },
         "model": SimpleNamespace(to_dict=lambda: {"synthetic": True}),
     }
     clock = iter([0, 3])

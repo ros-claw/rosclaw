@@ -5,6 +5,7 @@ ready or compiles a navigation workspace from an unready candidate.
 """
 
 import json
+import math
 import os
 import time
 from datetime import UTC, datetime
@@ -20,6 +21,54 @@ CASES = {
     "footprint_undersized",
     "duplicate_velocity_route",
 }
+
+
+def review_engineering_failure(native, candidate_review, requirements):
+    """Separate observed engineering failure from discovery's unbound proposal.
+
+    Only diagnose a circle with an explicit empty polygon, matching base frame,
+    unique original costmap publisher and fresh parameter readback. Other
+    geometry remains for the full immutable-Body L1 reviewer.
+    """
+    issues = []
+    candidate = candidate_review["candidate"]
+    geometry = candidate.get("geometry", {})
+    radius = geometry.get("physical_radius_m")
+    now = datetime.fromisoformat(candidate_review["reviewed_at"])
+    if geometry.get("complete") is True and type(radius) in (int, float) and math.isfinite(radius):
+        observations = native.get("observations", {})
+        for topic in requirements["costmap_topics"]:
+            rows = [t for t in native["graph"]["topics"] if t["name"] == topic]
+            if len(rows) != 1 or len(rows[0].get("publishers", [])) != 1:
+                continue
+            node = rows[0]["publishers"][0]
+            params = observations.get("node_parameters", {}).get(node, {})
+            stamp = observations.get("parameter_captured_at", {}).get(node)
+            try:
+                age = (now - datetime.fromisoformat(stamp)).total_seconds()
+                polygon = json.loads(params.get("footprint", "null"))
+            except (ValueError, TypeError):
+                continue
+            nav_radius = params.get("robot_radius")
+            if (
+                0 <= age <= 0.5
+                and polygon == []
+                and params.get("robot_base_frame") == candidate["frames"]["base"]
+                and type(nav_radius) in (int, float)
+                and math.isfinite(nav_radius)
+                and 0 < nav_radius < radius
+            ):
+                issues.append("COSTMAP_FOOTPRINT_UNDERSIZES_URDF_ENVELOPE:" + topic)
+    return {
+        "schema_version": "rosclaw.engineering_observation_review.v1",
+        "status": "BLOCKED" if issues else candidate_review["status"],
+        "original_candidate_status": candidate_review["status"],
+        "issue_codes": sorted(issues),
+        "source_snapshot_hash": candidate_review["source_snapshot_hash"],
+        "reviewed_at": candidate_review["reviewed_at"],
+        "authorization": False,
+        "binding_verified": False,
+    }
 
 
 def current_capture(state):
@@ -62,6 +111,7 @@ def capture_failure(root, policy, state, spin_until, save):
     if sources["run_id"] != policy["run_id"]:
         raise ValueError("original source-only observer run differs")
     body_hash = config.get("body_snapshot_hash")
+    requirements = json.loads((root / "engineering-original-requirements.json").read_text())
     sink_before = require_unadmitted_sink(
         root, run_id=policy["run_id"], body_snapshot_hash=body_hash
     )
@@ -82,7 +132,10 @@ def capture_failure(root, policy, state, spin_until, save):
                 and current_capture(state)
                 and state["native"] is not None
                 and state["review"] is not None
-                and state["review"]["status"] in {"UNKNOWN", "BLOCKED"}
+                and review_engineering_failure(state["native"], state["review"], requirements)[
+                    "status"
+                ]
+                in {"UNKNOWN", "BLOCKED"}
                 and state["physics"] is not None
                 and state["physics"].get("observation_complete") is True
             ),
@@ -94,6 +147,10 @@ def capture_failure(root, policy, state, spin_until, save):
         save("engineering-original-native.json", state["native"])
         save("engineering-original-system.json", state["model"].to_dict())
         save("engineering-original-candidate-review.json", state["review"])
+        save(
+            "engineering-original-failure-review.json",
+            review_engineering_failure(state["native"], state["review"], requirements),
+        )
         save("engineering-original-physics.json", state["physics"])
         save(
             "engineering-capture-ready.json",
