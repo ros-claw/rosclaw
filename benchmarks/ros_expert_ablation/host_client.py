@@ -17,6 +17,17 @@ from benchmarks.ros_expert_ablation.isolated_client import DISABLED_FEATURES, EF
 from benchmarks.ros_expert_ablation.protocol import usage_from_events
 
 
+def native_tool_items(events):
+    """Fail closed on execution items, including tools that never completed."""
+    passive = {"context", "agent_message", "reasoning", "error", "warning"}
+    return [
+        event.get("item", {}).get("type")
+        for event in events
+        if event.get("type") in {"item.started", "item.updated", "item.completed"}
+        and event.get("item", {}).get("type") not in passive
+    ]
+
+
 def invoke(prompt, schema, output, *, timeout_sec=120):
     output = Path(output).resolve()
     output.mkdir(exist_ok=False)
@@ -92,13 +103,7 @@ def invoke(prompt, schema, output, *, timeout_sec=120):
             usage = usage_from_events(events)
         except ValueError:
             usage = None
-        native_items = [
-            e.get("item", {}).get("type")
-            for e in events
-            if e.get("type") == "item.completed"
-            and e.get("item", {}).get("type")
-            not in {"context", "agent_message", "reasoning", "error", "warning"}
-        ]
+        native_items = native_tool_items(events)
         outcome = {
             "status": "ACTUAL_MODEL_TURN_COMPLETED"
             if proc.returncode == 0 and usage is not None
