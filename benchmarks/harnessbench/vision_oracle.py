@@ -68,6 +68,13 @@ class CameraRendererUnavailableError(ValueError):
     """Verifier infrastructure failure, without a model success/failure claim."""
 
 
+def _macos_native_renderer_platform():
+    """Independent explicit renderer/plugin binding; never inherit GL selection."""
+    if sys.platform == "darwin":
+        return ("cgl",), {"cgl": "darwin"}
+    return ("egl", "osmesa"), {"egl": "egl", "osmesa": "osmesa"}
+
+
 def _independent_pixels(xml, vector, camera, body, renderer):
     """Pin the declared GL backend in its own process; never compare across renderers."""
     with tempfile.TemporaryDirectory(prefix="rosclaw_vision_oracle_") as temporary:
@@ -82,12 +89,16 @@ def _independent_pixels(xml, vector, camera, body, renderer):
         }
         path = root / "request.json"
         path.write_text(json.dumps(request, allow_nan=False))
-        if renderer not in {"egl", "osmesa"}:
+        if renderer not in _macos_native_renderer_platform()[0]:
             raise ValueError("CAMERA_RENDERER_BINDING_INVALID")
         try:
             completed = subprocess.run(
                 [sys.executable, "-c", _WORKER, str(path)],
-                env={**os.environ, "MUJOCO_GL": renderer, "PYOPENGL_PLATFORM": renderer},
+                env={
+                    **os.environ,
+                    "MUJOCO_GL": renderer,
+                    "PYOPENGL_PLATFORM": _macos_native_renderer_platform()[1][renderer],
+                },
                 capture_output=True,
                 timeout=60,
             )

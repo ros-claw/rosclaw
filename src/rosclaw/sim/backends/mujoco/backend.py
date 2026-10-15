@@ -1100,7 +1100,7 @@ class MujocoBackend:
             request_file.write_text(json.dumps(request), encoding="utf-8")
 
             errors = []
-            for candidate in ("egl", "osmesa"):
+            for candidate in _macos_native_renderer_platform():
                 proc = subprocess.run(
                     [sys.executable, "-c", _CAMERA_WORKER_CODE, candidate, str(request_file)],
                     capture_output=True,
@@ -1214,7 +1214,7 @@ class MujocoBackend:
             request_file.write_text(json.dumps(request), encoding="utf-8")
 
             errors = []
-            for candidate in ("egl", "osmesa"):
+            for candidate in _macos_native_renderer_platform():
                 proc = subprocess.run(
                     [sys.executable, "-c", _RENDER_WORKER_CODE, candidate, str(request_file)],
                     capture_output=True,
@@ -2121,6 +2121,15 @@ def _metrics_close(actual: dict[str, Any], expected: dict[str, Any]) -> bool:
     return True
 
 
+def _macos_native_renderer_platform():
+    """Return explicit native candidates without engine or GL imports."""
+    import sys
+
+    if sys.platform == "darwin":
+        return ("cgl",)
+    return ("egl", "osmesa")
+
+
 _RENDER_WORKER_CODE = r"""
 import json
 import os
@@ -2128,7 +2137,7 @@ import sys
 
 backend = sys.argv[1]
 os.environ["MUJOCO_GL"] = backend
-os.environ["PYOPENGL_PLATFORM"] = backend
+os.environ["PYOPENGL_PLATFORM"] = "darwin" if sys.platform == "darwin" and backend == "cgl" else backend
 
 import mujoco
 from PIL import Image
@@ -2216,7 +2225,7 @@ import sys
 
 backend = sys.argv[1]
 os.environ["MUJOCO_GL"] = backend
-os.environ["PYOPENGL_PLATFORM"] = backend
+os.environ["PYOPENGL_PLATFORM"] = "darwin" if sys.platform == "darwin" and backend == "cgl" else backend
 
 import mujoco
 import numpy as np
