@@ -24,6 +24,8 @@ CASES = {
 
 def current_capture(state):
     now = datetime.now(UTC)
+    if not state.get("native") or state["native"].get("completeness", {}).get("graph") is not True:
+        return False
     return all(
         state.get(name) is not None
         and 0 <= (now - datetime.fromisoformat(state[name]["captured_at"])).total_seconds() <= age

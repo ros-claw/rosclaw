@@ -83,7 +83,10 @@ def test_original_capture_requires_current_native_and_physics(
 ):
     now = datetime.now(UTC)
     state = {
-        "native": {"captured_at": (now - timedelta(seconds=native_age)).isoformat()},
+        "native": {
+            "captured_at": (now - timedelta(seconds=native_age)).isoformat(),
+            "completeness": {"graph": True},
+        },
         "physics": {"captured_at": (now - timedelta(seconds=physics_age)).isoformat()},
     }
     assert module.current_capture(state) is expected
@@ -107,7 +110,7 @@ def test_unready_capture_preserves_missing_body_and_execution_config(module, tmp
     )
     stamp = datetime.now(UTC).isoformat()
     state = {
-        "native": {"captured_at": stamp},
+        "native": {"captured_at": stamp, "completeness": {"graph": True}},
         "physics": {"captured_at": stamp, "observation_complete": True, "body_snapshot_hash": None},
         "review": {"status": "UNKNOWN"},
         "model": SimpleNamespace(to_dict=lambda: {"synthetic": True}),
@@ -130,3 +133,12 @@ def test_unready_capture_preserves_missing_body_and_execution_config(module, tmp
     assert marker["L1"] == "NOT_READY" and marker["L2"] == "NOT_RUN"
     assert marker["body_snapshot_hash"] is None and marker["navigation_workspace_compiled"] is False
     assert not (tmp_path / "execution_config.json").exists()
+
+
+def test_transient_incomplete_graph_is_not_mistaken_for_the_declared_engineering_fault(module):
+    stamp = datetime.now(UTC).isoformat()
+    state = {
+        "native": {"captured_at": stamp, "completeness": {"graph": False}},
+        "physics": {"captured_at": stamp},
+    }
+    assert module.current_capture(state) is False
