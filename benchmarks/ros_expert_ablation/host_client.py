@@ -96,7 +96,8 @@ def invoke(prompt, schema, output, *, timeout_sec=120):
             e.get("item", {}).get("type")
             for e in events
             if e.get("type") == "item.completed"
-            and e.get("item", {}).get("type") not in {"context", "agent_message", "reasoning"}
+            and e.get("item", {}).get("type")
+            not in {"context", "agent_message", "reasoning", "error", "warning"}
         ]
         outcome = {
             "status": "ACTUAL_MODEL_TURN_COMPLETED"
