@@ -17,6 +17,7 @@ from rosclaw.connectors.ros.action_client import STATUS_CANCELED, STATUS_SUCCEED
 from rosclaw.connectors.ros.diagnosis.coverage_audit import CoverageAuditLog, digest
 from rosclaw.connectors.ros.mission.boundary_pass import rectangular_boundary_targets
 from rosclaw.connectors.ros.mission.navigation_binding import SimulationNavigationBinding
+from rosclaw.connectors.ros.mission.navigation_supervision import NavigationExecutionSupervision
 from rosclaw.connectors.ros.mission.recovery import MissedRegionRecovery
 from rosclaw.connectors.ros.verification.coverage import (
     CleaningPose,
@@ -183,6 +184,7 @@ class RosCoverageSimulationExecutor:
         boundary_strategy="through_poses",
         boundary_centers=None,
         navigation_binding=None,
+        navigation_supervision=None,
     ):
         if not owner.startswith("daemon_"):
             raise ValueError("daemon ownership is required")
@@ -199,7 +201,17 @@ class RosCoverageSimulationExecutor:
             raise ValueError(
                 "navigation-only executor requires a matching immutable Body/witness binding without coverage configuration"
             )
+        if navigation_supervision is not None and (
+            navigation_binding is None
+            or not isinstance(navigation_supervision, NavigationExecutionSupervision)
+            or navigation_supervision.binding != navigation_binding
+        ):
+            raise ValueError(
+                "daemon SIM supervision requires the same immutable navigation binding"
+            )
         self.navigation_binding = navigation_binding
+        self.navigation_supervision = navigation_supervision
+        self._supervised_action_id = None
         self.lease_service = (
             navigation_binding.lease_service if navigation_binding else "/rosclaw_sim/lease"
         )
@@ -252,6 +264,8 @@ class RosCoverageSimulationExecutor:
         with self.lease_enable_lock, self.control_lock:
             if arguments.get("data") is True and self.stopping.is_set():
                 raise RuntimeError("simulation execution is stopping")
+            if arguments.get("data") is True:
+                self._check_navigation_supervision()
             return self.control.call_service(
                 name, arguments, service_type="std_srvs/srv/SetBool", timeout_sec=0.5
             )
@@ -260,6 +274,7 @@ class RosCoverageSimulationExecutor:
         with self.lease_enable_lock, self.lease_lock:
             if self.stopping.is_set():
                 raise RuntimeError("simulation execution is stopping")
+            self._check_navigation_supervision()
             return self.lease_control.call_service(
                 name, {"data": True}, service_type="std_srvs/srv/SetBool", timeout_sec=timeout_sec
             )
@@ -268,7 +283,18 @@ class RosCoverageSimulationExecutor:
         with self.lease_enable_lock:
             if self.stopping.is_set():
                 raise RuntimeError("simulation execution stopped before goal dispatch")
+            self._check_navigation_supervision()
             self.client.send_goal(**kwargs)
+
+    def _check_navigation_supervision(self):
+        if self.navigation_supervision is not None:
+            try:
+                if self._supervised_action_id is None:
+                    raise RuntimeError("no admitted navigation supervision action")
+                self.navigation_supervision.check(self._supervised_action_id)
+            except Exception:
+                self.stopping.set()
+                raise
 
     def _coverage_goal(self, arguments):
         """Bind the rectangular fixture's approved area to its fixed denominator.
@@ -641,6 +667,20 @@ class RosCoverageSimulationExecutor:
 
     def __call__(self, action):
         if (
+            action.execution_mode is ExecutionMode.SIMULATION
+            and action.body_id == self.body_id
+            and action.body_snapshot_hash != self.body_snapshot_hash
+        ):
+            return self._result(
+                ActionState.BLOCKED,
+                errors=[
+                    {
+                        "code": "BODY_SNAPSHOT_MISMATCH",
+                        "message": "action Body snapshot differs from the immutable SIM executor binding",
+                    }
+                ],
+            )
+        if (
             action.execution_mode is not ExecutionMode.SIMULATION
             or action.body_id != self.body_id
             or action.body_snapshot_hash != self.body_snapshot_hash
@@ -798,6 +838,7 @@ class RosCoverageSimulationExecutor:
         goal_id = action.action_id
         dispatched = False
         heartbeat_stop = threading.Event()
+        heartbeat_ready = threading.Event()
         deadline = time.monotonic() + action.verification_policy.timeout_sec
         if self.navigation_binding:
             deadline = min(deadline, time.monotonic() + self.navigation_binding.max_duration_sec)
@@ -805,16 +846,22 @@ class RosCoverageSimulationExecutor:
         def maintain_lease():
             last_log = time.monotonic()
             count = 0
-            while not heartbeat_stop.wait(0.2):
+            wait_sec = 0 if self.navigation_supervision else 0.2
+            while not heartbeat_stop.wait(wait_sec):
+                wait_sec = 0.05 if self.navigation_supervision else 0.2
                 try:
                     observed = self.witness.fresh()
-                    response = self._renew_service(self.lease_service, timeout_sec=0.5)
+                    response = self._renew_service(
+                        self.lease_service,
+                        timeout_sec=0.15 if self.navigation_supervision else 0.5,
+                    )
                     count += 1
                     if time.monotonic() - last_log >= 5:
                         logger.info("Simulation daemon lease renewed %s times", count)
                         last_log = time.monotonic()
                     if (
                         not response.ok
+                        and self.navigation_supervision is None
                         and not self.stopping.is_set()
                         and time.monotonic() < deadline
                     ):
@@ -842,7 +889,9 @@ class RosCoverageSimulationExecutor:
                             self.stopping.is_set(),
                         )
                         self.stopping.set()
+                        heartbeat_ready.set()
                         break
+                    heartbeat_ready.set()
                     if (
                         coverage
                         and not observed["cleaning_enabled"]
@@ -854,10 +903,20 @@ class RosCoverageSimulationExecutor:
                 except Exception:
                     logger.exception("Simulation heartbeat observer/service failure")
                     self.stopping.set()
+                    heartbeat_ready.set()
                     break
 
         heartbeat_thread = threading.Thread(target=maintain_lease, daemon=True)
         try:
+            if self.navigation_supervision is not None:
+                try:
+                    self._supervised_action_id = action.action_id
+                    self.navigation_supervision.begin(
+                        action.action_id, duration_sec=max(0.0, deadline - time.monotonic())
+                    )
+                except Exception:
+                    self.stopping.set()
+                    raise
             self.witness.fresh()
             enabled = self._service(self.lease_service, {"data": True})
             if self.navigation_binding and (
@@ -865,6 +924,12 @@ class RosCoverageSimulationExecutor:
             ):
                 raise RuntimeError("simulation navigation lease enable was not acknowledged")
             heartbeat_thread.start()
+            if self.navigation_supervision is not None and (
+                not heartbeat_ready.wait(0.5) or self.stopping.is_set()
+            ):
+                raise RuntimeError(
+                    "first supervised lease renewal was not acknowledged before dispatch"
+                )
             if coverage:
                 response = self._service("/rosclaw_sim/cleaning", {"data": True})
                 if not response.ok or not response.data.get("values", {}).get("success"):
@@ -916,12 +981,14 @@ class RosCoverageSimulationExecutor:
             )
             dispatched = True
             while not completed.wait(0.1):
+                self._check_navigation_supervision()
                 self.witness.fresh()
                 if self.stopping.is_set() or time.monotonic() > deadline:
                     self.client.cancel_goal(goal_id)
                     completed.wait(3)
                     raise RuntimeError("simulation action interrupted or timed out")
             time.sleep(0.2)
+            self._check_navigation_supervision()
             if self.navigation_binding and (self.stopping.is_set() or time.monotonic() > deadline):
                 raise RuntimeError("simulation navigation interrupted or timed out")
             samples = self.witness.since(started)
@@ -1021,6 +1088,7 @@ class RosCoverageSimulationExecutor:
             heartbeat_thread.join(timeout=2)
             if self.navigation_binding:
                 verification["physical_stop_verified"] = self._stop_navigation()
+                self._check_navigation_supervision()
                 if (
                     self.stopping.is_set()
                     or time.monotonic() > deadline
@@ -1098,6 +1166,7 @@ class RosCoverageSimulationExecutor:
                     )
             with self.lock:
                 self.goal_id = None
+            self._supervised_action_id = None
             self._audit_event("cleanup_attempted", {"stage": "CLEANUP"})
 
     def _navigation_goal(self, arguments):

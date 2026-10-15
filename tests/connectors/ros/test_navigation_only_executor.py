@@ -13,6 +13,7 @@ from rosclaw.body.compiler import EffectiveBodyCompiler
 from rosclaw.body.schema import BodyYaml, EurdfProfile
 from rosclaw.connectors.ros.mission.executor import RosCoverageSimulationExecutor, SimulationWitness
 from rosclaw.connectors.ros.mission.navigation_binding import SimulationNavigationBinding
+from rosclaw.connectors.ros.mission.navigation_supervision import NavigationExecutionSupervision
 from rosclaw.connectors.ros.transport.base import RosTransportResult
 from rosclaw.kernel import ActionState, ExecutionMode
 
@@ -147,7 +148,7 @@ class Client:
         return True
 
 
-def make_executor(tmp_path, namespace="/robot", frame="world"):
+def make_executor(tmp_path, namespace="/robot", frame="world", supervision_factory=None):
     body = compiled_body(namespace, frame)
     binding = SimulationNavigationBinding.from_body(body)
     witness = Witness(binding)
@@ -162,6 +163,7 @@ def make_executor(tmp_path, namespace="/robot", frame="world"):
         body_snapshot_hash=body.effective_body_hash,
         grid=None,
         navigation_binding=binding,
+        navigation_supervision=supervision_factory(binding) if supervision_factory else None,
     )
     action = SimpleNamespace(
         action_id="synthetic-navigation",
@@ -181,6 +183,143 @@ def make_executor(tmp_path, namespace="/robot", frame="world"):
         },
     )
     return executor, action, witness, control, client
+
+
+class SyntheticSupervision(NavigationExecutionSupervision):
+    """Fault injection only; never an implementation for physical execution."""
+
+    def __init__(self, binding):
+        super().__init__(binding)
+        self.fail = False
+        self.admitted = None
+        self.duration = None
+
+    def begin(self, action_id, *, duration_sec):
+        if self.fail:
+            raise RuntimeError("synthetic source capacity or admission failure")
+        self.admitted, self.duration = action_id, duration_sec
+
+    def check(self, action_id):
+        if self.fail or action_id != self.admitted:
+            raise RuntimeError("synthetic current source/ROS/generation loss")
+
+
+def test_supervision_admission_loss_blocks_enable_and_latches_future_action(tmp_path):
+    executor, action, witness, control, client = make_executor(
+        tmp_path, supervision_factory=SyntheticSupervision
+    )
+    executor.navigation_supervision.fail = True
+    result = executor(action)
+    assert result.final_state is ActionState.FAILED
+    assert not client.sent and not witness.lease
+    assert all(args["data"] is False for _, args in control.calls)
+    executor.navigation_supervision.fail = False
+    assert executor(action).final_state is ActionState.BLOCKED
+
+
+def test_wrong_body_hash_has_precise_refusal_before_supervision_or_dispatch(tmp_path):
+    executor, action, witness, control, client = make_executor(
+        tmp_path, supervision_factory=SyntheticSupervision
+    )
+    action.body_snapshot_hash = "0" * 64
+    result = executor(action)
+    assert result.final_state is ActionState.BLOCKED
+    assert result.errors[0]["code"] == "BODY_SNAPSHOT_MISMATCH"
+    assert executor.navigation_supervision.admitted is None
+    assert not control.calls and not client.sent and not witness.lease
+
+
+def test_source_loss_between_enable_and_send_never_dispatches_goal(tmp_path):
+    executor, action, witness, control, client = make_executor(
+        tmp_path, supervision_factory=SyntheticSupervision
+    )
+    original = control.call_service
+
+    def inject_after_enable(name, args, **kwargs):
+        result = original(name, args, **kwargs)
+        if args["data"]:
+            executor.navigation_supervision.fail = True
+        return result
+
+    control.call_service = inject_after_enable
+    result = executor(action)
+    assert result.final_state is ActionState.FAILED
+    assert not client.sent and not witness.lease and executor.stopping.is_set()
+    assert control.calls[-1][1] == {"data": False}
+
+
+@pytest.mark.parametrize("immediate_result", [True, False])
+def test_source_loss_after_send_cancels_revokes_and_never_verifies_success(
+    tmp_path, immediate_result
+):
+    executor, action, witness, control, client = make_executor(
+        tmp_path, supervision_factory=SyntheticSupervision
+    )
+    if not immediate_result:
+        client.fault = "never_finishes"
+    original = client.send_goal
+
+    def inject_after_dispatch(**kwargs):
+        original(**kwargs)
+        executor.navigation_supervision.fail = True
+
+    client.send_goal = inject_after_dispatch
+    result = executor(action)
+    assert result.final_state is ActionState.FAILED
+    assert client.sent and client.cancelled and executor.stopping.is_set()
+    assert not witness.lease and control.calls[-1][1] == {"data": False}
+    assert result.verification_result["physical_stop_verified"] is False
+
+
+def test_healthy_supervision_preserves_independent_goal_and_stop_verification(tmp_path):
+    executor, action, witness, _, _ = make_executor(
+        tmp_path, supervision_factory=SyntheticSupervision
+    )
+    result = executor(action)
+    assert result.final_state is ActionState.COMPLETED, result.errors
+    assert executor.navigation_supervision.admitted == action.action_id
+    assert (
+        0 < executor.navigation_supervision.duration <= executor.navigation_binding.max_duration_sec
+    )
+
+    assert result.verification_result["physical_stop_verified"] is True
+    assert not witness.lease and executor._supervised_action_id is None
+
+
+@pytest.mark.parametrize("first_renewal_accepted", [True, False])
+def test_supervised_dispatch_requires_first_actual_renewal_acknowledgement(
+    tmp_path, first_renewal_accepted
+):
+    executor, action, _, control, client = make_executor(
+        tmp_path, supervision_factory=SyntheticSupervision
+    )
+    original = control.call_service
+    renewals = []
+
+    def service(name, arguments, **kwargs):
+        # Initial enable uses the control transport; renewals have the guarded
+        # 150 ms RPC bound. A failed renewal must prevent every goal dispatch.
+        if arguments["data"] and kwargs.get("timeout_sec") == 0.15:
+            renewals.append(name)
+            if not first_renewal_accepted:
+                return RosTransportResult(ok=True, data={"values": {"success": False}})
+        return original(name, arguments, **kwargs)
+
+    control.call_service = service
+    original_send = client.send_goal
+
+    def send(**kwargs):
+        assert renewals and first_renewal_accepted
+        return original_send(**kwargs)
+
+    client.send_goal = send
+    result = executor(action)
+    assert renewals
+    if first_renewal_accepted:
+        assert result.final_state is ActionState.COMPLETED and client.sent
+    else:
+        assert result.final_state is ActionState.FAILED and not client.sent
+        assert executor.stopping.is_set()
 
 
 @pytest.mark.parametrize(
@@ -490,3 +629,78 @@ def test_actual_daemon_refuses_invalid_navigation_configuration_before_runtime(t
     assert (
         not (tmp_path / "memory.sqlite").exists() and not (tmp_path / "run/rosclawd.sock").exists()
     )
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "no_ledger",
+        "missing_policy",
+        "extra_field",
+        "wrong_schema",
+        "duplicate_actions",
+        "too_many_actions",
+    ],
+)
+def test_governed_role_cannot_start_runtime_without_closed_operator_policy(fault):
+    import json
+    import os
+    import subprocess
+    import sys
+    import tempfile
+    from pathlib import Path
+
+    body = compiled_body()
+    with tempfile.TemporaryDirectory(prefix="reh-governed-contract-") as directory:
+        root = Path(directory)
+        refs = root / "home/body/refs"
+        refs.mkdir(parents=True)
+        (refs / "effective_body.json").write_text(json.dumps(body.to_dict()))
+        (refs.parent / "body.yaml").write_text("body_instance:\n  id: mobile\n")
+        config = {
+            "schema_version": "rosclaw.governed_navigation_fixture.v1",
+            "executor_kind": "governed_navigation",
+            "body_id": body.body_instance_id,
+            "body_snapshot_hash": body.effective_body_hash,
+            "supervision": {
+                "schema_version": "rosclaw.governed_navigation_supervision.v1",
+                "facts_enrollment_sha256": "a" * 64,
+                "P03_review_sha256": "b" * 64,
+                "allowed_action_ids": ["position", "yaw"],
+            },
+        }
+        if fault == "missing_policy":
+            config.pop("supervision")
+        elif fault == "extra_field":
+            config["approved"] = True
+        elif fault == "wrong_schema":
+            config["supervision"]["schema_version"] = "unknown"
+        elif fault == "duplicate_actions":
+            config["supervision"]["allowed_action_ids"] = ["position", "position"]
+        elif fault == "too_many_actions":
+            config["supervision"]["allowed_action_ids"] = ["position", "yaw", "extra"]
+        (root / "execution_config.json").write_text(json.dumps(config))
+        repository = Path(__file__).resolve().parents[3]
+        argv = [
+            sys.executable,
+            str(repository / "integrations/ros_probe/acceptance/daemon.py"),
+            "--directory",
+            str(root),
+        ]
+        if fault != "no_ledger":
+            argv.append("--persistent-ledger")
+        result = subprocess.run(
+            argv,
+            cwd=repository,
+            env={
+                **os.environ,
+                "PYTHONPATH": str(repository / "src"),
+                "ROSCLAW_HOME": str(root / "home"),
+            },
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        assert result.returncode == 1 and "ValueError" in result.stderr
+        assert "Initializing ROSClaw Runtime" not in result.stderr
+        assert not (root / "memory.sqlite").exists() and not (root / "run/rosclawd.sock").exists()

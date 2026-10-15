@@ -270,6 +270,7 @@ def main():
         default="baseline",
     )
     parser.add_argument("--seed", type=int)
+    parser.add_argument("--probe-snapshot-period-sec", type=float, default=1.0)
     parser.add_argument("--prepared-assets", type=Path)
     parser.add_argument("--expected-prepared-assets-sha256")
     parser.add_argument("--run-id")
@@ -285,6 +286,8 @@ def main():
         help="Require the bottom-level command timeout; disable only for explicit legacy fixture replay",
     )
     args = parser.parse_args()
+    if not 0.1 <= args.probe_snapshot_period_sec <= 1.0:
+        raise ValueError("read-only probe snapshot period must be 0.1..1.0 seconds")
     if args.external_source_witness and not (
         args.prepared_assets and args.source_only_observer and args.navigation_only
     ):
@@ -560,7 +563,15 @@ def main():
                     f"read_only_source_observer:={'true' if args.source_only_observer else 'false'}",
                 ],
             )
-        start("probe", ["python3", str(ROOT.parent / "ros2/probe.py")])
+        start(
+            "probe",
+            [
+                "python3",
+                str(ROOT.parent / "ros2/probe.py"),
+                "--snapshot-period-sec",
+                str(args.probe_snapshot_period_sec),
+            ],
+        )
         while True:
             for p in children:
                 if p.poll() is not None:
