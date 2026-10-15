@@ -180,7 +180,7 @@ class TestNoFalseSuccess:
         art = kernel.register_artifact(
             task_id=task_id, path="out.txt", media_type="text/plain",
         )
-        assert Path(art["path"]).resolve() == (ws / "out.txt").resolve()
+        assert Path(json.loads(art["metadata_json"])["source_path"]).resolve() == (ws / "out.txt").resolve() and Path(art["path"]).resolve() != (ws / "out.txt").resolve() and Path(art["path"]).read_bytes() == b"ok"
         try:
             kernel.register_artifact(
                 task_id=task_id, path="missing.txt", media_type="text/plain",

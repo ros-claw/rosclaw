@@ -81,7 +81,7 @@ class TestArtifactCliReachable:
         artifact_id, payload, _ = _make_artifact(tmp_path)
         result = _run(tmp_path, "artifact", "path", artifact_id)
         assert result.returncode == 0, result.stderr
-        assert str(payload) in result.stdout, result.stdout
+        assert len(result.stdout.splitlines()) == 1 and (snapshot := Path(result.stdout.strip())).is_absolute() and snapshot != payload and snapshot.stat().st_ino != payload.stat().st_ino and snapshot.stat().st_mode & 0o222 == 0 and snapshot.read_bytes() == payload.read_bytes() == b"rosclaw-0901-artifact-payload" * 8 and (shown := _run(tmp_path, "artifact", "show", artifact_id, "--json")).returncode == 0 and (view := __import__("json").loads(shown.stdout))["path"] == str(snapshot) and view["source_path"] == str(payload) and view["artifact_id"] == artifact_id, result.stdout
 
     def test_open_never_prints_help(self, tmp_path: Path) -> None:
         artifact_id, payload, _ = _make_artifact(tmp_path)

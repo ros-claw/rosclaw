@@ -109,7 +109,11 @@ class TestArtifactCli:
         out = capsys.readouterr().out
         listing = json.loads(out)
         assert any(
-            a["artifact_id"] == artifact_id and a["path"] == str(f)
+            a["artifact_id"] == artifact_id
+            and a["source_path"] == str(f)
+            and a["path"] != str(f)
+            and Path(a["path"]).name == f.name
+            and Path(a["path"]).read_bytes() == f.read_bytes()
             for a in listing
         ), listing
 
