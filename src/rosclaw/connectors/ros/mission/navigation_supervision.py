@@ -25,3 +25,11 @@ class NavigationExecutionSupervision(ABC):
     @abstractmethod
     def check(self, action_id: str) -> None:
         """Refresh independent observations/proof or raise permanently on loss."""
+
+    def check_renewal(self, action_id: str) -> None:
+        """Default to a full check; SDKs may validate a still-current signed proof.
+
+        This never extends a proof or bypasses the receiver's independent
+        current-facts check. Implementations without that receiver retain check.
+        """
+        self.check(action_id)

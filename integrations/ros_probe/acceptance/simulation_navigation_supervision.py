@@ -176,6 +176,7 @@ class SdkNavigationExecutionSupervision(NavigationExecutionSupervision):
         self._sequence = 0
         self._admission_expires_ns = 0
         self.failed_reason = None
+        self._last_publication = None
 
     def begin(self, action_id, *, duration_sec):
         with self._lock:
@@ -219,6 +220,45 @@ class SdkNavigationExecutionSupervision(NavigationExecutionSupervision):
                 self._check_locked(action_id)
             except Exception as exc:
                 self._fail(exc)
+
+    def check_renewal(self, action_id):
+        """Read the original proof lifetime without waiting behind its producer.
+
+        The SIM receiver still verifies actual current facts, proof/HMAC,
+        source cursor and its existing unexpired lease for every renewal.
+        Main execution checks continue to produce fresh proofs synchronously.
+        """
+        try:
+            publication = self._last_publication
+            now = time.monotonic_ns()
+            if (
+                self._closed
+                or self.failed_reason is not None
+                or action_id != self._action_id
+                or publication is None
+                or publication[0] != action_id
+                or now >= min(self._deadline, publication[1])
+            ):
+                raise ValueError("SDK renewal proof unavailable, expired or action changed")
+            info = self.proof_file.parent.stat(follow_symlinks=False)
+            if (
+                (info.st_dev, info.st_ino) != self._directory_identity
+                or not stat.S_ISDIR(info.st_mode)
+                or info.st_uid != os.getuid()
+                or info.st_mode & 0o077
+            ):
+                raise ValueError("private proof directory changed")
+            sink = self.lease_observation.read()
+            if (
+                not sink["known"]
+                or sink["status"]["terminal"]
+                or self.failed_reason is not None
+                or self._closed
+                or time.monotonic_ns() >= min(self._deadline, publication[1])
+            ):
+                raise ValueError("current SDK renewal observation unavailable or expired")
+        except Exception as exc:
+            self._fail(exc)
 
     def _check_locked(self, action_id):
         started = time.monotonic_ns()
@@ -362,6 +402,8 @@ class SdkNavigationExecutionSupervision(NavigationExecutionSupervision):
                 "monotonic_ns": time.monotonic_ns(),
             }
         )
+        if self.failed_reason is not None or self._closed or action_id != self._action_id:
+            raise ValueError("SDK supervision changed before proof publication")
         self._write_private(self.proof_file.name, raw)
         if time.monotonic_ns() >= payload["expires_ns"]:
             raise ValueError("supervision proof expired before durable publication")
@@ -375,6 +417,10 @@ class SdkNavigationExecutionSupervision(NavigationExecutionSupervision):
         )
         if time.monotonic_ns() >= payload["expires_ns"]:
             raise ValueError("supervision proof expired during original audit persistence")
+        if self.failed_reason is not None or self._closed or action_id != self._action_id:
+            raise ValueError("SDK supervision changed during proof publication")
+        # Atomic immutable snapshot, only after durable proof AND audit.
+        self._last_publication = (action_id, payload["expires_ns"], self._sequence)
 
     def _write_private(self, name, raw):
         temporary = name + ".tmp"
