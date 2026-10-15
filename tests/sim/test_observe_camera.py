@@ -6,6 +6,8 @@ extrinsics + simulation_time——不把图像数组塞进 JSON。
 
 from __future__ import annotations
 
+import sys
+
 import pytest
 
 CAM_MODEL = """<mujoco model="cam_world">
@@ -56,7 +58,9 @@ def test_camera_rgb_returns_artifact(backend) -> None:
     assert len(value["extrinsics"]["pos"]) == 3
     assert value["extrinsics"]["pos"] == pytest.approx([0, 0, 1.5])
     assert value["simulation_time"] == pytest.approx(0.0)
-    assert value["renderer_backend"] in ("egl", "osmesa")  # 实际后端，不是环境声明
+    assert value["renderer_backend"] in (
+        ("cgl",) if sys.platform == "darwin" else ("egl", "osmesa")
+    )  # 实际后端，不是环境声明
 
     blob = b.store.get(value["artifact_ref"])
     assert isinstance(blob, bytes)

@@ -1,0 +1,15 @@
+{
+  "status": "ROOT_ORIGINAL_UBUNTU_SIM_SUITE_AND_CAMERA_TARGET_PASS",
+  "run": 38754562951,
+  "job": 116489447822,
+  "pass": 740,
+  "skip": 1,
+  "deselected": 2,
+  "warnings": 4,
+  "elapsed_s": 523.62,
+  "pixel_count": 1021,
+  "physics_steps_by_oracle": 0,
+  "observer_sha256": "d69c46a052dc3bba1949033cf3d72d72af994bab03130bce4eee623da68d8422",
+  "job_log_sha256": "2f0a802beb8a7fe91a62e7644779eb5db33517b9b6749098a572ba2c81a73552",
+  "Mac_whole_job_failure_preserved": true
+}
