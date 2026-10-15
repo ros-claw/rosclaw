@@ -19,6 +19,7 @@ from pathlib import Path
 
 import rclpy
 from ament_index_python.packages import get_packages_with_prefixes
+from graph_reads import collect_node_actions, unknown_graph_snapshot
 from lifecycle_msgs.srv import GetState
 from rcl_interfaces.srv import GetParameters, ListParameters
 from rclpy.action.graph import get_action_server_names_and_types_by_node
@@ -399,17 +400,12 @@ class ReadOnlyProbe(Node):
                         "subscriber_count": len(subs),
                     }
                 )
-        nodes = [
-            {"name": ns.rstrip("/") + "/" + n, "namespace": ns}
-            for n, ns in sorted(self.get_node_names_and_namespaces())
-        ]
-        actions = {}
-        for name, namespace in self.get_node_names_and_namespaces():
-            for action, types in get_action_server_names_and_types_by_node(self, name, namespace):
-                actions[action] = {
-                    "name": action,
-                    "action_type": types[0] if len(types) == 1 else "",
-                }
+        nodes, actions, graph_errors = collect_node_actions(
+            self.get_node_names_and_namespaces,
+            lambda name, namespace: get_action_server_names_and_types_by_node(
+                self, name, namespace
+            ),
+        )
         transforms = []
         observed_times = {
             n: p["use_sim_time"]
@@ -490,7 +486,7 @@ class ReadOnlyProbe(Node):
             "graph": {
                 "topics": topics,
                 "nodes": nodes,
-                "actions": list(actions.values()),
+                "actions": actions,
                 "services": [
                     {"name": n, "srv_type": t[0] if len(t) == 1 else ""}
                     for n, t in sorted(self.get_service_names_and_types())
@@ -506,6 +502,7 @@ class ReadOnlyProbe(Node):
             },
             "navigation": nav,
             "observations": {
+                "graph_read_errors": graph_errors,
                 "node_use_sim_time": observed_times,
                 "package_inventory": self.packages,
                 "node_parameters": parameters,
@@ -534,7 +531,7 @@ class ReadOnlyProbe(Node):
                 "urdf_descriptions": self.urdf_descriptions,
             },
             "completeness": {
-                "graph": True,
+                "graph": not graph_errors,
                 "qos": True,
                 "signals": True,
                 "tf": any(t.endswith("/tf") for t in self.subscriptions_by_topic),
@@ -543,12 +540,26 @@ class ReadOnlyProbe(Node):
                 "time": bool(observed_times)
                 and (not any(observed_times.values()) or clock_advancing is not None),
             },
-            "errors": self.errors[-50:],
+            "errors": self.errors[-50:]
+            + [json.dumps(error, sort_keys=True) for error in graph_errors],
         }
 
     def publish_snapshot(self):
-        self.discover_reads()
-        self.publisher.publish(String(data=json.dumps(self.snapshot(), allow_nan=False)))
+        try:
+            self.discover_reads()
+            snapshot = self.snapshot()
+        except RuntimeError as error:
+            snapshot = unknown_graph_snapshot(
+                utc_now(),
+                {
+                    "ros_generation": "ros2",
+                    "distro": os.getenv("ROS_DISTRO", "unknown"),
+                    "rmw": get_rmw_implementation_identifier(),
+                    "domain_id": os.getenv("ROS_DOMAIN_ID", "0"),
+                },
+                error,
+            )
+        self.publisher.publish(String(data=json.dumps(snapshot, allow_nan=False)))
         self.status_publisher.publish(
             String(data=json.dumps({"read_only": True, "captured_at": utc_now()}))
         )

@@ -63,6 +63,19 @@ def test_historical_good_health_cannot_cover_current_stale_ros(tmp_path):
     assert "STALE_L1_CAPTURE" in result["unknown_reasons"]
 
 
+def test_failed_current_graph_read_cannot_renew_health_from_otherwise_good_facts(tmp_path):
+    parts = prepared(tmp_path)
+    assert review(parts)["status"] == "HEALTHY_SIM_OBSERVATION_ONLY"
+    parts[-1].completeness["graph"] = False
+    parts[-1].observations["graph_read_errors"] = [
+        {"operation": "get_action_server_names_and_types_by_node", "message": "error not set"}
+    ]
+    result = review(parts)
+    assert result["status"] == "UNKNOWN"
+    assert "NAVIGATION:fresh_complete_graph" in result["unknown_reasons"]
+    assert result["execution_authority"] == "NONE"
+
+
 @pytest.mark.parametrize("field", ["body_snapshot_hash", "manifest_hash", "sim_run_id"])
 def test_immutable_context_mismatch_is_never_healthy(tmp_path, field):
     parts = prepared(tmp_path)
