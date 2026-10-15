@@ -219,13 +219,15 @@ for (const [state, name] of [["SUCCEEDED", "success"], ["FAILED", "failure"], ["
 			assert.equal(f.requests, 1); assert.equal(f.beforeStarts, 1);
 			const initial = leadingUsage(f.payloads[0]); assert.equal(initial.completedMainRequests, 0);
 			const messages = await managedTurn(f, state);
-			assert.equal(f.beforeStarts, 1, "idle triggerTurn bypasses before_agent_start");
+			assert.equal(f.beforeStarts, 2, "1.2 idle custom triggerTurn runs before_agent_start once");
+			assert.equal(f.requests, 2);
 			const n = leadingUsage(messages);
 			assert.equal(n.completedMainRequests, 1); assert.equal(n.knownInclusiveInput, 21); assert.equal(n.knownOutput, 5); assert.equal(n.pendingMainRequests, 0);
 			assert.equal(n.runtimeGeneration, initial.runtimeGeneration); assert.ok(n.sequence > initial.sequence);
 			await f.session.prompt("manual after idle");
 			assert.equal(leadingUsage(f.payloads[2]).completedMainRequests, 2);
-			assert.equal(f.beforeStarts, 2);
+			assert.equal(f.beforeStarts, 3);
+			assert.equal(f.requests, 3);
 		} finally { await f.close(); }
 	});
 }
@@ -245,7 +247,7 @@ test("managed wakeup preserves unknown and compaction lowerbounds", async () => 
 
 test("managed wakeup preserves body and default-disabled compatibility", async () => {
 	const plain = await managedFixture(false); const enabled = await managedFixture(); try {
-		for (const f of [plain, enabled]) { await f.session.prompt("manual"); await managedTurn(f, "CANCELLED"); assert.equal(f.requests, 2); assert.equal(f.beforeStarts, 1); }
+		for (const f of [plain, enabled]) { await f.session.prompt("manual"); await managedTurn(f, "CANCELLED"); assert.equal(f.requests, 2); assert.equal(f.beforeStarts, 2); }
 		assert.ok(plain.payloads.every(p => p.flatMap(m => notes(textOf(m))).length === 0));
 		assert.equal(leadingUsage(enabled.payloads[1]).completedMainRequests, 1);
 		// Independent sessions have independent wall-clock timestamps. Compare

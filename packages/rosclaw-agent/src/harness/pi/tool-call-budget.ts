@@ -375,7 +375,24 @@ export function createToolCallBudgetExtension(policy: ToolCallBudget, workspaceR
             let text = visible ? stripMarkerLines(event.systemPrompt, compact) : event.systemPrompt;
             if (usage)
                 text = stripUsage(text);
-            return { systemPrompt: text + (visible ? `\n${fullNotice()}` : "") + (usage ? `\n${usage.notice()}` : "") };
+            // Pi 1.2 projects forceSystemPrompt AFTER context_with_system on
+            // every request. Keep downstream startup intent in the public run
+            // option, but render our owned advisory lines when it is read, not
+            // just when the run starts. No transcript or SDK hook is replaced.
+            let forced = event.systemPromptOptions.forceSystemPrompt;
+            const refresh = (prompt: string) => {
+                let current = visible ? stripMarkerLines(prompt, compact) : prompt;
+                if (usage)
+                    current = stripUsage(current);
+                return current + (visible ? `\n${fullNotice()}` : "") + (usage ? `\n${usage.notice()}` : "");
+            };
+            Object.defineProperty(event.systemPromptOptions, "forceSystemPrompt", {
+                enumerable: true,
+                configurable: true,
+                get: () => forced === undefined ? undefined : refresh(forced),
+                set: (prompt: string | undefined) => { forced = prompt; },
+            });
+            return { systemPrompt: refresh(text) };
         });
         // before_agent_start's forced prompt is scoped to a manual run and is
         // cleared at settlement. Idle custom triggerTurn bypasses that hook.
@@ -383,10 +400,14 @@ export function createToolCallBudgetExtension(policy: ToolCallBudget, workspaceR
         // including its system prompt; never persist this advisory projection.
         if (usage)
             pi.on("context_with_system", event => ({
+                // Pi 1.2 starts custom turns through before_agent_start too.
+                // Project current notices at the request boundary without persisting
+                // or accumulating startup snapshots in the restored system prompt.
                 messages: event.messages.map(message => message.role === "system"
                     ? { ...message, content: typeof message.content === "string"
-                            ? `${stripUsage(message.content)}\n${usage.notice()}`
-                            : [...message.content.map(part => ({ ...part, text: stripUsage(part.text) })),
+                            ? `${stripUsage(visible ? stripMarkerLines(message.content, compact) : message.content)}${visible ? `\n${fullNotice()}` : ""}\n${usage.notice()}`
+                            : [...message.content.map(part => ({ ...part, text: stripUsage(visible ? stripMarkerLines(part.text, compact) : part.text) })),
+                                ...(visible ? [{ type: "text" as const, text: fullNotice() }] : []),
                                 { type: "text" as const, text: usage.notice() }] }
                     : message),
             }));

@@ -86,6 +86,10 @@ test("original SDK callback abort prevents pending dispatch", { timeout: 15_000 
 		await aborted;
 		assert.deepEqual(seen, ["started"]);
 		assert.equal(fixture.calls(), 0, "callback abort must prevent actual original agent dispatch");
+		assert.equal(fixture.session.isIdle, true, "callback cancellation releases SDK busy state");
+		assert.equal(fixture.session.isStreaming, false);
+		assert.deepEqual(fixture.events.filter(type => type === "agent_start" || type === "agent_settled"), [],
+			"preflight rejection must not synthesize a run or settled event");
 		const foreign = new Error("ROSCLAW_PREFLIGHT_CANCELLED");
 		await assert.rejects(fixture.session.prompt("abort then foreign error", { preflightResult: disposition => {
 			seen.push(disposition); aborted = fixture.session.abort(); throw foreign;
@@ -93,6 +97,10 @@ test("original SDK callback abort prevents pending dispatch", { timeout: 15_000 
 		await aborted;
 		assert.deepEqual(seen, ["started", "started"]);
 		assert.equal(fixture.calls(), 0);
+		await fixture.session.waitForIdle();
+		assert.equal(fixture.session.isIdle, true);
+		assert.deepEqual(fixture.events.filter(type => type === "agent_start" || type === "agent_settled"), [],
+			"foreign callback error must also clean up without a phantom run");
 		await fixture.session.prompt("normal future prompt", { preflightResult: disposition => seen.push(disposition) });
 		await fixture.session.waitForIdle();
 		assert.equal(fixture.calls(), 1);
@@ -127,6 +135,58 @@ test("original SDK agent_settled deferred prompt is cancelled before dispatch", 
 		await fixture.session.waitForIdle();
 		assert.equal(fixture.calls(), 2);
 		assert.deepEqual(dispositions, ["started"]);
+		assert.deepEqual(fixture.errors, []);
+	} finally { await fixture.close(); }
+});
+
+test("original SDK foreign preflight errors without abort retain identity and release idle waiters", { timeout: 15_000 }, async () => {
+	const fixture = await createOriginalSdkPreflightFixture();
+	try {
+		// Same text as the owned sentinel is deliberately NOT cancellation authority.
+		for (const foreign of [new Error("ROSCLAW_PREFLIGHT_CANCELLED"), { reason: "foreign callback" }]) {
+			let idle: Promise<void> | undefined;
+			const seen: string[] = [];
+			await assert.rejects(fixture.session.prompt("foreign error without abort", { preflightResult: disposition => {
+				seen.push(disposition);
+				assert.equal(fixture.session.isStreaming, true);
+				idle = fixture.session.waitForIdle();
+				throw foreign;
+			} }), error => error === foreign);
+			await idle;
+			assert.deepEqual(seen, ["started"]);
+			assert.equal(fixture.session.isIdle, true);
+			assert.equal(fixture.calls(), 0, "throwing preflight never enters the actual stream");
+		}
+		assert.equal(fixture.events.includes("agent_start"), false);
+		assert.equal(fixture.events.includes("agent_settled"), false);
+		await fixture.session.abort();
+		await fixture.session.prompt("usable after foreign errors and idle abort");
+		await fixture.session.waitForIdle();
+		assert.equal(fixture.calls(), 1);
+		assert.deepEqual(fixture.errors, []);
+	} finally { await fixture.close(); }
+});
+
+test("original SDK successful settled continuation owns its disposition only until dispatch", { timeout: 15_000 }, async () => {
+	let accepted = false;
+	const dispositions: string[] = [];
+	const fixture = await createOriginalSdkPreflightFixture(async session => {
+		if (accepted) return;
+		accepted = true;
+		await session.prompt("uncancelled deferred action", { preflightResult: disposition => dispositions.push(disposition) });
+		assert.deepEqual(dispositions, [], "accepted action has not started inside real settled handler");
+	});
+	try {
+		await fixture.session.prompt("seed");
+		await fixture.session.waitForIdle();
+		assert.equal(fixture.calls(), 2, "seed and genuine deferred continuation both dispatch");
+		assert.deepEqual(dispositions, ["started"]);
+		assert.equal(fixture.session.isIdle, true);
+		await fixture.session.abort();
+		await fixture.session.prompt("independent future action", { preflightResult: disposition => dispositions.push(disposition) });
+		await fixture.session.waitForIdle();
+		assert.equal(fixture.calls(), 3);
+		assert.deepEqual(dispositions, ["started", "started"]);
 		assert.deepEqual(fixture.errors, []);
 	} finally { await fixture.close(); }
 });
