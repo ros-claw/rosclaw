@@ -495,23 +495,41 @@ class RosGraphDiscovery:
             return ""
 
         result = self._call_rosapi("action_type", {"action": action})
-        if not result.ok or result.error:
-            logger.debug("action_type unavailable for %s: %s", action, result.error)
-            return ""
-        if isinstance(result.data, dict) and result.data.get("result") is False:
-            return ""
-        raw = _extract_values(result.data).get("type")
-        # ActionType.srv returns one string, not an array. Reject ambiguous or
-        # malformed metadata rather than selecting a candidate or coercing it.
-        if not isinstance(raw, str):
-            return ""
-        raw = raw.strip()
-        if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*/(?:action/)?[A-Za-z][A-Za-z0-9_]*", raw):
-            return ""
+        candidates: set[str] = set()
+        if (
+            result.ok
+            and not result.error
+            and isinstance(result.data, dict)
+            and result.data.get("result", True) is True
+        ):
+            raw = _extract_values(result.data).get("type")
+            if isinstance(raw, str):
+                raw = raw.strip()
+                if re.fullmatch(
+                    r"[A-Za-z][A-Za-z0-9_]*/(?:action/)?[A-Za-z][A-Za-z0-9_]*",
+                    raw,
+                ):
+                    parts = raw.split("/")
+                    candidates.add(f"{parts[0]}/action/{parts[-1]}")
 
-        from rosclaw.connectors.ros.discovery.normalizer import normalize_action_type
-
-        return normalize_action_type(raw, self._profile.version)
+        # Use only already-discovered, genuine generated service type metadata.
+        # No additional calls: strict transports permit one action_type probe.
+        # The namespace selects metadata; it does not supply the type name.
+        for operation, suffix in (("send_goal", "_SendGoal"), ("get_result", "_GetResult")):
+            raw = self._service_types.get(f"{action.rstrip('/')}/_action/{operation}")
+            if raw:
+                if not isinstance(raw, str):
+                    return ""
+                match = re.fullmatch(
+                    r"([A-Za-z][A-Za-z0-9_]*)/action/([A-Za-z][A-Za-z0-9_]*)" + re.escape(suffix),
+                    raw,
+                )
+                if not match:
+                    return ""
+                candidates.add(f"{match[1]}/action/{match[2]}")
+        if len(candidates) != 1:
+            return ""
+        return next(iter(candidates))
 
     def _denormalize_msg(self, canonical: str) -> str:
         if self._profile.version == RosVersion.ROS1:

@@ -108,18 +108,36 @@ class RosApiResolver:
         if not result.ok:
             logger.debug("get_ros_version failed for %s: %s", prefix, result.error)
             error = result.error or "unknown"
-            if "not found" in error.lower() or "service" in error.lower():
+            normalized = error.strip().lower()
+            service = f"{prefix}/get_ros_version"
+            # Only explicit service-absence diagnostics, never arbitrary text
+            # mentioning 'service' (timeouts, permission errors, failed calls).
+            if normalized in {"not found", "service not found"} or normalized in {
+                f"service {service} not found",
+                f"service {service} does not exist",
+                f"service {service} does not exist.",
+                f"service {service} is not available",
+            }:
                 return None, "not_found"
             return None, error
 
+        if result.error or not isinstance(result.data, dict):
+            return None, "invalid version response"
+        if result.data.get("result", True) is not True:
+            return None, "failed version response"
+        if result.data.get("op", "service_response") != "service_response":
+            return None, "invalid version operation"
         values = _extract_values(result.data)
         version_number = values.get("version")
         distro = values.get("distro", "")
 
-        if not isinstance(version_number, int):
-            return None, "not_found"
+        if type(version_number) is not int or version_number not in (1, 2):
+            return None, "unsupported or malformed ROS version"
+        if not isinstance(distro, str) or (distro and not distro.strip().isalpha()):
+            return None, "malformed ROS distro"
+        distro = distro.strip()
 
-        if version_number >= 2:
+        if version_number == 2:
             return RosApiProfile(
                 version=RosVersion.ROS2,
                 distro=distro or "unknown",
@@ -137,9 +155,11 @@ class RosApiResolver:
     def _detect_ros1(self) -> RosApiProfile | None:
         prefix = "/rosapi"
         distro = self._get_ros1_distro(prefix)
+        if not distro:
+            return None
         return RosApiProfile(
             version=RosVersion.ROS1,
-            distro=distro or "unknown",
+            distro=distro,
             service_prefix=prefix,
             type_prefix="rosapi",
         )
@@ -149,19 +169,45 @@ class RosApiResolver:
             f"{prefix}/get_param",
             {"name": "/rosdistro"},
         )
-        if not result.ok:
+        if not result.ok or result.error or not isinstance(result.data, dict):
+            return ""
+        if result.data.get("result", True) is not True:
+            return ""
+        if result.data.get("op", "service_response") != "service_response":
             return ""
         values = _extract_values(result.data)
+        if values.get("successful", True) is not True:
+            return ""
         value = values.get("value")
         if isinstance(value, str):
             # ROS1 rosapi may return the parameter as a JSON-encoded string.
             try:
                 decoded = json.loads(value)
-                if isinstance(decoded, str):
-                    value = decoded
+                if not isinstance(decoded, str):
+                    return ""
+                value = decoded
             except json.JSONDecodeError:
                 pass
-            return value.strip().strip("/").split("/")[-1]
+            value = value.strip()
+            if value.startswith("/opt/ros/"):
+                value = value[len("/opt/ros/") :].rstrip("/")
+            # A ROS2 distro parameter is not positive ROS1 evidence.
+            if value in {
+                "boxturtle",
+                "cturtle",
+                "diamondback",
+                "electric",
+                "fuerte",
+                "groovy",
+                "hydro",
+                "indigo",
+                "jade",
+                "kinetic",
+                "lunar",
+                "melodic",
+                "noetic",
+            }:
+                return value
         return ""
 
 
