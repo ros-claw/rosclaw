@@ -274,7 +274,7 @@ class RosCoverageSimulationExecutor:
         with self.lease_enable_lock, self.lease_lock:
             if self.stopping.is_set():
                 raise RuntimeError("simulation execution is stopping")
-            self._check_navigation_supervision()
+            self._check_navigation_supervision(renewal=True)
             return self.lease_control.call_service(
                 name, {"data": True}, service_type="std_srvs/srv/SetBool", timeout_sec=timeout_sec
             )
@@ -286,12 +286,15 @@ class RosCoverageSimulationExecutor:
             self._check_navigation_supervision()
             self.client.send_goal(**kwargs)
 
-    def _check_navigation_supervision(self):
+    def _check_navigation_supervision(self, *, renewal=False):
         if self.navigation_supervision is not None:
             try:
                 if self._supervised_action_id is None:
                     raise RuntimeError("no admitted navigation supervision action")
-                self.navigation_supervision.check(self._supervised_action_id)
+                if renewal:
+                    self.navigation_supervision.check_renewal(self._supervised_action_id)
+                else:
+                    self.navigation_supervision.check(self._supervised_action_id)
             except Exception:
                 self.stopping.set()
                 raise

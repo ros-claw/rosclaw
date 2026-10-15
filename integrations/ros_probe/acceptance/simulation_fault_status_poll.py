@@ -1,10 +1,14 @@
 """Pure original socket-fault context review for bounded read-only status polls."""
 
+from rosclaw.mcp.schemas.common import MCPError
+
 
 def permits_unavailable_status_retry(effect, policy, ready, *, policy_sha256, error, now_ns):
     """An unavailable read is UNKNOWN; this never creates a terminal receipt."""
     if (
-        not isinstance(error, RuntimeError)
+        not isinstance(error, MCPError)
+        or error.code != "DAEMON_UNAVAILABLE"
+        or error.details.get("operation") != "get_action_status"
         or "rosclawd is unavailable" not in str(error)
         or "timed out" not in str(error)
         or policy.get("case") != "rosbridge_disconnect"

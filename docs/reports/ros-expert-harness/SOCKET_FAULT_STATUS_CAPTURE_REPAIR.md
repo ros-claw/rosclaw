@@ -22,3 +22,14 @@ requires the real canonical terminal receipt, independent original physics and
 actual old-action/old-lease refusal. The 11 pure software contracts verify the
 fault bindings and rejection of unrelated or unconfirmed faults. Actual new
 socket-fault and full final-source/main Worlds are still required.
+
+The first helper incorrectly matched RuntimeError although the actual MCP
+adapter emits MCPError. Source f24aa693 again failed to drain its receipt and is
+preserved. The branch now requires the real structured MCPError type, exact
+DAEMON_UNAVAILABLE code, get_action_status operation and original timeout text,
+in addition to all original fault bindings and the unchanged absolute deadline.
+Tests use that actual exception class and reject other codes and operations.
+
+A direct contract test passes the actual DaemonUnavailableError through the
+real RuntimeClient error adapter and then through the fault-context reviewer;
+the propagated code is DAEMON_UNAVAILABLE, not the adapter fallback label.
