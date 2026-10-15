@@ -526,6 +526,7 @@ def freeze_audit_source(root, config):
                 "simulation_owned_entity_fault.py",
                 "simulation_engineering_capture.py",
                 "simulation_persistent_lease_bridge.py",
+                "simulation_fault_status_poll.py",
                 "simulation_engineering_endpoint_fixture.py",
                 "simulation_prepared_lifecycle_config.py",
                 "simulation_contact_sensitivity_fixture.py",
