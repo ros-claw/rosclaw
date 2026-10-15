@@ -92,6 +92,12 @@ def invoke(prompt, schema, output, *, timeout_sec=120):
             usage = usage_from_events(events)
         except ValueError:
             usage = None
+        native_items = [
+            e.get("item", {}).get("type")
+            for e in events
+            if e.get("type") == "item.completed"
+            and e.get("item", {}).get("type") not in {"context", "agent_message", "reasoning"}
+        ]
         outcome = {
             "status": "ACTUAL_MODEL_TURN_COMPLETED"
             if proc.returncode == 0 and usage is not None
@@ -112,6 +118,9 @@ def invoke(prompt, schema, output, *, timeout_sec=120):
             "client_scope": "HOST_PROCESS_READ_ONLY_NO_NATIVE_EXECUTION_TOOLS_NO_MCP; externally mediated tools only",
             "container_isolation": False,
             "raw_event_types": [e.get("type") for e in events],
+            "native_tool_items": native_items,
         }
+        if native_items:
+            outcome["status"] = "NATIVE_TOOL_PROTOCOL_VIOLATION"
         (output / "outcome.json").write_text(json.dumps(outcome, indent=2) + "\n")
         return outcome

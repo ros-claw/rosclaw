@@ -98,12 +98,13 @@ def run_episode(
             timeout_sec=min(120, max(1, deadline - clock())),
         )
         calls.append({"directory": str(call_dir), "outcome": result})
+        if isinstance(result.get("usage"), dict):
+            for key, value in result["usage"].items():
+                if type(value) is int:
+                    usage[key] = usage.get(key, 0) + value
         if result.get("status") != "ACTUAL_MODEL_TURN_COMPLETED" or result.get("usage") is None:
             state = "ACTUAL_MODEL_CALL_FAILED_OR_USAGE_MISSING"
             break
-        for key, value in result["usage"].items():
-            if type(value) is int:
-                usage[key] = usage.get(key, 0) + value
         if result["usage"]["input_tokens"] > 64000:
             state = "CONTEXT_TOKEN_BUDGET_EXCEEDED"
             break

@@ -141,3 +141,13 @@ def test_model_cannot_claim_unadmitted_memory_or_trigger_validation(tmp_path):
     )
     assert result["status"] == "UNADMITTED_MEMORY_REFERENCE_IN_MODEL_DECISION"
     assert not result["verified_success"] and not result["tests"]
+
+
+def test_failed_client_preserves_reported_actual_usage(tmp_path):
+    actual = {"input_tokens": 321, "cached_input_tokens": 200, "output_tokens": 12}
+
+    def failed(*args, **kwargs):
+        return {"status": "NATIVE_TOOL_PROTOCOL_VIOLATION", "usage": actual}
+
+    result = run_episode({}, Tools(), tmp_path / "episode", good_evaluation, model_client=failed)
+    assert result["actual_usage"] == actual and not result["verified_success"]
