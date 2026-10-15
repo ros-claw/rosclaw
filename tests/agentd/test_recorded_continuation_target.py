@@ -15,14 +15,22 @@ from rosclaw.storage.migrations import MigrationRunner
 
 ROOT = Path(__file__).resolve().parents[2]
 ENTRY = ROOT / "packages/rosclaw-agent/dist/src/main.js"
-SDK = ROOT / "packages/rosclaw-agent/node_modules/@earendil-works/pi-coding-agent/dist/index.js"
+SDK = (
+    ROOT
+    / "packages/rosclaw-agent/node_modules/@earendil-works/pi-coding-agent/dist/core/session-manager.js"
+)
 
 
 def recorded(home, cwd, provider):
     code = """import {SessionManager} from SDK;
+// Use the shipped core module, not the advertised but absent 1.2.0 barrel.
+// Public metadata orders by message activity, not filesystem mtime. Ensure
+// strictly newer synthetic activity even when the clock repeats a millisecond.
+const history=await SessionManager.listAll(DIR);
+const timestamp=Math.max(Date.now(),...history.map(s=>s.modified.getTime()+1));
 const m=SessionManager.create(CWD,DIR);
-m.appendMessage({role:'user',content:'offline',timestamp:Date.now()});
-m.appendMessage({role:'assistant',content:[{type:'text',text:'offline'}],api:'anthropic-messages',provider:PROVIDER,model:'k3',usage:{input:1,output:1,cacheRead:0,cacheWrite:0,totalTokens:2,cost:{input:0,output:0,cacheRead:0,cacheWrite:0,total:0}},stopReason:'stop',timestamp:Date.now()});
+m.appendMessage({role:'user',content:'offline',timestamp});
+m.appendMessage({role:'assistant',content:[{type:'text',text:'offline'}],api:'anthropic-messages',provider:PROVIDER,model:'k3',usage:{input:1,output:1,cacheRead:0,cacheWrite:0,totalTokens:2,cost:{input:0,output:0,cacheRead:0,cacheWrite:0,total:0}},stopReason:'stop',timestamp});
 console.log(JSON.stringify({id:m.getSessionId(),path:m.getSessionFile()}));"""
     code = (
         code.replace("SDK", json.dumps(SDK.as_uri()))
