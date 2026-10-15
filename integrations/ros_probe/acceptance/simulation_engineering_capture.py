@@ -15,6 +15,7 @@ from simulation_owned_process_fault import pause_owned_process, resume_owned_pro
 from simulation_unadmitted_sink import require_unadmitted_sink
 
 CASES = {
+    "j100_navigation_onboarding",
     "map_to_odom_missing",
     "scan_stale",
     "nav2_lifecycle_inactive",
@@ -96,6 +97,7 @@ def validate_engineering_capture(settings):
         or policy["schema_version"] != "rosclaw.engineering_failure_capture.v1"
         or policy["case"] not in CASES
         or policy["phase"] not in {"before_repair", "rollback"}
+        or (policy["case"] == "j100_navigation_onboarding" and policy["phase"] != "before_repair")
         or policy["run_id"] != settings.get("run_id")
         or "governed_sink" not in settings
     ):
@@ -116,6 +118,8 @@ def capture_failure(root, policy, state, spin_until, save):
         root, run_id=policy["run_id"], body_snapshot_hash=body_hash
     )
     process_fault = None
+    onboarding = policy["case"] == "j100_navigation_onboarding"
+    expected_statuses = {"PROPOSED"} if onboarding else {"UNKNOWN", "BLOCKED"}
     try:
         if policy["case"] == "scan_stale":
             # This staged bringup policy represents a bridge left paused after
@@ -135,7 +139,7 @@ def capture_failure(root, policy, state, spin_until, save):
                 and review_engineering_failure(state["native"], state["review"], requirements)[
                     "status"
                 ]
-                in {"UNKNOWN", "BLOCKED"}
+                in expected_statuses
                 and state["physics"] is not None
                 and state["physics"].get("observation_complete") is True
             ),
@@ -156,14 +160,18 @@ def capture_failure(root, policy, state, spin_until, save):
             "engineering-capture-ready.json",
             {
                 "policy": policy,
-                "status": "ACTUAL_NONREADY_ENGINEERING_CAPTURE_EXTERNAL_REVIEW_REQUIRED",
+                "status": (
+                    "ACTUAL_UNBOUND_ONBOARDING_CAPTURE_EXTERNAL_REVIEW_REQUIRED"
+                    if onboarding
+                    else "ACTUAL_NONREADY_ENGINEERING_CAPTURE_EXTERNAL_REVIEW_REQUIRED"
+                ),
                 "sink_before": sink_before,
                 "sink_after": sink_after,
                 "navigation_workspace_compiled": False,
                 "body_snapshot_hash": body_hash,
                 "physical_binding_scope": "SOURCE_ONLY_UNENROLLED; no Body-bound or lease-enabled physical observation claimed",
                 "navigation_goals_sent": 0,
-                "L1": "NOT_READY",
+                "L1": "NOT_EVALUATED" if onboarding else "NOT_READY",
                 "L2": "NOT_RUN",
                 "claim_scope": "SIMULATION_ONLY",
             },
