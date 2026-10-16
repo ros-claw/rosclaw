@@ -6,6 +6,7 @@ import hashlib
 import json
 import math
 from datetime import UTC, datetime
+from typing import TypeGuard, cast
 
 from rosclaw.connectors.ros.context.navigation_review import review_navigation_candidate
 from rosclaw.connectors.ros.diagnosis import diagnose
@@ -28,8 +29,8 @@ def _fresh(stamp, now):
         return False
 
 
-def _number(value):
-    return type(value) in (int, float) and math.isfinite(value)
+def _number(value: object) -> TypeGuard[int | float]:
+    return type(value) in (int, float) and math.isfinite(cast(float, value))
 
 
 def compile_engineering_case(
