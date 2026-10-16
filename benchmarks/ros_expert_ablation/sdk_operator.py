@@ -16,6 +16,7 @@ from pathlib import Path
 import yaml
 
 from benchmarks.ros_expert_ablation.protocol import CASES, SEEDS
+from benchmarks.ros_expert_ablation.sdk_failure import safe_failure_feedback
 
 SDK_IMAGE = "sha256:51ffb0e0aeb391f0efbef3013c7fc83586794c222b233e3dea688f3015ef1c6b"
 
@@ -286,10 +287,7 @@ class SdkExperiment:
                 "reason": "new SDK World did not produce accepted canonical navigation",
                 "raw_World_ref": str(path.relative_to(self.evidence_root)),
                 "returncode": rc,
-                "model_feedback": {
-                    "verified_success": False,
-                    "reason": "fresh SDK L1/canonical validation failed; original artifacts preserved",
-                },
+                "model_feedback": safe_failure_feedback(path, root=self.evidence_root),
             }
         review = self.output / f"test{index:02d}-independent-original-review.json"
         age = self.output / f"test{index:02d}-strict-live-stream-review.json"

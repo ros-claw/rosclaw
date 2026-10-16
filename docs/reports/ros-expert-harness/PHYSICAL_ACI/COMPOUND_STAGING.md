@@ -40,3 +40,11 @@ hiding a later applicable record in a held-out combination. Backend provenance
 admission, original ordering among eligible records, same-case exclusions and
 raw retrieval receipts remain unchanged. Applicability remains a hypothesis;
 only fresh independent SDK validation can establish the current repair result.
+
+Failed SDK Worlds now return bounded diagnostics from their existing original
+L1, canonical journey and daemon log artifacts. The model can distinguish initial
+L1 readiness from a later continuous-health failure, see recorded blocking reason
+codes and the actual physical-stop verification field, and inspect opaque hashed
+provenance refs. A runtime error remains a diagnostic clue, not independent stop
+or causal proof. Missing/malformed diagnostic artifacts never turn a failure into
+success or replace the original failed World verdict. No gate is relaxed.
