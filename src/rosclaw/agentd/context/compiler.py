@@ -122,6 +122,14 @@ class ContextCompiler:
                 )
             src = augment_sources(src, ros_model, now=now)
 
+        engineering_case = src.extra.get("ros_engineering_case")
+        if engineering_case is not None:
+            from rosclaw.connectors.ros.engineering.context import augment_engineering_sources
+
+            if ros_model is None:
+                raise CompilationError("engineering case requires its bound ROS system model")
+            src = augment_engineering_sources(src, ros_model, engineering_case, mission, now=now)
+
         # L1 — body truth. Missing/unhash-matched/uncalibrated fails closed.
         body = src.body.get_body(mission.body_binding.body_id)
         if body is None:
@@ -213,6 +221,7 @@ class ContextCompiler:
             dynamic_self=LayerRef(
                 hash=content_hash("l2", texts["dynamic_self"]),
                 inline_summary=texts["dynamic_self"],
+                evidence_refs=[engineering_case.case_hash] if engineering_case is not None else [],
                 token_estimate=estimate_tokens(texts["dynamic_self"]),
             ),
             capabilities=LayerRef(
@@ -285,6 +294,19 @@ class ContextCompiler:
         """Recompile triggers: body/self/team/grant drift (总纲 §5.5)."""
         reasons: list[str] = []
         src = self._sources
+        case = src.extra.get("ros_engineering_case")
+        case_refs = [
+            ref for ref in bundle.layers.dynamic_self.evidence_refs if ref.startswith("roscase_")
+        ]
+        if case is not None or case_refs:
+            from rosclaw.connectors.ros.engineering import RosEngineeringCaseV1
+
+            try:
+                current = RosEngineeringCaseV1.from_dict(case.model_dump(mode="json"))
+                if case_refs != [current.case_hash]:
+                    reasons.append("engineering_case_changed")
+            except (AttributeError, ValueError):
+                reasons.append("engineering_case_unavailable_or_invalid")
         body = src.body.get_body(bundle.body_binding.body_id)
         if body is None:
             reasons.append("body_unavailable")
