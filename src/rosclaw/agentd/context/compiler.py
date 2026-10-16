@@ -305,6 +305,13 @@ class ContextCompiler:
                 current = RosEngineeringCaseV1.from_dict(case.model_dump(mode="json"))
                 if case_refs != [current.case_hash]:
                     reasons.append("engineering_case_changed")
+                ros_model = src.extra.get("ros_system_model")
+                if (
+                    ros_model is None
+                    or ros_model.snapshot_hash != current.snapshot_hash
+                    or ros_model.snapshot_hash != ros_model.compute_snapshot_hash()
+                ):
+                    reasons.append("engineering_case_ros_snapshot_changed")
             except (AttributeError, ValueError):
                 reasons.append("engineering_case_unavailable_or_invalid")
         body = src.body.get_body(bundle.body_binding.body_id)

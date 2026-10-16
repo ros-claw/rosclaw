@@ -133,3 +133,18 @@ def test_protected_engineering_facts_cannot_be_trimmed_into_false_readiness():
     compiler = ContextCompiler(sources, max_input_tokens=10)
     with pytest.raises(CompilationError, match="protected layers"):
         compile_context(compiler, mission, graph)
+
+
+@pytest.mark.parametrize("change", ["new_snapshot", "unsealed_mutation", "missing_model"])
+def test_ros_update_invalidates_cached_case_before_next_context_compile(change):
+    compiler, sources, mission, graph, case = fixture()
+    bundle = compile_context(compiler, mission, graph)
+    if change == "missing_model":
+        del sources.extra["ros_system_model"]
+    else:
+        model = sources.extra["ros_system_model"]
+        model.errors.append("new observation")
+        if change == "new_snapshot":
+            model.seal()
+    assert "engineering_case_ros_snapshot_changed" in compiler.staleness_reasons(bundle)
+    assert sources.extra["ros_engineering_case"].case_hash == case.case_hash
