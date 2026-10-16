@@ -1,0 +1,22 @@
+{
+  "status": "ROOT_NATIVE_RGB_PLATFORM_ASSERT_SOFTWARE_ACCEPTED_ACTUAL_RETEST_PENDING",
+  "base_PR694_head": "8b3a0595afbb36d4e347fefd25d9545cf16e91f0",
+  "source2_exact_native_sha256": {
+    "tests/sim/test_observe_camera.py": "a3ed5648d68c7d59063153a5b651af04db4ebc4906b88edbfbdc7cc301634a00",
+    "docs/CAMERA_RGB_PLATFORM_EXPECTATIONS_NATIVE.md": "1c163760397d80dc880fd7f91a77bd329ab35cbb295d34ab53c5c038d3934869"
+  },
+  "current4_distinct_owned_0400_refs_sql_typed_roles_schemas": "PASS",
+  "original_assert_predicate_only_plus_sys_import": true,
+  "remaining12_RGB_assertions_and4_other_tests_AST_preserved": true,
+  "all_product_source_and_strong_camera_tests_unchanged": true,
+  "Ruff_check_and_format": "PASS",
+  "authoring_usage": {
+    "inclusive_input": 228931,
+    "output": 2460,
+    "elapsed_s": 81.46300465299282
+  },
+  "prior_mac_job_FAIL_preserved": true,
+  "new_original_job": "NOT_RUN",
+  "Native_document_clarification": "The Native source document lists provider invocation among unexecuted actions. The Native host did use ChatGPT to author this change; no additional provider invocation through its tools/tests was authorized or executed. This clarification preserves the original Native document bytes.",
+  "physical_or_tennis_video_credit": 0
+}

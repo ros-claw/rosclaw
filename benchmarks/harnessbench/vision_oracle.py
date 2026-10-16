@@ -23,6 +23,7 @@ from benchmarks.harnessbench.dynamic_oracle import same_compiled_body
 _WORKER = r"""
 import json, math, sys
 import mujoco
+from rosclaw.sim.backends.mujoco.owned_renderer import create_renderer
 import numpy as np
 r = json.load(open(sys.argv[1]))
 m = mujoco.MjModel.from_xml_string(r["xml"])
@@ -48,7 +49,7 @@ focal = 480 / (2 * math.tan(math.radians(float(m.cam_fovy[cid])) / 2))
 if local[2] >= 0:
     raise ValueError("TARGET_BEHIND_CAMERA")
 pixel = [320 + focal * local[0] / -local[2], 240 - focal * local[1] / -local[2]]
-renderer = mujoco.Renderer(m, 480, 640)
+renderer = create_renderer(m, 480, 640)
 renderer.update_scene(d, camera=r["camera"])
 renderer.enable_segmentation_rendering()
 seg = np.asarray(renderer.render(), dtype=np.int32).copy()
@@ -68,6 +69,13 @@ class CameraRendererUnavailableError(ValueError):
     """Verifier infrastructure failure, without a model success/failure claim."""
 
 
+def _macos_native_renderer_platform():
+    """Independent explicit renderer/plugin binding; never inherit GL selection."""
+    if sys.platform == "darwin":
+        return ("cgl",), {"cgl": "darwin"}
+    return ("egl", "osmesa"), {"egl": "egl", "osmesa": "osmesa"}
+
+
 def _independent_pixels(xml, vector, camera, body, renderer):
     """Pin the declared GL backend in its own process; never compare across renderers."""
     with tempfile.TemporaryDirectory(prefix="rosclaw_vision_oracle_") as temporary:
@@ -82,12 +90,16 @@ def _independent_pixels(xml, vector, camera, body, renderer):
         }
         path = root / "request.json"
         path.write_text(json.dumps(request, allow_nan=False))
-        if renderer not in {"egl", "osmesa"}:
+        if renderer not in _macos_native_renderer_platform()[0]:
             raise ValueError("CAMERA_RENDERER_BINDING_INVALID")
         try:
             completed = subprocess.run(
                 [sys.executable, "-c", _WORKER, str(path)],
-                env={**os.environ, "MUJOCO_GL": renderer, "PYOPENGL_PLATFORM": renderer},
+                env={
+                    **os.environ,
+                    "MUJOCO_GL": renderer,
+                    "PYOPENGL_PLATFORM": _macos_native_renderer_platform()[1][renderer],
+                },
                 capture_output=True,
                 timeout=60,
             )

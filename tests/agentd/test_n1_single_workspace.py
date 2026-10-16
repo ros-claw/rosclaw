@@ -177,10 +177,78 @@ class TestSingleWorkspace:
                 assert str(task[1]) == str(workdir), (
                     f"任务 workspace 与实际工作目录分裂: {task[1]} != {workdir}"
                 )
-                art = db.execute(
-                    "SELECT path FROM artifacts ORDER BY created_at DESC LIMIT 1"
-                ).fetchone()
-                assert art and str(art[0]).startswith(str(workdir)), art
+                import hashlib
+                import stat
+
+                artifacts = db.execute(
+                    "SELECT a.task_id, a.revision, a.path, a.media_type, "
+                    "a.sha256, a.size_bytes, a.metadata_json, "
+                    "t.task_id, t.active_revision FROM artifacts a "
+                    "JOIN tasks t ON t.task_id = a.task_id "
+                    "WHERE t.task_id = (SELECT task_id FROM tasks "
+                    "ORDER BY created_at DESC LIMIT 1)"
+                ).fetchall()
+                assert len(artifacts) == 1, artifacts
+                (
+                    artifact_task_id,
+                    artifact_revision,
+                    payload_path,
+                    media_type,
+                    digest,
+                    size_bytes,
+                    metadata_json,
+                    current_task_id,
+                    current_revision,
+                ) = artifacts[0]
+                assert isinstance(current_task_id, str) and current_task_id
+                assert isinstance(artifact_task_id, str)
+                assert artifact_task_id == current_task_id
+                assert type(current_revision) is int and current_revision == 1
+                assert type(artifact_revision) is int
+                assert artifact_revision == current_revision
+                assert isinstance(metadata_json, str)
+                metadata = json.loads(metadata_json)
+                assert isinstance(metadata, dict), metadata
+                source_path = metadata.get("source_path")
+                assert isinstance(source_path, str)
+                source = (workdir / "note.txt").resolve(strict=True)
+                assert source_path == str(source)
+                role = metadata.get("role")
+                assert isinstance(role, str) and role == "report"
+                storage = metadata.get("payload_storage")
+                assert isinstance(storage, str) and storage == "owned_snapshot_v1"
+                # The unchanged fake omits media_type: the producer default applies.
+                assert isinstance(media_type, str)
+                assert media_type == "application/octet-stream"
+                assert isinstance(payload_path, str)
+                payload = Path(payload_path)
+                assert payload.is_absolute()
+                assert payload == payload.resolve(strict=True)
+                assert payload != source
+                assert payload.parent.parent == home.resolve(strict=True)
+                assert payload.parent.name.startswith("artifact-")
+                assert payload.parent.name != "artifact-"
+                assert not payload.parent.is_symlink()
+                assert payload.name == "note.txt"
+                info = payload.lstat()
+                assert stat.S_ISREG(info.st_mode)
+                assert not stat.S_ISLNK(info.st_mode)
+                assert info.st_mode & 0o222 == 0
+                assert info.st_nlink == 1
+                assert (info.st_dev, info.st_ino) != (
+                    source.stat().st_dev,
+                    source.stat().st_ino,
+                )
+                assert isinstance(digest, str)
+                assert len(digest) == 64
+                assert all(char in "0123456789abcdef" for char in digest)
+                assert type(size_bytes) is int
+                expected = b"n1-marker\n"
+                content = payload.read_bytes()
+                assert content == expected
+                assert content == source.read_bytes()
+                assert size_bytes == info.st_size == len(content) == len(expected)
+                assert digest == hashlib.sha256(content).hexdigest()
             finally:
                 db.close()
             session.expect_with_resend(b"rosclaw continue", "/quit\r", timeout=60)
