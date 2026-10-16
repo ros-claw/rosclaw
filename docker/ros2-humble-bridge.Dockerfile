@@ -24,6 +24,8 @@ RUN apt-get update \
 # Source ROS setup automatically for interactive shells and entrypoint.
 RUN echo "source /opt/ros/${ROS_DISTRO}/setup.bash" >> /root/.bashrc
 
+COPY docker/rosapi_humble_action_type_compat.py /usr/local/libexec/rosapi_humble_action_type_compat.py
+RUN python3 /usr/local/libexec/rosapi_humble_action_type_compat.py
 COPY docker/ros-entrypoint.sh /ros-entrypoint.sh
 RUN chmod +x /ros-entrypoint.sh
 
