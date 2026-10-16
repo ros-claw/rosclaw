@@ -1,0 +1,12 @@
+{
+  "status": "PASS_PUBLIC_ORIGINAL_G5_54_EPISODES_56_WORLDS_SEALED",
+  "original_paths": 12636,
+  "distinct_content_blobs": 10096,
+  "distinct_Worlds": 56,
+  "manifest_sha256": "745c9312f0bd3d38018186ec3678148a3e254b024f706c76f4bfef3a34edcce1",
+  "private_credentials_keys_ledger_or_database_archived": false,
+  "deduplication": "equal bytes stored once; original paths and different run identities preserved",
+  "originals_modified": false,
+  "model_or_World_reruns": 0,
+  "v1_done": false
+}
