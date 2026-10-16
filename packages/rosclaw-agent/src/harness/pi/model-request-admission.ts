@@ -1,7 +1,13 @@
 import type { StreamFn } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 
-/** Local token admission, NOT a provider billing bound. */
+/** Local token admission, NOT a provider billing bound.
+ * v1 intentionally stops future dispatch after any UNKNOWN settlement, even
+ * after an allowance increase. An aborted SDK message's zero usage fields do
+ * not establish zero provider spend. No external-clone reconciliation API is
+ * defined here: stream terminal identity belongs to the wrapped invocation.
+ * See the cancellation feasibility appendix in PI_120_MIGRATION.md.
+ */
 export interface ModelRequestAdmissionPolicy {
     version: 1;
     lifetime: "runtime";

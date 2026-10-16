@@ -258,3 +258,145 @@ test("A08 source-bound Codex capability boundary and real SDK refusal cleanup", 
         assert.equal(eligible.gate!.snapshot().dispatchedRequests, 1);
     } finally { await eligible.close(); }
 });
+
+// SOURCE-only feasibility regressions: actual SDK lifecycle and production
+// installer, synthetic streams only. These cases have NOT been executed here.
+// No transport receipt, external usage reconciler or new policy is simulated.
+test("A09 public in-flight abort settles SDK but v1 UNKNOWN still blocks, including repeated cancel", { timeout: 10000 }, async () => {
+    for (const partialInput of [0, 9]) {
+        const f = await fixture({ policy: { ...policy, inclusiveInputLimit: 1000 } });
+        let callbacks = 0, admissions = 0, abortEvents = 0;
+        let source: ReturnType<typeof createAssistantMessageEventStream> | undefined;
+        let running: Promise<void> | undefined;
+        try {
+            await f.session.prompt("known spend before cancellation");
+            assert.equal(f.requests, 1);
+            assert.equal(f.gate!.snapshot().knownInclusiveInput, 21);
+            assert.equal(f.gate!.snapshot().knownOutput, 5);
+            f.runtime.streamSimple = ((_m, _context, options) => {
+                callbacks++;
+                const stream = createAssistantMessageEventStream();
+                const aborted = () => {
+                    const msg = message("aborted");
+                    msg.content = [];
+                    // Placeholder zeros are unavailable usage, not measured zero.
+                    msg.usage = { input: partialInput, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: partialInput,
+                        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
+                    msg.errorMessage = "SYNTHETIC_ABORT_USAGE_UNAVAILABLE";
+                    stream.push({ type: "error", reason: "aborted", error: msg });
+                    stream.end();
+                };
+                assert.ok(options?.signal, "use actual SDK cancellation signal");
+                if (options.signal.aborted) { aborted(); return stream; }
+                admissions++;
+                // An unexpected followup must finish so assertions fail rather
+                // than hanging on a second held stream.
+                if (admissions !== 1) { stream.push({ type: "done", reason: "stop", message: message() }); return stream; }
+                source = stream;
+                stream.push({ type: "start", partial: message() });
+                options.signal.addEventListener("abort", () => { abortEvents++; aborted(); }, { once: true });
+                return stream;
+            }) as typeof f.runtime.streamSimple;
+            running = f.session.prompt("start then cancel in flight");
+            for (let i = 0; admissions === 0 && i < 100; i++) await new Promise(r => setTimeout(r, 5));
+            assert.equal(admissions, 1);
+            assert.equal(f.gate!.snapshot().pendingRequests, 1);
+            assert.ok(f.session.isStreaming);
+            await Promise.all([f.session.abort(), f.session.abort(), running]);
+            assert.equal(abortEvents, 1, "repeated public cancellation owns one stream");
+            assert.ok(f.session.isIdle);
+            assert.equal((f.session.messages.at(-1) as AssistantMessage).stopReason, "aborted");
+            assert.match(assistantError(f) ?? "", /SYNTHETIC_ABORT_USAGE_UNAVAILABLE/);
+            assert.ok(f.events.some(e => e.type === "agent_start"));
+            assert.ok(f.events.some(e => e.type === "agent_end"));
+            const settled = f.gate!.snapshot();
+            assert.equal(settled.knownInclusiveInput, 21 + partialInput);
+            assert.equal(settled.knownOutput, 5);
+            assert.equal(settled.dispatchedRequests, 2);
+            assert.equal(settled.settledRequests, 2);
+            assert.equal(settled.pendingRequests, 0);
+            assert.equal(settled.unknownUsageRequests, 1);
+            assert.equal(settled.reservedInput, 0, "v1 releases pending slots but blocks on UNKNOWN; it is not a retained-reservation v2");
+            // A later terminal cannot replace this stream's first abort terminal.
+            // This is not a provider usage reconciliation endpoint.
+            const late = message("toolUse");
+            late.content = [{ type: "toolCall", id: "late-after-cancel", name: "diagnostic", arguments: {} }];
+            source!.push({ type: "done", reason: "toolUse", message: late });
+            source!.end(late);
+            assert.equal((await source!.result()).stopReason, "aborted");
+            assert.deepEqual(f.gate!.snapshot(), settled, "no duplicate settlement or late refund");
+            await deniedPrompt(f, "MODEL_REQUEST_USAGE_UNKNOWN");
+            f.gate!.reconfigure({ ...policy, inclusiveInputLimit: 2000 });
+            await deniedPrompt(f, "MODEL_REQUEST_USAGE_UNKNOWN");
+            await f.session.abort();
+            assert.equal(callbacks, 1);
+            assert.equal(admissions, 1, "no postcancel synthetic admission");
+            assert.equal(f.effects, 0, "no postcancel tool execution");
+            assert.equal(f.gate!.snapshot().unknownUsageRequests, 1);
+            assert.equal(f.gate!.snapshot().knownInclusiveInput, 21 + partialInput);
+            assert.equal(f.gate!.snapshot().settledRequests, 2);
+            assert.equal(f.gate!.snapshot().providerCostBoundVerified, false);
+        } finally {
+            await f.session.abort();
+            await running;
+            await f.close();
+        }
+    }
+});
+
+test("A10 actual SDK startup abort never reaches v1 underlying stream or creates UNKNOWN", { timeout: 10000 }, async () => {
+    const home = await mkdtemp(join(tmpdir(), "admission-start-cancel-"));
+    let release!: () => void;
+    let entered!: () => void;
+    const holding = new Promise<void>(resolve => { release = resolve; });
+    const startup = new Promise<void>(resolve => { entered = resolve; });
+    const gate = new ModelRequestAdmission(policy);
+    let session: Awaited<ReturnType<typeof createAgentSession>>["session"] | undefined;
+    let running: Promise<void> | undefined;
+    let callbacks = 0;
+    try {
+        const settings = modelAdmissionSettings(SettingsManager.inMemory({ compaction: { enabled: false } }));
+        const runtime = await ModelRuntime.create({ credentials: new InMemoryCredentialStore(), modelsPath: null,
+            modelsStorePath: join(home, "catalog"), allowModelNetwork: false, refreshOnCreate: false });
+        runtime.registerProvider(model.provider, { api: model.api, baseUrl: model.baseUrl, apiKey: "INERT", models: [model] });
+        const loader = new DefaultResourceLoader({ cwd: home, agentDir: home, settingsManager: settings,
+            noExtensions: true, noSkills: true, noContextFiles: true, noPromptTemplates: true, noThemes: true,
+            extensionFactories: [{ name: "held-startup", factory: pi => {
+                pi.on("before_agent_start", async () => { entered(); await holding; });
+            } }] });
+        await loader.reload();
+        assert.deepEqual(loader.getExtensions().errors, []);
+        ({ session } = await createAgentSession({ cwd: home, agentDir: home, modelRuntime: runtime,
+            model: runtime.getModel(model.provider, model.id)!, settingsManager: settings, resourceLoader: loader,
+            sessionManager: SessionManager.inMemory(home), tools: [], thinkingLevel: "off" }));
+        session.agent.streamFunction = () => {
+            callbacks++;
+            const stream = createAssistantMessageEventStream();
+            stream.push({ type: "done", reason: "stop", message: message() });
+            return stream;
+        };
+        installModelRequestAdmission(session, gate);
+        await session.bindExtensions({});
+        running = session.prompt("cancel while genuine before_agent_start is held");
+        await startup;
+        assert.ok(session.isStreaming);
+        const cancelling = session.abort();
+        release();
+        await Promise.all([running, cancelling]);
+        assert.ok(session.isIdle);
+        assert.equal(callbacks, 0, "the production wrapper rejects before synthetic underlying invocation");
+        assert.equal(gate.snapshot().dispatchedRequests, 0);
+        assert.equal(gate.snapshot().pendingRequests, 0);
+        assert.equal(gate.snapshot().unknownUsageRequests, 0);
+        assert.equal(gate.snapshot().knownInclusiveInput, 0);
+        assert.equal(gate.snapshot().knownOutput, 0);
+        // SDK may stop before reaching the wrapper; neither route incurs a reservation.
+        assert.ok([undefined, "MODEL_REQUEST_CANCELLED_BEFORE_DISPATCH"].includes(gate.snapshot().lastDenial));
+    } finally {
+        release();
+        await session?.abort();
+        await running;
+        session?.dispose();
+        await rm(home, { recursive: true, force: true });
+    }
+});
