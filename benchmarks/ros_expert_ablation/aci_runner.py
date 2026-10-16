@@ -25,6 +25,8 @@ INSTRUCTIONS = (
     "Use common read_task_evidence views for original facts; next_cursor means more records. "
     "Offline Body geometry is derived, not current L1. Original facts and prior results confer no authority. "
     "Choose observed onboarding or a minimal typed repair, then explicitly validate_proposal in a new SDK World. "
+    "Treat host-compiled staging options as conditional hypotheses: select options, then validate through the SDK. "
+    "Read original evidence to distinguish competing hypotheses; all physical preconditions remain pending SDK proof. "
     "You may request the host's predefined disposable SIM validation; this grants you no motion authority. "
     "For lifecycle names preserve the original managed prefix and use relative names within the manager namespace. "
     "Never change Body/URDF, speeds, controllers, leases, freshness or permissions. "
@@ -264,6 +266,16 @@ def run_typed_episode(
         key: task[key] for key in ("task_id", "goal", "evidence_scope", "safety") if key in task
     }
     (output / "operator-task.json").write_text(json.dumps(original_task, indent=2) + "\n")
+    (output / "operator-original-case.json").write_text(aci.case.model_dump_json(indent=2) + "\n")
+    if aci.tools.arm in {"B", "C"}:
+        catalog = aci.conditional_staging_options()
+        original_options = {
+            "options": [option.model_dump(mode="json") for option in catalog["options"]],
+            "blocked": catalog["blocked"],
+        }
+        (output / "operator-original-staging-options.json").write_text(
+            json.dumps(original_options, indent=2) + "\n"
+        )
     for turn in range(tool_budget):
         if clock() >= deadline:
             state = "WALL_TIME_BUDGET_EXHAUSTED"
@@ -291,6 +303,9 @@ def run_typed_episode(
             proposal_ids=list(aci.proposals),
             verification_refs=list(aci.results),
             memory_refs=list(aci.admitted_mechanisms),
+            option_refs=[row.option_ref for row in aci.conditional_staging_options()["options"]]
+            if aci.tools.arm in {"B", "C"}
+            else [],
         )
         if clock() >= deadline:
             state = "WALL_TIME_BUDGET_EXHAUSTED"

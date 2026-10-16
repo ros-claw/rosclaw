@@ -28,6 +28,7 @@ from rosclaw.connectors.ros.engineering.repair_compiler import (
     compile_repair_sequence,
     proposal_staging,
 )
+from rosclaw.connectors.ros.engineering.staging_options import compile_staging_options
 from rosclaw.contracts.common import content_hash
 
 
@@ -61,6 +62,10 @@ class RepairArgs(CaseArgs):
 
 class CompoundRepairArgs(CaseArgs):
     repairs: list[SemanticRepair] = Field(min_length=2, max_length=5)
+
+
+class SelectOptionsArgs(CaseArgs):
+    option_refs: list[StrictStr] = Field(min_length=1, max_length=5)
 
 
 class MemoryRepairArgs(CaseArgs):
@@ -116,6 +121,11 @@ class CompoundRepairCall(Args):
     arguments: CompoundRepairArgs
 
 
+class SelectOptionsCall(Args):
+    operation: Literal["ros_engineer.select_staging_options"]
+    arguments: SelectOptionsArgs
+
+
 class MemoryRepairCall(Args):
     operation: Literal["ros_engineer.propose_memory_repair"]
     arguments: MemoryRepairArgs
@@ -149,6 +159,7 @@ CALL_ADAPTER = TypeAdapter(
         | InvestigateCall
         | RepairCall
         | CompoundRepairCall
+        | SelectOptionsCall
         | MemoryRepairCall
         | OnboardingCall
         | ValidateCall
@@ -283,8 +294,45 @@ class PhysicalACI:
         self.trace.append({"request": copy.deepcopy(request), "result": copy.deepcopy(result)})
         return copy.deepcopy(result)
 
+    def conditional_staging_options(self):
+        self._bound(self.case.case_hash, read_only=True)
+        return compile_staging_options(
+            self.case,
+            self.model,
+            self.requirements,
+            self.tools.staging,
+            minimum_radius_m=self.tools.minimum_radius_m,
+            ownership_reviews=self.ownership_reviews,
+        )
+
     def _dispatch(self, call, *, remaining_sec):
         args = call.arguments
+        if isinstance(call, SelectOptionsCall):
+            if self.tools.arm not in {"B", "C"}:
+                raise ValueError("Expert staging options unavailable in A")
+            if len(set(args.option_refs)) != len(args.option_refs):
+                raise ValueError("distinct current option references required")
+            available = {
+                option.option_ref: option
+                for option in self.conditional_staging_options()["options"]
+            }
+            if any(ref not in available for ref in args.option_refs):
+                raise ValueError("select an actual current statically compiled staging option")
+            repairs = [available[ref].intent.model_dump(mode="json") for ref in args.option_refs]
+            selected = (
+                RepairCall(
+                    operation="ros_engineer.propose_repair",
+                    arguments=RepairArgs(case_hash=args.case_hash, repair=repairs[0]),
+                )
+                if len(repairs) == 1
+                else CompoundRepairCall(
+                    operation="ros_engineer.propose_compound_repair",
+                    arguments=CompoundRepairArgs(case_hash=args.case_hash, repairs=repairs),
+                )
+            )
+            result = self._dispatch(selected, remaining_sec=remaining_sec)
+            result["selected_staging_option_refs"] = args.option_refs
+            return result
         if isinstance(call, MemoryRepairCall):
             if self.tools.arm != "C" or args.memory_ref not in self.admitted_mechanisms:
                 raise ValueError("select an actually admitted C historical mechanism reference")
@@ -325,6 +373,38 @@ class PhysicalACI:
                     "task": "propose a minimal staged repair or observed interface onboarding and explicitly request independent validation",
                 }
             )
+            if self.tools.arm in {"B", "C"}:
+                compiled = self.conditional_staging_options()
+                card["staging_options"] = [
+                    {
+                        "option_ref": option.option_ref,
+                        "issue_id": option.issue_id,
+                        "intent": option.intent.model_dump(mode="json"),
+                        "original_staging_values": [change.before for change in option.changes],
+                        **(
+                            {"pending_conditional_checks": option.original_candidate_preconditions}
+                            if option.case_candidate_id is None
+                            and option.original_candidate_preconditions
+                            else {}
+                        ),
+                    }
+                    for option in compiled["options"]
+                ]
+                if compiled["options"]:
+                    card["proof_obligations"] = list(
+                        dict.fromkeys(
+                            proof
+                            for option in compiled["options"]
+                            for proof in option.required_new_world_proofs
+                        )
+                    )
+                card["unsupported_staging_mechanisms"] = compiled["blocked"]
+                card["staging_phase"] = (
+                    "STATIC_DIFF_CHECKED_CONDITIONAL_SELECTION"
+                    if compiled["options"]
+                    else "NO_SUPPORTED_STAGING_OPTION"
+                )
+                card["physical_phase"] = "NOT_ADMITTED_REQUIRES_EXPLICIT_NEW_WORLD_VALIDATION"
             return {
                 "status": "ENGINEERING_DOSSIER_NOT_ADMISSION",
                 "task": card,
