@@ -709,6 +709,19 @@ def add_ros_subparser(subparsers: argparse._SubParsersAction) -> argparse.Argume
         "--output", help="Create a NEW derived JSON artifact; never overwrite inputs"
     )
 
+    case_parser.add_argument(
+        "--plan-staging",
+        action="store_true",
+        help="Deterministic conditional proposal only; never applies or executes",
+    )
+    case_parser.add_argument(
+        "--staging-nav2", help="Original concrete Nav2 YAML for an explicit staging plan"
+    )
+    case_parser.add_argument(
+        "--staging-bringup",
+        help="Original bringup JSON; no endpoint ownership authority is accepted",
+    )
+
     workspace_parser = ros_subparsers.add_parser(
         "inspect-navigation-workspace", help="Read-only compiled navigation artifact integrity"
     )
@@ -966,6 +979,29 @@ def cmd_ros_engineering_case(args: argparse.Namespace) -> int:
             ).hexdigest()
         if not getattr(args, "summary_only", False):
             result["case"] = case.model_dump(mode="json")
+        plan_requested = getattr(args, "plan_staging", False)
+        nav2_path = getattr(args, "staging_nav2", None)
+        bringup_path = getattr(args, "staging_bringup", None)
+        if plan_requested or nav2_path or bringup_path:
+            if not plan_requested or not nav2_path or not bringup_path:
+                raise ValueError(
+                    "--plan-staging requires both original --staging-nav2 and --staging-bringup"
+                )
+            from rosclaw.connectors.ros.engineering.staging_plan import (
+                parse_staging_documents,
+                plan_staging_repairs,
+            )
+
+            raw_nav2 = _read_discovery_urdf(nav2_path, "original Nav2 staging")
+            raw_bringup = _read_discovery_urdf(bringup_path, "original bringup staging")
+            staging = parse_staging_documents(raw_nav2, raw_bringup)
+            result["staging_plan"] = plan_staging_repairs(case, model, urdf, requirements, staging)
+            result["input_file_sha256"].update(
+                {
+                    "staging_nav2": hashlib.sha256(raw_nav2).hexdigest(),
+                    "staging_bringup": hashlib.sha256(raw_bringup).hexdigest(),
+                }
+            )
         if getattr(args, "output", None):
             with Path(args.output).open("x", encoding="utf-8") as stream:
                 stream.write(json.dumps(result, indent=2) + "\n")
