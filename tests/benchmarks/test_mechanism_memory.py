@@ -32,6 +32,7 @@ def record_fixture(tmp_path):
         "source": "b" * 40,
         "normalized_world_sha256": "d" * 64,
         "measured_capture_to_receipt_sec": 12.5,
+        "sealed_archive_manifest": refs[13],
         "before_run": "a" * 32,
         "after_run": "b" * 32,
         "rollback_run": "c" * 32,
@@ -244,3 +245,44 @@ def test_similarly_named_field_outside_nav2_cannot_become_a_tf_lesson(tmp_path):
     after["bringup.json"]["tf_broadcast"] = True
     with pytest.raises(ValueError, match="closed staging"):
         distill_mechanism(aci.case, before, after, before, proof)
+
+
+@pytest.mark.parametrize("change", ["original", "blob", "manifest"])
+def test_pinned_archive_checks_old_bytes_instead_of_rehashing_mutated_inputs(tmp_path, change):
+    import gzip
+    import json
+
+    from benchmarks.ros_expert_ablation.mechanism_training import PinnedOriginalArchive
+
+    original = tmp_path / "original.json"
+    original.write_text('{"measured":true}')
+    archive = tmp_path / "archive"
+    archive.mkdir()
+    blob = archive / "00000.gz"
+    blob.write_bytes(gzip.compress(original.read_bytes(), mtime=0))
+
+    def sha(p):
+        return hashlib.sha256(p.read_bytes()).hexdigest()
+
+    manifest = archive / "archive-manifest.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "00000.gz": {
+                    "original_path": str(original),
+                    "original_sha256": sha(original),
+                    "stored_sha256": sha(blob),
+                }
+            }
+        )
+    )
+    ref = {"path": str(manifest.relative_to(tmp_path)), "sha256": sha(manifest)}
+    assert PinnedOriginalArchive(tmp_path, ref).check(original) == original
+    if change == "original":
+        original.write_text('{"measured":false}')
+    elif change == "blob":
+        blob.write_bytes(b"changed")
+    else:
+        manifest.write_text("{}")
+    with pytest.raises(ValueError, match="hash mismatch|pinned original archive"):
+        PinnedOriginalArchive(tmp_path, ref).check(original)

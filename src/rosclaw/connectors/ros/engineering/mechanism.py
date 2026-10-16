@@ -71,6 +71,7 @@ class ThreeWorldProof(Strict):
     source: str = Field(pattern=r"^[0-9a-f]{40}$")
     normalized_world_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     measured_capture_to_receipt_sec: float = Field(ge=0)
+    sealed_archive_manifest: ArtifactRef
     before_run: str = Field(pattern=r"^[0-9a-f]{32}$")
     after_run: str = Field(pattern=r"^[0-9a-f]{32}$")
     rollback_run: str = Field(pattern=r"^[0-9a-f]{32}$")

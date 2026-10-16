@@ -5,8 +5,10 @@ Models cannot supply a proof bundle, training manifest, database or admission
 policy through PhysicalACI. Nothing writes the frozen G5 training corpus.
 """
 
+import gzip
 import hashlib
 import json
+import re
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from pathlib import Path
@@ -50,9 +52,40 @@ def checked(root, ref):
     return path
 
 
-def distill_original_episode(root, episode_ref, *, worktree):
+class PinnedOriginalArchive:
+    def __init__(self, root, manifest_ref):
+        self.root = Path(root).resolve()
+        self.path = checked(self.root, manifest_ref)
+        self.index = {
+            str(inside(self.root, item["original_path"])): (name, item)
+            for name, item in json.loads(self.path.read_text()).items()
+            if not item["original_path"].startswith("git:")
+        }
+
+    def check(self, path):
+        path = inside(self.root, path)
+        if str(path) not in self.index:
+            raise ValueError("historical artifact absent from pinned original archive")
+        name, item = self.index[str(path)]
+        if not re.fullmatch(r"[0-9]{5,8}\.gz", name):
+            raise ValueError("closed historical archive blob filename required")
+        blob = (self.path.parent / name).read_bytes()
+        if (
+            sha(path) != item["original_sha256"]
+            or hashlib.sha256(blob).hexdigest() != item["stored_sha256"]
+            or hashlib.sha256(gzip.decompress(blob)).hexdigest() != item["original_sha256"]
+        ):
+            raise ValueError("historical artifact differs from pinned original archive")
+        return path
+
+
+def distill_original_episode(root, episode_ref, *, worktree, sealed_archive_ref):
     root = Path(root).resolve()
+    archive = PinnedOriginalArchive(root, sealed_archive_ref)
+    archive_path = archive.path
+    anchored = archive.check
     path = checked(root, episode_ref)
+    anchored(path)
     episode = json.loads(path.read_text())
     if not (
         episode.get("status") == "PASS_LOCAL_THREE_ORIGINAL_WORLDS_REPAIR_AND_ROLLBACK_NOT_FULL_G4"
@@ -74,7 +107,7 @@ def distill_original_episode(root, episode_ref, *, worktree):
         *episode["sim_action_receipt"],
     ]
     for ref in refs:
-        checked(root, ref)
+        anchored(checked(root, ref))
     before = checked(root, episode["original_snapshot_ref"]).parents[1]
     after = checked(root, episode["fresh_l1"]).parent
     rollback_refs = [
@@ -87,6 +120,29 @@ def distill_original_episode(root, episode_ref, *, worktree):
         raise ValueError("unique original rollback capture reference required")
     rollback = checked(root, rollback_refs[0]).parents[1]
     directories = [before, after, rollback]
+    used = [anchored(d / "settings.json") for d in directories]
+    used.extend(
+        anchored(d / "assets" / name)
+        for d in directories
+        for name in ("robot.urdf", "world.sdf", "nav2.yaml", "bringup.json", "prepared-assets.json")
+    )
+    for rel in (
+        "execution/engineering-original-system.json",
+        "execution/engineering-original-native.json",
+        "execution/engineering-original-requirements.json",
+        "execution/engineering-original-candidate-review.json",
+        "preregistration.json",
+        "container-before-start.json",
+    ):
+        used.append(anchored(before / rel))
+    if (before / "execution/engineering-extra-endpoint-original.json").exists():
+        used.extend(
+            anchored(before / rel)
+            for rel in (
+                "execution/engineering-extra-endpoint-original.json",
+                "execution/owned-stack-processes.json",
+            )
+        )
     run_ids = [json.loads((d / "settings.json").read_text())["run_id"] for d in directories]
     if (
         run_ids
@@ -169,6 +225,7 @@ def distill_original_episode(root, episode_ref, *, worktree):
     proof = {
         "source": episode["source"],
         "normalized_world_sha256": normalized_worlds[0],
+        "sealed_archive_manifest": artifact(root, archive_path),
         "measured_capture_to_receipt_sec": (
             max(datetime.fromisoformat(r["finished_at"].replace("Z", "+00:00")) for r in receipts)
             - datetime.fromisoformat(
@@ -188,11 +245,7 @@ def distill_original_episode(root, episode_ref, *, worktree):
             artifact(root, checked(root, ref)) for ref in episode["sim_action_receipt"]
         ],
         "stop_source": artifact(root, checked(root, episode["independent_stop_verification"])),
-        "asset_refs": [
-            artifact(root, d / "assets" / name)
-            for d in directories
-            for name in ("robot.urdf", "world.sdf", "nav2.yaml", "bringup.json")
-        ],
+        "asset_refs": [artifact(root, p) for p in dict.fromkeys(used)],
     }
     record = distill_mechanism(aci.case, *stages, proof)
     return record
@@ -202,6 +255,7 @@ def verify_mechanism_artifacts(root, record):
     record = MechanismExperienceV1.from_dict(record.model_dump(mode="json"))
     proof = record.proof
     for ref in [
+        proof.sealed_archive_manifest,
         proof.episode,
         proof.before,
         proof.after_l1,
