@@ -143,6 +143,13 @@ class EngineeringEpisodeContext:
             InspectCall(operation="ros_engineer.inspect_task", arguments=Empty()),
             remaining_sec=None,
         )
+        if "staging_options" in card["task"]:
+            # Candidate semantics are in option intents. Retain original
+            # conditional checks and refs; share physical proof obligations once.
+            card["task"]["conditional_candidates"] = [
+                {key: row[key] for key in ["id", "classification", "refs", "preconditions"]}
+                for row in card["task"]["conditional_candidates"]
+            ]
         phase = (
             "FINISHED"
             if self.aci.finished

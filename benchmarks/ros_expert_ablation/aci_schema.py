@@ -55,6 +55,7 @@ def decision_schema(
     proposal_ids=None,
     verification_refs=None,
     memory_refs=None,
+    option_refs=None,
 ):
     if arm not in {"A", "B", "C"}:
         raise ValueError("closed preregistered arm required")
@@ -62,7 +63,7 @@ def decision_schema(
         type(case_hash) is not str or re.fullmatch(r"roscase_[0-9a-f]{64}", case_hash) is None
     ):
         raise ValueError("actual case content hash required for phase binding")
-    for refs in (proposal_ids, verification_refs, memory_refs):
+    for refs in (proposal_ids, verification_refs, memory_refs, option_refs):
         if refs is not None and (
             type(refs) is not list
             or any(type(ref) is not str or not ref for ref in refs)
@@ -71,12 +72,16 @@ def decision_schema(
             raise ValueError("distinct actual host-issued phase reference list required")
     if memory_refs and (arm != "C" or not memory_available):
         raise ValueError("only C with applicable admitted Memory may bind Memory references")
+    if option_refs and arm == "A":
+        raise ValueError("Expert staging options unavailable in A")
     schema = CALL_ADAPTER.json_schema()
     allowed = (
         COMMON
-        | ({"InvestigateCall"} if arm in {"B", "C"} else set())
+        | ({"InvestigateCall", "SelectOptionsCall"} if arm in {"B", "C"} else set())
         | ({"MemoryRepairCall"} if arm == "C" and memory_available else set())
     )
+    if option_refs == []:
+        allowed.discard("SelectOptionsCall")
     if proposal_ids == []:
         allowed.discard("ValidateCall")
     if verification_refs == []:
@@ -89,6 +94,8 @@ def decision_schema(
         properties = definition.get("properties", {})
         if case_hash is not None and "case_hash" in properties:
             properties["case_hash"]["enum"] = [case_hash]
+        if option_refs and "option_refs" in properties:
+            properties["option_refs"]["items"]["enum"] = option_refs
         for field, refs in (
             ("proposal_id", proposal_ids),
             ("verification_ref", verification_refs),
