@@ -302,6 +302,80 @@ def compile_repair(
     return {"proposal_id": content_hash("aciproposal", payload), **payload}
 
 
+def compile_repair_sequence(
+    case, model, requirements, staging, intents, *, minimum_radius_m, ownership_reviews=None
+):
+    """Compile disjoint repairs against one immutable original staging baseline.
+
+    Never feed one proposed repair into another compiler: original parameter
+    readbacks and whole-staging ownership reviews stay bound to the same capture.
+    A combined proposal still needs independent new-World physical validation.
+    """
+    if type(intents) is not list or not 2 <= len(intents) <= 5:
+        raise ValueError("two to five distinct semantic repairs required")
+    typed = [REPAIR_ADAPTER.validate_python(intent) for intent in intents]
+    if len({repair.kind for repair in typed}) != len(typed):
+        raise ValueError("duplicate semantic repair kind")
+    typed.sort(key=lambda repair: repair.kind)
+    components = [
+        compile_repair(
+            case,
+            model,
+            requirements,
+            staging,
+            repair.model_dump(mode="json"),
+            minimum_radius_m=minimum_radius_m,
+            ownership_reviews=ownership_reviews,
+        )
+        for repair in typed
+    ]
+    changes = []
+    paths = []
+    for component in components:
+        for change in component["changes"]:
+            path = (change["file"], *_parts(change["pointer"]))
+            if any(path[: len(prior)] == prior or prior[: len(path)] == path for prior in paths):
+                raise ValueError("overlapping compound staging fields")
+            paths.append(path)
+            changes.append(copy.deepcopy(change))
+    if not 1 <= len(changes) <= 8:
+        raise ValueError("existing operator eight-field patch budget exceeded")
+    payload = {
+        key: copy.deepcopy(value)
+        for key, value in components[0].items()
+        if key
+        not in {"proposal_id", "intent", "changes", "rollback", "evidence_refs", "preconditions"}
+    }
+    payload.update(
+        intent={
+            "kind": "compound_repair",
+            "repairs": [repair.model_dump(mode="json") for repair in typed],
+        },
+        component_proposal_ids=[component["proposal_id"] for component in components],
+        proof_obligations=list(
+            dict.fromkeys(
+                obligation
+                for component in components
+                for obligation in component["proof_obligations"]
+            )
+        ),
+        changes=changes,
+        rollback=[
+            {"file": row["file"], "pointer": row["pointer"], "value": copy.deepcopy(row["before"])}
+            for row in reversed(changes)
+        ],
+        evidence_refs=list(
+            dict.fromkeys(ref for component in components for ref in component["evidence_refs"])
+        ),
+        preconditions=list(
+            dict.fromkeys(
+                condition for component in components for condition in component["preconditions"]
+            )
+        ),
+    )
+    return {"proposal_id": content_hash("aciproposal", payload), **payload}
+
+
 def proposal_staging(proposal, staging):
     """Pure staging clone; no writes and no admission. Host must validate policy."""
     payload = {k: v for k, v in proposal.items() if k != "proposal_id"}

@@ -284,7 +284,14 @@ def run_typed_episode(
             state = "CONTEXT_BYTE_BUDGET_EXHAUSTED"
             break
         memory_available = bool(aci.admitted_mechanisms)
-        schema = decision_schema(aci.tools.arm, memory_available=memory_available)
+        schema = decision_schema(
+            aci.tools.arm,
+            memory_available=memory_available,
+            case_hash=aci.case.case_hash,
+            proposal_ids=list(aci.proposals),
+            verification_refs=list(aci.results),
+            memory_refs=list(aci.admitted_mechanisms),
+        )
         if clock() >= deadline:
             state = "WALL_TIME_BUDGET_EXHAUSTED"
             break

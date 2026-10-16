@@ -309,3 +309,38 @@ def test_current_manager_namespace_is_preserved_with_relative_child_names(tmp_pa
     assert names[0] == "controller" and "planner" in names
     assert "/sample/planner" not in names
     assert adapted["proposal"]["stage_only"] is True
+
+
+def test_current_applicability_precedes_two_prior_cap_without_changing_admission(tmp_path):
+    _, geometry, _, _, proof = record_fixture(tmp_path)
+    tf_aci = fixture("tf")
+    before = deepcopy(tf_aci.tools.staging)
+    after = proposal_staging(repair(tf_aci, kind="enable_localization_tf")["proposal"], before)
+    tf_record = distill_mechanism(tf_aci.case, before, after, before, proof)
+    rows = []
+    for index, record in enumerate([geometry, geometry, tf_record], 1):
+        rows.append(
+            {
+                "memory_ref": "memory_" + str(index) * 24,
+                "original_episode_sha256": record.proof.episode.sha256,
+                "original_training_source": record.proof.source,
+                "diagnosis_issue_codes": [record.observation_signature.split(":")[0]],
+                "evidence_scope": "HISTORICAL_VERIFIED_SIM_TRAINING; NOT_CURRENT_BODY_OR_EXECUTION_AUTHORITY",
+                "mechanism_record": record.model_dump(mode="json"),
+            }
+        )
+    admitted = {
+        "status": "ACTUAL_PROVENANCE_FILTERED_TRAINING_RETRIEVAL",
+        "authority": "NONE",
+        "retrieval_event_sha256": "e" * 64,
+        "admitted_count": 3,
+        "admitted": rows,
+    }
+    original = deepcopy(admitted)
+    tf_aci.tools.arm = "C"
+    tf_aci.tools.memory_query = lambda query: admitted
+    context = EngineeringEpisodeContext(tf_aci)
+    assert [r["memory_ref"] for r in context.memory_candidates] == [rows[2]["memory_ref"]]
+    assert context.memory_retrieval["admitted_count"] == 3 and admitted == original
+    assert set(tf_aci.admitted_mechanisms) == {rows[2]["memory_ref"]}
+    assert tf_aci.validation_count == 0
