@@ -1,0 +1,17 @@
+{
+  "status": "ROOT_H11_V31_FORWARDPORT817_SOURCE6_SOFTWARE_SEMANTIC_ACCEPTED_NOT_CLI_OR_PHYSICS",
+  "source_base": "817fa2e77a820df9de72822573eb45da68707056",
+  "current8_receipt_sha256": "503130f44ad27570ee5a9a149e24d027f58d4f4b09e7ba675519610e4e026c08",
+  "pure158_receipt_sha256": "edd3b72cde7e0d25b277a9c941b9b7b609ac513a9d4bf0c8f3bc9c3fbb7450b6",
+  "pure158_counts_sha256": "970b63526d9959f25cbd22e742c33bfe0d7085cdf6c85d448a29d22e97b84478",
+  "ordinary_cases": 158,
+  "ordinary_phases": 474,
+  "typed_subtests": 60,
+  "whole817_original_bytes_recovered_by_exact_native_seam_removal": true,
+  "frozen12_unchanged": true,
+  "old85_new_integration_assertions_unchanged": true,
+  "old_source_failures_and_observer_failure_preserved": true,
+  "integration_grants_consumed": 2,
+  "CLI_runtime_SDK_boundary": "UNCHANGED_NOT_RUN",
+  "physical_success": false
+}

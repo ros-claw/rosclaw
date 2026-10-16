@@ -182,3 +182,10 @@ TASKS: dict[str, BenchTask] = {
 from benchmarks.harnessbench.tasks_v2 import V2_TASKS  # noqa: E402
 
 TASKS.update(V2_TASKS)
+
+from benchmarks.harnessbench.capability_ros_traces_integration_v3 import (  # noqa: E402
+    ROS_TRACE_TASKS,  # noqa: E402 - Intentional EOF registry seam preserves existing TASKS initialization.
+)
+
+assert not (TASKS.keys() & ROS_TRACE_TASKS.keys()), "H11_V31_TASK_ID_COLLISION"
+TASKS.update(ROS_TRACE_TASKS)

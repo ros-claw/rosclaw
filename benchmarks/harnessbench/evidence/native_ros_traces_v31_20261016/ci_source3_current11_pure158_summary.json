@@ -1,0 +1,29 @@
+{
+  "status": "ROOT_CI_SOURCE3_CURRENT11_AND_PURE158_VERIFIED",
+  "author": "ROSClaw Native",
+  "provider": "openai-codex",
+  "model": "gpt-6.1-sol",
+  "actor_PI": "1.1.0",
+  "normal_STOP": true,
+  "global_unchanged": true,
+  "elapsed_s": 118.37346649100073,
+  "usage_complete_known": true,
+  "usage": {
+    "input": 28942,
+    "cacheRead": 470400,
+    "cacheWrite": 0,
+    "output": 2918
+  },
+  "current11_receipt_sha256": "72a0091a2767f4a4e05676c86193596834a55d233113d3f899c917c60d995d33",
+  "pure158_receipt_sha256": "ae2117e3e765aa266d94891bd2a4df4a7995b680059d1f752e614b80268f8c2c",
+  "ordinary_calls": 158,
+  "ordinary_phases": 474,
+  "typed_subtests": 60,
+  "fixture21_unchanged": true,
+  "independent_raw_protocol_pass": true,
+  "lint_selected_source9": "PASS_RUFF_NO_CACHE",
+  "scope": "Exactly one import-opening noqa line in tasks.py and matching TASK_APPEND line; seven other source files unchanged; original assertions retained.",
+  "history": "CI source1 allowance exhaustion and source2 lint failure preserved. Third grant explicitly prospectively amended after two mistaken Root-prescribed noqa placements; no automatic third retry. Premodel authority-shape failure preserved.",
+  "source_checkout_only": true,
+  "CLI_SDK_physics_generalization": "NOT_ESTABLISHED"
+}

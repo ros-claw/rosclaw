@@ -1,0 +1,111 @@
+{
+  "source_base": "817fa2e77a820df9de72822573eb45da68707056",
+  "source14": [
+    {
+      "path": "benchmarks/harnessbench/capability_challenges_v2.py",
+      "bytes": 36724,
+      "sha256": "b6ae742b75095be5f035784729dd86fc131be401bb8f3a953c823e49233c2863",
+      "kind": "BYTEEXACT_ROSCLAW_NATIVE_CI_SOURCE3"
+    },
+    {
+      "path": "benchmarks/harnessbench/capability_challenge_judge_v2.py",
+      "bytes": 17627,
+      "sha256": "0b99b9aa629b30e62a14c800ff74874d32e2d1300ba441ffd742308ff70fe637",
+      "kind": "BYTEEXACT_ROSCLAW_NATIVE_CI_SOURCE3"
+    },
+    {
+      "path": "tests/benchmarks/test_capability_challenges_v2.py",
+      "bytes": 17174,
+      "sha256": "afcdf2dccaf8b476661b483f376ad9e915c0b1e752eca4050b4662510c85eb59",
+      "kind": "BYTEEXACT_ROSCLAW_NATIVE_CI_SOURCE3"
+    },
+    {
+      "path": "docs/CAPABILITY_CHALLENGES_V2.md",
+      "bytes": 10017,
+      "sha256": "2b424a24f814ba3ebf88729f9c22856abfc3ceced185ea327097176db29f6d2b",
+      "kind": "BYTEEXACT_ACCEPTED_NATIVE_OLD8"
+    },
+    {
+      "path": "benchmarks/harnessbench/capability_challenges_ros_traces_v3.py",
+      "bytes": 28927,
+      "sha256": "ed1df78f62d285f9e68eb626163820be1023884186a8ab590beb7a1be1a5f0db",
+      "kind": "BYTEEXACT_ROSCLAW_NATIVE_CI_SOURCE3"
+    },
+    {
+      "path": "benchmarks/harnessbench/capability_challenge_judge_ros_traces_v3.py",
+      "bytes": 27564,
+      "sha256": "8e0ab49b147e17ca26251c4b9cacda582f5efe7dc46e37849f5200cc9da2b519",
+      "kind": "BYTEEXACT_ROSCLAW_NATIVE_CI_SOURCE3"
+    },
+    {
+      "path": "tests/benchmarks/test_capability_challenges_ros_traces_v3.py",
+      "bytes": 30861,
+      "sha256": "076f6b08fcef4136e52f27bca96bcfe07b08dde86f3d4098f148ce023483a656",
+      "kind": "BYTEEXACT_ROSCLAW_NATIVE_CI_SOURCE3"
+    },
+    {
+      "path": "docs/CAPABILITY_CHALLENGES_ROS_TRACES_V3.md",
+      "bytes": 13011,
+      "sha256": "8c377f1ddb77ae9b64ef3a9345c21043d39b2e31ff3f1f1bcf47ee6a12b7ddf2",
+      "kind": "BYTEEXACT_ACCEPTED_NATIVE_OLD8"
+    },
+    {
+      "path": "benchmarks/harnessbench/capability_ros_traces_integration_v3.py",
+      "bytes": 3807,
+      "sha256": "cd99907a413d8f0884ae707d898dfb1f91e575446911904ab792be2136bca4ac",
+      "kind": "BYTEEXACT_ACCEPTED_NATIVE_FRESH817_SOURCE6"
+    },
+    {
+      "path": "benchmarks/harnessbench/capability_ros_traces_host_judge_v3.py",
+      "bytes": 3380,
+      "sha256": "30419ae5992c18298dc08af5abf419a0862c0ebd10c0a8b8b39d0aae23f21e51",
+      "kind": "BYTEEXACT_ACCEPTED_NATIVE_FRESH817_SOURCE6"
+    },
+    {
+      "path": "benchmarks/harnessbench/tasks.py",
+      "bytes": 7940,
+      "sha256": "c1ba69ebd6b8bbb6baa406732f5c920d087c6e899c69ceecdfcac8c925ab9362",
+      "kind": "BYTEEXACT_ROSCLAW_NATIVE_CI_SOURCE3"
+    },
+    {
+      "path": "benchmarks/harnessbench/oracle.py",
+      "bytes": 64683,
+      "sha256": "1f829e0dd0d7759790c45028546fc1cafae2bc2b36a92e61bda3b66e41cc5995",
+      "kind": "BYTEEXACT_ROSCLAW_NATIVE_CI_SOURCE3"
+    },
+    {
+      "path": "tests/benchmarks/test_capability_ros_traces_integration_v3.py",
+      "bytes": 22527,
+      "sha256": "a7f294b9243c7225185086329b60e87fea028cd105133e8fedccdc3a7c581ab0",
+      "kind": "BYTEEXACT_ROSCLAW_NATIVE_CI_SOURCE3"
+    },
+    {
+      "path": "docs/HARNESSBENCH_ROS_TRACES_V31_INTEGRATION.md",
+      "bytes": 7413,
+      "sha256": "805c001e47cd71ef7460b2940e26a56f3aad8fbcb4c9f579a366f0f181dde0e4",
+      "kind": "BYTEEXACT_ACCEPTED_NATIVE_FRESH817_SOURCE6"
+    }
+  ],
+  "default_test_baseline2": {
+    "benchmarks/harnessbench/tasks.py": {
+      "bytes": 7629,
+      "sha256": "3dd4fca6b06a1dcb2f36d7beb6c1648effbb7415601f0136bf6b4493de08a684"
+    },
+    "benchmarks/harnessbench/oracle.py": {
+      "bytes": 64453,
+      "sha256": "8f053810a3df7c5d244cfadfd54be664bfe5c5ca23413d6716b77b49a6073cf2"
+    }
+  },
+  "source_copy_only_no_algorithm_changes": true,
+  "tests": {
+    "oldv22": 12,
+    "oldH11v31": 61,
+    "newintegration": 85,
+    "total_actual": 158,
+    "ordinary_phases": 474,
+    "typed_subtests": 60
+  },
+  "test_default_baseline": "history_inputs/source_seam_baseline",
+  "Root_private_reference_expected_holdouts_auth_sessions_SQL_in_payload": false,
+  "latest_CI_source3_exact_two_line_correction": true
+}

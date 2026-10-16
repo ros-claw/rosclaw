@@ -1,0 +1,131 @@
+{
+  "status": "SANITIZED_DERIVATIVE_NOT_NEW_EVALUATION",
+  "version": "rosclaw.capability_challenges.ros_traces.v3.1",
+  "semantic_receipt_sha256": "b16afe8beffa6037f06457014b77b46cb7750516879d7ae321dcbf96cb4e5abf",
+  "semantic_accepted": true,
+  "independent_first30": 30,
+  "pure_receipt_sha256": "f34bc8348eb70c3c9cac3abb024aae01a6d77ddee59f83e1ef07ee309912cbc8",
+  "pure": {
+    "passed": 61,
+    "failed": 0,
+    "skipped": 0,
+    "source4_unchanged": true
+  },
+  "readonly_finish": {
+    "receipt_sha256": "2b3bc2e9b6d6d2d633e9f58b5a08978807466ee19664c1b685dc431715b2acba",
+    "full_workflow_pass": true,
+    "elapsed_s": 63.516743385000154,
+    "no_assertions_omitted": true
+  },
+  "roles": [
+    {
+      "role": "S",
+      "actual_elapsed_s": 146.4657632589806,
+      "parent_exit": 1,
+      "normal_quit": true,
+      "usage": {
+        "input": 64552,
+        "cacheRead": 710912,
+        "cacheWrite": 0,
+        "output": 4222
+      },
+      "usage_complete_known": true,
+      "fixture_grade": {
+        "passed": 10,
+        "total": 10,
+        "original_judge_passed": 10,
+        "strict_schema_passed": 10,
+        "independent_closed_form_passed": 10,
+        "original_source_workflow_pass": false,
+        "original_batch_envelope_pass": false,
+        "full_workflow_and_batch_contract_pass": false,
+        "flat_case_projection_for_math_only": true,
+        "subject_actor_PI": "1.1.0",
+        "reference_exposed_to_subject": false,
+        "live_ROS_VLA_VLN_physics_or_generalization_credit": false
+      },
+      "answer_sha256": "9d4a1315c9144bd99047eb7b202442f2165a7a842e29577e2077b85baf12c2cb",
+      "current3_receipt_sha256": "574c0ae4d6f87fd82d9516c229ee459db220416d3bf7772508f7987037ec866a",
+      "grade_receipt_sha256": "3c271748e03671080377a98cdef16d0835078b402c306ab2ddcef51d3b0090d1",
+      "workflow_failure_preserved": true
+    },
+    {
+      "role": "I",
+      "actual_elapsed_s": 132.3909660599893,
+      "parent_exit": 0,
+      "normal_quit": true,
+      "usage": {
+        "input": 94129,
+        "cacheRead": 807040,
+        "cacheWrite": 0,
+        "output": 3048
+      },
+      "usage_complete_known": true,
+      "fixture_grade": {
+        "passed": 10,
+        "total": 10,
+        "original_judge_passed": 10,
+        "strict_schema_passed": 10,
+        "independent_closed_form_passed": 10,
+        "original_source_workflow_pass": true,
+        "original_batch_envelope_pass": true,
+        "full_workflow_and_batch_contract_pass": true,
+        "flat_case_projection_for_math_only": false,
+        "subject_actor_PI": "1.1.0",
+        "reference_exposed_to_subject": false,
+        "live_ROS_VLA_VLN_physics_or_generalization_credit": false
+      },
+      "answer_sha256": "090bc156bdabcd51e647e8ef0b84d0767a47fe4023bda93911f29898b7f9108a",
+      "current3_receipt_sha256": "5662423d6c3eb7d6f5c481386fa5f628950acb474eb842b2b1dd43bdc5a65966",
+      "grade_receipt_sha256": "b5ec910ce687f2c44852b1c7401685d1c0bbbc68e50d29626d2e3faccf078833",
+      "workflow_failure_preserved": false
+    },
+    {
+      "role": "M",
+      "actual_elapsed_s": 103.8250483199954,
+      "parent_exit": 0,
+      "normal_quit": true,
+      "usage": {
+        "input": 46191,
+        "cacheRead": 393344,
+        "cacheWrite": 0,
+        "output": 3837
+      },
+      "usage_complete_known": true,
+      "fixture_grade": {
+        "passed": 10,
+        "total": 10,
+        "original_judge_passed": 10,
+        "strict_schema_passed": 10,
+        "independent_closed_form_passed": 10,
+        "original_source_workflow_pass": true,
+        "original_batch_envelope_pass": true,
+        "full_workflow_and_batch_contract_pass": true,
+        "flat_case_projection_for_math_only": false,
+        "subject_actor_PI": "1.1.0",
+        "reference_exposed_to_subject": false,
+        "live_ROS_VLA_VLN_physics_or_generalization_credit": false
+      },
+      "answer_sha256": "a854c8cd854ec7062a94d59193beca14be7cd4fe19bb69e63ea0ba66ca763fa4",
+      "current3_receipt_sha256": "ccc7195b49e6b1251a4f4b374035890cea2a3d6b7581048ad59bed4248f270c9",
+      "grade_receipt_sha256": "c7f414fb31a561536839ce299aa698c00b374d7df2275c7b6bbf5e4839927e9e",
+      "workflow_failure_preserved": false
+    }
+  ],
+  "first_allowance_failure_preserved": true,
+  "author_repair2_cut_preserved": {
+    "elapsed_s": 541.282652087044,
+    "normal_quit": true,
+    "status": "SOURCE_CUT_INCOMPLETE",
+    "usage": {
+      "input": 79537,
+      "cacheRead": 1534336,
+      "cacheWrite": 0,
+      "output": 22568
+    },
+    "not_refunded_or_reclassified": true
+  },
+  "default_Normal3_PI13_results_separate": true,
+  "live_ROS_physics_or_generalization_credit": false,
+  "Root_private_reference_or_holdouts_in_public_payload": false
+}

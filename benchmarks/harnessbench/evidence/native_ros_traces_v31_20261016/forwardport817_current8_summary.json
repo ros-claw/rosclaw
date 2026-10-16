@@ -1,0 +1,64 @@
+{
+  "status": "SANITIZED_CURRENT8_WORKFLOW_PROVENANCE_DERIVATIVE_NOT_NEW_VALIDATION",
+  "original_receipt_sha256": "503130f44ad27570ee5a9a149e24d027f58d4f4b09e7ba675519610e4e026c08",
+  "source_base": "817fa2e77a820df9de72822573eb45da68707056",
+  "parent_closed": true,
+  "parent_exit": 0,
+  "normal_quit": true,
+  "global_unchanged": true,
+  "full_workflow_pass": true,
+  "no_assertions_omitted": true,
+  "source_author_ordinal": 2,
+  "elapsed_s": 111.88507135305554,
+  "usage": {
+    "input": 60019,
+    "cacheRead": 985600,
+    "cacheWrite": 0,
+    "output": 2803
+  },
+  "usage_complete_known": true,
+  "files": [
+    {
+      "path": "benchmarks/harnessbench/capability_ros_traces_integration_v3.py",
+      "bytes": 3807,
+      "sha256": "cd99907a413d8f0884ae707d898dfb1f91e575446911904ab792be2136bca4ac"
+    },
+    {
+      "path": "benchmarks/harnessbench/capability_ros_traces_host_judge_v3.py",
+      "bytes": 3380,
+      "sha256": "30419ae5992c18298dc08af5abf419a0862c0ebd10c0a8b8b39d0aae23f21e51"
+    },
+    {
+      "path": "benchmarks/harnessbench/tasks.py",
+      "bytes": 7830,
+      "sha256": "ee35af735bd1dcfeb779c51890bb66c9063c511dd0ba50fc70a63d35433c8a63"
+    },
+    {
+      "path": "benchmarks/harnessbench/oracle.py",
+      "bytes": 64658,
+      "sha256": "cb428f8b1fbe1574a4657e4f5cf9b1295fd9c9ef6d6dbb708c6186a256861f90"
+    },
+    {
+      "path": "tests/benchmarks/test_capability_ros_traces_integration_v3.py",
+      "bytes": 22316,
+      "sha256": "d442f95ec3c54e6ee9bd9767bcaf2fc7274ae57668e80ebf1439c4d459c980a0"
+    },
+    {
+      "path": "docs/HARNESSBENCH_ROS_TRACES_V31_INTEGRATION.md",
+      "bytes": 7413,
+      "sha256": "805c001e47cd71ef7460b2940e26a56f3aad8fbcb4c9f579a366f0f181dde0e4"
+    },
+    {
+      "path": "reports/evidence.json",
+      "bytes": 2904,
+      "sha256": "e595a3c9947371421dc0b99262c3b5a6304aba5579770fc17cd774d907ac02f6"
+    },
+    {
+      "path": "delivery.json",
+      "bytes": 1733,
+      "sha256": "9d4aad01b81d2321bc76ccaa2a9f25fe829e5f51f423eab8af24fc5e9fcb6c0d"
+    }
+  ],
+  "CLI_execution": "NOT_RUN",
+  "physical_success": false
+}

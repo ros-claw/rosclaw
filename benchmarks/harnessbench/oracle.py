@@ -1015,6 +1015,12 @@ def judge(task_id: str, workspace: Path, *, leg: str = "B") -> dict[str, Any]:
     if task is None or not task.oracle:
         raise ValueError(f"BENCH_TASK_UNKNOWN: {task_id!r}")
     kind = task.oracle["kind"]
+    if kind == "offline_ros_traces_v3":
+        from benchmarks.harnessbench.capability_ros_traces_host_judge_v3 import (
+            judge_ros_trace_workspace,
+        )
+
+        return judge_ros_trace_workspace(task, workspace)
     if kind == "understanding":
         if task_id == "U01":
             return _judge_u01(workspace)
