@@ -440,6 +440,9 @@ def summarize_case(case: RosEngineeringCaseV1) -> dict:
         "constraints": [
             {
                 "id": c.id,
+                "invariant": c.invariant,
+                "expected": c.expected,
+                "hypotheses": c.hypotheses,
                 "status": c.status,
                 "observed": c.observed if c.id not in {"F-ROUTE-001"} else "see evidence refs",
                 "refs": c.evidence_refs,
@@ -449,6 +452,19 @@ def summarize_case(case: RosEngineeringCaseV1) -> dict:
             if c.status != "SATISFIED"
         ],
         "candidate_ids": [r.id for r in case.repair_candidates],
+        "conditional_candidates": [
+            {
+                "id": r.id,
+                "semantic_field": r.semantic_field,
+                "proposed_value": r.proposed_value,
+                "classification": r.classification,
+                "applicable_now": r.applicable_now,
+                "stage_only": r.stage_only,
+                "refs": r.evidence_refs,
+                "preconditions": r.preconditions,
+            }
+            for r in case.repair_candidates
+        ],
         "proof_obligations": [
             "new World and full fresh L1",
             "two canonical goals",

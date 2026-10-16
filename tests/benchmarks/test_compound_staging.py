@@ -133,3 +133,19 @@ def test_changed_base_and_mismatched_source_stay_blocked():
     aci.model.snapshot_hash = "rossnap_" + "f" * 64
     with pytest.raises(ValueError, match="snapshot mismatch"):
         compile_for(aci, [{"kind": "resume_scan_bridge"}, {"kind": "enable_localization_tf"}])
+
+
+def test_expert_card_exposes_conditional_semantics_without_granting_admission():
+    aci = compound()
+    card = aci.call({"operation": "ros_engineer.inspect_task", "arguments": {}})["task"]
+    issues = {row["id"]: row for row in card["constraints"]}
+    assert issues["F-TF-001"]["invariant"] == "localization.map_to_odom"
+    assert issues["F-TF-001"]["hypotheses"] == ["localization_tf_broadcast_disabled"]
+    candidates = {row["semantic_field"]: row for row in card["conditional_candidates"]}
+    tf = candidates["localization.tf_broadcast"]
+    assert tf["proposed_value"] is True and tf["classification"] == "INFERRED_CANDIDATE"
+    assert tf["applicable_now"] is False and tf["stage_only"] is True
+    assert tf["preconditions"] and all(ref in aci.case.evidence_index for ref in tf["refs"])
+    aci.tools.arm = "A"
+    common = aci.call({"operation": "ros_engineer.inspect_task", "arguments": {}})["task"]
+    assert "conditional_candidates" not in common and "constraints" not in common
