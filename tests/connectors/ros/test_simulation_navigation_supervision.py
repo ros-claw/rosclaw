@@ -82,7 +82,23 @@ def test_active_sim_status_refuses_generation_health_or_authority_change(module,
 
 
 @pytest.fixture
-def producer(module, tmp_path):
+def producer(module, tmp_path, monkeypatch):
+    class SyntheticClock:
+        def __init__(self):
+            self.now_ns = time.monotonic_ns()
+
+        def monotonic_ns(self):
+            return self.now_ns
+
+        def advance_ns(self, delta):
+            self.now_ns += delta
+
+        def sleep(self, seconds):
+            self.advance_ns(round(seconds * 1_000_000_000))
+
+    # Scope clock substitution to this synthetic SDK module, not global time.
+    # Real fsync remains; logical deadline cases explicitly advance this clock.
+    monkeypatch.setattr(module, "time", SyntheticClock())
     binding = SimulationNavigationBinding.from_body(compiled_body())
 
     class SyntheticFacts(module.CurrentSimulationFacts):
@@ -101,7 +117,7 @@ def producer(module, tmp_path):
             self.reader = SimpleNamespace(capacity_covers=lambda **_: self.capacity)
 
         def collect(self):
-            now = time.monotonic_ns()
+            now = module.time.monotonic_ns()
             return {
                 "source": {"last_sample": 25, "reviewed_at_monotonic_ns": now},
                 "health": {"status": "HEALTHY_SIM_OBSERVATION_ONLY"},
@@ -152,9 +168,13 @@ def test_actual_producer_writes_authenticated_private_expiring_proof(module, pro
     proof_module = importlib.import_module("simulation_execution_proof")
     pins = proof_module.ExecutionProofPins(**guard._pins, action_id="synthetic-position")
     verifier = proof_module.ExecutionProofVerifier(pins=pins, key=key)
-    first = verifier.verify((private / "proof.json").read_bytes(), now_ns=time.monotonic_ns())
+    first = verifier.verify(
+        (private / "proof.json").read_bytes(), now_ns=module.time.monotonic_ns()
+    )
     guard.check("synthetic-position")
-    second = verifier.verify((private / "proof.json").read_bytes(), now_ns=time.monotonic_ns())
+    second = verifier.verify(
+        (private / "proof.json").read_bytes(), now_ns=module.time.monotonic_ns()
+    )
     assert second["sequence"] > first["sequence"]
     assert (private / "proof.json").stat().st_mode & 0o777 == 0o600
     assert second["expires_ns"] - second["issued_ns"] <= 250_000_000
@@ -206,7 +226,7 @@ def test_terminal_sink_cannot_be_hidden_by_healthy_source_and_daemon(producer):
     assert not (private / "proof.json").exists()
 
 
-def test_first_proof_uses_fresh_facts_after_independent_admission_ack(producer):
+def test_first_proof_uses_fresh_facts_after_independent_admission_ack(module, producer):
     guard, facts, _, _, private = producer
     original_read = guard.lease_observation.read
     original_collect = facts.collect
@@ -220,7 +240,7 @@ def test_first_proof_uses_fresh_facts_after_independent_admission_ack(producer):
             if state["polls"] < 3:
                 result["status"]["daemon_instance_id"] = None
             elif state["ack_ns"] is None:
-                state["ack_ns"] = time.monotonic_ns()
+                state["ack_ns"] = module.time.monotonic_ns()
         return result
 
     def collect():
@@ -262,6 +282,8 @@ def test_renewal_uses_only_durable_unexpired_proof_without_producer_lock(
     def must_not_collect():
         raise AssertionError("renewal must not queue a second expensive proof producer")
 
+    # Force the still-valid refresh branch while another producer holds its lock.
+    module.time.advance_ns(60_000_000)
     monkeypatch.setattr(facts, "collect", must_not_collect)
     with guard._lock:
         guard.check_renewal("synthetic-position")
@@ -302,3 +324,36 @@ def test_idle_producer_can_refresh_still_valid_renewal_proof(module, producer, m
     payload = json.loads((private / "proof.json").read_bytes())["payload"]
     assert payload["expires_ns"] - payload["issued_ns"] <= 250_000_000
     assert payload["expires_ns"] <= guard._deadline
+
+
+@pytest.mark.parametrize("stage", ["proof_write", "audit_write"])
+def test_durable_publication_deadline_remains_terminal_under_controlled_delay(
+    module, producer, monkeypatch, stage
+):
+    guard, _, _, _, private = producer
+    if stage == "proof_write":
+        original_write = guard._write_private
+
+        def delayed_write(name, raw):
+            original_write(name, raw)
+            if name == "proof.json":
+                module.time.advance_ns(250_000_000)
+
+        monkeypatch.setattr(guard, "_write_private", delayed_write)
+        expected = "expired before durable publication"
+    else:
+        original_record = guard._record
+
+        def delayed_record(row):
+            original_record(row)
+            if row["event"] == "PROOF_PUBLISHED":
+                module.time.advance_ns(250_000_000)
+
+        monkeypatch.setattr(guard, "_record", delayed_record)
+        expected = "expired during original audit persistence"
+    with pytest.raises(ValueError, match=expected):
+        guard.begin("synthetic-position", duration_sec=1.0)
+    assert guard._last_publication is None and guard._deadline == 0
+    assert not (private / "proof.json").exists()
+    with pytest.raises(ValueError, match="latched"):
+        guard.begin("synthetic-yaw", duration_sec=1.0)
