@@ -1,0 +1,94 @@
+{
+  "status": "ROOT_ACCEPTED_NATIVE_OWNED_DARWIN_SOURCE5_SOFTWARE_NOT_CAMERA",
+  "Native_source_sha256": {
+    "src/rosclaw/sim/backends/mujoco/owned_renderer.py": "a0da1f51808b5201255d12fb9f1d270dc708c6ed99c0525cd442b36942ebff24",
+    "src/rosclaw/sim/backends/mujoco/backend.py": "d110cbf544ef6d6c92ba8e916a76926d76d5f9b0b3102382bc4497471f9e5a4b",
+    "benchmarks/harnessbench/vision_oracle.py": "505477a730a4c0ea4d400aaa3be15bae1e972bd5aeac4a8e7c7dcdd755bb8b50",
+    "tests/sim/test_owned_darwin_renderer_native.py": "9e5c6cdb0acf40ac84b7b4ec1592dd22605d9e6567e2fb6cecdc02604e21d0b1",
+    "docs/OWNED_DARWIN_RENDERER_NATIVE.md": "a92f2657a6cd47f9d75509472672a1eb1c3b3f4a1edf85b140d58081b91fc483"
+  },
+  "published_source_sha256": {
+    "src/rosclaw/sim/backends/mujoco/owned_renderer.py": "cb0f0c47f64f01de2c34c3a49b6d0a12953e492feba5de3e85a683382e771544",
+    "src/rosclaw/sim/backends/mujoco/backend.py": "d110cbf544ef6d6c92ba8e916a76926d76d5f9b0b3102382bc4497471f9e5a4b",
+    "benchmarks/harnessbench/vision_oracle.py": "505477a730a4c0ea4d400aaa3be15bae1e972bd5aeac4a8e7c7dcdd755bb8b50",
+    "tests/sim/test_owned_darwin_renderer_native.py": "bdc70853f747e07429929ef1748365031158a4fef93b025a497de15baeaf6542",
+    "docs/OWNED_DARWIN_RENDERER_NATIVE.md": "a92f2657a6cd47f9d75509472672a1eb1c3b3f4a1edf85b140d58081b91fc483"
+  },
+  "mechanical_publication_formatting": {
+    "files": [
+      "src/rosclaw/sim/backends/mujoco/owned_renderer.py",
+      "tests/sim/test_owned_darwin_renderer_native.py"
+    ],
+    "all_four_python_ASTs_identical_to_Native": true,
+    "original_Native_bytes_preserved_in_archive": true
+  },
+  "primary_fixture": {
+    "path": "history_inputs/primary/mujoco_classic_renderer.py.txt",
+    "sha256": "c193df6a8b8cc1659819abd0ded5c17dab0e3e64edb7af6a1e8d249bb4a4a548",
+    "license": "Apache-2.0",
+    "source": "Installed MuJoCo3.13.0 mujoco/rendering/classic/renderer.py, full original bytes including copyright/license; no upstream commit inferred"
+  },
+  "Native_archive": {
+    "path": "native_source5_and_primary.tar.gz",
+    "bytes": 49552,
+    "sha256": "40e0a13a9542108eae48e77d1bfdbbfe07a399589408877e34ff5d116ef831b9"
+  },
+  "independent_closed_pure": {
+    "ordinary": 44,
+    "phases": 132,
+    "skip": 0,
+    "effects": 0
+  },
+  "Ruff_check_and_format_publication_copy": "PASS",
+  "five_genuine_current_refs_exact_roles_schemas_and_owned_payloads": true,
+  "formal_latest_source_phase": "PASS_AUTHORING_NOT_RUNTIME_VALIDATED",
+  "latest_Native_usage": {
+    "inclusive_input": 439111,
+    "output": 3211,
+    "elapsed_s": 114.04592492501251
+  },
+  "prior_failures_preserved": [
+    {
+      "phase": "initial ownedfactory",
+      "status": "LOCAL_MODEL_REQUEST_ALLOWANCE_EXHAUSTED",
+      "elapsed_s": 367.00281043490395,
+      "inclusive_input": 846135,
+      "output": 14859,
+      "refs": 6,
+      "issues": "delivery unregistered; roles disagree with original scope"
+    },
+    {
+      "phase": "typed primary cleanup",
+      "status": "INHERITED_PIXEL_METHODS_AND_SUBCLASS_EXACT_SCOPE_FAIL",
+      "elapsed_s": 331.1470289569115,
+      "inclusive_input": 891891,
+      "output": 14062,
+      "refs": 5,
+      "independent_pure": 38,
+      "scope_review": "Exact AST recovery demonstrated preserved old21 and inherited pixel methods; old formal failure unchanged"
+    },
+    {
+      "phase": "hostile cleanup repair",
+      "status": "LOCAL_MODEL_REQUEST_ALLOWANCE_EXHAUSTED",
+      "elapsed_s": 163.02548263897188,
+      "inclusive_input": 216334,
+      "output": 6249,
+      "refs": 0,
+      "independent_pure": 44,
+      "issues": "One denied nonunique edit recovered; one SIM105 lint issue corrected by final Native phase"
+    }
+  ],
+  "actual_mac_camera": "NOT_RUN",
+  "previous_PR693_finite_CGL_diagnostic": "PASS_NOT_CAMERA",
+  "SDK_collection": {
+    "run": 38744341222,
+    "job": 116453920237,
+    "status": "FAIL_LITERAL_INCLUDE_CLOSURE_MISSING_PRESERVED",
+    "eight_prototypes_captured": true,
+    "three_installed_source_pins_match": true,
+    "missing_includes": 6,
+    "complete_SDK_or_compiled_enum_ABI": "NOT_CLAIMED"
+  },
+  "simulation_only": true,
+  "hardware": false
+}

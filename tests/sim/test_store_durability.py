@@ -11,6 +11,17 @@ import pytest
 from rosclaw.sim.store import PARTITIONS, SimStore
 
 
+def _portable_native_fd_path(fd):
+    """Observe an open descriptor, not a guessed directory or process cwd."""
+    import sys
+
+    if sys.platform == "darwin":
+        import fcntl
+
+        return os.fsdecode(fcntl.fcntl(fd, 50, b"\0" * 1024).split(b"\0", 1)[0])
+    return os.readlink(f"/proc/self/fd/{fd}")
+
+
 @pytest.mark.parametrize("partition", PARTITIONS)
 @pytest.mark.parametrize("payload", [{"receipt": "complete"}, b"binary evidence"])
 def test_ack_requires_file_sync_then_atomic_replace_then_directory_sync(
@@ -65,9 +76,7 @@ def test_io_failure_never_acknowledges_and_retry_preserves_evidence(tmp_path, mo
 
     def sync(fd):
         kind = "directory_sync" if stat.S_ISDIR(os.fstat(fd).st_mode) else "file_sync"
-        if kind == failure and (
-            kind == "file_sync" or os.readlink(f"/proc/self/fd/{fd}") == str(folder)
-        ):
+        if kind == failure and (kind == "file_sync" or _portable_native_fd_path(fd) == str(folder)):
             raise OSError("injected durable write failure")
         real_sync(fd)
 
@@ -114,7 +123,7 @@ def test_new_directory_links_are_synced_before_object_ack(tmp_path, monkeypatch)
 
     def sync(fd):
         if stat.S_ISDIR(os.fstat(fd).st_mode):
-            synced.append(os.readlink(f"/proc/self/fd/{fd}"))
+            synced.append(_portable_native_fd_path(fd))
         real(fd)
 
     monkeypatch.setattr(os, "fsync", sync)
@@ -160,7 +169,7 @@ def test_directory_creation_failed_sync_is_completed_on_retry(tmp_path, monkeypa
 
     def sync(fd):
         if stat.S_ISDIR(os.fstat(fd).st_mode):
-            synced.append(os.readlink(f"/proc/self/fd/{fd}"))
+            synced.append(_portable_native_fd_path(fd))
         real(fd)
 
     monkeypatch.setattr(os, "fsync", sync)
@@ -202,10 +211,7 @@ def test_deep_directory_creation_retry_retains_original_ancestor_barriers(tmp_pa
     with monkeypatch.context() as scoped:
 
         def fail_first(fd):
-            if (
-                os.readlink(f"/proc/self/fd/{fd}") == str(tmp_path)
-                and (store.root / "models").is_dir()
-            ):
+            if _portable_native_fd_path(fd) == str(tmp_path) and (store.root / "models").is_dir():
                 raise OSError("first ancestor sync failed")
             real(fd)
 
@@ -216,7 +222,7 @@ def test_deep_directory_creation_retry_retains_original_ancestor_barriers(tmp_pa
 
     def sync(fd):
         if stat.S_ISDIR(os.fstat(fd).st_mode):
-            synced.append(os.readlink(f"/proc/self/fd/{fd}"))
+            synced.append(_portable_native_fd_path(fd))
         real(fd)
 
     monkeypatch.setattr(os, "fsync", sync)
@@ -240,7 +246,7 @@ def test_new_instance_deep_retry_cannot_forget_original_ancestor_barriers(tmp_pa
     with monkeypatch.context() as scoped:
 
         def fail_after_creation(fd):
-            path = os.readlink(f"/proc/self/fd/{fd}")
+            path = _portable_native_fd_path(fd)
             if path == str(tmp_path) and (store.root / "models").is_dir():
                 raise OSError("original ancestor sync failed")
             real(fd)
@@ -252,7 +258,7 @@ def test_new_instance_deep_retry_cannot_forget_original_ancestor_barriers(tmp_pa
 
     def sync(fd):
         if stat.S_ISDIR(os.fstat(fd).st_mode):
-            synced.append(os.readlink(f"/proc/self/fd/{fd}"))
+            synced.append(_portable_native_fd_path(fd))
         real(fd)
 
     monkeypatch.setattr(os, "fsync", sync)
@@ -310,12 +316,23 @@ import os, stat, sys
 sys.path.insert(0, sys.argv[1])
 from pathlib import Path
 from rosclaw.sim.store import SimStore
+
+def _portable_native_fd_path(fd):
+    '''Observe an open descriptor, not a guessed directory or process cwd.'''
+    import sys
+
+    if sys.platform == "darwin":
+        import fcntl
+
+        return os.fsdecode(fcntl.fcntl(fd, 50, b"\\0" * 1024).split(b"\\0", 1)[0])
+    return os.readlink(f"/proc/self/fd/{fd}")
+
 anchor, task = Path(sys.argv[2]), Path(sys.argv[3])
 store = SimStore(task)
 real = os.fsync
 synced = []
 def sync(fd):
-    path = os.readlink(f"/proc/self/fd/{fd}")
+    path = _portable_native_fd_path(fd)
     if stat.S_ISDIR(os.fstat(fd).st_mode):
         synced.append(path)
     if sys.argv[4] == "fail" and path == str(anchor) and (store.root / "models").is_dir():

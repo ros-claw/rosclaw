@@ -1100,7 +1100,7 @@ class MujocoBackend:
             request_file.write_text(json.dumps(request), encoding="utf-8")
 
             errors = []
-            for candidate in ("egl", "osmesa"):
+            for candidate in _macos_native_renderer_platform():
                 proc = subprocess.run(
                     [sys.executable, "-c", _CAMERA_WORKER_CODE, candidate, str(request_file)],
                     capture_output=True,
@@ -1214,7 +1214,7 @@ class MujocoBackend:
             request_file.write_text(json.dumps(request), encoding="utf-8")
 
             errors = []
-            for candidate in ("egl", "osmesa"):
+            for candidate in _macos_native_renderer_platform():
                 proc = subprocess.run(
                     [sys.executable, "-c", _RENDER_WORKER_CODE, candidate, str(request_file)],
                     capture_output=True,
@@ -2121,6 +2121,15 @@ def _metrics_close(actual: dict[str, Any], expected: dict[str, Any]) -> bool:
     return True
 
 
+def _macos_native_renderer_platform():
+    """Return explicit native candidates without engine or GL imports."""
+    import sys
+
+    if sys.platform == "darwin":
+        return ("cgl",)
+    return ("egl", "osmesa")
+
+
 _RENDER_WORKER_CODE = r"""
 import json
 import os
@@ -2128,14 +2137,15 @@ import sys
 
 backend = sys.argv[1]
 os.environ["MUJOCO_GL"] = backend
-os.environ["PYOPENGL_PLATFORM"] = backend
+os.environ["PYOPENGL_PLATFORM"] = "darwin" if sys.platform == "darwin" and backend == "cgl" else backend
 
 import mujoco
+from rosclaw.sim.backends.mujoco.owned_renderer import create_renderer
 from PIL import Image
 
 request = json.loads(open(sys.argv[2], encoding="utf-8").read())
 model = mujoco.MjModel.from_xml_path(request["model_path"])
-renderer = mujoco.Renderer(model, request["height"], request["width"])
+renderer = create_renderer(model, request["height"], request["width"])
 frames = []
 for snapshot in request["states"]:
     data = mujoco.MjData(model)
@@ -2216,9 +2226,10 @@ import sys
 
 backend = sys.argv[1]
 os.environ["MUJOCO_GL"] = backend
-os.environ["PYOPENGL_PLATFORM"] = backend
+os.environ["PYOPENGL_PLATFORM"] = "darwin" if sys.platform == "darwin" and backend == "cgl" else backend
 
 import mujoco
+from rosclaw.sim.backends.mujoco.owned_renderer import create_renderer
 import numpy as np
 from PIL import Image
 
@@ -2232,7 +2243,7 @@ if vector.size != mujoco.mj_stateSize(model,spec) or not np.isfinite(vector).all
 mujoco.mj_setState(model,data,vector,spec)
 mujoco.mj_forward(model, data)
 
-renderer = mujoco.Renderer(model, request["height"], request["width"])
+renderer = create_renderer(model, request["height"], request["width"])
 renderer.update_scene(data, camera=request["camera"])
 kind = request["kind"]
 if kind == "camera_depth":

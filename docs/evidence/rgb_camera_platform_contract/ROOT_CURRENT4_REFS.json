@@ -1,0 +1,51 @@
+{
+  "status": "ROOT_CURRENT_DISTINCT_OWNED_SOURCE_REFS_SQL_TYPED_BYTES_ROLES_SCHEMAS_VERIFIED_NOT_FEATURE_EXECUTION",
+  "source_slots": 2,
+  "registered_refs": 4,
+  "proof": [
+    {
+      "path": "tests/sim/test_observe_camera.py",
+      "Ref": "art_f82f1292682c4f9aa7209d83",
+      "sha256": "a3ed5648d68c7d59063153a5b651af04db4ebc4906b88edbfbdc7cc301634a00",
+      "bytes": 3723,
+      "role": "diagnostic_source",
+      "current_owned_0400_bytes_exact": true
+    },
+    {
+      "path": "docs/CAMERA_RGB_PLATFORM_EXPECTATIONS_NATIVE.md",
+      "Ref": "art_e623a609cd4e499e9abe3403",
+      "sha256": "1c163760397d80dc880fd7f91a77bd329ab35cbb295d34ab53c5c038d3934869",
+      "bytes": 2840,
+      "role": "diagnostic_source",
+      "current_owned_0400_bytes_exact": true
+    },
+    {
+      "path": "reports/evidence.json",
+      "Ref": "art_ef018a0f1b5047c3949bb007",
+      "sha256": "4448418107088ef0534d57e3f98e497642aa30ee6081a4c7a5ecc4c90dd6a5b1",
+      "bytes": 1740,
+      "role": "diagnostic_report",
+      "current_owned_0400_bytes_exact": true
+    },
+    {
+      "path": "delivery.json",
+      "Ref": "art_73faa99b96424c4ebe79b497",
+      "sha256": "1d4ac40cfd0442d7787462d717378cb2c0a5f98a4c07f682e758ec206205164a",
+      "bytes": 927,
+      "role": "progress_report",
+      "current_owned_0400_bytes_exact": true
+    }
+  ],
+  "formal_status": "PASS_NATIVE_PR694_RGB_PLATFORM_ASSERT_AUTHORING_NOT_RUNTIME_VALIDATED",
+  "Native_usage": {
+    "input": 22211,
+    "cacheRead": 206720,
+    "cacheWrite": 0,
+    "output": 2460
+  },
+  "elapsed_s": 81.46300465299282,
+  "normal_quit": true,
+  "global_unchanged": true,
+  "old_failures_costs_preserved": true,
+  "functional_tests_or_physics_credit": false
+}

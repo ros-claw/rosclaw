@@ -1,0 +1,33 @@
+{
+  "status": "ROOT_ORIGINAL_MAC_CAMERA_TARGET_PASS_WHOLE_JOB_FAIL_PRESERVED",
+  "run": 38754562951,
+  "job": 116489446851,
+  "product_PR": 694,
+  "product_head": "8b3a0595afbb36d4e347fefd25d9545cf16e91f0",
+  "test_head": "780fa8b729f9ebac6b140fdc45f75b901f627bb6",
+  "camera_target": "tests/sim/test_public_snapshot_camera_fidelity.py::test_actual_cli_default_snapshot_observe_passes_strong_camera_binding",
+  "pixel_count": 954,
+  "physics_steps_by_oracle": 0,
+  "original_target_all_three_phases_pass": true,
+  "target_observer_sha256": "cb2a1bf0deee6a12b821d0af8a36e2c5a6ab5137f8456fce21ef67986346fe5a",
+  "selected8_gate_sha256": "efc74fc2568485199635b3179a7529596b49ac96ac3a1d6bcca343c06b1ea298",
+  "job_log_sha256": "90a63087362a5bca40f76cc5de672a6c2a16e4e043244c512bec8f5587e0c18b",
+  "mac_suite": {
+    "passed": 737,
+    "failed": 1,
+    "skipped": 1,
+    "deselected": 4,
+    "warnings": 4,
+    "elapsed_s": 280.54,
+    "exit": 1
+  },
+  "only_failure": {
+    "test": "tests/sim/test_observe_camera.py::test_camera_rgb_returns_artifact",
+    "assertion": "renderer_backend in egl/osmesa",
+    "actual_backend": "cgl",
+    "PNG_assertions_after_failure": "NOT_REACHED_IN_THIS_TEST"
+  },
+  "full_suite_green": false,
+  "qualified_tennis_video": 0,
+  "old_original_failures_preserved": true
+}
