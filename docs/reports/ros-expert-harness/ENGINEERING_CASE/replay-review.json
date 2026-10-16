@@ -1,0 +1,872 @@
+{
+  "status": "PASS_54_DETERMINISTIC_READ_ONLY_REPLAYS_NOT_MODEL_OR_PHYSICAL_ACCEPTANCE",
+  "rows": [
+    {
+      "ordinal": 1,
+      "original_case_label_for_review_only": "duplicate_velocity_route",
+      "case_hash": "roscase_a7cd5173c493af74aaf5edfac0c1d76dcf037c44aa5add407d8f292b542f5c9b",
+      "summary_characters": 971,
+      "statuses": {
+        "F-SOURCE-001": "UNKNOWN",
+        "F-TF-001": "UNKNOWN",
+        "F-SCAN-001": "SATISFIED",
+        "F-LIFE-001": "SATISFIED",
+        "F-GEOM-001": "SATISFIED",
+        "F-ROUTE-001": "VIOLATED"
+      },
+      "candidates": [
+        "control.route_review"
+      ]
+    },
+    {
+      "ordinal": 2,
+      "original_case_label_for_review_only": "duplicate_velocity_route",
+      "case_hash": "roscase_4eb613b9e20f977c820ea64dbac1eb4349d6d71f914c5b960c64ebb6b04d6cf4",
+      "summary_characters": 971,
+      "statuses": {
+        "F-SOURCE-001": "UNKNOWN",
+        "F-TF-001": "UNKNOWN",
+        "F-SCAN-001": "SATISFIED",
+        "F-LIFE-001": "SATISFIED",
+        "F-GEOM-001": "SATISFIED",
+        "F-ROUTE-001": "VIOLATED"
+      },
+      "candidates": [
+        "control.route_review"
+      ]
+    },
+    {
+      "ordinal": 3,
+      "original_case_label_for_review_only": "duplicate_velocity_route",
+      "case_hash": "roscase_7761bf589a5eac1099dc6b713c67cd64df89150d88c61cddb03ea3afd7e21f81",
+      "summary_characters": 971,
+      "statuses": {
+        "F-SOURCE-001": "UNKNOWN",
+        "F-TF-001": "UNKNOWN",
+        "F-SCAN-001": "SATISFIED",
+        "F-LIFE-001": "SATISFIED",
+        "F-GEOM-001": "SATISFIED",
+        "F-ROUTE-001": "VIOLATED"
+      },
+      "candidates": [
+        "control.route_review"
+      ]
+    },
+    {
+      "ordinal": 4,
+      "original_case_label_for_review_only": "j100_navigation_onboarding",
+      "case_hash": "roscase_8712a185c2e0ee38b0de2400e09f07b93a78ee7ae098cf19a2f26e60d7d8307a",
+      "summary_characters": 752,
+      "statuses": {
+        "F-SOURCE-001": "UNKNOWN",
+        "F-TF-001": "UNKNOWN",
+        "F-SCAN-001": "SATISFIED",
+        "F-LIFE-001": "SATISFIED",
+        "F-GEOM-001": "SATISFIED",
+        "F-ROUTE-001": "SATISFIED"
+      },
+      "candidates": []
+    },
+    {
+      "ordinal": 5,
+      "original_case_label_for_review_only": "j100_navigation_onboarding",
+      "case_hash": "roscase_daef7bfdb740283603b4e41fe0e15aba33613f1435234679d7ca97502865da43",
+      "summary_characters": 752,
+      "statuses": {
+        "F-SOURCE-001": "UNKNOWN",
+        "F-TF-001": "UNKNOWN",
+        "F-SCAN-001": "SATISFIED",
+        "F-LIFE-001": "SATISFIED",
+        "F-GEOM-001": "SATISFIED",
+        "F-ROUTE-001": "SATISFIED"
+      },
+      "candidates": []
+    },
+    {
+      "ordinal": 6,
+      "original_case_label_for_review_only": "j100_navigation_onboarding",
+      "case_hash": "roscase_59580293e8603733ff116450b80245522c521daf683c6449a302e01da96e1c5e",
+      "summary_characters": 752,
+      "statuses": {
+        "F-SOURCE-001": "UNKNOWN",
+        "F-TF-001": "UNKNOWN",
+        "F-SCAN-001": "SATISFIED",
+        "F-LIFE-001": "SATISFIED",
+        "F-GEOM-001": "SATISFIED",
+        "F-ROUTE-001": "SATISFIED"
+      },
+      "candidates": []
+    },
+    {
+      "ordinal": 7,
+      "original_case_label_for_review_only": "scan_stale",
+      "case_hash": "roscase_1ee70022b1e6dd432fc21d023e77d85e533c06c7c7f360991c484adbe3355c97",
+      "summary_characters": 913,
+      "statuses": {
+        "F-SOURCE-001": "UNKNOWN",
+        "F-TF-001": "UNKNOWN",
+        "F-SCAN-001": "VIOLATED",
+        "F-LIFE-001": "SATISFIED",
+        "F-GEOM-001": "SATISFIED",
+        "F-ROUTE-001": "SATISFIED"
+      },
+      "candidates": []
+    },
+    {
+      "ordinal": 8,
+      "original_case_label_for_review_only": "scan_stale",
+      "case_hash": "roscase_12c60d55a7653461902a3bcde221af52548d8beaeb66509502873524a3669a52",
+      "summary_characters": 913,
+      "statuses": {
+        "F-SOURCE-001": "UNKNOWN",
+        "F-TF-001": "UNKNOWN",
+        "F-SCAN-001": "VIOLATED",
+        "F-LIFE-001": "SATISFIED",
+        "F-GEOM-001": "SATISFIED",
+        "F-ROUTE-001": "SATISFIED"
+      },
+      "candidates": []
+    },
+    {
+      "ordinal": 9,
+      "original_case_label_for_review_only": "scan_stale",
+      "case_hash": "roscase_4e3b8e7ffd13e8aa397bb1a09253d56cf2517db5c3b692436a907488f23fc1e7",
+      "summary_characters": 913,
+      "statuses": {
+        "F-SOURCE-001": "UNKNOWN",
+        "F-TF-001": "UNKNOWN",
+        "F-SCAN-001": "VIOLATED",
+        "F-LIFE-001": "SATISFIED",
+        "F-GEOM-001": "SATISFIED",
+        "F-ROUTE-001": "SATISFIED"
+      },
+      "candidates": []
+    },
+    {
+      "ordinal": 10,
+      "original_case_label_for_review_only": "footprint_undersized",
+      "case_hash": "roscase_5aab0985de34893f2fbe3268ee1427179d15d08e747fbe3703faa02cc6e92730",
+      "summary_characters": 1112,
+      "statuses": {
+        "F-SOURCE-001": "UNKNOWN",
+        "F-TF-001": "UNKNOWN",
+        "F-SCAN-001": "SATISFIED",
+        "F-LIFE-001": "SATISFIED",
+        "F-GEOM-001": "VIOLATED",
+        "F-ROUTE-001": "SATISFIED"
+      },
+      "candidates": [
+        "costmap.radius"
+      ]
+    },
+    {
+      "ordinal": 11,
+      "original_case_label_for_review_only": "footprint_undersized",
+      "case_hash": "roscase_ac6c059293665abfc255141e33ea383ea03ae9e4c1f42c799bb6abe4e9da5fbc",
+      "summary_characters": 1112,
+      "statuses": {
+        "F-SOURCE-001": "UNKNOWN",
+        "F-TF-001": "UNKNOWN",
+        "F-SCAN-001": "SATISFIED",
+        "F-LIFE-001": "SATISFIED",
+        "F-GEOM-001": "VIOLATED",
+        "F-ROUTE-001": "SATISFIED"
+      },
+      "candidates": [
+        "costmap.radius"
+      ]
+    },
+    {
+      "ordinal": 12,
+      "original_case_label_for_review_only": "footprint_undersized",
+      "case_hash": "roscase_7eba6bc547fdeaf745b1d8d6f135b74a025d8a94aa90da8760cacc6f576340bb",
+      "summary_characters": 1112,
+      "statuses": {
+        "F-SOURCE-001": "UNKNOWN",
+        "F-TF-001": "UNKNOWN",
+        "F-SCAN-001": "SATISFIED",
+        "F-LIFE-001": "SATISFIED",
+        "F-GEOM-001": "VIOLATED",
+        "F-ROUTE-001": "SATISFIED"
+      },
+      "candidates": [
+        "costmap.radius"
+      ]
+    },
+    {
+      "ordinal": 13,
+      "original_case_label_for_review_only": "j100_navigation_onboarding",
+      "case_hash": "roscase_30331362743f75cd919d7b7379a787f57c3acf18160106fd564df3a59da03bb2",
+      "summary_characters": 752,
+      "statuses": {
+        "F-SOURCE-001": "UNKNOWN",
+        "F-TF-001": "UNKNOWN",
+        "F-SCAN-001": "SATISFIED",
+        "F-LIFE-001": "SATISFIED",
+        "F-GEOM-001": "SATISFIED",
+        "F-ROUTE-001": "SATISFIED"
+      },
+      "candidates": []
+    },
+    {
+      "ordinal": 14,
+      "original_case_label_for_review_only": "j100_navigation_onboarding",
+      "case_hash": "roscase_a92d41cc659aa32cf5d218f4f01dfacf2c100d5c9ce06aa4e86d20870e6a55e6",
+      "summary_characters": 752,
+      "statuses": {
+        "F-SOURCE-001": "UNKNOWN",
+        "F-TF-001": "UNKNOWN",
+        "F-SCAN-001": "SATISFIED",
+        "F-LIFE-001": "SATISFIED",
+        "F-GEOM-001": "SATISFIED",
+        "F-ROUTE-001": "SATISFIED"
+      },
+      "candidates": []
+    },
+    {
+      "ordinal": 15,
+      "original_case_label_for_review_only": "j100_navigation_onboarding",
+      "case_hash": "roscase_6af629c69d7b64bac0081281cc65bbb08a287fdcae85b9f04279ab4d60867233",
+      "summary_characters": 752,
+      "statuses": {
+        "F-SOURCE-001": "UNKNOWN",
+        "F-TF-001": "UNKNOWN",
+        "F-SCAN-001": "SATISFIED",
+        "F-LIFE-001": "SATISFIED",
+        "F-GEOM-001": "SATISFIED",
+        "F-ROUTE-001": "SATISFIED"
+      },
+      "candidates": []
+    },
+    {
+      "ordinal": 16,
+      "original_case_label_for_review_only": "duplicate_velocity_route",
+      "case_hash": "roscase_2508e768410accb42bcd6e9db4b678c035bef6a8554ebbd8335408381e5ddd87",
+      "summary_characters": 971,
+      "statuses": {
+        "F-SOURCE-001": "UNKNOWN",
+        "F-TF-001": "UNKNOWN",
+        "F-SCAN-001": "SATISFIED",
+        "F-LIFE-001": "SATISFIED",
+        "F-GEOM-001": "SATISFIED",
+        "F-ROUTE-001": "VIOLATED"
+      },
+      "candidates": [
+        "control.route_review"
+      ]
+    },
+    {
+      "ordinal": 17,
+      "original_case_label_for_review_only": "duplicate_velocity_route",
+      "case_hash": "roscase_819b125e9c806d78ba45f40a2aa301c0b51dcc6167ca7e40c88b22aaba76756e",
+      "summary_characters": 971,
+      "statuses": {
+        "F-SOURCE-001": "UNKNOWN",
+        "F-TF-001": "UNKNOWN",
+        "F-SCAN-001": "SATISFIED",
+        "F-LIFE-001": "SATISFIED",
+        "F-GEOM-001": "SATISFIED",
+        "F-ROUTE-001": "VIOLATED"
+      },
+      "candidates": [
+        "control.route_review"
+      ]
+    },
+    {
+      "ordinal": 18,
+      "original_case_label_for_review_only": "duplicate_velocity_route",
+      "case_hash": "roscase_50f069d4dd43af6e5c7bfedc559f04303e9b5ff267431b6c17a59188839e5519",
+      "summary_characters": 971,
+      "statuses": {
+        "F-SOURCE-001": "UNKNOWN",
+        "F-TF-001": "UNKNOWN",
+        "F-SCAN-001": "SATISFIED",
+        "F-LIFE-001": "SATISFIED",
+        "F-GEOM-001": "SATISFIED",
+        "F-ROUTE-001": "VIOLATED"
+      },
+      "candidates": [
+        "control.route_review"
+      ]
+    },
+    {
+      "ordinal": 19,
+      "original_case_label_for_review_only": "nav2_lifecycle_inactive",
+      "case_hash": "roscase_c325876d7bf52cc3d2b540c9a0d20def2fc1a6ae5a0a42286cd0b899ff6904ce",
+      "summary_characters": 1306,
+      "statuses": {
+        "F-SOURCE-001": "UNKNOWN",
+        "F-TF-001": "UNKNOWN",
+        "F-SCAN-001": "SATISFIED",
+        "F-LIFE-001": "VIOLATED",
+        "F-GEOM-001": "UNKNOWN",
+        "F-ROUTE-001": "SATISFIED"
+      },
+      "candidates": []
+    },
+    {
+      "ordinal": 20,
+      "original_case_label_for_review_only": "nav2_lifecycle_inactive",
+      "case_hash": "roscase_f277da6e4ffb4d6111869a4aaf630322f1297cfe8793b7bf79b43185c40ba286",
+      "summary_characters": 1306,
+      "statuses": {
+        "F-SOURCE-001": "UNKNOWN",
+        "F-TF-001": "UNKNOWN",
+        "F-SCAN-001": "SATISFIED",
+        "F-LIFE-001": "VIOLATED",
+        "F-GEOM-001": "UNKNOWN",
+        "F-ROUTE-001": "SATISFIED"
+      },
+      "candidates": []
+    },
+    {
+      "ordinal": 21,
+      "original_case_label_for_review_only": "nav2_lifecycle_inactive",
+      "case_hash": "roscase_5117d9d8633dc4a0f9526667f818fd3d4ad72bbb4b931fa1bb13f1111e48764a",
+      "summary_characters": 1306,
+      "statuses": {
+        "F-SOURCE-001": "UNKNOWN",
+        "F-TF-001": "UNKNOWN",
+        "F-SCAN-001": "SATISFIED",
+        "F-LIFE-001": "VIOLATED",
+        "F-GEOM-001": "UNKNOWN",
+        "F-ROUTE-001": "SATISFIED"
+      },
+      "candidates": []
+    },
+    {
+      "ordinal": 22,
+      "original_case_label_for_review_only": "map_to_odom_missing",
+      "case_hash": "roscase_5baa3360f410327a42d0a63384c773e8e8b0cdcdc4dd3952025e8b1bffe66488",
+      "summary_characters": 1015,
+      "statuses": {
+        "F-SOURCE-001": "UNKNOWN",
+        "F-TF-001": "VIOLATED",
+        "F-SCAN-001": "SATISFIED",
+        "F-LIFE-001": "UNKNOWN",
+        "F-GEOM-001": "SATISFIED",
+        "F-ROUTE-001": "SATISFIED"
+      },
+      "candidates": [
+        "localization.tf_broadcast"
+      ]
+    },
+    {
+      "ordinal": 23,
+      "original_case_label_for_review_only": "map_to_odom_missing",
+      "case_hash": "roscase_46c5d726579cbea3ac4145f1c4d2dc8901fc59cb83f87644b27b828305190211",
+      "summary_characters": 1015,
+      "statuses": {
+        "F-SOURCE-001": "UNKNOWN",
+        "F-TF-001": "VIOLATED",
+        "F-SCAN-001": "SATISFIED",
+        "F-LIFE-001": "UNKNOWN",
+        "F-GEOM-001": "SATISFIED",
+        "F-ROUTE-001": "SATISFIED"
+      },
+      "candidates": [
+        "localization.tf_broadcast"
+      ]
+    },
+    {
+      "ordinal": 24,
+      "original_case_label_for_review_only": "map_to_odom_missing",
+      "case_hash": "roscase_0b53bc54d6793f8853ff8916417f8312bd19106b1c92c76cbd5d76f9d4902cb9",
+      "summary_characters": 1015,
+      "statuses": {
+        "F-SOURCE-001": "UNKNOWN",
+        "F-TF-001": "VIOLATED",
+        "F-SCAN-001": "SATISFIED",
+        "F-LIFE-001": "UNKNOWN",
+        "F-GEOM-001": "SATISFIED",
+        "F-ROUTE-001": "SATISFIED"
+      },
+      "candidates": [
+        "localization.tf_broadcast"
+      ]
+    },
+    {
+      "ordinal": 25,
+      "original_case_label_for_review_only": "map_to_odom_missing",
+      "case_hash": "roscase_668fdc2e3f01a7ab4a2eedbd972e38e401a91b02eda05ac1cae4720fe3faf8c1",
+      "summary_characters": 1015,
+      "statuses": {
+        "F-SOURCE-001": "UNKNOWN",
+        "F-TF-001": "VIOLATED",
+        "F-SCAN-001": "SATISFIED",
+        "F-LIFE-001": "UNKNOWN",
+        "F-GEOM-001": "SATISFIED",
+        "F-ROUTE-001": "SATISFIED"
+      },
+      "candidates": [
+        "localization.tf_broadcast"
+      ]
+    },
+    {
+      "ordinal": 26,
+      "original_case_label_for_review_only": "map_to_odom_missing",
+      "case_hash": "roscase_3300018711114f69508817cf3dbc0ce1296e0ac81c07c221032a14968191c013",
+      "summary_characters": 1015,
+      "statuses": {
+        "F-SOURCE-001": "UNKNOWN",
+        "F-TF-001": "VIOLATED",
+        "F-SCAN-001": "SATISFIED",
+        "F-LIFE-001": "UNKNOWN",
+        "F-GEOM-001": "SATISFIED",
+        "F-ROUTE-001": "SATISFIED"
+      },
+      "candidates": [
+        "localization.tf_broadcast"
+      ]
+    },
+    {
+      "ordinal": 27,
+      "original_case_label_for_review_only": "map_to_odom_missing",
+      "case_hash": "roscase_5152d7927903eee6bfd12bfcc79e2735d1ea1dacff538af32c2d003f69cefab9",
+      "summary_characters": 1015,
+      "statuses": {
+        "F-SOURCE-001": "UNKNOWN",
+        "F-TF-001": "VIOLATED",
+        "F-SCAN-001": "SATISFIED",
+        "F-LIFE-001": "UNKNOWN",
+        "F-GEOM-001": "SATISFIED",
+        "F-ROUTE-001": "SATISFIED"
+      },
+      "candidates": [
+        "localization.tf_broadcast"
+      ]
+    },
+    {
+      "ordinal": 28,
+      "original_case_label_for_review_only": "nav2_lifecycle_inactive",
+      "case_hash": "roscase_26333d9e2bf69a99c89e96737f230b1b7575d00994d969d7eeda53f962d54b81",
+      "summary_characters": 1306,
+      "statuses": {
+        "F-SOURCE-001": "UNKNOWN",
+        "F-TF-001": "UNKNOWN",
+        "F-SCAN-001": "SATISFIED",
+        "F-LIFE-001": "VIOLATED",
+        "F-GEOM-001": "UNKNOWN",
+        "F-ROUTE-001": "SATISFIED"
+      },
+      "candidates": []
+    },
+    {
+      "ordinal": 29,
+      "original_case_label_for_review_only": "nav2_lifecycle_inactive",
+      "case_hash": "roscase_956dfac31625f97c303e293703b4f0d26586d25ac3ff40a9bda9618b59d3a3f4",
+      "summary_characters": 1306,
+      "statuses": {
+        "F-SOURCE-001": "UNKNOWN",
+        "F-TF-001": "UNKNOWN",
+        "F-SCAN-001": "SATISFIED",
+        "F-LIFE-001": "VIOLATED",
+        "F-GEOM-001": "UNKNOWN",
+        "F-ROUTE-001": "SATISFIED"
+      },
+      "candidates": []
+    },
+    {
+      "ordinal": 30,
+      "original_case_label_for_review_only": "nav2_lifecycle_inactive",
+      "case_hash": "roscase_46282f2f452fcfafa90a1e7fb07f128b26ec0f68f4b18e1aa8de082c40ba5180",
+      "summary_characters": 1306,
+      "statuses": {
+        "F-SOURCE-001": "UNKNOWN",
+        "F-TF-001": "UNKNOWN",
+        "F-SCAN-001": "SATISFIED",
+        "F-LIFE-001": "VIOLATED",
+        "F-GEOM-001": "UNKNOWN",
+        "F-ROUTE-001": "SATISFIED"
+      },
+      "candidates": []
+    },
+    {
+      "ordinal": 31,
+      "original_case_label_for_review_only": "footprint_undersized",
+      "case_hash": "roscase_b0849695d1443ccf9308bbef68a8da1e98583a9f8a4412524371ae1f808fe0ee",
+      "summary_characters": 1112,
+      "statuses": {
+        "F-SOURCE-001": "UNKNOWN",
+        "F-TF-001": "UNKNOWN",
+        "F-SCAN-001": "SATISFIED",
+        "F-LIFE-001": "SATISFIED",
+        "F-GEOM-001": "VIOLATED",
+        "F-ROUTE-001": "SATISFIED"
+      },
+      "candidates": [
+        "costmap.radius"
+      ]
+    },
+    {
+      "ordinal": 32,
+      "original_case_label_for_review_only": "footprint_undersized",
+      "case_hash": "roscase_14cef2ad9ce24291272ea6770699514adef4dc5579e6f216435f4607375fe282",
+      "summary_characters": 1112,
+      "statuses": {
+        "F-SOURCE-001": "UNKNOWN",
+        "F-TF-001": "UNKNOWN",
+        "F-SCAN-001": "SATISFIED",
+        "F-LIFE-001": "SATISFIED",
+        "F-GEOM-001": "VIOLATED",
+        "F-ROUTE-001": "SATISFIED"
+      },
+      "candidates": [
+        "costmap.radius"
+      ]
+    },
+    {
+      "ordinal": 33,
+      "original_case_label_for_review_only": "footprint_undersized",
+      "case_hash": "roscase_a8123f6ece1fafbb5c9efe78c6d9762400ed10c022a1727fbd89beabaf6a2501",
+      "summary_characters": 1112,
+      "statuses": {
+        "F-SOURCE-001": "UNKNOWN",
+        "F-TF-001": "UNKNOWN",
+        "F-SCAN-001": "SATISFIED",
+        "F-LIFE-001": "SATISFIED",
+        "F-GEOM-001": "VIOLATED",
+        "F-ROUTE-001": "SATISFIED"
+      },
+      "candidates": [
+        "costmap.radius"
+      ]
+    },
+    {
+      "ordinal": 34,
+      "original_case_label_for_review_only": "scan_stale",
+      "case_hash": "roscase_16fcc00286cc9c07f9339c821e93e54999f827e4c5a3c7e7e36dbba4780862ae",
+      "summary_characters": 913,
+      "statuses": {
+        "F-SOURCE-001": "UNKNOWN",
+        "F-TF-001": "UNKNOWN",
+        "F-SCAN-001": "VIOLATED",
+        "F-LIFE-001": "SATISFIED",
+        "F-GEOM-001": "SATISFIED",
+        "F-ROUTE-001": "SATISFIED"
+      },
+      "candidates": []
+    },
+    {
+      "ordinal": 35,
+      "original_case_label_for_review_only": "scan_stale",
+      "case_hash": "roscase_b3f2206b51e63110bac68aca6d4d3dbaf6f2d923e739a0ce1568faddb0811497",
+      "summary_characters": 913,
+      "statuses": {
+        "F-SOURCE-001": "UNKNOWN",
+        "F-TF-001": "UNKNOWN",
+        "F-SCAN-001": "VIOLATED",
+        "F-LIFE-001": "SATISFIED",
+        "F-GEOM-001": "SATISFIED",
+        "F-ROUTE-001": "SATISFIED"
+      },
+      "candidates": []
+    },
+    {
+      "ordinal": 36,
+      "original_case_label_for_review_only": "scan_stale",
+      "case_hash": "roscase_ea03d5310802d5f7b7dd93997c6d3c061f63137a4a63c15cfd1200ba23438913",
+      "summary_characters": 913,
+      "statuses": {
+        "F-SOURCE-001": "UNKNOWN",
+        "F-TF-001": "UNKNOWN",
+        "F-SCAN-001": "VIOLATED",
+        "F-LIFE-001": "SATISFIED",
+        "F-GEOM-001": "SATISFIED",
+        "F-ROUTE-001": "SATISFIED"
+      },
+      "candidates": []
+    },
+    {
+      "ordinal": 37,
+      "original_case_label_for_review_only": "j100_navigation_onboarding",
+      "case_hash": "roscase_3484793029c7cf3a34df39f4c53bd7546ae416d98355959858f0c740a0277985",
+      "summary_characters": 752,
+      "statuses": {
+        "F-SOURCE-001": "UNKNOWN",
+        "F-TF-001": "UNKNOWN",
+        "F-SCAN-001": "SATISFIED",
+        "F-LIFE-001": "SATISFIED",
+        "F-GEOM-001": "SATISFIED",
+        "F-ROUTE-001": "SATISFIED"
+      },
+      "candidates": []
+    },
+    {
+      "ordinal": 38,
+      "original_case_label_for_review_only": "j100_navigation_onboarding",
+      "case_hash": "roscase_745b4af0e4cc95f397b1be28274bf7b64833c1c260f3c823ac8b600bd0ef7d45",
+      "summary_characters": 752,
+      "statuses": {
+        "F-SOURCE-001": "UNKNOWN",
+        "F-TF-001": "UNKNOWN",
+        "F-SCAN-001": "SATISFIED",
+        "F-LIFE-001": "SATISFIED",
+        "F-GEOM-001": "SATISFIED",
+        "F-ROUTE-001": "SATISFIED"
+      },
+      "candidates": []
+    },
+    {
+      "ordinal": 39,
+      "original_case_label_for_review_only": "j100_navigation_onboarding",
+      "case_hash": "roscase_d63461149bd87febb2a70be4b99000fd881feaf6440d9267b547bdb491b7f874",
+      "summary_characters": 752,
+      "statuses": {
+        "F-SOURCE-001": "UNKNOWN",
+        "F-TF-001": "UNKNOWN",
+        "F-SCAN-001": "SATISFIED",
+        "F-LIFE-001": "SATISFIED",
+        "F-GEOM-001": "SATISFIED",
+        "F-ROUTE-001": "SATISFIED"
+      },
+      "candidates": []
+    },
+    {
+      "ordinal": 40,
+      "original_case_label_for_review_only": "footprint_undersized",
+      "case_hash": "roscase_61b1a39bd204f9e94604dbdf603b15c2fdcb0c5a359678fdb404e53ea882c9a2",
+      "summary_characters": 1112,
+      "statuses": {
+        "F-SOURCE-001": "UNKNOWN",
+        "F-TF-001": "UNKNOWN",
+        "F-SCAN-001": "SATISFIED",
+        "F-LIFE-001": "SATISFIED",
+        "F-GEOM-001": "VIOLATED",
+        "F-ROUTE-001": "SATISFIED"
+      },
+      "candidates": [
+        "costmap.radius"
+      ]
+    },
+    {
+      "ordinal": 41,
+      "original_case_label_for_review_only": "footprint_undersized",
+      "case_hash": "roscase_f393d56478a38d0b2e9a29459f1ed2ce3085a9cdd63069cf6c7debd76278e9ea",
+      "summary_characters": 1112,
+      "statuses": {
+        "F-SOURCE-001": "UNKNOWN",
+        "F-TF-001": "UNKNOWN",
+        "F-SCAN-001": "SATISFIED",
+        "F-LIFE-001": "SATISFIED",
+        "F-GEOM-001": "VIOLATED",
+        "F-ROUTE-001": "SATISFIED"
+      },
+      "candidates": [
+        "costmap.radius"
+      ]
+    },
+    {
+      "ordinal": 42,
+      "original_case_label_for_review_only": "footprint_undersized",
+      "case_hash": "roscase_450d42aa090367ab2f3049e050ff6c508b4f3f987a44064724e1c376a11e8496",
+      "summary_characters": 1112,
+      "statuses": {
+        "F-SOURCE-001": "UNKNOWN",
+        "F-TF-001": "UNKNOWN",
+        "F-SCAN-001": "SATISFIED",
+        "F-LIFE-001": "SATISFIED",
+        "F-GEOM-001": "VIOLATED",
+        "F-ROUTE-001": "SATISFIED"
+      },
+      "candidates": [
+        "costmap.radius"
+      ]
+    },
+    {
+      "ordinal": 43,
+      "original_case_label_for_review_only": "nav2_lifecycle_inactive",
+      "case_hash": "roscase_fb3b240df313062f9333c03b7ab9f66d40c01aa388046f6ea1e76c00e39f351e",
+      "summary_characters": 1306,
+      "statuses": {
+        "F-SOURCE-001": "UNKNOWN",
+        "F-TF-001": "UNKNOWN",
+        "F-SCAN-001": "SATISFIED",
+        "F-LIFE-001": "VIOLATED",
+        "F-GEOM-001": "UNKNOWN",
+        "F-ROUTE-001": "SATISFIED"
+      },
+      "candidates": []
+    },
+    {
+      "ordinal": 44,
+      "original_case_label_for_review_only": "nav2_lifecycle_inactive",
+      "case_hash": "roscase_3e35c8c7b29c46825924877f6c28f7c20776015f768e39b27f6795163a152cdf",
+      "summary_characters": 1306,
+      "statuses": {
+        "F-SOURCE-001": "UNKNOWN",
+        "F-TF-001": "UNKNOWN",
+        "F-SCAN-001": "SATISFIED",
+        "F-LIFE-001": "VIOLATED",
+        "F-GEOM-001": "UNKNOWN",
+        "F-ROUTE-001": "SATISFIED"
+      },
+      "candidates": []
+    },
+    {
+      "ordinal": 45,
+      "original_case_label_for_review_only": "nav2_lifecycle_inactive",
+      "case_hash": "roscase_4c87867914c70a2e02288bfd4d71b4e9b95c808aa61a34b0825ee226cb28a0ef",
+      "summary_characters": 1306,
+      "statuses": {
+        "F-SOURCE-001": "UNKNOWN",
+        "F-TF-001": "UNKNOWN",
+        "F-SCAN-001": "SATISFIED",
+        "F-LIFE-001": "VIOLATED",
+        "F-GEOM-001": "UNKNOWN",
+        "F-ROUTE-001": "SATISFIED"
+      },
+      "candidates": []
+    },
+    {
+      "ordinal": 46,
+      "original_case_label_for_review_only": "map_to_odom_missing",
+      "case_hash": "roscase_87903db7dfa1e7e247d35e8a5e2ac91f43285598921590fc63b83c59f3b3fccf",
+      "summary_characters": 1015,
+      "statuses": {
+        "F-SOURCE-001": "UNKNOWN",
+        "F-TF-001": "VIOLATED",
+        "F-SCAN-001": "SATISFIED",
+        "F-LIFE-001": "UNKNOWN",
+        "F-GEOM-001": "SATISFIED",
+        "F-ROUTE-001": "SATISFIED"
+      },
+      "candidates": [
+        "localization.tf_broadcast"
+      ]
+    },
+    {
+      "ordinal": 47,
+      "original_case_label_for_review_only": "map_to_odom_missing",
+      "case_hash": "roscase_c5b05de8f797a8da1d991aa8967a3c9af463e61e4c0fe1107669bd7f5a775bf7",
+      "summary_characters": 1015,
+      "statuses": {
+        "F-SOURCE-001": "UNKNOWN",
+        "F-TF-001": "VIOLATED",
+        "F-SCAN-001": "SATISFIED",
+        "F-LIFE-001": "UNKNOWN",
+        "F-GEOM-001": "SATISFIED",
+        "F-ROUTE-001": "SATISFIED"
+      },
+      "candidates": [
+        "localization.tf_broadcast"
+      ]
+    },
+    {
+      "ordinal": 48,
+      "original_case_label_for_review_only": "map_to_odom_missing",
+      "case_hash": "roscase_1104c53eb4b98bcbbf68c49cf1dd1ec9eac08baa9dfb42774748084c6544db10",
+      "summary_characters": 1015,
+      "statuses": {
+        "F-SOURCE-001": "UNKNOWN",
+        "F-TF-001": "VIOLATED",
+        "F-SCAN-001": "SATISFIED",
+        "F-LIFE-001": "UNKNOWN",
+        "F-GEOM-001": "SATISFIED",
+        "F-ROUTE-001": "SATISFIED"
+      },
+      "candidates": [
+        "localization.tf_broadcast"
+      ]
+    },
+    {
+      "ordinal": 49,
+      "original_case_label_for_review_only": "scan_stale",
+      "case_hash": "roscase_49bf2a6c6df90e74e3d35288bb72b766dad6bcc8b54b7968395b4c945cf297c8",
+      "summary_characters": 912,
+      "statuses": {
+        "F-SOURCE-001": "UNKNOWN",
+        "F-TF-001": "UNKNOWN",
+        "F-SCAN-001": "VIOLATED",
+        "F-LIFE-001": "SATISFIED",
+        "F-GEOM-001": "SATISFIED",
+        "F-ROUTE-001": "SATISFIED"
+      },
+      "candidates": []
+    },
+    {
+      "ordinal": 50,
+      "original_case_label_for_review_only": "scan_stale",
+      "case_hash": "roscase_0d6918f48b30cd092fc6deae8bd9ab672a37694c2a71eb03a6c532f6653aa9fa",
+      "summary_characters": 913,
+      "statuses": {
+        "F-SOURCE-001": "UNKNOWN",
+        "F-TF-001": "UNKNOWN",
+        "F-SCAN-001": "VIOLATED",
+        "F-LIFE-001": "SATISFIED",
+        "F-GEOM-001": "SATISFIED",
+        "F-ROUTE-001": "SATISFIED"
+      },
+      "candidates": []
+    },
+    {
+      "ordinal": 51,
+      "original_case_label_for_review_only": "scan_stale",
+      "case_hash": "roscase_7479ec7cec6daf0b9b17d6a3efb9621e3c42427c2d1d39cd54601133fda2aca7",
+      "summary_characters": 913,
+      "statuses": {
+        "F-SOURCE-001": "UNKNOWN",
+        "F-TF-001": "UNKNOWN",
+        "F-SCAN-001": "VIOLATED",
+        "F-LIFE-001": "SATISFIED",
+        "F-GEOM-001": "SATISFIED",
+        "F-ROUTE-001": "SATISFIED"
+      },
+      "candidates": []
+    },
+    {
+      "ordinal": 52,
+      "original_case_label_for_review_only": "duplicate_velocity_route",
+      "case_hash": "roscase_7e9d35575e09282991f51145deec0ea5ea48da2e73898411c94aed38d9c46d3d",
+      "summary_characters": 971,
+      "statuses": {
+        "F-SOURCE-001": "UNKNOWN",
+        "F-TF-001": "UNKNOWN",
+        "F-SCAN-001": "SATISFIED",
+        "F-LIFE-001": "SATISFIED",
+        "F-GEOM-001": "SATISFIED",
+        "F-ROUTE-001": "VIOLATED"
+      },
+      "candidates": [
+        "control.route_review"
+      ]
+    },
+    {
+      "ordinal": 53,
+      "original_case_label_for_review_only": "duplicate_velocity_route",
+      "case_hash": "roscase_467a296e1c663f17d199300e5b1e495899b1271ab3552001ace2918be49d23b2",
+      "summary_characters": 971,
+      "statuses": {
+        "F-SOURCE-001": "UNKNOWN",
+        "F-TF-001": "UNKNOWN",
+        "F-SCAN-001": "SATISFIED",
+        "F-LIFE-001": "SATISFIED",
+        "F-GEOM-001": "SATISFIED",
+        "F-ROUTE-001": "VIOLATED"
+      },
+      "candidates": [
+        "control.route_review"
+      ]
+    },
+    {
+      "ordinal": 54,
+      "original_case_label_for_review_only": "duplicate_velocity_route",
+      "case_hash": "roscase_61919421189df8ce37ac3edc29ceae42544968323e488062b1e668f5c8d7e8b4",
+      "summary_characters": 971,
+      "statuses": {
+        "F-SOURCE-001": "UNKNOWN",
+        "F-TF-001": "UNKNOWN",
+        "F-SCAN-001": "SATISFIED",
+        "F-LIFE-001": "SATISFIED",
+        "F-GEOM-001": "SATISFIED",
+        "F-ROUTE-001": "VIOLATED"
+      },
+      "candidates": [
+        "control.route_review"
+      ]
+    }
+  ],
+  "models_invoked": 0,
+  "Worlds_started": 0,
+  "authority": "NONE"
+}
