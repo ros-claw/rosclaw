@@ -23,7 +23,12 @@ import { credentialStoreFor } from "../../credentials/store.js";
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import type { ModelRequestAdmission } from "./model-request-admission.js";
 
-/** Shared actual SDK dispatch seam, installed once per replacement session. */
+/** Shared actual SDK dispatch seam, installed once per replacement session.
+ * This installer neither changes public abort semantics nor adds a provider
+ * meter. SDK idle/abort completion is not a receipt for authoritative usage.
+ * Keep the same runtime-lifetime v1 gate on session replacement; creating a
+ * fresh gate to escape UNKNOWN would discard accounting, not recover it.
+ */
 export function installModelRequestAdmission(session: AgentSession, gate: ModelRequestAdmission): void {
 	session.agent.streamFunction = gate.wrap(session.agent.streamFunction, () => session.isCompacting);
 	// compact() waits for or aborts main runs before dispatch. Refuse at entry,
