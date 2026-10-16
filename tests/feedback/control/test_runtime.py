@@ -50,11 +50,14 @@ def _tick(runtime: FeedbackRuntime, index: int, actual: float):
 
 
 def test_runtime_computes_clamps_and_records_without_event_bus() -> None:
-    runtime = _runtime()
+    # This test checks projection/recording; deadline behavior has separate tests.
+    runtime = _runtime(clock=RecordedLatencyClock((100_000,)))
     command = _tick(runtime, 0, actual=1.0)
 
     assert command.projected == {"joint:waist_roll_joint": -0.1}
     assert command.saturation_count == 1
+    assert command.deadline_met
+    assert runtime.records[0].latency_ns == 100_000
     error, _ = runtime.recent_error(1)
     residual, _ = runtime.recent_residual(1)
     assert error.tolist() == [[-1.0]]
