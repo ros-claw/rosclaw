@@ -13,6 +13,7 @@ from collections import Counter
 from benchmarks.ros_expert_ablation.physical_aci import Empty, InspectCall
 from rosclaw.agentd.context.tokens import estimate_tokens
 from rosclaw.connectors.ros.engineering import RosEngineeringCaseV1
+from rosclaw.connectors.ros.engineering.mechanism import MechanismExperienceV1
 from rosclaw.contracts.common import content_hash
 
 
@@ -52,6 +53,12 @@ class EngineeringEpisodeContext:
             self.memory_retrieval = copy.deepcopy(result)
             self.stages["host_memory_retrieval"] += 1
             self.memory_candidates = self._project_admitted(result)
+            projected = {row["memory_ref"] for row in self.memory_candidates}
+            for row in result["admitted"]:
+                if row["memory_ref"] in projected and "mechanism_record" in row:
+                    self.aci.admitted_mechanisms[row["memory_ref"]] = (
+                        MechanismExperienceV1.from_dict(row["mechanism_record"])
+                    )
 
     @staticmethod
     def _project_admitted(result):
@@ -100,6 +107,21 @@ class EngineeringEpisodeContext:
                     "current_authority": "NONE",
                 }
             )
+            if "mechanism_record" in row:
+                record = MechanismExperienceV1.from_dict(row["mechanism_record"])
+                if (
+                    record.proof.episode.sha256 != row["original_episode_sha256"]
+                    or record.proof.source != row["original_training_source"]
+                ):
+                    raise ValueError("historical mechanism/admission provenance mismatch")
+                candidates[-1].update(
+                    {
+                        "experience_ref": record.experience_hash,
+                        "mechanism": record.mechanism,
+                        "semantic_remedy": record.semantic_remedy,
+                        "contraindications": record.contraindications,
+                    }
+                )
         # Preserve backend retrieval ordering, not an answer derived from case labels.
         return candidates[:2]
 
@@ -168,6 +190,14 @@ class EngineeringEpisodeContext:
         if not isinstance(operation, str):
             operation = "INVALID"
         before = list(self.aci.proposals)
+        if operation == "ros_engineer.propose_memory_repair":
+            ref = (
+                request.get("arguments", {}).get("memory_ref")
+                if isinstance(request.get("arguments"), dict)
+                else None
+            )
+            if isinstance(ref, str) and ref in admitted and ref not in memory_refs_used:
+                memory_refs_used = [*memory_refs_used, ref]
         result = self.aci.call(request, remaining_sec=remaining_sec)
         self.stages[operation] += 1
         self.revision += 1
@@ -199,6 +229,11 @@ class EngineeringEpisodeContext:
                 "original_result_utf8_bytes": len(encoded(result).encode()),
                 "verification_refs": list(self.aci.results),
                 "causal_benefit": "NOT_ESTABLISHED_BY_CITATION",
+                "selection_effect": "EXPLICIT_MEMORY_REPAIR_INTENT"
+                if operation == "ros_engineer.propose_memory_repair"
+                and result["status"] == "TYPED_STAGING_PROPOSAL_NOT_EXECUTED"
+                else "DECLARED_REFERENCE_ONLY_OR_NO_OBSERVED_SELECTION",
+                "priority_change_counterfactual": "UNKNOWN_WITHOUT_COMPARISON",
             }
         )
         return result

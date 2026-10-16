@@ -20,6 +20,7 @@ from pydantic import Field, StrictStr, TypeAdapter, ValidationError
 from benchmarks.ros_expert_ablation.common_evidence import CommonEvidence, EvidenceView
 from benchmarks.ros_expert_ablation.task_tools import TaskTools
 from rosclaw.connectors.ros.engineering import RosEngineeringCaseV1, summarize_case
+from rosclaw.connectors.ros.engineering.mechanism import instantiate_mechanism
 from rosclaw.connectors.ros.engineering.repair_compiler import (
     Args,
     SemanticRepair,
@@ -55,6 +56,10 @@ class ExpandArgs(CaseArgs):
 
 class RepairArgs(CaseArgs):
     repair: SemanticRepair
+
+
+class MemoryRepairArgs(CaseArgs):
+    memory_ref: StrictStr = Field(min_length=1, max_length=256)
 
 
 class Interfaces(Args):
@@ -101,6 +106,11 @@ class RepairCall(Args):
     arguments: RepairArgs
 
 
+class MemoryRepairCall(Args):
+    operation: Literal["ros_engineer.propose_memory_repair"]
+    arguments: MemoryRepairArgs
+
+
 class OnboardingCall(Args):
     operation: Literal["ros_engineer.propose_onboarding"]
     arguments: OnboardingArgs
@@ -128,6 +138,7 @@ CALL_ADAPTER = TypeAdapter(
         | ExpandCall
         | InvestigateCall
         | RepairCall
+        | MemoryRepairCall
         | OnboardingCall
         | ValidateCall
         | ExplainCall
@@ -211,6 +222,7 @@ class PhysicalACI:
         if expected != content_hash("navrequirements", self.requirements):
             raise ValueError("case/original requirements mismatch")
         self.common_evidence = CommonEvidence(self)
+        self.admitted_mechanisms = {}
 
     @staticmethod
     def request_schema():
@@ -255,6 +267,29 @@ class PhysicalACI:
 
     def _dispatch(self, call, *, remaining_sec):
         args = call.arguments
+        if isinstance(call, MemoryRepairCall):
+            if self.tools.arm != "C" or args.memory_ref not in self.admitted_mechanisms:
+                raise ValueError("select an actually admitted C historical mechanism reference")
+            adapted = instantiate_mechanism(
+                self.admitted_mechanisms[args.memory_ref],
+                self.case,
+                self.model,
+                self.requirements,
+                self.tools.staging,
+                minimum_radius_m=self.tools.minimum_radius_m,
+                ownership_reviews=self.ownership_reviews,
+            )
+            result = self._dispatch(
+                RepairCall(
+                    operation="ros_engineer.propose_repair",
+                    arguments=RepairArgs(case_hash=args.case_hash, repair=adapted["intent"]),
+                ),
+                remaining_sec=remaining_sec,
+            )
+            result["historical_memory_ref"] = args.memory_ref
+            result["historical_experience_ref"] = adapted["historical_experience_ref"]
+            result["historical_values_reused"] = False
+            return result
         if isinstance(call, EvidenceCall):
             return self.common_evidence.read(args.view, args.cursor)
         if isinstance(call, ExpandCall):
