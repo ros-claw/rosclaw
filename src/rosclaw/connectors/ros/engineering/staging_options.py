@@ -99,7 +99,14 @@ def compile_staging_options(
                     raise ValueError("unique original lifecycle manager required")
                 node, values = managers[0]
                 namespace = node.rsplit("/", 1)[0]
-                names = list(values["node_names"])
+                original_names = values["node_names"]
+                if (
+                    type(original_names) is not list
+                    or len(original_names) > 32
+                    or any(type(name) is not str or not name for name in original_names)
+                ):
+                    raise ValueError("bounded original managed-node string list required")
+                names = list(original_names)
                 resolved = {
                     name if name.startswith("/") else namespace + "/" + name for name in names
                 }

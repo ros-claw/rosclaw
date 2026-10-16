@@ -400,7 +400,7 @@ class PhysicalACI:
                     )
                 card["unsupported_staging_mechanisms"] = compiled["blocked"]
                 card["staging_phase"] = (
-                    "CONDITIONAL_HYPOTHESIS_SELECTION"
+                    "STATIC_DIFF_CHECKED_CONDITIONAL_SELECTION"
                     if compiled["options"]
                     else "NO_SUPPORTED_STAGING_OPTION"
                 )

@@ -121,6 +121,7 @@ def test_phase_schema_binds_actual_option_refs_and_context_keeps_remaining_proof
     frame = EngineeringEpisodeContext(aci).frame()
     option = frame["task"]["task"]["staging_options"][0]
     assert option["issue_id"] == "F-TF-001"
+    assert frame["task"]["task"]["staging_phase"] == "STATIC_DIFF_CHECKED_CONDITIONAL_SELECTION"
     assert len(frame["task"]["task"]["proof_obligations"]) == 4
     assert frame["task"]["task"]["conditional_candidates"][0]["preconditions"]
     assert (
@@ -201,3 +202,30 @@ def test_scan_symptom_with_running_bridge_has_no_invented_resume_option():
     assert not compiled["options"] and compiled["blocked"][0]["issue_id"] == "F-SCAN-001"
     card = aci.call({"operation": "ros_engineer.inspect_task", "arguments": {}})["task"]
     assert card["staging_phase"] == "NO_SUPPORTED_STAGING_OPTION" and not aci.proposals
+
+
+def test_malformed_original_managed_node_list_returns_no_option():
+    from rosclaw.connectors.ros.engineering import compile_engineering_case
+    from rosclaw.connectors.ros.engineering.staging_options import compile_staging_options
+    from tests.connectors.ros.test_engineering_case_compiler import NOW
+
+    aci = fixture("life")
+    manager = "/sample/lifecycle_manager_navigation"
+    aci.model.observations["node_parameters"][manager]["node_names"] = [123]
+    aci.model.seal()
+    case = compile_engineering_case(
+        aci.model,
+        aci.tools.files["robot.urdf"].encode(),
+        aci.requirements,
+        source_ref="fixture:malformed-managed-nodes",
+        now=NOW,
+        evidence_domain="SEALED_REPLAY",
+    )
+    result = compile_staging_options(
+        case,
+        aci.model,
+        aci.requirements,
+        aci.tools.staging,
+        minimum_radius_m=aci.tools.minimum_radius_m,
+    )
+    assert not result["options"] and "string list required" in result["blocked"][0]["reason"]
