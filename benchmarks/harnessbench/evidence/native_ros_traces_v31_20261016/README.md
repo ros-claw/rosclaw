@@ -1,0 +1,15 @@
+# Native H11–H20 v3.1 integration evidence
+
+These are genuine ROSClaw Native sources at their normal repository paths, including public task discovery and host-only oracle dispatch. The two old fresh817 modules are preserved as default test baseline inputs, not replacements for current integrated modules. All85 integration test assertions are unchanged.
+
+Root accepted the fresh817 source6/current8 workflow and separately executed158 pure tests:474 ordinary phases,60 typed subtests, no guarded effects,21 fixture leaves unchanged. See the exact small semantic receipt and sanitized summaries. The public generator can reconstruct seed7 inputs; the frozen tests contain bounded synthetic/hand-expected regressions. The published S/I/M history is a pin-only summary of prior recorded model evaluations, not a new replay: S retains its batch/workflow failure despite10 numerical passes; I/M each passed10 fixture cases. Raw subject answers, Root independent reference implementations/withheld data and private sessions are not included. Numerical results establish bounded file/trace correctness only.
+
+The first H11 source allowance failure and second source-cut failure retain their original costs and failure status. The first pure observer run failed on oversized pytest IDs/stdio; partial calls never became a fullPASS. Later readonlyFINISH and software acceptance remain separate.
+
+Standard CLI/runtime SDK import boundary and model runs were not validated by the pure158 result. No ROS, physics, NN, hardware or generalization claim follows. Host private judges/references/tests must remain excluded from solver workspace/ACL even though the Native source is reviewable in the repository.
+
+Repository checkout replay: select tests/benchmarks/test_capability_challenges_v2.py, test_capability_challenges_ros_traces_v3.py and test_capability_ros_traces_integration_v3.py with the repository's pinned Python/dev dependencies. Leave ROS_TRACE_BASELINE_DIR unset to exercise the shipped default baseline files; a separate Root guard/finite supervisor remains required for no-SDK evidence. Root's recorded pure run used a separately bounded external ordinal parameter-ID hook and explicit no-plugin/no-conftest guard, so ordinary repository CI is a new check, not the identical captured run. Do not relax the assertions or limits if CI/lint fails; record and request a separate Native scope.
+
+This publication targets a source checkout. Current hatch sdist includes src/tests/docs/benchmarks/scripts but does not include root history_inputs; wheel packages only src/rosclaw. No wheel/sdist integration/replay claim is made. Distribution support would require a separately authorized Native packaging purpose.
+
+Latest lint closure: ROSClaw Native CI source3 corrected exactly the import opening comment and matching TASK_APPEND string. Current eleven artifacts independently validated; 158 pure tests passed again (474 phases, 60 subtests), selected source9 Ruff passed without cache. Original pre-lint manifest and failures retained. See ci_source3_current11_pure158_summary.json for the explicit third-grant history and limits.

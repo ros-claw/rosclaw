@@ -1,0 +1,20 @@
+{
+  "status": "ROOT_PURE158_PASS_NOT_CLI_MODEL_OR_PHYSICS",
+  "original_receipt_sha256": "edd3b72cde7e0d25b277a9c941b9b7b609ac513a9d4bf0c8f3bc9c3fbb7450b6",
+  "ordinary_calls": 158,
+  "independent_raw_protocol_pass": true,
+  "ordinary_phases": 474,
+  "typed_subtests": 60,
+  "worker_status": "PASS_H11_V31_INTEGRATION_PURE158",
+  "effect_poison": false,
+  "effect_attempts_rejected": [],
+  "fixture21_unchanged": true,
+  "source_base": "817fa2e77a820df9de72822573eb45da68707056",
+  "counts_sha256": "970b63526d9959f25cbd22e742c33bfe0d7085cdf6c85d448a29d22e97b84478",
+  "elapsed_s": 4.243479220080189,
+  "CLI_execution": "NOT_RUN",
+  "physical_success": false,
+  "normal_parent_exit0": true,
+  "captured_remaining_count": 0,
+  "cleanup_signal_count": 0
+}

@@ -1,0 +1,91 @@
+{
+  "status": "PRESERVED_FAILURE_HISTORY_NOT_PASS",
+  "H11_algorithm_source_grants": [
+    {
+      "receipt_sha256": "971b4b615826f968d93c9ad486d00096ebf5a579988acdd1a3b79fc91fa36734",
+      "status": "ROOT_CLOSED_H11_H20_FIRST_ALLOWANCE_FAILURE_SOURCE4_FROZEN_NOT_SEMANTIC_OR_CURRENT6_PASS",
+      "original_status": "LOCAL_MODEL_REQUEST_ALLOWANCE_EXHAUSTED",
+      "usage": {
+        "input": 59900,
+        "cacheRead": 482176,
+        "cacheWrite": 0,
+        "output": 23613
+      },
+      "elapsed_s": 434.2410099389963,
+      "usage_complete_known": true,
+      "normal_quit": true,
+      "global_unchanged": true,
+      "parent_exit": 1,
+      "captured_gone": true,
+      "SQL_artifacts": 5,
+      "author_grants_consumed": 1,
+      "maximum_author_grants": 2,
+      "not_refunded_or_reclassified": true
+    },
+    {
+      "receipt_sha256": "dca4d15cec1f80994744949ed5784aa67b608e394200b3b918b5875181142c62",
+      "status": "ROOT_CLOSED_H11_H20_REPAIR2_SOURCE_CUT_SOURCE4_FROZEN_NOT_SEMANTIC_OR_CURRENT6_PASS",
+      "original_status": "SOURCE_CUT_INCOMPLETE",
+      "usage": {
+        "input": 79537,
+        "cacheRead": 1534336,
+        "cacheWrite": 0,
+        "output": 22568
+      },
+      "elapsed_s": 541.282652087044,
+      "usage_complete_known": true,
+      "normal_quit": true,
+      "global_unchanged": true,
+      "parent_exit": 1,
+      "captured_gone": true,
+      "SQL_artifacts": 4,
+      "author_grants_consumed": 2,
+      "maximum_author_grants": 2,
+      "not_refunded_or_reclassified": true
+    }
+  ],
+  "integration_pure_observer_first_failure": {
+    "status": "FAILED_ACTUAL_V1_PRESERVED_NOT_TEST_PASS",
+    "counts_json_present": false,
+    "original_summary_ordinary_calls": 0,
+    "raw_journal_events": 462,
+    "raw_ordinary_phases": 402,
+    "raw_ordinary_call_events": 134,
+    "raw_typed_subtests": 60,
+    "parent_error_code": "SUPERVISED_CHILD_STDIO_CAP",
+    "parent_exit": 1,
+    "cleanup_signals": [],
+    "remaining_captured": [],
+    "scope": "Summary0 stems from missing counts.json; raw contains partial calls. Whole suite FAIL, no complete test PASS or effect-poison false claim.",
+    "frozen_files": [
+      {
+        "relative_path": "receipt.json",
+        "size": 2184,
+        "sha256": "33099d02401ce365adf656d1db5a2f771040257927f29e1e106e976e2cdd0e4a"
+      },
+      {
+        "relative_path": "counts.events.jsonl",
+        "size": 91270,
+        "sha256": "537592c2d95ec2f6eae296414cc81f4bfeca1a9b8dbd88a343aa152dc6bec727"
+      },
+      {
+        "relative_path": "owned_parent/receipt.json",
+        "size": 1620,
+        "sha256": "81617f503970daf94546b7e532911c667d8bc35a2176471523f0d99ee7b3fd7b"
+      },
+      {
+        "relative_path": "owned_parent/stdout",
+        "size": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "relative_path": "owned_parent/stderr",
+        "size": 7593,
+        "sha256": "146520f6b61bffa1617c7522121d365cdaed66d12e884962ae0bb1dd3b239204"
+      }
+    ]
+  },
+  "later_readonly_FINISH_and_integration_software_acceptance_do_not_reclassify_failures": true,
+  "S_subject_workflow_failure_preserved": true,
+  "publication_is_not_model_or_physics_validation": true
+}
