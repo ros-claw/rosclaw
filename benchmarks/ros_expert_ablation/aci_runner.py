@@ -15,6 +15,7 @@ from pathlib import Path
 
 from benchmarks.ros_expert_ablation.aci_context import EngineeringEpisodeContext, encoded
 from benchmarks.ros_expert_ablation.aci_schema import decision_schema, normalize_decision
+from benchmarks.ros_expert_ablation.evidence_progress import EvidenceReadProgress
 from benchmarks.ros_expert_ablation.host_client import invoke
 from benchmarks.ros_expert_ablation.runner import extract_decision
 from rosclaw.contracts.common import content_hash
@@ -27,6 +28,12 @@ INSTRUCTIONS = (
     "Choose observed onboarding or a minimal typed repair, then explicitly validate_proposal in a new SDK World. "
     "Treat host-compiled staging options as conditional hypotheses: select options, then validate through the SDK. "
     "Read original evidence to distinguish competing hypotheses; all physical preconditions remain pending SDK proof. "
+    "For an offered source-bound staging option, the host checked original snapshot/staging consistency "
+    "and compiled the restricted diff; selection only registers an unexecuted hypothesis. "
+    "Do not try to establish current L1 or current physical validity by rereading historical records. "
+    "Those proofs require explicit SDK validation; abstain when no supported hypothesis or binding is available. "
+    "The original_evidence_access workbook records returned pages and serialized character ranges; "
+    "next_unread_offset identifies the first unreturned character, not a new physical observation. "
     "You may request the host's predefined disposable SIM validation; this grants you no motion authority. "
     "For lifecycle names preserve the original managed prefix and use relative names within the manager namespace. "
     "Never change Body/URDF, speeds, controllers, leases, freshness or permissions. "
@@ -62,8 +69,11 @@ class EpisodeWorkbook:
         self.fact_characters = fact_characters
         self.recent = None
         self.notes = []
+        self.read_progress = EvidenceReadProgress()
 
-    def observe(self, result, summary):
+    def observe(self, result, summary, *, request=None):
+        if request is not None:
+            self.read_progress.observe(result, request)
         for row in result.get("records", []):
             ref = row["evidence_ref"]
             fact = {"ref": ref, "classification": row["classification"], "pointer": row["pointer"]}
@@ -162,6 +172,7 @@ class EpisodeWorkbook:
                 "facts_not_inline": len(self.facts) - len(chosen),
                 "recent_tool_result": recent,
                 "untrusted_working_notes": self.notes,
+                "original_evidence_access": self.read_progress.payload(),
             }
         )
 
@@ -375,7 +386,7 @@ def run_typed_episode(
             state = "INVALID_TYPED_MODEL_DECISION"
             tools.append({"turn": turn, "status": state, "error": str(error)})
             break
-        workbook.observe(tool_result, decision["decision_summary"])
+        workbook.observe(tool_result, decision["decision_summary"], request=decision["decision"])
         with (output / f"turn-{turn:02d}-original-tool-result.json").open("x") as stream:
             json.dump(
                 {"decision": decision, "result": tool_result, "wall_sec": elapsed}, stream, indent=2
