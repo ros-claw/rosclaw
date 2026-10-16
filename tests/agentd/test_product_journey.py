@@ -878,6 +878,85 @@ class PtySession:
                 self.proc.kill()
 
 
+def _session_entries(home: Path) -> dict[Path, list[dict]]:
+    """Read complete session JSONL entries; an in-flight final line may be partial."""
+    result: dict[Path, list[dict]] = {}
+    for path in (home / "agent" / "sessions").glob("*.jsonl"):
+        entries = []
+        for line in path.read_bytes().splitlines(keepends=True):
+            if not line.endswith(b"\n"):
+                break
+            entries.append(json.loads(line))
+        result[path] = entries
+    return result
+
+
+def _session_boundary(home: Path) -> dict[Path, int]:
+    return {path: len(entries) for path, entries in _session_entries(home).items()}
+
+
+def _message_text(message: dict) -> str:
+    content = message.get("content", "")
+    if isinstance(content, list):
+        return "".join(
+            str(block.get("text", "")) for block in content if isinstance(block, dict)
+        )
+    return str(content)
+
+
+def _expect_session_turn(
+    home: Path,
+    boundary: dict[Path, int],
+    prompt: str,
+    *,
+    stop_reason: str,
+    response: str = "",
+    cancelled: bool = False,
+    timeout: float = 60.0,
+) -> Path:
+    """Require a fresh user -> terminal assistant in one session, never a repaint."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        for path, entries in _session_entries(home).items():
+            fresh = entries[boundary.get(path, 0):]
+            for index, entry in enumerate(fresh):
+                message = entry.get("message", {})
+                if (entry.get("type") != "message" or message.get("role") != "user"
+                        or _message_text(message) != prompt):
+                    continue
+                following = []
+                for candidate in fresh[index + 1:]:
+                    next_message = candidate.get("message", {})
+                    if (candidate.get("type") == "message"
+                            and next_message.get("role") == "user"
+                            and not _message_text(next_message).startswith(
+                                "<ROSCLAW_TRUSTED_CONTEXT>"
+                            )):
+                        break  # A later user turn cannot satisfy this request.
+                    following.append(candidate)
+                terminal = any(
+                    e.get("type") == "message"
+                    and e.get("message", {}).get("role") == "assistant"
+                    and e["message"].get("stopReason") == stop_reason
+                    and not (stop_reason == "stop" and e["message"].get("errorMessage"))
+                    and (not response or response in _message_text(e["message"]))
+                    for e in following
+                )
+                typed_cancel = any(
+                    e.get("type") == "custom"
+                    and e.get("customType") == "rosclaw.provider_error"
+                    and e.get("data", {}).get("code") == "MODEL_REQUEST_CANCELLED"
+                    for e in following
+                )
+                if terminal and (not cancelled or typed_cancel):
+                    return path
+        time.sleep(0.05)
+    raise AssertionError(
+        f"No fresh session turn: prompt={prompt!r}, stopReason={stop_reason}, "
+        f"typed_cancel={cancelled}"
+    )
+
+
 def _prepare_installed_chat(
     tmp_path: Path, fake: FakeModelServer, prefix: Path, *, sim_policy: str | None = None
 ) -> tuple[Path, dict[str, str], Path]:
@@ -1915,11 +1994,53 @@ class TestProductJourney:
             self._journey_verdicts["revision_no_fake_success"] = True
             # 0902 R1-b（审计 §7）：provider 停滞——分阶段看门狗提示
             # +取消，不再静默 300s（fake server 挂起不应答的故障注入）。
+            def _task_session_identity() -> tuple[list, list]:
+                with contextlib.closing(_sq3.connect(home / "agentd" / "missions.db")) as db:
+                    bindings = db.execute(
+                        "SELECT pi_session_id, mission_id FROM pi_session_bindings "
+                        "WHERE status = 'ACTIVE' ORDER BY pi_session_id, mission_id"
+                    ).fetchall()
+                    revisions = db.execute(
+                        "SELECT task_id, active_revision FROM tasks ORDER BY task_id"
+                    ).fetchall()
+                assert bindings and revisions, "watchdog 需要现有 session/task/revision"
+                return bindings, revisions
+
+            identity_before_stall = _task_session_identity()
+            stall_boundary = _session_boundary(home)
+            with session._lock:
+                stall_clean_at = len(session.clean)
             fake.fake.stall = True
-            session.send("再聊聊这个任务\r")
-            session.expect("响应迟滞".encode(), timeout=40)  # 10s 提示
-            session.expect("已取消本次请求".encode(), timeout=60)  # 30s 取消
-            fake.fake.stall = False
+            try:
+                session.send("再聊聊这个任务\r")
+                session.expect("响应迟滞".encode(), timeout=40, after=stall_clean_at)
+                session.expect(
+                    "当前请求已取消；发送消息可继续同一任务".encode(),
+                    timeout=60, after=stall_clean_at,
+                )
+                cancelled_session = _expect_session_turn(
+                    home, stall_boundary, "再聊聊这个任务", stop_reason="aborted",
+                    cancelled=True, timeout=60,
+                )
+            finally:
+                fake.fake.stall = False
+            assert _task_session_identity() == identity_before_stall, (
+                "取消请求不应替换 session/task 或推进 revision"
+            )
+            recovery_boundary = _session_boundary(home)
+            with session._lock:
+                recovery_clean_at = len(session.clean)
+            recovery_prompt = "你这是啥？请继续解释同一任务（watchdog 恢复验证）"
+            session.send(recovery_prompt + "\r")
+            session.expect("刚才的任务".encode(), timeout=60, after=recovery_clean_at)
+            recovered_session = _expect_session_turn(
+                home, recovery_boundary, recovery_prompt, stop_reason="stop",
+                response="刚才的任务", timeout=60,
+            )
+            assert recovered_session == cancelled_session, "恢复回答漂移到另一 session"
+            assert _task_session_identity() == identity_before_stall, (
+                "恢复回答必须保留同一 session/task/revision"
+            )
             self._journey_verdicts["provider_stall_watchdog"] = True
             # 0901 P0-1（硬 Gate B）：安装产物的 `rosclaw artifact` 一族
             # 真实可达——list 不回落顶层帮助、path 给绝对路径（0901

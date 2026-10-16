@@ -28,6 +28,8 @@ from tests.agentd.test_product_journey import (
     FakeModelServer,
     PtySession,
     _build_and_install,
+    _expect_session_turn,
+    _session_boundary,
 )
 from tests.agentd.test_start_exit_soak import _tree_pids, _write_fake_home
 
@@ -156,26 +158,36 @@ class TestInteractionPerf:
 
             fake.fake.answer = _slow_answer
             try:
-                for _ in range(SAMPLES):
+                frames = tuple(frame.encode() for frame in "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
+                for round_index in range(SAMPLES):
+                    turn_boundary = _session_boundary(home)
                     with session._lock:
-                        session.output = b""
+                        raw_at = len(session.output)
+                        clean_at = len(session.clean)
+                    prompt = f"你好 perf round {round_index + 1}"
                     start = time.monotonic()
-                    session.send("你好\r")
+                    session.send(prompt + "\r")
                     deadline = start + 3.0
                     seen = False
                     while time.monotonic() < deadline:
                         with session._lock:
-                            out = session.output
-                        # spinner 帧字符（⠋⠙⠹…）或 Working 文本。
-                        if "⠋".encode() in out or "⠙".encode() in out or b"Working" in out:
+                            out = session.output[raw_at:]
+                        # 全部十帧（80ms 周期）；只看本轮提交后的新字节。
+                        if any(frame in out for frame in frames):
                             seen = True
                             break
                         time.sleep(0.001)
-                    if seen:
-                        working.append((time.monotonic() - start) * 1000)
-                    # 等回合结束再测下一轮。
-                    session.expect("你好，我是 ROSClaw".encode(), timeout=90)
-                    time.sleep(0.3)
+                    assert seen, f"round {round_index + 1}: 无本轮 working 帧"
+                    working.append((time.monotonic() - start) * 1000)
+                    session.expect(
+                        "你好，我是 ROSClaw".encode(), timeout=90, after=clean_at
+                    )
+                    # UI 重绘不是完成证据：本轮 user 后持久化的成功 assistant
+                    # stop 才允许下一轮；不再用短于 fake 延迟的 sleep 猜测。
+                    _expect_session_turn(
+                        home, turn_boundary, prompt, stop_reason="stop",
+                        response="你好，我是 ROSClaw", timeout=90,
+                    )
             finally:
                 fake.fake.answer = orig_answer
 
