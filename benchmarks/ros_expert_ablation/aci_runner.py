@@ -15,6 +15,7 @@ from pathlib import Path
 
 from benchmarks.ros_expert_ablation.aci_context import EngineeringEpisodeContext, encoded
 from benchmarks.ros_expert_ablation.aci_schema import decision_schema, normalize_decision
+from benchmarks.ros_expert_ablation.aci_tool_guide import build_tool_guide
 from benchmarks.ros_expert_ablation.evidence_progress import EvidenceReadProgress
 from benchmarks.ros_expert_ablation.host_client import invoke
 from benchmarks.ros_expert_ablation.runner import extract_decision
@@ -293,19 +294,6 @@ def run_typed_episode(
             break
         mark = clock()
         frame = context.frame()
-        prompt = (
-            INSTRUCTIONS
-            + "\nTASK\n"
-            + encoded(model_safe(public_task))
-            + "\nCURRENT_STATE\n"
-            + encoded(model_safe(frame))
-            + "\nWORKBOOK\n"
-            + encoded(workbook.payload())
-        )
-        phases["frame_wall_sec"] += clock() - mark
-        if len(prompt.encode()) > 48000:
-            state = "CONTEXT_BYTE_BUDGET_EXHAUSTED"
-            break
         memory_available = bool(aci.admitted_mechanisms)
         schema = decision_schema(
             aci.tools.arm,
@@ -318,6 +306,21 @@ def run_typed_episode(
             if aci.tools.arm in {"B", "C"}
             else [],
         )
+        prompt = (
+            INSTRUCTIONS
+            + "\nTASK\n"
+            + encoded(model_safe(public_task))
+            + "\nCURRENT_STATE\n"
+            + encoded(model_safe(frame))
+            + "\nHOST_OPERATION_GUIDE\n"
+            + encoded(build_tool_guide(schema))
+            + "\nWORKBOOK\n"
+            + encoded(workbook.payload())
+        )
+        phases["frame_wall_sec"] += clock() - mark
+        if len(prompt.encode()) > 48000:
+            state = "CONTEXT_BYTE_BUDGET_EXHAUSTED"
+            break
         if clock() >= deadline:
             state = "WALL_TIME_BUDGET_EXHAUSTED"
             break
