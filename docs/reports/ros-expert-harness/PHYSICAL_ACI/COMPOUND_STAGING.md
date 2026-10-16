@@ -33,3 +33,10 @@ phase discipline; the host still rechecks every binding against the original
 case, so schema constraints confer no admission or permission. This addresses a
 retained wrong-hash model request observed in the frozen pilot, without changing
 that pilot or its original rejection.
+
+Typed Memory candidates are filtered against current violated signatures before
+the two-prior projection cap. This prevents two irrelevant admitted records from
+hiding a later applicable record in a held-out combination. Backend provenance
+admission, original ordering among eligible records, same-case exclusions and
+raw retrieval receipts remain unchanged. Applicability remains a hypothesis;
+only fresh independent SDK validation can establish the current repair result.

@@ -52,7 +52,10 @@ class EngineeringEpisodeContext:
             result = aci.tools.call("query_memory", {"query": signature[:512]})
             self.memory_retrieval = copy.deepcopy(result)
             self.stages["host_memory_retrieval"] += 1
-            self.memory_candidates = self._project_admitted(result)
+            self.memory_candidates = self._project_admitted(
+                result,
+                applicable_issue_ids={c.id for c in aci.case.constraints if c.status == "VIOLATED"},
+            )
             projected = {row["memory_ref"] for row in self.memory_candidates}
             for row in result["admitted"]:
                 if row["memory_ref"] in projected and "mechanism_record" in row:
@@ -61,7 +64,7 @@ class EngineeringEpisodeContext:
                     )
 
     @staticmethod
-    def _project_admitted(result):
+    def _project_admitted(result, *, applicable_issue_ids=None):
         # The callback is host-owned and checks the actual frozen database, record,
         # original episode bytes, same-case exclusion, Body and evaluation run IDs.
         # Reject an incompatible callback instead of treating arbitrary text as KNOW.
@@ -114,6 +117,12 @@ class EngineeringEpisodeContext:
                     or record.proof.source != row["original_training_source"]
                 ):
                     raise ValueError("historical mechanism/admission provenance mismatch")
+                if (
+                    applicable_issue_ids is not None
+                    and record.observation_signature.split(":")[0] not in applicable_issue_ids
+                ):
+                    candidates.pop()
+                    continue
                 candidates[-1].update(
                     {
                         "experience_ref": record.experience_hash,
@@ -122,7 +131,8 @@ class EngineeringEpisodeContext:
                         "contraindications": record.contraindications,
                     }
                 )
-        # Preserve backend retrieval ordering, not an answer derived from case labels.
+        # Filter current typed applicability before the two-prior cap, preserving
+        # backend ordering among eligible records; never use a gold case label.
         return candidates[:2]
 
     def frame(self):
