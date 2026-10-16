@@ -17,6 +17,7 @@ from typing import Annotated, Literal
 import yaml
 from pydantic import Field, StrictStr, TypeAdapter, ValidationError
 
+from benchmarks.ros_expert_ablation.common_evidence import CommonEvidence, EvidenceView
 from benchmarks.ros_expert_ablation.task_tools import TaskTools
 from rosclaw.connectors.ros.engineering import RosEngineeringCaseV1, summarize_case
 from rosclaw.connectors.ros.engineering.repair_compiler import (
@@ -39,6 +40,17 @@ class CaseArgs(Args):
 class InvestigateArgs(CaseArgs):
     issue_id: StrictStr
     check_id: StrictStr
+
+
+class EvidenceArgs(CaseArgs):
+    view: EvidenceView
+    cursor: int = Field(default=0, ge=0)
+
+
+class ExpandArgs(CaseArgs):
+    evidence_ref: StrictStr = Field(min_length=1, max_length=256)
+    offset: int = Field(default=0, ge=0)
+    limit: int = Field(default=1200, ge=1, le=1600)
 
 
 class RepairArgs(CaseArgs):
@@ -74,6 +86,16 @@ class InvestigateCall(Args):
     arguments: InvestigateArgs
 
 
+class EvidenceCall(Args):
+    operation: Literal["ros_engineer.read_task_evidence"]
+    arguments: EvidenceArgs
+
+
+class ExpandCall(Args):
+    operation: Literal["ros_engineer.expand_task_evidence"]
+    arguments: ExpandArgs
+
+
 class RepairCall(Args):
     operation: Literal["ros_engineer.propose_repair"]
     arguments: RepairArgs
@@ -102,6 +124,8 @@ class FinishCall(Args):
 CALL_ADAPTER = TypeAdapter(
     Annotated[
         InspectCall
+        | EvidenceCall
+        | ExpandCall
         | InvestigateCall
         | RepairCall
         | OnboardingCall
@@ -186,6 +210,7 @@ class PhysicalACI:
         expected = self.case.derived_documents["navigation_observation_review"]["requirements_hash"]
         if expected != content_hash("navrequirements", self.requirements):
             raise ValueError("case/original requirements mismatch")
+        self.common_evidence = CommonEvidence(self)
 
     @staticmethod
     def request_schema():
@@ -230,6 +255,10 @@ class PhysicalACI:
 
     def _dispatch(self, call, *, remaining_sec):
         args = call.arguments
+        if isinstance(call, EvidenceCall):
+            return self.common_evidence.read(args.view, args.cursor)
+        if isinstance(call, ExpandCall):
+            return self.common_evidence.expand(args.evidence_ref, args.offset, args.limit)
         if isinstance(call, InspectCall):
             card = (
                 summarize_case(self.case)
@@ -246,6 +275,7 @@ class PhysicalACI:
             return {
                 "status": "ENGINEERING_DOSSIER_NOT_ADMISSION",
                 "task": card,
+                "common_evidence": self.common_evidence.catalog(),
                 "base_staging_hash": content_hash("acistaging", self.tools.staging),
                 "operator_owned_staging_refs": list(self.ownership_reviews),
                 "validation_cost": "HIGH; fresh SDK World, full L1 and canonical goals",
