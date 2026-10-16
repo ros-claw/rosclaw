@@ -685,6 +685,30 @@ def add_ros_subparser(subparsers: argparse._SubParsersAction) -> argparse.Argume
             expert_parser.add_argument("operation", choices=["plan"])
             expert_parser.add_argument("--mission-id", default="ros_coverage_mission")
 
+    case_parser = ros_subparsers.add_parser(
+        "engineering-case", help="Read-only engineering dossier from a sealed offline snapshot"
+    )
+    case_parser.add_argument("--json", action="store_true")
+    case_parser.add_argument("--snapshot", required=True, help="Sealed RosSystemModel JSON")
+    case_parser.add_argument("--urdf", required=True, help="Original expanded URDF")
+    case_parser.add_argument(
+        "--requirements", required=True, help="Original navigation requirements JSON"
+    )
+    case_parser.add_argument(
+        "--reviewed-at", required=True, help="Explicit timezone-aware original review clock"
+    )
+    case_parser.add_argument(
+        "--source-review", help="Historical source review JSON, never live admission"
+    )
+    case_parser.add_argument("--expected-run-id")
+    case_parser.add_argument("--expected-body-hash")
+    case_parser.add_argument(
+        "--summary-only", action="store_true", help="Return compact task card and binding hashes"
+    )
+    case_parser.add_argument(
+        "--output", help="Create a NEW derived JSON artifact; never overwrite inputs"
+    )
+
     workspace_parser = ros_subparsers.add_parser(
         "inspect-navigation-workspace", help="Read-only compiled navigation artifact integrity"
     )
@@ -708,6 +732,8 @@ def add_ros_subparser(subparsers: argparse._SubParsersAction) -> argparse.Argume
 def dispatch_ros_command(args: argparse.Namespace) -> int:
     """Dispatch the selected ``ros`` subcommand."""
     cmd = getattr(args, "ros_command", None)
+    if cmd == "engineering-case":
+        return cmd_ros_engineering_case(args)
     if cmd == "inspect-navigation-workspace":
         from rosclaw.connectors.ros.context.navigation_workspace_review import (
             inspect_navigation_body_workspace,
@@ -871,3 +897,78 @@ def cmd_ros_expert(args: argparse.Namespace) -> int:
         return _maybe_json(args, {"ok": True, "action": command, **result})
     except (ValueError, OSError, ConnectionError, TimeoutError) as exc:
         return _maybe_json(args, {"ok": False, "action": args.ros_command, "error": str(exc)})
+
+
+def cmd_ros_engineering_case(args: argparse.Namespace) -> int:
+    """Offline-only file replay. Never discovers ROS, binds Body or starts a World."""
+    import hashlib
+    from datetime import datetime
+
+    from rosclaw.connectors.ros.engineering import compile_engineering_case, summarize_case
+    from rosclaw.connectors.ros.expert import load_system
+
+    try:
+        if not getattr(args, "snapshot", None) or not getattr(args, "reviewed_at", None):
+            raise ValueError("sealed snapshot and explicit aware review clock required")
+        reviewed_at = datetime.fromisoformat(args.reviewed_at)
+        if reviewed_at.tzinfo is None or reviewed_at.utcoffset() is None:
+            raise ValueError("timezone-aware original review clock required")
+        raw_snapshot = _read_discovery_urdf(args.snapshot, "sealed system model")
+        model = load_system(json.loads(raw_snapshot))
+        urdf = _read_discovery_urdf(args.urdf)
+        raw_requirements = _read_discovery_urdf(args.requirements, "navigation requirements")
+        requirements = json.loads(raw_requirements)
+        if not isinstance(requirements, dict):
+            raise ValueError("navigation requirements must be a JSON object")
+        review_path = getattr(args, "source_review", None)
+        raw_source_review = (
+            _read_discovery_urdf(review_path, "historical source review") if review_path else None
+        )
+        source_review = json.loads(raw_source_review) if raw_source_review is not None else None
+        if source_review is not None and not isinstance(source_review, dict):
+            raise ValueError("historical source review must be a JSON object")
+        expected_run = getattr(args, "expected_run_id", None)
+        expected_body = getattr(args, "expected_body_hash", None)
+        if (expected_run or expected_body) and source_review is None:
+            raise ValueError("expected run/Body checks require the original source review")
+        case = compile_engineering_case(
+            model,
+            urdf,
+            requirements,
+            source_ref="sealed-model:" + model.snapshot_hash,
+            now=reviewed_at,
+            evidence_domain="SEALED_REPLAY",
+            source_review=source_review,
+            expected_run_id=expected_run,
+            expected_body_hash=expected_body,
+        )
+        result = {
+            "ok": True,
+            "action": "engineering-case",
+            "scope": "SEALED_OFFLINE_REPLAY_NOT_CURRENT_STATE_OR_ADMISSION",
+            "reviewed_at": reviewed_at.isoformat(),
+            "case_hash": case.case_hash,
+            "snapshot_hash": case.snapshot_hash,
+            "original_urdf_sha256": case.source_urdf_sha256,
+            "input_file_sha256": {
+                "snapshot": hashlib.sha256(raw_snapshot).hexdigest(),
+                "URDF": hashlib.sha256(urdf).hexdigest(),
+                "requirements": hashlib.sha256(raw_requirements).hexdigest(),
+            },
+            "current_authority": "NONE",
+            "current_l1": "NOT_EVALUATED",
+            "source_review_scope": "CALLER_SUPPLIED_HISTORICAL_INPUT_NOT_INDEPENDENT_CURRENT_GATE",
+            "summary": summarize_case(case),
+        }
+        if raw_source_review is not None:
+            result["input_file_sha256"]["source_review"] = hashlib.sha256(
+                raw_source_review
+            ).hexdigest()
+        if not getattr(args, "summary_only", False):
+            result["case"] = case.model_dump(mode="json")
+        if getattr(args, "output", None):
+            with Path(args.output).open("x", encoding="utf-8") as stream:
+                stream.write(json.dumps(result, indent=2) + "\n")
+        return _maybe_json(args, result)
+    except (ValueError, TypeError, OSError) as exc:
+        return _maybe_json(args, {"ok": False, "action": "engineering-case", "error": str(exc)})
