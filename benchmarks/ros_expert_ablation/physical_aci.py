@@ -176,6 +176,7 @@ class PhysicalACI:
         clock=time.monotonic,
         operator_source=None,
         original_run_id=None,
+        probe_evaluator=None,
     ):
         self.case = RosEngineeringCaseV1.from_dict(case.model_dump(mode="json"))
         self.model = type(model).from_dict(model.to_dict())
@@ -191,9 +192,12 @@ class PhysicalACI:
         self.tools = tools
         self.requirements = json.loads(tools.files["requirements.json"])
         self.evaluator = evaluator
+        self.probe_evaluator = probe_evaluator
+        self.probe_count = 0
+        self.probe_results = []
         self.operator_source = operator_source
         self.original_run_id = original_run_id
-        if evaluator is not None and not (
+        if (evaluator is not None or probe_evaluator is not None) and not (
             isinstance(operator_source, str)
             and re.fullmatch(r"[0-9a-f]{40}", operator_source)
             and isinstance(original_run_id, str)
@@ -228,7 +232,7 @@ class PhysicalACI:
     def request_schema():
         return CALL_ADAPTER.json_schema()
 
-    def _bound(self, case_hash):
+    def _bound(self, case_hash, *, read_only=False):
         RosEngineeringCaseV1.from_dict(self.case.model_dump(mode="json"))
         if (
             case_hash != self.case.case_hash
@@ -242,7 +246,7 @@ class PhysicalACI:
             != self.original_files_hash
         ):
             raise ValueError("original task files changed")
-        if self.case.source_status == "MISMATCH":
+        if self.case.source_status == "MISMATCH" and not read_only:
             raise ValueError("source mismatch; no proposal or validation")
 
     def call(self, request, *, remaining_sec=None):
@@ -252,7 +256,10 @@ class PhysicalACI:
             if self.finished:
                 raise ValueError("episode finished; no new validation or proposal")
             if isinstance(call.arguments, CaseArgs):
-                self._bound(call.arguments.case_hash)
+                self._bound(
+                    call.arguments.case_hash,
+                    read_only=isinstance(call, (EvidenceCall, ExpandCall, InvestigateCall)),
+                )
             result = self._dispatch(call, remaining_sec=remaining_sec)
         except (ValidationError, ValueError, KeyError, IndexError, TypeError) as error:
             result = {
@@ -324,6 +331,42 @@ class PhysicalACI:
             issue = next((c for c in self.case.constraints if c.id == args.issue_id), None)
             if issue is None or args.check_id not in issue.next_checks:
                 raise ValueError("select a declared issue and its allowed read-only check")
+            if self.probe_evaluator is not None:
+                if self.probe_count >= 1:
+                    raise ValueError("host read-only fresh probe budget exhausted")
+                if (
+                    type(remaining_sec) not in (int, float)
+                    or not math.isfinite(remaining_sec)
+                    or not 0 < remaining_sec <= 300
+                ):
+                    raise ValueError("positive host-owned remaining wall budget required")
+                self.probe_count += 1
+                started = self.clock()
+                result = self.probe_evaluator(
+                    args.issue_id, args.check_id, remaining_sec=remaining_sec
+                )
+                if result.get("fresh_probe_performed") is True:
+                    ref = result.get("original_capture_ref", {})
+                    if not (
+                        result.get("source") == self.operator_source
+                        and isinstance(result.get("new_world_run"), str)
+                        and re.fullmatch(r"[0-9a-f]{32}", result["new_world_run"])
+                        and result["new_world_run"] != self.original_run_id
+                        and result.get("check_id") == args.check_id
+                        and isinstance(ref.get("path"), str)
+                        and bool(ref["path"])
+                        and isinstance(ref.get("sha256"), str)
+                        and re.fullmatch(r"[0-9a-f]{64}", ref["sha256"])
+                    ):
+                        raise ValueError("fresh read-only probe source/run/original proof mismatch")
+                result = copy.deepcopy(result)
+                result.update(
+                    current_authority="NONE",
+                    current_case_L1="NOT_EVALUATED",
+                    probe_in_budget=self.clock() - started <= remaining_sec,
+                )
+                self.probe_results.append(result)
+                return result
             return {
                 "status": "NEEDS_OPERATOR_READ_ONLY_PROBE",
                 "scope": "SEALED_EVIDENCE_ONLY_NOT_NEW_PROBE",
@@ -485,6 +528,7 @@ class PhysicalACI:
         if isinstance(call, ExplainCall):
             result = self.results[args.verification_ref]
             return {
+                "status": "RECORDED_SDK_RESULT_EXPLANATION",
                 "verification_ref": args.verification_ref,
                 "outcome": copy.deepcopy(result),
                 "current_authority": "NONE",

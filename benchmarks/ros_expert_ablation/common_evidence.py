@@ -127,7 +127,7 @@ class CommonEvidence:
         return entry
 
     def bound(self):
-        self.aci._bound(self.aci.case.case_hash)
+        self.aci._bound(self.aci.case.case_hash, read_only=True)
         if content_hash("acicommon", self.groups) != self.common_hash:
             raise ValueError("common evidence changed after compilation")
         if self.aci.model.snapshot_hash != self.aci.model.compute_snapshot_hash():

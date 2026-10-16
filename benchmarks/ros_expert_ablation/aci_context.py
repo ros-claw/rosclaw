@@ -127,7 +127,7 @@ class EngineeringEpisodeContext:
 
     def frame(self):
         RosEngineeringCaseV1.from_dict(self.aci.case.model_dump(mode="json"))
-        self.aci._bound(self.aci.case.case_hash)
+        self.aci._bound(self.aci.case.case_hash, read_only=True)
         # Pure inspection; this is not an additional model operation.
         card = self.aci._dispatch(
             InspectCall(operation="ros_engineer.inspect_task", arguments=Empty()),
