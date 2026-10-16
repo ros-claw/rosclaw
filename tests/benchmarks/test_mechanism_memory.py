@@ -286,3 +286,26 @@ def test_pinned_archive_checks_old_bytes_instead_of_rehashing_mutated_inputs(tmp
         manifest.write_text("{}")
     with pytest.raises(ValueError, match="hash mismatch|pinned original archive"):
         PinnedOriginalArchive(tmp_path, ref).check(original)
+
+
+def test_current_manager_namespace_is_preserved_with_relative_child_names(tmp_path):
+    _, _, _, _, proof = record_fixture(tmp_path)
+    aci = fixture("life")
+    before = deepcopy(aci.tools.staging)
+    after = deepcopy(before)
+    after["nav2.yaml"]["/sample"]["lifecycle_manager_navigation"]["ros__parameters"][
+        "node_names"
+    ] = ["planner", "controller"]
+    record = distill_mechanism(aci.case, before, after, before, proof)
+    adapted = instantiate_mechanism(
+        record,
+        aci.case,
+        aci.model,
+        aci.requirements,
+        before,
+        minimum_radius_m=aci.tools.minimum_radius_m,
+    )
+    names = adapted["intent"]["node_names"]
+    assert names[0] == "controller" and "planner" in names
+    assert "/sample/planner" not in names
+    assert adapted["proposal"]["stage_only"] is True

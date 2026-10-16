@@ -257,7 +257,11 @@ def instantiate_mechanism(
         namespace = node.rsplit("/", 1)[0]
         names = list(params["node_names"])
         resolved = {name if name.startswith("/") else namespace + "/" + name for name in names}
-        names += [name for name in requirements["lifecycle_nodes"].values() if name not in resolved]
+        names += [
+            name.rsplit("/", 1)[1] if name.rsplit("/", 1)[0] == namespace else name
+            for name in requirements["lifecycle_nodes"].values()
+            if name not in resolved
+        ]
         intent["node_names"] = names
     elif record.kind == "disable_owned_fixture_endpoint":
         if len(ownership_reviews or {}) != 1:
