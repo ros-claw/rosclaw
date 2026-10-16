@@ -986,11 +986,16 @@ class OperationManager:
                     "DEGRADED",
                     event="operation.degraded",
                     payload={"stale_after_s": stale_after_s},
+                    refresh_heartbeat=False,
                 )
                 degraded += 1
             elif not stale and row["state"] == "DEGRADED":
                 self._transition(
-                    row["operation_id"], "RUNNING", event="operation.resumed", payload={}
+                    row["operation_id"],
+                    "RUNNING",
+                    event="operation.resumed",
+                    payload={},
+                    refresh_heartbeat=False,
                 )
                 resumed += 1
         return {"degraded": degraded, "resumed": resumed}
@@ -1315,6 +1320,7 @@ class OperationManager:
         *,
         event: str | None,
         payload: dict | None = None,
+        refresh_heartbeat: bool = True,
     ) -> None:
         row = self.get(operation_id)
         # 终态不可逆；CANCELING 同样不可被普通迁移覆盖（取消流程持有
@@ -1325,10 +1331,17 @@ class OperationManager:
             or (row["state"] == "CANCELING" and state != "CANCELLED")
         ):
             return
-        self._conn.execute(
-            "UPDATE operations SET state = ?, heartbeat_at = ? WHERE operation_id = ?",
-            (state, _now(), operation_id),
-        )
+        if refresh_heartbeat:
+            self._conn.execute(
+                "UPDATE operations SET state = ?, heartbeat_at = ? WHERE operation_id = ?",
+                (state, _now(), operation_id),
+            )
+        else:
+            # A liveness classification is not a new producer observation.
+            self._conn.execute(
+                "UPDATE operations SET state = ? WHERE operation_id = ?",
+                (state, operation_id),
+            )
         if event:
             self._emit(
                 str(row["task_id"]),
