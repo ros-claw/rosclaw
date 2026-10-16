@@ -6,6 +6,7 @@ No new model invocation or alternate execution path is introduced here.
 """
 
 import copy
+import re
 
 from benchmarks.ros_expert_ablation.physical_aci import CALL_ADAPTER
 
@@ -46,17 +47,55 @@ def _project(value):
     return out
 
 
-def decision_schema(arm, *, memory_available=False):
+def decision_schema(
+    arm,
+    *,
+    memory_available=False,
+    case_hash=None,
+    proposal_ids=None,
+    verification_refs=None,
+    memory_refs=None,
+):
     if arm not in {"A", "B", "C"}:
         raise ValueError("closed preregistered arm required")
+    if case_hash is not None and (
+        type(case_hash) is not str or re.fullmatch(r"roscase_[0-9a-f]{64}", case_hash) is None
+    ):
+        raise ValueError("actual case content hash required for phase binding")
+    for refs in (proposal_ids, verification_refs, memory_refs):
+        if refs is not None and (
+            type(refs) is not list
+            or any(type(ref) is not str or not ref for ref in refs)
+            or len(refs) != len(set(refs))
+        ):
+            raise ValueError("distinct actual host-issued phase reference list required")
+    if memory_refs and (arm != "C" or not memory_available):
+        raise ValueError("only C with applicable admitted Memory may bind Memory references")
     schema = CALL_ADAPTER.json_schema()
     allowed = (
         COMMON
         | ({"InvestigateCall"} if arm in {"B", "C"} else set())
         | ({"MemoryRepairCall"} if arm == "C" and memory_available else set())
     )
+    if proposal_ids == []:
+        allowed.discard("ValidateCall")
+    if verification_refs == []:
+        allowed.discard("ExplainCall")
+    if memory_refs == []:
+        allowed.discard("MemoryRepairCall")
     choices = [ref for ref in schema["oneOf"] if ref["$ref"].rsplit("/", 1)[1] in allowed]
     definitions = schema["$defs"]
+    for definition in definitions.values():
+        properties = definition.get("properties", {})
+        if case_hash is not None and "case_hash" in properties:
+            properties["case_hash"]["enum"] = [case_hash]
+        for field, refs in (
+            ("proposal_id", proposal_ids),
+            ("verification_ref", verification_refs),
+            ("memory_ref", memory_refs),
+        ):
+            if refs and field in properties:
+                properties[field]["enum"] = refs
     needed = set()
 
     def follow(value):
@@ -90,6 +129,9 @@ def decision_schema(arm, *, memory_available=False):
     }
     if arm != "C" or not memory_available:
         raw["properties"]["memory_refs_used"]["maxItems"] = 0
+    if memory_refs:
+        raw["properties"]["memory_refs_used"]["items"]["enum"] = memory_refs
+        raw["properties"]["memory_refs_used"]["maxItems"] = len(memory_refs)
     return _project(raw)
 
 

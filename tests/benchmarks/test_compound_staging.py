@@ -149,3 +149,34 @@ def test_expert_card_exposes_conditional_semantics_without_granting_admission():
     aci.tools.arm = "A"
     common = aci.call({"operation": "ros_engineer.inspect_task", "arguments": {}})["task"]
     assert "conditional_candidates" not in common and "constraints" not in common
+
+
+def test_provider_phase_schema_binds_actual_case_and_issued_references():
+    aci = compound()
+    before = decision_schema(
+        "B", case_hash=aci.case.case_hash, proposal_ids=[], verification_refs=[]
+    )
+    assert "ValidateCall" not in before["$defs"] and "ExplainCall" not in before["$defs"]
+    assert before["$defs"]["RepairArgs"]["properties"]["case_hash"]["enum"] == [aci.case.case_hash]
+    after = decision_schema(
+        "C",
+        memory_available=True,
+        case_hash=aci.case.case_hash,
+        proposal_ids=["actual-proposal"],
+        verification_refs=["actual-proof"],
+        memory_refs=["actual-memory"],
+    )
+    assert after["$defs"]["ProposalArgs"]["properties"]["proposal_id"]["enum"] == [
+        "actual-proposal"
+    ]
+    assert after["$defs"]["ResultArgs"]["properties"]["verification_ref"]["enum"] == [
+        "actual-proof"
+    ]
+    assert after["$defs"]["MemoryRepairArgs"]["properties"]["memory_ref"]["enum"] == [
+        "actual-memory"
+    ]
+    assert after["properties"]["memory_refs_used"]["items"]["enum"] == ["actual-memory"]
+    with pytest.raises(ValueError, match="case content hash"):
+        decision_schema("B", case_hash="incorrectly-copied-hash")
+    with pytest.raises(ValueError, match="distinct actual"):
+        decision_schema("B", proposal_ids=["duplicate", "duplicate"])

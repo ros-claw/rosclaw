@@ -24,3 +24,12 @@ fields, values, evidence refs and preconditions. Candidate IDs alone did not
 communicate the available decision to the frozen pilot model. Candidates remain
 inferred, stage-only and not currently applicable/admitted; A still receives only
 the common original-fact catalog. This card revision is not used in that pilot.
+
+
+The new runner revision also binds provider schemas to the actual current case
+hash and host-issued proposal/result/Memory references. Validation and explanation
+choices are absent until their required references exist. All arms share this
+phase discipline; the host still rechecks every binding against the original
+case, so schema constraints confer no admission or permission. This addresses a
+retained wrong-hash model request observed in the frozen pilot, without changing
+that pilot or its original rejection.

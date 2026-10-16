@@ -352,6 +352,13 @@ def compile_repair_sequence(
             "repairs": [repair.model_dump(mode="json") for repair in typed],
         },
         component_proposal_ids=[component["proposal_id"] for component in components],
+        proof_obligations=list(
+            dict.fromkeys(
+                obligation
+                for component in components
+                for obligation in component["proof_obligations"]
+            )
+        ),
         changes=changes,
         rollback=[
             {"file": row["file"], "pointer": row["pointer"], "value": copy.deepcopy(row["before"])}
