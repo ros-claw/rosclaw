@@ -14,6 +14,7 @@ COMMON = {
     "EvidenceCall",
     "ExpandCall",
     "RepairCall",
+    "CompoundRepairCall",
     "OnboardingCall",
     "ValidateCall",
     "ExplainCall",

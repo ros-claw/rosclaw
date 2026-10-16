@@ -25,6 +25,7 @@ from rosclaw.connectors.ros.engineering.repair_compiler import (
     Args,
     SemanticRepair,
     compile_repair,
+    compile_repair_sequence,
     proposal_staging,
 )
 from rosclaw.contracts.common import content_hash
@@ -56,6 +57,10 @@ class ExpandArgs(CaseArgs):
 
 class RepairArgs(CaseArgs):
     repair: SemanticRepair
+
+
+class CompoundRepairArgs(CaseArgs):
+    repairs: list[SemanticRepair] = Field(min_length=2, max_length=5)
 
 
 class MemoryRepairArgs(CaseArgs):
@@ -106,6 +111,11 @@ class RepairCall(Args):
     arguments: RepairArgs
 
 
+class CompoundRepairCall(Args):
+    operation: Literal["ros_engineer.propose_compound_repair"]
+    arguments: CompoundRepairArgs
+
+
 class MemoryRepairCall(Args):
     operation: Literal["ros_engineer.propose_memory_repair"]
     arguments: MemoryRepairArgs
@@ -138,6 +148,7 @@ CALL_ADAPTER = TypeAdapter(
         | ExpandCall
         | InvestigateCall
         | RepairCall
+        | CompoundRepairCall
         | MemoryRepairCall
         | OnboardingCall
         | ValidateCall
@@ -379,13 +390,21 @@ class PhysicalACI:
                 "fresh_probe_performed": False,
                 "current_authority": "NONE",
             }
-        if isinstance(call, RepairCall):
-            proposal = compile_repair(
+        if isinstance(call, (RepairCall, CompoundRepairCall)):
+            compiler = (
+                compile_repair_sequence if isinstance(call, CompoundRepairCall) else compile_repair
+            )
+            intent = (
+                [repair.model_dump(mode="json") for repair in args.repairs]
+                if isinstance(call, CompoundRepairCall)
+                else args.repair.model_dump(mode="json")
+            )
+            proposal = compiler(
                 self.case,
                 self.model,
                 self.requirements,
                 self.tools.staging,
-                args.repair.model_dump(mode="json"),
+                intent,
                 minimum_radius_m=self.tools.minimum_radius_m,
                 ownership_reviews=self.ownership_reviews,
             )
