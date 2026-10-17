@@ -1,0 +1,32 @@
+name: Parameter Atomic12 Pure
+
+on:
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - "examples/ros/parameter_atomic12/**"
+      - ".github/workflows/parameter-atomic12-pure.yml"
+  push:
+    branches: [main]
+    paths:
+      - "examples/ros/parameter_atomic12/**"
+      - ".github/workflows/parameter-atomic12-pure.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Run standard-library regression suite without ROS
+        run: timeout 45s python -I -B examples/ros/parameter_atomic12/test_parameter_atomic_scenario.py -v

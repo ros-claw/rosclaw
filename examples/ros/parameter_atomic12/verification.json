@@ -1,0 +1,24 @@
+{
+  "schema": "ROSClaw.ParameterAtomic12.SourceVerification.v1",
+  "source_author": "ROSClaw Native Agent",
+  "scope": "standalone parameter protocol example and pure oracle",
+  "source_sha256": {
+    "parameter_atomic_scenario.py": "06e0b9f1d96c86a7bddca3f3e8b2dbf388821bc253d4a39ad92f170532704dc9",
+    "test_parameter_atomic_scenario.py": "bab74c2f69e64e18d111fdc2848efa41b078feb8c0645da9ad5f5ba91d217165",
+    "PARAMETER_ATOMIC12_V1.md": "0269f627f14b91f98c100a231cc4a7d4f07be373e5e4b1c52db21fb3518d2dff"
+  },
+  "local_validation": {
+    "python": "3.11.15",
+    "methods": 20,
+    "subtests": 39,
+    "reports": 99,
+    "all_passed": true,
+    "SDK_calls": 0,
+    "source_and_inputs_unchanged": true
+  },
+  "regression": "Plain Enum INTEGER and STRING project via value; old int(Enum) fails; noninteger and bool values reject",
+  "frozen_prior_tests": 17,
+  "actual_ROS2_RPC_execution_verified": false,
+  "physical_or_CAP80_credit": false,
+  "historical_authoring_workflow_rejection": "Preserved: external source guard was narrower than the authoring task; independently reviewed exact closed AST and pure regression passed."
+}
