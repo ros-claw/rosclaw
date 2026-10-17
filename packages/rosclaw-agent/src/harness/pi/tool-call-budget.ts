@@ -194,6 +194,10 @@ export interface ToolCallBudget {
     exactCommands?: Readonly<Record<string, readonly string[]>>;
     /** Exact canonical files for read/write/edit/rosclaw_deliver; never recursive authority. */
     exactPaths?: Readonly<Record<string, readonly string[]>>;
+    /** Up to 128 task-specific exact roles, bound to already permitted delivery files.
+     * Undeclared files retain general role semantics. Configuring this field also
+     * exposes policy notices, even when visibleBudget is false. No role coercion. */
+    declaredDeliveryRoles?: readonly Readonly<{ path: string; role: string }>[];
     /** Opt-in model-visible policy snapshot notices. Default false keeps old notice-free output. */
     visibleBudget?: boolean;
     /** Result presentation only; omitted means full. Never changes admission. */
@@ -205,7 +209,7 @@ export interface ToolCallBudget {
 }
 const POLICY_MARKER = "ROSCLAW_TOOL_POLICY_JSON:";
 const COMPACT_MARKER = "ROSCLAW_TOOL_BUDGET_COMPACT_JSON:";
-const KNOWN_KEYS = ["allowedTools", "maxCalls", "maxTotalCalls", "exactCommands", "visibleBudget", "exactPaths", "visibleBudgetMode", "modelUsageAwareness", "modelRequestAdmission"];
+const KNOWN_KEYS = ["allowedTools", "maxCalls", "maxTotalCalls", "exactCommands", "visibleBudget", "exactPaths", "visibleBudgetMode", "modelUsageAwareness", "modelRequestAdmission", "declaredDeliveryRoles"];
 function stripMarkerLines(text: string, compact = false): string {
     return text.split("\n").filter(line => !line.startsWith(POLICY_MARKER)
         && !(compact && line.startsWith(COMPACT_MARKER))).join("\n");
@@ -269,6 +273,7 @@ export function createToolCallBudgetExtension(policy: ToolCallBudget, workspaceR
         validateModelUsageAwareness(policy.modelUsageAwareness);
     const usage = policy.modelUsageAwareness ? usageObserver({ ...policy.modelUsageAwareness }) : undefined;
     const compact = policy.visibleBudgetMode === "compact";
+    const hasPaths = policy.exactPaths !== undefined;
     const paths = new Map<string, readonly string[]>();
     let root: string | undefined;
     let canonicalRoot: string | undefined;
@@ -293,9 +298,32 @@ export function createToolCallBudgetExtension(policy: ToolCallBudget, workspaceR
             throw new Error("INVALID_TOOL_CALL_BUDGET_EXACT_PATH_BINDING");
         }
     }
-    const hasPaths = policy.exactPaths !== undefined;
+    const hasDeclaredRoles = Object.hasOwn(policy, "declaredDeliveryRoles");
+    const deliveryRoles = new Map<string, string>();
+    if (hasDeclaredRoles) {
+        const declarations = policy.declaredDeliveryRoles;
+        if (!Array.isArray(declarations) || declarations.length === 0 || declarations.length > 128
+            || !paths.has("rosclaw_deliver"))
+            throw new Error("INVALID_TOOL_CALL_BUDGET_DELIVERY_ROLES");
+        for (const entry of declarations) {
+            if (!entry || typeof entry !== "object" || Array.isArray(entry)
+                || Object.keys(entry).length !== 2 || !Object.hasOwn(entry, "path") || !Object.hasOwn(entry, "role")
+                || !validPath(entry.path) || typeof entry.role !== "string" || entry.role.length > 128
+                || !/^(?:report|plot|image|video|data|(?:progress|diagnostic)(?:_[A-Za-z0-9_]+)?)$/.test(entry.role))
+                throw new Error("INVALID_TOOL_CALL_BUDGET_DELIVERY_ROLE");
+            let file: string;
+            try { file = canonicalFile(root!, canonicalRoot!, entry.path); }
+            catch { throw new Error("INVALID_TOOL_CALL_BUDGET_DELIVERY_ROLE_PATH"); }
+            if (!paths.get("rosclaw_deliver")!.includes(file) || deliveryRoles.has(file))
+                throw new Error("INVALID_TOOL_CALL_BUDGET_DELIVERY_ROLE_PATH");
+            deliveryRoles.set(file, entry.role);
+        }
+    }
+    // Private primitive copies: neither caller mutation nor returned snapshots can
+    // alter the effective binding. The public projection is freshly copied.
+    const roleSnapshot = () => [...deliveryRoles].map(([path, role]) => ({ path, role }));
     const wrapped = new Set<string>();
-    const visible = policy.visibleBudget === true;
+    const visible = policy.visibleBudget === true || hasDeclaredRoles;
     const counts = new Map<string, number>();
     let total = 0;
     const snapshot = () => {
@@ -313,6 +341,7 @@ export function createToolCallBudgetExtension(policy: ToolCallBudget, workspaceR
             exactCommands: Object.fromEntries([...exact].map(([name, commands]) => [name, [...commands]])),
             ...(hasPaths ? { workspaceRoot: canonicalRoot,
                 exactPaths: Object.fromEntries([...paths].map(([name, files]) => [name, [...files]])) } : {}),
+            ...(hasDeclaredRoles ? { declaredDeliveryRoles: roleSnapshot() } : {}),
             maxCalls: Object.fromEntries(limits),
             maxTotalCalls: maxTotal ?? null,
             usedCalls,
@@ -328,7 +357,8 @@ export function createToolCallBudgetExtension(policy: ToolCallBudget, workspaceR
         if (!compact)
             return fullNotice();
         const { usedCalls, usedTotal, remainingCalls, remainingTotal } = snapshot();
-        return COMPACT_MARKER + JSON.stringify({ policyDigest, usedCalls, usedTotal, remainingCalls, remainingTotal });
+        return COMPACT_MARKER + JSON.stringify({ policyDigest, usedCalls, usedTotal, remainingCalls, remainingTotal,
+            ...(hasDeclaredRoles ? { declaredDeliveryRoles: roleSnapshot() } : {}) });
     };
     const blocked = (code: string) => visible
         ? { block: true as const, reason: `${code}\n${notice()}` }
@@ -346,9 +376,13 @@ export function createToolCallBudgetExtension(policy: ToolCallBudget, workspaceR
         const files = paths.get(name);
         if (files !== undefined) {
             try {
-                if (!files.includes(canonicalFile(root!, canonicalRoot!, input?.path))) {
+                const file = canonicalFile(root!, canonicalRoot!, input?.path);
+                if (!files.includes(file)) {
                     return blocked("TOOL_CALL_BUDGET_EXACT_PATH_REJECTED");
                 }
+                const role = name === "rosclaw_deliver" ? deliveryRoles.get(file) : undefined;
+                if (role !== undefined && (typeof input?.role !== "string" || input.role !== role))
+                    return blocked("TOOL_CALL_BUDGET_DELIVERY_ROLE_REJECTED");
             }
             catch {
                 return blocked("TOOL_CALL_BUDGET_EXACT_PATH_REJECTED");
