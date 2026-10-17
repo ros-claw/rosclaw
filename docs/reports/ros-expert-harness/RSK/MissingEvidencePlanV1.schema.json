@@ -1,0 +1,168 @@
+{
+  "$defs": {
+    "ReadOnlyProbeRequestV1": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "operation": {
+          "enum": [
+            "SOURCE_CAPTURE",
+            "ENDPOINT_QOS",
+            "TF_AUTHORITY_WINDOW",
+            "CLOCK_TF_WINDOW",
+            "NATIVE_DIAGNOSTICS"
+          ],
+          "title": "Operation",
+          "type": "string"
+        },
+        "targets": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Targets",
+          "type": "array"
+        },
+        "finding_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Finding Ids",
+          "type": "array"
+        },
+        "required_evidence": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Required Evidence",
+          "type": "array"
+        },
+        "provider": {
+          "enum": [
+            "EXISTING_NATIVE_READ_ONLY_PROBE",
+            "PROVIDER_EXTENSION_REQUIRED",
+            "OPERATOR_SOURCE_REVIEW"
+          ],
+          "title": "Provider",
+          "type": "string"
+        },
+        "max_duration_sec": {
+          "maximum": 5,
+          "minimum": 1,
+          "title": "Max Duration Sec",
+          "type": "integer"
+        },
+        "side_effects": {
+          "const": "NONE",
+          "default": "NONE",
+          "title": "Side Effects",
+          "type": "string"
+        },
+        "execution_authority": {
+          "const": "NONE",
+          "default": "NONE",
+          "title": "Execution Authority",
+          "type": "string"
+        },
+        "execution_status": {
+          "const": "PROPOSED_NOT_EXECUTED",
+          "default": "PROPOSED_NOT_EXECUTED",
+          "title": "Execution Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "operation",
+        "targets",
+        "finding_ids",
+        "required_evidence",
+        "provider",
+        "max_duration_sec"
+      ],
+      "title": "ReadOnlyProbeRequestV1",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "rosclaw.ros_missing_evidence_plan.v1",
+      "default": "rosclaw.ros_missing_evidence_plan.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "plan_hash": {
+      "title": "Plan Hash",
+      "type": "string"
+    },
+    "graph_hash": {
+      "title": "Graph Hash",
+      "type": "string"
+    },
+    "snapshot_hash": {
+      "title": "Snapshot Hash",
+      "type": "string"
+    },
+    "source_ref": {
+      "title": "Source Ref",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "NEEDS_READ_ONLY_PROBE",
+        "NO_MISSING_EVIDENCE",
+        "BLOCKED_SOURCE_MISMATCH"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "requests": {
+      "items": {
+        "$ref": "#/$defs/ReadOnlyProbeRequestV1"
+      },
+      "maxItems": 8,
+      "title": "Requests",
+      "type": "array"
+    },
+    "deferred_finding_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Deferred Finding Ids",
+      "type": "array"
+    },
+    "total_budget_sec": {
+      "maximum": 30,
+      "minimum": 0,
+      "title": "Total Budget Sec",
+      "type": "integer"
+    },
+    "execution_authority": {
+      "const": "NONE",
+      "default": "NONE",
+      "title": "Execution Authority",
+      "type": "string"
+    },
+    "current_l1": {
+      "const": "NOT_EVALUATED",
+      "default": "NOT_EVALUATED",
+      "title": "Current L1",
+      "type": "string"
+    }
+  },
+  "required": [
+    "plan_hash",
+    "graph_hash",
+    "snapshot_hash",
+    "source_ref",
+    "status",
+    "requests",
+    "deferred_finding_ids",
+    "total_budget_sec"
+  ],
+  "title": "MissingEvidencePlanV1",
+  "type": "object"
+}
