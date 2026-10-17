@@ -176,9 +176,14 @@ export function mapPiEvent(event: { type?: string } & Record<string, unknown>): 
 				type: "turn.failed", turnId,
 				error: { code: "MODEL_OUTPUT_LIMIT", message: classifyAssistantFailure(message)!.explanation, retryable: false },
 			};
-			if (message.stopReason === "error") return {
+			const failure = classifyAssistantFailure(message);
+			if (failure) return {
 				type: "turn.failed", turnId,
-				error: { code: "PROVIDER_UNAVAILABLE", message: message.errorMessage ?? "Model request failed", retryable: true },
+				error: {
+					code: failure.code,
+					message: `${failure.explanation}——${failure.recovery}`,
+					retryable: failure.taskRecoverable,
+				},
 			};
 			return { type: "assistant.completed", turnId, messageId: String(event.messageId ?? "") };
 		}

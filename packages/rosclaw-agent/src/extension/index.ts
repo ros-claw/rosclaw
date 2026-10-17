@@ -41,7 +41,7 @@ import {
 	renderTerminalReply,
 	type TerminalOutcome,
 } from "../native/terminal-presenter.js";
-import { classifyAssistantFailure, classifyModelError, ProviderErrorGate } from "../native/model-errors.js";
+import { classifyAssistantFailure, classifyModelError, isLocalModelRefusal, ProviderErrorGate } from "../native/model-errors.js";
 import { _bwrapAvailable } from "../tools/workspace-pack.js";
 import {
 	renderArtifactList,
@@ -1349,7 +1349,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 		// Assistant message_end describes a model outcome, not the cause of abort.
 		// Only the typed editor-input adapter may request owner-bound cancellation;
 		// never infer user intent here or cascade to the legacy broad interrupt.
-		pi.on("message_end", async (event) => {
+		pi.on("message_end", async (event, ctx) => {
 			// PR-H7（§8.4）：provider 错误分类——403 配额≠鉴权错误；
 			// 稳定错误码 + 用户可理解说明 + 恢复动作（task 可继续）。
 			const msg = event.message as { role?: string; stopReason?: string; errorMessage?: string };
@@ -1368,6 +1368,10 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				if (verdict.showCard) {
 					if (classified.code === "MODEL_REQUEST_CANCELLED") {
 						latestCtx?.ui.notify(verdict.cardText, "info");
+						center.noteProviderOk();
+					} else if (isLocalModelRefusal(classified.code)) {
+						if (ctx.hasUI) ctx.ui.notify(verdict.cardText, "error");
+						// Clear only the provider diagnosis, not admission/accounting.
 						center.noteProviderOk();
 					} else {
 						latestCtx?.ui.notify(verdict.cardText, "error");
