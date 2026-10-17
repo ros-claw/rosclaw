@@ -29,10 +29,10 @@ import { SessionLeaseManager } from "../../session/lease-manager.js";
 import { ProductStateCenter } from "../../session/state-center.js";
 import { LocaleManager } from "../../i18n/locale.js";
 import { defaultOperatorSocket } from "../../bridge/operatord-client.js";
-import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
+import { appendFileSync, lstatSync, mkdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { observeCompactionStream } from "./compaction-stream.js";
 import { ModelRequestAdmission } from "./model-request-admission.js";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { getSupportedThinkingLevels, type Model, type Api } from "@earendil-works/pi-ai";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
@@ -238,8 +238,121 @@ function installPreflightCancellation(session: AgentSessionRuntime["session"]): 
 	};
 }
 
+/** Read-path projection only: no tool invocation, counters, or content-read probe.
+ * Keep canonical binding in lockstep with tool-call-budget's canonicalFile:
+ * lexical containment, every existing ancestor/link, then exact canonical membership.
+ */
+function skillReadPath(root: string, canonicalRoot: string, value: string): string {
+	if (!value.trim() || value.includes("\0") || value.split(/[\\/]/).includes("..") || value.endsWith("/")) {
+		throw new Error("PATH_INPUT");
+	}
+	const inside = (base: string, target: string) => {
+		const rel = relative(base, target);
+		return rel === "" || (!isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${sep}`));
+	};
+	const target = resolve(root, value);
+	const base = inside(root, target) ? root : canonicalRoot;
+	if (!inside(base, target) || target === base) throw new Error("PATH_OUTSIDE");
+	let current = base;
+	let canonical = canonicalRoot;
+	let missing = false;
+	const parts = relative(base, target).split(sep);
+	for (let i = 0; i < parts.length; i++) {
+		current = join(current, parts[i]);
+		if (missing) {
+			canonical = join(canonical, parts[i]);
+			continue;
+		}
+		try { lstatSync(current); } catch (error) {
+			if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+			missing = true;
+			canonical = join(canonical, parts[i]);
+			continue;
+		}
+		canonical = realpathSync(current);
+		if (!inside(canonicalRoot, canonical)) throw new Error("PATH_SYMLINK_ESCAPE");
+		const stat = statSync(current);
+		if (i < parts.length - 1 && !stat.isDirectory()) throw new Error("PATH_PARENT");
+		if (i === parts.length - 1 && stat.isDirectory()) throw new Error("PATH_DIRECTORY");
+	}
+	return canonical;
+}
+
+/** Capture read authority synchronously, alongside execution admission. Raw ACL
+ * spellings are deliberately not retained: retargeting a declared alias must
+ * not move its admitted canonical membership. Candidate paths are still checked
+ * afresh (including every ancestor) whenever a session loader is assembled.
+ */
+function admitSkillReadAuthority(workspaceRoot: string, budget?: ToolCallBudget): (file: string) => boolean {
+	const readAllowed = budget === undefined || budget.allowedTools.includes("read");
+	if (!readAllowed) return () => false;
+	if (budget?.exactPaths === undefined) return () => true;
+	try {
+		if (!isAbsolute(workspaceRoot)) throw new Error("PATH_WORKSPACE");
+		const root = resolve(workspaceRoot);
+		const canonicalRoot = realpathSync(root);
+		if (!statSync(root).isDirectory()) throw new Error("PATH_WORKSPACE");
+		const declared = budget.exactPaths.read;
+		const files = declared === undefined ? undefined
+			: Object.freeze(declared.map(file => skillReadPath(root, canonicalRoot, file)));
+		// As in execution admission, no per-tool entry means no path restriction.
+		return file => files === undefined || files.includes(skillReadPath(root, canonicalRoot, file));
+	} catch { return () => false; }
+}
+
+/** The loader assembly seam: trust verification never confers read authority.
+ * No-policy developer sessions retain bundled skills; absent read never falls
+ * back to bash. Diagnostics are bounded and contain no file contents.
+ */
+export function bundledSkillLoaderOptions(
+	profile: "developer" | "robot", skillsDir: string, workspaceRoot: string,
+	budget?: ToolCallBudget,
+) {
+	return authorizedBundledSkillLoaderOptions(profile, skillsDir, admitSkillReadAuthority(workspaceRoot, budget));
+}
+
+function authorizedBundledSkillLoaderOptions(
+	profile: "developer" | "robot", skillsDir: string, authorized: (file: string) => boolean,
+) {
+	// Reverify content on every factory invocation; an admission snapshot is not
+	// a digest cache and cannot bless later tampering or newly discovered files.
+	const bundled = resourcePolicy(profile).skills === "bundled-signed"
+		? verifyBundledSkills(skillsDir)
+		: { verified: [], excluded: [], skillPaths: [] };
+	const diagnostics = bundled.excluded.slice(0, 32).map(item => ({
+		type: "warning" as const, message: `Bundled skill excluded: ${item.name.slice(0, 160)}: ${item.reason.slice(0, 320)}`,
+	}));
+	const skillFiles = new Set<string>();
+	const additionalSkillPaths = bundled.skillPaths.filter(path => {
+		const file = join(path, "SKILL.md");
+		try {
+			if (authorized(file)) { skillFiles.add(file); return true; }
+		} catch { /* fail closed, never probe with a tool call */ }
+		if (diagnostics.length < 32) diagnostics.push({ type: "warning", message: `Bundled skill excluded: ${path.slice(0, 160)}: READ_PATH_UNAUTHORIZED` });
+		return false;
+	});
+	type LoaderOptions = NonNullable<Parameters<typeof createAgentSessionServices>[0]["resourceLoaderOptions"]>;
+	// Only the verified, authorized entry file may survive SDK discovery.
+	const skillsOverride: NonNullable<LoaderOptions["skillsOverride"]> = base => ({
+		...base,
+		skills: base.skills.filter(skill => skillFiles.has(skill.filePath)),
+		diagnostics: [...base.diagnostics, ...diagnostics],
+	});
+	return { noSkills: true, additionalSkillPaths, skillsOverride };
+}
+
+/** Trusted host assembly dependencies, not model/tool policy inputs. Defaults
+ * are the product model backend and bundled release directory. The seam lets
+ * offline tests cross the actual model await and SDK replacement factory.
+ */
+export interface RosclawRuntimeAssembly {
+	createModelRuntime?: typeof createSharedModelRuntime;
+	bundledSkillsDir?: string;
+}
+
 export async function createRosclawRuntime(
 	options: RosclawRuntimeOptions,
+	assembly: RosclawRuntimeAssembly = {},
 ): Promise<RosclawRuntime> {
 	const modelRequestAdmission = options.toolCallBudget?.modelRequestAdmission === undefined
 		? undefined : new ModelRequestAdmission(options.toolCallBudget.modelRequestAdmission);
@@ -249,6 +362,9 @@ export async function createRosclawRuntime(
 	// The execution budget retains its own independent snapshot and deny hook.
 	const allowedModelToolNames = options.toolCallBudget === undefined
 		? undefined : Object.freeze([...options.toolCallBudget.allowedTools]);
+	const skillReadAuthority = admitSkillReadAuthority(options.taskContext.workspaceRoot, options.toolCallBudget);
+	const skillProfile = options.profile;
+	const skillsDir = assembly.bundledSkillsDir ?? fileURLToPath(new URL("../../../skills/", import.meta.url));
 	const initialModelTools = modelVisibleToolNames(MODEL_TOOL_NAMES, allowedModelToolNames);
 	const active = new ActiveSessionContext({
 		sessionId: "",
@@ -274,7 +390,7 @@ export async function createRosclawRuntime(
 		leaseManager,
 		notify: () => undefined, // UI notify 在 hook 触发时注入
 	});
-	// PR-SIX-1：唯一产品状态中心——Header/Footer/status tool/context 全部
+	// PR-SIX-1：唯一产品状态中心——Header/Footer/status tool 全部
 	// 从它读快照；任何变化经 subscribe 统一刷新 chrome。
 	const center = new ProductStateCenter({
 		rosclawHome: options.rosclawHome,
@@ -308,7 +424,8 @@ export async function createRosclawRuntime(
 	}
 	// 凭据后端按 profile：developer=加固文件（0600/原子写/fsync），
 	// robot=env-only（写即拒）。十审 W1：与 Worker 共用同一构造逻辑。
-	const modelRuntime = options.explicitModel?.modelRuntime ?? await createSharedModelRuntime(agentDir, options.profile);
+	const modelRuntime = options.explicitModel?.modelRuntime
+		?? await (assembly.createModelRuntime ?? createSharedModelRuntime)(agentDir, options.profile);
 	const systemPrompt = loadSystemPrompt();
 	// PR-N5D：扩展工厂先于 session 创建注册——创建后回填引用，
 	// 供物化工具激活（setActiveToolsByName）。
@@ -364,21 +481,18 @@ export async function createRosclawRuntime(
 						// additionalSkillPaths；任意项目扩展/模板/可执行
 						// 资源仍关。
 						const policy = resourcePolicy(options.profile);
-						const skillsDir = new URL("../../../skills/", import.meta.url).pathname;  // harness/pi/ 深一级
-						const bundled = policy.skills === "bundled-signed"
-							? verifyBundledSkills(skillsDir)
-							: { verified: [], excluded: [], skillPaths: [] };
+						const skillOptions = authorizedBundledSkillLoaderOptions(skillProfile, skillsDir, skillReadAuthority);
 						return {
 							noExtensions: true,
 							// NATIVE-BASE-1：任意项目 skill 发现一律关闭；
 							// developer 仅经 additionalSkillPaths 注入 digest
 							// 校验过的内置签名 Skill（noSkills=true 仍允许显式
-							// additionalSkillPaths——官方 PI104 语义）。
-							noSkills: true,
+							// additionalSkillPaths——PI1.3 语义）；另按实际
+							// read 路径授权过滤，缺少 read 时不假定 bash 回退。
+							...skillOptions,
 							noPromptTemplates: true,
 							noThemes: !policy.themes,
 							noContextFiles: policy.contextFiles === "off",
-							additionalSkillPaths: bundled.skillPaths,
 							// NATIVE-BASE-2：原生可信系统基座
 							// （native_agent_v2.md，构建期单一事实源）作为
 							// ResourceLoader custom base——SDK 在其后追加
