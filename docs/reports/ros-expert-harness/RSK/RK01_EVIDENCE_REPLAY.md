@@ -28,7 +28,7 @@ TF clock findings require a fresh snapshot/edge and observed aligned node time d
 
 `describe_missing_evidence` groups UNKNOWN findings into source review, endpoint QoS, TF-authority, clock/TF or native diagnostics requests. Requests carry exact known targets, findings, required evidence, source/snapshot/graph binding, at most five seconds each and at most 30 seconds total. Excess groups are explicitly deferred. Source mismatch blocks ordinary continuation and requests only source review. All requests are **PROPOSED_NOT_EXECUTED**, with side effects NONE and execution authority NONE. These are measurement specifications, not shell/service/action commands or claims of available/executed experiments.
 
-Bounds reject input >5 MB, excessive observation/endpoint counts, >4096 potential dataflow pairs and oversized identities. Full graph collection limits are explicit in the schema. Agent summaries report omitted finding counts and reference the complete graph; they cannot masquerade as complete evidence.
+Both the direct Python compiler and replay file reader reject snapshot/URDF/requirements/source-review inputs >5 MB. Bounds also reject excessive observation/endpoint counts, >4096 potential dataflow pairs and oversized identities. Full graph collection limits are explicit in the schema. Agent summaries report omitted finding counts and reference the complete graph; they cannot masquerade as complete evidence.
 
 ## Offline original-evidence replay
 
@@ -53,7 +53,7 @@ New native-shaped synthetic tests cover directional QoS faults, unresolved defau
 
 ## Validation and limitations
 
-The new focused suite has 32 tests. The final combined local ROS/benchmark/architecture suite, Practice checks, prescribed mypy, four new-module mypy, compileall, changed-file Ruff and normal CI are recorded with original logs. The architecture console absence is a pre-existing skip; Practice's optional skips and marker deselections are reported separately, never counted as PASS.
+The new focused suite has 36 tests. The final combined local ROS/benchmark/architecture suite, Practice checks, prescribed mypy, four new-module mypy, compileall, changed-file Ruff and normal CI are recorded with original logs. The architecture console absence is a pre-existing skip; Practice's optional skips and marker deselections are reported separately, never counted as PASS.
 
 Repository-wide Ruff/format findings are compared byte-for-byte (format footer count excluded) against the pinned baseline. Existing 291 Ruff findings and 607 format candidates are not repaired as unrelated scope. `src tests` and all changed Python files must pass lint.
 

@@ -351,3 +351,27 @@ def test_long_identities_and_cartesian_pair_explosion_are_rejected_not_truncated
     ]
     with pytest.raises(ValueError, match="pair budget"):
         graph(m, u, r)
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "oversized_URDF",
+        "oversized_requirements",
+        "oversized_source_review",
+        "nonobject_requirements",
+    ],
+)
+def test_direct_python_api_enforces_input_bounds_before_old_case_compilation(fault):
+    m, u, r = native_fixture()
+    kwargs = {}
+    if fault == "oversized_URDF":
+        u = b"x" * 5_000_001
+    elif fault == "oversized_requirements":
+        r = {"large": "x" * 5_000_001}
+    elif fault == "oversized_source_review":
+        kwargs["source_review"] = {"large": "x" * 5_000_001}
+    else:
+        r = []
+    with pytest.raises(ValueError, match="bounded|exceeds 5MB"):
+        graph(m, u, r, **kwargs)

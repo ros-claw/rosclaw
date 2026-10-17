@@ -69,6 +69,15 @@ def compile_operational_graph(
     """
     if not source_ref or len(source_ref) > 2048 or now.tzinfo is None:
         raise ValueError("bounded source reference and aware explicit review clock required")
+    if type(urdf_bytes) is not bytes or not 0 < len(urdf_bytes) <= 5_000_000:
+        raise ValueError("bounded nonempty original URDF bytes required")
+    for name, document in (("requirements", requirements), ("source review", source_review)):
+        if document is None and name == "source review":
+            continue
+        if type(document) is not dict:
+            raise ValueError("bounded original " + name + " object required")
+        if len(json.dumps(document, ensure_ascii=False, allow_nan=False).encode()) > 5_000_000:
+            raise ValueError("original " + name + " exceeds 5MB")
     model = RosSystemModel.from_dict(model.to_dict())
     snapshot = model.to_dict()
     if len(json.dumps(snapshot, ensure_ascii=False).encode()) > 5_000_000:
