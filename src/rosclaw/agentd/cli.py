@@ -280,9 +280,7 @@ def cmd_artifact_export(args: argparse.Namespace) -> int:
         for part in dest.parts[1:-1]:
             with contextlib.suppress(FileExistsError):
                 os.mkdir(part, dir_fd=directory)
-            child = os.open(
-                part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory
-            )
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory)
             os.close(directory)
             directory = child
         fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600, dir_fd=directory)
@@ -544,6 +542,7 @@ _TOOL_CALL_POLICY_KEYS = frozenset(
         "visibleBudgetMode",
         "modelUsageAwareness",
         "modelRequestAdmission",
+        "declaredDeliveryRoles",
     }
 )
 # 与 JS Number.isSafeInteger 上限一致（JSON 1.0 这类整数值浮点可接受）。
@@ -663,6 +662,38 @@ def _validate_tool_call_policy(raw_path: str) -> Path:
                 raise ValueError(f"exactPaths[{key!r}] 含非法文件路径")
             if len(set(files)) != len(files):
                 raise ValueError(f"exactPaths[{key!r}] 含重复文件路径")
+    if "declaredDeliveryRoles" in data:
+        import re
+
+        declarations = data["declaredDeliveryRoles"]
+        if (
+            not isinstance(declarations, list)
+            or not 1 <= len(declarations) <= 128
+            or "rosclaw_deliver" not in tool_set
+            or "rosclaw_deliver" not in data.get("exactPaths", {})
+        ):
+            raise ValueError("INVALID_TOOL_CALL_BUDGET_DELIVERY_ROLES")
+        seen_paths = set()
+        for entry in declarations:
+            if (
+                not isinstance(entry, dict)
+                or set(entry) != {"path", "role"}
+                or not _policy_exact_path_ok(entry["path"])
+                or not isinstance(entry["role"], str)
+                or len(entry["role"]) > 128
+                or re.fullmatch(
+                    r"(?:report|plot|image|video|data|(?:progress|diagnostic)(?:_[A-Za-z0-9_]+)?)",
+                    entry["role"],
+                )
+                is None
+            ):
+                raise ValueError("INVALID_TOOL_CALL_BUDGET_DELIVERY_ROLE")
+            if entry["path"] in seen_paths:
+                raise ValueError("INVALID_TOOL_CALL_BUDGET_DELIVERY_ROLE_PATH")
+            seen_paths.add(entry["path"])
+        # No workspace root is supplied here. Node owns canonical membership,
+        # symlink boundaries and duplicate aliases; never bind artifact paths
+        # against the caller's cwd or compare their raw spelling for membership.
     if "exactCommands" in data:
         exact = data["exactCommands"]
         if not isinstance(exact, dict):

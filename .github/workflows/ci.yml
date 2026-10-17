@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [main, develop]
   workflow_dispatch:
+    inputs:
+      publish_testpypi:
+        description: 'Explicitly opt in to TestPyPI rehearsal (not ordinary CI)'
+        type: boolean
+        required: false
+        default: false
 
 jobs:
   lint:
@@ -603,11 +609,11 @@ jobs:
     name: Release to PyPI
     runs-on: ubuntu-latest
     needs: [build]
-    # tag → 正式 PyPI（维护者批准后打 tag）；手动 dispatch 默认
-    # TestPyPI 演练（先演练后正式，规格 §16.4）。
+    # tag → 正式 PyPI；普通 dispatch 不发布，只有 typed boolean true
+    # 显式选择 TestPyPI 演练。toJSON rejects truthy strings/numbers.
     if: >-
       (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))
-      || github.event_name == 'workflow_dispatch'
+      || (github.event_name == 'workflow_dispatch' && toJSON(inputs.publish_testpypi) == 'true')
     environment: ${{ github.event_name == 'push' && 'pypi' || 'testpypi' }}
     permissions:
       id-token: write
@@ -623,10 +629,59 @@ jobs:
       # §16.4：发布 job 只上传已测试的同一构建产物——打印 digest
       # 供与 Build Package 记录核对（不重新构建）。
       - name: Record artifact digests (traceability)
-        run: sha256sum dist/*
+        run: |
+          python - <<'PY'
+          import hashlib
+          import os
+          from pathlib import Path
+          import re
+          import stat
+
+          def require(condition, message):
+              if not condition:
+                  raise SystemExit(message)
+
+          def walk_error(error):
+              raise error
+
+          dist = Path('dist')
+          require(stat.S_ISDIR(dist.lstat().st_mode), 'dist must be a real directory')
+          version = r'[0-9]+(?:\.[0-9]+)*(?:(?:a|b|rc)[0-9]+)?(?:\.post[0-9]+)?(?:\.dev[0-9]+)?(?:\+[a-z0-9]+(?:[._][a-z0-9]+)*)?'
+          wheel = re.compile(r'rosclaw-(' + version + r')-py3-none-any\.whl')
+          sdist = re.compile(r'rosclaw-(' + version + r')\.tar\.gz')
+          artifacts = {}
+          for path in sorted(dist.iterdir()):
+              mode = path.lstat().st_mode
+              if path.name == 'js-stage':
+                  # Optional build support only; never hash or publish as a file.
+                  require(stat.S_ISDIR(mode), 'js-stage must be a real directory')
+                  for root, dirs, files in os.walk(path, followlinks=False, onerror=walk_error):
+                      for name in dirs + files:
+                          child_mode = (Path(root) / name).lstat().st_mode
+                          require(stat.S_ISDIR(child_mode) or stat.S_ISREG(child_mode),
+                                  'js-stage contains a symlink or special entry')
+                  continue
+              require(stat.S_ISREG(mode), 'artifact must be a regular non-symlink file')
+              match_wheel = wheel.fullmatch(path.name)
+              match_sdist = sdist.fullmatch(path.name)
+              require(match_wheel or match_sdist, 'unexpected distribution filename: ' + path.name)
+              kind = 'wheel' if match_wheel else 'sdist'
+              require(kind not in artifacts, 'ambiguous distribution: ' + kind)
+              artifacts[kind] = (path, (match_wheel or match_sdist).group(1))
+          require(set(artifacts) == {'wheel', 'sdist'}, 'need exactly one wheel and one sdist')
+          require(artifacts['wheel'][1] == artifacts['sdist'][1], 'distribution versions differ')
+          records = []
+          for path, _ in sorted(artifacts.values()):
+              digest = hashlib.sha256()
+              with path.open('rb') as source:
+                  for chunk in iter(lambda: source.read(1024 * 1024), b''):
+                      digest.update(chunk)
+              records.append(f'{digest.hexdigest()}  {path.as_posix()}')
+          print('\n'.join(records))
+          PY
 
       - name: Publish to TestPyPI (manual rehearsal)
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && toJSON(inputs.publish_testpypi) == 'true'
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           repository-url: https://test.pypi.org/legacy/

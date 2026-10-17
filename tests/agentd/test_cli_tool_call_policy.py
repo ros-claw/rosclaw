@@ -450,3 +450,197 @@ def test_usage_awareness_cli_valid_forwarding(tmp_path, monkeypatch):
     args = build_parser().parse_args(["chat", "--tool-call-policy", policy])
     assert cli.cmd_chat(args) == 0
     assert seen == [policy]
+
+
+# SOURCE2: basic schema only; canonical workspace binding remains Native-owned.
+def _source2_policy(declarations):
+    return {
+        "allowedTools": ["rosclaw_deliver"],
+        "exactPaths": {"rosclaw_deliver": ["file"]},
+        "declaredDeliveryRoles": declarations,
+        "visibleBudget": False,
+    }
+
+
+@pytest.mark.parametrize(
+    "declarations",
+    [
+        [{"path": "./file", "role": "progress_report"}],
+        [{"path": "file", "role": "report"}],
+        [{"path": "/workspace/file", "role": "data"}],
+        # Different spellings must reach Node, including duplicate aliases.
+        [{"path": "file", "role": "image"}, {"path": "./file", "role": "plot"}],
+        [{"path": "dir//file", "role": "video"}],
+        [{"path": " file ", "role": "diagnostic_A0__"}],
+        [{"path": "\u0085", "role": "progress"}],
+        [{"path": "file\\", "role": "diagnostic"}],
+        [{"path": "file", "role": "progress_" + "a" * 119}],
+        [{"path": f"file{i}", "role": "data"} for i in range(128)],
+        None,  # Absence (not explicit null) preserves the old policy.
+    ],
+)
+def test_source2_cmd_chat_forwards_bytes_unchanged(tmp_path, monkeypatch, declarations):
+    from pathlib import Path
+
+    import rosclaw.agentd.cli as cli
+
+    payload = _source2_policy(declarations)
+    if declarations is None:
+        del payload["declaredDeliveryRoles"]
+    wire = (" \n" + json.dumps(payload, ensure_ascii=True, indent=3) + "\n").encode()
+    target = tmp_path / "policy.json"
+    target.write_bytes(wire)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(cli, "_home", lambda args: tmp_path / "unused-home")
+    monkeypatch.setattr(cli, "_ensure_home_env", lambda home: None)
+    monkeypatch.setattr(cli, "_restore_home_env", lambda previous: None)
+    seen = []
+
+    def boundary(args, home):
+        seen.append(args.tool_call_policy)
+        assert Path(args.tool_call_policy).read_bytes() == wire
+        assert json.loads(Path(args.tool_call_policy).read_bytes()) == payload
+        return 0
+
+    monkeypatch.setattr(cli, "_cmd_chat_impl", boundary)
+    args = build_parser().parse_args(["chat", "--tool-call-policy", "./policy.json"])
+    assert cli.cmd_chat(args) == 0
+    assert seen == [str(target.resolve())]
+    assert target.read_bytes() == wire
+    assert not (tmp_path / "unused-home").exists()
+    assert not (tmp_path / "file").exists()
+
+
+@pytest.mark.parametrize(
+    "declarations",
+    [
+        None,
+        True,
+        False,
+        1,
+        "report",
+        {},
+        [],
+        [None],
+        [True],
+        [1],
+        ["file"],
+        [[]],
+        [{}],
+        [{"path": "file"}],
+        [{"role": "report"}],
+        [{"path": "file", "role": "report", "extra": 0}],
+        [{"path": "file", "role": "report"}] * 129,
+        [{"path": "file", "role": "report"}, {"path": "file", "role": "data"}],
+        *[
+            [{"path": "file", "role": role}]
+            for role in (
+                None,
+                True,
+                False,
+                1,
+                [],
+                {},
+                "",
+                "REPORT",
+                "Report",
+                " report",
+                "report ",
+                "report\n",
+                "report_x",
+                "progress_",
+                "diagnostic_",
+                "progress_a-b",
+                "diagnostic_é",
+                "progress_\n",
+                "unknown",
+                "progress_" + "a" * 120,
+            )
+        ],
+        *[
+            [{"path": path, "role": "report"}]
+            for path in (
+                None,
+                True,
+                False,
+                1,
+                [],
+                {},
+                "",
+                " \t",
+                "\ufeff",
+                "x\0",
+                "..",
+                "../file",
+                "dir/../file",
+                "dir\\..\\file",
+                "file/",
+            )
+        ],
+    ],
+)
+def test_source2_invalid_declarations_prehome(tmp_path, monkeypatch, capsys, declarations):
+    import rosclaw.agentd.cli as cli
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("invalid delivery declaration reached home/auth/service/Node")
+
+    monkeypatch.setattr(cli, "_home", forbidden)
+    monkeypatch.setattr(cli, "_ensure_home_env", forbidden)
+    monkeypatch.setattr(cli, "_cmd_chat_impl", forbidden)
+    policy = _write(tmp_path, _source2_policy(declarations))
+    with pytest.raises(ValueError):
+        cli._validate_tool_call_policy(policy)
+    args = build_parser().parse_args(["chat", "--tool-call-policy", policy])
+    assert cli.cmd_chat(args) == 2
+    assert "--tool-call-policy 无效" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"allowedTools": []},
+        {"allowedTools": ["read"], "exactPaths": {"read": ["file"]}},
+        {"exactPaths": {}},
+        {"exactPaths": None},
+        {"exactPaths": {"rosclaw_deliver": []}},
+        {"exactPaths": {"rosclaw_deliver": "file"}},
+        {"exactPaths": {"rosclaw_deliver": [True]}},
+        {"exactPaths": {"rosclaw_deliver": ["../file"]}},
+        {"exactPaths": {"rosclaw_deliver": ["file", "file"]}},
+        {"unexpected": True},
+    ],
+)
+def test_source2_cross_fields_rejected_before_effects(tmp_path, monkeypatch, capsys, changes):
+    import rosclaw.agentd.cli as cli
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("invalid delivery cross-field policy reached runtime")
+
+    monkeypatch.setattr(cli, "_home", forbidden)
+    monkeypatch.setattr(cli, "_cmd_chat_impl", forbidden)
+    payload = _source2_policy([{"path": "file", "role": "report"}])
+    payload.update(changes)
+    policy = _write(tmp_path, payload)
+    with pytest.raises(ValueError):
+        cli._validate_tool_call_policy(policy)
+    args = build_parser().parse_args(["chat", "--tool-call-policy", policy])
+    assert cli.cmd_chat(args) == 2
+    assert "--tool-call-policy 无效" in capsys.readouterr().err
+
+
+def test_source2_missing_exact_paths_rejected(tmp_path, monkeypatch):
+    import rosclaw.agentd.cli as cli
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("missing exactPaths reached runtime")
+
+    monkeypatch.setattr(cli, "_home", forbidden)
+    monkeypatch.setattr(cli, "_cmd_chat_impl", forbidden)
+    payload = _source2_policy([{"path": "file", "role": "report"}])
+    del payload["exactPaths"]
+    policy = _write(tmp_path, payload)
+    with pytest.raises(ValueError):
+        cli._validate_tool_call_policy(policy)
+    args = build_parser().parse_args(["chat", "--tool-call-policy", policy])
+    assert cli.cmd_chat(args) == 2

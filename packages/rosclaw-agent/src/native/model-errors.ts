@@ -15,7 +15,9 @@ export type ModelErrorCode =
 	| "MODEL_CONTEXT_LIMIT"
 	| "MODEL_OUTPUT_LIMIT"
 	| "MODEL_REQUEST_CANCELLED"
-	| "MODEL_UNKNOWN";
+	| "MODEL_UNKNOWN"
+	| "MODEL_REQUEST_ALLOWANCE_EXHAUSTED"
+	| "MODEL_REQUEST_USAGE_UNKNOWN";
 
 export interface ClassifiedModelError {
 	code: ModelErrorCode;
@@ -57,6 +59,19 @@ export function classifyAssistantFailure(message: {
 /** 分类 provider 错误文本（HTTP 状态 + 消息关键词）——确定性规则，
  *  不靠模型猜。 */
 export function classifyModelError(raw: string): ClassifiedModelError {
+	// Exact machine tokens before provider heuristics; SDK may prefix Error.name.
+	if (/\bMODEL_REQUEST_ALLOWANCE_EXHAUSTED\b/.test(raw)) return {
+		code: "MODEL_REQUEST_ALLOWANCE_EXHAUSTED",
+		explanation: "本地模型请求额度不足，后续模型调用已阻止；这不是 provider 配额或网络故障",
+		recovery: "可检查并保留已有的已保存进度，但未完成的交付仍未完成，不能保证所有编辑均已保存。继续工作需要外部新授权的预算/用途；换模型、重发或压缩不能解除同一运行期限制，不会自动重试或清除用量",
+		taskRecoverable: false,
+	};
+	if (/\bMODEL_REQUEST_(?:STREAM_)?USAGE_UNKNOWN\b/.test(raw)) return {
+		code: "MODEL_REQUEST_USAGE_UNKNOWN",
+		explanation: "本地模型用量记账未知（UNKNOWN），后续模型调用已阻止；这不是 provider 不可用",
+		recovery: "可检查并保留已有的已保存进度，但未完成的交付仍未完成，不能保证所有编辑均已保存。继续工作需要外部独立的记账处置与适用的新预算/用途授权；仅增加额度、换模型、重发或压缩不能清除 UNKNOWN，不会自动重试或重置用量",
+		taskRecoverable: false,
+	};
 	const text = raw.toLowerCase();
 	if (/(?:operation|request) (?:was )?(?:aborted|cancelled|canceled)|aborterror/.test(text)) {
 		return {
@@ -147,6 +162,11 @@ export function classifyModelError(raw: string): ClassifiedModelError {
 	};
 }
 
+/** Local policy refusal is not retryable under unchanged authority. */
+export function isLocalModelRefusal(code: string): boolean {
+	return code === "MODEL_REQUEST_ALLOWANCE_EXHAUSTED" || code === "MODEL_REQUEST_USAGE_UNKNOWN";
+}
+
 /** ProviderErrorGate（0827 审计 P0-7）：provider 错误的展示闸门。
  *
  * 0827 实证：同一个 403 配额错误——原始 JSON 显示多次 + 规范化
@@ -185,7 +205,7 @@ export class ProviderErrorGate {
 			? "；任务保持可恢复"
 			: "";
 		// /model 入口：recovery 未提及时补上（配额类已自带）。
-		const modelEntry = classified.recovery.includes("/model")
+		const modelEntry = isLocalModelRefusal(classified.code) || classified.recovery.includes("/model")
 			? ""
 			: "（/model 换模型可立即继续）";
 		return {
