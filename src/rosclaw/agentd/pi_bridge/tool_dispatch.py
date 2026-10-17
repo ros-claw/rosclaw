@@ -1460,12 +1460,13 @@ class PiToolDispatcher:
                 ok=True,
                 status="REGISTERED",
                 summary=(
-                    f"追加交付已登记：{_Path(artifact['path']).name}"
-                    f"（{artifact['size_bytes']}B）"
-                    f"artifact_id={artifact['artifact_id']}——任务保持 "
+                    f"artifact_ref={artifact['artifact_id']}\n"
+                    f"sha256={artifact['sha256']}\n"
+                    + json.dumps({"filename": _Path(artifact["path"]).name}, ensure_ascii=True)
+                    + "\n仅复制 artifact_ref 的 ID 到 Ref/Refs 字段，不要复制校验和或说明文字。"
+                    f"追加交付已登记（{artifact['size_bytes']}B）——任务保持 "
                     f"{task['state']}（审计历史不变，未复活任务）；"
                     "用户有新目标时会开始新任务；"
-                    f"sha256={artifact['sha256']}"
                 ),
                 artifact_refs=[str(artifact["artifact_id"])],
             )
@@ -1474,9 +1475,11 @@ class PiToolDispatcher:
             ok=True,
             status="REGISTERED",
             summary=(
-                f"交付物已登记：{_Path(artifact['path']).name}"
-                f"（{artifact['size_bytes']}B）artifact_id={artifact['artifact_id']}"
-                f" sha256={artifact['sha256']}"
+                f"artifact_ref={artifact['artifact_id']}\n"
+                f"sha256={artifact['sha256']}\n"
+                + json.dumps({"filename": _Path(artifact["path"]).name}, ensure_ascii=True)
+                + "\n仅复制 artifact_ref 的 ID 到 Ref/Refs 字段，不要复制校验和或说明文字。"
+                f"交付物已登记（{artifact['size_bytes']}B）"
             ),
             artifact_refs=[str(artifact["artifact_id"])],
         )
