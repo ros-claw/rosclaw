@@ -51,7 +51,7 @@ export function buildProcessTools(ctx: BridgeToolContext & { sessionCwd?: string
 		defineTool({
 			name: "process_status",
 			label: "Process Status",
-			description: "Read an operation's authoritative state (RUNNING/SUCCEEDED/FAILED/CANCELLED + heartbeat).",
+			description: "Read the unchanged operation ledger state and failure code, recorded producer heartbeat time/age (unknown when unavailable), and an independent read-only instantaneous exact process identity observation within the local real/effective UID boundary. DEGRADED has no unique cause: stale producer freshness or unresolved identity/output observation may be involved; heartbeat age does not identify the cause or clear failure codes. Foreign UID identities remain UNKNOWN even when stored/current identities match. UNKNOWN is not proven absence; observed identity presence proves neither progress, service/physics readiness, safety nor stop confirmation. Does not refresh heartbeat or change lifecycle. Use bounded observations under the existing task deadline.",
 			parameters: Type.Object({
 				operation_id: Type.String(),
 			}),
