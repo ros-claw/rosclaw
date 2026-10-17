@@ -63,7 +63,7 @@ interface CliArgs {
 // （inputs/prebody_cli/tool_call_policy.schema.json）一致；保留字段名
 // （__proto__ 等）作为 own data key 原样透传，不做重建赋值，不引入原型污染。
 const TOOL_CALL_POLICY_KEYS = new Set([
-	"allowedTools", "maxCalls", "maxTotalCalls", "exactCommands", "visibleBudget", "exactPaths", "visibleBudgetMode", "modelUsageAwareness", "modelRequestAdmission",
+	"allowedTools", "maxCalls", "maxTotalCalls", "exactCommands", "visibleBudget", "exactPaths", "visibleBudgetMode", "modelUsageAwareness", "modelRequestAdmission", "declaredDeliveryRoles",
 ]);
 
 function invalidToolCallPolicy(message: string): never {
@@ -163,7 +163,39 @@ export function loadToolCallPolicyFile(path: string): ToolCallBudget {
 		try { validateModelUsageAwareness(doc.modelUsageAwareness); }
 		catch { invalidToolCallPolicy("invalid modelUsageAwareness"); }
 	}
+	if (Object.hasOwn(doc, "declaredDeliveryRoles")) {
+		validatePolicyDeliveryRoles(doc.declaredDeliveryRoles, doc.exactPaths, allowed);
+	}
 	return raw as ToolCallBudget;
+}
+
+/** Lexical schema only. Workspace canonical binding remains the budget constructor's job. */
+function validatePolicyDeliveryRoles(value: unknown, exactPaths: unknown, allowed: Set<string>): void {
+	const delivery = (exactPaths as Record<string, unknown> | undefined)?.rosclaw_deliver;
+	if (!Array.isArray(value) || value.length === 0 || value.length > 128
+		|| !allowed.has("rosclaw_deliver") || !Array.isArray(delivery)) {
+		invalidToolCallPolicy("declaredDeliveryRoles requires 1..128 entries and permitted exact delivery paths");
+	}
+	const seen = new Set<string>();
+	for (const entry of value) {
+		if (!entry || typeof entry !== "object" || Array.isArray(entry)
+			|| Object.keys(entry).length !== 2 || !Object.hasOwn(entry, "path") || !Object.hasOwn(entry, "role")) {
+			invalidToolCallPolicy("declaredDeliveryRoles entries require exactly path and role");
+		}
+		const { path, role } = entry as Record<string, unknown>;
+		if (typeof path !== "string" || path.trim().length === 0 || path.includes("\0")
+			|| path.split(/[\\/]/).includes("..") || path.endsWith("/")
+			|| typeof role !== "string" || role.length > 128
+			|| !/^(?:report|plot|image|video|data|(?:progress|diagnostic)(?:_[A-Za-z0-9_]+)?)(?![\s\S])/.test(role)) {
+			invalidToolCallPolicy("invalid declaredDeliveryRoles path or role");
+		}
+		// Compare only lexical duplicates here. Membership (including ./ aliases,
+		// relative/absolute forms and symlinks) requires the workspace constructor.
+		if (seen.has(path)) {
+			invalidToolCallPolicy("declaredDeliveryRoles paths must be lexically unique");
+		}
+		seen.add(path);
+	}
 }
 
 function parseArgs(argv: string[]): CliArgs {
