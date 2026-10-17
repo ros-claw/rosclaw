@@ -744,6 +744,88 @@ def _error_envelope_details(code: str, *, tool_name: str = "") -> dict:
     }
 
 
+def _process_status_observation(op: dict) -> dict:
+    """Read-only, point-in-time evidence; never lifecycle or progress authority."""
+    import contextlib
+
+    from rosclaw.task_kernel.process_identity import ProcessIdentity
+
+    now = datetime.now(UTC)
+    heartbeat_at = None
+    heartbeat_age_s = None
+    try:
+        raw = op.get("heartbeat_at")
+        if isinstance(raw, str) and len(raw) <= 128:
+            recorded = datetime.fromisoformat(raw)
+            if recorded.tzinfo is not None:
+                heartbeat_at = recorded.astimezone(UTC).isoformat()
+                age = (now - recorded).total_seconds()
+                if math.isfinite(age) and age >= 0:
+                    heartbeat_age_s = round(age, 3)
+    except (ValueError, OverflowError):
+        pass
+
+    identity_status = "UNKNOWN"
+    reason = "STORED_IDENTITY_INVALID_OR_ABSENT"
+    raw_identity = op.get("process_identity_json")
+    # Bound parsing and never disclose the stored identity or capture contents.
+    stored = None
+    if isinstance(raw_identity, str) and len(raw_identity) <= 16384:
+        with contextlib.suppress(ValueError, TypeError, RecursionError):
+            stored = ProcessIdentity.parse(raw_identity)
+    if op.get("provider") != "process":
+        reason = "NOT_PROCESS_PROVIDER"
+    elif stored is not None:
+        if type(op.get("pid")) is not int or op["pid"] != stored.pid:
+            reason = "STORED_PID_IDENTITY_CONFLICT"
+        elif stored.uid not in {os.getuid(), os.geteuid()}:
+            reason = "STORED_IDENTITY_OUTSIDE_LOCAL_UID_BOUNDARY"
+        else:
+            try:
+                current = ProcessIdentity.capture(stored.pid)
+            except (OSError, ValueError, IndexError):
+                current = None
+            if current is None:
+                reason = "CURRENT_IDENTITY_UNAVAILABLE"
+            elif current == stored:
+                identity_status = "OBSERVED_IDENTITY_PRESENT"
+                reason = "EXACT_IDENTITY_MATCH"
+            else:
+                reason = "CURRENT_IDENTITY_MISMATCH"
+
+    warnings = []
+    if op.get("state") == "DEGRADED":
+        warnings.append(
+            "DEGRADED is a ledger state, not a unique cause: stale producer freshness or unresolved identity/output observation may be involved. Cause is not inferred from heartbeat age; not proof of dead, stuck, alive or progressing."
+        )
+    code = op.get("failure_code")
+    if code == "PROCESS_IDENTITY_UNVERIFIED":
+        warnings.append(
+            "Stored identity verification remains unresolved; this observation does not clear it."
+        )
+    elif code == "OUTPUT_OBSERVATION_UNRESOLVED":
+        warnings.append(
+            "Output observation remains unresolved; identity presence does not verify output."
+        )
+    elif code == "CANCEL_STOP_UNCONFIRMED":
+        warnings.append(
+            "Requested stop remains unconfirmed; this observation does not confirm session cleanup."
+        )
+    if op.get("state") == "CANCELING":
+        warnings.append("Cancellation is pending; identity observation is not stop confirmation.")
+    return {
+        "observed_at": datetime.now(UTC).isoformat(),
+        "producer_freshness": {
+            "heartbeat_at": heartbeat_at,
+            "age_s": heartbeat_age_s,
+            "meaning": "Recorded producer freshness only; not work or physics progress.",
+        },
+        "process_identity": {"status": identity_status, "reason": reason},
+        "warnings": warnings,
+        "limits": "Instantaneous identity only; UNKNOWN does not prove absence. No progress, readiness, safety or stop confirmation; ledger unchanged.",
+    }
+
+
 class PiToolDispatcher:
     def __init__(self, service: AgentService) -> None:
         self._service = service
@@ -1592,16 +1674,29 @@ class PiToolDispatcher:
         op = self._service._operation_manager.get(str(request.arguments.get("operation_id", "")))
         if not op:
             raise ToolBridgeError("NOT_FOUND", "unknown operation")
+        observation = _process_status_observation(op)
+        freshness = observation["producer_freshness"]
+        identity = observation["process_identity"]
         return PiToolResultV1(
             request_id=request.request_id,
             ok=True,
             status=str(op["state"]),
             operation={
-                key: op.get(key) for key in ("operation_id", "task_id", "revision", "state")
+                **{key: op.get(key) for key in ("operation_id", "task_id", "revision", "state")},
+                "failure_code": op.get("failure_code"),
+                "observation": observation,
             },
             summary=(
                 f"operation {op['operation_id']}: {op['state']}"
                 + (f"（{op['failure_code']}）" if op.get("failure_code") else "")
+                + f"; recorded producer heartbeat_at={freshness['heartbeat_at'] or 'UNKNOWN'}"
+                + f", age_s={freshness['age_s'] if freshness['age_s'] is not None else 'UNKNOWN'}"
+                + f" ({freshness['meaning']})"
+                + f"; identity={identity['status']} ({identity['reason']})"
+                + f" at {observation['observed_at']}; "
+                + " ".join(observation["warnings"])
+                + " "
+                + observation["limits"]
             ),
         )
 

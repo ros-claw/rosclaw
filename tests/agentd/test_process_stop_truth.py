@@ -35,14 +35,57 @@ async def test_completed_process_stop_preserves_ledger_and_reports_already_termi
         before = manager.get(operation_id)
         assert before["state"] == terminal
         events_before = conn.execute("SELECT COUNT(*) FROM task_events").fetchone()[0]
-        for name in ("status", "output"):
-            read = await getattr(dispatcher, f"_process_{name}")(
-                _request(f"rosclaw_process_{name}", arguments={"operation_id": operation_id})
-            )
-            assert read.operation == {
-                key: before[key] for key in ("operation_id", "task_id", "revision", "state")
-            }
-            assert read.status == terminal
+        owner = {key: before[key] for key in ("operation_id", "task_id", "revision", "state")}
+        status = await dispatcher._process_status(
+            _request("rosclaw_process_status", arguments={"operation_id": operation_id})
+        )
+        assert status.ok
+        assert status.status == status.operation["state"] == terminal
+        assert {key: status.operation[key] for key in owner} == owner
+        assert set(status.operation) == {*owner, "failure_code", "observation"}
+        assert status.operation["failure_code"] == before["failure_code"]
+        assert status.operation["failure_code"] == (f"exit_{exit_code}" if exit_code else "")
+        observation = status.operation["observation"]
+        assert isinstance(observation, dict)
+        assert set(observation) == {
+            "observed_at",
+            "producer_freshness",
+            "process_identity",
+            "warnings",
+            "limits",
+        }
+        assert isinstance(observation["observed_at"], str)
+        assert observation["observed_at"].endswith("+00:00")
+        assert observation["observed_at"] in status.summary
+        freshness = observation["producer_freshness"]
+        assert isinstance(freshness, dict)
+        assert set(freshness) == {"heartbeat_at", "age_s", "meaning"}
+        assert freshness["heartbeat_at"] == before["heartbeat_at"]
+        assert freshness["age_s"] is None or (
+            type(freshness["age_s"]) in (int, float) and freshness["age_s"] >= 0
+        )
+        assert freshness["meaning"] == (
+            "Recorded producer freshness only; not work or physics progress."
+        )
+        # The child has exited; a successful read is not live identity evidence.
+        assert observation["process_identity"]["status"] == "UNKNOWN"
+        assert observation["process_identity"]["reason"] in {
+            "STORED_IDENTITY_INVALID_OR_ABSENT",
+            "CURRENT_IDENTITY_UNAVAILABLE",
+            "CURRENT_IDENTITY_MISMATCH",
+        }
+        assert observation["process_identity"]["reason"] in status.summary
+        assert observation["warnings"] == []
+        assert observation["limits"] == (
+            "Instantaneous identity only; UNKNOWN does not prove absence. "
+            "No progress, readiness, safety or stop confirmation; ledger unchanged."
+        )
+        assert observation["limits"] in status.summary
+        read = await dispatcher._process_output(
+            _request("rosclaw_process_output", arguments={"operation_id": operation_id})
+        )
+        assert read.operation == owner
+        assert read.status == terminal
         result = await dispatcher._process_stop(
             _request("rosclaw_process_stop", arguments={"operation_id": operation_id})
         )
