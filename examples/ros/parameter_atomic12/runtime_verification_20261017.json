@@ -1,0 +1,43 @@
+{
+  "schema": "ROSClaw.ParameterAtomic12.RuntimeVerification.v1",
+  "date": "2026-10-17",
+  "native_source_sha256": "06e0b9f1d96c86a7bddca3f3e8b2dbf388821bc253d4a39ad92f170532704dc9",
+  "image": "sha256:81b41b619cc44a3c4915cd7bf42a7faf5219ddf7d84e2506e890a2457adaaaf5",
+  "interpreter": "/usr/bin/python3.12",
+  "isolation": {
+    "network": "none",
+    "ipc": "private",
+    "read_only_rootfs": true,
+    "user": "1000:1000",
+    "cap_drop": "ALL",
+    "hardware_access": false
+  },
+  "conditions": {
+    "P1": "concurrent forward/reverse ordered Get replies PASS",
+    "P2": "valid pair atomic commit and Get PASS",
+    "P3": "invalid pair rejected with rollback PASS",
+    "P4": "read-only parameter update rejected with rollback PASS",
+    "P5": "STRING type update rejected with rollback PASS",
+    "P6": "missing-service wait sends no RPC; healthy atomic update and Get PASS"
+  },
+  "actual_requests": 12,
+  "get_requests": 7,
+  "atomic_requests": 5,
+  "transcript_rows": 37,
+  "native_exit": 0,
+  "SDK_wrapper_elapsed_s": 2.7882532730000094,
+  "native_oracle": "exact frozen validate_transcript",
+  "independent_review": "closed source/identity/count/cleanup and current task/revision genuine artifact joins",
+  "genuine_artifacts": 2,
+  "owned_container_removed_and_independently_absent": true,
+  "outer_workflow_original_exit": 1,
+  "original_failure_preserved": "Outer cleanup observer rejected local Docker lowercase missing-object error with newline stdout; independent exact-CID lexical qualification and read-only absence check accepted the closed component separately. Original FAIL is unchanged.",
+  "additional_runtime_replays": 0,
+  "parameter_event_publish_calls": null,
+  "parameter_event_publish_observation": "UNKNOWN_NOT_INSTRUMENTED",
+  "limits": [
+    "No AddTwoInts execution",
+    "No full CAP80 equivalence, physical, or hardware acceptance",
+    "Fast operation completion; no automatic watcher continuation proof"
+  ]
+}
