@@ -1,0 +1,58 @@
+{
+  "schema": "ROSClaw.MessageFilterSDK.PublicationManifest.v1",
+  "source_author": "ROSClaw Native Agent",
+  "exact_native_source3_sha256": {
+    "message_filter_scenario.py": "0721c1eec221aeda2e756d7644cafb45d9b2ee30e0638a2608a3d18c35968ec2",
+    "test_message_filter_scenario.py": "d3af808d0983b79e1bb3e70bf0130c10bf931dd11cef43a9bf6fcbec2576158b",
+    "MESSAGE_FILTER_SDK_V1.md": "6dc48f0bc84b595cc1f81a89f07ea4dbd05acda50ff3e8f0d1f19af4336f1295"
+  },
+  "files": {
+    "MESSAGE_FILTER_SDK_V1.md": {
+      "bytes": 16392,
+      "sha256": "6dc48f0bc84b595cc1f81a89f07ea4dbd05acda50ff3e8f0d1f19af4336f1295"
+    },
+    "README.md": {
+      "bytes": 2744,
+      "sha256": "5b17ff4d54667b95fef85459e2ff5b30ece26710114cf430f2dcee84a28083b8"
+    },
+    "inputs/INPUT_CASES.json": {
+      "bytes": 2797,
+      "sha256": "49240132be702031a808c8f10d5f83482d96bc7762ed2853aa60441e1ef4d385"
+    },
+    "message_filter_scenario.py": {
+      "bytes": 20721,
+      "sha256": "0721c1eec221aeda2e756d7644cafb45d9b2ee30e0638a2608a3d18c35968ec2"
+    },
+    "minimal_fixture.tar": {
+      "bytes": 40960,
+      "sha256": "55567a5325deb79f06c9b4bfec677da3a817fad1dcfd4952611cf003ba926227"
+    },
+    "runtime_verification_20261017.json": {
+      "bytes": 1963,
+      "sha256": "6cea9cc1e1f146e3678bf8aecdea53ccd288b10d2de47023d8911170ddbc2aee"
+    },
+    "test_message_filter_scenario.py": {
+      "bytes": 12558,
+      "sha256": "d3af808d0983b79e1bb3e70bf0130c10bf931dd11cef43a9bf6fcbec2576158b"
+    },
+    "verify_publication.py": {
+      "bytes": 3911,
+      "sha256": "a63ee7f6b20792c52b9e0283c4b0e69d7e449ca466adf748ab7619adb55d572e"
+    }
+  },
+  "minimal_fixture_members": {
+    "message_filter_scenario.py": {
+      "bytes": 20721,
+      "sha256": "0721c1eec221aeda2e756d7644cafb45d9b2ee30e0638a2608a3d18c35968ec2"
+    },
+    "test_message_filter_scenario.py": {
+      "bytes": 12558,
+      "sha256": "d3af808d0983b79e1bb3e70bf0130c10bf931dd11cef43a9bf6fcbec2576158b"
+    },
+    "inputs/INPUT_CASES.json": {
+      "bytes": 2797,
+      "sha256": "49240132be702031a808c8f10d5f83482d96bc7762ed2853aa60441e1ef4d385"
+    }
+  },
+  "acceptance_sha256": "bab1e83e8e6783d33889263b03d3450f2e3f3365072e9c9481dc96843c8ad691"
+}
