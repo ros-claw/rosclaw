@@ -6,12 +6,15 @@ This is the first bounded 1018 work package, based on main `be5d36ff`. It implem
 
 ```python
 from rosclaw.connectors.ros.intelligence.operational_graph import (
-    compile_operational_graph, summarize_operational_graph,
+    compile_operational_graph,
+    summarize_operational_graph,
 )
 from rosclaw.connectors.ros.intelligence.missing_evidence import describe_missing_evidence
 
 graph = compile_operational_graph(
-    sealed_model, original_urdf_bytes, explicit_navigation_requirements,
+    sealed_model,
+    original_urdf_bytes,
+    explicit_navigation_requirements,
     source_ref="original:sealed-model-reference",
     now=explicit_aware_original_review_clock,
     evidence_domain="SEALED_REPLAY",
