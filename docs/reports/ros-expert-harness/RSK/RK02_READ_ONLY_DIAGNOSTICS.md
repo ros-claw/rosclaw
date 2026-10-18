@@ -6,6 +6,19 @@ causal verification, new Runtime/Body/Memory, staging writes or execution tools.
 
 ## Contracts and behavior
 
+The graph compiler also accepts native observations without a navigation context:
+`compile_operational_graph(model, source_ref=..., now=...)`. In this mode it never
+calls the navigation Case compiler and does not require URDF or Nav2 roles.
+`case_hash`, `source_urdf_sha256`, and `requirements_hash` are explicitly null;
+source identity remains UNKNOWN and no Body/run/World admission is inferred.
+Native stream findings use `signal.observed_steady_receive_window` and are scoped
+to the observer, not downstream delivery or producer root cause. Latched or
+incomplete windows remain UNKNOWN. Partial navigation inputs or attempted source
+admission without navigation context are rejected. Supplying both original URDF
+and requirements retains the existing navigation Case behavior. Non-null old
+v1 graphs preserve their roundtrip hashes; older decoders must upgrade to opt
+into the new explicit-null native mode.
+
 `engineering.hypothesis.propose_hypotheses(graph, issue_ids=...)` proposes bounded
 competing explanations for F-SCAN, F-TF, observed QoS/TF/time constraints and an
 explicit unresolved explanation for unsupported issues. At most 64 hypotheses;
@@ -27,7 +40,8 @@ confounders and concrete positive/negative measurement predictions. Receive
 age uses steady time plus capture age. QoS compares observed requested/offered
 policies only, not delivery or complete RMW compatibility. QoS explanations
 retain exact topic scope even when unrelated topics share the same publisher and
-consumer nodes. Clock disagreement
+consumer nodes. A pair-specific QoS issue retains its publisher and consumer;
+an incompatible sibling consumer cannot keep an already resolved path accused. Clock disagreement
 covers observed nodes only. TF ages respect declared future tolerances. Missing
 attribution never establishes unique authority. Several explanations can be
 supported together; eliminating one does not prove the remaining one.
