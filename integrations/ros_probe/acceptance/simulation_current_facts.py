@@ -120,6 +120,17 @@ class CurrentSimulationFacts:
         ):
             if _sha(_read(self.assets_directory / name, limit)) != e[key]:
                 raise ValueError("independent original URDF/World SHA mismatch")
+        # Replay static Body integrity before beginning an expiring current
+        # observation window. Later reviews still reread all original files.
+        from rosclaw.connectors.ros.context.navigation_workspace_review import (
+            inspect_navigation_body_workspace,
+        )
+
+        inspect_navigation_body_workspace(
+            self.directory / "generic-compiled",
+            expected_manifest_hash=e["request"]["manifest_hash"],
+            expected_body_hash=e["request"]["body_snapshot_hash"],
+        )
         compiled_source = json.loads(
             _read(self.directory / "generic-compiled/source-snapshot.json", 10_000_000)
         )
@@ -216,6 +227,18 @@ class CurrentSimulationFacts:
             collision_guard = getattr(self, "collision_resource_guard", None)
             if collision_guard is not None:
                 collision_guard.verify(model.observations)
+            source = self.reader.poll()
+            mesh_kinematics = None
+            mesh_plan = getattr(self, "mesh_kinematic_plan", None)
+            if mesh_plan is not None and mesh_plan["joints"]:
+                sample = json.loads(self.reader.last_raw)
+                _members, mesh_kinematics = self.verify_mesh_kinematics(
+                    mesh_plan,
+                    sample,
+                    self.enrollment["guard_inputs"]["expected_robot_entity"],
+                    position_tolerance=self.mesh_kinematics_precision["position_m"],
+                    rotation_tolerance=self.mesh_kinematics_precision["rotation_matrix"],
+                )
             # Evaluate the stricter age margin once. This does not predict
             # future state; actual review time and age-evaluation time remain
             # distinct in the original report. No second Body/model review is
@@ -229,18 +252,6 @@ class CurrentSimulationFacts:
                 policy_hash=self.enrollment["policy_hash"],
                 freshness_margin_ms=freshness_horizon_ms,
             )
-            source = self.reader.poll()
-            mesh_kinematics = None
-            mesh_plan = getattr(self, "mesh_kinematic_plan", None)
-            if mesh_plan is not None and mesh_plan["joints"]:
-                sample = json.loads(self.reader.last_raw)
-                _members, mesh_kinematics = self.verify_mesh_kinematics(
-                    mesh_plan,
-                    sample,
-                    self.enrollment["guard_inputs"]["expected_robot_entity"],
-                    position_tolerance=self.mesh_kinematics_precision["position_m"],
-                    rotation_tolerance=self.mesh_kinematics_precision["rotation_matrix"],
-                )
             ended = time.monotonic_ns()
             if (
                 health["status"] != "HEALTHY_SIM_OBSERVATION_ONLY"

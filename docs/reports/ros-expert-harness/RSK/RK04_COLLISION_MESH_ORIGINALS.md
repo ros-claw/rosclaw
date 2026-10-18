@@ -110,3 +110,30 @@ checker settings. A stricter operator-selected yaw profile produced a subsequent
 two-goal After with independent stop/contact/age review, but the physical yaw
 margin was small. This does not calibrate localization or prove generic
 robustness. Independent physical predicates remain unchanged.
+
+## Separate static integrity from current observations
+
+A300 diagnostic Worlds retained zero-command SDK admission failures. One measured
+World ruled out container PID exhaustion (kernel peak451, limit512, max events0).
+New bounded startup records then showed daemon observation completed at about
+119ms, while first facts failed when its 100ms freshness lookahead expired.
+These are distinct observations; earlier socket-close failures are retained and
+are not retrospectively assigned a proven common cause.
+
+The closed Body workspace's exact-byte static compiler replay now has at most
+two cache entries of at most 10MB each. The no-follow reader still rereads every
+file, directory inventory and identity on each check. Different bytes or pinned
+hashes require a new replay; identical-byte symlinks still fail. Cached values
+are immutable JSON and public dictionaries are fresh copies. Current inspection
+time and historical snapshot age are recalculated on every call. No live health,
+readiness, source binding, calibration state or daemon generation is cached;
+the admitted static profile requires the original empty calibration document.
+
+The SDK validates this static integrity during constructor preparation, before
+opening the expiring health window. It polls and verifies actual source/joint
+observations before evaluating current ROS health, and retains the minimum of
+the unchanged source, Native and health deadlines. The same 500ms source, 250ms
+proof and 100ms lookahead constraints remain. When available, the installed safe
+LibYAML parser performs the same closed mapping and alias rejection; the safe
+Python fallback remains available. Offline timings are development evidence,
+not a new physical pass.
