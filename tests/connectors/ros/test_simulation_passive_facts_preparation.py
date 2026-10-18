@@ -19,7 +19,7 @@ def method(name, globals):
         n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "GovernedSimulationSink"
     )
     fn = next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == name)
-    namespace = dict(Path=Path, json=json, hashlib=hashlib)
+    namespace = {"Path": Path, "json": json, "hashlib": hashlib}
     namespace.update(globals)
     exec(compile(ast.Module(body=[fn], type_ignores=[]), str(path), "exec"), namespace)
     return namespace[name]
