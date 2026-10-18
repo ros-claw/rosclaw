@@ -132,6 +132,7 @@ def test_driver_only_can_propose_future_stack_without_reusing_body_or_authority(
     assert params["amcl"]["ros__parameters"]["set_initial_pose"] is False
     assert params["global_costmap"]["global_costmap"]["ros__parameters"]["robot_radius"] > width / 2
     assert all(params[s]["ros__parameters"]["use_sim_time"] is True for s in SERVERS)
+    assert "plugin_lib_names" not in params["bt_navigator"]["ros__parameters"]
     assert "/old_robot/" not in result["files"]["nav2.yaml"]
 
 

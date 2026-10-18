@@ -449,9 +449,11 @@ def compile_driver_bootstrap(
         robot_base_frame=base,
         odom_topic=odometry,
         navigators=["navigate_to_pose"],
-        plugin_lib_names=[],
         default_nav_to_pose_bt_xml="/assets/behavior-tree.xml",
     )
+    # An empty YAML array has no ROS parameter type; leave built-in BT plugins
+    # at the installed navigator default instead of emitting an untyped value.
+    navigator.pop("plugin_lib_names", None)
     navigator.pop("navigate_through_poses", None)
     navigator.pop("navigate_complete_coverage", None)
     navigator.pop("default_coverage_bt_xml", None)
