@@ -121,3 +121,29 @@ class CollisionResourceContinuity:
         except (OSError, ValueError, TypeError) as exc:
             self.failed = str(exc)
             raise ValueError("collision resource continuity rejected: " + self.failed) from exc
+
+
+def prewarm_prepared_collision_facts():
+    """Parse immutable offline bytes before admission, never reuse live facts.
+
+    Fresh resource continuity and current source checks are still constructed
+    after enrollment. This does not issue observations, acknowledge startup,
+    create a Body, or open a daemon/ROS/control connection.
+    """
+    if not Path("/.dockerenv").is_file() or os.environ.get("ROS_LOCALHOST_ONLY") != "1":
+        raise ValueError("owned isolated SDK required for passive byte preparation")
+    if not Path("/assets/collision-asset-originals.json").exists():
+        return None
+    root_fd = os.open("/assets", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        raw, _ = _read_at(root_fd, "collision-asset-originals.json", 5_000_000)
+    finally:
+        os.close(root_fd)
+    envelope = {
+        "schema_version": "rosclaw.prepared_collision_asset_observation.v1",
+        "source": "/assets/collision-asset-originals.json",
+        "sha256": hashlib.sha256(raw).hexdigest(),
+        "document": raw.decode("utf-8", errors="strict"),
+    }
+    staged_collision_resource_pins({"prepared_collision_assets": envelope})
+    return {"scope": "OFFLINE_BYTE_FACTS_ONLY", "execution_authority": "NONE"}

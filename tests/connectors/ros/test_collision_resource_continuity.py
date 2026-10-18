@@ -131,3 +131,48 @@ def test_provenance_document_must_match_exact_originals_and_staged_names(tmp_pat
         envelope["sha256"] = hashlib.sha256(envelope["document"].encode()).hexdigest()
     with pytest.raises(ValueError):
         staged_collision_resource_pins(observations)
+
+
+def test_passive_preparse_cannot_replace_fresh_resource_continuity(module, monkeypatch, tmp_path):
+    root = tmp_path / "assets"
+    observation, mesh = materialize(root)
+    container = tmp_path / "container"
+    container.touch()
+    real_open = module.os.open
+
+    def sdk_path(path):
+        if str(path) == "/.dockerenv":
+            return container
+        if str(path).startswith("/assets/"):
+            return root / str(path)[len("/assets/") :]
+        return Path(path)
+
+    def sdk_open(path, *args, **kwargs):
+        return real_open(root if str(path) == "/assets" else path, *args, **kwargs)
+
+    monkeypatch.setattr(module, "Path", sdk_path)
+    monkeypatch.setattr(module.os, "open", sdk_open)
+    monkeypatch.setenv("ROS_LOCALHOST_ONLY", "1")
+    result = module.prewarm_prepared_collision_facts()
+    assert result == {"scope": "OFFLINE_BYTE_FACTS_ONLY", "execution_authority": "NONE"}
+    # Warm parsing cannot hide different actual resource bytes at enrollment.
+    mesh.write_bytes(b"changed after passive preparation")
+    with pytest.raises(ValueError):
+        module.CollisionResourceContinuity(root, observation)
+
+
+def test_passive_preparse_requires_owned_sdk_boundary(module, monkeypatch):
+    monkeypatch.setenv("ROS_LOCALHOST_ONLY", "0")
+    with pytest.raises(ValueError, match="isolated SDK"):
+        module.prewarm_prepared_collision_facts()
+
+
+def test_preparse_occurs_before_input_not_as_current_admission():
+    source = (
+        Path(__file__).resolve().parents[3]
+        / "integrations/ros_probe/acceptance/simulation_current_process.py"
+    ).read_text()
+    assert source.index("    prewarm_prepared_collision_facts()") < source.index(
+        "    raw = sys.stdin.buffer.readline"
+    )
+    assert "self._startup_deadline_ns = time.monotonic_ns() + 500_000_000" in source

@@ -262,6 +262,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--worker", action="store_true", required=True)
     parser.parse_args()
+    # Complete bounded immutable mesh parsing during passive preparation. No
+    # current enrollment, daemon observation or startup acknowledgment exists
+    # yet; fresh resource/source checks still run after the input arrives.
+    from simulation_collision_resources import prewarm_prepared_collision_facts
+
+    prewarm_prepared_collision_facts()
     raw = sys.stdin.buffer.readline(16_001)
     if not raw.endswith(b"\n") or len(raw) > 16_000:
         raise ValueError("bounded closed SDK worker input required")
