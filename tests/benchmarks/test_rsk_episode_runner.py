@@ -411,3 +411,16 @@ def test_callback_added_during_contract_client_call_cannot_execute(tmp_path):
     r, prompts = run(tmp_path, aci, k, [attach])
     assert r["status"] == "INVALID_MODEL_DECISION_OR_ORIGINAL_INPUT"
     assert "callback" in r["error"] and not aci.trace and len(prompts) == 1
+
+
+def test_actual_mode_cannot_retime_model_or_sdk_budget_with_fixture_clock(tmp_path):
+    aci, _, k = bundle(tmp_path)
+    value = json.loads((tmp_path / "provider.json").read_text())
+    value["execution_kind"] = "ACTUAL_MODEL_CLIENT"
+    provider = put(tmp_path, "actual-provider-fixture.json", value)
+    k["provider_settings"] = provider
+    refreeze(tmp_path, k, provider_settings_sha256=provider.sha256)
+    result = run_rsk_typed_episode(TASK, aci, tmp_path / "output", clock=lambda: 0.0, **k)
+    assert result["status"] == "NO_GO" and "real host monotonic" in result["error"]
+    assert result["actual_model_calls"] == result["actual_model_client_invocations"] == 0
+    assert not aci.trace and result["new_Worlds_requested"] == 0

@@ -28,7 +28,9 @@ zero, results cannot become study success, and SDK/probe callbacks are forbidden
 both at entry and after each client call. Tests use synthetic clients and gate
 fixtures; their PASS results are not physical, model or pilot evidence.
 
-An episode has a 300-second monotonic deadline, at most the protocol's 12 model
+Actual mode requires both host and SDK accounting to use the real monotonic
+clock; clock injection is confined to synthetic contracts. An episode has a
+300-second monotonic deadline, at most the protocol's 12 model
 decisions and eight read-only investigation requests, and the existing ACI's
 one active probe plus one canonical validation. Original SDK goal and safety
 limits remain unchanged. No failed provider or World is automatically retried.

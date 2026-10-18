@@ -255,6 +255,12 @@ def run_rsk_typed_episode(
             raise ValueError("Memory policy differs or does not exclude the current episode/run")
         provider = FrozenProviderV1.model_validate_json(_read(root, provider_settings))
         synthetic = provider.execution_kind == "SYNTHETIC_CONTRACT_CLIENT"
+        if not synthetic and (
+            source_clock is not time.monotonic or base.clock is not time.monotonic
+        ):
+            raise ValueError(
+                "actual episodes require real host monotonic clocks; injected clocks are contract-only"
+            )
         if synthetic and (base.evaluator is not None or base.probe_evaluator is not None):
             raise ValueError("synthetic contract clients cannot use SDK/probe callbacks")
         if (
