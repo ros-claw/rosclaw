@@ -227,7 +227,12 @@ def test_probe_captures_actual_message_frames_and_original_receive_time():
     tree = ast.parse(path.read_text())
     cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "ReadOnlyProbe")
     method = next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == "observe")
-    scope = {"time": time, "deque": deque, "utc_now": lambda: NOW.isoformat()}
+    scope = {
+        "TF_ATTRIBUTION_TOPIC": "/rosclaw_probe/tf_attribution",
+        "time": time,
+        "deque": deque,
+        "utc_now": lambda: NOW.isoformat(),
+    }
     exec(compile(ast.Module(body=[method], type_ignores=[]), str(path), "exec"), scope)
     probe = SimpleNamespace(samples={}, message_frames={})
     message = SimpleNamespace(

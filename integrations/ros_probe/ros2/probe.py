@@ -30,8 +30,10 @@ from rclpy.utilities import get_rmw_implementation_identifier
 from rosidl_runtime_py.utilities import get_message
 from std_msgs.msg import String
 from std_srvs.srv import Trigger
+from tf_window import parse_tf_window
 
 PROBE_TOPIC = "/rosclaw_probe/snapshot"
+TF_ATTRIBUTION_TOPIC = "/rosclaw_probe/tf_attribution"
 READ_TYPES = {
     "action_msgs/msg/GoalStatusArray",
     "std_msgs/msg/Bool",
@@ -80,6 +82,8 @@ class ReadOnlyProbe(Node):
         self.samples = {}
         self.subscriptions_by_topic = {}
         self.edges = {}
+        self.tf_attribution_raw = None
+        self.tf_attribution_received_at = None
         self.tf_cache_drops = 0
         self.tf_message_window = deque(maxlen=1024)
         self.tf_window_drops = 0
@@ -120,7 +124,10 @@ class ReadOnlyProbe(Node):
             if (
                 topic in self.subscriptions_by_topic
                 or len(types) != 1
-                or types[0] not in READ_TYPES
+                or (
+                    types[0] not in READ_TYPES
+                    and not (topic == TF_ATTRIBUTION_TOPIC and types[0] == "std_msgs/msg/String")
+                )
             ):
                 continue
             qos = QoSProfile(depth=20, reliability=ReliabilityPolicy.BEST_EFFORT)
@@ -262,6 +269,10 @@ class ReadOnlyProbe(Node):
 
     def observe(self, topic, message, message_info=None):
         self.samples.setdefault(topic, deque(maxlen=200)).append(time.monotonic())
+        if topic == TF_ATTRIBUTION_TOPIC:
+            self.tf_attribution_raw = message.data
+            self.tf_attribution_received_at = datetime.now(UTC)
+            return
         if hasattr(message, "header"):
             header = message.header
             self.message_frames[topic] = {
@@ -524,6 +535,21 @@ class ReadOnlyProbe(Node):
                 )
                 for p in sources
             )
+        attribution = {"status": "UNAVAILABLE", "completeness": "NOT_ESTABLISHED", "records": []}
+        if self.tf_attribution_raw is not None:
+            try:
+                attribution = parse_tf_window(
+                    self.tf_attribution_raw,
+                    now=datetime.fromisoformat(stamp),
+                    received_at=self.tf_attribution_received_at,
+                )
+            except (ValueError, TypeError, KeyError) as exc:
+                attribution = {
+                    "status": "INVALID",
+                    "completeness": "NOT_ESTABLISHED",
+                    "records": [],
+                    "reason": str(exc),
+                }
         return {
             "schema_version": "rosclaw.ros_probe.v1",
             "captured_at": stamp,
@@ -571,6 +597,7 @@ class ReadOnlyProbe(Node):
                 "localization_quality": localization,
                 "costmap_footprints": self.footprint_observations,
                 "transform_values": list(self.edges.values()),
+                "tf_attribution_window": attribution,
                 "tf_observation_window": {
                     "max_dynamic_receive_age_sec": 5,
                     "max_cached_edges": 1024,

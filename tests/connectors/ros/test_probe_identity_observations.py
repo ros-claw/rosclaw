@@ -22,7 +22,12 @@ def observer():
         for n in c.body
         if isinstance(n, ast.FunctionDef) and n.name == "observe"
     )
-    ns = {"deque": deque, "time": time, "utc_now": lambda: "2026-10-18T02:00:00+00:00"}
+    ns = {
+        "TF_ATTRIBUTION_TOPIC": "/rosclaw_probe/tf_attribution",
+        "deque": deque,
+        "time": time,
+        "utc_now": lambda: "2026-10-18T02:00:00+00:00",
+    }
     exec(compile(ast.Module(body=[helper, method], type_ignores=[]), str(path), "exec"), ns)
     obj = Obj(
         samples={},
