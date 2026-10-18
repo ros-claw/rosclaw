@@ -13,17 +13,20 @@ from benchmarks.ros_expert_ablation.rsk_pilot_protocol import (
     ARMS,
     GATES,
     STRATA,
-    RskPilotProtocolV1,
+    RskPilotProtocolV2,
     allocate_pilot,
     review_pilot_entry,
 )
 
 
 def protocol():
-    return RskPilotProtocolV1(
+    return RskPilotProtocolV2(
         harness_source="a" * 40,
         benchmark_code_sha256=hashlib.sha256(
             Path(implementation.__file__).read_bytes()
+        ).hexdigest(),
+        aci_code_sha256=hashlib.sha256(
+            Path(implementation.__file__).with_name("rsk_physical_aci.py").read_bytes()
         ).hexdigest(),
         model_identity="fixture:same-frozen-model",
         provider_settings_sha256="b" * 64,
@@ -118,12 +121,13 @@ def test_incomplete_strata_and_relaxed_budgets_reject():
     value = protocol().model_dump(mode="json")
     for changed in [
         {"max_model_decisions": 13},
-        {"max_new_worlds_per_episode": 2},
+        {"seeds": [101, 202]},
+        {"max_new_worlds_per_episode": 3},
         {"identical_original_fact_access": False},
         {"cases": value["cases"][:-1]},
     ]:
         with pytest.raises(ValidationError):
-            RskPilotProtocolV1.model_validate({**value, **changed})
+            RskPilotProtocolV2.model_validate({**value, **changed})
 
 
 def test_review_hash_covers_all_returned_fields_including_allocation(tmp_path):
@@ -139,7 +143,7 @@ def test_review_hash_covers_all_returned_fields_including_allocation(tmp_path):
 def test_changed_benchmark_code_pin_rejects_otherwise_valid_gate_reviews(tmp_path):
     value = protocol().model_dump(mode="json")
     value["benchmark_code_sha256"] = "0" * 64
-    frozen = RskPilotProtocolV1.model_validate(value)
+    frozen = RskPilotProtocolV2.model_validate(value)
     assert (
         review_pilot_entry(frozen, evidence(tmp_path, frozen), root=tmp_path)["status"] == "NO_GO"
     )
@@ -148,6 +152,6 @@ def test_changed_benchmark_code_pin_rejects_otherwise_valid_gate_reviews(tmp_pat
 def test_published_schema_matches_closed_protocol():
     schema = (
         Path(__file__).resolve().parents[2]
-        / "docs/reports/ros-expert-harness/RSK/RskPilotProtocolV1.schema.json"
+        / "docs/reports/ros-expert-harness/RSK/RskPilotProtocolV2.schema.json"
     )
-    assert json.loads(schema.read_text()) == RskPilotProtocolV1.model_json_schema()
+    assert json.loads(schema.read_text()) == RskPilotProtocolV2.model_json_schema()

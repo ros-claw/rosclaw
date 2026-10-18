@@ -39,19 +39,22 @@ class PilotCaseV1(Closed):
     evaluation_episode_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
-class RskPilotProtocolV1(Closed):
-    schema_version: Literal["rosclaw.rsk_pilot_protocol.v1"] = "rosclaw.rsk_pilot_protocol.v1"
+class RskPilotProtocolV2(Closed):
+    schema_version: Literal["rosclaw.rsk_pilot_protocol.v2"] = "rosclaw.rsk_pilot_protocol.v2"
     harness_source: str = Field(pattern=r"^[0-9a-f]{40}$")
     benchmark_code_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    aci_code_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     model_identity: str = Field(min_length=1, max_length=128)
     provider_settings_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     memory_policy_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
-    cases: list[PilotCaseV1] = Field(min_length=5, max_length=10)
-    seeds: list[int] = Field(min_length=1, max_length=3)
+    cases: list[PilotCaseV1] = Field(min_length=5, max_length=5)
+    seeds: list[int] = Field(min_length=1, max_length=1)
     allocation_seed: int = Field(ge=0)
     max_model_decisions: int = Field(ge=3, le=12)
     max_read_only_probes: int = Field(ge=1, le=8)
-    max_new_worlds_per_episode: Literal[1] = 1
+    max_new_worlds_per_episode: Literal[2] = 2
+    max_active_probe_worlds: Literal[1] = 1
+    max_validation_worlds: Literal[1] = 1
     max_goals_per_world: Literal[2] = 2
     first_known_valid_proposal_decisions: Literal[3] = 3
     identical_original_fact_access: Literal[True] = True
@@ -78,11 +81,11 @@ class RskPilotProtocolV1(Closed):
         return content_hash("rskpilotprotocol", self.model_dump(mode="json"))
 
 
-def allocate_pilot(protocol: RskPilotProtocolV1) -> list[dict]:
+def allocate_pilot(protocol: RskPilotProtocolV2) -> list[dict]:
     rng = random.Random(protocol.allocation_seed)
     pairs = [(case, seed) for case in protocol.cases for seed in protocol.seeds]
     rng.shuffle(pairs)
-    result = []
+    result: list[dict] = []
     for pair, (case, seed) in enumerate(pairs, 1):
         arms = list(ARMS)
         rng.shuffle(arms)
@@ -109,7 +112,7 @@ def allocate_pilot(protocol: RskPilotProtocolV1) -> list[dict]:
     return result
 
 
-def review_pilot_entry(protocol: RskPilotProtocolV1, evidence: dict, *, root: Path) -> dict:
+def review_pilot_entry(protocol: RskPilotProtocolV2, evidence: dict, *, root: Path) -> dict:
     """Host SHA references gate eligibility; absence/corruption cannot become PASS."""
     if set(evidence) != set(GATES):
         raise ValueError("all four named gate slots required, absent references must be null")
@@ -117,6 +120,11 @@ def review_pilot_entry(protocol: RskPilotProtocolV1, evidence: dict, *, root: Pa
     reasons, checks = [], []
     if hashlib.sha256(Path(__file__).read_bytes()).hexdigest() != protocol.benchmark_code_sha256:
         reasons.append("benchmark implementation differs from frozen protocol SHA")
+    if (
+        hashlib.sha256(Path(__file__).with_name("rsk_physical_aci.py").read_bytes()).hexdigest()
+        != protocol.aci_code_sha256
+    ):
+        reasons.append("typed RSK ACI implementation differs from frozen protocol SHA")
     for name, expected_status in GATES.items():
         ref = evidence[name]
         check = {"gate": name, "passed": False}
@@ -177,7 +185,7 @@ def main():
             raise ValueError("protocol/evidence changed size during read")
         return json.loads(raw)
 
-    protocol = RskPilotProtocolV1.model_validate(bounded(args.protocol))
+    protocol = RskPilotProtocolV2.model_validate(bounded(args.protocol))
     review = review_pilot_entry(protocol, bounded(args.evidence), root=args.root)
     # Allocation is a plan only, not executed episodes or a source of authority.
     with args.output.open("x", encoding="utf-8") as stream:

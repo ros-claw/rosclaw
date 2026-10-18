@@ -25,10 +25,12 @@ policy, harness source and benchmark implementation SHA must be frozen before
 outcomes. Novel cases must be selected after the Harness freeze; existing
 counterfactual development cases are not renamed unseen test cases.
 
-One seed allocates 25 planned episodes. Each model episode permits at most12
-decisions and8 read-only probes; each episode permits at most one independently
-admitted new World and two canonical goals. Known-mechanism first valid proposal
-must be within3 decisions. Allocation creates no authority or actual episodes.
+The pilot fixes five cases and one seed, allocating 25 planned episodes.
+Each model episode permits at most 12 decisions and 8 read-only probes.
+Each episode permits at most one read-only probe World plus one independently
+admitted validation World, with two canonical goals in the validation World.
+The existing typed evaluator separately enforces one probe and one validation.
+Known-mechanism first valid proposal must be within 3 decisions. Allocation creates no authority or actual episodes.
 Changing the implementation, source, split or gate-review bytes invalidates the
 entry proof. A passing entry review only permits a bounded pilot; it never
 authorizes expanding to a formal multi-seed study.
@@ -69,3 +71,27 @@ Use `.venv/bin/python -m benchmarks.ros_expert_ablation.rsk_pilot_protocol
 --protocol FILE --evidence FILE --root ROOT --output NEW_FILE` with
 `PYTHONPATH=src:.`. The command only reviews original files and emits a plan and
 NO_GO/conditional eligibility; it cannot start the pilot.
+
+## Typed model-facing integration
+
+`rsk_physical_aci.py` composes the existing PhysicalACI for the new B/C/E roles
+without changing the older G5 A/B/C meanings. New E may query operator-audited
+cross-Body Memory, insert abstract concepts into context and request a typed
+current repair. No historical record payload, source, evaluator, permit or
+budget can be supplied in model arguments. The current proposal is independently
+recompiled through the existing staging whitelist. Validation remains a separate
+explicit call through the existing host SDK evaluator; no evaluator means no
+execution. B cannot attach an active probe evaluator, C cannot attach Memory,
+and the old G5 Memory operation is disabled in this new facade.
+
+The initial sourceff131f0b v1 was a file-only prototype with one total World and
+no model-facing Memory facade. Its independent CLI smoke originals are retained.
+V2 binds both protocol and ACI implementation SHA and explicitly budgets one
+read-only probe World plus one validation World. No scientific pilot or model
+call used the prototype; its old schema remains historical documentation only.
+
+The new facade provides phase-bound `decision_schema()` and
+`call_model_decision()` for an RSK client. The legacy G5 `run_typed_episode`
+runner is unchanged and does not implement the new E arm. Provider invocation
+and scientific pilot execution remain gated; interface contract tests and
+operator-constructed replay decisions are not LLM results.
