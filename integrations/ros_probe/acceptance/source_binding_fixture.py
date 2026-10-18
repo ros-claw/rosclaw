@@ -495,10 +495,10 @@ def main():
                 argv, stdout=consumer_log, stderr=subprocess.STDOUT, start_new_session=True
             )
             save("costmap-consumer-owned-process.json", process_fact(consumer_witness.pid))
-        if (
-            engineering_capture
-            and engineering_capture["case"] == "rsk_controller_plugin_unavailable"
-        ):
+        if engineering_capture and engineering_capture["case"] in {
+            "rsk_controller_plugin_unavailable",
+            "driver_onboarding",
+        }:
             # Configuration can prevent lifecycle activation itself. Capture
             # source-only raw facts before initialization; never bypass L1 or
             # pretend the inactive stack has been admitted for navigation.
@@ -511,7 +511,7 @@ def main():
                     "initial_pose_setup": "NOT_RUN_PREACTIVATION_RAW_CAPTURE",
                     "L1": "NOT_EVALUATED",
                     "L2": "NOT_RUN",
-                    "reason": "configuration may prevent localization activation",
+                    "reason": "driver-only source or configuration may have no localization to initialize",
                 },
             )
             capture_failure(OUT, engineering_capture, state, spin_until, save)

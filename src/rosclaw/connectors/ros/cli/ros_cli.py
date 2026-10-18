@@ -748,6 +748,22 @@ def add_ros_subparser(subparsers: argparse._SubParsersAction) -> argparse.Argume
         app_parser.add_argument("--output", help="Exclusive new offline JSON artifact")
         app_parser.add_argument("--json", action="store_true")
 
+    bootstrap_parser = ros_subparsers.add_parser(
+        "application-bootstrap", help="Offline driver-only Nav2 proposal; no install or execution"
+    )
+    for flag in (
+        "operational-graph",
+        "snapshot",
+        "urdf",
+        "driver-bringup",
+        "software-template",
+        "component-manifests",
+        "request",
+    ):
+        bootstrap_parser.add_argument("--" + flag, required=True)
+    bootstrap_parser.add_argument("--output", help="Exclusive new offline JSON artifact")
+    bootstrap_parser.add_argument("--json", action="store_true")
+
     case_parser = ros_subparsers.add_parser(
         "engineering-case", help="Read-only engineering dossier from a sealed offline snapshot"
     )
@@ -808,6 +824,8 @@ def add_ros_subparser(subparsers: argparse._SubParsersAction) -> argparse.Argume
 def dispatch_ros_command(args: argparse.Namespace) -> int:
     """Dispatch the selected ``ros`` subcommand."""
     cmd = getattr(args, "ros_command", None)
+    if cmd == "application-bootstrap":
+        return cmd_ros_application_bootstrap(args)
     if cmd in {"application-plan", "application-staging"}:
         return cmd_ros_application(args)
     if cmd in {"intervention-plan", "experiment-result"}:
@@ -926,6 +944,49 @@ def cmd_ros_diagnostic(args: argparse.Namespace) -> int:
         return _maybe_json(args, result)
     except (ValueError, TypeError, KeyError, AttributeError, OSError) as exc:
         return _maybe_json(args, {"ok": False, "action": args.ros_command, "error": str(exc)})
+
+
+def cmd_ros_application_bootstrap(args: argparse.Namespace) -> int:
+    """Bounded originals only; missing Nav2 is a target, never motion authority."""
+    import hashlib
+
+    from rosclaw.connectors.ros.engineering.application_bootstrap import compile_driver_bootstrap
+    from rosclaw.connectors.ros.intelligence import RosSystemModel
+    from rosclaw.connectors.ros.intelligence.graph_contracts import RosOperationalGraphV1
+
+    pins = {}
+
+    def read(path, label):
+        raw = _read_discovery_urdf(path, label)
+        pins[label] = hashlib.sha256(raw).hexdigest()
+        return raw
+
+    try:
+        graph = RosOperationalGraphV1.from_dict(
+            json.loads(read(args.operational_graph, "operational_graph"))
+        )
+        model = RosSystemModel.from_dict(json.loads(read(args.snapshot, "snapshot")))
+        urdf = read(args.urdf, "source_urdf")
+        bringup = json.loads(read(args.driver_bringup, "driver_bringup"))
+        template = json.loads(read(args.software_template, "software_template"))
+        manifests = json.loads(read(args.component_manifests, "component_manifests"))
+        request = json.loads(read(args.request, "request"))
+        plan = compile_driver_bootstrap(graph, model, urdf, bringup, template, manifests, request)
+        result = {
+            "ok": True,
+            "action": args.ros_command,
+            "application_bootstrap": plan,
+            "input_file_sha256": pins,
+            "current_authority": "NONE",
+            "current_l1": "NOT_EVALUATED",
+            "scope": "OFFLINE_DRIVER_ONLY_SIM_PROPOSAL_NOT_DEPLOYMENT_OR_PHYSICAL_ACCEPTANCE",
+        }
+        if args.output:
+            with Path(args.output).open("x", encoding="utf-8") as stream:
+                stream.write(json.dumps(result, indent=2) + "\n")
+        return _maybe_json(args, result)
+    except (ValueError, TypeError, KeyError, AttributeError, OSError, RecursionError) as error:
+        return _maybe_json(args, {"ok": False, "action": args.ros_command, "error": str(error)})
 
 
 def cmd_ros_application(args: argparse.Namespace) -> int:

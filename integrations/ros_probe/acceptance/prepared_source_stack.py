@@ -20,6 +20,26 @@ OUT = Path("/evidence")
 ROOT = Path(__file__).resolve().parent
 
 
+def navigation_stack_enabled(descriptor, settings):
+    start_navigation = descriptor.get("start_navigation_stack", True)
+    if type(start_navigation) is not bool:
+        raise ValueError("explicit boolean navigation bringup required")
+    if not start_navigation:
+        capture = settings.get("engineering_capture", {})
+        if (
+            not Path("/.dockerenv").is_file()
+            or os.environ.get("ROS_LOCALHOST_ONLY") != "1"
+            or capture.get("case") != "driver_onboarding"
+            or capture.get("phase") != "before_repair"
+            or capture.get("run_id") != settings["run_id"]
+            or "governed_sink" not in settings
+        ):
+            raise ValueError("driver-only bringup requires closed isolated unadmitted SDK role")
+    elif settings.get("engineering_capture", {}).get("case") == "driver_onboarding":
+        raise ValueError("driver onboarding cannot start Nav2")
+    return start_navigation
+
+
 def main():
     settings = json.loads(Path("/settings.json").read_text())
     check_prepared_assets("/assets", settings["inventory_sha256"], OUT)
@@ -27,7 +47,13 @@ def main():
         raise ValueError("pinned prepared assets differ from this actual SIM run")
     descriptor = json.loads(Path("/assets/bringup.json").read_text())
     if (
-        set(descriptor) - {"scan_bridge_state", "additional_command_endpoint", "counterfactual_sim"}
+        set(descriptor)
+        - {
+            "scan_bridge_state",
+            "additional_command_endpoint",
+            "counterfactual_sim",
+            "start_navigation_stack",
+        }
         != {
             "schema_version",
             "namespace",
@@ -45,6 +71,7 @@ def main():
         or not descriptor["controllers"]["names"]
     ):
         raise ValueError("closed pinned operator bringup descriptor required")
+    start_navigation = navigation_stack_enabled(descriptor, settings)
     if "counterfactual_sim" in descriptor:
         from simulation_counterfactual_config import counterfactual_clock_parameters
 
@@ -156,8 +183,9 @@ def main():
         if spawner.wait(timeout=45) != 0:
             raise RuntimeError("declared source controllers did not initialize")
         children.remove(spawner)
-        start("nav2", ["ros2", "launch", str(ROOT / "nav2_launch.py")])
-        if Path("/assets/localization-refresh.json").is_file():
+        if start_navigation:
+            start("nav2", ["ros2", "launch", str(ROOT / "nav2_launch.py")])
+        if start_navigation and Path("/assets/localization-refresh.json").is_file():
             if "governed_sink" not in settings:
                 raise ValueError("localization refresh requires explicit governed SIM fixture")
             start(
