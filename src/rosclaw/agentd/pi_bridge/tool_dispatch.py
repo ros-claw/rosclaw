@@ -1056,6 +1056,87 @@ class PiToolDispatcher:
                     f", verification_scope={scope}"
                     f", task_semantic_verification={semantic}；{scope_note}"
                 )
+                # Presentation only: do not re-verify, inspect payloads, or infer
+                # provenance from a filename, role, media type, or ACTIVE state.
+                # Failure tails can contain paths/prompts/private diagnostics;
+                # expose only bounded machine codes and known missing kinds.
+                import re
+
+                directive = outcome.get("repair_directive")
+                failures = directive.get("failures") if isinstance(directive, dict) else None
+                notes: list[str] = []
+                missing = False
+                if isinstance(failures, list):
+                    # Count unparseable entries even alongside parsed codes.
+                    # Never copy legacy human prefixes: they can include private
+                    # filenames, paths or controls. Counts describe entries,
+                    # not inferred causes or distinct unknown categories.
+                    unknown_count = 0
+                    for failure in failures[:8]:
+                        if not isinstance(failure, str):
+                            unknown_count += 1
+                            continue
+                        match = re.match(r"([A-Z][A-Z0-9_]{0,63})(?=:|$)", failure[:128])
+                        if match is None:
+                            unknown_count += 1
+                            continue
+                        code = match.group(1)
+                        label = code
+                        if code == "DELIVERABLE_MISSING":
+                            missing = True
+                            kind_match = re.match(
+                                r"DELIVERABLE_MISSING: required 交付物 ([a-z0-9_]{1,48}) ",
+                                failure[:160],
+                            )
+                            if kind_match and kind_match.group(1) in (
+                                "scene_video",
+                                "preview_animation",
+                                "robot_video",
+                                "data",
+                            ):
+                                label += f"（缺 required kind={kind_match.group(1)} 的交付证据）"
+                        if label not in notes:
+                            notes.append(label)
+                    if notes:
+                        result.summary += "；当前验收缺项/失败：" + "、".join(notes)
+                    elif failures:
+                        result.summary += "；当前失败详情不可安全展示（原因未确认）"
+                    if unknown_count:
+                        result.summary += (
+                            f"；未分类失败诊断={unknown_count} 项（原因未确认；原文不展示）"
+                        )
+                    if len(failures) > 8:
+                        result.summary += "（仅展示前 8 项诊断）"
+                refs = outcome.get("artifact_refs")
+                visible_refs: list[str] = []
+                if isinstance(refs, list):
+                    for ref in refs[:6]:
+                        if not isinstance(ref, dict):
+                            continue
+                        artifact_id = ref.get("artifact_id")
+                        if (
+                            not isinstance(artifact_id, str)
+                            or re.fullmatch(r"art_[A-Za-z0-9_]{1,64}", artifact_id) is None
+                        ):
+                            continue
+                        # Exact command shape only: no shell metacharacters,
+                        # paths, controls, raw metadata, or invented commands.
+                        command = ref.get("open_command")
+                        if command == f"rosclaw artifact open {artifact_id}":
+                            visible_refs.append(command)
+                        else:
+                            visible_refs.append(artifact_id)
+                    if visible_refs:
+                        result.summary += (
+                            "；当前修订已登记 Ref（可按 Ref 访问，非验收通过）："
+                            + "、".join(visible_refs)
+                        )
+                    if len(refs) > 6:
+                        result.summary += "（仅展示前 6 项 Ref）"
+                if missing:
+                    result.summary += (
+                        "；文件登记不等于 required 交付证据满足；当前结果未提供可确认的修复命令"
+                    )
         except Exception:
             # 收尾评估失败不影响工具结果本身（下轮再评估）。
             return
