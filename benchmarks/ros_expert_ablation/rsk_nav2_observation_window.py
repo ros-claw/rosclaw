@@ -162,12 +162,14 @@ def capture_owned_unadmitted_window(
         }
     )
     result = {
-        "schema_version": "rosclaw.rsk_owned_nav2_observation_window.v1",
+        "schema_version": "rosclaw.rsk_owned_nav2_observation_window.v2",
         "source_revision": source_revision,
         "run_id": run_id,
         "requested_operation": operation,
         "native_capture_span_sec": span,
         "host_window_elapsed_sec": elapsed,
+        "host_observed_monotonic_ns_before": before_ns,
+        "host_observed_monotonic_ns_after": after_ns,
         "native_original_file_before": before["file"],
         "native_original_file_after": after["file"],
         "source_body_snapshot_hash": body_snapshot_hash,

@@ -27,6 +27,21 @@ would count as one new physics World, unlike the existing sensor-only provider.
 The existing single shared probe budget and four original pilot attestations
 remain mandatory for eventual C/E dispatch. No such dispatch is added here.
 
-Current tests use synthetic original files and clocks; they are contract
-checks, with zero SDK, ROS, physics or model execution. Frozen-source actual
-owned Nav2 observation acceptance is a separate required step.
+The v2 manifest additionally preserves both host monotonic read timestamps.
+The independent stopped-container reviewer recomputes the original 500ms
+pointer age at each read, checks the original and copied frame hashes, and
+requires the complete original target scope in the replica graph. It checks
+the current stopped container against its original metadata, fixed image,
+resources, mounts, entrypoint, source implementation, URDF, requirements and
+staging. Parent or leaf symlinks, missing sink fields and coerced counters are
+rejected. Before and after graphs share only the new replica's own identity;
+the old case is never renewed. The resulting follow-up remains observational.
+
+The earlier frozen f00c56b7 collector was exercised in one actual source-only
+SDK World, with a 5.600589 second Native interval and zero goals or commands.
+Its v1 manifest did not persist the two host read timestamps, so that original
+is retained as earlier component evidence and cannot pass the v2 reviewer.
+The reviewer requires separate frozen-source v2 actual acceptance. Synthetic
+contract tests start zero SDKs, ROS clients, Worlds or models. Neither the
+earlier actual capture nor a stopped-file review establishes C/E dispatch,
+full pilot entry, causal repair or model performance.
