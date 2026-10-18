@@ -670,7 +670,7 @@ class PracticeCatalog:
         The owner must quiesce producers first. Failed writers remain owned
         and SQLite remains open so shutdown can be retried without data loss.
         """
-        failures = []
+        failures: list[BaseException] = []
         for name in ("_event_writer", "_event_index_writer"):
             writer = getattr(self, name)
             if writer is None:
