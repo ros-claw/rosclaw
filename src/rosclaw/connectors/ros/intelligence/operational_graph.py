@@ -21,6 +21,7 @@ from .graph_contracts import (
     RosOperationalGraphV1,
 )
 from .provenance_edges import freshness, provenance_edge
+from .tf_authority import current_tf_attributions
 
 
 def _id(kind, value):
@@ -490,6 +491,25 @@ def compile_operational_graph(
             )
         authority_groups.setdefault(edge.child, []).append(
             (edge.parent, authority, fact, edge_current)
+        )
+    attributed_groups = {}
+    for index, row, stamp in current_tf_attributions(model, now=now):
+        fact = ref(f"/observations/tf_attribution_window/records/{index}", stamp=stamp)
+        entity("frame", row["parent"], [fact])
+        entity("frame", row["child"], [fact])
+        attributed_groups.setdefault((row["topic"], row["child"]), []).append(
+            (row["parent"], row["publisher_gid"], fact)
+        )
+    for (topic, child), rows in sorted(attributed_groups.items()):
+        conflict = len({r[0] for r in rows}) > 1 or len({r[1] for r in rows}) > 1
+        finding(
+            _id("message_authority", [topic, child]),
+            "tf.observed_message_authorities_per_topic",
+            "VIOLATED" if usable and conflict else "UNKNOWN",
+            "THIS_TF_TOPIC_ONLY_NOT_CROSS_TOPIC_BUFFER_OR_FUTURE_UNIQUENESS",
+            [r[2] for r in rows],
+            [topic, child],
+            [] if conflict else ["complete_source_pinned_consumer_TF_buffer_authority_review"],
         )
     if not authority_groups:
         finding(
