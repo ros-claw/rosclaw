@@ -1,0 +1,71 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "role": {
+      "enum": [
+        "NAV2_PARAMETERS",
+        "BRINGUP_DESCRIPTOR",
+        "BEHAVIOR_TREE",
+        "LAUNCH_REFERENCE",
+        "EXISTING_DRIVER_REFERENCE"
+      ],
+      "title": "Role",
+      "type": "string"
+    },
+    "package": {
+      "pattern": "^[a-z][a-z0-9_]{0,127}$",
+      "title": "Package",
+      "type": "string"
+    },
+    "package_version": {
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "Package Version",
+      "type": "string"
+    },
+    "original_package_path": {
+      "maxLength": 1024,
+      "minLength": 1,
+      "title": "Original Package Path",
+      "type": "string"
+    },
+    "content": {
+      "maxLength": 1000000,
+      "minLength": 1,
+      "title": "Content",
+      "type": "string"
+    },
+    "sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Sha256",
+      "type": "string"
+    },
+    "target_snapshot_hash": {
+      "title": "Target Snapshot Hash",
+      "type": "string"
+    },
+    "source_urdf_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Source Urdf Sha256",
+      "type": "string"
+    },
+    "source_authentication": {
+      "const": "OPERATOR_DECLARED_REUSE_REQUIRES_ORIGINAL_REVIEW",
+      "default": "OPERATOR_DECLARED_REUSE_REQUIRES_ORIGINAL_REVIEW",
+      "title": "Source Authentication",
+      "type": "string"
+    }
+  },
+  "required": [
+    "role",
+    "package",
+    "package_version",
+    "original_package_path",
+    "content",
+    "sha256",
+    "target_snapshot_hash",
+    "source_urdf_sha256"
+  ],
+  "title": "ReusableApplicationArtifactV1",
+  "type": "object"
+}

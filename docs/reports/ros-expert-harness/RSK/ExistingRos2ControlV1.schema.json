@@ -1,0 +1,50 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "command_topic": {
+      "maxLength": 512,
+      "minLength": 2,
+      "title": "Command Topic",
+      "type": "string"
+    },
+    "consumer_node": {
+      "maxLength": 512,
+      "minLength": 2,
+      "title": "Consumer Node",
+      "type": "string"
+    },
+    "message_type": {
+      "enum": [
+        "geometry_msgs/msg/Twist",
+        "geometry_msgs/msg/TwistStamped"
+      ],
+      "title": "Message Type",
+      "type": "string"
+    },
+    "driver_package": {
+      "pattern": "^[a-z][a-z0-9_]{0,127}$",
+      "title": "Driver Package",
+      "type": "string"
+    },
+    "interface_kind": {
+      "const": "EXISTING_ROS2_TOPIC",
+      "default": "EXISTING_ROS2_TOPIC",
+      "title": "Interface Kind",
+      "type": "string"
+    },
+    "declaration": {
+      "const": "OPERATOR_SELECTED_PREREQUISITE_NOT_AUTHORITY",
+      "default": "OPERATOR_SELECTED_PREREQUISITE_NOT_AUTHORITY",
+      "title": "Declaration",
+      "type": "string"
+    }
+  },
+  "required": [
+    "command_topic",
+    "consumer_node",
+    "message_type",
+    "driver_package"
+  ],
+  "title": "ExistingRos2ControlV1",
+  "type": "object"
+}
