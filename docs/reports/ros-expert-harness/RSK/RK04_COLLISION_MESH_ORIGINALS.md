@@ -276,3 +276,16 @@ case and expert replay commands. A compiled reference-based workspace needs
 its original collision document to replay geometry; a digest alone is not the
 original payload or current physical evidence. Existing immutable independent
 physical/age review algorithms are reused with explicit original-byte attachment.
+
+### Atomic observation snapshot verification
+
+The source `a3a0919a` DD150 development After stopped on an atomic snapshot
+metadata race. Its canonical FAILED receipt remains a failed physical trial;
+subsequent offline checks do not promote it. A concurrent local producer
+reproduced delayed rename ctime updates with both zero and one observed links.
+For explicitly declared mutable atomic snapshots only, a ctime-only discrepancy
+now requires a second byte-identical read from the same open descriptor, stable
+final ctime and unchanged identity, size, mtime, mode, owner and group. Link counts
+must be at most one and never increase. Original static files retain strict
+ctime verification. No clock, proof, health or admission result is retried or
+extended. New exact-source physical acceptance is required after this correction.
