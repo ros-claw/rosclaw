@@ -1,0 +1,417 @@
+"""Pure negative controls. Not executed; no SDK imports."""
+import unittest
+from mf02_dds_sync_scenario import validate, capture_check, digest
+import base64
+import copy
+from mf02_dds_sync_scenario import canonical, SCHEMA, COMMON, KEYS, framework_descriptor, framework_link
+
+
+def fixture():
+    """Independent synthetic metadata, NOT CDR decoding or DDS observations.
+
+    Toy GID width 3 is an explicit test-only contract, not an image claim.
+    Queue tables are public expected states, not an ATS reimplementation.
+    """
+    contract = dict(case='Synthetic',nonce='0' * 32,gid_bytes=3,framework=framework_descriptor())
+    rows = []
+    phase, epoch, tick = 'A', 1, 0
+    def emit(event, data):
+        nonlocal tick
+        tick += 1
+        rows.append(dict(schema=SCHEMA,case=contract['case'],nonce=contract['nonce'],phase=phase,epoch=epoch,seq=len(rows),mono=tick,event=event,data=data))
+        return len(rows)-1
+    def cap(name, side, stamp, suffix):
+        f = dict(frame=phase+'/'+str(epoch)+'/'+name,stamp=stamp,point=[float(side),float(epoch),0.25])
+        raw = ('SYNTHETIC_NOT_CDR_'+name+suffix).encode()
+        return dict(fields=f,raw=base64.b64encode(raw).decode(),sha256=digest(raw),object='rx'+phase+name if suffix != 'pub' else 'pub'+phase+name)
+    emit('BOOT',dict(start=0,work_end=20000000000,whole_end=30000000000))
+    entities = [dict(object='syntheticFramework',**framework_descriptor()[0])]
+    emit('FRAMEWORK',dict(entities=entities,association=framework_link(entities,contract)))
+    # name,side,stamp, paired names, post-RX queue names by side
+    table = {
+      'A':[('L',0,1000000000,None,[['L'],[]]),('R',1,1006000000,['L','R'],[[],[]])],
+      'B':[('BL',0,1000000000,None,[['BL'],[]]),('BR',1,1010000000,None,[['BL'],['BR']])],
+      'C':[('L2',0,2000000000,None,[['L2'],[]]),('L1',0,1000000000,None,[['L2','L1'],[]]),('R1',1,1001000000,['L1','R1'],[['L2'],[]]),('R2',1,2001000000,['L2','R2'],[[],[]])],
+      'D':[('OLD',0,1000000000,None,[['OLD'],[]]),('NEW',0,1000000000,None,[['NEW'],[]]),('R',1,1001000000,['NEW','R'],[[],[]])],
+      'E':[('QL',0,1000000000,None,[[],[]]),('QR',1,1001000000,None,[[],['QR']])],
+      'F':[('ALONE',0,1000000000,None,[['ALONE'],[]]),('LATE',1,1001000000,None,[['ALONE'],[]])],
+      'G':[('REC_L',0,3000000000,None,[['REC_L'],[]]),('REC_R',1,3001000000,['REC_L','REC_R'],[[],[]])],
+    }
+    for epoch, (phase, items) in enumerate(table.items(),1):
+        tick = epoch*2000000000
+        end = tick+1200000000
+        pubs = ['p'+phase+'0','p'+phase+'1']
+        subs = ['s'+phase+'0','s'+phase+'1'] + (['probe'] if phase == 'E' else [])
+        topics = ['/mf02_Synthetic_'+contract['nonce']+'/'+v for v in ('left','right')]
+        emit('ENTER',dict(stage='ALLOCATING'))
+        emit('OPEN',dict(owners=['ctx','node','exec'],topics=topics,pubs=pubs,subs=subs,discovery_end=tick+500000000,receive_end=tick+1000000000,timeout_at=end,deadline=tick+1800000000))
+        eps = []
+        spec = [('PUB',0,'BEST_EFFORT' if phase == 'E' else 'RELIABLE'),('PUB',1,'RELIABLE'),('SUB',0,'RELIABLE'),('SUB',1,'RELIABLE')]
+        if phase == 'E':
+            spec.append(('SUB',0,'BEST_EFFORT'))
+        for i,(role,side,qos) in enumerate(spec):
+            eps.append(dict(gid=[epoch,i,1],topic=topics[side],role=role,reliability=qos,type='geometry_msgs/msg/PointStamped'))
+        emit('DISCOVERY',dict(endpoints=eps,compatibility=['ERROR','OK','OK'] if phase == 'E' else ['OK','OK']))
+        rx, stamps, caps = {}, {}, {}
+        pairs = 0
+        def terminal():
+            term = emit('TERMINAL',dict(status='TIMED_OUT' if phase in ('B','F') else 'OBSERVED',pairs=pairs))
+            emit('SYNC',dict(terminal=term,before=tick,completed=tick))
+        for name,side,stamp,pair,queues in items:
+            if name == 'LATE':
+                tick = end
+                terminal()
+                emit('QUARANTINE',dict(connections=0))
+            source = emit('PUB',dict(id=name,side=side,stamp=stamp,capture=cap(name,side,stamp,'pub'),publisher=pubs[side]))
+            probe = phase == 'E' and side == 0
+            caps[name] = cap(name,side,stamp,'rx')
+            rx[name] = emit('RX',dict(id=name,side=side,stamp=stamp,capture=caps[name],subscription=subs[2 if probe else side],source=source,probe=probe))
+            stamps[name] = stamp
+            if pair:
+                emit('PAIR',dict(refs=[rx[n] for n in pair],captures=[cap(n,i,stamps[n],'pair') for i,n in enumerate(pair)]))
+                pairs += 1
+            emit('QUEUE',dict(rx=rx[name],queues=[[[stamps[n],rx[n]] for n in names] for names in queues]))
+        if phase != 'F':
+            if phase in ('B','E'):
+                tick = end
+            terminal()
+        emit('CLOSE',dict(subscriptions=subs,publishers=pubs,connections=0))
+    emit('CLEANUP',dict(executor=True,node=True,context=True))
+    emit('FINAL',dict(status='COMPLETE'))
+    return rows, contract
+
+
+def receipt(rows):
+    return dict(sha256=digest(''.join(canonical(r)+'\n' for r in rows).encode()),before=rows[-1]['mono'],completed=rows[-1]['mono']+1,framework=next(r['data']['association'] for r in rows if r['event']=='FRAMEWORK'))
+
+
+class FullJournalTests(unittest.TestCase):
+    def test_complete_synthetic(self):
+        rows, c = fixture()
+        self.assertEqual(validate(rows,contract=c,receipt=receipt(rows)), 'METADATA_ONLY')
+
+    def test_mutations(self):
+        for event,phase,key,value in [
+            ('PUB','F','id','FOREIGN'), ('PAIR','G','refs',[0,1]),
+            ('RX','A','source',True), ('RX','E','probe',False),
+            ('QUEUE','D','queues',[[],[]]), ('QUEUE','C','rx',0),
+            ('DISCOVERY','E','compatibility',['OK','OK','OK']),
+            ('DISCOVERY','A','endpoints',[]), ('CLEANUP','G','context',False),
+            ('PUB','A','side',True), ('FINAL','G','status','PARTIAL')]:
+            with self.subTest(event=event,phase=phase,key=key):
+                rows,c = fixture()
+                next(r for r in rows if r['event']==event and r['phase']==phase)['data'][key] = value
+                with self.assertRaises(ValueError):
+                    validate(rows,contract=c,receipt=receipt(rows))
+        # The schema/typing mutations above are not semantic coverage.
+        # TargetedProtocolTests separately proves resequenced semantic controls.
+
+    def test_deadlines_identity_hash(self):
+        for mode in ('earlyE','lateFinal','foreign','hash','epoch','nonce','latePair'):
+            rows,c = fixture()
+            if mode == 'earlyE':
+                next(r for r in rows if r['phase']=='E' and r['event']=='TERMINAL')['mono'] -= 100
+            elif mode == 'lateFinal':
+                rows[-1]['mono'] = 30000000001
+            elif mode == 'foreign':
+                for r in rows:
+                    r['case'] = 'Foreign'
+            elif mode == 'hash':
+                next(r for r in rows if r['event']=='RX')['data']['capture']['sha256'] = '0'*64
+            elif mode == 'epoch':
+                next(r for r in rows if r['event']=='PAIR')['epoch'] = 7
+            elif mode == 'nonce':
+                rows[-1]['nonce'] = 'unknown'
+            else:
+                next(r for r in rows if r['event']=='QUARANTINE')['event'] = 'PAIR'
+            with self.subTest(mode=mode), self.assertRaises(ValueError):
+                validate(rows,contract=c,receipt=receipt(rows))
+        rows,c = fixture()
+        r = receipt(rows)
+        r['completed'] = 30000000001
+        with self.assertRaises(ValueError):
+            validate(rows,contract=c,receipt=r)
+
+    def test_early_failure_prefix(self):
+        rows,c = fixture()
+        rows = rows[:4]
+        for event,data in [('ERROR',{'reason':'injected'}),('CLEANUP',dict(executor=False,node=True,context=True)),('FINAL',{'status':'PARTIAL'})]:
+            r = copy.deepcopy(rows[-1])
+            r.update(seq=len(rows),mono=r['mono']+1,event=event,data=data)
+            rows.append(r)
+        self.assertEqual(validate(rows,complete=False,contract=c), 'PARTIAL')
+        rows[-1]['data']['status'] = 'COMPLETE'
+        with self.assertRaises(ValueError):
+            validate(rows,complete=False,contract=c)
+
+def reindex(rows):
+    """Remap surviving references after removal/insertion, never leave stale seq."""
+    mapping = {r['seq']:i for i,r in enumerate(rows) if r['seq'] is not None}
+    for i,r in enumerate(rows):
+        r['seq'] = i
+        d = r['data']
+        if r['event'] == 'RX':
+            d['source'] = mapping[d['source']]
+        elif r['event'] == 'PAIR':
+            d['refs'] = [mapping[v] for v in d['refs']]
+        elif r['event'] == 'QUEUE':
+            d['rx'] = mapping[d['rx']]
+            for side in d['queues']:
+                for entry in side:
+                    entry[1] = mapping[entry[1]]
+        elif r['event'] == 'SYNC':
+            d['terminal'] = mapping[d['terminal']]
+
+
+class TargetedProtocolTests(unittest.TestCase):
+    def structure(self, rows):
+        """Common/schema prerequisites, including complete PAIR/RX captures."""
+        for i,r in enumerate(rows):
+            self.assertEqual(set(r), COMMON)
+            self.assertEqual(r['schema'], SCHEMA)
+            self.assertIs(type(r['seq']), int)
+            self.assertEqual(r['seq'], i)
+            self.assertEqual(set(r['data']), KEYS[r['event']])
+            d = r['data']
+            if r['event'] in ('RX','PUB'):
+                capture_check(d['capture'],d['capture']['fields'])
+            if r['event'] == 'PAIR':
+                self.assertEqual(len(d['refs']),2)
+                self.assertTrue(all(type(v) is int and 0 <= v < i for v in d['refs']))
+                self.assertEqual(len(d['captures']),2)
+                for side,ref in enumerate(d['refs']):
+                    self.assertEqual(rows[ref]['event'],'RX')
+                    source = rows[ref]['data']['capture']
+                    capture_check(d['captures'][side],source['fields'])
+                    self.assertEqual(d['captures'][side]['object'],source['object'])
+
+    def test_semantic_counterexamples(self):
+        for mode,reason in [('missingRX','missing actual RX premise'),
+                            ('missingQUEUE','missing per RX queue'),
+                            ('latePAIR','late/pair refs')]:
+            with self.subTest(mode=mode):
+                rows,c = fixture()
+                self.assertEqual(validate(rows,contract=c,receipt=receipt(rows)),'METADATA_ONLY')
+                if mode == 'missingRX':
+                    # Last B RX has no PAIR/next-PUB barrier. Remove its snapshot
+                    # too: the only unsatisfied terminal premise is BR reception.
+                    target = next(r['seq'] for r in rows if r['event']=='RX' and r['data']['id']=='BR')
+                    rows = [r for r in rows if r['seq'] not in (target,target+1)]
+                    reindex(rows)
+                    stop = next(i for i,r in enumerate(rows) if r['phase']=='B' and r['event']=='TERMINAL')
+                elif mode == 'missingQUEUE':
+                    target = next(r['seq'] for r in rows if r['event']=='QUEUE')
+                    del rows[target]
+                    reindex(rows)
+                    stop = target
+                else:
+                    target = next(i for i,r in enumerate(rows) if r['event']=='RX' and r['data']['id']=='LATE')+1
+                    rx = [r for r in rows[:target] if r['phase']=='F' and r['event']=='RX']
+                    pair = copy.deepcopy(rows[target-1])
+                    pair.update(seq=None,event='PAIR',data=dict(refs=[r['seq'] for r in rx],captures=[copy.deepcopy(r['data']['capture']) for r in rx]))
+                    rows.insert(target,pair)
+                    reindex(rows)
+                    stop = target
+                self.structure(rows)
+                # All earlier semantic premises also pass; failure is at target,
+                # not seq/schema, receipt hash, identity, QoS, or a stale ref.
+                self.assertEqual(validate(rows[:stop],complete=False,contract=c),'PARTIAL')
+                with self.assertRaisesRegex(ValueError,'^'+reason+'$'):
+                    validate(rows,contract=c,receipt=receipt(rows))
+
+    def test_failure_prefix_stages(self):
+        for stage in ('initial','active','between','allocating','cleanup'):
+            rows,c = fixture()
+            if stage == 'initial':
+                rows = rows[:1]
+            elif stage == 'active':
+                rows = rows[:next(i for i,r in enumerate(rows) if r['event']=='DISCOVERY')+1]
+            else:
+                end = next(i for i,r in enumerate(rows) if r['event']=='CLOSE' and r['phase']=='A')+1
+                rows = rows[:end+(stage in ('allocating','cleanup'))]
+            for event,data in [('ERROR',dict(reason='injected '+stage)),
+                               ('CLEANUP',dict(executor=stage!='cleanup',node=True,context=True)),
+                               ('FINAL',dict(status='PARTIAL'))]:
+                r = copy.deepcopy(rows[-1])
+                r.update(seq=len(rows),mono=r['mono']+1,event=event,data=data)
+                rows.append(r)
+            self.structure(rows)
+            self.assertEqual(validate(rows,complete=False,contract=c),'PARTIAL')
+            rows[-1]['data']['status'] = 'COMPLETE'
+            with self.assertRaises(ValueError):
+                validate(rows,complete=False,contract=c)
+        rows,c = fixture()
+        next(r for r in rows if r['event']=='ENTER')['phase'] = 'B'
+        next(r for r in rows if r['event']=='ENTER')['epoch'] = 2
+        with self.assertRaisesRegex(ValueError,'entry order'):
+            validate(rows,contract=c,receipt=receipt(rows))
+
+    def test_static_dynamic_boundary(self):
+        rows,c = fixture()
+        fw = next(r['data'] for r in rows if r['event']=='FRAMEWORK')
+        self.assertNotIn('object',c['framework'][0])
+        fw['entities'][0]['object'] = 'differentFreshProcessObject'
+        with self.assertRaises(ValueError):
+            validate(rows,contract=c,receipt=receipt(rows))
+        fw['association'] = framework_link(fw['entities'],c)
+        # Reassociation is only metadata consistency, never admission or DDS.
+        self.assertEqual(validate(rows,contract=c,receipt=receipt(rows)),'METADATA_ONLY')
+        c['framework'][0]['topic'] = '/unapproved'
+        with self.assertRaises(ValueError):
+            framework_link(fw['entities'],c)
+
+
+class MetadataTests(unittest.TestCase):
+    def test_truncated_complete(self):
+        with self.assertRaises(ValueError):
+            validate([])
+
+    def test_equal_fields_different_raw(self):
+        fields = {'frame':'A/1/L','stamp':1000000000,'point':[0.0,1.0,0.25]}
+        for raw in (b'padding-one',b'padding-two'):
+            capture_check(dict(fields=fields,raw=base64.b64encode(raw).decode(),sha256=digest(raw),object='o1'),fields)
+
+    def test_source_hash(self):
+        with self.assertRaises(ValueError):
+            capture_check(dict(fields={},raw='YQ==',sha256='0'*64,object='o1'),{})
+
+
+# Source-only premise controls: no SDK import, constructor or compatibility mock.
+def qos3_source():
+    from pathlib import Path
+    return Path(__file__).with_name('mf02_dds_sync_scenario.py').read_text(encoding='utf-8')
+
+
+def qos3_calls(source):
+    import ast
+    tree = ast.parse(source)
+    worker = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'run_worker')
+    found = {}
+    for node in ast.walk(worker):
+        if isinstance(node, ast.Assign) and len(node.targets) == 1:
+            target = node.targets[0]
+            if isinstance(target, ast.Name) and target.id in ('reliable', 'best'):
+                if target.id in found:
+                    raise ValueError('duplicate profile binding')
+                found[target.id] = node.value
+    if set(found) != {'reliable', 'best'}:
+        raise ValueError('missing profile binding')
+    return found
+
+
+def qos3_decode(call):
+    """Read a tiny literal AST grammar; records are NOT SDK QoS objects."""
+    import ast
+    if not isinstance(call, ast.Call) or not isinstance(call.func, ast.Name) or call.func.id != 'QoSProfile' or call.args:
+        raise ValueError('direct profile required')
+    def literal(node):
+        if isinstance(node, ast.Constant) and type(node.value) in (int, bool):
+            return node.value
+        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
+            policy, member = node.value.id, node.attr
+            allowed = {'HistoryPolicy': {'KEEP_LAST'},
+                       'ReliabilityPolicy': {'RELIABLE', 'BEST_EFFORT'},
+                       'DurabilityPolicy': {'VOLATILE'},
+                       'LivelinessPolicy': {'AUTOMATIC'}}
+            if member not in allowed.get(policy, set()):
+                raise ValueError('uncertain or unsupported policy')
+            return policy + '.' + member
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == 'Duration' and not node.args and len(node.keywords) == 1:
+            kw = node.keywords[0]
+            if kw.arg == 'nanoseconds' and isinstance(kw.value, ast.Constant) and type(kw.value.value) is int and kw.value.value > 0:
+                return ('Duration', kw.value.value)
+        raise ValueError('nonliteral or default duration')
+    out = {}
+    for kw in call.keywords:
+        if kw.arg is None or kw.arg in out:
+            raise ValueError('splat or duplicate')
+        out[kw.arg] = literal(kw.value)
+    required = {'depth', 'history', 'reliability', 'durability', 'liveliness',
+                'deadline', 'lifespan', 'liveliness_lease_duration',
+                'avoid_ros_namespace_conventions'}
+    if set(out) != required:
+        raise ValueError('incomplete explicit premise')
+    return out
+
+
+class QoS3SourcePremiseTests(unittest.TestCase):
+    def test_constructor_arguments_and_relations(self):
+        profiles = {k: qos3_decode(v) for k, v in qos3_calls(qos3_source()).items()}
+        for name, profile in profiles.items():
+            self.assertIs(type(profile['depth']), int)
+            self.assertEqual(profile['depth'], 8)
+            self.assertEqual(profile['history'], 'HistoryPolicy.KEEP_LAST')
+            self.assertEqual(profile['durability'], 'DurabilityPolicy.VOLATILE')
+            self.assertEqual(profile['liveliness'], 'LivelinessPolicy.AUTOMATIC')
+            self.assertIs(profile['avoid_ros_namespace_conventions'], False)
+            self.assertEqual(profile['reliability'], 'ReliabilityPolicy.' + ('RELIABLE' if name == 'reliable' else 'BEST_EFFORT'))
+            for field in ('deadline', 'lifespan', 'liveliness_lease_duration'):
+                self.assertEqual(profile[field], ('Duration', 60000000000))
+                self.assertGreater(profile[field][1], 30 * 1000000000)
+        left, right = (dict(profiles[n]) for n in ('reliable', 'best'))
+        del left['reliability'], right['reliability']
+        self.assertEqual(left, right)
+        # Equal offered/requested deadline and lease, equal AUTOMATIC kind.
+        # This is a premise assertion, NOT an implementation of RMW compatibility.
+
+    def test_uncertain_and_missing_premises_rejected(self):
+        import ast
+        original = qos3_calls(qos3_source())['reliable']
+        for field, policy in [('history', 'HistoryPolicy'), ('reliability', 'ReliabilityPolicy'),
+                              ('durability', 'DurabilityPolicy'), ('liveliness', 'LivelinessPolicy')]:
+            for member in ('SYSTEM_DEFAULT', 'UNKNOWN', 'BEST_AVAILABLE'):
+                with self.subTest(field=field, member=member):
+                    call = copy.deepcopy(original)
+                    next(k for k in call.keywords if k.arg == field).value = ast.Attribute(value=ast.Name(id=policy, ctx=ast.Load()), attr=member, ctx=ast.Load())
+                    with self.assertRaisesRegex(ValueError, 'uncertain'):
+                        qos3_decode(call)
+        for field in ('liveliness', 'deadline', 'lifespan', 'liveliness_lease_duration', 'avoid_ros_namespace_conventions'):
+            call = copy.deepcopy(original)
+            call.keywords = [k for k in call.keywords if k.arg != field]
+            with self.subTest(missing=field), self.assertRaisesRegex(ValueError, 'incomplete'):
+                qos3_decode(call)
+        for field in ('deadline', 'lifespan', 'liveliness_lease_duration'):
+            for value in (0, -1):
+                call = copy.deepcopy(original)
+                next(k for k in call.keywords if k.arg == field).value = ast.parse('Duration(nanoseconds=' + str(value) + ')', mode='eval').body
+                with self.subTest(field=field, value=value), self.assertRaises(ValueError):
+                    qos3_decode(call)
+
+    def test_only_allowed_source_seams_changed(self):
+        # Restore the two RHS and necessary imports in memory, then compare the
+        # complete original source digest. Stronger than AST equality elsewhere:
+        # oracle, consumption, graph, budgets and every helper must remain intact.
+        import ast
+        source = qos3_source()
+        calls = qos3_calls(source)
+        lines = source.splitlines(keepends=True)
+        for name, call in sorted(calls.items(), key=lambda item: item[1].lineno, reverse=True):
+            self.assertEqual(call.lineno, call.end_lineno)
+            expected = ('QoSProfile(depth=8,history=HistoryPolicy.KEEP_LAST,reliability=ReliabilityPolicy.' +
+                        ('RELIABLE' if name == 'reliable' else 'BEST_EFFORT') + ',durability=DurabilityPolicy.VOLATILE)')
+            i = call.lineno - 1
+            lines[i] = lines[i][:call.col_offset] + expected + lines[i][call.end_col_offset:]
+        restored = ''.join(lines)
+        added_import = '    from rclpy.duration import Duration\n'
+        self.assertEqual(restored.count(added_import), 1)
+        restored = restored.replace(added_import, '', 1)
+        extended = '    from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy, qos_check_compatible, LivelinessPolicy\n'
+        self.assertEqual(restored.count(extended), 1)
+        restored = restored.replace(extended, extended.replace(', LivelinessPolicy', ''), 1)
+        self.assertEqual(digest(restored.encode()), '6fb1156e83872ab5346b1b9bd5119d64e90a6edfd780782abd6b946dab1cc893')
+        # The digest freezes actual producer/consumer paths, not just labels.
+        tree = ast.parse(source)
+        check_calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == 'qos_check_compatible']
+        self.assertEqual([ast.unparse(n) for n in check_calls],
+                         ['qos_check_compatible(pubq[0], reliable)',
+                          'qos_check_compatible(pubq[1], reliable)',
+                          'qos_check_compatible(best, best)'])
+
+    def test_warning_remains_a_rejection(self):
+        for phase, value in [('A', ['WARNING', 'WARNING']),
+                             ('E', ['ERROR', 'WARNING', 'OK']),
+                             ('E', ['OK', 'OK', 'OK'])]:
+            rows, contract = fixture()
+            next(r for r in rows if r['phase'] == phase and r['event'] == 'DISCOVERY')['data']['compatibility'] = value
+            with self.subTest(phase=phase, value=value), self.assertRaisesRegex(ValueError, '^typed value mismatch$'):
+                validate(rows, contract=contract, receipt=receipt(rows))

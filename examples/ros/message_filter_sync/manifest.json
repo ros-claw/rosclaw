@@ -1,0 +1,99 @@
+{
+  "schema": "ROSClaw.MF02.PublicationManifest.v1",
+  "source_author": "ROSClaw Native Agent",
+  "exact_native_source3": {
+    "mf02_dds_sync_scenario.py": {
+      "readable_file": "mf02_dds_sync_scenario.py.txt",
+      "bytes": 33646,
+      "sha256": "030c57cb8e6a90348cda55f61646ee5fca6f51086820b7f048fb71cc37aa8f0c"
+    },
+    "test_mf02_dds_sync_scenario.py": {
+      "readable_file": "test_mf02_dds_sync_scenario.py.txt",
+      "bytes": 23406,
+      "sha256": "30ddb7c9c6ec732bf53188275fb7cf841d7019eb8bb3ca024ed3a3d169d5bf0f"
+    },
+    "MF02_SYNC_PARTIAL_REPAIR.md": {
+      "readable_file": "MF02_SYNC_PARTIAL_REPAIR.md",
+      "bytes": 12939,
+      "sha256": "5b664882b2c5eafe2eb3c5f9da89eaed945bec6aeb84c1a87e35b59dfed86c8c"
+    }
+  },
+  "archives": {
+    "exact_native_source3.tar": {
+      "members": {
+        "mf02_dds_sync_scenario.py": {
+          "bytes": 33646,
+          "sha256": "030c57cb8e6a90348cda55f61646ee5fca6f51086820b7f048fb71cc37aa8f0c"
+        },
+        "test_mf02_dds_sync_scenario.py": {
+          "bytes": 23406,
+          "sha256": "30ddb7c9c6ec732bf53188275fb7cf841d7019eb8bb3ca024ed3a3d169d5bf0f"
+        },
+        "MF02_SYNC_PARTIAL_REPAIR.md": {
+          "bytes": 12939,
+          "sha256": "5b664882b2c5eafe2eb3c5f9da89eaed945bec6aeb84c1a87e35b59dfed86c8c"
+        }
+      }
+    },
+    "minimal_fixture.tar": {
+      "members": {
+        "mf02_dds_sync_scenario.py": {
+          "bytes": 33646,
+          "sha256": "030c57cb8e6a90348cda55f61646ee5fca6f51086820b7f048fb71cc37aa8f0c"
+        },
+        "test_mf02_dds_sync_scenario.py": {
+          "bytes": 23406,
+          "sha256": "30ddb7c9c6ec732bf53188275fb7cf841d7019eb8bb3ca024ed3a3d169d5bf0f"
+        }
+      }
+    }
+  },
+  "files": {
+    "MF02_SYNC_PARTIAL_REPAIR.md": {
+      "bytes": 12939,
+      "sha256": "5b664882b2c5eafe2eb3c5f9da89eaed945bec6aeb84c1a87e35b59dfed86c8c"
+    },
+    "README.md": {
+      "bytes": 4271,
+      "sha256": "20fec45aafffa35dba98f1a6c2799e9c0c7891bae9c865b583d42f0a1ba67dbd"
+    },
+    "bounded_evidence_summary.json": {
+      "bytes": 4589,
+      "sha256": "ec720b9c2796094292e145e1156a47e5d3e194d33cc39914261faaeaf45584d2"
+    },
+    "exact_native_source3.tar": {
+      "bytes": 81920,
+      "sha256": "4ec79f2fd70428a419b5d0ca21617919f5683268e4208739ade426aac1914ae8"
+    },
+    "mf02_dds_sync_scenario.py.txt": {
+      "bytes": 33646,
+      "sha256": "030c57cb8e6a90348cda55f61646ee5fca6f51086820b7f048fb71cc37aa8f0c"
+    },
+    "minimal_fixture.tar": {
+      "bytes": 61440,
+      "sha256": "701052024f3fddc7b7801c7439cce9431456d5b8a7698baad8090fe2248d41e2"
+    },
+    "replay_pure.py": {
+      "bytes": 3837,
+      "sha256": "d4b62592c026ea8e4c0fc88eac09faf9dbd701266cadd904615c54bb9d0c2b9e"
+    },
+    "test_mf02_dds_sync_scenario.py.txt": {
+      "bytes": 23406,
+      "sha256": "30ddb7c9c6ec732bf53188275fb7cf841d7019eb8bb3ca024ed3a3d169d5bf0f"
+    },
+    "verify_publication.py": {
+      "bytes": 4547,
+      "sha256": "f6139b1a8b8a40507bece6d2ec4633eb7de6884954e064de319a23ee4d094ae6"
+    },
+    "ROOT_LOCAL_PORTABLE_DUAL_REPLAY.json": {
+      "bytes": 1398,
+      "sha256": "aeaa3e77ee6689731d9b8f319e7dca416bba0dfa772501e0512ccf172b927dab"
+    }
+  },
+  "claims": {
+    "public_pure_tests": 14,
+    "public_requires_ROS_or_DDS": false,
+    "full_DDS_certificate": false,
+    "original_failures_preserved": true
+  }
+}
