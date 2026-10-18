@@ -509,10 +509,12 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 						+ "an earlier absolute read may refer to a different file.",
 						{ code, occurrences, ...fileDiagnostic(String(params.path), p) });
 				}
-				writeFileSync(p, text.replace(oldText, () => String(params.newText)), "utf-8");
+				const updatedText = text.replace(oldText, () => String(params.newText));
+				const writtenBytes = Buffer.byteLength(updatedText, "utf-8");
+				writeFileSync(p, updatedText, "utf-8");
 				return {
-					content: [{ type: "text" as const, text: `edited ${p}` }],
-					details: { path: p },
+					content: [{ type: "text" as const, text: `edited ${p} (${writtenBytes} UTF-8 bytes written)` }],
+					details: { path: p, writtenBytes },
 				};
 			} catch (err) {
 				return fileFailure(err, String(params.path), p);
