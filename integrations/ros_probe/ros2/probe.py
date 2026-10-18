@@ -226,6 +226,8 @@ class ReadOnlyProbe(Node):
                         "linear.x.max_velocity",
                         "angular.z.max_velocity",
                         "controller_frequency",
+                        "update_frequency",
+                        "publish_frequency",
                         "default_nav_to_pose_bt_xml",
                         "tf_broadcast",
                         "node_names",

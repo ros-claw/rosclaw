@@ -291,3 +291,24 @@ def test_invalid_goal_checker_values_do_not_get_silently_repaired(value):
     }
     with pytest.raises(ValueError):
         compile_driver_bootstrap(*args)
+
+
+def test_explicit_faster_software_publication_is_preserved_without_changing_control_limits():
+    args = list(inputs())
+    limits = copy.deepcopy(args[6]["navigation_limits"])
+    for role in ["local_costmap", "global_costmap"]:
+        args[4][role][role]["ros__parameters"]["publish_frequency"] = 32.0
+    plan = compile_driver_bootstrap(*args)
+    nodes = yaml.safe_load(plan["files"]["nav2.yaml"])[args[6]["namespace"]]
+    for role in ["local_costmap", "global_costmap"]:
+        cm = nodes[role][role]["ros__parameters"]
+        assert cm["publish_frequency"] == 32.0 and cm["update_frequency"] == 20.0
+    assert args[6]["navigation_limits"] == limits
+
+
+@pytest.mark.parametrize("value", [0, -1, True, "fast", 41.0, float("inf"), float("nan")])
+def test_publication_profile_rejects_invalid_or_unbounded_values(value):
+    args = list(inputs())
+    args[4]["global_costmap"]["global_costmap"]["ros__parameters"]["publish_frequency"] = value
+    with pytest.raises(ValueError):
+        compile_driver_bootstrap(*args)

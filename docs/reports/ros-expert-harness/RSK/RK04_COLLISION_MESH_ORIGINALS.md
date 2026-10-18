@@ -177,3 +177,24 @@ There is no snapshot schema or hash change. All cache key/value sizes and entry
 counts are bounded; the legacy path without prepared collision bytes is retained.
 Offline warm historical health cost fell to about 11--12ms on the measured host;
 actual sustained validity remains a separate new-World requirement.
+
+
+## Actual costmap freshness is still mandatory
+
+After encoding optimization, A300 produced actual guarded velocity commands and
+73 published proofs, then the global costmap's original message age plus Native
+capture/processing delay and the unchanged 100ms lookahead exceeded 500ms. The
+original FAILED receipt and zero-speed output remain preserved. Software rates
+are not physical freshness evidence.
+
+The compiler now preserves explicitly requested faster costmap publication up
+to the observed driver-rate ceiling of this bounded software profile; default
+output remains unchanged. Update frequency, geometry, driver limits and all
+health/proof bounds remain unchanged. Readonly Native parameter collection now
+also retains actual update/publication frequencies. New World acceptance must
+check both readbacks and measured original stream ages.
+
+Nav2's tagged [1.3.13 Costmap2DROS source](https://github.com/ros-navigation/navigation2/blob/1.3.13/nav2_costmap_2d/src/costmap_2d_ros.cpp) uses a wall-rate update loop and a
+node-clock publication cycle. This explains why a configured SIM-time frequency
+need not equal measured wall-time delivery; it is not independent authentication
+of the installed binary or a substitute for actual stream measurement.

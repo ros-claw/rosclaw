@@ -436,6 +436,15 @@ def compile_driver_bootstrap(
         if type(params.get(role)) is not dict or type(params[role].get(role)) is not dict:
             raise ValueError("explicit nested Nav2 costmap template required")
         cm = params[role][role]["ros__parameters"]
+        requested_publish = cm.get("publish_frequency", rate / 2)
+        if (
+            type(requested_publish) not in (int, float)
+            or not math.isfinite(requested_publish)
+            or not 0 < requested_publish <= rate
+        ):
+            raise ValueError(
+                "software costmap publication must be positive and within the observed driver-rate profile ceiling"
+            )
         cm.update(
             use_sim_time=True,
             global_frame=map_frame if role == "global_costmap" else odom,
@@ -443,7 +452,7 @@ def compile_driver_bootstrap(
             robot_radius=float(nav_radius),
             footprint="[]",
             update_frequency=float(rate / 2),
-            publish_frequency=float(rate / 2),
+            publish_frequency=float(max(rate / 2, requested_publish)),
         )
         if role == "local_costmap":
             cm.update(width=max(1, math.ceil(radius * 4)), height=max(1, math.ceil(radius * 4)))
