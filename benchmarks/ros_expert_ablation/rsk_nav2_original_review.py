@@ -111,6 +111,40 @@ def _mounts(container):
     return {row["Destination"]: row for row in values}
 
 
+def _check_container_resources(container):
+    host = container["HostConfig"]
+    if (
+        container["Image"] != SDK_IMAGE
+        or host["NetworkMode"] != "none"
+        or host["ReadonlyRootfs"] is not True
+        or host["Privileged"]
+        or host.get("Devices")
+        or host.get("DeviceRequests")
+        or host.get("DeviceCgroupRules")
+        or host.get("CapAdd")
+        or host.get("PidMode") == "host"
+        or host.get("IpcMode") == "host"
+        or host.get("CapDrop") != ["ALL"]
+        or "no-new-privileges" not in host.get("SecurityOpt", [])
+        or os.getuid() == 0
+        or container["Config"]["User"] != f"{os.getuid()}:{os.getgid()}"
+        or not 0 < host["NanoCpus"] <= 6_000_000_000
+        or not 0 < host["Memory"] <= 10 * 1024**3
+        or not 0 < host["PidsLimit"] <= 512
+        or not 0 < host["ShmSize"] <= 512 * 1024**2
+        or container["Config"]["Entrypoint"] != ["bash"]
+        or container["Config"]["Cmd"]
+        != [
+            "-c",
+            "source /opt/ros/jazzy/setup.bash && source /ws/install/setup.bash && "
+            "export PYTHONPATH=/repo/src:/repo/integrations/ros_probe/acceptance:"
+            "$PYTHONPATH && python3 /repo/integrations/ros_probe/acceptance/"
+            "source_binding_fixture.py",
+        ]
+    ):
+        raise ValueError("fixed isolated bounded non-root SDK resources required")
+
+
 def review_stopped_owned_nav2_window(
     world,
     *,
@@ -190,35 +224,8 @@ def review_stopped_owned_nav2_window(
     ):
         raise ValueError("same successful stopped owned SDK container required")
     for container in [created, stopped]:
-        host = container["HostConfig"]
+        _check_container_resources(container)
         mounts = _mounts(container)
-        if (
-            container["Image"] != SDK_IMAGE
-            or host["NetworkMode"] != "none"
-            or host["ReadonlyRootfs"] is not True
-            or host["Privileged"]
-            or host.get("Devices")
-            or host.get("DeviceRequests")
-            or host.get("PidMode") == "host"
-            or host.get("IpcMode") == "host"
-            or host.get("CapDrop") != ["ALL"]
-            or "no-new-privileges" not in host.get("SecurityOpt", [])
-            or container["Config"]["User"] in {"", "0", "0:0", "root"}
-            or not 0 < host["NanoCpus"] <= 6_000_000_000
-            or not 0 < host["Memory"] <= 10 * 1024**3
-            or not 0 < host["PidsLimit"] <= 512
-            or not 0 < host["ShmSize"] <= 512 * 1024**2
-            or container["Config"]["Entrypoint"] != ["bash"]
-            or container["Config"]["Cmd"]
-            != [
-                "-c",
-                "source /opt/ros/jazzy/setup.bash && source /ws/install/setup.bash && "
-                "export PYTHONPATH=/repo/src:/repo/integrations/ros_probe/acceptance:"
-                "$PYTHONPATH && python3 /repo/integrations/ros_probe/acceptance/"
-                "source_binding_fixture.py",
-            ]
-        ):
-            raise ValueError("fixed isolated bounded non-root SDK resources required")
         for target, source, writable in [
             ("/repo", worktree, False),
             ("/assets", world / "assets", False),
@@ -226,7 +233,11 @@ def review_stopped_owned_nav2_window(
             ("/evidence", world / "execution", True),
         ]:
             mount = mounts.get(target, {})
-            if mount.get("Source") != str(source) or mount.get("RW") is not writable:
+            if (
+                mount.get("Type") != "bind"
+                or mount.get("Source") != str(source)
+                or mount.get("RW") is not writable
+            ):
                 raise ValueError("SDK mounts differ from declared source/assets/evidence")
         for mount in container["Mounts"]:
             if mount.get("RW") is True and mount["Destination"] != "/evidence":
@@ -236,6 +247,14 @@ def review_stopped_owned_nav2_window(
             for value in ["ROS_LOCALHOST_ONLY=1", "RMW_IMPLEMENTATION=rmw_cyclonedds_cpp"]
         ):
             raise ValueError("fixed isolated original RMW required")
+    if subprocess.check_output(
+        ["git", "diff", capture_source, "--", "src", "integrations"], cwd=worktree, timeout=15
+    ) or subprocess.check_output(
+        ["git", "ls-files", "--others", "--exclude-standard", "--", "src", "integrations"],
+        cwd=worktree,
+        timeout=15,
+    ):
+        raise ValueError("SDK/Core source tree differs from exact original capture revision")
     for name in [
         "benchmarks/ros_expert_ablation/rsk_nav2_observation_window.py",
         "integrations/ros_probe/ros2/probe.py",

@@ -2,10 +2,12 @@
 
 import copy
 import json
+import os
 
 import pytest
 
 from benchmarks.ros_expert_ablation.rsk_nav2_original_review import (
+    _check_container_resources,
     _check_pointer,
     _check_sink,
     _mounts,
@@ -175,3 +177,83 @@ def test_read_time_must_prove_original_pointer_within_500ms(observed):
     window["host_observed_monotonic_ns_before"] = observed
     with pytest.raises(ValueError, match="pointer identity"):
         _check_pointer(pointer, native, window, "before")
+
+
+def container():
+    return {
+        "Image": "sha256:51ffb0e0aeb391f0efbef3013c7fc83586794c222b233e3dea688f3015ef1c6b",
+        "HostConfig": {
+            "NetworkMode": "none",
+            "ReadonlyRootfs": True,
+            "Privileged": False,
+            "CapDrop": ["ALL"],
+            "SecurityOpt": ["no-new-privileges"],
+            "NanoCpus": 6_000_000_000,
+            "Memory": 10 * 1024**3,
+            "PidsLimit": 512,
+            "ShmSize": 512 * 1024**2,
+        },
+        "Config": {
+            "User": f"{os.getuid()}:{os.getgid()}",
+            "Entrypoint": ["bash"],
+            "Cmd": [
+                "-c",
+                "source /opt/ros/jazzy/setup.bash && source /ws/install/setup.bash && "
+                "export PYTHONPATH=/repo/src:/repo/integrations/ros_probe/acceptance:"
+                "$PYTHONPATH && python3 /repo/integrations/ros_probe/acceptance/"
+                "source_binding_fixture.py",
+            ],
+        },
+    }
+
+
+def test_fixed_sdk_resources_accepted():
+    _check_container_resources(container())
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("NetworkMode", "host"),
+        ("ReadonlyRootfs", False),
+        ("Privileged", True),
+        ("Devices", [{"PathOnHost": "/dev/fake"}]),
+        ("DeviceRequests", [{"Count": -1}]),
+        ("DeviceCgroupRules", ["c *:* rwm"]),
+        ("CapAdd", ["SYS_ADMIN"]),
+        ("PidMode", "host"),
+        ("IpcMode", "host"),
+        ("CapDrop", []),
+        ("SecurityOpt", []),
+        ("NanoCpus", 0),
+        ("NanoCpus", 6_000_000_001),
+        ("Memory", 0),
+        ("Memory", 10 * 1024**3 + 1),
+        ("PidsLimit", -1),
+        ("PidsLimit", 513),
+        ("ShmSize", 0),
+        ("ShmSize", 512 * 1024**2 + 1),
+    ],
+)
+def test_added_privilege_devices_and_unbounded_resources_rejected(field, value):
+    original = container()
+    original["HostConfig"][field] = value
+    with pytest.raises(ValueError, match="non-root SDK resources"):
+        _check_container_resources(original)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("User", "0:1000"),
+        ("User", "root"),
+        ("User", ""),
+        ("Entrypoint", ["sh"]),
+        ("Cmd", ["-c", "arbitrary-command"]),
+    ],
+)
+def test_owner_uid_and_closed_entrypoint_required(field, value):
+    original = container()
+    original["Config"][field] = value
+    with pytest.raises(ValueError, match="non-root SDK resources"):
+        _check_container_resources(original)
