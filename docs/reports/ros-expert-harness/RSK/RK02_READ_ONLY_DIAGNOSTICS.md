@@ -27,6 +27,11 @@ policies only, not delivery or complete RMW compatibility. Clock disagreement
 covers observed nodes only. TF ages respect declared future tolerances. Missing
 attribution never establishes unique authority. Several explanations can be
 supported together; eliminating one does not prove the remaining one.
+Clock findings require each original per-node parameter value to agree with its
+projection and its own aware readback timestamp to be within 500 ms. Simulated
+clock receive age includes elapsed capture time. Old v1 graphs with envelope-only
+clock provenance remain UNKNOWN in the hypothesis engine and need new evidence;
+they cannot silently inherit the stronger clock checks.
 
 `assess_diagnostic_followup(experiment, before, after, now=...)` verifies the
 original deterministic proposal, new snapshot, newer capture, budget, source

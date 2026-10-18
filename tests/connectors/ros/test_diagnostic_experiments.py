@@ -19,8 +19,11 @@ from tests.connectors.ros.test_operational_graph_contracts import NOW, graph, na
 def capture(*, stamp=NOW, qos=True, gap=True, mixed=False):
     m, u, r = native_fixture()
     m.captured_at = stamp
+    for node in m.observations["node_use_sim_time"]:
+        m.observations["parameter_captured_at"][node] = stamp.isoformat()
     m.completeness["time"] = True
     m.observations["node_use_sim_time"]["/sample/costmap"] = not mixed
+    m.observations["node_parameters"]["/sample/costmap"]["use_sim_time"] = not mixed
     m.qos["endpoints"][0]["reliability"] = "BEST_EFFORT" if qos else "RELIABLE"
     for s in m.signals:
         s.captured_at = stamp
@@ -175,6 +178,8 @@ def test_same_tf_symptom_time_conflict_then_attributed_authority_conflict():
     def tf_capture(stamp, *, duplicate=False):
         m, u, r = native_fixture()
         m.captured_at = stamp
+        for node in m.observations["node_use_sim_time"]:
+            m.observations["parameter_captured_at"][node] = stamp.isoformat()
         m.completeness["time"] = True
         for e in m.transforms:
             e.captured_at = stamp

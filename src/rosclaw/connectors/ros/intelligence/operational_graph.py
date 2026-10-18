@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from collections import Counter
 from datetime import datetime
 
@@ -312,27 +313,78 @@ def compile_operational_graph(
     )
 
     domains = model.observations.get("node_use_sim_time", {})
+    if type(domains) is dict and len(domains) > 1024:
+        raise ValueError("bounded per-node clock domain mapping required")
     domain_values = list(domains.values()) if type(domains) is dict else []
     resolved = bool(domain_values) and all(type(v) is bool for v in domain_values)
     aligned = resolved and len(set(domain_values)) == 1
     clock_domain = (
         "ROS_SIM" if aligned and domain_values[0] else "ROS_SYSTEM" if aligned else "UNKNOWN"
     )
-    domain_ref = ref("/observations")
-    clock_current = usable and model.completeness.get("time") is True
+    domain_refs = (
+        [ref("/observations/node_use_sim_time")]
+        if "node_use_sim_time" in model.observations
+        else [ref("/observations")]
+    )
+    parameter_stamps = model.observations.get("parameter_captured_at", {})
+    parameter_values = model.observations.get("node_parameters", {})
+    if type(parameter_stamps) is not dict or len(parameter_stamps) > 1024:
+        raise ValueError("bounded per-node parameter capture times required")
+    domain_current = usable and model.completeness.get("time") is True and resolved
+    for node in domains if type(domains) is dict else []:
+        if not isinstance(node, str) or not 0 < len(node) <= 512:
+            raise ValueError("bounded clock node names required")
+        raw_stamp = parameter_stamps.get(node)
+        values = parameter_values.get(node, {}) if type(parameter_values) is dict else {}
+        if (
+            type(values) is not dict
+            or type(values.get("use_sim_time")) is not bool
+            or values["use_sim_time"] is not domains[node]
+        ):
+            domain_current = False
+        try:
+            stamp = datetime.fromisoformat(raw_stamp) if isinstance(raw_stamp, str) else None
+        except ValueError:
+            stamp = None
+        if stamp is None or stamp.tzinfo is None:
+            domain_current = False
+            stamp = model.captured_at  # identifies the value, not a fresh RPC claim
+        elif freshness(stamp, now, max_age) != "FRESH":
+            domain_current = False
+        pointer_node = node.replace("~", "~0").replace("/", "~1")
+        domain_refs.append(ref("/observations/node_use_sim_time/" + pointer_node, stamp=stamp))
+        if type(parameter_values) is dict and node in parameter_values:
+            domain_refs.append(ref("/observations/node_parameters/" + pointer_node, stamp=stamp))
+    if "parameter_captured_at" in model.observations:
+        domain_refs.append(ref("/observations/parameter_captured_at"))
+    declared_clock_domain = clock_domain
+    clock_refs = list(domain_refs)
+    receive_age = model.observations.get("clock_last_receive_age_ms")
+    if "clock_last_receive_age_ms" in model.observations:
+        clock_refs.append(ref("/observations/clock_last_receive_age_ms"))
+    if "clock_advancing" in model.observations:
+        clock_refs.append(ref("/observations/clock_advancing"))
+    clock_current = domain_current and (
+        declared_clock_domain != "ROS_SIM"
+        or type(receive_age) in (int, float)
+        and math.isfinite(receive_age)
+        and 0 <= receive_age + (now - model.captured_at).total_seconds() * 1000 <= max_age
+    )
+    if not clock_current:
+        clock_domain = "UNKNOWN"
     clock_state = "SATISFIED" if aligned else "VIOLATED" if resolved and not aligned else "UNKNOWN"
     finding(
         "OP-TIME-DOMAINS",
         "time.observed_node_clock_domains_agree",
-        clock_state if clock_current else "UNKNOWN",
+        clock_state if domain_current else "UNKNOWN",
         "OBSERVED_NODES_ONLY_NOT_GLOBAL_CLOCK_SYNCHRONIZATION",
-        [domain_ref],
+        domain_refs,
         sorted(domains) if type(domains) is dict else [],
         []
-        if aligned and clock_current
+        if aligned and domain_current
         else ["same_capture_per_node_use_sim_time_ROS_clock_and_steady_receive_window"],
     )
-    if clock_domain == "ROS_SIM":
+    if declared_clock_domain == "ROS_SIM":
         advancing = model.observations.get("clock_advancing")
         finding(
             "OP-CLOCK-PROGRESS",
@@ -343,7 +395,7 @@ def compile_operational_graph(
             if clock_current and advancing is False
             else "UNKNOWN",
             "BOUNDED_OBSERVATION_WINDOW_NOT_FUTURE_GUARANTEE",
-            [domain_ref],
+            clock_refs,
             ["observed_ROS_clock"],
             ["ROS_clock_samples_with_independent_steady_receive_times"]
             if advancing is not True
@@ -367,7 +419,7 @@ def compile_operational_graph(
                 authority=authority,
                 age_ms=edge.age_ms,
                 clock_domain=clock_domain,
-                evidence_refs=[fact],
+                evidence_refs=[fact, *clock_refs],
             )
         )
         edge_current = (
@@ -393,7 +445,7 @@ def compile_operational_graph(
                 "tf.observed_dynamic_time_window",
                 time_status,
                 "DYNAMIC_ROS_CLOCK_AGE_WITH_DECLARED_FUTURE_TOLERANCE",
-                [fact, domain_ref],
+                [fact, *clock_refs],
                 [edge.parent, edge.child],
                 []
                 if time_status != "UNKNOWN"
@@ -461,7 +513,7 @@ def compile_operational_graph(
                 if clock_current and provenance[fact].freshness == "FRESH"
                 else "UNKNOWN",
                 message_age_ms=header.get("stamp_age_ms"),
-                evidence_refs=[fact],
+                evidence_refs=[fact, *clock_refs],
             )
         )
     for i, lifecycle in enumerate(model.lifecycle):

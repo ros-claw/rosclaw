@@ -52,6 +52,24 @@ def _current_refs(graph, refs, not_before):
     )
 
 
+def _clock_readbacks_linked(graph, finding):
+    """Older v1 graphs have only envelope-level clock refs: do not upgrade them."""
+    clocks = next((f for f in graph.findings if f.id == "OP-TIME-DOMAINS"), None)
+    if clocks is None or not clocks.targets:
+        return False
+    paths = {graph.provenance[r].pointer for r in finding.evidence_refs}
+    required = {"/observations/parameter_captured_at"}
+    for node in clocks.targets:
+        encoded = node.replace("~", "~0").replace("/", "~1")
+        required.update(
+            {
+                "/observations/node_use_sim_time/" + encoded,
+                "/observations/node_parameters/" + encoded,
+            }
+        )
+    return required <= paths
+
+
 def evaluate_hypothesis(hypothesis, graph, *, not_before: datetime | None = None):
     """Re-evaluate a narrow predicate; incomplete negative coverage stays UNKNOWN."""
     predicate = hypothesis.predicate
@@ -88,7 +106,15 @@ def evaluate_hypothesis(hypothesis, graph, *, not_before: datetime | None = None
             if f.invariant == invariant
             and (predicate == "CLOCK_CONFLICT" or set(f.targets) & set(hypothesis.targets))
         ]
-        current = [f for f in rows if _current_refs(graph, f.evidence_refs, not_before)]
+        current = [
+            f
+            for f in rows
+            if _current_refs(graph, f.evidence_refs, not_before)
+            and (
+                predicate not in {"CLOCK_CONFLICT", "TF_TIME_CONFLICT"}
+                or _clock_readbacks_linked(graph, f)
+            )
+        ]
         # One witnessed incompatibility suffices; a negative requires all observed
         # pairs/edges in this target scope resolved. Still no global coverage claim.
         for finding in current:

@@ -24,6 +24,9 @@ from tests.connectors.ros.test_engineering_case_compiler import NOW, setup
 def native_fixture():
     m, u, r = setup()
     m.observations["node_use_sim_time"] = {"/sample/lidar": True, "/sample/costmap": True}
+    for node in m.observations["node_use_sim_time"]:
+        m.observations["parameter_captured_at"][node] = NOW.isoformat()
+        m.observations["node_parameters"][node] = {"use_sim_time": True}
     m.qos["endpoints"] = [
         {
             "topic": "/sample/scan2",
@@ -155,6 +158,7 @@ def test_tf_time_window_is_not_tf_connectivity(age, status):
 def test_mixed_missing_stale_clocks_cannot_become_good_tf_time():
     m, u, r = native_fixture()
     m.observations["node_use_sim_time"]["/sample/costmap"] = False
+    m.observations["node_parameters"]["/sample/costmap"]["use_sim_time"] = False
     g = graph(m, u, r)
     assert next(f for f in g.findings if f.id == "OP-TIME-DOMAINS").status == "VIOLATED"
     assert all(
