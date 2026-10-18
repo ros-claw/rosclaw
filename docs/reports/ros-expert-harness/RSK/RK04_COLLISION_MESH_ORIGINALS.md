@@ -230,3 +230,16 @@ renewed. Default native publication remains raw; only owned mesh SDK stacks
 select the optional transport. Production freshness, source, proof, status and
 lookahead limits remain unchanged. Corrupt, oversized, truncated, concatenated,
 noncanonical or nested envelopes fail closed. No A300 completion is claimed.
+
+The lossless-wire A300 World `18f1beef0a` on source `4e084ec4` has one
+canonical COMPLETED position task (1.73 cm error, zero contacts, stop verified)
+and a FAILED yaw task. Transport alone is insufficient. The original monitor
+still closed on an old snapshot's global-costmap age. The next original Native
+capture already existed during that decision. Collection now reselects at most
+one monotonically newer original pointer before making its health decision,
+rechecks its exact SHA/time and collision resources, then applies all unchanged
+age/proof/lookahead checks. This is not a retry after UNKNOWN: any actual failed
+health decision remains permanently latched. Rollback, same-index edits and
+inconsistent receive/capture clocks fail closed. Both original pointers appear
+in successful refresh traces. This development change is not yet a physical
+acceptance or generality claim.

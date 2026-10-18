@@ -11,6 +11,7 @@ import json
 import re
 import stat
 import time
+from datetime import datetime
 from pathlib import Path
 
 from simulation_atomic_read import read_bounded_regular as _read
@@ -176,6 +177,27 @@ class CurrentSimulationFacts:
             guard_inputs=e["guard_inputs"],
         )
 
+    def _load_native_model(self, pointer):
+        raw = _read(self.directory / pointer["file"], 10_000_000)
+        native = json.loads(raw)
+        if _sha(raw) != pointer["sha256"] or native["captured_at"] != pointer["captured_at"]:
+            raise ValueError("original Native SHA or capture timestamp changed")
+        if self._cached_native_sha256 != pointer["sha256"]:
+            self._cached_model = build_system_model(
+                RosGraphSnapshot.from_dict(
+                    {
+                        "ros_version": "ros2",
+                        "distro": "jazzy",
+                        "endpoint": "fixture://actual-gazebo-source",
+                        "captured_at": native["captured_at"],
+                        **native["graph"],
+                    }
+                ),
+                native=native,
+            )
+            self._cached_native_sha256 = pointer["sha256"]
+        return self._cached_model
+
     def collect(self, *, freshness_horizon_ms=0):
         if type(freshness_horizon_ms) is not int or not 0 <= freshness_horizon_ms <= 100:
             raise ValueError("bounded independent freshness lookahead <=100ms required")
@@ -205,25 +227,7 @@ class CurrentSimulationFacts:
                 if _sha(_read(self.assets_directory / name, limit)) != self.enrollment[key]:
                     raise ValueError("enrolled original URDF/World bytes changed")
             pointer, pointer_read_ns = read_current_native_pointer(self.directory)
-            raw = _read(self.directory / pointer["file"], 10_000_000)
-            native = json.loads(raw)
-            if _sha(raw) != pointer["sha256"] or native["captured_at"] != pointer["captured_at"]:
-                raise ValueError("original Native SHA or capture timestamp changed")
-            if self._cached_native_sha256 != pointer["sha256"]:
-                self._cached_model = build_system_model(
-                    RosGraphSnapshot.from_dict(
-                        {
-                            "ros_version": "ros2",
-                            "distro": "jazzy",
-                            "endpoint": "fixture://actual-gazebo-source",
-                            "captured_at": native["captured_at"],
-                            **native["graph"],
-                        }
-                    ),
-                    native=native,
-                )
-                self._cached_native_sha256 = pointer["sha256"]
-            model = self._cached_model
+            model = self._load_native_model(pointer)
             collision_guard = getattr(self, "collision_resource_guard", None)
             if collision_guard is not None:
                 collision_guard.verify(model.observations)
@@ -239,6 +243,25 @@ class CurrentSimulationFacts:
                     position_tolerance=self.mesh_kinematics_precision["position_m"],
                     rotation_tolerance=self.mesh_kinematics_precision["rotation_matrix"],
                 )
+            # Select at most one newly arrived original BEFORE the health decision.
+            # No stale decision is retried or accepted; all current checks below
+            # still apply, and a failed decision remains permanently latched.
+            latest, latest_read_ns = read_current_native_pointer(self.directory)
+            superseded_pointer = None
+            if latest != pointer:
+                if (
+                    int(latest["file"].removeprefix("original-native-").removesuffix(".json"))
+                    <= int(pointer["file"].removeprefix("original-native-").removesuffix(".json"))
+                    or latest["received_monotonic_ns"] <= pointer["received_monotonic_ns"]
+                    or datetime.fromisoformat(latest["captured_at"])
+                    < datetime.fromisoformat(pointer["captured_at"])
+                ):
+                    raise ValueError("current Native pointer changed inconsistently or rolled back")
+                superseded_pointer = pointer
+                pointer, pointer_read_ns = latest, latest_read_ns
+                model = self._load_native_model(pointer)
+                if collision_guard is not None:
+                    collision_guard.verify(model.observations)
             # Evaluate the stricter age margin once. This does not predict
             # future state; actual review time and age-evaluation time remain
             # distinct in the original report. No second Body/model review is
@@ -277,6 +300,8 @@ class CurrentSimulationFacts:
                 "native_pointer": pointer,
                 "native_pointer_read_ns": pointer_read_ns,
             }
+            if superseded_pointer is not None:
+                result["superseded_native_pointer_before_health"] = superseded_pointer
             if mesh_kinematics is not None:
                 result["source_joint_kinematics"] = mesh_kinematics
             if freshness_horizon_ms:
