@@ -6,6 +6,10 @@ from benchmarks.ros_expert_ablation.aci_context import encoded
 from benchmarks.ros_expert_ablation.aci_tool_guide import build_tool_guide
 
 RSK_DESCRIPTIONS = {
+    "ros_engineer.propose_application_bootstrap": (
+        "REGISTER_FOUR_FILE_APPLICATION_ONLY",
+        "Compile a planned navigation application from the host-pinned current driver observations, original URDF, installed component manifests and explicit Body limits. Missing drivers/dependencies abstain. Four configuration files and rollback are proposals only; validate_proposal requires the existing fresh-World SDK and independent canonical proof.",
+    ),
     "ros_engineer.query_cross_body_memory": (
         "READ_ONLY_HISTORICAL_CONCEPTS_NO_AUTHORITY",
         "Query the frozen provenance-filtered Memory and insert returned abstract concepts into context. Historical parameters and permissions do not transfer. Starts no World.",

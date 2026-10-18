@@ -288,6 +288,11 @@ def run_rsk_typed_episode(
                 break
             context.revision = turn
             frame, schema = context.frame(), aci.decision_schema()
+            project_application = getattr(aci, "context_projection", None)
+            if callable(project_application):
+                frame["application_onboarding"] = project_application()
+                payload = {key: value for key, value in frame.items() if key != "state_hash"}
+                frame["state_hash"] = content_hash("rskstate", payload)
             prompt = (
                 INSTRUCTIONS
                 + "\nTASK\n"

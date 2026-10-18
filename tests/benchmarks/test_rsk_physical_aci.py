@@ -182,3 +182,69 @@ def test_no_go_original_entry_cannot_attach_callback_even_with_valid_protocol(tm
             pilot_evidence=dict.fromkeys(GATES),
             evidence_root=tmp_path,
         )
+
+
+def test_eligible_gate_cannot_attach_sdk_from_another_harness_source(tmp_path):
+    from tests.benchmarks.test_rsk_pilot_protocol import evidence, protocol
+
+    query, _, _, aci, case = query_fixture(tmp_path)
+    base = PhysicalACI(
+        case,
+        aci.model,
+        aci.tools,
+        max_validations=1,
+        evaluator=lambda *a, **kw: pytest.fail("not called"),
+        operator_source="b" * 40,
+        original_run_id="f" * 32,
+    )
+    p = protocol()
+    with pytest.raises(ValueError, match="operator source differs"):
+        RskPhysicalACI(
+            base,
+            arm="B",
+            pilot_protocol=p,
+            pilot_evidence=evidence(tmp_path, p),
+            evidence_root=tmp_path,
+        )
+
+
+def test_repair_validation_cannot_promote_reused_read_only_probe_world(tmp_path):
+    from tests.benchmarks.test_rsk_application_aci import complete_result
+    from tests.benchmarks.test_rsk_pilot_protocol import evidence, protocol
+
+    query, _, _, aci, case = query_fixture(tmp_path)
+    aci.tools.minimum_radius_m = case.derived_documents["navigation_observation_review"][
+        "candidate"
+    ]["geometry"]["physical_radius_m"]
+    base = PhysicalACI(
+        case,
+        aci.model,
+        aci.tools,
+        max_validations=1,
+        evaluator=lambda *a, **kw: complete_result(),
+        operator_source="b" * 40,
+        original_run_id="f" * 32,
+    )
+    p = protocol().model_copy(update={"harness_source": "b" * 40})
+    typed = RskPhysicalACI(
+        base,
+        arm="B",
+        pilot_protocol=p,
+        pilot_evidence=evidence(tmp_path, p),
+        evidence_root=tmp_path,
+    )
+    base.probe_results = [{"fresh_probe_performed": True, "new_world_run": "c" * 32}]
+    proposed = request(typed, "propose_repair", repair={"kind": "enable_localization_tf"})
+    result = typed.call(
+        {
+            "operation": "ros_engineer.validate_proposal",
+            "arguments": {
+                "case_hash": case.case_hash,
+                "proposal_id": proposed["proposal"]["proposal_id"],
+            },
+        },
+        remaining_sec=10,
+    )
+    assert result["verification"]["accepted_success"] is False
+    assert result["verification"]["acceptance_status"] == "REJECTED_REUSED_READ_ONLY_PROBE_WORLD"
+    assert not next(iter(base.results.values()))["accepted_success"]

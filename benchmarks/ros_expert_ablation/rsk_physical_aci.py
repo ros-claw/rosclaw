@@ -77,6 +77,8 @@ class RskPhysicalACI:
             entry = review_pilot_entry(pilot_protocol, pilot_evidence, root=evidence_root)
             if entry["status"] != "ELIGIBLE_FOR_BOUNDED_PILOT_ONLY":
                 raise ValueError("RSK pilot entry is NO_GO; SDK/probe callbacks disabled")
+            if base.operator_source != pilot_protocol.harness_source:
+                raise ValueError("SDK/probe operator source differs from frozen harness")
             self.pilot_entry_review = entry
         self.base = base
         self.arm = arm
@@ -239,5 +241,20 @@ class RskPhysicalACI:
                     "error": str(exc),
                     "current_authority": "NONE",
                 }
+        if operation == "ros_engineer.validate_proposal" and "verification" in result:
+            record = result["verification"]
+            validation_run = record.get("original_result", {}).get("new_world_run")
+            probe_runs = {
+                row.get("new_world_run")
+                for row in self.base.probe_results
+                if row.get("fresh_probe_performed") is True
+            }
+            if validation_run is not None and validation_run in probe_runs:
+                record.update(
+                    accepted_success=False,
+                    evidence_complete=False,
+                    acceptance_status="REJECTED_REUSED_READ_ONLY_PROBE_WORLD",
+                )
+                self.base.results[result["verification_ref"]] = copy.deepcopy(record)
         self.trace.append({"request": copy.deepcopy(request), "result": copy.deepcopy(result)})
         return copy.deepcopy(result)
