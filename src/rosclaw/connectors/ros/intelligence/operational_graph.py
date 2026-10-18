@@ -52,8 +52,8 @@ def _policy_status(pub, sub):
 
 def compile_operational_graph(
     model: RosSystemModel,
-    urdf_bytes: bytes,
-    requirements: dict,
+    urdf_bytes: bytes | None = None,
+    requirements: dict | None = None,
     *,
     source_ref: str,
     now: datetime,
@@ -70,10 +70,17 @@ def compile_operational_graph(
     """
     if not source_ref or len(source_ref) > 2048 or now.tzinfo is None:
         raise ValueError("bounded source reference and aware explicit review clock required")
-    if type(urdf_bytes) is not bytes or not 0 < len(urdf_bytes) <= 5_000_000:
+    native_only = urdf_bytes is None and requirements is None
+    if (urdf_bytes is None) != (requirements is None):
+        raise ValueError("navigation context requires both original URDF and requirements")
+    if native_only and any(
+        value is not None for value in (source_review, expected_run_id, expected_body_hash)
+    ):
+        raise ValueError("native observations cannot assert independent Body/source admission")
+    if not native_only and (type(urdf_bytes) is not bytes or not 0 < len(urdf_bytes) <= 5_000_000):
         raise ValueError("bounded nonempty original URDF bytes required")
     for name, document in (("requirements", requirements), ("source review", source_review)):
-        if document is None and name == "source review":
+        if document is None and (name == "source review" or native_only):
             continue
         if type(document) is not dict:
             raise ValueError("bounded original " + name + " object required")
@@ -91,21 +98,26 @@ def compile_operational_graph(
     raw_endpoints = model.qos.get("endpoints", [])
     if type(raw_endpoints) is not list or len(raw_endpoints) > 1024:
         raise ValueError("bounded native endpoint list required")
-    case = compile_engineering_case(
-        model,
-        urdf_bytes,
-        requirements,
-        source_ref=source_ref,
-        now=now,
-        evidence_domain=evidence_domain,
-        source_review=source_review,
-        expected_run_id=expected_run_id,
-        expected_body_hash=expected_body_hash,
+    case = (
+        None
+        if native_only
+        else compile_engineering_case(
+            model,
+            urdf_bytes,
+            requirements,
+            source_ref=source_ref,
+            now=now,
+            evidence_domain=evidence_domain,
+            source_review=source_review,
+            expected_run_id=expected_run_id,
+            expected_body_hash=expected_body_hash,
+        )
     )
-    case_doc = case.model_dump(mode="json")
+    case_doc = case.model_dump(mode="json") if case else None
+    source_status = case.source_status if case else "UNKNOWN"
     max_age = 500
     snapshot_freshness = freshness(model.captured_at, now, max_age)
-    usable = snapshot_freshness == "FRESH" and case.source_status != "MISMATCH"
+    usable = snapshot_freshness == "FRESH" and source_status != "MISMATCH"
     provenance = {}
     entities = {}
     endpoints = []
@@ -115,6 +127,8 @@ def compile_operational_graph(
     findings = []
 
     def ref(pointer, *, stamp=None, derived=False):
+        if derived and case is None:
+            raise ValueError("no derived navigation Case in native observation mode")
         record = provenance_edge(
             case_doc if derived else snapshot,
             case.case_hash if derived else source_ref,
@@ -174,40 +188,55 @@ def compile_operational_graph(
             )
         )
 
-    source_fact = ref("/source_status", derived=True)
-    entity("source", source_ref, [source_fact])
-    entity("urdf", case.source_urdf_sha256, [ref("/source_urdf_sha256", derived=True)])
-    if case.run_id:
-        entity("run", case.run_id, [ref("/run_id", derived=True)])
-    if case.body_hash:
-        entity("body", case.body_hash, [ref("/body_hash", derived=True)])
-    source_document = case.derived_documents["source_review"]
-    if isinstance(source_document.get("world_id"), str) and source_document["world_id"]:
-        entity(
-            "world",
-            source_document["world_id"],
-            [ref("/derived_documents/source_review/world_id", derived=True)],
-        )
-    legacy_targets = {
-        "F-SOURCE-001": [source_ref],
-        "F-TF-001": [requirements["lifecycle_nodes"]["localization"]],
-        "F-SCAN-001": [requirements["interface_names"].get("sensing.lidar", source_ref)],
-        "F-LIFE-001": sorted(requirements["lifecycle_nodes"].values()),
-        "F-GEOM-001": list(requirements["costmap_topics"]),
-        "F-ROUTE-001": [requirements["velocity_output_topic"]],
-    }
-    for i, constraint in enumerate(case.constraints):
-        # Keep exactly the original Case verdict, including source mismatch itself.
-        findings.append(
-            RosConstraintFindingV1(
-                id=constraint.id,
-                invariant=constraint.invariant,
-                status=constraint.status,
-                scope="EXISTING_CASE_INVARIANT_UNCHANGED",
-                targets=legacy_targets.get(constraint.id, []),
-                evidence_refs=[ref(f"/constraints/{i}", derived=True)],
-                missing_evidence=constraint.next_checks if constraint.status == "UNKNOWN" else [],
+    if case is not None:
+        source_fact = ref("/source_status", derived=True)
+        entity("source", source_ref, [source_fact])
+        entity("urdf", case.source_urdf_sha256, [ref("/source_urdf_sha256", derived=True)])
+        if case.run_id:
+            entity("run", case.run_id, [ref("/run_id", derived=True)])
+        if case.body_hash:
+            entity("body", case.body_hash, [ref("/body_hash", derived=True)])
+        source_document = case.derived_documents["source_review"]
+        if isinstance(source_document.get("world_id"), str) and source_document["world_id"]:
+            entity(
+                "world",
+                source_document["world_id"],
+                [ref("/derived_documents/source_review/world_id", derived=True)],
             )
+        legacy_targets = {
+            "F-SOURCE-001": [source_ref],
+            "F-TF-001": [requirements["lifecycle_nodes"]["localization"]],
+            "F-SCAN-001": [requirements["interface_names"].get("sensing.lidar", source_ref)],
+            "F-LIFE-001": sorted(requirements["lifecycle_nodes"].values()),
+            "F-GEOM-001": list(requirements["costmap_topics"]),
+            "F-ROUTE-001": [requirements["velocity_output_topic"]],
+        }
+        for i, constraint in enumerate(case.constraints):
+            # Keep exactly the original Case verdict, including source mismatch itself.
+            findings.append(
+                RosConstraintFindingV1(
+                    id=constraint.id,
+                    invariant=constraint.invariant,
+                    status=constraint.status,
+                    scope="EXISTING_CASE_INVARIANT_UNCHANGED",
+                    targets=legacy_targets.get(constraint.id, []),
+                    evidence_refs=[ref(f"/constraints/{i}", derived=True)],
+                    missing_evidence=constraint.next_checks
+                    if constraint.status == "UNKNOWN"
+                    else [],
+                )
+            )
+    else:
+        source_fact = ref("/snapshot_hash")
+        entity("source", source_ref, [source_fact])
+        finding(
+            "F-SOURCE-001",
+            "source.identity_matches",
+            "UNKNOWN",
+            "NATIVE_OBSERVATIONS_WITHOUT_BODY_OR_NAVIGATION_CONTEXT",
+            [source_fact],
+            [source_ref],
+            ["independent_current_source_run_World_and_immutable_Body_binding"],
         )
     for collection, kind, type_key in (
         ("nodes", "node", None),
@@ -502,6 +531,32 @@ def compile_operational_graph(
                 evidence_refs=[fact],
             )
         )
+        if native_only:
+            current = (
+                usable
+                and provenance[fact].freshness == "FRESH"
+                and model.completeness.get("signals") is True
+                and "monotonic" in signal.source
+                and getattr(signal, "freshness_policy", "stream") != "latched"
+            )
+            age = signal.last_message_age_ms
+            status = "UNKNOWN"
+            if current and age is not None:
+                cumulative_age = age + (now - signal.captured_at).total_seconds() * 1000
+                status = (
+                    "SATISFIED" if cumulative_age <= min(max_age, signal.max_age_ms) else "VIOLATED"
+                )
+            finding(
+                _id("receive_window", [model.snapshot_hash, i]),
+                "signal.observed_steady_receive_window",
+                status,
+                "THIS_OBSERVER_ONLY_NOT_CONSUMER_DELIVERY_OR_PRODUCER_ROOT_CAUSE",
+                [fact],
+                [signal.topic],
+                ["current_steady_receive_window_with_nonlatched_signal_age"]
+                if status == "UNKNOWN"
+                else [],
+            )
     message_frames = model.observations.get("message_frames", {})
     if type(message_frames) is not dict or len(message_frames) > 1024:
         raise ValueError("bounded message header mapping required")
@@ -529,14 +584,16 @@ def compile_operational_graph(
     payload = {
         "source_ref": source_ref,
         "snapshot_hash": model.snapshot_hash,
-        "case_hash": case.case_hash,
-        "source_urdf_sha256": case.source_urdf_sha256,
-        "requirements_hash": content_hash("navrequirements", requirements),
+        "case_hash": case.case_hash if case else None,
+        "source_urdf_sha256": case.source_urdf_sha256 if case else None,
+        "requirements_hash": content_hash("navrequirements", requirements)
+        if requirements is not None
+        else None,
         "reviewed_at": now,
         "max_age_ms": max_age,
         "evidence_domain": evidence_domain,
         "snapshot_freshness": snapshot_freshness,
-        "source_status": case.source_status,
+        "source_status": source_status,
         "entities": sorted(entities.values(), key=lambda x: x.id),
         "endpoints": endpoints,
         "dataflows": flows,

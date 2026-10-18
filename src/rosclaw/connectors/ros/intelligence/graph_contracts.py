@@ -104,9 +104,9 @@ class RosOperationalGraphV1(GraphRecord):
     graph_hash: str
     source_ref: str
     snapshot_hash: str
-    case_hash: str
-    source_urdf_sha256: str
-    requirements_hash: str
+    case_hash: str | None
+    source_urdf_sha256: str | None
+    requirements_hash: str | None
     reviewed_at: datetime
     max_age_ms: float = Field(gt=0, le=500)
     evidence_domain: Literal["SEALED_REPLAY", "OBSERVATION"]
@@ -133,6 +133,14 @@ class RosOperationalGraphV1(GraphRecord):
     def linked(self):
         if self.reviewed_at.tzinfo is None:
             raise ValueError("aware review clock required")
+        context = (self.case_hash, self.source_urdf_sha256, self.requirements_hash)
+        if any(v is None for v in context) and not all(v is None for v in context):
+            raise ValueError("navigation context must be complete or explicitly absent")
+        if self.case_hash is None and (
+            self.source_status != "UNKNOWN"
+            or any(e.kind in {"urdf", "body", "run", "world"} for e in self.entities)
+        ):
+            raise ValueError("native observation graph cannot claim Body/source context")
         ids = [
             x.id
             for x in self.entities

@@ -77,6 +77,15 @@ def evaluate_hypothesis(hypothesis, graph, *, not_before: datetime | None = None
     predicate = hypothesis.predicate
     positives, negatives = [], []
     usable = graph.source_status != "MISMATCH" and graph.snapshot_freshness == "FRESH"
+    if predicate == "RECEIVE_GAP":
+        receive_rows = [
+            f
+            for f in graph.findings
+            if (f.id == "F-SCAN-001" or f.invariant == "signal.observed_steady_receive_window")
+            and f.targets == hypothesis.targets
+        ]
+        if any(f.status == "UNKNOWN" for f in receive_rows):
+            usable = False
     if usable and predicate == "RECEIVE_GAP":
         for fact in graph.time_facts:
             if (
@@ -107,7 +116,12 @@ def evaluate_hypothesis(hypothesis, graph, *, not_before: datetime | None = None
             for f in graph.findings
             if f.invariant == invariant
             and (
-                (bool(f.targets) and f.targets[0] in hypothesis.targets)
+                (
+                    bool(f.targets)
+                    and bool(hypothesis.targets)
+                    and f.targets[0] == hypothesis.targets[0]
+                    and (len(hypothesis.targets) == 1 or f.targets == hypothesis.targets)
+                )
                 if predicate == "QOS_CONFLICT"
                 else predicate == "CLOCK_CONFLICT" or set(f.targets) & set(hypothesis.targets)
             )
@@ -160,7 +174,10 @@ def propose_hypotheses(graph, *, issue_ids=None):
     for finding in graph.findings:
         if finding.status == "SATISFIED" or (selected is not None and finding.id not in selected):
             continue
-        if finding.id == "F-SCAN-001":
+        if (
+            finding.id == "F-SCAN-001"
+            or finding.invariant == "signal.observed_steady_receive_window"
+        ):
             predicates = ("RECEIVE_GAP", "QOS_CONFLICT", "CLOCK_CONFLICT", "UNRESOLVED_PATH")
         elif finding.id == "F-TF-001":
             predicates = (
@@ -198,7 +215,7 @@ def propose_hypotheses(graph, *, issue_ids=None):
                 confounders = (
                     "caller-supplied historical bindings do not prove current continuity",
                 )
-            predicate_targets = targets[:1] if predicate == "QOS_CONFLICT" else targets
+            predicate_targets = targets
             h = RosHypothesisV1(
                 id=content_hash(
                     "roshypothesis",

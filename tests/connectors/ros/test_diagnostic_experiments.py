@@ -129,12 +129,49 @@ def test_qos_explanation_does_not_absorb_another_topic_on_the_same_nodes():
     )
     p = plan_diagnostic_probes(before, issue_ids=[issue], budget_sec=5)
     assert next(h for h in p.hypotheses if h.predicate == "QOS_CONFLICT").targets == [
-        "/sample/scan2"
+        "/sample/scan2",
+        "/sample/lidar",
+        "/sample/costmap",
     ]
     later = NOW + timedelta(seconds=1)
     after = scoped(later, False)
     assert any(
         f.status == "VIOLATED" and f.targets[0] == "/other/signal"
+        for f in after.findings
+        if f.invariant == "qos.observed_requested_offered_policies"
+    )
+    result = assess_diagnostic_followup(p, before, after, now=later)
+    assert statuses(result.hypotheses)["QOS_CONFLICT"] == "CONTRADICTED_OBSERVATION"
+
+
+def test_qos_explanation_retains_its_consumer_when_another_consumer_stays_incompatible():
+    from copy import deepcopy
+
+    def scoped(stamp, primary_conflict):
+        m, u, r = native_fixture()
+        other = deepcopy(m.qos["endpoints"][1])
+        other["node"] = "/another/consumer"
+        other["gid"] = "another-subscription"
+        other["durability"] = "TRANSIENT_LOCAL"
+        m.qos["endpoints"].append(other)
+        m.qos["endpoints"][0]["reliability"] = "BEST_EFFORT" if primary_conflict else "RELIABLE"
+        m.captured_at = stamp
+        for node in m.observations["node_use_sim_time"]:
+            m.observations["parameter_captured_at"][node] = stamp.isoformat()
+        return graph(m, u, r, now=stamp)
+
+    before = scoped(NOW, True)
+    issue = next(
+        f.id
+        for f in before.findings
+        if f.invariant == "qos.observed_requested_offered_policies"
+        and f.targets[-1] == "/sample/costmap"
+    )
+    p = plan_diagnostic_probes(before, issue_ids=[issue], budget_sec=5)
+    later = NOW + timedelta(seconds=1)
+    after = scoped(later, False)
+    assert any(
+        f.status == "VIOLATED" and f.targets[-1] == "/another/consumer"
         for f in after.findings
         if f.invariant == "qos.observed_requested_offered_policies"
     )
