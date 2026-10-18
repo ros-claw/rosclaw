@@ -479,11 +479,20 @@ async def test_terminal_escaped_writer_recovery_and_wait_do_not_block_startup(tm
         task_id="t", attempt_id="", kind="process", argv=[sys.executable, "-c", code]
     )
     oid = op["operation_id"]
+    escaped_pid_text = ""
+    escaped_pid_ready = False
     for _ in range(100):
         if pidfile.exists():
-            break
+            escaped_pid_text = pidfile.read_text().strip()
+            escaped_pid_ready = escaped_pid_text.isdecimal() and int(escaped_pid_text) > 0
+            if escaped_pid_ready:
+                break
         await asyncio.sleep(0.01)
-    escaped = ProcessIdentity.capture(int(pidfile.read_text()))
+    assert escaped_pid_ready, (
+        "escaped writer PID not ready after 100 polls at 0.01s intervals; "
+        f"last contents: {escaped_pid_text!r}"
+    )
+    escaped = ProcessIdentity.capture(int(escaped_pid_text))
     owner = ProcessIdentity.parse(manager.get(oid)["process_identity_json"])
     assert escaped and owner and escaped.sid != owner.sid
     await manager.cancel(oid, reason="private-owned-fixture")
