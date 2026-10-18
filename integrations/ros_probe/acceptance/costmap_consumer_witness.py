@@ -5,6 +5,7 @@ import hashlib
 import json
 import math
 import os
+import signal
 import tempfile
 import time
 from datetime import UTC, datetime
@@ -75,6 +76,7 @@ def main():
     from nav_msgs.msg import OccupancyGrid
     from rclpy.node import Node
     from rclpy.qos import DurabilityPolicy, QoSProfile
+    from rclpy.signals import SignalHandlerOptions
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--configuration-sha256", required=True)
@@ -124,7 +126,20 @@ def main():
         "action_goals": 0,
     }
     index = (root / "costmap-consumer-index.jsonl").open("x")
-    rclpy.init(args=["--ros-args", "-p", "use_sim_time:=true"])
+    # The parent owns this process. Default rclpy SIGTERM teardown can invalidate
+    # the context while the executor is building its next wait set. Defer SDK
+    # shutdown until the bounded spin returns instead of masking RCLError.
+    requested_shutdown = []
+
+    def request_shutdown(number, _frame):
+        requested_shutdown.append(number)
+
+    rclpy.init(
+        args=["--ros-args", "-p", "use_sim_time:=true"],
+        signal_handler_options=SignalHandlerOptions.NO,
+    )
+    signal.signal(signal.SIGTERM, request_shutdown)
+    signal.signal(signal.SIGINT, request_shutdown)
     node = Node("rosclaw_costmap_consumer_witness")
 
     def received(topic, message):
@@ -189,9 +204,12 @@ def main():
         for topic in config["topics"]
     ]
     try:
-        rclpy.spin(node)
-    except (KeyboardInterrupt, rclpy.executors.ExternalShutdownException):
-        state["status"] = "FINISHED_READ_ONLY_CAPTURE_NOT_ACCEPTANCE"
+        while not requested_shutdown:
+            rclpy.spin_once(node, timeout_sec=0.05)
+        state.update(
+            status="FINISHED_READ_ONLY_CAPTURE_NOT_ACCEPTANCE",
+            operator_shutdown_signal=requested_shutdown[0],
+        )
     except BaseException as error:
         state.update(status="FAILED_ORIGINAL_READ_ONLY_CAPTURE", error=str(error))
         raise
