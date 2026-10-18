@@ -80,6 +80,19 @@ def aci_from_capture(before, *, worktree, evaluator=None, operator_source=None, 
     model = RosSystemModel.from_dict(
         json.loads((e / "engineering-original-system.json").read_text())
     )
+    from rosclaw.connectors.ros.context.collision_assets import (
+        REFERENCE_SCHEMA,
+        bind_prepared_collision_originals,
+    )
+
+    reference = model.observations.get("prepared_collision_assets", {})
+    if isinstance(reference, dict) and reference.get("schema_version") == REFERENCE_SCHEMA:
+        from rosclaw.connectors.ros.cli.ros_cli import _read_discovery_urdf
+
+        raw_assets = _read_discovery_urdf(
+            before / "assets/collision-asset-originals.json", "asset originals"
+        )
+        bind_prepared_collision_originals(model.observations, raw_assets)
     requirements = json.loads((e / "engineering-original-requirements.json").read_text())
     clock = json.loads((e / "engineering-original-candidate-review.json").read_text())[
         "reviewed_at"

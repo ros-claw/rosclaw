@@ -243,3 +243,36 @@ health decision remains permanently latched. Rollback, same-index edits and
 inconsistent receive/capture clocks fail closed. Both original pointers appear
 in successful refresh traces. This development change is not yet a physical
 acceptance or generality claim.
+
+
+### Static original reference V2 after failed actual-main replication
+
+PR736 source658 had a full known-A300 pass, but its actual merged mainff10895a
+first After failed again: lifecycle, parameters, costmaps, odometry and footprint
+observations became stale while independent Source continuity remained true.
+That main result remains FAILED. One source pass was insufficient to establish
+a stable delivery; no CI or physical failure is rerun or rewritten as success.
+
+The correction separates immutable collision originals from dynamic Native
+frames. The opt-in SDK reference `rosclaw.prepared_collision_asset_reference.v2`
+contains only a fixed resource source, exact SHA and bounded original byte size.
+Core never fetches that source. Explicit CLI or SDK original bytes must match the
+reference and pass the same original STL checks. At most two documents of at
+most5MB each are retained per process; only static originals/facts are cached.
+All dynamic Native timestamps, current parameter/lifecycle reads, source, health,
+admission, proof and stop checks remain unchanged. Resource files and directory
+identities are still reread/verified each collection and changes permanently latch.
+
+An offline projection of the failed main's original Native frame reduced3.68MB
+to306KB (39KB over optional gzip), with all dynamic values and timestamps equal.
+Encoding/decoding was about1.5/1.2ms here. This is an offline performance check,
+not a new physical result. New source/main World acceptance remains required.
+
+Legacy V1 inline observations and default non-SDK probe publication remain
+unchanged. Model JSON/hash is not changed when a reader supplies originals.
+Missing originals keep geometry UNKNOWN. CLI `--asset-originals` explicitly
+provides the separate resource document for application/bootstrap, engineering
+case and expert replay commands. A compiled reference-based workspace needs
+its original collision document to replay geometry; a digest alone is not the
+original payload or current physical evidence. Existing immutable independent
+physical/age review algorithms are reused with explicit original-byte attachment.

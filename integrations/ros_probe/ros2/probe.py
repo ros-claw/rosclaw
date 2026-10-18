@@ -78,6 +78,7 @@ class ReadOnlyProbe(Node):
         collision_assets_path=None,
         collision_assets_sha256=None,
         lossless_gzip_snapshots=False,
+        collision_asset_reference_only=False,
     ):
         if (
             type(snapshot_period_sec) not in (int, float)
@@ -85,6 +86,10 @@ class ReadOnlyProbe(Node):
             or not 0.1 <= snapshot_period_sec <= 1.0
         ):
             raise ValueError("read-only snapshot period must be 0.1..1.0 seconds")
+        if collision_asset_reference_only and (
+            collision_assets_path is None or collision_assets_sha256 is None
+        ):
+            raise ValueError("collision reference requires pinned explicit originals")
         self.lossless_gzip_snapshots = lossless_gzip_snapshots
         self.prepared_collision_assets = None
         self.collision_resource_guard = None
@@ -97,7 +102,9 @@ class ReadOnlyProbe(Node):
             )
 
             self.prepared_collision_assets = read_prepared_collision_observation(
-                collision_assets_path, collision_assets_sha256
+                collision_assets_path,
+                collision_assets_sha256,
+                reference_only=collision_asset_reference_only,
             )
             self.collision_resource_guard = CollisionResourceContinuity(
                 "/assets", {"prepared_collision_assets": self.prepared_collision_assets}
@@ -713,6 +720,7 @@ def main():
     parser.add_argument("--once", action="store_true")
     parser.add_argument("--snapshot-period-sec", type=float, default=1.0)
     parser.add_argument("--lossless-gzip-snapshots", action="store_true")
+    parser.add_argument("--collision-asset-reference-only", action="store_true")
     parser.add_argument("--collision-asset-originals")
     parser.add_argument("--collision-asset-originals-sha256")
     parser.add_argument("--duration", type=float, default=3.0)
@@ -722,6 +730,7 @@ def main():
     node = ReadOnlyProbe(
         snapshot_period_sec=args.snapshot_period_sec,
         lossless_gzip_snapshots=args.lossless_gzip_snapshots,
+        collision_asset_reference_only=args.collision_asset_reference_only,
         collision_assets_path=args.collision_asset_originals,
         collision_assets_sha256=args.collision_asset_originals_sha256,
     )

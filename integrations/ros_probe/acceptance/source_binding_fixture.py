@@ -194,6 +194,10 @@ def main():
     consumer_witness = None
     consumer_log = None
     witness_logs = []
+    if Path("/assets/collision-asset-originals.json").is_file():
+        from simulation_collision_resources import prewarm_prepared_collision_facts
+
+        prewarm_prepared_collision_facts()
     rclpy.init(args=["--ros-args", "-p", "use_sim_time:=true"])
     node = Node("rosclaw_source_capture")
     state = {"native": None, "model": None, "review": None, "physics": None}
