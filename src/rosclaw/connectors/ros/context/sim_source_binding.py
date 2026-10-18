@@ -7,6 +7,7 @@ assumption. Same-UID fixture supervision is not adversarial authentication.
 
 import hashlib
 import math
+import re
 import xml.etree.ElementTree as ET
 from datetime import UTC, datetime
 
@@ -75,6 +76,27 @@ def _geometry(element, *, allow_plane=False):
     if element is None or len(element) != 1:
         raise ValueError("one resolved collision primitive required")
     shape = element[0]
+    if shape.tag == "mesh":
+        uri = shape.findtext("uri", "")
+        if uri.startswith("file://"):
+            uri = uri[7:]
+        if not re.fullmatch(r"/assets/collision-resources/[0-9a-f]{64}\.stl", uri):
+            raise ValueError("exact digest-named original collision STL URI required")
+        submesh = shape.find("submesh")
+        if submesh is not None and (
+            submesh.findtext("name", "") or submesh.findtext("center", "false") != "false"
+        ):
+            raise ValueError("unresolved selected or recentered collision submesh")
+        if len(shape) != len({child.tag for child in shape}) or {child.tag for child in shape} - {
+            "uri",
+            "scale",
+            "submesh",
+        }:
+            raise ValueError("unsupported original collision mesh semantics")
+        return (
+            "mesh",
+            (("uri", uri), ("scale", _numbers(shape.findtext("scale", "1 1 1"), 3, positive=True))),
+        )
     fields = {
         "box": (("size", 3),),
         "sphere": (("radius", 1),),
@@ -478,6 +500,30 @@ def review_sim_source_binding(
                         request["expected_namespace"].rstrip("/") + "/"
                     ):
                         mismatch.append("ROS_NAMESPACE_MISMATCH")
+            from .collision_assets import staged_collision_resource_pins
+
+            original_observations = _json(files["source-snapshot.json"]).get("observations", {})
+            if original_observations.get("prepared_collision_assets") != model.observations.get(
+                "prepared_collision_assets"
+            ):
+                mismatch.append("CURRENT_COLLISION_ASSET_ORIGINALS_DIFFER_FROM_BODY")
+            resource_pins = staged_collision_resource_pins(model.observations)
+            for relative, digest in resource_pins.items():
+                if assets.get(relative) != digest:
+                    mismatch.append("COLLISION_RESOURCE_SOURCE_ASSET_PIN_MISMATCH:" + relative)
+            for raw_sdf in (converted_sdf_bytes, world_sdf_bytes):
+                for mesh in _xml(raw_sdf).findall(".//collision/geometry/mesh"):
+                    uri = mesh.findtext("uri", "")
+                    if uri.startswith("file://"):
+                        uri = uri[7:]
+                    relative = uri.removeprefix("/assets/")
+                    if not uri.startswith("/assets/") or relative not in resource_pins:
+                        mismatch.append("COLLISION_MESH_ORIGINAL_RESOURCE_UNBOUND:" + uri)
+            if resource_pins:
+                evidence["collision_resource_source_pins"] = resource_pins
+                evidence["collision_resource_authority"] = (
+                    "NONE_REQUIRES_CURRENT_RESOURCE_CONTINUITY"
+                )
             converted = sdf_inventory(
                 converted_sdf_bytes, robot_entity=request["expected_robot_entity"]
             )

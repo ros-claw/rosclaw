@@ -103,16 +103,25 @@ def review_collision_assets(originals):
         if type(row) is not dict or set(row) != {"uri", "sha256", "content_base64"}:
             raise ValueError("exact URI SHA256 original-base64 asset fields required")
         uri, digest, content = row["uri"], row["sha256"], row["content_base64"]
+        package_uri = (
+            type(uri) is str
+            and re.fullmatch(r"package://[a-z][a-z0-9_]*/[A-Za-z0-9_./-]+\.stl", uri)
+            and not any(p in {"", ".", ".."} for p in uri.split("://", 1)[1].split("/"))
+        )
+        staged_uri = type(uri) is str and re.fullmatch(
+            r"/assets/collision-resources/[0-9a-f]{64}\.stl", uri
+        )
         if (
             type(uri) is not str
             or len(uri) > 2048
-            or not re.fullmatch(r"package://[a-z][a-z0-9_]*/[A-Za-z0-9_./-]+\.stl", uri)
-            or any(p in {"", ".", ".."} for p in uri.split("://", 1)[1].split("/"))
+            or not (package_uri or staged_uri)
             or uri in result
         ):
-            raise ValueError("unique concrete package STL URI without traversal required")
+            raise ValueError("unique concrete package or digest-named staged STL URI required")
         if type(digest) is not str or not re.fullmatch(r"[0-9a-f]{64}", digest):
             raise ValueError("original collision asset SHA256 required")
+        if staged_uri and uri.rsplit("/", 1)[-1] != digest + ".stl":
+            raise ValueError("digest-named staged STL URI differs from original SHA")
         if type(content) is not str or len(content) > ((MAX_BYTES + 2) // 3) * 4:
             raise ValueError("bounded original collision asset base64 required")
         try:
@@ -126,3 +135,58 @@ def review_collision_assets(originals):
             raise ValueError("original asset hash or total byte budget differs")
         result[uri] = stl_bounds(raw)
     return result
+
+
+def collision_assets_from_observations(observations):
+    """Prepared resource bytes are explicitly not a ROS interface observation.
+
+    The optional envelope retains original JSON bytes so an independent source
+    reviewer can compare their SHA with the owned launch/capture asset inventory.
+    Its presence establishes no source authenticity, readiness or authority.
+    """
+    import json
+
+    envelope = observations.get("prepared_collision_assets")
+    if envelope is None:
+        return None
+    if (
+        type(envelope) is not dict
+        or set(envelope) != {"schema_version", "source", "sha256", "document"}
+        or envelope["schema_version"] != "rosclaw.prepared_collision_asset_observation.v1"
+        or envelope["source"] != "/assets/collision-asset-originals.json"
+        or type(envelope["document"]) is not str
+    ):
+        raise ValueError("closed explicit prepared source-resource observation required")
+    raw = envelope["document"].encode("utf-8")
+    if not 0 < len(raw) <= 5_000_000 or hashlib.sha256(raw).hexdigest() != envelope["sha256"]:
+        raise ValueError("original prepared collision manifest bytes differ")
+
+    def pairs(values):
+        result = {}
+        for key, value in values:
+            if key in result:
+                raise ValueError("unique original collision JSON keys required")
+            result[key] = value
+        return result
+
+    def invalid(_value):
+        raise ValueError("finite original collision JSON required")
+
+    originals = json.loads(raw, object_pairs_hook=pairs, parse_constant=invalid)
+    facts = review_collision_assets(originals)
+    return originals, facts, envelope["sha256"]
+
+
+def staged_collision_resource_pins(observations):
+    """Only exact digest-named staged STL files can enter source admission."""
+    parsed = collision_assets_from_observations(observations)
+    if parsed is None:
+        return {}
+    _originals, assets, document_sha = parsed
+    pins = {"collision-asset-originals.json": document_sha}
+    for uri, fact in assets.items():
+        match = re.fullmatch(r"/assets/collision-resources/([0-9a-f]{64})\.stl", uri)
+        if match is None or match[1] != fact["original_sha256"]:
+            raise ValueError("source admission requires exact digest-named staged original STL URI")
+        pins["collision-resources/" + match[1] + ".stl"] = fact["original_sha256"]
+    return pins

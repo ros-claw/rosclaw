@@ -517,6 +517,7 @@ def freeze_audit_source(root, config):
                 "paired_efficiency.py",
                 "cleaning_acceptance.py",
                 "simulation_current_facts.py",
+                "simulation_collision_resources.py",
                 "simulation_current_process.py",
                 "governed_navigation_run.py",
                 "simulation_execution_fault_policy.py",

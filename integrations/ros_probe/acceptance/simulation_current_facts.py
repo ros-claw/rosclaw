@@ -14,6 +14,7 @@ import time
 from pathlib import Path
 
 from simulation_atomic_read import read_bounded_regular as _read
+from simulation_collision_resources import CollisionResourceContinuity
 from simulation_source_stream import SimulationSourceStreamReader, SourceStreamPins
 
 from rosclaw.connectors.ros.context.navigation_readiness import (
@@ -119,6 +120,12 @@ class CurrentSimulationFacts:
         ):
             if _sha(_read(self.assets_directory / name, limit)) != e[key]:
                 raise ValueError("independent original URDF/World SHA mismatch")
+        compiled_source = json.loads(
+            _read(self.directory / "generic-compiled/source-snapshot.json", 10_000_000)
+        )
+        self.collision_resource_guard = CollisionResourceContinuity(
+            self.assets_directory, compiled_source.get("observations", {})
+        )
         self.enrollment = e
         self._cached_native_sha256 = self._cached_model = None
         self.reader = SimulationSourceStreamReader(
@@ -178,6 +185,9 @@ class CurrentSimulationFacts:
                 )
                 self._cached_native_sha256 = pointer["sha256"]
             model = self._cached_model
+            collision_guard = getattr(self, "collision_resource_guard", None)
+            if collision_guard is not None:
+                collision_guard.verify(model.observations)
             # Evaluate the stricter age margin once. This does not predict
             # future state; actual review time and age-evaluation time remain
             # distinct in the original report. No second Body/model review is
