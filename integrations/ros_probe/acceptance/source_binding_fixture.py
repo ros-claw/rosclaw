@@ -196,9 +196,25 @@ def main():
     node = Node("rosclaw_source_capture")
     state = {"native": None, "model": None, "review": None, "physics": None}
     reviews = []
+    native_sequence = 0
 
     def observed(message):
-        native = json.loads(message.data)
+        nonlocal native_sequence
+        received_ns = time.monotonic_ns()
+        from simulation_native_capture import persist_native_capture
+
+        index = native_sequence
+        native_sequence += 1
+        native = persist_native_capture(
+            OUT,
+            message.data.encode("utf-8"),
+            index=index,
+            received_monotonic_ns=received_ns,
+            publish_pointer=bool(
+                settings.get("live_dual_supervision", False)
+                or settings.get("live_current_facts", False)
+            ),
+        )
         graph = RosGraphSnapshot.from_dict(
             {
                 "ros_version": "ros2",
@@ -212,26 +228,7 @@ def main():
         review = review_navigation_candidate(
             model, Path("/assets/robot.urdf").read_bytes(), requirements
         )
-        index = len(reviews)
-        save(f"original-native-{index:03}.json", native)
         save(f"sealed-system-{index:03}.json", model.to_dict())
-        if settings.get("live_dual_supervision", False) or settings.get(
-            "live_current_facts", False
-        ):
-            original = OUT / f"original-native-{index:03}.json"
-            pointer = OUT / "live-native-pointer.tmp"
-            pointer.write_text(
-                json.dumps(
-                    {
-                        "file": original.name,
-                        "sha256": hashlib.sha256(original.read_bytes()).hexdigest(),
-                        "captured_at": native["captured_at"],
-                        "received_monotonic_ns": time.monotonic_ns(),
-                    }
-                )
-                + "\n"
-            )
-            pointer.replace(OUT / "live-native-pointer.json")
         reviews.append({"index": index, "captured_at": native["captured_at"], "review": review})
         state.update(native=native, model=model, review=review)
 
@@ -466,6 +463,27 @@ def main():
             spawned = json.loads((OUT / "prepared-stack-spawned-original.json").read_text())
             if spawned["run_id"] != settings["run_id"] or spawned["owner_pid"] != stack.pid:
                 raise ValueError("owned prepared process milestone identity differs")
+        if (
+            engineering_capture
+            and engineering_capture["case"] == "rsk_controller_plugin_unavailable"
+        ):
+            # Configuration can prevent lifecycle activation itself. Capture
+            # source-only raw facts before initialization; never bypass L1 or
+            # pretend the inactive stack has been admitted for navigation.
+            from simulation_engineering_capture import capture_failure
+
+            save("engineering-original-requirements.json", requirements)
+            save(
+                "counterfactual-initialization-boundary.json",
+                {
+                    "initial_pose_setup": "NOT_RUN_PREACTIVATION_RAW_CAPTURE",
+                    "L1": "NOT_EVALUATED",
+                    "L2": "NOT_RUN",
+                    "reason": "configuration may prevent localization activation",
+                },
+            )
+            capture_failure(OUT, engineering_capture, state, spin_until, save)
+            return
         spin_until(
             lambda: (
                 state["model"]

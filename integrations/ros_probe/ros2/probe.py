@@ -30,7 +30,7 @@ from rclpy.utilities import get_rmw_implementation_identifier
 from rosidl_runtime_py.utilities import get_message
 from std_msgs.msg import String
 from std_srvs.srv import Trigger
-from tf_window import parse_tf_window
+from tf_window import parse_tf_window, raw_tf_observation_window
 
 PROBE_TOPIC = "/rosclaw_probe/snapshot"
 TF_ATTRIBUTION_TOPIC = "/rosclaw_probe/tf_attribution"
@@ -207,6 +207,10 @@ class ReadOnlyProbe(Node):
                         "tf_broadcast",
                         "node_names",
                         "plugins",
+                        "planner_plugins",
+                        "controller_plugins",
+                        "goal_checker_plugins",
+                        "progress_checker_plugins",
                         "obstacle_layer.observation_sources",
                         "voxel_layer.observation_sources",
                         "global_frame",
@@ -230,6 +234,8 @@ class ReadOnlyProbe(Node):
                             ".combination_method",
                             ".observation_sources",
                             ".topic",
+                            ".sensor_frame",
+                            ".data_type",
                         )
                     )
                 ]
@@ -598,19 +604,12 @@ class ReadOnlyProbe(Node):
                 "costmap_footprints": self.footprint_observations,
                 "transform_values": list(self.edges.values()),
                 "tf_attribution_window": attribution,
-                "tf_observation_window": {
-                    "max_dynamic_receive_age_sec": 5,
-                    "max_cached_edges": 1024,
-                    "cache_drops": self.tf_cache_drops,
-                    "message_window_drops": self.tf_window_drops,
-                    "messages": [
-                        dict(row)
-                        for row in self.tf_message_window
-                        if 0 <= wall - row["received_monotonic"] <= 5
-                    ],
-                    "publisher_attribution": "RMW_GID_OR_UNKNOWN",
-                    "completeness": "NOT_ESTABLISHED",
-                },
+                "tf_observation_window": raw_tf_observation_window(
+                    self.tf_message_window,
+                    now=wall,
+                    cache_drops=self.tf_cache_drops,
+                    message_window_drops=self.tf_window_drops,
+                ),
                 "action_statuses": getattr(self, "action_observations", {}),
                 "message_frames": {
                     topic: {

@@ -110,3 +110,28 @@ def parse_tf_window(raw, *, now, received_at):
         "status": "FRESH" if 0 <= age <= 500 and 0 <= receive_age <= 500 else "STALE_OR_FUTURE",
         "source_authentication": "NOT_ESTABLISHED_BY_PAYLOAD",
     }
+
+
+def raw_tf_observation_window(rows, *, now, cache_drops, message_window_drops):
+    """Export a bounded diagnostic tail without refreshing any original time.
+
+    Keep high-rate raw events out of the critical health snapshot bulk path.
+    The 1024-record backing cache and authority-aware transform cache remain;
+    omitted current events are explicit, and completeness stays unestablished.
+    """
+    if len(rows) > 1024:
+        raise ValueError("bounded original TF cache required")
+    current = [row for row in rows if 0 <= now - row["received_monotonic"] <= 5]
+    limit = 128
+    return {
+        "max_dynamic_receive_age_sec": 5,
+        "max_cached_edges": 1024,
+        "cache_drops": cache_drops,
+        "message_window_drops": message_window_drops,
+        "export_limit": limit,
+        "retained_current_messages": len(current),
+        "omitted_current_messages": max(0, len(current) - limit),
+        "messages": [dict(row) for row in current[-limit:]],
+        "publisher_attribution": "RMW_GID_OR_UNKNOWN",
+        "completeness": "NOT_ESTABLISHED",
+    }
