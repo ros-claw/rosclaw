@@ -188,3 +188,27 @@ def test_mesh_inspection_cli_preserves_originals_and_refuses_overwrite_and_alias
     argv = argv[:-2]
     assert dispatch_ros_command(parser().parse_args(argv)) != 0
     assert json.loads(capsys.readouterr().out)["ok"] is False
+
+
+def test_cached_original_bytes_are_exact_bounded_and_caller_mutation_isolated():
+    from rosclaw.connectors.ros.context.collision_assets import _stl_bounds_json
+
+    _stl_bounds_json.cache_clear()
+    raw = binary()
+    original = stl_bounds(raw)
+    first = _stl_bounds_json.cache_info()
+    modified = stl_bounds(raw)
+    modified["local_min"][0] = -999
+    modified["original_sha256"] = "forged"
+    assert stl_bounds(raw) == original
+    assert _stl_bounds_json.cache_info().hits == first.hits + 2
+    changed = b"different header".ljust(80, b" ") + raw[80:]
+    assert stl_bounds(changed)["original_sha256"] != original["original_sha256"]
+    for i in range(12):
+        stl_bounds(str(i).encode().ljust(80, b" ") + raw[80:])
+    assert _stl_bounds_json.cache_info().currsize == 8
+    with pytest.raises(ValueError):
+        stl_bounds(bytearray(raw))
+    with pytest.raises(ValueError):
+        review_collision_assets([dict(asset(changed), sha256=original["original_sha256"])])
+    _stl_bounds_json.cache_clear()

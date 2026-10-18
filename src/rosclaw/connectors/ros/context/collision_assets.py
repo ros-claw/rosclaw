@@ -3,9 +3,11 @@
 import base64
 import binascii
 import hashlib
+import json
 import math
 import re
 import struct
+from functools import lru_cache
 
 MAX_BYTES = 8_000_000
 MAX_TRIANGLES = 100_000
@@ -20,6 +22,14 @@ def stl_bounds(raw):
     """
     if type(raw) is not bytes or not 1 <= len(raw) <= MAX_BYTES:
         raise ValueError("bounded original STL bytes required")
+    # Exact immutable byte keys; no URI/path/freshness or loaded-source state is
+    # cached. Fresh dictionary results prevent callers mutating cached facts.
+    return json.loads(_stl_bounds_json(raw))
+
+
+@lru_cache(maxsize=8)
+def _stl_bounds_json(raw):
+    """At most 8 bounded byte keys (64MB); immutable offline geometry facts only."""
     bounds = [[math.inf, -math.inf] for _ in range(3)]
     count = 0
 
@@ -79,18 +89,21 @@ def stl_bounds(raw):
         encoding = "ASCII_STL"
     if count < 1 or not any(lo < hi for lo, hi in bounds):
         raise ValueError("nonempty finite spatial STL geometry required")
-    return {
-        "original_sha256": hashlib.sha256(raw).hexdigest(),
-        "original_bytes": len(raw),
-        "encoding": encoding,
-        "triangle_count": count,
-        "local_min": [b[0] for b in bounds],
-        "local_max": [b[1] for b in bounds],
-        "derivation": "extrema over every original vertex; no repaired or substituted geometry",
-        "source_authentication": "NOT_ESTABLISHED_BY_HASH",
-        "physical_loaded_geometry": "NOT_VERIFIED",
-        "execution_authority": "NONE",
-    }
+    return json.dumps(
+        {
+            "original_sha256": hashlib.sha256(raw).hexdigest(),
+            "original_bytes": len(raw),
+            "encoding": encoding,
+            "triangle_count": count,
+            "local_min": [b[0] for b in bounds],
+            "local_max": [b[1] for b in bounds],
+            "derivation": "extrema over every original vertex; no repaired or substituted geometry",
+            "source_authentication": "NOT_ESTABLISHED_BY_HASH",
+            "physical_loaded_geometry": "NOT_VERIFIED",
+            "execution_authority": "NONE",
+        },
+        allow_nan=False,
+    )
 
 
 def review_collision_assets(originals):

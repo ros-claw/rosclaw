@@ -84,3 +84,29 @@ These API semantics were checked against the installed SDK headers and official
 [gz-sim8 SdfEntityCreator](https://github.com/gazebosim/gz-sim/blob/gz-sim8/src/SdfEntityCreator.cc)
 and [sdf14 Joint](https://github.com/gazebosim/sdformat/blob/sdf14/src/Joint.cc)
 source. Actual pinned SDK observation is still required to accept the new path.
+
+## Original-byte parsing cache and development limits
+
+Only immutable offline STL facts are cached, keyed by the complete original bytes,
+with at most eight inputs of at most 8MB each. The cached value is immutable JSON;
+each public result is separately decoded, so caller mutation cannot poison later
+facts. URI/SHA checks, fresh manifest/resource reads, file and directory identity,
+loaded geometry, joint observations and the health/proof clocks are never cached.
+Changed bytes must still pass the complete parser and independent source guards.
+
+The first frozen-Core A300 driver-only World failed its bounded current-capture
+condition without a Body or goals. Offline profiling at the original source time
+found repeated STL parsing dominated candidate review (about 267--274ms per
+review on that host); the byte cache reduced repeated historical processing to
+about 42ms. These timings diagnose an implementation cost, not a passed live
+freshness gate. The original failed freeze stays negative. A300 becomes known
+development material after any Core optimization; no blind transfer is claimed
+from a subsequent retry.
+
+Known DD150 development also retained an After whose position action completed
+but yaw failed: Nav2's localization-based success differed from independent
+physical orientation. The compiler now preserves explicitly tighter software goal
+checker settings. A stricter operator-selected yaw profile produced a subsequent
+two-goal After with independent stop/contact/age review, but the physical yaw
+margin was small. This does not calibrate localization or prove generic
+robustness. Independent physical predicates remain unchanged.
