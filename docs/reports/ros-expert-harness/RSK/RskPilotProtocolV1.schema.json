@@ -1,0 +1,169 @@
+{
+  "$defs": {
+    "PilotCaseV1": {
+      "additionalProperties": false,
+      "properties": {
+        "case_id": {
+          "pattern": "^[a-z0-9_]{1,64}$",
+          "title": "Case Id",
+          "type": "string"
+        },
+        "stratum": {
+          "enum": [
+            "known_mechanism",
+            "new_root_cause",
+            "multi_node_chain",
+            "new_body_task",
+            "physical"
+          ],
+          "title": "Stratum",
+          "type": "string"
+        },
+        "facts_manifest_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Facts Manifest Sha256",
+          "type": "string"
+        },
+        "evaluation_episode_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Evaluation Episode Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "case_id",
+        "stratum",
+        "facts_manifest_sha256",
+        "evaluation_episode_sha256"
+      ],
+      "title": "PilotCaseV1",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "rosclaw.rsk_pilot_protocol.v1",
+      "default": "rosclaw.rsk_pilot_protocol.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "harness_source": {
+      "pattern": "^[0-9a-f]{40}$",
+      "title": "Harness Source",
+      "type": "string"
+    },
+    "benchmark_code_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Benchmark Code Sha256",
+      "type": "string"
+    },
+    "model_identity": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Model Identity",
+      "type": "string"
+    },
+    "provider_settings_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Provider Settings Sha256",
+      "type": "string"
+    },
+    "memory_policy_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Memory Policy Sha256",
+      "type": "string"
+    },
+    "cases": {
+      "items": {
+        "$ref": "#/$defs/PilotCaseV1"
+      },
+      "maxItems": 10,
+      "minItems": 5,
+      "title": "Cases",
+      "type": "array"
+    },
+    "seeds": {
+      "items": {
+        "type": "integer"
+      },
+      "maxItems": 3,
+      "minItems": 1,
+      "title": "Seeds",
+      "type": "array"
+    },
+    "allocation_seed": {
+      "minimum": 0,
+      "title": "Allocation Seed",
+      "type": "integer"
+    },
+    "max_model_decisions": {
+      "maximum": 12,
+      "minimum": 3,
+      "title": "Max Model Decisions",
+      "type": "integer"
+    },
+    "max_read_only_probes": {
+      "maximum": 8,
+      "minimum": 1,
+      "title": "Max Read Only Probes",
+      "type": "integer"
+    },
+    "max_new_worlds_per_episode": {
+      "const": 1,
+      "default": 1,
+      "title": "Max New Worlds Per Episode",
+      "type": "integer"
+    },
+    "max_goals_per_world": {
+      "const": 2,
+      "default": 2,
+      "title": "Max Goals Per World",
+      "type": "integer"
+    },
+    "first_known_valid_proposal_decisions": {
+      "const": 3,
+      "default": 3,
+      "title": "First Known Valid Proposal Decisions",
+      "type": "integer"
+    },
+    "identical_original_fact_access": {
+      "const": true,
+      "default": true,
+      "title": "Identical Original Fact Access",
+      "type": "boolean"
+    },
+    "action_path": {
+      "const": "MCP_REQUEST_ACTION_ROSCLAWD_ONLY",
+      "default": "MCP_REQUEST_ACTION_ROSCLAWD_ONLY",
+      "title": "Action Path",
+      "type": "string"
+    },
+    "baseline_claim": {
+      "const": "SAME_MODEL_TOOLS_NOT_CODEX_PRODUCT",
+      "default": "SAME_MODEL_TOOLS_NOT_CODEX_PRODUCT",
+      "title": "Baseline Claim",
+      "type": "string"
+    },
+    "old_g5": {
+      "const": "FROZEN_UNCHANGED",
+      "default": "FROZEN_UNCHANGED",
+      "title": "Old G5",
+      "type": "string"
+    }
+  },
+  "required": [
+    "harness_source",
+    "benchmark_code_sha256",
+    "model_identity",
+    "provider_settings_sha256",
+    "memory_policy_sha256",
+    "cases",
+    "seeds",
+    "allocation_seed",
+    "max_model_decisions",
+    "max_read_only_probes"
+  ],
+  "title": "RskPilotProtocolV1",
+  "type": "object"
+}
