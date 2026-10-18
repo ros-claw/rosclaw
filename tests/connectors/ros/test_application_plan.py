@@ -257,3 +257,15 @@ def test_artifact_and_plan_attacks_are_rejected(condition):
         plan = type(plan).from_dict(payload)
     with pytest.raises(ValueError):
         compile_application_staging(plan, *args[:-1], rows)
+
+
+def test_official_style_behavior_tree_comments_are_preserved_as_original_bytes():
+    args = inputs()
+    plan = compile_application_plan(*args)
+    rows = artifacts(plan)
+    raw = '<!-- ordinary installed Nav2 documentation -->\n<root BTCPP_format="4"><BehaviorTree ID="Selected"/></root>'
+    rows[2]["content"] = raw
+    rows[2]["sha256"] = hashlib.sha256(raw.encode()).hexdigest()
+    result = compile_application_staging(plan, *args[:-1], rows)
+    assert result["files"]["behavior-tree.xml"] == raw
+    assert result["file_sha256"]["behavior-tree.xml"] == hashlib.sha256(raw.encode()).hexdigest()

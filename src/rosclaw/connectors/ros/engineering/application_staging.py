@@ -3,6 +3,7 @@
 import copy
 import hashlib
 import json
+import re
 from pathlib import PurePosixPath
 from typing import Literal
 from xml.etree import ElementTree as ET
@@ -125,7 +126,7 @@ def compile_application_staging(
         raise ValueError("reused bringup must explicitly target the original selected namespace")
     try:
         tree_text = by_role["BEHAVIOR_TREE"].content
-        if "<!" in tree_text:
+        if re.search(r"<!\s*(DOCTYPE|ENTITY)", tree_text, re.I):
             raise ValueError("concrete BT XML without declarations required")
         tree = ET.fromstring(tree_text)
         launch = json.loads(by_role["LAUNCH_REFERENCE"].content)
