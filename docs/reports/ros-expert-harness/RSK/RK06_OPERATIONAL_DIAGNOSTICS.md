@@ -9,11 +9,15 @@ G5, Core, ROS drivers, executors or navigation admission.
   It reports omitted target counts explicitly; original raw files remain equally
   readable in A/B/C/E. The graph uses original capture/review clocks and never
   renews old evidence into current L1.
-- `plan_diagnostic_experiment` selects actual graph findings. Core returns
+- `plan_diagnostic_experiment` is C/E-only and selects actual graph findings. Core returns
   competing narrow hypotheses, discriminating measurements, unknowns and deferred
   scope. Plans are hashed, unexecuted and carry no authority. The new interface
   requires a10–30 second plan budget so a full five-second ambient follow-up and
   capture overhead fit the unchanged Core experiment budget.
+  B retains graph/constraint inspection and typed staging but cannot request
+  competing-hypothesis plans, including through a direct host dispatch. This
+  preserves the registered B versus C ablation rather than exposing the C
+  hypothesis feature to both arms.
 - `run_diagnostic_probe` is explicit and C/E-only. It selects a previously issued
   experiment/probe identity, rechecks the deterministic original plan and source
   entry, and uses the same single probe counter as legacy named investigations.

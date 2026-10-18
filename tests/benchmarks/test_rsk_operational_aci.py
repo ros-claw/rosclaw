@@ -86,12 +86,15 @@ def test_graph_pages_are_complete_by_cursor_and_explicitly_bound_to_source():
     assert seen == [f.id for f in aci._graph().findings]
 
 
-def test_b_can_plan_but_cannot_execute_probe_even_with_direct_host_request():
+def test_b_cannot_plan_hypotheses_or_execute_probe_even_with_direct_host_request():
     aci = facade("B")
-    result = plan(aci)["experiment"]
-    assert (
-        "ros_engineer.run_diagnostic_probe" not in aci.request_schema()["discriminator"]["mapping"]
-    )
+    result = plan(facade("C"))["experiment"]
+    mapping = aci.request_schema()["discriminator"]["mapping"]
+    assert "ros_engineer.run_diagnostic_probe" not in mapping
+    assert "ros_engineer.plan_diagnostic_experiment" not in mapping
+    assert aci.context_projection()["operational_diagnostics"]["plan_operation"] is None
+    assert plan(aci)["status"] == "REJECTED_OPERATIONAL_DIAGNOSTIC_REQUEST"
+    assert not aci.diagnostic_plans
     rejected = aci.call(
         req(
             aci,
@@ -370,7 +373,7 @@ def test_diagnostic_only_provider_does_not_charge_legacy_probe_request(tmp_path)
 def test_model_loop_can_register_graph_plan_without_faking_a_repair_or_sdk_result(tmp_path):
     from tests.benchmarks.test_rsk_episode_runner import bundle, decision, run
 
-    delegate, _, kwargs = bundle(tmp_path, arm="B")
+    delegate, _, kwargs = bundle(tmp_path, arm="C")
     aci = OperationalRskACI(delegate)
     result, prompts = run(
         tmp_path,
@@ -511,6 +514,9 @@ def test_one_diagnostic_facts_manifest_is_shared_by_all_five_arms(tmp_path, with
     assert "ros_engineer.inspect_operational_graph" not in schemas["A"]
     assert "ros_engineer.run_diagnostic_probe" not in schemas["D"]
     assert "ros_engineer.inspect_operational_graph" in schemas["B"]
+    assert "ros_engineer.plan_diagnostic_experiment" not in schemas["B"]
+    assert "ros_engineer.plan_diagnostic_experiment" in schemas["C"]
+    assert "ros_engineer.plan_diagnostic_experiment" in schemas["E"]
 
 
 @pytest.mark.parametrize(

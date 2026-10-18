@@ -173,7 +173,9 @@ class OperationalRskACI(RskPhysicalACI):
             "snapshot_hash": graph.snapshot_hash,
             "findings_total": len(graph.findings),
             "inspect_operation": "ros_engineer.inspect_operational_graph",
-            "plan_operation": "ros_engineer.plan_diagnostic_experiment",
+            "plan_operation": "ros_engineer.plan_diagnostic_experiment"
+            if self.arm in {"C", "E"}
+            else None,
             "explicit_probe_available": self.arm in {"C", "E"} and self.provider is not None,
             "registered_experiments": list(self.diagnostic_plans),
             "scope": "SEALED_ORIGINAL_DIAGNOSIS_NOT_CURRENT_L1_OR_CAUSAL_VERIFICATION",
@@ -195,7 +197,10 @@ class OperationalRskACI(RskPhysicalACI):
                 raise ValueError("ambiguous operational argument schema")
             schema["$defs"][key] = value
         for operation, ref in extra["discriminator"]["mapping"].items():
-            if operation == "ros_engineer.run_diagnostic_probe" and self.arm == "B":
+            if self.arm == "B" and operation in {
+                "ros_engineer.plan_diagnostic_experiment",
+                "ros_engineer.run_diagnostic_probe",
+            }:
                 continue
             schema["discriminator"]["mapping"][operation] = ref
             schema["oneOf"].append({"$ref": ref})
@@ -315,6 +320,8 @@ class OperationalRskACI(RskPhysicalACI):
             self.trace.append({"request": copy.deepcopy(request), "result": copy.deepcopy(result)})
             return result
         try:
+            if operation not in self.request_schema()["discriminator"]["mapping"]:
+                raise ValueError("operational hypothesis/probe operation unavailable in this arm")
             call = GRAPH_CALLS.validate_python(request)
             self.base._bound(call.arguments.case_hash, read_only=True)
             if self.base.finished:
