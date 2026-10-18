@@ -133,7 +133,6 @@ The SDK validates this static integrity during constructor preparation, before
 opening the expiring health window. It polls and verifies actual source/joint
 observations before evaluating current ROS health, and retains the minimum of
 the unchanged source, Native and health deadlines. The same 500ms source, 250ms
-proof and 100ms lookahead constraints remain. When available, the installed safe
-LibYAML parser performs the same closed mapping and alias rejection; the safe
-Python fallback remains available. Offline timings are development evidence,
-not a new physical pass.
+proof and 100ms lookahead constraints remain. The existing strict safe YAML
+parser and its alias/duplicate rejection remain unchanged. Offline timings are
+development evidence, not a new physical pass.

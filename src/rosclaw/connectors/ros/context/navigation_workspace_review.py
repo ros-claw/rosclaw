@@ -77,13 +77,7 @@ def _json(raw):
     return json.loads(raw, object_pairs_hook=_object, parse_constant=invalid)
 
 
-try:
-    from yaml import CSafeLoader as _SafeYamlLoader
-except ImportError:
-    from yaml import SafeLoader as _SafeYamlLoader
-
-
-class _Yaml(_SafeYamlLoader):
+class _Yaml(yaml.SafeLoader):
     pass
 
 
@@ -95,8 +89,7 @@ _Yaml.add_constructor(
 
 def _yaml(raw):
     if any(
-        isinstance(t, (yaml.tokens.AliasToken, yaml.tokens.AnchorToken))
-        for t in yaml.scan(raw, Loader=_Yaml)
+        isinstance(t, (yaml.tokens.AliasToken, yaml.tokens.AnchorToken)) for t in yaml.scan(raw)
     ):
         raise ValueError("artifact YAML aliases/anchors are not accepted")
     loader = _Yaml(raw)
