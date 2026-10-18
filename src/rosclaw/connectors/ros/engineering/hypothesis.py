@@ -117,7 +117,7 @@ def evaluate_hypothesis(hypothesis, graph, *, not_before: datetime | None = None
             if (
                 f.invariant == invariant
                 or predicate == "TF_AUTHORITY_CONFLICT"
-                and f.invariant == "tf.observed_message_authorities_per_topic"
+                and f.invariant == "tf.observed_message_authorities_per_reader"
             )
             and (
                 (

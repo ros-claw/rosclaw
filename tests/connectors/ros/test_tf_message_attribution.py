@@ -20,8 +20,11 @@ def helper():
 
 def window(*, count=2, captured=NOW, recorded=NOW):
     return {
-        "schema_version": "rosclaw.tf_attribution_window.v1",
+        "schema_version": "rosclaw.tf_attribution_window.v2",
         "captured_at": captured.isoformat(),
+        "identity_kind": "RMW_MESSAGEINFO_OPAQUE_READER_LOCAL",
+        "discovery_gid_mapping": "NOT_ESTABLISHED",
+        "observer_instance": "fixture-observer-1",
         "received_steady_ns": 1000,
         "window_ms": 500,
         "max_edges": 1024,
@@ -35,9 +38,10 @@ def window(*, count=2, captured=NOW, recorded=NOW):
         "records": [
             {
                 "topic": "/remapped/frames",
+                "reader_scope": "VOLATILE_READER",
                 "parent": "world",
                 "child": "odom",
-                "publisher_gid": ("01" if i == 0 else "02") * 16,
+                "publisher_token": ("01" if i == 0 else "02") * 16,
                 "received_at": recorded.isoformat(),
                 "received_steady_ns": 999,
                 "stamp_sec": 1,
@@ -57,7 +61,7 @@ def test_native_message_info_window_can_witness_duplicate_authority_hidden_by_ol
     assert any(
         f.status == "VIOLATED"
         for f in g.findings
-        if f.invariant == "tf.observed_message_authorities_per_topic"
+        if f.invariant == "tf.observed_message_authorities_per_reader"
     )
     assert any("tf_attribution_window/records" in p.pointer for p in g.provenance.values())
     assert g.current_authority == "NONE"
@@ -72,7 +76,7 @@ def test_one_attributed_source_does_not_establish_uniqueness_or_complete_coverag
     assert all(
         f.status == "UNKNOWN"
         for f in g.findings
-        if f.invariant == "tf.observed_message_authorities_per_topic"
+        if f.invariant == "tf.observed_message_authorities_per_reader"
     )
 
 
@@ -96,7 +100,7 @@ def test_attribution_age_belongs_to_original_observation_not_new_envelope(kind):
     assert not any(
         f.status == "VIOLATED"
         for f in g.findings
-        if f.invariant == "tf.observed_message_authorities_per_topic"
+        if f.invariant == "tf.observed_message_authorities_per_reader"
     )
 
 
@@ -106,9 +110,9 @@ def test_attribution_age_belongs_to_original_observation_not_new_envelope(kind):
 def test_invalid_or_authority_claiming_observer_payloads_fail_closed(mutation):
     d = window()
     if mutation == "zero_gid":
-        d["records"][0]["publisher_gid"] = "00" * 16
+        d["records"][0]["publisher_token"] = "00" * 16
     elif mutation == "malformed_gid":
-        d["records"][0]["publisher_gid"] = "claimed-node-name"
+        d["records"][0]["publisher_token"] = "claimed-node-name"
     elif mutation == "invalid_stamp":
         d["records"][0]["stamp_nanosec"] = 10**9
     elif mutation == "oversized":
@@ -132,5 +136,27 @@ def test_separate_tf_topics_are_not_assumed_to_share_a_consumer_buffer():
     assert all(
         f.status == "UNKNOWN"
         for f in g.findings
-        if f.invariant == "tf.observed_message_authorities_per_topic"
+        if f.invariant == "tf.observed_message_authorities_per_reader"
     )
+
+
+def test_two_readers_do_not_merge_their_local_publication_token_namespaces():
+    m, u, r = native_fixture()
+    payload = window()
+    payload["records"][1]["reader_scope"] = "TRANSIENT_LOCAL_READER"
+    m.observations["tf_attribution_window"] = helper()(
+        json.dumps(payload), now=NOW, received_at=NOW
+    )
+    g = graph(m, u, r)
+    assert all(
+        f.status == "UNKNOWN"
+        for f in g.findings
+        if f.invariant == "tf.observed_message_authorities_per_reader"
+    )
+
+
+def test_callback_tokens_cannot_be_declared_globally_mapped_discovery_gids():
+    payload = window()
+    payload["discovery_gid_mapping"] = "MATCHED"
+    with pytest.raises(ValueError, match="cannot be upgraded"):
+        helper()(json.dumps(payload), now=NOW, received_at=NOW)

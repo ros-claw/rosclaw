@@ -19,7 +19,7 @@ def parse_tf_window(raw, *, now, received_at):
     )
     if (
         type(data) is not dict
-        or data.get("schema_version") != "rosclaw.tf_attribution_window.v1"
+        or data.get("schema_version") != "rosclaw.tf_attribution_window.v2"
         or data.get("completeness") != "NOT_ESTABLISHED"
         or data.get("execution_authority") != "NONE"
     ):
@@ -44,6 +44,14 @@ def parse_tf_window(raw, *, now, received_at):
     captured = datetime.fromisoformat(data["captured_at"])
     if captured.tzinfo is None:
         raise ValueError("aware C++ capture time required")
+    if (
+        data.get("identity_kind") != "RMW_MESSAGEINFO_OPAQUE_READER_LOCAL"
+        or data.get("discovery_gid_mapping") != "NOT_ESTABLISHED"
+    ):
+        raise ValueError("callback token identity cannot be upgraded to discovery GID")
+    instance = data.get("observer_instance")
+    if type(instance) is not str or not 1 <= len(instance) <= 128 or not instance.isascii():
+        raise ValueError("explicit bounded observer lifetime required")
     rows = data.get("records")
     if type(rows) is not list or len(rows) > 1024:
         raise ValueError("bounded TF attribution records required")
@@ -52,7 +60,8 @@ def parse_tf_window(raw, *, now, received_at):
             "topic",
             "parent",
             "child",
-            "publisher_gid",
+            "publisher_token",
+            "reader_scope",
             "received_at",
             "received_steady_ns",
             "stamp_sec",
@@ -70,7 +79,9 @@ def parse_tf_window(raw, *, now, received_at):
                 raise ValueError("bounded ASCII TF identities required")
         if not row["topic"].startswith("/"):
             raise ValueError("explicit fully qualified TF topic required")
-        gid = row["publisher_gid"]
+        if row.get("reader_scope") not in {"VOLATILE_READER", "TRANSIENT_LOCAL_READER"}:
+            raise ValueError("explicit reader-local identity scope required")
+        gid = row["publisher_token"]
         if gid is not None and (
             type(gid) is not str
             or not re.fullmatch(r"(?:[0-9a-f]{2}){1,64}", gid)

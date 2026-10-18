@@ -497,16 +497,22 @@ def compile_operational_graph(
         fact = ref(f"/observations/tf_attribution_window/records/{index}", stamp=stamp)
         entity("frame", row["parent"], [fact])
         entity("frame", row["child"], [fact])
-        attributed_groups.setdefault((row["topic"], row["child"]), []).append(
-            (row["parent"], row["publisher_gid"], fact)
-        )
-    for (topic, child), rows in sorted(attributed_groups.items()):
+        attributed_groups.setdefault(
+            (
+                model.observations["tf_attribution_window"]["observer_instance"],
+                row["reader_scope"],
+                row["topic"],
+                row["child"],
+            ),
+            [],
+        ).append((row["parent"], row["publisher_token"], fact))
+    for (observer_instance, reader_scope, topic, child), rows in sorted(attributed_groups.items()):
         conflict = len({r[0] for r in rows}) > 1 or len({r[1] for r in rows}) > 1
         finding(
-            _id("message_authority", [topic, child]),
-            "tf.observed_message_authorities_per_topic",
+            _id("message_authority", [observer_instance, reader_scope, topic, child]),
+            "tf.observed_message_authorities_per_reader",
             "VIOLATED" if usable and conflict else "UNKNOWN",
-            "THIS_TF_TOPIC_ONLY_NOT_CROSS_TOPIC_BUFFER_OR_FUTURE_UNIQUENESS",
+            "THIS_OBSERVER_READER_TOPIC_ONLY_NOT_NODE_ID_OR_GLOBAL_GID_OR_UNIQUENESS",
             [r[2] for r in rows],
             [topic, child],
             [] if conflict else ["complete_source_pinned_consumer_TF_buffer_authority_review"],
