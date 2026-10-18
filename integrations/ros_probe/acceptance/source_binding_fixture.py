@@ -191,6 +191,8 @@ def main():
     passive_log = None
     governed_sink = None
     governed_log = None
+    consumer_witness = None
+    consumer_log = None
     witness_logs = []
     rclpy.init(args=["--ros-args", "-p", "use_sim_time:=true"])
     node = Node("rosclaw_source_capture")
@@ -448,6 +450,8 @@ def main():
                 raise RuntimeError("owned passive rosclawd exited unexpectedly")
             if governed_sink and governed_sink.poll() is not None:
                 raise RuntimeError("owned governed sink exited unexpectedly")
+            if consumer_witness and consumer_witness.poll() is not None:
+                raise RuntimeError("owned read-only costmap consumer witness exited unexpectedly")
             rclpy.spin_once(node, timeout_sec=0.05)
 
     try:
@@ -463,6 +467,34 @@ def main():
             spawned = json.loads((OUT / "prepared-stack-spawned-original.json").read_text())
             if spawned["run_id"] != settings["run_id"] or spawned["owner_pid"] != stack.pid:
                 raise ValueError("owned prepared process milestone identity differs")
+        consumer = settings.get("costmap_consumer_capture")
+        if consumer is not None:
+            if (
+                not Path("/.dockerenv").is_file()
+                or os.environ.get("ROS_LOCALHOST_ONLY") != "1"
+                or governed is None
+                or type(consumer) is not dict
+                or set(consumer) != {"schema_version", "configuration_sha256"}
+                or consumer["schema_version"] != "rosclaw.costmap_consumer_capture.v1"
+                or type(consumer["configuration_sha256"]) is not str
+                or consumer["configuration_sha256"]
+                != hashlib.sha256(Path("/assets/costmap-witness.json").read_bytes()).hexdigest()
+            ):
+                raise ValueError("explicit pinned disposable SDK costmap witness required")
+            argv = [
+                sys.executable,
+                str(ROOT / "costmap_consumer_witness.py"),
+                "--configuration-sha256",
+                consumer["configuration_sha256"],
+                "--run-id",
+                settings["run_id"],
+            ]
+            save("costmap-consumer-owned-argv.json", argv)
+            consumer_log = (OUT / "costmap-consumer-owned-original.log").open("x")
+            consumer_witness = subprocess.Popen(
+                argv, stdout=consumer_log, stderr=subprocess.STDOUT, start_new_session=True
+            )
+            save("costmap-consumer-owned-process.json", process_fact(consumer_witness.pid))
         if (
             engineering_capture
             and engineering_capture["case"] == "rsk_controller_plugin_unavailable"
@@ -768,6 +800,20 @@ def main():
             flush=True,
         )
     finally:
+        if consumer_witness:
+            alive_at_shutdown = consumer_witness.poll() is None
+            stop(consumer_witness)
+            save(
+                "costmap-consumer-owned-exit.json",
+                {
+                    "alive_before_operator_shutdown": alive_at_shutdown,
+                    "returncode": consumer_witness.returncode,
+                    "monotonic_ns": time.monotonic_ns(),
+                    "physical_stop_claimed": False,
+                },
+            )
+        if consumer_log:
+            consumer_log.close()
         if passive_daemon:
             stop(passive_daemon)
             save("passive-daemon-exit.json", {"returncode": passive_daemon.returncode})

@@ -15,6 +15,8 @@ from simulation_owned_process_fault import pause_owned_process, resume_owned_pro
 from simulation_unadmitted_sink import require_unadmitted_sink
 
 COUNTERFACTUAL_CASES = {
+    "rsk_tf_future_stamp",
+    "rsk_global_sensor_frame_unresolvable",
     "rsk_node_clock_mismatch",
     "rsk_controller_plugin_unavailable",
     "rsk_sensor_frame_unresolvable",
@@ -131,9 +133,12 @@ def counterfactual_readback_available(native, case):
         elif case == "rsk_controller_plugin_unavailable":
             if params.get("FollowPath.plugin") == "rsk_fixture::UnavailableController":
                 return True
-        elif (
-            case == "rsk_sensor_frame_unresolvable"
-            and params.get("voxel_layer.scan.sensor_frame") == "rsk_missing_sensor_frame"
+        elif case == "rsk_tf_future_stamp":
+            if node.endswith("/amcl") and params.get("transform_tolerance") == 30.0:
+                return True
+        elif case in {"rsk_sensor_frame_unresolvable", "rsk_global_sensor_frame_unresolvable"} and (
+            params.get("voxel_layer.scan.sensor_frame") == "rsk_missing_sensor_frame"
+            or params.get("obstacle_layer.scan.sensor_frame") == "rsk_missing_sensor_frame"
         ):
             return True
     return False
