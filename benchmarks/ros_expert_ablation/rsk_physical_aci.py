@@ -20,6 +20,11 @@ from benchmarks.ros_expert_ablation.physical_aci import (
     RepairArgs,
     RepairCall,
 )
+from benchmarks.ros_expert_ablation.rsk_original_files import (
+    FILE_CALLS,
+    OriginalFilesMixin,
+    normalize_original_read,
+)
 from benchmarks.ros_expert_ablation.rsk_pilot_protocol import RskPilotProtocolV2, review_pilot_entry
 
 
@@ -46,7 +51,7 @@ CROSS_BODY_CALLS = TypeAdapter(
 )
 
 
-class RskPhysicalACI:
+class RskPhysicalACI(OriginalFilesMixin):
     def __init__(
         self,
         base: PhysicalACI,
@@ -58,10 +63,10 @@ class RskPhysicalACI:
         evidence_root=None,
     ):
         if (
-            arm not in {"B", "C", "E"}
-            or base.tools.arm != "B"
+            arm not in {"A", "B", "C", "E"}
+            or base.tools.arm != ("A" if arm == "A" else "B")
             or base.max_validations != 1
-            or (arm == "B" and base.probe_evaluator is not None)
+            or (arm in {"A", "B"} and base.probe_evaluator is not None)
             or (arm != "E" and memory_query is not None)
         ):
             raise ValueError("separate RSK B/C/E arm, legacy B tools and one validation required")
@@ -97,6 +102,9 @@ class RskPhysicalACI:
         mapping = {k: v for k, v in old["discriminator"]["mapping"].items() if k != disabled}
         if self.arm == "E":
             mapping.update(new["discriminator"]["mapping"])
+        files = FILE_CALLS.json_schema()
+        definitions.update(files["$defs"])
+        mapping.update(files["discriminator"]["mapping"])
         return {
             "$defs": definitions,
             "oneOf": [{"$ref": ref} for ref in mapping.values()],
@@ -170,12 +178,26 @@ class RskPhysicalACI:
             "ros_engineer.propose_cross_body_memory_repair",
         }:
             CROSS_BODY_CALLS.validate_python(decision)
+        elif operation in {"files.list", "files.read"}:
+            decision = normalize_original_read(copy.deepcopy(decision))
+            FILE_CALLS.validate_python(decision)
         else:
             decision = normalize_decision(value)["decision"]
         return self.call(decision, remaining_sec=remaining_sec)
 
     def call(self, request, *, remaining_sec=None):
         operation = request.get("operation") if isinstance(request, dict) else None
+        if operation in {"files.list", "files.read"}:
+            try:
+                result = self.original_file_call(request)
+            except (ValueError, TypeError, KeyError, IndexError) as error:
+                result = {
+                    "status": "REJECTED_ORIGINAL_FILE_REQUEST",
+                    "error": str(error),
+                    "current_authority": "NONE",
+                }
+            self.trace.append({"request": copy.deepcopy(request), "result": copy.deepcopy(result)})
+            return copy.deepcopy(result)
         if operation not in {
             "ros_engineer.query_cross_body_memory",
             "ros_engineer.propose_cross_body_memory_repair",

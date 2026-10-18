@@ -14,6 +14,8 @@ import math
 import re
 from typing import Literal
 
+from pydantic import Field
+
 from benchmarks.ros_expert_ablation.physical_aci import Args, CaseArgs
 from benchmarks.ros_expert_ablation.rsk_physical_aci import RskPhysicalACI
 from rosclaw.connectors.ros.engineering.application_bootstrap import compile_driver_bootstrap
@@ -29,6 +31,25 @@ APPLICATION_FILES = frozenset(
 class ApplicationBootstrapCall(Args):
     operation: Literal["ros_engineer.propose_application_bootstrap"]
     arguments: CaseArgs
+
+
+class ApplicationInputArgs(CaseArgs):
+    file: Literal[
+        "software-template.json",
+        "component-manifests.json",
+        "driver-bootstrap-request.json",
+        "original/nav2.yaml",
+        "original/bringup.json",
+        "original/requirements.json",
+        "original/navigation-policy.json",
+    ]
+    offset: int = Field(default=0, ge=0)
+    limit: int = Field(default=12000, ge=1, le=16000)
+
+
+class ApplicationInputCall(Args):
+    operation: Literal["ros_engineer.read_application_input"]
+    arguments: ApplicationInputArgs
 
 
 class ApplicationPhysicalACI(RskPhysicalACI):
@@ -135,33 +156,71 @@ class ApplicationPhysicalACI(RskPhysicalACI):
             "control_reference_to_verify": data["request"]["control"],
             "scope": "HOST_PINNED_APPLICATION_INPUTS_NOT_DRIVER_ACCEPTANCE_OR_BODY_ADMISSION",
             "compile_requested": False,
+            "original_input_files": list(self.original_input_files()),
             "starts_World": False,
+            "current_authority": "NONE",
+        }
+
+    def registered_application_inputs(self):
+        return self._inputs()[0]
+
+    def _extra_original_files(self):
+        return self.original_input_files()
+
+    def original_input_files(self):
+        data, _ = self._inputs()
+        return {
+            **{"original/" + name: text for name, text in data["original_files"].items()},
+            **{
+                name: json.dumps(data[key], ensure_ascii=False, separators=(",", ":"))
+                for name, key in [
+                    ("software-template.json", "software_template"),
+                    ("component-manifests.json", "component_manifests"),
+                    ("driver-bootstrap-request.json", "request"),
+                ]
+            },
+        }
+
+    def read_application_input(self, request):
+        call = ApplicationInputCall.model_validate(request)
+        self.base._bound(call.arguments.case_hash, read_only=True)
+        if self.base.finished:
+            raise ValueError("episode finished")
+        text = self.original_input_files()[call.arguments.file]
+        offset, limit = call.arguments.offset, call.arguments.limit
+        return {
+            "status": "ORIGINAL_APPLICATION_INPUT_SLICE_NOT_DIAGNOSIS",
+            "file": call.arguments.file,
+            "offset": offset,
+            "total_characters": len(text),
+            "text": text[offset : offset + limit],
+            "truncated": offset + limit < len(text),
+            "source_sha256": hashlib.sha256(text.encode()).hexdigest(),
             "current_authority": "NONE",
         }
 
     def request_schema(self):
         schema = super().request_schema()
-        name = "ApplicationBootstrapCall"
-        definition = ApplicationBootstrapCall.model_json_schema()
-        for key, value in definition.pop("$defs", {}).items():
-            if key in schema["$defs"] and schema["$defs"][key] != value:
-                raise ValueError("ambiguous application argument definition")
-            schema["$defs"][key] = value
-        definition["properties"]["operation"] = {
-            "const": "ros_engineer.propose_application_bootstrap",
-            "type": "string",
-        }
-        schema["$defs"][name] = definition
-        ref = "#/$defs/" + name
-        schema["oneOf"].append({"$ref": ref})
-        schema["discriminator"]["mapping"]["ros_engineer.propose_application_bootstrap"] = ref
+        for model in [ApplicationBootstrapCall, ApplicationInputCall]:
+            name = model.__name__
+            definition = model.model_json_schema()
+            for key, value in definition.pop("$defs", {}).items():
+                if key in schema["$defs"] and schema["$defs"][key] != value:
+                    raise ValueError("ambiguous application argument definition")
+                schema["$defs"][key] = value
+            schema["$defs"][name] = definition
+            ref = "#/$defs/" + name
+            schema["oneOf"].append({"$ref": ref})
+            operation = definition["properties"]["operation"]["const"]
+            schema["discriminator"]["mapping"][operation] = ref
         return schema
 
     def call_model_decision(self, value, *, remaining_sec=None):
         if not (
             isinstance(value, dict)
             and isinstance(value.get("decision"), dict)
-            and value["decision"].get("operation") == "ros_engineer.propose_application_bootstrap"
+            and value["decision"].get("operation")
+            in {"ros_engineer.propose_application_bootstrap", "ros_engineer.read_application_input"}
         ):
             return super().call_model_decision(value, remaining_sec=remaining_sec)
         if set(value) != {"decision", "decision_summary", "memory_refs_used"} or (
@@ -176,8 +235,18 @@ class ApplicationPhysicalACI(RskPhysicalACI):
             or not set(refs) <= admitted
         ):
             raise ValueError("only actually returned context references may be cited")
-        ApplicationBootstrapCall.model_validate(value["decision"])
-        return self.call(value["decision"], remaining_sec=remaining_sec)
+        model = (
+            ApplicationInputCall
+            if value["decision"]["operation"] == "ros_engineer.read_application_input"
+            else ApplicationBootstrapCall
+        )
+        request = copy.deepcopy(value["decision"])
+        if model is ApplicationInputCall and isinstance(request.get("arguments"), dict):
+            for name in ["offset", "limit"]:
+                if request["arguments"].get(name, False) is None:
+                    request["arguments"].pop(name)
+        model.model_validate(request)
+        return self.call(request, remaining_sec=remaining_sec)
 
     def _propose(self, request):
         call = ApplicationBootstrapCall.model_validate(request)
@@ -364,12 +433,21 @@ class ApplicationPhysicalACI(RskPhysicalACI):
             operation == "ros_engineer.validate_proposal"
             and request.get("arguments", {}).get("proposal_id") in self.application_proposals
         )
-        if operation != "ros_engineer.propose_application_bootstrap" and not application_validation:
+        if (
+            operation
+            not in {
+                "ros_engineer.propose_application_bootstrap",
+                "ros_engineer.read_application_input",
+            }
+            and not application_validation
+        ):
             return super().call(request, remaining_sec=remaining_sec)
         try:
             result = (
                 self._validate_application(request, remaining_sec)
                 if application_validation
+                else self.read_application_input(request)
+                if operation == "ros_engineer.read_application_input"
                 else self._propose(request)
             )
         except (ValueError, KeyError, TypeError, IndexError) as exc:

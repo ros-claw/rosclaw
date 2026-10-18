@@ -6,6 +6,26 @@ from benchmarks.ros_expert_ablation.aci_context import encoded
 from benchmarks.ros_expert_ablation.aci_tool_guide import build_tool_guide
 
 RSK_DESCRIPTIONS = {
+    "files.list": (
+        "READ_ONLY_ORIGINAL_FILE_CATALOG",
+        "List the same original task and application inputs plus the declared staging whitelist. No Expert diagnosis, compiled repair or generated application answer is returned.",
+    ),
+    "files.read": (
+        "READ_ONLY_ORIGINAL_FILE_SLICE",
+        "Read a bounded character slice from an actual allowlisted original file, using file/offset/limit. No host paths or native filesystem access are exposed.",
+    ),
+    "staging.propose_patch": (
+        "REGISTER_GENERIC_MODEL_AUTHORED_STAGING_ONLY",
+        "Supply file/pointer/value_json changes yourself. The existing whitelist and typed field safety checks apply. No implicit diagnosis or repair compiler chooses values. Explicit independent validation is still required.",
+    ),
+    "staging.propose_application": (
+        "REGISTER_GENERIC_MODEL_AUTHORED_APPLICATION_ONLY",
+        "Supply four file strings yourself. Host checks semantic equality to the frozen Core contract with exact scalar types and list order; whitespace/key order need not match. Host seals the optional navigation_requirements_hash and serializes equivalent files. Mismatch returns no generated answer. Stage only, not SDK or Body admission.",
+    ),
+    "ros_engineer.read_application_input": (
+        "READ_ONLY_ORIGINAL_APPLICATION_INPUT",
+        "Read a bounded slice of the same frozen reusable software template, installed component manifests or application request available to the generic baseline. No graph diagnosis, proposal, World or permission is created.",
+    ),
     "ros_engineer.propose_application_bootstrap": (
         "REGISTER_FOUR_FILE_APPLICATION_ONLY",
         "Compile a planned navigation application from the host-pinned current driver observations, original URDF, installed component manifests and explicit Body limits. Missing drivers/dependencies abstain. Four configuration files and rollback are proposals only; validate_proposal requires the existing fresh-World SDK and independent canonical proof.",

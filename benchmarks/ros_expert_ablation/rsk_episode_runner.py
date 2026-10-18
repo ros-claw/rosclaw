@@ -28,7 +28,6 @@ from benchmarks.ros_expert_ablation.protocol import usage_from_events
 from benchmarks.ros_expert_ablation.rsk_physical_aci import RskPhysicalACI
 from benchmarks.ros_expert_ablation.rsk_pilot_protocol import (
     RskPilotProtocolV2,
-    allocate_pilot,
     review_pilot_entry,
 )
 from benchmarks.ros_expert_ablation.rsk_tool_guide import build_rsk_tool_guide
@@ -68,6 +67,8 @@ class EpisodeFactsV1(Closed):
     task: OriginalRef
     evaluation_episode_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     run_settings: OriginalRef
+    original_files: OriginalRef | None = None
+    application_inputs: OriginalRef | None = None
 
 
 class FrozenProviderV1(Closed):
@@ -158,9 +159,14 @@ def run_rsk_typed_episode(
     contract_client=None,
     clock=time.monotonic,
 ):
-    """One registered B/C/E allocation, max300s/12 decisions, never a pilot launcher."""
+    """One registered A/B/C/E allocation, max300s/12 decisions, never a pilot launcher."""
     if not isinstance(aci, RskPhysicalACI) or type(ordinal) is not int:
         raise ValueError("typed RSK interface and registered allocation ordinal required")
+    if aci.arm == "A":
+        from benchmarks.ros_expert_ablation.rsk_generic_baseline import GenericRskACI
+
+        if not isinstance(aci, GenericRskACI):
+            raise ValueError("registered A requires the separate generic baseline facade")
     root = Path(evidence_root).resolve(strict=True)
     output = Path(output).resolve()
     output.mkdir(exist_ok=False)
@@ -207,52 +213,20 @@ def run_rsk_typed_episode(
     try:
         if entry["status"] != "ELIGIBLE_FOR_BOUNDED_PILOT_ONLY":
             raise ValueError("original pilot entry is NO_GO; no model or SDK calls")
-        allocation = next(row for row in allocate_pilot(protocol) if row["ordinal"] == ordinal)
-        if allocation["arm"] != aci.arm:
-            raise ValueError("registered allocation arm differs from the injected interface")
-        case = next(row for row in protocol.cases if row.case_id == allocation["case_id"])
-        if (
-            facts_manifest.sha256 != case.facts_manifest_sha256
-            or evaluation_episode.sha256 != case.evaluation_episode_sha256
-            or provider_settings.sha256 != protocol.provider_settings_sha256
-            or memory_policy.sha256 != protocol.memory_policy_sha256
-        ):
-            raise ValueError("original allocation/facts/episode/provider hashes differ")
-        facts = EpisodeFactsV1.model_validate_json(_read(root, facts_manifest))
-        _read(root, evaluation_episode)
-        if facts.evaluation_episode_sha256 != evaluation_episode.sha256:
-            raise ValueError("registered facts do not bind the original evaluation episode")
-        for ref, value in (
-            (facts.case, base.case.model_dump(mode="json")),
-            (facts.model, base.model.to_dict()),
-            (facts.requirements, base.requirements),
-            (facts.staging, base.tools.initial_staging),
-            (facts.task, task),
-        ):
-            if json.loads(_read(root, ref)) != value:
-                raise ValueError("injected interface differs from registered original facts")
-        policy = json.loads(_read(root, memory_policy))
-        if (
-            type(policy) is not dict
-            or set(policy) != {"schema_version", "cases"}
-            or policy["schema_version"] != "rosclaw.rsk_memory_policy_manifest.v1"
-            or type(policy["cases"]) is not dict
-            or set(policy["cases"]) != {row.case_id for row in protocol.cases}
-        ):
-            raise ValueError("closed frozen per-case Memory policy manifest required")
-        run_id = json.loads(_read(root, facts.run_settings)).get("run_id")
-        if (
-            type(run_id) is not str
-            or len(run_id) != 32
-            or any(c not in "0123456789abcdef" for c in run_id)
-        ):
-            raise ValueError("original evaluation World/run identity required")
-        if aci.memory_query is not None and (
-            policy["cases"][case.case_id] != aci.memory_query.policy
-            or evaluation_episode.sha256 not in aci.memory_query.excluded_episodes
-            or run_id not in aci.memory_query.excluded_runs
-        ):
-            raise ValueError("Memory policy differs or does not exclude the current episode/run")
+        from benchmarks.ros_expert_ablation.rsk_registered_inputs import registered_episode_inputs
+
+        allocation, facts = registered_episode_inputs(
+            task,
+            aci,
+            protocol=protocol,
+            root=root,
+            ordinal=ordinal,
+            arm=aci.arm,
+            facts_manifest=facts_manifest,
+            evaluation_episode=evaluation_episode,
+            provider_settings=provider_settings,
+            memory_policy=memory_policy,
+        )
         provider = FrozenProviderV1.model_validate_json(_read(root, provider_settings))
         synthetic = provider.execution_kind == "SYNTHETIC_CONTRACT_CLIENT"
         if not synthetic and (
@@ -274,6 +248,20 @@ def run_rsk_typed_episode(
         ):
             raise ValueError("fresh episode-scoped interface and Memory context required")
         client = _provider_pin(provider, protocol, contract_client=contract_client)
+        if not synthetic:
+            registered_episode_inputs(
+                task,
+                aci,
+                protocol=protocol,
+                root=root,
+                ordinal=ordinal,
+                arm=aci.arm,
+                facts_manifest=facts_manifest,
+                evaluation_episode=evaluation_episode,
+                provider_settings=provider_settings,
+                memory_policy=memory_policy,
+                require_complete_originals=True,
+            )
         result.update(allocation=allocation, execution_kind=provider.execution_kind)
         context, workbook = EngineeringEpisodeContext(base), EpisodeWorkbook()
         # Gold case labels/operator paths never enter the public task projection.
@@ -390,7 +378,14 @@ def run_rsk_typed_episode(
                 raise ValueError("original structured model decision missing")
             decision = json.loads(messages[-1])
             op = decision.get("decision", {}).get("operation")
-            if op == "ros_engineer.investigate":
+            if op in {
+                "ros_engineer.investigate",
+                "ros_engineer.read_task_evidence",
+                "ros_engineer.expand_task_evidence",
+                "ros_engineer.read_application_input",
+                "files.list",
+                "files.read",
+            }:
                 if investigations >= protocol.max_read_only_probes:
                     state = "READ_ONLY_PROBE_BUDGET_EXHAUSTED"
                     break
@@ -413,15 +408,41 @@ def run_rsk_typed_episode(
                 facts.staging,
                 facts.task,
                 facts.run_settings,
+                *([facts.original_files] if facts.original_files is not None else []),
+                *([facts.application_inputs] if facts.application_inputs is not None else []),
             ):
-                _read(root, reference)
+                _read(root, reference, limit=16_000_000)
             _provider_pin(provider, protocol, contract_client=contract_client)
             if synthetic and (base.evaluator is not None or base.probe_evaluator is not None):
                 raise ValueError("synthetic contract cannot acquire SDK/probe callbacks")
             tool_started = clock()
-            tool_result = aci.call_model_decision(
-                decision, remaining_sec=max(0.001, deadline - clock())
-            )
+            try:
+                tool_result = aci.call_model_decision(
+                    decision, remaining_sec=max(0.001, deadline - clock())
+                )
+            except Exception as error:
+                state = (
+                    "INVALID_MODEL_DECISION_OR_ORIGINAL_INPUT"
+                    if isinstance(error, (ValueError, TypeError, KeyError))
+                    else "HOST_TOOL_CALLBACK_EXCEPTION_NO_AUTOMATIC_RETRY"
+                )
+                result.update(error=str(error), error_type=type(error).__name__)
+                tools.append(
+                    {
+                        "turn": turn + 1,
+                        "decision": decision,
+                        "result": {
+                            "status": state,
+                            "error_type": type(error).__name__,
+                            "error": str(error),
+                        },
+                        "elapsed_sec": clock() - started,
+                        "host_tool_wall_sec": clock() - tool_started,
+                    }
+                )
+                with (output / f"turn-{turn:02d}-tool-result.json").open("x") as stream:
+                    json.dump(tools[-1], stream, indent=2)
+                break
             workbook.observe(
                 tool_result, decision["decision_summary"], request=decision["decision"]
             )
