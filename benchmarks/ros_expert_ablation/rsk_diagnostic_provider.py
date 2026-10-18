@@ -238,8 +238,9 @@ class DiagnosticProbeProvider:
             subprocess.check_output(["docker", "inspect", stopped["Id"]], text=True, timeout=15)
         )[0]
         if any(
-            actual[key] != stopped[key]
-            for key in ["Id", "Image", "State", "Config", "HostConfig", "Mounts"]
+            actual[key] != stopped[key] for key in ["Id", "Image", "State", "Config", "HostConfig"]
+        ) or sorted(json.dumps(mount, sort_keys=True) for mount in actual["Mounts"]) != sorted(
+            json.dumps(mount, sort_keys=True) for mount in stopped["Mounts"]
         ):
             raise ValueError("current stopped SDK container differs from the original inspection")
         if (

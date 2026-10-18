@@ -102,7 +102,7 @@ def originals(tmp_path, monkeypatch, fault):
     }
     if fault == "owner_policy_changed":
         owner["publisher_policy_changed_during_window"] = True
-    if fault == "command":
+    if fault in {"command", "mount_order_command"}:
         owner["control_commands"] = 1
     if fault == "driver":
         owner["robot_driver_processes"] = ["forbidden-driver"]
@@ -146,6 +146,14 @@ def originals(tmp_path, monkeypatch, fault):
     if fault == "bad_exit":
         stopped["State"]["ExitCode"] = 1
     current = copy.deepcopy(stopped)
+    if fault == "mount_order_command":
+        current["Mounts"].reverse()
+    if fault == "mount_source_changed":
+        current["Mounts"][0]["Source"] = "/different-source"
+    if fault == "mount_permission_changed":
+        current["Mounts"][0]["RW"] = True
+    if fault == "mount_duplicate":
+        current["Mounts"].append(copy.deepcopy(current["Mounts"][0]))
     if fault == "live_state_changed":
         current["State"]["Running"] = True
     import benchmarks.ros_expert_ablation.rsk_diagnostic_provider as module
@@ -185,6 +193,10 @@ def originals(tmp_path, monkeypatch, fault):
         ("same_run", "frozen source"),
         ("reused_capture", "distinct source"),
         ("live_state_changed", "current stopped"),
+        ("mount_source_changed", "current stopped"),
+        ("mount_permission_changed", "current stopped"),
+        ("mount_duplicate", "current stopped"),
+        ("mount_order_command", "zero-command"),
         ("bad_exit", "stopped successfully"),
         ("network", "pinned isolated"),
         ("devices", "pinned isolated"),
