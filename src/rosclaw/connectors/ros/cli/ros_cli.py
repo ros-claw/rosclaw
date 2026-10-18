@@ -639,6 +639,10 @@ def add_ros_subparser(subparsers: argparse._SubParsersAction) -> argparse.Argume
         )
         expert_parser.add_argument("--graph", help="Saved RosGraphSnapshot JSON")
         expert_parser.add_argument("--native", help="Native probe JSON capture")
+        expert_parser.add_argument(
+            "--asset-originals",
+            help="Explicit SHA-pinned collision originals for reference snapshots",
+        )
         expert_parser.add_argument("--body", help="Body binding JSON (never inferred from graph)")
         expert_parser.add_argument(
             "--deep", action="store_true", help="Require native sidecar observations"
@@ -722,6 +726,9 @@ def add_ros_subparser(subparsers: argparse._SubParsersAction) -> argparse.Argume
         if command == "intervention-plan":
             experiment_parser.add_argument("--operational-graph", required=True)
             experiment_parser.add_argument("--snapshot", required=True)
+            experiment_parser.add_argument(
+                "--asset-originals", help="Explicit SHA-pinned collision originals"
+            )
             experiment_parser.add_argument("--staging-nav2", required=True)
             experiment_parser.add_argument("--staging-bringup", required=True)
             experiment_parser.add_argument("--proposal", required=True)
@@ -745,6 +752,7 @@ def add_ros_subparser(subparsers: argparse._SubParsersAction) -> argparse.Argume
         if command == "application-staging":
             app_parser.add_argument("--plan", required=True)
             app_parser.add_argument("--artifacts", required=True)
+        app_parser.add_argument("--asset-originals", help="Explicit SHA-pinned collision originals")
         app_parser.add_argument("--output", help="Exclusive new offline JSON artifact")
         app_parser.add_argument("--json", action="store_true")
 
@@ -761,6 +769,9 @@ def add_ros_subparser(subparsers: argparse._SubParsersAction) -> argparse.Argume
         "request",
     ):
         bootstrap_parser.add_argument("--" + flag, required=True)
+    bootstrap_parser.add_argument(
+        "--asset-originals", help="Explicit SHA-pinned collision originals"
+    )
     bootstrap_parser.add_argument("--output", help="Exclusive new offline JSON artifact")
     bootstrap_parser.add_argument("--json", action="store_true")
 
@@ -782,6 +793,7 @@ def add_ros_subparser(subparsers: argparse._SubParsersAction) -> argparse.Argume
     case_parser.add_argument("--json", action="store_true")
     case_parser.add_argument("--snapshot", required=True, help="Sealed RosSystemModel JSON")
     case_parser.add_argument("--urdf", required=True, help="Original expanded URDF")
+    case_parser.add_argument("--asset-originals", help="Explicit SHA-pinned collision originals")
     case_parser.add_argument(
         "--requirements", required=True, help="Original navigation requirements JSON"
     )
@@ -993,6 +1005,16 @@ def cmd_ros_collision_assets(args: argparse.Namespace) -> int:
         return _maybe_json(args, {"ok": False, "action": args.ros_command, "error": str(error)})
 
 
+def _bind_model_originals(model, args, *, read=None):
+    path = getattr(args, "asset_originals", None)
+    if path is None:
+        return None
+    from rosclaw.connectors.ros.context.collision_assets import bind_prepared_collision_originals
+
+    raw = read(path, "asset_originals") if read else _read_discovery_urdf(path, "asset originals")
+    return bind_prepared_collision_originals(model.observations, raw)
+
+
 def cmd_ros_application_bootstrap(args: argparse.Namespace) -> int:
     """Bounded originals only; missing Nav2 is a target, never motion authority."""
     import hashlib
@@ -1013,6 +1035,7 @@ def cmd_ros_application_bootstrap(args: argparse.Namespace) -> int:
             json.loads(read(args.operational_graph, "operational_graph"))
         )
         model = RosSystemModel.from_dict(json.loads(read(args.snapshot, "snapshot")))
+        _bind_model_originals(model, args, read=read)
         urdf = read(args.urdf, "source_urdf")
         bringup = json.loads(read(args.driver_bringup, "driver_bringup"))
         template = json.loads(read(args.software_template, "software_template"))
@@ -1060,6 +1083,7 @@ def cmd_ros_application(args: argparse.Namespace) -> int:
             json.loads(read(args.operational_graph, "operational_graph"))
         )
         model = RosSystemModel.from_dict(json.loads(read(args.snapshot, "snapshot")))
+        _bind_model_originals(model, args, read=read)
         urdf = read(args.urdf, "source_urdf")
         requirements = json.loads(read(args.requirements, "requirements"))
         manifests = json.loads(read(args.component_manifests, "component_manifests"))
@@ -1120,6 +1144,7 @@ def cmd_ros_counterfactual(args: argparse.Namespace) -> int:
                 json.loads(read(args.operational_graph, "operational_graph"))
             )
             model = RosSystemModel.from_dict(json.loads(read(args.snapshot, "snapshot")))
+            _bind_model_originals(model, args, read=read)
             staging = parse_staging_documents(
                 read(args.staging_nav2, "staging_nav2"),
                 read(args.staging_bringup, "staging_bringup"),
@@ -1198,6 +1223,7 @@ def cmd_ros_expert(args: argparse.Namespace) -> int:
             model = inspect_system(
                 endpoint=args.endpoint, robot_id=args.robot_id, deep=args.deep, body=body
             )
+        _bind_model_originals(model, args)
         command = args.ros_command
         if command == "inspect-system":
             result = {"system": model.to_dict(), "capabilities": resolve_capabilities(model)}
@@ -1276,6 +1302,7 @@ def cmd_ros_engineering_case(args: argparse.Namespace) -> int:
             raise ValueError("timezone-aware original review clock required")
         raw_snapshot = _read_discovery_urdf(args.snapshot, "sealed system model")
         model = load_system(json.loads(raw_snapshot))
+        _bind_model_originals(model, args)
         urdf = _read_discovery_urdf(args.urdf)
         raw_requirements = _read_discovery_urdf(args.requirements, "navigation requirements")
         requirements = json.loads(raw_requirements)

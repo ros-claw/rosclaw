@@ -7,10 +7,96 @@ import json
 import math
 import re
 import struct
+from collections import OrderedDict
 from functools import lru_cache
+from threading import RLock
 
 MAX_BYTES = 8_000_000
 MAX_TRIANGLES = 100_000
+REFERENCE_SCHEMA = "rosclaw.prepared_collision_asset_reference.v2"
+_REGISTERED_ORIGINALS: OrderedDict[str, bytes] = OrderedDict()
+_REGISTRY_LOCK = RLock()
+
+
+class PreparedCollisionOriginalsRequiredError(ValueError):
+    """A small immutable reference needs explicitly supplied original bytes."""
+
+
+def register_prepared_collision_originals(raw, expected_sha256):
+    """Bounded process-local STATIC bytes only; no IO, clock, state or authority.
+
+    A reference never fetches a URI. CLI/SDK callers must explicitly supply the
+    exact originals. Current SDK file identities and resource bytes still need
+    independent continuity checks on every collection.
+    """
+    if (
+        type(raw) is not bytes
+        or not 0 < len(raw) <= 5_000_000
+        or type(expected_sha256) is not str
+        or re.fullmatch("[0-9a-f]{64}", expected_sha256) is None
+        or hashlib.sha256(raw).hexdigest() != expected_sha256
+    ):
+        raise ValueError("bounded exact SHA-pinned original collision bytes required")
+    _original_document_facts(raw)
+    with _REGISTRY_LOCK:
+        _REGISTERED_ORIGINALS[expected_sha256] = raw
+        _REGISTERED_ORIGINALS.move_to_end(expected_sha256)
+        while len(_REGISTERED_ORIGINALS) > 2:
+            _REGISTERED_ORIGINALS.popitem(last=False)
+    return {
+        "schema_version": REFERENCE_SCHEMA,
+        "source": "/assets/collision-asset-originals.json",
+        "sha256": expected_sha256,
+        "size_bytes": len(raw),
+    }
+
+
+def _validate_collision_reference(envelope):
+    if (
+        type(envelope) is not dict
+        or set(envelope) != {"schema_version", "source", "sha256", "size_bytes"}
+        or envelope["schema_version"] != REFERENCE_SCHEMA
+        or envelope["source"] != "/assets/collision-asset-originals.json"
+        or type(envelope["size_bytes"]) is not int
+        or not 0 < envelope["size_bytes"] <= 5_000_000
+        or type(envelope["sha256"]) is not str
+        or re.fullmatch("[0-9a-f]{64}", envelope["sha256"]) is None
+    ):
+        raise ValueError("closed bounded original collision reference required")
+
+
+def _reference_original_bytes(envelope):
+    _validate_collision_reference(envelope)
+    with _REGISTRY_LOCK:
+        raw = _REGISTERED_ORIGINALS.get(envelope["sha256"])
+        if raw is not None:
+            _REGISTERED_ORIGINALS.move_to_end(envelope["sha256"])
+    if raw is None:
+        raise PreparedCollisionOriginalsRequiredError(
+            "explicit original collision bytes required for SHA " + envelope["sha256"]
+        )
+    if len(raw) != envelope["size_bytes"] or hashlib.sha256(raw).hexdigest() != envelope["sha256"]:
+        raise ValueError("registered collision original differs from reference")
+    return raw
+
+
+def bind_prepared_collision_originals(observations, raw):
+    """Attach explicitly supplied static originals without changing any DTO/hash."""
+    envelope = observations.get("prepared_collision_assets")
+    if type(envelope) is not dict:
+        raise ValueError("snapshot has no prepared original collision observation")
+    if envelope.get("schema_version") == REFERENCE_SCHEMA:
+        _validate_collision_reference(envelope)
+        if type(raw) is not bytes or len(raw) != envelope["size_bytes"]:
+            raise ValueError("explicit original collision document length differs")
+    elif envelope.get("schema_version") == "rosclaw.prepared_collision_asset_observation.v1":
+        if type(envelope.get("document")) is not str or envelope["document"].encode() != raw:
+            raise ValueError("explicit originals differ from original inline document")
+    else:
+        raise ValueError("unsupported prepared collision observation")
+    register_prepared_collision_originals(raw, envelope.get("sha256"))
+    collision_assets_from_observations(observations)
+    return envelope["sha256"]
 
 
 def stl_bounds(raw):
@@ -166,26 +252,30 @@ def _verified_encoded_asset(digest, content):
 def collision_assets_from_observations(observations):
     """Prepared resource bytes are explicitly not a ROS interface observation.
 
-    The optional envelope retains original JSON bytes so an independent source
-    reviewer can compare their SHA with the owned launch/capture asset inventory.
-    Its presence establishes no source authenticity, readiness or authority.
+    V1 retains the original JSON bytes. V2 carries their digest and size and
+    requires explicitly supplied originals in the bounded static registry.
+    Independent reviewers still bind those bytes to the owned source inventory.
+    Neither format establishes source authenticity, readiness or authority.
     """
     import json
 
     envelope = observations.get("prepared_collision_assets")
     if envelope is None:
         return None
-    if (
-        type(envelope) is not dict
-        or set(envelope) != {"schema_version", "source", "sha256", "document"}
-        or envelope["schema_version"] != "rosclaw.prepared_collision_asset_observation.v1"
-        or envelope["source"] != "/assets/collision-asset-originals.json"
-        or type(envelope["document"]) is not str
-    ):
-        raise ValueError("closed explicit prepared source-resource observation required")
-    raw = envelope["document"].encode("utf-8")
-    if not 0 < len(raw) <= 5_000_000 or hashlib.sha256(raw).hexdigest() != envelope["sha256"]:
-        raise ValueError("original prepared collision manifest bytes differ")
+    if isinstance(envelope, dict) and envelope.get("schema_version") == REFERENCE_SCHEMA:
+        raw = _reference_original_bytes(envelope)
+    else:
+        if (
+            type(envelope) is not dict
+            or set(envelope) != {"schema_version", "source", "sha256", "document"}
+            or envelope["schema_version"] != "rosclaw.prepared_collision_asset_observation.v1"
+            or envelope["source"] != "/assets/collision-asset-originals.json"
+            or type(envelope["document"]) is not str
+        ):
+            raise ValueError("closed explicit prepared source-resource observation required")
+        raw = envelope["document"].encode("utf-8")
+        if not 0 < len(raw) <= 5_000_000 or hashlib.sha256(raw).hexdigest() != envelope["sha256"]:
+            raise ValueError("original prepared collision manifest bytes differ")
 
     rows, encoded_facts = _original_document_facts(raw)
     originals = [
