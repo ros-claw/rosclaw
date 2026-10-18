@@ -124,7 +124,7 @@ export class RosclawTuiApp {
 			if (matchesKey(data, "ctrl+c")) {
 				if (this.state.turnInFlight) {
 					void this.client.cancelTurn(this.options.missionId);
-					this.print(new Text(chalk.dim("已请求取消当前 turn（已派发动作不受影响）")));
+					this.print(new Text(chalk.dim("已请求取消当前任务的在途及排队操作；不代表物理动作已停止，请核查终态与停止确认。")));
 				} else if (this.lastCtrlC) {
 					// 双击 Ctrl+C 退出（turn 空闲时）。
 					this.stop();
