@@ -685,6 +685,34 @@ def add_ros_subparser(subparsers: argparse._SubParsersAction) -> argparse.Argume
             expert_parser.add_argument("operation", choices=["plan"])
             expert_parser.add_argument("--mission-id", default="ros_coverage_mission")
 
+    for command in ("diagnostic-plan", "diagnostic-assess"):
+        diagnostic_parser = ros_subparsers.add_parser(
+            command, help="Offline source-bound read-only diagnosis; never executes probes"
+        )
+        diagnostic_parser.add_argument("--json", action="store_true")
+        diagnostic_parser.add_argument(
+            "--operational-graph", required=True, help="Original sealed operational graph JSON"
+        )
+        diagnostic_parser.add_argument(
+            "--output", help="New derived artifact; existing files are never overwritten"
+        )
+        if command == "diagnostic-plan":
+            diagnostic_parser.add_argument("--issue-id", action="append", dest="issue_ids")
+            diagnostic_parser.add_argument("--budget-sec", type=int, default=20)
+            diagnostic_parser.add_argument("--max-probes", type=int, default=8)
+        else:
+            diagnostic_parser.add_argument(
+                "--experiment",
+                required=True,
+                help="Sealed experiment JSON or diagnostic-plan response",
+            )
+            diagnostic_parser.add_argument("--followup-graph", required=True)
+            diagnostic_parser.add_argument(
+                "--reviewed-at",
+                required=True,
+                help="Explicit aware assessment time; replay remains historical",
+            )
+
     case_parser = ros_subparsers.add_parser(
         "engineering-case", help="Read-only engineering dossier from a sealed offline snapshot"
     )
@@ -745,6 +773,8 @@ def add_ros_subparser(subparsers: argparse._SubParsersAction) -> argparse.Argume
 def dispatch_ros_command(args: argparse.Namespace) -> int:
     """Dispatch the selected ``ros`` subcommand."""
     cmd = getattr(args, "ros_command", None)
+    if cmd in {"diagnostic-plan", "diagnostic-assess"}:
+        return cmd_ros_diagnostic(args)
     if cmd == "engineering-case":
         return cmd_ros_engineering_case(args)
     if cmd == "inspect-navigation-workspace":
@@ -803,6 +833,60 @@ def _read_discovery_urdf(path: str, description: str = "URDF") -> bytes:
         if not 0 < len(raw) <= 5_000_000:
             raise ValueError(f"{description} input size outside bounded limit")
         return raw
+
+
+def cmd_ros_diagnostic(args: argparse.Namespace) -> int:
+    """Offline proposal and evidence assessment; no live discovery or staging."""
+    import hashlib
+    from datetime import datetime
+
+    from rosclaw.connectors.ros.engineering.diagnostic_experiment import RosDiagnosticExperimentV1
+    from rosclaw.connectors.ros.engineering.probe_planner import (
+        assess_diagnostic_followup,
+        plan_diagnostic_probes,
+    )
+    from rosclaw.connectors.ros.intelligence.graph_contracts import RosOperationalGraphV1
+
+    bindings = {}
+
+    def read(path, label):
+        raw = _read_discovery_urdf(path, label)
+        bindings[label] = hashlib.sha256(raw).hexdigest()
+        return json.loads(raw)
+
+    try:
+        graph = RosOperationalGraphV1.from_dict(read(args.operational_graph, "operational_graph"))
+        if args.ros_command == "diagnostic-plan":
+            value = plan_diagnostic_probes(
+                graph,
+                issue_ids=args.issue_ids,
+                budget_sec=args.budget_sec,
+                max_probes=args.max_probes,
+            )
+            field = "experiment"
+        else:
+            original = read(args.experiment, "experiment")
+            experiment = RosDiagnosticExperimentV1.from_dict(original.get("experiment", original))
+            after = RosOperationalGraphV1.from_dict(read(args.followup_graph, "followup_graph"))
+            value = assess_diagnostic_followup(
+                experiment, graph, after, now=datetime.fromisoformat(args.reviewed_at)
+            )
+            field = "assessment"
+        result = {
+            "ok": True,
+            "action": args.ros_command,
+            field: value.model_dump(mode="json"),
+            "input_file_sha256": bindings,
+            "current_authority": "NONE",
+            "current_l1": "NOT_EVALUATED",
+            "scope": "OFFLINE_OBSERVATIONAL_DIAGNOSIS_NOT_PROBE_EXECUTION_OR_CURRENT_ADMISSION",
+        }
+        if args.output:
+            with Path(args.output).open("x", encoding="utf-8") as stream:
+                stream.write(json.dumps(result, indent=2) + "\n")
+        return _maybe_json(args, result)
+    except (ValueError, TypeError, KeyError, AttributeError, OSError) as exc:
+        return _maybe_json(args, {"ok": False, "action": args.ros_command, "error": str(exc)})
 
 
 def cmd_ros_expert(args: argparse.Namespace) -> int:

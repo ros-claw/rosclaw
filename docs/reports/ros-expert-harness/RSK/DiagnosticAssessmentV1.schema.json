@@ -1,0 +1,178 @@
+{
+  "$defs": {
+    "RosHypothesisV1": {
+      "additionalProperties": false,
+      "properties": {
+        "causal_verification": {
+          "const": "NOT_ESTABLISHED",
+          "default": "NOT_ESTABLISHED",
+          "title": "Causal Verification",
+          "type": "string"
+        },
+        "confounders": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Confounders",
+          "type": "array"
+        },
+        "contradicting_evidence": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 512,
+          "title": "Contradicting Evidence",
+          "type": "array"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "issue_id": {
+          "title": "Issue Id",
+          "type": "string"
+        },
+        "predicate": {
+          "enum": [
+            "RECEIVE_GAP",
+            "QOS_CONFLICT",
+            "CLOCK_CONFLICT",
+            "TF_TIME_CONFLICT",
+            "TF_AUTHORITY_CONFLICT",
+            "UNRESOLVED_PATH"
+          ],
+          "title": "Predicate",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "SUPPORTED_OBSERVATION",
+            "CONTRADICTED_OBSERVATION",
+            "UNKNOWN"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "supporting_evidence": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 512,
+          "title": "Supporting Evidence",
+          "type": "array"
+        },
+        "targets": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 64,
+          "title": "Targets",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "issue_id",
+        "description",
+        "predicate",
+        "targets",
+        "status",
+        "supporting_evidence",
+        "contradicting_evidence",
+        "confounders"
+      ],
+      "title": "RosHypothesisV1",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "after_graph_hash": {
+      "title": "After Graph Hash",
+      "type": "string"
+    },
+    "assessment_hash": {
+      "title": "Assessment Hash",
+      "type": "string"
+    },
+    "before_graph_hash": {
+      "title": "Before Graph Hash",
+      "type": "string"
+    },
+    "causal_verification": {
+      "const": "NOT_ESTABLISHED",
+      "default": "NOT_ESTABLISHED",
+      "title": "Causal Verification",
+      "type": "string"
+    },
+    "execution_authority": {
+      "const": "NONE",
+      "default": "NONE",
+      "title": "Execution Authority",
+      "type": "string"
+    },
+    "experiment_hash": {
+      "title": "Experiment Hash",
+      "type": "string"
+    },
+    "hypotheses": {
+      "items": {
+        "$ref": "#/$defs/RosHypothesisV1"
+      },
+      "maxItems": 64,
+      "title": "Hypotheses",
+      "type": "array"
+    },
+    "probe_execution": {
+      "const": "NOT_ATTESTED_BY_GRAPH",
+      "default": "NOT_ATTESTED_BY_GRAPH",
+      "title": "Probe Execution",
+      "type": "string"
+    },
+    "reasons": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Reasons",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": "rosclaw.ros_diagnostic_assessment.v1",
+      "default": "rosclaw.ros_diagnostic_assessment.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "OBSERVATIONAL_UPDATE",
+        "ABSTAIN"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "withdrawn_hypothesis_ids": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 64,
+      "title": "Withdrawn Hypothesis Ids",
+      "type": "array"
+    }
+  },
+  "required": [
+    "assessment_hash",
+    "experiment_hash",
+    "before_graph_hash",
+    "after_graph_hash",
+    "status",
+    "reasons",
+    "hypotheses",
+    "withdrawn_hypothesis_ids"
+  ],
+  "title": "DiagnosticAssessmentV1",
+  "type": "object"
+}

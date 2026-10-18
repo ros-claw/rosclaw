@@ -59,6 +59,15 @@ def utc_now():
     return datetime.now(UTC).isoformat()
 
 
+def observed_gid(value):
+    """Represent actual RMW identity only; absent/all-zero/invalid is UNKNOWN."""
+    if not isinstance(value, (list, tuple, bytes, bytearray)) or not 1 <= len(value) <= 64:
+        return None
+    if any(type(x) is not int or not 0 <= x <= 255 for x in value) or not any(value):
+        return None
+    return bytes(value).hex()
+
+
 class ReadOnlyProbe(Node):
     def __init__(self, *, snapshot_period_sec=1.0):
         if (
@@ -71,6 +80,9 @@ class ReadOnlyProbe(Node):
         self.samples = {}
         self.subscriptions_by_topic = {}
         self.edges = {}
+        self.tf_cache_drops = 0
+        self.tf_message_window = deque(maxlen=1024)
+        self.tf_window_drops = 0
         self.lifecycle_states = {}
         self.parameters = {}
         self.parameter_received = {}
@@ -123,7 +135,10 @@ class ReadOnlyProbe(Node):
                 qos = QoSProfile(depth=100, durability=DurabilityPolicy.TRANSIENT_LOCAL)
             try:
                 self.subscriptions_by_topic[topic] = self.create_subscription(
-                    get_message(types[0]), topic, lambda msg, t=topic: self.observe(t, msg), qos
+                    get_message(types[0]),
+                    topic,
+                    lambda msg, info, t=topic: self.observe(t, msg, info),
+                    qos,
                 )
             except (ImportError, AttributeError, RuntimeError, ValueError) as exc:
                 self.errors.append(f"subscribe {topic}: {exc}")
@@ -245,7 +260,7 @@ class ReadOnlyProbe(Node):
 
         future.add_done_callback(completed)
 
-    def observe(self, topic, message):
+    def observe(self, topic, message, message_info=None):
         self.samples.setdefault(topic, deque(maxlen=200)).append(time.monotonic())
         if hasattr(message, "header"):
             header = message.header
@@ -292,8 +307,35 @@ class ReadOnlyProbe(Node):
             self.clock_values.append(value)
             self.clock_readings.append((time.monotonic(), value))
         if hasattr(message, "transforms"):
+            # Jazzy commonly supplies a dict without publisher_gid. Endpoint
+            # discovery cannot attribute an individual message in its place.
+            info = message_info if isinstance(message_info, dict) else {}
+            gid = observed_gid(
+                info.get("publisher_gid", getattr(message_info, "publisher_gid", None))
+            )
             for transform in message.transforms:
-                self.edges[(transform.header.frame_id, transform.child_frame_id)] = {
+                if len(self.tf_message_window) == self.tf_message_window.maxlen:
+                    self.tf_window_drops += 1
+                self.tf_message_window.append(
+                    {
+                        "parent": transform.header.frame_id,
+                        "child": transform.child_frame_id,
+                        "publisher_gid": gid,
+                        "source": topic,
+                        "captured_at": utc_now(),
+                        "received_monotonic": time.monotonic(),
+                        "stamp_sec": transform.header.stamp.sec
+                        + transform.header.stamp.nanosec / 1e9,
+                        "publication_sequence_number": info.get("publication_sequence_number"),
+                        "reception_sequence_number": info.get("reception_sequence_number"),
+                    }
+                )
+                key = (transform.header.frame_id, transform.child_frame_id, gid, topic)
+                if key not in self.edges and len(self.edges) >= 1024:
+                    oldest = min(self.edges, key=lambda k: self.edges[k]["received_monotonic"])
+                    self.edges.pop(oldest)
+                    self.tf_cache_drops += 1
+                self.edges[key] = {
                     "parent": transform.header.frame_id,
                     "child": transform.child_frame_id,
                     "translation": [
@@ -309,6 +351,8 @@ class ReadOnlyProbe(Node):
                     ],
                     "static": topic.endswith("/tf_static"),
                     "source": topic,
+                    "authority": gid,
+                    "received_monotonic": time.monotonic(),
                     "captured_at": utc_now(),
                     "stamp_sec": transform.header.stamp.sec + transform.header.stamp.nanosec / 1e9,
                 }
@@ -362,6 +406,7 @@ class ReadOnlyProbe(Node):
                             "topic": topic,
                             "node": endpoint_name(endpoint),
                             "kind": kind,
+                            "gid": observed_gid(getattr(endpoint, "endpoint_gid", None)),
                             "reliability": qos.reliability.name,
                             "durability": qos.durability.name,
                             "history": qos.history.name,
@@ -369,6 +414,7 @@ class ReadOnlyProbe(Node):
                             "deadline_ns": qos.deadline.nanoseconds,
                             "lifespan_ns": qos.lifespan.nanoseconds,
                             "liveliness": qos.liveliness.name,
+                            "liveliness_lease_duration_ns": qos.liveliness_lease_duration.nanoseconds,
                         }
                     )
             for pub in pubs:
@@ -380,6 +426,8 @@ class ReadOnlyProbe(Node):
                                 "topic": topic,
                                 "publisher": endpoint_name(pub),
                                 "subscriber": endpoint_name(sub),
+                                "publisher_gid": observed_gid(getattr(pub, "endpoint_gid", None)),
+                                "subscriber_gid": observed_gid(getattr(sub, "endpoint_gid", None)),
                                 "reason": reason,
                             }
                         )
@@ -425,7 +473,10 @@ class ReadOnlyProbe(Node):
         elif runtime_sim_time is None:
             ros_now = None
         for stored in self.edges.values():
+            if not stored["static"] and wall - stored["received_monotonic"] > 5:
+                continue
             edge = dict(stored)
+            edge.pop("received_monotonic", None)
             edge["age_ms"] = (
                 None if edge["static"] or ros_now is None else (ros_now - edge["stamp_sec"]) * 1000
             )
@@ -520,6 +571,19 @@ class ReadOnlyProbe(Node):
                 "localization_quality": localization,
                 "costmap_footprints": self.footprint_observations,
                 "transform_values": list(self.edges.values()),
+                "tf_observation_window": {
+                    "max_dynamic_receive_age_sec": 5,
+                    "max_cached_edges": 1024,
+                    "cache_drops": self.tf_cache_drops,
+                    "message_window_drops": self.tf_window_drops,
+                    "messages": [
+                        dict(row)
+                        for row in self.tf_message_window
+                        if 0 <= wall - row["received_monotonic"] <= 5
+                    ],
+                    "publisher_attribution": "RMW_GID_OR_UNKNOWN",
+                    "completeness": "NOT_ESTABLISHED",
+                },
                 "action_statuses": getattr(self, "action_observations", {}),
                 "message_frames": {
                     topic: {
