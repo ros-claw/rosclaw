@@ -312,3 +312,18 @@ def test_publication_profile_rejects_invalid_or_unbounded_values(value):
     args[4]["global_costmap"]["global_costmap"]["ros__parameters"]["publish_frequency"] = value
     with pytest.raises(ValueError):
         compile_driver_bootstrap(*args)
+
+
+def test_approach_zone_is_bounded_by_current_task_precision_for_large_bodies():
+    args = list(inputs(width=1.0))
+    result = compile_driver_bootstrap(*args)
+    nodes = yaml.safe_load(result["files"]["nav2.yaml"])[args[6]["namespace"]]
+    path = nodes["controller_server"]["ros__parameters"]["FollowPath"]
+    assert path["approach_velocity_scaling_dist"] == min(
+        result["physical_radius_m"] * 0.4,
+        args[6]["navigation_limits"]["goal_position_tolerance_m"] * 2,
+    )
+    assert path["desired_linear_vel"] == args[6]["navigation_limits"]["max_speed_mps"] * 0.8
+    assert (
+        path["min_approach_linear_velocity"] == args[6]["navigation_limits"]["max_speed_mps"] * 0.1
+    )

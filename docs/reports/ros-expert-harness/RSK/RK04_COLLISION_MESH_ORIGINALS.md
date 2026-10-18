@@ -198,3 +198,18 @@ Nav2's tagged [1.3.13 Costmap2DROS source](https://github.com/ros-navigation/nav
 node-clock publication cycle. This explains why a configured SIM-time frequency
 need not equal measured wall-time delivery; it is not independent authentication
 of the installed binary or a substitute for actual stream measurement.
+
+## Match the bounded task, software approach zone and wall-time budget
+
+The faster-publication A300 World retained an original TIMED_OUT receipt at the
+operator's 8s action deadline. Its data-age pipeline stayed active through actual
+motion. The previous radius-scaled approach zone (~0.249m) covered the entire
+~0.159m goal, causing slow approach over the whole short task in a slow SIM.
+
+The reusable RPP profile now bounds goal-approach scaling distance by twice the
+current task position tolerance, while retaining maximum, desired and minimum
+approach speeds. Collision checks and full Body footprint are unchanged. The
+next operator phase uses 14s per goal inside the original 16s Body duration bound,
+leaving 2s reserve. Goal poses, all eight Body limits, source/proof/status ages and
+100ms lookahead remain unchanged. This is known development configuration work,
+not evidence of model autonomy or a passed unfamiliar-Body gate.

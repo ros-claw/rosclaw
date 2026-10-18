@@ -401,7 +401,9 @@ def compile_driver_bootstrap(
         "min_lookahead_dist": float(radius * 0.25),
         "max_lookahead_dist": float(radius * 0.75),
         "curvature_lookahead_dist": float(radius * 0.5),
-        "approach_velocity_scaling_dist": float(radius * 0.4),
+        "approach_velocity_scaling_dist": float(
+            min(radius * 0.4, limits["goal_position_tolerance_m"] * 2)
+        ),
         "min_approach_linear_velocity": float(limits["max_speed_mps"] * 0.1),
         "regulated_linear_scaling_min_radius": float(radius),
         "regulated_linear_scaling_min_speed": float(limits["max_speed_mps"] * 0.2),
