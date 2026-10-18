@@ -212,3 +212,28 @@ def test_cached_original_bytes_are_exact_bounded_and_caller_mutation_isolated():
     with pytest.raises(ValueError):
         review_collision_assets([dict(asset(changed), sha256=original["original_sha256"])])
     _stl_bounds_json.cache_clear()
+
+
+def test_encoded_asset_cache_cannot_hide_changed_payload_digest_or_staged_uri():
+    from rosclaw.connectors.ros.context.collision_assets import _verified_encoded_asset
+
+    _verified_encoded_asset.cache_clear()
+    row = asset()
+    original = review_collision_assets([row])
+    modified = review_collision_assets([row])
+    modified[URI]["local_min"][0] = -999
+    assert review_collision_assets([row]) == original
+    assert _verified_encoded_asset.cache_info().hits >= 2
+    changed = b"changed header".ljust(80, b" ") + binary()[80:]
+    for bad in (
+        dict(row, content_base64=base64.b64encode(changed).decode()),
+        dict(row, sha256="0" * 64),
+        dict(row, uri="/assets/collision-resources/" + "0" * 64 + ".stl"),
+    ):
+        with pytest.raises(ValueError):
+            review_collision_assets([bad])
+    for i in range(12):
+        raw = str(i).encode().ljust(80, b" ") + binary()[80:]
+        review_collision_assets([asset(raw)])
+    assert _verified_encoded_asset.cache_info().currsize == 8
+    _verified_encoded_asset.cache_clear()

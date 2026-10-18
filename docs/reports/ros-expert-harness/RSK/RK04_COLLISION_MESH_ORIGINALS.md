@@ -155,3 +155,25 @@ and calls current facts again; the monitor's independent checks remain required.
 The primitive-only SDK path is preserved. The operator waits for and independently
 checks passive preparation and fresh zero-command status before starting the
 existing canonical journey. Preparation cannot stand in for L1 or L2.
+
+## Avoid gaps between expiring independent observations
+
+The passive-preparation World obtained actual SDK admission acknowledgment, then
+failed its post-admission observation window before any sink command. Original
+worker records showed 83--88ms collections with about 50ms validity left at
+publication. This exposed a real gap between successive expiring results.
+
+Only static encodings are now reused: eight exact bounded base64/digest keys,
+two exact original manifest documents, and two escaped prepared-document JSON
+literals. Public fact dictionaries/lists are separately reconstructed. Changed
+payload, SHA, URI or document still fails its original check. Actual resource
+bytes, identities, dynamic fields and deadlines are never cached.
+
+Snapshot hashing streams exactly the previous canonical JSON bytes, including
+the complete original document and every live field. It does not normalize or
+omit any source value. Escape/Unicode/mutation tests and 16 historical sealed
+models from eight actual Worlds match the original canonical hash calculation.
+There is no snapshot schema or hash change. All cache key/value sizes and entry
+counts are bounded; the legacy path without prepared collision bytes is retained.
+Offline warm historical health cost fell to about 11--12ms on the measured host;
+actual sustained validity remains a separate new-World requirement.

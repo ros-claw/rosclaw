@@ -137,17 +137,30 @@ def review_collision_assets(originals):
             raise ValueError("digest-named staged STL URI differs from original SHA")
         if type(content) is not str or len(content) > ((MAX_BYTES + 2) // 3) * 4:
             raise ValueError("bounded original collision asset base64 required")
-        try:
-            raw = base64.b64decode(content, validate=True)
-        except (ValueError, binascii.Error) as exc:
-            raise ValueError("exact original collision asset base64 required") from exc
-        if base64.b64encode(raw).decode() != content:
-            raise ValueError("canonical original base64 required")
-        total += len(raw)
-        if total > 16_000_000 or hashlib.sha256(raw).hexdigest() != digest:
+        fact = json.loads(_verified_encoded_asset(digest, content))
+        total += fact["original_bytes"]
+        if total > 16_000_000:
             raise ValueError("original asset hash or total byte budget differs")
-        result[uri] = stl_bounds(raw)
+        result[uri] = fact
     return result
+
+
+@lru_cache(maxsize=8)
+def _verified_encoded_asset(digest, content):
+    """Exact bounded immutable base64/digest keys; never current/source state.
+
+    At most eight encoded originals (~85.4MB). Public callers validate field
+    bounds and URI on every call and receive separately decoded fact objects.
+    """
+    try:
+        raw = base64.b64decode(content, validate=True)
+    except (ValueError, binascii.Error) as exc:
+        raise ValueError("exact original collision asset base64 required") from exc
+    if base64.b64encode(raw).decode() != content:
+        raise ValueError("canonical original base64 required")
+    if hashlib.sha256(raw).hexdigest() != digest:
+        raise ValueError("original asset hash or total byte budget differs")
+    return json.dumps(stl_bounds(raw), allow_nan=False)
 
 
 def collision_assets_from_observations(observations):
@@ -174,6 +187,19 @@ def collision_assets_from_observations(observations):
     if not 0 < len(raw) <= 5_000_000 or hashlib.sha256(raw).hexdigest() != envelope["sha256"]:
         raise ValueError("original prepared collision manifest bytes differ")
 
+    rows, encoded_facts = _original_document_facts(raw)
+    originals = [
+        {"uri": uri, "sha256": digest, "content_base64": content} for uri, digest, content in rows
+    ]
+    return originals, json.loads(encoded_facts), envelope["sha256"]
+
+
+@lru_cache(maxsize=2)
+def _original_document_facts(raw):
+    """Two exact <=5MB originals plus immutable parsed rows, no live state."""
+    if type(raw) is not bytes or not 0 < len(raw) <= 5_000_000:
+        raise ValueError("bounded original collision manifest bytes required")
+
     def pairs(values):
         result = {}
         for key, value in values:
@@ -187,7 +213,10 @@ def collision_assets_from_observations(observations):
 
     originals = json.loads(raw, object_pairs_hook=pairs, parse_constant=invalid)
     facts = review_collision_assets(originals)
-    return originals, facts, envelope["sha256"]
+    return (
+        tuple((r["uri"], r["sha256"], r["content_base64"]) for r in originals),
+        json.dumps(facts, allow_nan=False),
+    )
 
 
 def staged_collision_resource_pins(observations):

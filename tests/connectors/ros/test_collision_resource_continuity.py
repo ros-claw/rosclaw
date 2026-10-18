@@ -176,3 +176,20 @@ def test_preparse_occurs_before_input_not_as_current_admission():
         "    raw = sys.stdin.buffer.readline"
     )
     assert "self._startup_deadline_ns = time.monotonic_ns() + 500_000_000" in source
+
+
+def test_parsed_original_document_cache_cannot_be_mutated_or_hide_changed_document(tmp_path):
+    from rosclaw.connectors.ros.context.collision_assets import _original_document_facts
+
+    _original_document_facts.cache_clear()
+    observations, _ = materialize(tmp_path / "assets")
+    original = collision_assets_from_observations(observations)
+    changed = collision_assets_from_observations(observations)
+    changed[0][0]["sha256"] = "0" * 64
+    next(iter(changed[1].values()))["local_min"][0] = -999
+    assert collision_assets_from_observations(observations) == original
+    altered = json.loads(json.dumps(observations))
+    altered["prepared_collision_assets"]["document"] += " changed"
+    with pytest.raises(ValueError):
+        collision_assets_from_observations(altered)
+    _original_document_facts.cache_clear()
