@@ -126,6 +126,34 @@ class CurrentSimulationFacts:
         self.collision_resource_guard = CollisionResourceContinuity(
             self.assets_directory, compiled_source.get("observations", {})
         )
+        self.mesh_kinematic_plan = None
+        if self.collision_resource_guard.pins:
+            from rosclaw.connectors.ros.context.source_kinematics import (
+                compile_source_kinematics,
+                verify_source_kinematics,
+            )
+
+            self.mesh_kinematic_plan = compile_source_kinematics(
+                _read(self.assets_directory / "world.sdf", 20_000_000),
+                robot_entity=e["guard_inputs"]["robot_entity"],
+                world_name=e["guard_inputs"]["world_id"],
+                urdf_bytes=_read(self.assets_directory / "robot.urdf", 5_000_000),
+            )
+            self.verify_mesh_kinematics = verify_source_kinematics
+            if self.mesh_kinematic_plan["joints"]:
+                precision = initial["source_binding"].get("joint_kinematics_precision")
+                if (
+                    type(precision) is not dict
+                    or set(precision) != {"position_m", "rotation_matrix"}
+                    or any(
+                        type(precision[k]) not in (int, float) or not 0 < precision[k] <= ceiling
+                        for k, ceiling in (("position_m", 0.00001), ("rotation_matrix", 0.001))
+                    )
+                ):
+                    raise ValueError(
+                        "original independently accepted joint geometry precision required"
+                    )
+                self.mesh_kinematics_precision = precision
         self.enrollment = e
         self._cached_native_sha256 = self._cached_model = None
         self.reader = SimulationSourceStreamReader(
@@ -202,6 +230,17 @@ class CurrentSimulationFacts:
                 freshness_margin_ms=freshness_horizon_ms,
             )
             source = self.reader.poll()
+            mesh_kinematics = None
+            mesh_plan = getattr(self, "mesh_kinematic_plan", None)
+            if mesh_plan is not None and mesh_plan["joints"]:
+                sample = json.loads(self.reader.last_raw)
+                _members, mesh_kinematics = self.verify_mesh_kinematics(
+                    mesh_plan,
+                    sample,
+                    self.enrollment["guard_inputs"]["expected_robot_entity"],
+                    position_tolerance=self.mesh_kinematics_precision["position_m"],
+                    rotation_tolerance=self.mesh_kinematics_precision["rotation_matrix"],
+                )
             ended = time.monotonic_ns()
             if (
                 health["status"] != "HEALTHY_SIM_OBSERVATION_ONLY"
@@ -227,6 +266,8 @@ class CurrentSimulationFacts:
                 "native_pointer": pointer,
                 "native_pointer_read_ns": pointer_read_ns,
             }
+            if mesh_kinematics is not None:
+                result["source_joint_kinematics"] = mesh_kinematics
             if freshness_horizon_ms:
                 observed = json.loads(self.reader.last_raw)["observer_monotonic_ns"]
                 result.update(

@@ -54,3 +54,33 @@ These source predicates and synthetic failure injections are not sufficient to
 claim actual mesh admission. Real pinned SDK conversion, loaded ECM, fresh L1,
 canonical navigation, strict original review and exact source/main delivery are
 still pending at the time of this development record.
+
+## Moving-link evidence
+
+The first real DD150 After was blocked before any goal by a source frame check.
+Original ECM audit found zero positional drift (about 1e-16m) but a legitimate
+wheel-link rotation of about 0.00284rad. The old member check assumed every joint
+remained at zero; that assumption does not describe a new supported mechanism.
+The failed World and source review are retained.
+
+The optional readonly SourceWitness joint observation records actual link poses,
+loaded joint type/topology/child anchor/axis/bounds and any already available
+unwrapped JointPosition component. It never creates an ECM component, publishes
+a topic or requests actuation. Default observation bytes are unchanged unless
+the explicit observe_joint_kinematics option is set.
+
+Core checks every link against the original joint tree: fixed links cannot move,
+revolute links can only rotate around the declared axis, and prismatic links can
+only translate along it. Bounded rotary joints require actual unwrapped state;
+continuous semantics must come from the original URDF. Member transforms are
+then checked against source placement using observed, source-constrained links.
+This is not a shape-symmetry exception or a larger tolerance. Current facts use
+the same independently accepted initial source precision and recheck the latest
+ECM sample before returning a guarded observation.
+
+Gazebo 8 creates joint Pose from SDF semantic pose; SDF 14 resolves that pose
+relative to the child link by default. Axis data are resolved into joint frame.
+These API semantics were checked against the installed SDK headers and official
+[gz-sim8 SdfEntityCreator](https://github.com/gazebosim/gz-sim/blob/gz-sim8/src/SdfEntityCreator.cc)
+and [sdf14 Joint](https://github.com/gazebosim/sdformat/blob/sdf14/src/Joint.cc)
+source. Actual pinned SDK observation is still required to accept the new path.

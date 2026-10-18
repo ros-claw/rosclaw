@@ -117,7 +117,7 @@ def _geometry(element, *, allow_plane=False):
     )
 
 
-def sdf_inventory(raw, *, robot_entity, world_name=None, allow_plane=False):
+def sdf_inventory(raw, *, robot_entity, world_name=None, allow_plane=False, with_kinematics=False):
     """Read expanded SDF, preserving link/joint structure and all collisions."""
     root = _xml(raw)
     if root.tag != "sdf" or root.findall(".//include"):
@@ -215,7 +215,7 @@ def sdf_inventory(raw, *, robot_entity, world_name=None, allow_plane=False):
     for rows in (collisions, sensors):
         if any(not x[1] for x in rows) or len({x[:2] for x in rows}) != len(rows):
             raise ValueError("unique named source members required")
-    return {
+    result = {
         "collisions": sorted(collisions),
         "sensors": sorted(sensors),
         "structure": (sorted(structure), joints),
@@ -228,6 +228,29 @@ def sdf_inventory(raw, *, robot_entity, world_name=None, allow_plane=False):
             for member in [*link.findall("collision"), *link.findall("sensor")]
         },
     }
+
+    if with_kinematics:
+        result["kinematic_source"] = {
+            "link_transforms": {name: transforms[name] for name in sorted(links)},
+            "frame_transforms": transforms,
+            "joints": [
+                {
+                    "name": j.get("name"),
+                    "kind": j.get("type"),
+                    "parent": j.findtext("parent"),
+                    "child": j.findtext("child"),
+                    "joint_transform": transforms[j.get("name")],
+                    "axis": j.findtext("axis/xyz"),
+                    "axis_frame": j.find("axis/xyz").get("expressed_in", "")
+                    if j.find("axis/xyz") is not None
+                    else "",
+                    "lower": j.findtext("axis/limit/lower"),
+                    "upper": j.findtext("axis/limit/upper"),
+                }
+                for j in model.findall("joint")
+            ],
+        }
+    return result
 
 
 def _loaded_inventory(sample, entity, *, allow_plane=False):
@@ -527,6 +550,16 @@ def review_sim_source_binding(
             converted = sdf_inventory(
                 converted_sdf_bytes, robot_entity=request["expected_robot_entity"]
             )
+            kinematic_plan = None
+            if resource_pins:
+                from .source_kinematics import compile_source_kinematics
+
+                kinematic_plan = compile_source_kinematics(
+                    world_sdf_bytes,
+                    robot_entity=request["expected_robot_entity"],
+                    world_name=request["sim_world_id"],
+                    urdf_bytes=files["body/refs/robot.urdf"],
+                )
             expected = sdf_inventory(
                 world_sdf_bytes,
                 robot_entity=request["expected_robot_entity"],
@@ -680,6 +713,22 @@ def review_sim_source_binding(
                     unknown.append("CLOCK_OR_CAPTURE_SEQUENCE_DISCONTINUITY")
                 previous = sample
                 loaded = _loaded_inventory(sample, entity)
+                member_transforms = expected["member_transforms"]
+                if kinematic_plan is not None and kinematic_plan["joints"]:
+                    from .source_kinematics import verify_source_kinematics
+
+                    member_transforms, summary = verify_source_kinematics(
+                        kinematic_plan,
+                        sample,
+                        entity,
+                        position_tolerance=position_tolerance,
+                        rotation_tolerance=rotation_tolerance,
+                    )
+                    evidence["joint_kinematics_review"] = summary
+                    evidence["joint_kinematics_precision"] = {
+                        "position_m": position_tolerance,
+                        "rotation_matrix": rotation_tolerance,
+                    }
                 model_inverse = _inverse(
                     _transform(_numbers(" ".join(map(str, models[0]["world_pose"])), 6))
                 )
@@ -692,9 +741,9 @@ def review_sim_source_binding(
                             model_inverse,
                             _transform(_numbers(" ".join(map(str, row["world_pose"])), 6)),
                         )
-                        if name not in expected["member_transforms"] or not _pose_matches(
+                        if name not in member_transforms or not _pose_matches(
                             actual_pose,
-                            expected["member_transforms"][name],
+                            member_transforms[name],
                             position_tolerance,
                             rotation_tolerance,
                         ):
