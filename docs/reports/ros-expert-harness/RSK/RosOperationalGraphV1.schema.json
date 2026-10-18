@@ -3,33 +3,6 @@
     "OperationalDataflowV1": {
       "additionalProperties": false,
       "properties": {
-        "id": {
-          "title": "Id",
-          "type": "string"
-        },
-        "publisher_id": {
-          "title": "Publisher Id",
-          "type": "string"
-        },
-        "subscriber_id": {
-          "title": "Subscriber Id",
-          "type": "string"
-        },
-        "observed_policy_status": {
-          "enum": [
-            "SATISFIED",
-            "VIOLATED",
-            "UNKNOWN"
-          ],
-          "title": "Observed Policy Status",
-          "type": "string"
-        },
-        "full_compatibility": {
-          "const": "UNKNOWN",
-          "default": "UNKNOWN",
-          "title": "Full Compatibility",
-          "type": "string"
-        },
         "delivery_status": {
           "const": "NOT_MEASURED",
           "default": "NOT_MEASURED",
@@ -42,6 +15,33 @@
           },
           "title": "Evidence Refs",
           "type": "array"
+        },
+        "full_compatibility": {
+          "const": "UNKNOWN",
+          "default": "UNKNOWN",
+          "title": "Full Compatibility",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "observed_policy_status": {
+          "enum": [
+            "SATISFIED",
+            "VIOLATED",
+            "UNKNOWN"
+          ],
+          "title": "Observed Policy Status",
+          "type": "string"
+        },
+        "publisher_id": {
+          "title": "Publisher Id",
+          "type": "string"
+        },
+        "subscriber_id": {
+          "title": "Subscriber Id",
+          "type": "string"
         }
       },
       "required": [
@@ -57,25 +57,37 @@
     "OperationalEndpointV1": {
       "additionalProperties": false,
       "properties": {
-        "id": {
-          "title": "Id",
-          "type": "string"
-        },
-        "topic_id": {
-          "title": "Topic Id",
-          "type": "string"
-        },
-        "node_id": {
-          "title": "Node Id",
-          "type": "string"
-        },
-        "kind": {
-          "enum": [
-            "publisher",
-            "subscriber"
+        "deadline_ns": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
           ],
-          "title": "Kind",
-          "type": "string"
+          "default": null,
+          "title": "Deadline Ns"
+        },
+        "durability": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Durability"
+        },
+        "evidence_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
         },
         "gid": {
           "anyOf": [
@@ -89,6 +101,10 @@
           "default": null,
           "title": "Gid"
         },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
         "identity_status": {
           "enum": [
             "OBSERVED_GID",
@@ -96,6 +112,30 @@
             "AMBIGUOUS"
           ],
           "title": "Identity Status",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "publisher",
+            "subscriber"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "liveliness": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Liveliness"
+        },
+        "node_id": {
+          "title": "Node Id",
           "type": "string"
         },
         "reliability": {
@@ -110,49 +150,9 @@
           "default": null,
           "title": "Reliability"
         },
-        "durability": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Durability"
-        },
-        "liveliness": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Liveliness"
-        },
-        "deadline_ns": {
-          "anyOf": [
-            {
-              "minimum": 0,
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Deadline Ns"
-        },
-        "evidence_refs": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Evidence Refs",
-          "type": "array"
+        "topic_id": {
+          "title": "Topic Id",
+          "type": "string"
         }
       },
       "required": [
@@ -169,9 +169,28 @@
     "OperationalEntityV1": {
       "additionalProperties": false,
       "properties": {
+        "evidence_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
         "id": {
           "title": "Id",
           "type": "string"
+        },
+        "interface_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Interface Type"
         },
         "kind": {
           "enum": [
@@ -192,25 +211,6 @@
         "name": {
           "title": "Name",
           "type": "string"
-        },
-        "interface_type": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Interface Type"
-        },
-        "evidence_refs": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Evidence Refs",
-          "type": "array"
         }
       },
       "required": [
@@ -225,14 +225,6 @@
     "OperationalTimeV1": {
       "additionalProperties": false,
       "properties": {
-        "id": {
-          "title": "Id",
-          "type": "string"
-        },
-        "subject": {
-          "title": "Subject",
-          "type": "string"
-        },
         "domain": {
           "enum": [
             "ROS_SIM",
@@ -241,6 +233,42 @@
           ],
           "title": "Domain",
           "type": "string"
+        },
+        "evidence_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "message_age_ms": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Message Age Ms"
+        },
+        "receive_age_ms": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Receive Age Ms"
         },
         "receive_clock": {
           "default": "UNKNOWN",
@@ -264,37 +292,9 @@
           "default": null,
           "title": "Sample Rate Hz"
         },
-        "receive_age_ms": {
-          "anyOf": [
-            {
-              "minimum": 0,
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Receive Age Ms"
-        },
-        "message_age_ms": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Message Age Ms"
-        },
-        "evidence_refs": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Evidence Refs",
-          "type": "array"
+        "subject": {
+          "title": "Subject",
+          "type": "string"
         }
       },
       "required": [
@@ -309,21 +309,16 @@
     "OperationalTransformV1": {
       "additionalProperties": false,
       "properties": {
-        "id": {
-          "title": "Id",
-          "type": "string"
-        },
-        "parent_id": {
-          "title": "Parent Id",
-          "type": "string"
-        },
-        "child_id": {
-          "title": "Child Id",
-          "type": "string"
-        },
-        "static": {
-          "title": "Static",
-          "type": "boolean"
+        "age_ms": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Age Ms"
         },
         "authority": {
           "anyOf": [
@@ -336,16 +331,9 @@
           ],
           "title": "Authority"
         },
-        "age_ms": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Age Ms"
+        "child_id": {
+          "title": "Child Id",
+          "type": "string"
         },
         "clock_domain": {
           "enum": [
@@ -362,6 +350,18 @@
           },
           "title": "Evidence Refs",
           "type": "array"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "parent_id": {
+          "title": "Parent Id",
+          "type": "string"
+        },
+        "static": {
+          "title": "Static",
+          "type": "boolean"
         }
       },
       "required": [
@@ -380,29 +380,12 @@
     "ProvenanceEdgeV1": {
       "additionalProperties": false,
       "properties": {
-        "id": {
-          "title": "Id",
-          "type": "string"
-        },
-        "document_ref": {
-          "title": "Document Ref",
-          "type": "string"
-        },
         "document_hash": {
           "title": "Document Hash",
           "type": "string"
         },
-        "pointer": {
-          "title": "Pointer",
-          "type": "string"
-        },
-        "value_hash": {
-          "title": "Value Hash",
-          "type": "string"
-        },
-        "observed_at": {
-          "format": "date-time",
-          "title": "Observed At",
+        "document_ref": {
+          "title": "Document Ref",
           "type": "string"
         },
         "freshness": {
@@ -413,6 +396,23 @@
             "UNKNOWN"
           ],
           "title": "Freshness",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "observed_at": {
+          "format": "date-time",
+          "title": "Observed At",
+          "type": "string"
+        },
+        "pointer": {
+          "title": "Pointer",
+          "type": "string"
+        },
+        "value_hash": {
+          "title": "Value Hash",
           "type": "string"
         }
       },
@@ -431,12 +431,30 @@
     "RosConstraintFindingV1": {
       "additionalProperties": false,
       "properties": {
+        "evidence_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
         "id": {
           "title": "Id",
           "type": "string"
         },
         "invariant": {
           "title": "Invariant",
+          "type": "string"
+        },
+        "missing_evidence": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Missing Evidence",
+          "type": "array"
+        },
+        "scope": {
+          "title": "Scope",
           "type": "string"
         },
         "status": {
@@ -448,29 +466,11 @@
           "title": "Status",
           "type": "string"
         },
-        "scope": {
-          "title": "Scope",
-          "type": "string"
-        },
-        "evidence_refs": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Evidence Refs",
-          "type": "array"
-        },
         "targets": {
           "items": {
             "type": "string"
           },
           "title": "Targets",
-          "type": "array"
-        },
-        "missing_evidence": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Missing Evidence",
           "type": "array"
         }
       },
@@ -487,72 +487,23 @@
   },
   "additionalProperties": false,
   "properties": {
-    "schema_version": {
-      "const": "rosclaw.ros_operational_graph.v1",
-      "default": "rosclaw.ros_operational_graph.v1",
-      "title": "Schema Version",
-      "type": "string"
-    },
-    "graph_hash": {
-      "title": "Graph Hash",
-      "type": "string"
-    },
-    "source_ref": {
-      "title": "Source Ref",
-      "type": "string"
-    },
-    "snapshot_hash": {
-      "title": "Snapshot Hash",
-      "type": "string"
-    },
     "case_hash": {
-      "title": "Case Hash",
-      "type": "string"
-    },
-    "source_urdf_sha256": {
-      "title": "Source Urdf Sha256",
-      "type": "string"
-    },
-    "requirements_hash": {
-      "title": "Requirements Hash",
-      "type": "string"
-    },
-    "reviewed_at": {
-      "format": "date-time",
-      "title": "Reviewed At",
-      "type": "string"
-    },
-    "max_age_ms": {
-      "exclusiveMinimum": 0,
-      "maximum": 500,
-      "title": "Max Age Ms",
-      "type": "number"
-    },
-    "evidence_domain": {
-      "enum": [
-        "SEALED_REPLAY",
-        "OBSERVATION"
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
       ],
-      "title": "Evidence Domain",
-      "type": "string"
+      "title": "Case Hash"
     },
-    "snapshot_freshness": {
-      "enum": [
-        "FRESH",
-        "STALE",
-        "FUTURE"
-      ],
-      "title": "Snapshot Freshness",
-      "type": "string"
-    },
-    "source_status": {
-      "enum": [
-        "MATCHED",
-        "MISMATCH",
-        "UNKNOWN"
-      ],
-      "title": "Source Status",
-      "type": "string"
+    "completeness": {
+      "additionalProperties": {
+        "type": "boolean"
+      },
+      "title": "Completeness",
+      "type": "object"
     },
     "current_authority": {
       "const": "NONE",
@@ -566,12 +517,12 @@
       "title": "Current L1",
       "type": "string"
     },
-    "entities": {
+    "dataflows": {
       "items": {
-        "$ref": "#/$defs/OperationalEntityV1"
+        "$ref": "#/$defs/OperationalDataflowV1"
       },
-      "maxItems": 2048,
-      "title": "Entities",
+      "maxItems": 4096,
+      "title": "Dataflows",
       "type": "array"
     },
     "endpoints": {
@@ -582,29 +533,21 @@
       "title": "Endpoints",
       "type": "array"
     },
-    "dataflows": {
+    "entities": {
       "items": {
-        "$ref": "#/$defs/OperationalDataflowV1"
-      },
-      "maxItems": 4096,
-      "title": "Dataflows",
-      "type": "array"
-    },
-    "transforms": {
-      "items": {
-        "$ref": "#/$defs/OperationalTransformV1"
-      },
-      "maxItems": 1024,
-      "title": "Transforms",
-      "type": "array"
-    },
-    "time_facts": {
-      "items": {
-        "$ref": "#/$defs/OperationalTimeV1"
+        "$ref": "#/$defs/OperationalEntityV1"
       },
       "maxItems": 2048,
-      "title": "Time Facts",
+      "title": "Entities",
       "type": "array"
+    },
+    "evidence_domain": {
+      "enum": [
+        "SEALED_REPLAY",
+        "OBSERVATION"
+      ],
+      "title": "Evidence Domain",
+      "type": "string"
     },
     "findings": {
       "items": {
@@ -614,20 +557,9 @@
       "title": "Findings",
       "type": "array"
     },
-    "provenance": {
-      "additionalProperties": {
-        "$ref": "#/$defs/ProvenanceEdgeV1"
-      },
-      "maxProperties": 8192,
-      "title": "Provenance",
-      "type": "object"
-    },
-    "completeness": {
-      "additionalProperties": {
-        "type": "boolean"
-      },
-      "title": "Completeness",
-      "type": "object"
+    "graph_hash": {
+      "title": "Graph Hash",
+      "type": "string"
     },
     "limitations": {
       "default": [
@@ -640,6 +572,95 @@
         "type": "string"
       },
       "title": "Limitations",
+      "type": "array"
+    },
+    "max_age_ms": {
+      "exclusiveMinimum": 0,
+      "maximum": 500,
+      "title": "Max Age Ms",
+      "type": "number"
+    },
+    "provenance": {
+      "additionalProperties": {
+        "$ref": "#/$defs/ProvenanceEdgeV1"
+      },
+      "maxProperties": 8192,
+      "title": "Provenance",
+      "type": "object"
+    },
+    "requirements_hash": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Requirements Hash"
+    },
+    "reviewed_at": {
+      "format": "date-time",
+      "title": "Reviewed At",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "rosclaw.ros_operational_graph.v1",
+      "default": "rosclaw.ros_operational_graph.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "snapshot_freshness": {
+      "enum": [
+        "FRESH",
+        "STALE",
+        "FUTURE"
+      ],
+      "title": "Snapshot Freshness",
+      "type": "string"
+    },
+    "snapshot_hash": {
+      "title": "Snapshot Hash",
+      "type": "string"
+    },
+    "source_ref": {
+      "title": "Source Ref",
+      "type": "string"
+    },
+    "source_status": {
+      "enum": [
+        "MATCHED",
+        "MISMATCH",
+        "UNKNOWN"
+      ],
+      "title": "Source Status",
+      "type": "string"
+    },
+    "source_urdf_sha256": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Source Urdf Sha256"
+    },
+    "time_facts": {
+      "items": {
+        "$ref": "#/$defs/OperationalTimeV1"
+      },
+      "maxItems": 2048,
+      "title": "Time Facts",
+      "type": "array"
+    },
+    "transforms": {
+      "items": {
+        "$ref": "#/$defs/OperationalTransformV1"
+      },
+      "maxItems": 1024,
+      "title": "Transforms",
       "type": "array"
     }
   },

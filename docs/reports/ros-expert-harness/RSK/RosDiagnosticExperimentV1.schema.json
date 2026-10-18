@@ -1,0 +1,385 @@
+{
+  "$defs": {
+    "DiagnosticPredictionV1": {
+      "additionalProperties": false,
+      "properties": {
+        "hypothesis_id": {
+          "title": "Hypothesis Id",
+          "type": "string"
+        },
+        "if_contradicted": {
+          "title": "If Contradicted",
+          "type": "string"
+        },
+        "if_supported": {
+          "title": "If Supported",
+          "type": "string"
+        },
+        "on_missing_or_conflicting_evidence": {
+          "const": "UNKNOWN",
+          "default": "UNKNOWN",
+          "title": "On Missing Or Conflicting Evidence",
+          "type": "string"
+        }
+      },
+      "required": [
+        "hypothesis_id",
+        "if_supported",
+        "if_contradicted"
+      ],
+      "title": "DiagnosticPredictionV1",
+      "type": "object"
+    },
+    "DiagnosticProbeV1": {
+      "additionalProperties": false,
+      "properties": {
+        "discriminated_hypotheses": {
+          "maximum": 64,
+          "minimum": 1,
+          "title": "Discriminated Hypotheses",
+          "type": "integer"
+        },
+        "predictions": {
+          "items": {
+            "$ref": "#/$defs/DiagnosticPredictionV1"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "title": "Predictions",
+          "type": "array"
+        },
+        "request": {
+          "$ref": "#/$defs/ReadOnlyProbeRequestV1"
+        },
+        "selection_basis": {
+          "const": "AVAILABLE_PROVIDER_THEN_SUPPORTED_AND_UNKNOWN_CANDIDATE_COVERAGE",
+          "default": "AVAILABLE_PROVIDER_THEN_SUPPORTED_AND_UNKNOWN_CANDIDATE_COVERAGE",
+          "title": "Selection Basis",
+          "type": "string"
+        }
+      },
+      "required": [
+        "request",
+        "predictions",
+        "discriminated_hypotheses"
+      ],
+      "title": "DiagnosticProbeV1",
+      "type": "object"
+    },
+    "ReadOnlyProbeRequestV1": {
+      "additionalProperties": false,
+      "properties": {
+        "execution_authority": {
+          "const": "NONE",
+          "default": "NONE",
+          "title": "Execution Authority",
+          "type": "string"
+        },
+        "execution_status": {
+          "const": "PROPOSED_NOT_EXECUTED",
+          "default": "PROPOSED_NOT_EXECUTED",
+          "title": "Execution Status",
+          "type": "string"
+        },
+        "finding_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Finding Ids",
+          "type": "array"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "max_duration_sec": {
+          "maximum": 5,
+          "minimum": 1,
+          "title": "Max Duration Sec",
+          "type": "integer"
+        },
+        "operation": {
+          "enum": [
+            "SOURCE_CAPTURE",
+            "ENDPOINT_QOS",
+            "TF_AUTHORITY_WINDOW",
+            "CLOCK_TF_WINDOW",
+            "NATIVE_DIAGNOSTICS"
+          ],
+          "title": "Operation",
+          "type": "string"
+        },
+        "provider": {
+          "enum": [
+            "EXISTING_NATIVE_READ_ONLY_PROBE",
+            "PROVIDER_EXTENSION_REQUIRED",
+            "OPERATOR_SOURCE_REVIEW"
+          ],
+          "title": "Provider",
+          "type": "string"
+        },
+        "required_evidence": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Required Evidence",
+          "type": "array"
+        },
+        "side_effects": {
+          "const": "NONE",
+          "default": "NONE",
+          "title": "Side Effects",
+          "type": "string"
+        },
+        "targets": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Targets",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "operation",
+        "targets",
+        "finding_ids",
+        "required_evidence",
+        "provider",
+        "max_duration_sec"
+      ],
+      "title": "ReadOnlyProbeRequestV1",
+      "type": "object"
+    },
+    "RosHypothesisV1": {
+      "additionalProperties": false,
+      "properties": {
+        "causal_verification": {
+          "const": "NOT_ESTABLISHED",
+          "default": "NOT_ESTABLISHED",
+          "title": "Causal Verification",
+          "type": "string"
+        },
+        "confounders": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Confounders",
+          "type": "array"
+        },
+        "contradicting_evidence": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 512,
+          "title": "Contradicting Evidence",
+          "type": "array"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "issue_id": {
+          "title": "Issue Id",
+          "type": "string"
+        },
+        "predicate": {
+          "enum": [
+            "RECEIVE_GAP",
+            "QOS_CONFLICT",
+            "CLOCK_CONFLICT",
+            "TF_TIME_CONFLICT",
+            "TF_AUTHORITY_CONFLICT",
+            "UNRESOLVED_PATH"
+          ],
+          "title": "Predicate",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "SUPPORTED_OBSERVATION",
+            "CONTRADICTED_OBSERVATION",
+            "UNKNOWN"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "supporting_evidence": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 512,
+          "title": "Supporting Evidence",
+          "type": "array"
+        },
+        "targets": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 64,
+          "title": "Targets",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "issue_id",
+        "description",
+        "predicate",
+        "targets",
+        "status",
+        "supporting_evidence",
+        "contradicting_evidence",
+        "confounders"
+      ],
+      "title": "RosHypothesisV1",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "budget_sec": {
+      "maximum": 30,
+      "minimum": 1,
+      "title": "Budget Sec",
+      "type": "integer"
+    },
+    "current_l1": {
+      "const": "NOT_EVALUATED",
+      "default": "NOT_EVALUATED",
+      "title": "Current L1",
+      "type": "string"
+    },
+    "deferred_hypothesis_ids": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 64,
+      "title": "Deferred Hypothesis Ids",
+      "type": "array"
+    },
+    "evidence_domain": {
+      "enum": [
+        "SEALED_REPLAY",
+        "OBSERVATION"
+      ],
+      "title": "Evidence Domain",
+      "type": "string"
+    },
+    "execution_authority": {
+      "const": "NONE",
+      "default": "NONE",
+      "title": "Execution Authority",
+      "type": "string"
+    },
+    "execution_status": {
+      "const": "PROPOSED_NOT_EXECUTED",
+      "default": "PROPOSED_NOT_EXECUTED",
+      "title": "Execution Status",
+      "type": "string"
+    },
+    "experiment_hash": {
+      "title": "Experiment Hash",
+      "type": "string"
+    },
+    "graph_hash": {
+      "title": "Graph Hash",
+      "type": "string"
+    },
+    "hypotheses": {
+      "items": {
+        "$ref": "#/$defs/RosHypothesisV1"
+      },
+      "maxItems": 64,
+      "title": "Hypotheses",
+      "type": "array"
+    },
+    "intervention_class": {
+      "const": "READ_ONLY_PROBE",
+      "default": "READ_ONLY_PROBE",
+      "title": "Intervention Class",
+      "type": "string"
+    },
+    "max_probes": {
+      "maximum": 8,
+      "minimum": 1,
+      "title": "Max Probes",
+      "type": "integer"
+    },
+    "on_missing_evidence": {
+      "const": "UNKNOWN",
+      "default": "UNKNOWN",
+      "title": "On Missing Evidence",
+      "type": "string"
+    },
+    "probes": {
+      "items": {
+        "$ref": "#/$defs/DiagnosticProbeV1"
+      },
+      "maxItems": 8,
+      "title": "Probes",
+      "type": "array"
+    },
+    "proposed_at": {
+      "format": "date-time",
+      "title": "Proposed At",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "rosclaw.ros_diagnostic_experiment.v1",
+      "default": "rosclaw.ros_diagnostic_experiment.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "side_effects": {
+      "const": "NONE",
+      "default": "NONE",
+      "title": "Side Effects",
+      "type": "string"
+    },
+    "snapshot_hash": {
+      "title": "Snapshot Hash",
+      "type": "string"
+    },
+    "source_ref": {
+      "title": "Source Ref",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "NEEDS_READ_ONLY_PROBE",
+        "NO_TARGET_ISSUE",
+        "BLOCKED_SOURCE_OR_TIME"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "total_duration_sec": {
+      "maximum": 30,
+      "minimum": 0,
+      "title": "Total Duration Sec",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "experiment_hash",
+    "graph_hash",
+    "snapshot_hash",
+    "source_ref",
+    "proposed_at",
+    "evidence_domain",
+    "status",
+    "hypotheses",
+    "probes",
+    "deferred_hypothesis_ids",
+    "budget_sec",
+    "max_probes",
+    "total_duration_sec"
+  ],
+  "title": "RosDiagnosticExperimentV1",
+  "type": "object"
+}
