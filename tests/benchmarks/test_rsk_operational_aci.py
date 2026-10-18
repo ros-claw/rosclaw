@@ -221,6 +221,7 @@ def provider_fixture(tmp_path, aci):
     policy = DiagnosticProbePolicyV1(
         source_revision="b" * 40,
         original_run_id="a" * 32,
+        original_snapshot_hash=aci.base.case.snapshot_hash,
         source_urdf_sha256=aci.base.case.source_urdf_sha256,
         requirements_hash=content_hash("navrequirements", aci.base.requirements),
         case_staging_hash=content_hash("acistaging", aci.base.tools.initial_staging),
@@ -429,3 +430,31 @@ def test_corrupt_registered_diagnostic_input_is_rejected_before_model_or_tools(t
     (tmp_path / "diagnostic-inputs.json").write_text("{}")
     result, prompts = run(tmp_path, aci, kwargs, [])
     assert result["status"] == "NO_GO" and not prompts and not aci.trace
+
+
+def test_native_only_context_does_not_invent_urdf_or_navigation_bindings():
+    from benchmarks.ros_expert_ablation.rsk_diagnostic_provider import (
+        DiagnosticProbePolicyV1,
+        NativeDiagnosticContext,
+    )
+
+    model, _, _ = native_fixture()
+    context = NativeDiagnosticContext(model, "b" * 40, "a" * 32)
+    assert context.checked_model().snapshot_hash == model.snapshot_hash
+    assert not hasattr(context, "case") and not hasattr(context, "tools")
+    policy = DiagnosticProbePolicyV1(
+        source_revision="b" * 40,
+        original_run_id="a" * 32,
+        original_snapshot_hash=model.snapshot_hash,
+        source_urdf_sha256=None,
+        requirements_hash=None,
+        case_staging_hash=None,
+        execution_config_sha256="c" * 64,
+        operations=("ENDPOINT_QOS",),
+        minimum_wall_sec=12,
+    )
+    assert policy.source_urdf_sha256 is policy.requirements_hash is policy.case_staging_hash is None
+    with pytest.raises(ValueError, match="partial invented navigation"):
+        type(policy).model_validate(
+            {**policy.model_dump(), "requirements_hash": "invented-requirements"}
+        )

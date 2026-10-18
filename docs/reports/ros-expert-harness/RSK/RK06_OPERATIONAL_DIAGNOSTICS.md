@@ -36,6 +36,13 @@ It creates no robot driver, Runtime, navigation action server or actuator topic.
 A configured producer stop completes before the observation window. Publisher
 QoS and task configuration do not change during the window.
 
+Standalone sensor-component acceptance uses `NativeDiagnosticContext`: original
+model/source/run plus a snapshot hash, with URDF, navigation requirements and
+staging bindings explicitly absent as a complete group. It compiles native-only
+Core graphs and never fills fake navigation roles to fit the old Case schema.
+The composed navigation facade keeps its real navigation context when present;
+this distinction does not create a generic non-navigation model episode runner.
+
 The SDK records two exact Native captures, independent consumer counts/steady
 window, source file hashes and original container inspections. The reviewer reads
 those originals, checks the current stopped container against its recorded

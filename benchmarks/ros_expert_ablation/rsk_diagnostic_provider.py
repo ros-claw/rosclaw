@@ -13,11 +13,12 @@ import math
 import os
 import subprocess
 import time
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
-from pydantic import ConfigDict, Field
+from pydantic import ConfigDict, Field, model_validator
 
 from benchmarks.ros_expert_ablation.rsk_episode_runner import Closed, OriginalRef, _read
 from rosclaw.connectors.ros.discovery.graph import RosGraphSnapshot
@@ -27,6 +28,7 @@ from rosclaw.connectors.ros.engineering.probe_planner import (
 )
 from rosclaw.connectors.ros.intelligence import build_system_model
 from rosclaw.connectors.ros.intelligence.operational_graph import compile_operational_graph
+from rosclaw.connectors.ros.intelligence.system_model import RosSystemModel
 from rosclaw.contracts.common import content_hash
 
 SDK_IMAGE = "sha256:51ffb0e0aeb391f0efbef3013c7fc83586794c222b233e3dea688f3015ef1c6b"
@@ -39,9 +41,10 @@ class DiagnosticProbePolicyV1(Closed):
     )
     source_revision: str = Field(pattern=r"^[0-9a-f]{40}$")
     original_run_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-    source_urdf_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
-    requirements_hash: str = Field(min_length=1, max_length=128)
-    case_staging_hash: str = Field(min_length=1, max_length=128)
+    original_snapshot_hash: str = Field(pattern=r"^rossnap_[0-9a-f]{64}$")
+    source_urdf_sha256: str | None = Field(pattern=r"^[0-9a-f]{64}$")
+    requirements_hash: str | None = Field(min_length=1, max_length=128)
+    case_staging_hash: str | None = Field(min_length=1, max_length=128)
     execution_config_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     operations: tuple[Literal["ENDPOINT_QOS", "CLOCK_TF_WINDOW", "NATIVE_DIAGNOSTICS"], ...] = (
         Field(min_length=1, max_length=3)
@@ -50,6 +53,27 @@ class DiagnosticProbePolicyV1(Closed):
     observation_window_sec: Literal[5] = 5
     scope: Literal["SENSOR_ONLY_DDS_NO_PHYSICS_OR_BODY"] = "SENSOR_ONLY_DDS_NO_PHYSICS_OR_BODY"
     sdk_image: Literal[SDK_IMAGE] = SDK_IMAGE
+
+    @model_validator(mode="after")
+    def complete_optional_navigation_context(self):
+        values = [self.source_urdf_sha256, self.requirements_hash, self.case_staging_hash]
+        if any(value is None for value in values) and not all(value is None for value in values):
+            raise ValueError(
+                "native-only context cannot contain partial invented navigation bindings"
+            )
+        return self
+
+
+@dataclass(frozen=True)
+class NativeDiagnosticContext:
+    """Source-only observation context, deliberately no Body or navigation case."""
+
+    model: RosSystemModel
+    operator_source: str
+    original_run_id: str
+
+    def checked_model(self):
+        return RosSystemModel.from_dict(self.model.to_dict())
 
 
 class DiagnosticProbeOriginalsV1(Closed):
@@ -101,15 +125,26 @@ class DiagnosticProbeProvider:
             != self._policy_hash
         ):
             raise ValueError("frozen diagnostic provider policy changed")
+        if isinstance(base, NativeDiagnosticContext):
+            snapshot = base.checked_model().snapshot_hash
+            urdf_hash = requirements_hash = staging_hash = None
+        else:
+            base._bound(base.case.case_hash, read_only=True)
+            snapshot = base.case.snapshot_hash
+            urdf_hash = base.case.source_urdf_sha256
+            requirements_hash = content_hash("navrequirements", base.requirements)
+            staging_hash = content_hash("acistaging", base.tools.initial_staging)
         if (
             self.policy.source_revision != base.operator_source
             or self.policy.original_run_id != base.original_run_id
-            or self.policy.source_urdf_sha256 != base.case.source_urdf_sha256
-            or self.policy.requirements_hash != content_hash("navrequirements", base.requirements)
-            or self.policy.case_staging_hash
-            != content_hash("acistaging", base.tools.initial_staging)
+            or self.policy.original_snapshot_hash != snapshot
+            or self.policy.source_urdf_sha256 != urdf_hash
+            or self.policy.requirements_hash != requirements_hash
+            or self.policy.case_staging_hash != staging_hash
         ):
-            raise ValueError("diagnostic provider differs from original source/run/Body/staging")
+            raise ValueError(
+                "diagnostic provider differs from original source/run/snapshot/navigation context"
+            )
 
         def git(*args):
             return subprocess.check_output(["git", *args], cwd=self.worktree, text=True).strip()
@@ -373,14 +408,21 @@ class DiagnosticProbeProvider:
                 ),
                 native=native,
             )
+            context = (
+                {}
+                if isinstance(base, NativeDiagnosticContext)
+                else {
+                    "urdf_bytes": base.tools.files["robot.urdf"].encode(),
+                    "requirements": base.requirements,
+                }
+            )
             graphs.append(
                 compile_operational_graph(
                     model,
-                    base.tools.files["robot.urdf"].encode(),
-                    base.requirements,
                     source_ref="owned-sensor-probe:" + manifest.probe_run_id,
                     now=datetime.fromisoformat(native["captured_at"]),
                     evidence_domain="SEALED_REPLAY",
+                    **context,
                 )
             )
         initial_graph = graphs[0]
@@ -392,7 +434,12 @@ class DiagnosticProbeProvider:
         # Map only an invariant plus exact observed targets into the replica;
         # endpoint GIDs and graph hashes legitimately differ between containers.
         if (
-            original_graph.snapshot_hash != base.case.snapshot_hash
+            original_graph.snapshot_hash
+            != (
+                base.checked_model().snapshot_hash
+                if isinstance(base, NativeDiagnosticContext)
+                else base.case.snapshot_hash
+            )
             or original_graph.graph_hash != plan.graph_hash
         ):
             raise ValueError("probe intent differs from the original case operational graph")
