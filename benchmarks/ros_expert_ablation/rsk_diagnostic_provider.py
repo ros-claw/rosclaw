@@ -52,7 +52,9 @@ class DiagnosticProbePolicyV1(Closed):
     minimum_wall_sec: int = Field(ge=8, le=40)
     observation_window_sec: Literal[5] = 5
     scope: Literal["SENSOR_ONLY_DDS_NO_PHYSICS_OR_BODY"] = "SENSOR_ONLY_DDS_NO_PHYSICS_OR_BODY"
-    sdk_image: Literal[SDK_IMAGE] = SDK_IMAGE
+    sdk_image: Literal[
+        "sha256:51ffb0e0aeb391f0efbef3013c7fc83586794c222b233e3dea688f3015ef1c6b"
+    ] = "sha256:51ffb0e0aeb391f0efbef3013c7fc83586794c222b233e3dea688f3015ef1c6b"
 
     @model_validator(mode="after")
     def complete_optional_navigation_context(self):
