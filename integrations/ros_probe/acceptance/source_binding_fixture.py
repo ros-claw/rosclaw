@@ -607,6 +607,27 @@ def main():
                 "run_id": settings["run_id"],
             },
         }
+        from navigation_fixture_policy import select_navigation_fixture_policy
+
+        policy = select_navigation_fixture_policy(
+            policy,
+            settings.get("navigation_fixture_policy"),
+            action_name=review["candidate"]["interfaces"]["navigation.navigate_to_pose"][0]["name"],
+            frame_id=review["candidate"]["frames"]["map"],
+        )
+        save(
+            "navigation-policy-selection.json",
+            {
+                "scope": "SDK_OWNED_NEW_BODY_POLICY_NOT_MOTION_APPROVAL",
+                "operator_input_present": settings.get("navigation_fixture_policy") is not None,
+                "policy_id": policy["policy_id"],
+                "source_urdf_sha256": policy["source_urdf_sha256"],
+                "navigation_requirements_hash": policy["navigation_requirements_hash"],
+                "navigation_limits": policy["navigation_limits"],
+                "execution_authority": "NONE",
+                "current_L1": "NOT_EVALUATED",
+            },
+        )
         compiled = OUT / "generic-compiled"
         manifest = compile_navigation_body_workspace(
             compiled, model, Path("/assets/robot.urdf").read_bytes(), requirements, policy=policy

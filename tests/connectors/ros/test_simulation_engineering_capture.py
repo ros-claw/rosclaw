@@ -37,6 +37,7 @@ def settings(case):
     sorted(
         [
             "j100_navigation_onboarding",
+            "navigation_onboarding",
             "map_to_odom_missing",
             "scan_stale",
             "nav2_lifecycle_inactive",
@@ -145,6 +146,7 @@ def test_original_capture_requires_current_native_and_physics(
     [
         ("map_to_odom_missing", "UNKNOWN", "NOT_READY"),
         ("j100_navigation_onboarding", "PROPOSED", "NOT_EVALUATED"),
+        ("navigation_onboarding", "PROPOSED", "NOT_EVALUATED"),
     ],
 )
 def test_unready_capture_preserves_missing_body_and_execution_config(
@@ -205,3 +207,12 @@ def test_transient_incomplete_graph_is_not_mistaken_for_the_declared_engineering
         "physics": {"captured_at": stamp},
     }
     assert module.current_capture(state) is False
+
+
+def test_generic_onboarding_alias_cannot_claim_repair_rollback_or_admission(module, monkeypatch):
+    monkeypatch.setattr(module.Path, "is_file", lambda _: True)
+    monkeypatch.setenv("ROS_LOCALHOST_ONLY", "1")
+    value = settings("navigation_onboarding")
+    value["engineering_capture"]["phase"] = "rollback"
+    with pytest.raises(ValueError):
+        module.validate_engineering_capture(value)

@@ -22,14 +22,19 @@ COUNTERFACTUAL_CASES = {
     "rsk_sensor_frame_unresolvable",
 }
 
-CASES = COUNTERFACTUAL_CASES | {
-    "j100_navigation_onboarding",
-    "map_to_odom_missing",
-    "scan_stale",
-    "nav2_lifecycle_inactive",
-    "footprint_undersized",
-    "duplicate_velocity_route",
-}
+ONBOARDING_CASES = {"navigation_onboarding", "j100_navigation_onboarding"}
+
+CASES = (
+    COUNTERFACTUAL_CASES
+    | ONBOARDING_CASES
+    | {
+        "map_to_odom_missing",
+        "scan_stale",
+        "nav2_lifecycle_inactive",
+        "footprint_undersized",
+        "duplicate_velocity_route",
+    }
+)
 
 
 def review_engineering_failure(native, candidate_review, requirements):
@@ -105,7 +110,7 @@ def validate_engineering_capture(settings):
         or policy["schema_version"] != "rosclaw.engineering_failure_capture.v1"
         or policy["case"] not in CASES
         or policy["phase"] not in {"before_repair", "rollback"}
-        or (policy["case"] == "j100_navigation_onboarding" and policy["phase"] != "before_repair")
+        or (policy["case"] in ONBOARDING_CASES and policy["phase"] != "before_repair")
         or policy["run_id"] != settings.get("run_id")
         or "governed_sink" not in settings
     ):
@@ -157,7 +162,7 @@ def capture_failure(root, policy, state, spin_until, save):
         root, run_id=policy["run_id"], body_snapshot_hash=body_hash
     )
     process_fault = None
-    onboarding = policy["case"] == "j100_navigation_onboarding"
+    onboarding = policy["case"] in ONBOARDING_CASES
     counterfactual = policy["case"] in COUNTERFACTUAL_CASES
     expected_statuses = (
         {"PROPOSED", "UNKNOWN", "BLOCKED"}

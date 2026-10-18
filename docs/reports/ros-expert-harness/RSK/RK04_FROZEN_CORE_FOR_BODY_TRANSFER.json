@@ -1,0 +1,7 @@
+{
+  "frozen_core_revision": "7da96906b50f2824b45d98b4ebea7a9ab3ce8c4a",
+  "src_tree": "db8946828875dce662c47e0b3b9f5084e6824090",
+  "scope": "all tracked src remains byte-identical; only SDK operator adapter and tests/docs can change for explicit source policy input",
+  "no_model_specific_core_branch": true,
+  "physical_Body_acceptance": "NOT_RUN_BY_THIS_METADATA"
+}
