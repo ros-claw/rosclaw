@@ -1,0 +1,44 @@
+{
+  "status": "NORMAL_PRODUCT_PACKAGE_28_TESTS_AND23_SUBTESTS_PASS",
+  "utc": "2026-10-18T11:45:25.007482+00:00",
+  "base_commit": "4cd13056cab53de24768fc39f76b877a8902c9d7",
+  "files": {
+    "src/rosclaw/body/action_mapping/mapper.py": {
+      "Native_original_sha256": "06b650e7758bc8f739e429ed9f6d1465132c251fa210d985583c0d7035141e46",
+      "kind": "production",
+      "public_sha256": "c8b57425748d6b8cc03577761720452b9119e0b1337906e422749ebb640bfb76",
+      "AST_equivalent_except_top_level_import_order": true
+    },
+    "src/rosclaw/body/action_mapping/validator.py": {
+      "Native_original_sha256": "7fbb28b274f9281be3a22756de68a5e959eb229ba1587b5db2584837eea4806e",
+      "kind": "production",
+      "public_sha256": "33983cec75d2754712f89c660d97668076fec9fc6fce5bb1c0409ebff262712a",
+      "AST_equivalent_except_top_level_import_order": true
+    },
+    "tests/unit/integrations/lerobot/action_mapping_contract_native/native/action_mapping_fixture_data.py": {
+      "Native_original_sha256": "b5219463afb0670cf01be3d0ac737d28f0d50d8aacc3ab27ad6d4ddd194c01ec",
+      "kind": "synthetic_regression",
+      "public_sha256": "fc4d9655da27606321365f20baa0daa9e0d2220ac989a537947d5a34606b6f8e",
+      "AST_equivalent_except_top_level_import_order": true
+    },
+    "tests/unit/integrations/lerobot/action_mapping_contract_native/native/test_action_mapping_contract.py": {
+      "Native_original_sha256": "dcbc8edb27fd8d975e426839f12eeaf755a1d4cd6ba3cedd2bfb8bdabbba7dd5",
+      "kind": "synthetic_regression",
+      "public_sha256": "364fb1f56e826d1e83ef148e5e314e3bf7586d2f274f7c8df47a9ac2518a3f9c",
+      "AST_equivalent_except_top_level_import_order": true
+    }
+  },
+  "mechanical_packaging": "empty native/__init__.py; original import aliases and all assertions retained",
+  "validation": {
+    "pytest_methods": 28,
+    "successful_subtests": 23,
+    "phase_reports": 107,
+    "normal_repo_config": true,
+    "production_package_origin_verified": true,
+    "source_prepost_exact": true,
+    "syntax_compile_source_and_tests_files": 2532,
+    "syntax_check_wrote_bytecode": false,
+    "SDK_or_physics_executed": false
+  },
+  "limits": "Synthetic action adaptation and validation only. No learned-policy, ROS, hardware, or dynamics capability credit. Historical NOT_RUN text in the original test module describes author-time status."
+}
