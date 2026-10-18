@@ -412,10 +412,21 @@ def compile_driver_bootstrap(
     }
     for value in controller.values():
         if type(value) is dict and "xy_goal_tolerance" in value:
-            value.update(
-                xy_goal_tolerance=float(limits["goal_position_tolerance_m"] * 0.5),
-                yaw_goal_tolerance=float(limits["goal_yaw_tolerance_rad"] * 0.5),
-            )
+            # A reusable software profile may intentionally reserve more of
+            # the physical acceptance budget for localization error. Never
+            # loosen its explicit tighter goal checker when binding a Body.
+            for key, limit in (
+                ("xy_goal_tolerance", limits["goal_position_tolerance_m"]),
+                ("yaw_goal_tolerance", limits["goal_yaw_tolerance_rad"]),
+            ):
+                original = value.get(key)
+                if (
+                    type(original) not in (int, float)
+                    or not math.isfinite(original)
+                    or original <= 0
+                ):
+                    raise ValueError("finite positive original goal checker tolerances required")
+                value[key] = float(min(original, limit * 0.5))
         if type(value) is dict and "required_movement_radius" in value:
             value.update(
                 required_movement_radius=float(limits["goal_position_tolerance_m"] * 2),

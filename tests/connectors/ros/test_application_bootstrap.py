@@ -264,3 +264,30 @@ def test_installed_default_without_map_server_generates_explicit_target_and_excl
     params = yaml.safe_load(result["files"]["nav2.yaml"])[args[6]["namespace"]]
     assert params["map_server"]["ros__parameters"]["yaml_filename"] == "/assets/map.yaml"
     assert "docking_server" not in params
+
+
+def test_stricter_software_goal_tolerances_are_preserved_without_changing_physical_limits():
+    args = list(inputs())
+    original_limits = copy.deepcopy(args[6]["navigation_limits"])
+    checker = {
+        "plugin": "nav2_controller::SimpleGoalChecker",
+        "xy_goal_tolerance": 0.0001,
+        "yaw_goal_tolerance": 0.0002,
+    }
+    args[4]["controller_server"]["ros__parameters"]["strict_checker"] = checker.copy()
+    result = compile_driver_bootstrap(*args)
+    assert result["status"] == "CONDITIONAL_DRIVER_BOOTSTRAP_STAGING"
+    params = yaml.safe_load(result["files"]["nav2.yaml"])[args[6]["namespace"]]
+    assert params["controller_server"]["ros__parameters"]["strict_checker"] == checker
+    assert args[6]["navigation_limits"] == original_limits
+
+
+@pytest.mark.parametrize("value", [None, True, 0, -0.1, float("nan"), float("inf")])
+def test_invalid_goal_checker_values_do_not_get_silently_repaired(value):
+    args = list(inputs())
+    args[4]["controller_server"]["ros__parameters"]["checker"] = {
+        "xy_goal_tolerance": 0.01,
+        "yaw_goal_tolerance": value,
+    }
+    with pytest.raises(ValueError):
+        compile_driver_bootstrap(*args)
