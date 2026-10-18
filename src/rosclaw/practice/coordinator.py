@@ -46,6 +46,15 @@ class PracticeCoordinator(LifecycleMixin):
         self.config = config or PracticeConfig()
         self.layout = PracticeLayout(self.config.data_root)
         self.catalog = PracticeCatalog(self.layout.catalog_db_path)
+        try:
+            self._assemble(runtime_bus, recorder)
+        except BaseException:
+            self.catalog.close()
+            raise
+
+    def _assemble(self, runtime_bus, recorder) -> None:
+        """Finish construction inside the catalog ownership boundary."""
+        self._adapters_built = False
         self._event_bus = self.config.event_bus or EventBus()
         self._runtime_bus = runtime_bus or RuntimeBus(event_bus=self._event_bus)
         self._recorder = recorder
@@ -76,14 +85,39 @@ class PracticeCoordinator(LifecycleMixin):
     # ------------------------------------------------------------------
 
     def _do_initialize(self) -> None:
-        self.layout.ensure_directories()
-        self._build_adapters()
+        # A failed stop may have left a producer alive. Do not forget its
+        # identity or retire its database resources during reinitialization.
+        if self._poll_thread is not None and self._poll_thread.is_alive():
+            raise RuntimeError("Cannot initialize while the previous poll thread is alive")
+        try:
+            self.catalog.resume_writers()
+            self.layout.ensure_directories()
+            self._session = None
+            self._poll_thread = None
+            if not self._adapters_built:
+                previous = list(self._adapters)
+                try:
+                    self._build_adapters()
+                except BaseException:
+                    self._adapters = previous
+                    raise
+                self._adapters_built = True
+        except BaseException:
+            self.catalog.suspend_writers()
+            raise
 
     def _do_start(self) -> None:
         self._start_session()
 
     def _do_stop(self) -> None:
-        self._stop_session()
+        try:
+            if self._session is not None:
+                self._stop_session()
+        finally:
+            # Never drain/retire the catalog underneath a live producer.
+            if self._poll_thread is not None and self._poll_thread.is_alive():
+                raise RuntimeError("Practice poll thread is still alive; retry cleanup")
+            self.catalog.suspend_writers()
 
     # ------------------------------------------------------------------
     # Adapter setup
@@ -128,6 +162,28 @@ class PracticeCoordinator(LifecycleMixin):
     # ------------------------------------------------------------------
 
     def _start_session(self) -> None:
+        try:
+            self._assemble_session()
+        except BaseException as exc:
+            self._stop_event.set()
+            if self._poll_thread is not None and self._poll_thread.ident is not None:
+                self._poll_thread.join(timeout=2.0)
+                if self._poll_thread.is_alive():
+                    raise RuntimeError("Practice poll thread survived failed startup") from exc
+            try:
+                for adapter in self._adapters:
+                    adapter.stop()
+                if self._writer is not None:
+                    self._writer.close()
+                    self._writer = None
+            finally:
+                self.catalog.suspend_writers()
+            self._session = None
+            raise
+
+    def _assemble_session(self) -> None:
+        self._source_event_count = 0
+        self._failure_labels = []
         practice_id = generate_practice_id()
         session_id = generate_session_id()
         episode_id = generate_episode_id()
@@ -260,6 +316,8 @@ class PracticeCoordinator(LifecycleMixin):
         self._stop_event.set()
         if self._poll_thread is not None:
             self._poll_thread.join(timeout=2.0)
+            if self._poll_thread.is_alive():
+                raise RuntimeError("Practice poll thread did not stop")
 
         for adapter in self._adapters:
             try:
@@ -486,10 +544,10 @@ class PracticeCoordinator(LifecycleMixin):
                     )
                 )
 
-        try:
-            self.catalog.flush()
-        except Exception as e:
-            logger.error("Failed to flush practice catalog: %s", e)
+        # Final drain must not create replacement workers just for queries.
+        # Unlike best-effort fact verification, ownership cleanup must fail
+        # visibly if durability or worker termination cannot be confirmed.
+        self.catalog.suspend_writers()
 
         logger.info(
             "Practice session stopped: %s",
@@ -743,7 +801,9 @@ class PracticeCoordinator(LifecycleMixin):
             if not report.passed:
                 logger.warning(
                     "Session %s fact-verify: %d errors, %d warnings",
-                    self._session.practice_id, errors, warnings,
+                    self._session.practice_id,
+                    errors,
+                    warnings,
                 )
             return report
         except Exception as exc:  # noqa: BLE001

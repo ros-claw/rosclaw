@@ -126,6 +126,13 @@ def no_http():
                 key = key.strip().lower()
                 assert key not in settings, key
                 settings[key] = value.strip()
+        # uv records the interpreter version as version_info; stdlib venv
+        # uses version. Normalize only the parsed metadata, never runtime state.
+        # If both are present, neither may contradict this interpreter.
+        if 'version_info' in settings:
+            assert tuple(map(int, settings['version_info'].split('.'))) == sys.version_info[:3]
+        if 'version' not in settings:
+            settings['version'] = settings['version_info']
         base_executable = Path(sys._base_executable).resolve(strict=True)
         assert Path(settings['home']).resolve(strict=True) == base_executable.parent
         assert tuple(map(int, settings['version'].split('.')[:2])) == sys.version_info[:2]

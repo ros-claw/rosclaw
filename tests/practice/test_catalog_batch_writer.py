@@ -43,7 +43,11 @@ def _index_record(i: int, session_id: str = "s1", episode_id: str = "ep1") -> di
 
 @pytest.fixture
 def catalog(tmp_path: Path) -> PracticeCatalog:
-    return PracticeCatalog(tmp_path / "catalog.sqlite")
+    catalog = PracticeCatalog(tmp_path / "catalog.sqlite")
+    try:
+        yield catalog
+    finally:
+        catalog.close()
 
 
 def test_insert_event_synchronous_when_batch_size_one(tmp_path: Path) -> None:
@@ -145,3 +149,93 @@ def test_batch_writer_close_retries_live_thread() -> None:
     assert not writer.close(timeout=0.01)
     release.set()
     assert writer.close(timeout=1.0)
+
+
+def test_catalog_suspended_queries_durability_and_resume(tmp_path):
+    import sqlite3
+
+    cat = PracticeCatalog(tmp_path / "owned.sqlite", event_flush_ms=300_000)
+    original = (cat._event_writer._thread, cat._event_index_writer._thread)
+    try:
+        assert all(worker.is_alive() for worker in original)
+        event = dict(_event_record(1), _wm=1)
+        index = dict(_index_record(1), _wm=1)
+        cat.insert_event(event)
+        cat.insert_event_index(index)
+        cat.suspend_writers()
+        for worker in original:
+            worker.join(timeout=1.0)
+            assert not worker.is_alive()
+        assert cat._event_writer is None
+        assert cat._event_index_writer is None
+        assert cat.count_events("p1") == 1
+        assert cat.get_event_index("e0001")["summary_json"]["seq"] == 1
+        assert cat.flush_until(1, timeout_sec=0.1)["ok"]
+        cat.flush()
+        cat.suspend_writers()
+        assert cat._event_writer is None
+        assert cat._event_index_writer is None
+        with sqlite3.connect(str(cat._db_path)) as reader:
+            assert reader.execute("SELECT COUNT(*) FROM events").fetchone()[0] == 1
+            assert reader.execute("SELECT COUNT(*) FROM practice_event_index").fetchone()[0] == 1
+        cat.resume_writers()
+        replacement = (cat._event_writer._thread, cat._event_index_writer._thread)
+        assert all(worker.is_alive() for worker in replacement)
+        assert not any(worker is old for worker in replacement for old in original)
+        cat.insert_event(dict(_event_record(2), _wm=2))
+        cat.insert_event_index(dict(_index_record(2), _wm=2))
+        cat.close()
+        cat.close()
+        for worker in replacement:
+            worker.join(timeout=1.0)
+            assert not worker.is_alive()
+        with sqlite3.connect(str(cat._db_path)) as reader:
+            assert reader.execute("SELECT COUNT(*) FROM events").fetchone()[0] == 2
+            assert reader.execute("SELECT COUNT(*) FROM practice_event_index").fetchone()[0] == 2
+        with pytest.raises(RuntimeError, match="closed"):
+            cat.flush()
+    finally:
+        cat.close()
+
+
+def test_catalog_second_worker_start_failure_unwinds_real_resources(tmp_path):
+    import sqlite3
+    from unittest.mock import patch
+
+    import rosclaw.practice.storage.catalog as module
+
+    connections = []
+    started = []
+    real_connect = sqlite3.connect
+    real_start = threading.Thread.start
+
+    def connect(*args, **kwargs):
+        connection = real_connect(*args, **kwargs)
+        connections.append(connection)
+        return connection
+
+    def start(worker):
+        if worker.name == "catalog-batch-event_index":
+            assert len(started) == 1
+            assert started[0].is_alive()
+            raise OSError("second worker startup injected")
+        result = real_start(worker)
+        if worker.name == "catalog-batch-events":
+            started.append(worker)
+        return result
+
+    with (
+        patch.object(module.sqlite3, "connect", side_effect=connect),
+        patch.object(threading.Thread, "start", new=start),
+        pytest.raises(OSError, match="second worker startup injected"),
+    ):
+        PracticeCatalog(tmp_path / "partial.sqlite")
+    assert len(started) == 1
+    assert len(connections) == 1
+    started[0].join(timeout=1.0)
+    assert not started[0].is_alive()
+    with pytest.raises(sqlite3.ProgrammingError, match="closed"):
+        connections[0].execute("SELECT 1")
+    # A new real connection can still read the initialized schema.
+    with real_connect(str(tmp_path / "partial.sqlite")) as reader:
+        assert reader.execute("SELECT COUNT(*) FROM events").fetchone()[0] == 0

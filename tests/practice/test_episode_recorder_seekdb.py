@@ -192,13 +192,20 @@ class TestRuntimeSeekDBAssembly:
             enable_sense=False,
             seekdb_fallback_dir=str(tmp_path / "fallback"),
         )
+        from rosclaw.sandbox.sandbox_api import Sandbox
+
+        # Keep the adapter lifecycle real, but never initialize an SDK backend.
+        sandbox = MagicMock(has_physics=False, load_error="offline test fixture")
+        monkeypatch.setattr(Sandbox, "create", MagicMock(return_value=sandbox))
         runtime = Runtime(config)
-        runtime.initialize()
+        try:
+            runtime.initialize()
 
-        assert runtime._episode_recorder is not None
-        assert runtime._episode_recorder._seekdb_bridge is not None
-
-        runtime.stop()
+            assert runtime._episode_recorder is not None
+            assert runtime._episode_recorder._seekdb_bridge is not None
+        finally:
+            # The factory fixture (including its mock close) remains installed.
+            runtime.stop()
 
     def test_runtime_legacy_seekdb_url_still_assembles_bridge(self, tmp_path, monkeypatch):
         pytest.importorskip("rosclaw_practice")
@@ -218,13 +225,19 @@ class TestRuntimeSeekDBAssembly:
             enable_sense=False,
             seekdb_fallback_dir=str(tmp_path / "fallback"),
         )
+        from rosclaw.sandbox.sandbox_api import Sandbox
+
+        # Keep the adapter lifecycle real, but never initialize an SDK backend.
+        sandbox = MagicMock(has_physics=False, load_error="offline test fixture")
+        monkeypatch.setattr(Sandbox, "create", MagicMock(return_value=sandbox))
         runtime = Runtime(config)
-        runtime.initialize()
+        try:
+            runtime.initialize()
 
-        assert runtime._episode_recorder is not None
-        assert runtime._episode_recorder._seekdb_bridge is not None
-
-        runtime.stop()
+            assert runtime._episode_recorder is not None
+            assert runtime._episode_recorder._seekdb_bridge is not None
+        finally:
+            runtime.stop()
 
     def test_runtime_initializes_gracefully_when_rosclaw_practice_missing(self, monkeypatch):
         # Simulate an environment where rosclaw_practice is not installed by
@@ -254,10 +267,16 @@ class TestRuntimeSeekDBAssembly:
             enable_provider=False,
             enable_sense=False,
         )
+        from rosclaw.sandbox.sandbox_api import Sandbox
+
+        # This case still runs without the optional practice dependency.
+        sandbox = MagicMock(has_physics=False, load_error="offline test fixture")
+        monkeypatch.setattr(Sandbox, "create", MagicMock(return_value=sandbox))
         runtime = Runtime(config)
-        runtime.initialize()
+        try:
+            runtime.initialize()
 
-        assert runtime._episode_recorder is not None
-        assert runtime._episode_recorder._seekdb_bridge is None
-
-        runtime.stop()
+            assert runtime._episode_recorder is not None
+            assert runtime._episode_recorder._seekdb_bridge is None
+        finally:
+            runtime.stop()

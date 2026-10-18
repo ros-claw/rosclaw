@@ -131,17 +131,26 @@ class TestSeekDBBridge:
         from rosclaw.storage.outbox import OutboxStore
 
         outbox = OutboxStore(db_path=str(tmp_path / "outbox.sqlite"))
-        bridge = SeekDBBridge(outbox=outbox)
-        try:
-            with patch("requests.post") as mock_post:
+        # Defer background draining so pending-row assertions cannot race it.
+        # close() still exercises the real worker flush and stop, under HTTP isolation.
+        with (
+            patch("rosclaw.storage.outbox.OutboxWorker.start", autospec=True),
+            patch("requests.post") as mock_post,
+        ):
+            bridge = None
+            try:
+                bridge = SeekDBBridge(outbox=outbox)
                 bridge.commit(praxis_event)
-            mock_post.assert_not_called()
-            stats = outbox.stats()
-            assert stats["total"] == 1
-            assert stats["pending"] == 1
-        finally:
-            bridge.close()
-            outbox.close()
+                mock_post.assert_not_called()
+                stats = outbox.stats()
+                assert stats["total"] == 1
+                assert stats["pending"] == 1
+            finally:
+                try:
+                    if bridge is not None:
+                        bridge.close()
+                finally:
+                    outbox.close()
 
     def test_bridge_owned_worker_uses_custom_interval_and_batch_size(self, tmp_path):
         from rosclaw.storage.outbox import OutboxStore
