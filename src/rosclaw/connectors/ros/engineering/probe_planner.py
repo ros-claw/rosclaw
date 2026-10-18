@@ -75,7 +75,7 @@ PREDICTIONS = {
 
 
 def plan_diagnostic_probes(graph, *, issue_ids=None, budget_sec=20, max_probes=8):
-    """Rank by observable candidate coverage, availability, duration; no likelihoods."""
+    """Recheck supported explanations first, then unknowns; no likelihoods."""
     if type(budget_sec) is not int or not 1 <= budget_sec <= 30:
         raise ValueError("budget requires 1..30 seconds")
     if type(max_probes) is not int or not 1 <= max_probes <= 8:
@@ -96,7 +96,13 @@ def plan_diagnostic_probes(graph, *, issue_ids=None, budget_sec=20, max_probes=8
             grouped.setdefault((operation, provider), []).append((h, evidence))
     ranked = sorted(
         grouped.items(),
-        key=lambda item: (-len(item[1]), item[0][1] != "EXISTING_NATIVE_READ_ONLY_PROBE", item[0]),
+        key=lambda item: (
+            item[0][1] != "EXISTING_NATIVE_READ_ONLY_PROBE",
+            -sum(h.status == "SUPPORTED_OBSERVATION" for h, _ in item[1]),
+            -sum(h.status == "UNKNOWN" for h, _ in item[1]),
+            -len(item[1]),
+            item[0],
+        ),
     )
     probes, planned = [], set()
     remaining = budget_sec

@@ -12,8 +12,10 @@ explicit unresolved explanation for unsupported issues. At most 64 hypotheses;
 overlarge scopes fail explicitly and require selecting issue IDs.
 
 `engineering.probe_planner.plan_diagnostic_probes(...)` seals a
-`RosDiagnosticExperimentV1`. It ranks measurement groups by candidate coverage,
-provider availability, then deterministic operation order. Every request is
+`RosDiagnosticExperimentV1`. It prefers available native providers, then rechecks currently supported
+explanations, followed by unknown candidate coverage and deterministic operation
+order. Under a one-window budget the same receive-gap symptom selects endpoint
+QoS, stream timing or clock measurements according to observed competing evidence. Every request is
 read-only, proposed, unexecuted and has no authority. Each window costs five
 seconds, total budget 1–30 seconds, maximum eight groups. Windows that do not
 fit remain explicitly deferred. No probability or calibrated information gain

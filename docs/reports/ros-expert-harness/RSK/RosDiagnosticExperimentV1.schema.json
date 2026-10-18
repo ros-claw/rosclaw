@@ -52,8 +52,8 @@
           "$ref": "#/$defs/ReadOnlyProbeRequestV1"
         },
         "selection_basis": {
-          "const": "CANDIDATE_COVERAGE_THEN_PROVIDER_AVAILABILITY_THEN_DURATION",
-          "default": "CANDIDATE_COVERAGE_THEN_PROVIDER_AVAILABILITY_THEN_DURATION",
+          "const": "AVAILABLE_PROVIDER_THEN_SUPPORTED_AND_UNKNOWN_CANDIDATE_COVERAGE",
+          "default": "AVAILABLE_PROVIDER_THEN_SUPPORTED_AND_UNKNOWN_CANDIDATE_COVERAGE",
           "title": "Selection Basis",
           "type": "string"
         }

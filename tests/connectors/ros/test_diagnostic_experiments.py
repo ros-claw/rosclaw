@@ -88,6 +88,22 @@ def test_fresh_stream_does_not_prove_consumer_delivery():
     assert statuses(result.hypotheses)["UNRESOLVED_PATH"] == "UNKNOWN"
 
 
+@pytest.mark.parametrize(
+    "qos,mixed,operation",
+    [
+        (True, False, "ENDPOINT_QOS"),
+        (False, False, "NATIVE_DIAGNOSTICS"),
+        (False, True, "CLOCK_TF_WINDOW"),
+    ],
+)
+def test_same_receive_gap_selects_different_measurements_with_one_window(qos, mixed, operation):
+    p = plan_diagnostic_probes(
+        capture(qos=qos, mixed=mixed), issue_ids=["F-SCAN-001"], budget_sec=5
+    )
+    assert len(p.probes) == 1 and p.probes[0].request.operation == operation
+    assert p.total_duration_sec == 5 and p.deferred_hypothesis_ids
+
+
 @pytest.mark.parametrize("budget,limit", [(1, 8), (4, 8), (5, 1), (9, 8), (30, 1), (30, 8)])
 def test_budget_ranking_and_explicit_deferral(budget, limit):
     g = capture()

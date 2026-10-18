@@ -41,8 +41,8 @@ class DiagnosticProbeV1(GraphRecord):
     request: ReadOnlyProbeRequestV1
     predictions: list[DiagnosticPredictionV1] = Field(min_length=1, max_length=64)
     discriminated_hypotheses: int = Field(ge=1, le=64)
-    selection_basis: Literal["CANDIDATE_COVERAGE_THEN_PROVIDER_AVAILABILITY_THEN_DURATION"] = (
-        "CANDIDATE_COVERAGE_THEN_PROVIDER_AVAILABILITY_THEN_DURATION"
+    selection_basis: Literal["AVAILABLE_PROVIDER_THEN_SUPPORTED_AND_UNKNOWN_CANDIDATE_COVERAGE"] = (
+        "AVAILABLE_PROVIDER_THEN_SUPPORTED_AND_UNKNOWN_CANDIDATE_COVERAGE"
     )
 
 
