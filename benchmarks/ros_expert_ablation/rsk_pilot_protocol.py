@@ -114,7 +114,7 @@ def allocate_pilot(protocol: RskPilotProtocolV2) -> list[dict]:
 
 def review_pilot_entry(protocol: RskPilotProtocolV2, evidence: dict, *, root: Path) -> dict:
     """Host SHA references gate eligibility; absence/corruption cannot become PASS."""
-    if set(evidence) != set(GATES):
+    if type(evidence) is not dict or set(evidence) != set(GATES):
         raise ValueError("all four named gate slots required, absent references must be null")
     root = Path(root).resolve(strict=True)
     reasons, checks = [], []

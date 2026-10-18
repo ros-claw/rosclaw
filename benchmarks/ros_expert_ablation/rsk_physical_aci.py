@@ -20,6 +20,7 @@ from benchmarks.ros_expert_ablation.physical_aci import (
     RepairArgs,
     RepairCall,
 )
+from benchmarks.ros_expert_ablation.rsk_pilot_protocol import RskPilotProtocolV2, review_pilot_entry
 
 
 class CrossBodyQueryArgs(CaseArgs):
@@ -46,7 +47,16 @@ CROSS_BODY_CALLS = TypeAdapter(
 
 
 class RskPhysicalACI:
-    def __init__(self, base: PhysicalACI, *, arm, memory_query=None):
+    def __init__(
+        self,
+        base: PhysicalACI,
+        *,
+        arm,
+        memory_query=None,
+        pilot_protocol=None,
+        pilot_evidence=None,
+        evidence_root=None,
+    ):
         if (
             arm not in {"B", "C", "E"}
             or base.tools.arm != "B"
@@ -60,6 +70,14 @@ class RskPhysicalACI:
             or memory_query.target != base.case.source_urdf_sha256
         ):
             raise ValueError("E requires operator-injected audited current-Body Memory policy")
+        self.pilot_entry_review = None
+        if base.evaluator is not None or base.probe_evaluator is not None:
+            if not isinstance(pilot_protocol, RskPilotProtocolV2) or evidence_root is None:
+                raise ValueError("RSK pilot entry proof required before SDK/probe callbacks")
+            entry = review_pilot_entry(pilot_protocol, pilot_evidence, root=evidence_root)
+            if entry["status"] != "ELIGIBLE_FOR_BOUNDED_PILOT_ONLY":
+                raise ValueError("RSK pilot entry is NO_GO; SDK/probe callbacks disabled")
+            self.pilot_entry_review = entry
         self.base = base
         self.arm = arm
         self.memory_query = memory_query

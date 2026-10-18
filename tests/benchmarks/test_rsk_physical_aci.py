@@ -157,3 +157,28 @@ def test_provider_schema_binds_current_case_and_only_offers_retrieved_context_re
                 "memory_refs_used": ["invented"],
             }
         )
+
+
+def test_sdk_callback_requires_original_pilot_entry_before_facade_creation(tmp_path):
+    aci, _ = facade(tmp_path)
+    calls = []
+    aci.base.evaluator = lambda *a, **kw: calls.append("SDK")
+    with pytest.raises(ValueError, match="entry proof"):
+        RskPhysicalACI(aci.base, arm="C")
+    assert calls == []
+
+
+def test_no_go_original_entry_cannot_attach_callback_even_with_valid_protocol(tmp_path):
+    from benchmarks.ros_expert_ablation.rsk_pilot_protocol import GATES
+    from tests.benchmarks.test_rsk_pilot_protocol import protocol
+
+    aci, _ = facade(tmp_path)
+    aci.base.evaluator = lambda *a, **kw: pytest.fail("no SDK callback may run")
+    with pytest.raises(ValueError, match="NO_GO"):
+        RskPhysicalACI(
+            aci.base,
+            arm="C",
+            pilot_protocol=protocol(),
+            pilot_evidence=dict.fromkeys(GATES),
+            evidence_root=tmp_path,
+        )

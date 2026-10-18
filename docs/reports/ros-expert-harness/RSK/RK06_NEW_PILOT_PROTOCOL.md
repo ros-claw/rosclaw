@@ -95,3 +95,9 @@ The new facade provides phase-bound `decision_schema()` and
 runner is unchanged and does not implement the new E arm. Provider invocation
 and scientific pilot execution remain gated; interface contract tests and
 operator-constructed replay decisions are not LLM results.
+
+The RSK facade refuses a non-null SDK validation or active-probe callback unless
+the operator supplies a V2 protocol and all four original-file gate references
+pass the same entry review. No entry proof means proposal-only operation;
+NO_GO cannot be bypassed by merely attaching an evaluator. This check adds no
+execution authority and leaves the canonical executor/session/lease checks intact.
