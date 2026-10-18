@@ -25,7 +25,9 @@ information gain or mutually exclusive causes.
 Each hypothesis includes supporting and contradicting provenance references,
 confounders and concrete positive/negative measurement predictions. Receive
 age uses steady time plus capture age. QoS compares observed requested/offered
-policies only, not delivery or complete RMW compatibility. Clock disagreement
+policies only, not delivery or complete RMW compatibility. QoS explanations
+retain exact topic scope even when unrelated topics share the same publisher and
+consumer nodes. Clock disagreement
 covers observed nodes only. TF ages respect declared future tolerances. Missing
 attribution never establishes unique authority. Several explanations can be
 supported together; eliminating one does not prove the remaining one.

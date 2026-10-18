@@ -104,6 +104,44 @@ def test_same_receive_gap_selects_different_measurements_with_one_window(qos, mi
     assert p.total_duration_sec == 5 and p.deferred_hypothesis_ids
 
 
+def test_qos_explanation_does_not_absorb_another_topic_on_the_same_nodes():
+    from copy import deepcopy
+
+    def scoped(stamp, primary_conflict):
+        m, u, r = native_fixture()
+        other = deepcopy(m.qos["endpoints"])
+        for i, endpoint in enumerate(other):
+            endpoint["topic"] = "/other/signal"
+            endpoint["gid"] = f"other-{i}"
+        m.qos["endpoints"][0]["reliability"] = "BEST_EFFORT" if primary_conflict else "RELIABLE"
+        m.qos["endpoints"].extend(other)
+        m.captured_at = stamp
+        for node in m.observations["node_use_sim_time"]:
+            m.observations["parameter_captured_at"][node] = stamp.isoformat()
+        return graph(m, u, r, now=stamp)
+
+    before = scoped(NOW, True)
+    issue = next(
+        f.id
+        for f in before.findings
+        if f.invariant == "qos.observed_requested_offered_policies"
+        and f.targets[0] == "/sample/scan2"
+    )
+    p = plan_diagnostic_probes(before, issue_ids=[issue], budget_sec=5)
+    assert next(h for h in p.hypotheses if h.predicate == "QOS_CONFLICT").targets == [
+        "/sample/scan2"
+    ]
+    later = NOW + timedelta(seconds=1)
+    after = scoped(later, False)
+    assert any(
+        f.status == "VIOLATED" and f.targets[0] == "/other/signal"
+        for f in after.findings
+        if f.invariant == "qos.observed_requested_offered_policies"
+    )
+    result = assess_diagnostic_followup(p, before, after, now=later)
+    assert statuses(result.hypotheses)["QOS_CONFLICT"] == "CONTRADICTED_OBSERVATION"
+
+
 @pytest.mark.parametrize("budget,limit", [(1, 8), (4, 8), (5, 1), (9, 8), (30, 1), (30, 8)])
 def test_budget_ranking_and_explicit_deferral(budget, limit):
     g = capture()

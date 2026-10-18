@@ -104,7 +104,11 @@ def evaluate_hypothesis(hypothesis, graph, *, not_before: datetime | None = None
             f
             for f in graph.findings
             if f.invariant == invariant
-            and (predicate == "CLOCK_CONFLICT" or set(f.targets) & set(hypothesis.targets))
+            and (
+                (bool(f.targets) and f.targets[0] in hypothesis.targets)
+                if predicate == "QOS_CONFLICT"
+                else predicate == "CLOCK_CONFLICT" or set(f.targets) & set(hypothesis.targets)
+            )
         ]
         current = [
             f
@@ -190,15 +194,16 @@ def propose_hypotheses(graph, *, issue_ids=None):
                 confounders = (
                     "caller-supplied historical bindings do not prove current continuity",
                 )
+            predicate_targets = targets[:1] if predicate == "QOS_CONFLICT" else targets
             h = RosHypothesisV1(
                 id=content_hash(
                     "roshypothesis",
-                    {"issue": finding.id, "predicate": predicate, "targets": targets},
+                    {"issue": finding.id, "predicate": predicate, "targets": predicate_targets},
                 ),
                 issue_id=finding.id,
                 description=description,
                 predicate=predicate,
-                targets=targets,
+                targets=predicate_targets,
                 status="UNKNOWN",
                 supporting_evidence=[],
                 contradicting_evidence=[],
