@@ -131,9 +131,11 @@ def counterfactual_readback_available(native, case):
         elif case == "rsk_controller_plugin_unavailable":
             if params.get("FollowPath.plugin") == "rsk_fixture::UnavailableController":
                 return True
-        elif case == "rsk_sensor_frame_unresolvable":
-            if params.get("voxel_layer.scan.sensor_frame") == "rsk_missing_sensor_frame":
-                return True
+        elif (
+            case == "rsk_sensor_frame_unresolvable"
+            and params.get("voxel_layer.scan.sensor_frame") == "rsk_missing_sensor_frame"
+        ):
+            return True
     return False
 
 
@@ -168,7 +170,7 @@ def capture_failure(root, policy, state, spin_until, save):
                 raise ValueError("declared scan bridge pause policy required")
             process_fault = pause_owned_process(root, "scan_bridge")
             save("engineering-owned-scan-bridge-pause-original.json", process_fault)
-        earliest = time.monotonic() + 2
+        earliest = time.monotonic() + (8 if counterfactual else 2)
         spin_until(
             lambda: (
                 time.monotonic() >= earliest

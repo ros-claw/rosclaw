@@ -35,3 +35,10 @@ L2 receipts, independent stop/collision/source continuity, and rollback in anoth
 new World. A fresh costmap publication alone does not prove obstacle consumption;
 a nonexistent sensor frame must be checked against actual TF failure evidence.
 No source/main CI or native experiment completion is implied by this document.
+
+New configuration raw captures retain at least eight seconds of observation
+within the existing 15 second bounded wait. A short initial readback is not
+evidence of downstream processing failure; native error/drop evidence and
+original consumer timing must be independently inspected. Clock disagreement
+is an observed configuration/safety predicate, not automatically TF extrapolation
+or a demonstrated navigation failure.
