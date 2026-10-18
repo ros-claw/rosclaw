@@ -18,3 +18,17 @@ def managed_lifecycle_nodes(raw, namespace, available):
     ):
         raise ValueError("unique declared existing Nav2 lifecycle nodes required")
     return list(declared)
+
+
+def preinitialization_nodes(requirements, descriptor, engineering_capture):
+    """Initialization is not L1: a new stack may need a pose before activating.
+
+    Only the explicit owned bootstrap descriptor changes the legacy wait. Full
+    navigation lifecycle/source/Body checks still run after initialization.
+    """
+    boundary = descriptor.get("initialization_boundary") if descriptor else None
+    if boundary not in (None, "LOCALIZATION_ACTIVE_BEFORE_NAVIGATION"):
+        raise ValueError("explicit supported initialization boundary required")
+    if engineering_capture or boundary is not None:
+        return [requirements["lifecycle_nodes"]["localization"]]
+    return list(requirements["lifecycle_nodes"].values())

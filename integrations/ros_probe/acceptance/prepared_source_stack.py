@@ -53,6 +53,7 @@ def main():
             "additional_command_endpoint",
             "counterfactual_sim",
             "start_navigation_stack",
+            "initialization_boundary",
         }
         != {
             "schema_version",
@@ -71,6 +72,11 @@ def main():
         or not descriptor["controllers"]["names"]
     ):
         raise ValueError("closed pinned operator bringup descriptor required")
+    if descriptor.get("initialization_boundary") not in (
+        None,
+        "LOCALIZATION_ACTIVE_BEFORE_NAVIGATION",
+    ):
+        raise ValueError("explicit supported initialization boundary required")
     start_navigation = navigation_stack_enabled(descriptor, settings)
     if "counterfactual_sim" in descriptor:
         from simulation_counterfactual_config import counterfactual_clock_parameters

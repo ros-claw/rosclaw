@@ -60,3 +60,28 @@ def test_driver_only_cannot_change_other_roles_or_enable_navigation(module, monk
         descriptor = {}
     with pytest.raises(ValueError):
         module.navigation_stack_enabled(descriptor, value)
+
+
+def test_bootstrap_initialization_waits_for_localization_without_claiming_navigation(module):
+    lifecycle = importlib.import_module("simulation_prepared_lifecycle_config")
+    requirements = {
+        "lifecycle_nodes": {
+            "localization": "/new/amcl",
+            "planner": "/new/planner",
+            "navigator": "/new/navigator",
+        }
+    }
+    assert lifecycle.preinitialization_nodes(requirements, None, None) == list(
+        requirements["lifecycle_nodes"].values()
+    )
+    assert lifecycle.preinitialization_nodes(
+        requirements, {"initialization_boundary": "LOCALIZATION_ACTIVE_BEFORE_NAVIGATION"}, None
+    ) == ["/new/amcl"]
+    assert lifecycle.preinitialization_nodes(requirements, {}, {"case": "observational"}) == [
+        "/new/amcl"
+    ]
+    for wrong in (True, "READY_FOR_SIM_TEST", [], {}):
+        with pytest.raises(ValueError):
+            lifecycle.preinitialization_nodes(
+                requirements, {"initialization_boundary": wrong}, None
+            )

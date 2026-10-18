@@ -519,7 +519,13 @@ def compile_driver_bootstrap(
         global_footprint_topic=ns + "/global_costmap/published_footprint",
     )
     bringup = copy.deepcopy(driver_bringup)
-    bringup.update(namespace=ns, autostart=True, start_navigation_stack=True, scan_ros_topic=scan)
+    bringup.update(
+        namespace=ns,
+        autostart=True,
+        start_navigation_stack=True,
+        scan_ros_topic=scan,
+        initialization_boundary="LOCALIZATION_ACTIVE_BEFORE_NAVIGATION",
+    )
     requirements = {
         "interface_names": {
             "mapping.occupancy_map": ns + "/map",

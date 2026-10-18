@@ -29,6 +29,11 @@ installed BT originals, explicit initial localization, source adapter, new World
 immutable Body and full fresh L1 remain independent validation requirements.
 Proposal content is not a deployable or admitted application by itself.
 
+The emitted initialization_boundary explicitly requests localization ACTIVE
+before the operator initializes the pose; the new navigation stack can then
+activate. That preparation phase is not L1. The unchanged full L1 runs only
+after initialization and still precedes all action requests.
+
 The optional prepared SDK descriptor flag start_navigation_stack=false is valid
 only for the explicit isolated driver_onboarding source-only role. It skips
 Nav2 and AMCL initialization; an UNKNOWN navigation candidate is expected and

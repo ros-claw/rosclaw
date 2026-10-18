@@ -516,6 +516,15 @@ def main():
             )
             capture_failure(OUT, engineering_capture, state, spin_until, save)
             return
+        from simulation_prepared_lifecycle_config import preinitialization_nodes
+
+        initialization_required_nodes = preinitialization_nodes(
+            requirements,
+            json.loads((OUT / "bringup.json").read_text())
+            if prepared_sources is not None
+            else None,
+            engineering_capture,
+        )
         spin_until(
             lambda: (
                 state["model"]
@@ -526,13 +535,9 @@ def main():
                         row.name == name and row.state == "ACTIVE"
                         for row in state["model"].lifecycle
                     )
-                    # A failure capture needs the real localization service
-                    # for initial pose setup, not a claim that Nav2 is ready.
-                    for name in (
-                        [requirements["lifecycle_nodes"]["localization"]]
-                        if engineering_capture
-                        else requirements["lifecycle_nodes"].values()
-                    )
+                    # Explicit initial localization may precede the new stack's
+                    # activation; this wait never substitutes for later full L1.
+                    for name in initialization_required_nodes
                 )
             ),
             30,
