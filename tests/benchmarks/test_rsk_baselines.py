@@ -205,7 +205,7 @@ def test_generic_and_typed_application_have_identical_original_access_and_output
             navigation_policy_json=f["navigation-policy.json"],
         )
     )
-    assert r["generic_model_authored_files"] and r["proposal"]["files"] == f
+    assert r["generic_caller_supplied_files"] and r["proposal"]["files"] == f
     no_sdk = aci.call(
         request(aci, "ros_engineer.validate_proposal", proposal_id=r["proposal"]["proposal_id"]),
         remaining_sec=10,

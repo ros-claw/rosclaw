@@ -215,7 +215,7 @@ class GenericRskACI(RskPhysicalACI):
             "source_urdf_sha256": self.base.case.source_urdf_sha256,
             "base_staging_hash": content_hash("acistaging", self.base.tools.staging),
             "requirements_hash": content_hash("acirequirements", self.base.requirements),
-            "intent": {"kind": "MODEL_AUTHORED_GENERIC_PATCH_NOT_EXPERT_REPAIR"},
+            "intent": {"kind": "GENERIC_CALLER_SUPPLIED_PATCH_NOT_EXPERT_REPAIR"},
             "changes": actual,
             "rollback": [
                 {"file": c["file"], "pointer": c["pointer"], "value": c["before"]}
@@ -284,7 +284,7 @@ class GenericRskACI(RskPhysicalACI):
                 "arguments": {"case_hash": args.case_hash},
             }
         )
-        result["generic_model_authored_files"] = True
+        result["generic_caller_supplied_files"] = True
         result["generic_original_file_sha256"] = {
             name: hashlib.sha256(text.encode()).hexdigest() for name, text in files.items()
         }
