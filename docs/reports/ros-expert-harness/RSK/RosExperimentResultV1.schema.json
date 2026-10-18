@@ -1,0 +1,329 @@
+{
+  "$defs": {
+    "ExperimentArtifactV1": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "native",
+            "physics",
+            "owner",
+            "L1",
+            "source_binding",
+            "canonical_receipt",
+            "independent_stop",
+            "strict_age",
+            "consumer_output",
+            "native_error",
+            "independent_review"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "locator": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "title": "Locator",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "locator",
+        "sha256"
+      ],
+      "title": "ExperimentArtifactV1",
+      "type": "object"
+    },
+    "ExperimentPhaseV1": {
+      "additionalProperties": false,
+      "properties": {
+        "phase": {
+          "enum": [
+            "BEFORE",
+            "AFTER",
+            "ROLLBACK"
+          ],
+          "title": "Phase",
+          "type": "string"
+        },
+        "run_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Run Id",
+          "type": "string"
+        },
+        "world_instance_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "World Instance Id",
+          "type": "string"
+        },
+        "source_revision": {
+          "pattern": "^[0-9a-f]{40}$",
+          "title": "Source Revision",
+          "type": "string"
+        },
+        "image_id": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Image Id",
+          "type": "string"
+        },
+        "started_at": {
+          "format": "date-time",
+          "title": "Started At",
+          "type": "string"
+        },
+        "finished_at": {
+          "format": "date-time",
+          "title": "Finished At",
+          "type": "string"
+        },
+        "staging_hash": {
+          "title": "Staging Hash",
+          "type": "string"
+        },
+        "observed_node": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Observed Node",
+          "type": "string"
+        },
+        "observed_parameter": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Observed Parameter",
+          "type": "string"
+        },
+        "observed_value": {
+          "title": "Observed Value"
+        },
+        "parameter_captured_at": {
+          "format": "date-time",
+          "title": "Parameter Captured At",
+          "type": "string"
+        },
+        "native_captured_at": {
+          "format": "date-time",
+          "title": "Native Captured At",
+          "type": "string"
+        },
+        "source_urdf_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Urdf Sha256",
+          "type": "string"
+        },
+        "physical_scene_signature": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Physical Scene Signature",
+          "type": "string"
+        },
+        "controllers_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Controllers Sha256",
+          "type": "string"
+        },
+        "requirements_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Requirements Sha256",
+          "type": "string"
+        },
+        "declared_body_limits_hash": {
+          "title": "Declared Body Limits Hash",
+          "type": "string"
+        },
+        "body_snapshot_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Body Snapshot Hash"
+        },
+        "reported_l1": {
+          "enum": [
+            "NOT_EVALUATED",
+            "UNKNOWN",
+            "BLOCKED",
+            "READY_FOR_SIM_TEST"
+          ],
+          "title": "Reported L1",
+          "type": "string"
+        },
+        "reported_completed_action_ids": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 2,
+          "title": "Reported Completed Action Ids",
+          "type": "array"
+        },
+        "artifacts": {
+          "items": {
+            "$ref": "#/$defs/ExperimentArtifactV1"
+          },
+          "maxItems": 256,
+          "title": "Artifacts",
+          "type": "array"
+        },
+        "evidence_domain": {
+          "const": "SIMULATION",
+          "default": "SIMULATION",
+          "title": "Evidence Domain",
+          "type": "string"
+        },
+        "source_authentication": {
+          "const": "NOT_ESTABLISHED_BY_HASH",
+          "default": "NOT_ESTABLISHED_BY_HASH",
+          "title": "Source Authentication",
+          "type": "string"
+        }
+      },
+      "required": [
+        "phase",
+        "run_id",
+        "world_instance_id",
+        "source_revision",
+        "image_id",
+        "started_at",
+        "finished_at",
+        "staging_hash",
+        "observed_node",
+        "observed_parameter",
+        "observed_value",
+        "parameter_captured_at",
+        "native_captured_at",
+        "source_urdf_sha256",
+        "physical_scene_signature",
+        "controllers_sha256",
+        "requirements_sha256",
+        "declared_body_limits_hash",
+        "reported_l1",
+        "artifacts"
+      ],
+      "title": "ExperimentPhaseV1",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "rosclaw.ros_experiment_result.v1",
+      "default": "rosclaw.ros_experiment_result.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "result_hash": {
+      "title": "Result Hash",
+      "type": "string"
+    },
+    "intervention_plan_hash": {
+      "title": "Intervention Plan Hash",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "INCOMPLETE_ORIGINAL_EVIDENCE",
+        "NEEDS_INDEPENDENT_ORIGINAL_VERIFICATION"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "phases": {
+      "items": {
+        "$ref": "#/$defs/ExperimentPhaseV1"
+      },
+      "maxItems": 3,
+      "minItems": 3,
+      "title": "Phases",
+      "type": "array"
+    },
+    "wall_sec": {
+      "maximum": 3600,
+      "minimum": 0,
+      "title": "Wall Sec",
+      "type": "number"
+    },
+    "missing_evidence": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 64,
+      "title": "Missing Evidence",
+      "type": "array"
+    },
+    "reference_checks": {
+      "const": "STRUCTURAL_BINDINGS_ONLY",
+      "default": "STRUCTURAL_BINDINGS_ONLY",
+      "title": "Reference Checks",
+      "type": "string"
+    },
+    "phase_reports": {
+      "const": "SOURCE_ASSERTED_NOT_AUTHENTICATED_BY_PINS",
+      "default": "SOURCE_ASSERTED_NOT_AUTHENTICATED_BY_PINS",
+      "title": "Phase Reports",
+      "type": "string"
+    },
+    "original_files_read": {
+      "const": false,
+      "default": false,
+      "title": "Original Files Read",
+      "type": "boolean"
+    },
+    "independent_physical_verification": {
+      "const": "NOT_ATTESTED_BY_THIS_CONTRACT",
+      "default": "NOT_ATTESTED_BY_THIS_CONTRACT",
+      "title": "Independent Physical Verification",
+      "type": "string"
+    },
+    "causal_verification": {
+      "const": "NOT_ESTABLISHED",
+      "default": "NOT_ESTABLISHED",
+      "title": "Causal Verification",
+      "type": "string"
+    },
+    "memory_promotion": {
+      "const": "NOT_GRANTED",
+      "default": "NOT_GRANTED",
+      "title": "Memory Promotion",
+      "type": "string"
+    },
+    "execution_authority": {
+      "const": "NONE",
+      "default": "NONE",
+      "title": "Execution Authority",
+      "type": "string"
+    },
+    "current_l1": {
+      "const": "NOT_EVALUATED",
+      "default": "NOT_EVALUATED",
+      "title": "Current L1",
+      "type": "string"
+    },
+    "next_step": {
+      "const": "REPLAY_PINNED_ORIGINALS_WITH_EXISTING_INDEPENDENT_SDK_VERIFIERS",
+      "default": "REPLAY_PINNED_ORIGINALS_WITH_EXISTING_INDEPENDENT_SDK_VERIFIERS",
+      "title": "Next Step",
+      "type": "string"
+    }
+  },
+  "required": [
+    "result_hash",
+    "intervention_plan_hash",
+    "status",
+    "phases",
+    "wall_sec",
+    "missing_evidence"
+  ],
+  "title": "RosExperimentResultV1",
+  "type": "object"
+}

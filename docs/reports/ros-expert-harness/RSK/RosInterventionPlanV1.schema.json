@@ -1,0 +1,351 @@
+{
+  "$defs": {
+    "EvidenceRefV1": {
+      "additionalProperties": false,
+      "properties": {
+        "source_ref": {
+          "title": "Source Ref",
+          "type": "string"
+        },
+        "snapshot_hash": {
+          "title": "Snapshot Hash",
+          "type": "string"
+        },
+        "pointer": {
+          "title": "Pointer",
+          "type": "string"
+        },
+        "observed_at": {
+          "title": "Observed At",
+          "type": "string"
+        },
+        "value_hash": {
+          "title": "Value Hash",
+          "type": "string"
+        },
+        "classification": {
+          "enum": [
+            "MEASURED",
+            "INFERRED",
+            "UNKNOWN"
+          ],
+          "title": "Classification",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_ref",
+        "snapshot_hash",
+        "pointer",
+        "observed_at",
+        "value_hash",
+        "classification"
+      ],
+      "title": "EvidenceRefV1",
+      "type": "object"
+    },
+    "ParameterInterventionV1": {
+      "additionalProperties": false,
+      "properties": {
+        "node": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Node",
+          "type": "string"
+        },
+        "parameter": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Parameter",
+          "type": "string"
+        },
+        "operation": {
+          "default": "SET",
+          "enum": [
+            "SET",
+            "RESET_COMPONENT_DEFAULT"
+          ],
+          "title": "Operation",
+          "type": "string"
+        },
+        "proposed_value": {
+          "default": null,
+          "title": "Proposed Value"
+        },
+        "expected_after_value": {
+          "title": "Expected After Value"
+        },
+        "hypothesis": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "title": "Hypothesis",
+          "type": "string"
+        },
+        "source_revision": {
+          "pattern": "^[0-9a-f]{40}$",
+          "title": "Source Revision",
+          "type": "string"
+        },
+        "max_wall_sec": {
+          "default": 900,
+          "maximum": 3600,
+          "minimum": 30,
+          "title": "Max Wall Sec",
+          "type": "integer"
+        },
+        "max_worlds": {
+          "const": 3,
+          "default": 3,
+          "title": "Max Worlds",
+          "type": "integer"
+        },
+        "max_after_goals": {
+          "const": 2,
+          "default": 2,
+          "title": "Max After Goals",
+          "type": "integer"
+        },
+        "max_total_goals": {
+          "const": 2,
+          "default": 2,
+          "title": "Max Total Goals",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "node",
+        "parameter",
+        "expected_after_value",
+        "hypothesis",
+        "source_revision"
+      ],
+      "title": "ParameterInterventionV1",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "rosclaw.ros_intervention_plan.v1",
+      "default": "rosclaw.ros_intervention_plan.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "plan_hash": {
+      "title": "Plan Hash",
+      "type": "string"
+    },
+    "graph_hash": {
+      "title": "Graph Hash",
+      "type": "string"
+    },
+    "snapshot_hash": {
+      "title": "Snapshot Hash",
+      "type": "string"
+    },
+    "source_ref": {
+      "title": "Source Ref",
+      "type": "string"
+    },
+    "proposed_at": {
+      "format": "date-time",
+      "title": "Proposed At",
+      "type": "string"
+    },
+    "evidence_domain": {
+      "enum": [
+        "SEALED_REPLAY",
+        "OBSERVATION"
+      ],
+      "title": "Evidence Domain",
+      "type": "string"
+    },
+    "max_age_ms": {
+      "exclusiveMinimum": 0,
+      "maximum": 500,
+      "title": "Max Age Ms",
+      "type": "number"
+    },
+    "request": {
+      "$ref": "#/$defs/ParameterInterventionV1"
+    },
+    "status": {
+      "enum": [
+        "CONDITIONAL_SIM_STAGING_PROPOSAL",
+        "NEEDS_READ_ONLY_PROBE",
+        "ABSTAIN",
+        "NO_CHANGE"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "reasons": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 16,
+      "title": "Reasons",
+      "type": "array"
+    },
+    "before_staging_hash": {
+      "title": "Before Staging Hash",
+      "type": "string"
+    },
+    "after_staging_hash": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "After Staging Hash"
+    },
+    "rollback_staging_hash": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Rollback Staging Hash"
+    },
+    "changed_path": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 32,
+      "title": "Changed Path",
+      "type": "array"
+    },
+    "original_readback": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/EvidenceRefV1"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "staged_documents": {
+      "anyOf": [
+        {
+          "additionalProperties": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Staged Documents"
+    },
+    "rollback_documents": {
+      "anyOf": [
+        {
+          "additionalProperties": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Rollback Documents"
+    },
+    "intervention_class": {
+      "const": "SIM_STAGING_ONLY",
+      "default": "SIM_STAGING_ONLY",
+      "title": "Intervention Class",
+      "type": "string"
+    },
+    "classification": {
+      "const": "INFERRED_CANDIDATE",
+      "default": "INFERRED_CANDIDATE",
+      "title": "Classification",
+      "type": "string"
+    },
+    "execution_status": {
+      "const": "PROPOSED_NOT_EXECUTED",
+      "default": "PROPOSED_NOT_EXECUTED",
+      "title": "Execution Status",
+      "type": "string"
+    },
+    "execution_authority": {
+      "const": "NONE",
+      "default": "NONE",
+      "title": "Execution Authority",
+      "type": "string"
+    },
+    "current_l1": {
+      "const": "NOT_EVALUATED",
+      "default": "NOT_EVALUATED",
+      "title": "Current L1",
+      "type": "string"
+    },
+    "source_authentication": {
+      "const": "NOT_ESTABLISHED_BY_HASH",
+      "default": "NOT_ESTABLISHED_BY_HASH",
+      "title": "Source Authentication",
+      "type": "string"
+    },
+    "operator_review": {
+      "const": "REQUIRED_BEFORE_NEW_WORLD",
+      "default": "REQUIRED_BEFORE_NEW_WORLD",
+      "title": "Operator Review",
+      "type": "string"
+    },
+    "proof_obligations": {
+      "default": [
+        "independent_review_of_the_single_staging_difference",
+        "new_owned_isolated_SIM_World_source_and_Body_binding",
+        "fresh_full_L1_READY_before_any_After_action",
+        "two_canonical_MCP_rosclawd_COMPLETED_receipts",
+        "independent_stop_zero_collision_and_source_continuity",
+        "unchanged_500ms_source_250ms_proof_and_Body_limits",
+        "independent_rollback_World_reobserves_original_condition",
+        "original_consumer_effect_and_explicit_negative_hypotheses",
+        "installed_component_default_or_class_and_current_frame_checks"
+      ],
+      "items": {
+        "type": "string"
+      },
+      "title": "Proof Obligations",
+      "type": "array"
+    },
+    "on_failure": {
+      "const": "STOP_AND_PRESERVE_ORIGINALS",
+      "default": "STOP_AND_PRESERVE_ORIGINALS",
+      "title": "On Failure",
+      "type": "string"
+    }
+  },
+  "required": [
+    "plan_hash",
+    "graph_hash",
+    "snapshot_hash",
+    "source_ref",
+    "proposed_at",
+    "evidence_domain",
+    "max_age_ms",
+    "request",
+    "status",
+    "reasons",
+    "before_staging_hash"
+  ],
+  "title": "RosInterventionPlanV1",
+  "type": "object"
+}

@@ -1,0 +1,78 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "node": {
+      "maxLength": 512,
+      "minLength": 1,
+      "title": "Node",
+      "type": "string"
+    },
+    "parameter": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Parameter",
+      "type": "string"
+    },
+    "operation": {
+      "default": "SET",
+      "enum": [
+        "SET",
+        "RESET_COMPONENT_DEFAULT"
+      ],
+      "title": "Operation",
+      "type": "string"
+    },
+    "proposed_value": {
+      "default": null,
+      "title": "Proposed Value"
+    },
+    "expected_after_value": {
+      "title": "Expected After Value"
+    },
+    "hypothesis": {
+      "maxLength": 2048,
+      "minLength": 1,
+      "title": "Hypothesis",
+      "type": "string"
+    },
+    "source_revision": {
+      "pattern": "^[0-9a-f]{40}$",
+      "title": "Source Revision",
+      "type": "string"
+    },
+    "max_wall_sec": {
+      "default": 900,
+      "maximum": 3600,
+      "minimum": 30,
+      "title": "Max Wall Sec",
+      "type": "integer"
+    },
+    "max_worlds": {
+      "const": 3,
+      "default": 3,
+      "title": "Max Worlds",
+      "type": "integer"
+    },
+    "max_after_goals": {
+      "const": 2,
+      "default": 2,
+      "title": "Max After Goals",
+      "type": "integer"
+    },
+    "max_total_goals": {
+      "const": 2,
+      "default": 2,
+      "title": "Max Total Goals",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "node",
+    "parameter",
+    "expected_after_value",
+    "hypothesis",
+    "source_revision"
+  ],
+  "title": "ParameterInterventionV1",
+  "type": "object"
+}

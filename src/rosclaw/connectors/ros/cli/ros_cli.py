@@ -713,6 +713,22 @@ def add_ros_subparser(subparsers: argparse._SubParsersAction) -> argparse.Argume
                 help="Explicit aware assessment time; replay remains historical",
             )
 
+    for command in ("intervention-plan", "experiment-result"):
+        experiment_parser = ros_subparsers.add_parser(
+            command, help="Offline SIM staging and original-reference contracts; no execution"
+        )
+        experiment_parser.add_argument("--json", action="store_true")
+        experiment_parser.add_argument("--output", help="Exclusive new derived artifact")
+        if command == "intervention-plan":
+            experiment_parser.add_argument("--operational-graph", required=True)
+            experiment_parser.add_argument("--snapshot", required=True)
+            experiment_parser.add_argument("--staging-nav2", required=True)
+            experiment_parser.add_argument("--staging-bringup", required=True)
+            experiment_parser.add_argument("--proposal", required=True)
+        else:
+            experiment_parser.add_argument("--plan", required=True)
+            experiment_parser.add_argument("--phases", required=True)
+
     case_parser = ros_subparsers.add_parser(
         "engineering-case", help="Read-only engineering dossier from a sealed offline snapshot"
     )
@@ -773,6 +789,8 @@ def add_ros_subparser(subparsers: argparse._SubParsersAction) -> argparse.Argume
 def dispatch_ros_command(args: argparse.Namespace) -> int:
     """Dispatch the selected ``ros`` subcommand."""
     cmd = getattr(args, "ros_command", None)
+    if cmd in {"intervention-plan", "experiment-result"}:
+        return cmd_ros_counterfactual(args)
     if cmd in {"diagnostic-plan", "diagnostic-assess"}:
         return cmd_ros_diagnostic(args)
     if cmd == "engineering-case":
@@ -887,6 +905,65 @@ def cmd_ros_diagnostic(args: argparse.Namespace) -> int:
         return _maybe_json(args, result)
     except (ValueError, TypeError, KeyError, AttributeError, OSError) as exc:
         return _maybe_json(args, {"ok": False, "action": args.ros_command, "error": str(exc)})
+
+
+def cmd_ros_counterfactual(args: argparse.Namespace) -> int:
+    """Bounded artifact input/output only; never discovers ROS or starts a World."""
+    import hashlib
+
+    from rosclaw.connectors.ros.engineering.experiment_result import bind_experiment_result
+    from rosclaw.connectors.ros.engineering.intervention_plan import (
+        RosInterventionPlanV1,
+        compile_intervention_plan,
+    )
+    from rosclaw.connectors.ros.engineering.staging_plan import parse_staging_documents
+    from rosclaw.connectors.ros.intelligence import RosSystemModel
+    from rosclaw.connectors.ros.intelligence.graph_contracts import RosOperationalGraphV1
+
+    bindings = {}
+
+    def read(path, label):
+        raw = _read_discovery_urdf(path, label)
+        bindings[label] = hashlib.sha256(raw).hexdigest()
+        return raw
+
+    try:
+        if args.ros_command == "intervention-plan":
+            graph = RosOperationalGraphV1.from_dict(
+                json.loads(read(args.operational_graph, "operational_graph"))
+            )
+            model = RosSystemModel.from_dict(json.loads(read(args.snapshot, "snapshot")))
+            staging = parse_staging_documents(
+                read(args.staging_nav2, "staging_nav2"),
+                read(args.staging_bringup, "staging_bringup"),
+            )
+            value = compile_intervention_plan(
+                graph, model, staging, json.loads(read(args.proposal, "proposal"))
+            )
+            field = "intervention_plan"
+        else:
+            document = json.loads(read(args.plan, "plan"))
+            plan = RosInterventionPlanV1.from_dict(document.get("intervention_plan", document))
+            phases = json.loads(read(args.phases, "phases"))
+            if type(phases) is not list or len(phases) != 3:
+                raise ValueError("exactly three explicit original phase records required")
+            value = bind_experiment_result(plan, phases)
+            field = "experiment_result"
+        result = {
+            "ok": True,
+            "action": args.ros_command,
+            field: value.model_dump(mode="json"),
+            "input_file_sha256": bindings,
+            "current_authority": "NONE",
+            "current_l1": "NOT_EVALUATED",
+            "scope": "OFFLINE_SIM_STAGING_ORIGINAL_REFERENCES_NOT_EXECUTION_OR_PHYSICAL_VERIFICATION",
+        }
+        if args.output:
+            with Path(args.output).open("x", encoding="utf-8") as stream:
+                stream.write(json.dumps(result, indent=2) + "\n")
+        return _maybe_json(args, result)
+    except (ValueError, TypeError, KeyError, AttributeError, OSError, RecursionError) as error:
+        return _maybe_json(args, {"ok": False, "action": args.ros_command, "error": str(error)})
 
 
 def cmd_ros_expert(args: argparse.Namespace) -> int:
