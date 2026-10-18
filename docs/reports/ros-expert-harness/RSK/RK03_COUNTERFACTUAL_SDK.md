@@ -42,3 +42,15 @@ evidence of downstream processing failure; native error/drop evidence and
 original consumer timing must be independently inspected. Clock disagreement
 is an observed configuration/safety predicate, not automatically TF extrapolation
 or a demonstrated navigation failure.
+
+The first original After World reached full L1 but failed closed before commands:
+its global costmap cumulative receive age was 537.8 ms against the unchanged
+500 ms limit. That failed receipt is retained, including its false physical-stop
+verification. The SDK capture now preserves byte-exact incoming Native and its
+original callback receive clock, publishing the integrity pointer before slow
+derived reviews. Readers still perform their independent full validation; the
+pointer is no admission. Raw TF diagnostic export is limited to the last 128
+current events with explicit omission counts. Backing/authority caches remain
+bounded at 1024 and no completeness is asserted. Performance/physical improvement
+requires a new preregistered World; these changes do not retroactively pass the
+failed World, or relax any freshness, proof, lease, Body or controller limit.

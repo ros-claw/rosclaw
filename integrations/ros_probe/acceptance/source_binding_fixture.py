@@ -196,9 +196,25 @@ def main():
     node = Node("rosclaw_source_capture")
     state = {"native": None, "model": None, "review": None, "physics": None}
     reviews = []
+    native_sequence = 0
 
     def observed(message):
-        native = json.loads(message.data)
+        nonlocal native_sequence
+        received_ns = time.monotonic_ns()
+        from simulation_native_capture import persist_native_capture
+
+        index = native_sequence
+        native_sequence += 1
+        native = persist_native_capture(
+            OUT,
+            message.data.encode("utf-8"),
+            index=index,
+            received_monotonic_ns=received_ns,
+            publish_pointer=bool(
+                settings.get("live_dual_supervision", False)
+                or settings.get("live_current_facts", False)
+            ),
+        )
         graph = RosGraphSnapshot.from_dict(
             {
                 "ros_version": "ros2",
@@ -212,26 +228,7 @@ def main():
         review = review_navigation_candidate(
             model, Path("/assets/robot.urdf").read_bytes(), requirements
         )
-        index = len(reviews)
-        save(f"original-native-{index:03}.json", native)
         save(f"sealed-system-{index:03}.json", model.to_dict())
-        if settings.get("live_dual_supervision", False) or settings.get(
-            "live_current_facts", False
-        ):
-            original = OUT / f"original-native-{index:03}.json"
-            pointer = OUT / "live-native-pointer.tmp"
-            pointer.write_text(
-                json.dumps(
-                    {
-                        "file": original.name,
-                        "sha256": hashlib.sha256(original.read_bytes()).hexdigest(),
-                        "captured_at": native["captured_at"],
-                        "received_monotonic_ns": time.monotonic_ns(),
-                    }
-                )
-                + "\n"
-            )
-            pointer.replace(OUT / "live-native-pointer.json")
         reviews.append({"index": index, "captured_at": native["captured_at"], "review": review})
         state.update(native=native, model=model, review=review)
 
