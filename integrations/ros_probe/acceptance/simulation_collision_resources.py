@@ -5,7 +5,11 @@ import os
 import stat
 from pathlib import Path
 
-from rosclaw.connectors.ros.context.collision_assets import staged_collision_resource_pins
+from rosclaw.connectors.ros.context.collision_assets import (
+    REFERENCE_SCHEMA,
+    register_prepared_collision_originals,
+    staged_collision_resource_pins,
+)
 
 
 def _identity(info):
@@ -35,8 +39,10 @@ def _read_at(root_fd, name, limit):
         os.close(fd)
 
 
-def read_prepared_collision_observation(path, expected_sha256):
+def read_prepared_collision_observation(path, expected_sha256, *, reference_only=False):
     """SDK probe opt-in is one fixed readonly source path, not arbitrary file I/O."""
+    if type(reference_only) is not bool:
+        raise ValueError("explicit boolean collision reference mode required")
     if str(path) != "/assets/collision-asset-originals.json":
         raise ValueError("closed prepared collision manifest path required")
     root_fd = os.open("/assets", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
@@ -46,6 +52,10 @@ def read_prepared_collision_observation(path, expected_sha256):
         os.close(root_fd)
     if hashlib.sha256(raw).hexdigest() != expected_sha256:
         raise ValueError("original prepared collision manifest SHA differs")
+    if reference_only:
+        reference = register_prepared_collision_originals(raw, expected_sha256)
+        staged_collision_resource_pins({"prepared_collision_assets": reference})
+        return reference
     envelope = {
         "schema_version": "rosclaw.prepared_collision_asset_observation.v1",
         "source": "/assets/collision-asset-originals.json",
@@ -62,6 +72,20 @@ class CollisionResourceContinuity:
     def __init__(self, assets_directory, observations):
         self.root = Path(assets_directory)
         self.observation = observations.get("prepared_collision_assets")
+        if (
+            isinstance(self.observation, dict)
+            and self.observation.get("schema_version") == REFERENCE_SCHEMA
+        ):
+            root_fd = os.open(self.root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            try:
+                raw, _ = _read_at(root_fd, "collision-asset-originals.json", 5_000_000)
+            finally:
+                os.close(root_fd)
+            if (
+                register_prepared_collision_originals(raw, self.observation.get("sha256"))
+                != self.observation
+            ):
+                raise ValueError("actual original collision document differs from reference")
         self.pins = staged_collision_resource_pins(observations)
         self.identities = {}
         self.root_identity = self.resources_identity = None
@@ -113,6 +137,16 @@ class CollisionResourceContinuity:
                                 "original collision resource file identity changed: " + path
                             )
                         self.identities[path] = identity
+                        if (
+                            path == "collision-asset-originals.json"
+                            and isinstance(self.observation, dict)
+                            and self.observation.get("schema_version") == REFERENCE_SCHEMA
+                            and register_prepared_collision_originals(raw, digest)
+                            != self.observation
+                        ):
+                            raise ValueError(
+                                "current collision reference differs from actual original"
+                            )
                 finally:
                     os.close(resource_fd)
             finally:
@@ -139,11 +173,6 @@ def prewarm_prepared_collision_facts():
         raw, _ = _read_at(root_fd, "collision-asset-originals.json", 5_000_000)
     finally:
         os.close(root_fd)
-    envelope = {
-        "schema_version": "rosclaw.prepared_collision_asset_observation.v1",
-        "source": "/assets/collision-asset-originals.json",
-        "sha256": hashlib.sha256(raw).hexdigest(),
-        "document": raw.decode("utf-8", errors="strict"),
-    }
-    staged_collision_resource_pins({"prepared_collision_assets": envelope})
+    reference = register_prepared_collision_originals(raw, hashlib.sha256(raw).hexdigest())
+    staged_collision_resource_pins({"prepared_collision_assets": reference})
     return {"scope": "OFFLINE_BYTE_FACTS_ONLY", "execution_authority": "NONE"}

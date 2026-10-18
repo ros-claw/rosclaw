@@ -127,16 +127,16 @@ class CurrentSimulationFacts:
             inspect_navigation_body_workspace,
         )
 
-        inspect_navigation_body_workspace(
-            self.directory / "generic-compiled",
-            expected_manifest_hash=e["request"]["manifest_hash"],
-            expected_body_hash=e["request"]["body_snapshot_hash"],
-        )
         compiled_source = json.loads(
             _read(self.directory / "generic-compiled/source-snapshot.json", 10_000_000)
         )
         self.collision_resource_guard = CollisionResourceContinuity(
             self.assets_directory, compiled_source.get("observations", {})
+        )
+        inspect_navigation_body_workspace(
+            self.directory / "generic-compiled",
+            expected_manifest_hash=e["request"]["manifest_hash"],
+            expected_body_hash=e["request"]["body_snapshot_hash"],
         )
         self.mesh_kinematic_plan = None
         if self.collision_resource_guard.pins:
