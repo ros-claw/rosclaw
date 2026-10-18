@@ -156,6 +156,7 @@ def run_worker(config):
     identity = os.fstat(directory_fd)
     facts = None
     audit = None
+    startup = None
     daemon_monitor = None
 
     def publish(result):
@@ -187,10 +188,26 @@ def run_worker(config):
     try:
         if set(config) != {"root", "enrollment_sha256", "admission", "body_id"}:
             raise ValueError("closed SDK current process configuration required")
+        startup = BoundedSourceJsonlCapture(
+            root / "sdk-current-startup-original.jsonl",
+            max_segments=1,
+            max_bytes=64_000,
+            max_rows=12,
+            max_line_bytes=4096,
+        )
+
+        def stage(name):
+            startup.write(
+                json.dumps({"stage": name, "pid": os.getpid(), "monotonic_ns": time.monotonic_ns()})
+                + "\n"
+            )
+
+        stage("CONFIGURATION_ACCEPTED")
         a = config["admission"]
         facts = CurrentSimulationFacts(
             root, assets_directory=Path("/assets"), enrollment_sha256=config["enrollment_sha256"]
         )
+        stage("CURRENT_FACTS_CONSTRUCTED")
         client = DaemonClient(
             socket_path=control / "daemon/run/rosclawd.sock",
             expected_daemon_uid=a["daemon_uid"],
@@ -206,9 +223,16 @@ def run_worker(config):
         daemon_monitor = BoundedDaemonObservation(
             client=client, admission=a, body_id=config["body_id"]
         )
+        stage("DAEMON_OBSERVER_STARTING")
         daemon_monitor.start()
+        stage("DAEMON_OBSERVER_STARTED")
+        first = True
         while True:
+            if first:
+                stage("FIRST_FACTS_BEGIN")
             current = facts.collect(freshness_horizon_ms=100)
+            if first:
+                stage("FIRST_FACTS_COLLECTED")
             daemon = daemon_monitor.snapshot()
             current["daemon_status"] = daemon["status"]
             current["daemon_review_started_ns"] = daemon["started_ns"]
@@ -229,8 +253,13 @@ def run_worker(config):
             }
             audit.write(json.dumps(result, allow_nan=False) + "\n")
             publish(result)
+            if first:
+                stage("FIRST_RESULT_PUBLISHED")
+                first = False
             time.sleep(0.01)
     except Exception as exc:
+        if startup is not None:
+            stage("FAILED_NO_CURRENT_ADMISSION")
         result = {
             "schema_version": "rosclaw.sdk_current_monitor.v1",
             "pid": os.getpid(),
@@ -250,6 +279,8 @@ def run_worker(config):
             facts.close()
         if audit is not None:
             audit.close()
+        if startup is not None:
+            startup.close()
         os.close(directory_fd)
 
 

@@ -178,3 +178,47 @@ def test_native_pointer_clock_is_sampled_after_concurrent_publication(monkeypatc
     pointer["received_monotonic_ns"] = clock[0] + 3_000_000
     with pytest.raises(ValueError, match="bounded current original Native pointer"):
         module.read_current_native_pointer(tmp_path)
+
+
+def test_prepared_facts_cannot_publish_health_when_daemon_start_observation_fails(
+    monkeypatch, tmp_path
+):
+    monkeypatch.syspath_prepend(
+        str(Path(__file__).resolve().parents[3] / "integrations/ros_probe/acceptance")
+    )
+    module = importlib.import_module("simulation_current_process")
+    (tmp_path / "execution-control").mkdir()
+    monkeypatch.setattr(
+        module, "CurrentSimulationFacts", lambda *a, **k: SimpleNamespace(close=lambda: None)
+    )
+    monkeypatch.setattr(module, "DaemonClient", lambda **k: None)
+
+    def unavailable():
+        raise ValueError("synthetic independent daemon unavailable")
+
+    monkeypatch.setattr(
+        module,
+        "BoundedDaemonObservation",
+        lambda **k: SimpleNamespace(start=unavailable, close=lambda: None),
+    )
+    with pytest.raises(ValueError, match="independent daemon unavailable"):
+        module.run_worker(
+            {
+                "root": str(tmp_path),
+                "enrollment_sha256": "a" * 64,
+                "admission": {"daemon_uid": 1000},
+                "body_id": "synthetic",
+            }
+        )
+    result = json.loads((tmp_path / "execution-control/current-monitor.json").read_text())
+    assert result["terminal"] is True and result["facts"] is None
+    stages = [
+        json.loads(line)["stage"]
+        for line in (tmp_path / "sdk-current-startup-original.jsonl").read_text().splitlines()
+    ]
+    assert stages == [
+        "CONFIGURATION_ACCEPTED",
+        "CURRENT_FACTS_CONSTRUCTED",
+        "DAEMON_OBSERVER_STARTING",
+        "FAILED_NO_CURRENT_ADMISSION",
+    ]
