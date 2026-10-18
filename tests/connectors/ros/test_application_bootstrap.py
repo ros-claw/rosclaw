@@ -253,3 +253,13 @@ def test_driver_only_does_not_renew_original_description_tf_or_envelope(fault):
     result = compile_driver_bootstrap(*args)
     assert result["status"] in {"NEEDS_READ_ONLY_PROBE", "ABSTAIN"}
     assert result["files"] is None
+
+
+def test_installed_default_without_map_server_generates_explicit_target_and_excludes_unused_nodes():
+    args = list(inputs())
+    args[4].pop("map_server")
+    args[4]["docking_server"] = {"ros__parameters": {"base_frame": "/predecessor/unused"}}
+    result = compile_driver_bootstrap(*args)
+    params = yaml.safe_load(result["files"]["nav2.yaml"])[args[6]["namespace"]]
+    assert params["map_server"]["ros__parameters"]["yaml_filename"] == "/assets/map.yaml"
+    assert "docking_server" not in params

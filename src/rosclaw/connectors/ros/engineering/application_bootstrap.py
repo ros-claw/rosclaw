@@ -355,10 +355,17 @@ def compile_driver_bootstrap(
         and "amcl" in next(iter(params.values()))
     ):
         params = next(iter(params.values()))
+    # Nav2's installed default template omits map_server because its launch
+    # supplies yaml_filename. This profile explicitly generates that node.
+    params.setdefault("map_server", {"ros__parameters": {}})
     if not all(server in params for server in SERVERS):
         raise ValueError(
             "explicit reusable Nav2 software template required for every target server"
         )
+    # Only this profile's selected servers are launched; do not carry unused
+    # docking/route/coverage nodes or their predecessor frame references.
+    selected = set(SERVERS) | {"global_costmap", "local_costmap"}
+    params = {name: row for name, row in params.items() if name in selected}
     base = frames["base"]
     odom = frames["odom"]
     map_frame = request.map_frame
