@@ -22,7 +22,7 @@ COUNTERFACTUAL_CASES = {
     "rsk_sensor_frame_unresolvable",
 }
 
-ONBOARDING_CASES = {"navigation_onboarding", "j100_navigation_onboarding"}
+ONBOARDING_CASES = {"navigation_onboarding", "j100_navigation_onboarding", "driver_onboarding"}
 
 CASES = (
     COUNTERFACTUAL_CASES
@@ -165,7 +165,9 @@ def capture_failure(root, policy, state, spin_until, save):
     onboarding = policy["case"] in ONBOARDING_CASES
     counterfactual = policy["case"] in COUNTERFACTUAL_CASES
     expected_statuses = (
-        {"PROPOSED", "UNKNOWN", "BLOCKED"}
+        {"UNKNOWN", "BLOCKED"}
+        if policy["case"] == "driver_onboarding"
+        else {"PROPOSED", "UNKNOWN", "BLOCKED"}
         if counterfactual
         else {"PROPOSED"}
         if onboarding

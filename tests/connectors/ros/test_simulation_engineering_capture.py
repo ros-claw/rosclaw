@@ -38,6 +38,7 @@ def settings(case):
         [
             "j100_navigation_onboarding",
             "navigation_onboarding",
+            "driver_onboarding",
             "map_to_odom_missing",
             "scan_stale",
             "nav2_lifecycle_inactive",
@@ -147,6 +148,7 @@ def test_original_capture_requires_current_native_and_physics(
         ("map_to_odom_missing", "UNKNOWN", "NOT_READY"),
         ("j100_navigation_onboarding", "PROPOSED", "NOT_EVALUATED"),
         ("navigation_onboarding", "PROPOSED", "NOT_EVALUATED"),
+        ("driver_onboarding", "UNKNOWN", "NOT_EVALUATED"),
     ],
 )
 def test_unready_capture_preserves_missing_body_and_execution_config(

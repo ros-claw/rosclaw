@@ -204,6 +204,11 @@ class ReadOnlyProbe(Node):
                     if key
                     in {
                         "use_sim_time",
+                        "update_rate",
+                        "linear.x.max_velocity",
+                        "angular.z.max_velocity",
+                        "controller_frequency",
+                        "default_nav_to_pose_bt_xml",
                         "tf_broadcast",
                         "node_names",
                         "plugins",
@@ -229,6 +234,7 @@ class ReadOnlyProbe(Node):
                     or key.endswith(
                         (
                             ".plugin",
+                            ".type",
                             ".enabled",
                             ".use_maximum",
                             ".combination_method",
@@ -252,7 +258,10 @@ class ReadOnlyProbe(Node):
                     elif value.type == 2:
                         values[key] = value.integer_value
                     elif value.type == 3:
-                        values[key] = value.double_value
+                        if math.isfinite(value.double_value):
+                            values[key] = value.double_value
+                        else:
+                            self.errors.append(f"nonfinite parameter omitted: {name}:{key}")
                     elif value.type == 4:
                         if key == "robot_description":
                             raw = value.string_value.encode("utf-8")
