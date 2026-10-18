@@ -401,7 +401,9 @@ def compile_driver_bootstrap(
         "min_lookahead_dist": float(radius * 0.25),
         "max_lookahead_dist": float(radius * 0.75),
         "curvature_lookahead_dist": float(radius * 0.5),
-        "approach_velocity_scaling_dist": float(radius * 0.4),
+        "approach_velocity_scaling_dist": float(
+            min(radius * 0.4, limits["goal_position_tolerance_m"] * 2)
+        ),
         "min_approach_linear_velocity": float(limits["max_speed_mps"] * 0.1),
         "regulated_linear_scaling_min_radius": float(radius),
         "regulated_linear_scaling_min_speed": float(limits["max_speed_mps"] * 0.2),
@@ -412,10 +414,21 @@ def compile_driver_bootstrap(
     }
     for value in controller.values():
         if type(value) is dict and "xy_goal_tolerance" in value:
-            value.update(
-                xy_goal_tolerance=float(limits["goal_position_tolerance_m"] * 0.5),
-                yaw_goal_tolerance=float(limits["goal_yaw_tolerance_rad"] * 0.5),
-            )
+            # A reusable software profile may intentionally reserve more of
+            # the physical acceptance budget for localization error. Never
+            # loosen its explicit tighter goal checker when binding a Body.
+            for key, limit in (
+                ("xy_goal_tolerance", limits["goal_position_tolerance_m"]),
+                ("yaw_goal_tolerance", limits["goal_yaw_tolerance_rad"]),
+            ):
+                original = value.get(key)
+                if (
+                    type(original) not in (int, float)
+                    or not math.isfinite(original)
+                    or original <= 0
+                ):
+                    raise ValueError("finite positive original goal checker tolerances required")
+                value[key] = float(min(original, limit * 0.5))
         if type(value) is dict and "required_movement_radius" in value:
             value.update(
                 required_movement_radius=float(limits["goal_position_tolerance_m"] * 2),
@@ -425,6 +438,15 @@ def compile_driver_bootstrap(
         if type(params.get(role)) is not dict or type(params[role].get(role)) is not dict:
             raise ValueError("explicit nested Nav2 costmap template required")
         cm = params[role][role]["ros__parameters"]
+        requested_publish = cm.get("publish_frequency", rate / 2)
+        if (
+            type(requested_publish) not in (int, float)
+            or not math.isfinite(requested_publish)
+            or not 0 < requested_publish <= rate
+        ):
+            raise ValueError(
+                "software costmap publication must be positive and within the observed driver-rate profile ceiling"
+            )
         cm.update(
             use_sim_time=True,
             global_frame=map_frame if role == "global_costmap" else odom,
@@ -432,7 +454,7 @@ def compile_driver_bootstrap(
             robot_radius=float(nav_radius),
             footprint="[]",
             update_frequency=float(rate / 2),
-            publish_frequency=float(rate / 2),
+            publish_frequency=float(max(rate / 2, requested_publish)),
         )
         if role == "local_costmap":
             cm.update(width=max(1, math.ceil(radius * 4)), height=max(1, math.ceil(radius * 4)))

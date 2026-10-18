@@ -168,7 +168,14 @@ def discover_body_candidate(
     if len(descriptions) != 1:
         result["unknown_fields"].append("urdf.unique_matching_live_description")
     elif base:
-        result["geometry"] = derive_collision_envelope(urdf_bytes, base_frame=base)
+        from .collision_assets import collision_assets_from_observations
+
+        mesh = collision_assets_from_observations(model.observations)
+        result["geometry"] = derive_collision_envelope(
+            urdf_bytes, base_frame=base, mesh_originals=mesh[0] if mesh is not None else None
+        )
+        if mesh is not None:
+            result["geometry"]["prepared_mesh_document_sha256"] = mesh[2]
         if not result["geometry"].get("model_identity"):
             result["unknown_fields"].append("URDF.model_identity")
         if not result["geometry"]["complete"]:

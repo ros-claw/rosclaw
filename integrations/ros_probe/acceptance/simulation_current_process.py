@@ -11,6 +11,7 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 import time
 from contextlib import suppress
 from pathlib import Path
@@ -20,6 +21,57 @@ from simulation_daemon_observation import BoundedDaemonObservation
 from simulation_source_capture import BoundedSourceJsonlCapture
 
 from rosclaw.daemon.client import DaemonClient
+
+
+class SdkPassiveFactsPreparation:
+    """Prepare readonly collector inputs without blocking the sink heartbeat."""
+
+    def __init__(self, root, *, enrollment_sha256, body_hash, run_id):
+        self.root = root
+        self.digest, self.body_hash, self.run_id = enrollment_sha256, body_hash, run_id
+        self.result = self.error = self.worker = None
+
+    def start(self):
+        if self.worker is not None:
+            raise ValueError("passive preparation cannot restart")
+
+        def build():
+            try:
+                facts = CurrentSimulationFacts(
+                    self.root, assets_directory=Path("/assets"), enrollment_sha256=self.digest
+                )
+                pins = facts.enrollment["request"]
+                if (
+                    pins["body_snapshot_hash"] != self.body_hash
+                    or pins["sim_run_id"] != self.run_id
+                ):
+                    facts.close()
+                    raise ValueError("passive facts differ from the current unadmitted Body/run")
+                self.result = facts
+            except Exception as exc:
+                self.error = str(exc)[:1000]
+
+        self.worker = threading.Thread(
+            target=build, daemon=True, name="passive-sdk-facts-preparation"
+        )
+        self.worker.start()
+
+    def take_if_ready(self):
+        if self.worker is None or self.worker.is_alive():
+            return None
+        if self.error is not None:
+            raise ValueError("passive preparation failed: " + self.error)
+        result, self.result = self.result, None
+        if result is None:
+            raise ValueError("passive preparation result unavailable or already consumed")
+        return result
+
+    def close(self):
+        if self.worker is not None:
+            self.worker.join(timeout=2)
+        if self.result is not None:
+            self.result.close()
+            self.result = None
 
 
 class SdkCurrentFactsProcess:
@@ -156,6 +208,7 @@ def run_worker(config):
     identity = os.fstat(directory_fd)
     facts = None
     audit = None
+    startup = None
     daemon_monitor = None
 
     def publish(result):
@@ -187,10 +240,26 @@ def run_worker(config):
     try:
         if set(config) != {"root", "enrollment_sha256", "admission", "body_id"}:
             raise ValueError("closed SDK current process configuration required")
+        startup = BoundedSourceJsonlCapture(
+            root / "sdk-current-startup-original.jsonl",
+            max_segments=1,
+            max_bytes=64_000,
+            max_rows=12,
+            max_line_bytes=4096,
+        )
+
+        def stage(name):
+            startup.write(
+                json.dumps({"stage": name, "pid": os.getpid(), "monotonic_ns": time.monotonic_ns()})
+                + "\n"
+            )
+
+        stage("CONFIGURATION_ACCEPTED")
         a = config["admission"]
         facts = CurrentSimulationFacts(
             root, assets_directory=Path("/assets"), enrollment_sha256=config["enrollment_sha256"]
         )
+        stage("CURRENT_FACTS_CONSTRUCTED")
         client = DaemonClient(
             socket_path=control / "daemon/run/rosclawd.sock",
             expected_daemon_uid=a["daemon_uid"],
@@ -206,9 +275,16 @@ def run_worker(config):
         daemon_monitor = BoundedDaemonObservation(
             client=client, admission=a, body_id=config["body_id"]
         )
+        stage("DAEMON_OBSERVER_STARTING")
         daemon_monitor.start()
+        stage("DAEMON_OBSERVER_STARTED")
+        first = True
         while True:
+            if first:
+                stage("FIRST_FACTS_BEGIN")
             current = facts.collect(freshness_horizon_ms=100)
+            if first:
+                stage("FIRST_FACTS_COLLECTED")
             daemon = daemon_monitor.snapshot()
             current["daemon_status"] = daemon["status"]
             current["daemon_review_started_ns"] = daemon["started_ns"]
@@ -229,8 +305,13 @@ def run_worker(config):
             }
             audit.write(json.dumps(result, allow_nan=False) + "\n")
             publish(result)
+            if first:
+                stage("FIRST_RESULT_PUBLISHED")
+                first = False
             time.sleep(0.01)
     except Exception as exc:
+        if startup is not None:
+            stage("FAILED_NO_CURRENT_ADMISSION")
         result = {
             "schema_version": "rosclaw.sdk_current_monitor.v1",
             "pid": os.getpid(),
@@ -250,6 +331,8 @@ def run_worker(config):
             facts.close()
         if audit is not None:
             audit.close()
+        if startup is not None:
+            startup.close()
         os.close(directory_fd)
 
 
@@ -262,6 +345,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--worker", action="store_true", required=True)
     parser.parse_args()
+    # Complete bounded immutable mesh parsing during passive preparation. No
+    # current enrollment, daemon observation or startup acknowledgment exists
+    # yet; fresh resource/source checks still run after the input arrives.
+    from simulation_collision_resources import prewarm_prepared_collision_facts
+
+    prewarm_prepared_collision_facts()
     raw = sys.stdin.buffer.readline(16_001)
     if not raw.endswith(b"\n") or len(raw) > 16_000:
         raise ValueError("bounded closed SDK worker input required")

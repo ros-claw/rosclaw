@@ -264,3 +264,66 @@ def test_installed_default_without_map_server_generates_explicit_target_and_excl
     params = yaml.safe_load(result["files"]["nav2.yaml"])[args[6]["namespace"]]
     assert params["map_server"]["ros__parameters"]["yaml_filename"] == "/assets/map.yaml"
     assert "docking_server" not in params
+
+
+def test_stricter_software_goal_tolerances_are_preserved_without_changing_physical_limits():
+    args = list(inputs())
+    original_limits = copy.deepcopy(args[6]["navigation_limits"])
+    checker = {
+        "plugin": "nav2_controller::SimpleGoalChecker",
+        "xy_goal_tolerance": 0.0001,
+        "yaw_goal_tolerance": 0.0002,
+    }
+    args[4]["controller_server"]["ros__parameters"]["strict_checker"] = checker.copy()
+    result = compile_driver_bootstrap(*args)
+    assert result["status"] == "CONDITIONAL_DRIVER_BOOTSTRAP_STAGING"
+    params = yaml.safe_load(result["files"]["nav2.yaml"])[args[6]["namespace"]]
+    assert params["controller_server"]["ros__parameters"]["strict_checker"] == checker
+    assert args[6]["navigation_limits"] == original_limits
+
+
+@pytest.mark.parametrize("value", [None, True, 0, -0.1, float("nan"), float("inf")])
+def test_invalid_goal_checker_values_do_not_get_silently_repaired(value):
+    args = list(inputs())
+    args[4]["controller_server"]["ros__parameters"]["checker"] = {
+        "xy_goal_tolerance": 0.01,
+        "yaw_goal_tolerance": value,
+    }
+    with pytest.raises(ValueError):
+        compile_driver_bootstrap(*args)
+
+
+def test_explicit_faster_software_publication_is_preserved_without_changing_control_limits():
+    args = list(inputs())
+    limits = copy.deepcopy(args[6]["navigation_limits"])
+    for role in ["local_costmap", "global_costmap"]:
+        args[4][role][role]["ros__parameters"]["publish_frequency"] = 32.0
+    plan = compile_driver_bootstrap(*args)
+    nodes = yaml.safe_load(plan["files"]["nav2.yaml"])[args[6]["namespace"]]
+    for role in ["local_costmap", "global_costmap"]:
+        cm = nodes[role][role]["ros__parameters"]
+        assert cm["publish_frequency"] == 32.0 and cm["update_frequency"] == 20.0
+    assert args[6]["navigation_limits"] == limits
+
+
+@pytest.mark.parametrize("value", [0, -1, True, "fast", 41.0, float("inf"), float("nan")])
+def test_publication_profile_rejects_invalid_or_unbounded_values(value):
+    args = list(inputs())
+    args[4]["global_costmap"]["global_costmap"]["ros__parameters"]["publish_frequency"] = value
+    with pytest.raises(ValueError):
+        compile_driver_bootstrap(*args)
+
+
+def test_approach_zone_is_bounded_by_current_task_precision_for_large_bodies():
+    args = list(inputs(width=1.0))
+    result = compile_driver_bootstrap(*args)
+    nodes = yaml.safe_load(result["files"]["nav2.yaml"])[args[6]["namespace"]]
+    path = nodes["controller_server"]["ros__parameters"]["FollowPath"]
+    assert path["approach_velocity_scaling_dist"] == min(
+        result["physical_radius_m"] * 0.4,
+        args[6]["navigation_limits"]["goal_position_tolerance_m"] * 2,
+    )
+    assert path["desired_linear_vel"] == args[6]["navigation_limits"]["max_speed_mps"] * 0.8
+    assert (
+        path["min_approach_linear_velocity"] == args[6]["navigation_limits"]["max_speed_mps"] * 0.1
+    )

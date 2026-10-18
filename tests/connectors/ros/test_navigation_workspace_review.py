@@ -316,3 +316,38 @@ def test_actual_pinned_inspection_cli_is_read_only_and_explicit_about_history(
         assert result["current_navigation_readiness"] == "NOT_EVALUATED"
     assert (tmp_path / "private-home").exists() is runtime_home_exists
     assert capture() == before
+
+
+def test_static_byte_cache_does_not_cache_clocks_or_hide_file_changes(tmp_path):
+    from rosclaw.connectors.ros.context.navigation_workspace_review import _static_integrity_json
+
+    _static_integrity_json.cache_clear()
+    root, manifest = workspace(tmp_path)
+    first = inspect_navigation_body_workspace(root, now=NOW)
+    first["manifest_hash"] = "caller mutation"
+    later = inspect_navigation_body_workspace(root, now=NOW + timedelta(days=2))
+    assert later["manifest_hash"] == manifest["manifest_hash"]
+    assert later["snapshot_age_ms"] == 172800000
+    assert later["inspected_at"] == (NOW + timedelta(days=2)).isoformat()
+    assert later["current_navigation_readiness"] == "NOT_EVALUATED"
+    assert _static_integrity_json.cache_info().hits >= 1
+    with pytest.raises(ValueError, match="Body hash mismatch"):
+        inspect_navigation_body_workspace(root, expected_body_hash="0" * 64, now=NOW)
+    # A valid previous key never substitutes for a newly read changed file.
+    file = root / "body/calibration.yaml"
+    file.write_bytes(file.read_bytes() + b"\nunknown: changed\n")
+    with pytest.raises(ValueError):
+        inspect_navigation_body_workspace(root, now=NOW)
+    _static_integrity_json.cache_clear()
+
+
+def test_static_byte_cache_cannot_hide_symlink_with_identical_bytes(tmp_path):
+    root, _ = workspace(tmp_path)
+    inspect_navigation_body_workspace(root, now=NOW)
+    file = root / "body/refs/eurdf.profile.yaml"
+    outside = tmp_path / "same-original.yaml"
+    outside.write_bytes(file.read_bytes())
+    file.unlink()
+    file.symlink_to(outside)
+    with pytest.raises((OSError, ValueError)):
+        inspect_navigation_body_workspace(root, now=NOW)

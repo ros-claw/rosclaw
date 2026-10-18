@@ -1,7 +1,7 @@
 """Read-only conservative collision envelope; never grants a Body binding.
 
 Expanded URDF primitives and joint transforms are evidence, not a drive or
-cleaner declaration. Unsupported meshes, frames or articulation stay UNKNOWN.
+cleaner declaration. Unbound meshes, frames or articulation stay UNKNOWN.
 No vendor name, ROS topic, room dimensions or guessed radius is used.
 """
 
@@ -71,12 +71,24 @@ def _origin(element):
     return r, _vector(o.get("xyz"))
 
 
-def _primitive(collision):
+def _primitive(collision, mesh_assets=None):
     geometry = collision.find("geometry")
     if geometry is None or len(geometry) != 1:
         raise ValueError("collision requires one geometry")
     shape = geometry[0]
-    if shape.tag == "box":
+    if shape.tag == "mesh" and mesh_assets is not None:
+        asset = mesh_assets.get(shape.get("filename"))
+        if asset is None:
+            raise ValueError("original URI-matched collision mesh bytes absent")
+        scale = _vector(shape.get("scale"), (1.0, 1.0, 1.0))
+        if min(scale) <= 0:
+            raise ValueError("positive finite original mesh scale required")
+        intervals = [
+            _finite((asset["local_min"][i] * scale[i], asset["local_max"][i] * scale[i]))
+            for i in range(3)
+        ]
+        local_points = itertools.product(*intervals)
+    elif shape.tag == "box":
         size = _vector(shape.get("size"), ())
         if min(size) <= 0:
             raise ValueError("box sizes must be positive")
@@ -90,14 +102,16 @@ def _primitive(collision):
         half = (radius, radius, length / 2)
     else:
         raise ValueError(f"unsupported collision geometry: {shape.tag}")
+    if shape.tag != "mesh":
+        local_points = itertools.product(*[(-v, v) for v in half])
     r, p = _origin(collision)
     return tuple(
         _finite(tuple(a + b for a, b in zip(_apply(r, point), p, strict=True)))
-        for point in itertools.product(*[(-v, v) for v in half])
+        for point in local_points
     )
 
 
-def derive_collision_envelope(urdf_bytes, *, base_frame):
+def derive_collision_envelope(urdf_bytes, *, base_frame, mesh_originals=None):
     """Fixed transforms are exact; movable subtrees use a containing sphere.
 
     Every collision geometry must resolve. Full-joint rotational sweeps and
@@ -121,6 +135,14 @@ def derive_collision_envelope(urdf_bytes, *, base_frame):
         "capabilities_granted": [],
         "cleaning_attachment_inferred": False,
     }
+    mesh_assets = None
+    if mesh_originals is not None:
+        from .collision_assets import review_collision_assets
+
+        mesh_assets = review_collision_assets(mesh_originals)
+        report["schema_version"] = "rosclaw.urdf_collision_envelope.v2"
+        report["original_mesh_assets"] = mesh_assets
+        report["physical_mesh_loading"] = "NOT_VERIFIED_NOT_RUNTIME_OR_BODY_ADMISSION"
     try:
         if not urdf_bytes or len(urdf_bytes) > 5_000_000:
             raise ValueError("URDF input size outside bounded limit")
@@ -215,7 +237,7 @@ def derive_collision_envelope(urdf_bytes, *, base_frame):
             for collision in link.findall("collision"):
                 report["collision_count"] += 1
                 try:
-                    points[name].extend(_primitive(collision))
+                    points[name].extend(_primitive(collision, mesh_assets))
                     report["resolved_collision_count"] += 1
                 except (ValueError, TypeError) as exc:
                     report["unsupported_reasons"].append(f"{name}: {exc}")
@@ -254,7 +276,11 @@ def derive_collision_envelope(urdf_bytes, *, base_frame):
         report.update(
             complete=True,
             physical_radius_m=radius,
-            derivation="fixed RPY/XYZ transforms; containing primitive boxes; full movable-subtree sphere bounds",
+            derivation=(
+                "fixed RPY/XYZ transforms; original SHA-bound STL extrema and containing primitive boxes; full movable-subtree sphere bounds"
+                if mesh_assets is not None
+                else "fixed RPY/XYZ transforms; containing primitive boxes; full movable-subtree sphere bounds"
+            ),
         )
     except (ET.ParseError, ValueError, TypeError, RecursionError) as exc:
         report["unsupported_reasons"].append(str(exc))

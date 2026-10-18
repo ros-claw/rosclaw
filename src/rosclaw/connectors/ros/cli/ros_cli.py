@@ -764,6 +764,18 @@ def add_ros_subparser(subparsers: argparse._SubParsersAction) -> argparse.Argume
     bootstrap_parser.add_argument("--output", help="Exclusive new offline JSON artifact")
     bootstrap_parser.add_argument("--json", action="store_true")
 
+    mesh_parser = ros_subparsers.add_parser(
+        "inspect-collision-assets",
+        help="Offline original STL facts; no live source or Body admission",
+    )
+    mesh_parser.add_argument("--urdf", required=True)
+    mesh_parser.add_argument("--base-frame", required=True)
+    mesh_parser.add_argument(
+        "--asset-originals", required=True, help="Bounded JSON URI/SHA/base64 originals"
+    )
+    mesh_parser.add_argument("--output", help="Exclusive new offline artifact")
+    mesh_parser.add_argument("--json", action="store_true")
+
     case_parser = ros_subparsers.add_parser(
         "engineering-case", help="Read-only engineering dossier from a sealed offline snapshot"
     )
@@ -824,6 +836,8 @@ def add_ros_subparser(subparsers: argparse._SubParsersAction) -> argparse.Argume
 def dispatch_ros_command(args: argparse.Namespace) -> int:
     """Dispatch the selected ``ros`` subcommand."""
     cmd = getattr(args, "ros_command", None)
+    if cmd == "inspect-collision-assets":
+        return cmd_ros_collision_assets(args)
     if cmd == "application-bootstrap":
         return cmd_ros_application_bootstrap(args)
     if cmd in {"application-plan", "application-staging"}:
@@ -944,6 +958,39 @@ def cmd_ros_diagnostic(args: argparse.Namespace) -> int:
         return _maybe_json(args, result)
     except (ValueError, TypeError, KeyError, AttributeError, OSError) as exc:
         return _maybe_json(args, {"ok": False, "action": args.ros_command, "error": str(exc)})
+
+
+def cmd_ros_collision_assets(args: argparse.Namespace) -> int:
+    """Read exact bounded local originals only; no URI resolution or ROS discovery."""
+    import hashlib
+
+    from rosclaw.connectors.ros.context.geometry import derive_collision_envelope
+
+    try:
+        urdf = _read_discovery_urdf(args.urdf, "original mesh-bearing URDF")
+        originals = _read_discovery_urdf(args.asset_originals, "collision asset originals")
+        report = derive_collision_envelope(
+            urdf, base_frame=args.base_frame, mesh_originals=json.loads(originals)
+        )
+        result = {
+            "ok": True,
+            "action": args.ros_command,
+            "collision_envelope": report,
+            "input_file_sha256": {
+                "urdf": hashlib.sha256(urdf).hexdigest(),
+                "asset_originals": hashlib.sha256(originals).hexdigest(),
+            },
+            "execution_authority": "NONE",
+            "current_l1": "NOT_EVALUATED",
+            "physical_loaded_geometry": "NOT_VERIFIED",
+            "next_gate": "source-owner and actual loaded mesh resource identity/bytes/scale/pose proof; immutable Body and fresh L1 remain required",
+        }
+        if args.output:
+            with Path(args.output).open("x", encoding="utf-8") as stream:
+                stream.write(json.dumps(result, indent=2) + "\n")
+        return _maybe_json(args, result)
+    except (ValueError, TypeError, KeyError, AttributeError, OSError, RecursionError) as error:
+        return _maybe_json(args, {"ok": False, "action": args.ros_command, "error": str(error)})
 
 
 def cmd_ros_application_bootstrap(args: argparse.Namespace) -> int:

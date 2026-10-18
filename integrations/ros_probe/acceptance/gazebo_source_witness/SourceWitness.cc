@@ -18,6 +18,15 @@
 #include <gz/sim/components/GpuLidar.hh>
 #include <gz/sim/components/Lidar.hh>
 #include <gz/sim/components/Imu.hh>
+#include <gz/sim/components/Link.hh>
+#include <gz/sim/components/Joint.hh>
+#include <gz/sim/components/JointType.hh>
+#include <gz/sim/components/JointAxis.hh>
+#include <gz/sim/components/JointPosition.hh>
+#include <gz/sim/components/ParentLinkName.hh>
+#include <gz/sim/components/ChildLinkName.hh>
+#include <cmath>
+#include <limits>
 #include <gz/sim/components/NavSat.hh>
 #include <gz/sim/components/ContactSensor.hh>
 #include <gz/sim/components/Collision.hh>
@@ -48,6 +57,8 @@ class SourceWitness final : public System, public ISystemConfigure,
     if (!sdf->HasElement("output") || !sdf->HasElement("run_id"))
       throw std::runtime_error("explicit observer output and run_id required");
     run = sdf->Get<std::string>("run_id");
+    observeJointKinematics = sdf->HasElement("observe_joint_kinematics") &&
+                             sdf->Get<bool>("observe_joint_kinematics");
     output = sdf->Get<std::string>("output");
     if (run.empty() || run.size() > 128 || output.empty())
       throw std::runtime_error("bounded observer configuration required");
@@ -126,6 +137,75 @@ class SourceWitness final : public System, public ISystemConfigure,
       if (record["sensors"].size() >= 4096) { record["inventory_complete"] = false; return false; }
       record["sensors"].push_back(sensor); return true;
     });
+    if (observeJointKinematics) {
+      Json kinematics = {{"schema_version", "rosclaw.ecm_joint_kinematics.v1"},
+                         {"complete", true}, {"links", Json::array()},
+                         {"joints", Json::array()}};
+      ecm.Each<components::Link, components::Name>([&](const Entity &e,
+          const components::Link *, const components::Name *) {
+        if (kinematics["links"].size() >= 4096) {
+          kinematics["complete"] = false; return false;
+        }
+        kinematics["links"].push_back(Identity(e, ecm)); return true;
+      });
+      ecm.Each<components::Joint, components::Name>([&](const Entity &e,
+          const components::Joint *, const components::Name *) {
+        if (kinematics["joints"].size() >= 4096) {
+          kinematics["complete"] = false; return false;
+        }
+        Json joint = Identity(e, ecm);
+        const auto type = ecm.Component<components::JointType>(e);
+        const auto parent = ecm.Component<components::ParentLinkName>(e);
+        const auto child = ecm.Component<components::ChildLinkName>(e);
+        const auto axis = ecm.Component<components::JointAxis>(e);
+        const auto position = ecm.Component<components::JointPosition>(e);
+        std::string kind = "UNKNOWN";
+        if (type) {
+          switch (type->Data()) {
+            case sdf::JointType::FIXED: kind = "fixed"; break;
+            case sdf::JointType::REVOLUTE: kind = "revolute"; break;
+            case sdf::JointType::PRISMATIC: kind = "prismatic"; break;
+            default: break;
+          }
+        }
+        joint["kind"] = kind;
+        joint["parent"] = parent ? Json(parent->Data()) : Json(nullptr);
+        joint["child"] = child ? Json(child->Data()) : Json(nullptr);
+        joint["axis"] = nullptr; joint["axis_frame"] = "";
+        joint["bounds"] = nullptr; joint["bounds_kind"] = "NONE";
+        joint["position"] = nullptr;
+        if (!parent || !child || kind == "UNKNOWN") kinematics["complete"] = false;
+        if (kind != "fixed") {
+          if (!axis) kinematics["complete"] = false;
+          else {
+            const auto &a = axis->Data(); const auto xyz = a.Xyz();
+            if (!std::isfinite(xyz.X()) || !std::isfinite(xyz.Y()) ||
+                !std::isfinite(xyz.Z())) kinematics["complete"] = false;
+            joint["axis"] = {xyz.X(), xyz.Y(), xyz.Z()};
+            joint["axis_frame"] = a.XyzExpressedIn();
+            if (std::isfinite(a.Lower()) && std::isfinite(a.Upper()) &&
+                a.Lower() <= a.Upper()) {
+              joint["bounds_kind"] = "FINITE";
+              joint["bounds"] = {a.Lower(), a.Upper()};
+            } else if (a.Lower() == -std::numeric_limits<double>::infinity() &&
+                       a.Upper() == std::numeric_limits<double>::infinity()) {
+              joint["bounds_kind"] = "UNBOUNDED";
+            } else {
+              joint["bounds_kind"] = "UNKNOWN";
+              kinematics["complete"] = false;
+            }
+          }
+        }
+        if (position) {
+          joint["position"] = position->Data();
+          for (const auto value : position->Data()) {
+            if (!std::isfinite(value)) kinematics["complete"] = false;
+          }
+        }
+        kinematics["joints"].push_back(joint); return true;
+      });
+      record["joint_kinematics"] = kinematics;
+    }
     for (const auto &name : {"worlds", "models", "collisions", "sensors"}) {
       if (record[name].size() > 4096) record["inventory_complete"] = false;
     }
@@ -217,6 +297,7 @@ class SourceWitness final : public System, public ISystemConfigure,
   std::string run;
   std::string output, epoch, previousDigest;
   bool segmented = false;
+  bool observeJointKinematics = false;
   EVP_MD_CTX *digest = nullptr;
   uint64_t segmentIndex = 0, segmentSamples = 0, segmentFirstSample = 0;
   uint64_t segmentMaxSamples = 600, segmentMaxBytes = 30000000, maxSegments = 1;

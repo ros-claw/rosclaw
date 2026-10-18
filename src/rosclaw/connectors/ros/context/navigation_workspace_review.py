@@ -11,6 +11,7 @@ import os
 import re
 import stat
 from datetime import UTC, datetime
+from functools import lru_cache
 from pathlib import Path
 
 import yaml
@@ -217,6 +218,47 @@ def inspect_navigation_body_workspace(
 
 
 def _inspect(files, expected_manifest_hash, expected_body_hash, now):
+    # Every caller still reads the complete no-follow workspace. Cache only an
+    # exact-byte static compiler replay, never live health, source or clocks.
+    if (
+        type(files) is dict
+        and set(files) == _FILES | {_MANIFEST}
+        and all(type(raw) is bytes for raw in files.values())
+        and sum(map(len, files.values())) <= 10_000_000
+        and all(
+            value is None or type(value) is str
+            for value in (expected_manifest_hash, expected_body_hash)
+        )
+    ):
+        result = json.loads(
+            _static_integrity_json(
+                tuple(sorted(files.items())), expected_manifest_hash, expected_body_hash
+            )
+        )
+        captured = datetime.fromisoformat(result["captured_at"])
+        result.update(
+            inspected_at=now.isoformat(), snapshot_age_ms=(now - captured).total_seconds() * 1000
+        )
+        return result
+    return _inspect_uncached(files, expected_manifest_hash, expected_body_hash, now)
+
+
+@lru_cache(maxsize=2)
+def _static_integrity_json(original_files, expected_manifest_hash, expected_body_hash):
+    """At most two 10MB exact-byte keys; returned JSON is immutable."""
+    files = dict(original_files)
+    original_reviewed_at = datetime.fromisoformat(
+        _json(files["navigation-review.json"])["reviewed_at"]
+    )
+    result = _inspect_uncached(
+        files, expected_manifest_hash, expected_body_hash, original_reviewed_at
+    )
+    result.pop("inspected_at")
+    result.pop("snapshot_age_ms")
+    return json.dumps(result, allow_nan=False)
+
+
+def _inspect_uncached(files, expected_manifest_hash, expected_body_hash, now):
     manifest = _json(files[_MANIFEST])
     if type(manifest) is not dict or set(manifest) != _MANIFEST_KEYS:
         raise ValueError("closed navigation workspace manifest required")

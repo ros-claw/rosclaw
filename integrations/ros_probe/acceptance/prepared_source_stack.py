@@ -197,15 +197,24 @@ def main():
             start(
                 "localization_refresh", ["python3", str(ROOT / "localization_refresh_fixture.py")]
             )
-        start(
-            "probe",
-            [
-                "python3",
-                str(ROOT.parent / "ros2/probe.py"),
-                "--snapshot-period-sec",
-                str(settings.get("probe_snapshot_period_sec", 1.0)),
-            ],
-        )
+        probe_argv = [
+            "python3",
+            str(ROOT.parent / "ros2/probe.py"),
+            "--snapshot-period-sec",
+            str(settings.get("probe_snapshot_period_sec", 1.0)),
+        ]
+        mesh_manifest = Path("/assets/collision-asset-originals.json")
+        if mesh_manifest.is_file():
+            import hashlib
+
+            probe_argv += [
+                "--lossless-gzip-snapshots",
+                "--collision-asset-originals",
+                str(mesh_manifest),
+                "--collision-asset-originals-sha256",
+                hashlib.sha256(mesh_manifest.read_bytes()).hexdigest(),
+            ]
+        start("probe", probe_argv)
         bridge_command = ["ros2", "run", "rosbridge_server", "rosbridge_websocket"]
         if settings.get("governed_sink") is not None:
             sources = json.loads(Path("/assets/observer-sources.json").read_text())

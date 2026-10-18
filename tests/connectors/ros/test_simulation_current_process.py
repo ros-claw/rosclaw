@@ -178,3 +178,106 @@ def test_native_pointer_clock_is_sampled_after_concurrent_publication(monkeypatc
     pointer["received_monotonic_ns"] = clock[0] + 3_000_000
     with pytest.raises(ValueError, match="bounded current original Native pointer"):
         module.read_current_native_pointer(tmp_path)
+
+
+def test_prepared_facts_cannot_publish_health_when_daemon_start_observation_fails(
+    monkeypatch, tmp_path
+):
+    monkeypatch.syspath_prepend(
+        str(Path(__file__).resolve().parents[3] / "integrations/ros_probe/acceptance")
+    )
+    module = importlib.import_module("simulation_current_process")
+    (tmp_path / "execution-control").mkdir()
+    monkeypatch.setattr(
+        module, "CurrentSimulationFacts", lambda *a, **k: SimpleNamespace(close=lambda: None)
+    )
+    monkeypatch.setattr(module, "DaemonClient", lambda **k: None)
+
+    def unavailable():
+        raise ValueError("synthetic independent daemon unavailable")
+
+    monkeypatch.setattr(
+        module,
+        "BoundedDaemonObservation",
+        lambda **k: SimpleNamespace(start=unavailable, close=lambda: None),
+    )
+    with pytest.raises(ValueError, match="independent daemon unavailable"):
+        module.run_worker(
+            {
+                "root": str(tmp_path),
+                "enrollment_sha256": "a" * 64,
+                "admission": {"daemon_uid": 1000},
+                "body_id": "synthetic",
+            }
+        )
+    result = json.loads((tmp_path / "execution-control/current-monitor.json").read_text())
+    assert result["terminal"] is True and result["facts"] is None
+    stages = [
+        json.loads(line)["stage"]
+        for line in (tmp_path / "sdk-current-startup-original.jsonl").read_text().splitlines()
+    ]
+    assert stages == [
+        "CONFIGURATION_ACCEPTED",
+        "CURRENT_FACTS_CONSTRUCTED",
+        "DAEMON_OBSERVER_STARTING",
+        "FAILED_NO_CURRENT_ADMISSION",
+    ]
+
+
+def test_passive_preparation_keeps_caller_free_and_binds_current_body(monkeypatch, tmp_path):
+    import threading
+
+    monkeypatch.syspath_prepend(
+        str(Path(__file__).resolve().parents[3] / "integrations/ros_probe/acceptance")
+    )
+    module = importlib.import_module("simulation_current_process")
+    entered, release = threading.Event(), threading.Event()
+    closed = []
+    facts = SimpleNamespace(
+        enrollment={"request": {"body_snapshot_hash": "body", "sim_run_id": "run"}},
+        close=lambda: closed.append(True),
+    )
+
+    def prepare(*a, **k):
+        entered.set()
+        assert release.wait(1)
+        return facts
+
+    monkeypatch.setattr(module, "CurrentSimulationFacts", prepare)
+    job = module.SdkPassiveFactsPreparation(
+        tmp_path, enrollment_sha256="a" * 64, body_hash="body", run_id="run"
+    )
+    job.start()
+    assert entered.wait(1)
+    assert job.take_if_ready() is None  # Main sink can continue its status tick.
+    release.set()
+    job.worker.join(timeout=1)
+    assert job.take_if_ready() is facts
+    job.close()
+    assert closed == []  # The consuming sink now owns the collector.
+    with pytest.raises(ValueError, match="restart"):
+        job.start()
+
+
+def test_passive_preparation_rejects_different_body_and_closes_unaccepted_result(
+    monkeypatch, tmp_path
+):
+    monkeypatch.syspath_prepend(
+        str(Path(__file__).resolve().parents[3] / "integrations/ros_probe/acceptance")
+    )
+    module = importlib.import_module("simulation_current_process")
+    closed = []
+    facts = SimpleNamespace(
+        enrollment={"request": {"body_snapshot_hash": "old-body", "sim_run_id": "run"}},
+        close=lambda: closed.append(True),
+    )
+    monkeypatch.setattr(module, "CurrentSimulationFacts", lambda *a, **k: facts)
+    job = module.SdkPassiveFactsPreparation(
+        tmp_path, enrollment_sha256="a" * 64, body_hash="new-body", run_id="run"
+    )
+    job.start()
+    job.worker.join(timeout=1)
+    with pytest.raises(ValueError, match="current unadmitted Body"):
+        job.take_if_ready()
+    job.close()
+    assert closed == [True]

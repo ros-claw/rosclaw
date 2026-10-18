@@ -11,9 +11,11 @@ import json
 import re
 import stat
 import time
+from datetime import datetime
 from pathlib import Path
 
 from simulation_atomic_read import read_bounded_regular as _read
+from simulation_collision_resources import CollisionResourceContinuity
 from simulation_source_stream import SimulationSourceStreamReader, SourceStreamPins
 
 from rosclaw.connectors.ros.context.navigation_readiness import (
@@ -119,6 +121,51 @@ class CurrentSimulationFacts:
         ):
             if _sha(_read(self.assets_directory / name, limit)) != e[key]:
                 raise ValueError("independent original URDF/World SHA mismatch")
+        # Replay static Body integrity before beginning an expiring current
+        # observation window. Later reviews still reread all original files.
+        from rosclaw.connectors.ros.context.navigation_workspace_review import (
+            inspect_navigation_body_workspace,
+        )
+
+        inspect_navigation_body_workspace(
+            self.directory / "generic-compiled",
+            expected_manifest_hash=e["request"]["manifest_hash"],
+            expected_body_hash=e["request"]["body_snapshot_hash"],
+        )
+        compiled_source = json.loads(
+            _read(self.directory / "generic-compiled/source-snapshot.json", 10_000_000)
+        )
+        self.collision_resource_guard = CollisionResourceContinuity(
+            self.assets_directory, compiled_source.get("observations", {})
+        )
+        self.mesh_kinematic_plan = None
+        if self.collision_resource_guard.pins:
+            from rosclaw.connectors.ros.context.source_kinematics import (
+                compile_source_kinematics,
+                verify_source_kinematics,
+            )
+
+            self.mesh_kinematic_plan = compile_source_kinematics(
+                _read(self.assets_directory / "world.sdf", 20_000_000),
+                robot_entity=e["guard_inputs"]["robot_entity"],
+                world_name=e["guard_inputs"]["world_id"],
+                urdf_bytes=_read(self.assets_directory / "robot.urdf", 5_000_000),
+            )
+            self.verify_mesh_kinematics = verify_source_kinematics
+            if self.mesh_kinematic_plan["joints"]:
+                precision = initial["source_binding"].get("joint_kinematics_precision")
+                if (
+                    type(precision) is not dict
+                    or set(precision) != {"position_m", "rotation_matrix"}
+                    or any(
+                        type(precision[k]) not in (int, float) or not 0 < precision[k] <= ceiling
+                        for k, ceiling in (("position_m", 0.00001), ("rotation_matrix", 0.001))
+                    )
+                ):
+                    raise ValueError(
+                        "original independently accepted joint geometry precision required"
+                    )
+                self.mesh_kinematics_precision = precision
         self.enrollment = e
         self._cached_native_sha256 = self._cached_model = None
         self.reader = SimulationSourceStreamReader(
@@ -129,6 +176,27 @@ class CurrentSimulationFacts:
             expected_prefix_sha256=e["prefix_sha256"],
             guard_inputs=e["guard_inputs"],
         )
+
+    def _load_native_model(self, pointer):
+        raw = _read(self.directory / pointer["file"], 10_000_000)
+        native = json.loads(raw)
+        if _sha(raw) != pointer["sha256"] or native["captured_at"] != pointer["captured_at"]:
+            raise ValueError("original Native SHA or capture timestamp changed")
+        if self._cached_native_sha256 != pointer["sha256"]:
+            self._cached_model = build_system_model(
+                RosGraphSnapshot.from_dict(
+                    {
+                        "ros_version": "ros2",
+                        "distro": "jazzy",
+                        "endpoint": "fixture://actual-gazebo-source",
+                        "captured_at": native["captured_at"],
+                        **native["graph"],
+                    }
+                ),
+                native=native,
+            )
+            self._cached_native_sha256 = pointer["sha256"]
+        return self._cached_model
 
     def collect(self, *, freshness_horizon_ms=0):
         if type(freshness_horizon_ms) is not int or not 0 <= freshness_horizon_ms <= 100:
@@ -159,25 +227,41 @@ class CurrentSimulationFacts:
                 if _sha(_read(self.assets_directory / name, limit)) != self.enrollment[key]:
                     raise ValueError("enrolled original URDF/World bytes changed")
             pointer, pointer_read_ns = read_current_native_pointer(self.directory)
-            raw = _read(self.directory / pointer["file"], 10_000_000)
-            native = json.loads(raw)
-            if _sha(raw) != pointer["sha256"] or native["captured_at"] != pointer["captured_at"]:
-                raise ValueError("original Native SHA or capture timestamp changed")
-            if self._cached_native_sha256 != pointer["sha256"]:
-                self._cached_model = build_system_model(
-                    RosGraphSnapshot.from_dict(
-                        {
-                            "ros_version": "ros2",
-                            "distro": "jazzy",
-                            "endpoint": "fixture://actual-gazebo-source",
-                            "captured_at": native["captured_at"],
-                            **native["graph"],
-                        }
-                    ),
-                    native=native,
+            model = self._load_native_model(pointer)
+            collision_guard = getattr(self, "collision_resource_guard", None)
+            if collision_guard is not None:
+                collision_guard.verify(model.observations)
+            source = self.reader.poll()
+            mesh_kinematics = None
+            mesh_plan = getattr(self, "mesh_kinematic_plan", None)
+            if mesh_plan is not None and mesh_plan["joints"]:
+                sample = json.loads(self.reader.last_raw)
+                _members, mesh_kinematics = self.verify_mesh_kinematics(
+                    mesh_plan,
+                    sample,
+                    self.enrollment["guard_inputs"]["expected_robot_entity"],
+                    position_tolerance=self.mesh_kinematics_precision["position_m"],
+                    rotation_tolerance=self.mesh_kinematics_precision["rotation_matrix"],
                 )
-                self._cached_native_sha256 = pointer["sha256"]
-            model = self._cached_model
+            # Select at most one newly arrived original BEFORE the health decision.
+            # No stale decision is retried or accepted; all current checks below
+            # still apply, and a failed decision remains permanently latched.
+            latest, latest_read_ns = read_current_native_pointer(self.directory)
+            superseded_pointer = None
+            if latest != pointer:
+                if (
+                    int(latest["file"].removeprefix("original-native-").removesuffix(".json"))
+                    <= int(pointer["file"].removeprefix("original-native-").removesuffix(".json"))
+                    or latest["received_monotonic_ns"] <= pointer["received_monotonic_ns"]
+                    or datetime.fromisoformat(latest["captured_at"])
+                    < datetime.fromisoformat(pointer["captured_at"])
+                ):
+                    raise ValueError("current Native pointer changed inconsistently or rolled back")
+                superseded_pointer = pointer
+                pointer, pointer_read_ns = latest, latest_read_ns
+                model = self._load_native_model(pointer)
+                if collision_guard is not None:
+                    collision_guard.verify(model.observations)
             # Evaluate the stricter age margin once. This does not predict
             # future state; actual review time and age-evaluation time remain
             # distinct in the original report. No second Body/model review is
@@ -191,7 +275,6 @@ class CurrentSimulationFacts:
                 policy_hash=self.enrollment["policy_hash"],
                 freshness_margin_ms=freshness_horizon_ms,
             )
-            source = self.reader.poll()
             ended = time.monotonic_ns()
             if (
                 health["status"] != "HEALTHY_SIM_OBSERVATION_ONLY"
@@ -217,6 +300,10 @@ class CurrentSimulationFacts:
                 "native_pointer": pointer,
                 "native_pointer_read_ns": pointer_read_ns,
             }
+            if superseded_pointer is not None:
+                result["superseded_native_pointer_before_health"] = superseded_pointer
+            if mesh_kinematics is not None:
+                result["source_joint_kinematics"] = mesh_kinematics
             if freshness_horizon_ms:
                 observed = json.loads(self.reader.last_raw)["observer_monotonic_ns"]
                 result.update(

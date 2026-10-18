@@ -7,6 +7,7 @@ assumption. Same-UID fixture supervision is not adversarial authentication.
 
 import hashlib
 import math
+import re
 import xml.etree.ElementTree as ET
 from datetime import UTC, datetime
 
@@ -75,6 +76,27 @@ def _geometry(element, *, allow_plane=False):
     if element is None or len(element) != 1:
         raise ValueError("one resolved collision primitive required")
     shape = element[0]
+    if shape.tag == "mesh":
+        uri = shape.findtext("uri", "")
+        if uri.startswith("file://"):
+            uri = uri[7:]
+        if not re.fullmatch(r"/assets/collision-resources/[0-9a-f]{64}\.stl", uri):
+            raise ValueError("exact digest-named original collision STL URI required")
+        submesh = shape.find("submesh")
+        if submesh is not None and (
+            submesh.findtext("name", "") or submesh.findtext("center", "false") != "false"
+        ):
+            raise ValueError("unresolved selected or recentered collision submesh")
+        if len(shape) != len({child.tag for child in shape}) or {child.tag for child in shape} - {
+            "uri",
+            "scale",
+            "submesh",
+        }:
+            raise ValueError("unsupported original collision mesh semantics")
+        return (
+            "mesh",
+            (("uri", uri), ("scale", _numbers(shape.findtext("scale", "1 1 1"), 3, positive=True))),
+        )
     fields = {
         "box": (("size", 3),),
         "sphere": (("radius", 1),),
@@ -95,7 +117,7 @@ def _geometry(element, *, allow_plane=False):
     )
 
 
-def sdf_inventory(raw, *, robot_entity, world_name=None, allow_plane=False):
+def sdf_inventory(raw, *, robot_entity, world_name=None, allow_plane=False, with_kinematics=False):
     """Read expanded SDF, preserving link/joint structure and all collisions."""
     root = _xml(raw)
     if root.tag != "sdf" or root.findall(".//include"):
@@ -193,7 +215,7 @@ def sdf_inventory(raw, *, robot_entity, world_name=None, allow_plane=False):
     for rows in (collisions, sensors):
         if any(not x[1] for x in rows) or len({x[:2] for x in rows}) != len(rows):
             raise ValueError("unique named source members required")
-    return {
+    result = {
         "collisions": sorted(collisions),
         "sensors": sorted(sensors),
         "structure": (sorted(structure), joints),
@@ -206,6 +228,29 @@ def sdf_inventory(raw, *, robot_entity, world_name=None, allow_plane=False):
             for member in [*link.findall("collision"), *link.findall("sensor")]
         },
     }
+
+    if with_kinematics:
+        result["kinematic_source"] = {
+            "link_transforms": {name: transforms[name] for name in sorted(links)},
+            "frame_transforms": transforms,
+            "joints": [
+                {
+                    "name": j.get("name"),
+                    "kind": j.get("type"),
+                    "parent": j.findtext("parent"),
+                    "child": j.findtext("child"),
+                    "joint_transform": transforms[j.get("name")],
+                    "axis": j.findtext("axis/xyz"),
+                    "axis_frame": j.find("axis/xyz").get("expressed_in", "")
+                    if j.find("axis/xyz") is not None
+                    else "",
+                    "lower": j.findtext("axis/limit/lower"),
+                    "upper": j.findtext("axis/limit/upper"),
+                }
+                for j in model.findall("joint")
+            ],
+        }
+    return result
 
 
 def _loaded_inventory(sample, entity, *, allow_plane=False):
@@ -478,9 +523,43 @@ def review_sim_source_binding(
                         request["expected_namespace"].rstrip("/") + "/"
                     ):
                         mismatch.append("ROS_NAMESPACE_MISMATCH")
+            from .collision_assets import staged_collision_resource_pins
+
+            original_observations = _json(files["source-snapshot.json"]).get("observations", {})
+            if original_observations.get("prepared_collision_assets") != model.observations.get(
+                "prepared_collision_assets"
+            ):
+                mismatch.append("CURRENT_COLLISION_ASSET_ORIGINALS_DIFFER_FROM_BODY")
+            resource_pins = staged_collision_resource_pins(model.observations)
+            for relative, digest in resource_pins.items():
+                if assets.get(relative) != digest:
+                    mismatch.append("COLLISION_RESOURCE_SOURCE_ASSET_PIN_MISMATCH:" + relative)
+            for raw_sdf in (converted_sdf_bytes, world_sdf_bytes):
+                for mesh in _xml(raw_sdf).findall(".//collision/geometry/mesh"):
+                    uri = mesh.findtext("uri", "")
+                    if uri.startswith("file://"):
+                        uri = uri[7:]
+                    relative = uri.removeprefix("/assets/")
+                    if not uri.startswith("/assets/") or relative not in resource_pins:
+                        mismatch.append("COLLISION_MESH_ORIGINAL_RESOURCE_UNBOUND:" + uri)
+            if resource_pins:
+                evidence["collision_resource_source_pins"] = resource_pins
+                evidence["collision_resource_authority"] = (
+                    "NONE_REQUIRES_CURRENT_RESOURCE_CONTINUITY"
+                )
             converted = sdf_inventory(
                 converted_sdf_bytes, robot_entity=request["expected_robot_entity"]
             )
+            kinematic_plan = None
+            if resource_pins:
+                from .source_kinematics import compile_source_kinematics
+
+                kinematic_plan = compile_source_kinematics(
+                    world_sdf_bytes,
+                    robot_entity=request["expected_robot_entity"],
+                    world_name=request["sim_world_id"],
+                    urdf_bytes=files["body/refs/robot.urdf"],
+                )
             expected = sdf_inventory(
                 world_sdf_bytes,
                 robot_entity=request["expected_robot_entity"],
@@ -634,6 +713,22 @@ def review_sim_source_binding(
                     unknown.append("CLOCK_OR_CAPTURE_SEQUENCE_DISCONTINUITY")
                 previous = sample
                 loaded = _loaded_inventory(sample, entity)
+                member_transforms = expected["member_transforms"]
+                if kinematic_plan is not None and kinematic_plan["joints"]:
+                    from .source_kinematics import verify_source_kinematics
+
+                    member_transforms, summary = verify_source_kinematics(
+                        kinematic_plan,
+                        sample,
+                        entity,
+                        position_tolerance=position_tolerance,
+                        rotation_tolerance=rotation_tolerance,
+                    )
+                    evidence["joint_kinematics_review"] = summary
+                    evidence["joint_kinematics_precision"] = {
+                        "position_m": position_tolerance,
+                        "rotation_matrix": rotation_tolerance,
+                    }
                 model_inverse = _inverse(
                     _transform(_numbers(" ".join(map(str, models[0]["world_pose"])), 6))
                 )
@@ -646,9 +741,9 @@ def review_sim_source_binding(
                             model_inverse,
                             _transform(_numbers(" ".join(map(str, row["world_pose"])), 6)),
                         )
-                        if name not in expected["member_transforms"] or not _pose_matches(
+                        if name not in member_transforms or not _pose_matches(
                             actual_pose,
-                            expected["member_transforms"][name],
+                            member_transforms[name],
                             position_tolerance,
                             rotation_tolerance,
                         ):

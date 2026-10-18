@@ -71,13 +71,37 @@ def observed_gid(value):
 
 
 class ReadOnlyProbe(Node):
-    def __init__(self, *, snapshot_period_sec=1.0):
+    def __init__(
+        self,
+        *,
+        snapshot_period_sec=1.0,
+        collision_assets_path=None,
+        collision_assets_sha256=None,
+        lossless_gzip_snapshots=False,
+    ):
         if (
             type(snapshot_period_sec) not in (int, float)
             or not math.isfinite(snapshot_period_sec)
             or not 0.1 <= snapshot_period_sec <= 1.0
         ):
             raise ValueError("read-only snapshot period must be 0.1..1.0 seconds")
+        self.lossless_gzip_snapshots = lossless_gzip_snapshots
+        self.prepared_collision_assets = None
+        self.collision_resource_guard = None
+        if collision_assets_path is not None or collision_assets_sha256 is not None:
+            if not Path("/.dockerenv").is_file() or os.getenv("ROS_LOCALHOST_ONLY") != "1":
+                raise ValueError("prepared collision capture requires owned isolated SDK")
+            from simulation_collision_resources import (
+                CollisionResourceContinuity,
+                read_prepared_collision_observation,
+            )
+
+            self.prepared_collision_assets = read_prepared_collision_observation(
+                collision_assets_path, collision_assets_sha256
+            )
+            self.collision_resource_guard = CollisionResourceContinuity(
+                "/assets", {"prepared_collision_assets": self.prepared_collision_assets}
+            )
         super().__init__("rosclaw_readonly_probe")
         self.samples = {}
         self.subscriptions_by_topic = {}
@@ -208,6 +232,8 @@ class ReadOnlyProbe(Node):
                         "linear.x.max_velocity",
                         "angular.z.max_velocity",
                         "controller_frequency",
+                        "update_frequency",
+                        "publish_frequency",
                         "default_nav_to_pose_bt_xml",
                         "tf_broadcast",
                         "node_names",
@@ -384,6 +410,12 @@ class ReadOnlyProbe(Node):
                 }
 
     def snapshot(self):
+        resource_guard = getattr(self, "collision_resource_guard", None)
+        if resource_guard is not None:
+            try:
+                resource_guard.verify()
+            except ValueError as exc:
+                raise RuntimeError("prepared collision source changed: " + str(exc)) from exc
         stamp, wall = utc_now(), time.monotonic()
         # Retain original read times while excluding old cached configuration
         # from current readiness. A new envelope never refreshes an old RPC.
@@ -630,6 +662,11 @@ class ReadOnlyProbe(Node):
                     for topic, header in self.message_frames.items()
                 },
                 "urdf_descriptions": self.urdf_descriptions,
+                **(
+                    {"prepared_collision_assets": self.prepared_collision_assets}
+                    if getattr(self, "prepared_collision_assets", None) is not None
+                    else {}
+                ),
             },
             "completeness": {
                 "graph": not graph_errors,
@@ -660,7 +697,12 @@ class ReadOnlyProbe(Node):
                 },
                 error,
             )
-        self.publisher.publish(String(data=json.dumps(snapshot, allow_nan=False)))
+        raw = json.dumps(snapshot, allow_nan=False)
+        if getattr(self, "lossless_gzip_snapshots", False):
+            from rosclaw.connectors.ros.probe.transport_codec import encode_probe_snapshot
+
+            raw = encode_probe_snapshot(raw.encode("utf-8")).decode("utf-8")
+        self.publisher.publish(String(data=raw))
         self.status_publisher.publish(
             String(data=json.dumps({"read_only": True, "captured_at": utc_now()}))
         )
@@ -670,11 +712,19 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--once", action="store_true")
     parser.add_argument("--snapshot-period-sec", type=float, default=1.0)
+    parser.add_argument("--lossless-gzip-snapshots", action="store_true")
+    parser.add_argument("--collision-asset-originals")
+    parser.add_argument("--collision-asset-originals-sha256")
     parser.add_argument("--duration", type=float, default=3.0)
     parser.add_argument("--output", type=Path)
     args, ros_args = parser.parse_known_args()
     rclpy.init(args=ros_args)
-    node = ReadOnlyProbe(snapshot_period_sec=args.snapshot_period_sec)
+    node = ReadOnlyProbe(
+        snapshot_period_sec=args.snapshot_period_sec,
+        lossless_gzip_snapshots=args.lossless_gzip_snapshots,
+        collision_assets_path=args.collision_asset_originals,
+        collision_assets_sha256=args.collision_asset_originals_sha256,
+    )
     try:
         if args.once:
             deadline = time.monotonic() + args.duration

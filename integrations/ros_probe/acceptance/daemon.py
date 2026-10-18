@@ -328,6 +328,11 @@ def main():
         service=service,
         socket_path=root / "run/rosclawd.sock",
     )
+    startup_trace = None
+    if kind == "governed_navigation" and os.environ.get("ROSCLAW_SDK_STARTUP_TRACE") == "1":
+        from simulation_daemon_startup_trace import DaemonStartupTrace
+
+        startup_trace = DaemonStartupTrace(daemon, root.parent.parent)
     stopped = threading.Event()
     disconnect_fixture = None
     if disconnect_policy is not None:
@@ -361,11 +366,17 @@ def main():
             )
         (root / "daemon_ready.json").write_text(json.dumps(ready))
         if disconnect_fixture is None:
+            if startup_trace is not None:
+                deadline = time.monotonic() + 5
+                while time.monotonic() < deadline and not stopped.wait(0.02):
+                    startup_trace.sample()
             stopped.wait()
         else:
             while not stopped.wait(0.01):
                 disconnect_fixture.poll()
     finally:
+        if startup_trace is not None:
+            startup_trace.close()
         executor.emergency_stop()
         daemon.stop()
         if supervision is not None:
@@ -499,6 +510,7 @@ def freeze_audit_source(root, config):
         Path(__file__),
         Path(__file__).parent.parent / "ros2/probe.py",
         Path(__file__).parent.parent / "ros2/graph_reads.py",
+        repository / "src/rosclaw/connectors/ros/probe/transport_codec.py",
         repository / "src/rosclaw/connectors/ros/mission/executor.py",
         repository / "src/rosclaw/connectors/ros/mission/navigation_binding.py",
         repository / "src/rosclaw/connectors/ros/context/navigation_readiness.py",
@@ -517,6 +529,8 @@ def freeze_audit_source(root, config):
                 "paired_efficiency.py",
                 "cleaning_acceptance.py",
                 "simulation_current_facts.py",
+                "simulation_collision_resources.py",
+                "simulation_daemon_startup_trace.py",
                 "simulation_current_process.py",
                 "governed_navigation_run.py",
                 "simulation_execution_fault_policy.py",

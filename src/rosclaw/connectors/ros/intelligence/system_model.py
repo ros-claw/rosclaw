@@ -2,12 +2,56 @@
 
 from __future__ import annotations
 
+import hashlib
 from datetime import datetime
+from functools import lru_cache
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from rosclaw.contracts.common import ContractModel, content_hash
+from rosclaw.contracts.common import ContractModel, canonical_json, content_hash
+
+
+@lru_cache(maxsize=2)
+def _encoded_prepared_document(document):
+    encoded = canonical_json(document).encode("utf-8")
+    return encoded if len(encoded) <= 10_000_000 else None
+
+
+def _snapshot_content_hash(payload):
+    """Stream exactly the existing canonical bytes, caching only one literal.
+
+    Every dynamic field is encoded and hashed on each call. The prepared
+    document is still included byte for byte; no content-hash contract changes.
+    """
+    observations = payload.get("observations")
+    prepared = observations.get("prepared_collision_assets") if type(observations) is dict else None
+    document = prepared.get("document") if type(prepared) is dict else None
+    if type(document) is not str or not 0 < len(document.encode("utf-8")) <= 5_000_000:
+        return content_hash("rossnap", payload)
+    encoded = _encoded_prepared_document(document)
+    if encoded is None:
+        return content_hash("rossnap", payload)
+    digest = hashlib.sha256()
+
+    def mapping(value, path=()):
+        digest.update(b"{")
+        for index, key in enumerate(sorted(value)):
+            if index:
+                digest.update(b",")
+            digest.update(canonical_json(key).encode("utf-8"))
+            digest.update(b":")
+            child_path = (*path, key)
+            if child_path == ("observations", "prepared_collision_assets", "document"):
+                digest.update(encoded)
+            elif child_path in (("observations",), ("observations", "prepared_collision_assets")):
+                mapping(value[key], child_path)
+            else:
+                digest.update(canonical_json(value[key]).encode("utf-8"))
+        digest.update(b"}")
+
+    mapping(payload)
+    return "rossnap_" + digest.hexdigest()
 
 
 class Observation(BaseModel):
@@ -72,7 +116,7 @@ class RosSystemModel(ContractModel):
         payload = self.to_dict()
         payload.pop("snapshot_hash", None)
         payload.pop("snapshot_id", None)
-        return content_hash("rossnap", payload)
+        return _snapshot_content_hash(payload)
 
     def seal(self) -> RosSystemModel:
         self.snapshot_hash = self.compute_snapshot_hash()
