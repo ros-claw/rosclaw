@@ -59,6 +59,7 @@ def compile_source_kinematics(raw, *, robot_entity, world_name=None, urdf_bytes=
         children.add(child)
         axis = None
         bounds = None
+        bounds_kind = "NONE"
         if kind != "fixed":
             if row["axis"] is None or row["lower"] is None or row["upper"] is None:
                 raise ValueError("explicit original joint axis and bounds required")
@@ -71,13 +72,20 @@ def compile_source_kinematics(raw, *, robot_entity, world_name=None, urdf_bytes=
                 )[0]
                 axis = _axis(_apply(rotation, axis))
             bounds = (float(row["lower"]), float(row["upper"]))
-            if not all(math.isfinite(x) for x in bounds) or bounds[0] > bounds[1]:
-                raise ValueError("finite ordered original joint bounds required")
+            if bounds == (-math.inf, math.inf) and urdf_kinds.get(name) == "continuous":
+                bounds, bounds_kind = None, "UNBOUNDED"
+            elif all(math.isfinite(x) for x in bounds) and bounds[0] <= bounds[1]:
+                bounds_kind = "FINITE"
+            else:
+                raise ValueError(
+                    "finite ordered bounds or original continuous unbounded joint required"
+                )
         specs[name] = {
             **row,
             "continuous": urdf_kinds.get(name) == "continuous",
             "normalized_axis": axis,
             "bounds": bounds,
+            "bounds_kind": bounds_kind,
             "parent_to_joint": _compose(_inverse(links[parent]), row["joint_transform"]),
             "joint_to_child": _compose(_inverse(row["joint_transform"]), links[child]),
         }
@@ -209,7 +217,12 @@ def verify_source_kinematics(plan, sample, entity, *, position_tolerance, rotati
         if max(abs(a - b) for a, b in zip(axis, spec["normalized_axis"], strict=True)) > 1e-9:
             raise ValueError("loaded joint axis differs from original source")
         bounds = row.get("bounds")
-        if (
+        if row.get("bounds_kind") != spec["bounds_kind"]:
+            raise ValueError("loaded joint bounds kind differs from original source")
+        if spec["bounds_kind"] == "UNBOUNDED":
+            if "bounds" not in row or bounds is not None:
+                raise ValueError("explicit unbounded joint requires null bounds")
+        elif (
             type(bounds) is not list
             or len(bounds) != 2
             or any(type(v) not in (int, float) or not math.isfinite(v) for v in bounds)
@@ -234,7 +247,7 @@ def verify_source_kinematics(plan, sample, entity, *, position_tolerance, rotati
                 )
             )
             q = math.atan2(sine, (sum(rotation[i][i] for i in range(3)) - 1) / 2)
-            if not spec["continuous"]:
+            if spec["bounds_kind"] == "FINITE":
                 direct = row.get("position")
                 if (
                     type(direct) is not list

@@ -45,6 +45,7 @@ def fixture(kind="revolute", q=0.2):
                     "axis": [0, 1, 0],
                     "axis_frame": "",
                     "bounds": [-1, 1],
+                    "bounds_kind": "FINITE",
                     "position": [q],
                     "pose": [0] * 6,
                 }
@@ -164,3 +165,57 @@ def test_optional_source_witness_capture_is_read_only_and_explicit():
         ".Request(",
     ):
         assert forbidden not in text
+
+
+def continuous_fixture(lower="-inf", upper="inf", kind="continuous", sdf_kind="revolute"):
+    sdf = f'''<sdf version="1.9"><model name="anonymous"><link name="base"/><link name="wheel"><pose>1 0 0 0 0 0</pose><collision name="offset"><pose>0.2 0 0 0 0 0</pose><geometry><box><size>0.1 0.2 0.3</size></box></geometry></collision></link><joint name="hinge" type="{sdf_kind}"><parent>base</parent><child>wheel</child><axis><xyz>0 1 0</xyz><limit><lower>{lower}</lower><upper>{upper}</upper></limit></axis></joint></model></sdf>'''.encode()
+    urdf = f'<robot name="anonymous"><joint name="hinge" type="{kind}"/></robot>'.encode()
+    return sdf, urdf
+
+
+def test_continuous_unbounded_angle_requires_original_urdf_and_explicit_observation():
+    sdf, urdf = continuous_fixture()
+    plan = compile_source_kinematics(sdf, robot_entity="anonymous", urdf_bytes=urdf)
+    _, sample = fixture()
+    joint = sample["joint_kinematics"]["joints"][0]
+    joint.update(bounds_kind="UNBOUNDED", bounds=None, position=None)
+    assert review(plan, sample)[1]["execution_authority"] == "NONE"
+    for invalid in ({"bounds_kind": "FINITE"}, {"bounds": [None, None]}, {"bounds_kind": None}):
+        bad = deepcopy(sample)
+        bad["joint_kinematics"]["joints"][0].update(invalid)
+        with pytest.raises(ValueError):
+            review(plan, bad)
+    missing = deepcopy(sample)
+    missing["joint_kinematics"]["joints"][0].pop("bounds")
+    with pytest.raises(ValueError):
+        review(plan, missing)
+    with pytest.raises(ValueError):
+        compile_source_kinematics(sdf, robot_entity="anonymous")
+
+
+@pytest.mark.parametrize(
+    "lower,upper,kind,sdf_kind",
+    [
+        ("-inf", "inf", "revolute", "revolute"),
+        ("-inf", "inf", "prismatic", "prismatic"),
+        ("-inf", "1", "continuous", "revolute"),
+        ("-1", "inf", "continuous", "revolute"),
+        ("nan", "inf", "continuous", "revolute"),
+        ("1", "-1", "continuous", "revolute"),
+    ],
+)
+def test_unbounded_or_invalid_bounds_cannot_remove_original_bounded_joint_limits(
+    lower, upper, kind, sdf_kind
+):
+    sdf, urdf = continuous_fixture(lower, upper, kind, sdf_kind)
+    with pytest.raises(ValueError):
+        compile_source_kinematics(sdf, robot_entity="anonymous", urdf_bytes=urdf)
+
+
+def test_finite_sdf_limits_still_apply_with_continuous_urdf():
+    sdf, urdf = continuous_fixture("-1", "1")
+    plan = compile_source_kinematics(sdf, robot_entity="anonymous", urdf_bytes=urdf)
+    _, sample = fixture()
+    sample["joint_kinematics"]["joints"][0]["position"] = [2 * math.pi + 0.2]
+    with pytest.raises(ValueError, match="bounds"):
+        review(plan, sample)

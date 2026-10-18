@@ -26,6 +26,7 @@
 #include <gz/sim/components/ParentLinkName.hh>
 #include <gz/sim/components/ChildLinkName.hh>
 #include <cmath>
+#include <limits>
 #include <gz/sim/components/NavSat.hh>
 #include <gz/sim/components/ContactSensor.hh>
 #include <gz/sim/components/Collision.hh>
@@ -171,18 +172,28 @@ class SourceWitness final : public System, public ISystemConfigure,
         joint["parent"] = parent ? Json(parent->Data()) : Json(nullptr);
         joint["child"] = child ? Json(child->Data()) : Json(nullptr);
         joint["axis"] = nullptr; joint["axis_frame"] = "";
-        joint["bounds"] = nullptr; joint["position"] = nullptr;
+        joint["bounds"] = nullptr; joint["bounds_kind"] = "NONE";
+        joint["position"] = nullptr;
         if (!parent || !child || kind == "UNKNOWN") kinematics["complete"] = false;
         if (kind != "fixed") {
           if (!axis) kinematics["complete"] = false;
           else {
             const auto &a = axis->Data(); const auto xyz = a.Xyz();
             if (!std::isfinite(xyz.X()) || !std::isfinite(xyz.Y()) ||
-                !std::isfinite(xyz.Z()) || !std::isfinite(a.Lower()) ||
-                !std::isfinite(a.Upper())) kinematics["complete"] = false;
+                !std::isfinite(xyz.Z())) kinematics["complete"] = false;
             joint["axis"] = {xyz.X(), xyz.Y(), xyz.Z()};
             joint["axis_frame"] = a.XyzExpressedIn();
-            joint["bounds"] = {a.Lower(), a.Upper()};
+            if (std::isfinite(a.Lower()) && std::isfinite(a.Upper()) &&
+                a.Lower() <= a.Upper()) {
+              joint["bounds_kind"] = "FINITE";
+              joint["bounds"] = {a.Lower(), a.Upper()};
+            } else if (a.Lower() == -std::numeric_limits<double>::infinity() &&
+                       a.Upper() == std::numeric_limits<double>::infinity()) {
+              joint["bounds_kind"] = "UNBOUNDED";
+            } else {
+              joint["bounds_kind"] = "UNKNOWN";
+              kinematics["complete"] = false;
+            }
           }
         }
         if (position) {
