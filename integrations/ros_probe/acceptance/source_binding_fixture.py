@@ -466,6 +466,26 @@ def main():
             spawned = json.loads((OUT / "prepared-stack-spawned-original.json").read_text())
             if spawned["run_id"] != settings["run_id"] or spawned["owner_pid"] != stack.pid:
                 raise ValueError("owned prepared process milestone identity differs")
+        from simulation_engineering_capture import COUNTERFACTUAL_CASES
+
+        if engineering_capture and engineering_capture["case"] in COUNTERFACTUAL_CASES:
+            # Configuration can prevent lifecycle activation itself. Capture
+            # source-only raw facts before initialization; never bypass L1 or
+            # pretend the inactive stack has been admitted for navigation.
+            from simulation_engineering_capture import capture_failure
+
+            save("engineering-original-requirements.json", requirements)
+            save(
+                "counterfactual-initialization-boundary.json",
+                {
+                    "initial_pose_setup": "NOT_RUN_PREACTIVATION_RAW_CAPTURE",
+                    "L1": "NOT_EVALUATED",
+                    "L2": "NOT_RUN",
+                    "reason": "configuration may prevent localization activation",
+                },
+            )
+            capture_failure(OUT, engineering_capture, state, spin_until, save)
+            return
         spin_until(
             lambda: (
                 state["model"]

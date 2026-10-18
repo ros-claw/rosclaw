@@ -27,7 +27,7 @@ def main():
         raise ValueError("pinned prepared assets differ from this actual SIM run")
     descriptor = json.loads(Path("/assets/bringup.json").read_text())
     if (
-        set(descriptor) - {"scan_bridge_state", "additional_command_endpoint"}
+        set(descriptor) - {"scan_bridge_state", "additional_command_endpoint", "counterfactual_sim"}
         != {
             "schema_version",
             "namespace",
@@ -45,6 +45,22 @@ def main():
         or not descriptor["controllers"]["names"]
     ):
         raise ValueError("closed pinned operator bringup descriptor required")
+    if "counterfactual_sim" in descriptor:
+        from simulation_counterfactual_config import counterfactual_clock_parameters
+
+        counterfactual_clock_parameters(descriptor, "controller_server")
+        capture = settings.get("engineering_capture", {})
+        if (
+            not Path("/.dockerenv").is_file()
+            or os.environ.get("ROS_LOCALHOST_ONLY") != "1"
+            or capture.get("case") != "rsk_node_clock_mismatch"
+            or capture.get("phase") not in {"before_repair", "rollback"}
+            or capture.get("run_id") != settings["run_id"]
+            or "governed_sink" not in settings
+        ):
+            raise ValueError(
+                "clock override requires an explicitly owned isolated counterfactual capture"
+            )
     scan_state = descriptor.get("scan_bridge_state", "running")
     if scan_state not in {"running", "paused_after_initialization"}:
         raise ValueError("explicit engineering scan bridge state required")

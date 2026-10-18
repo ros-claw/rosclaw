@@ -14,7 +14,13 @@ from pathlib import Path
 from simulation_owned_process_fault import pause_owned_process, resume_owned_process
 from simulation_unadmitted_sink import require_unadmitted_sink
 
-CASES = {
+COUNTERFACTUAL_CASES = {
+    "rsk_node_clock_mismatch",
+    "rsk_controller_plugin_unavailable",
+    "rsk_sensor_frame_unresolvable",
+}
+
+CASES = COUNTERFACTUAL_CASES | {
     "j100_navigation_onboarding",
     "map_to_odom_missing",
     "scan_stale",
@@ -105,6 +111,32 @@ def validate_engineering_capture(settings):
     return policy
 
 
+def counterfactual_readback_available(native, case):
+    """Only gate raw capture on actual parameter reads, never task readiness."""
+    if case not in COUNTERFACTUAL_CASES:
+        return True
+    observations = native.get("observations", {})
+    now = datetime.fromisoformat(native["captured_at"])
+    for node, params in observations.get("node_parameters", {}).items():
+        stamp = observations.get("parameter_captured_at", {}).get(node)
+        try:
+            at = datetime.fromisoformat(stamp)
+            if at.tzinfo is None or not 0 <= (now - at).total_seconds() <= 0.5:
+                continue
+        except (TypeError, ValueError):
+            continue
+        if case == "rsk_node_clock_mismatch":
+            if node.endswith("/controller_server") and params.get("use_sim_time") is False:
+                return True
+        elif case == "rsk_controller_plugin_unavailable":
+            if params.get("FollowPath.plugin") == "rsk_fixture::UnavailableController":
+                return True
+        elif case == "rsk_sensor_frame_unresolvable":
+            if params.get("voxel_layer.scan.sensor_frame") == "rsk_missing_sensor_frame":
+                return True
+    return False
+
+
 def capture_failure(root, policy, state, spin_until, save):
     """Require original non-ready ROS facts and an untouched zero-command sink."""
     config_path = root / "execution_config.json"
@@ -119,7 +151,14 @@ def capture_failure(root, policy, state, spin_until, save):
     )
     process_fault = None
     onboarding = policy["case"] == "j100_navigation_onboarding"
-    expected_statuses = {"PROPOSED"} if onboarding else {"UNKNOWN", "BLOCKED"}
+    counterfactual = policy["case"] in COUNTERFACTUAL_CASES
+    expected_statuses = (
+        {"PROPOSED", "UNKNOWN", "BLOCKED"}
+        if counterfactual
+        else {"PROPOSED"}
+        if onboarding
+        else {"UNKNOWN", "BLOCKED"}
+    )
     try:
         if policy["case"] == "scan_stale":
             # This staged bringup policy represents a bridge left paused after
@@ -135,6 +174,7 @@ def capture_failure(root, policy, state, spin_until, save):
                 time.monotonic() >= earliest
                 and current_capture(state)
                 and state["native"] is not None
+                and counterfactual_readback_available(state["native"], policy["case"])
                 and state["review"] is not None
                 and review_engineering_failure(state["native"], state["review"], requirements)[
                     "status"
@@ -161,7 +201,9 @@ def capture_failure(root, policy, state, spin_until, save):
             {
                 "policy": policy,
                 "status": (
-                    "ACTUAL_UNBOUND_ONBOARDING_CAPTURE_EXTERNAL_REVIEW_REQUIRED"
+                    "ACTUAL_COUNTERFACTUAL_RAW_CAPTURE_EXTERNAL_REVIEW_REQUIRED"
+                    if counterfactual
+                    else "ACTUAL_UNBOUND_ONBOARDING_CAPTURE_EXTERNAL_REVIEW_REQUIRED"
                     if onboarding
                     else "ACTUAL_NONREADY_ENGINEERING_CAPTURE_EXTERNAL_REVIEW_REQUIRED"
                 ),
@@ -171,7 +213,7 @@ def capture_failure(root, policy, state, spin_until, save):
                 "body_snapshot_hash": body_hash,
                 "physical_binding_scope": "SOURCE_ONLY_UNENROLLED; no Body-bound or lease-enabled physical observation claimed",
                 "navigation_goals_sent": 0,
-                "L1": "NOT_EVALUATED" if onboarding else "NOT_READY",
+                "L1": "NOT_EVALUATED" if onboarding or counterfactual else "NOT_READY",
                 "L2": "NOT_RUN",
                 "claim_scope": "SIMULATION_ONLY",
             },

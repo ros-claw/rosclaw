@@ -5,6 +5,7 @@ from pathlib import Path
 
 from launch import LaunchDescription
 from launch_ros.actions import Node
+from simulation_counterfactual_config import counterfactual_clock_parameters
 from simulation_prepared_lifecycle_config import managed_lifecycle_nodes
 
 
@@ -41,7 +42,11 @@ def generate_launch_description():
             name=name,
             namespace=namespace,
             output="screen",
-            parameters=[params, {"use_sim_time": True, "yaml_filename": "/evidence/map.yaml"}],
+            parameters=[
+                params,
+                counterfactual_clock_parameters(descriptor, name),
+                {"yaml_filename": "/evidence/map.yaml"},
+            ],
             remappings=(
                 [("/tf", "tf"), ("/tf_static", "tf_static")]
                 if descriptor and descriptor["tf_topics_relative"]

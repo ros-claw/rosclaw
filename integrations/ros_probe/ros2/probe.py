@@ -207,6 +207,10 @@ class ReadOnlyProbe(Node):
                         "tf_broadcast",
                         "node_names",
                         "plugins",
+                        "planner_plugins",
+                        "controller_plugins",
+                        "goal_checker_plugins",
+                        "progress_checker_plugins",
                         "obstacle_layer.observation_sources",
                         "voxel_layer.observation_sources",
                         "global_frame",
@@ -230,6 +234,8 @@ class ReadOnlyProbe(Node):
                             ".combination_method",
                             ".observation_sources",
                             ".topic",
+                            ".sensor_frame",
+                            ".data_type",
                         )
                     )
                 ]
