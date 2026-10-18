@@ -72,16 +72,12 @@ def registered_episode_inputs(
     elif facts.application_inputs is not None:
         raise ValueError("registered application facts require the same application capability")
     diagnostic = getattr(aci, "registered_diagnostic_inputs", None)
-    if callable(diagnostic):
-        if facts.diagnostic_inputs is None:
-            if require_complete_originals:
-                raise ValueError("actual diagnostic inputs/provider policy must be registered")
-        elif json.loads(_read(root, facts.diagnostic_inputs, limit=16_000_000)) != diagnostic():
-            raise ValueError(
-                "diagnostic graph/provider differs from the registered original context"
-            )
-    elif facts.diagnostic_inputs is not None:
-        raise ValueError("registered diagnostic facts require the same diagnostic capability")
+    if callable(diagnostic) and facts.diagnostic_inputs is None and require_complete_originals:
+        raise ValueError("actual diagnostic inputs/provider policy must be registered")
+    if facts.diagnostic_inputs is not None:
+        _registered_diagnostic_context(
+            aci, json.loads(_read(root, facts.diagnostic_inputs, limit=16_000_000))
+        )
     policy = json.loads(_read(root, memory_policy))
     if (
         type(policy) is not dict
@@ -107,3 +103,35 @@ def registered_episode_inputs(
     ):
         raise ValueError("Memory policy differs or does not exclude the current episode/run")
     return allocation, facts
+
+
+def _registered_diagnostic_context(aci, original):
+    """Bind common facts without granting A/D any Expert tools or callbacks."""
+    from benchmarks.ros_expert_ablation.rsk_diagnostic_provider import DiagnosticProbePolicyV1
+    from benchmarks.ros_expert_ablation.rsk_operational_aci import original_operational_graph
+    from rosclaw.contracts.common import content_hash
+
+    base = aci.base
+    if (
+        type(original) is not dict
+        or set(original) != {"schema_version", "graph", "provider_policy"}
+        or original["schema_version"] != "rosclaw.rsk_diagnostic_inputs.v1"
+        or original["graph"] != original_operational_graph(base).model_dump(mode="json")
+    ):
+        raise ValueError("diagnostic graph differs from the registered original context")
+    provider = getattr(aci, "provider", None)
+    if original["provider_policy"] is None:
+        if provider is not None:
+            raise ValueError("registered diagnostic provider policy missing")
+        return
+    policy = DiagnosticProbePolicyV1.model_validate_json(json.dumps(original["provider_policy"]))
+    if (
+        policy.source_revision != base.operator_source
+        or policy.original_run_id != base.original_run_id
+        or policy.original_snapshot_hash != base.case.snapshot_hash
+        or policy.source_urdf_sha256 != base.case.source_urdf_sha256
+        or policy.requirements_hash != content_hash("navrequirements", base.requirements)
+        or policy.case_staging_hash != content_hash("acistaging", base.tools.initial_staging)
+        or (provider is not None and policy != provider.policy)
+    ):
+        raise ValueError("diagnostic provider differs from the registered original context")

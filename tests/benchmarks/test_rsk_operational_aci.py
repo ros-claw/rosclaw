@@ -458,3 +458,91 @@ def test_native_only_context_does_not_invent_urdf_or_navigation_bindings():
         type(policy).model_validate(
             {**policy.model_dump(), "requirements_hash": "invented-requirements"}
         )
+
+
+@pytest.mark.parametrize("with_policy", [False, True])
+def test_one_diagnostic_facts_manifest_is_shared_by_all_five_arms(tmp_path, with_policy):
+    from benchmarks.ros_expert_ablation.rsk_pilot_protocol import allocate_pilot
+    from benchmarks.ros_expert_ablation.rsk_registered_inputs import registered_episode_inputs
+    from tests.benchmarks.test_rsk_baselines import generic
+    from tests.benchmarks.test_rsk_episode_runner import TASK, bundle, put, refreeze
+
+    expert, _, kwargs = bundle(tmp_path, arm="E")
+    original = OperationalRskACI(expert)
+    provider, _ = provider_fixture(tmp_path, original)
+    diagnostic = original.registered_diagnostic_inputs()
+    if with_policy:
+        diagnostic["provider_policy"] = provider.policy.model_dump(mode="json")
+    reference = put(tmp_path, "common-diagnostic-inputs.json", diagnostic)
+    facts = json.loads((tmp_path / "facts-manifest.json").read_text())
+    facts["diagnostic_inputs"] = reference.model_dump(mode="json")
+    manifest = put(tmp_path, "common-diagnostic-facts.json", facts)
+    kwargs["facts_manifest"] = manifest
+    cases = [c.model_dump(mode="json") for c in kwargs["protocol"].cases]
+    cases[0]["facts_manifest_sha256"] = manifest.sha256
+    refreeze(tmp_path, kwargs, cases=cases, harness_source="b" * 40)
+    schemas = {}
+    for arm in ["A", "B", "C", "D", "E"]:
+        if arm == "A":
+            aci = generic(expert.base)
+            aci.base.operator_source, aci.base.original_run_id = "b" * 40, "a" * 32
+        elif arm == "D":
+            aci = RskPhysicalACI(copy.deepcopy(expert.base), arm="B")
+        else:
+            delegate = RskPhysicalACI(
+                copy.deepcopy(expert.base),
+                arm=arm,
+                memory_query=expert.memory_query if arm == "E" else None,
+            )
+            aci = OperationalRskACI(delegate)
+        options = dict(kwargs)
+        options.pop("pilot_evidence")
+        options.pop("evidence_root")
+        options["ordinal"] = next(
+            row["ordinal"]
+            for row in allocate_pilot(kwargs["protocol"])
+            if row["arm"] == arm and row["case_id"] == cases[0]["case_id"]
+        )
+        _, registered = registered_episode_inputs(TASK, aci, root=tmp_path, arm=arm, **options)
+        assert registered.diagnostic_inputs == reference
+        assert aci.base.probe_count == aci.base.validation_count == provider.operator.calls == 0
+        assert not aci.trace and not aci.base.proposals
+        schemas[arm] = aci.request_schema()["discriminator"]["mapping"]
+    assert "ros_engineer.inspect_operational_graph" not in schemas["A"]
+    assert "ros_engineer.run_diagnostic_probe" not in schemas["D"]
+    assert "ros_engineer.inspect_operational_graph" in schemas["B"]
+
+
+@pytest.mark.parametrize(
+    "fault",
+    ["schema", "extra", "graph", "source", "run", "snapshot", "urdf", "requirements", "staging"],
+)
+def test_shared_diagnostic_registration_still_rejects_rehashed_wrong_facts(tmp_path, fault):
+    from benchmarks.ros_expert_ablation.rsk_registered_inputs import _registered_diagnostic_context
+    from tests.benchmarks.test_rsk_baselines import generic
+
+    original = facade()
+    provider, _ = provider_fixture(tmp_path, original)
+    data = original.registered_diagnostic_inputs()
+    data["provider_policy"] = provider.policy.model_dump(mode="json")
+    aci = generic(original.base)
+    aci.base.operator_source, aci.base.original_run_id = "b" * 40, "a" * 32
+    if fault == "schema":
+        data["schema_version"] = "wrong"
+    elif fault == "extra":
+        data["undeclared"] = True
+    elif fault == "graph":
+        data["graph"]["findings"] = []
+    else:
+        key, value = {
+            "source": ("source_revision", "c" * 40),
+            "run": ("original_run_id", "c" * 32),
+            "snapshot": ("original_snapshot_hash", "rossnap_" + "c" * 64),
+            "urdf": ("source_urdf_sha256", "c" * 64),
+            "requirements": ("requirements_hash", "different"),
+            "staging": ("case_staging_hash", "different"),
+        }[fault]
+        data["provider_policy"][key] = value
+    with pytest.raises(ValueError, match="diagnostic .*registered original context"):
+        _registered_diagnostic_context(aci, data)
+    assert aci.base.probe_count == aci.base.validation_count == provider.operator.calls == 0

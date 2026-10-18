@@ -51,6 +51,14 @@ compares the actual endpoint identity/QoS in both captures against frozen inputs
 Owner booleans alone are insufficient. Source paths and all file references are
 host-owned, bounded and SHA-pinned; models cannot choose commands or paths.
 
+The registered diagnostic facts are common to A/B/C/D/E, including a frozen
+provider policy when that case offers a probe. Host validation independently
+recomputes the graph and binds source/run/snapshot/URDF/requirements/staging for
+every arm. An attached provider must additionally match that exact policy.
+Providerless arms accept the same facts without gaining a provider or any Expert
+operation. In particular A retains generic files/staging and D retains its
+zero-model compiler; their schemas and execution permissions do not change.
+
 Each Native snapshot call must fit the original Core request's five-second
 maximum. The ambient interval between captures is separately recorded in full
 and must be at least five seconds and within the declared diagnostic experiment

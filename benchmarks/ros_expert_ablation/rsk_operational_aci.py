@@ -64,6 +64,22 @@ GRAPH_CALLS = TypeAdapter(
 )
 
 
+def original_operational_graph(base):
+    """Host fact binding shared by all arms; this grants no model-facing tool."""
+    base._bound(base.case.case_hash, read_only=True)
+    return compile_operational_graph(
+        base.model,
+        base.tools.files["robot.urdf"].encode(),
+        base.requirements,
+        source_ref="sealed-episode-native:" + base.model.snapshot_hash,
+        now=datetime.fromisoformat(base.case.reviewed_at),
+        evidence_domain="SEALED_REPLAY",
+        source_review=base.case.derived_documents["source_review"],
+        expected_run_id=base.case.run_id,
+        expected_body_hash=base.case.body_hash,
+    )
+
+
 class OperationalRskACI(RskPhysicalACI):
     def __init__(
         self,
@@ -101,18 +117,7 @@ class OperationalRskACI(RskPhysicalACI):
 
                 self.base.probe_evaluator = diagnostic_only_marker
                 self._diagnostic_only_provider = True
-        source_ref = "sealed-episode-native:" + self.base.model.snapshot_hash
-        graph = compile_operational_graph(
-            self.base.model,
-            self.base.tools.files["robot.urdf"].encode(),
-            self.base.requirements,
-            source_ref=source_ref,
-            now=datetime.fromisoformat(self.base.case.reviewed_at),
-            evidence_domain="SEALED_REPLAY",
-            source_review=self.base.case.derived_documents["source_review"],
-            expected_run_id=self.base.case.run_id,
-            expected_body_hash=self.base.case.body_hash,
-        )
+        graph = original_operational_graph(self.base)
         self._graph_json = json.dumps(graph.model_dump(mode="json"), separators=(",", ":"))
         self._graph_hash = graph.graph_hash
 
