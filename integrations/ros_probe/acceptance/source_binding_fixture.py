@@ -466,9 +466,10 @@ def main():
             spawned = json.loads((OUT / "prepared-stack-spawned-original.json").read_text())
             if spawned["run_id"] != settings["run_id"] or spawned["owner_pid"] != stack.pid:
                 raise ValueError("owned prepared process milestone identity differs")
-        from simulation_engineering_capture import COUNTERFACTUAL_CASES
-
-        if engineering_capture and engineering_capture["case"] in COUNTERFACTUAL_CASES:
+        if (
+            engineering_capture
+            and engineering_capture["case"] == "rsk_controller_plugin_unavailable"
+        ):
             # Configuration can prevent lifecycle activation itself. Capture
             # source-only raw facts before initialization; never bypass L1 or
             # pretend the inactive stack has been admitted for navigation.

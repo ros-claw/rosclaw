@@ -7,11 +7,13 @@ repair compiler. Actual experiment evidence remains separate from implementation
 Three source-only raw capture cases are admitted: `rsk_node_clock_mismatch`,
 `rsk_controller_plugin_unavailable`, and `rsk_sensor_frame_unresolvable`.
 These are operator-assigned experiment labels, never hypothesis-engine inputs.
-Before and rollback captures can precede localization initialization: an invalid
-plugin may prevent lifecycle configuration and activation itself. Their metadata
+Only invalid-plugin before and rollback captures precede localization initialization:
+the missing plugin may prevent lifecycle configuration and activation itself. Their metadata
 explicitly records `NOT_RUN_PREACTIVATION_RAW_CAPTURE`, L1 NOT_EVALUATED,
 L2 NOT_RUN, no navigation workspace, and a never-admitted zero-command sink.
-Capturing facts does not establish the new mechanism or physical task acceptance.
+Clock and sensor-frame captures retain normal explicit initialization so startup TF
+absence is not confused with the intended mechanism. Capturing facts does not
+establish the new mechanism or physical task acceptance.
 
 The existing Nav2 launch previously forced `use_sim_time=True` after YAML.
 An optional `counterfactual_sim` bringup descriptor now carries the explicit
