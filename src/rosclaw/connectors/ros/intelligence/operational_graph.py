@@ -359,14 +359,22 @@ def compile_operational_graph(
         domain_refs.append(ref("/observations/parameter_captured_at"))
     declared_clock_domain = clock_domain
     clock_refs = list(domain_refs)
+    probe_clock = model.environment.get("probe_use_sim_time")
+    clock_refs.append(
+        ref("/environment/probe_use_sim_time")
+        if "probe_use_sim_time" in model.environment
+        else ref("/environment")
+    )
     receive_age = model.observations.get("clock_last_receive_age_ms")
     if "clock_last_receive_age_ms" in model.observations:
         clock_refs.append(ref("/observations/clock_last_receive_age_ms"))
     if "clock_advancing" in model.observations:
         clock_refs.append(ref("/observations/clock_advancing"))
     clock_current = domain_current and (
-        declared_clock_domain != "ROS_SIM"
-        or type(receive_age) in (int, float)
+        declared_clock_domain == "ROS_SYSTEM"
+        and probe_clock is False
+        or declared_clock_domain == "ROS_SIM"
+        and type(receive_age) in (int, float)
         and math.isfinite(receive_age)
         and 0 <= receive_age + (now - model.captured_at).total_seconds() * 1000 <= max_age
     )

@@ -23,6 +23,7 @@ from tests.connectors.ros.test_engineering_case_compiler import NOW, setup
 
 def native_fixture():
     m, u, r = setup()
+    m.environment["probe_use_sim_time"] = False
     m.observations["node_use_sim_time"] = {"/sample/lidar": True, "/sample/costmap": True}
     for node in m.observations["node_use_sim_time"]:
         m.observations["parameter_captured_at"][node] = NOW.isoformat()

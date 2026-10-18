@@ -107,3 +107,31 @@ def test_old_v1_envelope_only_clock_provenance_is_not_upgraded_by_hypothesis_eng
     old = RosOperationalGraphV1.from_dict({**data, "graph_hash": content_hash("rosopgraph", data)})
     p = plan_diagnostic_probes(old, issue_ids=["OP-TIME-DOMAINS"])
     assert next(h.status for h in p.hypotheses if h.predicate == "CLOCK_CONFLICT") == "UNKNOWN"
+
+
+@pytest.mark.parametrize("probe_mode", [None, True])
+def test_system_tf_age_cannot_use_an_unknown_or_simulated_probe_clock(probe_mode):
+    m, u, r = native_fixture()
+    for node in m.observations["node_use_sim_time"]:
+        m.observations["node_use_sim_time"][node] = False
+        m.observations["node_parameters"][node]["use_sim_time"] = False
+    m.environment["probe_use_sim_time"] = probe_mode
+    g = graph(m, u, r)
+    assert next(f.status for f in g.findings if f.id == "OP-TIME-DOMAINS") == "SATISFIED"
+    assert all(
+        f.status == "UNKNOWN"
+        for f in g.findings
+        if f.invariant == "tf.observed_dynamic_time_window"
+    )
+
+
+def test_sim_tf_uses_the_native_clock_stream_independently_of_probe_parameter():
+    m, u, r = native_fixture()
+    m.environment["probe_use_sim_time"] = True
+    g = graph(m, u, r)
+    assert next(f.status for f in g.findings if f.id == "OP-CLOCK-PROGRESS") == "SATISFIED"
+    assert all(
+        f.status == "SATISFIED"
+        for f in g.findings
+        if f.invariant == "tf.observed_dynamic_time_window"
+    )

@@ -52,12 +52,14 @@ def _current_refs(graph, refs, not_before):
     )
 
 
-def _clock_readbacks_linked(graph, finding):
+def _clock_readbacks_linked(graph, finding, *, require_clock_source=False):
     """Older v1 graphs have only envelope-level clock refs: do not upgrade them."""
     clocks = next((f for f in graph.findings if f.id == "OP-TIME-DOMAINS"), None)
     if clocks is None or not clocks.targets:
         return False
     paths = {graph.provenance[r].pointer for r in finding.evidence_refs}
+    if require_clock_source and not paths & {"/environment", "/environment/probe_use_sim_time"}:
+        return False
     required = {"/observations/parameter_captured_at"}
     for node in clocks.targets:
         encoded = node.replace("~", "~0").replace("/", "~1")
@@ -116,7 +118,9 @@ def evaluate_hypothesis(hypothesis, graph, *, not_before: datetime | None = None
             if _current_refs(graph, f.evidence_refs, not_before)
             and (
                 predicate not in {"CLOCK_CONFLICT", "TF_TIME_CONFLICT"}
-                or _clock_readbacks_linked(graph, f)
+                or _clock_readbacks_linked(
+                    graph, f, require_clock_source=predicate == "TF_TIME_CONFLICT"
+                )
             )
         ]
         # One witnessed incompatibility suffices; a negative requires all observed
