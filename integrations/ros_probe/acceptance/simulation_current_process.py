@@ -11,6 +11,7 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 import time
 from contextlib import suppress
 from pathlib import Path
@@ -20,6 +21,57 @@ from simulation_daemon_observation import BoundedDaemonObservation
 from simulation_source_capture import BoundedSourceJsonlCapture
 
 from rosclaw.daemon.client import DaemonClient
+
+
+class SdkPassiveFactsPreparation:
+    """Prepare readonly collector inputs without blocking the sink heartbeat."""
+
+    def __init__(self, root, *, enrollment_sha256, body_hash, run_id):
+        self.root = root
+        self.digest, self.body_hash, self.run_id = enrollment_sha256, body_hash, run_id
+        self.result = self.error = self.worker = None
+
+    def start(self):
+        if self.worker is not None:
+            raise ValueError("passive preparation cannot restart")
+
+        def build():
+            try:
+                facts = CurrentSimulationFacts(
+                    self.root, assets_directory=Path("/assets"), enrollment_sha256=self.digest
+                )
+                pins = facts.enrollment["request"]
+                if (
+                    pins["body_snapshot_hash"] != self.body_hash
+                    or pins["sim_run_id"] != self.run_id
+                ):
+                    facts.close()
+                    raise ValueError("passive facts differ from the current unadmitted Body/run")
+                self.result = facts
+            except Exception as exc:
+                self.error = str(exc)[:1000]
+
+        self.worker = threading.Thread(
+            target=build, daemon=True, name="passive-sdk-facts-preparation"
+        )
+        self.worker.start()
+
+    def take_if_ready(self):
+        if self.worker is None or self.worker.is_alive():
+            return None
+        if self.error is not None:
+            raise ValueError("passive preparation failed: " + self.error)
+        result, self.result = self.result, None
+        if result is None:
+            raise ValueError("passive preparation result unavailable or already consumed")
+        return result
+
+    def close(self):
+        if self.worker is not None:
+            self.worker.join(timeout=2)
+        if self.result is not None:
+            self.result.close()
+            self.result = None
 
 
 class SdkCurrentFactsProcess:

@@ -22,7 +22,7 @@ from rclpy.clock import Clock, ClockType
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from simulation_current_facts import CurrentSimulationFacts, _read
-from simulation_current_process import SdkCurrentFactsProcess
+from simulation_current_process import SdkCurrentFactsProcess, SdkPassiveFactsPreparation
 from simulation_execution_proof import ExecutionProofPins, _canonical
 from simulation_navigation_supervision import review_active_sim_daemon
 from simulation_sink_admission import authenticate_sink_admission
@@ -52,6 +52,7 @@ class GovernedSimulationSink(Node):
         self.p03_sha256 = p03_sha256
         self.binding = self.admission = self.facts = self.client = self.gate = None
         self.monitor = None
+        self.passive_preparation = None
         self.observation_worker = SdkCurrentFactsProcess.prepare_process()
         self.key = self.velocity = None
         self.failed_reason = None
@@ -102,6 +103,53 @@ class GovernedSimulationSink(Node):
             # No admission or drive publisher exists during incomplete bootstrap.
             return
 
+    def _prepare_passive_facts(self):
+        # No action context, daemon RPC, lease, monitor or publisher is created
+        # here. Complete expensive immutable replay while the sink is disabled.
+        if self.admission is not None or self.binding is None:
+            return
+        if not Path("/assets/collision-asset-originals.json").exists():
+            return
+        path = self.root / "execution-facts-enrollment.json"
+        if self.facts is None:
+            if self.passive_preparation is None:
+                if (self.control / "admission.json").exists() or not path.exists():
+                    return
+                self.passive_preparation = SdkPassiveFactsPreparation(
+                    self.root,
+                    enrollment_sha256=hashlib.sha256(_read(path, 64_000)).hexdigest(),
+                    body_hash=self.binding.body_snapshot_hash,
+                    run_id=self.binding.run_id,
+                )
+                self.passive_preparation.start()
+                return
+            facts = self.passive_preparation.take_if_ready()
+            if facts is None:
+                return
+            pins = facts.enrollment["request"]
+            if (
+                pins["body_snapshot_hash"] != self.binding.body_snapshot_hash
+                or pins["sim_run_id"] != self.binding.run_id
+            ):
+                facts.close()
+                raise ValueError("passive facts differ from the current unadmitted Body/run")
+            self.facts = facts
+            marker = {
+                "schema_version": "rosclaw.sdk_passive_facts_preparation.v1",
+                "body_snapshot_hash": self.binding.body_snapshot_hash,
+                "run_id": self.binding.run_id,
+                "enrollment_sha256": facts.enrollment_sha256,
+                "execution_authority": "NONE",
+                "admission": "NOT_GRANTED",
+            }
+            temporary = self.root / "passive-facts-prepared.tmp"
+            temporary.write_text(json.dumps(marker, allow_nan=False) + "\n")
+            temporary.replace(self.root / "passive-facts-prepared.json")
+            self._event("PASSIVE_FACTS_PREPARED", **marker)
+        # Keep the original reader cursor current while still disabled. Actual
+        # admission recollects all fresh resource/ROS/source/Body facts.
+        self.facts.reader.poll()
+
     def _try_admission(self):
         if self.admission is not None or not (self.control / "admission.json").exists():
             return
@@ -117,11 +165,21 @@ class GovernedSimulationSink(Node):
         signature = hmac.new(key, _canonical(envelope["payload"]), hashlib.sha256).hexdigest()
         if not hmac.compare_digest(envelope["hmac_sha256"], signature):
             raise ValueError("explicit SDK operator admission authentication failed")
-        facts = CurrentSimulationFacts(
-            self.root,
-            assets_directory=Path("/assets"),
-            enrollment_sha256=envelope["payload"]["facts_enrollment_sha256"],
-        )
+        facts = self.facts
+        if facts is None and not Path("/assets/collision-asset-originals.json").exists():
+            # Preserve the original primitive-only SDK path.
+            facts = CurrentSimulationFacts(
+                self.root,
+                assets_directory=Path("/assets"),
+                enrollment_sha256=envelope["payload"]["facts_enrollment_sha256"],
+            )
+        if (
+            facts is None
+            or facts.enrollment_sha256 != envelope["payload"]["facts_enrollment_sha256"]
+        ):
+            raise ValueError(
+                "matching passive original facts preparation required before admission"
+            )
         try:
             admission = authenticate_sink_admission(
                 raw,
@@ -313,6 +371,7 @@ class GovernedSimulationSink(Node):
         try:
             if self.failed_reason is None:
                 self._bootstrap_binding()
+                self._prepare_passive_facts()
                 self._try_admission()
                 if (
                     self.monitor is not None
@@ -392,6 +451,8 @@ def main():
             SdkCurrentFactsProcess.close_owned_process(node.observation_worker)
         if node.facts is not None:
             node.facts.close()
+        if node.passive_preparation is not None:
+            node.passive_preparation.close()
         node.events.close()
         node.destroy_node()
         if rclpy.ok():

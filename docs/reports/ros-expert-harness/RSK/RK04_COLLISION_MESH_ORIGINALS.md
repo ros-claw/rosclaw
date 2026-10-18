@@ -136,3 +136,22 @@ the unchanged source, Native and health deadlines. The same 500ms source, 250ms
 proof and 100ms lookahead constraints remain. The existing strict safe YAML
 parser and its alias/duplicate rejection remain unchanged. Offline timings are
 development evidence, not a new physical pass.
+
+## Preserve sink heartbeat during passive replay
+
+Daemon-side diagnostics found available client slots and no thread-start errors.
+The original physics witness then identified the preceding event: sink state
+changed from known to `sink status stale ...` while `_try_admission` synchronously
+constructed and authenticated CurrentFacts. The independent sink-status bound
+remains 250ms. Worker socket errors after owner shutdown are secondary in these
+measured Worlds; the earlier health-window expiry remains a separate failure.
+
+Mesh collectors are now prepared in a readonly background job during the existing
+unadmitted phase. The sink's status timer continues; no daemon client, lease,
+monitor, proof or publisher is created by preparation. A constructor result must
+match the current Body/run and original enrollment SHA. Its marker says NONE /
+NOT_GRANTED. Actual admission still authenticates the original operator context
+and calls current facts again; the monitor's independent checks remain required.
+The primitive-only SDK path is preserved. The operator waits for and independently
+checks passive preparation and fresh zero-command status before starting the
+existing canonical journey. Preparation cannot stand in for L1 or L2.
