@@ -1,0 +1,10 @@
+{
+  "baseline_main": "be5d36ffdc31f2a9e47e330acd0e9203390a074c",
+  "historical_file_sha256": {
+    "ros_rosclaw_harness\u5b9e\u65bd1018.md": "9528193260bbac5f2f8d71072a3337091a6307359e138efe473d8b6225e2fff5",
+    "ROSClaw_1016\u5de5\u7a0b\u4ea4\u4ed8\u4e0e\u9a8c\u6536\u7ed3\u8bba.md": "feb97defcff90593c2b233c0023cb65fbf949398784e1f01f705d632d3a2d555",
+    "recovery_2026-10-16/1016-final-enhanced-engineering-and-negative-study-delivery-review-v1.json": "c4d4a368f6be1b441d8bfcee671b98a1aa868ad12f13b96d1f11ce9d2b8b4e2c",
+    "recovery_2026-10-16/1016-continuation-handoff-v10-final.json": "731adcf45d3aa0ac9dfda2f104b93c63d8faf0be793ef27689cf317d4d52fcc4"
+  },
+  "scope": "Historical hashes only; no old results modified; no RK01 implementation in this commit"
+}
