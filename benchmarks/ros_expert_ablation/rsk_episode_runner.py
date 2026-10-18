@@ -25,6 +25,7 @@ from benchmarks.ros_expert_ablation import host_client, isolated_client
 from benchmarks.ros_expert_ablation.aci_context import EngineeringEpisodeContext, encoded
 from benchmarks.ros_expert_ablation.aci_runner import EpisodeWorkbook, model_safe
 from benchmarks.ros_expert_ablation.protocol import usage_from_events
+from benchmarks.ros_expert_ablation.rsk_context_projection import rsk_workbook_projection
 from benchmarks.ros_expert_ablation.rsk_physical_aci import RskPhysicalACI
 from benchmarks.ros_expert_ablation.rsk_pilot_protocol import (
     RskPilotProtocolV2,
@@ -69,6 +70,7 @@ class EpisodeFactsV1(Closed):
     run_settings: OriginalRef
     original_files: OriginalRef | None = None
     application_inputs: OriginalRef | None = None
+    diagnostic_inputs: OriginalRef | None = None
 
 
 class FrozenProviderV1(Closed):
@@ -385,6 +387,9 @@ def run_rsk_typed_episode(
                 "ros_engineer.read_application_input",
                 "files.list",
                 "files.read",
+                "ros_engineer.inspect_operational_graph",
+                "ros_engineer.plan_diagnostic_experiment",
+                "ros_engineer.run_diagnostic_probe",
             }:
                 if investigations >= protocol.max_read_only_probes:
                     state = "READ_ONLY_PROBE_BUDGET_EXHAUSTED"
@@ -410,6 +415,7 @@ def run_rsk_typed_episode(
                 facts.run_settings,
                 *([facts.original_files] if facts.original_files is not None else []),
                 *([facts.application_inputs] if facts.application_inputs is not None else []),
+                *([facts.diagnostic_inputs] if facts.diagnostic_inputs is not None else []),
             ):
                 _read(root, reference, limit=16_000_000)
             _provider_pin(provider, protocol, contract_client=contract_client)
@@ -444,7 +450,9 @@ def run_rsk_typed_episode(
                     json.dump(tools[-1], stream, indent=2)
                 break
             workbook.observe(
-                tool_result, decision["decision_summary"], request=decision["decision"]
+                rsk_workbook_projection(tool_result),
+                decision["decision_summary"],
+                request=decision["decision"],
             )
             tools.append(
                 {

@@ -6,6 +6,18 @@ from benchmarks.ros_expert_ablation.aci_context import encoded
 from benchmarks.ros_expert_ablation.aci_tool_guide import build_tool_guide
 
 RSK_DESCRIPTIONS = {
+    "ros_engineer.inspect_operational_graph": (
+        "READ_ONLY_SEALED_OPERATIONAL_FINDINGS",
+        "Page current original operational findings by cursor/limit. QoS/time/TF findings are distinct from five-mechanism repair checks. UNKNOWN remains unknown; no L1 or action authority.",
+    ),
+    "ros_engineer.plan_diagnostic_experiment": (
+        "REGISTER_READ_ONLY_DIAGNOSTIC_PLAN_NOT_EXECUTED",
+        "Select actual graph issue_ids and a bounded budget. The current Core proposes competing hypotheses, discriminating measurements and explicit unknown/deferred scope; no probe or repair runs implicitly.",
+    ),
+    "ros_engineer.run_diagnostic_probe": (
+        "REQUEST_ONE_GATED_OWNED_READ_ONLY_PROBE",
+        "C/E only: select an actual experiment_hash and probe_id. The existing owned SDK provider uses one shared probe slot and must supply original source/run/container/Native/zero-command evidence. A new replica is independently rebound internally; the old case is not updated. Observational falsification is not causal, physical, L1 or Memory success.",
+    ),
     "files.list": (
         "READ_ONLY_ORIGINAL_FILE_CATALOG",
         "List the same original task and application inputs plus the declared staging whitelist. No Expert diagnosis, compiled repair or generated application answer is returned.",

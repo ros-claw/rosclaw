@@ -71,6 +71,17 @@ def registered_episode_inputs(
                 )
     elif facts.application_inputs is not None:
         raise ValueError("registered application facts require the same application capability")
+    diagnostic = getattr(aci, "registered_diagnostic_inputs", None)
+    if callable(diagnostic):
+        if facts.diagnostic_inputs is None:
+            if require_complete_originals:
+                raise ValueError("actual diagnostic inputs/provider policy must be registered")
+        elif json.loads(_read(root, facts.diagnostic_inputs, limit=16_000_000)) != diagnostic():
+            raise ValueError(
+                "diagnostic graph/provider differs from the registered original context"
+            )
+    elif facts.diagnostic_inputs is not None:
+        raise ValueError("registered diagnostic facts require the same diagnostic capability")
     policy = json.loads(_read(root, memory_policy))
     if (
         type(policy) is not dict
