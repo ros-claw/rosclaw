@@ -510,6 +510,7 @@ def freeze_audit_source(root, config):
         Path(__file__),
         Path(__file__).parent.parent / "ros2/probe.py",
         Path(__file__).parent.parent / "ros2/graph_reads.py",
+        repository / "src/rosclaw/connectors/ros/probe/transport_codec.py",
         repository / "src/rosclaw/connectors/ros/mission/executor.py",
         repository / "src/rosclaw/connectors/ros/mission/navigation_binding.py",
         repository / "src/rosclaw/connectors/ros/context/navigation_readiness.py",

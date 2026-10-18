@@ -213,3 +213,20 @@ next operator phase uses 14s per goal inside the original 16s Body duration boun
 leaving 2s reserve. Goal poses, all eight Body limits, source/proof/status ages and
 100ms lookahead remain unchanged. This is known development configuration work,
 not evidence of model autonomy or a passed unfamiliar-Body gate.
+
+
+### Optional exact-byte lossless transport development
+
+The twelfth A300 development World (task approach) still failed on original
+Native lifecycle, costmap and parameter ages after guarded motion. It is retained
+as a failure. Its original Native frame is approximately 3.68 MB; a local
+lossless gzip level-1 check reduced it to 1.41 MB before base64 (about 27 ms
+encode and 10 ms decode on this host). This is a transport hypothesis, not a
+proven root cause or a physical acceptance. An optional bounded gzip/base64
+envelope now preserves the exact original Native JSON bytes, SHA and capture
+time. SDK captures retain both wire and decoded originals, including the
+original receive clock taken before decompression. No observation age is
+renewed. Default native publication remains raw; only owned mesh SDK stacks
+select the optional transport. Production freshness, source, proof, status and
+lookahead limits remain unchanged. Corrupt, oversized, truncated, concatenated,
+noncanonical or nested envelopes fail closed. No A300 completion is claimed.

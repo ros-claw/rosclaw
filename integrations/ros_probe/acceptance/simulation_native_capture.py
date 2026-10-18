@@ -11,6 +11,8 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 
+from rosclaw.connectors.ros.probe.transport_codec import decode_probe_snapshot
+
 
 def persist_native_capture(directory, raw, *, index, received_monotonic_ns, publish_pointer):
     if (
@@ -23,7 +25,8 @@ def persist_native_capture(directory, raw, *, index, received_monotonic_ns, publ
         or type(publish_pointer) is not bool
     ):
         raise ValueError("bounded original bytes, index and original receive clock required")
-    native = json.loads(raw)
+    wire = raw
+    raw, native = decode_probe_snapshot(wire)
     stamp = datetime.fromisoformat(native["captured_at"])
     if stamp.tzinfo is None:
         raise ValueError("aware original native capture time required")
@@ -31,6 +34,20 @@ def persist_native_capture(directory, raw, *, index, received_monotonic_ns, publ
     target = directory / f"original-native-{index:03}.json"
     with target.open("xb") as stream:
         stream.write(raw)
+    if raw != wire:
+        wire_target = directory / f"wire-native-{index:03}.json"
+        with wire_target.open("xb") as stream:
+            stream.write(wire)
+        transport = {
+            "wire_sha256": hashlib.sha256(wire).hexdigest(),
+            "wire_bytes": len(wire),
+            "original_sha256": hashlib.sha256(raw).hexdigest(),
+            "original_bytes": len(raw),
+            "received_monotonic_ns": received_monotonic_ns,
+            "source_authority": "NOT_ESTABLISHED_BY_TRANSPORT",
+        }
+        with (directory / f"wire-native-{index:03}-transport.json").open("x") as stream:
+            json.dump(transport, stream)
     if publish_pointer:
         pointer = {
             "file": target.name,

@@ -208,6 +208,7 @@ def main():
             import hashlib
 
             probe_argv += [
+                "--lossless-gzip-snapshots",
                 "--collision-asset-originals",
                 str(mesh_manifest),
                 "--collision-asset-originals-sha256",

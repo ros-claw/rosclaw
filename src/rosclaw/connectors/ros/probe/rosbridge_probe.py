@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import time
 import uuid
 from typing import Any
@@ -10,6 +9,8 @@ from typing import Any
 from rosclaw.connectors.ros.discovery import RosGraphDiscovery
 from rosclaw.connectors.ros.discovery.graph import RosGraphSnapshot
 from rosclaw.connectors.ros.intelligence import RosSystemModel, build_system_model
+
+from .transport_codec import decode_probe_snapshot
 
 
 class RosbridgeProbe:
@@ -54,7 +55,7 @@ class RosbridgeProbe:
                     raise ConnectionError(result.error)
                 message = result.data or {}
                 if message.get("op") == "publish" and message.get("topic") == topic:
-                    snapshot = json.loads(message["msg"]["data"])
+                    _, snapshot = decode_probe_snapshot(message["msg"]["data"].encode("utf-8"))
                     if snapshot.get("schema_version") != "rosclaw.ros_probe.v1":
                         raise ValueError("unsupported probe snapshot version")
                     return snapshot
