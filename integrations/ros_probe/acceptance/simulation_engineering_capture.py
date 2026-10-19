@@ -23,10 +23,12 @@ COUNTERFACTUAL_CASES = {
 }
 
 ONBOARDING_CASES = {"navigation_onboarding", "j100_navigation_onboarding", "driver_onboarding"}
+OBSERVATION_CASES = {"readonly_preinitialization_observation", "readonly_localized_observation"}
 
 CASES = (
     COUNTERFACTUAL_CASES
     | ONBOARDING_CASES
+    | OBSERVATION_CASES
     | {
         "map_to_odom_missing",
         "scan_stale",
@@ -110,7 +112,10 @@ def validate_engineering_capture(settings):
         or policy["schema_version"] != "rosclaw.engineering_failure_capture.v1"
         or policy["case"] not in CASES
         or policy["phase"] not in {"before_repair", "rollback"}
-        or (policy["case"] in ONBOARDING_CASES and policy["phase"] != "before_repair")
+        or (
+            policy["case"] in ONBOARDING_CASES | OBSERVATION_CASES
+            and policy["phase"] != "before_repair"
+        )
         or policy["run_id"] != settings.get("run_id")
         or "governed_sink" not in settings
     ):
@@ -164,8 +169,11 @@ def capture_failure(root, policy, state, spin_until, save):
     process_fault = None
     onboarding = policy["case"] in ONBOARDING_CASES
     counterfactual = policy["case"] in COUNTERFACTUAL_CASES
+    observation = policy["case"] in OBSERVATION_CASES
     expected_statuses = (
-        {"UNKNOWN", "BLOCKED"}
+        {"PROPOSED", "UNKNOWN", "BLOCKED"}
+        if observation
+        else {"UNKNOWN", "BLOCKED"}
         if policy["case"] == "driver_onboarding"
         else {"PROPOSED", "UNKNOWN", "BLOCKED"}
         if counterfactual
@@ -215,7 +223,9 @@ def capture_failure(root, policy, state, spin_until, save):
             {
                 "policy": policy,
                 "status": (
-                    "ACTUAL_COUNTERFACTUAL_RAW_CAPTURE_EXTERNAL_REVIEW_REQUIRED"
+                    "ACTUAL_READONLY_RAW_OBSERVATION_EXTERNAL_REVIEW_REQUIRED"
+                    if observation
+                    else "ACTUAL_COUNTERFACTUAL_RAW_CAPTURE_EXTERNAL_REVIEW_REQUIRED"
                     if counterfactual
                     else "ACTUAL_UNBOUND_ONBOARDING_CAPTURE_EXTERNAL_REVIEW_REQUIRED"
                     if onboarding
@@ -227,7 +237,9 @@ def capture_failure(root, policy, state, spin_until, save):
                 "body_snapshot_hash": body_hash,
                 "physical_binding_scope": "SOURCE_ONLY_UNENROLLED; no Body-bound or lease-enabled physical observation claimed",
                 "navigation_goals_sent": 0,
-                "L1": "NOT_EVALUATED" if onboarding or counterfactual else "NOT_READY",
+                "L1": "NOT_EVALUATED"
+                if onboarding or counterfactual or observation
+                else "NOT_READY",
                 "L2": "NOT_RUN",
                 "claim_scope": "SIMULATION_ONLY",
             },

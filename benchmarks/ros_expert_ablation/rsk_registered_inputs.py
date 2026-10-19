@@ -124,7 +124,19 @@ def _registered_diagnostic_context(aci, original):
         if provider is not None:
             raise ValueError("registered diagnostic provider policy missing")
         return
-    policy = DiagnosticProbePolicyV1.model_validate_json(json.dumps(original["provider_policy"]))
+    policy_type = DiagnosticProbePolicyV1
+    if type(original["provider_policy"]) is not dict:
+        raise ValueError("closed registered diagnostic policy required")
+    if (
+        original["provider_policy"].get("schema_version")
+        == "rosclaw.rsk_nav2_diagnostic_probe_policy.v1"
+    ):
+        from benchmarks.ros_expert_ablation.rsk_nav2_diagnostic_provider import (
+            Nav2DiagnosticProbePolicyV1,
+        )
+
+        policy_type = Nav2DiagnosticProbePolicyV1
+    policy = policy_type.model_validate_json(json.dumps(original["provider_policy"]))
     if (
         policy.source_revision != base.operator_source
         or policy.original_run_id != base.original_run_id

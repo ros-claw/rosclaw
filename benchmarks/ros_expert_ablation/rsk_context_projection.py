@@ -65,6 +65,8 @@ def rsk_workbook_projection(result):
         return {
             "status": result["status"],
             "diagnostic_assessment_status": assessment["status"],
+            "actual_new_physics_Worlds": result.get("actual_new_physics_Worlds"),
+            "provider_scope": result.get("provider_scope"),
             "reasons": assessment["reasons"],
             "withdrawn_hypothesis_ids": assessment["withdrawn_hypothesis_ids"],
             "hypotheses": [

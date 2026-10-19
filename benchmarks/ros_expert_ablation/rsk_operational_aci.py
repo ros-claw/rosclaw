@@ -177,6 +177,16 @@ class OperationalRskACI(RskPhysicalACI):
             if self.arm in {"C", "E"}
             else None,
             "explicit_probe_available": self.arm in {"C", "E"} and self.provider is not None,
+            "registered_probe_scope": None if self.provider is None else self.provider.policy.scope,
+            "replica_observation_role": None
+            if self.provider is None
+            else getattr(self.provider.policy, "observation_role", None),
+            "minimum_host_probe_budget_sec": None
+            if self.provider is None
+            else self.provider.policy.minimum_wall_sec,
+            "owned_probe_physics_World_cost": None
+            if self.provider is None
+            else int(self.provider.policy.scope == "OWNED_SOURCE_ONLY_NAV2_PHYSICS_NO_BODY"),
             "registered_experiments": list(self.diagnostic_plans),
             "scope": "SEALED_ORIGINAL_DIAGNOSIS_NOT_CURRENT_L1_OR_CAUSAL_VERIFICATION",
             "current_authority": "NONE",
