@@ -81,21 +81,13 @@ def main():
         raise ValueError("explicit supported initialization boundary required")
     start_navigation = navigation_stack_enabled(descriptor, settings)
     if "counterfactual_sim" in descriptor:
-        from simulation_counterfactual_config import counterfactual_clock_parameters
+        from simulation_counterfactual_config import (
+            counterfactual_clock_parameters,
+            validate_counterfactual_capture_context,
+        )
 
         counterfactual_clock_parameters(descriptor, "controller_server")
-        capture = settings.get("engineering_capture", {})
-        if (
-            not Path("/.dockerenv").is_file()
-            or os.environ.get("ROS_LOCALHOST_ONLY") != "1"
-            or capture.get("case") != "rsk_node_clock_mismatch"
-            or capture.get("phase") not in {"before_repair", "rollback"}
-            or capture.get("run_id") != settings["run_id"]
-            or "governed_sink" not in settings
-        ):
-            raise ValueError(
-                "clock override requires an explicitly owned isolated counterfactual capture"
-            )
+        validate_counterfactual_capture_context(settings)
     scan_state = descriptor.get("scan_bridge_state", "running")
     if scan_state not in {"running", "paused_after_initialization"}:
         raise ValueError("explicit engineering scan bridge state required")

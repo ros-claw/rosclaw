@@ -170,6 +170,9 @@ def capture_failure(root, policy, state, spin_until, save):
     onboarding = policy["case"] in ONBOARDING_CASES
     counterfactual = policy["case"] in COUNTERFACTUAL_CASES
     observation = policy["case"] in OBSERVATION_CASES
+    descriptor = json.loads((root / "bringup.json").read_text()) if observation else None
+    from simulation_counterfactual_config import configured_clock_readback_available
+
     expected_statuses = (
         {"PROPOSED", "UNKNOWN", "BLOCKED"}
         if observation
@@ -197,6 +200,7 @@ def capture_failure(root, policy, state, spin_until, save):
                 and current_capture(state)
                 and state["native"] is not None
                 and counterfactual_readback_available(state["native"], policy["case"])
+                and configured_clock_readback_available(state["native"], descriptor)
                 and state["review"] is not None
                 and review_engineering_failure(state["native"], state["review"], requirements)[
                     "status"
