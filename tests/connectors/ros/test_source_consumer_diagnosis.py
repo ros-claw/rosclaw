@@ -8,9 +8,11 @@ from datetime import timedelta
 import pytest
 
 from rosclaw.connectors.ros.cli.ros_cli import add_ros_subparser, dispatch_ros_command
+from rosclaw.connectors.ros.context.source_friction import SDK_IMAGE
 from rosclaw.connectors.ros.engineering.hypothesis import evaluate_hypothesis, propose_hypotheses
 from rosclaw.connectors.ros.engineering.probe_planner import plan_diagnostic_probes
 from rosclaw.connectors.ros.engineering.source_consumer import (
+    COMPATIBILITY_LIBRARY,
     INVARIANT,
     RosLiteralConsumerContractV1,
     inspect_source_consumer,
@@ -76,6 +78,61 @@ def inspect(values):
 
 def consumer_finding(graph):
     return next(f for f in graph.findings if f.invariant == INVARIANT)
+
+
+def known_sdk_originals(prefix="ns0"):
+    values = originals(prefix)
+    values[3].update(sdk_image=SDK_IMAGE, library_sha256=COMPATIBILITY_LIBRARY)
+    values[3].pop("contract_hash")
+    values[3]["contract_hash"] = content_hash("rosconsumercontract", values[3])
+    values[4] = json.dumps({"Image": SDK_IMAGE}).encode()
+    values[5] = json.dumps({"library_sha256": COMPATIBILITY_LIBRARY}).encode()
+    return values
+
+
+def test_explicit_known_sdk_proposal_has_concrete_bytes_exact_rollback_and_no_authority():
+    values = known_sdk_originals()
+    original = values[2]
+    review, _ = inspect_source_consumer(*values, robot_entity=ENTITY, include_compatibility=True)
+    proposal = review["compatibility_proposal"]
+    assert proposal["status"] == "CONDITIONAL_SOURCE_COMPATIBILITY_STAGING_NOT_EXECUTED"
+    raw = proposal["files"]["world.sdf"].encode()
+    assert b"gz:expressed_in" in raw and values[2] == original
+    assert proposal["file_sha256"]["world.sdf"] == hashlib.sha256(raw).hexdigest()
+    assert proposal["rollback"]["world_sha256"] == hashlib.sha256(original).hexdigest()
+    assert proposal["derivation"]["expanded_XML_semantics_equal"]
+    assert not proposal["derivation"]["geometry_friction_numbers_URDF_and_Body_limits_changed"]
+    assert proposal["current_authority"] == "NONE"
+    assert proposal["physical_validation"] == "NOT_RUN_REQUIRES_NEW_OWNED_WORLD"
+    assert proposal["artifact_role"] == "SOURCE_ONLY_CANDIDATE_NOT_A_LAUNCHABLE_WORLD"
+
+
+def test_other_sdk_diagnosis_cannot_generate_known_sdk_compatibility_patch():
+    review, _ = inspect_source_consumer(
+        *originals(), robot_entity=ENTITY, include_compatibility=True
+    )
+    assert review["status"] == "VIOLATED"
+    assert review["compatibility_proposal"]["status"] == "ABSTAIN_UNSUPPORTED_COMPATIBILITY_SDK"
+    assert "files" not in review["compatibility_proposal"]
+
+
+def test_compatible_or_unresolved_sources_do_not_get_a_repair_artifact():
+    values = known_sdk_originals("gz")
+    review, _ = inspect_source_consumer(*values, robot_entity=ENTITY, include_compatibility=True)
+    assert review["compatibility_proposal"]["status"] == "NO_CHANGE_REQUIRED_NOT_PHYSICS_ACCEPTANCE"
+    values[5] = b"{}"
+    review, _ = inspect_source_consumer(*values, robot_entity=ENTITY, include_compatibility=True)
+    assert review["compatibility_proposal"]["status"] == "ABSTAIN_UNRESOLVED_SOURCE_CONTRACT"
+    assert "files" not in review["compatibility_proposal"]
+
+
+def test_conflicting_gz_binding_prevents_automatic_proposal_even_when_diagnosed():
+    values = known_sdk_originals()
+    values[2] = values[2].replace(b"<sdf ", b'<sdf xmlns:gz="urn:conflict" ')
+    review, _ = inspect_source_consumer(*values, robot_entity=ENTITY, include_compatibility=True)
+    assert review["status"] == "VIOLATED"
+    assert review["compatibility_proposal"]["status"] == "ABSTAIN_SOURCE_COMPATIBILITY_PRECONDITION"
+    assert "files" not in review["compatibility_proposal"]
 
 
 @pytest.mark.parametrize("prefix", ["ns0", "ignition", "another_alias"])

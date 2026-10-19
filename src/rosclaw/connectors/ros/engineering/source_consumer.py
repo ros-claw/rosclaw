@@ -10,7 +10,9 @@ from xml.dom import Node, minidom
 from pydantic import Field, StrictStr
 
 from rosclaw.connectors.ros.context.source_friction import (
+    SDK_IMAGE,
     parse_source_xml,
+    prepare_source_friction_frame,
     source_friction_fact,
 )
 from rosclaw.connectors.ros.intelligence.graph_contracts import (
@@ -23,6 +25,7 @@ from rosclaw.contracts.common import content_hash
 
 INVARIANT = "source.declared_literal_consumer_contract"
 SCOPE = "STATIC_DECLARED_PARSER_CONTRACT_ONLY"
+COMPATIBILITY_LIBRARY = "0e7ae790318f8a75f425c7ae3f86e0719d5fb23e092883e157456d3be9d81cb4"
 
 
 class RosLiteralConsumerContractV1(GraphRecord):
@@ -126,6 +129,7 @@ def inspect_source_consumer(
     parser_evidence_bytes,
     *,
     robot_entity,
+    include_compatibility=False,
 ):
     """Compute a new diagnostic graph from originals; caller cannot supply a verdict.
 
@@ -134,6 +138,8 @@ def inspect_source_consumer(
     UNKNOWN. No input is adapted and no file, ROS node or container is opened.
     """
     graph = RosOperationalGraphV1.from_dict(graph.model_dump(mode="json"))
+    if type(include_compatibility) is not bool:
+        raise ValueError("explicit boolean compatibility proposal selection required")
     contract = RosLiteralConsumerContractV1.from_dict(contract_value)
     _json(parser_evidence_bytes)
     if hashlib.sha256(parser_evidence_bytes).hexdigest() != contract.parser_evidence_sha256:
@@ -224,6 +230,10 @@ def inspect_source_consumer(
         "causal_verification": "NOT_ESTABLISHED",
         "physical_stop": "NOT_EVALUATED",
     }
+    if include_compatibility:
+        review["compatibility_proposal"] = _compatibility_proposal(
+            review, contract, urdf_bytes, world_bytes
+        )
     review["review_hash"] = content_hash("rosconsumerreview", review)
     payload = graph.model_dump(mode="json")
     payload.pop("graph_hash")
@@ -254,3 +264,60 @@ def inspect_source_consumer(
         {**payload, "graph_hash": content_hash("rosopgraph", payload)}
     )
     return review, result
+
+
+def _compatibility_proposal(review, contract, urdf_bytes, world_bytes):
+    boundary = {
+        "current_authority": "NONE",
+        "current_l1": "NOT_EVALUATED",
+        "physical_validation": "NOT_RUN_REQUIRES_NEW_OWNED_WORLD",
+    }
+    if review["status"] != "VIOLATED":
+        return {
+            **boundary,
+            "status": "NO_CHANGE_REQUIRED_NOT_PHYSICS_ACCEPTANCE"
+            if review["status"] == "SATISFIED"
+            else "ABSTAIN_UNRESOLVED_SOURCE_CONTRACT",
+        }
+    if contract.sdk_image != SDK_IMAGE or contract.library_sha256 != COMPATIBILITY_LIBRARY:
+        return {**boundary, "status": "ABSTAIN_UNSUPPORTED_COMPATIBILITY_SDK"}
+    try:
+        after, derivation = prepare_source_friction_frame(
+            urdf_bytes,
+            world_bytes,
+            source_urdf_sha256=review["source_urdf_sha256"],
+            robot_entity=review["robot_entity"],
+            sdk_image=contract.sdk_image,
+        )
+    except ValueError as exc:
+        return {
+            **boundary,
+            "status": "ABSTAIN_SOURCE_COMPATIBILITY_PRECONDITION",
+            "reason": str(exc)[:240],
+        }
+    proposal = {
+        **boundary,
+        "schema_version": "rosclaw.ros_source_consumer_staging.v1",
+        "status": "CONDITIONAL_SOURCE_COMPATIBILITY_STAGING_NOT_EXECUTED",
+        "artifact_role": "SOURCE_ONLY_CANDIDATE_NOT_A_LAUNCHABLE_WORLD",
+        "fresh_run_rebinding": "RECOMPILE_A_NEW_PROPOSAL_AND_HASHES_DO_NOT_SPLICE_THIS_ARTIFACT",
+        "original_graph_hash": review["original_graph_hash"],
+        "contract_hash": contract.contract_hash,
+        "source_urdf_sha256": review["source_urdf_sha256"],
+        "original_world_sha256": review["input_sha256"]["world_sdf"],
+        "files": {"world.sdf": after.decode("utf-8")},
+        "file_sha256": {"world.sdf": hashlib.sha256(after).hexdigest()},
+        "derivation": derivation,
+        "rollback": {
+            "operation": "RESTORE_EXACT_ORIGINAL_WORLD_BYTES",
+            "world_sha256": review["input_sha256"]["world_sdf"],
+        },
+        "verification_obligations": [
+            "bind original source, new run/Body/World and exact SDK/library before admission",
+            "verify expanded XML equality and unchanged URDF/friction numbers/Body limits",
+            "independent Before/After/Rollback plus canonical stop/contact and strict-age evidence",
+            "never borrow historical receipt, current L1, Permit, Lease or Memory authority",
+        ],
+    }
+    proposal["proposal_hash"] = content_hash("rosconsumerstaging", proposal)
+    return proposal

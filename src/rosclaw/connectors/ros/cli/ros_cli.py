@@ -705,6 +705,11 @@ def add_ros_subparser(subparsers: argparse._SubParsersAction) -> argparse.Argume
     ):
         consumer_parser.add_argument("--" + flag, required=True)
     consumer_parser.add_argument("--output", help="Exclusive new derived review JSON")
+    consumer_parser.add_argument(
+        "--propose-compatibility",
+        action="store_true",
+        help="Include a conditional fixed-SDK source artifact and rollback; never install or execute",
+    )
     consumer_parser.add_argument("--json", action="store_true")
 
     for command in ("diagnostic-plan", "diagnostic-assess"):
@@ -969,6 +974,7 @@ def cmd_ros_source_consumer(args: argparse.Namespace) -> int:
             read(args.backend_observation, "backend_observation"),
             read(args.parser_evidence, "parser_evidence"),
             robot_entity=args.robot_entity,
+            include_compatibility=args.propose_compatibility,
         )
         finding = next(f for f in after.findings if f.invariant == INVARIANT)
         experiment = plan_diagnostic_probes(

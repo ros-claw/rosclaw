@@ -28,6 +28,19 @@ remain UNKNOWN.
   --output new-review.json --json
 ```
 
+Add `--propose-compatibility` to include concrete source-only `world.sdf` bytes,
+their digest, the exact original-world rollback digest and verification duties.
+This optional proposal reuses the existing pure adapter and is limited to the
+independently inspected fixed image/library pair. Other declared contracts may
+be diagnosed but cannot borrow this adaptation. Unresolved facts or conflicting
+namespace bindings produce an explicit abstention without a repair file.
+
+The artifact is not a launchable World or an installation request. Historical
+run labels remain part of the bound original; fresh-run rebinding requires a
+newly compiled proposal and new hashes, not edits spliced into this artifact.
+Independent new-World identity, L1, stop/contact, strict-age and counterfactual
+proof obligations remain unmet until actually performed.
+
 Inputs are bounded regular files read without following their final symlink;
 output creation is exclusive. The response contains the computed review,
 derived operational graph, proposed diagnostic experiment and exact input file
