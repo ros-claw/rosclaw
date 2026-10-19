@@ -39,10 +39,12 @@
 #include <gz/sim/components/World.hh>
 #include <gz/sim/components/Static.hh>
 #include <sdf/Element.hh>
+#include "SensorKind.hh"
 
 namespace rosclaw {
 using Json = nlohmann::json;
 using namespace gz::sim;
+
 
 class SourceWitness final : public System, public ISystemConfigure,
                             public ISystemPostUpdate, public ISystemReset {
@@ -133,7 +135,7 @@ class SourceWitness final : public System, public ISystemConfigure,
                        ecm.Component<components::Lidar>(e) ? "lidar" :
                        ecm.Component<components::Imu>(e) ? "imu" :
                        ecm.Component<components::NavSat>(e) ? "navsat" :
-                       ecm.Component<components::ContactSensor>(e) ? "contact" : "UNKNOWN";
+                       ecm.Component<components::ContactSensor>(e) ? "contact" : CameraKind(e, ecm);
       if (record["sensors"].size() >= 4096) { record["inventory_complete"] = false; return false; }
       record["sensors"].push_back(sensor); return true;
     });
