@@ -174,7 +174,10 @@ def capture_owned_unadmitted_window(
         "host_window_elapsed_sec": elapsed,
         "host_observed_monotonic_ns_before": before_ns,
         "host_observed_monotonic_ns_after": after_ns,
-        "native_original_file_read_durations_sec": [before_read_duration_sec, after_read_duration_sec],
+        "native_original_file_read_durations_sec": [
+            before_read_duration_sec,
+            after_read_duration_sec,
+        ],
         "native_original_file_before": before["file"],
         "native_original_file_after": after["file"],
         "source_body_snapshot_hash": body_snapshot_hash,
