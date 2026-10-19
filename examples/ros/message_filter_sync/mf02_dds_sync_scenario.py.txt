@@ -1,0 +1,606 @@
+"""MF02 source-only proposal. Metadata validity never authenticates DDS origin."""
+import argparse
+import base64
+import hashlib
+import json
+import os
+import re
+import time
+
+SCHEMA = 'MF02.v2'
+NS = 1000000000
+LIMIT = 1048576
+# (ID, side, header nanoseconds); ordered publication requires actual RX barriers.
+MATRIX = {
+    'A': [('L', 0, 1000000000), ('R', 1, 1006000000)],
+    'B': [('BL', 0, 1000000000), ('BR', 1, 1010000000)],
+    'C': [('L2', 0, 2000000000), ('L1', 0, 1000000000), ('R1', 1, 1001000000), ('R2', 1, 2001000000)],
+    'D': [('OLD', 0, 1000000000), ('NEW', 0, 1000000000), ('R', 1, 1001000000)],
+    'E': [('QL', 0, 1000000000), ('QR', 1, 1001000000)],
+    'F': [('ALONE', 0, 1000000000), ('LATE', 1, 1001000000)],
+    'G': [('REC_L', 0, 3000000000), ('REC_R', 1, 3001000000)],
+}
+EXPECTED = {'A': [['L','R']], 'B': [], 'C': [['L1','R1'],['L2','R2']],
+            'D': [['NEW','R']], 'E': [], 'F': [], 'G': [['REC_L','REC_R']]}
+KEYS = {
+ 'OPEN': {'owners','topics','pubs','subs','discovery_end','receive_end','timeout_at','deadline'},
+ 'DISCOVERY': {'endpoints','compatibility'},
+ 'PUB': {'id','side','stamp','capture','publisher'},
+ 'RX': {'id','side','stamp','capture','subscription','source','probe'},
+ 'PAIR': {'refs','captures'},
+ 'BOOT': {'start','work_end','whole_end'},
+ 'FRAMEWORK': {'entities','association'},
+ 'ENTER': {'stage'}, 
+ 'QUARANTINE': {'connections'},
+ 'QUEUE': {'rx','queues'},
+ 'TERMINAL': {'status','pairs'},
+ 'SYNC': {'terminal','before','completed'},
+ 'CLOSE': {'subscriptions','publishers','connections'},
+ 'ERROR': {'reason'},
+ 'CLEANUP': {'executor','node','context'},
+ 'FINAL': {'status'},
+}
+COMMON = {'schema','case','nonce','phase','epoch','seq','mono','event','data'}
+
+
+def need(ok, reason):
+    if not ok:
+        raise ValueError(reason)
+
+
+def canonical(value):
+    return json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False)
+
+
+def same(a, b):
+    need(canonical(a) == canonical(b), 'typed value mismatch')
+
+
+def integer(x):
+    return type(x) is int and x >= 0
+
+
+def ident(x):
+    return type(x) is str and re.fullmatch('[A-Za-z][A-Za-z0-9_]{0,63}', x) is not None
+
+
+def digest(raw):
+    return hashlib.sha256(raw).hexdigest()
+
+
+def fields(phase, epoch, item):
+    name, side, stamp = item
+    return {'frame': phase+'/'+str(epoch)+'/'+name, 'stamp': stamp,
+            'point': [float(side), float(epoch), 0.25]}
+
+
+def capture_check(c, expected):
+    need(type(c) is dict and set(c) == {'fields','raw','sha256','object'}, 'capture schema')
+    same(c['fields'], expected)
+    need(type(c['raw']) is str and type(c['sha256']) is str and ident(c['object']), 'capture types')
+    raw = base64.b64decode(c['raw'], validate=True)
+    need(0 < len(raw) <= 4096 and base64.b64encode(raw).decode() == c['raw'], 'capture bytes')
+    need(digest(raw) == c['sha256'], 'source hash')
+    # Different serialize calls may have different padding. No byte equality rule.
+
+
+def read_raw(path):
+    def unique(items):
+        out = {}
+        for k, v in items:
+            need(k not in out, 'duplicate key')
+            out[k] = v
+        return out
+    def reject(x):
+        raise ValueError('nonfinite '+x)
+    with open(path, 'rb') as f:
+        raw = f.read(LIMIT+1)
+    need(len(raw) <= LIMIT and raw.endswith(b'\n'), 'raw bound/newline')
+    lines = raw.decode('utf-8').splitlines()
+    need(0 < len(lines) <= 256 and all(lines), 'raw rows')
+    return [json.loads(s, object_pairs_hook=unique, parse_constant=reject) for s in lines]
+
+
+def nonce_ok(x):
+    return type(x) is str and re.fullmatch('[0-9a-f]{32}', x) is not None
+
+
+def framework_descriptor():
+    """Structural signature proposal, not a cryptographic signature or authority."""
+    return [dict(topic='/parameter_events',type='rcl_interfaces/msg/ParameterEvent',source='Node.__init__')]
+
+
+def framework_link(entities, contract):
+    """Pure association coordinates. An external observer must authenticate origin."""
+    need(type(entities) is list and len(entities) == 1, 'framework count')
+    for entity in entities:
+        need(type(entity) is dict and set(entity) == {'object','topic','type','source'}, 'framework entity schema')
+        need(ident(entity['object']), 'framework object')
+    descriptor = [{k:v for k,v in entity.items() if k != 'object'} for entity in entities]
+    same(descriptor, framework_descriptor())
+    same(descriptor, contract['framework'])
+    return dict(contract_sha256=digest(canonical(contract).encode()),
+                descriptor_sha256=digest(canonical(descriptor).encode()),
+                entities_sha256=digest(canonical(entities).encode()),
+                identity_source='EXTERNAL_SCOPED_OBSERVER')
+
+
+def validate(rows, complete=True, contract=None, receipt=None):
+    """Strict pure journal verifier; returns METADATA_ONLY or PARTIAL, never DDS_PASS.
+
+    Completeness requires every matrix premise, observed queue snapshots and lifecycle.
+    A separate installed-function observer, independent CDR decoder and outer process/
+    container absence receipt are mandatory for any runtime acceptance.
+    """
+    need(type(rows) is list and 0 < len(rows) <= 256, 'row cap')
+    need(len(canonical(rows).encode()) <= LIMIT, 'byte cap')
+    identity = None
+    previous = -1
+    active = None
+    closed = []
+    cleanup = final = False
+    cleanup_seen = False
+    entered = None
+    errors = False
+    retained = {}
+    boot = framework = None
+    pending = None
+    model = [{}, {}]
+    quarantined = False
+    if contract is not None:
+        need(type(contract) is dict and set(contract) == {'case','nonce','gid_bytes','framework'}, 'contract schema')
+        need(ident(contract['case']) and nonce_ok(contract['nonce']), 'contract identity')
+        need(type(contract['gid_bytes']) is int and 0 < contract['gid_bytes'] <= 256, 'GID contract')
+    for seq, r in enumerate(rows):
+        need(type(r) is dict and set(r) == COMMON, 'row schema')
+        need(r['schema'] == SCHEMA and type(r['seq']) is int and r['seq'] == seq, 'seq/schema')
+        need(ident(r['case']) and nonce_ok(r['nonce']), 'identity')
+        if contract is not None:
+            same([r['case'],r['nonce']], [contract['case'],contract['nonce']])
+        identity = identity or (r['case'],r['nonce'])
+        need(identity == (r['case'],r['nonce']), 'identity drift')
+        p, e, t, kind, d = (r[k] for k in ('phase','epoch','mono','event','data'))
+        need(p in MATRIX and type(e) is int and e == list(MATRIX).index(p)+1, 'phase epoch')
+        need(integer(t) and t >= previous, 'monotonic order')
+        previous = t
+        need(type(kind) is str and kind in KEYS and type(d) is dict and set(d) == KEYS[kind], 'event schema')
+        need(not final, 'after final')
+        if seq == 0:
+            need(kind == 'BOOT', 'BOOT first')
+        if kind == 'BOOT':
+            need(seq == 0 and p == 'A' and all(integer(v) for v in d.values()), 'BOOT types')
+            need(d['start'] <= t < d['work_end'] and d['work_end'] == d['start']+20*NS and d['whole_end'] == d['start']+30*NS, 'original clocks')
+            boot = d
+            continue
+        need(boot is not None and t <= boot['whole_end'], 'whole deadline')
+        if kind == 'ENTER':
+            need(not errors and not cleanup_seen and active is None and pending is None and framework is not None, 'entry placement')
+            need(len(closed) < len(MATRIX) and p == list(MATRIX)[len(closed)] and entered != p, 'entry order')
+            same(d, {'stage':'ALLOCATING'})
+            entered = p
+        else:
+            need(p == (entered or 'A'), 'prefix phase')
+        need(not cleanup_seen or kind in ('ERROR','FINAL'), 'after cleanup')
+        if kind == 'FRAMEWORK':
+            need(framework is None and entered is None and active is None and not closed and contract is not None, 'framework binding')
+            same(d['association'], framework_link(d['entities'], contract))
+            framework = d
+            continue
+        if kind not in ('ERROR','CLEANUP','FINAL'):
+            need(t <= boot['work_end'], 'work deadline')
+        need(pending is None or kind in ('PAIR','QUEUE','ERROR','CLEANUP','FINAL'), 'missing per RX queue')
+        if kind == 'ERROR':
+            need(type(d['reason']) is str and len(d['reason']) <= 1024, 'error type')
+            errors = True
+            continue
+        if kind == 'ENTER':
+            continue
+        if kind == 'OPEN':
+            need(not errors and entered == p and active is None and not cleanup_seen and len(closed) < len(MATRIX) and p == list(MATRIX)[len(closed)], 'graph order')
+            need(type(d['owners']) is list and len(d['owners']) == 3 and all(ident(v) for v in d['owners']), 'owners')
+            if retained:
+                same(d['owners'], retained['owners'])
+            retained['owners'] = d['owners']
+            prefix = '/mf02_'+r['case']+'_'+r['nonce']
+            same(d['topics'], [prefix+'/left',prefix+'/right'])
+            need(type(d['pubs']) is list and len(d['pubs']) == 2 and all(ident(v) for v in d['pubs']), 'pub inventory')
+            need(type(d['subs']) is list and len(d['subs']) == (3 if p == 'E' else 2) and all(ident(v) for v in d['subs']), 'sub inventory')
+            need(len(set(d['pubs']+d['subs'])) == len(d['pubs']+d['subs']), 'entity alias')
+            need(all(integer(d[k]) for k in ('discovery_end','receive_end','timeout_at','deadline')), 'deadline type')
+            need(t < d['discovery_end'] < d['receive_end'] < d['timeout_at'] < d['deadline'], 'deadline order')
+            need(framework is not None and len(closed) < 8, 'framework/graph cap')
+            model, quarantined = [{}, {}], False
+            active = dict(phase=p, epoch=e, opened=d, pubs={}, rx={}, pairs=[], queue=None, terminal=None, synced=False, discovery=False)
+            continue
+        if kind in ('CLEANUP','FINAL'):
+            if complete:
+                need(active is None and p == 'G', 'cleanup placement')
+            else:
+                need(p == (entered or 'A'), 'partial phase')
+            if kind == 'CLEANUP':
+                need(not cleanup_seen and all(type(v) is bool for v in d.values()), 'cleanup types')
+                cleanup_seen = True
+                cleanup = all(d.values())
+                need(cleanup or not complete, 'cleanup failed')
+            else:
+                need(cleanup_seen, 'FINAL before cleanup')
+                need(d['status'] in ('COMPLETE','PARTIAL'), 'final status')
+                final = True
+                if d['status'] == 'COMPLETE':
+                    need(complete and cleanup and not errors and closed == list(MATRIX), 'false complete')
+                else:
+                    need(not complete, 'partial')
+            continue
+        need(active is not None and (p,e) == (active['phase'],active['epoch']), 'inactive/wrong epoch')
+        a, o = active, active['opened']
+        need(t <= o['deadline'], 'original deadline')
+        if kind == 'DISCOVERY':
+            need(not a['discovery'] and t <= o['discovery_end'], 'discovery deadline')
+            # Projection contains actual endpoint GID, topic, role, reliability and type.
+            endpoints = d['endpoints']
+            need(type(endpoints) is list and len(endpoints) == (5 if p == 'E' else 4), 'discovery count')
+            expected = [('PUB',0,'BEST_EFFORT' if p == 'E' else 'RELIABLE'),('PUB',1,'RELIABLE'),('SUB',0,'RELIABLE'),('SUB',1,'RELIABLE')]
+            if p == 'E':
+                expected.append(('SUB',0,'BEST_EFFORT'))
+            for ep, (role,side,qos) in zip(endpoints,expected):
+                need(type(ep) is dict and set(ep) == {'gid','topic','role','reliability','type'}, 'endpoint schema')
+                need(contract is not None, 'GID image contract unavailable')
+                need(type(ep['gid']) is list and len(ep['gid']) == contract['gid_bytes'] and all(type(v) is int and 0 <= v <= 255 for v in ep['gid']) and any(ep['gid']), 'GID bytes')
+                same([ep['topic'],ep['role'],ep['reliability'],ep['type']], [o['topics'][side],role,qos,'geometry_msgs/msg/PointStamped'])
+            need(len({tuple(v['gid']) for v in endpoints}) == len(endpoints), 'endpoint alias')
+            same(d['compatibility'], ['ERROR','OK','OK'] if p == 'E' else ['OK','OK'])
+            a['discovery'] = True
+        elif kind == 'PUB':
+            late = p == 'F' and d['id'] == 'LATE'
+            need(a['discovery'] and (t <= o['receive_end'] or (late and quarantined and a['synced'])), 'publish premise')
+            index = len(a['pubs'])
+            need(index < len(MATRIX[p]), 'publish cap')
+            item = MATRIX[p][index]
+            same([d['id'],d['side'],d['stamp']],list(item))
+            if index:
+                prev = MATRIX[p][index-1][0]
+                need(prev in a['rx'], 'actual receive barrier')
+            need(d['publisher'] == o['pubs'][item[1]], 'publisher source')
+            if p == 'F' and index == 1:
+                need(a['synced'] and t > o['timeout_at'], 'late before terminal')
+            else:
+                need(a['terminal'] is None, 'publish after terminal')
+            capture_check(d['capture'],fields(p,e,item))
+            a['pubs'][item[0]] = (seq,d)
+        elif kind == 'RX':
+            need(type(d['probe']) is bool and type(d['source']) is int, 'RX types')
+            need(d['id'] in a['pubs'] and d['id'] not in a['rx'], 'RX source/duplicate')
+            pubseq, pub = a['pubs'][d['id']]
+            same([d['side'],d['stamp'],d['source']], [pub['side'],pub['stamp'],pubseq])
+            probe = p == 'E' and d['side'] == 0
+            need(d['probe'] is probe and d['subscription'] == o['subs'][2 if probe else d['side']], 'RX subscription')
+            need(t <= o['receive_end'] or (p == 'F' and d['id'] == 'LATE' and a['synced']), 'receive deadline')
+            capture_check(d['capture'],pub['capture']['fields'])
+            a['rx'][d['id']] = (seq,d)
+            pending = seq
+            if not probe and not quarantined:
+                model[d['side']][d['stamp']] = seq
+                if len(model[d['side']]) > 2:
+                    del model[d['side']][min(model[d['side']])]
+        elif kind == 'QUARANTINE':
+            need(p == 'F' and a['synced'] and not quarantined and type(d['connections']) is int and d['connections'] == 0, 'quarantine lifecycle')
+            quarantined = True
+        elif kind == 'PAIR':
+            need(a['terminal'] is None and type(d['refs']) is list and len(d['refs']) == 2, 'late/pair refs')
+            need(type(d['captures']) is list and len(d['captures']) == 2, 'pair captures')
+            names = []
+            for side, ref in enumerate(d['refs']):
+                need(type(ref) is int and ref < seq, 'pair reference type')
+                matches = [(name,x) for name,x in a['rx'].items() if x[0] == ref]
+                need(len(matches) == 1, 'PAIR without actual RX')
+                name, (_, rx) = matches[0]
+                need(rx['side'] == side and not rx['probe'], 'pair source')
+                capture_check(d['captures'][side],rx['capture']['fields'])
+                same(d['captures'][side]['object'],rx['capture']['object'])
+                names.append(name)
+            need(len(a['pairs']) < len(EXPECTED[p]) and names == EXPECTED[p][len(a['pairs'])], 'wrong matrix pair')
+            need(pending is not None and pending in d['refs'], 'pair trigger')
+            for side, ref in enumerate(d['refs']):
+                stamp = rows[ref]['data']['stamp']
+                need(model[side].get(stamp) == ref, 'pair selected replaced/consumed source')
+                del model[side][stamp]
+            a['pairs'].append(names)
+        elif kind == 'QUEUE':
+            need(type(d['rx']) is int and d['rx'] == pending, 'snapshot RX correlation')
+            q = d['queues']
+            same(q, [[[stamp,ref] for stamp,ref in side.items()] for side in model])
+            pending = None
+            need(type(q) is list and len(q) == 2, 'queue schema')
+            for side, entries in enumerate(q):
+                need(type(entries) is list and len(entries) <= 2, 'queue size')
+                stamps = []
+                for entry in entries:
+                    need(type(entry) is list and len(entry) == 2 and all(type(v) is int for v in entry), 'queue entry')
+                    stamp, ref = entry
+                    matches = [x[1] for x in a['rx'].values() if x[0] == ref]
+                    need(len(matches) == 1 and matches[0]['side'] == side and matches[0]['stamp'] == stamp, 'queue RX origin')
+                    stamps.append(stamp)
+                need(len(set(stamps)) == len(stamps), 'queue duplicate stamps')
+            # The replacement premise must visibly contain NEW, not OLD.
+            if p == 'D' and 'NEW' in a['rx'] and 'R' not in a['rx']:
+                same(q, [[[NS,a['rx']['NEW'][0]]],[]])
+            a['queue'] = q
+        elif kind == 'TERMINAL':
+            need(a['terminal'] is None and a['queue'] is not None, 'terminal immutable/queue')
+            required = [v[0] for v in MATRIX[p] if not (p == 'F' and v[0] == 'LATE')]
+            need(all(v in a['rx'] for v in required), 'missing actual RX premise')
+            same(a['pairs'],EXPECTED[p])
+            same(d,{'status':'TIMED_OUT' if p in ('B','F') else 'OBSERVED','pairs':len(EXPECTED[p])})
+            if p in ('B','E'):
+                need(t >= o['timeout_at'], 'bounded observation wait')
+            if p == 'F':
+                need(t >= o['timeout_at'] and t <= o['deadline'], 'timeout budget')
+            a['terminal'] = seq
+        elif kind == 'SYNC':
+            need(type(d['terminal']) is int and d['terminal'] == a['terminal'] and not a['synced'], 'sync correlation')
+            need(integer(d['before']) and integer(d['completed']) and rows[d['terminal']]['mono'] <= d['before'] <= d['completed'] <= t <= o['deadline'], 'terminal write deadline')
+            a['synced'] = True
+        elif kind == 'CLOSE':
+            need(a['synced'] and type(d['connections']) is int and d['connections'] == 0, 'disconnect')
+            same(d['subscriptions'],o['subs'])
+            same(d['publishers'],o['pubs'])
+            if p == 'F':
+                need('LATE' in a['rx'] and not a['pairs'], 'late quarantine')
+            closed.append(p)
+            active = None
+    if complete:
+        need(final and cleanup and not errors and closed == list(MATRIX), 'truncated/incomplete')
+        need(rows[-1]['data']['status'] == 'COMPLETE', 'not complete')
+        need(contract is not None and receipt is not None, 'external contract/final durability missing')
+        need(type(receipt) is dict and set(receipt) == {'sha256','before','completed','framework'}, 'final receipt schema')
+        same(receipt['framework'], framework['association'])
+        need(receipt['sha256'] == digest(''.join(canonical(r)+'\n' for r in rows).encode()), 'final file hash')
+        need(integer(receipt['before']) and integer(receipt['completed']) and rows[-1]['mono'] <= receipt['before'] <= receipt['completed'] <= boot['whole_end'], 'final fsync deadline')
+        return 'METADATA_ONLY'
+    need(not final or rows[-1]['data']['status'] != 'COMPLETE', 'partial claims complete')
+    return 'PARTIAL'
+
+
+def run_worker(binding, output, observe_framework=None):
+    """Future isolated worker; NOT an admission API.
+
+    Trusted wrapper alone installs observe_framework(node, publishers, entities,
+    sealed_contract_json). It must independently observe constructor/owner identity,
+    persist its own authenticated record and return framework_link coordinates.
+    A caller-supplied function or admitted flag grants no runtime authority.
+    Missing observation fails before SDK imports. validate remains METADATA_ONLY.
+    """
+    need(callable(observe_framework), 'external framework observer unavailable')
+    need(set(binding) == {'case','nonce','domain','admitted','closure','contract'}, 'binding schema')
+    need(binding['admitted'] is True and ident(binding['case']) and nonce_ok(binding['nonce']), 'unbound')
+    sealed_contract = canonical(binding['contract'])
+    contract = json.loads(sealed_contract)
+    need(type(contract) is dict and set(contract) == {'case','nonce','gid_bytes','framework'} and contract.get('case') == binding['case'] and contract.get('nonce') == binding['nonce'], 'external binding')
+    same(contract['framework'], framework_descriptor())
+    need(type(binding['domain']) is int and 1 <= binding['domain'] <= 232, 'nondefault domain')
+    need(type(binding['closure']) is str and re.fullmatch('[0-9a-f]{64}',binding['closure']) is not None, 'closure unbound')
+    need(os.environ.get('ROS_DOMAIN_ID') == str(binding['domain']) and os.environ.get('ROS_AUTOMATIC_DISCOVERY_RANGE') == 'LOCALHOST', 'environment')
+    # SDK imports occur only beyond this explicit effect boundary.
+    from rclpy.context import Context
+    from rclpy.node import Node
+    from rclpy.parameter import Parameter
+    from rclpy.executors import SingleThreadedExecutor
+    from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy, qos_check_compatible, LivelinessPolicy
+    from rclpy.duration import Duration
+    from rclpy.serialization import serialize_message
+    from geometry_msgs.msg import PointStamped
+    from message_filters import Subscriber, ApproximateTimeSynchronizer
+
+    start = time.monotonic_ns()
+    work_end, whole_end = start+20*NS, start+30*NS
+    rows, keep, pubs, subs, filters = [], [], [], [], []
+    context = node = executor = sync = None
+    phase, epoch = 'A', 1
+    byte_count = 0
+    stream = open(output,'x',encoding='utf-8')
+    def emit(event, data):
+        nonlocal byte_count
+        r = dict(schema=SCHEMA,case=binding['case'],nonce=binding['nonce'],phase=phase,epoch=epoch,seq=len(rows),mono=time.monotonic_ns(),event=event,data=data)
+        text = canonical(r)+'\n'
+        need(len(rows) < 256 and byte_count+len(text.encode()) <= LIMIT, 'journal cap')
+        stream.write(text)
+        stream.flush()
+        rows.append(r)
+        byte_count += len(text.encode())
+        return r
+    def oid(obj):
+        keep.append(obj)
+        return 'o'+str(id(obj))
+    def snap(msg):
+        raw = bytes(serialize_message(msg))
+        return dict(fields=dict(frame=msg.header.frame_id,stamp=msg.header.stamp.sec*NS+msg.header.stamp.nanosec,point=[msg.point.x,msg.point.y,msg.point.z]),raw=base64.b64encode(raw).decode(),sha256=digest(raw),object=oid(msg))
+    def wait(predicate, end):
+        while not predicate():
+            remaining = min(end,work_end)-time.monotonic_ns()
+            need(remaining > 0, 'finite wait expired')
+            executor.spin_once(timeout_sec=min(0.01,remaining/NS))
+    def close_graph():
+        nonlocal sync
+        if sync is not None:
+            for f, c in zip(filters,sync.input_connections):
+                f.unregisterCallback(c)
+            sync.callbacks.clear()
+        failures = []
+        for objects, destroy in ((subs, node.destroy_subscription if node else None), (pubs, node.destroy_publisher if node else None)):
+            for obj in list(objects):
+                try:
+                    need(destroy is not None and destroy(obj) is True, 'entity destroy')
+                    objects.remove(obj)
+                except Exception as exc:
+                    failures.append(str(exc))
+        filters.clear()
+        sync = None
+        need(not failures, '; '.join(failures))
+    failed = False
+    try:
+        emit('BOOT',dict(start=start,work_end=work_end,whole_end=whole_end))
+        context = Context()
+        context.init(args=[],initialize_logging=False,domain_id=binding['domain'])
+        node = Node('mf02_'+binding['nonce'],context=context,cli_args=[],use_global_arguments=False,enable_rosout=False,enable_logger_service=False,start_parameter_services=False,parameter_overrides=[Parameter('start_type_description_service',Parameter.Type.BOOL,False)])
+        framework_publishers = tuple(node.publishers)
+        framework = [dict(object=oid(p),topic=p.topic_name,type='rcl_interfaces/msg/ParameterEvent',source='Node.__init__') for p in framework_publishers]
+        association = framework_link(framework,contract)
+        observed = observe_framework(node,framework_publishers,json.loads(canonical(framework)),sealed_contract)
+        same(canonical(binding['contract']),sealed_contract)
+        same(observed,association)
+        emit('FRAMEWORK',dict(entities=framework,association=association))
+        executor = SingleThreadedExecutor(context=context)
+        need(executor.add_node(node), 'add node')
+        owners = [oid(context),oid(node),oid(executor)]
+        topics = ['/mf02_'+binding['case']+'_'+binding['nonce']+'/'+s for s in ('left','right')]
+        reliable = QoSProfile(depth=8,history=HistoryPolicy.KEEP_LAST,reliability=ReliabilityPolicy.RELIABLE,durability=DurabilityPolicy.VOLATILE,liveliness=LivelinessPolicy.AUTOMATIC,deadline=Duration(nanoseconds=60000000000),lifespan=Duration(nanoseconds=60000000000),liveliness_lease_duration=Duration(nanoseconds=60000000000),avoid_ros_namespace_conventions=False)
+        best = QoSProfile(depth=8,history=HistoryPolicy.KEEP_LAST,reliability=ReliabilityPolicy.BEST_EFFORT,durability=DurabilityPolicy.VOLATILE,liveliness=LivelinessPolicy.AUTOMATIC,deadline=Duration(nanoseconds=60000000000),lifespan=Duration(nanoseconds=60000000000),liveliness_lease_duration=Duration(nanoseconds=60000000000),avoid_ros_namespace_conventions=False)
+        for epoch, phase in enumerate(MATRIX,1):
+            emit('ENTER',dict(stage='ALLOCATING'))
+            need(time.monotonic_ns()+2*NS < work_end, 'work cutoff')
+            now = time.monotonic_ns()
+            discovery_end, receive_end, timeout_at, deadline = now+NS//2, now+NS, now+1200000000, now+1800000000
+            pubq = [best if phase == 'E' else reliable,reliable]
+            pubs.extend(node.create_publisher(PointStamped,t,q) for t,q in zip(topics,pubq))
+            received, sources, pair_count = {}, {}, []
+            for side in (0,1):
+                f = Subscriber(node,PointStamped,topics[side],qos_profile=reliable)
+                filters.append(f)
+                subs.append(f.sub)
+            pubids, subids = [oid(p) for p in pubs], [oid(s) for s in subs]
+            def rx(msg, side, probe=False):
+                name = msg.header.frame_id.split('/')[-1]
+                need(name in sources, 'unsolicited RX')
+                r = emit('RX',dict(id=name,side=side,stamp=msg.header.stamp.sec*NS+msg.header.stamp.nanosec,capture=snap(msg),subscription=subids[2 if probe else side],source=sources[name],probe=probe))
+                received[name] = (r['seq'],msg)
+            # Registered before ATS: journal RX is necessarily earlier than PAIR.
+            for side,f in enumerate(filters):
+                f.registerCallback(rx,side)
+            sync = ApproximateTimeSynchronizer(filters,2,0.01,allow_headerless=False)
+            def paired(left,right):
+                refs = [received[m.header.frame_id.split('/')[-1]][0] for m in (left,right)]
+                emit('PAIR',dict(refs=refs,captures=[snap(left),snap(right)]))
+                pair_count.append(refs)
+            sync.registerCallback(paired)
+            if phase == 'E':
+                probe = node.create_subscription(PointStamped,topics[0],lambda m: rx(m,0,True),best)
+                subs.append(probe)
+                subids.append(oid(probe))
+            emit('OPEN',dict(owners=owners,topics=topics,pubs=pubids,subs=subids,discovery_end=discovery_end,receive_end=receive_end,timeout_at=timeout_at,deadline=deadline))
+            endpoints = []
+            def discover():
+                endpoints.clear()
+                for role, method, expected_count in [('PUB',node.get_publishers_info_by_topic,2),('SUB',node.get_subscriptions_info_by_topic,3 if phase == 'E' else 2)]:
+                    group = []
+                    for topic in topics:
+                        for info in method(topic):
+                            group.append(dict(gid=list(bytes(info.endpoint_gid)),topic=topic,role=role,reliability=info.qos_profile.reliability.name,type=info.topic_type))
+                    if len(group) != expected_count:
+                        return False
+                    group.sort(key=lambda v: (topics.index(v['topic']),v['reliability'] != 'RELIABLE'))
+                    if phase == 'E' and role == 'SUB':
+                        group = [v for v in group if v['reliability']=='RELIABLE']+[v for v in group if v['reliability']=='BEST_EFFORT']
+                    endpoints.extend(group)
+                return True
+            wait(discover,discovery_end)
+            checks = [qos_check_compatible(pubq[0],reliable)[0].name,qos_check_compatible(pubq[1],reliable)[0].name]
+            if phase == 'E':
+                checks.append(qos_check_compatible(best,best)[0].name)
+            emit('DISCOVERY',dict(endpoints=endpoints,compatibility=checks))
+            def queue():
+                latest = max(v[0] for v in received.values())
+                emit('QUEUE',dict(rx=latest,queues=[[[stamp,received[msg.header.frame_id.split('/')[-1]][0]] for stamp,msg in q.items()] for q in sync.queues]))
+            def terminal():
+                r = emit('TERMINAL',dict(status='TIMED_OUT' if phase in ('B','F') else 'OBSERVED',pairs=len(pair_count)))
+                before = time.monotonic_ns()
+                os.fsync(stream.fileno())
+                completed = time.monotonic_ns()
+                emit('SYNC',dict(terminal=r['seq'],before=before,completed=completed))
+                need(completed <= deadline, 'original terminal deadline')
+            for index,item in enumerate(MATRIX[phase]):
+                if phase == 'F' and index == 1:
+                    wait(lambda: time.monotonic_ns() >= timeout_at,deadline)
+                    terminal()
+                    # Retain DDS RX journaling, detach only ATS consumers before late PUB.
+                    for f,c in zip(filters,sync.input_connections):
+                        f.unregisterCallback(c)
+                    sync.callbacks.clear()
+                    emit('QUARANTINE',dict(connections=0))
+                name,side,stamp = item
+                msg = PointStamped()
+                f = fields(phase,epoch,item)
+                msg.header.frame_id = f['frame']
+                msg.header.stamp.sec,msg.header.stamp.nanosec = divmod(stamp,NS)
+                msg.point.x,msg.point.y,msg.point.z = f['point']
+                cap = snap(msg)
+                pubs[side].publish(msg)
+                r = emit('PUB',dict(id=name,side=side,stamp=stamp,capture=cap,publisher=pubids[side]))
+                sources[name] = r['seq']
+                wait(lambda: name in received,deadline if phase == 'F' and index else receive_end)
+                queue()
+            if phase != 'F':
+                if phase in ('B','E'):
+                    wait(lambda: time.monotonic_ns() >= timeout_at,deadline)
+                terminal()
+            oldsubs,oldpubs = list(subids),list(pubids)
+            close_graph()
+            emit('CLOSE',dict(subscriptions=oldsubs,publishers=oldpubs,connections=0))
+    except Exception as exc:
+        failed = True
+        emit('ERROR',dict(reason=(type(exc).__name__+': '+str(exc))[:1024]))
+    finally:
+        flags = dict(executor=executor is None,node=node is None,context=context is None)
+        def cleanup_error(exc):
+            nonlocal failed
+            failed = True
+            emit('ERROR',dict(reason=('cleanup: '+str(exc))[:1024]))
+        try:
+            close_graph()
+        except Exception as exc:
+            cleanup_error(exc)
+        if executor is not None:
+            try:
+                flags['executor'] = executor.shutdown(timeout_sec=max(0.0,(whole_end-time.monotonic_ns())/NS)) is True
+            except Exception as exc:
+                cleanup_error(exc)
+        if node is not None:
+            try:
+                node.destroy_node()
+                flags['node'] = not list(node.publishers) and not list(node.subscriptions)
+            except Exception as exc:
+                cleanup_error(exc)
+        if context is not None:
+            try:
+                if context.ok():
+                    context.shutdown()
+                flags['context'] = not context.ok()
+            except Exception as exc:
+                cleanup_error(exc)
+        emit('CLEANUP',flags)
+        # COMPLETE is only a candidate until the returned post-close receipt verifies.
+        status = 'COMPLETE' if not failed and all(flags.values()) else 'PARTIAL'
+        emit('FINAL',dict(status=status))
+        try:
+            stream.flush()
+            before = time.monotonic_ns()
+            os.fsync(stream.fileno())
+            completed = time.monotonic_ns()
+        finally:
+            stream.close()
+        need(time.monotonic_ns() <= whole_end, 'final close whole deadline')
+        same(read_raw(output),rows)
+        receipt = dict(sha256=digest(''.join(canonical(r)+'\n' for r in rows).encode()),before=before,completed=completed,framework=next((r['data']['association'] for r in rows if r['event'] == 'FRAMEWORK'),None))
+        validate(rows,complete=status == 'COMPLETE',contract=contract,receipt=receipt)
+    return dict(status=status,receipt=receipt)
+
+
+def main():
+    parser = argparse.ArgumentParser(description='MF02 metadata verifier only; no runtime CLI')
+    parser.add_argument('raw')
+    parser.add_argument('--partial',action='store_true')
+    args = parser.parse_args()
+    print(validate(read_raw(args.raw),complete=not args.partial))
+
+
+if __name__ == '__main__':
+    main()

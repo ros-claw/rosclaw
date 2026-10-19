@@ -1,0 +1,43 @@
+{
+  "status": "ROOT_FINAL_HELPERS_PUBLIC_PORTABLE_DUAL14_PASS_NOT_DDS",
+  "dual_results": [
+    {
+      "Python_minor": "311",
+      "ordinary_tests": 14,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "effect_denials": [],
+      "sources_unchanged": true,
+      "parent_receipt_sha256": "74d933d5de7e9a3845f497b4548df8d4eeb16e9d5156747b9d865d8c4bd578e8"
+    },
+    {
+      "Python_minor": "312",
+      "ordinary_tests": 14,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "effect_denials": [],
+      "sources_unchanged": true,
+      "parent_receipt_sha256": "024481d8403b25b69abc2e9737ad435a3d74214651a7b474a79b24df013d5c8f"
+    }
+  ],
+  "distinct_tests": 14,
+  "two_interpreter_executions": 28,
+  "Root_helper_only_mechanical_changes": {
+    "replay_pure.py": {
+      "before": "4c4d02de10bcabe4bea95c93254c94e9260282ddc14982de0550054ef18fcae3",
+      "after": "d4b62592c026ea8e4c0fc88eac09faf9dbd701266cadd904615c54bb9d0c2b9e"
+    },
+    "verify_publication.py": {
+      "before": "47d1abfff0571cae2dcee3f439d5b9c68e7859cdffc256fdfaabba6015700995",
+      "after": "f6139b1a8b8a40507bece6d2ec4633eb7de6884954e064de319a23ee4d094ae6"
+    }
+  },
+  "Native_source3_unchanged": true,
+  "all_public_files_prepost_unchanged": true,
+  "new_SDK_DDS_model_calls": 0,
+  "original_failures_preserved": true,
+  "full_DDS_certificate": false,
+  "physical_success": false
+}

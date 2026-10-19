@@ -1,0 +1,123 @@
+{
+  "schema": "ROSClaw.MF02.PublicBoundedEvidence.v1",
+  "status": "PURE14_ACCEPTED_AND_ONE_BOUNDED_NATIVE_DDS_RUN_REVIEWED_NOT_FULL_DDS_CERTIFICATE",
+  "source_author": "ROSClaw Native Agent",
+  "exact_native_source3_sha256": {
+    "mf02_dds_sync_scenario.py": "030c57cb8e6a90348cda55f61646ee5fca6f51086820b7f048fb71cc37aa8f0c",
+    "test_mf02_dds_sync_scenario.py": "30ddb7c9c6ec732bf53188275fb7cf841d7019eb8bb3ca024ed3a3d169d5bf0f",
+    "MF02_SYNC_PARTIAL_REPAIR.md": "5b664882b2c5eafe2eb3c5f9da89eaed945bec6aeb84c1a87e35b59dfed86c8c"
+  },
+  "public_archive_replay": {
+    "status": "PENDING_ROOT_FRESH_EXTRACTION_AND_REPLAY_NOT_RUN_BY_PREPARER",
+    "expected_unittest_methods": 14,
+    "SDK_required": false,
+    "synthetic_metadata_only": true
+  },
+  "independent_source_pure": {
+    "ordinary_tests": 14,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "sources_unchanged": true,
+    "effect_denials": [],
+    "SDK_DDS_model_physics_calls": 0
+  },
+  "bounded_native_run": {
+    "normal_STOP_and_quit": true,
+    "model_elapsed_s": 35.53925430797972,
+    "model_requests": 10,
+    "process_start_count": 1,
+    "managed_operation_state": "SUCCEEDED",
+    "genuine_registered_artifacts": 2,
+    "status_and_output_before_registration": true,
+    "watcher_automatic_continuation": true,
+    "raw_metadata_rows": 103,
+    "wrapper_elapsed_s": 4.467256748001091,
+    "same_fixed_image_sha256": "81b41b619cc44a3c4915cd7bf42a7faf5219ddf7d84e2506e890a2457adaaaf5",
+    "scenario_work_s": 20,
+    "scenario_whole_s": 30,
+    "max_rows": 256,
+    "max_raw_bytes": 1048576,
+    "strict_compatibility": {
+      "A_B_C_D_F_G": [
+        "OK",
+        "OK"
+      ],
+      "E": [
+        "ERROR",
+        "OK",
+        "OK"
+      ],
+      "source": "unchanged Native complete metadata oracle; WARNING is not accepted as OK"
+    },
+    "container_removed": true,
+    "saved_exact_CID_and_outer_nonce_name_absence_checked": true,
+    "captured_processes_gone_without_signals": true,
+    "global_and_default_runtime_unchanged": true
+  },
+  "independent_recorded_CDR_review": {
+    "decoded_captures": 44,
+    "capture_counts": {
+      "PUB": 17,
+      "RX": 17,
+      "PAIR": 10
+    },
+    "all_recorded_Header_PointStamped_fields_match": true,
+    "corruption_negative_controls_rejected": [
+      "wrong_encapsulation",
+      "truncated_double",
+      "trailing_byte",
+      "missing_frame_NUL",
+      "oversize_string_length",
+      "changed_timestamp",
+      "changed_point",
+      "nonfinite_point"
+    ],
+    "arbitrary_alignment_padding_accepted": true,
+    "decoder": "stdlib base64+struct; CDR1 little-endian; payload-relative alignment",
+    "recorded_bytes_scope": "serialize_message output for PUB/RX/PAIR message objects; not DDS network packet capture",
+    "new_SDK_or_model_calls": 0,
+    "network_packet_capture": false
+  },
+  "independent_closed_metadata_review": {
+    "seven_saved_docker_calls_checked": true,
+    "parent_and_readonly_SQL2Refs_checked": true,
+    "retained_observer_and_provenance_records_joined": true,
+    "all_read_inputs_unchanged": true,
+    "full_fixed_image_SDK_content_provenance_verified": false,
+    "same_process_observer_is_cryptographic_authentication": false
+  },
+  "history_preserved": [
+    {
+      "event": "original saved DDS run",
+      "status": "FAILED",
+      "detail": "First strict discovery mismatch was WARNING/WARNING rather than OK/OK; original 103-row failed run is not reclassified."
+    },
+    {
+      "event": "QoS source author workflow",
+      "status": "FAILED",
+      "detail": "Post-edit coverage helper mistakenly required changed workspace source to match original seed SHA; a separate immutable-origin closed read/literal/scope review accepted the component, followed by actual pure14."
+    },
+    {
+      "event": "closed metadata verifier v3",
+      "status": "FAILED",
+      "detail": "Restricted argv evaluator omitted str; separate thin v4 review succeeded. Original failure remains preserved."
+    }
+  ],
+  "claim_limits": {
+    "unique_cause_of_original_WARNING_proven": false,
+    "full_DDS_certificate": false,
+    "physical_success": false,
+    "robot_hardware_authorized_or_used": false,
+    "full_framework_or_CAP80_credit": false,
+    "public_live_DDS_reproduction_bundle": false,
+    "native_original_doc_is_runtime_authority": false
+  },
+  "not_embedded": [
+    "raw journals and CDR bytes",
+    "model sessions/prompts/auth/environment/private bindings",
+    "Root external operators and observer runtime",
+    "fixed ROS image/installed SDK binaries",
+    "hardware or robot control inputs"
+  ]
+}
