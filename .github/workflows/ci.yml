@@ -197,6 +197,15 @@ jobs:
       - name: Install dependencies
         run: uv pip install -e ".[dev]" --system
 
+      - name: Run action mapping regression contracts
+        # The general matrix below does not collect tests/unit. Exercise these
+        # contracts explicitly on every supported Python version.
+        run: >-
+          pytest
+          tests/unit/integrations/lerobot/test_body_action_mapping.py
+          tests/unit/integrations/lerobot/action_mapping_contract_native
+          -q
+
       - name: Run tests
         run: >-
           pytest

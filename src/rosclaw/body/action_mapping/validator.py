@@ -22,7 +22,10 @@ def validate_action_mapping(mapping: ActionMapping) -> dict[str, Any]:
         status = "ok_with_conversion"
     elif mapping.compatibility == MappingCompatibility.PARTIAL:
         status = "blocked" if not mapping.allow_partial else "partial"
-    elif mapping.compatibility == MappingCompatibility.INCOMPATIBLE or mapping.compatibility == MappingCompatibility.UNKNOWN:
+    elif (
+        mapping.compatibility == MappingCompatibility.INCOMPATIBLE
+        or mapping.compatibility == MappingCompatibility.UNKNOWN
+    ):
         status = "blocked"
 
     joint_issues = [
@@ -59,35 +62,75 @@ def validate_mapped_action(
 
     issues: list[str] = []
     if mapped.blocked:
-        issues.extend(mapped.block_reasons)
+        if isinstance(mapped.block_reasons, (list, tuple)):
+            issues.extend(str(reason) for reason in mapped.block_reasons)
+        else:
+            issues.append("Malformed block reasons")
 
     values = mapped.body_action_values
-    for i, value in enumerate(values):
-        if math.isnan(value) or math.isinf(value):
-            issues.append(
-                f"Invalid value at index {i} (joint {mapped.body_joint_names[i]}): {value}"
-            )
+    names = mapped.body_joint_names
+    if not isinstance(values, (list, tuple)):
+        issues.append("Body action values must be a flat sequence")
+        values = []
+    if not isinstance(names, (list, tuple)):
+        issues.append("Body joint names must be a sequence")
+        names = []
+    dim = len(names)
+    if not dim:
+        issues.append("Body has no controllable joints")
+    elif any(not isinstance(name, str) or not name for name in names):
+        issues.append("Body joint names must be nonempty strings")
+    elif len(set(names)) != dim:
+        issues.append("Duplicate body joint names are not allowed")
 
-    if joint_limits:
-        dim = len(mapped.body_joint_names)
-        chunks = mapped.chunk_size or 1
-        for chunk_idx in range(chunks):
-            offset = chunk_idx * dim
-            for j_idx, joint_name in enumerate(mapped.body_joint_names):
-                value = values[offset + j_idx]
-                limits = joint_limits.get(joint_name, {})
-                lower = limits.get("lower")
-                upper = limits.get("upper")
-                if lower is not None and value < lower:
-                    issues.append(
-                        f"Joint {joint_name} chunk {chunk_idx} below lower limit: "
-                        f"{value} < {lower}"
-                    )
-                if upper is not None and value > upper:
-                    issues.append(
-                        f"Joint {joint_name} chunk {chunk_idx} above upper limit: "
-                        f"{value} > {upper}"
-                    )
+    chunks = 1 if mapped.chunk_size is None else mapped.chunk_size
+    valid_chunks = type(chunks) is int and chunks > 0
+    if not valid_chunks:
+        issues.append("Chunk size must be a positive integer or None")
+    elif len(values) != dim * chunks:
+        issues.append(f"Action length mismatch: expected {dim * chunks} values, got {len(values)}")
+
+    if joint_limits is not None and not isinstance(joint_limits, dict):
+        issues.append("Joint limits must be a dictionary")
+        joint_limits = None
+
+    # Iterate actual values rather than indexing an assumed complete chunk.
+    # This checks even excess values without indexing beyond the name list.
+    for i, value in enumerate(values):
+        joint_name = names[i % dim] if dim else "unknown"
+        try:
+            finite = math.isfinite(value)
+        except (TypeError, ValueError, OverflowError):
+            finite = False
+        if not finite:
+            issues.append(f"Invalid value at index {i} (joint {joint_name}): {value}")
+            continue
+
+        if not joint_limits or not dim or not isinstance(joint_name, str):
+            continue
+        limits = joint_limits.get(joint_name, {})
+        if not isinstance(limits, dict):
+            issues.append(f"Malformed limits for joint {joint_name}")
+            continue
+        chunk_idx = i // dim
+        for key, direction in (("lower", "below"), ("upper", "above")):
+            bound = limits.get(key)
+            if bound is None:
+                continue
+            try:
+                if not math.isfinite(bound):
+                    issues.append(f"Invalid {key} limit for joint {joint_name}")
+                    continue
+                violated = value < bound if key == "lower" else value > bound
+            except (TypeError, ValueError, OverflowError):
+                issues.append(f"Invalid {key} limit for joint {joint_name}")
+                continue
+            if violated:
+                operator = "<" if key == "lower" else ">"
+                issues.append(
+                    f"Joint {joint_name} chunk {chunk_idx} {direction} {key} limit: "
+                    f"{value} {operator} {bound}"
+                )
 
     return {
         "blocked": mapped.blocked or bool(issues),

@@ -72,6 +72,45 @@ def generate_action_mapping(
             allow_partial=allow_partial,
         )
 
+    # Names must identify dimensions unambiguously before building index maps.
+    if len(set(policy_space.names)) != len(policy_space.names):
+        block_reasons.append("Duplicate policy action names are not allowed")
+    if len(set(body_space.joint_names)) != len(body_space.joint_names):
+        block_reasons.append("Duplicate body joint names are not allowed")
+
+    # An omitted shape remains supported. An explicit shape describes either
+    # one action vector or a declared chunk of action vectors, not a flattened
+    # or inferred replacement for the named policy dimensions.
+    shape = policy_space.shape
+    if shape:
+        valid_shape = isinstance(shape, (list, tuple)) and all(
+            type(size) is int and size > 0 for size in shape
+        )
+        if policy_space.is_chunked:
+            chunks = policy_space.chunk_size
+            valid_shape = (
+                valid_shape
+                and type(chunks) is int
+                and chunks > 0
+                and list(shape) == [chunks, len(policy_space.names)]
+            )
+        else:
+            valid_shape = valid_shape and list(shape) == [len(policy_space.names)]
+        if not valid_shape:
+            block_reasons.append(
+                f"Policy action shape {shape!r} is inconsistent with "
+                f"{len(policy_space.names)} names and declared chunk metadata"
+            )
+
+    if block_reasons:
+        return ActionMapping(
+            policy_space=policy_space,
+            body_space=body_space,
+            compatibility=MappingCompatibility.INCOMPATIBLE,
+            block_reasons=block_reasons,
+            allow_partial=allow_partial,
+        )
+
     policy_name_to_index = {name: i for i, name in enumerate(policy_space.names)}
     body_name_to_index = {name: i for i, name in enumerate(body_space.joint_names)}
 
@@ -128,9 +167,7 @@ def generate_action_mapping(
 
     matched = [j for j in joints if j.policy_index >= 0]
     unmatched_body = [j for j in joints if j.policy_index < 0]
-    unmatched_policy = [
-        name for name in policy_space.names if name not in body_space.joint_names
-    ]
+    unmatched_policy = [name for name in policy_space.names if name not in body_space.joint_names]
 
     if not matched:
         compatibility = MappingCompatibility.INCOMPATIBLE
@@ -199,9 +236,7 @@ def map_action_to_body(
             body_joint_names=[],
             compatibility=mapping.compatibility,
             blocked=True,
-            block_reasons=[
-                f"Action length mismatch: expected {expected} values, got {total}"
-            ],
+            block_reasons=[f"Action length mismatch: expected {expected} values, got {total}"],
             warnings=mapping.warnings,
         )
 
