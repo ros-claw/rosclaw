@@ -6,6 +6,7 @@ actually returned, not complete JSON values or newly measured robot observations
 
 import copy
 import hashlib
+import re
 from collections import OrderedDict
 
 from benchmarks.ros_expert_ablation.aci_context import encoded
@@ -52,16 +53,35 @@ class EvidenceReadProgress:
         elif result.get("status") in {
             "ORIGINAL_SERIALIZED_RECORD_SLICE_NOT_NEW_OBSERVATION",
             "ORIGINAL_FILE_SLICE_NOT_DIAGNOSIS",
+            "ORIGINAL_APPLICATION_INPUT_SLICE_NOT_DIAGNOSIS",
         }:
-            is_file = result["status"] == "ORIGINAL_FILE_SLICE_NOT_DIAGNOSIS"
+            is_file = result["status"] != "ORIGINAL_SERIALIZED_RECORD_SLICE_NOT_NEW_OBSERVATION"
             if is_file:
                 args = request.get("arguments", {})
-                if request.get("operation") != "files.read" or args.get("file") != result["file"]:
+                application = result["status"] == "ORIGINAL_APPLICATION_INPUT_SLICE_NOT_DIAGNOSIS"
+                operation = "ros_engineer.read_application_input" if application else "files.read"
+                if request.get("operation") != operation or args.get("file") != result["file"]:
                     return
                 ref = result["file"]
                 catalog = (self.file_catalog or {}).get("files", [])
                 metadata = next((row for row in catalog if row["file"] == ref), {})
-                digest = metadata.get("sha256")
+                catalog_digest = metadata.get("sha256")
+                response_digest = result.get("source_sha256") if application else None
+                if application and (
+                    not isinstance(response_digest, str)
+                    or re.fullmatch("[0-9a-f]{64}", response_digest) is None
+                ):
+                    raise ValueError("original application input requires its host file digest")
+                if response_digest and catalog_digest and response_digest != catalog_digest:
+                    raise ValueError("application input differs from its original file catalog")
+                digest = response_digest or catalog_digest
+                hash_origin = (
+                    "HOST_APPLICATION_INPUT_RESPONSE"
+                    if response_digest
+                    else "HOST_ORIGINAL_FILE_CATALOG"
+                    if catalog_digest
+                    else "UNAVAILABLE"
+                )
                 self.file_reads += 1
             else:
                 ref = result["evidence_ref"]
@@ -81,7 +101,7 @@ class EvidenceReadProgress:
                 and end == total
                 and hashlib.sha256(result["text"].encode()).hexdigest() != digest
             ):
-                raise ValueError("returned complete file differs from its original catalog")
+                raise ValueError("returned complete file differs from its original file digest")
             identity = ("file", ref, digest) if is_file else (ref, digest)
             previous = self.entries.pop(identity, None)
             ranges = previous["returned_character_ranges"] if previous else []
@@ -121,7 +141,8 @@ class EvidenceReadProgress:
             if is_file:
                 for row in [self.entries[identity], self.slices[slice_id]]:
                     row["file"] = row.pop("evidence_ref")
-                    row["catalog_file_sha256"] = row.pop("record_sha256")
+                    row["original_file_sha256"] = row.pop("record_sha256")
+                    row["file_hash_origin"] = hash_origin
         # The episode itself has a hard turn cap; also bound this reusable helper.
         while len(self.entries) > 32:
             self.entries.popitem(last=False)

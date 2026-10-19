@@ -98,7 +98,7 @@ def test_different_catalog_digests_and_uncatalogued_reads_never_merge():
         read(book, text, offset, 10)
     entries = book.payload()["original_evidence_access"]["progress"]
     assert len(entries) == 3
-    assert {e["catalog_file_sha256"] for e in entries} == {
+    assert {e["original_file_sha256"] for e in entries} == {
         None,
         hashlib.sha256(b"a" * 30).hexdigest(),
         hashlib.sha256(b"b" * 30).hexdigest(),
@@ -109,7 +109,7 @@ def test_different_catalog_digests_and_uncatalogued_reads_never_merge():
 def test_complete_file_hash_mismatch_is_rejected():
     book = EpisodeWorkbook()
     book.observe(catalog("original"), "catalog", request={"operation": "files.list"})
-    with pytest.raises(ValueError, match="differs from its original catalog"):
+    with pytest.raises(ValueError, match="differs from its original file digest"):
         read(book, "tampered", 0, 8)
 
 
@@ -174,3 +174,63 @@ def test_unsuccessful_or_mismatched_operations_do_not_claim_file_access():
     }
     progress.observe(result, {"operation": "files.read", "arguments": {"file": "other"}})
     assert "original_file_access" not in progress.payload()
+
+
+def application_read(book, text, offset, limit, *, digest=None):
+    response = {
+        "status": "ORIGINAL_APPLICATION_INPUT_SLICE_NOT_DIAGNOSIS",
+        "file": "input.json",
+        "offset": offset,
+        "total_characters": len(text),
+        "text": text[offset : offset + limit],
+        "source_sha256": digest or hashlib.sha256(text.encode()).hexdigest(),
+    }
+    book.observe(
+        response,
+        "public application summary",
+        request={
+            "operation": "ros_engineer.read_application_input",
+            "arguments": {"file": "input.json"},
+        },
+    )
+
+
+def test_application_input_survives_tool_switch_with_its_actual_host_digest():
+    book = EpisodeWorkbook()
+    text = '{"application_input":"' + "a" * 4100 + '"}'
+    application_read(book, text, 0, len(text))
+    book.observe({"status": "OTHER_RESULT"}, "switch", request={})
+    access = book.payload()["original_evidence_access"]["original_file_access"]
+    assert access["catalog"] is None and access["slice_reads"] == 1
+    assert access["file_slices"][0]["text"] == text
+    assert (
+        access["file_slices"][0]["original_file_sha256"]
+        == hashlib.sha256(text.encode()).hexdigest()
+    )
+    assert access["file_slices"][0]["file_hash_origin"] == "HOST_APPLICATION_INPUT_RESPONSE"
+
+
+def test_common_file_and_application_reader_merge_only_the_same_original():
+    book = EpisodeWorkbook()
+    text = "same original" * 10
+    book.observe(catalog(text), "catalog", request={"operation": "files.list"})
+    read(book, text, 0, 20)
+    application_read(book, text, 20, len(text))
+    progress = book.payload()["original_evidence_access"]["progress"]
+    assert len(progress) == 1
+    assert progress[0]["returned_character_ranges"] == [[0, len(text)]]
+    assert progress[0]["serialized_record_fully_returned"] is True
+
+
+@pytest.mark.parametrize("digest", ["invalid", "A" * 64, "f" * 64])
+def test_application_whole_read_requires_valid_matching_host_file_digest(digest):
+    book = EpisodeWorkbook()
+    with pytest.raises(ValueError, match="host file digest|differs from its original file digest"):
+        application_read(book, "original", 0, 8, digest=digest)
+
+
+def test_application_partial_read_cannot_change_catalog_identity():
+    book = EpisodeWorkbook()
+    book.observe(catalog("original"), "catalog", request={"operation": "files.list"})
+    with pytest.raises(ValueError, match="differs from its original file catalog"):
+        application_read(book, "other", 0, 2)
