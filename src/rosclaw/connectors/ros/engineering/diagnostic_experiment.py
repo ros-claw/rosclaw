@@ -20,6 +20,7 @@ class RosHypothesisV1(GraphRecord):
         "CLOCK_CONFLICT",
         "TF_TIME_CONFLICT",
         "TF_AUTHORITY_CONFLICT",
+        "SOURCE_CONSUMER_CONFLICT",
         "UNRESOLVED_PATH",
     ]
     targets: list[str] = Field(max_length=64)
