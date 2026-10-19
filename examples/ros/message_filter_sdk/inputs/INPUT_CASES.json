@@ -1,0 +1,142 @@
+{
+  "schema": "PROPOSED_LOCAL_MESSAGE_FILTER_INPUTS_V1",
+  "data_origin": "GENERATED_NOT_SENSOR",
+  "queue_size": 2,
+  "slop_ns": 10000000,
+  "allow_headerless": false,
+  "cases": [
+    {
+      "id": "ordinary",
+      "events": [
+        {
+          "id": "O_L",
+          "channel": "left",
+          "stamp_ns": 1000000000
+        },
+        {
+          "id": "O_R",
+          "channel": "right",
+          "stamp_ns": 1006000000
+        }
+      ]
+    },
+    {
+      "id": "strict_boundary",
+      "events": [
+        {
+          "id": "B_L",
+          "channel": "left",
+          "stamp_ns": 1000000000
+        },
+        {
+          "id": "B_R",
+          "channel": "right",
+          "stamp_ns": 1010000000
+        }
+      ]
+    },
+    {
+      "id": "queue_eviction",
+      "events": [
+        {
+          "id": "Q_L1",
+          "channel": "left",
+          "stamp_ns": 1000000000
+        },
+        {
+          "id": "Q_L2",
+          "channel": "left",
+          "stamp_ns": 1100000000
+        },
+        {
+          "id": "Q_L3",
+          "channel": "left",
+          "stamp_ns": 1200000000
+        },
+        {
+          "id": "Q_R1",
+          "channel": "right",
+          "stamp_ns": 1001000000
+        },
+        {
+          "id": "Q_R3",
+          "channel": "right",
+          "stamp_ns": 1201000000
+        }
+      ]
+    },
+    {
+      "id": "out_of_order",
+      "events": [
+        {
+          "id": "A_L2",
+          "channel": "left",
+          "stamp_ns": 2000000000
+        },
+        {
+          "id": "A_L1",
+          "channel": "left",
+          "stamp_ns": 1000000000
+        },
+        {
+          "id": "A_R1",
+          "channel": "right",
+          "stamp_ns": 1001000000
+        },
+        {
+          "id": "A_R2",
+          "channel": "right",
+          "stamp_ns": 2001000000
+        }
+      ]
+    },
+    {
+      "id": "duplicate_stamp",
+      "events": [
+        {
+          "id": "D_L_OLD",
+          "channel": "left",
+          "stamp_ns": 1000000000
+        },
+        {
+          "id": "D_L_NEW",
+          "channel": "left",
+          "stamp_ns": 1000000000
+        },
+        {
+          "id": "D_R",
+          "channel": "right",
+          "stamp_ns": 1001000000
+        }
+      ]
+    },
+    {
+      "id": "epoch_isolation",
+      "events": [
+        {
+          "id": "E1_L",
+          "channel": "left",
+          "stamp_ns": 1000000000,
+          "epoch": 1
+        },
+        {
+          "kind": "RESET",
+          "from_epoch": 1,
+          "to_epoch": 2
+        },
+        {
+          "id": "E2_R",
+          "channel": "right",
+          "stamp_ns": 1001000000,
+          "epoch": 2
+        },
+        {
+          "id": "E2_L",
+          "channel": "left",
+          "stamp_ns": 1000000000,
+          "epoch": 2
+        }
+      ]
+    }
+  ]
+}
