@@ -367,6 +367,9 @@ def _run_step(
         return None
 
     snapshot = _build_snapshot(raw_observation, step_index, session_id)
+    # With a contract, reject unknown/future source capture before adaptation
+    # or INFER. Receipt time records arrival only; it cannot establish freshness.
+    # Each step validates its own snapshot, so a later valid source can recover.
     validation_report = {"status": "ok", "errors": []}
     if contract is not None:
         validation = validate_observation_snapshot(contract, snapshot)
@@ -579,10 +582,20 @@ def _build_snapshot(
                 values=list(channel_values),
                 names=list(names) if names else None,
             )
+    # Match the adapter's envelope selection for temporal metadata only.
+    # No wall/ROS/simulation clock conversion is implied. An absent capture
+    # remains unknown even though this process has just received the payload.
+    temporal_observation = observation.get("observation", observation)
+    if not isinstance(temporal_observation, dict):
+        temporal_observation = {}
+    captured = temporal_observation.get(
+        "captured_at_monotonic_ns", observation.get("captured_at_monotonic_ns")
+    )
     return ObservationSnapshot(
         snapshot_id=f"obs_{session_id}_{step_index}",
         session_id=session_id,
-        captured_at_monotonic_ns=time.monotonic_ns(),
+        captured_at_monotonic_ns=captured,
+        receipt_at_monotonic_ns=time.monotonic_ns(),
         features=features,
     )
 

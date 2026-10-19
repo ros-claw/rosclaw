@@ -229,3 +229,172 @@ def test_runtime_start_failure(
     result = _run_loop(config, FixtureObservationSource(observation_fixture))
     assert result.stop_reason == RolloutStopReason.RUNTIME_FAILURE
     assert "no python" in result.errors[0]
+
+
+def test_temporal_producer_preserves_capture_and_recovers() -> None:
+    from rosclaw.integrations.lerobot.contracts import (
+        ObservationContract,
+        ObservationFeature,
+        validate_observation_snapshot,
+    )
+    from rosclaw.integrations.lerobot.rollout.loop import _build_snapshot
+
+    contract = ObservationContract(id="t", policy={}, body={}, features={
+        "observation.state": ObservationFeature(max_age_ms=100),
+    })
+    raw = {"observation.state": [0.1], "captured_at_monotonic_ns": 2_000_000_001}
+    snapshot = _build_snapshot(raw, 0, "t")
+    assert snapshot.captured_at_monotonic_ns == raw["captured_at_monotonic_ns"]
+    assert snapshot.receipt_at_monotonic_ns is not None
+    failed = validate_observation_snapshot(contract, snapshot, now_monotonic_ns=2_000_000_000)
+    assert failed.errors[0]["code"] == "observation_capture_time_future"
+    raw["captured_at_monotonic_ns"] = 1_950_000_000
+    repaired = _build_snapshot(raw, 1, "t")
+    result = validate_observation_snapshot(contract, repaired, now_monotonic_ns=2_000_000_000)
+    assert result.status == "ok"
+    assert result.errors == []
+    assert result.age_ms_by_feature == {"observation.state": 50.0}
+    assert snapshot.captured_at_monotonic_ns == 2_000_000_001
+    raw["captured_at_monotonic_ns"] = 1_000_000_000
+    stale = validate_observation_snapshot(contract, _build_snapshot(raw, 2, "t"),
+                                          now_monotonic_ns=2_000_000_000)
+    assert stale.errors[0]["code"] == "observation_stale"
+
+
+def test_temporal_producer_missing_is_not_receipt_freshness() -> None:
+    from rosclaw.integrations.lerobot.contracts import (
+        ObservationContract,
+        ObservationFeature,
+        ObservationSnapshot,
+        validate_observation_snapshot,
+    )
+    from rosclaw.integrations.lerobot.rollout.loop import _build_snapshot
+
+    raw = {"observation.state": [0.1]}
+    snapshot = _build_snapshot(raw, 0, "t")
+    assert raw == {"observation.state": [0.1]}
+    assert snapshot.captured_at_monotonic_ns is None
+    assert isinstance(snapshot.receipt_at_monotonic_ns, int)
+    restored = ObservationSnapshot.from_dict(snapshot.to_dict())
+    assert restored.captured_at_monotonic_ns is None
+    assert restored.receipt_at_monotonic_ns == snapshot.receipt_at_monotonic_ns
+    contract = ObservationContract(id="t", policy={}, body={}, features={
+        "observation.state": ObservationFeature(),
+    })
+    result = validate_observation_snapshot(contract, restored,
+                                           now_monotonic_ns=snapshot.receipt_at_monotonic_ns)
+    assert result.status == "blocked"
+    assert result.errors[0]["code"] == "observation_capture_time_missing"
+    assert result.age_ms_by_feature == {}
+
+
+def test_temporal_envelopes_leave_adapter_compatibility_intact() -> None:
+    from rosclaw.integrations.lerobot.observation_adapter import adapt_observation_for_worker
+    from rosclaw.integrations.lerobot.rollout.loop import _build_snapshot
+
+    flat = {"observation.state": [0.1], "captured_at_monotonic_ns": 123}
+    assert adapt_observation_for_worker(flat) == {"observation.state": [0.1]}
+    assert _build_snapshot(flat, 0, "t").captured_at_monotonic_ns == 123
+    nested = {"captured_at_monotonic_ns": 100, "observation": {
+        "state": [0.1], "state_names": ["j1"], "captured_at_monotonic_ns": 123,
+    }}
+    assert adapt_observation_for_worker(nested) == {"observation.state": [0.1]}
+    assert _build_snapshot(nested, 0, "t").captured_at_monotonic_ns == 123
+    nested["observation"]["captured_at_monotonic_ns"] = None
+    assert _build_snapshot(nested, 0, "t").captured_at_monotonic_ns is None
+    del nested["observation"]["captured_at_monotonic_ns"]
+    assert _build_snapshot(nested, 0, "t").captured_at_monotonic_ns == 100
+    with pytest.raises(ValueError, match="no state_names"):
+        adapt_observation_for_worker({"observation": {"state": [0.1]}})
+    assert adapt_observation_for_worker({}) == {}
+
+
+@pytest.mark.parametrize("invalid_capture,code,message", [
+    (2_000_000_001, "observation_capture_time_future",
+     "Source capture time for 'observation.state' is in the future relative to monotonic validation time."),
+    (None, "observation_capture_time_missing",
+     "Source capture time for 'observation.state' is unknown."),
+])
+def test_temporal_run_step_rejects_then_recovers(
+    tmp_path: Path, invalid_capture, code: str, message: str,
+) -> None:
+    from rosclaw.integrations.lerobot.contracts import ObservationContract, ObservationFeature
+    from rosclaw.integrations.lerobot.rollout.loop import _run_step
+
+    invalid = {"observation.state": [0.1, 0.2, 0.3]}
+    if invalid_capture is not None:
+        invalid["captured_at_monotonic_ns"] = invalid_capture
+    valid = {"observation.state": [0.2, 0.3, 0.4],
+             "captured_at_monotonic_ns": 1_950_000_000}
+    fixture = tmp_path / "temporal.json"
+    fixture.write_text(json.dumps([invalid, valid]), encoding="utf-8")
+    source = FixtureObservationSource(fixture)
+    runtime = _make_runtime_manager_mock()
+    recorder = MagicMock(spec=RolloutRecorder)
+    recorder.record_observation_validated.return_value = "validated-recovery"
+    recorder.record_step.return_value = "recovery-step"
+    metrics = RolloutMetrics()
+    contract = ObservationContract(id="t", policy={}, body={}, features={
+        "observation.state": ObservationFeature(max_age_ms=100),
+    })
+    config = RolloutConfig(mode=RolloutMode.PROPOSAL_ONLY, policy_path="mock/policy",
+                           run_sandbox_preflight=False)
+    metadata = {"output_features": {"action": {
+        "shape": [3], "names": ["j1", "j2", "j3"],
+        "unit": "rad", "representation": "joint_position",
+    }}}
+    # Freeze only clocks, not the production snapshot producer or validator.
+    with patch("time.monotonic", return_value=2.0), patch(
+        "time.monotonic_ns", return_value=1_990_000_000,
+    ):
+        rejected = _run_step(
+            runtime, source, config, contract, metadata, None, None,
+            recorder, metrics, "temporal-session", 0, None,
+        )
+        assert rejected == {
+            "stop": True, "reason": RolloutStopReason.OBSERVATION_REQUIRED_MISSING,
+            "errors": [message],
+        }
+        runtime.call.assert_not_called()
+        recorder.record_observation_validated.assert_not_called()
+        recorder.record_inference.assert_not_called()
+        recorder.record_step.assert_not_called()
+        recorder.record_observation_failed.assert_called_once()
+        failed_snapshot, failed_report = recorder.record_observation_failed.call_args.args
+        assert failed_snapshot["captured_at_monotonic_ns"] == invalid_capture
+        assert failed_snapshot["receipt_at_monotonic_ns"] == 1_990_000_000
+        assert failed_report["status"] == "blocked"
+        assert failed_report["errors"] == [{
+            "feature": "observation.state", "code": code, "message": message,
+        }]
+        assert failed_report["age_ms_by_feature"] == {}
+        assert metrics.observation_validation_failures == 1
+
+        recovered = _run_step(
+            runtime, source, config, contract, metadata, None, None,
+            recorder, metrics, "temporal-session", 1, None,
+        )
+    runtime.call.assert_called_once_with(
+        "INFER", {"session_id": "temporal-session",
+                  "observation": {"observation.state": [0.2, 0.3, 0.4]},
+                  "step_index": 1}, timeout_sec=config.runtime_timeout_sec,
+    )
+    assert recovered["stop"] is False
+    assert recovered["step_event_id"] == "recovery-step"
+    recorder.record_observation_validated.assert_called_once()
+    recovered_snapshot, recovered_report = recorder.record_observation_validated.call_args.args
+    assert recovered_snapshot["captured_at_monotonic_ns"] == 1_950_000_000
+    assert recovered_snapshot["receipt_at_monotonic_ns"] == 1_990_000_000
+    assert recovered_report["status"] == "ok"
+    assert recovered_report["errors"] == []
+    assert recovered_report["age_ms_by_feature"] == {"observation.state": 50.0}
+    recorder.record_inference.assert_called_once()
+    assert recorder.record_inference.call_args.args[0] == recovered["proposal"]
+    assert recorder.record_inference.call_args.kwargs["parent_event_id"] == "validated-recovery"
+    recorder.record_action_mapping.assert_called_once()
+    recorder.record_step.assert_called_once()
+    assert recorder.record_step.call_args.args[1]["hardware_executed"] is False
+    assert metrics.observation_validation_failures == 1
+    # Recovery must not mutate or relabel the earlier failure evidence.
+    assert failed_report["status"] == "blocked"
+    assert failed_snapshot["captured_at_monotonic_ns"] == invalid_capture

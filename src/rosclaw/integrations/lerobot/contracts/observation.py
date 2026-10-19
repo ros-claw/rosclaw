@@ -152,10 +152,11 @@ class ObservationSnapshot:
     snapshot_id: str
     session_id: str | None = None
     body_id: str | None = None
-    captured_at_monotonic_ns: int = 0
+    captured_at_monotonic_ns: int | None = 0
     task: str = ""
     features: dict[str, ObservationFeatureSnapshot] = field(default_factory=dict)
     schema_version: str = OBSERVATION_SNAPSHOT_SCHEMA_VERSION
+    receipt_at_monotonic_ns: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -164,6 +165,7 @@ class ObservationSnapshot:
             "session_id": self.session_id,
             "body_id": self.body_id,
             "captured_at_monotonic_ns": self.captured_at_monotonic_ns,
+            "receipt_at_monotonic_ns": self.receipt_at_monotonic_ns,
             "task": self.task,
             "features": {k: v.to_dict() for k, v in self.features.items()},
         }
@@ -175,7 +177,8 @@ class ObservationSnapshot:
             snapshot_id=str(data.get("snapshot_id", "")),
             session_id=data.get("session_id"),
             body_id=data.get("body_id"),
-            captured_at_monotonic_ns=int(data.get("captured_at_monotonic_ns", 0)),
+            captured_at_monotonic_ns=data.get("captured_at_monotonic_ns", 0),
+            receipt_at_monotonic_ns=data.get("receipt_at_monotonic_ns"),
             task=str(data.get("task", "")),
             features={k: ObservationFeatureSnapshot.from_dict(v) for k, v in features.items()},
             schema_version=str(data.get("schema_version", OBSERVATION_SNAPSHOT_SCHEMA_VERSION)),
@@ -250,7 +253,24 @@ def validate_observation_snapshot(
         captured = actual.captured_at_monotonic_ns
         if captured is None:
             captured = snapshot.captured_at_monotonic_ns
-        age_ms = (now_monotonic_ns - captured) / 1e6 if captured is not None else 0.0
+        # Receipt time is diagnostic only, never a substitute for source capture.
+        temporal_code = None
+        if captured is None:
+            temporal_code = "observation_capture_time_missing"
+            temporal_message = f"Source capture time for '{key}' is unknown."
+        elif type(captured) is not int or captured < 0:
+            temporal_code = "observation_capture_time_invalid"
+            temporal_message = f"Source capture time for '{key}' must be nonnegative integer monotonic nanoseconds."
+        elif captured > now_monotonic_ns:
+            temporal_code = "observation_capture_time_future"
+            temporal_message = f"Source capture time for '{key}' is in the future relative to monotonic validation time."
+        if temporal_code is not None:
+            if expected.required:
+                errors.append({"feature": key, "code": temporal_code, "message": temporal_message})
+            else:
+                missing_optional.append(key)
+            continue
+        age_ms = (now_monotonic_ns - captured) / 1e6
         age_ms_by_feature[key] = age_ms
         if age_ms > expected.max_age_ms:
             if expected.required:
