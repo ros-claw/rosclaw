@@ -107,7 +107,7 @@ def registered_episode_inputs(
 
 def _registered_diagnostic_context(aci, original):
     """Bind common facts without granting A/D any Expert tools or callbacks."""
-    from benchmarks.ros_expert_ablation.rsk_diagnostic_provider import DiagnosticProbePolicyV1
+    from benchmarks.ros_expert_ablation.rsk_diagnostic_provider import diagnostic_probe_policy_type
     from benchmarks.ros_expert_ablation.rsk_operational_aci import original_operational_graph
     from rosclaw.contracts.common import content_hash
 
@@ -124,18 +124,22 @@ def _registered_diagnostic_context(aci, original):
         if provider is not None:
             raise ValueError("registered diagnostic provider policy missing")
         return
-    policy_type = DiagnosticProbePolicyV1
     if type(original["provider_policy"]) is not dict:
         raise ValueError("closed registered diagnostic policy required")
-    if (
-        original["provider_policy"].get("schema_version")
-        == "rosclaw.rsk_nav2_diagnostic_probe_policy.v1"
+    version = original["provider_policy"].get(
+        "schema_version", "rosclaw.rsk_diagnostic_probe_policy.v1"
+    )
+    if version in (
+        "rosclaw.rsk_nav2_diagnostic_probe_policy.v1",
+        "rosclaw.rsk_nav2_diagnostic_probe_policy.v2",
     ):
         from benchmarks.ros_expert_ablation.rsk_nav2_diagnostic_provider import (
-            Nav2DiagnosticProbePolicyV1,
+            nav2_diagnostic_probe_policy_type,
         )
 
-        policy_type = Nav2DiagnosticProbePolicyV1
+        policy_type = nav2_diagnostic_probe_policy_type(version)
+    else:
+        policy_type = diagnostic_probe_policy_type(version)
     policy = policy_type.model_validate_json(json.dumps(original["provider_policy"]))
     if (
         policy.source_revision != base.operator_source

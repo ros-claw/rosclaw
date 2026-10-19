@@ -16,7 +16,10 @@ from pathlib import Path
 
 import yaml
 
-from benchmarks.ros_expert_ablation.rsk_diagnostic_provider import SDK_IMAGE
+from benchmarks.ros_expert_ablation.rsk_diagnostic_provider import (
+    RECONSTRUCTED_SDK_IMAGE,
+    SDK_IMAGE,
+)
 from benchmarks.ros_expert_ablation.rsk_episode_runner import OriginalRef, _read
 from integrations.ros_probe.acceptance.simulation_atomic_read import read_bounded_regular
 from rosclaw.connectors.ros.cli.ros_cli import _read_discovery_urdf
@@ -111,10 +114,12 @@ def _mounts(container):
     return {row["Destination"]: row for row in values}
 
 
-def _check_container_resources(container):
+def _check_container_resources(container, *, sdk_image=SDK_IMAGE):
+    if sdk_image not in (SDK_IMAGE, RECONSTRUCTED_SDK_IMAGE):
+        raise ValueError("unsupported fixed SDK image contract")
     host = container["HostConfig"]
     if (
-        container["Image"] != SDK_IMAGE
+        container["Image"] != sdk_image
         or host["NetworkMode"] != "none"
         or host["ReadonlyRootfs"] is not True
         or host["Privileged"]
@@ -158,6 +163,7 @@ def review_stopped_owned_nav2_window(
     source_urdf_sha256,
     requirements_hash,
     staging_hash,
+    sdk_image=SDK_IMAGE,
 ):
     """Review originals for an existing replica, without claiming a dispatch.
 
@@ -224,7 +230,7 @@ def review_stopped_owned_nav2_window(
     ):
         raise ValueError("same successful stopped owned SDK container required")
     for container in [created, stopped]:
-        _check_container_resources(container)
+        _check_container_resources(container, sdk_image=sdk_image)
         mounts = _mounts(container)
         for target, source, writable in [
             ("/repo", worktree, False),
