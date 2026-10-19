@@ -134,14 +134,18 @@ def capture_owned_unadmitted_window(
     output.mkdir(exist_ok=False)
     started_ns = time.monotonic_ns()
     before_sink = _unadmitted_sink(execution, run_id, body_snapshot_hash)
+    before_read_started_ns = time.monotonic_ns()
     before_pointer, before_raw, before_stamp, before_ns, before = _native(execution)
+    before_read_duration_sec = (time.monotonic_ns() - before_read_started_ns) / 1_000_000_000
     references = {
         "native_before": _put(output, "native-before-original.json", before_raw),
         "pointer_before": _put(output, "pointer-before-original.json", before_pointer),
         "sink_before": _put(output, "sink-before-original.json", before_sink),
     }
     time.sleep(WINDOW_SEC)
+    after_read_started_ns = time.monotonic_ns()
     after_pointer, after_raw, after_stamp, after_ns, after = _native(execution)
+    after_read_duration_sec = (time.monotonic_ns() - after_read_started_ns) / 1_000_000_000
     after_sink = _unadmitted_sink(execution, run_id, body_snapshot_hash)
     elapsed = (time.monotonic_ns() - started_ns) / 1_000_000_000
     span = (after_stamp - before_stamp).total_seconds()
@@ -170,6 +174,10 @@ def capture_owned_unadmitted_window(
         "host_window_elapsed_sec": elapsed,
         "host_observed_monotonic_ns_before": before_ns,
         "host_observed_monotonic_ns_after": after_ns,
+        "native_original_file_read_durations_sec": [
+            before_read_duration_sec,
+            after_read_duration_sec,
+        ],
         "native_original_file_before": before["file"],
         "native_original_file_after": after["file"],
         "source_body_snapshot_hash": body_snapshot_hash,

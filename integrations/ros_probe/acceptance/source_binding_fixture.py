@@ -502,6 +502,7 @@ def main():
         if engineering_capture and engineering_capture["case"] in {
             "rsk_controller_plugin_unavailable",
             "driver_onboarding",
+            "readonly_preinitialization_observation",
         }:
             # Configuration can prevent lifecycle activation itself. Capture
             # source-only raw facts before initialization; never bypass L1 or

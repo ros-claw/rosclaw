@@ -16,7 +16,7 @@ RSK_DESCRIPTIONS = {
     ),
     "ros_engineer.run_diagnostic_probe": (
         "REQUEST_ONE_GATED_OWNED_READ_ONLY_PROBE",
-        "C/E only: select an actual experiment_hash and probe_id. The existing owned SDK provider uses one shared probe slot and must supply original source/run/container/Native/zero-command evidence. A new replica is independently rebound internally; the old case is not updated. Observational falsification is not causal, physical, L1 or Memory success.",
+        "C/E only: select an actual experiment_hash and probe_id. The registered owned SDK provider uses one shared probe slot and must supply original source/run/container/Native/zero-command evidence. The sensor-only provider starts no physics World; the source-only Nav2 provider costs one new physics World and grants no Body admission. A new replica is independently rebound internally; the old case is not updated. Observational falsification is not causal, navigation, L1 or Memory success.",
     ),
     "files.list": (
         "READ_ONLY_ORIGINAL_FILE_CATALOG",

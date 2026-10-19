@@ -44,6 +44,8 @@ def settings(case):
             "nav2_lifecycle_inactive",
             "footprint_undersized",
             "duplicate_velocity_route",
+            "readonly_preinitialization_observation",
+            "readonly_localized_observation",
         ]
     ),
 )
@@ -149,6 +151,11 @@ def test_original_capture_requires_current_native_and_physics(
         ("j100_navigation_onboarding", "PROPOSED", "NOT_EVALUATED"),
         ("navigation_onboarding", "PROPOSED", "NOT_EVALUATED"),
         ("driver_onboarding", "UNKNOWN", "NOT_EVALUATED"),
+        *[
+            (role, status, "NOT_EVALUATED")
+            for role in ["readonly_preinitialization_observation", "readonly_localized_observation"]
+            for status in ["PROPOSED", "UNKNOWN", "BLOCKED"]
+        ],
     ],
 )
 def test_unready_capture_preserves_missing_body_and_execution_config(
@@ -200,6 +207,21 @@ def test_unready_capture_preserves_missing_body_and_execution_config(
     assert marker["L1"] == l1 and marker["L2"] == "NOT_RUN"
     assert marker["body_snapshot_hash"] is None and marker["navigation_workspace_compiled"] is False
     assert not (tmp_path / "execution_config.json").exists()
+    if case in module.OBSERVATION_CASES:
+        assert marker["status"] == "ACTUAL_READONLY_RAW_OBSERVATION_EXTERNAL_REVIEW_REQUIRED"
+        assert module.counterfactual_readback_available(state["native"], case) is True
+
+
+@pytest.mark.parametrize(
+    "role", ["readonly_preinitialization_observation", "readonly_localized_observation"]
+)
+def test_generic_observation_cannot_claim_rollback_or_admission(module, monkeypatch, role):
+    monkeypatch.setattr(module.Path, "is_file", lambda _: True)
+    monkeypatch.setenv("ROS_LOCALHOST_ONLY", "1")
+    value = settings(role)
+    value["engineering_capture"]["phase"] = "rollback"
+    with pytest.raises(ValueError):
+        module.validate_engineering_capture(value)
 
 
 def test_transient_incomplete_graph_is_not_mistaken_for_the_declared_engineering_fault(module):
