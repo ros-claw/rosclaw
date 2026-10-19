@@ -34,6 +34,13 @@ CATALOG = {
         "Unmeasured consumer, frame, broadcast or executor path remains possible",
         ("absence of other explanations does not establish this explanation",),
     ),
+    "SOURCE_CONSUMER_CONFLICT": (
+        "Source attributes differ from the declared versioned consumer's literal lookup",
+        (
+            "static source-byte contract evidence is not a fresh runtime measurement",
+            "operator-declared parser knowledge is not authentication or physical causation",
+        ),
+    ),
 }
 
 
@@ -86,7 +93,34 @@ def evaluate_hypothesis(hypothesis, graph, *, not_before: datetime | None = None
         ]
         if any(f.status == "UNKNOWN" for f in receive_rows):
             usable = False
-    if usable and predicate == "RECEIVE_GAP":
+    if usable and predicate == "SOURCE_CONSUMER_CONFLICT" and not_before is None:
+        # Immutable byte contracts have UNKNOWN dynamic freshness on purpose.
+        # Never use this branch to attest a newer probe, live consumption or stop.
+        rows = [
+            f
+            for f in graph.findings
+            if f.invariant == "source.declared_literal_consumer_contract"
+            and f.scope == "STATIC_DECLARED_PARSER_CONTRACT_ONLY"
+            and f.targets == hypothesis.targets
+        ]
+        for finding in rows:
+            if (
+                graph.evidence_domain != "SEALED_REPLAY"
+                or not finding.evidence_refs
+                or not all(
+                    graph.provenance[r].freshness == "UNKNOWN"
+                    and graph.provenance[r].pointer == "/status"
+                    and graph.provenance[r].document_hash.startswith("rosconsumerreview_")
+                    and graph.provenance[r].value_hash == content_hash("opvalue", finding.status)
+                    for r in finding.evidence_refs
+                )
+            ):
+                continue
+            if finding.status == "VIOLATED":
+                positives.extend(finding.evidence_refs)
+            elif finding.status == "SATISFIED":
+                negatives.extend(finding.evidence_refs)
+    elif usable and predicate == "RECEIVE_GAP":
         for fact in graph.time_facts:
             if (
                 fact.subject not in hypothesis.targets
@@ -178,7 +212,9 @@ def propose_hypotheses(graph, *, issue_ids=None):
     for finding in graph.findings:
         if finding.status == "SATISFIED" or (selected is not None and finding.id not in selected):
             continue
-        if (
+        if finding.invariant == "source.declared_literal_consumer_contract":
+            predicates = ("SOURCE_CONSUMER_CONFLICT", "UNRESOLVED_PATH")
+        elif (
             finding.id == "F-SCAN-001"
             or finding.invariant == "signal.observed_steady_receive_window"
         ):

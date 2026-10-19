@@ -14,6 +14,11 @@ from .diagnostic_experiment import (
 from .hypothesis import checked_graph, evaluate_hypothesis, propose_hypotheses
 
 PROBES = {
+    "SOURCE_CONSUMER_CONFLICT": (
+        "SOURCE_CONSUMER_CONTRACT",
+        "OPERATOR_SOURCE_REVIEW",
+        "original URDF SDF SDK/library pins and versioned parser contract; offline review only",
+    ),
     "RECEIVE_GAP": (
         "NATIVE_DIAGNOSTICS",
         "EXISTING_NATIVE_READ_ONLY_PROBE",
@@ -47,6 +52,10 @@ PROBES = {
 }
 
 PREDICTIONS = {
+    "SOURCE_CONSUMER_CONFLICT": (
+        "source-bound attributes lack the declared consumer's literal spelling",
+        "all scoped source attributes satisfy the literal contract; runtime consumption remains unproved",
+    ),
     "RECEIVE_GAP": (
         "steady receive age plus capture age exceeds max_age_ms",
         "steady receive age plus capture age is within max_age_ms",

@@ -203,6 +203,7 @@ class ReadOnlyProbeRequestV1(GraphRecord):
     id: str
     operation: Literal[
         "SOURCE_CAPTURE",
+        "SOURCE_CONSUMER_CONTRACT",
         "ENDPOINT_QOS",
         "TF_AUTHORITY_WINDOW",
         "CLOCK_TF_WINDOW",

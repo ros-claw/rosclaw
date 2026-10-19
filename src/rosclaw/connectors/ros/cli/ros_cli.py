@@ -689,6 +689,24 @@ def add_ros_subparser(subparsers: argparse._SubParsersAction) -> argparse.Argume
             expert_parser.add_argument("operation", choices=["plan"])
             expert_parser.add_argument("--mission-id", default="ros_coverage_mission")
 
+    consumer_parser = ros_subparsers.add_parser(
+        "source-consumer-review",
+        help="Offline original XML/declared SDK parser contract; no runtime or motion admission",
+    )
+    for flag in (
+        "operational-graph",
+        "urdf",
+        "world-sdf",
+        "consumer-contract",
+        "container-inspection",
+        "backend-observation",
+        "parser-evidence",
+        "robot-entity",
+    ):
+        consumer_parser.add_argument("--" + flag, required=True)
+    consumer_parser.add_argument("--output", help="Exclusive new derived review JSON")
+    consumer_parser.add_argument("--json", action="store_true")
+
     for command in ("diagnostic-plan", "diagnostic-assess"):
         diagnostic_parser = ros_subparsers.add_parser(
             command, help="Offline source-bound read-only diagnosis; never executes probes"
@@ -858,6 +876,8 @@ def dispatch_ros_command(args: argparse.Namespace) -> int:
         return cmd_ros_counterfactual(args)
     if cmd in {"diagnostic-plan", "diagnostic-assess"}:
         return cmd_ros_diagnostic(args)
+    if cmd == "source-consumer-review":
+        return cmd_ros_source_consumer(args)
     if cmd == "engineering-case":
         return cmd_ros_engineering_case(args)
     if cmd == "inspect-navigation-workspace":
@@ -916,6 +936,61 @@ def _read_discovery_urdf(path: str, description: str = "URDF") -> bytes:
         if not 0 < len(raw) <= 5_000_000:
             raise ValueError(f"{description} input size outside bounded limit")
         return raw
+
+
+def cmd_ros_source_consumer(args: argparse.Namespace) -> int:
+    """Only bounded original files; never discover ROS or launch a parser/SDK."""
+    import hashlib
+
+    from rosclaw.connectors.ros.engineering.probe_planner import plan_diagnostic_probes
+    from rosclaw.connectors.ros.engineering.source_consumer import (
+        INVARIANT,
+        inspect_source_consumer,
+    )
+    from rosclaw.connectors.ros.intelligence.graph_contracts import RosOperationalGraphV1
+
+    pins = {}
+
+    def read(path, label):
+        raw = _read_discovery_urdf(path, label)
+        pins[label] = hashlib.sha256(raw).hexdigest()
+        return raw
+
+    try:
+        graph = RosOperationalGraphV1.from_dict(
+            json.loads(read(args.operational_graph, "operational_graph"))
+        )
+        review, after = inspect_source_consumer(
+            graph,
+            read(args.urdf, "source_urdf"),
+            read(args.world_sdf, "world_sdf"),
+            json.loads(read(args.consumer_contract, "consumer_contract")),
+            read(args.container_inspection, "container_inspection"),
+            read(args.backend_observation, "backend_observation"),
+            read(args.parser_evidence, "parser_evidence"),
+            robot_entity=args.robot_entity,
+        )
+        finding = next(f for f in after.findings if f.invariant == INVARIANT)
+        experiment = plan_diagnostic_probes(
+            after, issue_ids=[finding.id], budget_sec=10, max_probes=2
+        )
+        result = {
+            "ok": True,
+            "action": args.ros_command,
+            "source_consumer_review": review,
+            "operational_graph": after.model_dump(mode="json"),
+            "experiment": experiment.model_dump(mode="json"),
+            "input_file_sha256": pins,
+            "current_authority": "NONE",
+            "current_l1": "NOT_EVALUATED",
+            "scope": "OFFLINE_STATIC_CONTRACT_NOT_RUNTIME_CONSUMPTION_OR_PHYSICAL_SUCCESS",
+        }
+        if args.output:
+            with Path(args.output).open("x", encoding="utf-8") as stream:
+                stream.write(json.dumps(result, indent=2) + "\n")
+        return _maybe_json(args, result)
+    except (ValueError, TypeError, KeyError, AttributeError, OSError) as exc:
+        return _maybe_json(args, {"ok": False, "action": args.ros_command, "error": str(exc)})
 
 
 def cmd_ros_diagnostic(args: argparse.Namespace) -> int:
