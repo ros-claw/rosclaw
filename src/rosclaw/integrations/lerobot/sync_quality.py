@@ -66,9 +66,7 @@ class ClockQualityRule:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ClockQualityRule:
         return cls(
-            unmapped_mixed_domains_action=data.get(
-                "unmapped_mixed_domains_action", "fail"
-            ),
+            unmapped_mixed_domains_action=data.get("unmapped_mixed_domains_action", "fail"),
         )
 
 
@@ -91,10 +89,7 @@ class QualityConfig:
     def from_dict(cls, data: dict[str, Any]) -> QualityConfig:
         return cls(
             profile=data.get("profile", "balanced"),
-            rules={
-                k: FeatureQualityRule.from_dict(v)
-                for k, v in data.get("rules", {}).items()
-            },
+            rules={k: FeatureQualityRule.from_dict(v) for k, v in data.get("rules", {}).items()},
             clocks=ClockQualityRule.from_dict(data.get("clocks", {})),
         )
 
@@ -104,58 +99,34 @@ class QualityConfig:
 
 QUALITY_PROFILES: dict[str, dict[str, FeatureQualityRule]] = {
     "strict": {
-        "observation.state": FeatureQualityRule(
-            minimum_coverage=1.0, action="fail"
-        ),
+        "observation.state": FeatureQualityRule(minimum_coverage=1.0, action="fail"),
         "action": FeatureQualityRule(minimum_coverage=1.0, action="fail"),
         "observation.images.front": FeatureQualityRule(
             minimum_coverage=0.95, max_p95_skew_ms=33.0, action="fail"
         ),
-        "observation.motor_current": FeatureQualityRule(
-            minimum_coverage=0.95, action="warn"
-        ),
-        "observation.force_torque": FeatureQualityRule(
-            minimum_coverage=0.95, action="warn"
-        ),
-        "observation.contact": FeatureQualityRule(
-            minimum_coverage=0.95, action="warn"
-        ),
+        "observation.motor_current": FeatureQualityRule(minimum_coverage=0.95, action="warn"),
+        "observation.force_torque": FeatureQualityRule(minimum_coverage=0.95, action="warn"),
+        "observation.contact": FeatureQualityRule(minimum_coverage=0.95, action="warn"),
     },
     "balanced": {
-        "observation.state": FeatureQualityRule(
-            minimum_coverage=1.0, action="fail"
-        ),
+        "observation.state": FeatureQualityRule(minimum_coverage=1.0, action="fail"),
         "action": FeatureQualityRule(minimum_coverage=1.0, action="fail"),
         "observation.images.front": FeatureQualityRule(
             minimum_coverage=0.95, max_p95_skew_ms=50.0, action="fail"
         ),
-        "observation.motor_current": FeatureQualityRule(
-            minimum_coverage=0.80, action="warn"
-        ),
-        "observation.force_torque": FeatureQualityRule(
-            minimum_coverage=0.80, action="warn"
-        ),
-        "observation.contact": FeatureQualityRule(
-            minimum_coverage=0.80, action="warn"
-        ),
+        "observation.motor_current": FeatureQualityRule(minimum_coverage=0.80, action="warn"),
+        "observation.force_torque": FeatureQualityRule(minimum_coverage=0.80, action="warn"),
+        "observation.contact": FeatureQualityRule(minimum_coverage=0.80, action="warn"),
     },
     "permissive": {
-        "observation.state": FeatureQualityRule(
-            minimum_coverage=1.0, action="fail"
-        ),
+        "observation.state": FeatureQualityRule(minimum_coverage=1.0, action="fail"),
         "action": FeatureQualityRule(minimum_coverage=1.0, action="fail"),
         "observation.images.front": FeatureQualityRule(
             minimum_coverage=0.80, max_p95_skew_ms=100.0, action="warn"
         ),
-        "observation.motor_current": FeatureQualityRule(
-            minimum_coverage=0.50, action="warn"
-        ),
-        "observation.force_torque": FeatureQualityRule(
-            minimum_coverage=0.50, action="warn"
-        ),
-        "observation.contact": FeatureQualityRule(
-            minimum_coverage=0.50, action="warn"
-        ),
+        "observation.motor_current": FeatureQualityRule(minimum_coverage=0.50, action="warn"),
+        "observation.force_torque": FeatureQualityRule(minimum_coverage=0.50, action="warn"),
+        "observation.contact": FeatureQualityRule(minimum_coverage=0.50, action="warn"),
     },
 }
 
@@ -322,6 +293,41 @@ def evaluate_quality(
             any_warn = True
         errors.extend(result.errors)
         warnings.extend(result.warnings)
+
+    # Only the canonical state/action pair has required-presence semantics.
+    # Rules are authoritative: absent rules opt out, and warn/ignore remain
+    # meaningful even for missing evidence. A fail rule on an optional camera
+    # or sensor is a threshold policy, not a declaration of required presence.
+    episode_features: dict[int, set[str]] = {}
+    for feature_stats in stats:
+        episode_features.setdefault(feature_stats.episode_index, set()).add(
+            feature_stats.feature_key
+        )
+
+    # Multi-episode tables require evidence in each represented episode. The
+    # empty table has no episode identity: diagnose at table scope instead.
+    presence_scopes = [
+        (f"episode_index={episode_index}", keys) for episode_index, keys in episode_features.items()
+    ]
+    if not presence_scopes:
+        presence_scopes = [("empty statistics table (episode unknown)", set())]
+    for scope, keys in presence_scopes:
+        for feature_key in ("observation.state", "action"):
+            rule = config.rule_for(feature_key)
+            if feature_key in keys or rule is None or rule.action == "ignore":
+                continue
+            msg = f"{feature_key} statistics missing for {scope}"
+            result = FeatureQualityResult(feature_key=feature_key, passed=True)
+            if rule.action == "fail":
+                result.passed = False
+                result.errors.append(msg)
+                errors.append(msg)
+                any_fail = True
+            elif rule.action == "warn":
+                result.warnings.append(msg)
+                warnings.append(msg)
+                any_warn = True
+            feature_results.append(result)
 
     clock_passed = True
     clock_action: QualityAction = "ignore"
