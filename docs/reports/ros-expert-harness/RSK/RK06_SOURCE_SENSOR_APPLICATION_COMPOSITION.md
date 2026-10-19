@@ -69,3 +69,45 @@ SDK validation and canonical receipt gates remain mandatory and failed results
 remain failed. A future stop/driver investigation needs its own hypothesis,
 source freeze and prospective bounded protocol; changing Body geometry, stop
 thresholds or verification timing to force this result through is excluded.
+
+A separate original-only stop audit found zero accepted nonzero commands after
+lease closure, stationary wheel joints, and coherent lateral body drift in both
+pose and ECM observations. The fixed SDK's actual SDFormat DOM contract then
+confirmed that `ns0:expressed_in` and `ignition:expressed_in` do not satisfy the
+DART backend's literal `gz:expressed_in` lookup. This is a specific SDK/source
+compatibility defect; equal expanded XML namespaces alone do not establish
+that a non-namespace-aware consumer reads an attribute.
+
+The new pure `simulation_source_friction_frame` helper is explicit and pinned to
+SDK8cc3. It binds the original URDF, entity, link frames, directions and friction
+coefficients; adapts only the attribute spelling to `gz`; and proves canonical
+expanded XML equality. It changes no URDF bytes, geometry or friction numbers,
+and grants no current authority. Unknown SDKs, changed coefficients/directions,
+unresolved or removed frame links, conflicting namespace bindings and extra
+friction declarations fail closed. Existing literal-compatible XML stays exact.
+The helper is used only by an explicitly selected owned SDK preparation phase;
+it cannot run a physics server, install a package, or actuate anything.
+
+This parser fix is a **new, separately preregistered compatibility experiment**,
+not a replay or regrading of the three failed sensor-composition Worlds. Its
+Before/After/Rollback and exact-main After must preserve the original filtered
+application, seed, URDF and limits, bind the actual loaded SDK backend, and
+independently verify both canonical navigation goals and stop/contact evidence.
+Until those original proofs pass, the complete physical gate remains unaccepted.
+
+The backend lookup is visible in the [official 7.8.0 source](https://github.com/gazebosim/gz-physics/blob/gz-physics7_7.8.0/dartsim/src/SDFFeatures.cc).
+The local SDK library version and digest were independently read from the
+stopped owned container; the pure DOM contract starts no ROS or physics server.
+
+The parent PR756 source workflows passed, but its first-main CI/CD integration
+job failed with a temporary local daemon socket timeout. The old generic error
+did not identify which RPC timed out; no specific startup root cause is asserted.
+The successor keeps this negative CI original and improves the integration
+fixture only: a bounded ten-second local RPC allowance, file-backed child logs,
+and explicit failure-stage diagnostics. Production client defaults, the single
+forged-request negative authorization test, its BLOCKED/no-hardware assertions,
+action timeout and physical stop timing remain unchanged. A real framed Unix
+socket delayed by 2.2 seconds reproduces failure under the old two-second caller
+and succeeds under the fixture caller, with exactly one read-only request and
+no daemon/action/driver. Complete component integration passes locally; actual
+successor first workflows remain required, without rerunning the parent's CI.
