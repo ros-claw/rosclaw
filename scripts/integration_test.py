@@ -125,6 +125,12 @@ def test_simulation_guard() -> bool:
     return True
 
 
+def _integration_client(socket_path: Path) -> DaemonClient:
+    # Shared CI can delay a local RPC beyond two seconds. This fixture-only
+    # bound changes neither production defaults nor action/physical deadlines.
+    return DaemonClient(socket_path=socket_path, timeout_sec=10.0)
+
+
 def test_rosclawd_boundary() -> bool:
     """Start rosclawd separately and prove a forged REAL permit is blocked."""
     _heading("TEST 3: rosclawd Authorization Boundary")
@@ -136,6 +142,11 @@ def test_rosclawd_boundary() -> bool:
         env["ROSCLAW_HOME"] = str(home)
         env["ROSCLAW_DAEMON_SOCKET"] = str(socket_path)
         env["PYTHONPATH"] = str(ROOT / "src")
+        stdout_path = workspace / "daemon.stdout.log"
+        stderr_path = workspace / "daemon.stderr.log"
+        daemon_stdout = stdout_path.open("w")
+        daemon_stderr = stderr_path.open("w")
+        phase = "start_process"
         process = subprocess.Popen(
             [
                 sys.executable,
@@ -149,17 +160,18 @@ def test_rosclawd_boundary() -> bool:
                 "ERROR",
             ],
             env=env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdout=daemon_stdout,
+            stderr=daemon_stderr,
             text=True,
         )
-        client = DaemonClient(socket_path=socket_path, timeout_sec=2.0)
+        client = _integration_client(socket_path)
+        phase = "initial_read_only_status"
         try:
             deadline = time.monotonic() + 15.0
             while time.monotonic() < deadline:
                 if process.poll() is not None:
-                    stdout, stderr = process.communicate()
-                    print(f"FAIL: rosclawd exited early ({process.returncode}): {stdout}\n{stderr}")
+                    print(f"FAIL: rosclawd exited early ({process.returncode})")
+                    print(stderr_path.read_text()[-4096:])
                     return False
                 try:
                     status = client.get_runtime_status()
@@ -187,11 +199,14 @@ def test_rosclawd_boundary() -> bool:
                     scopes=["*"],
                 ),
             )
+            phase = "submit_single_forged_request"
             ticket = client.request_action(action)
+            phase = "wait_for_blocked_receipt"
             receipt = client.wait_for_action(
                 str(ticket["action_id"]),
                 timeout_sec=5.0,
             )["receipt"]
+            phase = "final_read_only_status"
             final_status = client.get_runtime_status()
             checks = {
                 "separate_process": status["daemon_pid"] == process.pid != os.getpid(),
@@ -205,6 +220,7 @@ def test_rosclawd_boundary() -> bool:
             if failed:
                 print(f"FAIL: rosclawd boundary checks failed: {failed}")
                 return False
+            phase = "shutdown"
             client.shutdown()
             process.wait(timeout=10.0)
             if socket_path.exists():
@@ -216,7 +232,10 @@ def test_rosclawd_boundary() -> bool:
             )
             return True
         except Exception as exc:  # noqa: BLE001
-            print(f"FAIL: rosclawd boundary test raised: {exc}")
+            print(f"FAIL: rosclawd boundary phase={phase} raised {type(exc).__name__}: {exc}")
+            print(f"daemon_exit={process.poll()} socket_exists={socket_path.exists()}")
+            print("daemon stdout tail:", stdout_path.read_text()[-4096:])
+            print("daemon stderr tail:", stderr_path.read_text()[-4096:])
             return False
         finally:
             if process.poll() is None:
@@ -226,6 +245,8 @@ def test_rosclawd_boundary() -> bool:
                 except subprocess.TimeoutExpired:
                     process.kill()
                     process.wait(timeout=5.0)
+            daemon_stdout.close()
+            daemon_stderr.close()
 
 
 def test_agent_tool_catalog() -> bool:

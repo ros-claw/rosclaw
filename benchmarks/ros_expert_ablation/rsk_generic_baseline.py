@@ -22,7 +22,6 @@ from benchmarks.ros_expert_ablation.rsk_original_files import FileReadCall, File
 from benchmarks.ros_expert_ablation.rsk_physical_aci import RskPhysicalACI
 from benchmarks.ros_expert_ablation.task_tools import TaskTools
 from rosclaw.connectors.ros.context.navigation_workspace_review import _json, _yaml
-from rosclaw.connectors.ros.engineering.application_bootstrap import compile_driver_bootstrap
 from rosclaw.connectors.ros.engineering.repair_compiler import compile_repair
 from rosclaw.contracts.common import content_hash
 
@@ -242,16 +241,7 @@ class GenericRskACI(RskPhysicalACI):
             "requirements.json": args.requirements_json,
             "navigation-policy.json": args.navigation_policy_json,
         }
-        data, graph = self.application._inputs()
-        plan = compile_driver_bootstrap(
-            graph,
-            self.base.model,
-            self.base.tools.files["robot.urdf"].encode(),
-            data["driver_bringup"],
-            data["software_template"],
-            data["component_manifests"],
-            data["request"],
-        )
+        plan = self.application.compile_plan()
         if plan["status"] != "CONDITIONAL_DRIVER_BOOTSTRAP_STAGING":
             raise ValueError("no supported current application contract; no proposal registered")
         supplied = {
@@ -276,7 +266,7 @@ class GenericRskACI(RskPhysicalACI):
 
         if canonical(supplied) != canonical(expected):
             raise ValueError(
-                "generic application files do not satisfy the same frozen Core output contract; no proposal registered"
+                "generic application files do not satisfy the same frozen application output contract; no proposal registered"
             )
         result = self.application._propose(
             {
