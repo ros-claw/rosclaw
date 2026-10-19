@@ -213,12 +213,20 @@ def test_all_stale_trace_still_builds_content_addressed_receipt() -> None:
 
 
 def test_strict_replay_and_receipt_are_content_bound() -> None:
-    runtime = _runtime()
+    # Content replay must use the same compute durations on both runs.
+    # Host scheduling can otherwise introduce a real deadline fallback into
+    # either run; deadline enforcement is checked independently below.
+    latencies = (100_000,) * 4
+
+    def runtime_factory() -> FeedbackRuntime:
+        return _runtime(clock=RecordedLatencyClock(latencies))
+
+    runtime = runtime_factory()
     for index, actual in enumerate((0.3, 0.2, 0.1, 0.05)):
         _tick(runtime, index, actual)
     expected = [record.command_hash for record in runtime.records]
     inputs = [record.input for record in runtime.records]
-    report = verify_feedback_replay(_runtime, inputs, expected)
+    report = verify_feedback_replay(runtime_factory, inputs, expected)
     receipt = runtime.build_receipt(
         action_id="action-test",
         strict_replay=report.strict_replay,
@@ -231,6 +239,33 @@ def test_strict_replay_and_receipt_are_content_bound() -> None:
     assert receipt.deadline_miss_count == 0
     assert receipt.evidence_domain == "SIM"
     assert receipt.receipt_hash.startswith("sha256:")
+
+
+def test_strict_replay_preserves_recorded_deadline_miss_and_rejects_changed_timing() -> None:
+    latencies = (100_000, 100_000, 6_000_000, 100_000)
+
+    def runtime_factory() -> FeedbackRuntime:
+        return _runtime(clock=RecordedLatencyClock(latencies))
+
+    runtime = runtime_factory()
+    commands = [_tick(runtime, index, actual) for index, actual in enumerate((0.3, 0.2, 0.1, 0.05))]
+    inputs = [record.input for record in runtime.records]
+    expected = [record.command_hash for record in runtime.records]
+
+    matched = verify_feedback_replay(runtime_factory, inputs, expected)
+    changed = verify_feedback_replay(
+        lambda: _runtime(clock=RecordedLatencyClock((100_000,) * 4)), inputs, expected
+    )
+    receipt = runtime.build_receipt(
+        action_id="recorded-deadline", strict_replay=matched.strict_replay
+    )
+
+    assert matched.strict_replay and matched.matched == 4
+    assert not changed.strict_replay and changed.matched == 3
+    assert changed.first_mismatch == 2
+    assert not runtime.records[2].deadline_met
+    assert commands[2].projected == {}
+    assert receipt.strict_replay and receipt.deadline_miss_count == 1
 
 
 def test_runtime_rejects_controller_spec_mismatch() -> None:
