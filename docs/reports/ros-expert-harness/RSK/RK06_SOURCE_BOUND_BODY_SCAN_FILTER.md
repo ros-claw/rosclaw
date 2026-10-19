@@ -43,11 +43,32 @@ message byte for byte. The original bag was unchanged. An initial missing-TF
 window produced zero outputs. This used no new physics World or navigation goal.
 
 The production helper has source/geometry/scope/bridge failure-injection tests;
-the current relevant regression passed 2317 tests, with one existing console skip
+the initial relevant regression passed 2317 tests, with one existing console skip
 and ten default deployment/integration exclusions. Practice passed 183 tests
 with nine optional-dependency skips. A production-helper SDK replay stopped at
 Docker create because the previously pinned SDK image disappeared from the
 shared environment. No process or World started in that failed attempt.
+
+The separately reconstructed SDK
+`sha256:8cc3fbf1eaa57058f0c1386c061253a55651106bd46b98fb046439f966c9019b`
+subsequently passed the production-helper replay, including namespaced TF,
+unchanged exterior returns and exact non-range CDR preservation. All 1590 system
+package versions and 33 wheel versions match the old SDK; its sampled passive
+metadata overlay files and camera witness binaries are byte-identical. This is
+an explicitly new image, not a relabeling of old protocols.
+
+At the next source freeze, the unfiltered new-image control had a genuine
+canonical TIMED_OUT result. Sensor/state-only recording captured 30 original
+scans and an actual CollisionMonitor state with `action_type=3` and
+`polygon_name=FootprintApproach`. All 41 sink velocity messages were zero.
+The original nested `physical_stop_verified=false` remains false. After and
+rollback are still required to test the hypothesis. Earlier one-goal contract
+rejections and a recording-induced exclusive velocity-chain rejection remain
+separate failures; none is a navigation result. Recording protected command
+Topics adds graph consumers and correctly invalidates this strict fixture's
+exclusive chain. Observe those topics through existing sink/node originals;
+new recorder subscriptions are confined to sensor, clock and state Topics.
+
 
 An enclosing collision envelope is not exact solid-body occupancy. A point
 inside it is not thereby proven to be a self-return, and a concave or articulated

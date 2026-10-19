@@ -15,9 +15,8 @@ from pathlib import Path
 
 import yaml
 
-from rosclaw.connectors.ros.context.geometry import derive_collision_envelope
-
 PACKAGE_SHA256 = "49756059a9f5bde5416c678260feb4513dc825751ed4f4ff44c40612a52634d9"
+PACKAGE_BYTES = 574144
 SCHEMA = "rosclaw.sdk_source_body_scan_filter.v1"
 OPTION = "source_body_scan_filter"
 
@@ -58,6 +57,8 @@ def source_body_scan_remappings(descriptor, node_name):
 
 
 def source_body_filter_parameters(descriptor, urdf_bytes, mesh_originals=None):
+    from rosclaw.connectors.ros.context.geometry import derive_collision_envelope
+
     value = filter_declaration(descriptor)
     if value is None:
         raise ValueError("explicit optional filter declaration required")
@@ -151,7 +152,11 @@ def prepare_source_body_scan_filter(descriptor, settings, assets, output, extrac
     ):
         raise ValueError("fresh isolated source-owned SDK fixture required")
     package = assets / "source-body-laser-filters.deb"
-    if package.is_symlink() or hashlib.sha256(package.read_bytes()).hexdigest() != PACKAGE_SHA256:
+    if (
+        package.is_symlink()
+        or package.stat().st_size != PACKAGE_BYTES
+        or hashlib.sha256(package.read_bytes()).hexdigest() != PACKAGE_SHA256
+    ):
         raise ValueError("exact externally signature-verified SDK scan package required")
     check_original_scan_bridge(descriptor, yaml.safe_load((assets / "bridge.yaml").read_text()))
     mesh = assets / "collision-asset-originals.json"

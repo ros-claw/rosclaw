@@ -5,6 +5,8 @@ import hashlib
 import importlib
 import json
 import math
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -133,6 +135,20 @@ def test_no_declaration_preserves_existing_stack_and_creates_no_extraction(modul
     assert list(tmp_path.iterdir()) == []
 
 
+def test_default_nav2_launch_dependency_loads_without_a_core_install(module):
+    code = """import importlib.abc, runpy, sys
+class NoCore(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname == 'rosclaw' or fullname.startswith('rosclaw.'):
+            raise ImportError('non-prepared Nav2 launch must not require Core')
+sys.meta_path.insert(0, NoCore())
+loaded = runpy.run_path(sys.argv[1])
+assert loaded['source_body_scan_remappings'](None, 'collision_monitor') == []
+assert not any(n == 'rosclaw' or n.startswith('rosclaw.') for n in sys.modules)
+"""
+    subprocess.run([sys.executable, "-I", "-c", code, module.__file__], check=True, timeout=10)
+
+
 def test_unauthorized_environment_rejected_before_package_extraction(module, tmp_path, monkeypatch):
     monkeypatch.delenv("ROS_LOCALHOST_ONLY", raising=False)
     monkeypatch.setattr(
@@ -143,6 +159,36 @@ def test_unauthorized_environment_rejected_before_package_extraction(module, tmp
             descriptor(source()), {}, tmp_path, tmp_path, tmp_path / "new"
         )
     assert list(tmp_path.iterdir()) == []
+
+
+def test_wrong_package_size_rejected_before_hash_read_or_extraction(module, tmp_path, monkeypatch):
+    monkeypatch.setenv("ROS_LOCALHOST_ONLY", "1")
+    original_is_file = Path.is_file
+    monkeypatch.setattr(
+        Path, "is_file", lambda p: True if str(p) == "/.dockerenv" else original_is_file(p)
+    )
+    package = tmp_path / "source-body-laser-filters.deb"
+    package.write_bytes(b"wrong size")
+    (tmp_path / "run_id.txt").write_text("owned-run")
+    original_read = Path.read_bytes
+    monkeypatch.setattr(
+        Path,
+        "read_bytes",
+        lambda p: (
+            pytest.fail("wrong-size package must not be read") if p == package else original_read(p)
+        ),
+    )
+    monkeypatch.setattr(
+        module.subprocess, "run", lambda *_a, **_kw: pytest.fail("must not extract")
+    )
+    with pytest.raises(ValueError, match="exact externally signature-verified"):
+        module.prepare_source_body_scan_filter(
+            descriptor(source()),
+            {"generic_source_observer": True, "governed_sink": {}, "run_id": "owned-run"},
+            tmp_path,
+            tmp_path,
+            tmp_path / "new",
+        )
 
 
 @pytest.mark.parametrize(
