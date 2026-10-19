@@ -12,6 +12,7 @@ from typing import Literal
 from pydantic import Field, model_validator
 
 from benchmarks.ros_expert_ablation.rsk_diagnostic_provider import (
+    RECONSTRUCTED_SDK_IMAGE,
     DiagnosticProbePolicyV1,
     DiagnosticProbeProvider,
 )
@@ -50,11 +51,38 @@ class Nav2DiagnosticProbePolicyV1(DiagnosticProbePolicyV1):
         return self
 
 
+class Nav2DiagnosticProbePolicyV2(Nav2DiagnosticProbePolicyV1):
+    schema_version: Literal["rosclaw.rsk_nav2_diagnostic_probe_policy.v2"] = (
+        "rosclaw.rsk_nav2_diagnostic_probe_policy.v2"
+    )
+    sdk_image: Literal[
+        "sha256:8cc3fbf1eaa57058f0c1386c061253a55651106bd46b98fb046439f966c9019b"
+    ] = RECONSTRUCTED_SDK_IMAGE
+
+
+def nav2_diagnostic_probe_policy_type(schema_version):
+    if schema_version == "rosclaw.rsk_nav2_diagnostic_probe_policy.v1":
+        return Nav2DiagnosticProbePolicyV1
+    if schema_version == "rosclaw.rsk_nav2_diagnostic_probe_policy.v2":
+        return Nav2DiagnosticProbePolicyV2
+    raise ValueError("unsupported Nav2 diagnostic SDK policy version")
+
+
+def parse_nav2_diagnostic_probe_policy(value):
+    if isinstance(value, Nav2DiagnosticProbePolicyV1):
+        value = value.model_dump()
+    if type(value) is not dict:
+        raise ValueError("closed Nav2 diagnostic SDK policy required")
+    return nav2_diagnostic_probe_policy_type(
+        value.get("schema_version", "rosclaw.rsk_nav2_diagnostic_probe_policy.v1")
+    ).model_validate(value)
+
+
 class Nav2DiagnosticProbeProvider(DiagnosticProbeProvider):
     """C/E-only subtype with a closed Nav2 owner and explicit one-World cost."""
 
     def __init__(self, policy, *, operator, worktree, evidence_root):
-        self.policy = Nav2DiagnosticProbePolicyV1.model_validate(policy)
+        self.policy = parse_nav2_diagnostic_probe_policy(policy)
         if type(operator) is not Nav2SourceOnlyDiagnosticOperator:
             raise ValueError("closed Nav2 source-only owner required; no callbacks")
         self.operator = operator
@@ -67,6 +95,7 @@ class Nav2DiagnosticProbeProvider(DiagnosticProbeProvider):
             or self.operator.recipe.source_revision != self.policy.source_revision
             or self.operator.recipe.source_urdf_sha256 != self.policy.source_urdf_sha256
             or self.operator.recipe.role != self.policy.observation_role
+            or self.operator.recipe.fixture_image != self.policy.sdk_image
         ):
             raise ValueError("Nav2 operator/recipe differs from the registered policy")
         self._policy_hash = content_hash(
@@ -85,6 +114,7 @@ class Nav2DiagnosticProbeProvider(DiagnosticProbeProvider):
             or self.operator.recipe.source_revision != self.policy.source_revision
             or self.operator.recipe.source_urdf_sha256 != self.policy.source_urdf_sha256
             or self.operator.recipe.role != self.policy.observation_role
+            or self.operator.recipe.fixture_image != self.policy.sdk_image
         ):
             raise ValueError("Nav2 operator/recipe binding changed after provider construction")
         self.operator.check_ready()
@@ -218,6 +248,7 @@ class Nav2DiagnosticProbeProvider(DiagnosticProbeProvider):
             source_urdf_sha256=self.policy.source_urdf_sha256,
             requirements_hash=self.policy.requirements_hash,
             staging_hash=self.policy.case_staging_hash,
+            sdk_image=self.policy.sdk_image,
         )
         if intent["run_id"] != result["probe_run_id"]:
             raise ValueError("original Nav2 dispatch identity differs from captured replica")

@@ -22,7 +22,10 @@ from typing import Literal
 
 from pydantic import Field, model_validator
 
-from benchmarks.ros_expert_ablation.rsk_diagnostic_provider import SDK_IMAGE
+from benchmarks.ros_expert_ablation.rsk_diagnostic_provider import (
+    RECONSTRUCTED_SDK_IMAGE,
+    SDK_IMAGE,
+)
 from benchmarks.ros_expert_ablation.rsk_episode_runner import Closed, OriginalRef, _read
 from benchmarks.ros_expert_ablation.rsk_nav2_observation_window import (
     capture_owned_unadmitted_window,
@@ -46,6 +49,11 @@ class Nav2ObservationRecipeV1(Closed):
     max_goals: Literal[0] = 0
     max_model_calls: Literal[0] = 0
 
+    @property
+    def fixture_image(self):
+        # A property deliberately preserves every V1 serialized byte/field.
+        return SDK_IMAGE
+
     @model_validator(mode="before")
     @classmethod
     def integer_limits(cls, value):
@@ -55,6 +63,31 @@ class Nav2ObservationRecipeV1(Closed):
         ):
             raise ValueError("strict integer operator limits required")
         return value
+
+
+class Nav2ObservationRecipeV2(Nav2ObservationRecipeV1):
+    schema_version: Literal["rosclaw.rsk_nav2_observation_recipe.v2"] = (
+        "rosclaw.rsk_nav2_observation_recipe.v2"
+    )
+    sdk_image: Literal[
+        "sha256:8cc3fbf1eaa57058f0c1386c061253a55651106bd46b98fb046439f966c9019b"
+    ] = RECONSTRUCTED_SDK_IMAGE
+
+    @property
+    def fixture_image(self):
+        return self.sdk_image
+
+
+def parse_nav2_observation_recipe(raw):
+    value = json.loads(raw)
+    if type(value) is not dict:
+        raise ValueError("closed Nav2 observation recipe required")
+    version = value.get("schema_version", "rosclaw.rsk_nav2_observation_recipe.v1")
+    if version == "rosclaw.rsk_nav2_observation_recipe.v1":
+        return Nav2ObservationRecipeV1.model_validate(value)
+    if version == "rosclaw.rsk_nav2_observation_recipe.v2":
+        return Nav2ObservationRecipeV2.model_validate(value)
+    raise ValueError("unsupported Nav2 observation SDK recipe version")
 
 
 def _sha(raw):
@@ -121,9 +154,7 @@ class Nav2SourceOnlyDiagnosticOperator:
         self.output_parent = Path(output_parent).resolve(strict=True)
         self.output_parent.relative_to(self.root)
         self.recipe_reference = OriginalRef.model_validate(recipe)
-        self.recipe = Nav2ObservationRecipeV1.model_validate_json(
-            _read(self.root, self.recipe_reference)
-        )
+        self.recipe = parse_nav2_observation_recipe(_read(self.root, self.recipe_reference))
         self.calls = 0
         self.last_world = None
         self.started_containers = 0
@@ -144,10 +175,7 @@ class Nav2SourceOnlyDiagnosticOperator:
             "status", "--porcelain"
         ):
             raise ValueError("exact clean frozen SDK owner source required")
-        if (
-            Nav2ObservationRecipeV1.model_validate_json(_read(self.root, self.recipe_reference))
-            != self.recipe
-        ):
+        if parse_nav2_observation_recipe(_read(self.root, self.recipe_reference)) != self.recipe:
             raise ValueError("frozen owner recipe changed")
         self.assets = _directory(self.root, self.recipe.assets_directory)
         self.observer = _directory(self.root, self.recipe.observer_directory)
@@ -299,7 +327,7 @@ class Nav2SourceOnlyDiagnosticOperator:
             argv += [
                 "--entrypoint",
                 "bash",
-                SDK_IMAGE,
+                self.recipe.fixture_image,
                 "-c",
                 "source /opt/ros/jazzy/setup.bash && source /ws/install/setup.bash && "
                 "export PYTHONPATH=/repo/src:/repo/integrations/ros_probe/acceptance:"
@@ -389,7 +417,7 @@ class Nav2SourceOnlyDiagnosticOperator:
                 except subprocess.CalledProcessError:
                     state = None
                 if state is not None:
-                    if state["Name"] != "/" + name or state["Image"] != SDK_IMAGE:
+                    if state["Name"] != "/" + name or state["Image"] != self.recipe.fixture_image:
                         raise ValueError("ambiguous owned create; no unrelated container cleanup")
                     mounts = {m["Destination"]: m for m in state["Mounts"]}
                     if mounts.get("/evidence", {}).get("Source") != str(execution):
@@ -399,7 +427,11 @@ class Nav2SourceOnlyDiagnosticOperator:
                     _write(out / "create-timeout-owned-container.json", state)
             if cid is not None:
                 state = self._inspect(cid)
-                if state["Id"] != cid or state["Name"] != "/" + name or state["Image"] != SDK_IMAGE:
+                if (
+                    state["Id"] != cid
+                    or state["Name"] != "/" + name
+                    or state["Image"] != self.recipe.fixture_image
+                ):
                     raise ValueError("owned SDK identity changed; no unrelated container cleanup")
                 if state["State"]["Running"]:
                     subprocess.run(

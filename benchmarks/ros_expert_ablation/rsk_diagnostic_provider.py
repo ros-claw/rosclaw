@@ -32,6 +32,7 @@ from rosclaw.connectors.ros.intelligence.system_model import RosSystemModel
 from rosclaw.contracts.common import content_hash
 
 SDK_IMAGE = "sha256:51ffb0e0aeb391f0efbef3013c7fc83586794c222b233e3dea688f3015ef1c6b"
+RECONSTRUCTED_SDK_IMAGE = "sha256:8cc3fbf1eaa57058f0c1386c061253a55651106bd46b98fb046439f966c9019b"
 
 
 class DiagnosticProbePolicyV1(Closed):
@@ -64,6 +65,35 @@ class DiagnosticProbePolicyV1(Closed):
                 "native-only context cannot contain partial invented navigation bindings"
             )
         return self
+
+
+class DiagnosticProbePolicyV2(DiagnosticProbePolicyV1):
+    """Explicit reconstructed SDK contract; V1 originals keep their original pin."""
+
+    schema_version: Literal["rosclaw.rsk_diagnostic_probe_policy.v2"] = (
+        "rosclaw.rsk_diagnostic_probe_policy.v2"
+    )
+    sdk_image: Literal[
+        "sha256:8cc3fbf1eaa57058f0c1386c061253a55651106bd46b98fb046439f966c9019b"
+    ] = RECONSTRUCTED_SDK_IMAGE
+
+
+def diagnostic_probe_policy_type(schema_version):
+    if schema_version == "rosclaw.rsk_diagnostic_probe_policy.v1":
+        return DiagnosticProbePolicyV1
+    if schema_version == "rosclaw.rsk_diagnostic_probe_policy.v2":
+        return DiagnosticProbePolicyV2
+    raise ValueError("unsupported diagnostic SDK policy version")
+
+
+def parse_diagnostic_probe_policy(value):
+    if isinstance(value, DiagnosticProbePolicyV1):
+        value = value.model_dump()
+    if type(value) is not dict:
+        raise ValueError("closed diagnostic SDK policy required")
+    return diagnostic_probe_policy_type(
+        value.get("schema_version", "rosclaw.rsk_diagnostic_probe_policy.v1")
+    ).model_validate(value)
 
 
 @dataclass(frozen=True)
@@ -104,7 +134,7 @@ class DiagnosticProbeProvider:
             SensorOnlyDiagnosticOperator,
         )
 
-        self.policy = DiagnosticProbePolicyV1.model_validate(policy)
+        self.policy = parse_diagnostic_probe_policy(policy)
         if not isinstance(operator, SensorOnlyDiagnosticOperator) or operator.policy != self.policy:
             raise ValueError("closed sensor-only SDK operator with the same frozen policy required")
         self._policy_hash = content_hash("rskdiagnosticpolicy", self.policy.model_dump(mode="json"))
@@ -256,7 +286,7 @@ class DiagnosticProbeProvider:
             host = container["HostConfig"]
             env = container["Config"]["Env"]
             if (
-                container["Image"] != SDK_IMAGE
+                container["Image"] != self.policy.sdk_image
                 or host["NetworkMode"] != "none"
                 or host["ReadonlyRootfs"] is not True
                 or host["Privileged"]

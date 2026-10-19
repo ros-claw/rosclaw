@@ -42,9 +42,11 @@ class SensorOnlyDiagnosticOperator:
     def __init__(
         self, policy, *, worktree, evidence_root, execution_config: OriginalRef, output_parent
     ):
-        from benchmarks.ros_expert_ablation.rsk_diagnostic_provider import DiagnosticProbePolicyV1
+        from benchmarks.ros_expert_ablation.rsk_diagnostic_provider import (
+            parse_diagnostic_probe_policy,
+        )
 
-        self.policy = DiagnosticProbePolicyV1.model_validate(policy)
+        self.policy = parse_diagnostic_probe_policy(policy)
         self.worktree = Path(worktree).resolve(strict=True)
         self.root = Path(evidence_root).resolve(strict=True)
         self.execution_config = OriginalRef.model_validate(execution_config)
