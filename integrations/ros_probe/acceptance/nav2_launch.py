@@ -7,6 +7,7 @@ from launch import LaunchDescription
 from launch_ros.actions import Node
 from simulation_counterfactual_config import counterfactual_clock_parameters
 from simulation_prepared_lifecycle_config import managed_lifecycle_nodes
+from simulation_source_body_scan_filter import source_body_scan_remappings
 
 
 def generate_launch_description():
@@ -55,7 +56,8 @@ def generate_launch_description():
             + [
                 (source, namespace + target if namespace and target.startswith("/") else target)
                 for source, target in remaps
-            ],
+            ]
+            + source_body_scan_remappings(descriptor, name),
         )
         for package, executable, name, remaps in servers
     ]
