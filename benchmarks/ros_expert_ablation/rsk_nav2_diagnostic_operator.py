@@ -137,6 +137,9 @@ class Nav2SourceOnlyDiagnosticOperator:
     def check_ready(self):
         if Path(__file__).resolve().parents[2] != self.worktree:
             raise ValueError("closed SDK owner must run from its exact declared worktree")
+        if self.output_parent.resolve(strict=True) != self.output_parent:
+            raise ValueError("owned SDK output parent changed to a symlink")
+        self.output_parent.relative_to(self.root)
         if self._git("rev-parse", "HEAD") != self.recipe.source_revision or self._git(
             "status", "--porcelain"
         ):

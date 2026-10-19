@@ -213,3 +213,27 @@ def test_start_failure_stops_only_its_owned_container(tmp_path, monkeypatch):
         is False
     )
     assert (op.last_world / "original-failure.json").is_file()
+
+
+@pytest.mark.parametrize("mutation", ["outside", "symlink"])
+def test_changed_output_parent_is_rejected_before_any_git_or_sdk_call(
+    tmp_path, monkeypatch, mutation
+):
+    op = object.__new__(owner.Nav2SourceOnlyDiagnosticOperator)
+    op.worktree = Path(owner.__file__).resolve().parents[2]
+    op.root = tmp_path / "evidence"
+    op.root.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    op.calls = 0
+    if mutation == "outside":
+        op.output_parent = outside
+    else:
+        op.output_parent = tmp_path / "link"
+        op.output_parent.symlink_to(outside)
+    monkeypatch.setattr(
+        op, "_git", lambda *args: pytest.fail("output path must fail before any process")
+    )
+    with pytest.raises(ValueError):
+        op.check_ready()
+    assert op.calls == 0

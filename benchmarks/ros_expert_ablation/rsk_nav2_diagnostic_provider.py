@@ -77,6 +77,16 @@ class Nav2DiagnosticProbeProvider(DiagnosticProbeProvider):
     def check_context(self, base):
         if Path(__file__).resolve().parents[2] != self.worktree:
             raise ValueError("Nav2 provider implementation differs from frozen worktree")
+        if (
+            type(self.operator) is not Nav2SourceOnlyDiagnosticOperator
+            or self.operator.worktree != self.worktree
+            or self.operator.root != self.root
+            or self.operator.recipe_reference.sha256 != self.policy.execution_config_sha256
+            or self.operator.recipe.source_revision != self.policy.source_revision
+            or self.operator.recipe.source_urdf_sha256 != self.policy.source_urdf_sha256
+            or self.operator.recipe.role != self.policy.observation_role
+        ):
+            raise ValueError("Nav2 operator/recipe binding changed after provider construction")
         self.operator.check_ready()
         base._bound(base.case.case_hash, read_only=True)
         if (

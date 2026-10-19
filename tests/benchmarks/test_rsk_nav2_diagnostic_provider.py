@@ -201,3 +201,39 @@ def test_corrupt_policy_shape_is_rejected_without_attribute_error(tmp_path, monk
     registered["provider_policy"] = "not-a-policy"
     with pytest.raises(ValueError, match="closed registered"):
         _registered_diagnostic_context(original, registered)
+
+
+@pytest.mark.parametrize(
+    "mutation", ["root", "worktree", "recipe-sha", "source", "urdf", "role", "callback"]
+)
+def test_swapped_operator_binding_is_rejected_before_shared_slot(tmp_path, monkeypatch, mutation):
+    original = facade()
+    provider, options = provider_fixture(tmp_path, monkeypatch, original)
+    aci = OperationalRskACI(original.delegate, diagnostic_probe_provider=provider, **options)
+    experiment = plan(aci)["experiment"]
+    selected = next(p for p in experiment["probes"] if p["request"]["operation"] == "ENDPOINT_QOS")
+    op = provider.operator
+    if mutation in {"root", "worktree"}:
+        setattr(op, mutation, tmp_path / "changed")
+    elif mutation == "recipe-sha":
+        op.recipe_reference = op.recipe_reference.model_copy(update={"sha256": "f" * 64})
+    elif mutation == "callback":
+        provider.operator = lambda: None
+    else:
+        key, value = {
+            "source": ("source_revision", "c" * 40),
+            "urdf": ("source_urdf_sha256", "c" * 64),
+            "role": ("role", "readonly_preinitialization_observation"),
+        }[mutation]
+        op.recipe = op.recipe.model_copy(update={key: value})
+    result = aci.call(
+        req(
+            aci,
+            "run_diagnostic_probe",
+            experiment_hash=experiment["experiment_hash"],
+            probe_id=selected["request"]["id"],
+        ),
+        remaining_sec=90,
+    )
+    assert result["status"].startswith("REJECTED")
+    assert aci.base.probe_count == op.calls == 0
