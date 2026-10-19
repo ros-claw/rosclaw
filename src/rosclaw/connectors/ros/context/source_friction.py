@@ -1,4 +1,4 @@
-"""Pure bounded source friction facts shared by diagnosis and SIM preparation."""
+"""Pure source facts and adaptation for offline Core proposals; no SDK execution."""
 
 import hashlib
 import math

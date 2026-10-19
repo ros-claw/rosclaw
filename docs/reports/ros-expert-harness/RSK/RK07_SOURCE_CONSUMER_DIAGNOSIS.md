@@ -78,8 +78,10 @@ This is a new read-only Core revision after main3021c6bd. It does not modify the
 old frozen study's source, graph originals, model allocations, SDK callback,
 World budgets, action policy, Runtime or driver. Default graph compilation and
 diagnostic planning retain their existing outputs when no consumer finding is
-attached. SIM preparation shares the unchanged pure friction-fact parser with
-diagnosis; its existing XML adaptation algorithm is retained.
+attached. The standalone SDK preparation module stays byte-identical to the
+baseline, retaining its standard-library-only import boundary. Core proposals
+use the same pure adaptation algorithm; independent byte comparisons cover the
+XML and derivations on all four real originals.
 
 Acceptance includes synthetic negative cases, real CLI dispatch, unchanged
 default graph/plan replay on 66 originals, and retrospective classification of
