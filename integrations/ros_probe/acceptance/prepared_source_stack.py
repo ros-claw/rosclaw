@@ -13,6 +13,7 @@ from pathlib import Path
 
 import yaml
 from gazebo_source_witness.prepare import check_prepared_assets
+from simulation_source_body_scan_filter import prepare_source_body_scan_filter
 
 from experiments import gazebo_arguments
 
@@ -54,6 +55,7 @@ def main():
             "counterfactual_sim",
             "start_navigation_stack",
             "initialization_boundary",
+            "source_body_scan_filter",
         }
         != {
             "schema_version",
@@ -118,12 +120,15 @@ def main():
         and settings.get("engineering_capture", {}).get("case") != "duplicate_velocity_route"
     ):
         raise ValueError("extra endpoint requires explicit engineering capture role")
+    scan_filter = prepare_source_body_scan_filter(
+        descriptor, settings, Path("/assets"), OUT, Path("/tmp/source-body-scan-filter")
+    )
     children, logs, owned = [], [], {}
 
-    def start(name, argv):
+    def start(name, argv, env=None):
         log = (OUT / f"{name}.log").open("x")
         logs.append(log)
-        process = subprocess.Popen(argv, stdout=log, stderr=subprocess.STDOUT)
+        process = subprocess.Popen(argv, stdout=log, stderr=subprocess.STDOUT, env=env)
         children.append(process)
         owned[name] = {"pid": process.pid, "argv": argv}
         (OUT / "owned-stack-processes.json").write_text(json.dumps(owned, indent=2) + "\n")
@@ -171,6 +176,8 @@ def main():
         if descriptor["tf_topics_relative"]:
             state_argv += ["-r", "/tf:=tf", "-r", "/tf_static:=tf_static"]
         start("robot_state", state_argv)
+        if scan_filter is not None:
+            start("source_body_scan_filter", scan_filter[0], scan_filter[1])
         controllers = descriptor["controllers"]
         spawner = start(
             "controller_spawner",
