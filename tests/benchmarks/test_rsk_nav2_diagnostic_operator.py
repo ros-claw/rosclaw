@@ -181,6 +181,33 @@ def test_failed_create_preserves_failure_and_consumed_attempt_without_retry(tmp_
     assert len(calls) == 2
 
 
+@pytest.mark.parametrize("policy_present", [False, True])
+def test_source_only_capture_does_not_invent_missing_body_or_navigation_policy(
+    tmp_path, monkeypatch, policy_present
+):
+    op, plan, selected = operator(tmp_path, monkeypatch)
+    path = op.assets / "navigation-policy.json"
+    original = json.loads(path.read_bytes())
+    if not policy_present:
+        path.unlink()
+
+    def reject(argv, **kwargs):
+        raise subprocess.CalledProcessError(1, argv)
+
+    monkeypatch.setattr(owner.subprocess, "check_output", reject)
+    with pytest.raises(subprocess.CalledProcessError):
+        op.collect(plan, selected, remaining_sec=90)
+    value = json.loads((op.last_world / "settings.json").read_bytes())
+    if policy_present:
+        assert value["observed_body_id"] == original["body_id"]
+        assert value["navigation_fixture_policy"] == original
+    else:
+        assert "observed_body_id" not in value and "navigation_fixture_policy" not in value
+    assert value["engineering_capture"]["case"] == op.recipe.role
+    assert op.recipe.max_goals == op.recipe.max_model_calls == op.started_containers == 0
+    assert op.calls == 1 and (op.last_world / "original-failure.json").is_file()
+
+
 def test_start_failure_stops_only_its_owned_container(tmp_path, monkeypatch):
     op, plan, selected = operator(tmp_path, monkeypatch)
     state = {"Id": "c" * 64, "Image": owner.SDK_IMAGE, "State": {"Running": True, "Pid": 123}}

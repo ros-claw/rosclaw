@@ -27,6 +27,11 @@ must be no more than 500 ms old. Missing, future, stale or mismatched reads do
 not become observations merely because the launch configuration requested them.
 Without an override, the previous capture behavior is unchanged.
 
+An unadmitted source-only case may have no execution configuration or navigation
+policy. Capture preserves that absence. The owner omits Body/policy fields when
+no policy file is supplied; an explicitly provided policy is preserved. It does
+not manufacture limits or permission just to inspect an unresolved system.
+
 This changes disposable source-only startup compatibility. The owner still
 permits one World, zero goals and zero model calls, records the original
 configuration and checks its exact policy/recipe binding. The existing capture
