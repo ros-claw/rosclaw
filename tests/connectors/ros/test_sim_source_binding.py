@@ -513,10 +513,13 @@ def test_complete_static_world_plane_and_effective_frames(tmp_path, fault):
 @pytest.mark.parametrize(
     "loaded_kind,expected", [("navsat", "MATCHED"), ("imu", "MISMATCH"), ("UNKNOWN", "UNKNOWN")]
 )
-def test_additional_vendor_sensor_requires_exact_loaded_type(tmp_path, loaded_kind, expected):
+@pytest.mark.parametrize("declared_kind", ["navsat", "camera", "depth_camera", "rgbd_camera"])
+def test_declared_sensor_requires_exact_loaded_type(tmp_path, loaded_kind, expected, declared_kind):
     parts = list(fixture(tmp_path))
     root, request, launch, capture, samples, converted, world, model = parts
-    sensor = b'<sensor name="position_fix" type="navsat"><pose>0 0 0.1 0 0 0</pose></sensor>'
+    sensor = (
+        f'<sensor name="source_sensor" type="{declared_kind}"><pose>0 0 0.1 0 0 0</pose></sensor>'
+    ).encode()
     converted = converted.replace(b"</link>", sensor + b"</link>")
     world = world.replace(b"</link>", sensor + b"</link>")
     launch["asset_sha256"].update({"converted.sdf": sha(converted), "world.sdf": sha(world)})
@@ -527,8 +530,8 @@ def test_additional_vendor_sensor_requires_exact_loaded_type(tmp_path, loaded_ki
         sample["sensors"] = [
             {
                 "entity": 5,
-                "name": "position_fix",
-                "kind": loaded_kind,
+                "name": "source_sensor",
+                "kind": declared_kind if loaded_kind == "navsat" else loaded_kind,
                 "pose": [0, 0, 0.1, 0, 0, 0],
                 "world_pose": [0, 0, 0.1, 0, 0, 0],
                 "ancestry": deepcopy(sample["collisions"][0]["ancestry"]),

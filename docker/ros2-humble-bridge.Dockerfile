@@ -15,12 +15,15 @@ ENV QT_QPA_PLATFORM=offscreen
 
 # Keep the signed official repositories. Partial index refresh must fail here,
 # rather than becoming a misleading "package not found" during installation.
-# Transport retries are bounded; signature/package errors remain fatal.
+# Give cold CI builders a bounded transport recovery window: the first main
+# deployment failed when the official ROS hostname could not resolve through
+# three short attempts. This retries fetches, never a failed CI workflow, and
+# does not ignore partial indexes or signature/package errors.
 # Preserve signed indexes and installed versions for deployment provenance.
 # Install rosbridge_server and turtlesim packages.
-RUN apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 \
+RUN apt-get -o Acquire::Retries=8 -o Acquire::http::Timeout=30 \
         -o Acquire::https::Timeout=30 -o APT::Update::Error-Mode=any update \
-    && apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 \
+    && apt-get -o Acquire::Retries=8 -o Acquire::http::Timeout=30 \
         -o Acquire::https::Timeout=30 install -y --no-install-recommends \
         ros-${ROS_DISTRO}-rosbridge-server \
         ros-${ROS_DISTRO}-turtlesim \
