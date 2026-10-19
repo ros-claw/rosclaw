@@ -239,7 +239,6 @@ class Nav2SourceOnlyDiagnosticOperator:
                     indent=2,
                 )
             )
-            policy = json.loads(read_bounded_regular(assets / "navigation-policy.json", 64_000))
             settings = {
                 "generic_source_observer": True,
                 "inventory_sha256": _sha((assets / "prepared-assets.json").read_bytes()),
@@ -248,8 +247,6 @@ class Nav2SourceOnlyDiagnosticOperator:
                 "live_continuity_hold_seconds": 120,
                 "live_dual_supervision": True,
                 "seed": self.recipe.seed,
-                "observed_body_id": policy["body_id"],
-                "navigation_fixture_policy": policy,
                 "probe_snapshot_period_sec": 0.1,
                 "governed_sink": {
                     "schema_version": "rosclaw.governed_sink_bootstrap.v1",
@@ -262,6 +259,15 @@ class Nav2SourceOnlyDiagnosticOperator:
                     "run_id": run,
                 },
             }
+            # An unadmitted source-only capture needs no invented Body policy.
+            # Preserve an explicitly supplied policy; otherwise
+            # omit both fields and terminate through the same zero-goal role.
+            policy_path = assets / "navigation-policy.json"
+            if policy_path.is_file():
+                policy = json.loads(read_bounded_regular(policy_path, 64_000))
+                settings.update(
+                    observed_body_id=policy["body_id"], navigation_fixture_policy=policy
+                )
             if (assets / "costmap-witness.json").is_file():
                 settings["costmap_consumer_capture"] = {
                     "schema_version": "rosclaw.costmap_consumer_capture.v1",
