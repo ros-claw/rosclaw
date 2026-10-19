@@ -1,0 +1,74 @@
+{
+  "schema": "ROSClaw.FrozenClockRPC.PublicationManifest.v1",
+  "source_author": "ROSClaw Native Agent",
+  "exact_native_source3_sha256": {
+    "frozen_clock_rpc_scenario.py": "18aec2e44fd1e494c30bfeacef8f7e6cddd2a1ff5f48765cd765170502de67a6",
+    "test_frozen_clock_rpc_scenario.py": "d0f2282e4e6b56b68a51b1cabb4c10712fad9ac0edf5abf0bc1f1406a6d29f1d",
+    "FROZEN_CLOCK_RPC_V1.md": "2e1c18feb0dd5c31367eed77ead09feaebc7ebd6e395470d44c710fb135bc407"
+  },
+  "archives": {
+    "minimal_fixture.tar": {
+      "members": {
+        "frozen_clock_rpc_scenario.py": {
+          "bytes": 31195,
+          "sha256": "18aec2e44fd1e494c30bfeacef8f7e6cddd2a1ff5f48765cd765170502de67a6"
+        },
+        "test_frozen_clock_rpc_scenario.py": {
+          "bytes": 19978,
+          "sha256": "d0f2282e4e6b56b68a51b1cabb4c10712fad9ac0edf5abf0bc1f1406a6d29f1d"
+        }
+      }
+    },
+    "readable_source3.tar": {
+      "members": {
+        "frozen_clock_rpc_scenario.py": {
+          "bytes": 31195,
+          "sha256": "18aec2e44fd1e494c30bfeacef8f7e6cddd2a1ff5f48765cd765170502de67a6"
+        },
+        "test_frozen_clock_rpc_scenario.py": {
+          "bytes": 19978,
+          "sha256": "d0f2282e4e6b56b68a51b1cabb4c10712fad9ac0edf5abf0bc1f1406a6d29f1d"
+        },
+        "FROZEN_CLOCK_RPC_V1.md": {
+          "bytes": 14616,
+          "sha256": "2e1c18feb0dd5c31367eed77ead09feaebc7ebd6e395470d44c710fb135bc407"
+        }
+      }
+    }
+  },
+  "files": {
+    "FROZEN_CLOCK_RPC_V1.md": {
+      "bytes": 14616,
+      "sha256": "2e1c18feb0dd5c31367eed77ead09feaebc7ebd6e395470d44c710fb135bc407"
+    },
+    "README.md": {
+      "bytes": 3099,
+      "sha256": "94bf143e7b86701b7478a376fb86bdf010191e8695a758754cb151f86ff11ce9"
+    },
+    "frozen_clock_rpc_scenario.py": {
+      "bytes": 31195,
+      "sha256": "18aec2e44fd1e494c30bfeacef8f7e6cddd2a1ff5f48765cd765170502de67a6"
+    },
+    "minimal_fixture.tar": {
+      "bytes": 61440,
+      "sha256": "c5038c990d6f34dd4b59235b53d488267412c2796b75ecf79c1c75f96874f40f"
+    },
+    "readable_source3.tar": {
+      "bytes": 71680,
+      "sha256": "49cd37224e178e26fa660b4503e90a4ac003edc40ce5960a5a655f54ddafd7a3"
+    },
+    "runtime_verification_20261017.json": {
+      "bytes": 2456,
+      "sha256": "b29947c33a4047bc072e0b06f4aa9f7d7b3395d64ba60020c2005d56e1eee56c"
+    },
+    "test_frozen_clock_rpc_scenario.py": {
+      "bytes": 19978,
+      "sha256": "d0f2282e4e6b56b68a51b1cabb4c10712fad9ac0edf5abf0bc1f1406a6d29f1d"
+    },
+    "verify_publication.py": {
+      "bytes": 3600,
+      "sha256": "897335561feb0af8e6ff4f2a23f9187c19a35f2fe18b67818ead6a324b9ebd03"
+    }
+  },
+  "claim_scope": "Component-only; pure CI is not DDS execution; actual tmpfs fsync return timing is not power-loss durability; original72986 workflow FAIL preserved"
+}

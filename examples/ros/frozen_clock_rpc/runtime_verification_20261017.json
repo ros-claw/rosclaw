@@ -1,0 +1,71 @@
+{
+  "schema": "ROSClaw.FrozenClockRPC.PublicRuntimeVerification.v1",
+  "verification_date": "2026-10-17",
+  "status": "INDEPENDENT_COMPONENT_ACCEPTED",
+  "source_author": "ROSClaw Native Agent",
+  "native_source_sha256": "18aec2e44fd1e494c30bfeacef8f7e6cddd2a1ff5f48765cd765170502de67a6",
+  "raw_schema": "ROSClaw.FrozenClockRPC.v1.1",
+  "environment": {
+    "ros_distro": "Jazzy",
+    "image_sha256": "81b41b619cc44a3c4915cd7bf42a7faf5219ddf7d84e2506e890a2457adaaaf5",
+    "python": "3.12",
+    "network": "none",
+    "hardware_access": false,
+    "storage": "container tmpfs"
+  },
+  "actual_DDS": {
+    "wrapper_elapsed_s": 2.763914633076638,
+    "raw_rows": 48,
+    "RPC_count": 3,
+    "clock_samples_both_ros_0ns": 25,
+    "terminals": {
+      "FAST": "SUCCESS",
+      "LATE": "TIMED_OUT",
+      "RECOVERY": "SUCCESS"
+    },
+    "terminal_fsync_completion_from_submit_s": {
+      "FAST": 0.001694757,
+      "LATE": 0.503252806,
+      "RECOVERY": 0.001527941
+    },
+    "recovery_before_late_client_observation_and_quarantine": true,
+    "late_timeout_never_revived": true,
+    "actual_os_fsync_completion_checked": true,
+    "same_context_client_executor": true,
+    "owned_container_absent": true
+  },
+  "pure_software": {
+    "methods": 25,
+    "subtests": 49,
+    "reports": 124,
+    "all_passed": true,
+    "source_inputs_unchanged": true
+  },
+  "new_native_orchestration": {
+    "exit": 0,
+    "normal_STOP_and_quit": true,
+    "elapsed_s": 47.843796935048886,
+    "model_requests": 13,
+    "input_tokens": 116812,
+    "output_tokens": 1096,
+    "genuine_artifacts": 2,
+    "managed_operations": 1,
+    "actual_status_and_output": true,
+    "automatic_continuation_proven": false
+  },
+  "preserved_history": {
+    "repair_author_episode": "72986",
+    "repair_author_workflow": "FAIL",
+    "repair_author_failure": "MODEL_REQUEST_ALLOWANCE_EXHAUSTED_NO_FINAL_STOP",
+    "independent_software_acceptance_does_not_rewrite_author_workflow": true
+  },
+  "claim_limits": {
+    "fsync": "Actual container tmpfs fsync return completion; not physical-media power-loss durability or host artifact deadline",
+    "server_cancel_proven": false,
+    "physical_success": false,
+    "full_CAP80_coverage": false,
+    "all_PI_1_3_physical_AI_validated": false,
+    "synthetic_tests_are_live_DDS_evidence": false
+  },
+  "publication_redaction": "Raw nonce, container ID, owners, operation/task/artifact IDs, absolute monotonic times and private paths omitted."
+}
