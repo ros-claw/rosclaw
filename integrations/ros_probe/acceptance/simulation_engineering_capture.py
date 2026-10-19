@@ -170,7 +170,12 @@ def capture_failure(root, policy, state, spin_until, save):
     onboarding = policy["case"] in ONBOARDING_CASES
     counterfactual = policy["case"] in COUNTERFACTUAL_CASES
     observation = policy["case"] in OBSERVATION_CASES
-    descriptor = json.loads((root / "bringup.json").read_text()) if observation else None
+    descriptor_path = root / "bringup.json"
+    descriptor = (
+        json.loads(descriptor_path.read_text())
+        if observation and descriptor_path.is_file()
+        else None
+    )
     from simulation_counterfactual_config import configured_clock_readback_available
 
     expected_statuses = (
