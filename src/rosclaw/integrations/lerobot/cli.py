@@ -1507,21 +1507,35 @@ def cmd_lerobot_mapping_map_action(args: argparse.Namespace) -> int:
         print(f"[rosclaw-lerobot] Invalid action values: {exc}", file=sys.stderr)
         return 1
 
+    import math
+
+    from rosclaw.body.action_mapping.validator import validate_mapped_action
+
     mapped = map_action_to_body(values, mapping, chunk_size=getattr(args, "chunk_size", None))
+    mapped_validation = validate_mapped_action(mapped)
     report = format_mapped_action_report(mapped)
+    report["blocked"] = mapped_validation["blocked"]
+    report["validation"] = mapped_validation
 
     if args.json:
-        print(json.dumps(report, indent=2, default=str))
-        return 0 if not mapped.blocked else 1
+        # Preserve positions without emitting nonstandard JSON numeric constants.
+        # The validation issues retain the offending index and original value.
+        report["body_action_values"] = [
+            value if math.isfinite(value) else None for value in mapped.body_action_values
+        ]
+        print(json.dumps(report, indent=2, default=str, allow_nan=False))
+        return 1 if mapped_validation["blocked"] else 0
 
     print("[rosclaw-lerobot] Mapped action")
     print(f"  Compatibility: {mapped.compatibility.value}")
-    print(f"  Blocked:       {mapped.blocked}")
+    print(f"  Blocked:       {mapped_validation['blocked']}")
     print(f"  Joints:        {mapped.body_joint_names}")
     print(f"  Values:        {mapped.body_action_values}")
+    for issue in mapped_validation["issues"]:
+        print(f"  Issue:         {issue}")
     for warning in mapped.warnings:
         print(f"  Warning:       {warning}")
-    return 0 if not mapped.blocked else 1
+    return 1 if mapped_validation["blocked"] else 0
 
 
 def _build_rollout_config(args: argparse.Namespace, mode: str) -> RolloutConfig:
