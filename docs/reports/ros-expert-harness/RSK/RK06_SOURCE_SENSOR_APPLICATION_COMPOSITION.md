@@ -48,3 +48,24 @@ four Worlds, fixed seed202, source Before/After/Rollback and exact-main After.
 All source phase assets and source revision freeze before the first World.
 There is no replay of a registered model allocation, no formal-study expansion,
 no new model calls and no blind new-robot/task generalization claim.
+
+The first frozen implementation (`922ae867`) completed its three registered
+source Worlds. Before and component Rollback each had fresh matching L1, one
+`TIMED_OUT` receipt and no completed goal. After loaded the generated component
+and moved approximately 0.204 m, but its first receipt was `FAILED`: independent
+stop verification did not pass. The observed speed after lease closure remained
+approximately 0.002455 m/s, above the unchanged 0.002 m/s bound. No second goal
+was sent. All three containers stopped; stopped containers do not replace a
+canonical successful stop receipt. The physical cause of that residual motion
+has not been established, and these are known-fixture operator results.
+
+Consequently the registered full physical component gate **failed**. The fourth
+exact-main World is not started for this failed gate, and no repeated World,
+additional seed or model allocation is used to replace it. The deliverable is
+limited to opt-in **conditional configuration generation**, its compatibility
+contracts and original-preserving negative evidence. It is not an accepted
+navigation profile or an automatically deployable application. Existing fresh
+SDK validation and canonical receipt gates remain mandatory and failed results
+remain failed. A future stop/driver investigation needs its own hypothesis,
+source freeze and prospective bounded protocol; changing Body geometry, stop
+thresholds or verification timing to force this result through is excluded.
