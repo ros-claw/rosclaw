@@ -18,6 +18,11 @@ from pydantic import Field
 
 from benchmarks.ros_expert_ablation.physical_aci import Args, CaseArgs
 from benchmarks.ros_expert_ablation.rsk_physical_aci import RskPhysicalACI
+from benchmarks.ros_expert_ablation.rsk_sensor_composition import (
+    INPUTS_V2,
+    SourceSensorComponentV1,
+    compose_source_sensor_component,
+)
 from rosclaw.connectors.ros.engineering.application_bootstrap import compile_driver_bootstrap
 from rosclaw.connectors.ros.engineering.staging_plan import parse_staging_documents
 from rosclaw.connectors.ros.intelligence.operational_graph import RosOperationalGraphV1
@@ -52,18 +57,48 @@ class ApplicationInputCall(Args):
     arguments: ApplicationInputArgs
 
 
+class ApplicationInputArgsV2(CaseArgs):
+    file: Literal[
+        "software-template.json",
+        "component-manifests.json",
+        "driver-bootstrap-request.json",
+        "original/nav2.yaml",
+        "original/bringup.json",
+        "original/requirements.json",
+        "original/navigation-policy.json",
+        "optional-sensor-component.json",
+    ]
+    offset: int = Field(default=0, ge=0)
+    limit: int = Field(default=12000, ge=1, le=16000)
+
+
+class ApplicationInputCallV2(Args):
+    operation: Literal["ros_engineer.read_application_input"]
+    arguments: ApplicationInputArgsV2
+
+
 class ApplicationPhysicalACI(RskPhysicalACI):
     """Optional host-bound application inputs; model supplies only case_hash."""
 
     def __init__(self, base, *, application_inputs, application_validator=None, **kwargs):
-        if type(application_inputs) is not dict or set(application_inputs) != {
+        original_keys = {
             "graph",
             "driver_bringup",
             "software_template",
             "component_manifests",
             "request",
             "original_files",
-        }:
+        }
+        self._sensor_composition = (
+            type(application_inputs) is dict
+            and application_inputs.get("schema_version") == INPUTS_V2
+        )
+        expected = (
+            original_keys | {"schema_version", "sensor_processing"}
+            if self._sensor_composition
+            else original_keys
+        )
+        if type(application_inputs) is not dict or set(application_inputs) != expected:
             raise ValueError("closed original application input bundle required")
         raw = json.dumps(
             application_inputs, sort_keys=False, separators=(",", ":"), allow_nan=False
@@ -102,6 +137,8 @@ class ApplicationPhysicalACI(RskPhysicalACI):
         data = json.loads(self._inputs_json)
         if content_hash("rskappinputs", data) != self._inputs_hash:
             raise ValueError("original application inputs changed")
+        if self._sensor_composition:
+            SourceSensorComponentV1.model_validate(data["sensor_processing"])
         originals = data["original_files"]
         if (
             type(originals) is not dict
@@ -164,12 +201,30 @@ class ApplicationPhysicalACI(RskPhysicalACI):
     def registered_application_inputs(self):
         return self._inputs()[0]
 
+    def compile_plan(self):
+        data, graph = self._inputs()
+        raw = self.base.tools.files["robot.urdf"].encode()
+        plan = compile_driver_bootstrap(
+            graph,
+            self.base.model,
+            raw,
+            data["driver_bringup"],
+            data["software_template"],
+            data["component_manifests"],
+            data["request"],
+        )
+        return (
+            compose_source_sensor_component(plan, self.base.model, raw, data["sensor_processing"])
+            if self._sensor_composition
+            else plan
+        )
+
     def _extra_original_files(self):
         return self.original_input_files()
 
     def original_input_files(self):
         data, _ = self._inputs()
-        return {
+        files = {
             **{"original/" + name: text for name, text in data["original_files"].items()},
             **{
                 name: json.dumps(data[key], ensure_ascii=False, separators=(",", ":"))
@@ -180,9 +235,15 @@ class ApplicationPhysicalACI(RskPhysicalACI):
                 ]
             },
         }
+        if self._sensor_composition:
+            files["optional-sensor-component.json"] = json.dumps(
+                data["sensor_processing"], ensure_ascii=False, separators=(",", ":")
+            )
+        return files
 
     def read_application_input(self, request):
-        call = ApplicationInputCall.model_validate(request)
+        reader = ApplicationInputCallV2 if self._sensor_composition else ApplicationInputCall
+        call = reader.model_validate(request)
         self.base._bound(call.arguments.case_hash, read_only=True)
         if self.base.finished:
             raise ValueError("episode finished")
@@ -201,7 +262,8 @@ class ApplicationPhysicalACI(RskPhysicalACI):
 
     def request_schema(self):
         schema = super().request_schema()
-        for model in [ApplicationBootstrapCall, ApplicationInputCall]:
+        reader = ApplicationInputCallV2 if self._sensor_composition else ApplicationInputCall
+        for model in [ApplicationBootstrapCall, reader]:
             name = model.__name__
             definition = model.model_json_schema()
             for key, value in definition.pop("$defs", {}).items():
@@ -236,12 +298,14 @@ class ApplicationPhysicalACI(RskPhysicalACI):
         ):
             raise ValueError("only actually returned context references may be cited")
         model = (
-            ApplicationInputCall
+            (ApplicationInputCallV2 if self._sensor_composition else ApplicationInputCall)
             if value["decision"]["operation"] == "ros_engineer.read_application_input"
             else ApplicationBootstrapCall
         )
         request = copy.deepcopy(value["decision"])
-        if model is ApplicationInputCall and isinstance(request.get("arguments"), dict):
+        if model in {ApplicationInputCall, ApplicationInputCallV2} and isinstance(
+            request.get("arguments"), dict
+        ):
             for name in ["offset", "limit"]:
                 if request["arguments"].get(name, False) is None:
                     request["arguments"].pop(name)
@@ -253,16 +317,8 @@ class ApplicationPhysicalACI(RskPhysicalACI):
         self.base._bound(call.arguments.case_hash)
         if self.base.finished:
             raise ValueError("episode finished")
-        data, graph = self._inputs()
-        plan = compile_driver_bootstrap(
-            graph,
-            self.base.model,
-            self.base.tools.files["robot.urdf"].encode(),
-            data["driver_bringup"],
-            data["software_template"],
-            data["component_manifests"],
-            data["request"],
-        )
+        data, _ = self._inputs()
+        plan = self.compile_plan()
         if plan["status"] != "CONDITIONAL_DRIVER_BOOTSTRAP_STAGING":
             return {
                 "status": plan["status"],

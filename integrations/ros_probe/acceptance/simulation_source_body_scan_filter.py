@@ -74,7 +74,10 @@ def source_body_filter_parameters(descriptor, urdf_bytes, mesh_originals=None):
     if not geometry["complete"] or type(radius) not in (int, float) or not 0 < radius <= 10:
         raise ValueError("complete current original collision geometry required")
     # Require the fixed scan transform and its actual source sensor frame.
-    from gazebo_source_witness.prepare import frame_pose
+    if __package__:
+        from .gazebo_source_witness.prepare import frame_pose
+    else:
+        from gazebo_source_witness.prepare import frame_pose
 
     urdf = ET.fromstring(urdf_bytes)
     pose = frame_pose(urdf, value["scan_frame"], value["base_frame"])
