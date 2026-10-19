@@ -77,7 +77,11 @@ def test_malformed_transport_rejected(mutation):
         decode_probe_snapshot(json.dumps(value).encode())
 
 
-@pytest.mark.parametrize("suffix", [b"extra", gzip.compress(b"another member")])
+@pytest.mark.parametrize(
+    "suffix",
+    [b"extra", gzip.compress(b"another member", mtime=0)],
+    ids=["trailing-bytes", "concatenated-member"],
+)
 def test_concatenated_or_trailing_compressed_data_rejected(suffix):
     value = json.loads(encode_probe_snapshot(original()))
     data = base64.b64decode(value["data"])
