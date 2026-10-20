@@ -71,10 +71,40 @@ def _children(nodes, tag):
     ]
 
 
+def _unique_links(parent):
+    names = [link.get("name") for link in parent.findall("link")]
+    if any(not name for name in names) or len(names) != len(set(names)):
+        raise ValueError("nonempty unique original link identities required")
+    return set(names)
+
+
+def _unambiguous_friction(parent):
+    # ElementTree.find() selects the first match. Do not infer a backend's
+    # treatment of duplicate fields from that selection, even for equal values.
+    for collision in parent.findall("collision"):
+        nodes = [collision]
+        for tag in ("surface", "friction", "ode"):
+            children = []
+            for node in nodes:
+                matches = node.findall(tag)
+                if len(matches) > 1:
+                    raise ValueError("ambiguous original friction container: " + tag)
+                children.extend(matches)
+            nodes = children
+        for ode in nodes:
+            for tag in ("mu", "mu2", "fdir1"):
+                if len(ode.findall(tag)) > 1:
+                    raise ValueError("ambiguous original friction field: " + tag)
+
+
 def _friction_spellings(urdf, world, world_bytes, entity):
-    names = {link.get("name") for link in urdf.findall("link")}
+    worlds = world.findall("world")
+    if len(worlds) != 1:
+        raise ValueError("one original SDF world required for model and witness identity")
+    names = _unique_links(urdf)
     source = []
     for block in urdf.findall("gazebo"):
+        _unambiguous_friction(block)
         for ode in block.findall("collision/surface/friction/ode"):
             fact = source_friction_fact(block.get("reference"), ode, names)
             if fact is not None:
@@ -84,11 +114,15 @@ def _friction_spellings(urdf, world, world_bytes, entity):
     models = [m for m in world.findall("world/model") if m.get("name") == entity]
     if len(models) != 1:
         raise ValueError("one declared source model required")
-    loaded = {link.get("name") for link in models[0].findall("link")}
+    loaded = _unique_links(models[0])
     if any(fact[2] not in loaded for fact in source):
         raise ValueError("source frame missing from loaded SDF links")
     actual = []
     for link in models[0].findall("link"):
+        collisions = [collision.get("name") for collision in link.findall("collision")]
+        if any(not name for name in collisions) or len(collisions) != len(set(collisions)):
+            raise ValueError("nonempty unique original SDF collision identities required")
+        _unambiguous_friction(link)
         for ode in link.findall("collision/surface/friction/ode"):
             fact = source_friction_fact(link.get("name"), ode, names)
             if fact is not None:
