@@ -567,9 +567,17 @@ class PracticeCatalog:
         self._events_completed: set[int] = set()
         self._event_index_completed: set[int] = set()
         self._watermark_cond = threading.Condition()
-        self._event_writer: _BatchWriter | None = self._new_event_writer()
-        self._event_index_writer: _BatchWriter | None = self._new_event_index_writer()
-        self._init_schema()
+        self._event_writer: _BatchWriter | None = None
+        self._event_index_writer: _BatchWriter | None = None
+        self._closed = False
+        try:
+            self._init_schema()
+            self.resume_writers()
+        except BaseException:
+            # close refuses to release SQLite if an acquired writer cannot
+            # drain. A cleanup failure must remain visible to the caller.
+            self.close()
+            raise
 
     def _new_event_writer(self) -> _BatchWriter:
         return _BatchWriter(
@@ -648,39 +656,58 @@ class PracticeCatalog:
                     self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {column}")
 
     def close(self) -> None:
-        # Close writers first (they need the lock to flush) before closing the
-        # underlying connection.  If a writer refuses to die, keep the
-        # connection open: a leaked connection is recoverable, a
-        # use-after-close flush is silent data loss.
-        writers_ok = True
-        if self._event_writer is not None:
-            event_ok = self._event_writer.close()
-            writers_ok = event_ok and writers_ok
-            if event_ok:
-                self._event_writer = None
-        if self._event_index_writer is not None:
-            event_index_ok = self._event_index_writer.close()
-            writers_ok = event_index_ok and writers_ok
-            if event_index_ok:
-                self._event_index_writer = None
+        """Drain owned workers before releasing SQLite; safe to repeat."""
+        if self._closed:
+            return
+        self.suspend_writers()
         with self._lock:
-            if writers_ok:
-                self._conn.close()
-            else:
-                logger.critical(
-                    "PracticeCatalog %s closed with live batch writers; leaving the "
-                    "connection open so in-flight flushes can commit",
-                    self._db_path,
-                )
+            self._conn.close()
+            self._closed = True
+
+    def suspend_writers(self) -> None:
+        """Drain workers without closing the connection used by read APIs.
+
+        The owner must quiesce producers first. Failed writers remain owned
+        and SQLite remains open so shutdown can be retried without data loss.
+        """
+        failures: list[BaseException] = []
+        for name in ("_event_writer", "_event_index_writer"):
+            writer = getattr(self, name)
+            if writer is None:
+                continue
+            try:
+                if writer.close():
+                    setattr(self, name, None)
+                else:
+                    failures.append(RuntimeError(f"{writer.name} did not drain"))
+            except BaseException as exc:
+                failures.append(exc)
+        if failures:
+            raise RuntimeError(
+                "PracticeCatalog batch writer shutdown failed; SQLite remains open"
+            ) from failures[0]
+
+    def resume_writers(self) -> None:
+        """Acquire writers transactionally, including partial-start unwind."""
+        if self._closed:
+            raise RuntimeError("PracticeCatalog is closed")
+        try:
+            if self._event_writer is None:
+                self._event_writer = self._new_event_writer()
+            if self._event_index_writer is None:
+                self._event_index_writer = self._new_event_index_writer()
+        except BaseException:
+            self.suspend_writers()
+            raise
 
     def flush(self) -> None:
-        """Flush any pending batched writes before reading."""
-        event_ok = self._event_writer is None or self._event_writer.close()
-        event_index_ok = self._event_index_writer is None or self._event_index_writer.close()
-        if not event_ok or not event_index_ok:
-            raise RuntimeError("PracticeCatalog batch writer did not flush before timeout")
-        self._event_writer = self._new_event_writer()
-        self._event_index_writer = self._new_event_index_writer()
+        """Flush pending writes, preserving an owner's suspended state."""
+        if self._closed:
+            raise RuntimeError("PracticeCatalog is closed")
+        active = self._event_writer is not None or self._event_index_writer is not None
+        self.suspend_writers()
+        if active:
+            self.resume_writers()
 
     # ------------------------------------------------------------------
     # Durability watermarks
@@ -721,17 +748,13 @@ class PracticeCatalog:
         """
         deadline = time.monotonic() + max(0.0, timeout_sec)
         with self._watermark_cond:
-            while (
-                self._events_watermark < sequence_id
-                or self._event_index_watermark < sequence_id
-            ):
+            while self._events_watermark < sequence_id or self._event_index_watermark < sequence_id:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     break
                 self._watermark_cond.wait(timeout=min(remaining, 0.05))
             ok = (
-                self._events_watermark >= sequence_id
-                and self._event_index_watermark >= sequence_id
+                self._events_watermark >= sequence_id and self._event_index_watermark >= sequence_id
             )
             return {
                 "ok": ok,
