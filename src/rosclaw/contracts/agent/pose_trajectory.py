@@ -32,7 +32,11 @@ class ContactPlaneV1(ContractModel):
     @field_validator("normal_xyz")
     @classmethod
     def _unit_normal(cls, value: list[float]) -> list[float]:
+        if not all(math.isfinite(v) for v in value):
+            raise ValueError(f"contact plane normal 含非有限分量: {value}")
         norm = math.sqrt(sum(v * v for v in value))
+        if not math.isfinite(norm):
+            raise ValueError(f"contact plane normal 范数非有限: {value}")
         if abs(norm - 1.0) > 1e-3:
             raise ValueError(f"contact plane normal 非单位向量: {value}")
         return value
@@ -51,7 +55,11 @@ class PoseWaypointV1(ContractModel):
     @field_validator("orientation_xyzw")
     @classmethod
     def _unit_quaternion(cls, value: list[float]) -> list[float]:
+        if not all(math.isfinite(v) for v in value):
+            raise ValueError(f"orientation 含非有限分量: {value}")
         norm = math.sqrt(sum(v * v for v in value))
+        if not math.isfinite(norm):
+            raise ValueError(f"orientation 范数非有限: {value}")
         if abs(norm - 1.0) > 1e-3:
             raise ValueError(f"orientation 非单位四元数: {value}")
         return value
