@@ -97,6 +97,15 @@ export class InputController {
 					suppress_model_turn?: boolean;
 				};
 			};
+			// A resolved RPC is not proof of persistence. Keep /new intent on
+			// refusals and malformed acknowledgements; never invent an input ID.
+			if (
+				result?.ok !== true || !result.input || typeof result.input !== "object"
+				|| Array.isArray(result.input) || typeof result.input.input_id !== "string"
+				|| !result.input.input_id.trim()
+			) {
+				throw new Error("invalid or refused input persistence acknowledgement");
+			}
 			this.forceNewNext = false;
 			this.deps.call("pi.input.dispatched", {
 				mission_id: this.deps.missionId(),

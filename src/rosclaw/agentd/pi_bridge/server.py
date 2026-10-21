@@ -76,7 +76,10 @@ class PiBridgeServer:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         os.chmod(self._path.parent, 0o700)
         self._path.unlink(missing_ok=True)
-        self._server = await asyncio.start_unix_server(self._handle, path=str(self._path))
+        # StreamReader's default 64KiB limit precedes our inclusive wire-byte cap.
+        self._server = await asyncio.start_unix_server(
+            self._handle, path=str(self._path), limit=MAX_REQUEST_BYTES
+        )
         os.chmod(self._path, 0o600)
 
     async def stop(self) -> None:
@@ -96,15 +99,37 @@ class PiBridgeServer:
             return
         try:
             while not reader.at_eof():
-                line = await reader.readline()
+                try:
+                    line = await reader.readline()
+                except ValueError:
+                    # readline translates a reader-limit overrun to ValueError.
+                    # Never echo the rejected bytes or try dispatching a suffix.
+                    writer.write(b'{"ok": false, "error": "request too large"}\n')
+                    await writer.drain()
+                    break
                 if not line:
                     break
                 if len(line) > MAX_REQUEST_BYTES:
                     writer.write(b'{"ok": false, "error": "request too large"}\n')
                     await writer.drain()
                     break
+                if not line.endswith(b"\n"):
+                    writer.write(b'{"ok": false, "error": "incomplete request"}\n')
+                    await writer.drain()
+                    break
                 try:
                     request = json.loads(line)
+                    if (
+                        not isinstance(request, dict)
+                        or not isinstance(request.get("method", ""), str)
+                        or not isinstance(request.get("params", {}), dict)
+                    ):
+                        raise ValueError("invalid request shape")
+                except (ValueError, UnicodeError):
+                    writer.write(b'{"ok": false, "error": "invalid request"}\n')
+                    await writer.drain()
+                    break
+                try:
                     response = await self._dispatch(
                         principal,
                         peer_pid,

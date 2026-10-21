@@ -11,7 +11,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-async function callInputHandler(text: string) {
+async function callInputHandler(
+	text: string,
+	fixture: { ack: unknown; dispatch: boolean } = {
+		// Controlled peer response only, never a real persistence receipt.
+		ack: { ok: true, input: { input_id: "inp_input_loss_fixture" } }, dispatch: true,
+	},
+) {
+	const calls: Array<{ method: string; params: Record<string, unknown> }> = [];
 	const { createRosclawExtension } = await import("../src/extension/index.js");
 	const { resolveTaskContext } = await import("../src/native/active-task-context.js");
 	const { envelopeHash } = await import("../src/extension/context-injection.js");
@@ -31,7 +38,17 @@ async function callInputHandler(text: string) {
 		},
 	);
 	const center = {
-		call: async (method: string, _params: unknown) => {
+		call: async (method: string, params: Record<string, unknown>) => {
+			calls.push({ method, params: structuredClone(params) });
+			if (method === "pi.input.persist") {
+				assert.equal(params.mission_id, "mis_1");
+				assert.equal(params.session_ref, "pi_1");
+				assert.equal(params.backend_native_id, "pi_1");
+				assert.equal(params.text, text);
+				assert.equal(params.force_new, false);
+				assert.match(String(params.message_id), /^msg_[0-9a-f-]{36}$/);
+				return fixture.ack as Record<string, unknown>;
+			}
 			// 路由命中 + 任务成功——当前代码会据此返回 handled（红）；
 			// 修复后即使全链可用也必须 continue。
 			if (method === "pi.intent.route") {
@@ -91,7 +108,20 @@ async function callInputHandler(text: string) {
 	const input = handlers["input"];
 	assert.ok(input, "input handler 未注册");
 	const ctx = { hasUI: true, ui: { notify() {}, setTitle() {}, setWidget() {}, setWorkingIndicator() {}, setWorkingMessage() {}, setHiddenThinkingLabel() {}, setHeader() {}, setFooter() {} } };
-	return await input({ text }, ctx);
+	const result = await input({ text }, ctx);
+	const chain = calls.filter(c => ["pi.turn.record", "pi.turn.latest", "pi.input.persist", "pi.input.dispatched"].includes(c.method));
+	assert.deepEqual(chain.map(c => c.method), ["pi.turn.record", "pi.turn.latest", "pi.input.persist",
+		...(fixture.dispatch ? ["pi.input.dispatched"] : [])]);
+	assert.equal(chain[0].params.text, text);
+	assert.equal(chain[0].params.source, "interactive");
+	assert.equal(chain[0].params.pi_session_id, "pi_1");
+	assert.equal(chain[1].params.pi_session_id, "pi_1");
+	if (fixture.dispatch) {
+		assert.deepEqual(chain[3].params, { mission_id: "mis_1", message_id: chain[2].params.message_id });
+	}
+	assert.ok(!calls.some(c => ["pi.task.bind", "pi.intent.route", "pi.tools.execute"].includes(c.method)),
+		"ordinary input must not be rerouted into deterministic work in this hook");
+	return result;
 }
 
 test("自然语言任务输入绝不返回 handled", async () => {
@@ -103,5 +133,16 @@ test("自然语言任务输入绝不返回 handled", async () => {
 			`输入被 handled 吞掉（P0-INPUT-LOSS）: ${text}`,
 		);
 		assert.equal(result.action, "continue");
+	}
+});
+
+test("SOURCE46 extension input refuses unacknowledged persistence", async () => {
+	// The ORIGINAL registered input hook calls the ORIGINAL InputController.
+	// These deliberately invalid peer responses must never reach dispatch.
+	for (const ack of [undefined, null, {}, { ok: false, input: { input_id: "inp_refused" } },
+		{ ok: true }, { ok: true, input: [] }, { ok: true, input: { input_id: 7 } },
+		{ ok: true, input: { input_id: " \n\t" } }]) {
+		const result = await callInputHandler("ordinary fixture input", { ack, dispatch: false }) as { action: string };
+		assert.equal(result.action, "handled", "unacknowledged input must not be delivered");
 	}
 });

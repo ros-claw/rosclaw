@@ -36,28 +36,48 @@ export async function bridgeCall(
 	return await new Promise((resolve, reject) => {
 		const conn = connect(socketPath);
 		let buffer = "";
-		const timeout = setTimeout(() => {
+		let settled = false;
+		const fail = (error: BridgeError) => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timeout);
 			conn.destroy();
-			reject(new BridgeError("bridge call timeout", "TIMEOUT"));
+			reject(error);
+		};
+		const timeout = setTimeout(() => {
+			fail(new BridgeError("bridge call timeout", "TIMEOUT"));
 		}, timeoutMs);
+		// Decode across socket chunks, including split multibyte input echoes.
+		conn.setEncoding("utf8");
 		conn.on("connect", () => {
+			if (settled) return;
 			conn.write(JSON.stringify({ method, params: { token, ...params } }) + "\n");
 		});
 		conn.on("data", (chunk) => {
-			buffer += chunk.toString();
+			if (settled) return;
+			buffer += chunk;
 			const idx = buffer.indexOf("\n");
 			if (idx === -1) return;
-			clearTimeout(timeout);
-			conn.end();
 			try {
-				resolve(JSON.parse(buffer.slice(0, idx)) as Record<string, unknown>);
-			} catch (err) {
-				reject(err);
+				const response: unknown = JSON.parse(buffer.slice(0, idx));
+				if (response === null || typeof response !== "object" || Array.isArray(response)) {
+					throw new Error("invalid response shape");
+				}
+				settled = true;
+				clearTimeout(timeout);
+				conn.destroy();
+				resolve(response as Record<string, unknown>);
+			} catch {
+				fail(new BridgeError("invalid bridge response", "INVALID_RESPONSE"));
 			}
 		});
+		const incomplete = () => {
+			fail(new BridgeError("bridge closed before complete response", "INCOMPLETE_RESPONSE"));
+		};
+		conn.on("end", incomplete);
+		conn.on("close", incomplete);
 		conn.on("error", (err) => {
-			clearTimeout(timeout);
-			reject(new BridgeError(`bridge unavailable: ${err.message}`, "BRIDGE_UNAVAILABLE"));
+			fail(new BridgeError(`bridge unavailable: ${err.message}`, "BRIDGE_UNAVAILABLE"));
 		});
 	});
 }

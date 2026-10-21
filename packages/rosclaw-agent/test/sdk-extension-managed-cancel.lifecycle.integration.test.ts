@@ -41,6 +41,8 @@ const active = new ActiveSessionContext({ sessionId: "", missionId: "fixture-mis
  mode: "SIMULATION", profile: "developer", contextState: "LOADING", leaseState: "NONE", actionsAllowed: false });
 const operations = new Map<string, Record<string, any>>();
 const calls: { method: string; params: Record<string, any> }[] = [];
+// Controlled protocol facts only: this map is NOT a durable persistence store.
+const fixtureInputs = new Map<string, { input_id: string; mission_id: string; session_ref: string; text: string }>();
 const undeclared: string[] = [];
 let currentId = "consumed", turn = "turn-consumed";
 let revision = 7;
@@ -122,6 +124,13 @@ const center = {
     assert.match(params.message_id, /^msg_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
     const persisted = calls.find(c => c.method === "pi.input.persist" && c.params.message_id === params.message_id);
     assert.ok(persisted, "dispatch acknowledges a recorded fixture input only");
+    const fixtureInput = fixtureInputs.get(params.message_id);
+    assert.ok(fixtureInput, "a call log entry alone is not a successful fixture ACK");
+    assert.equal(fixtureInput.input_id, `inp_fixture_${params.message_id}`);
+    assert.equal(fixtureInput.mission_id, params.mission_id);
+    assert.equal(fixtureInput.session_ref, active.current.sessionId);
+    assert.equal(fixtureInput.text, persisted.params.text);
+    assert.equal(calls.filter(c => c.method === "pi.input.dispatched" && c.params.message_id === params.message_id).length, 1);
     assert.equal(persisted.params.mission_id, params.mission_id);
     assert.equal(persisted.params.session_ref, active.current.sessionId);
     assert.equal(persisted.params.backend_native_id, active.current.sessionId);
@@ -164,7 +173,27 @@ const center = {
    case "pi.context.get": return { ok: false, code: "FIXTURE_CONTEXT_UNAVAILABLE" };
    case "pi.turn.record": return { ok: true };
    case "pi.turn.latest": return { ok: true, turn: { turn_id: turn } };
-   case "pi.input.persist": return { ok: true };
+   case "pi.input.persist": {
+    // Explicit successful protocol fixture for the ORIGINAL strict controller.
+    // No DB, agentd persistence or real provider result is being claimed.
+    assert.deepEqual(Object.keys(params).sort(), ["mission_id", "session_ref", "backend_native_id", "message_id", "text", "force_new"].sort());
+    assert.equal(params.mission_id, active.current.missionId);
+    assert.ok(typeof params.mission_id === "string" && params.mission_id.trim().length > 0,
+     "fixture persistence requires a nonempty mission identity");
+    assert.equal(params.session_ref, active.current.sessionId);
+    assert.equal(params.backend_native_id, active.current.sessionId);
+    assert.equal(typeof params.message_id, "string");
+    assert.match(params.message_id, /^msg_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    assert.equal(typeof params.text, "string"); assert.ok(params.text.trim());
+    assert.equal(params.force_new, false);
+    assert.ok(!fixtureInputs.has(params.message_id), "fixture input submitted once, no automatic retry");
+    const input = { input_id: `inp_fixture_${params.message_id}`, mission_id: params.mission_id,
+     session_ref: params.session_ref, text: params.text };
+    fixtureInputs.set(params.message_id, input);
+    return { ok: true, input: structuredClone(input), turn_disposition: {
+     input_id: input.input_id, owner: "PI_CONVERSATION", task_id: "", suppress_model_turn: false,
+    }, fixture_provenance: "offline-successful-input-ack-only-not-durable-evidence" };
+   }
    case "pi.task.ensure_effect": return { ok: true, task_id: `task-${currentId}`, revision: 7 };
    case "pi.op.start": {
     const operation = { mission_id: active.current.missionId, session_ref: active.current.sessionId,
@@ -333,6 +362,14 @@ test("FULL_EXTENSION_SDK_FINALIZED_RESULT", async () => {
   { tool: "process_status", args: { operation_id: "consumed" }, id: "status-consumed" }, "done"];
  // The later inline observation factory advances the fact after original ownership tracking.
  await host.session.prompt("fixture consumed");
+ const inputCalls = calls.filter(c => c.method === "pi.input.persist" && c.params.text === "fixture consumed");
+ assert.equal(inputCalls.length, 1, "original input hook persisted once before the offline stream");
+ const inputCall = inputCalls[0]!;
+ assert.ok(fixtureInputs.has(inputCall.params.message_id));
+ const dispatched = calls.filter(c => c.method === "pi.input.dispatched" && c.params.message_id === inputCall.params.message_id);
+ assert.equal(dispatched.length, 1, "original controller consumed the explicit successful fixture ACK");
+ assert.ok(calls.indexOf(dispatched[0]) > calls.indexOf(inputCall), "persist precedes dispatch");
+ assert.ok(streams > 0, "genuine offline SDK stream reached, not just a handled hook");
  const saved = host.session.messages.filter(m => m.role === "toolResult") as any[];
  const result = saved.find(m => m.toolCallId === "status-consumed"); assert.ok(result); assert.equal(result.isError, false);
  assert.equal(result.toolName, "process_status"); assert.equal(result.details.status, "SUCCEEDED");
