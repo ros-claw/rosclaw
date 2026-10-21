@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1060" height="390" viewBox="0 0 1060 390">
+<rect width="1060" height="390" fill="#f4f7fb"/><g font-family="sans-serif" fill="#172b4d">
+<text x="35" y="42" font-size="24">RK09 已知案例：模型操作与条件提案</text>
+<text x="35" y="74" font-size="15">实际调用4次 · 两组各一次 · 0 World · 未物理验证 · 非统计效率结论</text>
+<text x="35" y="145" font-size="19">默认上下文</text>
+<rect x="265" y="112" width="210" height="58" rx="8" fill="#dfe9f7"/>
+<text x="285" y="147" font-size="17">1 读取生命周期</text>
+<rect x="493" y="112" width="210" height="58" rx="8" fill="#dfe9f7"/>
+<text x="513" y="147" font-size="17">2 读取导航参数</text>
+<rect x="721" y="112" width="290" height="58" rx="8" fill="#cceadd"/>
+<text x="741" y="147" font-size="17">3 条件提案：tf_broadcast</text>
+<text x="35" y="196" font-size="15">模型两次读取，共6条原始记录；累计input tokens 49,607</text>
+<text x="35" y="260" font-size="19">宿主预取证据</text>
+<rect x="265" y="227" width="290" height="58" rx="8" fill="#cceadd"/>
+<text x="285" y="262" font-size="17">1 条件提案：tf_broadcast</text>
+<text x="35" y="317" font-size="15">宿主额外读取15页、41条记录；模型input tokens 28,955</text>
+<text x="35" y="357" font-size="15">相同最小差量与回滚；Source/Body、L1、导航、停止和碰撞证据仍待新World验收</text>
+</g></svg>

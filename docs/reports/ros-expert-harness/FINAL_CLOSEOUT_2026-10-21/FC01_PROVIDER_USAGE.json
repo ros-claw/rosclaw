@@ -1,0 +1,12 @@
+{
+  "client_invocations": 0,
+  "confirmed_model_calls": 0,
+  "unconfirmed_invocations": 0,
+  "input_tokens": 0,
+  "output_tokens": 0,
+  "usage_basis": "NO_CLIENT_DISPATCH",
+  "monetary_cost": null,
+  "cost_reason": "No provider dispatch; no monetary tariff measurement asserted",
+  "host_prefetch_model_context_tokens": 0,
+  "host_original_input_audit": "File-only FC00, separately timed and not presented as model efficiency"
+}

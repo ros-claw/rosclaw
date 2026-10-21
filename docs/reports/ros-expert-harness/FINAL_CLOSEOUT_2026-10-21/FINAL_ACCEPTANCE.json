@@ -1,0 +1,86 @@
+{
+  "schema_version": "rosclaw.ros_expert_harness.final_acceptance.v1",
+  "name": "ROSClaw ROS Expert Harness v1.0 Final Acceptance — Verified ROS Engineering in Simulation",
+  "status": "STUDY_ENTRY_NO_GO_DELIVERY_PENDING_POST_MERGE_ATTESTATION",
+  "v1_scoped_done": true,
+  "work_package_done": false,
+  "final_closeout_work_package_done": false,
+  "model_decision_gate": "NOT_RUN_NO_GO",
+  "safe_negative_decisions": "NOT_RUN",
+  "model_physical_gate": "NOT_RUN_NO_GO",
+  "model_positive_physical_loop": "NOT_RUN",
+  "safety_gate": "PASS_SOFTWARE_NO_PRODUCTION_CHANGE_HISTORICAL_SIM_INHERITED",
+  "research_claim_scope": "BOUNDED_KNOWN_MECHANISM_SIM_ENGINEERING_ONLY_NO_NEW_MODEL_MOTION_CLAIM",
+  "overall_autonomous_ros_expert_claim": "NOT_ESTABLISHED",
+  "source_sha": "5e865c9edb14fc57a88f95d2d532c2ab11626015",
+  "main_sha": "5e865c9edb14fc57a88f95d2d532c2ab11626015",
+  "source_main_field_scope": "Executed entry-review source/main after PR-A; final PR-B release identity is recorded by the post-merge canonical attestation",
+  "release_main_sha": null,
+  "release_delivery_state": "PENDING_NORMAL_PR_B_MAIN_CI_WHEEL_AND_INDEPENDENT_QA",
+  "all_runs_accounted_for": true,
+  "planned_model_cells": 14,
+  "actual_model_episodes": 0,
+  "not_run_model_cells": 14,
+  "planned_D_cells": 14,
+  "actual_D_episodes": 0,
+  "planned_World_slots": 6,
+  "actual_new_Worlds": 0,
+  "new_model_calls": 0,
+  "new_navigation_goals": 0,
+  "new_canonical_COMPLETED": 0,
+  "model_or_Memory_causal_benefit": "NOT_ESTABLISHED",
+  "Memory_queries": 0,
+  "evidence_refs": {
+    "FC01_CLOSEOUT_PROTOCOL.json": {
+      "path": "FC01_CLOSEOUT_PROTOCOL.json",
+      "sha256": "a405c81afc5bee61638e895be9b677e158b8659f33cf9602d78c815d8c4a9b6f"
+    },
+    "FC01_REGISTERED_CASES.json": {
+      "path": "FC01_REGISTERED_CASES.json",
+      "sha256": "fd92823f07947891b473d808be530d3f07f8219e8e2237c0b5d9d29621ee47a1"
+    },
+    "FC01_ENTRY_REVIEW.json": {
+      "path": "FC01_ENTRY_REVIEW.json",
+      "sha256": "a2eae49f84a0bdce959990dfcc9c0b4d87068bab266a51e065d1b51379aa7b47"
+    },
+    "FC01_DECISION_MATRIX.json": {
+      "path": "FC01_DECISION_MATRIX.json",
+      "sha256": "f539556f4850e70ab31a6a85f9da8884dabc001ff038eb901f24993d42a4d672"
+    },
+    "FC01_RULE_BASELINE.json": {
+      "path": "FC01_RULE_BASELINE.json",
+      "sha256": "a89c7b5acc6068a0b511774cbfdc6dd55e0b0cd7917af5785447a35ee382012b"
+    },
+    "FC01_PROVIDER_USAGE.json": {
+      "path": "FC01_PROVIDER_USAGE.json",
+      "sha256": "2c20cce75e1017123b52fb1bd07df76806d9edad8ee45d827e85cebb43aa491b"
+    },
+    "FC01_CODE_INVENTORY.json": {
+      "path": "FC01_CODE_INVENTORY.json",
+      "sha256": "92163c19344982ed933327f620e86f7d6d5caed147f6ba9aa204f39b48498948"
+    },
+    "FC01_PROVIDER_INVENTORY.json": {
+      "path": "FC01_PROVIDER_INVENTORY.json",
+      "sha256": "dfbfad7ea8ee8610cd4228701f565a302720fb80bf3cfad8b6f363ba365e9c02"
+    },
+    "FC02_WORLD_MATRIX.json": {
+      "path": "FC02_WORLD_MATRIX.json",
+      "sha256": "fe115c34c7d2cde2d98c4e9afb5daf3c1e8dede0ef47876098a149a3dd7d2239"
+    },
+    "FC02_INDEPENDENT_VERIFICATION.json": {
+      "path": "FC02_INDEPENDENT_VERIFICATION.json",
+      "sha256": "687c8b8017403f65bd856cfb5af9af0b7a25081b2986a92b2a26feb31dc82808"
+    },
+    "FC02_TIMING_AND_COST.json": {
+      "path": "FC02_TIMING_AND_COST.json",
+      "sha256": "337a48a39cc463f45ba10de2548301b84025830603b7761f38e64076edc2facf"
+    },
+    "FC03_STUDY_VERDICT.json": {
+      "path": "FC03_STUDY_VERDICT.json",
+      "sha256": "9fb7f063d06bd49cc68b65b31215e441fba7106cb1a58195edbfa5cfa367cd3a"
+    }
+  },
+  "canonical_after_merge_attestation": "Operator evidence delivery FINAL_ACCEPTANCE.json; must bind actual release main and first-CI/wheel/hash review",
+  "old_experiments": "UNCHANGED",
+  "stop_rule": "CLOSE_AFTER_FC04_NO_PROMPT_TUNING_OR_STUDY_EXPANSION"
+}

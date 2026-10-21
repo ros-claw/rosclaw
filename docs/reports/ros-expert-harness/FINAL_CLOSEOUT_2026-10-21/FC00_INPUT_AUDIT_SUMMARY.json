@@ -1,0 +1,24 @@
+{
+  "indexed_capture_audit": {
+    "inspected": 17,
+    "eligible_P1": 0
+  },
+  "extended_capture_audit": {
+    "paths_found": 344,
+    "applicable_rows": 326,
+    "usable_rows": 325,
+    "unusable_rows": 1,
+    "TF_violated_rows": 63,
+    "TF_rows_with_lifecycle_UNKNOWN": 63,
+    "eligible_P1": 0
+  },
+  "independent_original_recomputation": "PASS",
+  "old_G5_originals_unchanged": 3515,
+  "interpretation": "Input prerequisite not established, not model failure or evidence that an actual repair could never work",
+  "search_scope": "Existing engineering-original-system captures at depths1..4 in the two declared recovery roots",
+  "new_model_calls": 0,
+  "new_Gazebo_acceptance_Worlds": 0,
+  "metadata_only_SDK_containers": 1,
+  "original_review_sha256": "6be09a074f7af31003f77d010b3c56ab8ef0eb49901a74a966a9eb158fb71a44",
+  "extended_audit_sha256": "9d4d4a3660051028313d1cddbe5b94604d414a29911cd32810f91a4f3a8e0e85"
+}

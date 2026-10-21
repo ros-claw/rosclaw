@@ -1,0 +1,13 @@
+{
+  "at": "2026-10-21T05:59:03.708407+00:00",
+  "status": "NO_GO_ORIGINAL_CASE_MATRIX_INCOMPLETE",
+  "protocol_hash": "closeoutprotocol_e994f6b63f06f8611890fb1ad9dcc7794786008671f159e672af82c5b0fa6457",
+  "protocol_sha256": "a405c81afc5bee61638e895be9b677e158b8659f33cf9602d78c815d8c4a9b6f",
+  "source": "5e865c9edb14fc57a88f95d2d532c2ab11626015",
+  "PR_A_delivery_sha256": "2ac6cb8081f52e40def7edc4fbc79a463086668dee160ba96fd9c130a279fcc3",
+  "frozen_after_exact_main_original_first_CI": true,
+  "formal_model_experiment_started": false,
+  "reason": "P1 original prerequisite not met in reviewed captures; no relabelled replay/synthetic gold, no unregistered preparation World",
+  "actual_model_calls": 0,
+  "new_Worlds": 0
+}

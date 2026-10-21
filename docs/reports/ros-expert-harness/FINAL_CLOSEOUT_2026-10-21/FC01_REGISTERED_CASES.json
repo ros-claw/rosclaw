@@ -1,0 +1,109 @@
+{
+  "at": "2026-10-21T05:59:03.708407+00:00",
+  "scope": "PLANNED_HOST_ONLY_MATRIX_NOT_14_ORIGINAL_INSTANCES",
+  "cases": [
+    {
+      "instance_id": "79a7577b156affe8d33c1f4a",
+      "scenario": "P1",
+      "environment_seed": 101,
+      "facts_sha256": null,
+      "evidence_kind": "UNAVAILABLE"
+    },
+    {
+      "instance_id": "76c6075614a240d8819efa7b",
+      "scenario": "N1",
+      "environment_seed": 101,
+      "facts_sha256": null,
+      "evidence_kind": "UNAVAILABLE"
+    },
+    {
+      "instance_id": "cf809833c0376b340419839f",
+      "scenario": "N2",
+      "environment_seed": 101,
+      "facts_sha256": null,
+      "evidence_kind": "UNAVAILABLE"
+    },
+    {
+      "instance_id": "713fe69fba4b2f4f552cfd49",
+      "scenario": "N3",
+      "environment_seed": 101,
+      "facts_sha256": null,
+      "evidence_kind": "UNAVAILABLE"
+    },
+    {
+      "instance_id": "4b2542bf8c82296e1ed908c7",
+      "scenario": "N4",
+      "environment_seed": 101,
+      "facts_sha256": null,
+      "evidence_kind": "UNAVAILABLE"
+    },
+    {
+      "instance_id": "838bae91a4dc1ad5f9abfa60",
+      "scenario": "N5",
+      "environment_seed": 101,
+      "facts_sha256": null,
+      "evidence_kind": "UNAVAILABLE"
+    },
+    {
+      "instance_id": "d4b393083580b7f3ba54429a",
+      "scenario": "N6",
+      "environment_seed": 101,
+      "facts_sha256": null,
+      "evidence_kind": "UNAVAILABLE"
+    },
+    {
+      "instance_id": "71c334a0be403bcaab4f5606",
+      "scenario": "P1",
+      "environment_seed": 202,
+      "facts_sha256": null,
+      "evidence_kind": "UNAVAILABLE"
+    },
+    {
+      "instance_id": "4b69fe2fba091fd11c94192a",
+      "scenario": "N1",
+      "environment_seed": 202,
+      "facts_sha256": null,
+      "evidence_kind": "UNAVAILABLE"
+    },
+    {
+      "instance_id": "89cf88db57b6a8028ba7a27a",
+      "scenario": "N2",
+      "environment_seed": 202,
+      "facts_sha256": null,
+      "evidence_kind": "UNAVAILABLE"
+    },
+    {
+      "instance_id": "b11a201fb788392fa2d3d830",
+      "scenario": "N3",
+      "environment_seed": 202,
+      "facts_sha256": null,
+      "evidence_kind": "UNAVAILABLE"
+    },
+    {
+      "instance_id": "856f391bed6fa1a2d44c234c",
+      "scenario": "N4",
+      "environment_seed": 202,
+      "facts_sha256": null,
+      "evidence_kind": "UNAVAILABLE"
+    },
+    {
+      "instance_id": "5d5b64632941edf33bfc390f",
+      "scenario": "N5",
+      "environment_seed": 202,
+      "facts_sha256": null,
+      "evidence_kind": "UNAVAILABLE"
+    },
+    {
+      "instance_id": "15a287441d46e393d674f043",
+      "scenario": "N6",
+      "environment_seed": 202,
+      "facts_sha256": null,
+      "evidence_kind": "UNAVAILABLE"
+    }
+  ],
+  "original_case_instances_frozen": 0,
+  "missing_original_matrix_reason": "No admitted P1 with all other original requirements complete; joint matrix cannot be registered for actual model execution",
+  "interpretation": "All planned cells are stopped before selecting/fabricating original instances; not a claim that every negative scenario is unavailable",
+  "input_audit_sha256": "9d4d4a3660051028313d1cddbe5b94604d414a29911cd32810f91a4f3a8e0e85",
+  "independent_review_sha256": "6be09a074f7af31003f77d010b3c56ab8ef0eb49901a74a966a9eb158fb71a44"
+}
