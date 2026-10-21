@@ -1,0 +1,70 @@
+{
+  "status": "NOT_RUN_NO_GO",
+  "planned_Worlds": 6,
+  "actual_new_Worlds": 0,
+  "accepted_model_proposals_for_physics": 0,
+  "rows": [
+    {
+      "environment_seed": 101,
+      "phase": "BEFORE",
+      "status": "NOT_RUN_NO_GO",
+      "World": null,
+      "run_id": null,
+      "Body_hash": null,
+      "canonical_receipts": [],
+      "reason": "NO_ADMITTED_ORIGINAL_P1_OR_ACTUAL_MODEL_PROPOSAL"
+    },
+    {
+      "environment_seed": 101,
+      "phase": "AFTER",
+      "status": "NOT_RUN_NO_GO",
+      "World": null,
+      "run_id": null,
+      "Body_hash": null,
+      "canonical_receipts": [],
+      "reason": "NO_ADMITTED_ORIGINAL_P1_OR_ACTUAL_MODEL_PROPOSAL"
+    },
+    {
+      "environment_seed": 101,
+      "phase": "ROLLBACK",
+      "status": "NOT_RUN_NO_GO",
+      "World": null,
+      "run_id": null,
+      "Body_hash": null,
+      "canonical_receipts": [],
+      "reason": "NO_ADMITTED_ORIGINAL_P1_OR_ACTUAL_MODEL_PROPOSAL"
+    },
+    {
+      "environment_seed": 202,
+      "phase": "BEFORE",
+      "status": "NOT_RUN_NO_GO",
+      "World": null,
+      "run_id": null,
+      "Body_hash": null,
+      "canonical_receipts": [],
+      "reason": "NO_ADMITTED_ORIGINAL_P1_OR_ACTUAL_MODEL_PROPOSAL"
+    },
+    {
+      "environment_seed": 202,
+      "phase": "AFTER",
+      "status": "NOT_RUN_NO_GO",
+      "World": null,
+      "run_id": null,
+      "Body_hash": null,
+      "canonical_receipts": [],
+      "reason": "NO_ADMITTED_ORIGINAL_P1_OR_ACTUAL_MODEL_PROPOSAL"
+    },
+    {
+      "environment_seed": 202,
+      "phase": "ROLLBACK",
+      "status": "NOT_RUN_NO_GO",
+      "World": null,
+      "run_id": null,
+      "Body_hash": null,
+      "canonical_receipts": [],
+      "reason": "NO_ADMITTED_ORIGINAL_P1_OR_ACTUAL_MODEL_PROPOSAL"
+    }
+  ],
+  "model_physical_demo": "NOT_RUN_NO_GO",
+  "historical_RK09_or_G3_G4_receipts_reused_as_new_runs": false
+}

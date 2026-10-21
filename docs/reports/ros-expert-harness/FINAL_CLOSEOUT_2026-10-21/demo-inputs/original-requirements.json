@@ -1,0 +1,23 @@
+{
+  "interface_names": {
+    "mapping.occupancy_map": "/heldout/j100/map",
+    "state.odometry": "/heldout/j100/platform/odom",
+    "sensing.lidar": "/heldout/j100/sensors/range0/scan",
+    "navigation.navigate_to_pose": "/heldout/j100/navigate_to_pose"
+  },
+  "lifecycle_nodes": {
+    "localization": "/heldout/j100/amcl",
+    "planner": "/heldout/j100/planner_server",
+    "controller": "/heldout/j100/velocity_smoother",
+    "collision_monitor": "/heldout/j100/collision_monitor",
+    "navigator": "/heldout/j100/bt_navigator"
+  },
+  "costmap_topics": [
+    "/heldout/j100/local_costmap/costmap",
+    "/heldout/j100/global_costmap/costmap"
+  ],
+  "localization_topic": "/heldout/j100/amcl_pose",
+  "velocity_input_topic": "/heldout/j100/cmd_vel_smoothed",
+  "velocity_output_topic": "/heldout/j100/nav_cmd_vel",
+  "velocity_consumer_node": "/heldout/j100/rosclaw_governed_sink"
+}

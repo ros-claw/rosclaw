@@ -545,3 +545,7 @@ We welcome contributions. See [CONTRIBUTING.md](CONTRIBUTING.md) for standards, 
 ## License
 
 [MIT](LICENSE)
+
+### ROS Expert Harness: scoped SIM engineering
+
+[Final workflow and evidence](docs/ROS_EXPERT_HARNESS_FINAL.md): source-bound diagnosis, known-mechanism conditional repair and protected simulation verification. The final calibration is an original-input **NO-GO**, with no new model/World trial; historical scoped v1 remains verified. General autonomous ROS expertise and Memory benefit are not established.

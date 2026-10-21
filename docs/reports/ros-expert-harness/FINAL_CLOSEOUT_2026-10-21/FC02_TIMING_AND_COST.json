@@ -1,0 +1,12 @@
+{
+  "decision_actual_client_calls": 0,
+  "new_SDK_Worlds": 0,
+  "actual_navigation_goals": 0,
+  "model_decision_wall_sec": 0,
+  "SDK_validation_wall_sec": 0,
+  "physical_end_to_end_wall_sec": null,
+  "host_input_audit_wall_sec": null,
+  "host_prefetch_wall_sec": null,
+  "host_timing_reason": "No independently frozen common start/end phase clock; completion timestamps are retained, not reconstructed from mtimes",
+  "reason": "NOT_RUN_NO_GO; file audit/test/CI costs are distinct from a robot experiment"
+}

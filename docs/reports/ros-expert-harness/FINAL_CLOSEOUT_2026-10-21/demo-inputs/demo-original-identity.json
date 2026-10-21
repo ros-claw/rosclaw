@@ -1,0 +1,20 @@
+{
+  "scope": "HISTORICAL_OFFLINE_CLI_DEMO_NOT_ELIGIBLE_FINAL_P1_OR_CURRENT_L1",
+  "source_World": "recovery_2026-10-13/G4-M681-V1-R01-map_to_odom_missing-before_repair-attempt01-seed101-map_to_odom_missing",
+  "original_review_clock": "2026-10-15T05:23:02.596727+00:00",
+  "input_sha256": {
+    "original-system.json": "7cb7110204e5dfe748d12ffbe94e0023221b6979e05ec19710d1e346968ed809",
+    "original-robot.urdf": "dd99c59d130262cb84fdd34fab486aa52a5ccd3994c1159fb08284e24ba905a2",
+    "original-requirements.json": "906e426026bfbb848ac78f823028e4a9a266ef29a567d228c0b04c7d20aabf36",
+    "original-nav2.yaml": "8e9768da0682a688df092f17a52c2902e701ad82f27e63146280a18747f1a2e4",
+    "original-bringup.json": "6e20b4450a4a47aaf85ae161974741c908e426a393dd40b01c0416b02c213069"
+  },
+  "output_sha256": "593635b09e4dce3e9290fef03f1457db730c1e3d0eadde05afadf990b6a193ba",
+  "new_model_calls": 0,
+  "new_Worlds": 0,
+  "source": "5e865c9edb14fc57a88f95d2d532c2ab11626015",
+  "historical_unknowns_preserved": [
+    "F-SOURCE-001",
+    "F-LIFE-001"
+  ]
+}

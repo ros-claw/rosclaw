@@ -1,0 +1,125 @@
+{
+  "schema_version": "rosclaw.closeout_protocol.v1",
+  "harness_source": "5e865c9edb14fc57a88f95d2d532c2ab11626015",
+  "code_inventory_sha256": "92163c19344982ed933327f620e86f7d6d5caed147f6ba9aa204f39b48498948",
+  "provider_inventory_sha256": "dfbfad7ea8ee8610cd4228701f565a302720fb80bf3cfad8b6f363ba365e9c02",
+  "case_registry_sha256": "fd92823f07947891b473d808be530d3f07f8219e8e2237c0b5d9d29621ee47a1",
+  "model_identity": "gpt-6.1-sol",
+  "environment_seeds": [
+    101,
+    202
+  ],
+  "cases": [
+    {
+      "instance_id": "79a7577b156affe8d33c1f4a",
+      "scenario": "P1",
+      "environment_seed": 101,
+      "facts_sha256": null,
+      "evidence_kind": "UNAVAILABLE"
+    },
+    {
+      "instance_id": "76c6075614a240d8819efa7b",
+      "scenario": "N1",
+      "environment_seed": 101,
+      "facts_sha256": null,
+      "evidence_kind": "UNAVAILABLE"
+    },
+    {
+      "instance_id": "cf809833c0376b340419839f",
+      "scenario": "N2",
+      "environment_seed": 101,
+      "facts_sha256": null,
+      "evidence_kind": "UNAVAILABLE"
+    },
+    {
+      "instance_id": "713fe69fba4b2f4f552cfd49",
+      "scenario": "N3",
+      "environment_seed": 101,
+      "facts_sha256": null,
+      "evidence_kind": "UNAVAILABLE"
+    },
+    {
+      "instance_id": "4b2542bf8c82296e1ed908c7",
+      "scenario": "N4",
+      "environment_seed": 101,
+      "facts_sha256": null,
+      "evidence_kind": "UNAVAILABLE"
+    },
+    {
+      "instance_id": "838bae91a4dc1ad5f9abfa60",
+      "scenario": "N5",
+      "environment_seed": 101,
+      "facts_sha256": null,
+      "evidence_kind": "UNAVAILABLE"
+    },
+    {
+      "instance_id": "d4b393083580b7f3ba54429a",
+      "scenario": "N6",
+      "environment_seed": 101,
+      "facts_sha256": null,
+      "evidence_kind": "UNAVAILABLE"
+    },
+    {
+      "instance_id": "71c334a0be403bcaab4f5606",
+      "scenario": "P1",
+      "environment_seed": 202,
+      "facts_sha256": null,
+      "evidence_kind": "UNAVAILABLE"
+    },
+    {
+      "instance_id": "4b69fe2fba091fd11c94192a",
+      "scenario": "N1",
+      "environment_seed": 202,
+      "facts_sha256": null,
+      "evidence_kind": "UNAVAILABLE"
+    },
+    {
+      "instance_id": "89cf88db57b6a8028ba7a27a",
+      "scenario": "N2",
+      "environment_seed": 202,
+      "facts_sha256": null,
+      "evidence_kind": "UNAVAILABLE"
+    },
+    {
+      "instance_id": "b11a201fb788392fa2d3d830",
+      "scenario": "N3",
+      "environment_seed": 202,
+      "facts_sha256": null,
+      "evidence_kind": "UNAVAILABLE"
+    },
+    {
+      "instance_id": "856f391bed6fa1a2d44c234c",
+      "scenario": "N4",
+      "environment_seed": 202,
+      "facts_sha256": null,
+      "evidence_kind": "UNAVAILABLE"
+    },
+    {
+      "instance_id": "5d5b64632941edf33bfc390f",
+      "scenario": "N5",
+      "environment_seed": 202,
+      "facts_sha256": null,
+      "evidence_kind": "UNAVAILABLE"
+    },
+    {
+      "instance_id": "15a287441d46e393d674f043",
+      "scenario": "N6",
+      "environment_seed": 202,
+      "facts_sha256": null,
+      "evidence_kind": "UNAVAILABLE"
+    }
+  ],
+  "max_model_decisions": 4,
+  "max_decision_wall_sec": 300,
+  "max_client_wall_sec": 120,
+  "max_prompt_utf8_bytes": 48000,
+  "max_observed_input_tokens": 64000,
+  "max_total_model_invocations": 56,
+  "max_physical_worlds": 6,
+  "max_goals_per_after_world": 2,
+  "sdk_budget_per_seed_sec": 900,
+  "total_budget_per_seed_sec": 1200,
+  "model_sampler_seed": "NOT_CONTROLLED",
+  "old_experiments": "FROZEN_UNCHANGED",
+  "permission": "NONE"
+}

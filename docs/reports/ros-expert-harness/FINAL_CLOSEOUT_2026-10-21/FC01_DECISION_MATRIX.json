@@ -1,0 +1,168 @@
+{
+  "planned": 14,
+  "actual_model_episodes": 0,
+  "not_run_no_go": 14,
+  "rows": [
+    {
+      "ordinal": 1,
+      "instance_id": "79a7577b156affe8d33c1f4a",
+      "scenario_host_only": "P1",
+      "environment_seed": 101,
+      "status": "NOT_RUN_NO_GO",
+      "model_classification": null,
+      "reason": "ORIGINAL_CASE_MATRIX_ENTRY_NOT_ADMITTED",
+      "actual_model_calls": 0,
+      "new_Worlds": 0
+    },
+    {
+      "ordinal": 2,
+      "instance_id": "76c6075614a240d8819efa7b",
+      "scenario_host_only": "N1",
+      "environment_seed": 101,
+      "status": "NOT_RUN_NO_GO",
+      "model_classification": null,
+      "reason": "ORIGINAL_CASE_MATRIX_ENTRY_NOT_ADMITTED",
+      "actual_model_calls": 0,
+      "new_Worlds": 0
+    },
+    {
+      "ordinal": 3,
+      "instance_id": "cf809833c0376b340419839f",
+      "scenario_host_only": "N2",
+      "environment_seed": 101,
+      "status": "NOT_RUN_NO_GO",
+      "model_classification": null,
+      "reason": "ORIGINAL_CASE_MATRIX_ENTRY_NOT_ADMITTED",
+      "actual_model_calls": 0,
+      "new_Worlds": 0
+    },
+    {
+      "ordinal": 4,
+      "instance_id": "4b2542bf8c82296e1ed908c7",
+      "scenario_host_only": "N4",
+      "environment_seed": 101,
+      "status": "NOT_RUN_NO_GO",
+      "model_classification": null,
+      "reason": "ORIGINAL_CASE_MATRIX_ENTRY_NOT_ADMITTED",
+      "actual_model_calls": 0,
+      "new_Worlds": 0
+    },
+    {
+      "ordinal": 5,
+      "instance_id": "713fe69fba4b2f4f552cfd49",
+      "scenario_host_only": "N3",
+      "environment_seed": 101,
+      "status": "NOT_RUN_NO_GO",
+      "model_classification": null,
+      "reason": "ORIGINAL_CASE_MATRIX_ENTRY_NOT_ADMITTED",
+      "actual_model_calls": 0,
+      "new_Worlds": 0
+    },
+    {
+      "ordinal": 6,
+      "instance_id": "838bae91a4dc1ad5f9abfa60",
+      "scenario_host_only": "N5",
+      "environment_seed": 101,
+      "status": "NOT_RUN_NO_GO",
+      "model_classification": null,
+      "reason": "ORIGINAL_CASE_MATRIX_ENTRY_NOT_ADMITTED",
+      "actual_model_calls": 0,
+      "new_Worlds": 0
+    },
+    {
+      "ordinal": 7,
+      "instance_id": "d4b393083580b7f3ba54429a",
+      "scenario_host_only": "N6",
+      "environment_seed": 101,
+      "status": "NOT_RUN_NO_GO",
+      "model_classification": null,
+      "reason": "ORIGINAL_CASE_MATRIX_ENTRY_NOT_ADMITTED",
+      "actual_model_calls": 0,
+      "new_Worlds": 0
+    },
+    {
+      "ordinal": 8,
+      "instance_id": "71c334a0be403bcaab4f5606",
+      "scenario_host_only": "P1",
+      "environment_seed": 202,
+      "status": "NOT_RUN_NO_GO",
+      "model_classification": null,
+      "reason": "ORIGINAL_CASE_MATRIX_ENTRY_NOT_ADMITTED",
+      "actual_model_calls": 0,
+      "new_Worlds": 0
+    },
+    {
+      "ordinal": 9,
+      "instance_id": "4b69fe2fba091fd11c94192a",
+      "scenario_host_only": "N1",
+      "environment_seed": 202,
+      "status": "NOT_RUN_NO_GO",
+      "model_classification": null,
+      "reason": "ORIGINAL_CASE_MATRIX_ENTRY_NOT_ADMITTED",
+      "actual_model_calls": 0,
+      "new_Worlds": 0
+    },
+    {
+      "ordinal": 10,
+      "instance_id": "89cf88db57b6a8028ba7a27a",
+      "scenario_host_only": "N2",
+      "environment_seed": 202,
+      "status": "NOT_RUN_NO_GO",
+      "model_classification": null,
+      "reason": "ORIGINAL_CASE_MATRIX_ENTRY_NOT_ADMITTED",
+      "actual_model_calls": 0,
+      "new_Worlds": 0
+    },
+    {
+      "ordinal": 11,
+      "instance_id": "b11a201fb788392fa2d3d830",
+      "scenario_host_only": "N3",
+      "environment_seed": 202,
+      "status": "NOT_RUN_NO_GO",
+      "model_classification": null,
+      "reason": "ORIGINAL_CASE_MATRIX_ENTRY_NOT_ADMITTED",
+      "actual_model_calls": 0,
+      "new_Worlds": 0
+    },
+    {
+      "ordinal": 12,
+      "instance_id": "856f391bed6fa1a2d44c234c",
+      "scenario_host_only": "N4",
+      "environment_seed": 202,
+      "status": "NOT_RUN_NO_GO",
+      "model_classification": null,
+      "reason": "ORIGINAL_CASE_MATRIX_ENTRY_NOT_ADMITTED",
+      "actual_model_calls": 0,
+      "new_Worlds": 0
+    },
+    {
+      "ordinal": 13,
+      "instance_id": "5d5b64632941edf33bfc390f",
+      "scenario_host_only": "N5",
+      "environment_seed": 202,
+      "status": "NOT_RUN_NO_GO",
+      "model_classification": null,
+      "reason": "ORIGINAL_CASE_MATRIX_ENTRY_NOT_ADMITTED",
+      "actual_model_calls": 0,
+      "new_Worlds": 0
+    },
+    {
+      "ordinal": 14,
+      "instance_id": "15a287441d46e393d674f043",
+      "scenario_host_only": "N6",
+      "environment_seed": 202,
+      "status": "NOT_RUN_NO_GO",
+      "model_classification": null,
+      "reason": "ORIGINAL_CASE_MATRIX_ENTRY_NOT_ADMITTED",
+      "actual_model_calls": 0,
+      "new_Worlds": 0
+    }
+  ],
+  "correct_model_proposals": 0,
+  "correct_model_abstentions": 0,
+  "host_rejected_actual_model_proposals": 0,
+  "budget_exhausted_actual_episodes": 0,
+  "success_rate": null,
+  "Wilson_95_interval": null,
+  "statistics_reason": "No model episodes were run; planned NOT_RUN cells are not a success-rate denominator"
+}

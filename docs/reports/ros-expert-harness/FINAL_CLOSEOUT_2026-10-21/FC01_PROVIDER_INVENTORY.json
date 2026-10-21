@@ -1,0 +1,11 @@
+{
+  "model": "gpt-6.1-sol",
+  "effort": "medium",
+  "execution_kind": "NOT_INVOKED_ENTRY_NO_GO",
+  "host_client_sha256": "d594b0e8d33c49e81f7ab6268941264ae73b6bb943af3e86ff588d50b6c248ac",
+  "settings_sha256": "bb8ce8c2c4df11f85f2d3cd698856a3256408276ed3a9c4d142f1faf0e861d99",
+  "binary_sha256": "071cbe8d821cf1b02b6d8ba6c8b7991b228fcb8519dcb68a37d31222bb8cabe5",
+  "model_sampler_seed": "NOT_CONTROLLED",
+  "hidden_revision": null,
+  "monetary_price": null
+}

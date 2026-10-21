@@ -1,0 +1,14 @@
+{
+  "schema_version": "rosclaw.prepared_source_bringup.v1",
+  "namespace": "/heldout/j100",
+  "controllers": {
+    "manager": "/heldout/j100/controller_manager",
+    "names": [
+      "joint_state_broadcaster",
+      "platform_velocity_controller"
+    ]
+  },
+  "scan_ros_topic": "/heldout/j100/sensors/range0/scan",
+  "autostart": true,
+  "tf_topics_relative": true
+}

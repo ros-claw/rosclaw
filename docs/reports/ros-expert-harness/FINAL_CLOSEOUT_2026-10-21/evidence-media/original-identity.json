@@ -1,0 +1,15 @@
+{
+  "scope": "HISTORICAL_EVIDENCE_ONLY_NOT_NEW_FC02_PHYSICS",
+  "items": {
+    "historical-four-phase-physics.png": {
+      "original_path": "recovery_2026-10-18/RK06-sensor-composition-friction-ABI-source-main-four-phase-figure-v2/source-main-four-phase-ABI-comparison.png",
+      "sha256": "d606cad358f56a4258b5c304229c926cc5633e4d72a52abc5cd180a482107fce"
+    },
+    "historical-RK09-proposals.svg": {
+      "original_path": "recovery_2026-10-20-rk09/proposal-preflight-timeline.svg",
+      "sha256": "288b08f9df9d6f092561c07361260aae600019ea801ad26915fe9274fd6ad964"
+    }
+  },
+  "physics_main": "d4f13916f425a8bca649b721a2689736ca01868d",
+  "RK09_source": "f9224241ced58c2a490cb261429baa6858f6a1b0"
+}
