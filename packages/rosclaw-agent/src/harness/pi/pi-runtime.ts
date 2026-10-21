@@ -357,7 +357,7 @@ export async function createRosclawRuntime(
 	const modelRequestAdmission = options.toolCallBudget?.modelRequestAdmission === undefined
 		? undefined : new ModelRequestAdmission(options.toolCallBudget.modelRequestAdmission);
 	const toolBudgetExtension = options.toolCallBudget === undefined
-		? undefined : createToolCallBudgetExtension(options.toolCallBudget, options.taskContext.workspaceRoot);
+		? undefined : createToolCallBudgetExtension(options.toolCallBudget, options.taskContext.workspaceRoot, modelRequestAdmission);
 	// Snapshot at admission: callers can mutate their policy after construction.
 	// The execution budget retains its own independent snapshot and deny hook.
 	const allowedModelToolNames = options.toolCallBudget === undefined

@@ -17,6 +17,18 @@ export interface ModelRequestAdmissionPolicy {
     requestReserveInput: number;
     requestReserveOutput: number;
 }
+/** Serializer capability is not remote enforcement. No cap is requested by v1.
+ * Keep API identity: Codex omits generic maxTokens; Responses has credential/
+ * compat exceptions; the pinned Kimi Completions catalog selects max_tokens. */
+export function modelRequestOutputCapability(model: { api: string }) {
+    return model.api === "openai-codex-responses"
+        ? { api: model.api, genericMaxTokens: "omitted", limitation: "CODEX_SERIALIZER_HAS_NO_OUTPUT_LIMIT_BINDING" }
+        : model.api === "openai-responses"
+            ? { api: model.api, genericMaxTokens: "conditional", limitation: "RESPONSES_COMPAT_AND_CHATGPT_SIGNIN_MAY_OMIT_LIMIT" }
+            : model.api === "openai-completions"
+                ? { api: model.api, genericMaxTokens: "compat_field", limitation: "COMPLETIONS_MAX_TOKENS_OR_MAX_COMPLETION_TOKENS_NOT_BILLING_PROOF" }
+                : { api: model.api, genericMaxTokens: "unverified", limitation: "OUTPUT_LIMIT_SERIALIZATION_NOT_REVIEWED" };
+}
 export class ModelRequestAdmissionError extends Error {
     readonly recoverable = true;
     constructor(readonly code: string) { super(code); this.name = "ModelRequestAdmissionError"; }
@@ -42,6 +54,7 @@ export class ModelRequestAdmission {
     private settled = 0;
     private pending = new Set<object>();
     private lastDenial: string | undefined;
+    private lastRoute: ReturnType<typeof modelRequestOutputCapability> | undefined;
     constructor(policy: ModelRequestAdmissionPolicy) {
         validateModelRequestAdmission(policy);
         this.policy = Object.freeze({ ...policy });
@@ -52,6 +65,24 @@ export class ModelRequestAdmission {
             reservedInput: this.pending.size * this.policy.requestReserveInput,
             reservedOutput: this.pending.size * this.policy.requestReserveOutput, lastDenial: this.lastDenial,
             providerCostBoundVerified: false };
+    }
+    /** Live local dispatch facts, not a protected final-delivery transaction.
+     * Includes pending reservations; never treats a notice or SDK error as spend.
+     * Safe subtractions match reserve(); UNKNOWN is sticky, even with headroom. */
+    deliveryContract() {
+        const p = this.policy;
+        const availableInput = Math.max(0, p.inclusiveInputLimit - this.input - this.pending.size * p.requestReserveInput);
+        const availableOutput = Math.max(0, p.outputLimit - this.output - this.pending.size * p.requestReserveOutput);
+        return { version: 1, guarantee: "local_reservation", lifetime: "runtime",
+            knownInclusiveInput: this.input, knownOutput: this.output,
+            pendingRequests: this.pending.size, unknownUsageRequests: this.unknown,
+            availableInput, availableOutput,
+            requestReserveInput: p.requestReserveInput, requestReserveOutput: p.requestReserveOutput,
+            nextRequestAdmissible: this.unknown === 0 && availableInput >= p.requestReserveInput && availableOutput >= p.requestReserveOutput,
+            admissionScope: "token_reservation_only_summary_and_cancellation_checks_still_apply",
+            responseOutputLimit: "not_enforced", finalDeliveryProtection: "none",
+            finalDeliveryGuaranteed: false, providerCostBoundVerified: false,
+            lastRoute: this.lastRoute ? { ...this.lastRoute } : null };
     }
     /** Explicit local recovery: raise allowance only; never erase spend/UNKNOWN. */
     reconfigure(policy: ModelRequestAdmissionPolicy): void {
@@ -105,6 +136,7 @@ export class ModelRequestAdmission {
                 gate.pending.delete(token);
                 return gate.deny("MODEL_REQUEST_CANCELLED_BEFORE_DISPATCH");
             }
+            gate.lastRoute = modelRequestOutputCapability(args[0]);
             gate.dispatched++;
             let source: ReturnType<StreamFn>;
             try { source = original.apply(this, args); }

@@ -1,6 +1,6 @@
 import type { ExtensionFactory, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { createHash, randomUUID } from "node:crypto";
-import { validateModelRequestAdmission, type ModelRequestAdmissionPolicy } from "./model-request-admission.js";
+import { validateModelRequestAdmission, type ModelRequestAdmissionPolicy, type ModelRequestAdmission } from "./model-request-admission.js";
 export interface ModelUsageAwareness {
     version: 1;
     lifetime: "runtime";
@@ -31,7 +31,7 @@ const USAGE_MARKER = "ROSCLAW_MODEL_USAGE_JSON:";
 const stripUsage = (text: string) => text.split("\n").filter(line => !line.startsWith(USAGE_MARKER)).join("\n");
 /** Serial public assistant lifecycle, not start/end object identity (SDK clones starts).
  * Final-object identity is used ONLY to reject replayed ends, never values/timestamps. */
-function usageObserver(config: ModelUsageAwareness) {
+function usageObserver(config: ModelUsageAwareness, admission?: ModelRequestAdmission) {
     const runtimeGeneration = randomUUID();
     let sequence = 0, completedMainRequests = 0, knownInclusiveInput = 0, knownOutput = 0;
     let pendingMainRequests = 0, unknownUsageRequests = 0, unaccountedCompaction = false;
@@ -48,11 +48,25 @@ function usageObserver(config: ModelUsageAwareness) {
     const notice = () => {
         const remainingInputUpperBound = Math.max(0, config.inclusiveInputLimit - knownInclusiveInput);
         const remainingOutputUpperBound = Math.max(0, config.outputLimit - knownOutput);
-        const reserveState = pendingMainRequests || unknownUsageRequests || unaccountedCompaction ? "unknown"
-            : remainingInputUpperBound <= config.deliveryReserveInput || remainingOutputUpperBound <= config.deliveryReserveOutput ? "finish_delivery" : "normal";
+        const dispatch = admission?.deliveryContract();
+        // One minimum request of local lead time, not an estimate/upper bound of
+        // the next response. Subtraction avoids overflowing summed thresholds.
+        // Independent awareness caps retain their original warning thresholds;
+        // linked admission can add an earlier warning, never suppress one.
+        // SDK-generated refusals can be UNKNOWN observer events without being
+        // dispatched/billed requests. UNKNOWN retains precedence over warnings.
+        const reserveState = pendingMainRequests || unknownUsageRequests || unaccountedCompaction
+            || (dispatch && (dispatch.pendingRequests || dispatch.unknownUsageRequests)) ? "unknown"
+            : remainingInputUpperBound <= config.deliveryReserveInput || remainingOutputUpperBound <= config.deliveryReserveOutput
+                || (dispatch && (!dispatch.nextRequestAdmissible
+                    || dispatch.availableInput - dispatch.requestReserveInput <= config.deliveryReserveInput
+                    || dispatch.availableOutput - dispatch.requestReserveOutput <= config.deliveryReserveOutput))
+                ? "finish_delivery" : "normal";
         return USAGE_MARKER + JSON.stringify({ version: 1, runtimeGeneration, sequence, completedMainRequests,
             knownInclusiveInput, knownOutput, remainingInputUpperBound, remainingOutputUpperBound,
-            pendingMainRequests, unknownUsageRequests, unaccountedCompaction, reserveState });
+            pendingMainRequests, unknownUsageRequests, unaccountedCompaction, reserveState,
+            deliveryNoticeContract: "advisory_only_no_final_guarantee",
+            ...(dispatch ? { admission: dispatch } : {}) });
     };
     const factory: ExtensionFactory = pi => {
         pi.on("session_start", (_event, ctx) => {
@@ -224,7 +238,7 @@ function canonicalJSON(value: unknown): string {
     }
     return JSON.stringify(value)!;
 }
-export function createToolCallBudgetExtension(policy: ToolCallBudget, workspaceRoot?: string): ToolCallBudgetExtension {
+export function createToolCallBudgetExtension(policy: ToolCallBudget, workspaceRoot?: string, admission?: ModelRequestAdmission): ToolCallBudgetExtension {
     if (!policy || typeof policy !== "object" || Array.isArray(policy)
         || Object.keys(policy).some(key => !KNOWN_KEYS.includes(key))) {
         throw new Error("INVALID_TOOL_CALL_BUDGET");
@@ -271,7 +285,7 @@ export function createToolCallBudgetExtension(policy: ToolCallBudget, workspaceR
         validateModelRequestAdmission(policy.modelRequestAdmission);
     if (Object.hasOwn(policy, "modelUsageAwareness"))
         validateModelUsageAwareness(policy.modelUsageAwareness);
-    const usage = policy.modelUsageAwareness ? usageObserver({ ...policy.modelUsageAwareness }) : undefined;
+    const usage = policy.modelUsageAwareness ? usageObserver({ ...policy.modelUsageAwareness }, admission) : undefined;
     const compact = policy.visibleBudgetMode === "compact";
     const hasPaths = policy.exactPaths !== undefined;
     const paths = new Map<string, readonly string[]>();
