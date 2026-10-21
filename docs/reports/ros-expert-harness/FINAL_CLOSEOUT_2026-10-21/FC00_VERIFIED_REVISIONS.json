@@ -1,0 +1,91 @@
+{
+  "at": "2026-10-21T04:14:38.487828+00:00",
+  "baseline_main": "f9224241ced58c2a490cb261429baa6858f6a1b0",
+  "baseline_clean": true,
+  "old_state_top_level_main": "6dfc64d242df9652513a961886ab6c8c207011c5",
+  "SDK_image_id": "sha256:8cc3fbf1eaa57058f0c1386c061253a55651106bd46b98fb046439f966c9019b",
+  "SDK_declared_ROS_distribution": "jazzy",
+  "SDK_architecture": "arm64",
+  "SDK_versions_scope": "Image identity currently inspected; exact installed package versions require separate metadata-only inspection, no World claimed",
+  "provider": {
+    "requested_model": "gpt-6.1-sol",
+    "effort": "medium",
+    "binary": "Operator-pinned Codex 0.162.1 executable; exact local path in original FC00 audit",
+    "binary_sha256": "071cbe8d821cf1b02b6d8ba6c8b7991b228fcb8519dcb68a37d31222bb8cabe5",
+    "hidden_revision": "UNKNOWN",
+    "model_sampler_seed": "NOT_CONTROLLED"
+  },
+  "code_reuse_inventory": {
+    "src/rosclaw/connectors/ros/engineering/case_compiler.py": "6ae35c672db58254c152237aa029cdea4cc80aead609b18b27609ef3ae109ee9",
+    "src/rosclaw/connectors/ros/engineering/repair_compiler.py": "08b87b8bf46bbfa18ed5c91049ac6e20cb956a36b93a50710d5eb68b67b28fdf",
+    "src/rosclaw/connectors/ros/engineering/source_consumer.py": "92b35fbf5ecd497c1f6acd38ec649225a97bb99c063de0bb9e0e32bbc06b678b",
+    "benchmarks/ros_expert_ablation/physical_aci.py": "4345cc0c87b1108ef3f3d326eb8ccb498ccc1e06077de52f3a0de65b2f21b7a0",
+    "benchmarks/ros_expert_ablation/aci_runner.py": "0c9f21dd9c4ad92b32a2ea6a431226d376093561ae039971ceae03f8deb1b175",
+    "benchmarks/ros_expert_ablation/aci_schema.py": "69ba808343b843eb1bc83c969682ac564924a439e387a899fa5bfab002bac25d",
+    "benchmarks/ros_expert_ablation/rsk_physical_aci.py": "447c732eec561c42d9b5cfe5ac506aa577bf04db778227f0faae64e718ef7f19",
+    "benchmarks/ros_expert_ablation/rsk_episode_runner.py": "73e7f67933cf2c569b73219408353182dd8ac0f9a6dd6d79b4443e409b9c23d7",
+    "benchmarks/ros_expert_ablation/rsk_deterministic_baseline.py": "f56379fb60e0dc24aeb43917602fdb959c004bee5d5ec11218b2f5c8b230b0e9",
+    "benchmarks/ros_expert_ablation/rsk_operational_aci.py": "6de2a07608983b4d3f60191f4771ab5ed7aeb67bb6f3f0d4d69709af76ea090a",
+    "benchmarks/ros_expert_ablation/rsk_pilot_protocol.py": "832df2d883d8a7cecac881207279679269edd9c226b9ab3489bb3096c56cedce",
+    "benchmarks/ros_expert_ablation/sdk_operator.py": "31d7bfb6e16d6215a07631ccbfd7d13c0ac27ef783b82c2ec2b8ba7cc8c7b160",
+    "benchmarks/ros_expert_ablation/host_client.py": "d594b0e8d33c49e81f7ab6268941264ae73b6bb943af3e86ff588d50b6c248ac",
+    "benchmarks/ros_expert_ablation/isolated_client.py": "bb8ce8c2c4df11f85f2d3cd698856a3256408276ed3a9c4d142f1faf0e861d99",
+    "docs/ROS_CONNECTOR.md": "868f7aa25d1b7a96ddce0d4c6ce04faf1978e222a1135589d9da373dc7f1600f"
+  },
+  "historical_inputs": [
+    {
+      "path": "ros_rosclaw_harness\u5b9a\u7a3f\u5b9e\u65bd.md",
+      "sha256": "73faaec66a58d2e16d08600e9c0103e354498fa53d6868d82b326ada3f81a31a"
+    },
+    {
+      "path": "ROSClaw_ROS_Expert_Harness\u603b\u5b9e\u65bd\u62a5\u544a_2026-10-21.md",
+      "sha256": "2ef73aa0f7cc56060103dc7fc25505e62a8cd4c9a3eb0040256f2f4fefc38a81"
+    },
+    {
+      "path": "ROSClaw_1018_RSK\u5f53\u524d\u5b9e\u65bd\u72b6\u6001.json",
+      "sha256": "6918ea96f054cea660ef08c59e8cfd86e80d754c685ca7538c74fc64bac2708b"
+    },
+    {
+      "path": "recovery_2026-10-16/V1-scoped-negative-study-final-closeout-review-v1.json",
+      "sha256": "5b60b87a03201ae29074a236b716e3ca4342cabe3b886896e06c934c3a034435"
+    },
+    {
+      "path": "recovery_2026-10-20-rk09/final-report-independent-QA-v59-v1.json",
+      "sha256": "ffe5efd0b8eabcc4f1aef38e452fa0f654a0e5caaacc9083bdb2adcb1d3dd582"
+    },
+    {
+      "path": "recovery_2026-10-20-rk09/public-seal-v1.json",
+      "sha256": "786ee57d7c72f3573a379943521a18c8a312641e04a43b411662d91df4d2a20f"
+    },
+    {
+      "path": "recovery_2026-10-18/run_RK06_reconstructed_SDK_source_kinematic_operator_World_v10.py",
+      "sha256": "94053f7f30b9e216b0775241412c2aa1ae27135c732b82fa62b13490e56275cb"
+    },
+    {
+      "path": "recovery_2026-10-18/rk06_post_source_freeze_pilot_sdk_operator_v3.py",
+      "sha256": "936f379c550c466bf191d9e439f5737826000339401ea2d75ffcf7fb9dc32762"
+    }
+  ],
+  "protected_original_paths_rehashed": 1860,
+  "case_input_audit": {
+    "path": "recovery_2026-10-21-final-closeout/FC00_ORIGINAL_INPUT_AVAILABILITY.json",
+    "sha256": "a26578b732914e3d3b9f2ab0aafdf6e7659992703c42fe36a9d3711bed83a50b"
+  },
+  "original_pilot_compatible_with_closeout": false,
+  "old_PilotV2": "UNCHANGED_5_STRATA_1_SEED",
+  "new_Worlds": 0,
+  "model_calls": 0,
+  "host_or_image_dependencies_installed": false,
+  "extended_input_availability": {
+    "capture_paths_found": 344,
+    "reviewed_rows": 326,
+    "eligible_P1_originals": 0,
+    "source": "FC00_EXTENDED_ORIGINAL_INPUT_AVAILABILITY_v2.json",
+    "independent_review": "REQUIRED_BEFORE_FORMAL_ENTRY"
+  },
+  "SDK_metadata_inventory": {
+    "status": "PASS_METADATA_ONLY_NO_ROS_OR_PHYSICS",
+    "selected_package_records": 56,
+    "original_review": "FC00_SDK_METADATA_REVIEW.json"
+  }
+}
