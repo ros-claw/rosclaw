@@ -189,6 +189,11 @@ function canonicalFile(root: string, canonicalRoot: string, value: unknown): str
     }
     return canonical;
 }
+/** Strict exclusive oldText + newText UTF-8 bound, independent of file size. */
+export function validateMaxEditUtf8BytesExclusive(value: unknown, allowed: ReadonlySet<string>): void {
+    if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0 || !allowed.has("edit"))
+        throw new Error("INVALID_TOOL_CALL_BUDGET_EDIT_UTF8_LIMIT");
+}
 export type ToolCallBudgetExtension = ExtensionFactory & {
     /** Native execution seam: recheck final args and count once, before tool effects. */
     wrapTools(tools: ToolDefinition<any, any>[]): ToolDefinition<any, any>[];
@@ -199,6 +204,9 @@ export interface ToolCallBudget {
     allowedTools: readonly string[];
     maxCalls?: Readonly<Record<string, number>>;
     maxTotalCalls?: number;
+    /** Optional strict bound on the sum of edit oldText/newText UTF-8 bytes.
+     * A rejected execution attempt consumes its call budget, without invoking the tool. */
+    maxEditUtf8BytesExclusive?: number;
     /**
      * Optional exact command allowlist per allowed tool. A configured tool's
      * `input.command` string must exactly equal one declared command; no
@@ -223,7 +231,7 @@ export interface ToolCallBudget {
 }
 const POLICY_MARKER = "ROSCLAW_TOOL_POLICY_JSON:";
 const COMPACT_MARKER = "ROSCLAW_TOOL_BUDGET_COMPACT_JSON:";
-const KNOWN_KEYS = ["allowedTools", "maxCalls", "maxTotalCalls", "exactCommands", "visibleBudget", "exactPaths", "visibleBudgetMode", "modelUsageAwareness", "modelRequestAdmission", "declaredDeliveryRoles"];
+const KNOWN_KEYS = ["allowedTools", "maxCalls", "maxTotalCalls", "exactCommands", "visibleBudget", "exactPaths", "visibleBudgetMode", "modelUsageAwareness", "modelRequestAdmission", "declaredDeliveryRoles", "maxEditUtf8BytesExclusive"];
 function stripMarkerLines(text: string, compact = false): string {
     return text.split("\n").filter(line => !line.startsWith(POLICY_MARKER)
         && !(compact && line.startsWith(COMPACT_MARKER))).join("\n");
@@ -250,6 +258,9 @@ export function createToolCallBudgetExtension(policy: ToolCallBudget, workspaceR
     }
     const allowed = new Set(policy.allowedTools);
     const allowedNames = Object.freeze([...policy.allowedTools]);
+    if (Object.hasOwn(policy, "maxEditUtf8BytesExclusive"))
+        validateMaxEditUtf8BytesExclusive(policy.maxEditUtf8BytesExclusive, allowed);
+    const editUtf8Limit = Object.hasOwn(policy, "maxEditUtf8BytesExclusive") ? policy.maxEditUtf8BytesExclusive : undefined;
     if (policy.maxCalls !== undefined && (!policy.maxCalls || typeof policy.maxCalls !== "object"
         || Array.isArray(policy.maxCalls)))
         throw new Error("INVALID_TOOL_CALL_BUDGET_LIMITS");
@@ -356,6 +367,7 @@ export function createToolCallBudgetExtension(policy: ToolCallBudget, workspaceR
             ...(hasPaths ? { workspaceRoot: canonicalRoot,
                 exactPaths: Object.fromEntries([...paths].map(([name, files]) => [name, [...files]])) } : {}),
             ...(hasDeclaredRoles ? { declaredDeliveryRoles: roleSnapshot() } : {}),
+            ...(editUtf8Limit !== undefined ? { maxEditUtf8BytesExclusive: editUtf8Limit } : {}),
             maxCalls: Object.fromEntries(limits),
             maxTotalCalls: maxTotal ?? null,
             usedCalls,
@@ -415,7 +427,12 @@ export function createToolCallBudgetExtension(policy: ToolCallBudget, workspaceR
         return undefined;
     };
     const extension: ExtensionFactory = pi => {
-        pi.on("tool_call", async (event) => check(event.toolName, event.input as Record<string, unknown> | undefined, !wrapped.has(event.toolName)));
+        pi.on("tool_call", async (event) => {
+            // A hook-only integration cannot protect final args from later handlers.
+            if (event.toolName === "edit" && editUtf8Limit !== undefined && !wrapped.has("edit"))
+                return blocked("TOOL_CALL_BUDGET_EDIT_EXECUTION_GUARD_REQUIRED");
+            return check(event.toolName, event.input as Record<string, unknown> | undefined, !wrapped.has(event.toolName));
+        });
         usage?.factory(pi);
         if (!visible && !usage)
             return;
@@ -481,7 +498,7 @@ export function createToolCallBudgetExtension(policy: ToolCallBudget, workspaceR
         hasPath: (name: string) => paths.has(name),
         wrapTools(tools: ToolDefinition<any, any>[]): ToolDefinition<any, any>[] {
             return tools.map(tool => {
-                if (!paths.has(tool.name))
+                if (!paths.has(tool.name) && !(tool.name === "edit" && editUtf8Limit !== undefined))
                     return tool;
                 wrapped.add(tool.name);
                 return { ...tool, execute(id, params, signal, onUpdate, ctx) {
@@ -491,10 +508,22 @@ export function createToolCallBudgetExtension(policy: ToolCallBudget, workspaceR
                         const denial = check(tool.name, finalInput, false);
                         if (denial)
                             throw new Error(denial.reason);
-                        finalInput.path = canonicalFile(root!, canonicalRoot!, finalInput.path);
+                        if (paths.has(tool.name))
+                            finalInput.path = canonicalFile(root!, canonicalRoot!, finalInput.path);
                         const admission = check(tool.name, finalInput, true);
                         if (admission)
                             throw new Error(admission.reason);
+                        // Charge the admitted attempt once, including recoverable refusals.
+                        // Check the same snapshot passed to execute, before any tool body IO.
+                        if (tool.name === "edit" && editUtf8Limit !== undefined) {
+                            if (typeof finalInput.oldText !== "string" || typeof finalInput.newText !== "string")
+                                throw new Error(blocked("TOOL_CALL_BUDGET_EDIT_UTF8_INPUT_REJECTED").reason);
+                            const oldBytes = Buffer.byteLength(finalInput.oldText, "utf8");
+                            const newBytes = Buffer.byteLength(finalInput.newText, "utf8");
+                            // Subtraction preserves an exact comparison without summing overflow.
+                            if (oldBytes >= editUtf8Limit || newBytes >= editUtf8Limit - oldBytes)
+                                throw new Error(blocked(`TOOL_CALL_BUDGET_EDIT_UTF8_LIMIT_REJECTED: oldText=${oldBytes}B newText=${newBytes}B; sum must be < ${editUtf8Limit}B. No edit executed; split into smaller exact edits.`).reason);
+                        }
                         return tool.execute(id, finalInput, signal, onUpdate, ctx);
                     } };
             });

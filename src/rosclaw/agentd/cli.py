@@ -536,6 +536,7 @@ _TOOL_CALL_POLICY_KEYS = frozenset(
         "allowedTools",
         "maxCalls",
         "maxTotalCalls",
+        "maxEditUtf8BytesExclusive",
         "exactCommands",
         "visibleBudget",
         "exactPaths",
@@ -639,6 +640,10 @@ def _validate_tool_call_policy(raw_path: str) -> Path:
     tool_set = set(tools)
     if "maxTotalCalls" in data and not _policy_limit_ok(data["maxTotalCalls"]):
         raise ValueError("maxTotalCalls 必须是 0..2^53-1 的整数（bool/小数/负数/非安全整数拒绝）")
+    if "maxEditUtf8BytesExclusive" in data:
+        cap = data["maxEditUtf8BytesExclusive"]
+        if not _policy_limit_ok(cap) or cap <= 0 or "edit" not in tool_set:
+            raise ValueError("maxEditUtf8BytesExclusive 必须是正安全整数且 edit 在 allowedTools 中")
     # 可选字段缺失合法；显式 JSON null 必须在任何副作用之前拒绝。
     if "maxCalls" in data:
         max_calls = data["maxCalls"]

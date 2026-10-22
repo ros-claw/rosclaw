@@ -73,6 +73,9 @@ test("unreadable policy file rejects before runtime/auth", () => {
 });
 
 const INVALID_POLICIES: Array<[string, string]> = [
+    ...[null, true, "24576", 0, -1, 0.5, 9007199254740992].map((cap): [string, string] =>
+        [`invalid edit UTF8 cap ${JSON.stringify(cap)}`, JSON.stringify({ allowedTools: ["edit"], maxEditUtf8BytesExclusive: cap })]),
+    ["edit UTF8 cap without allowed edit", JSON.stringify({ allowedTools: ["read"], maxEditUtf8BytesExclusive: 24576 })],
 	...[null, true, 1, "", "FULL", " compact", [], {}].map((mode): [string, string] =>
 		[`invalid visibleBudgetMode ${JSON.stringify(mode)}`, JSON.stringify({ allowedTools: [], visibleBudgetMode: mode })]),
 	["malformed JSON", "{"],
@@ -114,6 +117,7 @@ for (const [label, content] of INVALID_POLICIES) {
 }
 
 const VALID_POLICIES: Array<[string, string]> = [
+    ["strict edit UTF8 limit", JSON.stringify({ allowedTools: ["edit"], maxEditUtf8BytesExclusive: 24576 })],
 	["explicit full", JSON.stringify({ allowedTools: [], visibleBudgetMode: "full" })],
 	["compact hidden", JSON.stringify({ allowedTools: [], visibleBudgetMode: "compact", visibleBudget: false })],
 	["block-all empty allowedTools", JSON.stringify({ allowedTools: [] })],

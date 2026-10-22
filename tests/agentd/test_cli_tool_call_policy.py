@@ -35,6 +35,9 @@ ADMISSION = {
 }
 
 VALID = [
+    {"allowedTools": ["edit"], "maxEditUtf8BytesExclusive": 24576},
+    {"allowedTools": ["edit"], "maxEditUtf8BytesExclusive": 9007199254740991},
+    '{"allowedTools":["edit"],"maxEditUtf8BytesExclusive":1.0}',
     {"allowedTools": [], "modelRequestAdmission": ADMISSION},
     {"allowedTools": [], "visibleBudgetMode": "full"},
     {"allowedTools": [], "visibleBudgetMode": "compact", "visibleBudget": False},
@@ -50,6 +53,14 @@ VALID = [
 ]
 
 INVALID = [
+    *[
+        {"allowedTools": ["edit"], "maxEditUtf8BytesExclusive": cap}
+        for cap in [None, True, False, "24576", 0, -1, 0.5, 9007199254740992]
+    ],
+    {"allowedTools": ["read"], "maxEditUtf8BytesExclusive": 24576},
+    '{"allowedTools":["edit"],"maxEditUtf8BytesExclusive":NaN}',
+    '{"allowedTools":["edit"],"maxEditUtf8BytesExclusive":Infinity}',
+    '{"allowedTools":["edit"],"maxEditUtf8BytesExclusive":1e999}',
     *[
         {"allowedTools": [], "visibleBudgetMode": mode}
         for mode in [None, True, 1, "", "FULL", " compact", [], {}]
@@ -644,3 +655,33 @@ def test_source2_missing_exact_paths_rejected(tmp_path, monkeypatch):
         cli._validate_tool_call_policy(policy)
     args = build_parser().parse_args(["chat", "--tool-call-policy", policy])
     assert cli.cmd_chat(args) == 2
+
+
+@pytest.mark.parametrize("cap", [1.0, 24576, 9007199254740991])
+def test_edit_utf8_cap_cmd_chat_preserves_original_policy_bytes(tmp_path, monkeypatch, cap):
+    from pathlib import Path
+
+    import rosclaw.agentd.cli as cli
+
+    wire = (
+        " \n" + json.dumps({"allowedTools": ["edit"], "maxEditUtf8BytesExclusive": cap}) + "\n"
+    ).encode()
+    target = tmp_path / "policy.json"
+    target.write_bytes(wire)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(cli, "_home", lambda args: tmp_path / "unused-home")
+    monkeypatch.setattr(cli, "_ensure_home_env", lambda home: None)
+    monkeypatch.setattr(cli, "_restore_home_env", lambda previous: None)
+    seen = []
+
+    def boundary(args, home):
+        seen.append(args.tool_call_policy)
+        assert Path(args.tool_call_policy).read_bytes() == wire
+        return 0
+
+    monkeypatch.setattr(cli, "_cmd_chat_impl", boundary)
+    args = build_parser().parse_args(["chat", "--tool-call-policy", "./policy.json"])
+    assert cli.cmd_chat(args) == 0
+    assert seen == [str(target.resolve())]
+    assert target.read_bytes() == wire
+    assert not (tmp_path / "unused-home").exists()

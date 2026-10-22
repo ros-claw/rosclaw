@@ -22,7 +22,7 @@ export { attachOwnedUIAbort } from "./ui-owned-cancellation.js";
 // Type-only import（编译期擦除）——不会在 pi 模块加载前引入任何运行时依赖。
 import type { ToolCallBudget } from "./harness/pi/tool-call-budget.js";
 // This module imports only node builtins at runtime; schema rejection stays pre-SDK/auth.
-import { validateExactPaths, validateModelUsageAwareness } from "./harness/pi/tool-call-budget.js";
+import { validateExactPaths, validateModelUsageAwareness, validateMaxEditUtf8BytesExclusive } from "./harness/pi/tool-call-budget.js";
 import { validateModelRequestAdmission } from "./harness/pi/model-request-admission.js";
 
 process.env.PI_SKIP_VERSION_CHECK = "1";
@@ -63,7 +63,7 @@ interface CliArgs {
 // （inputs/prebody_cli/tool_call_policy.schema.json）一致；保留字段名
 // （__proto__ 等）作为 own data key 原样透传，不做重建赋值，不引入原型污染。
 const TOOL_CALL_POLICY_KEYS = new Set([
-	"allowedTools", "maxCalls", "maxTotalCalls", "exactCommands", "visibleBudget", "exactPaths", "visibleBudgetMode", "modelUsageAwareness", "modelRequestAdmission", "declaredDeliveryRoles",
+	"allowedTools", "maxCalls", "maxTotalCalls", "exactCommands", "visibleBudget", "exactPaths", "visibleBudgetMode", "modelUsageAwareness", "modelRequestAdmission", "declaredDeliveryRoles", "maxEditUtf8BytesExclusive",
 ]);
 
 function invalidToolCallPolicy(message: string): never {
@@ -144,6 +144,10 @@ export function loadToolCallPolicyFile(path: string): ToolCallBudget {
 	const allowed = new Set(validatePolicyToolNames(doc.allowedTools));
 	if (doc.maxCalls !== undefined) validatePolicyCountMap(doc.maxCalls, allowed);
 	if (doc.maxTotalCalls !== undefined) validatePolicyCount(doc.maxTotalCalls, "maxTotalCalls");
+	if (Object.hasOwn(doc, "maxEditUtf8BytesExclusive")) {
+		try { validateMaxEditUtf8BytesExclusive(doc.maxEditUtf8BytesExclusive, allowed); }
+		catch { invalidToolCallPolicy("maxEditUtf8BytesExclusive requires a positive safe integer and allowed edit tool"); }
+	}
 	if (doc.exactCommands !== undefined) validatePolicyExactCommands(doc.exactCommands, allowed);
 	if (doc.exactPaths !== undefined) {
 		try { validateExactPaths(doc.exactPaths, allowed); }
