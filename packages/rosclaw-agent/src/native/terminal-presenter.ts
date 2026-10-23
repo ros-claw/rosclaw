@@ -4,8 +4,8 @@
  *  MISSING"——两个发布者互相矛盾）。
  *
  * 输出原则：
- * - PASS + DELIVERED → 完成 + 交付物（文件名/绝对路径/打开命令）
- *   + 下一步；
+ * - PASS + DELIVERED → 按明确 scope 呈现已检查内容 + 交付物；
+ *   缺失/矛盾 scope 只记录交付，不宣称任务目标达成；
  * - 其余 → 诚实"未完全达成" + 原因（验收失败逐条）+ 已产出 +
  *   下一步，绝不出现完成宣称。
  *
@@ -81,10 +81,18 @@ export function renderTerminalReply(
 	const artifactLines = refs.map((ref) => renderArtifactLine(ref, verbose));
 	const passed = (verification === "PASS" || verification === "PASS_NEAR_LIMIT")
 		&& delivery === "DELIVERED";
+	const scope = outcome.verification_scope;
+	const semantic = outcome.task_semantic_verification;
+	const integrityOnly = semantic === "UNVERIFIED"
+		&& (scope === "artifact_integrity_only" || scope === "summary_nonempty_only");
+	const configuredOnly = (semantic === "CONFIGURED_CHECKS_ONLY"
+		&& ["configured_acceptance", "configured_acceptance_and_deliverables",
+			"declared_deliverables", "configured_criteria"].includes(scope ?? ""))
+		|| (scope === "configured_criteria" && semantic === "VERIFIED");
 	const degraded = outcome.workspace_projection === "DEGRADED"
 		? "\n（工作区投影退化——交付物仍可用上面的 artifact open 命令打开）"
 		: "";
-	if (passed && outcome.task_semantic_verification === "UNVERIFIED") {
+	if (passed && integrityOnly) {
 		const head = outcome.verification_scope === "summary_nonempty_only"
 			? "ℹ️ 回复已记录；尚未设置任务验收条件"
 			: "ℹ️ 交付完成：已检查交付文件完整性；尚未设置任务验收条件";
@@ -92,13 +100,18 @@ export function renderTerminalReply(
 			+ degraded;
 	}
 	if (passed) {
+		// Presentation only: a legacy or contradictory scope does not establish
+		// goal achievement. Preserve the recorded verdict, artifacts and links.
+		if (!configuredOnly) {
+			const head = "ℹ️ 交付已记录：验收范围未知或不一致；未确认任务目标达成"
+				+ (verification === "PASS_NEAR_LIMIT"
+					? "；验收报告为 PASS_NEAR_LIMIT（误差接近阈值上限）" : "");
+			return head + (artifactLines.length ? `\n交付物：\n${artifactLines.join("\n")}` : "")
+				+ degraded + "\n下一步：/activity 查看验收范围；补充或核对任务验收条件";
+		}
 		// P0-5：PASS_NEAR_LIMIT 如实标注（≥90% 阈值占用不显示普通
 		// PASS——19.86mm/20mm 是"勉强通过"，不是"干净通过"）。
-		const head = outcome.task_semantic_verification === "CONFIGURED_CHECKS_ONLY"
-			? `✅ 交付完成：已通过配置的验收检查 · 交付 DELIVERED（仅限声明的检查范围）${verification === "PASS_NEAR_LIMIT" ? "；误差接近阈值上限，勉强通过" : ""}`
-			: verification === "PASS_NEAR_LIMIT"
-				? "✅ 任务完成：验收 PASS_NEAR_LIMIT（误差接近阈值上限，勉强通过） · 交付 DELIVERED"
-				: "✅ 任务完成：验收 PASS · 交付 DELIVERED";
+		const head = `✅ 交付完成：已通过配置的验收检查 · 交付 DELIVERED（仅限声明的检查范围）${verification === "PASS_NEAR_LIMIT" ? "；误差接近阈值上限，勉强通过" : ""}`;
 		if (!artifactLines.length) return head + degraded;
 		return (
 			`${head}\n交付物：\n${artifactLines.join("\n")}${degraded}\n`

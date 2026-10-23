@@ -62,8 +62,8 @@ test("终态呈现器：PASS 带交付命令；PARTIAL 诚实无完成宣称", a
 			{ artifact_id: "art_m", open_command: "rosclaw artifact open art_m" },
 		],
 	});
-	assert.match(pass, /任务完成/);
-	assert.match(pass, /验收 PASS/);
+	assert.match(pass, /未确认任务目标达成/);
+	assert.doesNotMatch(pass, /任务完成|验收 PASS/);
 	assert.match(pass, /rosclaw artifact open art_g/);
 	assert.match(pass, /rosclaw artifact open art_m/);
 	const partial = renderTerminalReply({
@@ -84,7 +84,8 @@ test("终态呈现器：PASS 带交付命令；PARTIAL 诚实无完成宣称", a
 			{ artifact_id: "art_g", open_command: "rosclaw artifact open art_g" },
 		],
 	});
-	assert.match(degraded, /任务完成/);
+	assert.match(degraded, /未确认任务目标达成/);
+	assert.doesNotMatch(degraded, /任务完成/);
 	assert.match(degraded, /投影退化/);
 	// P0-5：PASS_NEAR_LIMIT 诚实标注（接近阈值 ≠ 干净 PASS）。
 	const nearLimit = renderTerminalReply({
@@ -147,7 +148,10 @@ test("watcher 终态：确定性呈现一次（display, 无 triggerTurn）+ 重�
 	assert.notEqual(sent[0].options.deliverAs, "followUp",
 		"终态呈现不得以 followUp 注入模型");
 	assert.equal(sent[0].display, true, "终态回复必须用户可见");
-	assert.match(sent[0].content, /任务完成：验收 PASS/);
+	// Legacy outcomes without scope remain visible once, without inventing
+	// semantic acceptance from PASS/DELIVERED alone.
+	assert.match(sent[0].content, /未确认任务目标达成/);
+	assert.doesNotMatch(sent[0].content, /任务完成|验收 PASS/);
 	assert.match(sent[0].content, /rosclaw artifact open art_g/);
 	// 重放不重发（不重不漏）。
 	await (watcher as never as { tick(): Promise<void> }).tick();
