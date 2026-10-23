@@ -9,14 +9,17 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
+import type { TerminalOutcome } from "../src/native/terminal-presenter.js";
 
-test("P0-6 PASS 呈现：文件名 + 打开命令 + 下一步（0902 R3-b：绝对路径进诊断层）", async () => {
+test("P0-6 scoped PASS 呈现：文件名 + 打开命令 + 下一步（0902 R3-b：绝对路径进诊断层）", async () => {
 	const { renderTerminalReply } = await import(
 		"../src/native/terminal-presenter.js"
 	);
 	const reply = renderTerminalReply({
 		verification: "PASS",
 		delivery: "DELIVERED",
+		verification_scope: "configured_acceptance",
+		task_semantic_verification: "CONFIGURED_CHECKS_ONLY",
 		artifact_refs: [
 			{
 				artifact_id: "art_g",
@@ -27,7 +30,9 @@ test("P0-6 PASS 呈现：文件名 + 打开命令 + 下一步（0902 R3-b：绝�
 			},
 		],
 	});
-	assert.match(reply, /任务完成/);
+	assert.match(reply, /交付完成/);
+	assert.match(reply, /仅限声明的检查范围/);
+	assert.doesNotMatch(reply, /任务完成/);
 	// 文件名（basename）。
 	assert.match(reply, /star-scene\.gif/);
 	// 打开命令仍在。
@@ -41,6 +46,8 @@ test("P0-6 PASS 呈现：文件名 + 打开命令 + 下一步（0902 R3-b：绝�
 	const verbose = renderTerminalReply({
 		verification: "PASS",
 		delivery: "DELIVERED",
+		verification_scope: "configured_acceptance",
+		task_semantic_verification: "CONFIGURED_CHECKS_ONLY",
 		artifact_refs: [
 			{
 				artifact_id: "art_g",
@@ -177,4 +184,70 @@ test("summary-only completion records a reply without claiming file delivery", a
 	assert.match(reply, /回复已记录/);
 	assert.match(reply, /尚未设置任务验收条件/);
 	assert.doesNotMatch(reply, /文件|交付完成|任务完成|验收 PASS/);
+});
+
+test("missing, unknown or conflicting scopes do not claim task acceptance", async () => {
+	const { renderTerminalReply } = await import("../src/native/terminal-presenter.js");
+	const variants: Partial<TerminalOutcome>[] = [
+		{},
+		{ verification_scope: "configured_acceptance" },
+		{ task_semantic_verification: "CONFIGURED_CHECKS_ONLY" },
+		{ verification_scope: "UNKNOWN", task_semantic_verification: "UNKNOWN" },
+		{ verification_scope: "", task_semantic_verification: "UNVERIFIED" },
+		{ verification_scope: "future_scope", task_semantic_verification: "VERIFIED" },
+		{ verification_scope: "artifact_integrity_only", task_semantic_verification: "CONFIGURED_CHECKS_ONLY" },
+		{ verification_scope: "artifact_integrity_only", task_semantic_verification: "VERIFIED" },
+		{ verification_scope: "configured_acceptance", task_semantic_verification: "UNVERIFIED" },
+		{ verification_scope: "summary_nonempty_only", task_semantic_verification: "VERIFIED" },
+	];
+	for (const variant of variants) {
+		const outcome: TerminalOutcome = {
+			verification: "PASS", delivery: "DELIVERED", lifecycle: "COMPLETED",
+			artifact_refs: [{ path: "/tmp/source.txt", open_command: "open source.txt" }],
+			...variant,
+		};
+		const before = structuredClone(outcome);
+		const reply = renderTerminalReply(outcome);
+		assert.match(reply, /验收范围未知或不一致/);
+		assert.match(reply, /未确认任务目标达成/);
+		assert.doesNotMatch(reply, /任务完成|已通过配置|已检查交付文件完整性/);
+		assert.match(reply, /source\.txt/);
+		assert.match(reply, /open source\.txt/);
+		assert.match(reply, /下一步/);
+		assert.deepEqual(outcome, before, "presentation must not change recorded outcome");
+	}
+});
+
+test("unknown scope retains near-limit, projection and verbose artifact details", async () => {
+	const { renderTerminalReply } = await import("../src/native/terminal-presenter.js");
+	const reply = renderTerminalReply({
+		verification: "PASS_NEAR_LIMIT", delivery: "DELIVERED",
+		workspace_projection: "DEGRADED",
+		artifact_refs: [{ path: "/tmp/review/source.txt", open_command: "open source.txt" }],
+	}, { verbose: true });
+	assert.match(reply, /未确认任务目标达成/);
+	assert.match(reply, /PASS_NEAR_LIMIT/);
+	assert.match(reply, /误差接近阈值上限/);
+	assert.match(reply, /工作区投影退化/);
+	assert.match(reply, /\/tmp\/review\/source\.txt/);
+	assert.match(reply, /open source\.txt/);
+	assert.match(reply, /下一步/);
+	assert.doesNotMatch(reply, /任务完成|已通过配置/);
+});
+
+test("configured scope variants retain limited acceptance and near-limit wording", async () => {
+	const { renderTerminalReply } = await import("../src/native/terminal-presenter.js");
+	for (const scope of ["configured_acceptance", "configured_acceptance_and_deliverables",
+		"declared_deliverables", "configured_criteria"]) {
+		const semantics = scope === "configured_criteria"
+			? ["CONFIGURED_CHECKS_ONLY", "VERIFIED"] : ["CONFIGURED_CHECKS_ONLY"];
+		for (const semantic of semantics) {
+			const reply = renderTerminalReply({ verification: "PASS_NEAR_LIMIT", delivery: "DELIVERED",
+				verification_scope: scope, task_semantic_verification: semantic });
+			assert.match(reply, /已通过配置的验收检查/);
+			assert.match(reply, /仅限声明的检查范围/);
+			assert.match(reply, /误差接近阈值上限，勉强通过/);
+			assert.doesNotMatch(reply, /任务完成|范围未知/);
+		}
+	}
 });
