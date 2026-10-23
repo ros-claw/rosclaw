@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from rosclaw.connectors.ros.diagnosis.engine import frame_connected
 from rosclaw.connectors.ros.intelligence import RosSystemModel
 
-from .semantics import SEMANTIC_TYPES, is_initial_pose_command
+from .semantics import SEMANTIC_TYPES, is_event_driven_slam_pose, is_initial_pose_command
 
 
 def resolve_capabilities(model: RosSystemModel, *, now: datetime | None = None) -> list[dict]:
@@ -39,6 +39,9 @@ def resolve_capabilities(model: RosSystemModel, *, now: datetime | None = None) 
                 return None
             if signal.rate_hz < minimum_rate:
                 return False
+        if (signal.publisher_count != 0 and signal.last_message_age_ms > signal.max_age_ms
+                and is_event_driven_slam_pose(model, interface, now=now)):
+            return None
         return signal.publisher_count != 0 and (
             signal.freshness_policy == "latched" or signal.last_message_age_ms <= signal.max_age_ms
         )
@@ -202,17 +205,39 @@ def resolve_capabilities(model: RosSystemModel, *, now: datetime | None = None) 
                 ),
                 None,
             )
-            requirements = {
-                "body.bound": bool(model.body.get("effective_body_hash")),
-                "service.typed": service is not None
-                and service.get("srv_type") == binding.get("srv_type") == "std_srvs/srv/SetBool",
-                "command.typed": binding.get("data") is (semantic == "cleaning.enable"),
-                "state.typed": None
-                if topic is None
-                else topic.get("msg_type") == binding.get("state_type") == "std_msgs/msg/Bool",
-                "state.fresh": None if topic is None else health(topic),
-                "snapshot.fresh": -100 <= model.age_ms(now) <= 5000,
-            }
+            if "msg_type" in binding and "srv_type" not in binding:
+                # Topic-backed cleaners are not SetBool services. Command
+                # endpoints can be hidden behind a canonical daemon bridge;
+                # absence in this read-only graph is UNKNOWN, not an invented
+                # service failure. A matching independent state binding is
+                # still required before reporting observation availability.
+                command = next(
+                    (t for t in model.graph.get("topics", []) if t.get("name") == binding.get("name")),
+                    None,
+                )
+                requirements = {
+                    "body.bound": bool(model.body.get("effective_body_hash")),
+                    "command.typed": binding.get("msg_type") == "std_msgs/msg/Bool"
+                    and (command is None or command.get("msg_type") == binding.get("msg_type")),
+                    "command.observable": None if command is None else True,
+                    "command.value_typed": binding.get("data") is (semantic == "cleaning.enable"),
+                    "state.typed": None if topic is None else
+                    topic.get("msg_type") == binding.get("state_type") == "std_msgs/msg/Bool",
+                    "state.fresh": None if topic is None else health(topic),
+                    "snapshot.fresh": -100 <= model.age_ms(now) <= 5000,
+                }
+            else:
+                requirements = {
+                    "body.bound": bool(model.body.get("effective_body_hash")),
+                    "service.typed": service is not None
+                    and service.get("srv_type") == binding.get("srv_type") == "std_srvs/srv/SetBool",
+                    "command.typed": binding.get("data") is (semantic == "cleaning.enable"),
+                    "state.typed": None
+                    if topic is None
+                    else topic.get("msg_type") == binding.get("state_type") == "std_msgs/msg/Bool",
+                    "state.fresh": None if topic is None else health(topic),
+                    "snapshot.fresh": -100 <= model.age_ms(now) <= 5000,
+                }
             status = (
                 "BLOCKED"
                 if False in requirements.values()

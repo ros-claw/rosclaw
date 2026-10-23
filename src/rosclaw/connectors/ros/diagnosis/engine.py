@@ -140,11 +140,18 @@ def diagnose(
                 {"topic": topic, "expected_type": expected_type, "observed_type": observed_type},
                 "Review Body topic binding and sensor conversion; verify type and QoS in isolation before changing a live graph.",
             )
-    from rosclaw.connectors.ros.resolver.semantics import is_initial_pose_command
+    from rosclaw.connectors.ros.resolver.semantics import (
+        bound_command_topics,
+        is_event_driven_slam_pose,
+        is_initial_pose_command,
+    )
 
     command_topics = {
         topic["name"] for topic in model.graph.get("topics", []) if is_initial_pose_command(topic)
     }
+    command_topics |= bound_command_topics(model)
+    interfaces_by_name = {t["name"]: t for t in model.graph.get("topics", [])}
+    event_pose_unknowns = []
     for signal in model.signals:
         if signal.topic in command_topics:
             continue
@@ -154,7 +161,12 @@ def diagnose(
             and signal.last_message_age_ms is not None
             and signal.last_message_age_ms > signal.max_age_ms
         ):
-            add("ROS_TOPIC_002", "sensors", data, "Inspect sensor freshness and upstream health.")
+            if is_event_driven_slam_pose(model, interfaces_by_name.get(signal.topic, {}), now=now):
+                event_pose_unknowns.append("event_pose:" + signal.topic)
+                add("ROS_POSE_EVENT_001", "sensors", data,
+                    "Scan-match pose is historical; fresh independent TF was observed. Pose freshness remains UNKNOWN.", "warning")
+            else:
+                add("ROS_TOPIC_002", "sensors", data, "Inspect sensor freshness and upstream health.")
         min_rate = model.body.get("minimum_rates", {}).get(signal.topic)
         if min_rate is not None and signal.rate_hz is not None and signal.rate_hz < min_rate:
             add("ROS_TOPIC_003", "sensors", data, "Inspect sensor rate and middleware losses.")
@@ -279,7 +291,7 @@ def diagnose(
         not edge.static and edge.age_ms is None for edge in model.transforms
     ):
         unknown.append("tf_timing")
-    unknown = sorted(set(unknown))
+    unknown = sorted(set(unknown) | set(event_pose_unknowns))
     status = (
         "BLOCKED"
         if any(i["severity"] == "blocking" for i in issues)
