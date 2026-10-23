@@ -400,3 +400,109 @@ def test_build_action_proposal_v2_semantic_source_and_authoritative() -> None:
     )
     assert proposal.semantic_source == "unknown"
     assert proposal.authoritative is False
+
+
+def test_temporal_future_override_and_valid_recovery() -> None:
+    contract = ObservationContract(id="temporal", policy={}, body={}, features={
+        "observation.state": ObservationFeature(max_age_ms=100),
+    })
+    feature = ObservationFeatureSnapshot(values=[1.0], captured_at_monotonic_ns=2_000_000_001)
+    snapshot = ObservationSnapshot(snapshot_id="t", captured_at_monotonic_ns=1_950_000_000,
+                                   features={"observation.state": feature})
+    rejected = validate_observation_snapshot(contract, snapshot, now_monotonic_ns=2_000_000_000)
+    assert rejected.status == "blocked"
+    assert rejected.errors[0]["code"] == "observation_capture_time_future"
+    assert rejected.age_ms_by_feature == {}
+    feature.captured_at_monotonic_ns = 1_950_000_000
+    repaired = validate_observation_snapshot(contract, snapshot, now_monotonic_ns=2_000_000_000)
+    assert repaired.status == "ok"
+    assert repaired.errors == []
+    assert repaired.age_ms_by_feature == {"observation.state": 50.0}
+    assert rejected.status == "blocked"
+
+
+def test_temporal_unknown_round_trip_and_legacy_zero() -> None:
+    snapshot = ObservationSnapshot(snapshot_id="unknown", captured_at_monotonic_ns=None,
+                                   receipt_at_monotonic_ns=2_000_000_000,
+                                   features={"observation.state": ObservationFeatureSnapshot(values=[1.0])})
+    restored = ObservationSnapshot.from_dict(snapshot.to_dict())
+    assert restored.captured_at_monotonic_ns is None
+    assert restored.receipt_at_monotonic_ns == 2_000_000_000
+    contract = ObservationContract(id="t", policy={}, body={}, features={
+        "observation.state": ObservationFeature(max_age_ms=100),
+    })
+    result = validate_observation_snapshot(contract, restored, now_monotonic_ns=2_000_000_000)
+    assert result.errors[0]["code"] == "observation_capture_time_missing"
+    assert result.age_ms_by_feature == {}
+    legacy = ObservationSnapshot.from_dict({"snapshot_id": "legacy", "features": {
+        "observation.state": {"values": [1.0]},
+    }})
+    assert legacy.captured_at_monotonic_ns == 0
+    assert legacy.receipt_at_monotonic_ns is None
+    stale = validate_observation_snapshot(contract, legacy, now_monotonic_ns=2_000_000_000)
+    assert stale.errors[0]["code"] == "observation_stale"
+
+
+def test_temporal_optional_failures_and_age_boundary() -> None:
+    contract = ObservationContract(id="t", policy={}, body={}, features={
+        "observation.state": ObservationFeature(required=False, max_age_ms=100),
+    })
+    snapshot = ObservationSnapshot(snapshot_id="t", captured_at_monotonic_ns=None,
+                                   features={"observation.state": ObservationFeatureSnapshot(values=[1.0])})
+    for capture in (None, 2_000_000_001, -1, True, "2000000000"):
+        snapshot.captured_at_monotonic_ns = capture
+        result = validate_observation_snapshot(contract, snapshot, now_monotonic_ns=2_000_000_000)
+        assert result.status == "ok"
+        assert result.errors == []
+        assert result.missing_optional_features == ["observation.state"]
+        assert result.age_ms_by_feature == {}
+    contract.features["observation.state"].required = True
+    snapshot.captured_at_monotonic_ns = 1_900_000_000
+    boundary = validate_observation_snapshot(contract, snapshot, now_monotonic_ns=2_000_000_000)
+    assert boundary.status == "ok"
+    snapshot.captured_at_monotonic_ns -= 1
+    assert validate_observation_snapshot(contract, snapshot, now_monotonic_ns=2_000_000_000).errors[0]["code"] == "observation_stale"
+
+
+def test_temporal_original_seven_positional_bindings_and_receipt_round_trip() -> None:
+    features = {"observation.state": ObservationFeatureSnapshot(values=[0.25])}
+    snapshot = ObservationSnapshot(
+        "legacy", "session", "body", 1_950_000_000,
+        "pick cube", features, "explicit-legacy-schema",
+    )
+    assert snapshot.snapshot_id == "legacy"
+    assert snapshot.session_id == "session"
+    assert snapshot.body_id == "body"
+    assert snapshot.captured_at_monotonic_ns == 1_950_000_000
+    assert snapshot.task == "pick cube"
+    assert snapshot.features is features
+    assert snapshot.schema_version == "explicit-legacy-schema"
+    assert snapshot.receipt_at_monotonic_ns is None
+    contract = ObservationContract(id="t", policy={}, body={}, features={
+        "observation.state": ObservationFeature(max_age_ms=100),
+    })
+    legacy_data = snapshot.to_dict()
+    del legacy_data["receipt_at_monotonic_ns"]
+    legacy = ObservationSnapshot.from_dict(legacy_data)
+    assert legacy.to_dict() == snapshot.to_dict()
+    assert validate_observation_snapshot(
+        contract, legacy, now_monotonic_ns=2_000_000_000,
+    ).age_ms_by_feature == {"observation.state": 50.0}
+
+    with_receipt = ObservationSnapshot(
+        "legacy", "session", "body", None, "pick cube", features,
+        "explicit-legacy-schema", receipt_at_monotonic_ns=2_000_000_000,
+    )
+    restored = ObservationSnapshot.from_dict(with_receipt.to_dict())
+    assert restored.to_dict() == with_receipt.to_dict()
+    assert restored.task == "pick cube"
+    assert restored.schema_version == "explicit-legacy-schema"
+    assert restored.receipt_at_monotonic_ns == 2_000_000_000
+    missing = validate_observation_snapshot(contract, restored, now_monotonic_ns=2_000_000_000)
+    assert missing.status == "blocked"
+    assert missing.errors == [{
+        "feature": "observation.state",
+        "code": "observation_capture_time_missing",
+        "message": "Source capture time for 'observation.state' is unknown.",
+    }]
+    assert missing.age_ms_by_feature == {}
