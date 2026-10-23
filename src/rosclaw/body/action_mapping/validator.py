@@ -22,7 +22,10 @@ def validate_action_mapping(mapping: ActionMapping) -> dict[str, Any]:
         status = "ok_with_conversion"
     elif mapping.compatibility == MappingCompatibility.PARTIAL:
         status = "blocked" if not mapping.allow_partial else "partial"
-    elif mapping.compatibility == MappingCompatibility.INCOMPATIBLE or mapping.compatibility == MappingCompatibility.UNKNOWN:
+    elif (
+        mapping.compatibility == MappingCompatibility.INCOMPATIBLE
+        or mapping.compatibility == MappingCompatibility.UNKNOWN
+    ):
         status = "blocked"
 
     joint_issues = [
@@ -62,32 +65,48 @@ def validate_mapped_action(
         issues.extend(mapped.block_reasons)
 
     values = mapped.body_action_values
-    for i, value in enumerate(values):
-        if math.isnan(value) or math.isinf(value):
-            issues.append(
-                f"Invalid value at index {i} (joint {mapped.body_joint_names[i]}): {value}"
-            )
+    names = mapped.body_joint_names
+    dim = len(names)
+    chunks = 1 if mapped.chunk_size is None else mapped.chunk_size
+    valid_chunks = type(chunks) is int and chunks > 0
+    if not valid_chunks:
+        issues.append("Invalid layout at $.chunk_size: expected a positive integer or null")
+    # The mapper's blocked empty result is a sentinel, not an executable layout.
+    empty_blocked = mapped.blocked and not values and not names
+    valid_names = bool(names) and all(isinstance(n, str) and n.strip() for n in names)
+    if valid_names:
+        valid_names = len(set(names)) == dim
+    if not valid_names and not empty_blocked:
+        issues.append("Invalid layout at $.body_joint_names: expected nonempty unique joint names")
+    valid_size = valid_chunks and len(values) == dim * chunks
+    if not valid_size:
+        issues.append(
+            f"Invalid layout at $.body_action_values: {len(values)} values for "
+            f"{dim} joints and chunk_size={mapped.chunk_size}"
+        )
 
-    if joint_limits:
-        dim = len(mapped.body_joint_names)
-        chunks = mapped.chunk_size or 1
-        for chunk_idx in range(chunks):
-            offset = chunk_idx * dim
-            for j_idx, joint_name in enumerate(mapped.body_joint_names):
-                value = values[offset + j_idx]
-                limits = joint_limits.get(joint_name, {})
-                lower = limits.get("lower")
-                upper = limits.get("upper")
-                if lower is not None and value < lower:
-                    issues.append(
-                        f"Joint {joint_name} chunk {chunk_idx} below lower limit: "
-                        f"{value} < {lower}"
-                    )
-                if upper is not None and value > upper:
-                    issues.append(
-                        f"Joint {joint_name} chunk {chunk_idx} above upper limit: "
-                        f"{value} > {upper}"
-                    )
+    for i, value in enumerate(values):
+        if not math.isfinite(value):
+            location = f"joint {names[i % dim]}, chunk {i // dim}" if dim else "no joint name"
+            issues.append(
+                f"Invalid value at index {i} ($.body_action_values[{i}], {location}): {value}"
+            )
+            continue
+        # Do not interpret limits against an ambiguous or incomplete layout.
+        if joint_limits and valid_names and valid_size:
+            joint_name = names[i % dim]
+            chunk_idx = i // dim
+            limits = joint_limits.get(joint_name, {})
+            lower = limits.get("lower")
+            upper = limits.get("upper")
+            if lower is not None and value < lower:
+                issues.append(
+                    f"Joint {joint_name} chunk {chunk_idx} below lower limit: {value} < {lower}"
+                )
+            if upper is not None and value > upper:
+                issues.append(
+                    f"Joint {joint_name} chunk {chunk_idx} above upper limit: {value} > {upper}"
+                )
 
     return {
         "blocked": mapped.blocked or bool(issues),

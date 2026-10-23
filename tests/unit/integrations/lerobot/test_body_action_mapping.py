@@ -39,11 +39,18 @@ def exact_body_space() -> BodyActionSpace:
 
 
 def test_resolve_body_action_space_from_list() -> None:
-    body = type("Body", (), {"profile_id": "b", "joints": [
-        {"name": "j1", "type": "revolute", "limits": {"lower": -1, "upper": 1}},
-        {"name": "j2", "type": "prismatic", "limits": {"lower": 0, "upper": 0.5}},
-        {"name": "fixed", "type": "fixed"},
-    ]})()
+    body = type(
+        "Body",
+        (),
+        {
+            "profile_id": "b",
+            "joints": [
+                {"name": "j1", "type": "revolute", "limits": {"lower": -1, "upper": 1}},
+                {"name": "j2", "type": "prismatic", "limits": {"lower": 0, "upper": 0.5}},
+                {"name": "fixed", "type": "fixed"},
+            ],
+        },
+    )()
     space = resolve_body_action_space(body)
     assert space.body_id == "b"
     assert space.joint_names == ["j1", "j2"]
@@ -208,7 +215,12 @@ def test_validate_mapped_action_detects_nan() -> None:
         [0.1, float("nan")],
         generate_action_mapping(
             ActionSpace(representation="joint_position", names=["j1", "j2"], units=["rad", "rad"]),
-            BodyActionSpace(body_id="b", representation="joint_position", joint_names=["j1", "j2"], units=["rad", "rad"]),
+            BodyActionSpace(
+                body_id="b",
+                representation="joint_position",
+                joint_names=["j1", "j2"],
+                units=["rad", "rad"],
+            ),
         ),
     )
     report = validate_mapped_action(mapped)
@@ -238,3 +250,94 @@ def test_map_action_proposal_v2() -> None:
     mapped = map_action_proposal_to_body(proposal, mapping)
     assert not mapped.blocked
     assert mapped.body_action_values == [0.5, -0.5]
+
+
+# Source-only regressions; Root executes baseline and repaired products separately.
+def test_h35_late_chunk_nonfinite_and_recovery():
+    from rosclaw.body.action_mapping.mapper import generate_action_mapping, map_action_to_body
+    from rosclaw.body.action_mapping.schema import ActionSpace, BodyActionSpace
+    from rosclaw.body.action_mapping.validator import validate_mapped_action
+
+    mapping = generate_action_mapping(
+        ActionSpace(representation="joint_position", names=["b", "a"], units=["rad", "rad"]),
+        BodyActionSpace(body_id="synthetic", joint_names=["a", "b"], units=["rad", "rad"]),
+    )
+    limits = {"a": {"lower": -1.0, "upper": 1.0}}
+    for bad in (float("nan"), float("inf"), -float("inf")):
+        for optional_limits in (None, limits):
+            mapped = map_action_to_body([0.1, 0.2, 0.3, bad], mapping, chunk_size=2)
+            report = validate_mapped_action(mapped, joint_limits=optional_limits)
+            assert report["blocked"] is True
+            assert report["compatibility"] == "exact"
+            assert any(
+                "Invalid value" in s and "index 2" in s and "joint a" in s and "chunk 1" in s
+                for s in report["issues"]
+            )
+            clean = map_action_to_body([0.1, 0.2, 0.3, 0.4], mapping, chunk_size=2)
+            assert clean.body_action_values == [0.2, 0.1, 0.4, 0.3]
+            assert validate_mapped_action(clean, joint_limits=optional_limits)["blocked"] is False
+
+
+def test_h35_malformed_layouts_with_and_without_limits():
+    from rosclaw.body.action_mapping.schema import MappedAction, MappingCompatibility
+    from rosclaw.body.action_mapping.validator import validate_mapped_action
+
+    cases = [
+        ([0.1], ["a", "b"], None),
+        ([0.1, 0.2, 0.3], ["a", "b"], 2),
+        ([0.1, 0.2, 0.3, 0.4], ["a", "b"], None),
+        ([float("nan")], [], None),
+        ([], ["a"], 1),
+        ([0.1], ["a"], 0),
+        ([0.1], ["a"], -1),
+        ([0.1], ["a"], 1.5),
+        ([0.1], ["a"], True),
+        ([0.1, 0.2], ["a", "a"], 1),
+        ([0.1], [""], 1),
+    ]
+    for values, names, chunks in cases:
+        for limits in (None, {"a": {"lower": -1.0, "upper": 1.0}}):
+            mapped = MappedAction(
+                values,
+                names,
+                MappingCompatibility.EXACT,
+                False,
+                [],
+                ["retained warning"],
+                chunk_size=chunks,
+            )
+            report = validate_mapped_action(mapped, joint_limits=limits)
+            assert report["blocked"] is True, (values, names, chunks)
+            assert any("layout" in issue.lower() for issue in report["issues"])
+            assert report["warnings"] == ["retained warning"]
+            assert report["compatibility"] == "exact"
+
+
+def test_h35_finite_limits_conversion_partial_and_blocked_sentinel():
+    from rosclaw.body.action_mapping.mapper import generate_action_mapping, map_action_to_body
+    from rosclaw.body.action_mapping.schema import ActionSpace, BodyActionSpace
+    from rosclaw.body.action_mapping.validator import validate_mapped_action
+
+    mapping = generate_action_mapping(
+        ActionSpace(representation="joint_position", names=["a"], units=["deg"]),
+        BodyActionSpace(body_id="synthetic", joint_names=["a", "b"], units=["rad", "rad"]),
+        allow_partial=True,
+    )
+    limits = {"a": {"lower": -2.0, "upper": 2.0}}
+    for chunks in (None, 1, 2):
+        values = [90.0] * (chunks or 1)
+        mapped = map_action_to_body(values, mapping, chunk_size=chunks)
+        assert mapped.body_action_values == [math.pi / 2, 0.0] * (chunks or 1)
+        report = validate_mapped_action(mapped, joint_limits=limits)
+        assert report["blocked"] is False
+        assert report["compatibility"] == "partial"
+        assert report["warnings"] == mapping.warnings
+    for value, direction in ((180.0, "above upper"), (-180.0, "below lower")):
+        mapped = map_action_to_body([0.0, value], mapping, chunk_size=2)
+        report = validate_mapped_action(mapped, joint_limits=limits)
+        assert report["blocked"] is True
+        assert any(direction in s and "chunk 1" in s for s in report["issues"])
+    blocked = map_action_to_body([], mapping)
+    report = validate_mapped_action(blocked, joint_limits=limits)
+    assert report["blocked"] is True
+    assert report["issues"] == blocked.block_reasons
