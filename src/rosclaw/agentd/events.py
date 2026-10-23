@@ -201,6 +201,30 @@ class AgentEventStore:
         rows = self._conn.execute(query, params).fetchall()
         return [self._row_to_event(r) for r in rows]
 
+    def receipt_events(
+        self, mission_id: str, *, receipt_id: str | None = None, limit: int = 3,
+    ) -> list[AgentEventV2]:
+        """Read committed receipts, independent of unrelated journal traffic.
+
+        An explicit receipt_id takes precedence over legacy action_id. Keep
+        mission isolation and return the latest selected rows chronologically.
+        """
+        if not 1 <= limit <= 1000:
+            raise ValueError("receipt query limit must be 1..1000")
+        query = "SELECT * FROM agent_events WHERE mission_id = ? AND type = ?"
+        parameters: list = [mission_id, AgentEventType.RECEIPT_RECEIVED.value]
+        if receipt_id is not None:
+            if not receipt_id:
+                return []
+            query += (
+                " AND COALESCE(NULLIF(json_extract(payload_json, '$.receipt_id'), ''),"
+                " json_extract(payload_json, '$.action_id')) = ?"
+            )
+            parameters.append(receipt_id)
+        query += " ORDER BY sequence DESC LIMIT ?"
+        parameters.append(limit)
+        return [self._row_to_event(row) for row in reversed(self._conn.execute(query, parameters).fetchall())]
+
     def latest_sequence(self, mission_id: str) -> int:
         row = self._conn.execute(
             "SELECT COALESCE(MAX(sequence), 0) AS s FROM agent_events WHERE mission_id = ?",

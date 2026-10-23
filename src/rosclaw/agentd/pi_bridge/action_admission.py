@@ -1015,7 +1015,7 @@ class ActionAdmissionService:
         # receipt_id 的旧 daemon 路径按 action_id 兜底匹配。
         receipt_ok = False
         if receipt_id:
-            events = service.events_replay(stored.mission_id, limit=50)
+            events = service.receipt_events(stored.mission_id, receipt_id=receipt_id, limit=1)
             for e in events:
                 if e.type.value != "receipt.received":
                     continue

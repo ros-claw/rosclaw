@@ -577,7 +577,7 @@ class PiToolDispatcher:
         if name == "rosclaw_verify":
             receipts = [
                 e.payload
-                for e in service.events_replay(request.mission_id, limit=200)
+                for e in service.receipt_events(request.mission_id, limit=3)
                 if e.type.value == "receipt.received"
             ]
             return PiToolResultV1(
@@ -881,10 +881,9 @@ class PiToolDispatcher:
             status="STARTED",
             summary=(
                 f"Operation 已启动：{op['operation_id']}（后台运行）。"
-                "现在请直接结束回合：告诉用户任务正在后台执行——完成"
-                "结果会自动推送给用户（OperationWatcher 一次性通知，"
-                "含结果）。不要 sleep 等待、不要反复 process_output "
-                "轮询：完成推送会带结果，轮询只会把回合拖进停滞误判。"
+                "可继续不依赖该进程终态的独立工作；只有后续工作依赖完成结果时，"
+                "才结束回合等待一次性终态通知。不要 sleep 或反复轮询来等待。"
+                "启动不等于完成；进程应有有限寿命，或在最终交付前通过 process_stop 收尾。"
             ),
         )
 

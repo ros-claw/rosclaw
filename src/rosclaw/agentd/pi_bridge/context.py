@@ -71,7 +71,7 @@ def build_embodied_context(service: AgentService, mission_id: str) -> EmbodiedCo
         active_actions=[],
         receipts=[
             e.payload
-            for e in service.events_replay(mission_id, limit=50)
+            for e in service.receipt_events(mission_id, limit=3)
             if e.type.value == "receipt.received"
         ][-3:],
         workers=[

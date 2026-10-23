@@ -342,6 +342,9 @@ class AgentService:
     def events_replay(self, mission_id: str, *, after_sequence: int = 0, limit: int = 1000):
         return self._events.replay(mission_id, after_sequence=after_sequence, limit=limit)
 
+    def receipt_events(self, mission_id: str, *, receipt_id: str | None = None, limit: int = 3):
+        return self._events.receipt_events(mission_id, receipt_id=receipt_id, limit=limit)
+
     def events_subscribe(self, mission_id: str) -> asyncio.Queue:
         return self._events.bus.subscribe(mission_id)
 
