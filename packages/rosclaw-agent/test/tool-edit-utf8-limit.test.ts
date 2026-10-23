@@ -55,6 +55,9 @@ for (const [label, oldText, newText] of [
         else {
             assert.throws(() => f.call(args), error => {
                 assert.match((error as Error).message, /EDIT_UTF8_LIMIT_REJECTED.*split/);
+                assert.ok((error as Error).message.includes(`oldText=${Buffer.byteLength(oldText)}B newText=${Buffer.byteLength(newText)}B total=${bytes}B; total must be < 24576B`));
+                assert.match((error as Error).message, /charged once \(used edit calls=1, used total calls=1\); no edit executed and no call refunded/);
+                assert.match((error as Error).message, /current file, each with UTF8\(oldText\)\+UTF8\(newText\) <= 24575B/);
                 assert.equal(notice((error as Error).message).usedTotal, 1);
                 return true;
             });

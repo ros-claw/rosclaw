@@ -522,7 +522,7 @@ export function createToolCallBudgetExtension(policy: ToolCallBudget, workspaceR
                             const newBytes = Buffer.byteLength(finalInput.newText, "utf8");
                             // Subtraction preserves an exact comparison without summing overflow.
                             if (oldBytes >= editUtf8Limit || newBytes >= editUtf8Limit - oldBytes)
-                                throw new Error(blocked(`TOOL_CALL_BUDGET_EDIT_UTF8_LIMIT_REJECTED: oldText=${oldBytes}B newText=${newBytes}B; sum must be < ${editUtf8Limit}B. No edit executed; split into smaller exact edits.`).reason);
+                                throw new Error(blocked(`TOOL_CALL_BUDGET_EDIT_UTF8_LIMIT_REJECTED: oldText=${oldBytes}B newText=${newBytes}B total=${oldBytes + newBytes}B; total must be < ${editUtf8Limit}B. This attempt was charged once (used edit calls=${counts.get("edit") ?? 0}, used total calls=${total}); no edit executed and no call refunded. Do not resubmit the oversized edit; split it into multiple smaller exact edits against the current file, each with UTF8(oldText)+UTF8(newText) <= ${editUtf8Limit - 1}B. Each admitted edit attempt consumes another call.`).reason);
                         }
                         return tool.execute(id, finalInput, signal, onUpdate, ctx);
                     } };
