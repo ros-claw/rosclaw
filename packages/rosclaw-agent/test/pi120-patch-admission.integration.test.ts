@@ -98,7 +98,7 @@ test("1.2.0 startRun literal admits only reviewed bodies and preserves the const
     const patch = literal("PI120_START_RUN_COMPAT_PATCH");
     const forced = literal("PI120_FORCED_PROMPT_COMPAT_PATCH");
     assert.deepEqual(Object.keys(patch).sort(), ["anchor", "method", "replacement", "target", "version"]);
-    assert.equal(patch.version, "1.3.0");
+    assert.equal(patch.version, "1.4.0");
     assert.equal(patch.method, "_startRun");
     assert.equal(patch.target, "@earendil-works/pi-coding-agent/dist/core/agent-session.js");
     // Independent official 1.2.0 _startRun body (verbatim, not derived from the replacement).

@@ -57,7 +57,7 @@ const PI120_FORCED_PROMPT_COMPAT_PATCH = {
 // No run exists when onStarted throws: do not synthesize agent_settled.
 const PI120_START_RUN_COMPAT_PATCH = {
 	target: "@earendil-works/pi-coding-agent/dist/core/agent-session.js",
-	version: "1.3.0",
+	version: "1.4.0",
 	method: "_startRun",
 	anchor: `{
         this._isAgentRunActive = true;

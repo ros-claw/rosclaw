@@ -49,7 +49,7 @@ function pin130() {
     for (const root of [agentRoot, aiRoot]) {
         const manifest = json(join(root, "package.json"));
         object(manifest);
-        assert.equal(manifest.version, "1.3.0", "never qualify the old SDK with new test names");
+        assert.equal(manifest.version, "1.4.0", "never qualify the old SDK with new test names");
     }
 }
 async function fixture() {
