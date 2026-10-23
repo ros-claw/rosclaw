@@ -71,6 +71,18 @@ test("per-LLM Pi context hook is wired and fails closed on unavailable observati
 	assert.match(JSON.stringify(result), /each_model_request/);
 });
 
+test("Pi tool-result hook marks canonical rejection as an error without losing receipt details", async () => {
+	const { handlers } = await collectHandlers();
+	const hook = handlers.get("tool_result"); assert.ok(hook);
+	const details = { ok: false, status: "REJECTED", error_code: "NEEDS_REPLAN", action_id: null };
+	assert.deepEqual(await hook({ toolName: "rosclaw_request_action", details, isError: false }, {}), { isError: true });
+	assert.deepEqual(await hook({ toolName: "propose_navigation", details, isError: false }, {}), { isError: true });
+	assert.deepEqual(await hook({ toolName: "rosclaw_request_action", details: { ok: true, status: "COMPLETED" } }, {}), undefined);
+	assert.deepEqual(await hook({ toolName: "rosclaw_request_action", details: { ok: false, status: "DECLINED" } }, {}), undefined);
+	assert.deepEqual(await hook({ toolName: "read", details, isError: false }, {}), undefined);
+	assert.equal(details.error_code, "NEEDS_REPLAN");
+});
+
 test("user_bash is fully replaced by a policy refusal (PNA-0 safety)", async () => {
 	const { handlers } = await collectHandlers();
 	const handler = handlers.get("user_bash");

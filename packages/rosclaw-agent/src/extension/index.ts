@@ -649,6 +649,16 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			rosclawHome: options.rosclawHome, active: options.active, center,
 		}, event.messages) }));
 
+		// Pi does not interpret an extra `isError` field returned by execute().
+		// Preserve the structured receipt and use its supported result hook.
+		pi.on("tool_result", async (event) => {
+			if (event.toolName !== "rosclaw_request_action" && !event.toolName.startsWith("propose_")) return;
+			const details = (event.details ?? {}) as Record<string, unknown>;
+			if (details.ok === false && ["REJECTED", "FAILED"].includes(String(details.status))) {
+				return { isError: true };
+			}
+		});
+
 		// -- 每轮注入最新具身上下文（PNA-2，规格 §14.2） ---------------------------
 		pi.on("before_agent_start", async (event, ctx) => {
 			// PR-N5D：回合开始前刷新物化工具面（digest 未变则零成本）。
