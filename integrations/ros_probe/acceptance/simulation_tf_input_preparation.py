@@ -7,8 +7,37 @@ The external operator independently binds and reviews each original capture.
 import hashlib
 import json
 import os
+from collections import deque
 from datetime import UTC, datetime
 from pathlib import Path
+
+
+def original_ecm_tail(root):
+    """Copy unmodified recent records; external review must verify the full chain."""
+    paths = [root / "ecm-original.jsonl"] + sorted(root.glob("ecm-original.jsonl.segment-*.jsonl"))
+    if len(paths) > 8:
+        raise ValueError("registered source stream segment budget exceeded")
+    records = deque(maxlen=64)
+    references = []
+    for index, path in enumerate(paths):
+        expected = (
+            "ecm-original.jsonl" if index == 0 else f"ecm-original.jsonl.segment-{index:06}.jsonl"
+        )
+        if path.name != expected or path.is_symlink() or path.stat().st_size > 15_000_000:
+            raise ValueError("original bounded contiguous source segments required")
+        raw = path.read_bytes()
+        complete = raw[: raw.rfind(b"\n") + 1]
+        references.append(
+            {
+                "file": path.name,
+                "prefix_bytes": len(complete),
+                "prefix_sha256": hashlib.sha256(complete).hexdigest(),
+            }
+        )
+        records.extend(complete.splitlines(keepends=True))
+    if len(records) < 2:
+        raise ValueError("advancing original source capture required")
+    return b"".join(records), references
 
 
 def validate_policy(settings, *, isolated):
@@ -185,8 +214,8 @@ def capture_tf_inputs(root, settings, state, node, spin_until, save):
         save(prefix + "-system.json", model)
         save(prefix + "-native.json", native)
         save(prefix + "-physics.json", physics)
-        raw = (root / "ecm-original.jsonl").read_bytes()
-        raw = raw[: raw.rfind(b"\n") + 1]
+        raw, references = original_ecm_tail(root)
+        save(prefix + "-ecm-original-prefix-refs.json", references)
         with (root / (prefix + "-ecm.jsonl")).open("xb") as f:
             f.write(raw)
         save(

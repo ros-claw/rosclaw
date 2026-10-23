@@ -46,3 +46,12 @@ Engineering Case TF freshness is aligned with the existing declared transform
 future tolerance used by diagnosis and Operational Graph. The 500 ms stale bound
 and capture freshness remain unchanged. Future stamps outside the declared
 bound, stale facts and competing authority remain unaccepted.
+
+Preparation v1 stopped on seed 101 after both healthy goals passed: the new
+capture used segment 0 after ECM rollover, so independent Source review correctly
+refused stale evidence. No fault was injected. Preserve this attempt. Forward
+preparation v2 registers two new Worlds, captures the latest 64 original records
+across bounded segments, and independently checks the full original hash chain
+from the initially admitted prefix using the existing SourceStreamReader. It
+does not relax freshness or continuity. These preparation failures and later
+successes must remain separate; no model trial is rerun.

@@ -4,7 +4,10 @@ from copy import deepcopy
 
 import pytest
 
-from integrations.ros_probe.acceptance.simulation_tf_input_preparation import validate_policy
+from integrations.ros_probe.acceptance.simulation_tf_input_preparation import (
+    original_ecm_tail,
+    validate_policy,
+)
 
 
 def settings():
@@ -65,3 +68,22 @@ def test_invalid_context_never_reaches_native_access(mutation):
         value["fault"] = "other"
     with pytest.raises(ValueError, match="closed isolated"):
         validate_policy(value, isolated=isolated)
+
+
+def test_capture_includes_current_segment_without_changing_any_original(tmp_path):
+    first = b"".join((str(i) + "\n").encode() for i in range(200))
+    current = b"".join((str(i) + "\n").encode() for i in range(200, 210))
+    (tmp_path / "ecm-original.jsonl").write_bytes(first)
+    last = tmp_path / "ecm-original.jsonl.segment-000001.jsonl"
+    last.write_bytes(current + b"partial")
+    tail, refs = original_ecm_tail(tmp_path)
+    assert tail.splitlines() == [str(i).encode() for i in range(146, 210)]
+    assert refs[-1]["prefix_bytes"] == len(current)
+    assert last.read_bytes() == current + b"partial"
+
+
+def test_capture_refuses_a_gap_in_source_segments(tmp_path):
+    (tmp_path / "ecm-original.jsonl").write_bytes(b"one\ntwo\n")
+    (tmp_path / "ecm-original.jsonl.segment-000002.jsonl").write_bytes(b"three\n")
+    with pytest.raises(ValueError, match="contiguous"):
+        original_ecm_tail(tmp_path)
