@@ -58,8 +58,18 @@ async function collectHandlers() {
 	const locale = new LocaleManager("/tmp/rh-test/agent");
 	const factory = createRosclawExtension({ profile: "developer", version: "0.1.0", systemPrompt: "TEST PROMPT", active, coordinator, center, locale, rosclawHome: "/tmp/rh-test", taskContext: resolveTaskContext({ rosclawHome: "/tmp/rh-test", cwd: "/tmp", mode: "SIMULATION" }) });
 	factory(pi as never);
-	return { handlers, commands };
+	return { handlers, commands, active };
 }
+
+test("per-LLM Pi context hook is wired and fails closed on unavailable observations", async () => {
+	const { handlers, active } = await collectHandlers();
+	active.patch({ missionId: "mission", contextState: "FRESH", leaseState: "ACTIVE", contextLeaseId: "old" });
+	const hook = handlers.get("context");
+	assert.ok(hook);
+	const result = await hook({ messages: [] }, {});
+	assert.equal(active.current.actionsAllowed, false);
+	assert.match(JSON.stringify(result), /each_model_request/);
+});
 
 test("user_bash is fully replaced by a policy refusal (PNA-0 safety)", async () => {
 	const { handlers } = await collectHandlers();

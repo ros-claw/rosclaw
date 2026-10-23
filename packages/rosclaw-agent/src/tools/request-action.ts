@@ -10,7 +10,7 @@
 
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
-import { fetchEmbodiedContext } from "../extension/context-injection.js";
+import { fetchEmbodiedContext, renderTrustedContext } from "../extension/context-injection.js";
 import type { BridgeToolContext } from "./bridge-tools.js";
 
 const AWAIT_TIMEOUT_MS = 330_000;
@@ -81,6 +81,29 @@ export function buildRequestActionTool(ctx: BridgeToolContext, snapshotDigest?: 
 				risk_tier: String(params.risk_tier ?? "LOW"),
 			};
 			let proposed = await ctx.center.call("pi.action.propose", { ...requestContext, ...proposal });
+			// A changed, expired observation requires a NEW model decision. Reading
+			// get_body_state does not renew this tool's hidden context lease. Return
+			// a freshly verified observation without replaying the rejected intent.
+			let replanObservation: { refreshed: boolean; content?: string } | undefined;
+			if (!proposed.ok && proposed.code === "NEEDS_REPLAN" && !proposed.card
+				&& state.mode === "SIMULATION" && state.missionId) {
+				const prior = state;
+				const fetched = await fetchEmbodiedContext(ctx.rosclawHome, state.missionId, state.sessionId,
+					(_home, method, parameters) => ctx.center.call(method, parameters));
+				if (!fetched.stale && fetched.envelope && fetched.contextLeaseId
+					&& fetched.contextLeaseExpiresAt && Date.parse(fetched.contextLeaseExpiresAt) > Date.now()
+					&& fetched.envelope.body.effective_body_hash === prior.bodyHash
+					&& fetched.envelope.body.body_id === prior.bodyId
+					&& fetched.envelope.safety.mode === prior.mode && fetched.envelope.mission_id === prior.missionId
+					&& ctx.active.current.sessionId === prior.sessionId && ctx.active.current.missionId === prior.missionId
+					&& ctx.active.current.bodyHash === prior.bodyHash && ctx.active.current.mode === prior.mode) {
+					ctx.active.applyEnvelope(fetched.envelope, fetched.contextLeaseId);
+					replanObservation = { refreshed: true, content: renderTrustedContext(fetched) };
+				} else {
+					ctx.active.markContextStale(fetched.note || "Replan context could not be refreshed without changing its binding");
+					replanObservation = { refreshed: false };
+				}
+			}
 			// A readiness change can invalidate a lease during model deliberation.
 			// Refresh only a rejected, card-free SIM proposal; never reuse approval
 			// or retry execution. Body, mission, session and mode must stay bound.
@@ -114,7 +137,10 @@ export function buildRequestActionTool(ctx: BridgeToolContext, snapshotDigest?: 
 					content: [
 						{
 							type: "text" as const,
-							text: `动作提案被拒 [${String(proposed.code ?? "")}]: ${String(proposed.error ?? "")}`,
+							text: `动作提案被拒 [${String(proposed.code ?? "")}]: ${String(proposed.error ?? "")}`
+								+ (replanObservation?.refreshed
+									? "\nThe rejected action was NOT executed or retried. Re-observe this fresh authoritative context, reconsider the action, and submit a NEW proposal only if it remains justified.\n" + replanObservation.content
+									: ""),
 						},
 					],
 					details: {
@@ -122,6 +148,7 @@ export function buildRequestActionTool(ctx: BridgeToolContext, snapshotDigest?: 
 						status: "REJECTED",
 						capability_id: capabilityId,
 						error_code: String(proposed.code ?? "PROPOSE_REJECTED"),
+						...(replanObservation ? { context_refreshed: replanObservation.refreshed, replan_required: true } : {}),
 					},
 					isError: true,
 				};

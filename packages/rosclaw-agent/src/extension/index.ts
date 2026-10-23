@@ -56,6 +56,7 @@ import { guardInput } from "./input-guard.js";
 import { materializeCapabilityTools, type CapabilitySnapshot } from "../tools/materialize.js";
 import { MODEL_TOOL_NAMES } from "../tools/surface.js";
 import { fetchEmbodiedContext, renderTrustedContext } from "./context-injection.js";
+import { refreshModelContext } from "../harness/pi/model-context.js";
 import { registerCompactAnchor } from "./compact-anchor.js";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { phaseWorkingMessage } from "./activity.js";
@@ -641,6 +642,12 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				options.active.markContextStale(fetched.note);
 			}
 		});
+
+		// Pi's before_agent_start runs once per prompt, not once per LLM call.
+		// Refresh AFTER all parallel tools finish and before the next decision.
+		pi.on("context", async (event) => ({ messages: await refreshModelContext({
+			rosclawHome: options.rosclawHome, active: options.active, center,
+		}, event.messages) }));
 
 		// -- 每轮注入最新具身上下文（PNA-2，规格 §14.2） ---------------------------
 		pi.on("before_agent_start", async (event, ctx) => {
