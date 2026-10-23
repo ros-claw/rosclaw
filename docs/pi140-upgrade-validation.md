@@ -26,7 +26,7 @@ tools, and normal quit again. All captured processes exited without signals.
 Three real requests used 5,543 inclusive input tokens and 107 output tokens;
 the entire worker took 47.61 seconds. These are observed usage, not a billing
 bound. Compaction and truncated-response recovery remain untested live.
-This isolated candidate does not activate an existing default runtime.
+The isolated read/resume smoke itself did not activate a default; the ordinary launcher was subsequently switched to this candidate after verification.
 
 Primary release sources:
 - https://registry.npmjs.org/@earendil-works/pi-coding-agent/1.4.0
@@ -40,3 +40,28 @@ Exact byte copies also live under the persistent tennis audit directory in
 The live receipt and independent Root transcript checks are in
 `ROOT_PI140_TRUE_CLI_READ_SAME_UUID_RESUME_ACTUAL_20261023_v1`.
 Private credentials and raw session reasoning are excluded from publication.
+
+## Ordinary launcher nonzero-result observation
+
+After Root restored the ordinary ROSClaw launcher, a separate finite CLI probe
+used `gpt-6.1-sol` at high effort and admitted exactly one bash command, `exit 7`.
+The closed session persisted `toolResult.isError: true`, executor `exitCode: 7`,
+no signal, timeout or abort, and the correct final answer `PI140_BASH_EXIT_7`.
+The product quit normally and all explicitly captured processes were gone
+without cleanup signals. Two real requests used 3,597 inclusive input tokens
+and 31 output tokens; these are observed usage, not a provider billing bound.
+
+The original probe and its supervisor remain **CLOSED1**, not PASS. Its first
+assertion incorrectly required the exit header at text position zero: the
+installed product correctly prepended its source-declared SIM sandbox-degraded
+notice. Its postcheck also incorrectly required an empty workspace despite
+product-owned telemetry. A separate closed-evidence review checked the original
+persisted result and these two harness mismatches; it did not rerun the model or
+rewrite the failed receipt. The SIM shell was explicitly not OS sandboxed.
+
+This is one current-runtime nonzero-exit observation, not proof that every
+historical error, cancellation or timeout path is fixed. It does not establish
+robot, SDK, physics, compaction or recovery capability. Safe selected metadata
+is retained outside the checkout in
+`ROOT_PI140_CLOSED_ORDINARY_EXIT7_INDEPENDENT_VISIBLE_FACTS_NOT_PROBE_PASS_DURABLE_20261023_v1/INDEPENDENT_CLOSED_REAL_BASH_EXIT7_VISIBLE_FACTS_NOT_REGRADE.json`;
+private credentials, raw session reasoning and runtime authority are excluded.
