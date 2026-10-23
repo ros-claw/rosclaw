@@ -80,6 +80,13 @@ def observer_facts():
 
 def main():
     settings = json.loads(Path("/settings.json").read_text())
+    if "tf_input_preparation" in settings:
+        from simulation_tf_input_preparation import validate_policy
+
+        validate_policy(
+            settings,
+            isolated=Path("/.dockerenv").is_file() and os.getenv("ROS_LOCALHOST_ONLY") == "1",
+        )
     from simulation_engineering_capture import validate_engineering_capture
 
     engineering_capture = validate_engineering_capture(settings)
@@ -820,6 +827,10 @@ def main():
         if type(live_seconds) is not int or not 0 <= live_seconds <= 120:
             raise ValueError("bounded read-only continuity supervision window required")
         spin_until(lambda: (OUT / "host_capture_ack.json").exists(), 20 + live_seconds)
+        if "tf_input_preparation" in settings:
+            from simulation_tf_input_preparation import capture_tf_inputs
+
+            capture_tf_inputs(OUT, settings, state, node, spin_until, save)
         print(
             json.dumps(
                 {
