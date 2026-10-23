@@ -19,8 +19,14 @@ resume behavior. ROSClaw's opt-in model request admission rejects summary
 dispatch and disables cache warming/retries. Without that policy, summaries
 can become larger. Neither local admission nor the observer proves a provider
 billing or remote output limit. Offline tests do not establish live ChatGPT
-quota handling, summary behavior, or robot capability. Live read/resume smoke
-validation is pending. This candidate does not activate an existing runtime.
+quota handling, summary behavior, or robot capability. A real ROSClaw Python CLI smoke on code commit `fc19a84d6f9bc6455b64cf0d0dfdae76fcb8ab4c`
+subsequently passed with ChatGPT `gpt-6.1-sol` at low effort: one actual file
+read, normal quit, same-session UUID resume, correct recall with zero resumed
+tools, and normal quit again. All captured processes exited without signals.
+Three real requests used 5,543 inclusive input tokens and 107 output tokens;
+the entire worker took 47.61 seconds. These are observed usage, not a billing
+bound. Compaction and truncated-response recovery remain untested live.
+This isolated candidate does not activate an existing default runtime.
 
 Primary release sources:
 - https://registry.npmjs.org/@earendil-works/pi-coding-agent/1.4.0
@@ -29,3 +35,8 @@ Primary release sources:
 Local reproducibility evidence is retained outside the checkout at
 `/tmp/ROSCLAW_PI140_UPGRADE_VERIFICATION_20261023_v2_MINIMAL_LOCK/`: exact commands,
 complete logs, dependency trees, semantic lock changes, and SHA-256 manifest.
+Exact byte copies also live under the persistent tennis audit directory in
+`ROOT_PI140_OFFLINE_VALIDATION_WHOLE_EVIDENCE_DURABLE_ARCHIVE_NOT_LIVE_ACTUAL_20261023_v1`.
+The live receipt and independent Root transcript checks are in
+`ROOT_PI140_TRUE_CLI_READ_SAME_UUID_RESUME_ACTUAL_20261023_v1`.
+Private credentials and raw session reasoning are excluded from publication.
