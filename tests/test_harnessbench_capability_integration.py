@@ -244,7 +244,7 @@ def test_malformed_native_evidence_retains_safe_diagnostic_without_accepting(
     assert type(diagnostic["source_line"]) is int and diagnostic["source_line"] > 0
     expected_keys = {"phase", "exception_class", "source", "source_line"}
     if json_coordinates:
-        expected_keys |= {"json_line", "json_column"}
+        expected_keys |= {"json_line", "json_column", "transcript_snapshot"}
         assert diagnostic["json_line"] == 1
         assert diagnostic["json_column"] == len(contents) + 1
     assert set(diagnostic) == expected_keys
@@ -290,3 +290,30 @@ def test_bad_manifest_diagnostic_identifies_artifact_phase_not_command_failure(t
     assert type(diagnostic["json_column"]) is int and diagnostic["json_column"] > 0
     assert "SECRET" not in json.dumps(result)
     assert str(tmp_path) not in json.dumps(result)
+
+
+@pytest.mark.parametrize("bad", ["", "{", '"TOP_SECRET_LITERAL'])
+def test_transcript_diagnostic_keeps_failed_snapshot_metadata_without_content(tmp_path, bad):
+    import hashlib
+
+    _stage(tmp_path, "CI06")
+    sessions = tmp_path / "rh/agent/sessions"
+    sessions.mkdir(parents=True)
+    path = sessions / "TOP_SECRET_FILENAME.jsonl"
+    prefix = json.dumps({"type": "session"}) + "\n"
+    path.write_text(prefix + bad + "\n")
+    result = judge_integration("CI06", tmp_path)
+    assert result["verified_success"] is False
+    assert result["checks"]["parse_or_evidence"] is False
+    diagnostic = result["parse_diagnostic"]
+    assert diagnostic["phase"] == "native_command_envelopes"
+    assert diagnostic["exception_class"] == "JSONDecodeError"
+    snapshot = diagnostic["transcript_snapshot"]
+    assert snapshot["split_line_index"] == snapshot["physical_lf_line"] == 2
+    assert snapshot["line_utf8_bytes"] == len(bad.encode())
+    assert snapshot["line_sha256"] == hashlib.sha256(bad.encode()).hexdigest()
+    assert snapshot["blank"] is (bad == "")
+    assert snapshot["snapshot_sha256"] == hashlib.sha256(path.read_bytes()).hexdigest()
+    assert snapshot["stat_before"] == snapshot["stat_after"]
+    assert "TOP_SECRET" not in json.dumps(diagnostic)
+    assert str(tmp_path) not in json.dumps(diagnostic)

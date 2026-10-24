@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from datetime import UTC
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -385,6 +386,8 @@ def test_a_environment_probe_still_rejects_real_contamination(tmp_path, monkeypa
 
 def test_oracle_exception_keeps_completed_native_turn_metrics(tmp_path, monkeypatch):
     class Session:
+        proc = SimpleNamespace(poll=lambda: 0, wait=lambda timeout: 0)
+
         def __init__(self, *args, **kwargs):
             pass
 
@@ -394,7 +397,7 @@ def test_oracle_exception_keeps_completed_native_turn_metrics(tmp_path, monkeypa
         def send(self, *args):
             pass
 
-        def stop(self):
+        def stop(self, **kwargs):
             pass
 
     def broken_oracle(*args, **kwargs):

@@ -1,6 +1,7 @@
 """Ensure model qualification uses the selected PI provider contract."""
 
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -295,18 +296,22 @@ def test_builtin_run_leg_uses_sdk_launcher_and_one_source_with_isolated_trial_se
     import benchmarks.harnessbench.runner as runner
 
     observed = []
+    sent = []
 
     class Session:
+        proc = SimpleNamespace(poll=lambda: None, wait=lambda timeout: 0)
+
         def __init__(self, argv, env, cwd=None, log_path=None):
+            self.argv = argv
             observed.append((argv, env, cwd))
 
         def expect(self, marker, timeout):
             observed[-1] += (marker,)
 
         def send(self, text):
-            pass
+            sent.append((self.argv, text))
 
-        def stop(self):
+        def stop(self, **kwargs):
             pass
 
     source = tmp_path / "dedicated-auth.json"
@@ -332,6 +337,10 @@ def test_builtin_run_leg_uses_sdk_launcher_and_one_source_with_isolated_trial_se
         for leg in ["A", "B"]
     ]
     a, b = observed
+    assert all(text != "/quit\r" for argv, text in sent if argv == a[0])
+    assert [text for argv, text in sent if argv == b[0]].count("/quit\r") == 1
+    assert "native_writer_closed" not in records[0]
+    assert records[1]["native_writer_closed"] is True
     assert str(runner._builtin_bridge_entry()) in a[0]
     assert a[0][-2:] == [str(source), "selected"]
     assert a[3] == b"HARNESSBENCH_NATIVE_PI_READY"
@@ -375,6 +384,8 @@ def test_existing_b_profiles_do_not_inherit_optin_readonly_chatgpt_source(
             self.env = dict(os.environ)
 
     class Session:
+        proc = SimpleNamespace(poll=lambda: 0, wait=lambda timeout: 0)
+
         def __init__(self, argv, env, **kwargs):
             captured.append((argv, env))
 
@@ -384,7 +395,7 @@ def test_existing_b_profiles_do_not_inherit_optin_readonly_chatgpt_source(
         def send(self, text):
             pass
 
-        def stop(self):
+        def stop(self, **kwargs):
             pass
 
     monkeypatch.setattr(driver, "AgentRun", Run)

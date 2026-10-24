@@ -7,6 +7,7 @@ ROS node, VLA inference, sensor hardware, or physical-control implementation.
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import re
 import shlex
@@ -281,8 +282,44 @@ def _native_commands(root: Path) -> list[str]:
     # B leg has durable native session transcripts. A leg has no native harness
     # integration, so these probes intentionally remain unsupported on A.
     for session in (root / "rh/agent/sessions").glob("**/*.jsonl"):
-        for line in session.read_text().splitlines():
-            entry = json.loads(line)
+        before = session.stat()
+        data = session.read_bytes()
+        text = data.decode("utf-8")
+        offset = 0
+        for index, (line, physical) in enumerate(
+            zip(text.splitlines(), text.splitlines(keepends=True), strict=True), 1
+        ):
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError as exc:
+                after = session.stat()
+                # Only metadata about the exact failed snapshot. Never expose
+                # transcript text, names, paths, commands, or exception messages.
+                exc.native_transcript_diagnostic = {
+                    "split_line_index": index,
+                    "physical_lf_line": text.count("\n", 0, offset) + 1,
+                    "line_utf8_bytes": len(line.encode("utf-8")),
+                    "line_sha256": hashlib.sha256(line.encode("utf-8")).hexdigest(),
+                    "blank": not line.strip(),
+                    "snapshot_utf8_bytes": len(data),
+                    "snapshot_sha256": hashlib.sha256(data).hexdigest(),
+                    "stat_before": {
+                        "size": before.st_size,
+                        "mtime_ns": before.st_mtime_ns,
+                        "ctime_ns": before.st_ctime_ns,
+                        "inode": before.st_ino,
+                        "device": before.st_dev,
+                    },
+                    "stat_after": {
+                        "size": after.st_size,
+                        "mtime_ns": after.st_mtime_ns,
+                        "ctime_ns": after.st_ctime_ns,
+                        "inode": after.st_ino,
+                        "device": after.st_dev,
+                    },
+                }
+                raise
+            offset += len(physical)
             for part in entry.get("message", {}).get("content", []):
                 if part.get("type") == "toolCall" and part.get("name") == "bash":
                     command = part.get("arguments", {}).get("command")
@@ -351,6 +388,10 @@ def _safe_evidence_diagnostic(exc: Exception, phase: str) -> dict[str, Any]:
     if isinstance(exc, json.JSONDecodeError):
         diagnostic["json_line"] = exc.lineno
         diagnostic["json_column"] = exc.colno
+        if phase == "native_command_envelopes":
+            snapshot = getattr(exc, "native_transcript_diagnostic", None)
+            if isinstance(snapshot, dict):
+                diagnostic["transcript_snapshot"] = snapshot
     return diagnostic
 
 

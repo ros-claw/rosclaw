@@ -589,6 +589,23 @@ def _session_turn_stopped(session_dir: Path, sent_at: float, deadline: float) ->
         return False
 
 
+def _close_completed_native_turn(session, deadline: float | None = None) -> None:
+    """Close the B writer through its public UI before reading durable evidence.
+
+    The Python chat launcher waits for the Node runtime, whose normal /quit
+    path confirms abort/idle/dispose before releasing session ownership. Killing
+    only that launcher is not confirmation that its Node writer has closed.
+    Use the existing 10-second teardown bound; no quiet-time sleep or resend.
+    """
+    if deadline is None:
+        deadline = time.perf_counter() + 10
+    if session.proc.poll() is None:
+        session.send("/quit\r")
+    code = session.proc.wait(timeout=max(0.0, deadline - time.perf_counter()))
+    if code != 0:
+        raise RuntimeError("NATIVE_WRITER_CLOSE_NONZERO")
+
+
 def _wait_settled(
     session,
     workspace: Path,
@@ -750,6 +767,7 @@ def run_leg(
 
     session = None
     session_dir: Path | None = None
+    close_deadline: float | None = None
     try:
         if leg == "A":
             if profile is not None and profile.get("builtin"):
@@ -830,6 +848,12 @@ def run_leg(
         record["infra_retries"] = _wait_settled(
             session, work, settle_timeout, prompt=prompt, session_dir=session_dir
         )
+        if leg == "B":
+            close_deadline = time.perf_counter() + 10
+            record["failure_phase"] = "native_writer_close"
+            _close_completed_native_turn(session, close_deadline)
+            record.pop("failure_phase")
+            record["native_writer_closed"] = True
     except Exception as exc:
         # stall/未收束/启动失败：保留已收集指标（真实 wall_time 由
         # finally 填入），包成 RunInfraError 让调用方落诚实 ERROR 记录。
@@ -847,7 +871,10 @@ def run_leg(
         record["wall_time_s"] = round(time.monotonic() - started, 1)
         if session is not None:
             with contextlib.suppress(Exception):
-                session.stop()
+                if close_deadline is None:
+                    session.stop()
+                else:
+                    session.stop(timeout=max(0.0, close_deadline - time.perf_counter()))
 
     if session_dir is not None:
         (

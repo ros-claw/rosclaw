@@ -862,7 +862,7 @@ class PtySession:
     def send(self, text: str) -> None:
         os.write(self.master, text.encode())
 
-    def stop(self) -> None:
+    def stop(self, *, timeout: float = 10) -> None:
         self._draining = False
         with contextlib.suppress(OSError):
             os.close(self.master)
@@ -873,7 +873,7 @@ class PtySession:
         if self.proc.poll() is None:
             self.proc.terminate()
             try:
-                self.proc.wait(timeout=10)
+                self.proc.wait(timeout=max(0.0, timeout))
             except subprocess.TimeoutExpired:
                 self.proc.kill()
 
