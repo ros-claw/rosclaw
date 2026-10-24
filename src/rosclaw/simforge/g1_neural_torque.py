@@ -21,6 +21,10 @@ from typing import Any, Protocol
 
 import numpy as np
 
+from rosclaw.control.correlated_exploration import (
+    CorrelatedExplorationConfig,
+    CorrelatedGaussianExploration,
+)
 from rosclaw.simforge.tasks.g1_goalforge.concepts import (
     G1_DDS_JOINT_NAMES,
     G1_HARD_TORQUE_LIMITS,
@@ -144,6 +148,9 @@ class G1TorquePolicyReceipt:
     peak_mechanical_power_w: float
     direct_torque_output: bool
     activation_ceiling: str
+    behavior_hash: str | None = None
+    exploration_config_hash: str | None = None
+    exploration_draw_steps: int = 0
     hardware_authorized: bool = False
     dds_opened: bool = False
     schema_version: str = "rosclaw.simforge.g1_neural_torque_receipt.v1"
@@ -399,12 +406,45 @@ class G1NeuralTorquePolicy:
         *,
         expected_body_hash: str,
         expected_parent_policy_hash: str,
+        exploration: CorrelatedExplorationConfig | None = None,
     ) -> None:
         if artifact.body_hash != expected_body_hash:
             raise ValueError("neural torque artifact body hash mismatch")
         if artifact.parent_policy_hash != expected_parent_policy_hash:
             raise ValueError("neural torque artifact parent policy hash mismatch")
         self.artifact = artifact
+        if exploration is not None and type(exploration) is not CorrelatedExplorationConfig:
+            raise ValueError("immutable SIM exploration config required")
+        self._exploration = (
+            CorrelatedGaussianExploration(len(G1_DDS_JOINT_NAMES), exploration)
+            if exploration is not None
+            else None
+        )
+        self.exploration_config_hash = (
+            "sha256:"
+            + hashlib.sha256(
+                json.dumps(
+                    asdict(exploration), sort_keys=True, separators=(",", ":"), allow_nan=False
+                ).encode()
+            ).hexdigest()
+            if exploration is not None
+            else None
+        )
+        self.behavior_hash = (
+            "sha256:"
+            + hashlib.sha256(
+                json.dumps(
+                    {
+                        "artifact_hash": artifact.artifact_hash,
+                        "exploration_config_hash": self.exploration_config_hash,
+                    },
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode()
+            ).hexdigest()
+            if exploration is not None
+            else artifact.artifact_hash
+        )
         self.projector = G1TorqueSafetyProjector(artifact.safety)
         self._hidden: np.ndarray = np.zeros(artifact.hidden_dim, dtype=np.float32)
         self._previous: np.ndarray = np.zeros(len(G1_DDS_JOINT_NAMES), dtype=np.float64)
@@ -421,6 +461,8 @@ class G1NeuralTorquePolicy:
 
     def reset(self) -> None:
         self._hidden.fill(0.0)
+        if self._exploration is not None:
+            self._exploration.reset()
         self._previous.fill(0.0)
         self._pending = None
         self._pending_actor_proposal = None
@@ -440,6 +482,11 @@ class G1NeuralTorquePolicy:
         if self._pending is None:
             raise RuntimeError("neural torque policy has no pending projection")
         return self._pending
+
+    @property
+    def exploration_snapshot(self) -> dict[str, Any] | None:
+        """Owned RNG evidence only; not a complete policy/physics checkpoint."""
+        return self._exploration.snapshot() if self._exploration is not None else None
 
     @property
     def pending_actor_proposal(self) -> np.ndarray | None:
@@ -587,6 +634,11 @@ class G1NeuralTorquePolicy:
             peak_mechanical_power_w=self._peak_power,
             direct_torque_output=True,
             activation_ceiling=self.artifact.safety.activation_ceiling,
+            behavior_hash=self.behavior_hash,
+            exploration_config_hash=self.exploration_config_hash,
+            exploration_draw_steps=self._exploration.draw_steps
+            if self._exploration is not None
+            else 0,
         )
 
     def episode(self) -> G1TeacherTorqueEpisode:
@@ -626,6 +678,11 @@ class G1NeuralTorquePolicy:
         tensors = self.artifact.tensors
         output = tensors["actor.head.weight"] @ self._hidden + tensors["actor.head.bias"]
         mean = output[: len(G1_DDS_JOINT_NAMES)]
+        if self._exploration is not None and self._exploration.config.scale > 0:
+            if not np.isfinite(output).all():
+                raise FloatingPointError("neural torque distribution is nonfinite")
+            log_std = np.clip(output[len(G1_DDS_JOINT_NAMES) :], -5.0, 0.5)
+            mean = self._exploration.perturb(mean, log_std).astype(np.float32)
         proposed = np.tanh(mean) * tensors["action_limits"]
         if not np.all(np.isfinite(proposed)):
             raise FloatingPointError("neural torque actor produced non-finite output")
