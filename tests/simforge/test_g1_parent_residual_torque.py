@@ -4,12 +4,13 @@ from dataclasses import replace
 
 import numpy as np
 import pytest
-from test_g1_neural_torque import _artifact_bytes, _digest, _frame
 
 from rosclaw.control.parent_residual import compose_parent_residual, parent_context
 from rosclaw.simforge.g1_neural_torque import (
+    G1TorqueControlFrame,
     G1TorqueSafetyConfig,
     load_g1_neural_torque_artifact,
+    serialize_g1_neural_torque_artifact,
 )
 from rosclaw.simforge.g1_parent_residual_torque import (
     G1ParentResidualTorquePolicy,
@@ -19,14 +20,55 @@ from rosclaw.simforge.g1_parent_residual_torque import (
 from rosclaw.simforge.tasks.g1_goalforge.concepts import G1_HARD_TORQUE_LIMITS
 
 
+def _digest(value):
+    return "sha256:" + hashlib.sha256(value.encode()).hexdigest()
+
+
+def _frame(**changes):
+    values = {
+        "joint_position": np.zeros(29),
+        "joint_velocity": np.zeros(29),
+        "joint_lower_limits": np.full(29, -2.0),
+        "joint_upper_limits": np.full(29, 2.0),
+        "torso_quaternion_wxyz": np.array([1.0, 0.0, 0.0, 0.0]),
+        "pelvis_position": np.array([0.0, 0.0, 0.8]),
+        "ball_position": np.array([1.0, 0.1, 0.115]),
+        "ball_velocity": np.zeros(3),
+        "target_y_m": 0.75,
+        "target_z_m": 0.9,
+        "policy_phase": 0.25,
+        "left_contact": True,
+        "right_contact": False,
+    }
+    return G1TorqueControlFrame(**(values | changes))
+
+
 @pytest.fixture
 def encoder(tmp_path):
     path = tmp_path / "encoder.bin"
+    safety = G1TorqueSafetyConfig(
+        torque_guard_scale=0.85, warmup_steps=0, maximum_projection_ratio=1.0
+    )
     path.write_bytes(
-        _artifact_bytes(
-            safety=G1TorqueSafetyConfig(
-                torque_guard_scale=0.85, warmup_steps=0, maximum_projection_ratio=1.0
-            )
+        serialize_g1_neural_torque_artifact(
+            body_hash=_digest("body"),
+            parent_policy_hash=_digest("old-parent"),
+            dataset_hash=_digest("data"),
+            hidden_dim=4,
+            observation_clip=8.0,
+            update_index=3,
+            safety=safety,
+            tensors={
+                "observation_mean": np.zeros(102),
+                "observation_std": np.ones(102),
+                "action_limits": np.asarray(G1_HARD_TORQUE_LIMITS) * 0.85,
+                "actor.gru.weight_ih_l0": np.zeros((12, 102)),
+                "actor.gru.weight_hh_l0": np.zeros((12, 4)),
+                "actor.gru.bias_ih_l0": np.zeros(12),
+                "actor.gru.bias_hh_l0": np.zeros(12),
+                "actor.head.weight": np.zeros((58, 4)),
+                "actor.head.bias": np.zeros(58),
+            },
         )
     )
     return load_g1_neural_torque_artifact(path)
