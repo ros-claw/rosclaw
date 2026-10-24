@@ -6,6 +6,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from rosclaw.control.correlated_exploration import CorrelatedExplorationConfig
 from rosclaw.simforge.g1_neural_torque import (
     G1_NEURAL_TORQUE_OBSERVATIONS,
     G1NeuralTorquePolicy,
@@ -255,6 +256,55 @@ def test_artifact_loader_rejects_tampering_and_non_sim_safety(tmp_path: Path) ->
         )
     with pytest.raises(ValueError, match="SIM_ONLY"):
         G1TorqueSafetyConfig(activation_ceiling="REAL")
+
+
+def test_seeded_sim_proposals_replay_and_zero_exploration_is_bit_exact(tmp_path: Path) -> None:
+    payload = _artifact_bytes(
+        safety=G1TorqueSafetyConfig(maximum_projection_ratio=1.0, warmup_steps=2), output_bias=0.01
+    )
+    path = tmp_path / "exploration.bin"
+    path.write_bytes(payload)
+    artifact = load_g1_neural_torque_artifact(
+        path, expected_hash="sha256:" + hashlib.sha256(payload).hexdigest()
+    )
+
+    def policy(exploration):
+        return G1NeuralTorquePolicy(
+            artifact,
+            expected_body_hash=_digest("body"),
+            expected_parent_policy_hash=_digest("parent"),
+            exploration=exploration,
+        )
+
+    deterministic, zero = policy(None), policy(CorrelatedExplorationConfig(seed=7, scale=0))
+    a, b = policy(CorrelatedExplorationConfig(seed=8)), policy(CorrelatedExplorationConfig(seed=8))
+    c = policy(CorrelatedExplorationConfig(seed=9))
+    seen_a, seen_c = [], []
+    for index in range(20):
+        commands, proposals = [], []
+        for item in (deterministic, zero, a, b, c):
+            value = item.command(_frame(), np.zeros(29))
+            proposals.append(item.pending_actor_proposal)
+            item.note_applied(value)
+            commands.append(value)
+        np.testing.assert_array_equal(commands[0], commands[1])
+        np.testing.assert_array_equal(commands[2], commands[3])
+        if index >= 2:
+            np.testing.assert_array_equal(proposals[2], proposals[3])
+            seen_a.append(proposals[2])
+            seen_c.append(proposals[4])
+    assert not np.array_equal(seen_a, seen_c)
+    assert a.behavior_hash == b.behavior_hash != c.behavior_hash
+    assert deterministic.behavior_hash == artifact.artifact_hash
+    assert a.build_receipt().exploration_draw_steps == 18
+    assert zero.build_receipt().exploration_draw_steps == 0
+    a.command(_frame(ball_position=np.array([100.0, 0.0, 0.11])), np.zeros(29))
+    assert a.pending_actor_proposal is None
+    a.note_applied(np.zeros(29))
+    assert a.exploration_snapshot["draw_steps"] == 18
+    a.reset()
+    b.reset()
+    assert a.exploration_snapshot == b.exploration_snapshot
 
 
 def test_teacher_collector_is_exact_pass_through_at_physics_rate() -> None:
