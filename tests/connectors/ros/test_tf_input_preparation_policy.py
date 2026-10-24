@@ -18,7 +18,8 @@ def settings():
         "run_id": "owned-run",
         "seed": 101,
         "tf_input_preparation": {
-            "schema_version": "rosclaw.tf_input_preparation.v1",
+            "schema_version": "rosclaw.tf_input_preparation.v2",
+            "mode": "STATIONARY_NO_GOALS",
             "run_id": "owned-run",
             "seed": 101,
         },

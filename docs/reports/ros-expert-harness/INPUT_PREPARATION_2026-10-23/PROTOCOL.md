@@ -9,14 +9,15 @@ source witness and canonical MCP → rosclawd navigation workflow. Preserve all
 Body limits, source checks, permits, leases, watchers and stopping verification.
 Only the SDK-owned acceptance fixture accesses native ROS; no Agent process does.
 
-Maximum two new isolated Worlds: environment seeds 101 and 202. Each first runs
-the existing two small healthy canonical navigation goals with independent stop
-verification. No new goals may run during subsequent input capture. Require the
-robot parked and its action Lease closed before changing any configuration.
+Current preparation v4 registers two new isolated stationary Worlds: environment
+seeds 101 and 202. Require independently matched Source/Body, complete fresh L1,
+parked physics, a closed Lease and zero control messages before capture. It sends
+zero navigation goals. Earlier healthy navigation evidence and the seed-202
+motion failure remain separate; stationary input success is not mission success.
 
 Freeze healthy startup Nav2 YAML and a full runtime fault override YAML before
 starting either World. They differ only in AMCL `tf_broadcast=true/false`. After
-healthy navigation, collect healthy original facts, apply the one runtime
+independent stationary Source/L1 review, collect healthy original facts, apply the one runtime
 parameter override through the owned SDK fixture, collect the first admissible
 single-TF-fault facts, restore the original parameter and collect healthy facts
 again. The fault YAML is the source of a runtime override, **not** evidence that
@@ -71,3 +72,11 @@ capture. Preparation v3 registers two new Worlds with the explicit dependency
 criterion above, following the old FC-00 non-Source P1 test. It must preserve
 UNKNOWN Source, validate the full chain, and verify a legal stage-only proposal.
 The two failed preparation Worlds remain counted separately from the v3 pair.
+
+Preparation v3 completed healthy/fault/restored originals and a legal stage-only
+TF proposal for seed 101. Seed 202 completed its position goal, then its second
+task was stopped by UNSAFE_PLANAR_LOCALIZATION_COVARIANCE; TF injection never
+started. Keep that physical failure. V4 separates zero-command input acquisition
+from motion stability, preserving all safety thresholds. It does not relabel v3
+as PASS, rerun a model, or claim seed-202 navigation stability was repaired. Four
+earlier preparation Worlds plus the two v4 stationary Worlds are all accounted.

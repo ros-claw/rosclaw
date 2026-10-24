@@ -1,4 +1,4 @@
-"""SDK-only, parked operator TF input preparation after canonical healthy goals.
+"""SDK-only stationary operator TF input preparation after independent full L1.
 
 No actions, lifecycle transitions, publishers, threshold changes or model calls.
 The external operator independently binds and reviews each original capture.
@@ -49,8 +49,9 @@ def validate_policy(settings, *, isolated):
         or "engineering_capture" in settings
         or "governed_sink" not in settings
         or type(policy) is not dict
-        or set(policy) != {"schema_version", "run_id", "seed"}
-        or policy["schema_version"] != "rosclaw.tf_input_preparation.v1"
+        or set(policy) != {"schema_version", "run_id", "seed", "mode"}
+        or policy["schema_version"] != "rosclaw.tf_input_preparation.v2"
+        or policy["mode"] != "STATIONARY_NO_GOALS"
         or policy["run_id"] != settings.get("run_id")
         or type(policy["seed"]) is not int
         or policy["seed"] not in {101, 202}
@@ -66,20 +67,19 @@ def capture_tf_inputs(root, settings, state, node, spin_until, save):
         isolated=Path("/.dockerenv").is_file() and os.getenv("ROS_LOCALHOST_ONLY") == "1",
     )
     ack = json.loads((root / "host_capture_ack.json").read_text())
-    if ack.get("journey_returncode") != 0 or ack.get("initial_L1") != "READY_FOR_SIM_TEST":
-        raise ValueError("independently accepted healthy canonical journey required")
+    if (
+        ack.get("input_preparation_mode") != "STATIONARY_NO_GOALS"
+        or ack.get("initial_G1") != "MATCHED"
+        or ack.get("initial_L1") != "READY_FOR_SIM_TEST"
+        or ack.get("journey_returncode") is not None
+    ):
+        raise ValueError("independently accepted stationary full Source/L1 required")
     receipts = [
         json.loads(p.read_text())["receipt"]
         for p in root.glob("governed-action-*-receipt-original.json")
     ]
-    if len(receipts) != 2 or any(
-        r["final_state"] != "COMPLETED"
-        or r["verified"] is not True
-        or r["evidence_domain"] != "SIMULATION"
-        or r["verification_result"].get("physical_stop_verified") is not True
-        for r in receipts
-    ):
-        raise ValueError("two original stopped canonical SIM receipts required")
+    if receipts:
+        raise ValueError("stationary preparation must dispatch no canonical goals")
     from rcl_interfaces.msg import Parameter, ParameterType, ParameterValue
     from rcl_interfaces.srv import SetParameters
 
@@ -116,6 +116,8 @@ def capture_tf_inputs(root, settings, state, node, spin_until, save):
         return (
             p.get("run_id") == policy["run_id"]
             and p.get("lease_enabled") is False
+            and p.get("source_received_control_messages") == 0
+            and p.get("source_published_velocity_messages") == 0
             and type(p.get("linear_speed_mps")) in (int, float)
             and abs(p["linear_speed_mps"]) <= limits["stop_speed_mps"]
             and type(p.get("angular_speed_rps")) in (int, float)
@@ -148,7 +150,7 @@ def capture_tf_inputs(root, settings, state, node, spin_until, save):
             "configuration_source_sha256": hashlib.sha256(
                 (startup_path if value else fault_path).read_bytes()
             ).hexdigest(),
-            "configuration_application": "RUNTIME_OVERRIDE_AFTER_HEALTHY_CANONICAL_JOURNEY",
+            "configuration_application": "RUNTIME_OVERRIDE_AFTER_SOURCE_BOUND_STATIONARY_READY",
             "results": [{"successful": r.successful, "reason": r.reason} for r in response.results],
         }
         events.append(row)
