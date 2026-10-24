@@ -1,0 +1,22 @@
+{
+  "schema_version": "rosclaw.prepared_source_bringup.v1",
+  "namespace": "/heldout/rosbot_xl",
+  "controllers": {
+    "manager": "/heldout/rosbot_xl/controller_manager",
+    "names": [
+      "joint_state_broadcaster",
+      "rosbot_xl_base_controller"
+    ]
+  },
+  "scan_ros_topic": "/heldout/rosbot_xl/scan",
+  "autostart": true,
+  "tf_topics_relative": true,
+  "start_navigation_stack": true,
+  "initialization_boundary": "LOCALIZATION_ACTIVE_BEFORE_NAVIGATION",
+  "source_body_scan_filter": {
+    "schema_version": "rosclaw.sdk_source_body_scan_filter.v1",
+    "source_urdf_sha256": "21542102016bd6423585ceef969a9e58d29af75d7aad02028c40bf0d6af7a903",
+    "base_frame": "base_link",
+    "scan_frame": "laser"
+  }
+}

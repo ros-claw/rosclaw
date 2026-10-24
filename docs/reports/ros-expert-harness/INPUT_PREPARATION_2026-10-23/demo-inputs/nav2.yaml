@@ -1,0 +1,308 @@
+/heldout/rosbot_xl:
+  amcl:
+    ros__parameters:
+      alpha1: 0.2
+      alpha2: 0.2
+      alpha3: 0.2
+      alpha4: 0.2
+      alpha5: 0.2
+      base_frame_id: base_link
+      beam_skip_distance: 0.5
+      beam_skip_error_threshold: 0.9
+      beam_skip_threshold: 0.3
+      do_beamskip: false
+      global_frame_id: map
+      lambda_short: 0.1
+      laser_likelihood_max_dist: 2.0
+      laser_max_range: 100.0
+      laser_min_range: -1.0
+      laser_model_type: likelihood_field
+      max_beams: 60
+      max_particles: 2000
+      min_particles: 500
+      odom_frame_id: odom
+      pf_err: 0.05
+      pf_z: 0.99
+      recovery_alpha_fast: 0.0
+      recovery_alpha_slow: 0.0
+      resample_interval: 1
+      robot_model_type: nav2_amcl::DifferentialMotionModel
+      save_pose_rate: 0.5
+      sigma_hit: 0.2
+      tf_broadcast: false
+      transform_tolerance: 1.0
+      update_min_a: 0.0
+      update_min_d: 0.0
+      z_hit: 0.5
+      z_max: 0.05
+      z_rand: 0.5
+      z_short: 0.05
+      scan_topic: /heldout/rosbot_xl/scan
+      use_sim_time: true
+      set_initial_pose: false
+  bt_navigator:
+    ros__parameters:
+      global_frame: map
+      robot_base_frame: base_link
+      odom_topic: /heldout/rosbot_xl/rosbot_xl_base_controller/odom
+      bt_loop_duration: 10
+      default_server_timeout: 20
+      wait_for_service_timeout: 1000
+      action_server_result_timeout: 900.0
+      navigators:
+      - navigate_to_pose
+      navigate_to_pose:
+        plugin: nav2_bt_navigator::NavigateToPoseNavigator
+      error_code_names:
+      - compute_path_error_code
+      - follow_path_error_code
+      use_sim_time: true
+      default_nav_to_pose_bt_xml: /assets/behavior-tree.xml
+  controller_server:
+    ros__parameters:
+      controller_frequency: 25.0
+      costmap_update_timeout: 0.3
+      min_x_velocity_threshold: 0.001
+      min_y_velocity_threshold: 0.5
+      min_theta_velocity_threshold: 0.001
+      failure_tolerance: 0.3
+      progress_checker_plugins:
+      - progress_checker
+      goal_checker_plugins:
+      - general_goal_checker
+      controller_plugins:
+      - FollowPath
+      use_realtime_priority: false
+      progress_checker:
+        plugin: nav2_controller::SimpleProgressChecker
+        required_movement_radius: 0.06
+        movement_time_allowance: 5.0
+      general_goal_checker:
+        stateful: true
+        plugin: nav2_controller::SimpleGoalChecker
+        xy_goal_tolerance: 0.003
+        yaw_goal_tolerance: 0.026179938779914945
+      FollowPath:
+        plugin: nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController
+        desired_linear_vel: 0.03200000000000001
+        rotate_to_heading_angular_vel: 0.12560000000000002
+        lookahead_dist: 0.11028224458089117
+        min_lookahead_dist: 0.055141122290445585
+        max_lookahead_dist: 0.16542336687133674
+        curvature_lookahead_dist: 0.11028224458089117
+        approach_velocity_scaling_dist: 0.06
+        min_approach_linear_velocity: 0.004000000000000001
+        regulated_linear_scaling_min_radius: 0.22056448916178234
+        regulated_linear_scaling_min_speed: 0.008000000000000002
+        use_collision_detection: true
+        use_regulated_linear_velocity_scaling: true
+        use_rotate_to_heading: true
+        allow_reversing: false
+      use_sim_time: true
+  local_costmap:
+    local_costmap:
+      ros__parameters:
+        update_frequency: 12.5
+        publish_frequency: 25.0
+        global_frame: odom
+        robot_base_frame: base_link
+        rolling_window: true
+        width: 1
+        height: 1
+        resolution: 0.05
+        robot_radius: 0.23056448916178235
+        plugins:
+        - voxel_layer
+        - inflation_layer
+        inflation_layer:
+          plugin: nav2_costmap_2d::InflationLayer
+          cost_scaling_factor: 3.0
+          inflation_radius: 0.28820561145222795
+        voxel_layer:
+          plugin: nav2_costmap_2d::VoxelLayer
+          enabled: true
+          publish_voxel_map: true
+          origin_z: 0.0
+          z_resolution: 0.05
+          z_voxels: 16
+          max_obstacle_height: 2.0
+          mark_threshold: 0
+          observation_sources: scan
+          scan:
+            topic: /heldout/rosbot_xl/scan
+            max_obstacle_height: 2.0
+            clearing: true
+            marking: true
+            data_type: LaserScan
+            raytrace_max_range: 3.0
+            raytrace_min_range: 0.0
+            obstacle_max_range: 2.5
+            obstacle_min_range: 0.0
+            sensor_frame: ''
+        static_layer:
+          plugin: nav2_costmap_2d::StaticLayer
+          map_subscribe_transient_local: true
+        always_send_full_costmap: true
+        footprint_padding: 0.034
+        use_sim_time: true
+        footprint: '[]'
+  global_costmap:
+    global_costmap:
+      ros__parameters:
+        update_frequency: 12.5
+        publish_frequency: 25.0
+        global_frame: map
+        robot_base_frame: base_link
+        robot_radius: 0.23056448916178235
+        resolution: 0.05
+        track_unknown_space: true
+        plugins:
+        - static_layer
+        - obstacle_layer
+        - inflation_layer
+        obstacle_layer:
+          plugin: nav2_costmap_2d::ObstacleLayer
+          enabled: true
+          observation_sources: scan
+          scan:
+            topic: /heldout/rosbot_xl/scan
+            max_obstacle_height: 2.0
+            clearing: true
+            marking: true
+            data_type: LaserScan
+            raytrace_max_range: 3.0
+            raytrace_min_range: 0.0
+            obstacle_max_range: 2.5
+            obstacle_min_range: 0.0
+            sensor_frame: ''
+        static_layer:
+          plugin: nav2_costmap_2d::StaticLayer
+          map_subscribe_transient_local: true
+        inflation_layer:
+          plugin: nav2_costmap_2d::InflationLayer
+          cost_scaling_factor: 3.0
+          inflation_radius: 0.28820561145222795
+        always_send_full_costmap: true
+        footprint_padding: 0.034
+        use_sim_time: true
+        footprint: '[]'
+  planner_server:
+    ros__parameters:
+      expected_planner_frequency: 20.0
+      planner_plugins:
+      - GridBased
+      costmap_update_timeout: 1.0
+      GridBased:
+        plugin: nav2_navfn_planner::NavfnPlanner
+        tolerance: 0.03
+        use_astar: false
+        allow_unknown: true
+      use_sim_time: true
+  smoother_server:
+    ros__parameters:
+      smoother_plugins:
+      - simple_smoother
+      simple_smoother:
+        plugin: nav2_smoother::SimpleSmoother
+        tolerance: 1.0e-10
+        max_its: 1000
+        do_refinement: true
+      use_sim_time: true
+  behavior_server:
+    ros__parameters:
+      local_costmap_topic: /heldout/rosbot_xl/local_costmap/costmap_raw
+      global_costmap_topic: /heldout/rosbot_xl/global_costmap/costmap_raw
+      local_footprint_topic: /heldout/rosbot_xl/local_costmap/published_footprint
+      global_footprint_topic: /heldout/rosbot_xl/global_costmap/published_footprint
+      cycle_frequency: 10.0
+      behavior_plugins:
+      - spin
+      - backup
+      - drive_on_heading
+      - assisted_teleop
+      - wait
+      spin:
+        plugin: nav2_behaviors::Spin
+      backup:
+        plugin: nav2_behaviors::BackUp
+      drive_on_heading:
+        plugin: nav2_behaviors::DriveOnHeading
+      wait:
+        plugin: nav2_behaviors::Wait
+      assisted_teleop:
+        plugin: nav2_behaviors::AssistedTeleop
+      local_frame: odom
+      global_frame: map
+      robot_base_frame: base_link
+      transform_tolerance: 0.1
+      simulate_ahead_time: 2.0
+      max_rotational_vel: 0.12560000000000002
+      min_rotational_vel: 0.015700000000000002
+      rotational_acc_lim: 3.2
+      use_sim_time: true
+  velocity_smoother:
+    ros__parameters:
+      smoothing_frequency: 20.0
+      stamp_smoothed_velocity_with_smoothing_time: false
+      scale_velocities: false
+      feedback: OPEN_LOOP
+      max_velocity:
+      - 0.03200000000000001
+      - 0.0
+      - 0.12560000000000002
+      min_velocity:
+      - -0.03200000000000001
+      - 0.0
+      - -0.12560000000000002
+      max_accel:
+      - 2.5
+      - 0.0
+      - 3.2
+      max_decel:
+      - -2.5
+      - 0.0
+      - -3.2
+      odom_topic: /heldout/rosbot_xl/rosbot_xl_base_controller/odom
+      odom_duration: 0.1
+      deadband_velocity:
+      - 0.0
+      - 0.0
+      - 0.0
+      velocity_timeout: 1.0
+      use_sim_time: true
+  collision_monitor:
+    ros__parameters:
+      base_frame_id: base_link
+      odom_frame_id: odom
+      cmd_vel_in_topic: /heldout/rosbot_xl/cmd_vel_smoothed
+      cmd_vel_out_topic: /heldout/rosbot_xl/nav_cmd_vel
+      state_topic: collision_monitor_state
+      transform_tolerance: 0.2
+      source_timeout: 1.0
+      base_shift_correction: true
+      stop_pub_timeout: 2.0
+      polygons:
+      - FootprintApproach
+      FootprintApproach:
+        type: polygon
+        action_type: approach
+        footprint_topic: /heldout/rosbot_xl/local_costmap/published_footprint
+        time_before_collision: 1.2
+        simulation_time_step: 0.1
+        min_points: 6
+        visualize: false
+        enabled: true
+      observation_sources:
+      - scan
+      scan:
+        type: scan
+        topic: /heldout/rosbot_xl/scan
+        min_height: 0.15
+        max_height: 2.0
+        enabled: true
+      use_sim_time: true
+  map_server:
+    ros__parameters:
+      use_sim_time: true
+      yaml_filename: /assets/map.yaml
+      frame_id: map
