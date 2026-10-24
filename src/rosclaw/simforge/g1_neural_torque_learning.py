@@ -155,8 +155,11 @@ class G1NeuralTorqueReplay:
     parent_actions: np.ndarray
     partitions: np.ndarray
     policy_lags: np.ndarray
+    action_semantics: str = "APPLIED_TORQUE"
 
     def __post_init__(self) -> None:
+        if self.action_semantics not in {"APPLIED_TORQUE", "ACTOR_PROPOSAL_THROUGH_GUARD"}:
+            raise ValueError("explicit supported neural torque action semantics required")
         count = len(np.asarray(self.observations))
         observation_dim = len(G1_NEURAL_TORQUE_OBSERVATIONS)
         action_dim = len(G1_HARD_TORQUE_LIMITS)
@@ -216,7 +219,11 @@ class G1NeuralTorqueReplay:
         sequence_lengths = {value.observations.shape[1] for value in replays}
         if len(sequence_lengths) != 1:
             raise ValueError("neural torque replay sequence lengths must match")
+        semantics = {value.action_semantics for value in replays}
+        if len(semantics) != 1:
+            raise ValueError("cannot mix applied-torque and raw-proposal critic labels")
         return cls(
+            action_semantics=replays[0].action_semantics,
             **{
                 name: np.concatenate([getattr(value, name) for value in replays], axis=0)
                 for name in (
@@ -231,7 +238,7 @@ class G1NeuralTorqueReplay:
                     "partitions",
                     "policy_lags",
                 )
-            }
+            },
         )
 
 
@@ -506,10 +513,20 @@ class G1ContinualTorqueActorCritic:
         if update_actor and len(anchors) == 0:
             raise ValueError("neural torque actor update requires historical anchors")
         rng = np.random.default_rng(self.config.seed + self.update_index)
+        # Anchor parent_actions are BC targets, not evidence that those values
+        # were raw proposals sent through this guard. Do not train proposal-Q
+        # critics on fabricated anchor actions or anchor zero-reward labels.
+        critic_pool = (
+            np.flatnonzero(replay.partitions != _ANCHOR)
+            if replay.action_semantics == "ACTOR_PROPOSAL_THROUGH_GUARD"
+            else np.arange(replay.count)
+        )
+        if not len(critic_pool):
+            raise ValueError("proposal critic requires actual non-anchor proposal transitions")
         critic_indices = rng.choice(
-            replay.count,
+            critic_pool,
             self.config.batch_size,
-            replace=replay.count < self.config.batch_size,
+            replace=len(critic_pool) < self.config.batch_size,
         )
         observations = self._observation_tensor(replay.observations[critic_indices])
         next_observations = self._observation_tensor(replay.next_observations[critic_indices])
@@ -659,7 +676,7 @@ class G1ContinualTorqueActorCritic:
             parent_churn_loss=float(parent_churn.detach().item()),
             ewc_loss=float(ewc_loss.detach().item()),
             actor_transition_count=len(fresh) if update_actor else 0,
-            critic_transition_count=replay.count,
+            critic_transition_count=len(critic_pool),
             stale_actor_transition_count=int(
                 np.count_nonzero((replay.partitions == _RECENT) & (replay.policy_lags > 1))
             ),
@@ -709,9 +726,7 @@ class G1ContinualTorqueActorCritic:
             "actor.gru.bias_hh_l0": _quantized_export(
                 state["gru.bias_hh_l0"].detach().cpu().numpy()
             ),
-            "actor.head.weight": _quantized_export(
-                state["head.weight"].detach().cpu().numpy()
-            ),
+            "actor.head.weight": _quantized_export(state["head.weight"].detach().cpu().numpy()),
             "actor.head.bias": _quantized_export(state["head.bias"].detach().cpu().numpy()),
         }
         return serialize_g1_neural_torque_artifact(
@@ -945,8 +960,7 @@ class G1ContinualTorqueActorCritic:
         expected = (3 * self.config.hidden_dim, feature_count)
         if (
             weight_ih.shape != expected
-            or weight_hh.shape
-            != (3 * self.config.hidden_dim, self.config.hidden_dim)
+            or weight_hh.shape != (3 * self.config.hidden_dim, self.config.hidden_dim)
             or bias_ih.shape != (3 * self.config.hidden_dim,)
             or bias_hh.shape != (3 * self.config.hidden_dim,)
         ):
@@ -1066,6 +1080,8 @@ def neural_torque_replay_hash(replay: G1NeuralTorqueReplay) -> str:
     """Bind continual updates to the exact replay tensors and partitions."""
 
     digest = hashlib.sha256()
+    if replay.action_semantics != "APPLIED_TORQUE":
+        digest.update(("action_semantics:" + replay.action_semantics).encode())
     for name in (
         "observations",
         "actions",
