@@ -162,3 +162,133 @@ def test_runtime_handler_failure_is_recorded() -> None:
     assert entry is not None
     assert entry.execution_count == 1
     assert entry.success_rate == 0.0
+
+
+def test_navigation_stub_direct_reports_missing_backend_and_preserves_target() -> None:
+    plugin = get_runtime_plugin()
+    saved = {name: plugin.get_handler(name) for name in plugin.list_handlers()}
+    try:
+        from rosclaw.runtime.handlers.navigation import _handle_navigate_to
+
+        target = {"frame": "map", "position": [1.0, 2.0]}
+        for params, expected in (
+            ({}, "unknown"),
+            ({"target": None}, None),
+            ({"target": target}, target),
+            ({"target": "dock"}, "dock"),
+        ):
+            original = dict(params)
+            result = _handle_navigate_to(params)
+            assert result["status"] == "blocked"
+            assert result["reason"] == "NAVIGATION_BACKEND_UNAVAILABLE"
+            assert "No navigation backend" in result["message"]
+            assert "no command was dispatched" in result["message"]
+            assert result["target"] == expected
+            if expected is target:
+                assert result["target"] is target
+            assert result["skill"] == "navigate_to"
+            assert result["source"] == "runtime_handler"
+            assert params == original
+    finally:
+        plugin.clear()
+        for name, handler in saved.items():
+            plugin.register(name, handler)
+
+
+def _navigation_truth_sum_handler(params: dict[str, Any]) -> dict[str, Any]:
+    """Unrelated, genuinely completed in-memory work for the success control."""
+    total = sum(params["values"])
+    return {"status": "success", "total": total}
+
+
+def test_navigation_blocked_propagates_through_executor_without_success_credit() -> None:
+    from unittest.mock import patch
+
+    from rosclaw.observability.tracer import Tracer
+
+    plugin = get_runtime_plugin()
+    saved = {name: plugin.get_handler(name) for name in plugin.list_handlers()}
+    bus = EventBus()
+    tracer = Tracer(event_bus=bus, exporters=[])
+    completed = []
+
+    def capture(event):
+        completed.append(event.payload)
+
+    bus.subscribe("skill.execution.complete", capture)
+    try:
+        from rosclaw.runtime.handlers.navigation import _handle_navigate_to
+
+        # Use the real registration surface, even if the module was cached after
+        # the suite's autouse fixture cleared its import-time registration.
+        plugin.register("navigate_to", _handle_navigate_to)
+        plugin.register("navigation_truth_sum_control", _navigation_truth_sum_handler)
+        registry = SkillRegistry(event_bus=bus)
+        registry.register(
+            SkillEntry(
+                name="navigate_to",
+                description="Navigation stub regression",
+                skill_type="programmed",
+                parameters={"target": "default-dock"},
+            )
+        )
+        registry.register(
+            SkillEntry(
+                name="navigation_truth_sum_control",
+                description="In-memory sum control",
+                skill_type="programmed",
+            )
+        )
+        # Only unrelated entry-point discovery is isolated. Dispatch, status
+        # mapping, handler execution and registry statistics remain production.
+        with patch.object(plugin, "discover_handlers", return_value=None):
+            executor = SkillExecutor(
+                event_bus=bus,
+                registry=registry,
+                body_resolver=_NoBodyResolver(),
+                tracer=tracer,
+            )
+        assert plugin.get_handler("navigate_to") is _handle_navigate_to
+        entry = registry.get("navigate_to")
+        assert entry is not None
+        assert entry.execution_count == 0
+        assert entry.success_rate == 0.0
+        targets = ("default-dock", {"frame": "map", "xy": [0.2, 0.3]}, None)
+        for count, target in enumerate(targets, 1):
+            params = None if count == 1 else {"target": target}
+            result = executor.execute("navigate_to", params)
+            assert result["status"] == "blocked"
+            nested = result["handler_result"]
+            assert nested["status"] == "blocked"
+            assert nested["reason"] == "NAVIGATION_BACKEND_UNAVAILABLE"
+            assert "No navigation backend" in nested["message"]
+            assert nested["target"] == target
+            assert nested["skill"] == "navigate_to"
+            assert nested["source"] == "runtime_handler"
+            assert entry.execution_count == count
+            assert entry.success_rate == 0.0
+            assert entry.execution_count * entry.success_rate == 0.0
+            assert completed[-1]["skill_name"] == "navigate_to"
+            assert completed[-1]["result"]["status"] == "blocked"
+            assert completed[-1]["result"]["handler_result"]["reason"] == nested["reason"]
+            assert completed[-1]["result"]["handler_result"]["target"] == target
+        assert registry.get_stats()["average_success_rate"] == 0.0
+        control = executor.execute("navigation_truth_sum_control", {"values": [2, 3, 5]})
+        assert control["status"] == "success"
+        assert control["handler_result"]["total"] == 10
+        control_entry = registry.get("navigation_truth_sum_control")
+        assert control_entry is not None
+        assert control_entry.execution_count == 1
+        assert control_entry.success_rate == 1.0
+        assert entry.execution_count == 3
+        assert entry.success_rate == 0.0
+        assert len(completed) == 4
+    finally:
+        try:
+            tracer.close()
+        finally:
+            bus.unsubscribe("skill.execution.complete", capture)
+            bus.clear_history()
+            plugin.clear()
+            for name, handler in saved.items():
+                plugin.register(name, handler)
