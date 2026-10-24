@@ -2,8 +2,12 @@
 """HarnessBench v1 operator 入口（MH11，0916 优化 §五/§六/§十）。
 
 真实模型跑 HarnessBench：独立 workspace + 外部 oracle + 真实 LLM。
-纪律：无 key → 全部 NOT_RUN（不合成冒充）；key 只读环境变量，
+纪律：缺凭据 → 全部 NOT_RUN（不合成冒充）；不复制 OAuth 凭据，
 日志绝不打印 key（输出只有 verdict/指标）。
+chatgpt 档案使用 PI 内置 openai-codex + 显式 --model-id；
+单一 --readonly-oauth-path 只读引用专用 OAuth 来源，不复制/登录/刷新；
+会话和模型配置各 trial 隔离，缺失或过期诚实 NOT_RUN。
+ChatGPT A 侧是 PI SDK InteractiveMode launcher（不是原 PI CLI），B 是 ROSClaw。
 
 用法：
   ROSCLAW_KIMI_API_KEY=... python scripts/harnessbench_run.py \
@@ -24,8 +28,10 @@ sys.path.insert(0, str(REPO))
 from benchmarks.harnessbench.runner import (  # noqa: E402
     aggregate,
     error_record,
-    has_model_key,
+    model_credential_issue,
+    resolve_model_profile,
     run_leg,
+    validate_readonly_oauth_namespace,
 )
 from benchmarks.harnessbench.tasks import TASKS  # noqa: E402
 
@@ -42,19 +48,38 @@ def main() -> int:
         default="kimi-k3",
         help="模型档案（MODEL_PROFILES 键；0916 §十一 多模型资格认证）",
     )
+    parser.add_argument(
+        "--model-id",
+        help="chatgpt 的显式 PI 内置模型 ID；不隐式选择模型或修改全局默认",
+    )
+    parser.add_argument(
+        "--readonly-oauth-path",
+        type=Path,
+        help="chatgpt 专用 OAuth auth.json 的绝对路径（owned0600/无链接）；只读、不复制、不刷新",
+    )
     args = parser.parse_args()
 
-    from benchmarks.harnessbench.runner import MODEL_PROFILES
-
-    if args.model not in MODEL_PROFILES:
-        print(f"unknown model {args.model}; have {sorted(MODEL_PROFILES)}", file=sys.stderr)
-        return 2
-    if not has_model_key(args.model):
+    try:
+        profile = resolve_model_profile(args.model, args.model_id)
+        if args.model == "chatgpt" and args.readonly_oauth_path is not None:
+            validate_readonly_oauth_namespace(args.readonly_oauth_path, Path(args.out))
+        issue = model_credential_issue(
+            args.model,
+            model_id=args.model_id,
+            readonly_oauth_path=args.readonly_oauth_path,
+            settle_timeout=args.settle_timeout,
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
+    if issue is not None:
         print(
             json.dumps(
                 {
                     "status": "NOT_RUN",
-                    "reason": "no model key in environment (ROSCLAW_KIMI_API_KEY/KIMI_API_KEY/MOONSHOT_API_KEY)",
+                    "model": args.model,
+                    "provider": profile["provider"] if profile else "kimi-code",
+                    "model_id": profile["model"] if profile else "k3",
+                    "reason": issue,
                 },
                 ensure_ascii=False,
                 indent=2,
@@ -63,7 +88,8 @@ def main() -> int:
         return 0
 
     out_root = Path(args.out) / time.strftime("%Y%m%d-%H%M%S")
-    out_root.mkdir(parents=True, exist_ok=True)
+    # Builtin trials must not reuse a preexisting/symlinked orchestration tree.
+    out_root.mkdir(parents=True, exist_ok=args.model != "chatgpt")
     legs = [leg.strip().upper() for leg in args.legs.split(",") if leg.strip()]
     task_ids = [t.strip().upper() for t in args.tasks.split(",") if t.strip()]
     for task_id in task_ids:
@@ -84,6 +110,8 @@ def main() -> int:
                         run_idx,
                         settle_timeout=args.settle_timeout,
                         model=args.model,
+                        model_id=args.model_id,
+                        readonly_oauth_path=args.readonly_oauth_path,
                     )
                 except Exception as exc:  # noqa: BLE001 —— 单次失败不拖垮矩阵
                     # RunInfraError 携带部分记录：stall 跑的真实 wall_time
@@ -101,6 +129,10 @@ def main() -> int:
         "schema_version": "rosclaw.harnessbench.v1",
         "out_root": str(out_root),
         "model": args.model,
+        "model_id": args.model_id,
+        "credential_mode": "EXPLICIT_READONLY_NO_REFRESH"
+        if args.model == "chatgpt"
+        else "EXISTING_PROFILE",
         "legs": legs,
         "tasks": task_ids,
         "runs_per_task": args.runs,

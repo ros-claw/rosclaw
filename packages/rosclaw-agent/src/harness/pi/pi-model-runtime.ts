@@ -9,11 +9,18 @@
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 
 import { credentialStoreFor } from "../../credentials/store.js";
+import { assertReadonlyOAuthOutsideWritableRoots, createReadonlyBenchmarkModelRuntime, READONLY_OAUTH_ENV } from "./readonly-benchmark-oauth.js";
 
 export async function createSharedModelRuntime(
 	agentDir: string,
 	profile: "developer" | "robot",
 ): Promise<ModelRuntime> {
+	const readonlyOAuthPath = process.env[READONLY_OAUTH_ENV];
+	if (readonlyOAuthPath !== undefined) {
+		if (profile !== "developer") throw new Error("BENCH_OAUTH_ROBOT_PROFILE_FORBIDDEN");
+		assertReadonlyOAuthOutsideWritableRoots(readonlyOAuthPath, [process.cwd(), agentDir]);
+		return await createReadonlyBenchmarkModelRuntime(readonlyOAuthPath);
+	}
 	// 凭据后端按 profile：developer=加固文件（0600/原子写/fsync），
 	// robot=env-only（写即拒）。Worker 以 developer 语义读同一份
 	// auth.json/models.json（headless 不写凭据）。
