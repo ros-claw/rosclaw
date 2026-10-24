@@ -28,9 +28,16 @@ original native/system/physics observations and complete ECM prefix. Any observe
 additional non-ACTIVE selected lifecycle node during the fault invalidates the
 single-fault preparation. The external operator independently inspects the owned
 container and recomputes actual Source binding and all Engineering Case facts.
-Healthy/restored cases require all constraints SATISFIED; the fault case requires
-only F-TF-001 VIOLATED and every other constraint SATISFIED. Host refusal is not
-model abstention. No report grants current L1 or execution authority.
+Healthy/restored cases require all constraints SATISFIED. The fault case requires
+F-TF-001 VIOLATED and Scan/Lifecycle/Geometry/Route SATISFIED. The existing Source
+binder also depends on TF and must retain its actual UNKNOWN result with the
+sole reason `ROS_RUNTIME:tf.map_to_odom`; this dependency is not missing identity
+evidence. Require initial independent MATCHED Source/Body, current full stream
+continuity, matching identities/geometry and no Source mismatches. Keep all raw
+Source reviews visible. This makes a **conditional decision input**, never a
+new physical admission. No Source gate is modified, no UNKNOWN is relabelled
+MATCHED, and fresh full Source/L1 is still mandatory before any future action.
+Host refusal is not model abstention. No report grants L1 or execution authority.
 
 The fault input must also be accepted by the existing stage-only TF repair
 compiler against the frozen runtime override YAML, with exactly one false→true
@@ -55,3 +62,12 @@ across bounded segments, and independently checks the full original hash chain
 from the initially admitted prefix using the existing SourceStreamReader. It
 does not relax freshness or continuity. These preparation failures and later
 successes must remain separate; no model trial is rerun.
+
+Preparation v2 passed healthy admission and captured an actual single TF fault
+with all four non-Source constraints satisfied. It stopped because its original
+operator criterion demanded MATCHED Source even though the unmodified Source
+binder itself reports the TF failure. Preserve that failed criterion and raw
+capture. Preparation v3 registers two new Worlds with the explicit dependency
+criterion above, following the old FC-00 non-Source P1 test. It must preserve
+UNKNOWN Source, validate the full chain, and verify a legal stage-only proposal.
+The two failed preparation Worlds remain counted separately from the v3 pair.
