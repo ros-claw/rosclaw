@@ -83,7 +83,7 @@ export class ReadOnlyBenchmarkOAuthStore implements CredentialStore {
 
 	async read(providerId: string, options?: AuthOperationOptions): Promise<Credential | undefined> {
 		options?.signal?.throwIfAborted();
-		if (providerId !== PROVIDER) throw new BenchmarkOAuthError("BENCH_OAUTH_PROVIDER_FORBIDDEN");
+		if (providerId !== PROVIDER) return undefined;
 		const before = this.revision();
 		// Public PI entrypoint parses only the selected provider; no env/API-key
 		// command resolution, login, or refresh occurs in this call.
@@ -117,9 +117,53 @@ export class ReadOnlyBenchmarkOAuthStore implements CredentialStore {
 export async function createReadonlyBenchmarkModelRuntime(authPath: string, minimumValidityMs = OAUTH_MIN_VALIDITY_MS): Promise<ModelRuntime> {
 	const credentials = new ReadOnlyBenchmarkOAuthStore(authPath, minimumValidityMs);
 	await credentials.read(PROVIDER); // fail before catalog/session initialization
-	return await ModelRuntime.create({
+	const runtime = await ModelRuntime.create({
 		credentials,
 		modelsPath: null, // builtin catalog; never shadow with trial/global models.json
 		allowModelNetwork: false,
+		refreshOnCreate: false,
 	});
+	// Scope public catalog operations before PI can probe ambient credentials.
+	// The original runtime still owns builtin models, OAuth and request dispatch.
+	const scoped = new Proxy(runtime, {
+		get(target, key) {
+			const name = String(key);
+			const invoke = (...args: unknown[]) => Reflect.apply(Reflect.get(target, key), target, args);
+			if (key === "refresh") return (options: Parameters<ModelRuntime["refresh"]>[0] = {}) =>
+				target.refresh({ ...options, providers: [PROVIDER], allowNetwork: false });
+			if (["getModels", "getAllModels", "getAvailable", "getAllAvailable"].includes(name)) return (provider?: string, ...args: unknown[]) => {
+				if (provider !== undefined && provider !== PROVIDER) return name.includes("Available") ? Promise.resolve([]) : [];
+				return invoke(PROVIDER, ...args);
+			};
+			if (key === "getModelsOfType" || key === "getAvailableOfType") return (type: unknown, provider?: string, ...args: unknown[]) => {
+				if (provider !== undefined && provider !== PROVIDER) return key === "getAvailableOfType" ? Promise.resolve([]) : [];
+				return invoke(type, PROVIDER, ...args);
+			};
+			if (key === "getProviders") return () => target.getProviders().filter((p) => p.id === PROVIDER);
+			if (key === "getAvailableSnapshot") return () => target.getAvailableSnapshot().filter((m) => m.provider === PROVIDER);
+			if (["getProvider", "getModel", "getPhysicalModel"].includes(name)) return (provider: string, ...args: unknown[]) =>
+				provider === PROVIDER ? invoke(provider, ...args) : undefined;
+			if (key === "getModelOfType") return (type: unknown, provider: string, id: string) =>
+				provider === PROVIDER ? invoke(type, provider, id) : undefined;
+			if (key === "checkAuth") return (provider: string, ...args: unknown[]) =>
+				provider === PROVIDER ? invoke(provider, ...args) : Promise.resolve(undefined);
+			if (["login", "logout", "setRuntimeApiKey", "removeRuntimeApiKey", "registerNativeProvider", "registerProvider", "unregisterProvider", "registerVirtualModel", "unregisterVirtualModel"].includes(name)) return () => {
+				const error = new BenchmarkOAuthError("BENCH_OAUTH_READONLY_REFRESH_OR_LOGIN_FORBIDDEN");
+				if (["login", "logout", "setRuntimeApiKey", "removeRuntimeApiKey"].includes(name)) return Promise.reject(error);
+				throw error;
+			};
+			if (["getAuth", "getCompatibilityRequestConfig", "resolveModel", "stream", "complete", "streamSimple", "completeSimple", "streamDeferred", "fetchDeferred", "cancelDeferred", "generateImages", "classify"].includes(name)) return (model: string | { provider: string }, ...args: unknown[]) => {
+				if ((typeof model === "string" ? model : model.provider) !== PROVIDER) {
+					const error = new BenchmarkOAuthError("BENCH_OAUTH_PROVIDER_FORBIDDEN");
+					if (["getAuth", "complete", "completeSimple", "fetchDeferred", "cancelDeferred", "generateImages", "classify", "resolveModel"].includes(name)) return Promise.reject(error);
+					throw error;
+				}
+				return invoke(model, ...args);
+			};
+			const value = Reflect.get(target, key);
+			return typeof value === "function" ? value.bind(target) : value;
+		},
+	});
+	await scoped.refresh({ allowNetwork: false });
+	return scoped;
 }
