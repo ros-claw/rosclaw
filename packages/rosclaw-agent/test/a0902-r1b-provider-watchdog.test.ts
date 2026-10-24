@@ -191,3 +191,22 @@ test("0914 PR-3: Provider 真停滞仍取消（工具未启动时不放水）", 
 	assert.equal(aborted, 1, "拆分后 Provider 真停滞反而不取消了");
 	wd.turnEnded();
 });
+
+test("stall cause is finite, frozen and scoped to the current turn", async (t) => {
+	const { ProviderStallWatchdog } = await import("../src/native/provider-watchdog.js");
+	t.mock.timers.enable({ apis: ["setTimeout"] });
+	const causes: unknown[] = [];
+	const wd = new ProviderStallWatchdog({ notice: () => {}, stallAbort: c => causes.push(c),
+		firstTokenNoticeMs: 10, firstTokenAbortMs: 30,
+		streamIdleStatusMs: 15, streamIdleAbortMs: 45 });
+	wd.turnStarted(); t.mock.timers.tick(30);
+	assert.deepEqual(causes, [{ cause: "FIRST_TOKEN_TIMEOUT", timeout_ms: 30, turn_sequence: 1 }]);
+	assert.ok(Object.isFrozen(causes[0]));
+	t.mock.timers.tick(100); assert.equal(causes.length, 1);
+	wd.turnEnded(); wd.turnStarted(); wd.contentProgress(); t.mock.timers.tick(45);
+	assert.deepEqual(causes[1], { cause: "STREAM_IDLE_TIMEOUT", timeout_ms: 45, turn_sequence: 2 });
+	wd.turnEnded(); wd.turnStarted(); wd.turnEnded(); t.mock.timers.tick(100);
+	assert.equal(causes.length, 2, "ended turn cannot emit or reuse an earlier cause");
+	wd.turnStarted(); wd.pauseForTool(); t.mock.timers.tick(100);
+	assert.equal(causes.length, 2); wd.turnEnded();
+});

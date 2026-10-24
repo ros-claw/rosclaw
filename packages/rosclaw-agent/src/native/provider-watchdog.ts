@@ -13,11 +13,18 @@
  * - 回合终态即解除（无 stray 触发）。
  */
 
+/** Finite local cancellation cause; contains no provider/model content. */
+export interface ProviderStallCause {
+	readonly cause: "FIRST_TOKEN_TIMEOUT" | "STREAM_IDLE_TIMEOUT";
+	readonly timeout_ms: number;
+	readonly turn_sequence: number;
+}
+
 export interface ProviderStallWatchdogOptions {
 	/** 阶段提示（用户可见）。 */
 	notice: (text: string) => void;
 	/** 停滞取消（调用方接 pi ctx.abort——传播到模型请求）。 */
-	stallAbort: () => void;
+	stallAbort: (cause: ProviderStallCause) => void;
 	firstTokenNoticeMs?: number;
 	firstTokenAbortMs?: number;
 	streamIdleStatusMs?: number;
@@ -93,6 +100,7 @@ export class ProviderStallWatchdog {
 	private active = false;
 	private sawContent = false;
 	private abortedOnce = false;
+	private turnSequence = 0;
 	private userBusy = false;
 	/** 0914 PR-3：工具执行阶段计数（嵌套/连发工具安全）——
 	 *  >0 时 Provider 时钟暂停：工具运行不是 Provider 停滞。 */
@@ -113,6 +121,7 @@ export class ProviderStallWatchdog {
 		this.userBusy = false;
 		this.toolBusyCount = 0;
 		this.active = true;
+		this.turnSequence += 1;
 		this.sawContent = false;
 		this.abortedOnce = false;
 		this.lastStreamIdleNoticeAt = -Infinity;
@@ -135,7 +144,7 @@ export class ProviderStallWatchdog {
 					// 通知失败不崩宿主（M8）。
 				}
 			}, this.opts.firstTokenNoticeMs),
-			setTimeout(() => this._stall(`首 token ${seconds(this.opts.firstTokenAbortMs)} 无响应`), this.opts.firstTokenAbortMs),
+			setTimeout(() => this._stall("FIRST_TOKEN_TIMEOUT", this.opts.firstTokenAbortMs), this.opts.firstTokenAbortMs),
 		);
 	}
 
@@ -252,11 +261,13 @@ export class ProviderStallWatchdog {
 					// M8。
 				}
 			}, this.opts.streamIdleStatusMs),
-			setTimeout(() => this._stall(`流式 idle ${seconds(this.opts.streamIdleAbortMs)}`), this.opts.streamIdleAbortMs),
+			setTimeout(() => this._stall("STREAM_IDLE_TIMEOUT", this.opts.streamIdleAbortMs), this.opts.streamIdleAbortMs),
 		];
 	}
 
-	private _stall(reason: string): void {
+	private _stall(cause: ProviderStallCause["cause"], timeoutMs: number): void {
+		const reason = cause === "FIRST_TOKEN_TIMEOUT"
+			? `首 token ${seconds(timeoutMs)} 无响应` : `流式 idle ${seconds(timeoutMs)}`;
 		if (!this.active || this.abortedOnce || this.userBusy || this.toolBusyCount > 0) return;
 		this.abortedOnce = true;
 		// 0902 复核 M8：回调异常不得崩扩展宿主（setTimeout 回调里
@@ -267,7 +278,9 @@ export class ProviderStallWatchdog {
 			// 通知失败不阻断取消。
 		}
 		try {
-			this.opts.stallAbort();
+			// No retained cause can leak into another turn or an unrelated abort.
+			this.opts.stallAbort(Object.freeze({ cause, timeout_ms: timeoutMs,
+				turn_sequence: this.turnSequence }));
 		} catch {
 			// abort 失败同理。
 		}

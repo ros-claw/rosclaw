@@ -1410,12 +1410,21 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 		const stallWatchdog = new ProviderStallWatchdog({
 			...providerWatchdogTimingFromEnv(),
 			notice: (t) => latestCtx?.ui.notify(t, "warning"),
-			stallAbort: () => {
+			stallAbort: (cause) => {
 				// 0902 复核 M8：abort 是可选链——pi 实际 ctx 若无此方法，
 				// 不得宣称"已取消"（假取消文案）；诚实提示手动中断。
 				if (latestCtx && !latestCtx.isIdle()) {
 					if (typeof latestCtx.abort === "function") {
 						// Provider stall is not editor input and grants no cancellation authority.
+						// Existing public ledger, before abort: finite local cause only.
+						// Observability failure must never prevent the original cancellation.
+						try {
+							pi.appendEntry("rosclaw.provider_stall", {
+								schema: "ROSCLAW_PROVIDER_STALL_V1",
+								cause: cause.cause, timeout_ms: cause.timeout_ms,
+								turn_sequence: cause.turn_sequence,
+							});
+						} catch { /* cancellation policy remains unchanged */ }
 						latestCtx.abort();
 					} else if (latestCtx.hasUI) {
 						latestCtx.ui.notify(
