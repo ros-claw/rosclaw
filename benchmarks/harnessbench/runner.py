@@ -5,8 +5,8 @@
 oracle/expected patch/golden answer（§7.1 答案零泄漏）。
 
 两侧条件（§十）：
-- A = 原生 coding agent（pi CLI，mujoco+python+bash，无 ROSClaw
-  sim 工具）；
+- A = 原生 coding agent（旧档案为 pi CLI；ChatGPT 为 PI SDK
+  InteractiveMode launcher；mujoco+python+bash，无 ROSClaw sim 工具）；
 - B = ROSClaw Physical Harness（rosclaw chat + `rosclaw sim` CLI）。
 
 同模型/同 prompt/同任务/同 settle 判据。指标：task_success/
@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import math
 import os
 import sqlite3
 import sys
@@ -167,10 +168,12 @@ def _a_leg_python() -> str:
 def _prepare_a_leg_env(workdir: Path, profile: dict[str, Any] | None = None) -> dict:
     """A 组原生 pi：同一模型同一 key（apiKey 只写 $ENV 引用——key
     绝不落盘）；PATH = 干净 python（无 rosclaw）+ node + 系统。
-    profile=None → kimi-k3（与 B 侧默认同参）；否则本地档案。"""
+    profile=None → kimi-k3；builtin 档案只写 PI 选择，不覆盖 registry/OAuth。"""
     import shutil
 
     agent_dir = workdir / ".pi-agent"
+    if profile is not None and profile.get("builtin") and (agent_dir / "models.json").exists():
+        raise ValueError("BENCH_BUILTIN_PROVIDER_CONFIG_CONFLICT: existing models.json")
     agent_dir.mkdir(parents=True, exist_ok=True)
     if profile is None:
         provider_block = {
@@ -188,6 +191,9 @@ def _prepare_a_leg_env(workdir: Path, profile: dict[str, Any] | None = None) -> 
             ],
         }
         default_provider, default_model = "kimi-code", "k3"
+    elif profile.get("builtin"):
+        provider_block = None
+        default_provider, default_model = profile["provider"], profile["model"]
     else:
         provider_block = {
             "name": profile["provider"],
@@ -209,13 +215,16 @@ def _prepare_a_leg_env(workdir: Path, profile: dict[str, Any] | None = None) -> 
         json.dumps({"defaultProvider": default_provider, "defaultModel": default_model}),
         encoding="utf-8",
     )
-    (agent_dir / "models.json").write_text(
-        json.dumps({"providers": {default_provider: provider_block}}),
-        encoding="utf-8",
-    )
+    if provider_block is not None:
+        (agent_dir / "models.json").write_text(
+            json.dumps({"providers": {default_provider: provider_block}}),
+            encoding="utf-8",
+        )
     _a_leg_python()
     env = dict(os.environ)
+    env.pop("ROSCLAW_PI_READONLY_OAUTH_PATH", None)
     env["PI_CODING_AGENT_DIR"] = str(agent_dir)
+    env["PI_SKIP_VERSION_CHECK"] = "1"
     node_path = shutil.which("node")
     node_bin = str(Path(node_path).parent) if node_path else "/usr/local/bin"
     env["PATH"] = f"{_A_LEG_VENV / 'bin'}:{node_bin}:/usr/local/bin:/usr/bin:/bin"
@@ -258,6 +267,9 @@ def _count_session_stats(session_dir: Path) -> tuple[int, int, int]:
 #: None = 默认 kimi-k3（走 _prepare_home 既有路径）。
 MODEL_PROFILES: dict[str, dict[str, Any] | None] = {
     "kimi-k3": None,
+    # Use PI's builtin catalog/OAuth resolver, never an OpenAI-compatible alias.
+    # The operator must select an exact model ID; no current model is assumed.
+    "chatgpt": {"provider": "openai-codex", "builtin": True},
     "kimi-coding": {
         "provider": "kimi-coding",
         "model": "kimi-for-coding",
@@ -280,14 +292,135 @@ MODEL_PROFILES: dict[str, dict[str, Any] | None] = {
 }
 
 
-def has_model_key(model: str = "kimi-k3") -> bool:
-    profile = MODEL_PROFILES.get(model)
+def resolve_model_profile(model: str, model_id: str | None = None) -> dict[str, Any] | None:
+    """Resolve a benchmark selection without consulting credentials or defaults."""
+    if model not in MODEL_PROFILES:
+        raise ValueError(f"BENCH_MODEL_UNKNOWN: {model!r}（支持 {sorted(MODEL_PROFILES)}）")
+    profile = MODEL_PROFILES[model]
+    if profile is not None and profile.get("builtin"):
+        if not model_id or not model_id.strip() or model_id != model_id.strip():
+            raise ValueError("BENCH_MODEL_ID_REQUIRED: chatgpt requires an explicit --model-id")
+        return {**profile, "model": model_id}
+    if model_id is not None:
+        raise ValueError("BENCH_MODEL_ID_UNEXPECTED: --model-id is only for chatgpt")
+    return profile
+
+
+def validate_readonly_oauth_namespace(auth_path: Path, out_root: Path) -> None:
+    """Reject lexical or existing-symlink aliases into an orchestration write root.
+
+    This inspects path metadata only, never credential contents. It is a runner
+    namespace contract, not a sandbox against arbitrary same-UID coding tools.
+    """
+    try:
+        lexical_source, lexical_root = auth_path.absolute(), out_root.absolute()
+        source, root = auth_path.resolve(), out_root.resolve()
+        overlap = lexical_source.is_relative_to(lexical_root) or source.is_relative_to(root)
+    except (OSError, RuntimeError, ValueError):
+        raise ValueError("BENCH_OAUTH_WRITABLE_SCOPE_INVALID") from None
+    if overlap:
+        raise ValueError("BENCH_OAUTH_SOURCE_OVERLAPS_WRITABLE_SCOPE")
+
+
+def _builtin_bridge_entry() -> Path:
+    return REPO / "packages/rosclaw-agent/dist/src/harness/pi/benchmark-native.js"
+
+
+def model_credential_issue(
+    model: str = "kimi-k3",
+    *,
+    model_id: str | None = None,
+    readonly_oauth_path: Path | None = None,
+    settle_timeout: float = 1200.0,
+) -> str | None:
+    """No Python credential reads. The PI bridge returns only a bounded safe code.
+
+    A single explicitly supplied dedicated OAuth source is read by the runtime's
+    readonly store; trial settings/sessions remain isolated. A token must cover
+    the original settle deadline + 120s startup + 10s parent cleanup,
+    plus PI's five-minute refresh window. No deadline is extended.
+    This does not extend a trial or permit login, refresh, or secret copying.
+    """
+    if model not in MODEL_PROFILES:
+        raise ValueError(f"BENCH_MODEL_UNKNOWN: {model!r}")
+    profile = MODEL_PROFILES[model]
     if profile is not None:
+        if profile.get("builtin"):
+            if readonly_oauth_path is None:
+                return "ChatGPT requires --readonly-oauth-path to one dedicated operator-configured OAuth source; no login or credential copy attempted"
+            resolve_model_profile(model, model_id)
+            if not math.isfinite(settle_timeout) or settle_timeout <= 0:
+                raise ValueError("BENCH_SETTLE_TIMEOUT_INVALID")
+            import shutil
+            import subprocess
+
+            node = shutil.which("node")
+            entry = _builtin_bridge_entry()
+            if not node or not entry.is_file():
+                return (
+                    "ChatGPT readonly PI bridge is not built (build packages/rosclaw-agent first)"
+                )
+            minimum_ms = math.ceil((settle_timeout + 120 + 10 + 300) * 1000) + 1000
+            try:
+                result = subprocess.run(
+                    [
+                        node,
+                        str(entry),
+                        "--check",
+                        str(readonly_oauth_path.absolute()),
+                        model_id,
+                        str(minimum_ms),
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    env=dict(os.environ, PI_SKIP_VERSION_CHECK="1"),
+                )
+                report = json.loads(result.stdout)
+            except (OSError, ValueError, subprocess.TimeoutExpired):
+                return "BENCH_READONLY_OAUTH_PREFLIGHT_FAILED"
+            if result.returncode == 0 and report == {
+                "status": "READY",
+                "provider": "openai-codex",
+                "model_id": model_id,
+                "credential_mode": "EXPLICIT_READONLY_NO_REFRESH",
+                "remote_auth_verified": False,
+            }:
+                return None
+            code = report.get("code") if isinstance(report, dict) else None
+            safe_codes = {
+                "BENCH_OAUTH_REFERENCE_INVALID",
+                "BENCH_OAUTH_DEDICATED_SOURCE_REQUIRED",
+                "BENCH_OAUTH_SOURCE_UNAVAILABLE_OR_UNSAFE",
+                "BENCH_OAUTH_SOURCE_CHANGED_DURING_READ",
+                "BENCH_OAUTH_CREDENTIAL_MISSING_OR_INVALID",
+                "BENCH_OAUTH_RENEW_EXTERNALLY_REQUIRED",
+                "BENCH_BUILTIN_MODEL_UNKNOWN",
+                "BENCH_OAUTH_NOT_CONFIGURED",
+                "BENCH_OAUTH_SOURCE_OVERLAPS_WRITABLE_SCOPE",
+                "BENCH_OAUTH_WRITABLE_SCOPE_INVALID",
+            }
+            return code if code in safe_codes else "BENCH_READONLY_OAUTH_PREFLIGHT_FAILED"
+        if readonly_oauth_path is not None:
+            raise ValueError(
+                "BENCH_OAUTH_PATH_UNEXPECTED: only chatgpt accepts --readonly-oauth-path"
+            )
         required_env = profile.get("required_env")
-        return bool(os.environ.get(required_env)) if required_env else True
-    return any(
-        os.environ.get(v) for v in ("ROSCLAW_KIMI_API_KEY", "KIMI_API_KEY", "MOONSHOT_API_KEY")
+        if required_env and not os.environ.get(required_env):
+            return f"no model credential in environment ({required_env})"
+        return None
+    if readonly_oauth_path is not None:
+        raise ValueError("BENCH_OAUTH_PATH_UNEXPECTED: only chatgpt accepts --readonly-oauth-path")
+    keys = ("ROSCLAW_KIMI_API_KEY", "KIMI_API_KEY", "MOONSHOT_API_KEY")
+    return (
+        None
+        if any(os.environ.get(key) for key in keys)
+        else (f"no model credential in environment ({'/'.join(keys)})")
     )
+
+
+def has_model_key(model: str = "kimi-k3", **kwargs: Any) -> bool:
+    return model_credential_issue(model, **kwargs) is None
 
 
 def _socket_safe_home(evidence_home: Path) -> Path:
@@ -311,49 +444,55 @@ def _socket_safe_home(evidence_home: Path) -> Path:
 
 
 def _prepare_home_with_profile(home: Path, profile: dict[str, Any]) -> tuple[Path, dict[str, str]]:
-    """本地模型档案的 B 侧 HOME（与 _prepare_home 同构，provider
-    指向本地 OpenAI 兼容端点；无 key 要求）。"""
+    """Build an isolated B home with either builtin PI selection or a custom endpoint."""
+    if profile.get("builtin") and (home / "agent" / "models.json").exists():
+        raise ValueError("BENCH_BUILTIN_PROVIDER_CONFIG_CONFLICT: existing models.json")
     home = _socket_safe_home(home)
     (home / "run").mkdir(parents=True, exist_ok=True)
-    (home / "config.yaml").write_text(
-        "agent:\n  enabled: true\n  default_profile: embodied_default\n"
-        "models:\n  backend: legacy\n  profiles:\n    embodied_default:\n"
-        f"      provider: local\n      model: {profile['model']}\n"
-        f"      base_url: {profile['base_url']}\n"
-        '      api_key_ref: ""\n'
-        "      capabilities: [llm.chat, llm.structured_decision, llm.tool_use]\n",
-        encoding="utf-8",
-    )
+    if profile.get("builtin"):
+        (home / "config.yaml").write_text("agent:\n  enabled: true\n", encoding="utf-8")
+    else:
+        (home / "config.yaml").write_text(
+            "agent:\n  enabled: true\n  default_profile: embodied_default\n"
+            "models:\n  backend: legacy\n  profiles:\n    embodied_default:\n"
+            f"      provider: local\n      model: {profile['model']}\n"
+            f"      base_url: {profile['base_url']}\n"
+            '      api_key_ref: ""\n'
+            "      capabilities: [llm.chat, llm.structured_decision, llm.tool_use]\n",
+            encoding="utf-8",
+        )
     (home / "agent").mkdir(parents=True, exist_ok=True)
     (home / "agent" / "settings.json").write_text(
         json.dumps({"defaultProvider": profile["provider"], "defaultModel": profile["model"]}),
         encoding="utf-8",
     )
-    (home / "agent" / "models.json").write_text(
-        json.dumps(
-            {
-                "providers": {
-                    profile["provider"]: {
-                        "name": profile["provider"],
-                        "baseUrl": profile["base_url"],
-                        "api": profile.get("api", "openai-completions"),
-                        "apiKey": profile["api_key"],
-                        "models": [
-                            {
-                                "id": profile["model"],
-                                "name": profile["model"],
-                                "contextWindow": profile["context_window"],
-                                "maxTokens": profile["max_tokens"],
-                                "reasoning": profile.get("reasoning", False),
-                            }
-                        ],
+    if not profile.get("builtin"):
+        (home / "agent" / "models.json").write_text(
+            json.dumps(
+                {
+                    "providers": {
+                        profile["provider"]: {
+                            "name": profile["provider"],
+                            "baseUrl": profile["base_url"],
+                            "api": profile.get("api", "openai-completions"),
+                            "apiKey": profile["api_key"],
+                            "models": [
+                                {
+                                    "id": profile["model"],
+                                    "name": profile["model"],
+                                    "contextWindow": profile["context_window"],
+                                    "maxTokens": profile["max_tokens"],
+                                    "reasoning": profile.get("reasoning", False),
+                                }
+                            ],
+                        }
                     }
                 }
-            }
-        ),
-        encoding="utf-8",
-    )
+            ),
+            encoding="utf-8",
+        )
     env = dict(os.environ, ROSCLAW_HOME=str(home), TERM="xterm")
+    env.pop("ROSCLAW_PI_READONLY_OAUTH_PATH", None)
     venv_bin = Path(sys.executable).parent
     env["PATH"] = str(venv_bin) + ":" + env.get("PATH", "")
     env["VIRTUAL_ENV"] = str(venv_bin.parent)
@@ -552,15 +691,32 @@ def run_leg(
     *,
     settle_timeout: float = 1200.0,
     model: str = "kimi-k3",
+    model_id: str | None = None,
+    readonly_oauth_path: Path | None = None,
 ) -> dict[str, Any]:
-    """跑一侧一次：A=pi CLI（无扩展）；B=rosclaw chat（sim CLI）。
+    """A=pi CLI for existing profiles; ChatGPT A=PI SDK InteractiveMode.
+    B=rosclaw chat（sim CLI）。
     model 取 MODEL_PROFILES 键（§十一 多模型资格认证）。"""
+    profile = resolve_model_profile(model, model_id)
+    if profile is not None and profile.get("builtin"):
+        if readonly_oauth_path is not None:
+            validate_readonly_oauth_namespace(readonly_oauth_path, out_root)
+        work = out_root / f"{leg.lower()}_{task_id.lower()}_{model}_run{run_idx}"
+        if work.exists() or work.is_symlink():
+            raise ValueError("BENCH_BUILTIN_TRIAL_NAMESPACE_NOT_FRESH")
+        issue = model_credential_issue(
+            model,
+            model_id=model_id,
+            readonly_oauth_path=readonly_oauth_path,
+            settle_timeout=settle_timeout,
+        )
+        if issue is not None:
+            raise ValueError(f"BENCH_OAUTH_SOURCE_UNAVAILABLE: {issue}")
+    elif readonly_oauth_path is not None:
+        raise ValueError("BENCH_OAUTH_PATH_UNEXPECTED: only chatgpt accepts --readonly-oauth-path")
+
     sys.path.insert(0, str(REPO))
     from tests.agentd.test_product_journey import PtySession
-
-    if model not in MODEL_PROFILES:
-        raise ValueError(f"BENCH_MODEL_UNKNOWN: {model!r}（支持 {sorted(MODEL_PROFILES)}）")
-    profile = MODEL_PROFILES[model]
 
     task = TASKS[task_id]
     work = out_root / f"{leg.lower()}_{task_id.lower()}_{model}_run{run_idx}"
@@ -581,24 +737,49 @@ def run_leg(
         "verdict": "ERROR",
     }
 
+    if profile is not None and profile.get("builtin"):
+        record.update(
+            provider=profile["provider"],
+            model_id=profile["model"],
+            credential_mode="EXPLICIT_READONLY_NO_REFRESH",
+            launcher="PI_SDK_INTERACTIVE_MODE" if leg == "A" else "ROSCLAW_NATIVE_AGENT",
+        )
+
     session = None
     session_dir: Path | None = None
     try:
         if leg == "A":
-            from scripts.ab_compare import _find_native_pi_cli
+            if profile is not None and profile.get("builtin"):
+                import shutil
 
-            pi_entry = _find_native_pi_cli()
-            assert pi_entry is not None, "A 组需要原生 pi CLI"
+                argv = [
+                    shutil.which("node"),
+                    str(_builtin_bridge_entry()),
+                    str(readonly_oauth_path.absolute()),
+                    profile["model"],
+                ]
+                ready = b"HARNESSBENCH_NATIVE_PI_READY"
+            else:
+                from scripts.ab_compare import _find_native_pi_cli
+
+                pi_entry = _find_native_pi_cli()
+                assert pi_entry is not None, "A 组需要原生 pi CLI"
+                argv = [pi_entry]
+                ready = b"ctrl+o to show full startup help"
             session = PtySession(
-                [pi_entry],
+                argv,
                 _prepare_a_leg_env(work, profile),
                 cwd=work,
                 log_path=work / "pty.log",
             )
-            session.expect(b"ctrl+o to show full startup help", timeout=120)
+            session.expect(ready, timeout=120)
             session_dir = work / ".pi-agent" / "sessions"
         elif profile is not None:
             home, home_env = _prepare_home_with_profile(work / "rh", profile)
+            if profile.get("builtin"):
+                home_env["ROSCLAW_PI_READONLY_OAUTH_PATH"] = str(readonly_oauth_path.absolute())
+                # Explicit trial agent dir wins over inherited global PI settings.
+                home_env["PI_CODING_AGENT_DIR"] = str(home / "agent")
             record["runtime_home"] = str(home)
             record["evidence_home"] = str(work / "rh")
             session = PtySession(
@@ -621,6 +802,7 @@ def run_leg(
 
             run = driver.AgentRun(work, settle_timeout=settle_timeout)
             home_env = dict(run.env)
+            home_env.pop("ROSCLAW_PI_READONLY_OAUTH_PATH", None)
             home = _socket_safe_home(run.home)
             home_env["ROSCLAW_HOME"] = str(home)
             record["runtime_home"] = str(home)
