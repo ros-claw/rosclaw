@@ -205,6 +205,44 @@ def test_artifact_roundtrip_and_numpy_actor_emit_direct_bounded_torque(tmp_path:
     assert artifact.tensors["actor.head.bias"].flags.writeable is False
 
 
+@pytest.mark.parametrize("mode", ["accepted", "projected_fallback", "warmup", "ood"])
+def test_pending_actor_proposal_is_owned_and_never_fabricated(tmp_path: Path, mode: str) -> None:
+    safety = G1TorqueSafetyConfig(
+        maximum_projection_ratio=0.0 if mode == "projected_fallback" else 1.0,
+        warmup_steps=1 if mode == "warmup" else 0,
+    )
+    payload = _artifact_bytes(
+        safety=safety, output_bias=4.0 if mode == "projected_fallback" else 0.01
+    )
+    path = tmp_path / "trace.bin"
+    path.write_bytes(payload)
+    artifact = load_g1_neural_torque_artifact(
+        path, expected_hash="sha256:" + hashlib.sha256(payload).hexdigest()
+    )
+    policy = G1NeuralTorquePolicy(
+        artifact, expected_body_hash=_digest("body"), expected_parent_policy_hash=_digest("parent")
+    )
+    with pytest.raises(RuntimeError, match="no pending"):
+        _ = policy.pending_actor_proposal
+    frame = _frame(ball_position=np.array([100.0, 0.0, 0.11])) if mode == "ood" else _frame()
+    actual = policy.command(frame, np.zeros(29))
+    raw = policy.pending_actor_proposal
+    if mode in ("warmup", "ood"):
+        assert raw is None
+    else:
+        assert raw is not None and raw.shape == (29,) and np.all(raw > 0)
+        assert not raw.flags.writeable
+        assert not np.shares_memory(raw, policy.pending_actor_proposal)
+        if mode == "projected_fallback":
+            assert policy.pending_projection.used_parent
+            assert not np.array_equal(raw, actual)
+    policy.note_applied(actual)
+    with pytest.raises(RuntimeError, match="no pending"):
+        _ = policy.pending_actor_proposal
+    policy.reset()
+    assert policy._pending_actor_proposal is None
+
+
 def test_artifact_loader_rejects_tampering_and_non_sim_safety(tmp_path: Path) -> None:
     payload = _artifact_bytes()
     path = tmp_path / "candidate.bin"
