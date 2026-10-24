@@ -1,0 +1,23 @@
+{
+  "interface_names": {
+    "mapping.occupancy_map": "/heldout/rosbot_xl/map",
+    "state.odometry": "/heldout/rosbot_xl/rosbot_xl_base_controller/odom",
+    "sensing.lidar": "/heldout/rosbot_xl/scan",
+    "navigation.navigate_to_pose": "/heldout/rosbot_xl/navigate_to_pose"
+  },
+  "lifecycle_nodes": {
+    "localization": "/heldout/rosbot_xl/amcl",
+    "planner": "/heldout/rosbot_xl/planner_server",
+    "controller": "/heldout/rosbot_xl/velocity_smoother",
+    "collision_monitor": "/heldout/rosbot_xl/collision_monitor",
+    "navigator": "/heldout/rosbot_xl/bt_navigator"
+  },
+  "costmap_topics": [
+    "/heldout/rosbot_xl/local_costmap/costmap",
+    "/heldout/rosbot_xl/global_costmap/costmap"
+  ],
+  "localization_topic": "/heldout/rosbot_xl/amcl_pose",
+  "velocity_input_topic": "/heldout/rosbot_xl/cmd_vel_smoothed",
+  "velocity_output_topic": "/heldout/rosbot_xl/nav_cmd_vel",
+  "velocity_consumer_node": "/heldout/rosbot_xl/rosclaw_governed_sink"
+}

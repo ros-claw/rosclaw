@@ -1,0 +1,220 @@
+{
+  "schema_version": "rosclaw.sim_source_binding_evidence.v1",
+  "result": "UNKNOWN",
+  "status": "SIM_SOURCE_UNKNOWN",
+  "manifest_hash": "navbodyworkspace_60879fdf0ea6298f6595f44a1c09937e656087150bf571408fb33ed93653cbba",
+  "body_hash": "c319fb6d15250d02c5e65c39bd9ffcbefc7f1680174d1c3cd8f4368f84c7cae8",
+  "world_id": "ros_expert",
+  "sim_run_id": "e736c683069c4b6aac7e060c9237cad0",
+  "model_entity_id": 28,
+  "loaded_geometry_fingerprint": "simgeometry_5704d79db6651015e68932fc25cf1cd3948ac1d95f4008de0a9b217ba0c93833",
+  "ros_runtime_snapshot_hash": "rossnap_f03cf3d231a31e615a03c8ff227559a3a9e524c05edc3a7b4119f8710064851f",
+  "observed_at": "2026-10-24T00:06:48.510816+00:00",
+  "reviewed_at": "2026-10-24T00:06:48.510816+00:00",
+  "source_provenance_class": "NOT_VERIFIED",
+  "execution_authority": "NONE",
+  "real_authority": false,
+  "L1": "NOT_RUN",
+  "L2": "NOT_RUN",
+  "workspace_modified": false,
+  "evidence_refs": [
+    {
+      "role": "operator_launch",
+      "sha256": "74f3e0806d0b7fe0afc04c9259f2f32cb63338d583bdb8dbf0f68586bb9082df"
+    },
+    {
+      "role": "operator_capture",
+      "sha256": "d0d50cd3486776a1f1a1aa1778ec3d7ee1affca9faae5288fd015e616a731075"
+    },
+    {
+      "role": "converted_sdf",
+      "sha256": "4c4a2c2626730bdc54ca9baa1f91ebd1092ca1da8c892506ac2c47601ecc4129"
+    },
+    {
+      "role": "world_sdf",
+      "sha256": "47e3918a119979fbb69aadad4ba824c520c6e8feb4145d17b8a57b4ef2c76be4"
+    },
+    {
+      "role": "original_ecm",
+      "sha256": "fbd5bf15a17ba845dc5568ef68fdc2e19ae815c82aa608bee21cca5b24f7a38a"
+    }
+  ],
+  "navigation_observation_review": {
+    "schema_version": "rosclaw.navigation_observation_review.v1",
+    "status": "UNKNOWN",
+    "candidate": {
+      "schema_version": "rosclaw.body_discovery_candidate.v1",
+      "status": "UNKNOWN",
+      "source_snapshot_id": "rossys_f03cf3d231a31e615a03c8ff227559a3a9e524c05edc3a7b4119f8710064851f",
+      "source_snapshot_hash": "rossnap_f03cf3d231a31e615a03c8ff227559a3a9e524c05edc3a7b4119f8710064851f",
+      "source_urdf_sha256": "21542102016bd6423585ceef969a9e58d29af75d7aad02028c40bf0d6af7a903",
+      "frames": {
+        "base": "base_link",
+        "odom": "odom",
+        "map": "map",
+        "lidar": "laser"
+      },
+      "interfaces": {
+        "state.odometry": [
+          {
+            "name": "/heldout/rosbot_xl/rosbot_xl_base_controller/odom",
+            "ros_type": "nav_msgs/msg/Odometry",
+            "frames": {
+              "source": "/heldout/rosbot_xl/rosbot_xl_base_controller/odom",
+              "frame_id": "odom",
+              "child_frame_id": "base_link",
+              "stamp_sec": 17.04,
+              "captured_at": "2026-10-24T00:06:48.348879+00:00",
+              "stamp_age_ms": 0.0
+            }
+          }
+        ],
+        "mapping.occupancy_map": [
+          {
+            "name": "/heldout/rosbot_xl/map",
+            "ros_type": "nav_msgs/msg/OccupancyGrid",
+            "frames": {
+              "source": "/heldout/rosbot_xl/map",
+              "frame_id": "map",
+              "child_frame_id": null,
+              "stamp_sec": 0.0,
+              "captured_at": "2026-10-24T00:06:32.572918+00:00",
+              "stamp_age_ms": 17040.0
+            }
+          }
+        ],
+        "sensing.lidar": [
+          {
+            "name": "/heldout/rosbot_xl/scan",
+            "ros_type": "sensor_msgs/msg/LaserScan",
+            "frames": {
+              "source": "/heldout/rosbot_xl/scan",
+              "frame_id": "laser",
+              "child_frame_id": null,
+              "stamp_sec": 17.0,
+              "captured_at": "2026-10-24T00:06:48.342662+00:00",
+              "stamp_age_ms": 39.99999999999915
+            }
+          }
+        ],
+        "navigation.navigate_to_pose": [
+          {
+            "name": "/heldout/rosbot_xl/navigate_to_pose",
+            "action_type": "nav2_msgs/action/NavigateToPose"
+          }
+        ]
+      },
+      "geometry": {
+        "schema_version": "rosclaw.urdf_collision_envelope.v2",
+        "evidence_domain": "OFFLINE_URDF",
+        "evidence_role": "candidate_geometry_not_verified_binding",
+        "source_urdf_sha256": "21542102016bd6423585ceef969a9e58d29af75d7aad02028c40bf0d6af7a903",
+        "base_frame": "base_link",
+        "model_identity": "rosbot_xl",
+        "complete": true,
+        "physical_radius_m": 0.22056448916178234,
+        "unsupported_reasons": [],
+        "collision_count": 12,
+        "resolved_collision_count": 12,
+        "capabilities_granted": [],
+        "cleaning_attachment_inferred": false,
+        "original_mesh_assets": {
+          "/assets/collision-resources/c2a5fbb0022aa1ce94b030b646ce448e6927a5bb8bf6d1e107258c1de449ae68.stl": {
+            "original_sha256": "c2a5fbb0022aa1ce94b030b646ce448e6927a5bb8bf6d1e107258c1de449ae68",
+            "original_bytes": 8184,
+            "encoding": "BINARY_STL",
+            "triangle_count": 162,
+            "local_min": [
+              -0.16673576831817627,
+              -0.1347000002861023,
+              -0.017405634745955467
+            ],
+            "local_max": [
+              0.16100001335144043,
+              0.1347000002861023,
+              0.08359436690807343
+            ],
+            "derivation": "extrema over every original vertex; no repaired or substituted geometry",
+            "source_authentication": "NOT_ESTABLISHED_BY_HASH",
+            "physical_loaded_geometry": "NOT_VERIFIED",
+            "execution_authority": "NONE"
+          }
+        },
+        "physical_mesh_loading": "NOT_VERIFIED_NOT_RUNTIME_OR_BODY_ADMISSION",
+        "derivation": "fixed RPY/XYZ transforms; original SHA-bound STL extrema and containing primitive boxes; full movable-subtree sphere bounds",
+        "prepared_mesh_document_sha256": "2f6f0ba2d5a883fb2dd959cd6390366dcc22da56c409d785eec121b69c49ea1c"
+      },
+      "unknown_fields": [
+        "tf.map_to_odom"
+      ],
+      "authorization": false,
+      "capabilities_granted": [],
+      "binding_verified": false,
+      "cleaning_attachment": null,
+      "physical_acceptance_level": "NOT_RUN",
+      "requested_interface_names": {
+        "mapping.occupancy_map": "/heldout/rosbot_xl/map",
+        "state.odometry": "/heldout/rosbot_xl/rosbot_xl_base_controller/odom",
+        "sensing.lidar": "/heldout/rosbot_xl/scan",
+        "navigation.navigate_to_pose": "/heldout/rosbot_xl/navigate_to_pose"
+      },
+      "urdf_provenance": [
+        {
+          "node": "/heldout/rosbot_xl/robot_state_publisher",
+          "source": "/heldout/rosbot_xl/robot_state_publisher/get_parameters",
+          "captured_at": "2026-10-24T00:06:48.284250+00:00",
+          "sha256": "21542102016bd6423585ceef969a9e58d29af75d7aad02028c40bf0d6af7a903",
+          "size_bytes": 20750,
+          "complete": true
+        }
+      ]
+    },
+    "source_snapshot_hash": "rossnap_f03cf3d231a31e615a03c8ff227559a3a9e524c05edc3a7b4119f8710064851f",
+    "requirements_hash": "navrequirements_8f2242c105e3b461291d5a3fb70aac7d912650db48a0d314baba8b40e3671561",
+    "reviewed_at": "2026-10-24T00:06:48.510816+00:00",
+    "unknown_fields": [
+      "tf.map_to_odom"
+    ],
+    "authorization": false,
+    "capabilities_granted": [],
+    "binding_verified": false,
+    "usable_for_real_execution": false,
+    "physical_acceptance_level": "NOT_RUN",
+    "next_gate": "operator-reviewed immutable Body binding, daemon admission and independent guarded SIM navigation receipt",
+    "unverified_checks": [
+      "collision_polygon_geometry",
+      "obstacle_response",
+      "speed_and_acceleration_limits",
+      "immutable_Body_binding",
+      "daemon_admission",
+      "physical_navigation"
+    ]
+  },
+  "current_navigation_readiness": "NOT_EVALUATED",
+  "deferred_L1_checks": [],
+  "collision_resource_source_pins": {
+    "collision-asset-originals.json": "2f6f0ba2d5a883fb2dd959cd6390366dcc22da56c409d785eec121b69c49ea1c",
+    "collision-resources/c2a5fbb0022aa1ce94b030b646ce448e6927a5bb8bf6d1e107258c1de449ae68.stl": "c2a5fbb0022aa1ce94b030b646ce448e6927a5bb8bf6d1e107258c1de449ae68"
+  },
+  "collision_resource_authority": "NONE_REQUIRES_CURRENT_RESOURCE_CONTINUITY",
+  "joint_kinematics_review": {
+    "status": "MATCHED_DECLARED_SOURCE_JOINT_DOF",
+    "source_sha256": "47e3918a119979fbb69aadad4ba824c520c6e8feb4145d17b8a57b4ef2c76be4",
+    "sample": 164,
+    "joint_coordinates_from_checked_ECM_poses": {
+      "fl_wheel_joint": 0.0,
+      "fr_wheel_joint": 0.0,
+      "rl_wheel_joint": 0.0,
+      "rr_wheel_joint": 0.0
+    },
+    "execution_authority": "NONE"
+  },
+  "joint_kinematics_precision": {
+    "position_m": 1e-05,
+    "rotation_matrix": 0.001
+  },
+  "mismatch_reasons": [],
+  "unknown_reasons": [
+    "ROS_RUNTIME:tf.map_to_odom"
+  ]
+}

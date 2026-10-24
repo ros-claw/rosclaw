@@ -1,0 +1,241 @@
+{
+  "at": "2026-10-24T00:08:47.128198+00:00",
+  "status": "PASS_INDEPENDENT_TWO_SEED_CONDITIONAL_INPUTS_ALL_ATTEMPTS_ACCOUNTED",
+  "capture_source": "3538997483bcc1cd60c83fd383f548ea98a414aa",
+  "new_Worlds_all_preparation_versions": 6,
+  "current_stationary_Worlds": 2,
+  "conditional_P1_originals": 2,
+  "healthy_originals": 2,
+  "restored_originals": 2,
+  "new_model_calls": 0,
+  "stationary_navigation_goals": 0,
+  "historical_preparation_goal_receipts": [
+    {
+      "path": "recovery_2026-10-13/AC23-101-38c306c1-positive/execution/governed-action-1-receipt-original.json",
+      "sha256": "62b581c3a10a18302ae85c71a4828385df32dcc3bf5c509fe402be14fb260549",
+      "state": "COMPLETED",
+      "verified": true,
+      "physical_stop_verified": true
+    },
+    {
+      "path": "recovery_2026-10-13/AC23-101-38c306c1-positive/execution/governed-action-0-receipt-original.json",
+      "sha256": "bc455fbd911e26af4edafa25f9439f507fb34df10c7bccb66f4ec29cf8e67452",
+      "state": "COMPLETED",
+      "verified": true,
+      "physical_stop_verified": true
+    },
+    {
+      "path": "recovery_2026-10-13/AC23V2-101-789ad3da-positive/execution/governed-action-1-receipt-original.json",
+      "sha256": "6cead7a5656e7bd5870c92a193016241d9b4b3afe9a75957e4c9d3e50c0bac6f",
+      "state": "COMPLETED",
+      "verified": true,
+      "physical_stop_verified": true
+    },
+    {
+      "path": "recovery_2026-10-13/AC23V2-101-789ad3da-positive/execution/governed-action-0-receipt-original.json",
+      "sha256": "859d8376559f1f5fb2400ef3f8b29b04f87f208238fc72ef099c3b05d531af32",
+      "state": "COMPLETED",
+      "verified": true,
+      "physical_stop_verified": true
+    },
+    {
+      "path": "recovery_2026-10-13/AC23V3-101-282597de-positive/execution/governed-action-1-receipt-original.json",
+      "sha256": "72a77170eabdf3c9e75ee7d55678e67d8c63c9aac3312040267e627f9e41b066",
+      "state": "COMPLETED",
+      "verified": true,
+      "physical_stop_verified": true
+    },
+    {
+      "path": "recovery_2026-10-13/AC23V3-101-282597de-positive/execution/governed-action-0-receipt-original.json",
+      "sha256": "d7d7b3794f12974a58f9b5e95c0630ebd910f3046103b029b2c32e3ccc36d72b",
+      "state": "COMPLETED",
+      "verified": true,
+      "physical_stop_verified": true
+    },
+    {
+      "path": "recovery_2026-10-13/AC23V3-202-576b4ce3-positive/execution/governed-action-1-receipt-original.json",
+      "sha256": "64cba67227ddc76f0a376f1de3ad2eadbe08c74c85a5b3d7193f890af6d92a1d",
+      "state": "FAILED",
+      "verified": false,
+      "physical_stop_verified": false
+    },
+    {
+      "path": "recovery_2026-10-13/AC23V3-202-576b4ce3-positive/execution/governed-action-0-receipt-original.json",
+      "sha256": "c45978fad24bc535b461845813940daff1a01c429696140c87c2f8d5a4ee4230",
+      "state": "COMPLETED",
+      "verified": true,
+      "physical_stop_verified": true
+    }
+  ],
+  "motion_stability": "NOT_ESTABLISHED_SEED202_COVARIANCE_FAILURE_PRESERVED",
+  "fault_Source": "UNKNOWN_TF_DEPENDENCY_NOT_RELABELLED",
+  "source_binder_unchanged": true,
+  "current_L1_or_action_authority_granted": false,
+  "attempts": [
+    {
+      "version": 1,
+      "seed": 101,
+      "World": "recovery_2026-10-13/AC23-101-38c306c1-positive",
+      "status": "RUNNING",
+      "protocol_outcome": "FAILED_PREPARATION_PRESERVE_ALL_ORIGINALS_NO_SELECTIVE_RETRY",
+      "stopped": true
+    },
+    {
+      "version": 2,
+      "seed": 101,
+      "World": "recovery_2026-10-13/AC23V2-101-789ad3da-positive",
+      "status": "RUNNING",
+      "protocol_outcome": "FAILED_PREPARATION_PRESERVE_ALL_ORIGINALS_NO_SELECTIVE_RETRY",
+      "stopped": true
+    },
+    {
+      "version": 3,
+      "seed": 101,
+      "World": "recovery_2026-10-13/AC23V3-101-282597de-positive",
+      "status": "PASS_NEW_HEALTHY_P1_RESTORED_ORIGINALS",
+      "protocol_outcome": "FAILED_PREPARATION_PRESERVE_ALL_ORIGINALS_NO_SELECTIVE_RETRY",
+      "stopped": true
+    },
+    {
+      "version": 3,
+      "seed": 202,
+      "World": "recovery_2026-10-13/AC23V3-202-576b4ce3-positive",
+      "status": "RUNNING",
+      "protocol_outcome": "FAILED_PREPARATION_PRESERVE_ALL_ORIGINALS_NO_SELECTIVE_RETRY",
+      "stopped": true
+    },
+    {
+      "version": 4,
+      "seed": 101,
+      "World": "recovery_2026-10-13/AC23V4-101-9f29082a-positive",
+      "status": "PASS_NEW_HEALTHY_P1_RESTORED_ORIGINALS",
+      "protocol_outcome": "PASS_TWO_SEEDS_CONDITIONAL_TF_INPUTS_NOT_PHYSICAL_ADMISSION",
+      "stopped": true
+    },
+    {
+      "version": 4,
+      "seed": 202,
+      "World": "recovery_2026-10-13/AC23V4-202-6e0ef061-positive",
+      "status": "PASS_NEW_HEALTHY_P1_RESTORED_ORIGINALS",
+      "protocol_outcome": "PASS_TWO_SEEDS_CONDITIONAL_TF_INPUTS_NOT_PHYSICAL_ADMISSION",
+      "stopped": true
+    }
+  ],
+  "rows": [
+    {
+      "seed": 101,
+      "phase": "healthy",
+      "World": "recovery_2026-10-13/AC23V4-101-9f29082a-positive",
+      "snapshot_sha256": "9718e843a1ace1c39aae89bd6e0308ae986ee6a6af8e49219a19400fcb7c17be",
+      "case_sha256": "f040805e3592b75dc32ad627fa15451dfdf47ba71e1b9696f1a72b1a45c983ca",
+      "states": {
+        "F-SOURCE-001": "SATISFIED",
+        "F-TF-001": "SATISFIED",
+        "F-SCAN-001": "SATISFIED",
+        "F-LIFE-001": "SATISFIED",
+        "F-GEOM-001": "SATISFIED",
+        "F-ROUTE-001": "SATISFIED"
+      },
+      "source_result": "MATCHED",
+      "clock": "2026-10-24T00:06:43.113632+00:00"
+    },
+    {
+      "seed": 101,
+      "phase": "fault",
+      "World": "recovery_2026-10-13/AC23V4-101-9f29082a-positive",
+      "snapshot_sha256": "438c021ab3a6739b3b8be300244198b5fb7b730b1278ec9c7a882450894d5517",
+      "case_sha256": "c66967433bac665ac84eebeec7a5359edac80b202872c01b065db0ed2efde06f",
+      "states": {
+        "F-SOURCE-001": "UNKNOWN",
+        "F-TF-001": "VIOLATED",
+        "F-SCAN-001": "SATISFIED",
+        "F-LIFE-001": "SATISFIED",
+        "F-GEOM-001": "SATISFIED",
+        "F-ROUTE-001": "SATISFIED"
+      },
+      "source_result": "UNKNOWN",
+      "clock": "2026-10-24T00:06:48.510816+00:00"
+    },
+    {
+      "seed": 101,
+      "phase": "restored",
+      "World": "recovery_2026-10-13/AC23V4-101-9f29082a-positive",
+      "snapshot_sha256": "9dee9598c7355bca42a652bf60080e23f758893db466fd57a203b2cff7be8edb",
+      "case_sha256": "5d7263e48aa2632afbe43bda691756ba15e62b95d60acde3278ca259ad3911bb",
+      "states": {
+        "F-SOURCE-001": "SATISFIED",
+        "F-TF-001": "SATISFIED",
+        "F-SCAN-001": "SATISFIED",
+        "F-LIFE-001": "SATISFIED",
+        "F-GEOM-001": "SATISFIED",
+        "F-ROUTE-001": "SATISFIED"
+      },
+      "source_result": "MATCHED",
+      "clock": "2026-10-24T00:06:49.084658+00:00"
+    },
+    {
+      "seed": 202,
+      "phase": "healthy",
+      "World": "recovery_2026-10-13/AC23V4-202-6e0ef061-positive",
+      "snapshot_sha256": "f47b3418ca09d6ee5d290633202103260f47c9b753ddc44e14f60dbdc2cda6b2",
+      "case_sha256": "66674e0f3734d27037fc4adde0eeabfa0ae1e35899cd4c3e57f1fdb07d072de7",
+      "states": {
+        "F-SOURCE-001": "SATISFIED",
+        "F-TF-001": "SATISFIED",
+        "F-SCAN-001": "SATISFIED",
+        "F-LIFE-001": "SATISFIED",
+        "F-GEOM-001": "SATISFIED",
+        "F-ROUTE-001": "SATISFIED"
+      },
+      "source_result": "MATCHED",
+      "clock": "2026-10-24T00:07:14.692256+00:00"
+    },
+    {
+      "seed": 202,
+      "phase": "fault",
+      "World": "recovery_2026-10-13/AC23V4-202-6e0ef061-positive",
+      "snapshot_sha256": "690d7efa952c1d50c86005d47f0c3339ffdeafc5fe86c4eb1e6d129ae3412a60",
+      "case_sha256": "87e677bc5e92f8a51e1687b34f63f44d2dd170b856bf01462464e9f27149ff10",
+      "states": {
+        "F-SOURCE-001": "UNKNOWN",
+        "F-TF-001": "VIOLATED",
+        "F-SCAN-001": "SATISFIED",
+        "F-LIFE-001": "SATISFIED",
+        "F-GEOM-001": "SATISFIED",
+        "F-ROUTE-001": "SATISFIED"
+      },
+      "source_result": "UNKNOWN",
+      "clock": "2026-10-24T00:07:20.053815+00:00"
+    },
+    {
+      "seed": 202,
+      "phase": "restored",
+      "World": "recovery_2026-10-13/AC23V4-202-6e0ef061-positive",
+      "snapshot_sha256": "31b257957e24227294cf276f572efccec7aa350b2232951b75a09be453b290f9",
+      "case_sha256": "60654bddc62f1f35217b445eacd9bae2e4592371c528582b63e4b425ed46d073",
+      "states": {
+        "F-SOURCE-001": "SATISFIED",
+        "F-TF-001": "SATISFIED",
+        "F-SCAN-001": "SATISFIED",
+        "F-LIFE-001": "SATISFIED",
+        "F-GEOM-001": "SATISFIED",
+        "F-ROUTE-001": "SATISFIED"
+      },
+      "source_result": "MATCHED",
+      "clock": "2026-10-24T00:07:20.642217+00:00"
+    }
+  ],
+  "independent_QA_sha256": "b33f1428a0e47ac8bc9e42b1b2d9325e05e569b5d25387197c2ed457e8e44b40",
+  "portable_CLI_QA_sha256": "ecfc84303932a279f7472f4bbdbb9e2c75c81ccf59168ee5eaa141ab6e774e6b",
+  "public_demo_originals": {
+    "system.json": "438c021ab3a6739b3b8be300244198b5fb7b730b1278ec9c7a882450894d5517",
+    "source-review.json": "c02f83cebf8772ba3b728a3b1945c47e6cce1a309972f5e89bfb86ed49196aa0",
+    "physics.json": "4516469477f879064cc36759d0e9a111d48d4c6e8d09a037bab952796ea9040e",
+    "requirements.json": "8ba672e2efdba40ea35ef282f1f729953cbeaa33ae6b2820f957d50e9256b69a",
+    "robot.urdf": "21542102016bd6423585ceef969a9e58d29af75d7aad02028c40bf0d6af7a903",
+    "collision-asset-originals.json": "2f6f0ba2d5a883fb2dd959cd6390366dcc22da56c409d785eec121b69c49ea1c",
+    "nav2.yaml": "7287c1be762a3451202ff654c7f326c853df64562cf978b85af2fbbb7a3b6aa9",
+    "bringup.json": "79cab07cdc2b9f6a3d30ccb3335a7a2d9f12a6db4f1032db1dec973df29ed562"
+  },
+  "demo_original_clock": "2026-10-24T00:06:48.510816+00:00"
+}

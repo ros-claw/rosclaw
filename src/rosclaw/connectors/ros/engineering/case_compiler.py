@@ -196,7 +196,7 @@ def compile_engineering_case(
         not e.static
         and _fresh(e.captured_at.isoformat(), now)
         and _number(e.age_ms)
-        and 0 <= e.age_ms <= 500
+        and -e.future_tolerance_ms <= e.age_ms <= 500
         for e in edges
     )
     tf_status = (

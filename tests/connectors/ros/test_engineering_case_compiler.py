@@ -62,6 +62,27 @@ def test_healthy_snapshot_does_not_request_repair_or_admit_navigation():
 
 
 @pytest.mark.parametrize(
+    "age,tolerance,expected",
+    [
+        (-930, 1100, "SATISFIED"),
+        (-1100, 1100, "SATISFIED"),
+        (-1101, 1100, "UNKNOWN"),
+        (-101, 100, "UNKNOWN"),
+        (500, 1100, "SATISFIED"),
+        (501, 1100, "UNKNOWN"),
+    ],
+)
+def test_tf_uses_declared_future_bound_without_extending_stale_bound(age, tolerance, expected):
+    m, u, r = setup()
+    edge = next(e for e in m.transforms if e.parent == "world")
+    edge.age_ms, edge.future_tolerance_ms = age, tolerance
+    case = compile_case(m, u, r)
+    assert statuses(case)["F-TF-001"] == expected
+    assert not case.repair_candidates
+    assert case.current_authority == "NONE" and case.current_l1 == "NOT_EVALUATED"
+
+
+@pytest.mark.parametrize(
     "fault,expected",
     [
         ("tf", "F-TF-001"),
