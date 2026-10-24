@@ -100,3 +100,72 @@ def test_declared_horizon_is_terminal():
     with pytest.raises(ValueError):
         record(t)
     assert t.count == 3
+
+
+def test_post_intervention_guard_retains_all_three_stages_without_fake_actuals():
+    t = GuardedActionTrace(
+        dimension=2,
+        maximum_steps=3,
+        context_hash="sha256:" + "b" * 64,
+        post_intervention_guard=True,
+    )
+    final = np.zeros(2)
+    record(
+        t,
+        intervention_fraction=0.25,
+        applied=final,
+        post_guarded=final,
+        post_guard_used_parent=True,
+        post_guard_reason="empty_effective_envelope",
+    )
+    final.fill(99)
+    a = t.arrays()
+    np.testing.assert_array_equal(a["guarded_actions"], [[0.2, 0.2]])
+    np.testing.assert_array_equal(a["post_intervention_inputs"], [[0.05, 0.05]])
+    np.testing.assert_array_equal(a["post_guarded_actions"], [[0.0, 0.0]])
+    np.testing.assert_array_equal(a["applied_actions"], [[0.0, 0.0]])
+    assert a["used_parent"].tolist() == [False]
+    assert a["post_guard_used_parent"].tolist() == [True]
+    assert a["actor_proposal_valid"].tolist() == [True]
+
+
+def test_legacy_trace_cannot_claim_uncommitted_post_guard_semantics():
+    t = trace()
+    with pytest.raises(ValueError, match="declared trace mode"):
+        record(t, post_guarded=np.full(2, 0.2), post_guard_used_parent=False)
+    assert t.count == 0
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {},
+        {"intervention_fraction": 1.0},
+        {"post_guard_used_parent": True},
+        {
+            "post_guard_used_parent": True,
+            "post_guard_reason": "fallback",
+            "post_guarded": np.ones(2),
+        },
+        {"post_guarded": np.full(2, np.nan)},
+    ],
+)
+def test_partial_post_guard_evidence_is_rejected_atomically(changes):
+    t = GuardedActionTrace(
+        dimension=2,
+        maximum_steps=3,
+        context_hash="sha256:" + "b" * 64,
+        post_intervention_guard=True,
+    )
+    options = {
+        "intervention_fraction": 0.25,
+        "applied": np.full(2, 0.05),
+        "post_guarded": np.full(2, 0.05),
+        "post_guard_used_parent": False,
+    }
+    if not changes:
+        options.pop("post_guarded")
+    options.update(changes)
+    with pytest.raises(ValueError):
+        record(t, **options)
+    assert t.count == 0

@@ -8,11 +8,18 @@ proposals have an explicit mask and must not be treated as zero-action labels.
 import re
 
 import numpy as np
-from numpy.typing import NDArray
+from numpy.typing import DTypeLike, NDArray
 
 
 class GuardedActionTrace:
-    def __init__(self, *, dimension: int, maximum_steps: int, context_hash: str) -> None:
+    def __init__(
+        self,
+        *,
+        dimension: int,
+        maximum_steps: int,
+        context_hash: str,
+        post_intervention_guard: bool = False,
+    ) -> None:
         if (
             type(dimension) is not int
             or type(maximum_steps) is not int
@@ -21,11 +28,13 @@ class GuardedActionTrace:
             or dimension * maximum_steps > 8_000_000
             or not isinstance(context_hash, str)
             or re.fullmatch(r"sha256:[0-9a-f]{64}", context_hash) is None
+            or type(post_intervention_guard) is not bool
         ):
             raise ValueError("bounded dimension, horizon and explicit context commitment required")
         self.dimension = dimension
         self.maximum_steps = maximum_steps
         self.context_hash = context_hash
+        self.post_intervention_guard = post_intervention_guard
         self._records: list[tuple[object, ...]] = []
 
     @property
@@ -53,6 +62,9 @@ class GuardedActionTrace:
         used_parent: bool,
         reason: str | None,
         intervention_fraction: float,
+        post_guarded: NDArray[np.float64] | None = None,
+        post_guard_used_parent: bool | None = None,
+        post_guard_reason: str | None = None,
     ) -> None:
         """Append one completed step, retaining rejected proposals as proposals."""
         if (
@@ -80,6 +92,34 @@ class GuardedActionTrace:
             if intervention_fraction == 1
             else p + intervention_fraction * (g - p)
         )
+        extra: tuple[object, ...] = ()
+        if self.post_intervention_guard:
+            if (
+                not 0 < intervention_fraction < 1
+                or post_guarded is None
+                or type(post_guard_used_parent) is not bool
+                or (
+                    post_guard_used_parent
+                    and (
+                        not isinstance(post_guard_reason, str)
+                        or not post_guard_reason
+                        or len(post_guard_reason) > 160
+                    )
+                )
+                or (not post_guard_used_parent and post_guard_reason is not None)
+            ):
+                raise ValueError("explicit completed post-intervention guard decision required")
+            final = self._vector(post_guarded)
+            if post_guard_used_parent and not np.array_equal(final, p):
+                raise ValueError("post-intervention parent fallback must equal actual parent")
+            extra = (expected.copy(), final, bool(post_guard_used_parent), post_guard_reason or "")
+            expected = final
+        elif (
+            post_guarded is not None
+            or post_guard_used_parent is not None
+            or post_guard_reason is not None
+        ):
+            raise ValueError("post-intervention evidence requires declared trace mode")
         if not np.array_equal(a, expected):
             raise ValueError("actual action differs from the declared guarded intervention")
         self._records.append(
@@ -93,13 +133,14 @@ class GuardedActionTrace:
                 reason or "",
                 float(intervention_fraction),
             )
+            + extra
         )
 
     def arrays(self) -> dict[str, np.ndarray]:
         """Return owned arrays. A placeholder proposal is never valid without its mask."""
         if not self._records:
             raise ValueError("empty guarded action trace")
-        names = (
+        names: tuple[str, ...] = (
             "actor_proposals",
             "actor_proposal_valid",
             "guarded_actions",
@@ -109,7 +150,7 @@ class GuardedActionTrace:
             "fallback_reasons",
             "intervention_fractions",
         )
-        dtypes = (
+        dtypes: tuple[DTypeLike, ...] = (
             np.float64,
             np.bool_,
             np.float64,
@@ -119,6 +160,14 @@ class GuardedActionTrace:
             "U160",
             np.float64,
         )
+        if self.post_intervention_guard:
+            names += (
+                "post_intervention_inputs",
+                "post_guarded_actions",
+                "post_guard_used_parent",
+                "post_guard_reasons",
+            )
+            dtypes += (np.float64, np.float64, np.bool_, "U160")
         return {
             name: np.asarray([row[i] for row in self._records], dtype=dtype)
             for i, (name, dtype) in enumerate(zip(names, dtypes, strict=True))
