@@ -22,6 +22,7 @@ from rosclaw.simforge.g1_neural_torque_learning import (
     G1NeuralTorqueLearnerConfig,
     G1NeuralTorqueReplay,
     _quantized_export,
+    neural_torque_replay_hash,
     online_replay,
     recovery_online_replay,
     teacher_dataset_hash,
@@ -64,12 +65,10 @@ def _motion_prior(hidden_dim: int = 12) -> G1MotionPriorArtifact:
     rng = np.random.default_rng(91)
     feature_count = len(G1_MOTION_PRIOR_FEATURES)
     tensors = {
-        "gru.weight_ih_l0": rng.normal(
-            0.0, 0.01, (3 * hidden_dim, feature_count)
-        ).astype(np.float32),
-        "gru.weight_hh_l0": rng.normal(0.0, 0.01, (3 * hidden_dim, hidden_dim)).astype(
+        "gru.weight_ih_l0": rng.normal(0.0, 0.01, (3 * hidden_dim, feature_count)).astype(
             np.float32
         ),
+        "gru.weight_hh_l0": rng.normal(0.0, 0.01, (3 * hidden_dim, hidden_dim)).astype(np.float32),
         "gru.bias_ih_l0": np.zeros(3 * hidden_dim, dtype=np.float32),
         "gru.bias_hh_l0": np.zeros(3 * hidden_dim, dtype=np.float32),
         "head.weight": np.full((feature_count, hidden_dim), 999.0, dtype=np.float32),
@@ -93,6 +92,48 @@ def _motion_prior(hidden_dim: int = 12) -> G1MotionPriorArtifact:
         action_semantics="ABSENT",
         activation_ceiling="SIM_ONLY_REPRESENTATION_INITIALIZATION",
     )
+
+
+def test_proposal_semantics_bind_hash_and_cannot_mix_with_actual_torque() -> None:
+    anchor = teacher_replay((_episode(1),), sequence_length=8, stride=4)
+    proposal = replace(anchor, action_semantics="ACTOR_PROPOSAL_THROUGH_GUARD")
+    assert neural_torque_replay_hash(anchor) != neural_torque_replay_hash(proposal)
+    with pytest.raises(ValueError, match="cannot mix"):
+        G1NeuralTorqueReplay.combine(anchor, proposal)
+    with pytest.raises(ValueError, match="supported"):
+        replace(anchor, action_semantics="INVENTED")
+
+
+def test_proposal_critic_excludes_anchor_targets_but_actor_retains_them() -> None:
+    learner = _learner()
+    anchor = replace(
+        teacher_replay((_episode(1),), sequence_length=8, stride=4),
+        action_semantics="ACTOR_PROPOSAL_THROUGH_GUARD",
+    )
+    recent = replace(
+        online_replay(
+            _episode(2),
+            sequence_length=8,
+            task_score=1.0,
+            fell=False,
+            critical_failure=False,
+            projection_fallback_rate=0.1,
+            stride=4,
+        ),
+        action_semantics="ACTOR_PROPOSAL_THROUGH_GUARD",
+    )
+    result = learner.update(G1NeuralTorqueReplay.combine(anchor, recent))
+    assert result.finite
+    assert result.actor_updated
+    assert result.anchor_transition_count == anchor.count
+    assert result.critic_transition_count == recent.count
+    resumed = _learner()
+    resumed.restore_checkpoint(learner.checkpoint_bytes())
+    assert resumed.replay_action_semantics == "ACTOR_PROPOSAL_THROUGH_GUARD"
+    with pytest.raises(ValueError, match="cannot change learned"):
+        resumed.update(replace(recent, action_semantics="APPLIED_TORQUE"), update_actor=False)
+    with pytest.raises(ValueError, match="actual non-anchor"):
+        learner.update(anchor, update_actor=False)
 
 
 def test_behavior_cloning_learns_nonzero_direct_torque_and_exports_safe_actor(
