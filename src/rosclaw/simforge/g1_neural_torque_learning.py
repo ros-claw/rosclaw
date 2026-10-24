@@ -362,6 +362,7 @@ class G1ContinualTorqueActorCritic:
         self.fall_lagrange = 0.0
         self.constraint_lagrange = 0.0
         self.update_index = 0
+        self.replay_action_semantics: str | None = None
         self.observation_mean: np.ndarray = np.zeros(
             len(G1_NEURAL_TORQUE_OBSERVATIONS), dtype=np.float32
         )
@@ -506,6 +507,11 @@ class G1ContinualTorqueActorCritic:
     ) -> G1NeuralTorqueUpdate:
         if replay.observations.shape[1] != self.config.sequence_length:
             raise ValueError("neural torque replay sequence length does not match learner")
+        if (
+            self.replay_action_semantics is not None
+            and replay.action_semantics != self.replay_action_semantics
+        ):
+            raise ValueError("cannot change learned critic action semantics across updates")
         fresh = np.flatnonzero((replay.partitions == _RECENT) & (replay.policy_lags <= 1))
         anchors = np.flatnonzero(replay.partitions == _ANCHOR)
         if update_actor and len(fresh) < self.config.batch_size:
@@ -523,6 +529,7 @@ class G1ContinualTorqueActorCritic:
         )
         if not len(critic_pool):
             raise ValueError("proposal critic requires actual non-anchor proposal transitions")
+        self.replay_action_semantics = replay.action_semantics
         critic_indices = rng.choice(
             critic_pool,
             self.config.batch_size,
@@ -798,6 +805,7 @@ class G1ContinualTorqueActorCritic:
             "fall_lagrange": self.fall_lagrange,
             "constraint_lagrange": self.constraint_lagrange,
             "update_index": self.update_index,
+            "replay_action_semantics": self.replay_action_semantics,
             "observation_mean": torch.from_numpy(self.observation_mean),
             "observation_std": torch.from_numpy(self.observation_std),
             "anchor_parameters": self._anchor_parameters,
@@ -869,6 +877,14 @@ class G1ContinualTorqueActorCritic:
         self.fall_lagrange = float(payload["fall_lagrange"])
         self.constraint_lagrange = float(payload["constraint_lagrange"])
         self.update_index = int(payload["update_index"])
+        semantics = payload.get(
+            "replay_action_semantics", "APPLIED_TORQUE" if self.update_index else None
+        )
+        if semantics not in {None, "APPLIED_TORQUE", "ACTOR_PROPOSAL_THROUGH_GUARD"} or (
+            self.update_index and semantics is None
+        ):
+            raise ValueError("checkpoint critic action semantics are invalid")
+        self.replay_action_semantics = semantics
         self.observation_mean = payload["observation_mean"].cpu().numpy().astype(np.float32)
         self.observation_std = payload["observation_std"].cpu().numpy().astype(np.float32)
         self._anchor_parameters = {

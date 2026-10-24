@@ -127,6 +127,11 @@ def test_proposal_critic_excludes_anchor_targets_but_actor_retains_them() -> Non
     assert result.actor_updated
     assert result.anchor_transition_count == anchor.count
     assert result.critic_transition_count == recent.count
+    resumed = _learner()
+    resumed.restore_checkpoint(learner.checkpoint_bytes())
+    assert resumed.replay_action_semantics == "ACTOR_PROPOSAL_THROUGH_GUARD"
+    with pytest.raises(ValueError, match="cannot change learned"):
+        resumed.update(replace(recent, action_semantics="APPLIED_TORQUE"), update_actor=False)
     with pytest.raises(ValueError, match="actual non-anchor"):
         learner.update(anchor, update_actor=False)
 

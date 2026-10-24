@@ -81,6 +81,7 @@ def test_zero_intervention_logs_actual_parent_not_discarded_proposal():
         {"applied": np.ones(2)},
         {"reason": "unmarked"},
         {"used_parent": True},
+        {"used_parent": True, "reason": "fallback_but_not_parent"},
         {"intervention_fraction": np.nan},
         {"parent": np.zeros(3)},
     ],

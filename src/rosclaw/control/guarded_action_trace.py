@@ -70,6 +70,8 @@ class GuardedActionTrace:
                 "consecutive bounded completed decision and explicit fallback required"
             )
         g, a, p = self._vector(guarded), self._vector(applied), self._vector(parent)
+        if used_parent and not np.array_equal(g, p):
+            raise ValueError("parent fallback must equal the declared bounded parent command")
         raw = self._vector(proposal) if proposal is not None else np.zeros(self.dimension)
         expected = (
             p
