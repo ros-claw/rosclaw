@@ -26,6 +26,7 @@ import numpy as np
 import torch  # type: ignore[import-not-found]
 from torch import nn  # type: ignore[import-not-found]
 
+from rosclaw.control.fixed_value_scale import FixedValueScale
 from rosclaw.feedback.contracts import canonical_hash
 from rosclaw.simforge.g1_neural_torque import (
     G1_NEURAL_TORQUE_OBSERVATIONS,
@@ -299,10 +300,13 @@ class _SequenceQ(nn.Module):
             nn.ReLU(),
             nn.Linear(config.hidden_dim, 1),
         )
+        self.register_buffer("output_center", torch.zeros(1))
+        self.register_buffer("output_scale", torch.ones(1))
 
     def forward(self, observations: torch.Tensor, action_ratio: torch.Tensor) -> torch.Tensor:
         encoded, _ = self.gru(observations)
-        return self.head(torch.cat((encoded[:, -1], action_ratio), dim=-1))
+        normalized = self.head(torch.cat((encoded[:, -1], action_ratio), dim=-1))
+        return normalized * self.output_scale + self.output_center
 
 
 class _TwinSequenceCritic(nn.Module):
@@ -363,6 +367,7 @@ class G1ContinualTorqueActorCritic:
         self.constraint_lagrange = 0.0
         self.update_index = 0
         self.replay_action_semantics: str | None = None
+        self._value_scales_configured = False
         self.observation_mean: np.ndarray = np.zeros(
             len(G1_NEURAL_TORQUE_OBSERVATIONS), dtype=np.float32
         )
@@ -379,6 +384,61 @@ class G1ContinualTorqueActorCritic:
         # layout. Pack every actor/critic once up front so the first online
         # update does not silently take the slow fallback path.
         self._flatten_recurrent_parameters()
+
+    def configure_frozen_value_scales(
+        self, training_returns: np.ndarray, *, minimum_scale: float = 1.0
+    ) -> dict[str, dict[str, float]]:
+        """Normalize all critic targets before their first update, not rewards.
+
+        Statistics must be fitted on training data only. Raw-unit predictions
+        are preserved up to floating precision. Adam may not already contain
+        critic state; adaptive rescaling of learned moments is not provided.
+        """
+        values = np.asarray(training_returns)
+        if (
+            values.ndim != 2
+            or values.shape[1] != 3
+            or self.update_index
+            or self.critic_optimizer.state
+            or self._value_scales_configured
+        ):
+            raise ValueError("three training-return heads before any critic update required")
+        labels = ("reward", "fall", "constraint")
+        scales = [
+            FixedValueScale.from_targets(values[:, i], minimum_scale=minimum_scale)
+            for i in range(3)
+        ]
+        modules = [
+            (getattr(self, name + "_critic"), getattr(self, name + "_target")) for name in labels
+        ]
+        if any(
+            float(q.output_center.item()) != 0 or float(q.output_scale.item()) != 1
+            for pair in modules
+            for twin in pair
+            for q in (twin.q1, twin.q2)
+        ):
+            raise ValueError("value scaling is frozen once configured")
+        with torch.no_grad():
+            for scale, pair in zip(scales, modules, strict=True):
+                for twin in pair:
+                    for q in (twin.q1, twin.q2):
+                        last = q.head[-1]
+                        weight, bias = scale.normalize_affine(
+                            last.weight.detach().cpu().numpy(), last.bias.detach().cpu().numpy()
+                        )
+                        last.weight.copy_(
+                            torch.as_tensor(weight, dtype=last.weight.dtype, device=self.device)
+                        )
+                        last.bias.copy_(
+                            torch.as_tensor(bias, dtype=last.bias.dtype, device=self.device)
+                        )
+                        q.output_center.fill_(scale.center)
+                        q.output_scale.fill_(scale.scale)
+        self._value_scales_configured = True
+        return {
+            label: {"center": scale.center, "scale": scale.scale}
+            for label, scale in zip(labels, scales, strict=True)
+        }
 
     def install_motion_prior(
         self,
@@ -560,11 +620,18 @@ class G1ContinualTorqueActorCritic:
         fall_values = self.fall_critic(observations, action_ratio)
         constraint_values = self.constraint_critic(observations, action_ratio)
         reward_loss = sum(
-            torch.nn.functional.mse_loss(value, reward_target) for value in reward_values
+            torch.mean(((value - reward_target) / self.reward_critic.q1.output_scale).square())
+            for value in reward_values
         )
-        fall_loss = sum(torch.nn.functional.mse_loss(value, fall_target) for value in fall_values)
+        fall_loss = sum(
+            torch.mean(((value - fall_target) / self.fall_critic.q1.output_scale).square())
+            for value in fall_values
+        )
         constraint_loss = sum(
-            torch.nn.functional.mse_loss(value, constraint_target) for value in constraint_values
+            torch.mean(
+                ((value - constraint_target) / self.constraint_critic.q1.output_scale).square()
+            )
+            for value in constraint_values
         )
         self.critic_optimizer.zero_grad(set_to_none=True)
         (reward_loss + fall_loss + constraint_loss).backward()
@@ -806,6 +873,7 @@ class G1ContinualTorqueActorCritic:
             "constraint_lagrange": self.constraint_lagrange,
             "update_index": self.update_index,
             "replay_action_semantics": self.replay_action_semantics,
+            "value_scales_configured": self._value_scales_configured,
             "observation_mean": torch.from_numpy(self.observation_mean),
             "observation_std": torch.from_numpy(self.observation_std),
             "anchor_parameters": self._anchor_parameters,
@@ -868,7 +936,47 @@ class G1ContinualTorqueActorCritic:
             "fall_target",
             "constraint_target",
         ):
-            getattr(self, name).load_state_dict(payload[name])
+            module = getattr(self, name)
+            state = payload[name]
+            if isinstance(module, _TwinSequenceCritic):
+                defaults = module.state_dict()
+                scale_keys = {
+                    key for key in defaults if key.endswith(("output_center", "output_scale"))
+                }
+                present = scale_keys.intersection(state)
+                if present and present != scale_keys:
+                    raise ValueError("partial critic value-scale checkpoint")
+                if not present:
+                    # Exact legacy identity conversion, never infer learned
+                    # statistics from a later validation batch.
+                    state = {**state, **{key: defaults[key] for key in scale_keys}}
+                for key in scale_keys:
+                    value = state[key]
+                    if (
+                        tuple(value.shape) != (1,)
+                        or not bool(torch.isfinite(value).all())
+                        or (key.endswith("output_scale") and not 1e-6 <= float(value.item()) <= 1e6)
+                        or (key.endswith("output_center") and abs(float(value.item())) > 1e6)
+                    ):
+                        raise ValueError("invalid critic value-scale checkpoint")
+                for suffix in ("output_center", "output_scale"):
+                    if not torch.equal(state["q1." + suffix], state["q2." + suffix]):
+                        raise ValueError("twin critic value scales disagree")
+            module.load_state_dict(state)
+        nonidentity = False
+        for label in ("reward", "fall", "constraint"):
+            current, target = getattr(self, label + "_critic"), getattr(self, label + "_target")
+            for suffix in ("output_center", "output_scale"):
+                if not torch.equal(getattr(current.q1, suffix), getattr(target.q1, suffix)):
+                    raise ValueError("current and target value scales disagree")
+            nonidentity |= (
+                float(current.q1.output_center.item()) != 0
+                or float(current.q1.output_scale.item()) != 1
+            )
+        configured = payload.get("value_scales_configured", nonidentity)
+        if type(configured) is not bool or (not configured and nonidentity):
+            raise ValueError("checkpoint frozen value-scale marker is invalid")
+        self._value_scales_configured = configured
         self.actor_optimizer.load_state_dict(payload["actor_optimizer"])
         self.critic_optimizer.load_state_dict(payload["critic_optimizer"])
         self.alpha_optimizer.load_state_dict(payload["alpha_optimizer"])

@@ -136,6 +136,83 @@ def test_proposal_critic_excludes_anchor_targets_but_actor_retains_them() -> Non
         learner.update(anchor, update_actor=False)
 
 
+def test_fixed_value_scaling_preserves_actor_values_and_checkpoint() -> None:
+    import torch
+
+    learner = _learner()
+    actor = learner.actor_snapshot()
+    observations = torch.zeros((8, 8, len(G1_NEURAL_TORQUE_OBSERVATIONS)))
+    actions = torch.zeros((8, 29))
+    names = ("reward", "fall", "constraint")
+    with torch.no_grad():
+        before = {name: getattr(learner, name + "_critic")(observations, actions) for name in names}
+    targets = np.column_stack(
+        (np.linspace(-3.0, 6.0, 64), np.zeros(64), np.linspace(0.0, 1000.0, 64))
+    )
+    metadata = learner.configure_frozen_value_scales(targets)
+    assert metadata["fall"] == {"center": 0.0, "scale": 1.0}
+    with torch.no_grad():
+        for name in names:
+            for old, new in zip(
+                before[name], getattr(learner, name + "_critic")(observations, actions), strict=True
+            ):
+                torch.testing.assert_close(old, new, rtol=0, atol=2e-4)
+    assert all(np.array_equal(value, learner.actor_snapshot()[key]) for key, value in actor.items())
+    assert not learner.critic_optimizer.state
+    restored = _learner()
+    restored.restore_checkpoint(learner.checkpoint_bytes())
+    assert restored._value_scales_configured
+    assert (
+        restored.constraint_critic.q1.output_scale.item()
+        == learner.constraint_critic.q1.output_scale.item()
+    )
+    with pytest.raises(ValueError):
+        restored.configure_frozen_value_scales(targets)
+
+
+def test_legacy_critic_checkpoint_uses_only_identity_scales() -> None:
+    import io
+
+    import torch
+
+    learner = _learner()
+    payload = torch.load(io.BytesIO(learner.checkpoint_bytes()), weights_only=True)
+    payload.pop("value_scales_configured")
+    for name in (
+        "reward_critic",
+        "fall_critic",
+        "constraint_critic",
+        "reward_target",
+        "fall_target",
+        "constraint_target",
+    ):
+        payload[name] = {
+            key: value
+            for key, value in payload[name].items()
+            if not key.endswith(("output_scale", "output_center"))
+        }
+    buffer = io.BytesIO()
+    torch.save(payload, buffer)
+    learner.restore_checkpoint(buffer.getvalue())
+    assert not learner._value_scales_configured
+    assert learner.reward_critic.q1.output_center.item() == 0
+    assert learner.reward_critic.q1.output_scale.item() == 1
+
+
+def test_partial_scale_checkpoint_is_not_silently_defaulted() -> None:
+    import io
+
+    import torch
+
+    learner = _learner()
+    payload = torch.load(io.BytesIO(learner.checkpoint_bytes()), weights_only=True)
+    del payload["reward_critic"]["q1.output_scale"]
+    buffer = io.BytesIO()
+    torch.save(payload, buffer)
+    with pytest.raises(ValueError, match="partial"):
+        learner.restore_checkpoint(buffer.getvalue())
+
+
 def test_behavior_cloning_learns_nonzero_direct_torque_and_exports_safe_actor(
     tmp_path,
 ) -> None:
