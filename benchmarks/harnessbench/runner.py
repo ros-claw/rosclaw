@@ -619,6 +619,9 @@ def _wait_settled(
         now = time.monotonic()
         if session_dir is not None and _session_turn_stopped(session_dir, sent_at, wall_deadline):
             return retries
+        proc = getattr(session, "proc", None)
+        if proc is not None and (returncode := proc.poll()) is not None:
+            raise AssertionError(f"INFRA_PROCESS_EXITED_BEFORE_SETTLED: exit={returncode}")
         if now >= deadline:
             break
         with session._lock:

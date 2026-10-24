@@ -503,3 +503,55 @@ def test_builtin_trial_namespace_must_be_fresh_before_preflight(tmp_path, monkey
             "A", "U01", output, 1, model="chatgpt", model_id="selected", readonly_oauth_path=source
         )
     assert source.read_bytes() == b"opaque-fixture"
+
+
+@pytest.mark.parametrize("returncode", [0, 1, -2])
+def test_settled_exited_pty_fails_without_waiting_or_retry(tmp_path, monkeypatch, returncode):
+    import threading
+    from types import SimpleNamespace
+
+    import benchmarks.harnessbench.runner as runner
+
+    session = SimpleNamespace(
+        _lock=threading.Lock(),
+        output=bytearray(),
+        proc=SimpleNamespace(poll=lambda: returncode),
+    )
+    monkeypatch.setattr(runner, "_session_turn_stopped", lambda *args: False)
+    monkeypatch.setattr(runner.time, "sleep", lambda _: pytest.fail("exited process must not wait"))
+    with pytest.raises(
+        AssertionError, match=f"INFRA_PROCESS_EXITED_BEFORE_SETTLED: exit={returncode}"
+    ):
+        runner._wait_settled(session, tmp_path, 1200, prompt="unused", session_dir=tmp_path)
+
+
+def test_settled_persisted_success_precedes_process_exit(tmp_path, monkeypatch):
+    import threading
+    from types import SimpleNamespace
+
+    import benchmarks.harnessbench.runner as runner
+
+    session = SimpleNamespace(
+        _lock=threading.Lock(), output=bytearray(), proc=SimpleNamespace(poll=lambda: 0)
+    )
+    monkeypatch.setattr(runner, "_session_turn_stopped", lambda *args: True)
+    assert runner._wait_settled(session, tmp_path, 1200, session_dir=tmp_path) == 0
+
+
+def test_settled_real_pty_child_exit_is_observed(tmp_path):
+    import os
+    import sys
+    import time
+
+    import benchmarks.harnessbench.runner as runner
+    from tests.agentd.test_product_journey import PtySession
+
+    session = PtySession([sys.executable, "-c", "raise SystemExit(7)"], dict(os.environ))
+    try:
+        assert session.proc.wait(timeout=10) == 7
+        started = time.monotonic()
+        with pytest.raises(AssertionError, match="INFRA_PROCESS_EXITED_BEFORE_SETTLED: exit=7"):
+            runner._wait_settled(session, tmp_path, 1200)
+        assert time.monotonic() - started < 2
+    finally:
+        session.stop()

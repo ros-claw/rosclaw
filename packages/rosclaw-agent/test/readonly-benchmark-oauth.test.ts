@@ -68,7 +68,7 @@ test("the readonly store refuses writes without invoking a refresh callback", as
 	let refreshed = false;
 	await assert.rejects(() => store.modify("openai-codex", async () => { refreshed = true; throw new Error("must not run"); }), /REFRESH_OR_LOGIN_FORBIDDEN/);
 	await assert.rejects(() => store.delete(), /LOGOUT_FORBIDDEN/);
-	await assert.rejects(() => store.read("openai"), /PROVIDER_FORBIDDEN/);
+	assert.equal(await store.read("openai"), undefined);
 	assert.equal(refreshed, false);
 	assert.deepEqual(await store.list(), [{ providerId: "openai-codex", type: "oauth" }]);
 	assert.deepEqual(readFileSync(path), before);
@@ -232,5 +232,62 @@ test("writable namespace aliases cannot bypass the readonly source boundary", as
 	const before = readFileSync(path);
 	assert.throws(() => assertReadonlyOAuthOutsideWritableRoots(path, [alias]), /SOURCE_OVERLAPS_WRITABLE_SCOPE/);
 	assert.doesNotThrow(() => assertReadonlyOAuthOutsideWritableRoots(path, [join(root, "fresh", "nested")]));
+	assert.deepEqual(readFileSync(path), before);
+});
+
+test("full ROSClaw B startup scopes availability and refresh with zero prompts or network", { timeout: 15000 }, async (t) => {
+	networkForbidden(t);
+	const path = fixture(t), before = readFileSync(path);
+	const home = join(path, "..", "actual-b-workspace"), rosclawHome = join(home, "runtime");
+	mkdirSync(join(rosclawHome, "agent"), { recursive: true });
+	const original = process.env[READONLY_OAUTH_ENV];
+	process.env[READONLY_OAUTH_ENV] = path;
+	t.after(() => { if (original === undefined) delete process.env[READONLY_OAUTH_ENV]; else process.env[READONLY_OAUTH_ENV] = original; });
+	const selected = await createReadonlyBenchmarkModelRuntime(path);
+	const modelId = selected.getModels()[0]!.id;
+	writeFileSync(join(rosclawHome, "agent", "settings.json"), JSON.stringify({ defaultProvider: "openai-codex", defaultModel: modelId }));
+	const { createRosclawRuntime } = await import("../src/harness/pi/pi-runtime.js");
+	const { resolveTaskContext } = await import("../src/native/active-task-context.js");
+	const assembled = await createRosclawRuntime({ cwd: home, rosclawHome, profile: "developer", version: "offline-fixture",
+		taskContext: resolveTaskContext({ cwd: home, rosclawHome, mode: "SIMULATION" }),
+	});
+	try {
+		const runtime = assembled.runtime.session.modelRuntime;
+		assert.equal(assembled.runtime.session.model?.provider, "openai-codex");
+		assert.equal(assembled.runtime.session.model?.id, modelId);
+		assert.deepEqual(assembled.runtime.session.state.messages, []);
+		assert.deepEqual(runtime.getProviders().map((p) => p.id), ["openai-codex"]);
+		await runtime.refresh({ allowNetwork: true });
+		assert.ok((await runtime.getAvailable()).length > 0);
+		assert.ok((await runtime.getAllAvailable()).every((m) => m.provider === "openai-codex"));
+		assert.equal(await runtime.checkAuth("openai"), undefined);
+		assert.deepEqual(await runtime.getAvailable("openai"), []);
+		assert.equal(runtime.getError(), undefined);
+		assert.deepEqual(readFileSync(path), before);
+	} finally { assembled.runtime.session.dispose(); assembled.ownership.releaseAll(); }
+});
+
+
+test("readonly mutations retain original async and sync public signatures", async (t) => {
+	networkForbidden(t);
+	const path = fixture(t), before = readFileSync(path);
+	const runtime = await createReadonlyBenchmarkModelRuntime(path);
+	const calls = [
+		() => runtime.login("openai-codex", "oauth", {} as never),
+		() => runtime.logout("openai-codex"),
+		() => runtime.setRuntimeApiKey("openai-codex", "offline-not-installed"),
+		() => runtime.removeRuntimeApiKey("openai-codex"),
+	];
+	for (const call of calls) {
+		const result = call(); // a synchronous throw would violate PI's public ABI
+		assert.ok(result instanceof Promise);
+		await result.catch((error: unknown) => {
+			assert.ok(error instanceof BenchmarkOAuthError);
+			assert.equal(error.code, "BENCH_OAUTH_READONLY_REFRESH_OR_LOGIN_FORBIDDEN");
+		});
+		await assert.rejects(call, /BENCH_OAUTH_READONLY_REFRESH_OR_LOGIN_FORBIDDEN/);
+	}
+	assert.throws(() => runtime.registerProvider("fixture", {} as never), /REFRESH_OR_LOGIN_FORBIDDEN/);
+	assert.throws(() => runtime.unregisterProvider("fixture"), /REFRESH_OR_LOGIN_FORBIDDEN/);
 	assert.deepEqual(readFileSync(path), before);
 });
