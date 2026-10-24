@@ -1,5 +1,6 @@
 """Augment L2/L3; never replace Body truth or grant action permissions."""
 
+import json
 from dataclasses import replace
 from datetime import UTC, datetime
 
@@ -22,13 +23,24 @@ def compile_agent_summary(model: RosSystemModel, *, now: datetime | None = None)
         f"health={diagnosis['status']} unknown_checks={','.join(diagnosis['unknown_checks'])}",
     ]
     lines.extend(f"{c['semantic_id']}={c['status']}" for c in caps)
-    lines.extend(
-        f"issue={i['issue_code']} severity={i['severity']}"
-        for i in sorted(
-            diagnosis["issues"],
-            key=lambda issue: (issue["severity"] != "blocking", issue["issue_code"]),
-        )[:20]
-    )
+    # A code without its topic/age made distinct failures indistinguishable.
+    # Project only bounded public observation fields, not arbitrary parameters.
+    fields = {"topic", "source", "parent", "child", "name", "state", "age_ms",
+              "last_message_age_ms", "max_age_ms", "publisher_count", "rate_hz",
+              "costmaps_fresh", "localization_ready", "clock_advancing"}
+    for issue in sorted(diagnosis["issues"],
+                        key=lambda row: (row["severity"] != "blocking", row["issue_code"]))[:20]:
+        observations = []
+        for evidence in issue.get("evidence", [])[:2]:
+            observation = evidence.get("observation", {})
+            if isinstance(observation, dict):
+                compact = {key: (value[:160] if isinstance(value, str) else value)
+                           for key, value in observation.items() if key in fields
+                           and (value is None or isinstance(value, (str, int, float, bool)))}
+                if compact:
+                    observations.append(compact)
+        detail = " observation=" + json.dumps(observations, ensure_ascii=False, sort_keys=True) if observations else ""
+        lines.append(f"issue={issue['issue_code']} severity={issue['severity']}" + detail)
     lines.append("Physical effects require request_action → rosclawd → verified receipt.")
     return "\n".join(lines)
 

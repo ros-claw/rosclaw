@@ -30,8 +30,10 @@ def native_ros_observations(service, mission, body) -> dict | None:
         now = datetime.now(UTC)
         if not -100 <= model.age_ms(now) <= 5000:
             raise ValueError("ROS observations are stale or future-dated")
+        diagnosis = diagnose(model, now=now)
         return {
             "status": "OBSERVED",
+            "diagnosis": diagnosis,
             "snapshot_id": model.snapshot_id,
             "snapshot_hash": model.snapshot_hash,
             "captured_at": model.captured_at.isoformat(),
@@ -46,7 +48,7 @@ def native_ros_observations(service, mission, body) -> dict | None:
                 "blocking_issues": sorted(
                     {
                         i["issue_code"]
-                        for i in diagnose(model, now=now)["issues"]
+                        for i in diagnosis["issues"]
                         if i["severity"] == "blocking"
                     }
                 ),
