@@ -54,7 +54,9 @@ test("终态呈现空闲门控：流式中延迟，空闲后呈现", async () =>
 	idle = true;
 	await (watcher as never as { tick(): Promise<void> }).tick();
 	assert.equal(sent.length, 1, "空闲后终态未呈现");
-	assert.match(sent[0], /任务完成/);
+	assert.match(sent[0], /交付已记录：验收范围未知或不一致；未确认任务目标达成/);
+	assert.match(sent[0], /下一步：\/activity 查看验收范围/);
+	assert.doesNotMatch(sent[0], /任务完成|已通过配置的验收检查/);
 });
 
 test("中间态 verification.completed(FAIL) 不呈现；task.terminal 才发布", async () => {
@@ -98,5 +100,8 @@ test("中间态 verification.completed(FAIL) 不呈现；task.terminal 才发布
 	watcher.trackTask("task_midstate");
 	await (watcher as never as { tick(): Promise<void> }).tick();
 	assert.equal(sent.length, 1, `应只在 task.terminal 呈现一次（实际 ${sent.length}）`);
-	assert.match(sent[0], /任务完成/, `中间态 FAIL 竟被呈现：${sent[0]}`);
+	assert.match(sent[0], /交付已记录：验收范围未知或不一致；未确认任务目标达成/);
+	assert.match(sent[0], /下一步：\/activity 查看验收范围/);
+	assert.doesNotMatch(sent[0], /任务完成|已通过配置的验收检查|任务未完全达成：验收 FAIL/,
+		`中间态 FAIL 或未授权的目标成功竟被呈现：${sent[0]}`);
 });

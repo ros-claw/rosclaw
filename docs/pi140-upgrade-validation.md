@@ -65,3 +65,37 @@ robot, SDK, physics, compaction or recovery capability. Safe selected metadata
 is retained outside the checkout in
 `ROOT_PI140_CLOSED_ORDINARY_EXIT7_INDEPENDENT_VISIBLE_FACTS_NOT_PROBE_PASS_DURABLE_20261023_v1/INDEPENDENT_CLOSED_REAL_BASH_EXIT7_VISIBLE_FACTS_NOT_REGRADE.json`;
 private credentials, raw session reasoning and runtime authority are excluded.
+
+## HarnessBench readonly OAuth integration on the complete 1.4 baseline
+
+The isolated integration starts from `5063c76463858567b125fad3488b60b7dc1f1789`,
+retains its model request admission and UI behavior, and applies the reviewed
+HarnessBench commits `8eae45d8725d79278f0d93b3ad5d9bf49485df1b` and
+`c9635597d4388cd66f7de00bd12f55bb9e3390dc`. The only merge conflict adds the
+readonly opt-in import and branch while preserving the original runtime file
+byte for byte after removing those additions. Package locks and PI versions
+remain unchanged. This is the complete current 1.4 baseline, not the separate
+1.0.4-wrapper dependency compatibility experiment.
+
+Both builds passed. The complete current Agent suite passed 810 tests with
+3 existing bwrap skips (813 total); TUI passed 29 tests. The selected Python
+inventory passed 93 tests: the 74 current feature/runtime checks plus 19
+dependency and entry-runtime checks. These are distinct inventories, not an
+addition of historical test counts. The real ROSClaw runtime startup fixture
+completed with zero prompts or fetches; asynchronous readonly mutations retain
+the public Promise contract. Tests use synthetic credentials only.
+
+The first complete Agent run retained two failing older idle-gate assertions
+that still expected a task-completion claim without an acceptance scope. Their
+fixtures and presentation source were unchanged from 5063. The two original
+methods now require the exact unknown-scope delivery notice and activity
+instruction and reject goal-success claims; idle gating, exact single delivery
+and terminal-event filtering remain asserted. The existing configured-scope
+positive presentation tests also pass. Production presentation code was not
+changed. The initial two failures and complete logs remain archived.
+
+This integration qualification made no model, credential-source, robot or SDK
+calls. It does not activate or publish the isolated checkout and is not evidence
+that a real A/B matrix completed. Complete commands, the preserved conflict,
+source inverses and both test runs are retained in
+`/tmp/ROSCLAW_DEFAULT5063_PI140_FEATURE_V6_MIGRATION_OFFLINE_20261024_v1`.
