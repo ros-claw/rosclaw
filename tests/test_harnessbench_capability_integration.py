@@ -204,3 +204,89 @@ def test_cli_proof_accepts_real_path_variables_without_echo_false_positive():
         "write answer.json rosclaw ros compile",
     ):
         assert not _has_cli([command], "ros compile")
+
+
+@pytest.mark.parametrize(
+    ("contents", "exception_class", "json_coordinates"),
+    [
+        ('{"message": ', "JSONDecodeError", True),
+        ('{"message": null}', "AttributeError", False),
+        ('{"message": {"content": null}}', "TypeError", False),
+        ('{"message": {"content": ["SECRET_ENVELOPE_VALUE"]}}', "AttributeError", False),
+        (
+            '{"message":{"content":[{"type":"toolCall","name":"bash",'
+            '"arguments":"SECRET_ARGUMENT_VALUE"}]}}',
+            "AttributeError",
+            False,
+        ),
+    ],
+)
+def test_malformed_native_evidence_retains_safe_diagnostic_without_accepting(
+    tmp_path, contents, exception_class, json_coordinates
+):
+    _stage(tmp_path, "CI01")
+    sessions = tmp_path / "rh/agent/sessions"
+    sessions.mkdir(parents=True)
+    (sessions / "SECRET_FILENAME.jsonl").write_text(contents)
+    result = judge_integration("CI01", tmp_path)
+    assert result["checks"] == {
+        "immutable_inputs": True,
+        "scope": True,
+        "reason": True,
+        "parse_or_evidence": False,
+    }
+    assert not result["task_success"] and not result["verified_success"]
+    assert result["reason"] == "native_interface_evidence_failed"
+    diagnostic = result["parse_diagnostic"]
+    assert diagnostic["phase"] == "native_command_envelopes"
+    assert diagnostic["exception_class"] == exception_class
+    assert diagnostic["source"] == "benchmarks/harnessbench/capability_integration.py"
+    assert type(diagnostic["source_line"]) is int and diagnostic["source_line"] > 0
+    expected_keys = {"phase", "exception_class", "source", "source_line"}
+    if json_coordinates:
+        expected_keys |= {"json_line", "json_column"}
+        assert diagnostic["json_line"] == 1
+        assert diagnostic["json_column"] == len(contents) + 1
+    assert set(diagnostic) == expected_keys
+    assert "SECRET" not in json.dumps(result)
+    assert str(tmp_path) not in json.dumps(result)
+
+
+def test_missing_answer_retains_oserror_class_without_filename(tmp_path):
+    _stage(tmp_path, "CI01")
+    (tmp_path / "answer.json").unlink()
+    result = judge_integration("CI01", tmp_path)
+    assert result["checks"] == {"immutable_inputs": True, "parse_or_evidence": False}
+    assert not result["verified_success"]
+    diagnostic = result["parse_diagnostic"]
+    assert diagnostic["phase"] == "answer_json"
+    assert diagnostic["exception_class"] == "FileNotFoundError"
+    assert set(diagnostic) == {"phase", "exception_class", "source", "source_line"}
+    assert str(tmp_path) not in json.dumps(result)
+    assert "answer.json" not in json.dumps(result)
+
+
+def test_bad_manifest_diagnostic_identifies_artifact_phase_not_command_failure(tmp_path):
+    _stage(tmp_path, "CI06")
+    _transcript(
+        tmp_path,
+        [
+            "rosclaw ros compile --graph graph.json",
+            "rosclaw ros list-capabilities --manifest manifest.json",
+            "rosclaw ros inspect-capability cap --manifest manifest.json",
+        ],
+    )
+    (tmp_path / "manifest.json").write_text('{\n"SECRET_BROKEN_MANIFEST":')
+    result = judge_integration("CI06", tmp_path)
+    assert result["checks"]["native_compile"] is True
+    assert result["checks"]["native_list"] is True
+    assert result["checks"]["native_inspect"] is True
+    assert result["checks"]["parse_or_evidence"] is False
+    assert not result["verified_success"]
+    diagnostic = result["parse_diagnostic"]
+    assert diagnostic["phase"] == "manifest_json"
+    assert diagnostic["exception_class"] == "JSONDecodeError"
+    assert diagnostic["json_line"] == 2
+    assert type(diagnostic["json_column"]) is int and diagnostic["json_column"] > 0
+    assert "SECRET" not in json.dumps(result)
+    assert str(tmp_path) not in json.dumps(result)

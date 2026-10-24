@@ -339,24 +339,51 @@ def _has_cli(commands: list[str], operation: str) -> bool:
     return False
 
 
+def _safe_evidence_diagnostic(exc: Exception, phase: str) -> dict[str, Any]:
+    """Only fixed phase/code location and numeric JSON coordinates; never exception text."""
+    diagnostic: dict[str, Any] = {"phase": phase, "exception_class": type(exc).__name__}
+    traceback = exc.__traceback__
+    while traceback is not None:
+        if traceback.tb_frame.f_code.co_filename == __file__:
+            diagnostic["source"] = "benchmarks/harnessbench/capability_integration.py"
+            diagnostic["source_line"] = traceback.tb_lineno
+        traceback = traceback.tb_next
+    if isinstance(exc, json.JSONDecodeError):
+        diagnostic["json_line"] = exc.lineno
+        diagnostic["json_column"] = exc.colno
+    return diagnostic
+
+
 def judge_integration(task_id: str, root: Path) -> dict:
     task, private = INTEGRATION_TASKS[task_id], PRIVATE[task_id]
     checks: dict[str, bool] = {}
+    diagnostic = None
+    phase = "immutable_inputs"
     try:
         checks["immutable_inputs"] = all(
             (root / name).read_text() == value for name, value in task.staged_files.items()
         )
+        phase = "answer_json"
         answer = json.loads((root / "answer.json").read_text())
+        phase = "answer_fields"
         checks["scope"] = answer.get("scope") == "FIXTURE_ONLY"
         checks["reason"] = isinstance(answer.get("reason"), str) and bool(answer["reason"].strip())
+        phase = "native_command_envelopes"
         commands = _native_commands(root)
         if private["kind"] == "graph":
+            phase = "native_compile_command"
             checks["native_compile"] = _has_cli(commands, "ros compile")
+            phase = "native_list_command"
             checks["native_list"] = _has_cli(commands, "ros list-capabilities")
+            phase = "native_inspect_command"
             checks["native_inspect"] = _has_cli(commands, "ros inspect-capability")
+            phase = "manifest_json"
             manifest = json.loads((root / "manifest.json").read_text())
+            phase = "compile_json"
             compile_result = json.loads((root / "compile.json").read_text())
+            phase = "list_json"
             list_result = json.loads((root / "list.json").read_text())
+            phase = "graph_semantics"
             checks["compile_output_binding"] = (
                 compile_result.get("ok") is True and compile_result.get("manifest") == manifest
             )
@@ -387,12 +414,16 @@ def judge_integration(task_id: str, root: Path) -> dict:
                 if "artifact_type" in projection:
                     actual["artifact_type"] = cap["practice"]["artifact_type"]
                 checks[f"semantic_{cap_id}"] = _equal(actual, projection)
+                phase = "inspection_json"
                 inspection = json.loads((root / "inspections" / f"{cap_id}.json").read_text())
+                phase = "inspection_semantics"
                 checks[f"inspect_{cap_id}"] = (
                     inspection.get("ok") is True and inspection.get("capability") == cap
                 )
             if any("velocity_command" in cap_id for cap_id in caps):
+                phase = "validation_json"
                 validation = json.loads((root / "validate.json").read_text())
+                phase = "validation_semantics"
                 checks["native_validate"] = _has_cli(commands, "ros validate-capability")
                 checks["unsafe_proposal_not_allowed"] = (
                     validation.get("decision") in {"MODIFY", "BLOCK"}
@@ -402,6 +433,7 @@ def judge_integration(task_id: str, root: Path) -> dict:
                     "linear.x" in item for item in validation.get("violated_constraints", [])
                 )
         elif private["kind"] == "negative":
+            phase = "negative_artifacts"
             failure = json.loads((root / "failure.json").read_text())
             checks["negative_cli"] = _has_cli(
                 commands, "ros compile" if task_id == "CI07" else "ros list-capabilities"
@@ -409,6 +441,7 @@ def judge_integration(task_id: str, root: Path) -> dict:
             checks["negative_exit"] = (root / "exitcode.txt").read_text().strip() == "1"
             checks["negative_semantics"] = failure.get("ok") is False and bool(failure.get("error"))
         else:
+            phase = "practice_record_artifacts"
             checks["native_record"] = _has_cli(commands, "practice record")
             rc = (root / "record_exitcode.txt").read_text().strip()
             if task_id == "CI10":
@@ -419,6 +452,7 @@ def judge_integration(task_id: str, root: Path) -> dict:
             else:
                 checks["recorded"] = rc == "0"
                 checks["native_verify"] = _has_cli(commands, "practice verify")
+                phase = "practice_verify_artifacts"
                 verify = json.loads((root / "verify.json").read_text())
                 checks["verified_verdict"] = (
                     verify.get("passed") is private["expected_pass"]
@@ -430,7 +464,9 @@ def judge_integration(task_id: str, root: Path) -> dict:
                 events_path = (
                     root / "practice-data/sessions/practice_rh56_minimal_loop/raw/events.jsonl"
                 )
+                phase = "practice_events_json"
                 events = [json.loads(line) for line in events_path.read_text().splitlines()]
+                phase = "practice_event_semantics"
                 # Inspect the actual durable event envelopes rather than self-reported counts.
                 fixture = private["fixture"]
                 expected_events = copy.deepcopy(fixture["events"])
@@ -449,6 +485,7 @@ def judge_integration(task_id: str, root: Path) -> dict:
                 checks["raw_sequence_order"] = [e.get("sequence_id") for e in events] == list(
                     range(1, len(events) + 1)
                 )
+                phase = "practice_metadata_artifacts"
                 episode = json.loads((events_path.parent.parent / "episode.json").read_text())
                 import yaml
 
@@ -463,6 +500,7 @@ def judge_integration(task_id: str, root: Path) -> dict:
                     / f"summary_{fixture['episode_id']}.yaml"
                 )
                 summary = yaml.safe_load(summary_path.read_text())
+                phase = "practice_metadata_semantics"
                 for label, metadata in (
                     ("episode", episode),
                     ("manifest", manifest["status"]),
@@ -491,8 +529,9 @@ def judge_integration(task_id: str, root: Path) -> dict:
                         e.get("event_type") == "physical_feedback_event" and "timestamp_ns" not in e
                         for e in events
                     )
-    except (OSError, ValueError, TypeError, KeyError, AttributeError):
+    except (OSError, ValueError, TypeError, KeyError, AttributeError) as exc:
         checks["parse_or_evidence"] = False
+        diagnostic = _safe_evidence_diagnostic(exc, phase)
     passed = bool(checks) and all(checks.values())
     return {
         "task_success": passed,
@@ -505,4 +544,5 @@ def judge_integration(task_id: str, root: Path) -> dict:
         "evidence_scope": "FIXTURE_ONLY",
         "live_integration": "NOT_RUN",
         "direction": task.oracle["direction"],
+        **({"parse_diagnostic": diagnostic} if diagnostic is not None else {}),
     }
