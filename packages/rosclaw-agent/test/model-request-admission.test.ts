@@ -61,10 +61,10 @@ function message(reason: AssistantMessage["stopReason"] = "stop", input = 21): A
 }
 type Mode = "normal" | "tool" | "error" | "abort" | "missing" | "throw" | "partial" | "duplicate" | "hold";
 async function fixture(opts: { policy?: ModelRequestAdmissionPolicy | false; advisory?: boolean; mode?: Mode; warmEligible?: boolean;
-    linkAdmission?: boolean; savedEdits?: boolean;
+    linkAdmission?: boolean; savedEdits?: boolean; autoCompactionProbe?: boolean;
     awareness?: { version: 1; lifetime: "runtime"; inclusiveInputLimit: number; outputLimit: number; deliveryReserveInput: number; deliveryReserveOutput: number } } = {}) {
     const home = await mkdtemp(join(tmpdir(), "admission-sdk-"));
-    const loadedSettings = SettingsManager.inMemory({ compaction: { enabled: false, keepRecentTokens: 32 }, retry: { enabled: false, maxRetries: 0, provider: { maxRetries: 7 } }, cacheWarming: "streaming" });
+    const loadedSettings = SettingsManager.inMemory({ compaction: { enabled: opts.autoCompactionProbe === true, reserveTokens: 8000, keepRecentTokens: 32 }, retry: { enabled: false, maxRetries: 0, provider: { maxRetries: 7 } }, cacheWarming: "streaming" });
     const settings = opts.policy === false ? loadedSettings : modelAdmissionSettings(loadedSettings);
     const runtime = await ModelRuntime.create({ credentials: new InMemoryCredentialStore(), modelsPath: null, modelsStorePath: join(home, "catalog"), allowModelNetwork: false, refreshOnCreate: false });
     let fixtureModel = model;
@@ -79,8 +79,11 @@ async function fixture(opts: { policy?: ModelRequestAdmissionPolicy | false; adv
     const gate = opts.policy === false ? undefined : new ModelRequestAdmission(opts.policy ?? policy);
     const factory = createToolCallBudgetExtension({ allowedTools: ["diagnostic"], maxCalls: { diagnostic: 2 }, visibleBudget: true,
         ...(opts.advisory ? { modelUsageAwareness: opts.awareness ?? { version: 1, lifetime: "runtime", inclusiveInputLimit: 100, outputLimit: 100, deliveryReserveInput: 10, deliveryReserveOutput: 5 } as const } : {}) }, home, opts.linkAdmission === false ? undefined : gate);
+    const compactionAttempts: string[] = [];
     const loader = new DefaultResourceLoader({ cwd: home, agentDir: home, settingsManager: settings, noExtensions: true, noSkills: true, noContextFiles: true, noPromptTemplates: true, noThemes: true,
-        extensionFactories: [{ name: "budget", factory }] });
+        extensionFactories: [{ name: "budget", factory }, ...(opts.autoCompactionProbe ? [{ name: "cancel-summary-probe", factory: (pi: any) => {
+            pi.on("session_before_compact", (event: any) => { compactionAttempts.push(event.reason); return { cancel: true }; });
+        } }] : [])] });
     await loader.reload();
     let requests = 0, effects = 0;
     const payloads: any[] = [], events: any[] = [];
@@ -116,7 +119,7 @@ async function fixture(opts: { policy?: ModelRequestAdmissionPolicy | false; adv
         await result.session.bindExtensions({});
         return { ...result, services, diagnostics: [] };
     }, { cwd: home, agentDir: home, sessionManager: SessionManager.create(home, join(home, "sessions")) });
-    return { home, host, gate, settings, loadedSettings, runtime, payloads, events, get session() { return host.session; }, get requests() { return requests; }, get effects() { return effects; }, setMode(value: Mode) { mode = value; }, finish() { held!.push({ type: "done", reason: "stop", message: message() }); },
+    return { home, host, gate, settings, loadedSettings, runtime, payloads, events, compactionAttempts, get session() { return host.session; }, get requests() { return requests; }, get effects() { return effects; }, setMode(value: Mode) { mode = value; }, finish() { held!.push({ type: "done", reason: "stop", message: message() }); },
         async close() { await host.dispose(); await rm(home, { recursive: true, force: true }); } };
 }
 function assistantError(f: Awaited<ReturnType<typeof fixture>>) {
@@ -774,5 +777,42 @@ test("F07 higher-cap admission never suppresses lower-cap awareness on either ax
                 } finally { await f.close(); }
             }
         }
+    }
+});
+
+
+// Original SDK automatic compaction bypasses public session.compact(). This
+// checks the real post-run path, not a manually called positive hook.
+test("admission v1 disables unsupported auto-summary while absent option retains it", { timeout: 20000 }, async () => {
+    for (const enabled of [false, true]) {
+        const f = await fixture({ autoCompactionProbe: true, policy: enabled ? {
+            version: 1, lifetime: "runtime", guarantee: "local_reservation",
+            inclusiveInputLimit: 10000, outputLimit: 1000, requestReserveInput: 1000, requestReserveOutput: 10,
+        } : false });
+        try {
+            assert.equal(f.loadedSettings.getCompactionSettings().enabled, true);
+            assert.equal(f.settings.getCompactionSettings().enabled, !enabled);
+            let calls = 0;
+            f.runtime.streamSimple = (() => {
+                assert.ok(++calls <= 2, "no summary/network request is dispatched");
+                const stream = createAssistantMessageEventStream();
+                stream.push({ type: "done", reason: "stop", message: message("stop", 1000) });
+                return stream;
+            }) as typeof f.runtime.streamSimple;
+            await f.session.prompt("inert saved history ".repeat(256));
+            await f.session.prompt("second complete inert turn ".repeat(256));
+            assert.equal(calls, 2);
+            assert.equal(f.effects, 0);
+            assert.equal(f.compactionAttempts.length, enabled ? 0 : 1);
+            if (!enabled) assert.equal(f.compactionAttempts[0], "threshold");
+            else {
+                assert.equal(f.gate!.snapshot().dispatchedRequests, 2);
+                assert.equal(f.gate!.snapshot().knownInclusiveInput, 2000);
+                await assert.rejects(f.session.compact(), /MODEL_REQUEST_SUMMARY_UNSUPPORTED/);
+                assert.equal(calls, 2);
+            }
+            assert.ok(f.session.isIdle);
+            assert.equal(f.loadedSettings.getCompactionSettings().enabled, true, "loaded/default settings are not mutated");
+        } finally { await f.close(); }
     }
 });

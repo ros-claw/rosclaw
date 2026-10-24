@@ -256,3 +256,40 @@ test("managed wakeup preserves body and default-disabled compatibility", async (
 		assert.deepEqual(withoutSystems(enabled.payloads[1]), withoutSystems(plain.payloads[1]));
 	} finally { await plain.close(); await enabled.close(); }
 });
+
+
+// Original SDK emits session_before_compact even when a later hook cancels.
+// Keep UNKNOWN, but never let that state suppress the independent delivery action.
+test("delivery warning survives cancelled compaction without laundering UNKNOWN", async () => {
+    const f = await fixture({ compaction: true, reserve: true });
+    try {
+        await f.session.prompt("inert first request");
+        await f.session.prompt("inert history ".repeat(512));
+        await assert.rejects(f.session.compact(), /^Error: Compaction cancelled$/);
+        assert.equal(f.compactions.length, 1);
+        await f.session.prompt("observe delivery action through original request context");
+        const n = f.systemNotices.at(-1)!.at(-1);
+        assert.equal(n.reserveState, "unknown");
+        assert.equal(n.unaccountedCompaction, true);
+        assert.equal(n.deliveryReserveReached, true);
+        assert.equal(n.deliveryAction, "finish_required_readback_and_delivery_now");
+        assert.match(n.deliveryInstruction, /several full-context requests/);
+        assert.match(n.deliveryInstruction, /not a guarantee/);
+        assert.match(n.deliveryInstruction, /Do not skip required reads/);
+        assert.equal(n.deliveryNoticeContract, "advisory_only_no_final_guarantee");
+        assert.equal(f.requests, 4); // two initial/tool turns plus history and final observation
+    } finally { await f.close(); }
+});
+
+test("unknown usage with ample observed headroom is not advertised as known or protected", async () => {
+    const f = await fixture({ error: true });
+    try {
+        await f.session.prompt("inert partial usage");
+        await f.session.prompt("observe unknown accounting");
+        const n = f.systemNotices[1].at(-1);
+        assert.equal(n.reserveState, "unknown");
+        assert.equal(n.deliveryReserveReached, false);
+        assert.equal(n.deliveryAction, "usage_unknown_do_not_assume_headroom");
+        assert.equal(n.deliveryInstruction, undefined);
+    } finally { await f.close(); }
+});

@@ -55,16 +55,24 @@ function usageObserver(config: ModelUsageAwareness, admission?: ModelRequestAdmi
         // linked admission can add an earlier warning, never suppress one.
         // SDK-generated refusals can be UNKNOWN observer events without being
         // dispatched/billed requests. UNKNOWN retains precedence over warnings.
+        // Action and accounting confidence are different dimensions. An
+        // unsupported/cancelled compaction attempt must not hide a known-low
+        // local allowance; UNKNOWN remains visible and never authorizes spend.
+        const deliveryReserveReached = remainingInputUpperBound <= config.deliveryReserveInput
+            || remainingOutputUpperBound <= config.deliveryReserveOutput
+            || !!(dispatch && (!dispatch.nextRequestAdmissible
+                || dispatch.availableInput - dispatch.requestReserveInput <= config.deliveryReserveInput
+                || dispatch.availableOutput - dispatch.requestReserveOutput <= config.deliveryReserveOutput));
         const reserveState = pendingMainRequests || unknownUsageRequests || unaccountedCompaction
             || (dispatch && (dispatch.pendingRequests || dispatch.unknownUsageRequests)) ? "unknown"
-            : remainingInputUpperBound <= config.deliveryReserveInput || remainingOutputUpperBound <= config.deliveryReserveOutput
-                || (dispatch && (!dispatch.nextRequestAdmissible
-                    || dispatch.availableInput - dispatch.requestReserveInput <= config.deliveryReserveInput
-                    || dispatch.availableOutput - dispatch.requestReserveOutput <= config.deliveryReserveOutput))
-                ? "finish_delivery" : "normal";
+            : deliveryReserveReached ? "finish_delivery" : "normal";
         return USAGE_MARKER + JSON.stringify({ version: 1, runtimeGeneration, sequence, completedMainRequests,
             knownInclusiveInput, knownOutput, remainingInputUpperBound, remainingOutputUpperBound,
             pendingMainRequests, unknownUsageRequests, unaccountedCompaction, reserveState,
+            deliveryReserveReached,
+            deliveryAction: deliveryReserveReached ? "finish_required_readback_and_delivery_now"
+                : reserveState === "unknown" ? "usage_unknown_do_not_assume_headroom" : "normal",
+            ...(deliveryReserveReached ? { deliveryInstruction: "Stop optional exploration and edits now. Complete required whole final readbacks and verification, then deliver the honest result. Readbacks and FINAL may need several full-context requests; this static reserve is not a guarantee. Admission limits still apply. Do not skip required reads, fabricate FINAL, or claim success if delivery cannot complete." } : {}),
             deliveryNoticeContract: "advisory_only_no_final_guarantee",
             ...(dispatch ? { admission: dispatch } : {}) });
     };

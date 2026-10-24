@@ -15,6 +15,9 @@ export function modelAdmissionSettings(loaded: SettingsManager): SettingsManager
 	return SettingsManager.inMemory({
 		...loaded.getSettings(),
 		retry: { enabled: false, maxRetries: 0, provider: { maxRetries: 0 } },
+        // v1 does not admit summary requests. Disable the automatic path too:
+        // replacing public compact() alone does not intercept PI auto-compaction.
+        compaction: { ...loaded.getSettings().compaction, enabled: false },
 		cacheWarming: "off",
 	});
 }
