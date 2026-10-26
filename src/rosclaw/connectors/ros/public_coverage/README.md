@@ -51,3 +51,11 @@ window stay blocked. Outside that finite window the unchanged global occupancy
 and costmap checks remain mandatory; a missing local window never clears global
 obstacles. Both physical and tracking-margin circles use exact closed cell
 squares. An unsafe current local footprint rejects the Grid before planning.
+
+
+`FootprintPathSpace` reuses Grid's continuous physical/planning footprint
+predicates without computing room components or frontiers. Supply the same
+explicit bound spaces when checking a currently observed path suffix. It does
+not establish source freshness or grant authority. A driver must retain the
+original action identity, cancel through its existing native interface when a
+path becomes invalid, and verify that action's terminal result before replanning.

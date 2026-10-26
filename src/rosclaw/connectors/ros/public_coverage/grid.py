@@ -9,6 +9,7 @@ from rosclaw.connectors.ros.public_coverage.geometry import (
     PLANNING_RADIUS,
     TRACKING_MARGIN,
     CircleSpace,
+    FootprintPathSpace,
     RegionalCircleConstraint,
 )
 
@@ -17,7 +18,7 @@ class UnsafeRobotPose(ValueError):  # noqa: N818 - preserve the ported geometry 
     """The actual public pose does not have a valid full circular footprint."""
 
 
-class Grid:
+class Grid(FootprintPathSpace):
     def __init__(
         self,
         message,
@@ -128,6 +129,20 @@ class Grid:
                 self.local_navigation_space.safe_points(points)
                 & self.local_navigation_centers.safe_points(points)
             ).reshape(self.safe.shape)
+        super().__init__(
+            planning_spaces=[
+                self.occupancy_space,
+                self.navigation_space,
+                self.navigation_centers,
+                self.local_navigation_space,
+                self.local_navigation_centers,
+            ],
+            physical_spaces=[
+                self.physical_occupancy_space,
+                self.physical_navigation_space,
+                self.physical_local_navigation_space,
+            ],
+        )
         if not self.physical_pose_safe(robot_xy):
             raise UnsafeRobotPose("Actual robot footprint is blocked in public observed geometry")
         labels, _ = ndimage.label(self.safe)
@@ -187,82 +202,6 @@ class Grid:
         distances = np.linalg.norm(points - xy, axis=1)
         index = int(np.argmin(distances))
         return points[index] if distances[index] <= max_shift else None
-
-    def safe_segment(self, start, finish):
-        """Check the exact swept disk and native blocked center-cell squares."""
-        return all(
-            space.safe_segment(start, finish)
-            for space in [
-                self.occupancy_space,
-                self.navigation_space,
-                self.navigation_centers,
-                self.local_navigation_space,
-                self.local_navigation_centers,
-            ]
-            if space is not None
-        )
-
-    def safe_pose(self, xy):
-        return all(
-            space.safe_point(xy)
-            for space in [
-                self.occupancy_space,
-                self.navigation_space,
-                self.navigation_centers,
-                self.local_navigation_space,
-                self.local_navigation_centers,
-            ]
-            if space is not None
-        )
-
-    def physical_pose_safe(self, xy):
-        return all(
-            space.safe_point(xy)
-            for space in [
-                self.physical_occupancy_space,
-                self.physical_navigation_space,
-                self.physical_local_navigation_space,
-            ]
-            if space is not None
-        )
-
-    def motion_path_safe(self, points, max_connector=0.10):
-        """Admit a short physical-safe prefix back into the planning margin.
-
-        Actual tracking may consume the 1 cm planning margin. The prefix must
-        still contain the entire native 20 cm footprint, reach a margin-safe
-        waypoint within 10 cm, and leave the remainder fully margin-safe.
-        Virtual center costs cannot replace this physical footprint check.
-        """
-        if not len(points) or not self.physical_pose_safe(points[0]):
-            return False
-        if self.safe_pose(points[0]):
-            return self.safe_path(points)
-        length = 0.0
-        for index, (start, finish) in enumerate(zip(points, points[1:], strict=False), 1):
-            length += float(np.linalg.norm(np.asarray(finish) - start))
-            if length > max_connector + 1e-12:
-                return False
-            if not all(
-                space.safe_segment(start, finish)
-                for space in [
-                    self.physical_occupancy_space,
-                    self.physical_navigation_space,
-                    self.physical_local_navigation_space,
-                ]
-                if space is not None
-            ):
-                return False
-            if self.safe_pose(finish):
-                return self.safe_path(points[index:])
-        return False
-
-    def safe_path(self, points):
-        return (
-            bool(len(points))
-            and self.safe_pose(points[0])
-            and all(self.safe_segment(a, b) for a, b in zip(points, points[1:], strict=False))
-        )
 
     def brush_footprint(self, radius=0.15):
         """Include tangent cells despite ROS float32 resolution roundoff."""

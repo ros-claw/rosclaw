@@ -211,3 +211,58 @@ class RegionalCircleConstraint:
                 if enter > leave:
                     return True
         return self.space.safe_segment(start + enter * direction, start + leave * direction)
+
+
+class FootprintPathSpace:
+    """Continuous footprint checks without constructing room/frontier rasters.
+
+    The planning and physical spaces are explicit immutable input bindings.
+    Time, source identity and actuation authority remain with the caller.
+    Grid uses these identical predicates; live path monitors need no room graph.
+    """
+
+    def __init__(self, *, planning_spaces, physical_spaces):
+        self.planning_spaces = tuple(space for space in planning_spaces if space is not None)
+        self.physical_spaces = tuple(space for space in physical_spaces if space is not None)
+        if not self.planning_spaces or not self.physical_spaces:
+            raise ValueError("Both planning and physical footprint spaces required")
+
+    def safe_segment(self, start, finish):
+        """Check the exact swept disk and native blocked center-cell squares."""
+        return all(space.safe_segment(start, finish) for space in self.planning_spaces)
+
+    def safe_pose(self, xy):
+        return all(space.safe_point(xy) for space in self.planning_spaces)
+
+    def physical_pose_safe(self, xy):
+        return all(space.safe_point(xy) for space in self.physical_spaces)
+
+    def motion_path_safe(self, points, max_connector=0.10):
+        """Admit a short physical-safe prefix back into the planning margin.
+
+        Actual tracking may consume the 1 cm planning margin. The prefix must
+        still contain the entire native 20 cm footprint, reach a margin-safe
+        waypoint within 10 cm, and leave the remainder fully margin-safe.
+        Virtual center costs cannot replace this physical footprint check.
+        """
+        if not len(points) or not self.physical_pose_safe(points[0]):
+            return False
+        if self.safe_pose(points[0]):
+            return self.safe_path(points)
+        length = 0.0
+        for index, (start, finish) in enumerate(zip(points, points[1:], strict=False), 1):
+            length += float(np.linalg.norm(np.asarray(finish) - start))
+            if length > max_connector + 1e-12:
+                return False
+            if not all(space.safe_segment(start, finish) for space in self.physical_spaces):
+                return False
+            if self.safe_pose(finish):
+                return self.safe_path(points[index:])
+        return False
+
+    def safe_path(self, points):
+        return (
+            bool(len(points))
+            and self.safe_pose(points[0])
+            and all(self.safe_segment(a, b) for a, b in zip(points, points[1:], strict=False))
+        )

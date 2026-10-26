@@ -187,3 +187,26 @@ def test_invalid_useful_area_threshold_is_rejected(area):
         ledger().next_work(
             grid(), [0.0, 0.0], Transform2D(0, 0, 0), now=0, minimum_new_area_m2=area
         )
+
+
+def test_light_footprint_predicates_match_complete_grid_without_room_graph():
+    from rosclaw.connectors.ros.public_coverage.geometry import FootprintPathSpace
+
+    observed = grid(occupied=(10, 15))
+    light = FootprintPathSpace(
+        planning_spaces=[observed.occupancy_space],
+        physical_spaces=[observed.physical_occupancy_space],
+    )
+    assert not hasattr(light, "rooms") and not hasattr(light, "reachable")
+    rng = np.random.default_rng(108)
+    for points in rng.uniform(-1.1, 1.1, (50, 3, 2)):
+        assert light.safe_pose(points[0]) == observed.safe_pose(points[0])
+        assert light.physical_pose_safe(points[0]) == observed.physical_pose_safe(points[0])
+        assert light.motion_path_safe(points) == observed.motion_path_safe(points)
+
+
+def test_light_footprint_never_accepts_missing_geometry():
+    from rosclaw.connectors.ros.public_coverage.geometry import FootprintPathSpace
+
+    with pytest.raises(ValueError):
+        FootprintPathSpace(planning_spaces=[], physical_spaces=[])
