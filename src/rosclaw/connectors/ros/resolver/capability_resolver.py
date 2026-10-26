@@ -360,6 +360,26 @@ def resolve_capabilities(model: RosSystemModel, *, now: datetime | None = None) 
             candidates.append(
                 {"status": status, "interface": interface, "requirements": requirements}
             )
+        # Enforce compiled-Body dependencies on EVERY candidate, including
+        # special cleaner bindings and alternative type-inferred interfaces.
+        # Choosing a different available endpoint cannot bypass the contract.
+        dependencies = action_observation_requirements(model, semantic, now=now)
+        if dependencies is not None:
+            for candidate in candidates:
+                requirements = candidate["requirements"]
+                requirements.update(dependencies)
+                if semantic != "cleaning.disable":
+                    requirements["runtime_diagnostics"] = not any(
+                        issue["severity"] == "blocking" and issue_applies_to(issue, semantic)
+                        for issue in diagnostic_issues()
+                    )
+                candidate["status"] = (
+                    "BLOCKED"
+                    if False in requirements.values()
+                    else "UNKNOWN"
+                    if None in requirements.values()
+                    else "AVAILABLE"
+                )
         rank = {"AVAILABLE": 0, "UNKNOWN": 1, "BLOCKED": 2}
         candidates.sort(key=lambda c: (rank[c["status"]], c["interface"]["name"]))
         best = (

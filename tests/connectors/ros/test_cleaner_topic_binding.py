@@ -8,6 +8,83 @@ from rosclaw.connectors.ros.intelligence.system_model import RosSystemModel, Sig
 from rosclaw.connectors.ros.resolver.capability_resolver import resolve_capabilities
 
 
+@pytest.mark.parametrize("fault", ["none", "stale", "missing", "wrong_type", "global_cycle"])
+def test_cleaner_declared_dependencies_gate_enable_but_preserve_independent_off(fault):
+    from rosclaw.connectors.ros.intelligence.system_model import Transform
+
+    now = datetime.now(UTC)
+
+    def binding(enabled):
+        return {
+            "name": "/brush/command",
+            "msg_type": "std_msgs/msg/Bool",
+            "data": enabled,
+            "state_topic": "/brush/state",
+            "state_type": "std_msgs/msg/Bool",
+        }
+
+    model = RosSystemModel(
+        robot_id="declared-cleaner",
+        snapshot_id="fixture",
+        captured_at=now,
+        body={
+            "effective_body_hash": "compiled-body",
+            "ros_capability_bindings": {
+                "cleaning.enable": binding(True),
+                "cleaning.disable": binding(False),
+            },
+            "action_observation_requirements": {
+                "schema_version": "rosclaw.action_observations.v1",
+                "capabilities": {
+                    "cleaning.enable": {
+                        "topics": {"/required/depth": "sensor_msgs/msg/PointCloud2"},
+                        "transforms": [],
+                    },
+                    "cleaning.disable": {
+                        "topics": {"/brush/state": "std_msgs/msg/Bool"},
+                        "transforms": [],
+                    },
+                },
+            },
+        },
+        graph={
+            "services": [],
+            "topics": [
+                {"name": "/brush/command", "msg_type": "std_msgs/msg/Bool"},
+                {"name": "/brush/state", "msg_type": "std_msgs/msg/Bool"},
+                {"name": "/required/depth", "msg_type": "sensor_msgs/msg/PointCloud2"},
+            ],
+        },
+        signals=[
+            Signal(
+                topic=topic,
+                source="fixture",
+                captured_at=now,
+                publisher_count=1,
+                last_message_age_ms=10,
+            )
+            for topic in ["/brush/state", "/required/depth"]
+        ],
+    )
+    if fault == "stale":
+        model.signals[-1].last_message_age_ms = 10000
+    if fault == "missing":
+        model.signals.pop()
+    if fault == "wrong_type":
+        model.graph["topics"][-1]["msg_type"] = "std_msgs/msg/String"
+    if fault == "global_cycle":
+        model.transforms = [
+            Transform(parent="a", child="b", source="fixture", captured_at=now, age_ms=1),
+            Transform(parent="b", child="a", source="fixture", captured_at=now, age_ms=1),
+        ]
+    rows = {r["semantic_id"]: r for r in resolve_capabilities(model, now=now)}
+    assert rows["cleaning.enable"]["status"] == (
+        "AVAILABLE" if fault == "none" else "UNKNOWN" if fault == "missing" else "BLOCKED"
+    )
+    assert rows["cleaning.disable"]["status"] == "AVAILABLE"
+    assert rows["cleaning.enable"]["usable_for_real_execution"] is False
+
+
 @pytest.mark.parametrize(
     "fault,expected",
     [

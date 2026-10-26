@@ -250,3 +250,67 @@ def test_unrelated_tf_cannot_invalidate_motion_but_global_cycle_can(healthy):
         Transform(parent="base_link", child="map", captured_at=NOW, source="fixture", age_ms=1)
     )
     assert motion()["status"] == "BLOCKED"
+
+
+@pytest.mark.parametrize(
+    "state,age,expected",
+    [
+        ("ACTIVE", 0, "AVAILABLE"),
+        ("INACTIVE", 0, "BLOCKED"),
+        ("UNKNOWN", 0, "UNKNOWN"),
+        ("ACTIVE", 6000, "BLOCKED"),
+        (None, 0, "UNKNOWN"),
+    ],
+)
+def test_generic_action_checks_body_declared_lifecycle(healthy, state, age, expected):
+    from datetime import timedelta
+
+    from rosclaw.connectors.ros.resolver import resolve_capabilities
+
+    healthy.body.update(
+        effective_body_hash="compiled-fixture-body",
+        action_observation_requirements={
+            "schema_version": "rosclaw.action_observations.v1",
+            "capabilities": {
+                "navigation.follow_path": {
+                    "topics": {"/work/state": "std_msgs/msg/Bool"},
+                    "transforms": [],
+                    "lifecycle_nodes": ["/work/controller"],
+                }
+            },
+        },
+        ros_capability_bindings={
+            "navigation.follow_path": {
+                "name": "/work/follow_path",
+                "action_type": "nav2_msgs/action/FollowPath",
+            }
+        },
+    )
+    healthy.graph["topics"].append({"name": "/work/state", "msg_type": "std_msgs/msg/Bool"})
+    healthy.graph.setdefault("actions", []).append(
+        {"name": "/work/follow_path", "action_type": "nav2_msgs/action/FollowPath"}
+    )
+    healthy.signals.append(
+        Signal(
+            source="fixture",
+            captured_at=NOW,
+            topic="/work/state",
+            publisher_count=1,
+            last_message_age_ms=10,
+        )
+    )
+    if state is not None:
+        healthy.lifecycle.append(
+            Lifecycle(
+                source="fixture",
+                captured_at=NOW - timedelta(milliseconds=age),
+                name="/work/controller",
+                state=state,
+            )
+        )
+    result = next(
+        r
+        for r in resolve_capabilities(healthy, now=NOW)
+        if r["semantic_id"] == "navigation.follow_path"
+    )
+    assert result["status"] == expected, result

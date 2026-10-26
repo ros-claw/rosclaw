@@ -330,6 +330,15 @@ def action_observation_requirements(model, capability: str, *, now) -> dict | No
         requirements[f"tf:{parent}:{child}"] = (
             True if True in checks else None if not checks or None in checks else False
         )
+    states = {state.name: state for state in model.lifecycle}
+    for node in contract.get("lifecycle_nodes", []):
+        observed = states.get(node)
+        requirements[node + ".active"] = (
+            None
+            if observed is None or observed.state == "UNKNOWN"
+            else observed.state == "ACTIVE"
+            and -100 <= (now - observed.captured_at).total_seconds() * 1000 <= 5000
+        )
     return requirements
 
 

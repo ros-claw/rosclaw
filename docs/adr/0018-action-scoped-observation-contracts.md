@@ -41,3 +41,21 @@ reattachment and the no-default-duration-kill policy remain unchanged. Recovered
 PIDs without a locally owned subprocess handle are not signalled on close;
 their local watchers are stopped before the journal closes. This is process
 lifecycle evidence, not proof of physical ROS action cancellation or stopping.
+
+### Candidate completeness and declared lifecycle (2026-10-26 follow-up)
+
+All candidate paths, including typed cleaner bindings, merge the matching
+compiled Body observation requirements before availability ranking. A different
+interface candidate cannot omit a declared input. Missing facts remain UNKNOWN;
+wrong types, stale required inputs and relevant blocking diagnostics block work.
+The independent cleaner-off path retains its own minimal declared observations.
+
+Lifecycle nodes in the existing action declaration are checked explicitly:
+missing/UNKNOWN nodes do not become ACTIVE, and an ACTIVE observation must retain
+the existing five-second evidence freshness bound. This closes a gap affecting
+nonstandard Action bindings such as FollowPath; it adds no new health runtime.
+
+The added regressions failed seven negative cases before the fix. They are
+software contracts, not proof of a particular live context rejection or a
+complete cleaning mission. That attribution still requires actual authority
+snapshots and independent physical evidence.
