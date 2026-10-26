@@ -1,10 +1,13 @@
 """Synthetic software contracts only; no World, robot or physical receipt."""
 
+import hashlib
+import json
 import math
 import threading
 import time
 from dataclasses import FrozenInstanceError
 from datetime import UTC, datetime
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -15,7 +18,7 @@ from rosclaw.connectors.ros.mission.executor import RosCoverageSimulationExecuto
 from rosclaw.connectors.ros.mission.navigation_binding import SimulationNavigationBinding
 from rosclaw.connectors.ros.mission.navigation_supervision import NavigationExecutionSupervision
 from rosclaw.connectors.ros.transport.base import RosTransportResult
-from rosclaw.kernel import ActionState, ExecutionMode
+from rosclaw.kernel import ActionState, EvidenceLevel, ExecutionMode
 
 
 def compiled_body(namespace="/robot", frame="world"):
@@ -268,7 +271,9 @@ def test_source_loss_after_send_cancels_revokes_and_never_verifies_success(
     assert result.final_state is ActionState.FAILED
     assert client.sent and client.cancelled and executor.stopping.is_set()
     assert not witness.lease and control.calls[-1][1] == {"data": False}
-    assert result.verification_result["physical_stop_verified"] is False
+    assert result.verification_result["physical_stop_verified"] is True
+    assert result.verification_result["failure_cleanup"]["acknowledged"] is True
+    assert executor(action).final_state is ActionState.BLOCKED
 
 
 def test_healthy_supervision_preserves_independent_goal_and_stop_verification(tmp_path):
@@ -434,6 +439,56 @@ def test_cancel_transport_failure_still_revokes_bound_lease(tmp_path):
     assert control.calls == [(executor.navigation_binding.lease_service, {"data": False})]
     assert not result["acknowledged"] and not witness.lease
     assert result["physical_stop_verified"] is True
+
+
+@pytest.mark.parametrize("cleanup_fault", [None, "cancel_disconnected", "stale", "revoke_failed"])
+def test_failed_navigation_records_independent_cleanup_without_rearming(tmp_path, cleanup_fault):
+    executor, action, witness, control, client = make_executor(tmp_path)
+    client.fault = "aborted"
+    if cleanup_fault == "cancel_disconnected":
+
+        def cancel(_):
+            raise RuntimeError("cancel disconnected")
+
+        client.cancel_goal = cancel
+    elif cleanup_fault == "stale":
+        original = client.send_goal
+
+        def send(**kwargs):
+            original(**kwargs)
+            witness.fault = "stale"
+
+        client.send_goal = send
+    elif cleanup_fault == "revoke_failed":
+        original = control.call_service
+
+        def service(name, args, **kwargs):
+            if not args["data"]:
+                raise RuntimeError("shutdown transport failed")
+            return original(name, args, **kwargs)
+
+        control.call_service = service
+    result = executor(action)
+    assert result.final_state is ActionState.FAILED
+    assert result.evidence_level is EvidenceLevel.REQUESTED
+    verified = cleanup_fault in (None, "cancel_disconnected")
+    assert result.verification_result["physical_stop_verified"] is verified
+    assert result.verification_result["physical_stop_status"] == (
+        "CONFIRMED" if verified else "NOT_CONFIRMED"
+    )
+    cleanup = result.verification_result["failure_cleanup"]
+    assert cleanup["acknowledged"] is (cleanup_fault in (None, "stale"))
+    artifact = result.verification_result["failure_artifact"]
+    raw = Path(artifact["path"]).read_bytes()
+    assert hashlib.sha256(raw).hexdigest() == artifact["sha256"]
+    record = json.loads(raw)
+    assert record["verification_status"] == "NOT_VERIFIED"
+    assert record["physical_stop_verified"] is verified
+    assert record["physical_stop_status"] == result.verification_result["physical_stop_status"]
+    assert record["failure_cleanup"] == cleanup
+    calls, goals = list(control.calls), list(client.sent)
+    assert executor(action).final_state is ActionState.BLOCKED
+    assert control.calls == calls and client.sent == goals
 
 
 @pytest.mark.parametrize(
