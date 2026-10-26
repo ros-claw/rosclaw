@@ -29,3 +29,15 @@ Default sensor subscriptions retain their original best-effort policy. The
 opt-in keeps only the latest complete sample; received old frames still require
 native header freshness checks at the motion authority. No simulator, sensor
 resolution, safety timeout or action authorization is changed.
+
+
+Explicit AgentService shutdown now closes its existing OperationManager before
+closing the event store. Accepted spawns remain owned when an RPC requester
+disconnects; shutdown waits for those spawns and uses the existing process-group
+cancel/reap path, including a cancellation already in flight. New process
+admission is rejected once shutdown starts. This revokes an explicitly closing
+supervisor, not a wall-clock duration limit or a liveness sweep. Abrupt-crash
+reattachment and the no-default-duration-kill policy remain unchanged. Recovered
+PIDs without a locally owned subprocess handle are not signalled on close;
+their local watchers are stopped before the journal closes. This is process
+lifecycle evidence, not proof of physical ROS action cancellation or stopping.

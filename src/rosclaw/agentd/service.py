@@ -1479,6 +1479,9 @@ class AgentService:
         if getattr(self, "_pi_bridge", None) is not None:
             await self._pi_bridge.stop()
             self._pi_bridge = None
+        manager = getattr(self, "_operation_manager", None)
+        if manager is not None:
+            await manager.close()
         self._store.close()
         # P1-4：control token 文件随服务关闭删除（不残留可重用的令牌）。
         token_path = self._home / "run" / "agentd-control.token"
