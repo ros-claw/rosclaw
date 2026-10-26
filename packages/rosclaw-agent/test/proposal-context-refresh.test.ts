@@ -43,15 +43,13 @@ async function exercise(mutation = "", mode = "SIMULATION", retryRejected = fals
 	return { calls, result, active };
 }
 
-test("card-free SIM context rejection refreshes once before a new approved transaction", async () => {
-	const { calls, result } = await exercise();
-	assert.deepEqual(calls.map(c => c.method), ["pi.action.propose", "pi.context", "pi.action.propose", "pi.action.execute"]);
-	assert.equal(calls[2].params.context_lease_id, "new_lease");
-	assert.equal(calls[2].params.context_revision, 2);
-	assert.notEqual(calls[0].params.idempotency_key, calls[2].params.idempotency_key);
-	assert.deepEqual(calls[0].params.arguments, calls[2].params.arguments);
-	assert.equal(calls[3].params.approval_id, "approved");
-	assert.equal((result.details as { ok: boolean }).ok, true);
+test("card-free SIM rejection returns a new observation without replaying the old intent", async () => {
+	const { calls, result, active } = await exercise();
+	assert.deepEqual(calls.map(c => c.method), ["pi.action.propose", "pi.context"]);
+	assert.equal((result.details as { ok: boolean }).ok, false);
+	assert.equal((result.details as { replan_required: boolean }).replan_required, true);
+	assert.match(JSON.stringify(result.content), /ROSCLAW_TRUSTED_CONTEXT/);
+	assert.equal(active.current.contextRevision, 2);
 });
 
 for (const mutation of ["body", "mode", "mission", "session", "missing_lease", "expired_lease"]) {
@@ -73,6 +71,6 @@ for (const mode of ["REAL", "SHADOW"]) {
 
 test("a second context rejection settles without an unbounded retry or execution", async () => {
 	const { calls, result } = await exercise("", "SIMULATION", true);
-	assert.deepEqual(calls.map(c => c.method), ["pi.action.propose", "pi.context", "pi.action.propose"]);
+	assert.deepEqual(calls.map(c => c.method), ["pi.action.propose", "pi.context"]);
 	assert.equal((result.details as { ok: boolean }).ok, false);
 });

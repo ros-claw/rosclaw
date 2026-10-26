@@ -15,6 +15,29 @@ import type { BridgeToolContext } from "./bridge-tools.js";
 
 const AWAIT_TIMEOUT_MS = 330_000;
 
+async function callExecution(ctx: BridgeToolContext, method: string, parameters: Record<string, unknown>) {
+	try { return await ctx.center.call(method, parameters); }
+	catch (error) { return { ok: false, code: "EXECUTION_TRANSPORT_LOST", error: String(error) }; }
+}
+
+function executionReply(reply: Record<string, unknown>, approvalId: string, capabilityId: string): Record<string, unknown> {
+	if (reply.result && typeof reply.result === "object"
+		&& typeof (reply.result as Record<string, unknown>).status === "string") return reply.result as Record<string, unknown>;
+	// A bridge rejection has no `result`. Never erase its code/message or
+	// interpret an interrupted/malformed dispatch reply as non-execution.
+	const code = String(reply.code ?? "EXECUTION_REPLY_MISSING");
+	const beforeDispatch = ["NEEDS_REPLAN", "CONTEXT_HASH_MISMATCH", "CONTEXT_NOT_FRESH",
+		"ROS_PRECONDITION_UNKNOWN_OR_FAILED", "BODY_HASH_MISMATCH", "MODE_MISMATCH",
+		"REQUEST_CONTEXT_REQUIRED"].includes(code);
+	return { status: beforeDispatch ? "REJECTED" : "UNKNOWN", executed: false,
+		approval_id: approvalId, capability_id: capabilityId, error_code: code,
+		summary: `${beforeDispatch ? "Rejected before dispatch" : "Execution outcome UNKNOWN"} [${code}]: ${String(reply.error ?? "No structured execution outcome returned")}. `
+			+ (beforeDispatch ? "Re-observe and make a new decision; no automatic replay."
+				: "Reconcile this exact approval before any replacement action."),
+		terminal_receipt: false, reconciliation_required: !beforeDispatch };
+}
+
+
 export function buildRequestActionTool(ctx: BridgeToolContext, snapshotDigest?: string) {
 	return defineTool({
 		name: "rosclaw_request_action",
@@ -38,14 +61,14 @@ export function buildRequestActionTool(ctx: BridgeToolContext, snapshotDigest?: 
 			// 只读 details，绝不解析模型/工具文本。
 			const capabilityId = String(params.capability_id ?? "");
 			if (params.approval_id) {
-				const reply = await ctx.center.call("pi.action.reconcile", {
+				const reply = await callExecution(ctx, "pi.action.reconcile", {
 					approval_id: String(params.approval_id), pi_session_id: state.sessionId,
 					mission_id: state.missionId, context_revision: state.contextRevision,
 					body_hash: state.bodyHash ?? "", mode: state.mode,
 					idempotency_key: `reconcile_${String(params.approval_id)}`,
 					context_lease_id: state.contextLeaseId ?? "",
 				});
-				const result = (reply.result ?? {}) as Record<string, unknown>;
+				const result = executionReply(reply, String(params.approval_id), capabilityId);
 				return { content: [{type: "text" as const, text: JSON.stringify(result)}],
 					details: {...result, ok: result.executed === true},
 					isError: result.executed !== true };
@@ -101,7 +124,7 @@ export function buildRequestActionTool(ctx: BridgeToolContext, snapshotDigest?: 
 			// get_body_state does not renew this tool's hidden context lease. Return
 			// a freshly verified observation without replaying the rejected intent.
 			let replanObservation: { refreshed: boolean; content?: string } | undefined;
-			if (!proposed.ok && proposed.code === "NEEDS_REPLAN" && !proposed.card
+			if (!proposed.ok && ["NEEDS_REPLAN", "CONTEXT_HASH_MISMATCH"].includes(String(proposed.code)) && !proposed.card
 				&& state.mode === "SIMULATION" && state.missionId) {
 				const prior = state;
 				const fetched = await fetchEmbodiedContext(ctx.rosclawHome, state.missionId, state.sessionId,
@@ -118,34 +141,6 @@ export function buildRequestActionTool(ctx: BridgeToolContext, snapshotDigest?: 
 				} else {
 					ctx.active.markContextStale(fetched.note || "Replan context could not be refreshed without changing its binding");
 					replanObservation = { refreshed: false };
-				}
-			}
-			// A readiness change can invalidate a lease during model deliberation.
-			// Refresh only a rejected, card-free SIM proposal; never reuse approval
-			// or retry execution. Body, mission, session and mode must stay bound.
-			if (!proposed.ok && proposed.code === "CONTEXT_HASH_MISMATCH" && !proposed.card
-				&& state.mode === "SIMULATION" && state.missionId) {
-				const prior = state;
-				const fetched = await fetchEmbodiedContext(ctx.rosclawHome, state.missionId, state.sessionId,
-					(_home, method, parameters) => ctx.center.call(method, parameters));
-				if (!fetched.stale && fetched.envelope && fetched.contextLeaseId
-					&& fetched.contextLeaseExpiresAt && Date.parse(fetched.contextLeaseExpiresAt) > Date.now()
-					&& fetched.envelope.body.effective_body_hash === prior.bodyHash
-					&& fetched.envelope.body.body_id === prior.bodyId
-					&& fetched.envelope.safety.mode === prior.mode && fetched.envelope.mission_id === prior.missionId
-					&& ctx.active.current.sessionId === prior.sessionId && ctx.active.current.missionId === prior.missionId
-					&& ctx.active.current.bodyHash === prior.bodyHash && ctx.active.current.mode === prior.mode) {
-					ctx.active.applyEnvelope(fetched.envelope, fetched.contextLeaseId);
-					state = ctx.active.current;
-					if (state.sessionId === prior.sessionId && state.missionId === prior.missionId
-						&& state.bodyHash === prior.bodyHash && state.mode === prior.mode) {
-						requestContext = { ...requestContext, context_revision: state.contextRevision,
-							context_lease_id: state.contextLeaseId ?? "",
-							idempotency_key: `${requestContext.idempotency_key}_fresh` };
-						proposed = await ctx.center.call("pi.action.propose", { ...requestContext, ...proposal });
-					}
-				} else {
-					ctx.active.markContextStale(fetched.note || "SIM proposal context could not be refreshed without changing its binding");
 				}
 			}
 			if (!proposed.ok) {
@@ -182,11 +177,11 @@ export function buildRequestActionTool(ctx: BridgeToolContext, snapshotDigest?: 
 					content: [{ type: "text", text: "安全仿真自动执行（POLICY_AUTO，全链审计）" }],
 					details: { phase: "POLICY_AUTO", approval_id: card.approval_id },
 				});
-				const autoExecuted = await ctx.center.call("pi.action.execute", {
+				const autoExecuted = await callExecution(ctx, "pi.action.execute", {
 					...requestContext,
 					approval_id: card.approval_id,
 				});
-				const autoResult = (autoExecuted.result ?? {}) as Record<string, unknown>;
+				const autoResult = executionReply(autoExecuted, card.approval_id, capabilityId);
 				return {
 					content: [
 						{
@@ -300,11 +295,11 @@ export function buildRequestActionTool(ctx: BridgeToolContext, snapshotDigest?: 
 			// phase 2b: 精确 grant 执行 → 结构化回执。
 			// P0-NA-10：execute 带同一请求上下文做 TOCTOU 复验——批准后
 			// revision/body/lease 任一变化都必须拒绝。
-			const executed = await ctx.center.call("pi.action.execute", {
+			const executed = await callExecution(ctx, "pi.action.execute", {
 				...requestContext,
 				approval_id: card.approval_id,
 			});
-			const result = (executed.result ?? {}) as Record<string, unknown>;
+			const result = executionReply(executed, card.approval_id, capabilityId);
 			return {
 				content: [
 					{

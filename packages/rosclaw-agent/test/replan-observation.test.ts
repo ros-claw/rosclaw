@@ -4,6 +4,41 @@ import { envelopeHash } from "../src/extension/context-injection.js";
 import { ActiveSessionContext } from "../src/session/active-context.js";
 import { buildRequestActionTool } from "../src/tools/request-action.js";
 
+for (const auto of [true, false]) {
+    for (const failure of ["NEEDS_REPLAN", "ROS_PRECONDITION_UNKNOWN_OR_FAILED", "EXECUTE_FAILED", "MALFORMED", "TRANSPORT"]) {
+        test(`post-approval ${failure} remains visible and never replays (auto=${auto})`, async () => {
+            const active = new ActiveSessionContext({ sessionId: "pi_1", missionId: "mis_1",
+                contextRevision: 1, mode: "SIMULATION", profile: "developer", contextState: "FRESH",
+                leaseState: "ACTIVE", actionsAllowed: true, contextLeaseId: "lease", bodyId: "body", bodyHash: "hash" });
+            const calls: string[] = [];
+            const center = { actionReadiness: async () => ({ state: "READY", reason_codes: [] }),
+                call: async (method: string) => {
+                    calls.push(method);
+                    if (method === "pi.action.propose") return { ok: true, card: { approval_id: "owned-card",
+                        decision_authority: auto ? "POLICY_AUTO" : "OPERATOR" } };
+                    if (method === "pi.action.status") return { ok: true, status: "APPROVED" };
+                    if (method === "pi.action.execute") {
+                        if (failure === "TRANSPORT") throw Error("socket disconnected");
+                        if (failure === "MALFORMED") return { ok: false, result: {} };
+                        return { ok: false, code: failure, error: "required public evidence changed" };
+                    }
+                    throw Error(method);
+                } };
+            const tool = buildRequestActionTool({ rosclawHome: "/tmp/post-approval", active, center: center as never });
+            const result = await tool.execute("t", { capability_id: "fixture.move", arguments: {} }, undefined, undefined, {} as never);
+            const details = result.details as Record<string, unknown>;
+            assert.equal(details.status, ["NEEDS_REPLAN", "ROS_PRECONDITION_UNKNOWN_OR_FAILED"].includes(failure) ? "REJECTED" : "UNKNOWN");
+            assert.equal(details.approval_id, "owned-card");
+            assert.equal(details.reconciliation_required, details.status === "UNKNOWN");
+            assert.equal((result as { isError?: boolean }).isError, true);
+            assert.ok(JSON.stringify(result.content).length > 80);
+            assert.ok(details.error_code);
+            assert.equal(calls.filter(m => m === "pi.action.execute").length, 1);
+            assert.equal(calls.filter(m => m === "pi.action.propose").length, 1);
+        });
+    }
+}
+
 function harness(mutation = "", mode = "SIMULATION", withCard = false) {
 	const active = new ActiveSessionContext({ sessionId: "pi_1", missionId: "mis_1",
 		contextRevision: 1, mode, profile: "developer", contextState: "FRESH",

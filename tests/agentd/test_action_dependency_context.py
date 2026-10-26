@@ -18,6 +18,19 @@ from tests.agentd.test_pi_tool_bridge import _setup
 CAP = "ur5e.move_to_pose"
 
 
+def test_admission_rejection_identifies_unmet_dependency_without_changing_readiness():
+    from types import SimpleNamespace
+
+    observations = {"status": "OBSERVED", "admission_facts": {"capability_facts": {
+        CAP: {"readiness": "BLOCKED", "requirements": {"/depth/points:fresh": False,
+            "/odom:fresh": True, "/battery_state:fresh": None}}}}}
+    with pytest.raises(ToolBridgeError, match="depth/points:fresh") as error:
+        ActionAdmissionService._assert_ros_dependencies(
+            SimpleNamespace(self_state={"ros_observations": observations}), CAP)
+    assert "/battery_state:fresh" in str(error.value)
+    assert "/odom:fresh" not in str(error.value)
+
+
 def facts():
     return {
         "status": "OBSERVED",

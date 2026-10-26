@@ -94,8 +94,12 @@ class ActionAdmissionService:
         scoped = facts.get("capability_facts", {}) if isinstance(facts, dict) else {}
         dependent = scoped.get(capability_id)
         if isinstance(dependent, dict) and dependent.get("readiness") != "AVAILABLE":
+            requirements = dependent.get("requirements", {})
+            unmet = [str(k) for k, value in requirements.items() if value is not True][:20]
             raise ToolBridgeError("ROS_PRECONDITION_UNKNOWN_OR_FAILED",
-                                  "required action observations are not ready; no dispatch")
+                                  f"required action observations are not ready; no dispatch: "
+                                  f"capability={capability_id}, readiness={dependent.get('readiness')}, "
+                                  f"unmet_requirements={unmet}")
 
     # -- 验证链 -----------------------------------------------------------------
 
