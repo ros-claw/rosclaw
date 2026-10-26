@@ -342,8 +342,17 @@ class AgentService:
     def events_replay(self, mission_id: str, *, after_sequence: int = 0, limit: int = 1000):
         return self._events.replay(mission_id, after_sequence=after_sequence, limit=limit)
 
-    def receipt_events(self, mission_id: str, *, receipt_id: str | None = None, limit: int = 3, terminal_only: bool = False):
-        return self._events.receipt_events(mission_id, receipt_id=receipt_id, limit=limit, terminal_only=terminal_only)
+    def receipt_events(
+        self,
+        mission_id: str,
+        *,
+        receipt_id: str | None = None,
+        limit: int = 3,
+        terminal_only: bool = False,
+    ):
+        return self._events.receipt_events(
+            mission_id, receipt_id=receipt_id, limit=limit, terminal_only=terminal_only
+        )
 
     def events_subscribe(self, mission_id: str) -> asyncio.Queue:
         return self._events.bus.subscribe(mission_id)
@@ -829,7 +838,8 @@ class AgentService:
                 import logging
 
                 logging.getLogger("rosclaw.conformance").warning(
-                    "plan-ref conformance probe failed", exc_info=True,
+                    "plan-ref conformance probe failed",
+                    exc_info=True,
                 )
         body_id = mission.body_binding.body_id if mission is not None else ""
         mode = mission.mode.value if mission is not None else "SIMULATION"

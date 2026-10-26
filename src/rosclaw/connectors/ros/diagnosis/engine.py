@@ -168,10 +168,20 @@ def diagnose(
         ):
             if is_event_driven_slam_pose(model, interfaces_by_name.get(signal.topic, {}), now=now):
                 event_pose_unknowns.append("event_pose:" + signal.topic)
-                add("ROS_POSE_EVENT_001", "sensors", data,
-                    "Scan-match pose is historical; fresh independent TF was observed. Pose freshness remains UNKNOWN.", "warning")
+                add(
+                    "ROS_POSE_EVENT_001",
+                    "sensors",
+                    data,
+                    "Scan-match pose is historical; fresh independent TF was observed. Pose freshness remains UNKNOWN.",
+                    "warning",
+                )
             else:
-                add("ROS_TOPIC_002", "sensors", data, "Inspect sensor freshness and upstream health.")
+                add(
+                    "ROS_TOPIC_002",
+                    "sensors",
+                    data,
+                    "Inspect sensor freshness and upstream health.",
+                )
         min_rate = model.body.get("minimum_rates", {}).get(signal.topic)
         if min_rate is not None and signal.rate_hz is not None and signal.rate_hz < min_rate:
             add("ROS_TOPIC_003", "sensors", data, "Inspect sensor rate and middleware losses.")
@@ -313,6 +323,7 @@ def diagnose(
     ):
         unknown.append("tf_timing")
     from rosclaw.connectors.ros.resolver.semantics import dependency_scope_for_issue
+
     for issue in issues:
         if "affected_capabilities" not in issue:
             affected = dependency_scope_for_issue(model, issue)

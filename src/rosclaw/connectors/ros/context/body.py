@@ -16,7 +16,9 @@ def configured_ros_body(robot_id: str, expected_hash: str | None = None) -> dict
     return {
         "effective_body_hash": actual_hash,
         "frames": effective.frames,
-        "action_observation_requirements": effective.provider_interfaces.get("ros_action_observation_requirements", {}),
+        "action_observation_requirements": effective.provider_interfaces.get(
+            "ros_action_observation_requirements", {}
+        ),
         "observation_contracts": effective.provider_interfaces.get("ros_observation_contracts", {}),
         "ros_capability_bindings": effective.provider_interfaces.get("ros_capability_bindings", {}),
     }

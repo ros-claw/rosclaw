@@ -62,11 +62,9 @@ def default_pi_bridge_socket(home: Path | None = None) -> Path:
 # ----------------------------------------------------------------------
 
 
-
-
-
 class PiBridgeServer:
     """agentd 内的 Pi bridge：session 绑定 + 状态/上下文投影。"""
+
     def __init__(self, service: AgentService, socket_path: Path) -> None:
         self._service = service
         self._path = socket_path
@@ -87,9 +85,7 @@ class PiBridgeServer:
             self._server = None
         self._path.unlink(missing_ok=True)
 
-    async def _handle(
-        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
-    ) -> None:
+    async def _handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         try:
             principal, peer_pid = _peer_credentials(writer)
         except Exception as exc:  # noqa: BLE001
@@ -109,7 +105,9 @@ class PiBridgeServer:
                 try:
                     request = json.loads(line)
                     response = await self._dispatch(
-                        principal, peer_pid, str(request.get("method", "")),
+                        principal,
+                        peer_pid,
+                        str(request.get("method", "")),
                         request.get("params") or {},
                     )
                 except BindingError as exc:
@@ -208,9 +206,7 @@ class PiBridgeServer:
             if mission is not None:
                 try:
                     snapshot = service.capability_snapshot(mission)
-                    capability_digest = str(
-                        snapshot.to_canonical_dict().get("digest", "")
-                    )
+                    capability_digest = str(snapshot.to_canonical_dict().get("digest", ""))
                 except Exception:  # noqa: BLE001 - 快照失败不阻塞 status
                     capability_digest = ""
             return {
@@ -255,14 +251,15 @@ class PiBridgeServer:
 
             policy = str(params.get("sim_policy", ""))
             if policy not in ("auto", "ask"):
-                return {"ok": False, "error": "sim_policy must be auto|ask",
-                        "code": "INVALID_ARGUMENT"}
+                return {
+                    "ok": False,
+                    "error": "sim_policy must be auto|ask",
+                    "code": "INVALID_ARGUMENT",
+                }
             safety_file = service._home / "agent" / "safety.json"
             safety_file.parent.mkdir(parents=True, exist_ok=True)
             tmp = safety_file.with_suffix(".tmp")
-            tmp.write_text(
-                _json.dumps({"sim_policy": policy}, indent=1), encoding="utf-8"
-            )
+            tmp.write_text(_json.dumps({"sim_policy": policy}, indent=1), encoding="utf-8")
             import os as _os
 
             _os.chmod(tmp, 0o600)
@@ -338,8 +335,12 @@ class PiBridgeServer:
 
                 proc = _sp.Popen(  # noqa: S603 - 固定入口
                     [
-                        _sys.executable, "-m", "rosclaw.entrypoint",
-                        "operatord", "start", "--no-human-presence-check",
+                        _sys.executable,
+                        "-m",
+                        "rosclaw.entrypoint",
+                        "operatord",
+                        "start",
+                        "--no-human-presence-check",
                     ],
                     env={**os.environ, "ROSCLAW_HOME": str(home)},
                     stdout=(home / "run" / "operatord.out.log").open("ab"),
@@ -366,8 +367,7 @@ class PiBridgeServer:
             text = str(params.get("text", ""))
             source = str(params.get("source", ""))
             if not session_id or not text:
-                return {"ok": False, "error": "session/text required",
-                        "code": "INVALID_ARGUMENT"}
+                return {"ok": False, "error": "session/text required", "code": "INVALID_ARGUMENT"}
             mission_id = ""
             binding = self._bindings.binding_for_session(session_id)
             if binding is not None:
@@ -418,7 +418,8 @@ class PiBridgeServer:
                     "report": {
                         "verdict": "READ_ONLY",
                         "lines": ["无绑定记录——对话只读打开，不伪装成原 Mission"],
-                        "mode": "", "body_id": "",
+                        "mode": "",
+                        "body_id": "",
                     },
                 }
             mission = service.get_mission(binding.mission_id)
@@ -431,7 +432,8 @@ class PiBridgeServer:
                             "原 Mission 已不存在——对话只读打开；"
                             "可从此会话新建 SIM 任务（不伪装原 Mission）"
                         ],
-                        "mode": "", "body_id": "",
+                        "mode": "",
+                        "body_id": "",
                     },
                 }
             mode = mission.mode.value
@@ -470,13 +472,10 @@ class PiBridgeServer:
                 else:
                     lines.append(f"Operation {op_id}（{kind}）：{state}")
             artifact_rows = conn.execute(
-                "SELECT path, media_type FROM artifacts "
-                "ORDER BY created_at DESC LIMIT 5"
+                "SELECT path, media_type FROM artifacts ORDER BY created_at DESC LIMIT 5"
             ).fetchall()
             for art in artifact_rows:
-                lines.append(
-                    f"已有产物可直接交付/引用（勿重新生成）：{art['path']}"
-                )
+                lines.append(f"已有产物可直接交付/引用（勿重新生成）：{art['path']}")
             # 过期 PENDING 卡（broker 侧）→ REAUTH_NEEDED（恢复不复活
             # 任何授权）。
             from datetime import UTC as _UTC2
@@ -491,8 +490,7 @@ class PiBridgeServer:
             if expired_pending:
                 verdict = "REAUTH_NEEDED"
                 lines.append(
-                    f"{len(expired_pending)} 张授权卡已过期——需重新确认，"
-                    "不会自动恢复执行权"
+                    f"{len(expired_pending)} 张授权卡已过期——需重新确认，不会自动恢复执行权"
                 )
             # 权限行：恢复后 lease 重新获取；旧动作授权按规则失效。
             lines.append(
@@ -580,8 +578,12 @@ class PiBridgeServer:
                 if task["state"] in TASK_ACTIVE
             ]
             recent = [
-                (task["task_id"], task["root_goal"], task["state"],
-                 f"rev-{task['active_revision']}")
+                (
+                    task["task_id"],
+                    task["root_goal"],
+                    task["state"],
+                    f"rev-{task['active_revision']}",
+                )
                 for task in kernel_tasks[:5]
             ]
             pending = conn.execute(
@@ -609,7 +611,9 @@ class PiBridgeServer:
                 "checkpoint": {
                     "schema_version": "rosclaw.embodied_checkpoint.v1",
                     "mission_id": mission_id,
-                    "goal": mission.goal.text if hasattr(mission.goal, "text") else str(mission.goal),
+                    "goal": mission.goal.text
+                    if hasattr(mission.goal, "text")
+                    else str(mission.goal),
                     "mode": mission.mode.value,
                     "body_id": mission.body_binding.body_id,
                     "nonterminal_tasks": [
@@ -620,9 +624,7 @@ class PiBridgeServer:
                         for r in recent
                     ],
                     "pending_approvals": [r[0] for r in pending],
-                    "recent_receipt_refs": [
-                        _json3.loads(r[0]).get("receipt_id") for r in receipts
-                    ],
+                    "recent_receipt_refs": [_json3.loads(r[0]).get("receipt_id") for r in receipts],
                     "sim_policy": sim_policy,
                 },
             }
@@ -667,11 +669,8 @@ class PiBridgeServer:
             task_id = str(params.get("task_id", ""))
             task = service._task_kernel.get_task(task_id)
             if task is None:
-                return {"ok": False, "error": f"unknown task {task_id!r}",
-                        "code": "TASK_NOT_FOUND"}
-            service._task_kernel.transition(
-                task_id, "CANCELLED", reason="user_cancel"
-            )
+                return {"ok": False, "error": f"unknown task {task_id!r}", "code": "TASK_NOT_FOUND"}
+            service._task_kernel.transition(task_id, "CANCELLED", reason="user_cancel")
             # G-4（0916 三审 B-2）：取消必须级联到该 task 的在途
             # operation——此前 task 落 CANCELLED 但子进程照跑（孤儿
             # 占用 GPU/渲染槽；迟到 SUCCEEDED 虽被账本拒，进程是真
@@ -687,7 +686,9 @@ class PiBridgeServer:
                     str(row["operation_id"]), reason="user_cancel"
                 )
             return {
-                "ok": True, "task_id": task_id, "state": "CANCELLED",
+                "ok": True,
+                "task_id": task_id,
+                "state": "CANCELLED",
                 "operations_cancelled": len(running),
             }
         if method == "pi.doctor.task":
@@ -736,7 +737,8 @@ class PiBridgeServer:
                     runtime_status = await asyncio.to_thread(daemon_client.get_runtime_status)
                     if runtime_status.get("running") is True:
                         daemon_executors = {
-                            item for item in runtime_status.get("registered_executors", [])
+                            item
+                            for item in runtime_status.get("registered_executors", [])
                             if isinstance(item, str)
                         }
                 except Exception:  # noqa: BLE001 - unavailable daemon remains MISSING
@@ -746,9 +748,7 @@ class PiBridgeServer:
                 # N5E：观测/计算桶也查隔离——被隔离的进 excluded
                 # （与 snapshot 同一事实源），不得显示为可用。
                 if cls in ("OBSERVE", "COMPUTE"):
-                    qreason = service._tool_catalog.quarantine_reason(
-                        descriptor.tool_id
-                    )
+                    qreason = service._tool_catalog.quarantine_reason(descriptor.tool_id)
                     if qreason is not None:
                         excluded.append(
                             {
@@ -767,9 +767,7 @@ class PiBridgeServer:
                                 "version": descriptor.version,
                                 "source": descriptor.source,
                                 "description": descriptor.description[:120],
-                                "effect_class": (
-                                    cap.effect.class_.value if cap else ""
-                                ),
+                                "effect_class": (cap.effect.class_.value if cap else ""),
                             }
                         )
                     continue
@@ -783,9 +781,7 @@ class PiBridgeServer:
                             "description": descriptor.description[:120],
                             "effect_domain": "none",
                             # PR-N5C：canonical effect_class（N5A 适配链）。
-                            "effect_class": (
-                                cap.effect.class_.value if cap else ""
-                            ),
+                            "effect_class": (cap.effect.class_.value if cap else ""),
                         }
                     )
                     continue
@@ -813,9 +809,7 @@ class PiBridgeServer:
                     # 七审 §6 PR-SEVEN-2.3：每条动作带 effect_domain/
                     # executor_state/body_compatibility。
                     "effect_domain": (
-                        "simulation"
-                        if mission.mode.value == "SIMULATION"
-                        else "real"
+                        "simulation" if mission.mode.value == "SIMULATION" else "real"
                     ),
                     "executor_state": executor_state,
                     "body_compatibility": reason is None,
@@ -857,6 +851,7 @@ class PiBridgeServer:
             # ValidatedContextLease——action 准入的权威 freshness 凭证
             # （同一权威源，不信 TUI 自报）。无 session 不签发。
             import os as _os
+
             if _os.environ.get("ROSCLAW_DEBUG_CONTEXT"):
                 with contextlib.suppress(Exception):
                     (service._home / "agentd" / "ctx-at-issue.json").write_text(
@@ -905,9 +900,7 @@ class PiBridgeServer:
 
                 envelope_ttl = max(
                     0.0,
-                    (
-                        _dt.fromisoformat(envelope.expires_at) - _dt.now(_UTC)
-                    ).total_seconds(),
+                    (_dt.fromisoformat(envelope.expires_at) - _dt.now(_UTC)).total_seconds(),
                 )
                 writer_ttl = max(
                     0.0,
@@ -952,8 +945,7 @@ class PiBridgeServer:
                     "code": "MODE_FORBIDDEN",
                 }
             mission = service.create_mission(goal, mode="SIMULATION")
-            return {"ok": True, "mission_id": mission.mission_id,
-                    "mode": mission.mode.value}
+            return {"ok": True, "mission_id": mission.mission_id, "mode": mission.mode.value}
         if method == "pi.session.binding.get":
             binding = self._bindings.binding_for_session(str(params.get("pi_session_id", "")))
             if binding is None:
@@ -972,8 +964,11 @@ class PiBridgeServer:
                 if mission is None:
                     return {"ok": False, "code": "MISSION_NOT_FOUND", "error": "unknown mission"}
                 if snapshot_digest != service.capability_snapshot(mission).digest:
-                    return {"ok": False, "code": "CAPABILITY_SNAPSHOT_CHANGED",
-                            "error": "capability registry changed; refresh the tool snapshot"}
+                    return {
+                        "ok": False,
+                        "code": "CAPABILITY_SNAPSHOT_CHANGED",
+                        "error": "capability registry changed; refresh the tool snapshot",
+                    }
             # P0-NA-10：唯一 admission path——完整请求上下文是建卡前提。
             from rosclaw.agentd.pi_bridge.action_admission import (
                 ActionAdmissionService,
@@ -1002,8 +997,11 @@ class PiBridgeServer:
                     caller_uid=int(principal.rsplit(":", 1)[-1]),
                 )
             except Exception as exc:  # noqa: BLE001
-                return {"ok": False, "error": f"{type(exc).__name__}: {exc}",
-                        "code": getattr(exc, "code", "PROPOSE_FAILED")}
+                return {
+                    "ok": False,
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "code": getattr(exc, "code", "PROPOSE_FAILED"),
+                }
             return {"ok": True, "card": card}
         if method == "pi.action.status":
             # HOTFIX-1（P0-4B）：status 也必须证明调用方是卡主——只凭
@@ -1024,9 +1022,7 @@ class PiBridgeServer:
             # 进程知道 session ID 也不得读卡状态。writer owner 必须匹配
             # SO_PEERCRED 的 peer PID/UID。
             caller_uid = int(principal.rsplit(":", 1)[-1])
-            writer = (
-                self._bindings.writer_of(binding.mission_id) if binding else None
-            )
+            writer = self._bindings.writer_of(binding.mission_id) if binding else None
             if (
                 binding is None
                 or writer is None
@@ -1047,9 +1043,7 @@ class PiBridgeServer:
                     "error": "not your card",
                     "code": "FORBIDDEN",
                 }
-            return {"ok": True, **ActionAdmissionService(service).decision_status(
-                approval_id
-            )}
+            return {"ok": True, **ActionAdmissionService(service).decision_status(approval_id)}
         if method in {"pi.action.execute", "pi.action.reconcile"}:
             # P0-NA-10：execute 也带请求上下文做 TOCTOU 复验。
             from rosclaw.agentd.pi_bridge.action_admission import (
@@ -1077,24 +1071,37 @@ class PiBridgeServer:
                 context_lease_id=str(params.get("context_lease_id", "")),
             )
             try:
-                identity = {"request": request_ctx, "caller_pid": peer_pid,
-                            "caller_uid": int(principal.rsplit(":", 1)[-1])}
+                identity = {
+                    "request": request_ctx,
+                    "caller_pid": peer_pid,
+                    "caller_uid": int(principal.rsplit(":", 1)[-1]),
+                }
                 if method == "pi.action.reconcile":
-                    result = await admission.reconcile_authority(str(params.get("approval_id", "")), **identity)
+                    result = await admission.reconcile_authority(
+                        str(params.get("approval_id", "")), **identity
+                    )
                 else:
                     result = await admission.execute(str(params.get("approval_id", "")), **identity)
             except Exception as exc:  # noqa: BLE001
-                return {"ok": False, "error": f"{type(exc).__name__}: {exc}",
-                        "code": getattr(exc, "code", "EXECUTE_FAILED")}
-            return {"ok": result.get("executed") or result.get("status") == "DECLINED",
-                    "result": result}
+                return {
+                    "ok": False,
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "code": getattr(exc, "code", "EXECUTE_FAILED"),
+                }
+            return {
+                "ok": result.get("executed") or result.get("status") == "DECLINED",
+                "result": result,
+            }
         if method == "pi.events.batch":
             # PNA-8（规格 §24.2）：认知事件镜像——只存 hash/元数据，
             # 拒绝任何像全文的字段（不双写 transcript）。
             events = params.get("events")
             if not isinstance(events, list) or len(events) > 256:
-                return {"ok": False, "error": "events must be a list of at most 256",
-                        "code": "INVALID_ARGUMENT"}
+                return {
+                    "ok": False,
+                    "error": "events must be a list of at most 256",
+                    "code": "INVALID_ARGUMENT",
+                }
             stored = 0
             for event in events:
                 if not isinstance(event, dict):
@@ -1200,19 +1207,14 @@ class PiBridgeServer:
                     task_id = ""
                     if active is not None:
                         task_id = str(active.get("task_id", ""))
-                        kernel.transition(
-                            task_id, "CANCELLED", reason="user_nl_stop"
-                        )
+                        kernel.transition(task_id, "CANCELLED", reason="user_nl_stop")
                     # G-4b：同步渲染子进程同停（注册表追踪——
                     # 不在 operation 账本的渲染不再是取消盲区）。
                     from rosclaw.agentd.sim_render import kill_active_renders
 
                     renders_killed = kill_active_renders()
                     out["turn_disposition"] = {
-                        "input_id": str(
-                            record.get("input_id", "")
-                            or params.get("message_id", "")
-                        ),
+                        "input_id": str(record.get("input_id", "") or params.get("message_id", "")),
                         "owner": "TASK_ROUTER",
                         "task_id": task_id,
                         "suppress_model_turn": True,
@@ -1224,10 +1226,7 @@ class PiBridgeServer:
                     }
                     return out
             out["turn_disposition"] = {
-                "input_id": str(
-                    record.get("input_id", "")
-                    or params.get("message_id", "")
-                ),
+                "input_id": str(record.get("input_id", "") or params.get("message_id", "")),
                 "owner": "PI_CONVERSATION",
                 "task_id": "",
                 "suppress_model_turn": False,
@@ -1277,10 +1276,11 @@ class PiBridgeServer:
                     str(params.get("body_id", ""))
                     # 首条消息尚无 envelope——回落 mission 绑定 body
                     # （PR-N0 熔断的执行面必须首条即武装）。
-                    or (service.get_mission(str(params.get("mission_id", "")))
-                        .body_binding.body_id if service.get_mission(
-                            str(params.get("mission_id", ""))
-                        ) else "")
+                    or (
+                        service.get_mission(str(params.get("mission_id", ""))).body_binding.body_id
+                        if service.get_mission(str(params.get("mission_id", "")))
+                        else ""
+                    )
                 ),
                 force_new=bool(params.get("force_new", False)),
             )
@@ -1297,9 +1297,7 @@ class PiBridgeServer:
                 AgentEventType.INPUT_PERSISTED,
                 {
                     "message_id": str(params.get("message_id", "")),
-                    "text_sha256": "sha256:" + _hashlib.sha256(
-                        text.encode("utf-8")
-                    ).hexdigest(),
+                    "text_sha256": "sha256:" + _hashlib.sha256(text.encode("utf-8")).hexdigest(),
                     "bytes": len(text.encode("utf-8")),
                 },
                 session_id=str(params.get("session_ref", "")),
@@ -1316,7 +1314,8 @@ class PiBridgeServer:
             from rosclaw.contracts.agent.agent_event import AgentEventType
 
             persisted = [
-                e for e in service.events_replay(mission_id, limit=1000)
+                e
+                for e in service.events_replay(mission_id, limit=1000)
                 if e.type is AgentEventType.INPUT_PERSISTED
                 and e.payload.get("message_id") == message_id
             ]
@@ -1365,8 +1364,7 @@ class PiBridgeServer:
                     (task["task_id"],),
                 ).fetchall()
             ]
-            return {"ok": True, "task": task, "revisions": revisions,
-                    "events": events}
+            return {"ok": True, "task": task, "revisions": revisions, "events": events}
         if method == "pi.coordinator.consider":
             # P0-D：Harness idle（turn_end）驱动的自动收尾——返回
             # outcome（可能为 None=任务仍在进行）。
@@ -1403,7 +1401,7 @@ class PiBridgeServer:
             )
             return {"ok": True, "task": task}
         # 0902 R1-a：Approval Broker——shell 降级授权的 Runtime 批准面
-        #（删除全局环境变量授权的正式路径；0902 实证：用户已答"允许！"
+        # （删除全局环境变量授权的正式路径；0902 实证：用户已答"允许！"
         # 仍被要求 export+重启）。grant 绑定 task+revision+scope。
         if method == "pi.artifact.list":
             # task_id 缺省=该 session 最近任务（含刚终态）；session 无
@@ -1459,9 +1457,7 @@ class PiBridgeServer:
                     "path": str(record["path"]),
                     "size_bytes": int(record["size_bytes"]),
                     "digest": (
-                        raw_digest
-                        if raw_digest.startswith("sha256:")
-                        else f"sha256:{raw_digest}"
+                        raw_digest if raw_digest.startswith("sha256:") else f"sha256:{raw_digest}"
                     ),
                     "open_command": f"rosclaw artifact open {artifact_id}",
                 },
@@ -1529,9 +1525,7 @@ class PiBridgeServer:
             op = service._operation_manager.get(str(params.get("operation_id", "")))
             return {"ok": bool(op), "operation": op}
         if method == "pi.op.cancel":
-            await service._operation_manager.cancel(
-                str(params.get("operation_id", ""))
-            )
+            await service._operation_manager.cancel(str(params.get("operation_id", "")))
             return {"ok": True}
         if method == "pi.kernel.events":
             # seq 重放（断线从 last_seq+1——不重不漏）。
@@ -1551,8 +1545,11 @@ class PiBridgeServer:
             try:
                 tool_request = PiToolRequestV1(**dict(params.get("request") or {}))
             except Exception as exc:  # noqa: BLE001
-                return {"ok": False, "error": f"invalid tool request: {exc}",
-                        "code": "INVALID_REQUEST"}
+                return {
+                    "ok": False,
+                    "error": f"invalid tool request: {exc}",
+                    "code": "INVALID_REQUEST",
+                }
             dispatcher = PiToolDispatcher(service)
             try:
                 # 六审 §5.5.2：dispatcher 的动作路径也要 caller 身份——
@@ -1564,6 +1561,9 @@ class PiBridgeServer:
                 )
             except ToolBridgeError as exc:
                 return {"ok": False, "error": exc.message, "code": exc.code}
-            return {"ok": result.ok, "result": result.model_dump(mode="json"),
-                    "code": result.error_code}
+            return {
+                "ok": result.ok,
+                "result": result.model_dump(mode="json"),
+                "code": result.error_code,
+            }
         return {"ok": False, "error": f"unknown method {method!r}", "code": "METHOD_NOT_FOUND"}

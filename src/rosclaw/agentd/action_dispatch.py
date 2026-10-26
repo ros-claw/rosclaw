@@ -59,9 +59,7 @@ async def _emit(service: AgentService, type_str: str, mission_id: str, payload: 
     from rosclaw.contracts.agent.agent_event import AgentEventType
 
     with contextlib.suppress(Exception):
-        await service._events.append(
-            mission_id, AgentEventType(type_str), payload
-        )
+        await service._events.append(mission_id, AgentEventType(type_str), payload)
 
 
 async def request_action(
@@ -73,9 +71,7 @@ async def request_action(
 ) -> HandlerOutcome:
     """执行已批准的 REQUEST_ACTION（broker verify → 通道派发 → receipt）。"""
     broker = service._broker
-    payload = (
-        decision.proposed_operation.payload if decision.proposed_operation else None
-    ) or {}
+    payload = (decision.proposed_operation.payload if decision.proposed_operation else None) or {}
     grant_id = payload.get("grant_id")
     if not grant_id:
         return HandlerOutcome(
@@ -122,7 +118,9 @@ async def request_action(
         return HandlerOutcome(text=f"授权校验失败（{exc.reason_code}）：{exc}。动作未提交。")
     # EXACT_ACTION 单次性：verify 成功即消费（批次 B 事件）。
     await _emit(
-        service, "grant.consumed", decision.mission_id,
+        service,
+        "grant.consumed",
+        decision.mission_id,
         {"grant_id": str(grant_id), "public_hash": grant.public_hash},
     )
     consent = service._consent_channel
@@ -190,7 +188,9 @@ async def request_action(
             )
         verified = final_state == "COMPLETED" and trust not in ("UNKNOWN", "")
         await _emit(
-            service, "receipt.received", decision.mission_id,
+            service,
+            "receipt.received",
+            decision.mission_id,
             {
                 "action_id": action_id,
                 "final_state": final_state,
@@ -236,7 +236,9 @@ async def request_action(
                 return HandlerOutcome(text=f"SIM 执行失败（fail closed）：{exc}")
             receipt = outcome.receipt
             await _emit(
-                service, "receipt.received", decision.mission_id,
+                service,
+                "receipt.received",
+                decision.mission_id,
                 {
                     "receipt_id": outcome.receipt_id,
                     "action_id": outcome.action_id,
@@ -302,20 +304,27 @@ async def request_action(
             )
         catalog = getattr(service, "_tool_catalog", None)
         descriptor = catalog.get(capability) if catalog is not None else None
-        timeout_sec = min(3600.0, max(30.0, descriptor.timeout_ms / 1000)) if descriptor is not None else 30.0
+        timeout_sec = (
+            min(3600.0, max(30.0, descriptor.timeout_ms / 1000)) if descriptor is not None else 30.0
+        )
         outcome = await channel.request_nonreal_action(
             capability_id=capability,
             arguments=arguments,
             grant_id=grant.grant_id,
             execution_mode=mode,
             timeout_sec=timeout_sec,
-            **({"action_id": payload["dispatch_action_id"]}
-               if payload.get("dispatch_action_id") else {}),
+            **(
+                {"action_id": payload["dispatch_action_id"]}
+                if payload.get("dispatch_action_id")
+                else {}
+            ),
         )
     except ActionChannelError as exc:
         return HandlerOutcome(text=f"动作派发/回执校验失败（fail closed）：{exc}")
     await _emit(
-        service, "receipt.received", decision.mission_id,
+        service,
+        "receipt.received",
+        decision.mission_id,
         {
             "action_id": outcome.action_id,
             "final_state": outcome.state,
@@ -355,9 +364,7 @@ async def request_approval(
 ) -> HandlerOutcome:
     """创建授权卡（旧 ServiceIntentHandlers.request_approval 提取）。"""
     broker = service._broker
-    payload = (
-        decision.proposed_operation.payload if decision.proposed_operation else None
-    ) or {}
+    payload = (decision.proposed_operation.payload if decision.proposed_operation else None) or {}
     capability_id = payload.get("capability_id")
     arguments = payload.get("arguments")
     if mode == "REAL" and (
@@ -403,7 +410,9 @@ async def request_approval(
     )
     broker.create_request(request)
     await _emit(
-        service, "approval.requested", decision.mission_id,
+        service,
+        "approval.requested",
+        decision.mission_id,
         {
             "request_id": request.request_id,
             "risk_tier": display.risk_tier,

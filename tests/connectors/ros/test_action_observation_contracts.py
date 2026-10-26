@@ -239,8 +239,12 @@ def test_unrelated_tf_cannot_invalidate_motion_but_global_cycle_can(healthy):
 
     bind_motion_dependencies(healthy)
     next(t for t in healthy.transforms if t.parent == "map" and t.child == "odom").age_ms = 10000
+
     def motion():
-        return next(c for c in resolve_capabilities(healthy, now=NOW) if c["semantic_id"] == "motion.twist")
+        return next(
+            c for c in resolve_capabilities(healthy, now=NOW) if c["semantic_id"] == "motion.twist"
+        )
+
     assert motion()["status"] == "AVAILABLE"
     healthy.transforms.append(
         Transform(parent="base_link", child="map", captured_at=NOW, source="fixture", age_ms=1)

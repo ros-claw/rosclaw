@@ -139,7 +139,9 @@ class ContextLeaseStore:
             caller_uid=int(row["caller_uid"]) if "caller_uid" in keys else -1,
             writer_lease_id=row["writer_lease_id"] if "writer_lease_id" in keys else "",
             caller_pid=int(row["caller_pid"]) if "caller_pid" in keys else -1,
-            dependency_hashes_json=row["dependency_hashes_json"] if "dependency_hashes_json" in keys else "{}",
+            dependency_hashes_json=row["dependency_hashes_json"]
+            if "dependency_hashes_json" in keys
+            else "{}",
         )
 
     def is_valid(self, lease: ValidatedContextLeaseV1) -> bool:
@@ -155,8 +157,7 @@ class ContextLeaseStore:
     def revoke_for_session(self, pi_session_id: str) -> int:
         """session 切换/关闭——该 session 全部 lease 立即失效。"""
         cursor = self._conn.execute(
-            "UPDATE pi_context_leases SET revoked = 1 "
-            "WHERE pi_session_id = ? AND revoked = 0",
+            "UPDATE pi_context_leases SET revoked = 1 WHERE pi_session_id = ? AND revoked = 0",
             (pi_session_id,),
         )
         self._conn.commit()
@@ -219,5 +220,8 @@ def action_dependency_hashes(envelope: Any) -> dict[str, str]:
     ros = envelope.self_state.get("ros_observations", {})
     facts = ros.get("admission_facts", {}) if isinstance(ros, dict) else {}
     scopes = facts.get("capability_facts", {}) if isinstance(facts, dict) else {}
-    return {capability: context_hash_of(envelope, capability_id=capability)
-            for capability in scopes} if isinstance(scopes, dict) else {}
+    return (
+        {capability: context_hash_of(envelope, capability_id=capability) for capability in scopes}
+        if isinstance(scopes, dict)
+        else {}
+    )

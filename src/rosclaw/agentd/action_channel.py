@@ -178,8 +178,13 @@ class DaemonActionChannel:
         )
 
     async def reconcile_action(
-        self, action_id: str, *, capability_id: str, execution_mode: str,
-        body_id: str, body_hash: str,
+        self,
+        action_id: str,
+        *,
+        capability_id: str,
+        execution_mode: str,
+        body_id: str,
+        body_hash: str,
     ) -> ActionOutcome:
         """Read an existing exact action only; never create sessions or submit it.
 
@@ -191,20 +196,33 @@ class DaemonActionChannel:
 
         try:
             status = await asyncio.to_thread(self._client.get_action_status, action_id)
-            if status.get("action_id") != action_id or status.get("state") not in {"FINISHED", "CANCELLED"}:
+            if status.get("action_id") != action_id or status.get("state") not in {
+                "FINISHED",
+                "CANCELLED",
+            }:
                 raise ActionChannelError("exact action has no authoritative terminal result yet")
             receipt = await asyncio.to_thread(self._client.get_execution_receipt, action_id)
         except DaemonClientError as exc:
             raise ActionChannelError(f"authority receipt query unavailable: {exc.code}") from exc
         inner = receipt.get("receipt") if isinstance(receipt.get("receipt"), dict) else receipt
-        expected = {"action_id":action_id,"body_id":body_id,"body_snapshot_hash":body_hash,
-                    "capability_id":capability_id,"execution_mode":execution_mode}
-        if (any(inner.get(key) != value for key,value in expected.items())
-                or any(status[key] != value for key,value in expected.items() if key in status)):
+        expected = {
+            "action_id": action_id,
+            "body_id": body_id,
+            "body_snapshot_hash": body_hash,
+            "capability_id": capability_id,
+            "execution_mode": execution_mode,
+        }
+        if any(inner.get(key) != value for key, value in expected.items()) or any(
+            status[key] != value for key, value in expected.items() if key in status
+        ):
             raise ActionChannelError("authority receipt binding mismatch; result remains UNKNOWN")
-        envelope = SimpleNamespace(body_id=body_id,body_snapshot_hash=body_hash,
-            capability_id=capability_id,execution_mode=ExecutionMode(execution_mode))
-        return self._verify_outcome(action_id,status,receipt,envelope)
+        envelope = SimpleNamespace(
+            body_id=body_id,
+            body_snapshot_hash=body_hash,
+            capability_id=capability_id,
+            execution_mode=ExecutionMode(execution_mode),
+        )
+        return self._verify_outcome(action_id, status, receipt, envelope)
 
     async def request_real_proposal(
         self,

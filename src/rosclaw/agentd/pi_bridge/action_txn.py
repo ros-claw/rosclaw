@@ -27,9 +27,17 @@ from typing import Any
 from rosclaw.contracts.common import new_id
 from rosclaw.contracts.pi.canonical import canonical_dumps
 
-NON_COMPLETED_ACTION_TERMINALS = frozenset({
-    "FAILED", "BLOCKED", "CANCELLED", "EXPIRED", "TIMED_OUT", "ORPHANED", "DEGRADED",
-})
+NON_COMPLETED_ACTION_TERMINALS = frozenset(
+    {
+        "FAILED",
+        "BLOCKED",
+        "CANCELLED",
+        "EXPIRED",
+        "TIMED_OUT",
+        "ORPHANED",
+        "DEGRADED",
+    }
+)
 ACTION_TERMINAL_STATES = NON_COMPLETED_ACTION_TERMINALS | {"COMPLETED"}
 TERMINAL_STATES = ACTION_TERMINAL_STATES | {"DECLINED"}
 _VALID_TRANSITIONS = {
@@ -93,8 +101,7 @@ def request_hash_of(
 class IdempotencyConflictError(Exception):
     def __init__(self, existing_txn_id: str) -> None:
         super().__init__(
-            f"idempotency_key reused with a different request hash "
-            f"(existing txn {existing_txn_id})"
+            f"idempotency_key reused with a different request hash (existing txn {existing_txn_id})"
         )
         self.code = "IDEMPOTENCY_CONFLICT"
         self.existing_txn_id = existing_txn_id
@@ -130,9 +137,7 @@ class ActionTxnStore:
         )
 
     def get(self, txn_id: str) -> ActionTxn | None:
-        row = self._conn.execute(
-            "SELECT * FROM action_txns WHERE txn_id = ?", (txn_id,)
-        ).fetchone()
+        row = self._conn.execute("SELECT * FROM action_txns WHERE txn_id = ?", (txn_id,)).fetchone()
         return self._row_to_txn(row) if row else None
 
     def get_by_idempotency_key(self, key: str) -> ActionTxn | None:

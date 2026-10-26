@@ -41,6 +41,7 @@ def resolve_capabilities(model: RosSystemModel, *, now: datetime | None = None) 
         nonlocal diagnostic_cache
         if diagnostic_cache is None:
             from rosclaw.connectors.ros.diagnosis import diagnose
+
             diagnostic_cache = diagnose(model, now=now)["issues"]
         return diagnostic_cache
 
@@ -56,8 +57,11 @@ def resolve_capabilities(model: RosSystemModel, *, now: datetime | None = None) 
                 return None
             if signal.rate_hz < minimum_rate:
                 return False
-        if (signal.publisher_count != 0 and signal.last_message_age_ms > signal.max_age_ms
-                and is_event_driven_slam_pose(model, interface, now=now)):
+        if (
+            signal.publisher_count != 0
+            and signal.last_message_age_ms > signal.max_age_ms
+            and is_event_driven_slam_pose(model, interface, now=now)
+        ):
             return None
         return signal.publisher_count != 0 and (
             signal.freshness_policy == "latched" or signal.last_message_age_ms <= signal.max_age_ms
@@ -94,17 +98,26 @@ def resolve_capabilities(model: RosSystemModel, *, now: datetime | None = None) 
         ]:
             candidates = interfaces.get(role, [])
             checks = [health(i) for i in candidates]
-            if role == "localization.pose_estimate" and model.navigation.get("localization_ready") is True:
+            if (
+                role == "localization.pose_estimate"
+                and model.navigation.get("localization_ready") is True
+            ):
                 # A scan-match event remains historical. Navigation may use
                 # separately fresh map->odom->base TF and explicit localization
                 # readiness; this does not promote the event itself to fresh.
-                checks = [True if value is None and is_event_driven_slam_pose(model, candidate, now=now)
-                          else value for candidate, value in zip(candidates, checks, strict=True)]
+                checks = [
+                    True
+                    if value is None and is_event_driven_slam_pose(model, candidate, now=now)
+                    else value
+                    for candidate, value in zip(candidates, checks, strict=True)
+                ]
             requirements[role] = True if True in checks else (None if None in checks else False)
         for topic in model.body.get("observation_contracts", {}):
             contract = observation_contract(model, topic)
             raw_contract = model.body["observation_contracts"][topic]
-            required = raw_contract.get("required_for", []) if isinstance(raw_contract, dict) else []
+            required = (
+                raw_contract.get("required_for", []) if isinstance(raw_contract, dict) else []
+            )
             if semantic in required or "*" in required:
                 requirements["observation:" + topic] = (
                     health({"name": topic}) if contract else False
@@ -129,25 +142,52 @@ def resolve_capabilities(model: RosSystemModel, *, now: datetime | None = None) 
 
     results = []
     for semantic in sorted(
-        set(SEMANTIC_TYPES.values()) | set(action_observation_contracts(model))
+        set(SEMANTIC_TYPES.values())
+        | set(action_observation_contracts(model))
         | {"coverage.verify", "safety.collision_monitor", "cleaning.enable", "cleaning.disable"}
     ):
         candidates: list[dict] = []
         binding = bindings.get(semantic)
-        if isinstance(binding, dict) and semantic in action_observation_contracts(model) and semantic not in SEMANTIC_TYPES.values() and not semantic.startswith("cleaning."):
+        if (
+            isinstance(binding, dict)
+            and semantic in action_observation_contracts(model)
+            and semantic not in SEMANTIC_TYPES.values()
+            and not semantic.startswith("cleaning.")
+        ):
             dependencies = action_observation_requirements(model, semantic, now=now)
             kind = "actions" if binding.get("action_type") else "topics"
             type_key = "action_type" if kind == "actions" else "msg_type"
-            observed = next((i for i in model.graph.get(kind, []) if i.get("name") == binding.get("name")), None)
-            requirements = dict(dependencies or {}, **{
-                "body.bound": bool(model.body.get("effective_body_hash")),
-                "interface.typed": None if observed is None else observed.get(type_key) == binding.get(type_key),
-                "snapshot.fresh": -100 <= model.age_ms(now) <= 5000,
-                "runtime_diagnostics": not any(i["severity"] == "blocking" and issue_applies_to(i, semantic)
-                                               for i in diagnostic_issues()),
-            })
-            status = "BLOCKED" if False in requirements.values() else "UNKNOWN" if None in requirements.values() else "AVAILABLE"
-            candidates.append({"status": status, "interface": {**binding, "kind": kind}, "requirements": requirements})
+            observed = next(
+                (i for i in model.graph.get(kind, []) if i.get("name") == binding.get("name")), None
+            )
+            requirements = dict(
+                dependencies or {},
+                **{
+                    "body.bound": bool(model.body.get("effective_body_hash")),
+                    "interface.typed": None
+                    if observed is None
+                    else observed.get(type_key) == binding.get(type_key),
+                    "snapshot.fresh": -100 <= model.age_ms(now) <= 5000,
+                    "runtime_diagnostics": not any(
+                        i["severity"] == "blocking" and issue_applies_to(i, semantic)
+                        for i in diagnostic_issues()
+                    ),
+                },
+            )
+            status = (
+                "BLOCKED"
+                if False in requirements.values()
+                else "UNKNOWN"
+                if None in requirements.values()
+                else "AVAILABLE"
+            )
+            candidates.append(
+                {
+                    "status": status,
+                    "interface": {**binding, "kind": kind},
+                    "requirements": requirements,
+                }
+            )
         if isinstance(binding, dict) and semantic in {
             "coverage.verify",
             "safety.collision_monitor",
@@ -260,7 +300,11 @@ def resolve_capabilities(model: RosSystemModel, *, now: datetime | None = None) 
                 # service failure. A matching independent state binding is
                 # still required before reporting observation availability.
                 command = next(
-                    (t for t in model.graph.get("topics", []) if t.get("name") == binding.get("name")),
+                    (
+                        t
+                        for t in model.graph.get("topics", [])
+                        if t.get("name") == binding.get("name")
+                    ),
                     None,
                 )
                 requirements = {
@@ -269,8 +313,9 @@ def resolve_capabilities(model: RosSystemModel, *, now: datetime | None = None) 
                     and (command is None or command.get("msg_type") == binding.get("msg_type")),
                     "command.observable": None if command is None else True,
                     "command.value_typed": binding.get("data") is (semantic == "cleaning.enable"),
-                    "state.typed": None if topic is None else
-                    topic.get("msg_type") == binding.get("state_type") == "std_msgs/msg/Bool",
+                    "state.typed": None
+                    if topic is None
+                    else topic.get("msg_type") == binding.get("state_type") == "std_msgs/msg/Bool",
                     "state.fresh": None if topic is None else health(topic),
                     "snapshot.fresh": -100 <= model.age_ms(now) <= 5000,
                 }
@@ -278,7 +323,9 @@ def resolve_capabilities(model: RosSystemModel, *, now: datetime | None = None) 
                 requirements = {
                     "body.bound": bool(model.body.get("effective_body_hash")),
                     "service.typed": service is not None
-                    and service.get("srv_type") == binding.get("srv_type") == "std_srvs/srv/SetBool",
+                    and service.get("srv_type")
+                    == binding.get("srv_type")
+                    == "std_srvs/srv/SetBool",
                     "command.typed": binding.get("data") is (semantic == "cleaning.enable"),
                     "state.typed": None
                     if topic is None

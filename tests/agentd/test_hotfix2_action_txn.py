@@ -39,7 +39,8 @@ async def _propose(service, mission, *, idem: str, arguments: dict | None = None
     )
     admission = ActionAdmissionService(service)
     card = await admission.propose(
-        caller_pid=1, caller_uid=1000,
+        caller_pid=1,
+        caller_uid=1000,
         request=ctx,
         capability_id=overrides.get("capability", SIM_ACTION_CAPABILITY),
         arguments=arguments if arguments is not None else {},
@@ -54,9 +55,7 @@ class TestActionTxnIdempotency:
         service, mission = await _setup(tmp_path)
         _adm1, _c1, card_a = await _propose(service, mission, idem="idem_same")
         _adm2, _c2, card_b = await _propose(service, mission, idem="idem_same")
-        assert card_a["approval_id"] == card_b["approval_id"], (
-            "同 key 同 hash 竟然建了两张卡"
-        )
+        assert card_a["approval_id"] == card_b["approval_id"], "同 key 同 hash 竟然建了两张卡"
         assert card_b.get("idempotent_replay") is True
         pending = service.pending_approvals(mission.mission_id)
         assert len(pending) == 1, f"重复建卡: {len(pending)} 张"
@@ -98,18 +97,12 @@ class TestCapabilityAuthority:
         """catalog LOW + 模型报 LOW → LOW；catalog 若 HIGH，模型报 LOW
         也必须 HIGH（风险只能往高报，不能往低报）。"""
         service, mission = await _setup(tmp_path)
-        _adm, _ctx, card = await _propose(
-            service, mission, idem="idem_risk", risk_tier="LOW"
-        )
+        _adm, _ctx, card = await _propose(service, mission, idem="idem_risk", risk_tier="LOW")
         assert card["risk_tier"] == "LOW"  # catalog 权威 LOW，模型无法伪造
         # 把 catalog tier 改成 HIGH，再 propose——模型报 LOW 也必须得到 HIGH。
         descriptor = service._tool_catalog.get(SIM_ACTION_CAPABILITY)
-        service._tool_catalog.replace(
-            descriptor.model_copy(update={"risk_tier": "HIGH"})
-        )
-        _adm2, _ctx2, card2 = await _propose(
-            service, mission, idem="idem_risk2", risk_tier="LOW"
-        )
+        service._tool_catalog.replace(descriptor.model_copy(update={"risk_tier": "HIGH"}))
+        _adm2, _ctx2, card2 = await _propose(service, mission, idem="idem_risk2", risk_tier="LOW")
         assert card2["risk_tier"] == "HIGH", "模型自报 LOW 竟压过 catalog HIGH"
         await service.close()
 
@@ -118,19 +111,23 @@ class TestExecutionOutcomeChain:
     async def test_completed_txn_carries_full_id_chain(self, tmp_path: Path) -> None:
         from rosclaw.agentd.operator_socket import operator_call
 
-        service, mission, operatord, agent_server, sock = await _setup_with_operatord(
-            tmp_path
-        )
+        service, mission, operatord, agent_server, sock = await _setup_with_operatord(tmp_path)
         admission, ctx, card = await _propose(service, mission, idem="idem_chain")
         listed = await operator_call(sock, "approvals.list", {"mission_id": mission.mission_id})
         entry = next(a for a in listed["approvals"] if a["request_id"] == card["approval_id"])
         decided = await operator_call(
-            sock, "approvals.decide",
-            {"request_id": entry["request_id"],
-             "display_hash": entry["display_hash"], "approve": True},
+            sock,
+            "approvals.decide",
+            {
+                "request_id": entry["request_id"],
+                "display_hash": entry["display_hash"],
+                "approve": True,
+            },
         )
         assert decided.get("ok"), decided
-        outcome = await admission.execute(card["approval_id"], request=ctx, caller_pid=1, caller_uid=1000)
+        outcome = await admission.execute(
+            card["approval_id"], request=ctx, caller_pid=1, caller_uid=1000
+        )
 
         # ExecutionOutcomeV1：全 ID 链（P0-4F）。
         assert outcome["schema_version"] == "rosclaw.execution_outcome.v1"
@@ -151,7 +148,8 @@ class TestExecutionOutcomeChain:
         assert txn.grant_id == outcome["grant_id"]
         # receipt.received 事件精确绑定本 action_id。
         events = [
-            e for e in service.events_replay(mission.mission_id, limit=20)
+            e
+            for e in service.events_replay(mission.mission_id, limit=20)
             if e.type.value == "receipt.received"
         ]
         assert any(e.payload.get("action_id") == outcome["action_id"] for e in events), (
@@ -167,16 +165,20 @@ class TestExecutionOutcomeChain:
         from rosclaw.agentd.operator_socket import operator_call
         from rosclaw.agentd.sim_executor import SimActionError
 
-        service, mission, operatord, agent_server, sock = await _setup_with_operatord(
-            tmp_path
-        )
+        service, mission, operatord, agent_server, sock = await _setup_with_operatord(tmp_path)
         # 预置一个旧成功 receipt（干扰项）。
         from rosclaw.agentd.action_dispatch import _emit as _ad_emit
 
         await _ad_emit(
-            service, "receipt.received", mission.mission_id,
-            {"action_id": "act_old", "final_state": "COMPLETED",
-             "trust_level": "SIMULATED", "verified": True},
+            service,
+            "receipt.received",
+            mission.mission_id,
+            {
+                "action_id": "act_old",
+                "final_state": "COMPLETED",
+                "trust_level": "SIMULATED",
+                "verified": True,
+            },
         )
 
         class _BrokenClient:
@@ -192,11 +194,17 @@ class TestExecutionOutcomeChain:
         listed = await operator_call(sock, "approvals.list", {"mission_id": mission.mission_id})
         entry = next(a for a in listed["approvals"] if a["request_id"] == card["approval_id"])
         await operator_call(
-            sock, "approvals.decide",
-            {"request_id": entry["request_id"],
-             "display_hash": entry["display_hash"], "approve": True},
+            sock,
+            "approvals.decide",
+            {
+                "request_id": entry["request_id"],
+                "display_hash": entry["display_hash"],
+                "approve": True,
+            },
         )
-        outcome = await admission.execute(card["approval_id"], request=ctx, caller_pid=1, caller_uid=1000)
+        outcome = await admission.execute(
+            card["approval_id"], request=ctx, caller_pid=1, caller_uid=1000
+        )
 
         # Transport loss does not prove that no side effect occurred. A receipt
         # from another action proves neither completion nor failure of ours.

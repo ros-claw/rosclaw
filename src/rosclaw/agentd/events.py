@@ -117,8 +117,7 @@ class AgentEventStore:
         async with self._lock:
             if event_id is not None and session_id is not None:
                 existing = self._conn.execute(
-                    "SELECT * FROM agent_events WHERE session_id = ? "
-                    "AND event_id = ?",
+                    "SELECT * FROM agent_events WHERE session_id = ? AND event_id = ?",
                     (session_id, event_id),
                 ).fetchone()
                 if existing is not None:
@@ -202,7 +201,11 @@ class AgentEventStore:
         return [self._row_to_event(r) for r in rows]
 
     def receipt_events(
-        self, mission_id: str, *, receipt_id: str | None = None, limit: int = 3,
+        self,
+        mission_id: str,
+        *,
+        receipt_id: str | None = None,
+        limit: int = 3,
         terminal_only: bool = False,
     ) -> list[AgentEventV2]:
         """Read committed receipts, independent of unrelated journal traffic.
@@ -229,10 +232,12 @@ class AgentEventStore:
                 raise ValueError("terminal reconciliation requires an exact receipt ID")
             states = sorted(NON_COMPLETED_ACTION_TERMINALS)
             slots = ",".join("?" for _ in states)
-            query += (" AND COALESCE(json_extract(payload_json, '$.action_id'), '') <> ''"
-                      f" AND (json_extract(payload_json, '$.final_state') IN ({slots})"
-                      " OR (json_extract(payload_json, '$.final_state') = 'COMPLETED'"
-                      " AND json_extract(payload_json, '$.verified') = 1))")
+            query += (
+                " AND COALESCE(json_extract(payload_json, '$.action_id'), '') <> ''"
+                f" AND (json_extract(payload_json, '$.final_state') IN ({slots})"
+                " OR (json_extract(payload_json, '$.final_state') = 'COMPLETED'"
+                " AND json_extract(payload_json, '$.verified') = 1))"
+            )
             parameters.extend(states)
             # First committed terminal outcome is immutable under delayed
             # nonterminal updates. Unverified completion is not a terminal fact.
@@ -240,7 +245,10 @@ class AgentEventStore:
         else:
             query += " ORDER BY sequence DESC LIMIT ?"
         parameters.append(limit)
-        return [self._row_to_event(row) for row in reversed(self._conn.execute(query, parameters).fetchall())]
+        return [
+            self._row_to_event(row)
+            for row in reversed(self._conn.execute(query, parameters).fetchall())
+        ]
 
     def latest_sequence(self, mission_id: str) -> int:
         row = self._conn.execute(
@@ -269,7 +277,5 @@ class AgentEventStore:
             item_id=row["item_id"] if "item_id" in keys else None,
             call_id=row["call_id"] if "call_id" in keys else None,
             operation_id=row["operation_id"] if "operation_id" in keys else None,
-            model_visible=(
-                None if model_visible_raw is None else bool(model_visible_raw)
-            ),
+            model_visible=(None if model_visible_raw is None else bool(model_visible_raw)),
         )

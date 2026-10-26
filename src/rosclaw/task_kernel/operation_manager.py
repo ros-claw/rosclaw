@@ -84,10 +84,19 @@ class OperationManager:
         async with self._lifecycle_lock:
             if self._closing:
                 raise RuntimeError("Operation supervisor is closing")
-            pending = asyncio.create_task(self._start_owned(
-                task_id=task_id, attempt_id=attempt_id, kind=kind, argv=argv,
-                cwd=cwd, env=env, resumable=resumable, goal_id=goal_id, provider=provider,
-            ))
+            pending = asyncio.create_task(
+                self._start_owned(
+                    task_id=task_id,
+                    attempt_id=attempt_id,
+                    kind=kind,
+                    argv=argv,
+                    cwd=cwd,
+                    env=env,
+                    resumable=resumable,
+                    goal_id=goal_id,
+                    provider=provider,
+                )
+            )
             self._starting.add(pending)
             pending.add_done_callback(self._observe_start)
         return await asyncio.shield(pending)
@@ -95,7 +104,10 @@ class OperationManager:
     def _observe_start(self, task: asyncio.Task) -> None:
         self._starting.discard(task)
         if not task.cancelled() and (error := task.exception()) is not None:
-            _LOG.error("Owned operation admission failed", exc_info=(type(error), error, error.__traceback__))
+            _LOG.error(
+                "Owned operation admission failed",
+                exc_info=(type(error), error, error.__traceback__),
+            )
 
     async def close(self) -> None:
         """Explicit supervisor shutdown, not a liveness or duration timeout.
@@ -114,12 +126,16 @@ class OperationManager:
             starting = tuple(self._starting)
         if starting:
             await asyncio.gather(*(asyncio.shield(t) for t in starting), return_exceptions=True)
-        outcomes = await asyncio.gather(*(self.cancel(op, reason="supervisor_shutdown")
-                                          for op in tuple(self._procs)), return_exceptions=True)
+        outcomes = await asyncio.gather(
+            *(self.cancel(op, reason="supervisor_shutdown") for op in tuple(self._procs)),
+            return_exceptions=True,
+        )
         # An earlier cancellation may already own the process and its pipes.
         cleanup = tuple(self._cancel_tasks.values())
         if cleanup:
-            outcomes += await asyncio.gather(*(asyncio.shield(t) for t in cleanup), return_exceptions=True)
+            outcomes += await asyncio.gather(
+                *(asyncio.shield(t) for t in cleanup), return_exceptions=True
+            )
         failures = [r for r in outcomes if isinstance(r, BaseException)]
         if failures:
             raise RuntimeError("Owned operation cleanup is not confirmed") from failures[0]
