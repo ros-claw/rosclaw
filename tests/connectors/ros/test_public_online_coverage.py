@@ -171,19 +171,19 @@ def test_minimum_useful_work_defers_residuals_without_erasing_debt_or_claiming_c
     state = ledger()
     geometry = grid()
     identity = Transform2D(0, 0, 0)
-    work = state.next_work(geometry, [0., 0.], identity, now=0,
-                           minimum_new_area_m2=100.)
+    work = state.next_work(geometry, [0.0, 0.0], identity, now=0, minimum_new_area_m2=100.0)
     assert work["kind"] == "NO_CURRENT_OBSERVED_WORK"
     assert work["whole_house_success"] is None
     assert state.anchor.opportunities and not state.anchor.cleaned
     original_debt = set(state.anchor.opportunities)
-    resumed = state.next_work(geometry, [0., 0.], identity, now=1)
+    resumed = state.next_work(geometry, [0.0, 0.0], identity, now=1)
     assert resumed["kind"] in ["interior", "boundary", "repair"]
     assert original_debt <= state.anchor.opportunities and not state.anchor.cleaned
 
 
-@pytest.mark.parametrize("area", [-1., float("nan"), float("inf")])
+@pytest.mark.parametrize("area", [-1.0, float("nan"), float("inf")])
 def test_invalid_useful_area_threshold_is_rejected(area):
     with pytest.raises(ValueError, match="new brush area"):
-        ledger().next_work(grid(), [0., 0.], Transform2D(0, 0, 0), now=0,
-                           minimum_new_area_m2=area)
+        ledger().next_work(
+            grid(), [0.0, 0.0], Transform2D(0, 0, 0), now=0, minimum_new_area_m2=area
+        )
