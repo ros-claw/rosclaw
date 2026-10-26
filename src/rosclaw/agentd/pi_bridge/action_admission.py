@@ -29,6 +29,10 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
+from rosclaw.agentd.pi_bridge.action_txn import (
+    ACTION_TERMINAL_STATES,
+    NON_COMPLETED_ACTION_TERMINALS,
+)
 from rosclaw.agentd.pi_bridge.session_binding import SessionBindingStore
 from rosclaw.agentd.pi_bridge.tool_dispatch import ToolBridgeError
 from rosclaw.contracts.common import new_id
@@ -808,27 +812,72 @@ class ActionAdmissionService:
         if key:
             for event in self._service.receipt_events(txn.mission_id, receipt_id=key, limit=1, terminal_only=True):
                 payload = event.payload
-                matched = payload.get("receipt_id", payload.get("action_id")) == key
+                matched = (payload.get("receipt_id") or payload.get("action_id")) == key
                 if matched and (not txn.action_id or payload.get("action_id") == txn.action_id):
                     receipt = payload
         terminal = receipt.get("final_state") if receipt else None
         verified = bool(receipt and receipt.get("verified") is True and receipt.get("action_id"))
-        if txn.state == "RECEIPT_PENDING" and (terminal in {"FAILED", "CANCELLED", "EXPIRED"}
+        if txn.state in {"DISPATCHING", "RECEIPT_PENDING"} and (terminal in NON_COMPLETED_ACTION_TERMINALS
                 or (terminal == "COMPLETED" and verified)):
+            if txn.state == "DISPATCHING":
+                txn = ActionTxnStore(self._service._store.connection).transition(txn.txn_id, "RECEIPT_PENDING")
             txn = ActionTxnStore(self._service._store.connection).transition(
                 txn.txn_id, terminal, action_id=receipt["action_id"], receipt_id=key)
         return {
-            "schema_version": "rosclaw.execution_outcome.v1", "status": txn.state if txn.state in {"COMPLETED", "FAILED", "CANCELLED", "EXPIRED"} else "UNKNOWN",
+            "schema_version": "rosclaw.execution_outcome.v1", "status": txn.state if txn.state in ACTION_TERMINAL_STATES else "UNKNOWN",
             "txn_id": txn.txn_id, "approval_id": txn.approval_id,
             "grant_id": txn.grant_id, "action_id": txn.action_id,
             "receipt_id": txn.receipt_id, "capability_id": txn.capability_id,
-            "executed": txn.state == "COMPLETED", "terminal_receipt": txn.state == "COMPLETED" or terminal in {"FAILED", "CANCELLED", "EXPIRED"},
-            "reconciliation_required": txn.state not in {"COMPLETED", "FAILED", "CANCELLED", "EXPIRED"},
-            "error_code": None if txn.state == "COMPLETED" else ("ACTION_"+txn.state if txn.state in {"FAILED", "CANCELLED", "EXPIRED"} else "ACTION_RESULT_UNKNOWN"),
-            "terminal": txn.state in {"COMPLETED", "FAILED", "CANCELLED", "EXPIRED"},
+            "executed": txn.state == "COMPLETED", "terminal_receipt": txn.state in ACTION_TERMINAL_STATES,
+            "reconciliation_required": txn.state not in ACTION_TERMINAL_STATES,
+            "error_code": None if txn.state == "COMPLETED" else ("ACTION_"+txn.state if txn.state in ACTION_TERMINAL_STATES else "ACTION_RESULT_UNKNOWN"),
+            "terminal": txn.state in ACTION_TERMINAL_STATES,
             "evidence_ref": "receipt://"+key if receipt and key else None,
             "side_effects_dispatched": False,
         }
+
+    async def reconcile_authority(self, approval_id: str, *, request: ActionRequestContext,
+                                  caller_pid: int | None, caller_uid: int | None) -> dict[str, Any]:
+        """Owned query from journal, then existing daemon if the response was lost."""
+        result = self.reconcile(approval_id,request=request,caller_pid=caller_pid,caller_uid=caller_uid)
+        if result["status"] != "UNKNOWN" or not result.get("action_id"):
+            return result
+        channel = self._service._action_channel
+        if channel is None or not callable(getattr(channel,"reconcile_action",None)):
+            return result  # No invented query API for synchronous legacy MCP.
+        from rosclaw.agentd.pi_bridge.action_txn import ActionTxnStore
+        from rosclaw.contracts.agent.agent_event import AgentEventType
+        from rosclaw.contracts.operator.exact_action import (
+            ExactActionV1,
+            compute_action_intent_hash,
+            compute_arguments_hash,
+        )
+
+        stored = self._service._broker.get_request(approval_id)
+        txn = ActionTxnStore(self._service._store.connection).get_by_approval(approval_id)
+        if stored is None or not stored.exact_action_json or txn is None:
+            return {**result,"reconciliation_error":"exact action binding unavailable"}
+        try:
+            exact = ExactActionV1.model_validate_json(stored.exact_action_json)
+            valid = (compute_arguments_hash(exact.normalized_arguments) == exact.arguments_hash
+                and compute_action_intent_hash(exact) == exact.action_intent_hash
+                and (exact.mission_id,exact.body_hash,exact.mode,exact.capability_id,exact.arguments_hash)
+                    == (txn.mission_id,txn.body_hash,txn.mode,txn.capability_id,txn.arguments_hash))
+        except Exception:
+            valid = False
+        if not valid:
+            return {**result,"reconciliation_error":"exact action binding corrupt; no authority query"}
+        try:
+            outcome = await channel.reconcile_action(result["action_id"],
+                capability_id=exact.capability_id,execution_mode=exact.mode,
+                body_id=exact.body_id,body_hash=exact.body_hash)
+            await self._service._events.append(request.mission_id,AgentEventType.RECEIPT_RECEIVED,
+                {"receipt_id":result["receipt_id"] or result["action_id"],"action_id":outcome.action_id,
+                 "final_state":outcome.state,"verified":outcome.verified,"trust_level":outcome.trust_level,
+                 "source":"exact_existing_daemon_receipt_query"})
+        except Exception as exc:  # A failed read is still not evidence of non-execution.
+            return {**result,"reconciliation_error":f"{type(exc).__name__}: {exc}"}
+        return self.reconcile(approval_id,request=request,caller_pid=caller_pid,caller_uid=caller_uid)
 
     # -- phase 2b: execute（TOCTOU 复验 + 精确 grant + 结构化回执） -----------------
 
@@ -860,7 +909,8 @@ class ActionAdmissionService:
         if previous is not None and previous.state in {"DISPATCHING", "RECEIPT_PENDING"}:
             if previous.mission_id != request.mission_id or previous.pi_session_id != request.pi_session_id:
                 raise ToolBridgeError("CHAIN_MISMATCH", "pending transaction ownership mismatch")
-            return self._reconcile_transaction(previous)
+            return await self.reconcile_authority(approval_id,request=request,
+                caller_pid=caller_pid,caller_uid=caller_uid)
         if stored.status.value == "PENDING":
             raise ToolBridgeError("APPROVAL_PENDING", "operator has not decided yet")
         if stored.status.value != "APPROVED":
@@ -1177,7 +1227,7 @@ class ActionAdmissionService:
                 action_id=action_id, receipt_id=receipt_id,
             )
             txn = txns.transition(txn.txn_id, "COMPLETED")
-        elif action_id and receipt_payload and receipt_payload.get("final_state") in {"FAILED", "CANCELLED", "EXPIRED"}:
+        elif action_id and receipt_payload and receipt_payload.get("final_state") in NON_COMPLETED_ACTION_TERMINALS:
             txn = txns.transition(txn.txn_id, "RECEIPT_PENDING", action_id=action_id, receipt_id=receipt_id)
             txn = txns.transition(txn.txn_id, receipt_payload["final_state"])
         else:
@@ -1222,7 +1272,7 @@ class ActionAdmissionService:
             "executed": executed,
             "terminal": txn.state != "RECEIPT_PENDING",
             "transport_terminal": terminal_bool,
-            "terminal_receipt": bool(action_id and receipt_payload and receipt_payload.get("final_state") in {"COMPLETED", "FAILED", "CANCELLED", "EXPIRED"}),
+            "terminal_receipt": bool(action_id and receipt_payload and receipt_payload.get("final_state") in ACTION_TERMINAL_STATES),
             "verified": executed,
             "evidence_ref": outcome.evidence_ref,
             "artifact_refs": artifact_refs,

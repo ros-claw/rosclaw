@@ -223,12 +223,17 @@ class AgentEventStore:
             )
             parameters.append(receipt_id)
         if terminal_only:
+            from rosclaw.agentd.pi_bridge.action_txn import NON_COMPLETED_ACTION_TERMINALS
+
             if receipt_id is None:
                 raise ValueError("terminal reconciliation requires an exact receipt ID")
+            states = sorted(NON_COMPLETED_ACTION_TERMINALS)
+            slots = ",".join("?" for _ in states)
             query += (" AND COALESCE(json_extract(payload_json, '$.action_id'), '') <> ''"
-                      " AND (json_extract(payload_json, '$.final_state') IN ('FAILED','CANCELLED','EXPIRED')"
+                      f" AND (json_extract(payload_json, '$.final_state') IN ({slots})"
                       " OR (json_extract(payload_json, '$.final_state') = 'COMPLETED'"
                       " AND json_extract(payload_json, '$.verified') = 1))")
+            parameters.extend(states)
             # First committed terminal outcome is immutable under delayed
             # nonterminal updates. Unverified completion is not a terminal fact.
             query += " ORDER BY sequence ASC LIMIT ?"

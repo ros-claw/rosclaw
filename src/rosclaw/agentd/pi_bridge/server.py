@@ -1080,7 +1080,7 @@ class PiBridgeServer:
                 identity = {"request": request_ctx, "caller_pid": peer_pid,
                             "caller_uid": int(principal.rsplit(":", 1)[-1])}
                 if method == "pi.action.reconcile":
-                    result = admission.reconcile(str(params.get("approval_id", "")), **identity)
+                    result = await admission.reconcile_authority(str(params.get("approval_id", "")), **identity)
                 else:
                     result = await admission.execute(str(params.get("approval_id", "")), **identity)
             except Exception as exc:  # noqa: BLE001
