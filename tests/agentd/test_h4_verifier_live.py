@@ -33,6 +33,7 @@ from tests.agentd.test_h1_native_work import (
 from tests.agentd.test_product_journey import (
     PtySession,
     _chunk,
+    _decision_messages,
     _sse,
     _tool_call_frames,
 )
@@ -52,7 +53,7 @@ class _VerifierFake:
 
     def answer(self, body: dict) -> bytes:
         self.requests.append(body)
-        messages = body.get("messages", [])
+        messages = _decision_messages(body.get("messages", []))
 
         if not body.get("stream"):
             return json.dumps({
