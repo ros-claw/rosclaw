@@ -25,10 +25,11 @@ from tests.agentd.test_seven3_policy_grant import _propose
         "wrong_receipt",
     ],
 )
-async def test_exact_receipt_after_fifty_events(tmp_path: Path, variant: str):
+@pytest.mark.parametrize("history_length", [65, 501, 5001])
+async def test_exact_receipt_after_fifty_events(tmp_path: Path, variant: str, history_length: int):
     service, mission = await _setup(tmp_path)
     try:
-        for i in range(65):
+        for i in range(history_length):
             await service._events.append(mission.mission_id, AgentEventType.TOOL_PROGRESS, {"i": i})
         ctx, card = await _propose(
             service,

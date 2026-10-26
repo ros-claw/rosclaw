@@ -7,7 +7,13 @@ from datetime import UTC, datetime
 from rosclaw.connectors.ros.diagnosis.engine import frame_connected
 from rosclaw.connectors.ros.intelligence import RosSystemModel
 
-from .semantics import SEMANTIC_TYPES, is_event_driven_slam_pose, is_initial_pose_command
+from .semantics import (
+    SEMANTIC_TYPES,
+    is_event_driven_slam_pose,
+    is_initial_pose_command,
+    issue_applies_to,
+    observation_contract,
+)
 
 
 def resolve_capabilities(model: RosSystemModel, *, now: datetime | None = None) -> list[dict]:
@@ -50,6 +56,7 @@ def resolve_capabilities(model: RosSystemModel, *, now: datetime | None = None) 
         from rosclaw.connectors.ros.diagnosis import diagnose
 
         namespace = interface["name"].rsplit("/", 1)[0]
+        semantic = SEMANTIC_TYPES.get(interface.get("action_type"), "navigation.navigate_to_pose")
         requirements = {
             "tf.fresh": None
             if any(not edge.static and edge.age_ms is None for edge in model.transforms)
@@ -60,6 +67,7 @@ def resolve_capabilities(model: RosSystemModel, *, now: datetime | None = None) 
             "runtime_diagnostics": not any(
                 issue["severity"] == "blocking"
                 and issue["issue_code"].startswith(("ROS_", "NAV2_"))
+                and issue_applies_to(issue, semantic)
                 for issue in diagnose(model, now=now)["issues"]
             ),
             "tf.map_to_odom": frame_connected(
@@ -78,6 +86,14 @@ def resolve_capabilities(model: RosSystemModel, *, now: datetime | None = None) 
             candidates = interfaces.get(role, [])
             checks = [health(i) for i in candidates]
             requirements[role] = True if True in checks else (None if None in checks else False)
+        for topic in model.body.get("observation_contracts", {}):
+            contract = observation_contract(model, topic)
+            raw_contract = model.body["observation_contracts"][topic]
+            required = raw_contract.get("required_for", []) if isinstance(raw_contract, dict) else []
+            if semantic in required or "*" in required:
+                requirements["observation:" + topic] = (
+                    health({"name": topic}) if contract else False
+                )
         if interface.get("action_type", "").startswith("nav2_msgs/") or interface.get(
             "action_type", ""
         ).startswith("opennav_"):

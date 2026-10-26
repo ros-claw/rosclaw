@@ -18,7 +18,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import rclpy
-from ament_index_python.packages import get_packages_with_prefixes
+from ament_index_python.packages import get_package_share_directory, get_packages_with_prefixes
 from graph_reads import collect_node_actions, unknown_graph_snapshot
 from lifecycle_msgs.srv import GetState
 from rcl_interfaces.srv import GetParameters, ListParameters
@@ -128,6 +128,15 @@ class ReadOnlyProbe(Node):
         self.clock_values = deque(maxlen=20)
         self.clock_readings = deque(maxlen=200)
         self.packages = sorted(get_packages_with_prefixes())
+        self.package_versions = {}
+        import xml.etree.ElementTree as ET
+        for package in self.packages:
+            try:
+                version = ET.parse(Path(get_package_share_directory(package)) / "package.xml").findtext("version")
+                if version:
+                    self.package_versions[package] = version
+            except (OSError, ValueError, ET.ParseError):
+                pass  # Missing version evidence never establishes a binding.
         self.localization_observations = {}
         self.action_observations = {}
         self.message_frames = {}
@@ -638,6 +647,7 @@ class ReadOnlyProbe(Node):
                 "graph_read_errors": graph_errors,
                 "node_use_sim_time": observed_times,
                 "package_inventory": self.packages,
+                "package_versions": self.package_versions,
                 "node_parameters": parameters,
                 "parameter_captured_at": self.parameter_captured_at,
                 "clock_advancing": clock_advancing,

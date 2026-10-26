@@ -150,6 +150,7 @@ class ActionAdmissionService:
         caller_pid: int | None = None,
         caller_uid: int | None = None,
         sim_only_effect: bool = False,
+        capability_id: str | None = None,
     ) -> ValidatedAdmissionContext:
         """session → mission → writer lease → caller identity → context
         lease → revision → body → mode 全链硬校验（HOTFIX-1：freshness
@@ -190,7 +191,7 @@ class ActionAdmissionService:
                 binding_id=binding.binding_id,
                 writer_lease_id=writer.lease_id,
                 context_lease_id="",
-                context_hash=context_hash_of(current_envelope),
+                context_hash=context_hash_of(current_envelope, capability_id=capability_id),
                 context_revision=snapshot.context_revision,
                 body_hash=mission.body_binding.effective_body_hash,
                 mode=mission.mode.value,
@@ -261,9 +262,13 @@ class ActionAdmissionService:
         from rosclaw.agentd.pi_bridge.context_lease import context_hash_of
 
         current_envelope = build_embodied_context(self._service, ctx.mission_id)
-        current_hash = context_hash_of(current_envelope)
+        import json
+        dependency_hashes = json.loads(lease.dependency_hashes_json)
+        scoped_hash = dependency_hashes.get(capability_id) if capability_id else None
+        current_hash = context_hash_of(current_envelope, capability_id=capability_id) if scoped_hash else context_hash_of(current_envelope)
+        expected_hash = scoped_hash or lease.context_hash
         snapshot = self._service.snapshot(ctx.mission_id)
-        hash_changed = bool(lease.context_hash) and lease.context_hash != current_hash
+        hash_changed = bool(expected_hash) and expected_hash != current_hash
         revision_changed = lease.context_revision != snapshot.context_revision
         # 八审 §1.5/P0-4 JIT 语义：lease 过期时，hash/revision 变化是
         # 关键状态变化——结构化 NEEDS_REPLAN（编排器可重规划一次），
@@ -315,6 +320,7 @@ class ActionAdmissionService:
                 caller_uid=lease.caller_uid,
                 writer_lease_id=lease.writer_lease_id,
                 caller_pid=lease.caller_pid,
+                dependency_hashes=dependency_hashes,
             )
         if ctx.context_revision != lease.context_revision:
             raise ToolBridgeError(
@@ -343,7 +349,7 @@ class ActionAdmissionService:
             binding_id=binding.binding_id,
             writer_lease_id=writer.lease_id,
             context_lease_id=lease.context_lease_id,
-            context_hash=lease.context_hash or current_hash,
+            context_hash=expected_hash or current_hash,
             context_revision=lease.context_revision,
             body_hash=lease.body_hash,
             mode=lease.mode,
@@ -396,7 +402,7 @@ class ActionAdmissionService:
         )
         validated = self._validate_request_context(
             request, caller_pid=caller_pid, caller_uid=caller_uid,
-            sim_only_effect=sim_only,
+            sim_only_effect=sim_only, capability_id=capability_id,
         )
         assert mission is not None  # get_mission 已保证（validate 亦有）
         if descriptor is None:
@@ -964,6 +970,20 @@ class ActionAdmissionService:
                 "CAPABILITY_MISSING",
                 "approval card lost its capability binding (fail closed)",
             )
+        # Re-observe after approval, immediately before dispatch. A scoped
+        # comparison cannot silently upgrade a legacy broad lease.
+        import json
+
+        from rosclaw.agentd.pi_bridge.context_lease import ContextLeaseStore, context_hash_of
+        context_lease = ContextLeaseStore(service._store.connection).get(txn.context_lease_id)
+        if context_lease is not None:
+            scopes = json.loads(context_lease.dependency_hashes_json)
+            if exact.capability_id in scopes:
+                if context_lease.revoked:
+                    raise ToolBridgeError("CONTEXT_NOT_FRESH", "context lease revoked before dispatch")
+                current_dependencies = context_hash_of(fresh, capability_id=exact.capability_id)
+                if current_dependencies != exact.context_hash:
+                    raise ToolBridgeError("NEEDS_REPLAN", "action dependency facts changed after approval; no dispatch or replay")
         # broker 的批准是权威——txn 状态以之为准同步（operatord decide
         # 经 apply_decision 落库，不走 admission）。
         if txn.state == "AWAITING_OPERATOR":

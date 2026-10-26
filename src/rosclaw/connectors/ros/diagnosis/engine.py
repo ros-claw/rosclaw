@@ -144,6 +144,8 @@ def diagnose(
         bound_command_topics,
         is_event_driven_slam_pose,
         is_initial_pose_command,
+        observation_contract,
+        publication_expectation,
     )
 
     command_topics = {
@@ -152,10 +154,13 @@ def diagnose(
     command_topics |= bound_command_topics(model)
     interfaces_by_name = {t["name"]: t for t in model.graph.get("topics", [])}
     event_pose_unknowns = []
+    contract_unknowns = []
     for signal in model.signals:
         if signal.topic in command_topics:
             continue
         data = signal.model_dump(mode="json")
+        contract = observation_contract(model, signal.topic)
+        issue_start = len(issues)
         if (
             signal.freshness_policy != "latched"
             and signal.last_message_age_ms is not None
@@ -172,6 +177,22 @@ def diagnose(
             add("ROS_TOPIC_003", "sensors", data, "Inspect sensor rate and middleware losses.")
         if signal.publisher_count == 0:
             add("ROS_TOPIC_004", "sensors", data, "Inspect missing publisher.")
+        if contract:
+            for issue in issues[issue_start:]:
+                issue["affected_capabilities"] = contract["required_for"]
+                issue["observation_contract"] = {
+                    "publication_model": contract["publication_model"],
+                    "semantic_role": contract["semantic_role"],
+                    "state": "UNKNOWN",  # Old telemetry is never refreshed or called healthy.
+                    **publication_expectation(model, contract, now=now),
+                }
+                if not contract["required_for"]:
+                    issue["severity"] = "warning"
+                    issue["next_checks"] = [
+                        "Inspect action status, lifecycle, required sensors and native watchdog; "
+                        "auxiliary telemetry alone cannot establish controller health."
+                    ]
+                    contract_unknowns.append("observation:" + signal.topic)
 
     endpoints = model.qos.get("endpoints", [])
     for pub in endpoints:
@@ -291,7 +312,7 @@ def diagnose(
         not edge.static and edge.age_ms is None for edge in model.transforms
     ):
         unknown.append("tf_timing")
-    unknown = sorted(set(unknown) | set(event_pose_unknowns))
+    unknown = sorted(set(unknown) | set(event_pose_unknowns) | set(contract_unknowns))
     status = (
         "BLOCKED"
         if any(i["severity"] == "blocking" for i in issues)

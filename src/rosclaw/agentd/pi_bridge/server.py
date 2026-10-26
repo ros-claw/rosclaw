@@ -899,6 +899,7 @@ class PiBridgeServer:
 
                 from rosclaw.agentd.pi_bridge.context_lease import (
                     ContextLeaseStore,
+                    action_dependency_hashes,
                     context_hash_of,
                 )
 
@@ -927,6 +928,7 @@ class PiBridgeServer:
                     mission_id=mission_id,
                     context_revision=envelope.context_revision,
                     context_hash=context_hash_of(envelope),
+                    dependency_hashes=action_dependency_hashes(envelope),
                     body_hash=envelope.body.get("effective_body_hash", ""),
                     mode=service.get_mission(mission_id).mode.value,
                     ttl_sec=effective_ttl,

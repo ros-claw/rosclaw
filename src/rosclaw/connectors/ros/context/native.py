@@ -31,6 +31,22 @@ def native_ros_observations(service, mission, body) -> dict | None:
         if not -100 <= model.age_ms(now) <= 5000:
             raise ValueError("ROS observations are stale or future-dated")
         diagnosis = diagnose(model, now=now)
+        from rosclaw.connectors.ros.resolver.semantics import issue_applies_to
+        capabilities = resolve_capabilities(model, now=now)
+        def hazard(issue):
+            # Stable safety facts only: no capture IDs, prose or drifting ages.
+            # Freshness changes are already reflected by readiness requirements.
+            observation = issue.get("evidence", [{}])[0].get("observation", {})
+            identity = {k: observation[k] for k in ("topic", "parent", "child", "name")
+                        if isinstance(observation, dict) and k in observation}
+            return {"code": issue["issue_code"], "identity": identity}
+        blocking = [i for i in diagnosis["issues"] if i["severity"] == "blocking"]
+        scopes = {c["semantic_id"]: {
+            "readiness": c["status"],
+            "requirements": c["requirements"],
+            "interface": c["interface"],
+            "blocking_issues": [hazard(i) for i in blocking if issue_applies_to(i, c["semantic_id"])],
+        } for c in capabilities}
         return {
             "status": "OBSERVED",
             "diagnosis": diagnosis,
@@ -45,6 +61,8 @@ def native_ros_observations(service, mission, body) -> dict | None:
                 "readiness": {
                     c["semantic_id"]: c["status"] for c in resolve_capabilities(model, now=now)
                 },
+                "capability_facts": scopes,
+                "global_hazards": [hazard(i) for i in blocking if i.get("affected_capabilities") is None or "*" in i.get("affected_capabilities", [])],
                 "blocking_issues": sorted(
                     {
                         i["issue_code"]
