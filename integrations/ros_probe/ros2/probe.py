@@ -81,6 +81,7 @@ class ReadOnlyProbe(Node):
         lossless_gzip_snapshots=False,
         collision_asset_reference_only=False,
         extra_read_types=(),
+        reliable_read_types=(),
     ):
         if (
             type(snapshot_period_sec) not in (int, float)
@@ -116,6 +117,10 @@ class ReadOnlyProbe(Node):
                        for t in extra_read_types)):
             raise ValueError("operator read-type contract must contain at most 32 ROS message types")
         self.read_types = READ_TYPES | set(extra_read_types)
+        if (not isinstance(reliable_read_types, (list, tuple)) or len(reliable_read_types)>32
+                or any(not isinstance(t,str) or t not in self.read_types for t in reliable_read_types)):
+            raise ValueError('reliable-read-type requires an explicitly readable ROS message type')
+        self.reliable_read_types = set(reliable_read_types)
         super().__init__("rosclaw_readonly_probe")
         self.samples = {}
         self.subscriptions_by_topic = {}
@@ -184,6 +189,14 @@ class ReadOnlyProbe(Node):
             # Wait for actual publisher QoS instead of guessing from the name.
             if not endpoints:
                 continue
+            if types[0] in getattr(self, 'reliable_read_types', set()):
+                if not all(p.qos_profile.reliability == ReliabilityPolicy.RELIABLE for p in endpoints):
+                    error=f'reliable-read-type publisher contract mismatch: {topic}'
+                    if error not in self.errors:self.errors.append(error)
+                    continue
+                # An operator-owned transport contract, never a health exemption.
+                # Latest-only history limits old-frame backlog after retransmit.
+                qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE)
             latched = latched_observation(topic, types, endpoints)
             if latched:
                 qos = QoSProfile(depth=100, durability=DurabilityPolicy.TRANSIENT_LOCAL)
@@ -656,6 +669,7 @@ class ReadOnlyProbe(Node):
                 "package_inventory": self.packages,
                 "package_versions": self.package_versions,
                 "operator_read_types": sorted(self.read_types),
+                "operator_reliable_read_types": sorted(getattr(self,'reliable_read_types',())),
                 "node_parameters": parameters,
                 "parameter_captured_at": self.parameter_captured_at,
                 "clock_advancing": clock_advancing,
@@ -742,6 +756,8 @@ def main():
     parser.add_argument("--collision-asset-originals")
     parser.add_argument("--collision-asset-originals-sha256")
     parser.add_argument("--read-type", action="append", default=[], help="Operator-owned additional read-only ROS message type")
+    parser.add_argument("--reliable-read-type", action="append", default=[],
+                        help="Require actual publishers to offer reliable delivery for this readable type")
     parser.add_argument("--duration", type=float, default=3.0)
     parser.add_argument("--output", type=Path)
     args, ros_args = parser.parse_known_args()
@@ -749,6 +765,7 @@ def main():
     node = ReadOnlyProbe(
         snapshot_period_sec=args.snapshot_period_sec,
         extra_read_types=args.read_type,
+        reliable_read_types=args.reliable_read_type,
         lossless_gzip_snapshots=args.lossless_gzip_snapshots,
         collision_asset_reference_only=args.collision_asset_reference_only,
         collision_assets_path=args.collision_asset_originals,

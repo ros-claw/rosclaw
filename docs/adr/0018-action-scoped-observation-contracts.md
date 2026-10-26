@@ -19,3 +19,13 @@ Body `ros_action_observation_requirements` now also declares topics/types, TF pa
 Canonical lease/owner-loss results include TIMED_OUT, ORPHANED, BLOCKED and DEGRADED. These are known non-success terminal outcomes, not permanently unknown results and never verified completion. Receipt indexing, ActionTxn transitions and Native error projection retain those distinctions. A call interrupted in DISPATCHING can reconcile a later exact terminal receipt without re-dispatch.
 
 If the entire response was lost before any local receipt event, pi.action.reconcile may read the existing daemon action by its authority-persisted ID. It validates session/caller/transaction ownership first, checks the persisted ExactAction hashes and compares receipt action/Body/hash/mode/capability. No session, grant or action is created by this query. A running, unavailable, synthetic, unverified or mismatched result remains UNKNOWN. Legacy synchronous MCP without an authority lookup API remains UNKNOWN rather than inventing a query or replay.
+
+
+Operator-owned probe transport may additionally require reliable delivery for
+explicit readable message types with `--reliable-read-type`. This is independent
+of topic names and never marks a signal healthy: actual publishers must offer
+RELIABLE, otherwise observation stays unavailable with a contract diagnostic.
+Default sensor subscriptions retain their original best-effort policy. The
+opt-in keeps only the latest complete sample; received old frames still require
+native header freshness checks at the motion authority. No simulator, sensor
+resolution, safety timeout or action authorization is changed.
