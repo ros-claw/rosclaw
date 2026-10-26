@@ -34,3 +34,5 @@
 - [0021: Bounded passive ECM stream supervision](0021-bounded-live-source-stream.md)
 
 - [0022: Current SIM health and passive daemon generation](0022-current-sim-health-and-daemon-generation.md)
+
+- [0023: Action-scoped observation contracts](0023-action-scoped-observation-contracts.md) — proposed; whole-task acceptance remains separate.

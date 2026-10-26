@@ -819,6 +819,25 @@ class ActionAdmissionService:
     def _reconcile_transaction(self, txn) -> dict[str, Any]:
         from rosclaw.agentd.pi_bridge.action_txn import ActionTxnStore
 
+        if txn.state == "REJECTED":
+            return {
+                "schema_version": "rosclaw.execution_outcome.v1",
+                "status": "REJECTED",
+                "txn_id": txn.txn_id,
+                "approval_id": txn.approval_id,
+                "grant_id": txn.grant_id,
+                "action_id": txn.action_id,
+                "receipt_id": txn.receipt_id,
+                "capability_id": txn.capability_id,
+                "executed": False,
+                "terminal": True,
+                "terminal_receipt": False,
+                "reconciliation_required": False,
+                "error_code": "ACTION_NOT_DISPATCHED",
+                "original_dispatch": "NOT_STARTED",
+                "evidence_ref": None,
+                "side_effects_dispatched": False,
+            }
         key = txn.receipt_id or txn.action_id
         receipt = None
         if key:
@@ -967,7 +986,11 @@ class ActionAdmissionService:
         from rosclaw.agentd.pi_bridge.action_txn import ActionTxnStore
 
         previous = ActionTxnStore(service._store.connection).get_by_approval(approval_id)
-        if previous is not None and previous.state in {"DISPATCHING", "RECEIPT_PENDING"}:
+        if previous is not None and previous.state in {
+            "DISPATCHING",
+            "RECEIPT_PENDING",
+            "REJECTED",
+        }:
             if (
                 previous.mission_id != request.mission_id
                 or previous.pi_session_id != request.pi_session_id
@@ -1251,6 +1274,16 @@ class ActionAdmissionService:
                 "error_code": "ACTION_RESULT_UNKNOWN",
                 "reconciliation_required": True,
                 "next_check": "Reconcile this exact transaction; never submit a replacement action on transport loss.",
+            }
+        if getattr(outcome, "known_not_dispatched", False) is True:
+            # Authoritative local pre-dispatch rejection is different from an
+            # ambiguous transport failure. Keep reserved IDs for audit, leave
+            # the grant unconsumed, and never invent a physical receipt.
+            txn = txns.transition(txn.txn_id, "REJECTED")
+            return {
+                **self._reconcile_transaction(txn),
+                "error_code": outcome.error_code or "ACTION_NOT_DISPATCHED",
+                "summary": outcome.text,
             }
         # P0-5E：COMPLETED 需要严格 receipt 合约——terminal bool +
         # 非空 action/receipt ID + receipt 事件精确绑定本 action。

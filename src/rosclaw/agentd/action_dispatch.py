@@ -35,6 +35,9 @@ class HandlerOutcome:
     evidence_ref: str | None = None
     error_code: str | None = None
     artifacts: list[str] = field(default_factory=list)
+    # Set only by this local dispatcher before any executor/transport call.
+    # A remote error code, missing receipt or exception is not this proof.
+    known_not_dispatched: bool = False
 
 
 def _verification_summary(verification: dict) -> str:
@@ -100,6 +103,7 @@ async def request_action(
                         "（fail closed）。"
                     ),
                     error_code="EXECUTOR_FOR_BODY_UNAVAILABLE",
+                    known_not_dispatched=True,
                 )
         else:
             sim_channel = next(iter(executors.values())) if len(executors) == 1 else None

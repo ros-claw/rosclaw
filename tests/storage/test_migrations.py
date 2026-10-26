@@ -13,6 +13,34 @@ import pytest
 from rosclaw.storage.migrations import MigrationRunner, _split_statements
 
 
+@pytest.mark.parametrize("backend", ["sqlite", "mysql"])
+def test_backend_migrations_do_not_alter_tables_created_only_for_another_backend(backend):
+    import re
+
+    from rosclaw.storage.migrations import _read_backend
+
+    folder = Path(__file__).parents[2] / "src/rosclaw/storage/migrations"
+    tables = {"schema_migrations"}
+    if backend == "mysql":
+        # The structured MySQL store creates its canonical tables before its
+        # migration runner. SQLite-only Agentd tables are not in this schema.
+        from rosclaw.memory.seekdb_client import ROSCLAW_STRUCTURED_SCHEMAS
+
+        tables.update(ROSCLAW_STRUCTURED_SCHEMAS)
+    for path in sorted(folder.glob("*.sql"), key=lambda p: int(p.name.split("_")[0])):
+        if _read_backend(path) not in ["all", backend]:
+            continue
+        for statement in _split_statements(path.read_text()):
+            created = re.match(
+                r"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?`?(\w+)", statement, re.I
+            )
+            altered = re.match(r"ALTER\s+TABLE\s+`?(\w+)", statement, re.I)
+            if created:
+                tables.add(created.group(1).lower())
+            if altered:
+                assert altered.group(1).lower() in tables, (backend, path.name, altered.group(1))
+
+
 class _FakeMySQLResult:
     """Result set returned by a fake multi=True execution."""
 
@@ -263,8 +291,10 @@ def test_suffixed_migrations_must_carry_backend_marker() -> None:
 
         match = _re.match(r"^--\s*backend:\s*(\w+)", first_line)
         suffix_backend = (
-            "sqlite" if name.endswith("_sqlite.sql")
-            else "mysql" if name.endswith("_mysql.sql")
+            "sqlite"
+            if name.endswith("_sqlite.sql")
+            else "mysql"
+            if name.endswith("_mysql.sql")
             else None
         )
         if match is None:
