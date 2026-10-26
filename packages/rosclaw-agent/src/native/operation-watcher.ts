@@ -57,6 +57,8 @@ const TERMINAL_EVENTS = new Set([
 
 export class OperationWatcher {
 	private timer: ReturnType<typeof setInterval> | undefined;
+	private polling: Promise<void> | undefined;
+	private lifecycle = new AbortController();
 	private readonly tracked = new Map<string, string>(); // operation_id → task_id（注册后解析）
 	private readonly pending = new Set<string>(); // task_id 未解析的 operation
 	private readonly delivered = new Set<string>();
@@ -95,6 +97,7 @@ export class OperationWatcher {
 
 	start(): void {
 		if (this.timer) return;
+		if (this.lifecycle.signal.aborted) this.lifecycle = new AbortController();
 		this.timer = setInterval(() => {
 			void this.tick().catch(() => undefined);
 		}, POLL_MS);
@@ -104,6 +107,41 @@ export class OperationWatcher {
 	stop(): void {
 		if (this.timer) clearInterval(this.timer);
 		this.timer = undefined;
+		this.lifecycle.abort();
+	}
+
+	/** Wait only for this watcher's owned work and the same session's follow-ups.
+	 * Does not invent a process deadline or renew execution authority.
+	 * Shutdown interrupts even a stalled bridge/idle wait; it is never completion.
+	 */
+	async settle(
+		session: { waitForIdle(): Promise<void>; readonly isStreaming: boolean },
+		pause: () => Promise<void> = () => new Promise(resolve => setTimeout(resolve, 250)),
+	): Promise<void> {
+		const signal = this.lifecycle.signal;
+		if (signal.aborted) throw new Error("NATIVE_SESSION_SHUTDOWN: work not settled");
+		let onAbort!: () => void;
+		const shutdown = new Promise<never>((_resolve, reject) => {
+			onAbort = () => reject(new Error("NATIVE_SESSION_SHUTDOWN: work not settled"));
+		});
+		signal.addEventListener("abort", onAbort, {once: true});
+		try {
+			let quiet = 0;
+			while (quiet < 2) {
+				if (signal.aborted) throw new Error("NATIVE_SESSION_SHUTDOWN: work not settled");
+				await Promise.race([this.tick(), shutdown]);
+				if (signal.aborted) throw new Error("NATIVE_SESSION_SHUTDOWN: work not settled");
+				await Promise.race([pause(), shutdown]);
+				if (signal.aborted) throw new Error("NATIVE_SESSION_SHUTDOWN: work not settled");
+				await Promise.race([session.waitForIdle(), shutdown]);
+				if (signal.aborted) throw new Error("NATIVE_SESSION_SHUTDOWN: work not settled");
+				const pending = this.pending.size + this.tracked.size
+					+ this.trackedTasks.size + this.pendingTerminalTasks.size;
+				quiet = !pending && !session.isStreaming ? quiet + 1 : 0;
+			}
+		} finally {
+			signal.removeEventListener("abort", onAbort);
+		}
 	}
 
 	/** 注册解析（每个 op 仅一次）：task_id 是事件流订阅键。 */
@@ -113,6 +151,7 @@ export class OperationWatcher {
 				const result = await this.deps.call("pi.op.get", {
 					operation_id: operationId,
 				});
+				if (this.lifecycle.signal.aborted) return;
 				const op = (result.operation ?? {}) as Record<string, unknown>;
 				const taskId = String(op.task_id ?? "");
 				if (!taskId) continue; // 桥暂不可知——下周期再试（不报假死）
@@ -127,8 +166,17 @@ export class OperationWatcher {
 		}
 	}
 
-	private async tick(): Promise<void> {
+	private tick(): Promise<void> {
+		if (!this.polling) {
+			this.polling = this.poll().finally(() => { this.polling = undefined; });
+		}
+		return this.polling;
+	}
+
+	private async poll(): Promise<void> {
+		if (this.lifecycle.signal.aborted) return;
 		await this.resolvePending();
+		if (this.lifecycle.signal.aborted) return;
 		if (!this.tracked.size && !this.trackedTasks.size
 			&& !this.pendingTerminalTasks.size) return;
 		const sink = this.deps.sink();
@@ -147,6 +195,7 @@ export class OperationWatcher {
 			} catch {
 				continue; // 桥暂不可用——下周期从同游标重放（不重不漏）
 			}
+			if (this.lifecycle.signal.aborted) return;
 			for (const event of events) {
 				this.seqByTask.set(taskId, Math.max(
 					this.seqByTask.get(taskId) ?? 0, Number(event.seq) || 0,
@@ -270,6 +319,7 @@ export class OperationWatcher {
 		} catch {
 			outcomeText = "任务已终态（outcome 拉取失败——/activity 查看账本）";
 		}
+		if (this.lifecycle.signal.aborted) return;
 		sink?.api.sendMessage(
 			{
 				customType: "rosclaw.task_terminal",
@@ -320,6 +370,7 @@ export class OperationWatcher {
 			);
 			return;
 		}
+		if (this.lifecycle.signal.aborted) return;
 		const content =
 			`后台 Operation ${operationId} 已终止：${state}`
 			+ (op.failure_code ? `（${String(op.failure_code)}）` : "")
