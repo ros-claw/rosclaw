@@ -142,3 +142,11 @@ def test_native_projection_retains_closed_scope_for_hash_and_model(monkeypatch, 
     assert "navigation.navigate_to_pose" in pulse["unaffected_capabilities"]
     assert "unaffected_capabilities=" in observed["summary"]
     assert "complete_for_action=true" in observed["summary"]
+
+
+def test_stale_clock_source_remains_global_even_if_omitted_from_closed_topics(model):
+    next(t for t in model.graph["topics"] if t["name"] == "/extra/pulse")["msg_type"] = (
+        "rosgraph_msgs/msg/Clock"
+    )
+    assert nav(model)["status"] == "BLOCKED"
+    assert issue_applies_to(stale_issue(model), "navigation.navigate_to_pose") is True

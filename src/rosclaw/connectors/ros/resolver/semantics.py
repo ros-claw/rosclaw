@@ -428,6 +428,11 @@ def dependency_scope_for_issue(model, issue: dict, *, now=None) -> list[str] | N
             or topic in model.body.get("required_topic_types", {})
             or topic in model.body.get("minimum_rates", {})
         )
+        clock_source = any(
+            row.get("name") == topic
+            and row.get("msg_type") in {"rosgraph_msgs/msg/Clock", "rosgraph_msgs/Clock"}
+            for row in model.graph.get("topics", [])
+        )
         any_dependency = any(topic in r["topics"] for r in contracts.values())
         producer_contract = observation_contract(model, topic)
         independent_required = (producer_contract or {}).get("required_for", [])
@@ -438,6 +443,7 @@ def dependency_scope_for_issue(model, issue: dict, *, now=None) -> list[str] | N
             and _topic_freshness_valid(r)
             and topic not in r["topics"]
             and c not in independent_required
+            and not clock_source
             and (not declared_critical or any_dependency)
         )
         if unaffected:
