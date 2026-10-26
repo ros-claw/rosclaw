@@ -803,7 +803,9 @@ class ActionAdmissionService:
             "receipt_id": txn.receipt_id, "capability_id": txn.capability_id,
             "executed": txn.state == "COMPLETED", "terminal_receipt": txn.state == "COMPLETED" or terminal in {"FAILED", "CANCELLED", "EXPIRED"},
             "reconciliation_required": txn.state not in {"COMPLETED", "FAILED", "CANCELLED", "EXPIRED"},
-            "error_code": None if txn.state == "COMPLETED" else "ACTION_RESULT_UNKNOWN",
+            "error_code": None if txn.state == "COMPLETED" else ("ACTION_"+txn.state if txn.state in {"FAILED", "CANCELLED", "EXPIRED"} else "ACTION_RESULT_UNKNOWN"),
+            "terminal": txn.state in {"COMPLETED", "FAILED", "CANCELLED", "EXPIRED"},
+            "evidence_ref": "receipt://"+key if receipt and key else None,
             "side_effects_dispatched": False,
         }
 
@@ -835,6 +837,8 @@ class ActionAdmissionService:
         from rosclaw.agentd.pi_bridge.action_txn import ActionTxnStore
         previous = ActionTxnStore(service._store.connection).get_by_approval(approval_id)
         if previous is not None and previous.state in {"DISPATCHING", "RECEIPT_PENDING"}:
+            if previous.mission_id != request.mission_id or previous.pi_session_id != request.pi_session_id:
+                raise ToolBridgeError("CHAIN_MISMATCH", "pending transaction ownership mismatch")
             return self._reconcile_transaction(previous)
         if stored.status.value == "PENDING":
             raise ToolBridgeError("APPROVAL_PENDING", "operator has not decided yet")

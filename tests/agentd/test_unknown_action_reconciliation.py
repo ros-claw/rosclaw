@@ -150,3 +150,64 @@ async def test_delayed_receipt_after_service_restart_is_reconciled_without_dispa
         dispatch.assert_not_called()
     finally:
         await reopened.close()
+
+
+async def test_pending_shortcut_cannot_reconcile_another_mission_or_session(tmp_path):
+    from rosclaw.agentd.pi_bridge.action_admission import ActionRequestContext
+    from rosclaw.agentd.pi_bridge.session_binding import SessionBindingStore
+    from rosclaw.agentd.pi_bridge.tool_dispatch import ToolBridgeError
+
+    service, mission = await _setup(tmp_path)
+    try:
+        request, card = await _propose(
+            service,
+            mission,
+            "ur5e.move_to_pose",
+            idem="owned-pending",
+            args={"x": 0.35, "y": 0.25, "z": 0.45},
+        )
+        admission = ActionAdmissionService(service)
+        with patch(
+            "rosclaw.agentd.action_dispatch.request_action",
+            AsyncMock(
+                return_value=HandlerOutcome(
+                    text="pending", terminal_receipt=False, evidence_ref="receipt://owned"
+                )
+            ),
+        ):
+            result = await admission.execute(
+                card["approval_id"], request=request, caller_pid=1, caller_uid=1000
+            )
+        assert result["status"] == "UNKNOWN"
+        other = service.create_mission("separate owned session; no physical task")
+        bindings = SessionBindingStore(service._store.connection)
+        bindings.bind(
+            pi_session_id="other",
+            pi_session_path="",
+            mission_id=other.mission_id,
+            body_id=other.body_binding.body_id,
+            execution_mode="SIMULATION",
+            created_by="user:local:1000",
+        )
+        bindings.acquire_lease(
+            mission_id=other.mission_id, pi_session_id="other", owner_pid=2, owner_uid=1000
+        )
+        other_request = ActionRequestContext(
+            "other",
+            other.mission_id,
+            0,
+            other.body_binding.effective_body_hash,
+            "SIMULATION",
+            "read-another",
+            "not-used",
+        )
+        with pytest.raises(ToolBridgeError, match="ownership mismatch"):
+            await admission.execute(
+                card["approval_id"], request=other_request, caller_pid=2, caller_uid=1000
+            )
+        with pytest.raises(ToolBridgeError, match="ownership mismatch"):
+            admission.reconcile(
+                card["approval_id"], request=other_request, caller_pid=2, caller_uid=1000
+            )
+    finally:
+        await service.close()
