@@ -44,7 +44,10 @@ def native_ros_observations(service, mission, body) -> dict | None:
                 for k in ("topic", "parent", "child", "name")
                 if isinstance(observation, dict) and k in observation
             }
-            return {"code": issue["issue_code"], "identity": identity}
+            value = {"code": issue["issue_code"], "identity": identity}
+            if issue["issue_code"] == "ROS_TOPIC_002" and issue.get("unaffected_capabilities"):
+                value["unaffected_capabilities"] = issue["unaffected_capabilities"]
+            return value
 
         blocking = [i for i in diagnosis["issues"] if i["severity"] == "blocking"]
         scopes = {

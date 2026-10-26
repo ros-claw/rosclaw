@@ -65,10 +65,15 @@ def compile_agent_summary(model: RosSystemModel, *, now: datetime | None = None)
         scope = ""
         if "affected_capabilities" in issue:
             scope = " affected_capabilities=" + json.dumps(issue["affected_capabilities"])
+        for key in ["unaffected_capabilities", "scope_bound_capabilities"]:
+            if key in issue:
+                scope += " " + key + "=" + json.dumps(issue[key])
         lines.append(f"issue={issue['issue_code']} severity={issue['severity']}" + scope + detail)
     from rosclaw.connectors.ros.resolver.semantics import action_observation_contracts
 
     for capability, contract in sorted(action_observation_contracts(model).items()):
+        if contract.get("complete_for_action") is True:
+            lines.append("action_scope=" + capability + " complete_for_action=true")
         if "topic_freshness" in contract:
             lines.append(
                 "action_freshness="

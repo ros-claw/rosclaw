@@ -166,3 +166,41 @@ async def test_dependency_change_after_approval_never_dispatches_or_consumes_gra
         assert not row["consumed"]
     finally:
         await service.close()
+
+
+async def test_closed_action_stale_topic_scope_changes_only_relevant_hashes(tmp_path):
+    service, mission = await _setup(tmp_path)
+    try:
+        envelope = build_embodied_context(service, mission.mission_id)
+        current = facts()
+        envelope.self_state["ros_observations"] = {"status": "OBSERVED", "admission_facts": current}
+        before = context_hash_of(envelope, capability_id=CAP)
+        full_before = context_hash_of(envelope)
+        current["global_hazards"].append(
+            {
+                "code": "ROS_TOPIC_002",
+                "identity": {"topic": "/extra/pulse"},
+                "unaffected_capabilities": [CAP],
+            }
+        )
+        assert context_hash_of(envelope, capability_id=CAP) == before
+        assert context_hash_of(envelope) != full_before
+        current["global_hazards"][-1]["unaffected_capabilities"] = []
+        assert context_hash_of(envelope, capability_id=CAP) != before
+    finally:
+        await service.close()
+
+
+async def test_clock_hazard_cannot_inherit_a_stale_topic_scope_exception(tmp_path):
+    service, mission = await _setup(tmp_path)
+    try:
+        envelope = build_embodied_context(service, mission.mission_id)
+        current = facts()
+        envelope.self_state["ros_observations"] = {"status": "OBSERVED", "admission_facts": current}
+        before = context_hash_of(envelope, capability_id=CAP)
+        current["global_hazards"].append(
+            {"code": "ROS_TIME_001", "identity": {}, "unaffected_capabilities": [CAP]}
+        )
+        assert context_hash_of(envelope, capability_id=CAP) != before
+    finally:
+        await service.close()
