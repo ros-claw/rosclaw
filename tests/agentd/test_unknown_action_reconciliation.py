@@ -12,6 +12,45 @@ from tests.agentd.test_pi_tool_bridge import _setup
 from tests.agentd.test_seven3_policy_grant import _propose
 
 
+@pytest.mark.parametrize("known_not_dispatched", [False, True])
+async def test_error_code_alone_is_not_proof_of_nonexecution(tmp_path, known_not_dispatched):
+    service, mission = await _setup(tmp_path)
+    try:
+        request, card = await _propose(
+            service,
+            mission,
+            "ur5e.move_to_pose",
+            idem="local-reject-proof",
+            args={"x": 0.35, "y": 0.25, "z": 0.45},
+        )
+        dispatch = AsyncMock(
+            return_value=HandlerOutcome(
+                text="executor unavailable",
+                error_code="EXECUTOR_FOR_BODY_UNAVAILABLE",
+                known_not_dispatched=known_not_dispatched,
+            )
+        )
+        admission = ActionAdmissionService(service)
+        with patch("rosclaw.agentd.action_dispatch.request_action", dispatch):
+            first = await admission.execute(
+                card["approval_id"], request=request, caller_pid=1, caller_uid=1000
+            )
+            repeated = await admission.execute(
+                card["approval_id"], request=request, caller_pid=1, caller_uid=1000
+            )
+        assert dispatch.await_count == 1
+        assert (
+            first["status"]
+            == repeated["status"]
+            == ("REJECTED" if known_not_dispatched else "UNKNOWN")
+        )
+        assert first["terminal_receipt"] is False and repeated["terminal_receipt"] is False
+        assert first["reconciliation_required"] is (not known_not_dispatched)
+        assert first["action_id"] == repeated["action_id"]
+    finally:
+        await service.close()
+
+
 @pytest.mark.parametrize(
     "late_result",
     [
