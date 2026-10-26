@@ -294,6 +294,68 @@ def action_observation_contracts(model) -> dict:
     return valid
 
 
+def _topic_freshness_valid(contract) -> bool:
+    import math
+
+    if "topic_freshness" not in contract:
+        return True
+    policies = contract["topic_freshness"]
+    if not isinstance(policies, dict):
+        return False
+    for topic, policy in policies.items():
+        if (
+            topic not in contract["topics"]
+            or not isinstance(policy, dict)
+            or "max_receive_age_ms" not in policy
+            or set(policy) - {"max_receive_age_ms", "max_header_age_ms"}
+        ):
+            return False
+        if any(
+            type(value) not in (int, float) or not math.isfinite(value) or not 0 < value <= 60000
+            for value in policy.values()
+        ):
+            return False
+    return True
+
+
+def _topic_freshness_requirements(model, topic, signal, policy, *, now) -> dict:
+    """Keep wall receive age separate from native header age; never re-stamp."""
+    import math
+
+    if signal is None or signal.last_message_age_ms is None or signal.publisher_count is None:
+        received = None
+    else:
+        elapsed = (now - signal.captured_at).total_seconds() * 1000
+        age = signal.last_message_age_ms
+        received = (
+            -100 <= elapsed <= 5000
+            and signal.publisher_count > 0
+            and math.isfinite(age)
+            and age >= 0
+            and (
+                # Explicit periodic Driver limits do not inherit a latched exemption.
+                age + max(0, elapsed) < policy["max_receive_age_ms"]
+                if policy is not None
+                else signal.freshness_policy == "latched" or age <= signal.max_age_ms
+            )
+        )
+    result = {topic + ":fresh": received}
+    if policy is not None and "max_header_age_ms" in policy:
+        header = model.observations.get("message_frames", {}).get(topic, {})
+        age = header.get("stamp_age_ms")
+        # Probe computes stamp_age_ms against its ROS clock at model capture.
+        # Wall elapsed must never be added to this native-clock duration.
+        result[topic + ":header_fresh"] = (
+            None
+            if age is None
+            else type(age) in (int, float)
+            and math.isfinite(age)
+            and -100 <= model.age_ms(now) <= 5000
+            and -100 <= age <= policy["max_header_age_ms"]
+        )
+    return result
+
+
 def action_observation_requirements(model, capability: str, *, now) -> dict | None:
     """Unknown required evidence remains UNKNOWN; no permission is created."""
     contract = action_observation_contracts(model).get(capability)
@@ -301,23 +363,19 @@ def action_observation_requirements(model, capability: str, *, now) -> dict | No
         return None
     signals = {s.topic: s for s in model.signals}
     topics = {t["name"]: t for t in model.graph.get("topics", [])}
+    if not _topic_freshness_valid(contract):
+        return {"contract.valid": False}
     requirements = {}
     for topic, expected_type in contract["topics"].items():
         observed, signal = topics.get(topic), signals.get(topic)
         requirements[topic + ":type"] = (
             None if observed is None else observed.get("msg_type") == expected_type
         )
-        if signal is None or signal.last_message_age_ms is None or signal.publisher_count is None:
-            requirements[topic + ":fresh"] = None
-        else:
-            requirements[topic + ":fresh"] = (
-                -100 <= (now - signal.captured_at).total_seconds() * 1000 <= 5000
-                and signal.publisher_count != 0
-                and (
-                    signal.freshness_policy == "latched"
-                    or signal.last_message_age_ms <= signal.max_age_ms
-                )
+        requirements.update(
+            _topic_freshness_requirements(
+                model, topic, signal, contract.get("topic_freshness", {}).get(topic), now=now
             )
+        )
     for parent, child in contract.get("transforms", []):
         edges = [e for e in model.transforms if e.parent == parent and e.child == child]
         checks = [
@@ -342,7 +400,7 @@ def action_observation_requirements(model, capability: str, *, now) -> dict | No
     return requirements
 
 
-def dependency_scope_for_issue(model, issue: dict) -> list[str] | None:
+def dependency_scope_for_issue(model, issue: dict, *, now=None) -> list[str] | None:
     contracts = action_observation_contracts(model)
     if not contracts:
         return None
@@ -353,7 +411,27 @@ def dependency_scope_for_issue(model, issue: dict) -> list[str] | None:
     pair = [observation.get("parent"), observation.get("child")]
     node = observation.get("name")
     if topic and any(topic in r["topics"] for r in contracts.values()):
-        return sorted(c for c, r in contracts.items() if topic in r["topics"])
+        affected = []
+        for capability, contract in contracts.items():
+            if topic not in contract["topics"]:
+                continue
+            # Preserve the global diagnostic and its original threshold. A
+            # compiled action contract determines only its applicability.
+            if (
+                issue["issue_code"] == "ROS_TOPIC_002"
+                and now is not None
+                and "topic_freshness" in contract
+            ):
+                requirements = action_observation_requirements(model, capability, now=now)
+                checks = [v for key, v in requirements.items() if key.startswith(topic + ":")]
+                if (
+                    requirements.get("contract.valid", True)
+                    and checks
+                    and all(v is True for v in checks)
+                ):
+                    continue
+            affected.append(capability)
+        return sorted(affected)
     if all(pair) and any(pair in r.get("transforms", []) for r in contracts.values()):
         return sorted(c for c, r in contracts.items() if pair in r.get("transforms", []))
     if node and any(node in r.get("lifecycle_nodes", []) for r in contracts.values()):

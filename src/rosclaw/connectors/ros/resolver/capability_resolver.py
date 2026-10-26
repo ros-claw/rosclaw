@@ -45,7 +45,7 @@ def resolve_capabilities(model: RosSystemModel, *, now: datetime | None = None) 
             diagnostic_cache = diagnose(model, now=now)["issues"]
         return diagnostic_cache
 
-    def health(interface):
+    def health(interface, capability=None):
         signal = signals.get(interface["name"])
         if signal is None or signal.last_message_age_ms is None or signal.publisher_count is None:
             return None
@@ -57,6 +57,16 @@ def resolve_capabilities(model: RosSystemModel, *, now: datetime | None = None) 
                 return None
             if signal.rate_hz < minimum_rate:
                 return False
+        contract = action_observation_contracts(model).get(capability, {})
+        if "topic_freshness" in contract:
+            requirements = action_observation_requirements(model, capability, now=now)
+            if requirements.get("contract.valid") is False:
+                return False
+            checks = [
+                value for key, value in requirements.items() if key.startswith(signal.topic + ":")
+            ]
+            if checks and signal.topic in contract["topic_freshness"]:
+                return False if False in checks else None if None in checks else True
         if (
             signal.publisher_count != 0
             and signal.last_message_age_ms > signal.max_age_ms
@@ -97,7 +107,7 @@ def resolve_capabilities(model: RosSystemModel, *, now: datetime | None = None) 
             "sensing.lidar",
         ]:
             candidates = interfaces.get(role, [])
-            checks = [health(i) for i in candidates]
+            checks = [health(i, semantic) for i in candidates]
             if (
                 role == "localization.pose_estimate"
                 and model.navigation.get("localization_ready") is True
@@ -120,7 +130,7 @@ def resolve_capabilities(model: RosSystemModel, *, now: datetime | None = None) 
             )
             if semantic in required or "*" in required:
                 requirements["observation:" + topic] = (
-                    health({"name": topic}) if contract else False
+                    health({"name": topic}, semantic) if contract else False
                 )
         if interface.get("action_type", "").startswith("nav2_msgs/") or interface.get(
             "action_type", ""

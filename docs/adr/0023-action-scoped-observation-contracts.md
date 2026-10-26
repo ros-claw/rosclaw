@@ -59,3 +59,21 @@ The added regressions failed seven negative cases before the fix. They are
 software contracts, not proof of a particular live context rejection or a
 complete cleaning mission. That attribution still requires actual authority
 snapshots and independent physical evidence.
+
+
+### Driver-bound freshness
+
+An action may declare `topic_freshness` for its typed dependencies, with a
+positive finite `max_receive_age_ms` and optional `max_header_age_ms` (at most
+60000 ms). The compiled Body must derive these from its actual executor
+contract; this field grants no permission and does not change executor limits.
+Malformed explicit policies block the action. Omitted policies preserve legacy
+Signal limits. Explicit receive limits are strict (`age < limit`); native header
+ages retain the executor's -100 ms future tolerance and inclusive upper bound.
+Receive age advances in wall time; native header age is measured by Probe at
+its ROS-clock snapshot and is never extrapolated from wall time. Missing header
+evidence stays UNKNOWN. The executor rechecks current inputs before dispatch.
+Generic diagnostics keep their original threshold and severity. Their action
+scope uses the compiled dependency policy, which is displayed in Native context
+and bound to the effective Body hash. A generic warning cannot silently override
+a different, valid Driver contract or exempt a genuinely stale dependency.
