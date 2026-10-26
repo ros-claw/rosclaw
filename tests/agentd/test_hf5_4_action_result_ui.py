@@ -36,6 +36,7 @@ from tests.agentd.test_product_journey import (
     PtySession,
     _build_and_install,
     _chunk,
+    _decision_messages,
     _FakeModel,
     _sse,
     _tool_call_frames,
@@ -48,7 +49,7 @@ class _LieTwiceModel(_FakeModel):
     """两轮对抗：两次调用空 capability（必被拒），两次都谎称完成。"""
 
     def answer(self, body: dict) -> bytes:
-        messages = body.get("messages", [])
+        messages = _decision_messages(body.get("messages", []))
         if body.get("stream"):
             has_tool_result = bool(messages) and messages[-1].get("role") == "tool"
             text = ""

@@ -118,6 +118,27 @@ def _tool_call_frames(call_id: str, name: str, arguments: str) -> list[bytes]:
     ]
 
 
+def _decision_messages(messages: list[dict]) -> list[dict]:
+    """Ignore only the harness's injected context when choosing a fixture turn.
+
+    Per-model-call refresh can append this observation after a tool result.
+    It is not a new human instruction and must not replay that tool in a fake
+    model. The original request remains in the captured evidence unchanged.
+    """
+
+    def is_context(message):
+        content = message.get("content", "")
+        if isinstance(content, list):
+            content = " ".join(
+                str(block.get("text", "")) for block in content if isinstance(block, dict)
+            )
+        return message.get("role") == "user" and str(content).startswith(
+            "<ROSCLAW_TRUSTED_CONTEXT>"
+        )
+
+    return [message for message in messages if not is_context(message)]
+
+
 class _FakeModel:
     """按消息内容编排回答/tool_calls/reasoning 的假模型。"""
 
@@ -131,7 +152,7 @@ class _FakeModel:
             with self.log_path.open("a", encoding="utf-8") as handle:
                 # 系统提示占头部——保留尾部（用户消息/工具结果/广告工具在那边）。
                 handle.write(json.dumps(body, ensure_ascii=False)[-4000:] + "\n")
-        messages = body.get("messages", [])
+        messages = _decision_messages(body.get("messages", []))
         # before_agent_start 会把 ROSCLAW_TRUSTED_CONTEXT 作为额外 user 消息
         # 追加在真实用户输入之后——取最后一条非注入的 user 消息。
         def _text(message: dict) -> str:
