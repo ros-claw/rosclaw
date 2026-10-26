@@ -123,3 +123,34 @@ test("SDK SIGTERM disposes during settlement without waiting for completion", {t
         if (child.exitCode === null) child.kill('SIGKILL');
     }
 });
+
+
+for (const reason of ["error", "aborted"]) {
+    test(`SDK-resolved ${reason} exits without settling background work`, () => {
+        const result = fixture(`
+            original.prompt = async () => {
+                phases.push('resolved-model-failure');
+                original.state.messages.push({role:'assistant',stopReason:${JSON.stringify(reason)},errorMessage:'MODEL_FAILED',content:[]});
+            };
+            const code = await runPiPrint(host, {initialMessage:'work',settleOperations:async () => {
+                phases.push('incorrect-wait-for-background');
+            }});
+            if (code !== 1) throw Error('resolved model failure accepted');
+        `);
+        assert.equal(result.stdout, '');
+        assert.deepEqual(result.phases, ['bind:first','resolved-model-failure','unsubscribe:first','dispose:first']);
+    });
+}
+
+test("an SDK retry recovered before prompt return still settles its actual work", () => {
+    const result = fixture(`
+        original.prompt = async () => {
+            original.state.messages.push({role:'assistant',stopReason:'error',errorMessage:'FIRST_ATTEMPT',content:[]});
+            original.state.messages.push({role:'assistant',stopReason:'stop',content:[{type:'text',text:'RECOVERED'}]});
+        };
+        const code = await runPiPrint(host, {initialMessage:'work',settleOperations:async () => phases.push('settle-recovered')});
+        if (code !== 0) throw Error('SDK recovery rejected');
+    `);
+    assert.equal(result.stdout, 'RECOVERED\n');
+    assert.ok(result.phases.includes('settle-recovered'));
+});

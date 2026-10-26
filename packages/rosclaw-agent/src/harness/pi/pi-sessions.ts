@@ -77,6 +77,12 @@ function settledPrintRuntime(
 						if (property === "prompt") {
 							return async (...args: Parameters<AgentSession["prompt"]>) => {
 								await owned.prompt(...args);
+								// SDK prompt() may resolve with an error/abort message.
+								// Preserve its failure exit and disposal; waiting for an
+								// unrelated operation would mask a provider timeout.
+								const last = owned.state.messages.at(-1);
+								if (last?.role === "assistant"
+									&& (last.stopReason === "error" || last.stopReason === "aborted")) return;
 								if (!settling) {
 									settling = true;
 									try { await settle(); }
