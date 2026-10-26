@@ -165,8 +165,17 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 			{ code, ...diagnostic });
 	};
 
+	// PI 1.4 checks the entire assistant batch before preparing any call: one
+	// sequential tool selects source-order prepare/execute/finalize for ALL calls
+	// in that batch, including earlier reads and their result-message ACKs.
+	// Mark every potential workspace writer, not read/grep/find/ls and not the
+	// global scheduler. Pure read-only batches keep PI's parallel default.
+	// This is tool-batch ordering, NOT filesystem snapshot isolation: external
+	// writers, detached shell work and already-running background Operations can
+	// still mutate files. No cross-batch/process lock or Operation wait is added.
 	const bashTool = defineTool({
 		name: "bash",
+		executionMode: "sequential",
 		label: "bash (guarded)",
 		description:
 			"Run a shell command in the project workspace. Guarded: no sudo/system " +
@@ -432,6 +441,7 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 
 	const writeTool = defineTool({
 		name: "write",
+		executionMode: "sequential",
 		label: "write (workspace)",
 		description: "Create/overwrite a file inside the project workspace (path-checked). " +
 			"Relative paths are tried under the session workspace root then allowed task roots, not an earlier read path or shell cd. " +
@@ -469,6 +479,7 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 
 	const editTool = defineTool({
 		name: "edit",
+		executionMode: "sequential",
 		label: "edit (workspace)",
 		description:
 			"Replace exact text in a file inside the project workspace " +
