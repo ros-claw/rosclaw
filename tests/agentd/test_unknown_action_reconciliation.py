@@ -211,3 +211,59 @@ async def test_pending_shortcut_cannot_reconcile_another_mission_or_session(tmp_
             )
     finally:
         await service.close()
+
+
+async def test_new_idempotency_key_cannot_bypass_pending_physical_result(tmp_path):
+    from rosclaw.agentd.pi_bridge.tool_dispatch import ToolBridgeError
+
+    service, mission = await _setup(tmp_path)
+    try:
+        request, card = await _propose(
+            service,
+            mission,
+            "ur5e.move_to_pose",
+            idem="first-action",
+            args={"x": 0.35, "y": 0.25, "z": 0.45},
+        )
+        admission = ActionAdmissionService(service)
+        with patch(
+            "rosclaw.agentd.action_dispatch.request_action",
+            AsyncMock(
+                return_value=HandlerOutcome(
+                    text="pending", terminal_receipt=False, evidence_ref="receipt://first_owned"
+                )
+            ),
+        ):
+            first = await admission.execute(
+                card["approval_id"], request=request, caller_pid=1, caller_uid=1000
+            )
+        assert first["status"] == "UNKNOWN"
+        with pytest.raises(ToolBridgeError, match="unresolved"):
+            await _propose(
+                service,
+                mission,
+                "ur5e.move_to_pose",
+                idem="attempted-replay-as-new-key",
+                args={"x": 0.35, "y": 0.25, "z": 0.45},
+            )
+        await service._events.append(
+            mission.mission_id,
+            AgentEventType.RECEIPT_RECEIVED,
+            {"action_id": "first_owned", "final_state": "COMPLETED", "verified": True},
+        )
+        assert (
+            admission.reconcile(
+                card["approval_id"], request=request, caller_pid=1, caller_uid=1000
+            )["status"]
+            == "COMPLETED"
+        )
+        _, new_card = await _propose(
+            service,
+            mission,
+            "ur5e.move_to_pose",
+            idem="explicit-new-decision-after-reconciliation",
+            args={"x": 0.30, "y": 0.25, "z": 0.45},
+        )
+        assert new_card["approval_id"] != card["approval_id"]
+    finally:
+        await service.close()

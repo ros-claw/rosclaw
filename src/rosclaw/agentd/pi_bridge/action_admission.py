@@ -507,6 +507,20 @@ class ActionAdmissionService:
                 "INVALID_ARGUMENTS",
                 f"capability {capability_id} arguments rejected: {exc}",
             ) from exc
+        # A new idempotency key is not a reconciliation mechanism. Preserve
+        # uncertain physical outcomes until the exact owned transaction is
+        # resolved; stop/cancel retain their independent existing routes.
+        if capability_id != "cleaning.disable":
+            pending = service._store.connection.execute(
+                "SELECT txn_id, approval_id FROM action_txns WHERE mission_id = ? "
+                "AND body_hash = ? AND state IN ('DISPATCHING','RECEIPT_PENDING') "
+                "AND idempotency_key <> ? ORDER BY created_at LIMIT 1",
+                (request.mission_id, request.body_hash, request.idempotency_key),
+            ).fetchone()
+            if pending is not None:
+                raise ToolBridgeError("ACTION_RECONCILIATION_REQUIRED",
+                    f"transaction {pending['txn_id']} is unresolved; query approval "
+                    f"{pending['approval_id']} before any replacement action")
         # 六审 §4.2：统一 TTL——created_at/expires_at 由 admission 一次
         # 生成（SIM 600s / REAL 300s 策略），ExactAction/Approval/ActionTxn
         # 同一时间边界；handler 不再自行另算。
