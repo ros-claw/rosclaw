@@ -9,6 +9,8 @@ from rosclaw.connectors.ros.intelligence import RosSystemModel
 
 from .semantics import (
     SEMANTIC_TYPES,
+    action_observation_contracts,
+    action_observation_requirements,
     is_event_driven_slam_pose,
     is_initial_pose_command,
     issue_applies_to,
@@ -33,9 +35,18 @@ def resolve_capabilities(model: RosSystemModel, *, now: datetime | None = None) 
     if not isinstance(bindings, dict):
         bindings = {}
 
+    diagnostic_cache = None
+
+    def diagnostic_issues():
+        nonlocal diagnostic_cache
+        if diagnostic_cache is None:
+            from rosclaw.connectors.ros.diagnosis import diagnose
+            diagnostic_cache = diagnose(model, now=now)["issues"]
+        return diagnostic_cache
+
     def health(interface):
         signal = signals.get(interface["name"])
-        if signal is None or signal.last_message_age_ms is None:
+        if signal is None or signal.last_message_age_ms is None or signal.publisher_count is None:
             return None
         if not -100 <= (now - signal.captured_at).total_seconds() * 1000 <= 5000:
             return False
@@ -53,8 +64,6 @@ def resolve_capabilities(model: RosSystemModel, *, now: datetime | None = None) 
         )
 
     def nav_requirements(interface):
-        from rosclaw.connectors.ros.diagnosis import diagnose
-
         namespace = interface["name"].rsplit("/", 1)[0]
         semantic = SEMANTIC_TYPES.get(interface.get("action_type"), "navigation.navigate_to_pose")
         requirements = {
@@ -68,7 +77,7 @@ def resolve_capabilities(model: RosSystemModel, *, now: datetime | None = None) 
                 issue["severity"] == "blocking"
                 and issue["issue_code"].startswith(("ROS_", "NAV2_"))
                 and issue_applies_to(issue, semantic)
-                for issue in diagnose(model, now=now)["issues"]
+                for issue in diagnostic_issues()
             ),
             "tf.map_to_odom": frame_connected(
                 model, frames.get("map", "map"), frames.get("odom", "odom")
@@ -113,15 +122,32 @@ def resolve_capabilities(model: RosSystemModel, *, now: datetime | None = None) 
                 )
             for key in ["localization_ready", "costmaps_fresh", "obstacle_source_configured"]:
                 requirements[key] = model.navigation.get(key)
+        dependencies = action_observation_requirements(model, semantic, now=now)
+        if dependencies is not None:
+            requirements.update(dependencies)
         return requirements
 
     results = []
     for semantic in sorted(
-        set(SEMANTIC_TYPES.values())
+        set(SEMANTIC_TYPES.values()) | set(action_observation_contracts(model))
         | {"coverage.verify", "safety.collision_monitor", "cleaning.enable", "cleaning.disable"}
     ):
         candidates: list[dict] = []
         binding = bindings.get(semantic)
+        if isinstance(binding, dict) and semantic in action_observation_contracts(model) and semantic not in SEMANTIC_TYPES.values() and not semantic.startswith("cleaning."):
+            dependencies = action_observation_requirements(model, semantic, now=now)
+            kind = "actions" if binding.get("action_type") else "topics"
+            type_key = "action_type" if kind == "actions" else "msg_type"
+            observed = next((i for i in model.graph.get(kind, []) if i.get("name") == binding.get("name")), None)
+            requirements = dict(dependencies or {}, **{
+                "body.bound": bool(model.body.get("effective_body_hash")),
+                "interface.typed": None if observed is None else observed.get(type_key) == binding.get(type_key),
+                "snapshot.fresh": -100 <= model.age_ms(now) <= 5000,
+                "runtime_diagnostics": not any(i["severity"] == "blocking" and issue_applies_to(i, semantic)
+                                               for i in diagnostic_issues()),
+            })
+            status = "BLOCKED" if False in requirements.values() else "UNKNOWN" if None in requirements.values() else "AVAILABLE"
+            candidates.append({"status": status, "interface": {**binding, "kind": kind}, "requirements": requirements})
         if isinstance(binding, dict) and semantic in {
             "coverage.verify",
             "safety.collision_monitor",

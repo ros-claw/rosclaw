@@ -17,6 +17,7 @@ def compile_agent_summary(model: RosSystemModel, *, now: datetime | None = None)
     caps = resolve_capabilities(model, now=now)
     lines = [
         "ROS runtime observations (not Body truth or authorization)",
+        "Global health is diagnostic only; consult capability-scoped readiness for each action. Stop/cancel/read-only observation remain separate.",
         f"snapshot_id={model.snapshot_id} snapshot_hash={model.snapshot_hash}",
         f"captured_at={model.captured_at.isoformat()} generated_at={now.isoformat()} age_ms={model.age_ms(now):.0f}",
         f"environment={model.environment.get('ros_generation')} distro={model.environment.get('distro')}",

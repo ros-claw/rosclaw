@@ -211,3 +211,84 @@ def publication_expectation(model, contract: dict, *, now) -> dict:
               and -100 <= (now - lifecycle.captured_at).total_seconds() * 1000 <= 5000)
     return {"phase": phase, "publication_expected":
             (phase in expected.get("phases", ["EXECUTING"])) if active else None}
+
+
+def action_observation_contracts(model) -> dict:
+    """Only explicit compiled-Body action dependencies opt into scoped readiness."""
+    declaration = model.body.get("action_observation_requirements", {})
+    if (not model.body.get("effective_body_hash") or not isinstance(declaration, dict)
+            or declaration.get("schema_version") != "rosclaw.action_observations.v1"):
+        return {}
+    capabilities = declaration.get("capabilities", {})
+    if not isinstance(capabilities, dict):
+        return {}
+    valid = {}
+    for name, requirement in capabilities.items():
+        if not isinstance(name, str) or not isinstance(requirement, dict):
+            continue
+        topics = requirement.get("topics")
+        transforms = requirement.get("transforms", [])
+        lifecycle = requirement.get("lifecycle_nodes", [])
+        if (not isinstance(topics, dict) or not topics
+                or any(not isinstance(k, str) or not isinstance(v, str) for k, v in topics.items())
+                or not isinstance(transforms, list)
+                or any(not isinstance(pair, list) or len(pair) != 2
+                       or any(not isinstance(x, str) for x in pair) for pair in transforms)
+                or not isinstance(lifecycle, list)
+                or any(not isinstance(x, str) for x in lifecycle)):
+            continue
+        valid[name] = requirement
+    return valid
+
+
+def action_observation_requirements(model, capability: str, *, now) -> dict | None:
+    """Unknown required evidence remains UNKNOWN; no permission is created."""
+    contract = action_observation_contracts(model).get(capability)
+    if contract is None:
+        return None
+    signals = {s.topic: s for s in model.signals}
+    topics = {t["name"]: t for t in model.graph.get("topics", [])}
+    requirements = {}
+    for topic, expected_type in contract["topics"].items():
+        observed, signal = topics.get(topic), signals.get(topic)
+        requirements[topic+":type"] = None if observed is None else observed.get("msg_type") == expected_type
+        if signal is None or signal.last_message_age_ms is None or signal.publisher_count is None:
+            requirements[topic+":fresh"] = None
+        else:
+            requirements[topic+":fresh"] = (
+                -100 <= (now-signal.captured_at).total_seconds()*1000 <= 5000
+                and signal.publisher_count != 0
+                and (signal.freshness_policy == "latched" or signal.last_message_age_ms <= signal.max_age_ms)
+            )
+    for parent, child in contract.get("transforms", []):
+        edges = [e for e in model.transforms if e.parent == parent and e.child == child]
+        checks = [None if e.age_ms is None else
+                  -100 <= (now-e.captured_at).total_seconds()*1000 <= 5000
+                  and (e.static or -e.future_tolerance_ms <= e.age_ms <= 1000) for e in edges]
+        requirements[f"tf:{parent}:{child}"] = True if True in checks else None if not checks or None in checks else False
+    return requirements
+
+
+def dependency_scope_for_issue(model, issue: dict) -> list[str] | None:
+    contracts = action_observation_contracts(model)
+    if not contracts:
+        return None
+    observation = issue.get("evidence", [{}])[0].get("observation", {})
+    if not isinstance(observation, dict):
+        return None
+    topic = observation.get("topic")
+    pair = [observation.get("parent"), observation.get("child")]
+    node = observation.get("name")
+    if topic and any(topic in r["topics"] for r in contracts.values()):
+        return sorted(c for c, r in contracts.items() if topic in r["topics"])
+    if all(pair) and any(pair in r.get("transforms", []) for r in contracts.values()):
+        return sorted(c for c, r in contracts.items() if pair in r.get("transforms", []))
+    if node and any(node in r.get("lifecycle_nodes", []) for r in contracts.values()):
+        return sorted(c for c, r in contracts.items() if node in r.get("lifecycle_nodes", []))
+    # Navigation-specific observations are relevant only to actions explicitly
+    # depending on the navigation lifecycle. Collision/global time hazards stay global.
+    if issue["issue_code"].startswith(("NAV2_LOCALIZATION_", "NAV2_COSTMAP_", "NAV2_CONTROLLER_")):
+        navigation = [c for c, r in contracts.items() if r.get("lifecycle_nodes")]
+        if navigation:
+            return sorted(navigation)
+    return None

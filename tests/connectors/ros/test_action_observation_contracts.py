@@ -183,3 +183,66 @@ def test_unbound_new_topic_remains_conservative(healthy):
     healthy.body["observation_contracts"] = {}
     assert observation_contract(healthy, topic) is None
     assert nav(healthy)["status"] == "BLOCKED"
+
+
+def bind_motion_dependencies(model):
+    model.body["effective_body_hash"] = "compiled-fixture-body"
+    model.body["action_observation_requirements"] = {
+        "schema_version": "rosclaw.action_observations.v1",
+        "capabilities": {
+            "motion.twist": {
+                "topics": {"/robot/scan": "sensor_msgs/msg/LaserScan"},
+                "transforms": [],
+            },
+            "navigation.navigate_to_pose": {
+                "topics": {"/robot/scan": "sensor_msgs/msg/LaserScan"},
+                "transforms": [["map", "odom"]],
+                "lifecycle_nodes": ["/robot/controller_server"],
+            },
+        },
+    }
+    scan = next(t for t in model.graph["topics"] if t["msg_type"] == "sensor_msgs/msg/LaserScan")
+    old = scan["name"]
+    scan["name"] = "/robot/scan"
+    next(s for s in model.signals if s.topic == old).topic = "/robot/scan"
+    model.body["required_topics"] = [
+        t for t in model.body.get("required_topics", []) if t != old
+    ] + ["/robot/scan"]
+    model.body.setdefault("ros_capability_bindings", {})["motion.twist"] = {
+        "name": "/robot/cmd_vel",
+        "msg_type": "geometry_msgs/msg/Twist",
+    }
+    model.graph["topics"].append({"name": "/robot/cmd_vel", "msg_type": "geometry_msgs/msg/Twist"})
+
+
+def test_motion_uses_its_own_dependencies_not_navigation_readiness(healthy):
+    from rosclaw.connectors.ros.resolver import resolve_capabilities
+
+    bind_motion_dependencies(healthy)
+    healthy.navigation["controller_progress"] = False
+    motion = next(
+        c for c in resolve_capabilities(healthy, now=NOW) if c["semantic_id"] == "motion.twist"
+    )
+    assert motion["status"] == "AVAILABLE"
+    assert nav(healthy)["status"] == "BLOCKED"
+    scan = next(s for s in healthy.signals if s.topic == "/robot/scan")
+    scan.last_message_age_ms = 5000
+    motion = next(
+        c for c in resolve_capabilities(healthy, now=NOW) if c["semantic_id"] == "motion.twist"
+    )
+    assert motion["status"] == "BLOCKED"
+
+
+def test_unrelated_tf_cannot_invalidate_motion_but_global_cycle_can(healthy):
+    from rosclaw.connectors.ros.intelligence.system_model import Transform
+    from rosclaw.connectors.ros.resolver import resolve_capabilities
+
+    bind_motion_dependencies(healthy)
+    next(t for t in healthy.transforms if t.parent == "map" and t.child == "odom").age_ms = 10000
+    def motion():
+        return next(c for c in resolve_capabilities(healthy, now=NOW) if c["semantic_id"] == "motion.twist")
+    assert motion()["status"] == "AVAILABLE"
+    healthy.transforms.append(
+        Transform(parent="base_link", child="map", captured_at=NOW, source="fixture", age_ms=1)
+    )
+    assert motion()["status"] == "BLOCKED"

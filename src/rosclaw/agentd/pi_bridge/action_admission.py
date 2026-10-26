@@ -87,6 +87,9 @@ class ActionAdmissionService:
         ros = envelope.self_state.get("ros_observations")
         if not isinstance(ros, dict):
             return  # Non-ROS robots retain their existing authority paths.
+        if ros.get("status") != "OBSERVED":
+            raise ToolBridgeError("ROS_PRECONDITION_UNKNOWN_OR_FAILED",
+                                  "required ROS observation source is UNKNOWN; no dispatch")
         facts = ros.get("admission_facts", {})
         scoped = facts.get("capability_facts", {}) if isinstance(facts, dict) else {}
         dependent = scoped.get(capability_id)
@@ -1050,7 +1053,7 @@ class ActionAdmissionService:
                 current_dependencies = context_hash_of(fresh, capability_id=exact.capability_id)
                 if current_dependencies != exact.context_hash:
                     raise ToolBridgeError("NEEDS_REPLAN", "action dependency facts changed after approval; no dispatch or replay")
-                self._assert_ros_dependencies(fresh, exact.capability_id)
+        self._assert_ros_dependencies(fresh, exact.capability_id)
         # broker 的批准是权威——txn 状态以之为准同步（operatord decide
         # 经 apply_decision 落库，不走 admission）。
         if txn.state == "AWAITING_OPERATOR":

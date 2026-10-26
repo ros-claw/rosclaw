@@ -312,6 +312,12 @@ def diagnose(
         not edge.static and edge.age_ms is None for edge in model.transforms
     ):
         unknown.append("tf_timing")
+    from rosclaw.connectors.ros.resolver.semantics import dependency_scope_for_issue
+    for issue in issues:
+        if "affected_capabilities" not in issue:
+            affected = dependency_scope_for_issue(model, issue)
+            if affected is not None:
+                issue["affected_capabilities"] = affected
     unknown = sorted(set(unknown) | set(event_pose_unknowns) | set(contract_unknowns))
     status = (
         "BLOCKED"

@@ -11,6 +11,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import statistics
 import time
 from collections import deque
@@ -79,6 +80,7 @@ class ReadOnlyProbe(Node):
         collision_assets_sha256=None,
         lossless_gzip_snapshots=False,
         collision_asset_reference_only=False,
+        extra_read_types=(),
     ):
         if (
             type(snapshot_period_sec) not in (int, float)
@@ -109,6 +111,11 @@ class ReadOnlyProbe(Node):
             self.collision_resource_guard = CollisionResourceContinuity(
                 "/assets", {"prepared_collision_assets": self.prepared_collision_assets}
             )
+        if (not isinstance(extra_read_types, (list, tuple)) or len(extra_read_types)>32
+                or any(not isinstance(t, str) or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*/msg/[A-Za-z][A-Za-z0-9_]*", t)
+                       for t in extra_read_types)):
+            raise ValueError("operator read-type contract must contain at most 32 ROS message types")
+        self.read_types = READ_TYPES | set(extra_read_types)
         super().__init__("rosclaw_readonly_probe")
         self.samples = {}
         self.subscriptions_by_topic = {}
@@ -165,7 +172,7 @@ class ReadOnlyProbe(Node):
                 topic in self.subscriptions_by_topic
                 or len(types) != 1
                 or (
-                    types[0] not in READ_TYPES
+                    types[0] not in getattr(self, "read_types", READ_TYPES)
                     and not (topic == TF_ATTRIBUTION_TOPIC and types[0] == "std_msgs/msg/String")
                 )
             ):
@@ -648,6 +655,7 @@ class ReadOnlyProbe(Node):
                 "node_use_sim_time": observed_times,
                 "package_inventory": self.packages,
                 "package_versions": self.package_versions,
+                "operator_read_types": sorted(self.read_types),
                 "node_parameters": parameters,
                 "parameter_captured_at": self.parameter_captured_at,
                 "clock_advancing": clock_advancing,
@@ -733,12 +741,14 @@ def main():
     parser.add_argument("--collision-asset-reference-only", action="store_true")
     parser.add_argument("--collision-asset-originals")
     parser.add_argument("--collision-asset-originals-sha256")
+    parser.add_argument("--read-type", action="append", default=[], help="Operator-owned additional read-only ROS message type")
     parser.add_argument("--duration", type=float, default=3.0)
     parser.add_argument("--output", type=Path)
     args, ros_args = parser.parse_known_args()
     rclpy.init(args=ros_args)
     node = ReadOnlyProbe(
         snapshot_period_sec=args.snapshot_period_sec,
+        extra_read_types=args.read_type,
         lossless_gzip_snapshots=args.lossless_gzip_snapshots,
         collision_asset_reference_only=args.collision_asset_reference_only,
         collision_assets_path=args.collision_asset_originals,
