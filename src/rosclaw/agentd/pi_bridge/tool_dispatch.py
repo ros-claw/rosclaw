@@ -151,7 +151,11 @@ def _auto_register_artifacts(service, request: PiToolRequestV1, value: object) -
 
 
 def _envelope_result(
-    request: PiToolRequestV1, envelope, *, auto_refs: list[dict] | None = None
+    request: PiToolRequestV1,
+    envelope,
+    *,
+    auto_refs: list[dict] | None = None,
+    service: AgentService | None = None,
 ) -> PiToolResultV1:
     """N5B：canonical envelope → 模型可见投影（status + capability_id +
     value）；FAILED/BLOCKED 以稳定错误码诚实抛出。
@@ -177,6 +181,19 @@ def _envelope_result(
         if refs:
             projection["artifact_refs"] = refs
         summary = json.dumps(projection, ensure_ascii=False)
+        if len(summary) > 8000:
+            from rosclaw.agentd.pi_bridge.observation_projection import project_observation
+
+            try:
+                projection = project_observation(service, request, projection)
+            except (OSError, ValueError) as exc:
+                raise ToolBridgeError(
+                    "CAPABILITY_OUTPUT_STORAGE_ERROR",
+                    "Complete observation could not be registered; no partial JSON returned. "
+                    + str(exc),
+                    retryable=False,
+                ) from exc
+            summary = json.dumps(projection, ensure_ascii=False)
         if len(summary) > 8000:
             raise ToolBridgeError(
                 "CAPABILITY_OUTPUT_TOO_LARGE",
@@ -534,7 +551,7 @@ class PiToolDispatcher:
                 request.request_id, capability_id, dict(args.get("arguments", {}))
             )
             auto_refs = _auto_register_artifacts(service, request, envelope.value)
-            return _envelope_result(request, envelope, auto_refs=auto_refs)
+            return _envelope_result(request, envelope, auto_refs=auto_refs, service=service)
         if name == "rosclaw_compute":
             # 七审 §2.2/PR-SEVEN-2.2：COMPUTE 能力免审批调用（纯计算无
             # 物理副作用）——不再被 observe 的 OBSERVE-only 拒绝。
@@ -561,7 +578,7 @@ class PiToolDispatcher:
                 request.request_id, capability_id, dict(args.get("arguments", {}))
             )
             auto_refs = _auto_register_artifacts(service, request, envelope.value)
-            return _envelope_result(request, envelope, auto_refs=auto_refs)
+            return _envelope_result(request, envelope, auto_refs=auto_refs, service=service)
         if name == "rosclaw_verify":
             receipts = [
                 e.payload
