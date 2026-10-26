@@ -17,7 +17,14 @@ class UnsafeRobotPose(ValueError):  # noqa: N818 - preserve the ported geometry 
 
 
 class Grid:
-    def __init__(self, message, robot_xy, clearance=PLANNING_RADIUS, navigation=None):
+    def __init__(
+        self,
+        message,
+        robot_xy,
+        clearance=PLANNING_RADIUS,
+        navigation=None,
+        tracking_margin=TRACKING_MARGIN,
+    ):
         info = message.info
         q = info.origin.orientation
         if abs(q.x) + abs(q.y) + abs(q.z) > 1e-6:
@@ -29,7 +36,9 @@ class Grid:
         self.occupied = self.data >= 65
         # Unknown cells constrain navigation, while observed free margins define frontiers.
         distance = ndimage.distance_transform_edt(np.pad(self.free, 1))[1:-1, 1:-1]
-        radius = clearance + TRACKING_MARGIN
+        if not math.isfinite(tracking_margin) or tracking_margin < 0:
+            raise ValueError("Finite nonnegative tracking margin required")
+        radius = clearance + tracking_margin
         self.occupancy_space = CircleSpace(self.free, self.resolution, self.origin, radius)
         self.physical_occupancy_space = CircleSpace(
             self.free, self.resolution, self.origin, clearance

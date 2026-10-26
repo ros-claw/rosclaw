@@ -43,6 +43,29 @@ def ledger():
     return AnchoredCoverage(odom_epoch="continuous", brush_radius=0.15)
 
 
+def test_extra_planning_margin_does_not_change_the_physical_footprint():
+    def build(margin):
+        message = Namespace(
+            info=Namespace(
+                resolution=0.1,
+                width=20,
+                height=20,
+                origin=Namespace(
+                    position=Namespace(x=-1.0, y=-1.0), orientation=Namespace(x=0.0, y=0.0, z=0.0)
+                ),
+            ),
+            data=np.zeros(400, dtype=int),
+        )
+        return Grid(message, [0, 0], clearance=0.20, tracking_margin=margin)
+
+    ordinary = build(0.01)
+    buffered = build(0.03)
+    assert ordinary.physical_pose_safe([0.78, 0]) and buffered.physical_pose_safe([0.78, 0])
+    assert ordinary.safe_pose([0.78, 0]) and not buffered.safe_pose([0.78, 0])
+    with pytest.raises(ValueError, match="tracking margin"):
+        build(-0.01)
+
+
 def test_planning_has_no_execution_credit_and_checks_whole_footprint():
     state = ledger()
     geometry = grid()
