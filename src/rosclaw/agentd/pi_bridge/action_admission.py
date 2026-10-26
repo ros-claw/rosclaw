@@ -1072,7 +1072,17 @@ class ActionAdmissionService:
         # 经 apply_decision 落库，不走 admission）。
         if txn.state == "AWAITING_OPERATOR":
             txn = txns.transition(txn.txn_id, "APPROVED")
-        txn = txns.transition(txn.txn_id, "DISPATCHING", grant_id=grant_id)
+        # Persist authority-owned identifiers BEFORE any transport side effect.
+        # A lost response must not erase the identity needed for reconciliation.
+        # REAL consent already allocated the daemon action while proposing.
+        daemon_action_id = stored.model_dump(mode="json").get("daemon_action_id")
+        dispatch_action_id = str(daemon_action_id or new_id("act"))
+        dispatch_receipt_id = (
+            new_id("rcpt") if mission.mode.value == "SIMULATION"
+            and service._action_channel is None else dispatch_action_id
+        )
+        txn = txns.transition(txn.txn_id, "DISPATCHING", grant_id=grant_id,
+                              action_id=dispatch_action_id, receipt_id=dispatch_receipt_id)
         decision = DecisionV1(
             decision_id=new_id("dec"),
             mission_id=stored.mission_id,
@@ -1092,6 +1102,8 @@ class ActionAdmissionService:
                     "arguments": exact.normalized_arguments,
                     # 六审 §6.2.4：执行通道按合约记录的身份路由。
                     "executor_identity": exact.executor_identity,
+                    "dispatch_action_id": dispatch_action_id,
+                    "dispatch_receipt_id": dispatch_receipt_id,
                 },
             ),
         )
@@ -1107,7 +1119,7 @@ class ActionAdmissionService:
                 principal=mission.owner_principal if mission else stored.principal,
             )
         except Exception:  # Transport loss does not prove non-execution.
-            txns.transition(txn.txn_id, "RECEIPT_PENDING")
+            txn = txns.transition(txn.txn_id, "RECEIPT_PENDING")
             return {
                 "schema_version": "rosclaw.execution_outcome.v1",
                 "status": "UNKNOWN", "txn_id": txn.txn_id,
@@ -1122,8 +1134,8 @@ class ActionAdmissionService:
         # 非空 action/receipt ID + receipt 事件精确绑定本 action。
         # terminal_receipt=True 但缺 receipt 一律不是 COMPLETED。
         terminal_bool = bool(outcome.terminal_receipt)
-        action_id = ""
-        receipt_id = ""
+        action_id = txn.action_id
+        receipt_id = txn.receipt_id
         if outcome.evidence_ref and outcome.evidence_ref.startswith("receipt://"):
             receipt_id = outcome.evidence_ref.removeprefix("receipt://")
         # receipt 事件链验证（P0-5E）：receipt.received 事件必须精确绑定
@@ -1132,7 +1144,7 @@ class ActionAdmissionService:
         # receipt_id 的旧 daemon 路径按 action_id 兜底匹配。
         receipt_ok = False
         receipt_payload = None
-        if receipt_id:
+        if receipt_id and outcome.evidence_ref and outcome.evidence_ref.startswith("receipt://"):
             events = service.receipt_events(stored.mission_id, receipt_id=receipt_id, limit=1, terminal_only=True)
             for e in events:
                 if e.type.value != "receipt.received":

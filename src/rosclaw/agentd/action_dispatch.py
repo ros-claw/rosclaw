@@ -219,11 +219,18 @@ async def request_action(
             from rosclaw.agentd.sim_executor import SimActionError
 
             try:
+                dispatch_ids = {}
+                if payload.get("dispatch_action_id"):
+                    dispatch_ids = {
+                        "action_id": payload["dispatch_action_id"],
+                        "receipt_id": payload["dispatch_receipt_id"],
+                    }
                 outcome = await sim_channel.execute(
                     capability_id=capability,
                     arguments=arguments,
                     grant_id=grant.grant_id,
                     mode=mode,
+                    **dispatch_ids,
                 )
             except SimActionError as exc:
                 return HandlerOutcome(text=f"SIM 执行失败（fail closed）：{exc}")
@@ -302,6 +309,8 @@ async def request_action(
             grant_id=grant.grant_id,
             execution_mode=mode,
             timeout_sec=timeout_sec,
+            **({"action_id": payload["dispatch_action_id"]}
+               if payload.get("dispatch_action_id") else {}),
         )
     except ActionChannelError as exc:
         return HandlerOutcome(text=f"动作派发/回执校验失败（fail closed）：{exc}")

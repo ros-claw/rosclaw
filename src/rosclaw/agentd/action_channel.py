@@ -85,6 +85,7 @@ class DaemonActionChannel:
         grant_id: str,
         execution_mode: str = "SIMULATION",
         timeout_sec: float = 30.0,
+        action_id: str | None = None,
     ) -> ActionOutcome:
         """Submit a SIMULATION or SHADOW action and verify its receipt."""
         mode = ExecutionMode(str(execution_mode).upper())
@@ -97,7 +98,7 @@ class DaemonActionChannel:
                 f"daemon session failed (daemon offline?): {exc.code}: {exc}"
             ) from exc
         envelope = ActionEnvelope(
-            action_id=new_id("act"),
+            action_id=action_id or new_id("act"),
             actor_id=self._actor_id,
             agent_framework="rosclaw-native",
             session_id=session_id,
@@ -127,6 +128,8 @@ class DaemonActionChannel:
                     f"daemon rejected action request: {exc.code}: {exc}"
                 ) from exc
             action_id = submitted.get("action_id", envelope.action_id)
+            if action_id != envelope.action_id:
+                raise ActionChannelError("daemon response changed the submitted action identity")
             try:
                 status = await asyncio.to_thread(
                     self._client.wait_for_action, action_id, timeout_sec=timeout_sec

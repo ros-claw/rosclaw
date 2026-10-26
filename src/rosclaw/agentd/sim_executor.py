@@ -57,9 +57,13 @@ class SimActionChannel:
         arguments: dict[str, Any],
         grant_id: str,
         mode: str = "SIMULATION",
+        action_id: str | None = None,
+        receipt_id: str | None = None,
     ) -> SimActionOutcome:
         if mode != "SIMULATION":
             raise SimActionError(f"SimActionChannel only executes SIMULATION, got {mode}")
+        action_id = action_id or new_id("act")
+        receipt_id = receipt_id or new_id("rcpt")
         tool_name = capability_id
         try:
             result_text = await self._call_tool(tool_name, arguments)
@@ -68,11 +72,9 @@ class SimActionChannel:
             raise SimActionError(
                 f"sim executor {self._name} failed for {tool_name}: {type(exc).__name__}: {exc}"
             ) from exc
-        action_id = new_id("act")
         # 五审 P0-5E：receipt 是独立证据对象——独立 receipt_id，
         # 不得与 action_id 同值（否则"receipt 存在"无法独立于
         # "action 被派发"被验证）。
-        receipt_id = new_id("rcpt")
         # 五审 P0-5E：domain 级失败（ok=false / driver=failed / error 字段）
         # 不得报 COMPLETED——transport 没错 ≠ 动作成功。success predicate：
         # 只有明确 ok=true 或无否定字段的结果才算完成。

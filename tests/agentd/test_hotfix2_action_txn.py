@@ -162,7 +162,7 @@ class TestExecutionOutcomeChain:
         await service.close()
 
     async def test_old_receipt_never_vouches_new_action(self, tmp_path: Path) -> None:
-        """预置旧 receipt 事件 + executor 失败 → FAILED（any-receipt
+        """预置旧 receipt 事件 + transport 失败 → UNKNOWN（any-receipt
         判定不存在——P0-NA-13/P0-4F 场景 D）。"""
         from rosclaw.agentd.operator_socket import operator_call
         from rosclaw.agentd.sim_executor import SimActionError
@@ -198,13 +198,16 @@ class TestExecutionOutcomeChain:
         )
         outcome = await admission.execute(card["approval_id"], request=ctx, caller_pid=1, caller_uid=1000)
 
-        # executor 失败 + 旧 receipt 存在 → 仍必须 FAILED（场景 D）。
+        # Transport loss does not prove that no side effect occurred. A receipt
+        # from another action proves neither completion nor failure of ours.
         assert outcome["executed"] is False, "旧 receipt 竟为新动作背书"
-        assert outcome["status"] == "FAILED"
+        assert outcome["status"] == "UNKNOWN"
+        assert outcome["reconciliation_required"] is True
+        assert outcome["action_id"] != "act_old"
         from rosclaw.agentd.pi_bridge.action_txn import ActionTxnStore
 
         txn = ActionTxnStore(service._store.connection).get_by_approval(card["approval_id"])
-        assert txn is not None and txn.state == "FAILED"
+        assert txn is not None and txn.state == "RECEIPT_PENDING"
         await operatord.stop()
         await agent_server.stop()
         await service.close()

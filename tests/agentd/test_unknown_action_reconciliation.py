@@ -45,7 +45,7 @@ async def test_pending_receipt_reconciles_exactly_without_redispatch(tmp_path, l
                 "other" if late_result == "other_mission" else mission.mission_id,
                 AgentEventType.RECEIPT_RECEIVED,
                 {
-                    "action_id": "owned_action",
+                    "action_id": first["action_id"], "receipt_id": "owned_action",
                     "verified": late_result != "unverified",
                     "final_state": "COMPLETED"
                     if late_result in ["unverified", "other_mission"]
@@ -56,7 +56,7 @@ async def test_pending_receipt_reconciles_exactly_without_redispatch(tmp_path, l
             await service._events.append(
                 mission.mission_id,
                 AgentEventType.RECEIPT_RECEIVED,
-                {"action_id": "owned_action", "final_state": "RUNNING", "verified": False},
+                {"action_id": first["action_id"], "receipt_id": "owned_action", "final_state": "RUNNING", "verified": False},
             )
             second = await admission.execute(
                 card["approval_id"], request=request, caller_pid=1, caller_uid=1000
@@ -67,7 +67,7 @@ async def test_pending_receipt_reconciles_exactly_without_redispatch(tmp_path, l
         )
         assert second["executed"] is (late_result == "COMPLETED")
         if late_result == "COMPLETED":
-            assert second["action_id"] == "owned_action"
+            assert second["action_id"] == first["action_id"]
     finally:
         await service.close()
 
@@ -100,6 +100,53 @@ async def test_transport_exception_retains_unknown_and_never_replays(tmp_path):
         assert txn.state == "RECEIPT_PENDING"
     finally:
         await service.close()
+
+
+async def test_ids_persist_before_actual_sim_transport_and_lost_result_can_reconcile(tmp_path):
+    service, mission = await _setup(tmp_path)
+    try:
+        request, card = await _propose(service, mission, "ur5e.move_to_pose",
+            idem="persist-before-send", args={"x": .35, "y": .25, "z": .45})
+        captured = {}
+
+        async def lose_response(*args, **kwargs):
+            txn = ActionTxnStore(service._store.connection).get_by_approval(card["approval_id"])
+            assert txn.state == "DISPATCHING"
+            assert txn.action_id and txn.receipt_id and txn.action_id != txn.receipt_id
+            captured.update(action_id=txn.action_id, receipt_id=txn.receipt_id)
+            raise ConnectionError("accepted, but response stream disconnected")
+
+        admission = ActionAdmissionService(service)
+        # Exercise the actual dispatch and SIM executor, replacing only MCP IO.
+        with patch("rosclaw.agentd.sim_executor.SimActionChannel._call_tool", lose_response):
+            initial = await admission.execute(card["approval_id"], request=request,
+                                               caller_pid=1, caller_uid=1000)
+        assert initial["status"] == "UNKNOWN"
+        assert initial["action_id"] == captured["action_id"]
+        assert initial["receipt_id"] == captured["receipt_id"]
+        await service._events.append(mission.mission_id, AgentEventType.RECEIPT_RECEIVED,
+            {**captured, "final_state": "COMPLETED", "verified": True})
+        with patch("rosclaw.agentd.action_dispatch.request_action", AsyncMock()) as dispatch:
+            final = admission.reconcile(card["approval_id"], request=request,
+                                         caller_pid=1, caller_uid=1000)
+        assert final["status"] == "COMPLETED"
+        assert final["action_id"] == captured["action_id"]
+        dispatch.assert_not_called()
+    finally:
+        await service.close()
+
+
+async def test_daemon_transport_retains_preallocated_identity_and_rejects_substitution():
+    from rosclaw.agentd.action_channel import ActionChannelError
+    from tests.agentd.test_nonreal_action_session_lifecycle import Client, channel, kwargs
+
+    client = Client()
+    transport = channel(client)
+    await transport.request_nonreal_action(**kwargs(), action_id="persisted-before-IO")
+    assert client.actions[0].action_id == "persisted-before-IO"
+    client.request_action = lambda envelope: {"action_id": "unrelated-action"}
+    with pytest.raises(ActionChannelError, match="changed the submitted action identity"):
+        await transport.request_nonreal_action(**kwargs(), action_id="second-owned-ID")
 
 
 async def test_delayed_receipt_after_service_restart_is_reconciled_without_dispatch(tmp_path):
@@ -137,7 +184,7 @@ async def test_delayed_receipt_after_service_restart_is_reconciled_without_dispa
         await reopened._events.append(
             mission.mission_id,
             AgentEventType.RECEIPT_RECEIVED,
-            {"action_id": "restart_owned", "final_state": "COMPLETED", "verified": True},
+            {"action_id": initial["action_id"], "receipt_id": "restart_owned", "final_state": "COMPLETED", "verified": True},
         )
         dispatch = AsyncMock()
         with patch("rosclaw.agentd.action_dispatch.request_action", dispatch):
@@ -146,7 +193,7 @@ async def test_delayed_receipt_after_service_restart_is_reconciled_without_dispa
             )
         assert result["status"] == "COMPLETED"
         assert result["txn_id"] == initial["txn_id"]
-        assert result["action_id"] == "restart_owned"
+        assert result["action_id"] == initial["action_id"]
         dispatch.assert_not_called()
     finally:
         await reopened.close()
@@ -249,7 +296,7 @@ async def test_new_idempotency_key_cannot_bypass_pending_physical_result(tmp_pat
         await service._events.append(
             mission.mission_id,
             AgentEventType.RECEIPT_RECEIVED,
-            {"action_id": "first_owned", "final_state": "COMPLETED", "verified": True},
+            {"action_id": first["action_id"], "receipt_id": "first_owned", "final_state": "COMPLETED", "verified": True},
         )
         assert (
             admission.reconcile(
