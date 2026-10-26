@@ -42,5 +42,9 @@ class PiToolResultV1(ContractModel):
     evidence_refs: list[str] = Field(default_factory=list)
     approval_id: str | None = None
     receipt_id: str | None = None
+    action_id: str | None = None
+    txn_id: str | None = None
+    operation_id: str | None = None
+    reconciliation_required: bool = False
     retryable: bool = False
     error_code: str | None = None

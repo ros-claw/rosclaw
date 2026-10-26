@@ -18,11 +18,14 @@ export function buildProcessTools(ctx: BridgeToolContext): ToolDefinition[] {
 			label: "Process Start",
 			description:
 				"Start a long-running process as an Operation (returns operation_id " +
-				"immediately). After calling this, END YOUR TURN: tell the user the " +
-				"task is running in the background — completion is pushed to the " +
-				"user automatically with the result. Do NOT sleep and do NOT poll " +
-				"process_output to wait; the push brings the result. Use for builds, " +
-				"simulations, renders, long tests. For quick commands use bash instead.",
+				"immediately). Independent work may continue in this same turn while " +
+				"the process runs: a telemetry recorder or monitor is not a prerequisite " +
+				"that must finish before other task work. End your turn to await the " +
+				"terminal notification only when further work depends on completion. " +
+				"Do not sleep or repeatedly poll just to wait. A started operation is " +
+				"not a completed result. Use a bounded lifetime or explicitly stop a " +
+				"persistent collector with process_stop before final delivery. " +
+				"For quick commands use bash instead.",
 			parameters: Type.Object({
 				command: Type.String({ description: "要后台运行的 shell 命令" }),
 			}),

@@ -117,8 +117,7 @@ class AgentEventStore:
         async with self._lock:
             if event_id is not None and session_id is not None:
                 existing = self._conn.execute(
-                    "SELECT * FROM agent_events WHERE session_id = ? "
-                    "AND event_id = ?",
+                    "SELECT * FROM agent_events WHERE session_id = ? AND event_id = ?",
                     (session_id, event_id),
                 ).fetchone()
                 if existing is not None:
@@ -201,6 +200,56 @@ class AgentEventStore:
         rows = self._conn.execute(query, params).fetchall()
         return [self._row_to_event(r) for r in rows]
 
+    def receipt_events(
+        self,
+        mission_id: str,
+        *,
+        receipt_id: str | None = None,
+        limit: int = 3,
+        terminal_only: bool = False,
+    ) -> list[AgentEventV2]:
+        """Read committed receipts, independent of unrelated journal traffic.
+
+        An explicit receipt_id takes precedence over legacy action_id. Keep
+        mission isolation and return the latest selected rows chronologically.
+        """
+        if not 1 <= limit <= 1000:
+            raise ValueError("receipt query limit must be 1..1000")
+        query = "SELECT * FROM agent_events WHERE mission_id = ? AND type = ?"
+        parameters: list = [mission_id, AgentEventType.RECEIPT_RECEIVED.value]
+        if receipt_id is not None:
+            if not receipt_id:
+                return []
+            query += (
+                " AND COALESCE(NULLIF(json_extract(payload_json, '$.receipt_id'), ''),"
+                " json_extract(payload_json, '$.action_id')) = ?"
+            )
+            parameters.append(receipt_id)
+        if terminal_only:
+            from rosclaw.agentd.pi_bridge.action_txn import NON_COMPLETED_ACTION_TERMINALS
+
+            if receipt_id is None:
+                raise ValueError("terminal reconciliation requires an exact receipt ID")
+            states = sorted(NON_COMPLETED_ACTION_TERMINALS)
+            slots = ",".join("?" for _ in states)
+            query += (
+                " AND COALESCE(json_extract(payload_json, '$.action_id'), '') <> ''"
+                f" AND (json_extract(payload_json, '$.final_state') IN ({slots})"
+                " OR (json_extract(payload_json, '$.final_state') = 'COMPLETED'"
+                " AND json_extract(payload_json, '$.verified') = 1))"
+            )
+            parameters.extend(states)
+            # First committed terminal outcome is immutable under delayed
+            # nonterminal updates. Unverified completion is not a terminal fact.
+            query += " ORDER BY sequence ASC LIMIT ?"
+        else:
+            query += " ORDER BY sequence DESC LIMIT ?"
+        parameters.append(limit)
+        return [
+            self._row_to_event(row)
+            for row in reversed(self._conn.execute(query, parameters).fetchall())
+        ]
+
     def latest_sequence(self, mission_id: str) -> int:
         row = self._conn.execute(
             "SELECT COALESCE(MAX(sequence), 0) AS s FROM agent_events WHERE mission_id = ?",
@@ -228,7 +277,5 @@ class AgentEventStore:
             item_id=row["item_id"] if "item_id" in keys else None,
             call_id=row["call_id"] if "call_id" in keys else None,
             operation_id=row["operation_id"] if "operation_id" in keys else None,
-            model_visible=(
-                None if model_visible_raw is None else bool(model_visible_raw)
-            ),
+            model_visible=(None if model_visible_raw is None else bool(model_visible_raw)),
         )

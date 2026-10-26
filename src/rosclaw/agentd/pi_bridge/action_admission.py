@@ -29,6 +29,10 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
+from rosclaw.agentd.pi_bridge.action_txn import (
+    ACTION_TERMINAL_STATES,
+    NON_COMPLETED_ACTION_TERMINALS,
+)
 from rosclaw.agentd.pi_bridge.session_binding import SessionBindingStore
 from rosclaw.agentd.pi_bridge.tool_dispatch import ToolBridgeError
 from rosclaw.contracts.common import new_id
@@ -76,6 +80,34 @@ class ActionAdmissionService:
     def __init__(self, service: AgentService) -> None:
         self._service = service
         self._bindings = SessionBindingStore(service._store.connection)
+
+    @staticmethod
+    def _assert_ros_dependencies(envelope, capability_id: str | None) -> None:
+        # Observation readiness is not permission; grant/Body/safety checks
+        # remain mandatory. A stop/cleaner-off request is not blocked by an
+        # unrelated observation diagnostic. Native E-Stop stays independent.
+        if capability_id is None or capability_id == "cleaning.disable":
+            return
+        ros = envelope.self_state.get("ros_observations")
+        if not isinstance(ros, dict):
+            return  # Non-ROS robots retain their existing authority paths.
+        if ros.get("status") != "OBSERVED":
+            raise ToolBridgeError(
+                "ROS_PRECONDITION_UNKNOWN_OR_FAILED",
+                "required ROS observation source is UNKNOWN; no dispatch",
+            )
+        facts = ros.get("admission_facts", {})
+        scoped = facts.get("capability_facts", {}) if isinstance(facts, dict) else {}
+        dependent = scoped.get(capability_id)
+        if isinstance(dependent, dict) and dependent.get("readiness") != "AVAILABLE":
+            requirements = dependent.get("requirements", {})
+            unmet = [str(k) for k, value in requirements.items() if value is not True][:20]
+            raise ToolBridgeError(
+                "ROS_PRECONDITION_UNKNOWN_OR_FAILED",
+                f"required action observations are not ready; no dispatch: "
+                f"capability={capability_id}, readiness={dependent.get('readiness')}, "
+                f"unmet_requirements={unmet}",
+            )
 
     # -- 验证链 -----------------------------------------------------------------
 
@@ -150,6 +182,7 @@ class ActionAdmissionService:
         caller_pid: int | None = None,
         caller_uid: int | None = None,
         sim_only_effect: bool = False,
+        capability_id: str | None = None,
     ) -> ValidatedAdmissionContext:
         """session → mission → writer lease → caller identity → context
         lease → revision → body → mode 全链硬校验（HOTFIX-1：freshness
@@ -160,9 +193,7 @@ class ActionAdmissionService:
         context_hash 等），不再验证后丢弃——ExactAction 必须绑定
         这里的真实 context_hash。"""
         # 1-3. session/mission/writer/caller 身份（共用方法）。
-        self._validate_session_and_caller(
-            ctx, caller_pid=caller_pid, caller_uid=caller_uid
-        )
+        self._validate_session_and_caller(ctx, caller_pid=caller_pid, caller_uid=caller_uid)
         binding = self._bindings.binding_for_session(ctx.pi_session_id)
         mission = self._service.get_mission(ctx.mission_id)
         assert binding is not None and mission is not None
@@ -180,9 +211,7 @@ class ActionAdmissionService:
             from rosclaw.agentd.pi_bridge.context import build_embodied_context
             from rosclaw.agentd.pi_bridge.context_lease import context_hash_of
 
-            current_envelope = build_embodied_context(
-                self._service, ctx.mission_id
-            )
+            current_envelope = build_embodied_context(self._service, ctx.mission_id)
             snapshot = self._service.snapshot(ctx.mission_id)
             writer = self._bindings.writer_of(ctx.mission_id)
             assert writer is not None
@@ -190,7 +219,7 @@ class ActionAdmissionService:
                 binding_id=binding.binding_id,
                 writer_lease_id=writer.lease_id,
                 context_lease_id="",
-                context_hash=context_hash_of(current_envelope),
+                context_hash=context_hash_of(current_envelope, capability_id=capability_id),
                 context_revision=snapshot.context_revision,
                 body_hash=mission.body_binding.effective_body_hash,
                 mode=mission.mode.value,
@@ -208,17 +237,13 @@ class ActionAdmissionService:
         if lease is None or lease.revoked:
             raise ToolBridgeError(
                 "CONTEXT_NOT_FRESH",
-                "context lease revoked or unknown — refresh embodied "
-                "context (fail closed)",
+                "context lease revoked or unknown — refresh embodied context (fail closed)",
             )
         from datetime import UTC as _UTC
         from datetime import datetime as _datetime
 
         lease_expired = lease.expires_at <= _datetime.now(_UTC).isoformat()
-        if (
-            lease.pi_session_id != ctx.pi_session_id
-            or lease.mission_id != ctx.mission_id
-        ):
+        if lease.pi_session_id != ctx.pi_session_id or lease.mission_id != ctx.mission_id:
             raise ToolBridgeError(
                 "CONTEXT_LEASE_MISMATCH",
                 "context lease belongs to another session/mission (fail closed)",
@@ -261,9 +286,19 @@ class ActionAdmissionService:
         from rosclaw.agentd.pi_bridge.context_lease import context_hash_of
 
         current_envelope = build_embodied_context(self._service, ctx.mission_id)
-        current_hash = context_hash_of(current_envelope)
+        import json
+
+        dependency_hashes = json.loads(lease.dependency_hashes_json)
+        scoped_hash = dependency_hashes.get(capability_id) if capability_id else None
+        current_hash = (
+            context_hash_of(current_envelope, capability_id=capability_id)
+            if scoped_hash
+            else context_hash_of(current_envelope)
+        )
+        expected_hash = scoped_hash or lease.context_hash
+        self._assert_ros_dependencies(current_envelope, capability_id)
         snapshot = self._service.snapshot(ctx.mission_id)
-        hash_changed = bool(lease.context_hash) and lease.context_hash != current_hash
+        hash_changed = bool(expected_hash) and expected_hash != current_hash
         revision_changed = lease.context_revision != snapshot.context_revision
         # 八审 §1.5/P0-4 JIT 语义：lease 过期时，hash/revision 变化是
         # 关键状态变化——结构化 NEEDS_REPLAN（编排器可重规划一次），
@@ -278,6 +313,7 @@ class ActionAdmissionService:
             # 验收轮诊断：debug 开关下把当前 envelope 落盘，与签发时
             # 的 dump 做字段级 diff（只有字段名与值，本地诊断用）。
             import os as _os
+
             if _os.environ.get("ROSCLAW_DEBUG_CONTEXT"):
                 with __import__("contextlib").suppress(Exception):
                     (self._service._home / "agentd" / "ctx-at-mismatch.json").write_text(
@@ -315,12 +351,12 @@ class ActionAdmissionService:
                 caller_uid=lease.caller_uid,
                 writer_lease_id=lease.writer_lease_id,
                 caller_pid=lease.caller_pid,
+                dependency_hashes=dependency_hashes,
             )
         if ctx.context_revision != lease.context_revision:
             raise ToolBridgeError(
                 "CONTEXT_REVISION_MISMATCH",
-                "request revision != lease revision — use the context the "
-                "lease was issued for",
+                "request revision != lease revision — use the context the lease was issued for",
             )
         current_body_hash = mission.body_binding.effective_body_hash
         if current_body_hash and lease.body_hash != current_body_hash:
@@ -329,9 +365,7 @@ class ActionAdmissionService:
                 "body hash changed since context was issued — re-observe and re-propose",
             )
         if ctx.body_hash != lease.body_hash:
-            raise ToolBridgeError(
-                "BODY_HASH_MISMATCH", "request body hash != lease body hash"
-            )
+            raise ToolBridgeError("BODY_HASH_MISMATCH", "request body hash != lease body hash")
         if mission.mode.value != ctx.mode or lease.mode != ctx.mode:
             raise ToolBridgeError(
                 "MODE_MISMATCH",
@@ -343,7 +377,7 @@ class ActionAdmissionService:
             binding_id=binding.binding_id,
             writer_lease_id=writer.lease_id,
             context_lease_id=lease.context_lease_id,
-            context_hash=lease.context_hash or current_hash,
+            context_hash=expected_hash or current_hash,
             context_revision=lease.context_revision,
             body_hash=lease.body_hash,
             mode=lease.mode,
@@ -395,8 +429,11 @@ class ActionAdmissionService:
             and mission.mode.value == "SIMULATION"
         )
         validated = self._validate_request_context(
-            request, caller_pid=caller_pid, caller_uid=caller_uid,
+            request,
+            caller_pid=caller_pid,
+            caller_uid=caller_uid,
             sim_only_effect=sim_only,
+            capability_id=capability_id,
         )
         assert mission is not None  # get_mission 已保证（validate 亦有）
         if descriptor is None:
@@ -423,14 +460,11 @@ class ActionAdmissionService:
         # body scope 且当前本体在 scope 内；缺失即隔离，不匹配即拒。
         from rosclaw.agentd.tooling.body_compat import check_body_compatibility
 
-        body_reason = check_body_compatibility(
-            descriptor, mission.body_binding.body_id
-        )
+        body_reason = check_body_compatibility(descriptor, mission.body_binding.body_id)
         if body_reason == "BODY_SCOPE_MISSING":
             service._tool_catalog.quarantine_tool(
                 capability_id,
-                "physical action without body scope declaration "
-                "(required_body_types empty)",
+                "physical action without body scope declaration (required_body_types empty)",
             )
             raise ToolBridgeError(
                 "BODY_SCOPE_MISSING",
@@ -460,8 +494,7 @@ class ActionAdmissionService:
         # additionalProperties:false 的 PHYSICAL_ACTION 建卡前隔离
         # （fail closed：未知参数不得进入物理执行链）。
         if descriptor.execution_class.value == "PHYSICAL_ACTION" and (
-            not isinstance(schema, dict)
-            or schema.get("additionalProperties") is not False
+            not isinstance(schema, dict) or schema.get("additionalProperties") is not False
         ):
             service._tool_catalog.quarantine_tool(
                 capability_id,
@@ -480,6 +513,22 @@ class ActionAdmissionService:
                 "INVALID_ARGUMENTS",
                 f"capability {capability_id} arguments rejected: {exc}",
             ) from exc
+        # A new idempotency key is not a reconciliation mechanism. Preserve
+        # uncertain physical outcomes until the exact owned transaction is
+        # resolved; stop/cancel retain their independent existing routes.
+        if capability_id != "cleaning.disable":
+            pending = service._store.connection.execute(
+                "SELECT txn_id, approval_id FROM action_txns WHERE mission_id = ? "
+                "AND body_hash = ? AND state IN ('DISPATCHING','RECEIPT_PENDING') "
+                "AND idempotency_key <> ? ORDER BY created_at LIMIT 1",
+                (request.mission_id, request.body_hash, request.idempotency_key),
+            ).fetchone()
+            if pending is not None:
+                raise ToolBridgeError(
+                    "ACTION_RECONCILIATION_REQUIRED",
+                    f"transaction {pending['txn_id']} is unresolved; query approval "
+                    f"{pending['approval_id']} before any replacement action",
+                )
         # 六审 §4.2：统一 TTL——created_at/expires_at 由 admission 一次
         # 生成（SIM 600s / REAL 300s 策略），ExactAction/Approval/ActionTxn
         # 同一时间边界；handler 不再自行另算。
@@ -561,8 +610,13 @@ class ActionAdmissionService:
             raise ToolBridgeError("IDEMPOTENCY_CONFLICT", str(exc)) from exc
         if txn.approval_id:
             # 幂等重放：事务已建卡——直接返回既有卡（不重复副作用）。
-            if txn.state not in ("AWAITING_OPERATOR", "APPROVED", "DISPATCHING",
-                                 "RECEIPT_PENDING", "COMPLETED"):
+            if txn.state not in (
+                "AWAITING_OPERATOR",
+                "APPROVED",
+                "DISPATCHING",
+                "RECEIPT_PENDING",
+                "COMPLETED",
+            ):
                 raise ToolBridgeError(
                     "TXN_STATE_INVALID", f"txn {txn.txn_id} in {txn.state} without approval"
                 )
@@ -743,6 +797,169 @@ class ActionAdmissionService:
                 txns.transition(txn.txn_id, "DECLINED")
         return {"status": request.status.value, "approval_id": approval_id}
 
+    def reconcile(
+        self,
+        approval_id: str,
+        *,
+        request: ActionRequestContext,
+        caller_pid: int | None,
+        caller_uid: int | None,
+    ) -> dict[str, Any]:
+        """Exact owned result query; no proposal, grant consumption or dispatch."""
+        self._validate_session_and_caller(request, caller_pid=caller_pid, caller_uid=caller_uid)
+        from rosclaw.agentd.pi_bridge.action_txn import ActionTxnStore
+
+        txn = ActionTxnStore(self._service._store.connection).get_by_approval(approval_id)
+        if txn is None:
+            raise ToolBridgeError("TRANSACTION_NOT_FOUND", "unknown approval transaction")
+        if txn.mission_id != request.mission_id or txn.pi_session_id != request.pi_session_id:
+            raise ToolBridgeError("CHAIN_MISMATCH", "reconciliation ownership mismatch")
+        return self._reconcile_transaction(txn)
+
+    def _reconcile_transaction(self, txn) -> dict[str, Any]:
+        from rosclaw.agentd.pi_bridge.action_txn import ActionTxnStore
+
+        if txn.state == "REJECTED":
+            return {
+                "schema_version": "rosclaw.execution_outcome.v1",
+                "status": "REJECTED",
+                "txn_id": txn.txn_id,
+                "approval_id": txn.approval_id,
+                "grant_id": txn.grant_id,
+                "action_id": txn.action_id,
+                "receipt_id": txn.receipt_id,
+                "capability_id": txn.capability_id,
+                "executed": False,
+                "terminal": True,
+                "terminal_receipt": False,
+                "reconciliation_required": False,
+                "error_code": "ACTION_NOT_DISPATCHED",
+                "original_dispatch": "NOT_STARTED",
+                "evidence_ref": None,
+                "side_effects_dispatched": False,
+            }
+        key = txn.receipt_id or txn.action_id
+        receipt = None
+        if key:
+            for event in self._service.receipt_events(
+                txn.mission_id, receipt_id=key, limit=1, terminal_only=True
+            ):
+                payload = event.payload
+                matched = (payload.get("receipt_id") or payload.get("action_id")) == key
+                if matched and (not txn.action_id or payload.get("action_id") == txn.action_id):
+                    receipt = payload
+        terminal = receipt.get("final_state") if receipt else None
+        verified = bool(receipt and receipt.get("verified") is True and receipt.get("action_id"))
+        if txn.state in {"DISPATCHING", "RECEIPT_PENDING"} and (
+            terminal in NON_COMPLETED_ACTION_TERMINALS or (terminal == "COMPLETED" and verified)
+        ):
+            if txn.state == "DISPATCHING":
+                txn = ActionTxnStore(self._service._store.connection).transition(
+                    txn.txn_id, "RECEIPT_PENDING"
+                )
+            txn = ActionTxnStore(self._service._store.connection).transition(
+                txn.txn_id, terminal, action_id=receipt["action_id"], receipt_id=key
+            )
+        return {
+            "schema_version": "rosclaw.execution_outcome.v1",
+            "status": txn.state if txn.state in ACTION_TERMINAL_STATES else "UNKNOWN",
+            "txn_id": txn.txn_id,
+            "approval_id": txn.approval_id,
+            "grant_id": txn.grant_id,
+            "action_id": txn.action_id,
+            "receipt_id": txn.receipt_id,
+            "capability_id": txn.capability_id,
+            "executed": txn.state == "COMPLETED",
+            "terminal_receipt": txn.state in ACTION_TERMINAL_STATES,
+            "reconciliation_required": txn.state not in ACTION_TERMINAL_STATES,
+            "error_code": None
+            if txn.state == "COMPLETED"
+            else (
+                "ACTION_" + txn.state
+                if txn.state in ACTION_TERMINAL_STATES
+                else "ACTION_RESULT_UNKNOWN"
+            ),
+            "terminal": txn.state in ACTION_TERMINAL_STATES,
+            "evidence_ref": "receipt://" + key if receipt and key else None,
+            "side_effects_dispatched": False,
+        }
+
+    async def reconcile_authority(
+        self,
+        approval_id: str,
+        *,
+        request: ActionRequestContext,
+        caller_pid: int | None,
+        caller_uid: int | None,
+    ) -> dict[str, Any]:
+        """Owned query from journal, then existing daemon if the response was lost."""
+        result = self.reconcile(
+            approval_id, request=request, caller_pid=caller_pid, caller_uid=caller_uid
+        )
+        if result["status"] != "UNKNOWN" or not result.get("action_id"):
+            return result
+        channel = self._service._action_channel
+        if channel is None or not callable(getattr(channel, "reconcile_action", None)):
+            return result  # No invented query API for synchronous legacy MCP.
+        from rosclaw.agentd.pi_bridge.action_txn import ActionTxnStore
+        from rosclaw.contracts.agent.agent_event import AgentEventType
+        from rosclaw.contracts.operator.exact_action import (
+            ExactActionV1,
+            compute_action_intent_hash,
+            compute_arguments_hash,
+        )
+
+        stored = self._service._broker.get_request(approval_id)
+        txn = ActionTxnStore(self._service._store.connection).get_by_approval(approval_id)
+        if stored is None or not stored.exact_action_json or txn is None:
+            return {**result, "reconciliation_error": "exact action binding unavailable"}
+        try:
+            exact = ExactActionV1.model_validate_json(stored.exact_action_json)
+            valid = (
+                compute_arguments_hash(exact.normalized_arguments) == exact.arguments_hash
+                and compute_action_intent_hash(exact) == exact.action_intent_hash
+                and (
+                    exact.mission_id,
+                    exact.body_hash,
+                    exact.mode,
+                    exact.capability_id,
+                    exact.arguments_hash,
+                )
+                == (txn.mission_id, txn.body_hash, txn.mode, txn.capability_id, txn.arguments_hash)
+            )
+        except Exception:
+            valid = False
+        if not valid:
+            return {
+                **result,
+                "reconciliation_error": "exact action binding corrupt; no authority query",
+            }
+        try:
+            outcome = await channel.reconcile_action(
+                result["action_id"],
+                capability_id=exact.capability_id,
+                execution_mode=exact.mode,
+                body_id=exact.body_id,
+                body_hash=exact.body_hash,
+            )
+            await self._service._events.append(
+                request.mission_id,
+                AgentEventType.RECEIPT_RECEIVED,
+                {
+                    "receipt_id": result["receipt_id"] or result["action_id"],
+                    "action_id": outcome.action_id,
+                    "final_state": outcome.state,
+                    "verified": outcome.verified,
+                    "trust_level": outcome.trust_level,
+                    "source": "exact_existing_daemon_receipt_query",
+                },
+            )
+        except Exception as exc:  # A failed read is still not evidence of non-execution.
+            return {**result, "reconciliation_error": f"{type(exc).__name__}: {exc}"}
+        return self.reconcile(
+            approval_id, request=request, caller_pid=caller_pid, caller_uid=caller_uid
+        )
+
     # -- phase 2b: execute（TOCTOU 复验 + 精确 grant + 结构化回执） -----------------
 
     async def execute(
@@ -765,9 +982,23 @@ class ActionAdmissionService:
             raise ToolBridgeError("APPROVAL_NOT_FOUND", "unknown approval_id")
         # 六审 §5.2：caller 身份必须先于卡状态——非 writer 连
         # "卡是否 PENDING" 都不得知晓（信息泄露面）。
-        self._validate_session_and_caller(
-            request, caller_pid=caller_pid, caller_uid=caller_uid
-        )
+        self._validate_session_and_caller(request, caller_pid=caller_pid, caller_uid=caller_uid)
+        from rosclaw.agentd.pi_bridge.action_txn import ActionTxnStore
+
+        previous = ActionTxnStore(service._store.connection).get_by_approval(approval_id)
+        if previous is not None and previous.state in {
+            "DISPATCHING",
+            "RECEIPT_PENDING",
+            "REJECTED",
+        }:
+            if (
+                previous.mission_id != request.mission_id
+                or previous.pi_session_id != request.pi_session_id
+            ):
+                raise ToolBridgeError("CHAIN_MISMATCH", "pending transaction ownership mismatch")
+            return await self.reconcile_authority(
+                approval_id, request=request, caller_pid=caller_pid, caller_uid=caller_uid
+            )
         if stored.status.value == "PENDING":
             raise ToolBridgeError("APPROVAL_PENDING", "operator has not decided yet")
         if stored.status.value != "APPROVED":
@@ -810,8 +1041,10 @@ class ActionAdmissionService:
                 f"(card has {stored.context_revision}) — re-propose required",
             )
         current_body_hash = mission_now.body_binding.effective_body_hash
-        if current_body_hash and stored.effective_body_hash and (
-            current_body_hash != stored.effective_body_hash
+        if (
+            current_body_hash
+            and stored.effective_body_hash
+            and (current_body_hash != stored.effective_body_hash)
         ):
             raise ToolBridgeError(
                 "BODY_HASH_MISMATCH",
@@ -867,18 +1100,14 @@ class ActionAdmissionService:
                 "txn session != request session — cross-session replay refused",
             )
         if txn.approval_id and txn.approval_id != approval_id:
-            raise ToolBridgeError(
-                "CHAIN_MISMATCH", "txn approval binding mismatch"
-            )
+            raise ToolBridgeError("CHAIN_MISMATCH", "txn approval binding mismatch")
         if txn.body_hash and request.body_hash and txn.body_hash != request.body_hash:
             raise ToolBridgeError("CHAIN_MISMATCH", "txn body hash != request body hash")
         if txn.mode != request.mode:
             raise ToolBridgeError("CHAIN_MISMATCH", "txn mode != request mode")
         # txn 过期（P0-5D）：expires_at 有真实执行语义。
         if txn.expires_at and txn.expires_at < datetime.now(UTC).isoformat():
-            raise ToolBridgeError(
-                "TXN_EXPIRED", f"txn {txn.txn_id} expired at {txn.expires_at}"
-            )
+            raise ToolBridgeError("TXN_EXPIRED", f"txn {txn.txn_id} expired at {txn.expires_at}")
         # 六审 §4.3：execute 完整复验 ExactAction canonical chain——
         # parse + schema 校验 + 重算 hash + 逐字段对比 txn/approval/
         # grant/catalog；任何不一致 CHAIN_MISMATCH 且 grant 不消费。
@@ -901,39 +1130,27 @@ class ActionAdmissionService:
             ) from exc
         # 1. canonical hash 重算（卡内字段任一篡改都会破坏这两个 hash）。
         if compute_arguments_hash(exact.normalized_arguments) != exact.arguments_hash:
-            raise ToolBridgeError(
-                "CHAIN_MISMATCH", "exact action arguments_hash recompute failed"
-            )
+            raise ToolBridgeError("CHAIN_MISMATCH", "exact action arguments_hash recompute failed")
         if compute_action_intent_hash(exact) != exact.action_intent_hash:
-            raise ToolBridgeError(
-                "CHAIN_MISMATCH", "exact action intent hash recompute failed"
-            )
+            raise ToolBridgeError("CHAIN_MISMATCH", "exact action intent hash recompute failed")
         # 2. 与 txn/approval 持久链逐字段对比。
         if exact.arguments_hash != txn.arguments_hash:
-            raise ToolBridgeError(
-                "CHAIN_MISMATCH", "exact arguments_hash != txn arguments_hash"
-            )
+            raise ToolBridgeError("CHAIN_MISMATCH", "exact arguments_hash != txn arguments_hash")
         if exact.capability_id != txn.capability_id:
-            raise ToolBridgeError(
-                "CHAIN_MISMATCH", "exact capability != txn capability"
-            )
+            raise ToolBridgeError("CHAIN_MISMATCH", "exact capability != txn capability")
         if exact.mission_id != stored.mission_id or exact.mission_id != request.mission_id:
             raise ToolBridgeError("CHAIN_MISMATCH", "exact mission != approval mission")
         if exact.mode != stored.mode or exact.mode != request.mode:
             raise ToolBridgeError("CHAIN_MISMATCH", "exact mode != approval mode")
         if exact.context_revision != stored.context_revision:
-            raise ToolBridgeError(
-                "CHAIN_MISMATCH", "exact context revision != approval revision"
-            )
+            raise ToolBridgeError("CHAIN_MISMATCH", "exact context revision != approval revision")
         if stored.effective_body_hash and exact.body_hash != stored.effective_body_hash:
             raise ToolBridgeError("CHAIN_MISMATCH", "exact body hash != approval body hash")
         # 3. display_hash 全量重算——卡面任何字段篡改都会破坏它。
         from rosclaw.agentd.operator_socket import display_hash_for
 
         if txn.display_hash and display_hash_for(stored) != txn.display_hash:
-            raise ToolBridgeError(
-                "CHAIN_MISMATCH", "display hash recompute != txn display hash"
-            )
+            raise ToolBridgeError("CHAIN_MISMATCH", "display hash recompute != txn display hash")
         # 4. catalog drift：capability version/source 与当前目录不一致即拒。
         descriptor_now = service._tool_catalog.get(exact.capability_id)
         if descriptor_now is None:
@@ -964,11 +1181,48 @@ class ActionAdmissionService:
                 "CAPABILITY_MISSING",
                 "approval card lost its capability binding (fail closed)",
             )
+        # Re-observe after approval, immediately before dispatch. A scoped
+        # comparison cannot silently upgrade a legacy broad lease.
+        import json
+
+        from rosclaw.agentd.pi_bridge.context_lease import ContextLeaseStore, context_hash_of
+
+        context_lease = ContextLeaseStore(service._store.connection).get(txn.context_lease_id)
+        if context_lease is not None:
+            scopes = json.loads(context_lease.dependency_hashes_json)
+            if exact.capability_id in scopes:
+                if context_lease.revoked:
+                    raise ToolBridgeError(
+                        "CONTEXT_NOT_FRESH", "context lease revoked before dispatch"
+                    )
+                current_dependencies = context_hash_of(fresh, capability_id=exact.capability_id)
+                if current_dependencies != exact.context_hash:
+                    raise ToolBridgeError(
+                        "NEEDS_REPLAN",
+                        "action dependency facts changed after approval; no dispatch or replay",
+                    )
+        self._assert_ros_dependencies(fresh, exact.capability_id)
         # broker 的批准是权威——txn 状态以之为准同步（operatord decide
         # 经 apply_decision 落库，不走 admission）。
         if txn.state == "AWAITING_OPERATOR":
             txn = txns.transition(txn.txn_id, "APPROVED")
-        txn = txns.transition(txn.txn_id, "DISPATCHING", grant_id=grant_id)
+        # Persist authority-owned identifiers BEFORE any transport side effect.
+        # A lost response must not erase the identity needed for reconciliation.
+        # REAL consent already allocated the daemon action while proposing.
+        daemon_action_id = stored.model_dump(mode="json").get("daemon_action_id")
+        dispatch_action_id = str(daemon_action_id or new_id("act"))
+        dispatch_receipt_id = (
+            new_id("rcpt")
+            if mission.mode.value == "SIMULATION" and service._action_channel is None
+            else dispatch_action_id
+        )
+        txn = txns.transition(
+            txn.txn_id,
+            "DISPATCHING",
+            grant_id=grant_id,
+            action_id=dispatch_action_id,
+            receipt_id=dispatch_receipt_id,
+        )
         decision = DecisionV1(
             decision_id=new_id("dec"),
             mission_id=stored.mission_id,
@@ -988,6 +1242,8 @@ class ActionAdmissionService:
                     "arguments": exact.normalized_arguments,
                     # 六审 §6.2.4：执行通道按合约记录的身份路由。
                     "executor_identity": exact.executor_identity,
+                    "dispatch_action_id": dispatch_action_id,
+                    "dispatch_receipt_id": dispatch_receipt_id,
                 },
             ),
         )
@@ -995,18 +1251,46 @@ class ActionAdmissionService:
         # 已删除——纯执行路径提取，Worker/AgentLoop 无关）。
         from rosclaw.agentd.action_dispatch import request_action as _dispatch_action
 
-        outcome = await _dispatch_action(
-            service,
-            decision,
-            mode=mission.mode.value if mission else "SIMULATION",
-            principal=mission.owner_principal if mission else stored.principal,
-        )
+        try:
+            outcome = await _dispatch_action(
+                service,
+                decision,
+                mode=mission.mode.value if mission else "SIMULATION",
+                principal=mission.owner_principal if mission else stored.principal,
+            )
+        except Exception:  # Transport loss does not prove non-execution.
+            txn = txns.transition(txn.txn_id, "RECEIPT_PENDING")
+            return {
+                "schema_version": "rosclaw.execution_outcome.v1",
+                "status": "UNKNOWN",
+                "txn_id": txn.txn_id,
+                "approval_id": approval_id,
+                "grant_id": grant_id,
+                "action_id": txn.action_id,
+                "receipt_id": txn.receipt_id,
+                "capability_id": capability_id,
+                "executed": False,
+                "terminal_receipt": False,
+                "error_code": "ACTION_RESULT_UNKNOWN",
+                "reconciliation_required": True,
+                "next_check": "Reconcile this exact transaction; never submit a replacement action on transport loss.",
+            }
+        if getattr(outcome, "known_not_dispatched", False) is True:
+            # Authoritative local pre-dispatch rejection is different from an
+            # ambiguous transport failure. Keep reserved IDs for audit, leave
+            # the grant unconsumed, and never invent a physical receipt.
+            txn = txns.transition(txn.txn_id, "REJECTED")
+            return {
+                **self._reconcile_transaction(txn),
+                "error_code": outcome.error_code or "ACTION_NOT_DISPATCHED",
+                "summary": outcome.text,
+            }
         # P0-5E：COMPLETED 需要严格 receipt 合约——terminal bool +
         # 非空 action/receipt ID + receipt 事件精确绑定本 action。
         # terminal_receipt=True 但缺 receipt 一律不是 COMPLETED。
         terminal_bool = bool(outcome.terminal_receipt)
-        action_id = ""
-        receipt_id = ""
+        action_id = txn.action_id
+        receipt_id = txn.receipt_id
         if outcome.evidence_ref and outcome.evidence_ref.startswith("receipt://"):
             receipt_id = outcome.evidence_ref.removeprefix("receipt://")
         # receipt 事件链验证（P0-5E）：receipt.received 事件必须精确绑定
@@ -1014,8 +1298,11 @@ class ActionAdmissionService:
         # 从事件负载读取（不再假设 receipt_id == action_id）。无独立
         # receipt_id 的旧 daemon 路径按 action_id 兜底匹配。
         receipt_ok = False
-        if receipt_id:
-            events = service.events_replay(stored.mission_id, limit=50)
+        receipt_payload = None
+        if receipt_id and outcome.evidence_ref and outcome.evidence_ref.startswith("receipt://"):
+            events = service.receipt_events(
+                stored.mission_id, receipt_id=receipt_id, limit=1, terminal_only=True
+            )
             for e in events:
                 if e.type.value != "receipt.received":
                     continue
@@ -1025,6 +1312,7 @@ class ActionAdmissionService:
                 else:
                     matched = payload.get("action_id") == receipt_id
                 if matched:
+                    receipt_payload = payload
                     action_id = str(payload.get("action_id") or "")
                     receipt_ok = (
                         bool(action_id)
@@ -1038,12 +1326,27 @@ class ActionAdmissionService:
             executed = False
         if executed:
             txn = txns.transition(
-                txn.txn_id, "RECEIPT_PENDING",
-                action_id=action_id, receipt_id=receipt_id,
+                txn.txn_id,
+                "RECEIPT_PENDING",
+                action_id=action_id,
+                receipt_id=receipt_id,
             )
             txn = txns.transition(txn.txn_id, "COMPLETED")
+        elif (
+            action_id
+            and receipt_payload
+            and receipt_payload.get("final_state") in NON_COMPLETED_ACTION_TERMINALS
+        ):
+            txn = txns.transition(
+                txn.txn_id, "RECEIPT_PENDING", action_id=action_id, receipt_id=receipt_id
+            )
+            txn = txns.transition(txn.txn_id, receipt_payload["final_state"])
         else:
-            txn = txns.transition(txn.txn_id, "FAILED")
+            # No verified terminal result: persist identity for later exact
+            # reconciliation, retaining the consumed grant and never replaying.
+            txn = txns.transition(
+                txn.txn_id, "RECEIPT_PENDING", action_id=action_id, receipt_id=receipt_id
+            )
         artifact_refs = []
         task_outcome = None
         if executed and outcome.artifacts:
@@ -1055,23 +1358,32 @@ class ActionAdmissionService:
             from rosclaw.task_kernel.coordinator import TaskCoordinator
 
             artifact_request = SimpleNamespace(
-                mission_id=stored.mission_id, pi_session_id=request.pi_session_id,
-                arguments={"capability_id": capability_id}, tool_name="rosclaw_request_action",
+                mission_id=stored.mission_id,
+                pi_session_id=request.pi_session_id,
+                arguments={"capability_id": capability_id},
+                tool_name="rosclaw_request_action",
             )
-            artifact_refs = _auto_register_artifacts(service, artifact_request, {
-                "artifacts": {
-                    str(index): {"path": path}
-                    for index, path in enumerate(outcome.artifacts)
-                    if isinstance(path, str)
+            artifact_refs = _auto_register_artifacts(
+                service,
+                artifact_request,
+                {
+                    "artifacts": {
+                        str(index): {"path": path}
+                        for index, path in enumerate(outcome.artifacts)
+                        if isinstance(path, str)
+                    },
                 },
-            })
+            )
             task = service._task_kernel.latest_task_for(stored.mission_id, request.pi_session_id)
             if artifact_refs and task:
                 task_outcome = TaskCoordinator(service._task_kernel).consider(str(task["task_id"]))
         # ExecutionOutcomeV1（P0-4F/5E）：全 ID 链，不是 bool+文本。
         return {
             "schema_version": "rosclaw.execution_outcome.v1",
-            "status": "COMPLETED" if executed else "FAILED",
+            "status": "COMPLETED"
+            if executed
+            else ("UNKNOWN" if txn.state == "RECEIPT_PENDING" else txn.state),
+            "reconciliation_required": txn.state == "RECEIPT_PENDING",
             "txn_id": txn.txn_id,
             "approval_id": approval_id,
             "grant_id": grant_id,
@@ -1079,15 +1391,24 @@ class ActionAdmissionService:
             "receipt_id": receipt_id,
             "capability_id": capability_id,
             "executed": executed,
-            "terminal": True,
-            "terminal_receipt": terminal_bool,
+            "terminal": txn.state != "RECEIPT_PENDING",
+            "transport_terminal": terminal_bool,
+            "terminal_receipt": bool(
+                action_id
+                and receipt_payload
+                and receipt_payload.get("final_state") in ACTION_TERMINAL_STATES
+            ),
             "verified": executed,
             "evidence_ref": outcome.evidence_ref,
             "artifact_refs": artifact_refs,
             "task_outcome": task_outcome,
             "summary": outcome.text[:4000],
             "error_code": (
-                None if executed else (outcome.error_code or "ACTION_FAILED")
+                None
+                if executed
+                else "ACTION_RESULT_UNKNOWN"
+                if txn.state == "RECEIPT_PENDING"
+                else (outcome.error_code or "ACTION_FAILED")
             ),
             "completed_at": datetime.now(UTC).isoformat(),
         }

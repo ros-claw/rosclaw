@@ -10,10 +10,33 @@
 
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
-import { fetchEmbodiedContext } from "../extension/context-injection.js";
+import { fetchEmbodiedContext, renderTrustedContext } from "../extension/context-injection.js";
 import type { BridgeToolContext } from "./bridge-tools.js";
 
 const AWAIT_TIMEOUT_MS = 330_000;
+
+async function callExecution(ctx: BridgeToolContext, method: string, parameters: Record<string, unknown>) {
+	try { return await ctx.center.call(method, parameters); }
+	catch (error) { return { ok: false, code: "EXECUTION_TRANSPORT_LOST", error: String(error) }; }
+}
+
+function executionReply(reply: Record<string, unknown>, approvalId: string, capabilityId: string): Record<string, unknown> {
+	if (reply.result && typeof reply.result === "object"
+		&& typeof (reply.result as Record<string, unknown>).status === "string") return reply.result as Record<string, unknown>;
+	// A bridge rejection has no `result`. Never erase its code/message or
+	// interpret an interrupted/malformed dispatch reply as non-execution.
+	const code = String(reply.code ?? "EXECUTION_REPLY_MISSING");
+	const beforeDispatch = ["NEEDS_REPLAN", "CONTEXT_HASH_MISMATCH", "CONTEXT_NOT_FRESH",
+		"ROS_PRECONDITION_UNKNOWN_OR_FAILED", "BODY_HASH_MISMATCH", "MODE_MISMATCH",
+		"REQUEST_CONTEXT_REQUIRED"].includes(code);
+	return { status: beforeDispatch ? "REJECTED" : "UNKNOWN", executed: false,
+		approval_id: approvalId, capability_id: capabilityId, error_code: code,
+		summary: `${beforeDispatch ? "Rejected before dispatch" : "Execution outcome UNKNOWN"} [${code}]: ${String(reply.error ?? "No structured execution outcome returned")}. `
+			+ (beforeDispatch ? "Re-observe and make a new decision; no automatic replay."
+				: "Reconcile this exact approval before any replacement action."),
+		terminal_receipt: false, reconciliation_required: !beforeDispatch };
+}
+
 
 export function buildRequestActionTool(ctx: BridgeToolContext, snapshotDigest?: string) {
 	return defineTool({
@@ -22,9 +45,11 @@ export function buildRequestActionTool(ctx: BridgeToolContext, snapshotDigest?: 
 		description:
 			"Propose one bounded physical action. Creates an approval card; a human " +
 			"operator decides (Y/N). You cannot approve. On approval the action is " +
-			"executed via rosclawd and a structured receipt is returned.",
+			"executed via rosclawd and a structured receipt is returned. If the result is UNKNOWN, " +
+			"pass its approval_id to reconcile only; never submit a replacement physical action on transport loss.",
 		parameters: Type.Object({
 			capability_id: Type.String({ description: "exact catalog capability id" }),
+			approval_id: Type.Optional(Type.String({ description: "Query this owned transaction only; no new physical action" })),
 			arguments: Type.Record(Type.String(), Type.Unknown()),
 			expected_effect: Type.Optional(Type.String()),
 			risk_tier: Type.Optional(Type.String({ description: "LOW|MEDIUM|HIGH|CRITICAL" })),
@@ -35,6 +60,20 @@ export function buildRequestActionTool(ctx: BridgeToolContext, snapshotDigest?: 
 			// P0-5F：所有返回路径都带结构化 status/capability——内核结果卡
 			// 只读 details，绝不解析模型/工具文本。
 			const capabilityId = String(params.capability_id ?? "");
+			if (params.approval_id) {
+				const reply = await callExecution(ctx, "pi.action.reconcile", {
+					approval_id: String(params.approval_id), pi_session_id: state.sessionId,
+					mission_id: state.missionId, context_revision: state.contextRevision,
+					body_hash: state.bodyHash ?? "", mode: state.mode,
+					idempotency_key: `reconcile_${String(params.approval_id)}`,
+					context_lease_id: state.contextLeaseId ?? "",
+				});
+				const result = executionReply(reply, String(params.approval_id), capabilityId);
+				return { content: [{type: "text" as const, text: JSON.stringify(result)}],
+					details: {...result, ok: result.executed === true},
+					isError: result.executed !== true };
+			}
+
 			// PR-SIX-1（六审 §3.3）：工具侧硬门——readiness BLOCKED 时零桥
 			// 调用、零 approval/txn/grant（此前只查 missionId，Action LOCKED
 			// 是假锁：UI 显示锁、工具照常建卡）。内核 admission 仍是最终权威。
@@ -81,10 +120,11 @@ export function buildRequestActionTool(ctx: BridgeToolContext, snapshotDigest?: 
 				risk_tier: String(params.risk_tier ?? "LOW"),
 			};
 			let proposed = await ctx.center.call("pi.action.propose", { ...requestContext, ...proposal });
-			// A readiness change can invalidate a lease during model deliberation.
-			// Refresh only a rejected, card-free SIM proposal; never reuse approval
-			// or retry execution. Body, mission, session and mode must stay bound.
-			if (!proposed.ok && proposed.code === "CONTEXT_HASH_MISMATCH" && !proposed.card
+			// A changed, expired observation requires a NEW model decision. Reading
+			// get_body_state does not renew this tool's hidden context lease. Return
+			// a freshly verified observation without replaying the rejected intent.
+			let replanObservation: { refreshed: boolean; content?: string } | undefined;
+			if (!proposed.ok && ["NEEDS_REPLAN", "CONTEXT_HASH_MISMATCH"].includes(String(proposed.code)) && !proposed.card
 				&& state.mode === "SIMULATION" && state.missionId) {
 				const prior = state;
 				const fetched = await fetchEmbodiedContext(ctx.rosclawHome, state.missionId, state.sessionId,
@@ -97,16 +137,10 @@ export function buildRequestActionTool(ctx: BridgeToolContext, snapshotDigest?: 
 					&& ctx.active.current.sessionId === prior.sessionId && ctx.active.current.missionId === prior.missionId
 					&& ctx.active.current.bodyHash === prior.bodyHash && ctx.active.current.mode === prior.mode) {
 					ctx.active.applyEnvelope(fetched.envelope, fetched.contextLeaseId);
-					state = ctx.active.current;
-					if (state.sessionId === prior.sessionId && state.missionId === prior.missionId
-						&& state.bodyHash === prior.bodyHash && state.mode === prior.mode) {
-						requestContext = { ...requestContext, context_revision: state.contextRevision,
-							context_lease_id: state.contextLeaseId ?? "",
-							idempotency_key: `${requestContext.idempotency_key}_fresh` };
-						proposed = await ctx.center.call("pi.action.propose", { ...requestContext, ...proposal });
-					}
+					replanObservation = { refreshed: true, content: renderTrustedContext(fetched) };
 				} else {
-					ctx.active.markContextStale(fetched.note || "SIM proposal context could not be refreshed without changing its binding");
+					ctx.active.markContextStale(fetched.note || "Replan context could not be refreshed without changing its binding");
+					replanObservation = { refreshed: false };
 				}
 			}
 			if (!proposed.ok) {
@@ -114,7 +148,10 @@ export function buildRequestActionTool(ctx: BridgeToolContext, snapshotDigest?: 
 					content: [
 						{
 							type: "text" as const,
-							text: `动作提案被拒 [${String(proposed.code ?? "")}]: ${String(proposed.error ?? "")}`,
+							text: `动作提案被拒 [${String(proposed.code ?? "")}]: ${String(proposed.error ?? "")}`
+								+ (replanObservation?.refreshed
+									? "\nThe rejected action was NOT executed or retried. Re-observe this fresh authoritative context, reconsider the action, and submit a NEW proposal only if it remains justified.\n" + replanObservation.content
+									: ""),
 						},
 					],
 					details: {
@@ -122,6 +159,7 @@ export function buildRequestActionTool(ctx: BridgeToolContext, snapshotDigest?: 
 						status: "REJECTED",
 						capability_id: capabilityId,
 						error_code: String(proposed.code ?? "PROPOSE_REJECTED"),
+						...(replanObservation ? { context_refreshed: replanObservation.refreshed, replan_required: true } : {}),
 					},
 					isError: true,
 				};
@@ -139,11 +177,11 @@ export function buildRequestActionTool(ctx: BridgeToolContext, snapshotDigest?: 
 					content: [{ type: "text", text: "安全仿真自动执行（POLICY_AUTO，全链审计）" }],
 					details: { phase: "POLICY_AUTO", approval_id: card.approval_id },
 				});
-				const autoExecuted = await ctx.center.call("pi.action.execute", {
+				const autoExecuted = await callExecution(ctx, "pi.action.execute", {
 					...requestContext,
 					approval_id: card.approval_id,
 				});
-				const autoResult = (autoExecuted.result ?? {}) as Record<string, unknown>;
+				const autoResult = executionReply(autoExecuted, card.approval_id, capabilityId);
 				return {
 					content: [
 						{
@@ -162,6 +200,7 @@ export function buildRequestActionTool(ctx: BridgeToolContext, snapshotDigest?: 
 						action_id: autoResult.action_id ?? null,
 						receipt_id: autoResult.receipt_id ?? null,
 						terminal_receipt: autoResult.terminal_receipt ?? false,
+						reconciliation_required: autoResult.reconciliation_required ?? false,
 						evidence_ref: autoResult.evidence_ref ?? null,
 						error_code: autoResult.error_code ?? null,
 					},
@@ -256,11 +295,11 @@ export function buildRequestActionTool(ctx: BridgeToolContext, snapshotDigest?: 
 			// phase 2b: 精确 grant 执行 → 结构化回执。
 			// P0-NA-10：execute 带同一请求上下文做 TOCTOU 复验——批准后
 			// revision/body/lease 任一变化都必须拒绝。
-			const executed = await ctx.center.call("pi.action.execute", {
+			const executed = await callExecution(ctx, "pi.action.execute", {
 				...requestContext,
 				approval_id: card.approval_id,
 			});
-			const result = (executed.result ?? {}) as Record<string, unknown>;
+			const result = executionReply(executed, card.approval_id, capabilityId);
 			return {
 				content: [
 					{
@@ -279,6 +318,7 @@ export function buildRequestActionTool(ctx: BridgeToolContext, snapshotDigest?: 
 					action_id: result.action_id ?? null,
 					receipt_id: result.receipt_id ?? null,
 					terminal_receipt: result.terminal_receipt ?? false,
+					reconciliation_required: result.reconciliation_required ?? false,
 					// P0-NA-13：结构化证据引用（receipt://action_id）随结果
 					// 返回——/evidence 按本回合 action 精确展示，不是摘要。
 					evidence_ref: result.evidence_ref ?? null,

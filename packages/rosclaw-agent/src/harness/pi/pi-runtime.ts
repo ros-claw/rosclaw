@@ -77,6 +77,7 @@ export function loadSystemPrompt(): string {
 }
 
 export interface RosclawRuntime {
+	settleOperations(): Promise<void>;
 	runtime: AgentSessionRuntime;
 	active: ActiveSessionContext;
 	/** P0-NA-12：唯一 session/mission/lease 事务协调器——main 的初始
@@ -88,6 +89,7 @@ export interface RosclawRuntime {
 export async function createRosclawRuntime(
 	options: RosclawRuntimeOptions,
 ): Promise<RosclawRuntime> {
+	let operationWatcher: import("../../native/operation-watcher.js").OperationWatcher | undefined;
 	const active = new ActiveSessionContext({
 		sessionId: "",
 		missionId: options.missionId,
@@ -192,6 +194,7 @@ export async function createRosclawRuntime(
 						{
 							name: "rosclaw",
 							factory: createRosclawExtension({
+								onOperationWatcher: watcher => { operationWatcher = watcher; },
 								profile: options.profile,
 								version: options.version,
 								systemPrompt,
@@ -332,5 +335,8 @@ export async function createRosclawRuntime(
 				SessionManager.create(options.cwd, `${agentDir}/sessions`),
 		},
 	);
-	return { runtime, active, coordinator, leaseManager };
+	return { runtime, active, coordinator, leaseManager, settleOperations: async () => {
+		if (!operationWatcher) throw new Error("Native OperationWatcher is not bound");
+		await operationWatcher.settle(runtime.session);
+	} };
 }

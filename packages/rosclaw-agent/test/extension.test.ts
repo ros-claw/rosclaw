@@ -8,10 +8,12 @@ type Handler = (event: unknown, ctx: unknown) => Promise<unknown>;
 
 async function collectHandlers() {
 	const handlers = new Map<string, Handler>();
+	const registered = new Map<string, Handler[]>();
 	const commands = new Map<string, { description?: string; handler: (args: string, ctx: unknown) => Promise<void> }>();
 	const pi = {
 		on(name: string, handler: Handler) {
 			handlers.set(name, handler);
+			registered.set(name, [...(registered.get(name) ?? []), handler]);
 		},
 		registerCommand(name: string, options: { description?: string; handler: (args: string, ctx: unknown) => Promise<void> }) {
 			commands.set(name, options);
@@ -58,8 +60,33 @@ async function collectHandlers() {
 	const locale = new LocaleManager("/tmp/rh-test/agent");
 	const factory = createRosclawExtension({ profile: "developer", version: "0.1.0", systemPrompt: "TEST PROMPT", active, coordinator, center, locale, rosclawHome: "/tmp/rh-test", taskContext: resolveTaskContext({ rosclawHome: "/tmp/rh-test", cwd: "/tmp", mode: "SIMULATION" }) });
 	factory(pi as never);
-	return { handlers, commands };
+	return { handlers, commands, active, registered, center };
 }
+
+test("per-LLM Pi context hook is wired and fails closed on unavailable observations", async () => {
+	const { handlers, active } = await collectHandlers();
+	active.patch({ missionId: "mission", contextState: "FRESH", leaseState: "ACTIVE", contextLeaseId: "old" });
+	const hook = handlers.get("context");
+	assert.ok(hook);
+	const result = await hook({ messages: [] }, {});
+	assert.equal(active.current.actionsAllowed, false);
+	assert.match(JSON.stringify(result), /each_model_request/);
+});
+
+test("Pi tool-result hook marks canonical rejection as an error without losing receipt details", async () => {
+	const { handlers } = await collectHandlers();
+	const hook = handlers.get("tool_result"); assert.ok(hook);
+	const details = { ok: false, status: "REJECTED", error_code: "NEEDS_REPLAN", action_id: null };
+	assert.deepEqual(await hook({ toolName: "rosclaw_request_action", details, isError: false }, {}), { isError: true });
+	assert.deepEqual(await hook({ toolName: "propose_navigation", details, isError: false }, {}), { isError: true });
+	assert.deepEqual(await hook({ toolName: "rosclaw_request_action", details: { ok: true, status: "COMPLETED" } }, {}), undefined);
+	assert.deepEqual(await hook({ toolName: "rosclaw_request_action", details: { ok: false, status: "DECLINED" } }, {}), undefined);
+	assert.deepEqual(await hook({ toolName: "read", details, isError: false }, {}), undefined);
+	for (const status of ["UNKNOWN", "CANCELLED", "EXPIRED"]) {
+		assert.deepEqual(await hook({ toolName: "rosclaw_request_action", details: { ok: false, status } }, {}), { isError: true });
+	}
+	assert.equal(details.error_code, "NEEDS_REPLAN");
+});
 
 test("user_bash is fully replaced by a policy refusal (PNA-0 safety)", async () => {
 	const { handlers } = await collectHandlers();
@@ -76,4 +103,20 @@ test("session lifecycle hooks registered (fork veto point)", async () => {
 	const { handlers } = await collectHandlers();
 	assert.ok(handlers.get("session_start"), "session_start");
 	assert.ok(handlers.get("session_before_fork"), "session_before_fork");
+});
+
+
+test("headless start bootstraps real status without UI access", async () => {
+    const {registered, center} = await collectHandlers();
+    let bootstraps = 0, probes = 0;
+    center.bootstrap = async () => { bootstraps++; };
+    center.probeOperator = async () => { probes++; return "UNKNOWN" as never; };
+    const ctx = {hasUI:false, isIdle:() => true,
+        sessionManager:{getSessionId:() => "pi_test"},
+        ui:new Proxy({}, {get() { throw Error("Headless startup used UI"); }})};
+    // All startup hooks are registered by the real extension factory.
+    for (const handler of registered.get("session_start") ?? []) await handler({reason:"startup"},ctx);
+    assert.equal(bootstraps, 1);
+    assert.equal(probes, 1);
+    for (const handler of registered.get("session_shutdown") ?? []) await handler({},ctx);
 });

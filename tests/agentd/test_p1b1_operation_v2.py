@@ -402,4 +402,8 @@ class TestWaitOperationRemoved:
             / "tools"
             / "embodiment-exec.ts"
         )
+        # Installed-artifact qualification reads the actual compiled tool
+        # surface from the image, without mounting product sources from host.
+        if os.environ.get("ROSCLAW_AGENT_TOOL_SURFACE_UNDER_TEST"):
+            ts = Path(os.environ["ROSCLAW_AGENT_TOOL_SURFACE_UNDER_TEST"])
         assert "rosclaw_wait_operation" not in ts.read_text(encoding="utf-8")

@@ -85,6 +85,7 @@ class DaemonActionChannel:
         grant_id: str,
         execution_mode: str = "SIMULATION",
         timeout_sec: float = 30.0,
+        action_id: str | None = None,
     ) -> ActionOutcome:
         """Submit a SIMULATION or SHADOW action and verify its receipt."""
         mode = ExecutionMode(str(execution_mode).upper())
@@ -97,7 +98,7 @@ class DaemonActionChannel:
                 f"daemon session failed (daemon offline?): {exc.code}: {exc}"
             ) from exc
         envelope = ActionEnvelope(
-            action_id=new_id("act"),
+            action_id=action_id or new_id("act"),
             actor_id=self._actor_id,
             agent_framework="rosclaw-native",
             session_id=session_id,
@@ -127,6 +128,8 @@ class DaemonActionChannel:
                     f"daemon rejected action request: {exc.code}: {exc}"
                 ) from exc
             action_id = submitted.get("action_id", envelope.action_id)
+            if action_id != envelope.action_id:
+                raise ActionChannelError("daemon response changed the submitted action identity")
             try:
                 status = await asyncio.to_thread(
                     self._client.wait_for_action, action_id, timeout_sec=timeout_sec
@@ -173,6 +176,53 @@ class DaemonActionChannel:
             execution_mode="SIMULATION",
             timeout_sec=timeout_sec,
         )
+
+    async def reconcile_action(
+        self,
+        action_id: str,
+        *,
+        capability_id: str,
+        execution_mode: str,
+        body_id: str,
+        body_hash: str,
+    ) -> ActionOutcome:
+        """Read an existing exact action only; never create sessions or submit it.
+
+        The caller must first validate its persisted transaction ownership.
+        Readback checks identity even for failure receipts: an unrelated failed
+        action cannot resolve our uncertain dispatch.
+        """
+        from types import SimpleNamespace
+
+        try:
+            status = await asyncio.to_thread(self._client.get_action_status, action_id)
+            if status.get("action_id") != action_id or status.get("state") not in {
+                "FINISHED",
+                "CANCELLED",
+            }:
+                raise ActionChannelError("exact action has no authoritative terminal result yet")
+            receipt = await asyncio.to_thread(self._client.get_execution_receipt, action_id)
+        except DaemonClientError as exc:
+            raise ActionChannelError(f"authority receipt query unavailable: {exc.code}") from exc
+        inner = receipt.get("receipt") if isinstance(receipt.get("receipt"), dict) else receipt
+        expected = {
+            "action_id": action_id,
+            "body_id": body_id,
+            "body_snapshot_hash": body_hash,
+            "capability_id": capability_id,
+            "execution_mode": execution_mode,
+        }
+        if any(inner.get(key) != value for key, value in expected.items()) or any(
+            status[key] != value for key, value in expected.items() if key in status
+        ):
+            raise ActionChannelError("authority receipt binding mismatch; result remains UNKNOWN")
+        envelope = SimpleNamespace(
+            body_id=body_id,
+            body_snapshot_hash=body_hash,
+            capability_id=capability_id,
+            execution_mode=ExecutionMode(execution_mode),
+        )
+        return self._verify_outcome(action_id, status, receipt, envelope)
 
     async def request_real_proposal(
         self,

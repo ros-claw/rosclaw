@@ -72,14 +72,14 @@ class ToolBridgeError(RuntimeError):
 #: capability 产物）。
 _ARTIFACT_SCALAR_KEYS = ("artifact", "mp4_artifact")
 _FORMAT_MEDIA = {
-    "gif": "image/gif", "mp4": "video/mp4",
-    "json": "application/json", "csv": "text/csv",
+    "gif": "image/gif",
+    "mp4": "video/mp4",
+    "json": "application/json",
+    "csv": "text/csv",
 }
 
 
-def _auto_register_artifacts(
-    service, request: PiToolRequestV1, value: object
-) -> list[dict]:
+def _auto_register_artifacts(service, request: PiToolRequestV1, value: object) -> list[dict]:
     """capability 产物自动登记（producer=kernel:capability:<id>，
     幂等——同内容重复登记返回同一 ArtifactRef）。
 
@@ -116,39 +116,46 @@ def _auto_register_artifacts(
             if isinstance(item, dict) and item.get("path"):
                 candidates.append(item)
             elif isinstance(item, str) and item.endswith((".json", ".csv")):
-                candidates.append({
-                    "path": item,
-                    "format": item.rsplit(".", 1)[-1],
-                })
+                candidates.append(
+                    {
+                        "path": item,
+                        "format": item.rsplit(".", 1)[-1],
+                    }
+                )
     # 归因用真实 capability_id（不是 wire 入口名）。
-    capability_id = str(
-        (request.arguments or {}).get("capability_id") or request.tool_name
-    )
+    capability_id = str((request.arguments or {}).get("capability_id") or request.tool_name)
     registered: list[dict] = []
     for item in candidates:
         path = str(item["path"])
         fmt = str(item.get("format") or path.rsplit(".", 1)[-1])
         try:
             record = kernel.register_artifact(
-                task_id=str(task["task_id"]), path=path,
+                task_id=str(task["task_id"]),
+                path=path,
                 media_type=_FORMAT_MEDIA.get(fmt, "application/octet-stream"),
                 producer=f"kernel:capability:{capability_id}",
             )
         except ValueError:
             continue  # 文件缺失等由验收表达——登记不阻断工具结果
-        registered.append({
-            "artifact_id": str(record["artifact_id"]),
-            "media_type": str(record["media_type"]),
-            "path": str(record["path"]),
-            "size_bytes": int(record["size_bytes"]),
-            "digest": str(record["sha256"]),
-            "open_command": f"rosclaw artifact open {record['artifact_id']}",
-        })
+        registered.append(
+            {
+                "artifact_id": str(record["artifact_id"]),
+                "media_type": str(record["media_type"]),
+                "path": str(record["path"]),
+                "size_bytes": int(record["size_bytes"]),
+                "digest": str(record["sha256"]),
+                "open_command": f"rosclaw artifact open {record['artifact_id']}",
+            }
+        )
     return registered
 
 
 def _envelope_result(
-    request: PiToolRequestV1, envelope, *, auto_refs: list[dict] | None = None
+    request: PiToolRequestV1,
+    envelope,
+    *,
+    auto_refs: list[dict] | None = None,
+    service: AgentService | None = None,
 ) -> PiToolResultV1:
     """N5B：canonical envelope → 模型可见投影（status + capability_id +
     value）；FAILED/BLOCKED 以稳定错误码诚实抛出。
@@ -174,6 +181,19 @@ def _envelope_result(
         if refs:
             projection["artifact_refs"] = refs
         summary = json.dumps(projection, ensure_ascii=False)
+        if len(summary) > 8000:
+            from rosclaw.agentd.pi_bridge.observation_projection import project_observation
+
+            try:
+                projection = project_observation(service, request, projection)
+            except (OSError, ValueError) as exc:
+                raise ToolBridgeError(
+                    "CAPABILITY_OUTPUT_STORAGE_ERROR",
+                    "Complete observation could not be registered; no partial JSON returned. "
+                    + str(exc),
+                    retryable=False,
+                ) from exc
+            summary = json.dumps(projection, ensure_ascii=False)
         if len(summary) > 8000:
             raise ToolBridgeError(
                 "CAPABILITY_OUTPUT_TOO_LARGE",
@@ -205,36 +225,41 @@ _VOLATILE_FINGERPRINT_KEYS = frozenset({"camera"})
 def _failure_fingerprint(request: PiToolRequestV1) -> str:
     def _strip(value: object) -> object:
         if isinstance(value, dict):
-            return {
-                k: _strip(v)
-                for k, v in value.items()
-                if k not in _VOLATILE_FINGERPRINT_KEYS
-            }
+            return {k: _strip(v) for k, v in value.items() if k not in _VOLATILE_FINGERPRINT_KEYS}
         if isinstance(value, list):
             return [_strip(v) for v in value]
         return value
 
-    return request.tool_name + ":" + json.dumps(
-        _strip(request.arguments), sort_keys=True, ensure_ascii=False
+    return (
+        request.tool_name
+        + ":"
+        + json.dumps(_strip(request.arguments), sort_keys=True, ensure_ascii=False)
     )
 
 
 #: R0-9（0826 体验审计 §5.R0-9）：transient 错误码（可安全重试——
 #: 状态已变化/等待外部事件，不记熔断也不计预算）。
-_TRANSIENT_CODES = frozenset({
-    "CONTEXT_NOT_FRESH",
-    "CONTEXT_HASH_MISMATCH",
-    "NEEDS_REPLAN",
-    "CONTEXT_LEASE_REQUIRED",
-    "CAPABILITY_SNAPSHOT_CHANGED",
-    "WAITING_APPROVAL",
-})
+_TRANSIENT_CODES = frozenset(
+    {
+        "CONTEXT_NOT_FRESH",
+        "CONTEXT_HASH_MISMATCH",
+        "NEEDS_REPLAN",
+        "CONTEXT_LEASE_REQUIRED",
+        "CAPABILITY_SNAPSHOT_CHANGED",
+        "WAITING_APPROVAL",
+    }
+)
 
 #: 基础设施/配置错误前缀（模型重试预算为 0——重试不会成功，
 #: 修复路径在 recovery_action）。
 _INFRA_PREFIXES = (
-    "RENDER_", "RUNTIME_", "TRANSPORT_", "PI_ENGINE",
-    "WORLD_ASSET_", "TOOL_ASSET_", "RESOURCE_",
+    "RENDER_",
+    "RUNTIME_",
+    "TRANSPORT_",
+    "PI_ENGINE",
+    "WORLD_ASSET_",
+    "TOOL_ASSET_",
+    "RESOURCE_",
 )
 
 
@@ -254,11 +279,7 @@ def _error_envelope_details(code: str, *, tool_name: str = "") -> dict:
             "retry_after_condition": "状态已变化（context/审批/快照刷新后）",
             "recovery_action": recovery_hint(code, context=tool_name),
         }
-    scope = (
-        "infrastructure"
-        if code.startswith(_INFRA_PREFIXES)
-        else "deterministic"
-    )
+    scope = "infrastructure" if code.startswith(_INFRA_PREFIXES) else "deterministic"
     return {
         "scope": scope,
         "attempt_budget": 0,
@@ -355,13 +376,9 @@ class PiToolDispatcher:
     def _note_embodiment_use(self, request: PiToolRequestV1) -> None:
         """N4.1：具身执行工具落账——行为任务的判定依据是实际调用，
         不是 body 在场。"""
-        task = self._service._task_kernel.active_task_for(
-            request.mission_id, request.pi_session_id
-        )
+        task = self._service._task_kernel.active_task_for(request.mission_id, request.pi_session_id)
         if task is not None:
-            self._service._task_kernel.note_tool_use(
-                str(task["task_id"]), request.tool_name
-            )
+            self._service._task_kernel.note_tool_use(str(task["task_id"]), request.tool_name)
 
     async def _execute_validated(self, request: PiToolRequestV1) -> PiToolResultV1:
         service = self._service
@@ -422,9 +439,7 @@ class PiToolDispatcher:
                 await service._ensure_mcp_discovered()
             # PR-N5D：snapshot digest 校验——调用方钉住的工具面与当前
             # registry 不一致时不静默换工具（下一步重新规划一次）。
-            claimed_digest = str(
-                (request.arguments or {}).get("snapshot_digest", "")
-            )
+            claimed_digest = str((request.arguments or {}).get("snapshot_digest", ""))
             if claimed_digest:
                 current = service.capability_snapshot(mission)
                 if claimed_digest != current.digest:
@@ -440,9 +455,7 @@ class PiToolDispatcher:
                     request.tool_name, dict(request.arguments or {})
                 )
             except EffectUnresolvableError as exc:
-                raise ToolBridgeError(
-                    "EFFECT_UNRESOLVABLE", str(exc)[:400]
-                ) from exc
+                raise ToolBridgeError("EFFECT_UNRESOLVABLE", str(exc)[:400]) from exc
             with contextlib.suppress(Exception):
                 await service._events.append(
                     request.mission_id,
@@ -452,16 +465,12 @@ class PiToolDispatcher:
         # 5. 分发。
         return await self._dispatch(request)
 
-    def _coordinator_consider(
-        self, request: PiToolRequestV1, result: PiToolResultV1
-    ) -> None:
+    def _coordinator_consider(self, request: PiToolRequestV1, result: PiToolResultV1) -> None:
         """P0-D：effectful 完成后的自动收尾评估——outcome 摘要附进
         工具结果 details（模型看到结果，无需新回合）。"""
         try:
             kernel = self._service._task_kernel
-            task = kernel.latest_task_for(
-                request.mission_id, request.pi_session_id
-            )
+            task = kernel.latest_task_for(request.mission_id, request.pi_session_id)
             if task is None:
                 return
             from rosclaw.task_kernel.coordinator import TaskCoordinator
@@ -541,10 +550,8 @@ class PiToolDispatcher:
             envelope = await service._tool_catalog.execute_v2(
                 request.request_id, capability_id, dict(args.get("arguments", {}))
             )
-            auto_refs = _auto_register_artifacts(
-                service, request, envelope.value
-            )
-            return _envelope_result(request, envelope, auto_refs=auto_refs)
+            auto_refs = _auto_register_artifacts(service, request, envelope.value)
+            return _envelope_result(request, envelope, auto_refs=auto_refs, service=service)
         if name == "rosclaw_compute":
             # 七审 §2.2/PR-SEVEN-2.2：COMPUTE 能力免审批调用（纯计算无
             # 物理副作用）——不再被 observe 的 OBSERVE-only 拒绝。
@@ -570,14 +577,12 @@ class PiToolDispatcher:
             envelope = await service._tool_catalog.execute_v2(
                 request.request_id, capability_id, dict(args.get("arguments", {}))
             )
-            auto_refs = _auto_register_artifacts(
-                service, request, envelope.value
-            )
-            return _envelope_result(request, envelope, auto_refs=auto_refs)
+            auto_refs = _auto_register_artifacts(service, request, envelope.value)
+            return _envelope_result(request, envelope, auto_refs=auto_refs, service=service)
         if name == "rosclaw_verify":
             receipts = [
                 e.payload
-                for e in service.events_replay(request.mission_id, limit=200)
+                for e in service.receipt_events(request.mission_id, limit=3)
                 if e.type.value == "receipt.received"
             ]
             return PiToolResultV1(
@@ -650,7 +655,9 @@ class PiToolDispatcher:
             if kind == "self":
                 info = inspect_self(self._service._home)
                 return PiToolResultV1(
-                    request_id=request.request_id, ok=True, status="COMPLETED",
+                    request_id=request.request_id,
+                    ok=True,
+                    status="COMPLETED",
                     summary=json.dumps(info, ensure_ascii=False),
                 )
             idx = ensure_index(self._service._home)
@@ -658,17 +665,23 @@ class PiToolDispatcher:
                 chain = robot_chain(idx, query)
                 if chain is None:
                     return PiToolResultV1(
-                        request_id=request.request_id, ok=False, status="FAILED",
+                        request_id=request.request_id,
+                        ok=False,
+                        status="FAILED",
                         summary=f"未知机器人 {query!r}（索引无权威链）",
                         error_code="UNKNOWN_ROBOT",
                     )
                 return PiToolResultV1(
-                    request_id=request.request_id, ok=True, status="COMPLETED",
+                    request_id=request.request_id,
+                    ok=True,
+                    status="COMPLETED",
                     summary=json.dumps(chain, ensure_ascii=False),
                 )
             hits = search(idx, query or kind, limit=20)
             return PiToolResultV1(
-                request_id=request.request_id, ok=True, status="COMPLETED",
+                request_id=request.request_id,
+                ok=True,
+                status="COMPLETED",
                 summary=json.dumps({"hits": hits}, ensure_ascii=False),
             )
         if name == "rosclaw_fail_safe":
@@ -706,25 +719,27 @@ class PiToolDispatcher:
             # 复用观测路径（同一分发器，克隆请求换工具名——幂等键加
             # 后缀避免与外层 execute 互吞）。
             return await self._execute_validated(
-                request.model_copy(update={
-                    "tool_name": "rosclaw_observe",
-                    "idempotency_key": request.idempotency_key + ":observe",
-                })
+                request.model_copy(
+                    update={
+                        "tool_name": "rosclaw_observe",
+                        "idempotency_key": request.idempotency_key + ":observe",
+                    }
+                )
             )
         if cls == "COMPUTE":
             return await self._execute_validated(
-                request.model_copy(update={
-                    "tool_name": "rosclaw_compute",
-                    "idempotency_key": request.idempotency_key + ":compute",
-                })
+                request.model_copy(
+                    update={
+                        "tool_name": "rosclaw_compute",
+                        "idempotency_key": request.idempotency_key + ":compute",
+                    }
+                )
             )
         # PHYSICAL_ACTION：同一 admission 链（policy AUTO/ASK/DENY——
         # REAL 永远 rosclawd+operator；execute 不是绕过的旁路）。
         return await self._request_action(request)
 
-    async def _artifact_register(
-        self, request: PiToolRequestV1
-    ) -> PiToolResultV1:
+    async def _artifact_register(self, request: PiToolRequestV1) -> PiToolResultV1:
         """PR-H4：交付物登记（实读文件算 hash——口头提到不算）。
 
         W05 §9.2 追加交付：终态（SUCCEEDED/FAILED/BLOCKED/
@@ -738,9 +753,7 @@ class PiToolDispatcher:
         if task is None:
             from rosclaw.task_kernel.service import TASK_TERMINAL
 
-            latest = kernel.latest_task_for(
-                request.mission_id, request.pi_session_id
-            )
+            latest = kernel.latest_task_for(request.mission_id, request.pi_session_id)
             if latest is not None and str(latest.get("state")) in TASK_TERMINAL:
                 task = latest
                 appended_post_terminal = True
@@ -748,9 +761,7 @@ class PiToolDispatcher:
                 # 交付优先（P0-C 金丝雀）：无任务史——首个 effectful
                 # call 原子 admission 建任务。
                 self._ensure_task_for_effect(request)
-                task = kernel.active_task_for(
-                    request.mission_id, request.pi_session_id
-                )
+                task = kernel.active_task_for(request.mission_id, request.pi_session_id)
             if task is None:
                 raise ToolBridgeError("NO_ACTIVE_TASK", "无活跃任务")
         path = str(request.arguments.get("path", ""))
@@ -778,7 +789,8 @@ class PiToolDispatcher:
             )
         try:
             artifact = kernel.register_artifact(
-                task_id=task["task_id"], path=resolved,
+                task_id=task["task_id"],
+                path=resolved,
                 media_type=str(request.arguments.get("media_type", "application/octet-stream")),
                 producer="model:rosclaw_artifact_register",
                 metadata=(
@@ -786,7 +798,8 @@ class PiToolDispatcher:
                         "appended_post_terminal": True,
                         "task_state_at_registration": str(task["state"]),
                     }
-                    if appended_post_terminal else None
+                    if appended_post_terminal
+                    else None
                 ),
             )
         except ValueError as exc:
@@ -794,7 +807,8 @@ class PiToolDispatcher:
         if appended_post_terminal:
             return PiToolResultV1(
                 request_id=request.request_id,
-                ok=True, status="REGISTERED",
+                ok=True,
+                status="REGISTERED",
                 summary=(
                     f"追加交付已登记：{_Path(artifact['path']).name}"
                     f"（{artifact['size_bytes']}B）"
@@ -805,7 +819,8 @@ class PiToolDispatcher:
             )
         return PiToolResultV1(
             request_id=request.request_id,
-            ok=True, status="REGISTERED",
+            ok=True,
+            status="REGISTERED",
             summary=f"交付物已登记：{_Path(artifact['path']).name}（{artifact['size_bytes']}B）artifact_id={artifact['artifact_id']}",
         )
 
@@ -819,21 +834,24 @@ class PiToolDispatcher:
         result = kernel.finish_task(
             task_id=task["task_id"],
             summary=str(request.arguments.get("summary", "")),
-            artifact_ids=[
-                str(a) for a in (request.arguments.get("artifact_ids") or [])
-            ],
+            artifact_ids=[str(a) for a in (request.arguments.get("artifact_ids") or [])],
         )
 
         if result["status"] == "SUCCEEDED":
             return PiToolResultV1(
-                request_id=request.request_id, ok=True, status="SUCCEEDED",
+                request_id=request.request_id,
+                ok=True,
+                status="SUCCEEDED",
                 summary=f"验收通过——任务完成（{result['verification_id']}）",
             )
         failures = "；".join(result.get("failures", []))[:300]
         return PiToolResultV1(
-            request_id=request.request_id, ok=False, status="REPAIR_REQUIRED",
+            request_id=request.request_id,
+            ok=False,
+            status="REPAIR_REQUIRED",
             summary=f"验收未过，同一任务内修复后重试：{failures}",
-            error_code="VERIFICATION_FAILED", retryable=True,
+            error_code="VERIFICATION_FAILED",
+            retryable=True,
         )
 
     async def _task_blocked(self, request: PiToolRequestV1) -> PiToolResultV1:
@@ -846,14 +864,15 @@ class PiToolDispatcher:
         if not reason_code:
             raise ToolBridgeError("INVALID_ARGUMENTS", "reason_code required")
         kernel.block_task(
-            task_id=task["task_id"], reason_code=reason_code,
+            task_id=task["task_id"],
+            reason_code=reason_code,
             detail=str(request.arguments.get("detail", "")),
-            recovery=[
-                str(r) for r in (request.arguments.get("recovery") or [])
-            ],
+            recovery=[str(r) for r in (request.arguments.get("recovery") or [])],
         )
         return PiToolResultV1(
-            request_id=request.request_id, ok=True, status="BLOCKED",
+            request_id=request.request_id,
+            ok=True,
+            status="BLOCKED",
             summary=f"任务已标记阻塞：{reason_code}",
         )
 
@@ -865,9 +884,7 @@ class PiToolDispatcher:
         kernel = self._service._task_kernel
         task = kernel.active_task_for(request.mission_id, request.pi_session_id)
         if task is None:
-            raise ToolBridgeError(
-                "NO_ACTIVE_TASK", "无活跃任务——先发送任务消息（输入事务绑定）"
-            )
+            raise ToolBridgeError("NO_ACTIVE_TASK", "无活跃任务——先发送任务消息（输入事务绑定）")
         op = await self._service._operation_manager.start(
             task_id=task["task_id"],
             attempt_id="main",
@@ -881,17 +898,14 @@ class PiToolDispatcher:
             status="STARTED",
             summary=(
                 f"Operation 已启动：{op['operation_id']}（后台运行）。"
-                "现在请直接结束回合：告诉用户任务正在后台执行——完成"
-                "结果会自动推送给用户（OperationWatcher 一次性通知，"
-                "含结果）。不要 sleep 等待、不要反复 process_output "
-                "轮询：完成推送会带结果，轮询只会把回合拖进停滞误判。"
+                "可继续不依赖该进程终态的独立工作；只有后续工作依赖完成结果时，"
+                "才结束回合等待一次性终态通知。不要 sleep 或反复轮询来等待。"
+                "启动不等于完成；进程应有有限寿命，或在最终交付前通过 process_stop 收尾。"
             ),
         )
 
     async def _process_status(self, request: PiToolRequestV1) -> PiToolResultV1:
-        op = self._service._operation_manager.get(
-            str(request.arguments.get("operation_id", ""))
-        )
+        op = self._service._operation_manager.get(str(request.arguments.get("operation_id", "")))
         if not op:
             raise ToolBridgeError("NOT_FOUND", "unknown operation")
         return PiToolResultV1(
@@ -910,14 +924,11 @@ class PiToolDispatcher:
         op = self._service._operation_manager.get(operation_id)
         if not op:
             raise ToolBridgeError("NOT_FOUND", "unknown operation")
-        events = self._service._operation_manager.events_since(
-            op["task_id"], 0
-        )
+        events = self._service._operation_manager.events_since(op["task_id"], 0)
         lines = [
             str(e["payload"].get("text", ""))
             for e in events
-            if e["event_type"] == "operation.output"
-            and e.get("operation_id") == operation_id
+            if e["event_type"] == "operation.output" and e.get("operation_id") == operation_id
         ]
         return PiToolResultV1(
             request_id=request.request_id,
@@ -990,15 +1001,25 @@ class PiToolDispatcher:
             status = admission.decision_status(resume_approval_id)["status"]
             if status == "APPROVED":
                 result = await admission.execute(
-                    resume_approval_id, request=ctx,
-                    caller_pid=self._caller_pid, caller_uid=self._caller_uid,
+                    resume_approval_id,
+                    request=ctx,
+                    caller_pid=self._caller_pid,
+                    caller_uid=self._caller_uid,
                 )
                 return PiToolResultV1(
                     request_id=request.request_id,
                     ok=bool(result.get("executed")),
                     status=str(result.get("status", "FAILED")),
-                    summary=str(result.get("summary", ""))[:8000],
+                    summary=str(
+                        result.get("summary")
+                        or result.get("next_check")
+                        or result.get("status", "")
+                    )[:8000],
                     approval_id=resume_approval_id,
+                    action_id=result.get("action_id"),
+                    receipt_id=result.get("receipt_id"),
+                    txn_id=result.get("txn_id"),
+                    reconciliation_required=bool(result.get("reconciliation_required")),
                     error_code=result.get("error_code"),
                 )
             if status == "PENDING":
@@ -1055,21 +1076,27 @@ class PiToolDispatcher:
                 error_code="OPERATOR_DECLINED",
             )
         result = await admission.execute(
-            card["approval_id"], request=ctx,
-            caller_pid=self._caller_pid, caller_uid=self._caller_uid,
+            card["approval_id"],
+            request=ctx,
+            caller_pid=self._caller_pid,
+            caller_uid=self._caller_uid,
         )
         return PiToolResultV1(
             request_id=request.request_id,
             ok=bool(result.get("executed")),
             status=str(result.get("status", "FAILED")),
-            summary=str(result.get("summary", ""))[:8000],
+            summary=str(
+                result.get("summary") or result.get("next_check") or result.get("status", "")
+            )[:8000],
             approval_id=card["approval_id"],
+            action_id=result.get("action_id"),
+            receipt_id=result.get("receipt_id"),
+            txn_id=result.get("txn_id"),
+            reconciliation_required=bool(result.get("reconciliation_required")),
             error_code=result.get("error_code"),
         )
 
-    async def _mirror_decision(
-        self, request: PiToolRequestV1, result: PiToolResultV1
-    ) -> None:
+    async def _mirror_decision(self, request: PiToolRequestV1, result: PiToolResultV1) -> None:
         """规格 §15：每个工具调用镜像为 DecisionV1 审计事件（不写全文）。"""
         try:
             from rosclaw.contracts.agent.agent_event import AgentEventType

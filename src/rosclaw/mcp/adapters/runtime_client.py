@@ -825,6 +825,31 @@ class RuntimeClient:
                     action.action_id,
                     timeout_sec=wait_timeout_sec,
                 )
+        except asyncio.CancelledError:
+            # Cancelling to_thread does not stop its synchronous lease-renewal
+            # wait. Close only the ephemeral Session owned by this call; the
+            # daemon applies its existing orphan policy to the exact action.
+            # MCP runs inside AnyIO scopes, so shield this bounded RPC cleanup
+            # from that scope's repeated cancellation. Never invent a receipt.
+            if session_created and managed_session:
+                from anyio import CancelScope
+
+                with CancelScope(shield=True):
+                    try:
+                        await asyncio.shield(
+                            asyncio.to_thread(
+                                self._daemon_client.close_session,
+                                action.session_id,
+                                reason="request_action_cancelled",
+                            )
+                        )
+                    except Exception as cleanup_exc:  # noqa: BLE001
+                        logger.warning(
+                            "Could not close cancelled action session %s: %s",
+                            action.session_id,
+                            cleanup_exc,
+                        )
+            raise
         except MCPError:
             raise
         except Exception as exc:  # noqa: BLE001

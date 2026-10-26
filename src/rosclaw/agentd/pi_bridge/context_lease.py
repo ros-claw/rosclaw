@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -43,6 +44,7 @@ class ValidatedContextLeaseV1:
     caller_uid: int = -1
     writer_lease_id: str = ""
     caller_pid: int = -1
+    dependency_hashes_json: str = "{}"
 
 
 class ContextLeaseStore:
@@ -63,6 +65,7 @@ class ContextLeaseStore:
         caller_uid: int = -1,
         writer_lease_id: str = "",
         caller_pid: int = -1,
+        dependency_hashes: dict[str, str] | None = None,
     ) -> ValidatedContextLeaseV1:
         """签发新 lease——同 (session, mission) 的旧 lease 立即撤销。"""
         now = datetime.now(UTC)
@@ -85,13 +88,14 @@ class ContextLeaseStore:
             caller_uid=caller_uid,
             writer_lease_id=writer_lease_id,
             caller_pid=caller_pid,
+            dependency_hashes_json=json.dumps(dependency_hashes or {}, sort_keys=True),
         )
         self._conn.execute(
             "INSERT INTO pi_context_leases (context_lease_id, pi_session_id, "
             "mission_id, context_revision, context_hash, body_hash, mode, "
             "issued_at, expires_at, revoked, binding_id, caller_uid, "
-            "writer_lease_id, caller_pid) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)",
+            "writer_lease_id, caller_pid, dependency_hashes_json) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)",
             (
                 lease.context_lease_id,
                 lease.pi_session_id,
@@ -106,6 +110,7 @@ class ContextLeaseStore:
                 lease.caller_uid,
                 lease.writer_lease_id,
                 lease.caller_pid,
+                lease.dependency_hashes_json,
             ),
         )
         self._conn.commit()
@@ -134,6 +139,9 @@ class ContextLeaseStore:
             caller_uid=int(row["caller_uid"]) if "caller_uid" in keys else -1,
             writer_lease_id=row["writer_lease_id"] if "writer_lease_id" in keys else "",
             caller_pid=int(row["caller_pid"]) if "caller_pid" in keys else -1,
+            dependency_hashes_json=row["dependency_hashes_json"]
+            if "dependency_hashes_json" in keys
+            else "{}",
         )
 
     def is_valid(self, lease: ValidatedContextLeaseV1) -> bool:
@@ -149,15 +157,14 @@ class ContextLeaseStore:
     def revoke_for_session(self, pi_session_id: str) -> int:
         """session 切换/关闭——该 session 全部 lease 立即失效。"""
         cursor = self._conn.execute(
-            "UPDATE pi_context_leases SET revoked = 1 "
-            "WHERE pi_session_id = ? AND revoked = 0",
+            "UPDATE pi_context_leases SET revoked = 1 WHERE pi_session_id = ? AND revoked = 0",
             (pi_session_id,),
         )
         self._conn.commit()
         return cursor.rowcount
 
 
-def context_hash_of(envelope: Any) -> str:
+def context_hash_of(envelope: Any, *, capability_id: str | None = None) -> str:
     """envelope 内容 hash（RFC 8785 canonical——与跨语言 hash 同源）。
 
     P0-5B：只覆盖稳定的具身事实（body/mode/revision/capabilities/
@@ -193,7 +200,36 @@ def context_hash_of(envelope: Any) -> str:
             # binds current readiness/Body/blocking issues: changing any of
             # those invalidates the lease. The envelope retains the complete
             # observation identity and fresh timestamps for prompt evidence.
-            self_state["ros_observations"] = ros.get("admission_facts", {
-                "status": ros.get("status", "UNKNOWN"),
-            })
+            facts = ros.get("admission_facts", {"status": ros.get("status", "UNKNOWN")})
+            scoped = facts.get("capability_facts", {}) if isinstance(facts, dict) else {}
+            if capability_id is not None and capability_id in scoped:
+                self_state["ros_observations"] = {
+                    "status": facts.get("status", "UNKNOWN"),
+                    "body_hash": facts.get("body_hash"),
+                    "global_hazards": [
+                        hazard
+                        for hazard in facts.get("global_hazards", [])
+                        if not (
+                            isinstance(hazard, dict)
+                            and hazard.get("code") == "ROS_TOPIC_002"
+                            and capability_id in hazard.get("unaffected_capabilities", [])
+                        )
+                    ],
+                    "capability_id": capability_id,
+                    "dependencies": scoped[capability_id],
+                }
+            else:
+                self_state["ros_observations"] = facts
     return hashlib.sha256(canonical_dumps(payload).encode()).hexdigest()[:32]
+
+
+def action_dependency_hashes(envelope: Any) -> dict[str, str]:
+    """Only authority-produced ROS facts opt in; callers cannot supply scopes."""
+    ros = envelope.self_state.get("ros_observations", {})
+    facts = ros.get("admission_facts", {}) if isinstance(ros, dict) else {}
+    scopes = facts.get("capability_facts", {}) if isinstance(facts, dict) else {}
+    return (
+        {capability: context_hash_of(envelope, capability_id=capability) for capability in scopes}
+        if isinstance(scopes, dict)
+        else {}
+    )

@@ -193,7 +193,7 @@ async function main(): Promise<number> {
 	}
 	// 十一审 PR-D：Workspace 一等状态——显式 --workspace > cwd git 自动
 	// 绑定 > 既有绑定。
-	const { runtime, coordinator, leaseManager } = await createRosclawRuntime({
+	const { runtime, coordinator, leaseManager, settleOperations } = await createRosclawRuntime({
 		cwd: taskContext.workspaceRoot,
 		taskContext,
 		rosclawHome,
@@ -230,6 +230,7 @@ async function main(): Promise<number> {
 		if (print) {
 			// 非 TTY 单发模式（冒烟/脚本）。
 			return await runPiPrint(runtime, {
+				settleOperations,
 				...(initialMessage ? { initialMessage } : {}),
 			});
 		}

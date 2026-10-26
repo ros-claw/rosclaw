@@ -102,16 +102,15 @@ class PersistentMcpClient:
                 result = await session.call_tool(tool_name, arguments)
             except ValidationError:
                 raise
-            except Exception as exc:  # noqa: BLE001 - 连接断开：重置后重试一次
+            except Exception as exc:  # noqa: BLE001
+                # A server may already have performed the effect before losing
+                # its response. Reset the transport for a later explicit call;
+                # never resubmit an intention merely because delivery failed.
                 await self._reset(key)
-                try:
-                    session = await self._ensure()
-                    result = await session.call_tool(tool_name, arguments)
-                except Exception as exc2:  # noqa: BLE001
-                    raise ValidationError(
-                        f"mcp call {tool_name} failed after reconnect: "
-                        f"{type(exc2).__name__}: {exc2}"
-                    ) from exc
+                raise ValidationError(
+                    f"mcp call {tool_name} outcome unknown; not automatically replayed: "
+                    f"{type(exc).__name__}: {exc}"
+                ) from exc
             if result.isError:
                 text = " ".join(getattr(b, "text", "") for b in result.content).strip()
                 raise ValidationError(f"mcp tool {tool_name} error: {text or 'unknown'}")

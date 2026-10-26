@@ -59,11 +59,93 @@ class OperationManager:
         self._cancel_tasks: dict[str, asyncio.Task[None]] = {}
         # operation_id → (client, goal_id)——ROS 2 Action 操作（P1-B3）。
         self._actions: dict[str, tuple[object, str]] = {}
+        self._lifecycle_lock = asyncio.Lock()
+        self._starting: set[asyncio.Task] = set()
+        self._closing = False
+        self._close_task: asyncio.Task | None = None
 
     # --------------------------------------------------------------
     # 生命周期
     # --------------------------------------------------------------
     async def start(
+        self,
+        *,
+        task_id: str,
+        attempt_id: str,
+        kind: str,
+        argv: list[str],
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
+        resumable: bool = False,
+        goal_id: str = "",
+        provider: str = "process",
+    ) -> dict[str, Any]:
+        """Own admission/spawn even if the requesting transport disconnects."""
+        async with self._lifecycle_lock:
+            if self._closing:
+                raise RuntimeError("Operation supervisor is closing")
+            pending = asyncio.create_task(
+                self._start_owned(
+                    task_id=task_id,
+                    attempt_id=attempt_id,
+                    kind=kind,
+                    argv=argv,
+                    cwd=cwd,
+                    env=env,
+                    resumable=resumable,
+                    goal_id=goal_id,
+                    provider=provider,
+                )
+            )
+            self._starting.add(pending)
+            pending.add_done_callback(self._observe_start)
+        return await asyncio.shield(pending)
+
+    def _observe_start(self, task: asyncio.Task) -> None:
+        self._starting.discard(task)
+        if not task.cancelled() and (error := task.exception()) is not None:
+            _LOG.error(
+                "Owned operation admission failed",
+                exc_info=(type(error), error, error.__traceback__),
+            )
+
+    async def close(self) -> None:
+        """Explicit supervisor shutdown, not a liveness or duration timeout.
+
+        Reap processes spawned by this manager before its journal closes.
+        Abrupt-crash reattachment remains unchanged; unowned recovered PIDs
+        are never signalled merely because their watcher is being closed.
+        """
+        if self._close_task is None:
+            self._close_task = asyncio.create_task(self._close_owned())
+        await asyncio.shield(self._close_task)
+
+    async def _close_owned(self) -> None:
+        async with self._lifecycle_lock:
+            self._closing = True
+            starting = tuple(self._starting)
+        if starting:
+            await asyncio.gather(*(asyncio.shield(t) for t in starting), return_exceptions=True)
+        outcomes = await asyncio.gather(
+            *(self.cancel(op, reason="supervisor_shutdown") for op in tuple(self._procs)),
+            return_exceptions=True,
+        )
+        # An earlier cancellation may already own the process and its pipes.
+        cleanup = tuple(self._cancel_tasks.values())
+        if cleanup:
+            outcomes += await asyncio.gather(
+                *(asyncio.shield(t) for t in cleanup), return_exceptions=True
+            )
+        failures = [r for r in outcomes if isinstance(r, BaseException)]
+        if failures:
+            raise RuntimeError("Owned operation cleanup is not confirmed") from failures[0]
+        watchers = [t for t in self._drivers.values() if not t.done()]
+        for task in watchers:
+            task.cancel()
+        if watchers:
+            await asyncio.gather(*watchers, return_exceptions=True)
+
+    async def _start_owned(
         self,
         *,
         task_id: str,

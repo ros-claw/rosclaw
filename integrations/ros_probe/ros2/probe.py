@@ -11,6 +11,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import statistics
 import time
 from collections import deque
@@ -18,7 +19,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import rclpy
-from ament_index_python.packages import get_packages_with_prefixes
+from ament_index_python.packages import get_package_share_directory, get_packages_with_prefixes
 from graph_reads import collect_node_actions, unknown_graph_snapshot
 from lifecycle_msgs.srv import GetState
 from rcl_interfaces.srv import GetParameters, ListParameters
@@ -79,6 +80,8 @@ class ReadOnlyProbe(Node):
         collision_assets_sha256=None,
         lossless_gzip_snapshots=False,
         collision_asset_reference_only=False,
+        extra_read_types=(),
+        reliable_read_types=(),
     ):
         if (
             type(snapshot_period_sec) not in (int, float)
@@ -109,6 +112,26 @@ class ReadOnlyProbe(Node):
             self.collision_resource_guard = CollisionResourceContinuity(
                 "/assets", {"prepared_collision_assets": self.prepared_collision_assets}
             )
+        if (
+            not isinstance(extra_read_types, (list, tuple))
+            or len(extra_read_types) > 32
+            or any(
+                not isinstance(t, str)
+                or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*/msg/[A-Za-z][A-Za-z0-9_]*", t)
+                for t in extra_read_types
+            )
+        ):
+            raise ValueError(
+                "operator read-type contract must contain at most 32 ROS message types"
+            )
+        self.read_types = READ_TYPES | set(extra_read_types)
+        if (
+            not isinstance(reliable_read_types, (list, tuple))
+            or len(reliable_read_types) > 32
+            or any(not isinstance(t, str) or t not in self.read_types for t in reliable_read_types)
+        ):
+            raise ValueError("reliable-read-type requires an explicitly readable ROS message type")
+        self.reliable_read_types = set(reliable_read_types)
         super().__init__("rosclaw_readonly_probe")
         self.samples = {}
         self.subscriptions_by_topic = {}
@@ -128,6 +151,18 @@ class ReadOnlyProbe(Node):
         self.clock_values = deque(maxlen=20)
         self.clock_readings = deque(maxlen=200)
         self.packages = sorted(get_packages_with_prefixes())
+        self.package_versions = {}
+        import xml.etree.ElementTree as ET
+
+        for package in self.packages:
+            try:
+                version = ET.parse(
+                    Path(get_package_share_directory(package)) / "package.xml"
+                ).findtext("version")
+                if version:
+                    self.package_versions[package] = version
+            except (OSError, ValueError, ET.ParseError):
+                pass  # Missing version evidence never establishes a binding.
         self.localization_observations = {}
         self.action_observations = {}
         self.message_frames = {}
@@ -156,7 +191,7 @@ class ReadOnlyProbe(Node):
                 topic in self.subscriptions_by_topic
                 or len(types) != 1
                 or (
-                    types[0] not in READ_TYPES
+                    types[0] not in getattr(self, "read_types", READ_TYPES)
                     and not (topic == TF_ATTRIBUTION_TOPIC and types[0] == "std_msgs/msg/String")
                 )
             ):
@@ -168,6 +203,17 @@ class ReadOnlyProbe(Node):
             # Wait for actual publisher QoS instead of guessing from the name.
             if not endpoints:
                 continue
+            if types[0] in getattr(self, "reliable_read_types", set()):
+                if not all(
+                    p.qos_profile.reliability == ReliabilityPolicy.RELIABLE for p in endpoints
+                ):
+                    error = f"reliable-read-type publisher contract mismatch: {topic}"
+                    if error not in self.errors:
+                        self.errors.append(error)
+                    continue
+                # An operator-owned transport contract, never a health exemption.
+                # Latest-only history limits old-frame backlog after retransmit.
+                qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE)
             latched = latched_observation(topic, types, endpoints)
             if latched:
                 qos = QoSProfile(depth=100, durability=DurabilityPolicy.TRANSIENT_LOCAL)
@@ -638,6 +684,9 @@ class ReadOnlyProbe(Node):
                 "graph_read_errors": graph_errors,
                 "node_use_sim_time": observed_times,
                 "package_inventory": self.packages,
+                "package_versions": self.package_versions,
+                "operator_read_types": sorted(self.read_types),
+                "operator_reliable_read_types": sorted(getattr(self, "reliable_read_types", ())),
                 "node_parameters": parameters,
                 "parameter_captured_at": self.parameter_captured_at,
                 "clock_advancing": clock_advancing,
@@ -723,12 +772,26 @@ def main():
     parser.add_argument("--collision-asset-reference-only", action="store_true")
     parser.add_argument("--collision-asset-originals")
     parser.add_argument("--collision-asset-originals-sha256")
+    parser.add_argument(
+        "--read-type",
+        action="append",
+        default=[],
+        help="Operator-owned additional read-only ROS message type",
+    )
+    parser.add_argument(
+        "--reliable-read-type",
+        action="append",
+        default=[],
+        help="Require actual publishers to offer reliable delivery for this readable type",
+    )
     parser.add_argument("--duration", type=float, default=3.0)
     parser.add_argument("--output", type=Path)
     args, ros_args = parser.parse_known_args()
     rclpy.init(args=ros_args)
     node = ReadOnlyProbe(
         snapshot_period_sec=args.snapshot_period_sec,
+        extra_read_types=args.read_type,
+        reliable_read_types=args.reliable_read_type,
         lossless_gzip_snapshots=args.lossless_gzip_snapshots,
         collision_asset_reference_only=args.collision_asset_reference_only,
         collision_assets_path=args.collision_asset_originals,

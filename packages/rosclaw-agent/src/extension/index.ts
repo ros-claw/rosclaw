@@ -56,6 +56,7 @@ import { guardInput } from "./input-guard.js";
 import { materializeCapabilityTools, type CapabilitySnapshot } from "../tools/materialize.js";
 import { MODEL_TOOL_NAMES } from "../tools/surface.js";
 import { fetchEmbodiedContext, renderTrustedContext } from "./context-injection.js";
+import { refreshModelContext } from "../harness/pi/model-context.js";
 import { registerCompactAnchor } from "./compact-anchor.js";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { phaseWorkingMessage } from "./activity.js";
@@ -66,6 +67,8 @@ import { formatPolicyAutoNotice } from "../ui/tool-display.js";
 import { classifyNotice, NotificationLevelFilter } from "../ui/levels.js";
 
 export interface RosclawExtensionOptions {
+	/** The existing Native host owns headless Operation settlement. */
+	onOperationWatcher?: (watcher: OperationWatcher) => void;
 	profile: "developer" | "robot";
 	version: string;
 	/** PNA-2：v2 系统提示词（native_agent_v2.md 内容，构建期打包）。 */
@@ -188,6 +191,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 						}
 					: undefined,
 		});
+		options.onOperationWatcher?.(operationWatcher);
 		// 十一审 PR-D：Workspace——header 快照 + /workspace 命令（命令层
 		// 直接处理，不进模型）。
 		const workspaceStore = options.workspaceStore ?? new WorkspaceStore(options.rosclawHome);
@@ -287,7 +291,11 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			operationWatcher.stop();
 		});
 		pi.on("session_start", async (_event, ctx) => {
-			if (!ctx.hasUI) return;
+			if (!ctx.hasUI) {
+				await center.bootstrap();
+				await center.probeOperator();
+				return;
+			}
 			ctx.ui.setTitle(`ROSClaw Native Agent`);
 			if (!resumeReportShown) {
 				resumeReportShown = true;
@@ -639,6 +647,22 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				options.active.applyEnvelope(fetched.envelope, fetched.contextLeaseId);
 			} else {
 				options.active.markContextStale(fetched.note);
+			}
+		});
+
+		// Pi's before_agent_start runs once per prompt, not once per LLM call.
+		// Refresh AFTER all parallel tools finish and before the next decision.
+		pi.on("context", async (event) => ({ messages: await refreshModelContext({
+			rosclawHome: options.rosclawHome, active: options.active, center,
+		}, event.messages) }));
+
+		// Pi does not interpret an extra `isError` field returned by execute().
+		// Preserve the structured receipt and use its supported result hook.
+		pi.on("tool_result", async (event) => {
+			if (event.toolName !== "rosclaw_request_action" && !event.toolName.startsWith("propose_")) return;
+			const details = (event.details ?? {}) as Record<string, unknown>;
+			if (details.ok === false && ["REJECTED", "FAILED", "UNKNOWN", "CANCELLED", "EXPIRED", "TIMED_OUT", "ORPHANED", "BLOCKED", "DEGRADED"].includes(String(details.status))) {
+				return { isError: true };
 			}
 		});
 

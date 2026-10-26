@@ -30,8 +30,40 @@ def native_ros_observations(service, mission, body) -> dict | None:
         now = datetime.now(UTC)
         if not -100 <= model.age_ms(now) <= 5000:
             raise ValueError("ROS observations are stale or future-dated")
+        diagnosis = diagnose(model, now=now)
+        from rosclaw.connectors.ros.resolver.semantics import issue_applies_to
+
+        capabilities = resolve_capabilities(model, now=now)
+
+        def hazard(issue):
+            # Stable safety facts only: no capture IDs, prose or drifting ages.
+            # Freshness changes are already reflected by readiness requirements.
+            observation = issue.get("evidence", [{}])[0].get("observation", {})
+            identity = {
+                k: observation[k]
+                for k in ("topic", "parent", "child", "name")
+                if isinstance(observation, dict) and k in observation
+            }
+            value = {"code": issue["issue_code"], "identity": identity}
+            if issue["issue_code"] == "ROS_TOPIC_002" and issue.get("unaffected_capabilities"):
+                value["unaffected_capabilities"] = issue["unaffected_capabilities"]
+            return value
+
+        blocking = [i for i in diagnosis["issues"] if i["severity"] == "blocking"]
+        scopes = {
+            c["semantic_id"]: {
+                "readiness": c["status"],
+                "requirements": c["requirements"],
+                "interface": c["interface"],
+                "blocking_issues": [
+                    hazard(i) for i in blocking if issue_applies_to(i, c["semantic_id"])
+                ],
+            }
+            for c in capabilities
+        }
         return {
             "status": "OBSERVED",
+            "diagnosis": diagnosis,
             "snapshot_id": model.snapshot_id,
             "snapshot_hash": model.snapshot_hash,
             "captured_at": model.captured_at.isoformat(),
@@ -43,12 +75,15 @@ def native_ros_observations(service, mission, body) -> dict | None:
                 "readiness": {
                     c["semantic_id"]: c["status"] for c in resolve_capabilities(model, now=now)
                 },
+                "capability_facts": scopes,
+                "global_hazards": [
+                    hazard(i)
+                    for i in blocking
+                    if i.get("affected_capabilities") is None
+                    or "*" in i.get("affected_capabilities", [])
+                ],
                 "blocking_issues": sorted(
-                    {
-                        i["issue_code"]
-                        for i in diagnose(model, now=now)["issues"]
-                        if i["severity"] == "blocking"
-                    }
+                    {i["issue_code"] for i in diagnosis["issues"] if i["severity"] == "blocking"}
                 ),
             },
             "authorization": False,

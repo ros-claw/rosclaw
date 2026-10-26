@@ -74,7 +74,8 @@ async def _propose(service, mission, capability_id: str, *, idem: str, session="
     )
     admission = ActionAdmissionService(service)
     return await admission.propose(
-        caller_pid=1, caller_uid=1000,
+        caller_pid=1,
+        caller_uid=1000,
         request=ctx,
         capability_id=capability_id,
         arguments={},
@@ -84,18 +85,16 @@ async def _propose(service, mission, capability_id: str, *, idem: str, session="
 
 
 class TestBodyCapabilityGate:
-    async def test_limo_capability_on_ur5e_body_rejected_before_card(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_limo_capability_on_ur5e_body_rejected_before_card(self, tmp_path: Path) -> None:
         """UR5e body × LIMO 动作 → BODY_CAPABILITY_MISMATCH，零 approval。"""
         from rosclaw.agentd.pi_bridge.tool_dispatch import ToolBridgeError
 
-        service, mission, operatord, agent_server, sock = await _setup_with_operatord(
-            tmp_path
-        )
+        service, mission, operatord, agent_server, sock = await _setup_with_operatord(tmp_path)
         assert mission.body_binding.body_id == "sim/ur5e"
         _register_action(
-            service, "limo.speaker.play_tone", source="mcp:limo-sim",
+            service,
+            "limo.speaker.play_tone",
+            source="mcp:limo-sim",
             body_types=["sim/limo"],
         )
         with pytest.raises(ToolBridgeError) as excinfo:
@@ -108,18 +107,12 @@ class TestBodyCapabilityGate:
         await agent_server.stop()
         await service.close()
 
-    async def test_physical_action_without_body_scope_quarantined(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_physical_action_without_body_scope_quarantined(self, tmp_path: Path) -> None:
         """PHYSICAL_ACTION 无 body scope 声明 → BODY_SCOPE_MISSING + 隔离。"""
         from rosclaw.agentd.pi_bridge.tool_dispatch import ToolBridgeError
 
-        service, mission, operatord, agent_server, sock = await _setup_with_operatord(
-            tmp_path
-        )
-        _register_action(
-            service, "sim.scopeless.action", source="native:agentd", body_types=[]
-        )
+        service, mission, operatord, agent_server, sock = await _setup_with_operatord(tmp_path)
+        _register_action(service, "sim.scopeless.action", source="native:agentd", body_types=[])
         with pytest.raises(ToolBridgeError) as excinfo:
             await _propose(service, mission, "sim.scopeless.action", idem="idem_six3_scope")
         assert excinfo.value.code in ("BODY_SCOPE_MISSING", "CAPABILITY_QUARANTINED")
@@ -131,16 +124,14 @@ class TestBodyCapabilityGate:
         await agent_server.stop()
         await service.close()
 
-    async def test_compatible_action_records_executor_identity(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_compatible_action_records_executor_identity(self, tmp_path: Path) -> None:
         """body 兼容的动作建卡成功，ExactAction 记录 capability source
         与 executor_identity（执行路由凭据）。"""
-        service, mission, operatord, agent_server, sock = await _setup_with_operatord(
-            tmp_path
-        )
+        service, mission, operatord, agent_server, sock = await _setup_with_operatord(tmp_path)
         _register_action(
-            service, "test.arm.move_to_pose", source="mcp:test-arm-sim",
+            service,
+            "test.arm.move_to_pose",
+            source="mcp:test-arm-sim",
             body_types=["sim/ur5e"],
         )
         card = await _propose(service, mission, "test.arm.move_to_pose", idem="idem_six3_ok")
@@ -164,11 +155,11 @@ class TestExecutorRouting:
         （EXECUTOR_FOR_BODY_UNAVAILABLE），grant 零消费。"""
         from rosclaw.agentd.operator_socket import operator_call
 
-        service, mission, operatord, agent_server, sock = await _setup_with_operatord(
-            tmp_path
-        )
+        service, mission, operatord, agent_server, sock = await _setup_with_operatord(tmp_path)
         _register_action(
-            service, "test.arm.move_to_pose", source="mcp:test-arm-sim",
+            service,
+            "test.arm.move_to_pose",
+            source="mcp:test-arm-sim",
             body_types=["sim/ur5e"],
         )
         # 不注册任何 mcp:ur5e-sim executor——批准后执行必须 fail closed。
@@ -176,9 +167,13 @@ class TestExecutorRouting:
         listed = await operator_call(sock, "approvals.list", {"mission_id": mission.mission_id})
         entry = next(a for a in listed["approvals"] if a["request_id"] == card["approval_id"])
         decided = await operator_call(
-            sock, "approvals.decide",
-            {"request_id": entry["request_id"],
-             "display_hash": entry["display_hash"], "approve": True},
+            sock,
+            "approvals.decide",
+            {
+                "request_id": entry["request_id"],
+                "display_hash": entry["display_hash"],
+                "approve": True,
+            },
         )
         assert decided.get("ok"), decided
         from rosclaw.agentd.pi_bridge.action_admission import (
@@ -201,9 +196,22 @@ class TestExecutorRouting:
             card["approval_id"], request=ctx, caller_pid=1, caller_uid=1000
         )
         assert outcome["executed"] is False, "无 executor 的动作竟执行成功"
-        assert outcome.get("error_code") in (
-            "EXECUTOR_FOR_BODY_UNAVAILABLE", "ACTION_FAILED"
+        assert outcome.get("error_code") in ("EXECUTOR_FOR_BODY_UNAVAILABLE", "ACTION_FAILED")
+        assert outcome["status"] == "REJECTED"
+        assert outcome["terminal_receipt"] is False
+        assert outcome["reconciliation_required"] is False
+        assert outcome["original_dispatch"] == "NOT_STARTED"
+        reconciled = ActionAdmissionService(service).reconcile(
+            card["approval_id"], request=ctx, caller_pid=1, caller_uid=1000
         )
+        assert reconciled["status"] == "REJECTED"
+        assert reconciled["terminal_receipt"] is False
+        # An explicitly rejected transaction is never executed on a repeat
+        # execute call, even though its original grant was not consumed.
+        repeated = await ActionAdmissionService(service).execute(
+            card["approval_id"], request=ctx, caller_pid=1, caller_uid=1000
+        )
+        assert repeated["status"] == "REJECTED" and repeated["executed"] is False
         row = service._store.connection.execute(
             "SELECT consumed FROM mission_grants WHERE request_id = ?",
             (card["approval_id"],),
@@ -220,11 +228,11 @@ class TestCapabilitiesSurface:
         excluded 并附原因（模型不再靠猜 capability ID）。"""
         from rosclaw.agentd.pi_bridge.server import PiBridgeServer
 
-        service, mission, operatord, agent_server, sock = await _setup_with_operatord(
-            tmp_path
-        )
+        service, mission, operatord, agent_server, sock = await _setup_with_operatord(tmp_path)
         _register_action(
-            service, "test.arm.move_to_pose", source="mcp:test-arm-sim",
+            service,
+            "test.arm.move_to_pose",
+            source="mcp:test-arm-sim",
             body_types=["sim/ur5e"],
         )
         # 七审 PR-SEVEN-2：executor_state 进入 listing——本用例测 body
@@ -232,25 +240,25 @@ class TestCapabilitiesSurface:
         # excluded[EXECUTOR_FOR_BODY_UNAVAILABLE]）。
         service._sim_executors["mcp:test-arm-sim"] = object()
         _register_action(
-            service, "limo.speaker.play_tone", source="mcp:limo-sim",
+            service,
+            "limo.speaker.play_tone",
+            source="mcp:limo-sim",
             body_types=["sim/limo"],
         )
         bridge = PiBridgeServer(service, tmp_path / "run" / "pi-bridge.sock")
         result = await bridge._dispatch(
-            "user:local:1000", 1, "pi.capabilities",
+            "user:local:1000",
+            1,
+            "pi.capabilities",
             {"token": service.control_token, "mission_id": mission.mission_id},
         )
         assert result.get("ok"), result
         action_ids = [c["capability_id"] for c in result.get("action_capabilities", [])]
-        assert "test.arm.move_to_pose" in action_ids, (
-            f"body 兼容动作未列出: {action_ids}"
-        )
+        assert "test.arm.move_to_pose" in action_ids, f"body 兼容动作未列出: {action_ids}"
         assert "limo.speaker.play_tone" not in action_ids, (
             "body 不兼容动作竟列为可用——模型会照单调用"
         )
-        excluded = {
-            e["capability_id"]: e.get("reason") for e in result.get("excluded", [])
-        }
+        excluded = {e["capability_id"]: e.get("reason") for e in result.get("excluded", [])}
         assert excluded.get("limo.speaker.play_tone") == "BODY_CAPABILITY_MISMATCH"
         await operatord.stop()
         await agent_server.stop()
