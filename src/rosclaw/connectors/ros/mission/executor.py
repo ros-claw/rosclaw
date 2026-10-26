@@ -1118,13 +1118,27 @@ class RosCoverageSimulationExecutor:
             )
         except Exception as exc:
             cancel_error = None
-            with self.lock:
-                if self.goal_id:
-                    try:
-                        self.client.cancel_goal(self.goal_id)
-                    except Exception as error:
-                        cancel_error = str(error)
-                        self._audit_event("cancel_dispatch_failed", {"error": cancel_error})
+            failure_cleanup = None
+            if self.navigation_binding:
+                # Failure is terminal. Stop renewals before the existing bounded
+                # SIM shutdown/independent stop review; this grants no new action
+                # budget and does not require localization health to recover.
+                self.stopping.set()
+                heartbeat_stop.set()
+                failure_cleanup = self.emergency_stop()
+                cancel_error = failure_cleanup["cancel_error"]
+                self._audit_event("failed_navigation_cleanup", failure_cleanup)
+            else:
+                with self.lock:
+                    if self.goal_id:
+                        try:
+                            self.client.cancel_goal(self.goal_id)
+                        except Exception as error:
+                            cancel_error = str(error)
+                            self._audit_event("cancel_dispatch_failed", {"error": cancel_error})
+            physical_stop_verified = bool(
+                failure_cleanup and failure_cleanup["physical_stop_verified"]
+            )
             # Preserve failed physical observations for diagnosis; this artifact
             # carries no verification claim and cannot authorize memory success.
             failure_artifact = None
@@ -1141,7 +1155,11 @@ class RosCoverageSimulationExecutor:
                             "verification_status": "NOT_VERIFIED",
                             "error": str(exc),
                             "cancel_dispatch_error": cancel_error,
-                            "physical_stop_verified": False,
+                            "physical_stop_verified": physical_stop_verified,
+                            "physical_stop_status": "CONFIRMED"
+                            if physical_stop_verified
+                            else "NOT_CONFIRMED",
+                            "failure_cleanup": failure_cleanup,
                             "observations": self.witness.since(started),
                         },
                         indent=2,
@@ -1160,7 +1178,11 @@ class RosCoverageSimulationExecutor:
                 verification={
                     "failure_artifact": failure_artifact,
                     "cancel_dispatch_error": cancel_error,
-                    "physical_stop_verified": False,
+                    "physical_stop_verified": physical_stop_verified,
+                    "physical_stop_status": "CONFIRMED"
+                    if physical_stop_verified
+                    else "NOT_CONFIRMED",
+                    "failure_cleanup": failure_cleanup,
                 },
                 errors=[{"code": "ROS_SIMULATION_FAILED", "message": str(exc)}],
             )
