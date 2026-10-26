@@ -77,3 +77,20 @@ Generic diagnostics keep their original threshold and severity. Their action
 scope uses the compiled dependency policy, which is displayed in Native context
 and bound to the effective Body hash. A generic warning cannot silently override
 a different, valid Driver contract or exempt a genuinely stale dependency.
+
+
+### Explicit supervisor close during an active tool
+
+Unix listener close leaves accepted request handlers alive. The Pi and operator
+servers track only their own accepted transports/tasks, close them and cancel
+their handlers before awaiting listener shutdown. AgentService closes those
+admission surfaces and owned Operations before their shared MCP dependency and
+its event store. Cancellation does not fabricate a terminal physical receipt.
+
+A cancelled RuntimeClient wait otherwise leaves its synchronous renewal thread
+alive. The client now closes only the ephemeral Session owned by that exact
+call, shielding this cleanup from an enclosing MCP cancellation scope. A shared
+foreign Session is not closed. The existing daemon orphan policy remains the
+execution authority. Lost MCP responses are outcome UNKNOWN: PersistentMcpClient
+resets the transport for a later explicit query and never automatically repeats
+the physical intention after reconnecting.

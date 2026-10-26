@@ -101,8 +101,15 @@ class OperatorSocketServer:
         self._service = service
         self._path = socket_path
         self._server: asyncio.AbstractServer | None = None
+        self._connections: dict[asyncio.Task, asyncio.StreamWriter] = {}
+        self._stopping = False
+        self._stop_task: asyncio.Task | None = None
 
     async def start(self) -> None:
+        if self._server is not None:
+            raise RuntimeError("Socket server already started")
+        self._stopping = False
+        self._stop_task = None
         self._path.parent.mkdir(parents=True, exist_ok=True)
         os.chmod(self._path.parent, 0o700)
         self._path.unlink(missing_ok=True)
@@ -110,13 +117,41 @@ class OperatorSocketServer:
         os.chmod(self._path, 0o600)
 
     async def stop(self) -> None:
-        if self._server is not None:
-            self._server.close()
-            await self._server.wait_closed()
+        # Closing a listener does not close accepted connections. Waiting for
+        # those first can let a physical request run to natural completion.
+        if self._stop_task is None:
+            self._stop_task = asyncio.create_task(self._stop_owned_connections())
+        await asyncio.shield(self._stop_task)
+
+    async def _stop_owned_connections(self) -> None:
+        self._stopping = True
+        server = self._server
+        if server is not None:
+            server.close()
+        connections = tuple(self._connections.items())
+        for task, writer in connections:
+            writer.close()
+            task.cancel()
+        if connections:
+            await asyncio.gather(*(task for task, _ in connections), return_exceptions=True)
+        if server is not None:
+            await server.wait_closed()
             self._server = None
         self._path.unlink(missing_ok=True)
 
-    async def _handle(
+    async def _handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        task = asyncio.current_task()
+        if self._stopping or task is None:
+            writer.close()
+            return
+        self._connections[task] = writer
+        try:
+            await self._handle_connection(reader, writer)
+        finally:
+            writer.close()
+            self._connections.pop(task, None)
+
+    async def _handle_connection(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
     ) -> None:
         try:
@@ -201,9 +236,7 @@ class OperatorSocketServer:
                 # 拥有的 mission 的卡片（socket 周界是同组 operator/agent，
                 # 跨 UID operator 必须显式给 mission_id）。
                 pending = [
-                    r
-                    for r in pending
-                    if service.principal_for_request(r.request_id) == principal
+                    r for r in pending if service.principal_for_request(r.request_id) == principal
                 ]
             return {
                 "ok": True,
@@ -310,8 +343,13 @@ class OperatorSocketServer:
                 await service.decide_approval(
                     request_id, principal=principal, approve=False, _from_operatord=True
                 )
-                return {"ok": True, "approved": False, "grant_id": None,
-                        "principal": principal, "profile": profile}
+                return {
+                    "ok": True,
+                    "approved": False,
+                    "grant_id": None,
+                    "principal": principal,
+                    "profile": profile,
+                }
         else:
             # SIM broker 卡（DEV_SIM_ONLY）：operatord Ed25519 签名 +
             # TOFU 钉住公钥 + nonce 单调（nonce 由 operatord 侧一次性

@@ -1480,18 +1480,21 @@ class AgentService:
         if managed is not None:
             managed.terminate()
             self._managed_operator = None
-        if getattr(self, "_shared_mcp_client", None) is not None:
-            await self._shared_mcp_client.close()
-            self._shared_mcp_client = None
-        if getattr(self, "_operator_socket", None) is not None:
-            await self._operator_socket.stop()
-            self._operator_socket = None
+        # Stop admissions and cancel owned request handlers before closing
+        # their transports. Cancellation is not a physical terminal receipt;
+        # the daemon's existing action lease/orphan policy remains authoritative.
         if getattr(self, "_pi_bridge", None) is not None:
             await self._pi_bridge.stop()
             self._pi_bridge = None
+        if getattr(self, "_operator_socket", None) is not None:
+            await self._operator_socket.stop()
+            self._operator_socket = None
         manager = getattr(self, "_operation_manager", None)
         if manager is not None:
             await manager.close()
+        if getattr(self, "_shared_mcp_client", None) is not None:
+            await self._shared_mcp_client.close()
+            self._shared_mcp_client = None
         self._store.close()
         # P1-4：control token 文件随服务关闭删除（不残留可重用的令牌）。
         token_path = self._home / "run" / "agentd-control.token"

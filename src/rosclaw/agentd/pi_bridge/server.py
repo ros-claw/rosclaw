@@ -69,9 +69,16 @@ class PiBridgeServer:
         self._service = service
         self._path = socket_path
         self._server: asyncio.AbstractServer | None = None
+        self._connections: dict[asyncio.Task, asyncio.StreamWriter] = {}
+        self._stopping = False
+        self._stop_task: asyncio.Task | None = None
         self._bindings = SessionBindingStore(service._store.connection)
 
     async def start(self) -> None:
+        if self._server is not None:
+            raise RuntimeError("Socket server already started")
+        self._stopping = False
+        self._stop_task = None
         self._path.parent.mkdir(parents=True, exist_ok=True)
         os.chmod(self._path.parent, 0o700)
         self._path.unlink(missing_ok=True)
@@ -79,13 +86,43 @@ class PiBridgeServer:
         os.chmod(self._path, 0o600)
 
     async def stop(self) -> None:
-        if self._server is not None:
-            self._server.close()
-            await self._server.wait_closed()
+        # Closing a listener does not close accepted connections. Waiting for
+        # those first can let a physical request run to natural completion.
+        if self._stop_task is None:
+            self._stop_task = asyncio.create_task(self._stop_owned_connections())
+        await asyncio.shield(self._stop_task)
+
+    async def _stop_owned_connections(self) -> None:
+        self._stopping = True
+        server = self._server
+        if server is not None:
+            server.close()
+        connections = tuple(self._connections.items())
+        for task, writer in connections:
+            writer.close()
+            task.cancel()
+        if connections:
+            await asyncio.gather(*(task for task, _ in connections), return_exceptions=True)
+        if server is not None:
+            await server.wait_closed()
             self._server = None
         self._path.unlink(missing_ok=True)
 
     async def _handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        task = asyncio.current_task()
+        if self._stopping or task is None:
+            writer.close()
+            return
+        self._connections[task] = writer
+        try:
+            await self._handle_connection(reader, writer)
+        finally:
+            writer.close()
+            self._connections.pop(task, None)
+
+    async def _handle_connection(
+        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
         try:
             principal, peer_pid = _peer_credentials(writer)
         except Exception as exc:  # noqa: BLE001
