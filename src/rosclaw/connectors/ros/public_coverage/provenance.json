@@ -1,0 +1,35 @@
+{
+  "source_project": "HomeClean-Bench",
+  "source_commit": "5d9de33113dc48bbacfc1c1155173c1739240d05",
+  "public_observation_algorithms": {
+    "reference/geometry.py": {
+      "sha256": "2a7dc8f719224ba9fef6701f1e5c29242feba418d1aa5fb9cdb3e725ee4c382b",
+      "transformation": "import namespace only; source remains unchanged"
+    },
+    "reference/grid.py": {
+      "sha256": "0a761f630731599239e226c0c2adf09c14ef78cbae1b7a5f02c3727b7fbf2e1c",
+      "transformation": "import namespace only; source remains unchanged"
+    },
+    "reference/coverage_paths.py": {
+      "sha256": "b3b67c54dbcd9c5e117716b98befe70d8107fd14ea2e077f28361d4ce38caf40",
+      "transformation": "import namespace only; source remains unchanged"
+    },
+    "reference/coverage_ledger.py": {
+      "sha256": "fc340b4b266e1eeb26da557609e8187b732222c955d05b0353fcd1b7f840f1d0",
+      "transformation": "import namespace only; source remains unchanged"
+    },
+    "reference/coverage_work.py": {
+      "sha256": "51c020de48314ba052888f5d80478d36c25470d43c7f2edeccebf6a2092abacf",
+      "transformation": "import namespace only; source remains unchanged"
+    },
+    "reference/coverage_variants.py": {
+      "sha256": "6eebfc7b3c3a455c22ce19b5d65cd3706af5bfdf8ac85ebae0cf2f15e897c949",
+      "transformation": "import namespace only; source remains unchanged"
+    },
+    "reference/route_costs.py": {
+      "sha256": "3350a938c5c2afabe3a6ca97d070a2a32864c418fa37b127ab10e53eb8fafb0b",
+      "transformation": "import namespace only; source remains unchanged"
+    }
+  },
+  "frozen_ABC_protocol_changed": false
+}
