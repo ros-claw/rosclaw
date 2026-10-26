@@ -20,6 +20,21 @@ solved by applying a single SE(2) transform. Unknown space is not a known empty
 room. Unknown, blocked and retry debt remains present. Missing sensor/brush
 state earns no swept bridge; restart also breaks interpolation.
 
+**Do not treat ordinary map->odom updates as global map frame changes.** They
+also compensate odometry drift. The shared coverage App uses
+`GraphAnchoredCoverage`: observed floor/brush patches attach to nearby stable
+IDs from the public SLAM graph. Each node pair defines a local rigid basis;
+corrections can differ between patches. Missing anchors retain unlocalized debt
+and award no credit. Fine deformation within a patch remains an estimation
+uncertainty, and a changed graph/odom epoch requires explicit registration.
+The original single-rigid-frame class is retained for inputs whose registration
+is explicitly known, not as a general live-SLAM correction model.
+
+SLAM Toolbox 2.8.5 publishes node IDs and corrected XY positions in
+`/slam_toolbox/graph_visualization`; its sphere marker orientation is not node
+yaw, so the adapter does not use it as such. See the pinned upstream
+[publisher](https://github.com/SteveMacenski/slam_toolbox/blob/2.8.5/src/loop_closure_assistant.cpp).
+
 `provenance.json` identifies the unchanged source algorithms from HomeClean.
 The port changes import namespace, formatting/lint and an explicit maximum
 work length parameter in `select_phase`. `online.py` adds anchored persistence.
