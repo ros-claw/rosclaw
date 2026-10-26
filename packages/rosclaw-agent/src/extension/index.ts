@@ -67,6 +67,8 @@ import { formatPolicyAutoNotice } from "../ui/tool-display.js";
 import { classifyNotice, NotificationLevelFilter } from "../ui/levels.js";
 
 export interface RosclawExtensionOptions {
+	/** The existing Native host owns headless Operation settlement. */
+	onOperationWatcher?: (watcher: OperationWatcher) => void;
 	profile: "developer" | "robot";
 	version: string;
 	/** PNA-2：v2 系统提示词（native_agent_v2.md 内容，构建期打包）。 */
@@ -189,6 +191,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 						}
 					: undefined,
 		});
+		options.onOperationWatcher?.(operationWatcher);
 		// 十一审 PR-D：Workspace——header 快照 + /workspace 命令（命令层
 		// 直接处理，不进模型）。
 		const workspaceStore = options.workspaceStore ?? new WorkspaceStore(options.rosclawHome);
@@ -288,7 +291,11 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			operationWatcher.stop();
 		});
 		pi.on("session_start", async (_event, ctx) => {
-			if (!ctx.hasUI) return;
+			if (!ctx.hasUI) {
+				await center.bootstrap();
+				await center.probeOperator();
+				return;
+			}
 			ctx.ui.setTitle(`ROSClaw Native Agent`);
 			if (!resumeReportShown) {
 				resumeReportShown = true;

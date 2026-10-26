@@ -6,6 +6,8 @@
 
 import {
 	InteractiveMode,
+	type AgentSession,
+	type AgentSessionRuntime,
 	SessionManager,
 	runPrintMode,
 } from "@earendil-works/pi-coding-agent";
@@ -52,12 +54,55 @@ export async function runPiInteractive(
 	return 0;
 }
 
+/** The SDK still owns prompting, rebinding, output, signals and disposal.
+ * Bind methods to their real receivers (SDK objects have private fields).
+ */
+function settledPrintRuntime(
+	runtime: AgentSessionRuntime,
+	settle: () => Promise<void>,
+): AgentSessionRuntime {
+	const sessions = new WeakMap<AgentSession, AgentSession>();
+	let settling = false;
+	return new Proxy(runtime, {
+		get(target, key) {
+			if (key !== "session") {
+				const value = Reflect.get(target, key, target);
+				return typeof value === "function" ? value.bind(target) : value;
+			}
+			const session = target.session;
+			let view = sessions.get(session);
+			if (!view) {
+				view = new Proxy(session, {
+					get(owned, property) {
+						if (property === "prompt") {
+							return async (...args: Parameters<AgentSession["prompt"]>) => {
+								await owned.prompt(...args);
+								if (!settling) {
+									settling = true;
+									try { await settle(); }
+									finally { settling = false; }
+								}
+							};
+						}
+						const value = Reflect.get(owned, property, owned);
+						return typeof value === "function" ? value.bind(owned) : value;
+					},
+				});
+				sessions.set(session, view);
+			}
+			return view;
+		},
+	});
+}
+
 /** 非 TTY 单发模式（冒烟/脚本）。 */
 export async function runPiPrint(
 	runtime: unknown,
-	options: { initialMessage?: string },
+	options: { initialMessage?: string; settleOperations?: () => Promise<void> },
 ): Promise<number> {
-	return await runPrintMode(runtime as never, {
+	const host = runtime as AgentSessionRuntime;
+	return await runPrintMode(options.settleOperations
+		? settledPrintRuntime(host, options.settleOperations) : host, {
 		mode: "text",
 		...(options.initialMessage ? { initialMessage: options.initialMessage } : {}),
 	});
