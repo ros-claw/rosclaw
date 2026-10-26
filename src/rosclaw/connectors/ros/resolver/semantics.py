@@ -197,6 +197,11 @@ def observation_contract(model, topic: str) -> dict | None:
 
 def issue_applies_to(issue: dict, semantic: str) -> bool:
     """Unscoped hazards remain global; only trusted bindings narrow scope."""
+    if semantic in issue.get("unaffected_capabilities", []):
+        return False
+    bound = issue.get("scope_bound_capabilities")
+    if bound is not None and semantic not in bound:
+        return True
     affected = issue.get("affected_capabilities")
     return affected is None or "*" in affected or semantic in affected
 
@@ -288,6 +293,10 @@ def action_observation_contracts(model) -> dict:
             )
             or not isinstance(lifecycle, list)
             or any(not isinstance(x, str) for x in lifecycle)
+            or (
+                "complete_for_action" in requirement
+                and type(requirement["complete_for_action"]) is not bool
+            )
         ):
             continue
         valid[name] = requirement
@@ -410,7 +419,31 @@ def dependency_scope_for_issue(model, issue: dict, *, now=None) -> list[str] | N
     topic = observation.get("topic")
     pair = [observation.get("parent"), observation.get("child")]
     node = observation.get("name")
+    if topic and issue.get("issue_code") == "ROS_TOPIC_002":
+        # This is an explicit compiled-Body assertion of complete dependencies,
+        # not inference from a topic's name, message type or a model suggestion.
+        # Keep the original blocking diagnostic and unknown/open actions global.
+        declared_critical = (
+            topic in model.body.get("required_topics", [])
+            or topic in model.body.get("required_topic_types", {})
+            or topic in model.body.get("minimum_rates", {})
+        )
+        any_dependency = any(topic in r["topics"] for r in contracts.values())
+        producer_contract = observation_contract(model, topic)
+        independent_required = (producer_contract or {}).get("required_for", [])
+        unaffected = sorted(
+            c
+            for c, r in contracts.items()
+            if r.get("complete_for_action") is True
+            and _topic_freshness_valid(r)
+            and topic not in r["topics"]
+            and c not in independent_required
+            and (not declared_critical or any_dependency)
+        )
+        if unaffected:
+            issue["unaffected_capabilities"] = unaffected
     if topic and any(topic in r["topics"] for r in contracts.values()):
+        issue["scope_bound_capabilities"] = sorted(contracts)
         affected = []
         for capability, contract in contracts.items():
             if topic not in contract["topics"]:
@@ -433,13 +466,16 @@ def dependency_scope_for_issue(model, issue: dict, *, now=None) -> list[str] | N
             affected.append(capability)
         return sorted(affected)
     if all(pair) and any(pair in r.get("transforms", []) for r in contracts.values()):
+        issue["scope_bound_capabilities"] = sorted(contracts)
         return sorted(c for c, r in contracts.items() if pair in r.get("transforms", []))
     if node and any(node in r.get("lifecycle_nodes", []) for r in contracts.values()):
+        issue["scope_bound_capabilities"] = sorted(contracts)
         return sorted(c for c, r in contracts.items() if node in r.get("lifecycle_nodes", []))
     # Navigation-specific observations are relevant only to actions explicitly
     # depending on the navigation lifecycle. Collision/global time hazards stay global.
     if issue["issue_code"].startswith(("NAV2_LOCALIZATION_", "NAV2_COSTMAP_", "NAV2_CONTROLLER_")):
         navigation = [c for c, r in contracts.items() if r.get("lifecycle_nodes")]
         if navigation:
+            issue["scope_bound_capabilities"] = sorted(contracts)
             return sorted(navigation)
     return None

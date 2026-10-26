@@ -94,3 +94,28 @@ foreign Session is not closed. The existing daemon orphan policy remains the
 execution authority. Lost MCP responses are outcome UNKNOWN: PersistentMcpClient
 resets the transport for a later explicit query and never automatically repeats
 the physical intention after reconnecting.
+
+
+### Explicitly complete action observation scope
+
+A compiled action dependency contract may opt into `complete_for_action: true`.
+This is the Body author's assertion that the listed typed topics, transforms
+and lifecycle dependencies cover that executor action, not a conclusion drawn
+from the discovered graph or an Agent's judgment. The optional flag must be a
+Boolean; missing/false keeps legacy open scope, and malformed explicit contracts
+remain unusable. The immutable effective Body hash binds the assertion.
+
+For a generic stale-topic diagnostic (`ROS_TOPIC_002`), complete actions that do
+not depend on that topic can be recorded as `unaffected_capabilities`. The
+original issue remains blocking and its original timestamp, age and threshold
+remain unchanged. Unconfigured actions and actions with open dependency sets
+retain the global issue. A globally required topic omitted from every action
+contract is a conflicting declaration, so it is not exempted. Independently
+bound producer requirements take precedence. Required observations must still
+pass their existing type, freshness, header, TF and lifecycle checks.
+
+Dependency-derived affected lists additionally record their
+`scope_bound_capabilities`; an action absent from that compiled set does not
+inherit an exemption. Global clock, collision and other hazards never use the
+stale-topic exception. This does not label an unknown signal healthy or grant
+execution authority; the actual executor revalidates facts before dispatch.

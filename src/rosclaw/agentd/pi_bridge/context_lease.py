@@ -206,7 +206,15 @@ def context_hash_of(envelope: Any, *, capability_id: str | None = None) -> str:
                 self_state["ros_observations"] = {
                     "status": facts.get("status", "UNKNOWN"),
                     "body_hash": facts.get("body_hash"),
-                    "global_hazards": facts.get("global_hazards", []),
+                    "global_hazards": [
+                        hazard
+                        for hazard in facts.get("global_hazards", [])
+                        if not (
+                            isinstance(hazard, dict)
+                            and hazard.get("code") == "ROS_TOPIC_002"
+                            and capability_id in hazard.get("unaffected_capabilities", [])
+                        )
+                    ],
                     "capability_id": capability_id,
                     "dependencies": scoped[capability_id],
                 }
