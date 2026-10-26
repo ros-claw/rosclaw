@@ -46,7 +46,29 @@ interface KernelEvent {
 	seq: number;
 	event_type: string;
 	operation_id?: string;
+	attempt_id?: string;
 	payload?: Record<string, unknown>;
+}
+
+/** UI observation only: never a heartbeat, deadline or process supervisor.
+ * Entries exist only for explicitly tracked, nonterminal operations. Session
+ * continuation does not discover/reattach arbitrary external processes. */
+interface OperationObservation {
+	since: number;
+	unavailable: boolean;
+	ledgerSource: string;
+	outputAt?: number;
+	output?: string;
+	progressAt?: number;
+	progress?: string;
+}
+
+const STATUS_TEXT_LIMIT = 240;
+function statusText(text: string): string {
+	// One bounded, inert UI line; never retain an accumulating output log.
+	const tail = text.slice(-STATUS_TEXT_LIMIT).replace(/^[\uDC00-\uDFFF]/, "")
+		.replace(/[\u0000-\u001f\u007f-\u009f]/g, " ").replace(/\s+/g, " ").trim();
+	return (text.length > STATUS_TEXT_LIMIT ? "…" : "") + tail;
 }
 
 const POLL_MS = 2000;
@@ -66,6 +88,10 @@ export class OperationWatcher {
 	private readonly pendingProofs = new Map<string, Record<string, unknown>>();
 	private readonly seqByTask = new Map<string, number>();
 	private readonly lastLineByOp = new Map<string, string>();
+	private readonly observations = new Map<string, OperationObservation>();
+	private ticking = false;
+	private stopped = false;
+	private generation = 0;
 	/** R0-1.5：自动路由任务跟踪（task_id 集合——plan 进度 +
 	 *  终态一次 followUp）。 */
 	private readonly trackedTasks = new Set<string>();
@@ -79,9 +105,13 @@ export class OperationWatcher {
 
 	/** 模型启动 operation 时登记（tool_execution_end: process_start）。 */
 	track(operationId: string): void {
-		if (!operationId || this.tracked.has(operationId) || this.delivered.has(operationId)
-			|| this.pendingTerminalOps.has(operationId)) return;
+		if (!operationId || this.pending.has(operationId) || this.tracked.has(operationId)
+			|| this.delivered.has(operationId) || this.pendingTerminalOps.has(operationId)) return;
 		this.pending.add(operationId);
+		this.observations.set(operationId, {
+			since: Date.now(), unavailable: false, ledgerSource: "registration pending; no public result yet",
+		});
+		this.upsertWidget(this.deps.sink(), operationId);
 	}
 
 	/** ACK only finalized toolResult messages retained by the public PI agent. */
@@ -137,6 +167,7 @@ export class OperationWatcher {
 	}
 
 	start(): void {
+		this.stopped = false;
 		if (this.timer) return;
 		this.timer = setInterval(() => {
 			void this.tick().catch(() => undefined);
@@ -145,23 +176,37 @@ export class OperationWatcher {
 	}
 
 	stop(): void {
+		this.stopped = true;
 		if (this.timer) clearInterval(this.timer);
 		this.timer = undefined;
+		this.generation++; // An in-flight read cannot recreate a stopped UI.
+		const sink = this.deps.sink();
+		for (const id of this.lastLineByOp.keys()) sink?.setWidget?.(`op:${id}`, undefined);
+		this.lastLineByOp.clear();
+		for (const view of this.observations.values()) view.unavailable = true;
 	}
 
 	/** 注册解析（每个 op 仅一次）：task_id 是事件流订阅键。 */
-	private async resolvePending(): Promise<void> {
+	private async resolvePending(generation: number): Promise<void> {
 		for (const operationId of [...this.pending]) {
 			try {
 				const result = await this.deps.call("pi.op.get", {
 					operation_id: operationId,
 				});
+				if (generation !== this.generation) return;
 				const op = (result.operation ?? {}) as Record<string, unknown>;
 				const taskId = String(op.task_id ?? "");
-				if (!taskId) continue; // 桥暂不可知——下周期再试（不报假死）
+				if (!taskId || (op.operation_id && op.operation_id !== operationId)) {
+					throw new Error("operation identity unavailable");
+				}
 				this.pending.delete(operationId);
 				this.tracked.set(operationId, taskId);
 				this.operations.set(operationId, op);
+				const view = this.observations.get(operationId);
+				if (view) {
+					view.unavailable = false;
+					view.ledgerSource = "registration snapshot, not a fresh liveness observation";
+				}
 				const proof = this.pendingProofs.get(operationId);
 				if (proof) {
 					this.pendingProofs.delete(operationId);
@@ -169,84 +214,157 @@ export class OperationWatcher {
 				}
 				if (TERMINAL_STATES.has(String(op.state ?? ""))) {
 					await this.handleTerminal(operationId, op);
+				} else {
+					// Visible even if the first event read is slow or there is no output.
+					this.upsertWidget(this.deps.sink(), operationId);
 				}
 			} catch {
-				// 桥暂不可用——下周期再试。
+				if (generation !== this.generation) return;
+				const view = this.observations.get(operationId);
+				if (view) view.unavailable = true;
+				this.upsertWidget(this.deps.sink(), operationId);
 			}
+			if (generation !== this.generation) return;
 		}
 	}
 
 	private async tick(): Promise<void> {
-		await this.resolvePending();
+		// A slow bridge must not create overlapping 2s requests/cursor races.
+		if (this.ticking) {
+			if (this.stopped) return;
+			// Keep observation ages moving without treating the pending read as
+			// fresh evidence, issuing another request or inventing a deadline.
+			for (const id of this.observations.keys()) this.upsertWidget(this.deps.sink(), id);
+			return;
+		}
+		// A new observation cycle (also used without a timer) resumes tracking;
+		// an overlap with a stopped in-flight cycle must not resume/redraw it.
+		this.stopped = false;
+		this.ticking = true;
+		try {
+			await this.poll(this.generation);
+		} finally {
+			this.ticking = false;
+		}
+	}
+
+	private async poll(generation: number): Promise<void> {
+		await this.resolvePending(generation);
+		if (generation !== this.generation) return;
 		if (!this.tracked.size && !this.trackedTasks.size
 			&& !this.pendingTerminalTasks.size && !this.pendingTerminalOps.size) return;
-		const sink = this.deps.sink();
 		// R0-1.5：op 任务与自动路由任务同一增量轮询（不重不漏）。
 		const taskIds = [
 			...new Set([...this.tracked.values(), ...this.trackedTasks]),
 		];
 		for (const taskId of taskIds) {
 			let events: KernelEvent[] = [];
+			let unavailable = false;
 			try {
 				const result = await this.deps.call("pi.kernel.events", {
 					task_id: taskId,
 					last_seq: this.seqByTask.get(taskId) ?? 0,
 				});
-				events = (result.events ?? []) as KernelEvent[];
+				if (!Array.isArray(result.events)) throw new Error("event feed unavailable");
+				events = result.events as KernelEvent[];
 			} catch {
-				continue; // 桥暂不可用——下周期从同游标重放（不重不漏）
+				unavailable = true; // Keep cursor, ledger and output ages unchanged.
 			}
+			if (generation !== this.generation) return;
 			for (const event of events) {
-				this.seqByTask.set(taskId, Math.max(
-					this.seqByTask.get(taskId) ?? 0, Number(event.seq) || 0,
-				));
+				if (!Number.isSafeInteger(event.seq)
+					|| event.seq <= (this.seqByTask.get(taskId) ?? 0)) continue;
+				this.seqByTask.set(taskId, event.seq);
 				const operationId = String(event.operation_id ?? "");
 				if (this.trackedTasks.has(taskId)) {
 					await this.handleTaskEvent(taskId, event);
+					if (generation !== this.generation) return;
 				}
-				if (!operationId || !this.tracked.has(operationId)) continue;
+				if (!operationId || this.tracked.get(operationId) !== taskId) continue;
+				const op = this.operations.get(operationId)!;
+				if (event.attempt_id && op.attempt_id && event.attempt_id !== op.attempt_id) continue;
+				const view = this.observations.get(operationId)!;
 				if (event.event_type === "operation.output") {
-					const text = String(event.payload?.text ?? "").trim();
-					if (text) this.upsertWidget(sink, operationId, text);
+					const text = String(event.payload?.text ?? "");
+					if (text) {
+						view.output = statusText(text) || "(whitespace)";
+						view.outputAt = Date.now(); // UI receipt time, not producer time.
+					}
 				} else if (event.event_type === "operation.progress") {
 					const progress = (event.payload?.progress ?? {}) as Record<string, unknown>;
 					const label = [
-						progress.pct !== undefined ? `${progress.pct}%` : "",
-						String(progress.stage ?? ""),
+						typeof progress.pct === "number" && Number.isFinite(progress.pct)
+							&& progress.pct >= 0 && progress.pct <= 100 ? `${progress.pct}%` : "",
+						typeof progress.stage === "string" ? statusText(progress.stage) : "",
 					].filter(Boolean).join(" ");
-					if (label) this.upsertWidget(sink, operationId, label);
+					if (label) {
+						view.progress = statusText(label);
+						view.progressAt = Date.now();
+					}
+				} else if (event.event_type === "operation.canceling"
+					|| ((event.event_type === "operation.degraded" || event.event_type === "operation.resumed")
+						&& op.state !== "CANCELING")) {
+					op.state = event.event_type === "operation.canceling" ? "CANCELING"
+						: event.event_type === "operation.degraded" ? "DEGRADED" : "RUNNING";
+					view.ledgerSource = event.event_type;
 				} else if (TERMINAL_EVENTS.has(event.event_type)) {
+					const state = String(event.payload?.state ?? "");
+					if (!TERMINAL_STATES.has(state) || (op.state === "CANCELING" && state !== "CANCELLED")) continue;
 					await this.handleTerminal(operationId, {
-						...this.operations.get(operationId),
-						operation_id: operationId,
-						task_id: taskId,
-						state: String(event.payload?.state ?? ""),
+						...op, operation_id: operationId, task_id: taskId, state,
 					});
+					if (generation !== this.generation) return;
 				}
+			}
+			// One bounded replacement per operation per tick, not per output chunk.
+			for (const [id, owner] of this.tracked) {
+				if (owner !== taskId) continue;
+				this.observations.get(id)!.unavailable = unavailable;
+				this.upsertWidget(this.deps.sink(), id);
 			}
 		}
 		for (const [operationId, op] of [...this.pendingTerminalOps]) {
 			await this.handleTerminal(operationId, op);
+			if (generation !== this.generation) return;
 		}
-		// 空闲门控挂起 drain：流式中延迟的终态在空闲后独立呈现
-		// （seq 游标已前进——靠 pending 集合重试，不是重放事件）。
+		// 空闲门控挂起 drain：流式中延迟的终态在空闲后独立呈现。
 		for (const taskId of [...this.pendingTerminalTasks]) {
 			await this.presentTerminal(taskId);
+			if (generation !== this.generation) return;
 		}
 	}
 
-	private upsertWidget(sink: WatcherSink | undefined, operationId: string, line: string): void {
-		if (!sink?.setWidget) return;
-		this.lastLineByOp.set(operationId, line);
-		sink.setWidget(`op:${operationId}`, [
-			`⠋ Operation ${operationId.slice(0, 18)}… ${line}`,
-		]);
+	private upsertWidget(sink: WatcherSink | undefined, operationId: string): void {
+		const view = this.observations.get(operationId);
+		if (this.stopped || !sink?.setWidget || !view) return;
+		const now = Date.now();
+		const age = (at: number) => `${Math.floor(Math.max(0, now - at) / 1000)}s`;
+		const state = String(this.operations.get(operationId)?.state ?? "UNKNOWN");
+		const lines = [
+			`⠋ Operation ${statusText(operationId.slice(0, 18))}… last known ledger: ${statusText(state)} (${view.ledgerSource})`,
+			`UI elapsed since tracking: ${age(view.since)}; output: ` + (view.outputAt === undefined
+				? `none observed in this UI (quiet ≥ ${age(view.since)} since tracking)`
+				: `${age(view.outputAt)} since UI-observed output (replay may be old)`),
+			view.progressAt === undefined ? "Progress: UNKNOWN (no structured progress observed)"
+				: `Last structured progress: ${view.progress} (${age(view.progressAt)} since UI observation; may be old)`,
+			view.unavailable ? "Bridge: status unavailable; showing last known ledger only"
+				: this.pending.has(operationId) ? "Bridge: registration pending; no public result yet"
+					: "Bridge: last public read succeeded; not a process liveness check",
+			"Current liveness/completion: UNKNOWN; silence does not prove deadlock or death",
+		];
+		if (state === "DEGRADED") lines.push("Ledger DEGRADED warning; not proof of deadlock/death");
+		if (state === "CANCELING") lines.push("Cancellation requested; process/physical stop not confirmed");
+		if (view.output !== undefined) lines.push(`Last output (bounded UI tail): ${view.output}`);
+		const rendered = lines.join("\n");
+		if (this.lastLineByOp.get(operationId) === rendered) return;
+		sink.setWidget(`op:${operationId}`, lines);
+		this.lastLineByOp.set(operationId, rendered);
 	}
 
 	private clearWidget(sink: WatcherSink | undefined, operationId: string): void {
-		if (!sink?.setWidget || !this.lastLineByOp.has(operationId)) return;
-		this.lastLineByOp.delete(operationId);
-		sink.setWidget(`op:${operationId}`, undefined);
+		this.observations.delete(operationId);
+		const shown = this.lastLineByOp.delete(operationId);
+		if (shown) sink?.setWidget?.(`op:${operationId}`, undefined);
 	}
 
 	/** R0-1.5：自动路由任务事件——plan.node 进度原位 widget +
@@ -338,6 +456,7 @@ export class OperationWatcher {
 		operationId: string, op: Record<string, unknown>,
 	): Promise<void> {
 		if (this.delivered.has(operationId)) return;
+		const generation = this.generation;
 		this.pendingTerminalOps.set(operationId, op);
 		this.pending.delete(operationId);
 		this.tracked.delete(operationId);
@@ -369,7 +488,8 @@ export class OperationWatcher {
 				return; // Preserve the reminder until ownership can be verified.
 			}
 		}
-		if (this.delivered.has(operationId)) return; // A tool result arrived during the await.
+		if (generation !== this.generation || this.delivered.has(operationId)) return;
+		// A terminal tool proof or session stop may have arrived during the await.
 		if (!this.deps.sink()?.isIdle) return;
 		this.delivered.add(operationId);
 		this.pendingTerminalOps.delete(operationId);
