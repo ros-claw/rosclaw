@@ -196,10 +196,14 @@ class AnchoredCoverage:
         *,
         now: float,
         maximum_length: float = 3.0,
+        minimum_new_area_m2: float = 0.0,
         service=None,
     ):
         if not math.isfinite(maximum_length) or not 0 < maximum_length <= 3:
             raise ValueError("Bounded work length must be in (0, 3] metres")
+        if not math.isfinite(minimum_new_area_m2) or minimum_new_area_m2 < 0:
+            raise ValueError("Minimum estimated new brush area must be finite and nonnegative")
+        minimum_cells = max(1, math.ceil(minimum_new_area_m2 / self.anchor.resolution**2))
         boundary = boundary_strokes(grid, service=service)
         view = self.observe(grid, transform, extra_paths=boundary)
         costs = RouteCosts(grid, robot_xy, service=service)
@@ -227,6 +231,7 @@ class AnchoredCoverage:
             robot_xy,
             {},
             maximum=maximum_length,
+            minimum_cells=minimum_cells,
             retries=RetryView(),
             now=now,
             transit_cost=costs,
@@ -260,6 +265,7 @@ class AnchoredCoverage:
             "whole_house_success": None,
             "unobserved_space_extent": "UNKNOWN",
             "unfinished_obligations_retained": True,
+            "deferred_work_minimum_new_area_m2": minimum_new_area_m2,
         }
 
     def save(self, path: Path):
