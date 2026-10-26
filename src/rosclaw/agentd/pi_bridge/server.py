@@ -1050,7 +1050,7 @@ class PiBridgeServer:
             return {"ok": True, **ActionAdmissionService(service).decision_status(
                 approval_id
             )}
-        if method == "pi.action.execute":
+        if method in {"pi.action.execute", "pi.action.reconcile"}:
             # P0-NA-10：execute 也带请求上下文做 TOCTOU 复验。
             from rosclaw.agentd.pi_bridge.action_admission import (
                 ActionAdmissionService,
@@ -1077,12 +1077,12 @@ class PiBridgeServer:
                 context_lease_id=str(params.get("context_lease_id", "")),
             )
             try:
-                result = await admission.execute(
-                    str(params.get("approval_id", "")), request=request_ctx,
-                    # P0-5A：SO_PEERCRED 真值注入——JSON 不可覆写。
-                    caller_pid=peer_pid,
-                    caller_uid=int(principal.rsplit(":", 1)[-1]),
-                )
+                identity = {"request": request_ctx, "caller_pid": peer_pid,
+                            "caller_uid": int(principal.rsplit(":", 1)[-1])}
+                if method == "pi.action.reconcile":
+                    result = admission.reconcile(str(params.get("approval_id", "")), **identity)
+                else:
+                    result = await admission.execute(str(params.get("approval_id", "")), **identity)
             except Exception as exc:  # noqa: BLE001
                 return {"ok": False, "error": f"{type(exc).__name__}: {exc}",
                         "code": getattr(exc, "code", "EXECUTE_FAILED")}

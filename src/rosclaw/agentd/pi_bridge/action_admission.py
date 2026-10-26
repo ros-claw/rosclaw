@@ -77,6 +77,23 @@ class ActionAdmissionService:
         self._service = service
         self._bindings = SessionBindingStore(service._store.connection)
 
+    @staticmethod
+    def _assert_ros_dependencies(envelope, capability_id: str | None) -> None:
+        # Observation readiness is not permission; grant/Body/safety checks
+        # remain mandatory. A stop/cleaner-off request is not blocked by an
+        # unrelated observation diagnostic. Native E-Stop stays independent.
+        if capability_id is None or capability_id == "cleaning.disable":
+            return
+        ros = envelope.self_state.get("ros_observations")
+        if not isinstance(ros, dict):
+            return  # Non-ROS robots retain their existing authority paths.
+        facts = ros.get("admission_facts", {})
+        scoped = facts.get("capability_facts", {}) if isinstance(facts, dict) else {}
+        dependent = scoped.get(capability_id)
+        if isinstance(dependent, dict) and dependent.get("readiness") != "AVAILABLE":
+            raise ToolBridgeError("ROS_PRECONDITION_UNKNOWN_OR_FAILED",
+                                  "required action observations are not ready; no dispatch")
+
     # -- 验证链 -----------------------------------------------------------------
 
     def _validate_session_and_caller(
@@ -267,6 +284,7 @@ class ActionAdmissionService:
         scoped_hash = dependency_hashes.get(capability_id) if capability_id else None
         current_hash = context_hash_of(current_envelope, capability_id=capability_id) if scoped_hash else context_hash_of(current_envelope)
         expected_hash = scoped_hash or lease.context_hash
+        self._assert_ros_dependencies(current_envelope, capability_id)
         snapshot = self._service.snapshot(ctx.mission_id)
         hash_changed = bool(expected_hash) and expected_hash != current_hash
         revision_changed = lease.context_revision != snapshot.context_revision
@@ -749,6 +767,46 @@ class ActionAdmissionService:
                 txns.transition(txn.txn_id, "DECLINED")
         return {"status": request.status.value, "approval_id": approval_id}
 
+    def reconcile(self, approval_id: str, *, request: ActionRequestContext,
+                  caller_pid: int | None, caller_uid: int | None) -> dict[str, Any]:
+        """Exact owned result query; no proposal, grant consumption or dispatch."""
+        self._validate_session_and_caller(request, caller_pid=caller_pid, caller_uid=caller_uid)
+        from rosclaw.agentd.pi_bridge.action_txn import ActionTxnStore
+        txn = ActionTxnStore(self._service._store.connection).get_by_approval(approval_id)
+        if txn is None:
+            raise ToolBridgeError("TRANSACTION_NOT_FOUND", "unknown approval transaction")
+        if txn.mission_id != request.mission_id or txn.pi_session_id != request.pi_session_id:
+            raise ToolBridgeError("CHAIN_MISMATCH", "reconciliation ownership mismatch")
+        return self._reconcile_transaction(txn)
+
+    def _reconcile_transaction(self, txn) -> dict[str, Any]:
+        from rosclaw.agentd.pi_bridge.action_txn import ActionTxnStore
+
+        key = txn.receipt_id or txn.action_id
+        receipt = None
+        if key:
+            for event in self._service.receipt_events(txn.mission_id, receipt_id=key, limit=1, terminal_only=True):
+                payload = event.payload
+                matched = payload.get("receipt_id", payload.get("action_id")) == key
+                if matched and (not txn.action_id or payload.get("action_id") == txn.action_id):
+                    receipt = payload
+        terminal = receipt.get("final_state") if receipt else None
+        verified = bool(receipt and receipt.get("verified") is True and receipt.get("action_id"))
+        if txn.state == "RECEIPT_PENDING" and (terminal in {"FAILED", "CANCELLED", "EXPIRED"}
+                or (terminal == "COMPLETED" and verified)):
+            txn = ActionTxnStore(self._service._store.connection).transition(
+                txn.txn_id, terminal, action_id=receipt["action_id"], receipt_id=key)
+        return {
+            "schema_version": "rosclaw.execution_outcome.v1", "status": txn.state if txn.state in {"COMPLETED", "FAILED", "CANCELLED", "EXPIRED"} else "UNKNOWN",
+            "txn_id": txn.txn_id, "approval_id": txn.approval_id,
+            "grant_id": txn.grant_id, "action_id": txn.action_id,
+            "receipt_id": txn.receipt_id, "capability_id": txn.capability_id,
+            "executed": txn.state == "COMPLETED", "terminal_receipt": txn.state == "COMPLETED" or terminal in {"FAILED", "CANCELLED", "EXPIRED"},
+            "reconciliation_required": txn.state not in {"COMPLETED", "FAILED", "CANCELLED", "EXPIRED"},
+            "error_code": None if txn.state == "COMPLETED" else "ACTION_RESULT_UNKNOWN",
+            "side_effects_dispatched": False,
+        }
+
     # -- phase 2b: execute（TOCTOU 复验 + 精确 grant + 结构化回执） -----------------
 
     async def execute(
@@ -774,6 +832,10 @@ class ActionAdmissionService:
         self._validate_session_and_caller(
             request, caller_pid=caller_pid, caller_uid=caller_uid
         )
+        from rosclaw.agentd.pi_bridge.action_txn import ActionTxnStore
+        previous = ActionTxnStore(service._store.connection).get_by_approval(approval_id)
+        if previous is not None and previous.state in {"DISPATCHING", "RECEIPT_PENDING"}:
+            return self._reconcile_transaction(previous)
         if stored.status.value == "PENDING":
             raise ToolBridgeError("APPROVAL_PENDING", "operator has not decided yet")
         if stored.status.value != "APPROVED":
@@ -984,6 +1046,7 @@ class ActionAdmissionService:
                 current_dependencies = context_hash_of(fresh, capability_id=exact.capability_id)
                 if current_dependencies != exact.context_hash:
                     raise ToolBridgeError("NEEDS_REPLAN", "action dependency facts changed after approval; no dispatch or replay")
+                self._assert_ros_dependencies(fresh, exact.capability_id)
         # broker 的批准是权威——txn 状态以之为准同步（operatord decide
         # 经 apply_decision 落库，不走 admission）。
         if txn.state == "AWAITING_OPERATOR":
@@ -1015,12 +1078,25 @@ class ActionAdmissionService:
         # 已删除——纯执行路径提取，Worker/AgentLoop 无关）。
         from rosclaw.agentd.action_dispatch import request_action as _dispatch_action
 
-        outcome = await _dispatch_action(
-            service,
-            decision,
-            mode=mission.mode.value if mission else "SIMULATION",
-            principal=mission.owner_principal if mission else stored.principal,
-        )
+        try:
+            outcome = await _dispatch_action(
+                service,
+                decision,
+                mode=mission.mode.value if mission else "SIMULATION",
+                principal=mission.owner_principal if mission else stored.principal,
+            )
+        except Exception:  # Transport loss does not prove non-execution.
+            txns.transition(txn.txn_id, "RECEIPT_PENDING")
+            return {
+                "schema_version": "rosclaw.execution_outcome.v1",
+                "status": "UNKNOWN", "txn_id": txn.txn_id,
+                "approval_id": approval_id, "grant_id": grant_id,
+                "action_id": txn.action_id, "receipt_id": txn.receipt_id,
+                "capability_id": capability_id, "executed": False,
+                "terminal_receipt": False, "error_code": "ACTION_RESULT_UNKNOWN",
+                "reconciliation_required": True,
+                "next_check": "Reconcile this exact transaction; never submit a replacement action on transport loss.",
+            }
         # P0-5E：COMPLETED 需要严格 receipt 合约——terminal bool +
         # 非空 action/receipt ID + receipt 事件精确绑定本 action。
         # terminal_receipt=True 但缺 receipt 一律不是 COMPLETED。
@@ -1034,8 +1110,9 @@ class ActionAdmissionService:
         # 从事件负载读取（不再假设 receipt_id == action_id）。无独立
         # receipt_id 的旧 daemon 路径按 action_id 兜底匹配。
         receipt_ok = False
+        receipt_payload = None
         if receipt_id:
-            events = service.receipt_events(stored.mission_id, receipt_id=receipt_id, limit=1)
+            events = service.receipt_events(stored.mission_id, receipt_id=receipt_id, limit=1, terminal_only=True)
             for e in events:
                 if e.type.value != "receipt.received":
                     continue
@@ -1045,6 +1122,7 @@ class ActionAdmissionService:
                 else:
                     matched = payload.get("action_id") == receipt_id
                 if matched:
+                    receipt_payload = payload
                     action_id = str(payload.get("action_id") or "")
                     receipt_ok = (
                         bool(action_id)
@@ -1062,8 +1140,13 @@ class ActionAdmissionService:
                 action_id=action_id, receipt_id=receipt_id,
             )
             txn = txns.transition(txn.txn_id, "COMPLETED")
+        elif action_id and receipt_payload and receipt_payload.get("final_state") in {"FAILED", "CANCELLED", "EXPIRED"}:
+            txn = txns.transition(txn.txn_id, "RECEIPT_PENDING", action_id=action_id, receipt_id=receipt_id)
+            txn = txns.transition(txn.txn_id, receipt_payload["final_state"])
         else:
-            txn = txns.transition(txn.txn_id, "FAILED")
+            # No verified terminal result: persist identity for later exact
+            # reconciliation, retaining the consumed grant and never replaying.
+            txn = txns.transition(txn.txn_id, "RECEIPT_PENDING", action_id=action_id, receipt_id=receipt_id)
         artifact_refs = []
         task_outcome = None
         if executed and outcome.artifacts:
@@ -1091,7 +1174,8 @@ class ActionAdmissionService:
         # ExecutionOutcomeV1（P0-4F/5E）：全 ID 链，不是 bool+文本。
         return {
             "schema_version": "rosclaw.execution_outcome.v1",
-            "status": "COMPLETED" if executed else "FAILED",
+            "status": "COMPLETED" if executed else ("UNKNOWN" if txn.state == "RECEIPT_PENDING" else txn.state),
+            "reconciliation_required": txn.state == "RECEIPT_PENDING",
             "txn_id": txn.txn_id,
             "approval_id": approval_id,
             "grant_id": grant_id,
@@ -1099,15 +1183,16 @@ class ActionAdmissionService:
             "receipt_id": receipt_id,
             "capability_id": capability_id,
             "executed": executed,
-            "terminal": True,
-            "terminal_receipt": terminal_bool,
+            "terminal": txn.state != "RECEIPT_PENDING",
+            "transport_terminal": terminal_bool,
+            "terminal_receipt": bool(action_id and receipt_payload and receipt_payload.get("final_state") in {"COMPLETED", "FAILED", "CANCELLED", "EXPIRED"}),
             "verified": executed,
             "evidence_ref": outcome.evidence_ref,
             "artifact_refs": artifact_refs,
             "task_outcome": task_outcome,
             "summary": outcome.text[:4000],
             "error_code": (
-                None if executed else (outcome.error_code or "ACTION_FAILED")
+                None if executed else "ACTION_RESULT_UNKNOWN" if txn.state == "RECEIPT_PENDING" else (outcome.error_code or "ACTION_FAILED")
             ),
             "completed_at": datetime.now(UTC).isoformat(),
         }

@@ -80,6 +80,9 @@ test("Pi tool-result hook marks canonical rejection as an error without losing r
 	assert.deepEqual(await hook({ toolName: "rosclaw_request_action", details: { ok: true, status: "COMPLETED" } }, {}), undefined);
 	assert.deepEqual(await hook({ toolName: "rosclaw_request_action", details: { ok: false, status: "DECLINED" } }, {}), undefined);
 	assert.deepEqual(await hook({ toolName: "read", details, isError: false }, {}), undefined);
+	for (const status of ["UNKNOWN", "CANCELLED", "EXPIRED"]) {
+		assert.deepEqual(await hook({ toolName: "rosclaw_request_action", details: { ok: false, status } }, {}), { isError: true });
+	}
 	assert.equal(details.error_code, "NEEDS_REPLAN");
 });
 

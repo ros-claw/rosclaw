@@ -22,9 +22,11 @@ export function buildRequestActionTool(ctx: BridgeToolContext, snapshotDigest?: 
 		description:
 			"Propose one bounded physical action. Creates an approval card; a human " +
 			"operator decides (Y/N). You cannot approve. On approval the action is " +
-			"executed via rosclawd and a structured receipt is returned.",
+			"executed via rosclawd and a structured receipt is returned. If the result is UNKNOWN, " +
+			"pass its approval_id to reconcile only; never submit a replacement physical action on transport loss.",
 		parameters: Type.Object({
 			capability_id: Type.String({ description: "exact catalog capability id" }),
+			approval_id: Type.Optional(Type.String({ description: "Query this owned transaction only; no new physical action" })),
 			arguments: Type.Record(Type.String(), Type.Unknown()),
 			expected_effect: Type.Optional(Type.String()),
 			risk_tier: Type.Optional(Type.String({ description: "LOW|MEDIUM|HIGH|CRITICAL" })),
@@ -35,6 +37,20 @@ export function buildRequestActionTool(ctx: BridgeToolContext, snapshotDigest?: 
 			// P0-5F：所有返回路径都带结构化 status/capability——内核结果卡
 			// 只读 details，绝不解析模型/工具文本。
 			const capabilityId = String(params.capability_id ?? "");
+			if (params.approval_id) {
+				const reply = await ctx.center.call("pi.action.reconcile", {
+					approval_id: String(params.approval_id), pi_session_id: state.sessionId,
+					mission_id: state.missionId, context_revision: state.contextRevision,
+					body_hash: state.bodyHash ?? "", mode: state.mode,
+					idempotency_key: `reconcile_${String(params.approval_id)}`,
+					context_lease_id: state.contextLeaseId ?? "",
+				});
+				const result = (reply.result ?? {}) as Record<string, unknown>;
+				return { content: [{type: "text" as const, text: JSON.stringify(result)}],
+					details: {...result, ok: result.executed === true},
+					isError: result.executed !== true };
+			}
+
 			// PR-SIX-1（六审 §3.3）：工具侧硬门——readiness BLOCKED 时零桥
 			// 调用、零 approval/txn/grant（此前只查 missionId，Action LOCKED
 			// 是假锁：UI 显示锁、工具照常建卡）。内核 admission 仍是最终权威。
@@ -189,6 +205,7 @@ export function buildRequestActionTool(ctx: BridgeToolContext, snapshotDigest?: 
 						action_id: autoResult.action_id ?? null,
 						receipt_id: autoResult.receipt_id ?? null,
 						terminal_receipt: autoResult.terminal_receipt ?? false,
+						reconciliation_required: autoResult.reconciliation_required ?? false,
 						evidence_ref: autoResult.evidence_ref ?? null,
 						error_code: autoResult.error_code ?? null,
 					},
@@ -306,6 +323,7 @@ export function buildRequestActionTool(ctx: BridgeToolContext, snapshotDigest?: 
 					action_id: result.action_id ?? null,
 					receipt_id: result.receipt_id ?? null,
 					terminal_receipt: result.terminal_receipt ?? false,
+					reconciliation_required: result.reconciliation_required ?? false,
 					// P0-NA-13：结构化证据引用（receipt://action_id）随结果
 					// 返回——/evidence 按本回合 action 精确展示，不是摘要。
 					evidence_ref: result.evidence_ref ?? null,

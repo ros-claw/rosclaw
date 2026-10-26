@@ -79,3 +79,17 @@ test("a rejection containing a card is never refreshed or executed", async () =>
 	const h = harness("", "SIMULATION", true); await h.execute(1);
 	assert.deepEqual(h.calls.map(c => c.method), ["pi.action.propose"]);
 });
+
+test("unknown action reconciliation queries the exact approval and never proposes or dispatches", async () => {
+	const active = new ActiveSessionContext({ sessionId: "session", missionId: "mission", contextRevision: 1, bodyHash: "body", mode: "SIMULATION", profile: "developer", contextState: "STALE", leaseState: "LOST", actionsAllowed: false });
+	const calls: string[] = [];
+	const center = { call: async (method: string, params: Record<string, unknown>) => {
+		calls.push(method); assert.equal(params.approval_id, "original-approval");
+		return { ok: false, result: { status: "UNKNOWN", executed: false, reconciliation_required: true, approval_id: "original-approval" } };
+	} };
+	const tool = buildRequestActionTool({ rosclawHome: "/tmp/reconcile", active, center: center as never });
+	const result = await tool.execute("query", { capability_id: "fixture.move", arguments: {}, approval_id: "original-approval" }, undefined, undefined, {} as never);
+	assert.deepEqual(calls, ["pi.action.reconcile"]);
+	assert.equal((result.details as Record<string, unknown>).status, "UNKNOWN");
+	assert.equal((result.details as Record<string, unknown>).reconciliation_required, true);
+});

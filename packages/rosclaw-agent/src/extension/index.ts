@@ -654,7 +654,7 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 		pi.on("tool_result", async (event) => {
 			if (event.toolName !== "rosclaw_request_action" && !event.toolName.startsWith("propose_")) return;
 			const details = (event.details ?? {}) as Record<string, unknown>;
-			if (details.ok === false && ["REJECTED", "FAILED"].includes(String(details.status))) {
+			if (details.ok === false && ["REJECTED", "FAILED", "UNKNOWN", "CANCELLED", "EXPIRED"].includes(String(details.status))) {
 				return { isError: true };
 			}
 		});

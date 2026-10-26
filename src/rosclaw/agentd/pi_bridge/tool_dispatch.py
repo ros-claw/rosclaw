@@ -996,8 +996,10 @@ class PiToolDispatcher:
                     request_id=request.request_id,
                     ok=bool(result.get("executed")),
                     status=str(result.get("status", "FAILED")),
-                    summary=str(result.get("summary", ""))[:8000],
+                    summary=str(result.get("summary") or result.get("next_check") or result.get("status", ""))[:8000],
                     approval_id=resume_approval_id,
+                    action_id=result.get("action_id"), receipt_id=result.get("receipt_id"),
+                    txn_id=result.get("txn_id"), reconciliation_required=bool(result.get("reconciliation_required")),
                     error_code=result.get("error_code"),
                 )
             if status == "PENDING":
@@ -1061,8 +1063,10 @@ class PiToolDispatcher:
             request_id=request.request_id,
             ok=bool(result.get("executed")),
             status=str(result.get("status", "FAILED")),
-            summary=str(result.get("summary", ""))[:8000],
+            summary=str(result.get("summary") or result.get("next_check") or result.get("status", ""))[:8000],
             approval_id=card["approval_id"],
+            action_id=result.get("action_id"), receipt_id=result.get("receipt_id"),
+            txn_id=result.get("txn_id"), reconciliation_required=bool(result.get("reconciliation_required")),
             error_code=result.get("error_code"),
         )
 

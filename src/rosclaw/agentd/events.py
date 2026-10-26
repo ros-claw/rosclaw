@@ -203,6 +203,7 @@ class AgentEventStore:
 
     def receipt_events(
         self, mission_id: str, *, receipt_id: str | None = None, limit: int = 3,
+        terminal_only: bool = False,
     ) -> list[AgentEventV2]:
         """Read committed receipts, independent of unrelated journal traffic.
 
@@ -221,7 +222,18 @@ class AgentEventStore:
                 " json_extract(payload_json, '$.action_id')) = ?"
             )
             parameters.append(receipt_id)
-        query += " ORDER BY sequence DESC LIMIT ?"
+        if terminal_only:
+            if receipt_id is None:
+                raise ValueError("terminal reconciliation requires an exact receipt ID")
+            query += (" AND COALESCE(json_extract(payload_json, '$.action_id'), '') <> ''"
+                      " AND (json_extract(payload_json, '$.final_state') IN ('FAILED','CANCELLED','EXPIRED')"
+                      " OR (json_extract(payload_json, '$.final_state') = 'COMPLETED'"
+                      " AND json_extract(payload_json, '$.verified') = 1))")
+            # First committed terminal outcome is immutable under delayed
+            # nonterminal updates. Unverified completion is not a terminal fact.
+            query += " ORDER BY sequence ASC LIMIT ?"
+        else:
+            query += " ORDER BY sequence DESC LIMIT ?"
         parameters.append(limit)
         return [self._row_to_event(row) for row in reversed(self._conn.execute(query, parameters).fetchall())]
 

@@ -85,6 +85,12 @@ def resolve_capabilities(model: RosSystemModel, *, now: datetime | None = None) 
         ]:
             candidates = interfaces.get(role, [])
             checks = [health(i) for i in candidates]
+            if role == "localization.pose_estimate" and model.navigation.get("localization_ready") is True:
+                # A scan-match event remains historical. Navigation may use
+                # separately fresh map->odom->base TF and explicit localization
+                # readiness; this does not promote the event itself to fresh.
+                checks = [True if value is None and is_event_driven_slam_pose(model, candidate, now=now)
+                          else value for candidate, value in zip(candidates, checks, strict=True)]
             requirements[role] = True if True in checks else (None if None in checks else False)
         for topic in model.body.get("observation_contracts", {}):
             contract = observation_contract(model, topic)
