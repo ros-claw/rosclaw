@@ -62,7 +62,20 @@ def compile_agent_summary(model: RosSystemModel, *, now: datetime | None = None)
             if observations
             else ""
         )
-        lines.append(f"issue={issue['issue_code']} severity={issue['severity']}" + detail)
+        scope = ""
+        if "affected_capabilities" in issue:
+            scope = " affected_capabilities=" + json.dumps(issue["affected_capabilities"])
+        lines.append(f"issue={issue['issue_code']} severity={issue['severity']}" + scope + detail)
+    from rosclaw.connectors.ros.resolver.semantics import action_observation_contracts
+
+    for capability, contract in sorted(action_observation_contracts(model).items()):
+        if "topic_freshness" in contract:
+            lines.append(
+                "action_freshness="
+                + capability
+                + " "
+                + json.dumps(contract["topic_freshness"], sort_keys=True)
+            )
     lines.append("Physical effects require request_action → rosclawd → verified receipt.")
     return "\n".join(lines)
 

@@ -326,7 +326,7 @@ def diagnose(
 
     for issue in issues:
         if "affected_capabilities" not in issue:
-            affected = dependency_scope_for_issue(model, issue)
+            affected = dependency_scope_for_issue(model, issue, now=now)
             if affected is not None:
                 issue["affected_capabilities"] = affected
     unknown = sorted(set(unknown) | set(event_pose_unknowns) | set(contract_unknowns))

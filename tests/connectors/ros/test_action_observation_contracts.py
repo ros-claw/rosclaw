@@ -314,3 +314,126 @@ def test_generic_action_checks_body_declared_lifecycle(healthy, state, age, expe
         if r["semantic_id"] == "navigation.follow_path"
     )
     assert result["status"] == expected, result
+
+
+@pytest.mark.parametrize("namespace", ["/robot", "/renamed/robot"])
+@pytest.mark.parametrize(
+    "age,expected", [(1072, "AVAILABLE"), (3000, "BLOCKED"), (3100, "BLOCKED")]
+)
+def test_body_receive_limit_scopes_default_diagnostic_without_removing_it(
+    healthy, namespace, age, expected
+):
+    from rosclaw.connectors.ros.resolver import resolve_capabilities
+
+    bind_motion_dependencies(healthy)
+    topic = namespace + "/scan"
+    for entry in healthy.graph["topics"]:
+        if entry["name"] == "/robot/scan":
+            entry["name"] = topic
+    signal = next(s for s in healthy.signals if s.topic == "/robot/scan")
+    signal.topic = topic
+    signal.last_message_age_ms = age
+    contract = healthy.body["action_observation_requirements"]["capabilities"]["motion.twist"]
+    contract["topics"] = {topic: "sensor_msgs/msg/LaserScan"}
+    contract["topic_freshness"] = {topic: {"max_receive_age_ms": 3000}}
+    result = next(
+        c for c in resolve_capabilities(healthy, now=NOW) if c["semantic_id"] == "motion.twist"
+    )
+    assert result["status"] == expected, result
+    issue = next(
+        i for i in diagnose(healthy, now=NOW)["issues"] if i["issue_code"] == "ROS_TOPIC_002"
+    )
+    assert ("motion.twist" in issue["affected_capabilities"]) is (expected == "BLOCKED")
+    # The default one-second warning and the raw model are not rewritten.
+    assert signal.max_age_ms == 1000
+    assert issue["severity"] == "blocking"
+
+
+@pytest.mark.parametrize(
+    "header_age,expected",
+    [(50, "AVAILABLE"), (-101, "BLOCKED"), (1501, "BLOCKED"), (None, "UNKNOWN")],
+)
+def test_body_header_freshness_keeps_native_clock_and_unknown(healthy, header_age, expected):
+    from rosclaw.connectors.ros.resolver import resolve_capabilities
+
+    bind_motion_dependencies(healthy)
+    contract = healthy.body["action_observation_requirements"]["capabilities"]["motion.twist"]
+    contract["topic_freshness"] = {
+        "/robot/scan": {"max_receive_age_ms": 1500, "max_header_age_ms": 1500}
+    }
+    healthy.observations["message_frames"] = {
+        "/robot/scan": {"stamp_age_ms": header_age, "captured_at": NOW.isoformat()}
+    }
+    result = next(
+        c for c in resolve_capabilities(healthy, now=NOW) if c["semantic_id"] == "motion.twist"
+    )
+    assert result["status"] == expected, result
+
+
+@pytest.mark.parametrize(
+    "policy",
+    [
+        None,
+        [],
+        {"/unknown": {"max_receive_age_ms": 3000}},
+        {"/robot/scan": {}},
+        {"/robot/scan": {"max_receive_age_ms": True}},
+        {"/robot/scan": {"max_receive_age_ms": float("nan")}},
+        {"/robot/scan": {"max_receive_age_ms": 3000, "ignore": True}},
+    ],
+)
+def test_malformed_explicit_freshness_contract_fails_closed(healthy, policy):
+    from rosclaw.connectors.ros.resolver import resolve_capabilities
+
+    bind_motion_dependencies(healthy)
+    healthy.body["action_observation_requirements"]["capabilities"]["motion.twist"][
+        "topic_freshness"
+    ] = policy
+    result = next(
+        c for c in resolve_capabilities(healthy, now=NOW) if c["semantic_id"] == "motion.twist"
+    )
+    assert result["status"] == "BLOCKED", result
+    assert result["requirements"]["contract.valid"] is False
+
+
+@pytest.mark.parametrize(
+    "policy,expected",
+    [({}, "BLOCKED"), ({"max_receive_age_ms": 1500}, "AVAILABLE"), (None, "BLOCKED")],
+)
+def test_navigation_role_health_honors_same_declared_limit(healthy, policy, expected):
+    bind_motion_dependencies(healthy)
+    healthy.lifecycle.append(
+        Lifecycle(
+            source="fixture", captured_at=NOW, name="/robot/controller_server", state="ACTIVE"
+        )
+    )
+    scan = next(s for s in healthy.signals if s.topic == "/robot/scan")
+    scan.last_message_age_ms = 1200
+    contract = healthy.body["action_observation_requirements"]["capabilities"][
+        "navigation.navigate_to_pose"
+    ]
+    if policy is None:
+        contract["topic_freshness"] = None
+    elif policy:
+        contract["topic_freshness"] = {"/robot/scan": policy}
+    assert nav(healthy)["status"] == expected
+
+
+def test_receive_age_advances_only_in_wall_clock(healthy):
+    from datetime import timedelta
+
+    from rosclaw.connectors.ros.resolver.semantics import action_observation_requirements
+
+    bind_motion_dependencies(healthy)
+    contract = healthy.body["action_observation_requirements"]["capabilities"]["motion.twist"]
+    contract["topic_freshness"] = {
+        "/robot/scan": {"max_receive_age_ms": 1500, "max_header_age_ms": 1500}
+    }
+    signal = next(s for s in healthy.signals if s.topic == "/robot/scan")
+    signal.last_message_age_ms = 1400
+    healthy.observations["message_frames"] = {"/robot/scan": {"stamp_age_ms": 1400}}
+    requirements = action_observation_requirements(
+        healthy, "motion.twist", now=NOW + timedelta(milliseconds=200)
+    )
+    assert requirements["/robot/scan:fresh"] is False
+    assert requirements["/robot/scan:header_fresh"] is True
