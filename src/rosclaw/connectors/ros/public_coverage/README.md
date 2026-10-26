@@ -42,3 +42,12 @@ Ported geometry tests and new registration/brush/debt tests exercise this layer.
 This is a library candidate, **not yet an installed coverage executor or H1
 acceptance**. Resolver recommendations stay unconfigured until a real provider
 is bound and exercised. Do not reinterpret existing A/B/C results.
+
+
+Regional native costmaps can supplement the mandatory global geometry through
+`Grid(..., local_navigation=costmap, map_from_local=[x, y, yaw])`. Registration
+must be explicit and current at the caller. Unknown cells inside the observed
+window stay blocked. Outside that finite window the unchanged global occupancy
+and costmap checks remain mandatory; a missing local window never clears global
+obstacles. Both physical and tracking-margin circles use exact closed cell
+squares. An unsafe current local footprint rejects the Grid before planning.

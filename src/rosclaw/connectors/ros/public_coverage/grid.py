@@ -9,6 +9,7 @@ from rosclaw.connectors.ros.public_coverage.geometry import (
     PLANNING_RADIUS,
     TRACKING_MARGIN,
     CircleSpace,
+    RegionalCircleConstraint,
 )
 
 
@@ -24,6 +25,8 @@ class Grid:
         clearance=PLANNING_RADIUS,
         navigation=None,
         tracking_margin=TRACKING_MARGIN,
+        local_navigation=None,
+        map_from_local=None,
     ):
         info = message.info
         q = info.origin.orientation
@@ -46,6 +49,9 @@ class Grid:
         self.physical_navigation_space = None
         self.navigation_space = None
         self.navigation_centers = None
+        self.local_navigation_space = None
+        self.physical_local_navigation_space = None
+        self.local_navigation_centers = None
         self.safe = self.occupancy_space.safe_centers()
         if navigation is not None:
             # Also require the native planner's center-cell traversability.
@@ -92,6 +98,36 @@ class Grid:
                 )
                 navigable &= self.navigation_space.safe_points(points).reshape(self.safe.shape)
             self.safe &= navigable
+        if local_navigation is not None:
+            meta = local_navigation.metadata
+            if (
+                abs(meta.origin.orientation.x)
+                + abs(meta.origin.orientation.y)
+                + abs(meta.origin.orientation.z)
+                > 1e-6
+            ):
+                raise ValueError("Rotated local grid origin requires explicit registration")
+            costs = np.asarray(local_navigation.data, dtype=np.uint8).reshape(
+                meta.size_y, meta.size_x
+            )
+            origin = [meta.origin.position.x, meta.origin.position.y]
+            self.local_navigation_space = RegionalCircleConstraint(
+                costs < 254, meta.resolution, origin, radius, map_from_local
+            )
+            self.physical_local_navigation_space = RegionalCircleConstraint(
+                costs < 254, meta.resolution, origin, clearance, map_from_local
+            )
+            self.local_navigation_centers = RegionalCircleConstraint(
+                costs < 253, meta.resolution, origin, 0.0, map_from_local
+            )
+            yy, xx = np.mgrid[: info.height, : info.width]
+            points = (
+                self.origin + (np.column_stack([xx.ravel(), yy.ravel()]) + 0.5) * self.resolution
+            )
+            self.safe &= (
+                self.local_navigation_space.safe_points(points)
+                & self.local_navigation_centers.safe_points(points)
+            ).reshape(self.safe.shape)
         if not self.physical_pose_safe(robot_xy):
             raise UnsafeRobotPose("Actual robot footprint is blocked in public observed geometry")
         labels, _ = ndimage.label(self.safe)
@@ -156,21 +192,37 @@ class Grid:
         """Check the exact swept disk and native blocked center-cell squares."""
         return all(
             space.safe_segment(start, finish)
-            for space in [self.occupancy_space, self.navigation_space, self.navigation_centers]
+            for space in [
+                self.occupancy_space,
+                self.navigation_space,
+                self.navigation_centers,
+                self.local_navigation_space,
+                self.local_navigation_centers,
+            ]
             if space is not None
         )
 
     def safe_pose(self, xy):
         return all(
             space.safe_point(xy)
-            for space in [self.occupancy_space, self.navigation_space, self.navigation_centers]
+            for space in [
+                self.occupancy_space,
+                self.navigation_space,
+                self.navigation_centers,
+                self.local_navigation_space,
+                self.local_navigation_centers,
+            ]
             if space is not None
         )
 
     def physical_pose_safe(self, xy):
         return all(
             space.safe_point(xy)
-            for space in [self.physical_occupancy_space, self.physical_navigation_space]
+            for space in [
+                self.physical_occupancy_space,
+                self.physical_navigation_space,
+                self.physical_local_navigation_space,
+            ]
             if space is not None
         )
 
@@ -193,7 +245,11 @@ class Grid:
                 return False
             if not all(
                 space.safe_segment(start, finish)
-                for space in [self.physical_occupancy_space, self.physical_navigation_space]
+                for space in [
+                    self.physical_occupancy_space,
+                    self.physical_navigation_space,
+                    self.physical_local_navigation_space,
+                ]
                 if space is not None
             ):
                 return False

@@ -145,3 +145,69 @@ class CircleSpace:
             delta = corner - (start + fraction[:, None] * direction)
             distances.append(np.sum(delta * delta, axis=1))
         return bool((np.minimum.reduce(distances) > self.radius**2 + 1e-14).all())
+
+
+class RegionalCircleConstraint:
+    """Additional observed-window constraint, always paired with a global space.
+
+    Unobserved cells *inside* this local message remain blocked. Outside its
+    finite extent there is no additional constraint: the global occupancy and
+    global costmap still authorize every part of the path. Checks use exact
+    closed cell squares and preserve rigid frame registration.
+    """
+
+    def __init__(self, free, resolution, origin, radius, map_from_local):
+        registration = np.asarray(map_from_local, dtype=float)
+        if registration.shape != (3,) or not np.isfinite(registration).all():
+            raise ValueError("Explicit finite local-to-map registration required")
+        self.translation = registration[:2]
+        yaw = registration[2]
+        self.rotation = np.array([[math.cos(yaw), -math.sin(yaw)], [math.sin(yaw), math.cos(yaw)]])
+        original = CircleSpace(free, resolution, origin, radius)
+        self.low = original.origin - radius
+        self.high = original.origin + np.array(original.free.shape[::-1]) * resolution + radius
+        padding = math.ceil(2 * radius / resolution) + 3
+        self.space = CircleSpace(
+            np.pad(original.free, padding, constant_values=True),
+            resolution,
+            original.origin - padding * resolution,
+            radius,
+        )
+
+    def local(self, points):
+        return (np.asarray(points, dtype=float) - self.translation) @ self.rotation
+
+    def safe_points(self, points):
+        local = self.local(np.asarray(points, dtype=float).reshape(-1, 2))
+        finite = np.isfinite(local).all(axis=1)
+        inside = finite & (local >= self.low).all(axis=1) & (local <= self.high).all(axis=1)
+        result = finite.copy()
+        result[inside] = self.space.safe_points(local[inside])
+        return result
+
+    def safe_point(self, point):
+        point = np.asarray(point, dtype=float)
+        return bool(point.shape == (2,) and self.safe_points([point])[0])
+
+    def safe_segment(self, start, finish):
+        points = np.asarray([start, finish], dtype=float)
+        if points.shape != (2, 2) or not np.isfinite(points).all():
+            return False
+        start, finish = self.local(points)
+        direction = finish - start
+        enter, leave = 0.0, 1.0
+        for axis in range(2):
+            if abs(direction[axis]) < 1e-15:
+                if start[axis] < self.low[axis] or start[axis] > self.high[axis]:
+                    return True  # No intersection with this observation window.
+            else:
+                bounds = sorted(
+                    [
+                        (self.low[axis] - start[axis]) / direction[axis],
+                        (self.high[axis] - start[axis]) / direction[axis],
+                    ]
+                )
+                enter, leave = max(enter, bounds[0]), min(leave, bounds[1])
+                if enter > leave:
+                    return True
+        return self.space.safe_segment(start + enter * direction, start + leave * direction)
