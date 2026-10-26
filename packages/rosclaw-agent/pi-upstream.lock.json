@@ -1,7 +1,20 @@
 {
-  "package_version": "1.0.3",
-  "source_commit": "d78dc83d633229d12f8b79631384c4c2717c399f",
+  "package_version": "1.4.0",
+  "source_commit": null,
+  "source_commit_status": "UNVERIFIED",
+  "source_commit_authority": "No independently verified official upstream gitHead authority supplied; official npm artifact integrities do not establish a source commit.",
   "license": "MIT",
-  "package_lock_sha256": "3e5b0d1004e90c52954c3f8a110ced345708b5b5a67e82f2bfa2d39ee4315df4",
-  "characterization_suite_version": "1"
+  "package_lock_sha256": "6d477a6c69bbb3b640e7f351aefab191888e23b9f6d8e1beb14c9135e4a020d4",
+  "package_lock_sha256_status": "ROOT_EXACT_FINAL_LOCK_BYTES_BOUND",
+  "package_lock_sha256_authority": "Root computed SHA-256 from the complete staged package-lock.json bytes after Native delivery; installation and compatibility tests are separate evidence.",
+  "characterization_suite_version": "1",
+  "package_integrities": {
+    "@earendil-works/pi-agent-core": "sha512-PoKY84SKUwnt7S5QBZaGUqfNO1kjP3KHpHUA9QpFTj4cOjaVWMYIcBPJ6FDRCdE8Zen9OSECQUd0uUfVgtSmgA==",
+    "@earendil-works/pi-ai": "sha512-hQM/C4+1w8rHYACzDDf+0vQMnEnpzIop1tptIERVgR3ZeT/hHSzBNG8PaWPgxWQjqSeKCyBZSyp8uTT6eKK1pQ==",
+    "@earendil-works/pi-codemode": "sha512-23CNAXpS9DuLzPMyYuvrXVVio46x4YhffCgCqaWmF7F5H8PooqjrQvX4ucF6M0BhUd+x2tV6r1J0dv8cCME4Cg==",
+    "@earendil-works/pi-coding-agent": "sha512-Z41LpZ3yYHSC/UUps6Mr39UMFPwH8elhJBG9DY1P7kuzsE5qSK/6eMj2EHzO5evJRQWLbKSqUMw+4nCNtIyiQg==",
+    "@earendil-works/pi-mcp": "sha512-92aZmmGsUpHHknYuKXZHRINQfahntw5hU9If0I0ZM49GojOaFHpkl5/GF3/aatqpt7v7GjZbBfpfSygGKW+pnw==",
+    "@earendil-works/pi-telemetry": "sha512-MLIfowwUYIY65jSjMX82paZOrX/NTvLk6D08h+3Jq42a99RzUOewzuCR0zOlPul3D6UBfddat76VT6LvsHEs1w==",
+    "@earendil-works/pi-tui": "sha512-4obPOjgOD7g4mGSlngIvxyujC1UPdmyI9zdVthbr8GufacFEX+Ce0+scPgHg++k2xj5+QjESM2d5TxvIuzCVmg=="
+  }
 }
