@@ -553,6 +553,10 @@ def _validate_tool_call_policy(raw_path: str) -> Path:
         raise ValueError(f"policy 文件不可读：{exc}") from exc
     try:
         data = json.loads(text, parse_constant=_reject_nonstandard_constant)
+    except RecursionError as exc:
+        # JSON decoder 的深度限制也是非法 policy；仅在解析边界归一，
+        # 不提高递归上限，也不隐藏后续校验/启动中的无关异常。
+        raise ValueError("policy JSON 嵌套过深") from exc
     except ValueError as exc:
         raise ValueError(f"policy JSON 解析失败：{exc}") from exc
     if not isinstance(data, dict):
@@ -603,7 +607,15 @@ def _validate_tool_call_policy(raw_path: str) -> Path:
 
 
 def cmd_chat(args: argparse.Namespace) -> int:
-    # Stage B：--tool-call-policy 最先校验——畸形 policy 在 home/store/
+    # H9 已删除 Python REPL；退役选项不得静默进入 Native Agent，
+    # 也不得触发 home/env/store/auth/Node 的任何启动工作。
+    if getattr(args, "basic", False):
+        print(
+            "--basic 的 Python REPL 已退役；请使用 rosclaw chat（不带 --basic）。",
+            file=sys.stderr,
+        )
+        return 2
+    # Stage B：--tool-call-policy 启动前校验——畸形 policy 在 home/store/
     # agent service/auth/Node 启动 之前 拒绝（零副作用）。
     policy_arg = getattr(args, "tool_call_policy", None)
     if policy_arg is not None:
@@ -1139,7 +1151,7 @@ def add_agent_subparsers(subparsers) -> None:
     p_chat.add_argument(
         "--basic",
         action="store_true",
-        help="兼容/诊断模式：Python input() 行式 REPL（无 TUI）",
+        help="已退役：Python REPL 不再提供（使用时报错退出）；请用 rosclaw chat",
     )
     p_chat.add_argument(
         "--debug",

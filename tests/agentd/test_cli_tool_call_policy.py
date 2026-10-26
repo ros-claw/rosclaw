@@ -3,19 +3,100 @@
 覆盖：合法 policy（含 allowedTools=[] block-all、空可选 map、JSON 1.0
 整数值浮点）通过；全部畸形类别在 home/auth/Node 启动前被
 _validate_tool_call_policy 拒绝；argparse 接受该 flag 且默认 None。
-Node 侧 policy 行为属 Stage A + A+B 集成范围，不在此 B-only 证明内。
+深层 JSON 解码失败与 --basic Python REPL 退役必须在启动前友好拒绝；
+覆盖公开 parser/dispatch 与统一入口 subprocess，默认 Native 路径不变。
+Node 侧 policy 行为属 Stage A + A+B 集成范围，不在本测试证明内。
 """
 
 from __future__ import annotations
 
+import argparse
+import hashlib
 import json
+import os
+import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 
 from rosclaw.agentd.cli import (
     _validate_tool_call_policy,
+    add_agent_subparsers,
     build_parser,
 )
+
+REPO = Path(__file__).resolve().parents[2]
+
+
+def _public_parser():
+    parser = argparse.ArgumentParser(prog="rosclaw")
+    add_agent_subparsers(parser.add_subparsers(dest="command", required=True))
+    return parser
+
+
+@pytest.fixture
+def deep_policy(tmp_path):
+    # 完整实证 fixture：1100 层数组，无空格/换行；不依赖作者的外部文件。
+    payload = b'{"allowedTools":' + b"[" * 1100 + b"]" * 1100 + b"}"
+    assert len(payload) == 2217
+    assert hashlib.sha256(payload).hexdigest() == (
+        "4cbfc8c507728c815d7940bf76d67d6c0c1caae6fbed06c453b982542edf2acc"
+    )
+    path = tmp_path / "deep-policy.json"
+    path.write_bytes(payload)
+    return path
+
+
+@pytest.fixture
+def no_chat_setup(monkeypatch):
+    import rosclaw.agentd.cli as cli
+    import rosclaw.agentd.pi_config as pi_config
+
+    def _boom(*a, **k):
+        raise AssertionError("拒绝前不得进入 home/store/auth/runtime 启动")
+
+    for name in (
+        "_home",
+        "_ensure_home_env",
+        "_cmd_chat_impl",
+        "load_agent_config",
+        "AgentService",
+        "create_app",
+        "_find_pi_agent_entry",
+        "_chat_pi",
+        "_route_internal_diagnostics_to_log",
+    ):
+        monkeypatch.setattr(cli, name, _boom)
+    monkeypatch.setattr(pi_config, "pi_model_configured", _boom)
+    return cli
+
+
+def _run_public_chat(tmp_path, *argv):
+    home = tmp_path / "absent-rosclaw-home"
+    assert not home.exists()
+    env = dict(
+        os.environ,
+        ROSCLAW_HOME=str(home),
+        HOME=str(tmp_path / "absent-user-home"),
+        PI_OFFLINE="1",
+        PYTHONIOENCODING="utf-8",
+        PYTHONDONTWRITEBYTECODE="1",
+    )
+    # 在 Root 的独立 worktree 中测试该树源码，而非旧 editable install。
+    env["PYTHONPATH"] = os.pathsep.join(filter(None, (str(REPO / "src"), env.get("PYTHONPATH"))))
+    result = subprocess.run(
+        [sys.executable, "-m", "rosclaw.entrypoint", "chat", *argv],
+        cwd=REPO,
+        env=env,
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=120,
+    )
+    assert not home.exists(), "早拒绝/帮助不得创建 ROSCLAW_HOME"
+    return result
 
 
 def _write(tmp_path, payload) -> str:
@@ -193,3 +274,141 @@ def test_cmd_chat_forwards_canonical_resolved_path(tmp_path, monkeypatch):
     assert cli.cmd_chat(args) == 0
     assert seen["policy"] == str(target.resolve())
     assert Path.cwd() == tmp_path  # 调用方 cwd 不变
+
+
+def test_deep_policy_rejected_as_value_error(deep_policy):
+    with pytest.raises(ValueError, match="policy JSON 嵌套过深") as caught:
+        _validate_tool_call_policy(str(deep_policy))
+    assert isinstance(caught.value.__cause__, RecursionError)
+
+
+def test_cmd_chat_rejects_deep_policy_before_any_setup(deep_policy, no_chat_setup, capsys):
+    args = build_parser().parse_args(["chat", "--tool-call-policy", str(deep_policy)])
+    assert no_chat_setup.cmd_chat(args) == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == "--tool-call-policy 无效：policy JSON 嵌套过深\n"
+    assert "Traceback" not in captured.err
+    assert "RecursionError" not in captured.err
+
+
+def test_public_chat_rejects_exact_deep_policy_without_home(tmp_path, deep_policy):
+    result = _run_public_chat(tmp_path, "--tool-call-policy", str(deep_policy))
+    assert result.returncode == 2, result.stderr
+    assert result.stdout == ""
+    assert "--tool-call-policy 无效：policy JSON 嵌套过深" in result.stderr
+    assert "Traceback" not in result.stderr
+    assert "RecursionError" not in result.stderr
+    assert deep_policy.read_text(encoding="utf-8") not in result.stderr
+    assert len(result.stderr.encode("utf-8")) < 1024
+
+
+@pytest.mark.parametrize("error_type", [RuntimeError, RecursionError])
+def test_policy_boundary_does_not_hide_unrelated_validator_errors(
+    tmp_path,
+    monkeypatch,
+    error_type,
+):
+    import rosclaw.agentd.cli as cli
+
+    error = error_type("unrelated validator failure")
+
+    def _boom(name):
+        raise error
+
+    monkeypatch.setattr(cli, "_policy_tool_name_ok", _boom)
+    with pytest.raises(error_type) as caught:
+        _validate_tool_call_policy(_write(tmp_path, {"allowedTools": ["read"]}))
+    assert caught.value is error  # 仅 JSON 解码边界归一，不 blanket catch。
+
+
+def test_public_parser_basic_defaults_and_retirement_help(capsys):
+    parser = _public_parser()
+    default = parser.parse_args(["chat"])
+    assert default.basic is False
+    assert default.tool_call_policy is None
+    assert parser.parse_args(["chat", "--basic"]).basic is True
+    with pytest.raises(SystemExit) as caught:
+        parser.parse_args(["chat", "--help"])
+    assert caught.value.code == 0
+    help_text = " ".join(capsys.readouterr().out.split())
+    assert "--basic" in help_text
+    assert "Python REPL" in help_text
+    assert "已退役" in help_text
+    assert "使用时报错退出" in help_text
+    assert "rosclaw chat" in help_text
+    assert "input()" not in help_text
+
+
+@pytest.mark.parametrize(
+    "extra_args",
+    [[], ["--debug"], ["--tool-call-policy", "must-not-read.json"]],
+    ids=["basic", "basic-debug", "basic-with-policy"],
+)
+def test_dispatch_rejects_basic_before_any_setup(
+    no_chat_setup,
+    monkeypatch,
+    capsys,
+    extra_args,
+):
+    def _boom(*a, **k):
+        raise AssertionError("退役 --basic 不得读取 policy 或启动 Native Agent")
+
+    monkeypatch.setattr(no_chat_setup, "_validate_tool_call_policy", _boom)
+    args = _public_parser().parse_args(["chat", "--basic", *extra_args])
+    assert no_chat_setup.dispatch_agent_command(args) == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == (
+        "--basic 的 Python REPL 已退役；请使用 rosclaw chat（不带 --basic）。\n"
+    )
+    assert "Traceback" not in captured.err
+
+
+def test_public_chat_basic_retirement_without_home(tmp_path):
+    result = _run_public_chat(tmp_path, "--basic")
+    assert result.returncode == 2, result.stderr
+    assert result.stdout == ""
+    assert "--basic 的 Python REPL 已退役" in result.stderr
+    assert "请使用 rosclaw chat（不带 --basic）" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+def test_public_chat_help_reports_basic_retirement_without_home(tmp_path):
+    result = _run_public_chat(tmp_path, "--help")
+    assert result.returncode == 0, result.stderr
+    help_text = " ".join(result.stdout.split())
+    assert "--basic" in help_text
+    assert "Python REPL" in help_text
+    assert "已退役" in help_text
+    assert "使用时报错退出" in help_text
+    assert "rosclaw chat" in help_text
+    assert "input()" not in help_text
+    assert "Traceback" not in result.stderr
+
+
+def test_default_public_chat_still_enters_native_dispatch(tmp_path, monkeypatch):
+    import rosclaw.agentd.cli as cli
+
+    home = tmp_path / "home"
+    monkeypatch.delenv("ROSCLAW_HOME", raising=False)
+    monkeypatch.setattr(cli, "_home", lambda args: home)
+    seen = []
+
+    def _impl(args, got_home):
+        assert args.basic is False
+        assert args.tool_call_policy is None
+        assert os.environ["ROSCLAW_HOME"] == str(home)
+        seen.append(got_home)
+        return 17
+
+    def _boom(*a, **k):
+        raise AssertionError("默认 chat 不得触发 policy 校验")
+
+    monkeypatch.setattr(cli, "_validate_tool_call_policy", _boom)
+    monkeypatch.setattr(cli, "_cmd_chat_impl", _impl)
+    args = _public_parser().parse_args(["chat"])
+    assert cli.dispatch_agent_command(args) == 17
+    assert seen == [home]
+    assert "ROSCLAW_HOME" not in os.environ  # 原有配对恢复行为不变。
+    assert not home.exists()
