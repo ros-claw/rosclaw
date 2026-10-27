@@ -677,19 +677,17 @@ class PiBridgeServer:
                 str(params.get("mission_id", "")),
                 str(params.get("session_ref", "")),
             )
-            cancelled = 0
+            running = []
             if active is not None:
                 conn = service._store.connection
                 running = conn.execute(
                     "SELECT operation_id FROM operations WHERE state IN "
-                    "('QUEUED','ADMITTED','RUNNING','DEGRADED') AND task_id = ?",
+                    "('QUEUED','ADMITTED','RUNNING','DEGRADED','CANCELING','LOST') AND task_id = ?",
                     (str(active.get("task_id", "")),),
                 ).fetchall()
-                for row in running:
-                    await service._operation_manager.cancel(
-                        str(row["operation_id"]), reason="user_interrupt"
-                    )
-                    cancelled += 1
+            cancel_report = await service._operation_manager.cancel_many(
+                [str(row["operation_id"]) for row in running], reason="user_interrupt"
+            )
             # G-4b：同步渲染子进程也要停（渲染不是 operation——
             # 注册表是唯一追踪；G09 实证模型走同步 scene_render，
             # 只停 operation 时渲染孤儿跑完全程）。
@@ -698,7 +696,7 @@ class PiBridgeServer:
             renders_killed = kill_active_renders()
             return {
                 "ok": True,
-                "operations_cancelled": cancelled,
+                **cancel_report,
                 "renders_killed": renders_killed,
             }
         if method == "pi.task.cancel":
@@ -715,18 +713,17 @@ class PiBridgeServer:
             conn = service._store.connection
             running = conn.execute(
                 "SELECT operation_id FROM operations WHERE state IN "
-                "('QUEUED','ADMITTED','RUNNING','DEGRADED') AND task_id = ?",
+                "('QUEUED','ADMITTED','RUNNING','DEGRADED','CANCELING','LOST') AND task_id = ?",
                 (task_id,),
             ).fetchall()
-            for row in running:
-                await service._operation_manager.cancel(
-                    str(row["operation_id"]), reason="user_cancel"
-                )
+            cancel_report = await service._operation_manager.cancel_many(
+                [str(row["operation_id"]) for row in running], reason="user_cancel"
+            )
             return {
                 "ok": True,
                 "task_id": task_id,
                 "state": "CANCELLED",
-                "operations_cancelled": len(running),
+                **cancel_report,
             }
         if method == "pi.doctor.task":
             # 七审 PR-SEVEN-5：task readiness（/doctor task <goal>）。
@@ -1230,17 +1227,14 @@ class PiBridgeServer:
                 conn = service._store.connection
                 running = conn.execute(
                     "SELECT operation_id, task_id FROM operations WHERE state IN "
-                    "('QUEUED','ADMITTED','RUNNING','DEGRADED') AND task_id IN "
+                    "('QUEUED','ADMITTED','RUNNING','DEGRADED','CANCELING','LOST') AND task_id IN "
                     "(SELECT task_id FROM tasks WHERE mission_id = ?)",
                     (str(params.get("mission_id", "")),),
                 ).fetchall()
                 if active is not None or running or _has_active_renders():
-                    cancelled_ops = 0
-                    for row in running:
-                        await service._operation_manager.cancel(
-                            str(row["operation_id"]), reason="user_nl_stop"
-                        )
-                        cancelled_ops += 1
+                    cancel_report = await service._operation_manager.cancel_many(
+                        [str(row["operation_id"]) for row in running], reason="user_nl_stop"
+                    )
                     task_id = ""
                     if active is not None:
                         task_id = str(active.get("task_id", ""))
@@ -1256,7 +1250,7 @@ class PiBridgeServer:
                         "task_id": task_id,
                         "suppress_model_turn": True,
                         "cancel_report": {
-                            "operations_cancelled": cancelled_ops,
+                            **cancel_report,
                             "renders_killed": renders_killed,
                             "task_cancelled": bool(task_id),
                         },

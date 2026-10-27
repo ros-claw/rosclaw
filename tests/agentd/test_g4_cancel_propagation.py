@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import sys
 import time
 from pathlib import Path
 
@@ -100,11 +101,11 @@ class TestNlStopCascade:
             "'EXECUTING', 1, 'zh', 'now', 'now')",
             (task_id, mission.mission_id),
         )
-        conn.execute(
-            "INSERT INTO operations (operation_id, task_id, attempt_id, kind, "
-            "state, resumable, revision, started_at) "
-            "VALUES ('op_nl_1', ?, '', 'process', 'RUNNING', 0, 1, 'now')",
-            (task_id,),
+        # A cancellation positive needs an owned real process; a RUNNING row
+        # with no PID or birth evidence cannot establish a confirmed stop.
+        op = await service._operation_manager.start(
+            task_id=task_id, attempt_id="", kind="process",
+            argv=[sys.executable, "-c", "import time;time.sleep(30)"],
         )
         conn.commit()
 
@@ -128,9 +129,12 @@ class TestNlStopCascade:
         report = disposition["cancel_report"]
         assert report["operations_cancelled"] == 1
         row = conn.execute(
-            "SELECT state FROM operations WHERE operation_id = 'op_nl_1'",
+            "SELECT state FROM operations WHERE operation_id = ?",
+            (op["operation_id"],),
         ).fetchone()
         assert row["state"] == "CANCELLED"
+        assert not service._operation_manager._pid_alive(op["pid"])
+        await service.close()
 
     async def test_task_content_with_cancel_word_not_intercepted(
         self, tmp_path: Path,
@@ -176,11 +180,9 @@ class TestTaskCancelCascade:
             "'EXECUTING', 1, 'zh', 'now', 'now')",
             (task_id, mission.mission_id),
         )
-        conn.execute(
-            "INSERT INTO operations (operation_id, task_id, attempt_id, kind, "
-            "state, resumable, revision, started_at) "
-            "VALUES ('op_cascade_1', ?, '', 'process', 'RUNNING', 0, 1, 'now')",
-            (task_id,),
+        op = await service._operation_manager.start(
+            task_id=task_id, attempt_id="", kind="process",
+            argv=[sys.executable, "-c", "import time;time.sleep(30)"],
         )
         conn.commit()
         result = await bridge._dispatch(
@@ -190,6 +192,9 @@ class TestTaskCancelCascade:
         assert result.get("ok"), result
         assert result["operations_cancelled"] == 1
         row = conn.execute(
-            "SELECT state FROM operations WHERE operation_id = 'op_cascade_1'",
+            "SELECT state FROM operations WHERE operation_id = ?",
+            (op["operation_id"],),
         ).fetchone()
         assert row["state"] == "CANCELLED"
+        assert not service._operation_manager._pid_alive(op["pid"])
+        await service.close()
