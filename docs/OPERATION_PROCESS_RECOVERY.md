@@ -23,6 +23,13 @@ unproved members, or an unconfirmed stop produce `LOST` with
 `process_cancel_unconfirmed`; Native `process_stop` reports an unsuccessful
 result requiring reconciliation. There is no automatic restart or replay.
 
+After a signal, Linux exit may temporarily clear process identity fields before
+`stat` reports a zombie or disappearance. Such an inspection remains unknown
+while the same cleanup owner reinspects within the original five-second grace.
+Only a subsequently proved empty session confirms cancellation; persistent
+unknown evidence ends in `LOST`, without signalling an unproved process or
+extending the grace.
+
 Cancellation while spawn is pending owns the eventual admitted child. The
 same cleanup task survives loss of its requesting coroutine, and explicit
 supervisor shutdown joins that task. Closing a recovery watcher alone does

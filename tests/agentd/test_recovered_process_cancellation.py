@@ -98,6 +98,41 @@ async def test_cancel_recovered_process_waits_for_actual_stop(tmp_path, request)
         conn.close()
 
 
+@pytest.mark.parametrize("persistent", [False, True])
+async def test_post_signal_exit_inspection_is_reconciled_within_original_grace(
+    tmp_path, request, monkeypatch, persistent
+):
+    import rosclaw.task_kernel.operation_manager as module
+
+    conn = _conn(tmp_path)
+    _task(conn)
+    operation, identity = detached(conn, request)
+    original = module.session_members
+    calls = 0
+
+    def exiting_members(leader):
+        nonlocal calls
+        calls += 1
+        if calls == 2 or (persistent and calls > 2):
+            # Linux can clear cmdline/cwd while stat still reports a live
+            # state during exit. This is unknown, never proof of emptiness.
+            raise ValueError("live session member identity unavailable")
+        return original(leader)
+
+    manager = OperationManager(None, conn)
+    try:
+        await manager.recover_on_boot()
+        monkeypatch.setattr(module, "session_members", exiting_members)
+        await asyncio.wait_for(manager.cancel(operation["operation_id"]), 7)
+        row = manager.get(operation["operation_id"])
+        assert row["state"] == ("LOST" if persistent else "CANCELLED")
+        assert birth(identity["pid"]) is None
+        assert calls > 2, "A transient post-signal inspection race ended reconciliation early"
+    finally:
+        await manager.close()
+        conn.close()
+
+
 @pytest.mark.parametrize("outcome", ["live", "exitcode", "dead"])
 async def test_restart_finishes_persisted_cancellation_instead_of_watching_forever(
     tmp_path, request, outcome

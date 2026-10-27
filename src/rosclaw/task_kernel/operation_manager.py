@@ -682,16 +682,24 @@ class OperationManager:
                 return False
             for phase in range(2):
                 deadline = asyncio.get_running_loop().time() + 5.0
-                while session_members(identity):
+                while True:
+                    try:
+                        current: list[ProcessIdentity] | None = session_members(identity)
+                    except (OSError, ValueError):
+                        # During Linux exit, cmdline/cwd can disappear before
+                        # stat becomes Z/X. Unknown is not an empty session;
+                        # reconcile within the same original signal grace.
+                        current = None
+                    if current == []:
+                        return True
                     if asyncio.get_running_loop().time() >= deadline:
                         break
                     await asyncio.sleep(0.02)
-                else:
-                    return True
+                if current is None:
+                    return False
                 if phase == 0:
                     if any(
-                        not any(known.same_birth(member) for known in members)
-                        for member in session_members(identity)
+                        not any(known.same_birth(member) for known in members) for member in current
                     ):
                         return False
                     if not signal_owned_members(members, signal.SIGKILL):
