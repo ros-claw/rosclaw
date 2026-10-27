@@ -58,23 +58,24 @@ class Ros2ActionClient:
             self._goals[goal_id] = action
             self._feedback_cbs[goal_id] = on_feedback
             self._result_cbs[goal_id] = on_result
-        result = self._transport.send(
-            {
-                "op": "send_action_goal",
-                "action": action,
-                "action_type": action_type,
-                "args": args,
-                "feedback": True,
-                "id": goal_id,
-            }
-        )
+        try:
+            result = self._transport.send(
+                {
+                    "op": "send_action_goal",
+                    "action": action,
+                    "action_type": action_type,
+                    "args": args,
+                    "feedback": True,
+                    "id": goal_id,
+                }
+            )
+        finally:
+            # A failed write/reply does not prove the server rejected the goal.
+            # Keep its identity and callbacks for cancellation/reconciliation,
+            # including a native result arriving after an ambiguous send.
+            self._ensure_listener()
         if not result.is_ok:
-            with self._lock:
-                self._goals.pop(goal_id, None)
-                self._feedback_cbs.pop(goal_id, None)
-                self._result_cbs.pop(goal_id, None)
             raise RuntimeError(f"send_goal failed: {result.error}")
-        self._ensure_listener()
 
     def cancel_goal(self, goal_id: str) -> bool:
         """Dispatch cancellation for a tracked goal; never claim server ack/stop.
@@ -137,10 +138,10 @@ class Ros2ActionClient:
                         logger.debug("feedback callback error", exc_info=True)
             elif op == "action_result":
                 with self._lock:
-                    callback = self._result_cbs.pop(goal_id, None)
+                    result_callback = self._result_cbs.pop(goal_id, None)
                     self._feedback_cbs.pop(goal_id, None)
                     self._goals.pop(goal_id, None)
-                if callback is not None:
+                if result_callback is not None:
                     values = data.get("values") or {}
                     if not isinstance(values, dict):
                         values = {"error": str(values)}
@@ -156,7 +157,7 @@ class Ros2ActionClient:
                     if not isinstance(payload, dict):
                         payload = {"error": str(payload)}
                     try:
-                        callback(status, dict(payload))
+                        result_callback(status, dict(payload))
                     except Exception:  # noqa: BLE001
                         logger.debug("result callback error", exc_info=True)
 
