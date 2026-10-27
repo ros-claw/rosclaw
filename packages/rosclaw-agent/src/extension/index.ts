@@ -487,7 +487,17 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			// 创建 Task；hello/解释/只读查询 tasks=0）。持久化失败不
 			// 投递（handled + 通知重发=无幽灵执行，HP1 语义不变）。
 			const persisted = await inputController.persist(text);
-			if (!persisted) return { action: "handled" as const };
+			if (!persisted) {
+				// A failed input is not a successful deterministic/command handler.
+				// Keep it visible in the session without delivering a model turn.
+				pi.sendMessage({
+					customType: "rosclaw.input_error",
+					content: "INPUT_PERSIST_FAILED: Input was not sent because persistence failed. Please retry.",
+					display: true,
+					details: { code: "INPUT_PERSIST_FAILED" },
+				}, { triggerTurn: false });
+				return { action: "handled" as const };
+			}
 			// R0-1.5：输入路由自动执行——已知 recipe 由内核直接执行
 			// （零模型调用）；watcher 跟踪进度/终态（确定性呈现）。
 			// P0-1/P0-2（0827 审计·双控制者根治）：Input Arbiter——

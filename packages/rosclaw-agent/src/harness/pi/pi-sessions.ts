@@ -88,8 +88,30 @@ export async function runPiPrint(
 	runtime: unknown,
 	options: { initialMessage?: string },
 ): Promise<number> {
-	return await runPrintMode(runtime as never, {
-		mode: "text",
-		...(options.initialMessage ? { initialMessage: options.initialMessage } : {}),
+	// Upstream text mode treats a handled input with no assistant as exit 0.
+	// Observe only fresh, explicit persistence failures in this invocation;
+	// commands, arbiter-owned turns and cancellations retain their own semantics.
+	const host = runtime as {
+		session: { subscribe(listener: (event: {
+			type: string;
+			message?: { role?: string; customType?: string };
+		}) => void): () => void };
+	};
+	let inputFailed = false;
+	const unsubscribe = host.session.subscribe((event) => {
+		if (event.type === "message_end" && event.message?.role === "custom"
+			&& event.message.customType === "rosclaw.input_error") {
+			inputFailed = true;
+			console.error("INPUT_PERSIST_FAILED: Input was not sent because persistence failed. Please retry.");
+		}
 	});
+	try {
+		const code = await runPrintMode(runtime as never, {
+			mode: "text",
+			...(options.initialMessage ? { initialMessage: options.initialMessage } : {}),
+		});
+		return inputFailed ? (code || 1) : code;
+	} finally {
+		unsubscribe();
+	}
 }

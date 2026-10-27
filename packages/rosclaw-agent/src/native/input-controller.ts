@@ -97,6 +97,9 @@ export class InputController {
 					suppress_model_turn?: boolean;
 				};
 			};
+			// Some callers return the protocol envelope instead of throwing on
+			// rejection. Neither form may acknowledge dispatch or reach a model.
+			if (result.ok !== true) throw new Error("INPUT_PERSIST_FAILED");
 			this.forceNewNext = false;
 			this.deps.call("pi.input.dispatched", {
 				mission_id: this.deps.missionId(),

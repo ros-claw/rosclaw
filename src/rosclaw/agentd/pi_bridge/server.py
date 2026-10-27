@@ -76,7 +76,10 @@ class PiBridgeServer:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         os.chmod(self._path.parent, 0o700)
         self._path.unlink(missing_ok=True)
-        self._server = await asyncio.start_unix_server(self._handle, path=str(self._path))
+        # Match the existing wire-byte cap, not asyncio's default 64 KiB.
+        self._server = await asyncio.start_unix_server(
+            self._handle, path=str(self._path), limit=MAX_REQUEST_BYTES
+        )
         os.chmod(self._path, 0o600)
 
     async def stop(self) -> None:
@@ -96,7 +99,15 @@ class PiBridgeServer:
             return
         try:
             while not reader.at_eof():
-                line = await reader.readline()
+                try:
+                    line = await reader.readline()
+                except ValueError:
+                    # readline translates LimitOverrunError to ValueError. Refuse
+                    # immediately, including peers that never send a newline;
+                    # do not drain an unbounded rejected frame or dispatch it.
+                    writer.write(b'{"ok": false, "error": "request too large"}\n')
+                    await writer.drain()
+                    break
                 if not line:
                     break
                 if len(line) > MAX_REQUEST_BYTES:
