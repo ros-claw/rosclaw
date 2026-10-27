@@ -38,14 +38,14 @@ class Peer(FakeActionClient):
         super().emit_result(status, values)
 
 
-def manager(tmp_path):
+def manager(tmp_path, *, grace_s=0.01):
     connection = _conn(tmp_path)
     _task(connection)
     mgr = OperationManager(None, connection)
     original = mgr._cancel_grace
 
     async def short_grace(operation_id, reason):
-        await original(operation_id, reason, grace_s=0.01)
+        await original(operation_id, reason, grace_s=grace_s)
 
     mgr._cancel_grace = short_grace
     return mgr, connection
@@ -237,4 +237,72 @@ async def test_actual_agent_service_closes_native_goals_before_closing_its_journ
         ).fetchone()
         assert row[0] == "CANCELLED"
     finally:
+        conn.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("send_raises", [False, True])
+async def test_actual_action_client_keeps_ambiguous_send_owned_for_cancel(tmp_path, send_raises):
+    """Real product client + OperationManager, fixture transport only."""
+    import queue
+
+    from rosclaw.connectors.ros.action_client import Ros2ActionClient
+    from rosclaw.connectors.ros.transport.base import RosTransportResult
+
+    class AmbiguousTransport:
+        def __init__(self):
+            self.messages = []
+            self.incoming = queue.Queue()
+            self.active = False
+
+        def send(self, message):
+            self.messages.append(message.copy())
+            if message["op"] == "send_action_goal":
+                self.active = True
+                if send_raises:
+                    raise OSError("accepted goal but write acknowledgement lost")
+                return RosTransportResult(ok=False, error="ambiguous write failure")
+            assert message["op"] == "cancel_action_goal"
+            self.active = False
+            self.incoming.put(
+                RosTransportResult(
+                    ok=True,
+                    data={
+                        "op": "action_result",
+                        "id": message["id"],
+                        "status": 5,
+                        "values": {"cancelled": True},
+                    },
+                )
+            )
+            return RosTransportResult(ok=True)
+
+        def receive(self, timeout_sec=None):
+            try:
+                return self.incoming.get(timeout=min(timeout_sec or 0.01, 0.01))
+            except queue.Empty:
+                return None
+
+        def close(self):
+            pass
+
+    mgr, conn = manager(tmp_path, grace_s=0.25)
+    transport = AmbiguousTransport()
+    client = Ros2ActionClient(transport)
+    try:
+        operation = await start(mgr, client)
+        assert operation["state"] == "DEGRADED"
+        assert transport.active is True
+        await mgr.close()
+        assert [m["op"] for m in transport.messages] == [
+            "send_action_goal",
+            "cancel_action_goal",
+        ]
+        assert transport.messages[1]["id"] == operation["goal_id"]
+        assert transport.active is False
+        assert mgr.get(operation["operation_id"])["state"] == "CANCELLED"
+    finally:
+        client.close()
+        if client._listener:
+            await asyncio.to_thread(client._listener.join, 1)
         conn.close()
