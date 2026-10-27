@@ -59,3 +59,21 @@ explicit bound spaces when checking a currently observed path suffix. It does
 not establish source freshness or grant authority. A driver must retain the
 original action identity, cancel through its existing native interface when a
 path becomes invalid, and verify that action's terminal result before replanning.
+
+
+`online.propose_transfer(grid, observed_xy, target_xy, max_target_shift=0.05)`
+proposes one bounded transfer prefix. It preserves an available local detour;
+only when none exists does it reuse the original occupancy/navigation snapshot
+and configured body radius/margin for a global intent. Every returned prefix
+is checked against the original complete live grid and is at most 0.60m.
+Unknown/lethal cells remain blocked. The immutable result includes the selected
+target, intent source/length and target shift, not the full global route.
+
+An existing return contract may explicitly request up to 0.10m target snapping;
+this is independent of tracking error. This function establishes neither
+observation freshness nor execution admission, arrival, cancellation, charging
+or mission success. Callers must use current public observations and the
+existing canonical authority/ownership/result checks. Snapshot message copies
+preserve accepted content if callers later mutate their inputs; copies never
+renew the original timestamps. Source fixtures and geometry regression are not
+an installed App or a HomeClean mission acceptance.

@@ -1,5 +1,6 @@
 """Online occupancy geometry. All inputs are received SLAM grids and SDK poses."""
 
+import copy
 import math
 
 import numpy as np
@@ -29,6 +30,14 @@ class Grid(FootprintPathSpace):
         local_navigation=None,
         map_from_local=None,
     ):
+        # Retain the same accepted public inputs and configured geometry for
+        # proposal-only global routing. This does not renew their freshness.
+        self._global_intent_inputs = (
+            copy.deepcopy(message),
+            copy.deepcopy(navigation),
+            clearance,
+            tracking_margin,
+        )
         info = message.info
         q = info.origin.orientation
         if abs(q.x) + abs(q.y) + abs(q.z) > 1e-6:

@@ -8,7 +8,7 @@
     },
     "reference/grid.py": {
       "sha256": "0a761f630731599239e226c0c2adf09c14ef78cbae1b7a5f02c3727b7fbf2e1c",
-      "transformation": "import namespace only; source remains unchanged"
+      "transformation": "Import namespace/style plus public native/global/regional constraints and preserved snapshot inputs; original donor remains unchanged"
     },
     "reference/coverage_paths.py": {
       "sha256": "b3b67c54dbcd9c5e117716b98befe70d8107fd14ea2e077f28361d4ce38caf40",
@@ -31,5 +31,11 @@
       "transformation": "import namespace only; source remains unchanged"
     }
   },
-  "frozen_ABC_protocol_changed": false
+  "frozen_ABC_protocol_changed": false,
+  "hash_scope": "Hashes identify unchanged original donor files at source_commit, not the later ported destination contents; destination revisions follow this repository Git history.",
+  "transfer_proposal": {
+    "source_project_commit": "758272c",
+    "source_component": "integrations/rosclaw_root_cause/path_contract.py and shared_coverage_policy.py",
+    "adaptation": "Pure proposal in existing online/Grid modules; configured body geometry replaces benchmark constants; no ROS transport, runtime, admission or mission outcome"
+  }
 }

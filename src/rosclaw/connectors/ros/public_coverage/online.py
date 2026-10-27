@@ -44,6 +44,89 @@ class Transform2D:
         return a @ np.array([[c, -s], [s, c]])
 
 
+class TransferUnavailableError(ValueError):
+    """No finite, currently safe transfer prefix could be proposed."""
+
+
+@dataclass(frozen=True)
+class TransferProposal:
+    """Geometry only: no admission, execution, freshness or arrival claim.
+
+    Revalidate against current observations immediately before dispatch. The
+    returned prefix retains every local/global constraint of the supplied grid.
+    The full global route is deliberately not returned as an executable path.
+    """
+
+    prefix_xy: tuple[tuple[float, float], ...]
+    requested_target_xy: tuple[float, float]
+    selected_target_xy: tuple[float, float]
+    intent_source: str
+    intent_length_m: float
+    target_shift_m: float
+
+
+def propose_transfer(grid, robot_xy, target_xy, *, max_target_shift: float = 0.05):
+    """Preserve available local detours; otherwise admit a <=0.60m prefix.
+
+    The global proposal reuses this snapshot's exact occupancy, navigation,
+    physical radius and tracking margin. It cannot clear a local unknown or
+    lethal cell. Callers still own observation contracts, stopped/known-terminal
+    barriers, canonical authorization, result reconciliation and finite retries.
+    Work entry uses 5cm snapping by default; an explicit existing return
+    contract may use up to 10cm. Tracking tolerance is independent of snapping.
+    """
+    from .coverage_paths import densify
+    from .grid import Grid
+
+    actual = np.asarray(robot_xy, float)
+    requested = np.asarray(target_xy, float)
+    if (
+        actual.shape != (2,)
+        or requested.shape != (2,)
+        or not np.isfinite(actual).all()
+        or not np.isfinite(requested).all()
+        or not math.isfinite(max_target_shift)
+        or not 0 <= max_target_shift <= 0.10
+    ):
+        raise TransferUnavailableError(
+            "Finite public endpoints and original target-shift limit required"
+        )
+    if not grid.physical_pose_safe(actual):
+        raise TransferUnavailableError("Actual public full footprint is not safe")
+    target = grid.refresh_target(requested, max_shift=max_target_shift)
+    route = RouteCosts(grid, actual).path(target) if target is not None else None
+    source = "live_global_local_route"
+    if route is None:
+        occupancy, navigation, radius, margin = grid._global_intent_inputs
+        intent = Grid(
+            occupancy, actual, clearance=radius, tracking_margin=margin, navigation=navigation
+        )
+        target = intent.refresh_target(requested, max_shift=max_target_shift)
+        route = RouteCosts(intent, actual).path(target) if target is not None else None
+        source = "global_proposal_live_prefix_required"
+    if target is None or route is None:
+        raise TransferUnavailableError("No public full-footprint transfer intent")
+    end = next((p for p in route[1:] if np.linalg.norm(p - actual) > 0.005), None)
+    if end is None:
+        raise TransferUnavailableError("No transfer translation required by this proposal")
+    delta = end - actual
+    distance = float(np.linalg.norm(delta))
+    length = min(0.60, distance)
+    while length > 0.005:
+        candidate = densify(np.asarray([actual, actual + delta * (length / distance)]), step=0.025)
+        if grid.motion_path_safe(candidate):
+            return TransferProposal(
+                prefix_xy=tuple((float(x), float(y)) for x, y in candidate),
+                requested_target_xy=(float(requested[0]), float(requested[1])),
+                selected_target_xy=(float(target[0]), float(target[1])),
+                intent_source=source,
+                intent_length_m=float(np.linalg.norm(np.diff(route, axis=0), axis=1).sum()),
+                target_shift_m=float(np.linalg.norm(target - requested)),
+            )
+        length -= 0.025
+    raise TransferUnavailableError("No locally safe public transfer prefix")
+
+
 class AnchoredCoverage:
     """Estimated cleaning and debt survive map translation/rotation and restart.
 
@@ -59,9 +142,9 @@ class AnchoredCoverage:
             raise ValueError("Explicit odom epoch and positive footprint required")
         self.epoch = odom_epoch
         self.anchor = CoverageLedger(resolution=resolution, brush_radius=brush_radius)
-        self.last_sample = None
+        self.last_sample: tuple[float, np.ndarray, bool] | None = None
         self.sample_count = 0
-        self.evidence_samples = []
+        self.evidence_samples: list[dict] = []
         self.retry = FailedWork(cooldown=30.0, maximum_attempts=3)
         self.discovered = False
 
