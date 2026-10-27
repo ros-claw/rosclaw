@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import time
 from typing import Any
 
 from rosclaw.sense.schemas import (
@@ -81,7 +80,8 @@ class ReadinessEvaluator:
         overall = self._derive_overall([item])
         return BodyReadiness(
             robot_id=state.robot_id,
-            timestamp=time.time(),
+            timestamp=state.timestamp,
+            source=state.source,
             task=task,
             overall_status=overall,
             capabilities={item.capability: item},
@@ -100,7 +100,8 @@ class ReadinessEvaluator:
             items[name] = self._evaluate_one(state, risk_summary, name, reqs)
         return BodyReadiness(
             robot_id=state.robot_id,
-            timestamp=time.time(),
+            timestamp=state.timestamp,
+            source=state.source,
             overall_status=self._derive_overall(list(items.values())),
             capabilities=items,
         )

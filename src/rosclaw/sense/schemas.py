@@ -233,12 +233,14 @@ class BodyReadiness:
     task: str | None = None
     overall_status: str = "unknown"  # ready | caution | not_ready | emergency | unknown
     capabilities: dict[str, ReadinessItem] = field(default_factory=dict)
+    source: str = "unknown"
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "robot_id": self.robot_id,
             "timestamp": self.timestamp,
             "task": self.task,
+            "source": self.source,
             "overall_status": self.overall_status,
             "capabilities": {name: item.to_dict() for name, item in self.capabilities.items()},
         }
@@ -263,6 +265,7 @@ class BodyReadiness:
             task=data.get("task"),
             overall_status=data.get("overall_status", "unknown"),
             capabilities=capabilities,
+            source=data.get("source", "unknown"),
         )
 
 

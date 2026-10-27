@@ -60,6 +60,10 @@ Each `ReadinessItem` contains:
 - `reasons`: short human-readable strings
 - `allowed_alternatives`: safe fallback actions
 
+`BodyReadiness.source` identifies the input collector, and its `timestamp`
+is the input BodyState timestamp. Older serialized readiness without `source`
+loads as `unknown`. Evaluation time must not replace a historical input's time.
+
 ## BodySense
 
 Primary output consumed by agents. Contains:
@@ -70,7 +74,8 @@ Primary output consumed by agents. Contains:
 - `main_reasons`
 - `recommended_actions`
 - `natural_language_summary`
-- `evidence`: numeric snapshot for explanations
+- `evidence`: numeric snapshot and `collector_source` / `observation_kind`
+  attribution for explanations; a source label is not proof of live data
 
 ## BodyEvent
 

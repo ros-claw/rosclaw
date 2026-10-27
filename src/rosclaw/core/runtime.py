@@ -162,7 +162,7 @@ class RuntimeConfig:
     )
     # Sense / BodySense module configuration
     enable_sense: bool = True
-    sense_collector: str = "mock"
+    sense_collector: str = "unconfigured"
     sense_update_hz: float = 1.0
     sense_robot_profile: str | None = None
     sense_thresholds_path: str | None = None

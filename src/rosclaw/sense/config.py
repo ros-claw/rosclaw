@@ -12,8 +12,8 @@ class SenseConfig:
 
     Attributes:
         robot_id: Robot identifier for state/sense attribution.
-        collector: Collector backend to use. Supported: ``mock``, ``file_replay``,
-            ``ros2``, ``dds``.
+        collector: Collector backend to use. Defaults to ``unconfigured`` (no
+            telemetry). Explicit options: ``mock``, ``file_replay``, ``ros2``, ``dds``.
         robot_profile: Optional robot family/profile used to load thresholds and
             capability requirements (e.g. ``unitree_g1``).
         thresholds_path: Optional path to a YAML file with threshold overrides.
@@ -25,7 +25,7 @@ class SenseConfig:
     """
 
     robot_id: str = "rosclaw_default"
-    collector: str = "mock"
+    collector: str = "unconfigured"
     robot_profile: str | None = None
     thresholds_path: str | None = None
     replay_path: str | None = None
@@ -53,7 +53,7 @@ class SenseConfig:
         """Deserialize config from a dictionary."""
         return cls(
             robot_id=data.get("robot_id", "rosclaw_default"),
-            collector=data.get("collector", "mock"),
+            collector=data.get("collector", "unconfigured"),
             robot_profile=data.get("robot_profile"),
             thresholds_path=data.get("thresholds_path"),
             replay_path=data.get("replay_path"),

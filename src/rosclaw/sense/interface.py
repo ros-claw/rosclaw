@@ -21,7 +21,7 @@ class SenseInterface:
     def __init__(
         self,
         robot_id: str = "rosclaw_default",
-        collector: str = "mock",
+        collector: str = "unconfigured",
         scenario: str = "normal",
         event_bus: EventBus | None = None,
     ):
