@@ -6,20 +6,22 @@ feel the robot's current body state and decide whether a task can safely run.
 ## Quick Start
 
 ```bash
-# Show current body sense
+# No collector configured: show unavailable telemetry, not a healthy mock
 rosclaw sense now
 
 # Check if G1 can kick a ball
 rosclaw sense readiness --task kick_ball --mock kick_not_ready
 
-# Watch live sense stream
+# Watch an explicitly synthetic example
 rosclaw sense watch --mock hot_knee --interval 1
 ```
 
 ```python
 from rosclaw.core.runtime import Runtime, RuntimeConfig
 
-rt = Runtime(RuntimeConfig(robot_id="g1_lab_01", enable_sense=True))
+rt = Runtime(RuntimeConfig(
+    robot_id="g1_lab_01", enable_sense=True, sense_collector="mock",
+))  # Explicit synthetic example; this does not connect a robot.
 rt.initialize()
 print(rt.sense.get_body_sense().natural_language_summary)
 rt.stop()
@@ -36,7 +38,28 @@ rt.stop()
 | `rosclaw sense events` | Recent BodyEvents |
 | `rosclaw sense explain --task <task>` | Explain why a task is blocked |
 
-All commands accept `--mock <scenario>` and `--json`.
+All commands accept `--mock <scenario>` to request synthetic data explicitly.
+`now`, `state`, `readiness`, and `events` also accept `--json`.
+
+SenseConfig, SenseInterface, RuntimeConfig and the CLI default to an
+`unconfigured` collector. It opens no robot connection and leaves telemetry
+unknown. Existing callers that need the previous synthetic example must select
+`collector="mock"`, `sense_collector="mock"`, or `--mock normal` explicitly.
+The packaged `ros2` and `dds` collectors remain stubs; selecting them does not
+establish live observation or a configured coverage executor.
+
+BodySense evidence includes `collector_source` and `observation_kind`:
+`synthetic`, `historical_replay`, `unavailable`, or `unverified`. These labels
+describe the supplied evidence; they do not authorize robot actions. Mock
+readiness describes a synthetic scenario. File replay preserves the recorded
+timestamp, prefixes the recorded source with `file_replay:`, and records the
+separate read time in `raw.replay.replayed_at`. Readiness carries that source
+and the input timestamp, so replay does not become current sensor evidence.
+Low estimated risk alone cannot promote unknown readiness to ready.
+The existing MCP `get_robot_state` rejects unconfigured telemetry and empty
+replay as `STATE_PROVENANCE_UNAVAILABLE`, even if transport freshness is good.
+A nonempty replay remains `REPLAY` / `RECORDED` and cannot be used for REAL
+execution.
 
 ## Mock Scenarios
 

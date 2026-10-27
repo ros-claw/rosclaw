@@ -8803,36 +8803,60 @@ def main() -> int:
     sense_subparsers = sense_parser.add_subparsers(dest="sense_command")
 
     sense_now_parser = sense_subparsers.add_parser("now", help="Get current BodySense snapshot")
-    sense_now_parser.add_argument("--mock", default="normal", help="Mock scenario")
+    sense_now_parser.add_argument(
+        "--mock",
+        default=None,
+        help="Explicit synthetic scenario; omitted means unconfigured telemetry",
+    )
     sense_now_parser.add_argument("--robot-id", default="g1_lab_01", help="Robot identifier")
     sense_now_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
     sense_state_parser = sense_subparsers.add_parser("state", help="Show detailed BodyState")
-    sense_state_parser.add_argument("--mock", default="normal", help="Mock scenario")
+    sense_state_parser.add_argument(
+        "--mock",
+        default=None,
+        help="Explicit synthetic scenario; omitted means unconfigured telemetry",
+    )
     sense_state_parser.add_argument("--robot-id", default="g1_lab_01", help="Robot identifier")
     sense_state_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
     sense_readiness_parser = sense_subparsers.add_parser("readiness", help="Show body readiness")
     sense_readiness_parser.add_argument("--task", required=True, help="Task/capability name")
-    sense_readiness_parser.add_argument("--mock", default="normal", help="Mock scenario")
+    sense_readiness_parser.add_argument(
+        "--mock",
+        default=None,
+        help="Explicit synthetic scenario; omitted means unconfigured telemetry",
+    )
     sense_readiness_parser.add_argument("--robot-id", default="g1_lab_01", help="Robot identifier")
     sense_readiness_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
     sense_watch_parser = sense_subparsers.add_parser("watch", help="Watch body sense stream")
-    sense_watch_parser.add_argument("--mock", default="normal", help="Mock scenario")
+    sense_watch_parser.add_argument(
+        "--mock",
+        default=None,
+        help="Explicit synthetic scenario; omitted means unconfigured telemetry",
+    )
     sense_watch_parser.add_argument("--robot-id", default="g1_lab_01", help="Robot identifier")
     sense_watch_parser.add_argument("--interval", type=float, default=1.0, help="Poll interval")
     sense_watch_parser.add_argument("--limit", type=int, default=None, help="Max updates")
 
     sense_events_parser = sense_subparsers.add_parser("events", help="Show recent body events")
-    sense_events_parser.add_argument("--mock", default="normal", help="Mock scenario")
+    sense_events_parser.add_argument(
+        "--mock",
+        default=None,
+        help="Explicit synthetic scenario; omitted means unconfigured telemetry",
+    )
     sense_events_parser.add_argument("--robot-id", default="g1_lab_01", help="Robot identifier")
     sense_events_parser.add_argument("--limit", type=int, default=20, help="Max events")
     sense_events_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
     sense_explain_parser = sense_subparsers.add_parser("explain", help="Explain task block")
     sense_explain_parser.add_argument("--task", required=True, help="Task/capability name")
-    sense_explain_parser.add_argument("--mock", default="normal", help="Mock scenario")
+    sense_explain_parser.add_argument(
+        "--mock",
+        default=None,
+        help="Explicit synthetic scenario; omitted means unconfigured telemetry",
+    )
     sense_explain_parser.add_argument("--robot-id", default="g1_lab_01", help="Robot identifier")
 
     # fleet subcommand

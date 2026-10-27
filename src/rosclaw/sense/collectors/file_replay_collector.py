@@ -51,8 +51,14 @@ class FileReplayCollector(BodyStateCollector):
             )
         frame = self._frames[self._index % len(self._frames)]
         state = BodyState.from_dict(frame)
-        # Update timestamp to now for realistic replay
-        state.timestamp = time.time()
+        # Reading a historical frame is not a new sensor observation. Keep its
+        # original timestamp and mark replay separately from that source.
+        original_source = state.source
+        state.source = f"file_replay:{original_source}"
+        state.raw = {
+            **state.raw,
+            "replay": {"original_source": original_source, "replayed_at": time.time()},
+        }
         return state
 
     def step(self) -> None:

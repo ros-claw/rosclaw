@@ -215,6 +215,12 @@ class RuntimeClient:
                     "explicitly to consume synthetic state.",
                     code="SYNTHETIC_SOURCE_NOT_ALLOWED",
                 )
+            elif source in {"unconfigured", "file_replay:empty"} or collector == "unconfigured":
+                self._unavailable(
+                    "get_robot_state",
+                    f"Body state has no configured observation (source={source}).",
+                    code="STATE_PROVENANCE_UNAVAILABLE",
+                )
             elif source.startswith("file_replay:"):
                 mode = "replay"
                 execution_mode = "REPLAY"

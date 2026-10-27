@@ -11,10 +11,11 @@ from rosclaw.sense.interface import SenseInterface
 
 
 def _make_sense(args: argparse.Namespace) -> SenseInterface:
+    scenario = getattr(args, "mock", None)
     return SenseInterface(
         robot_id=getattr(args, "robot_id", "g1_lab_01"),
-        collector="mock" if getattr(args, "mock", None) else "mock",
-        scenario=getattr(args, "mock", "normal") or "normal",
+        collector="mock" if scenario is not None else "unconfigured",
+        scenario=scenario if scenario is not None else "normal",
     )
 
 
@@ -29,6 +30,7 @@ def cmd_sense_now(args: argparse.Namespace) -> int:
         else:
             print(f"Robot: {snapshot.robot_id}")
             print(f"Overall: {snapshot.overall_status.upper()}")
+            print(f"Source: {snapshot.evidence['collector_source']}")
             print()
             print("Ready:")
             readiness = snapshot.readiness

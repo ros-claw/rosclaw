@@ -11,9 +11,10 @@ Operation ≠ Worker：无模型的确定性执行过程（仿真 rollout、渲�
   last_seq+1 重放，不重不漏）；
 - **没有默认 wall-clock kill**：deadline 是任务语义、lease 是控制权、
   liveness timeout 只标 DEGRADED（§12.2）——sweep 永不杀进程；
-- 重启恢复（reattach-or-LOST）：pid 活 → reattach（DEGRADED +
-  pid-watcher）；pid 死 + exitcode 文件 → 应用真实终态；否则诚实
-  LOST（绝不把僵尸行留在 RUNNING）。
+- 重启恢复（reattach-or-LOST）：持久化出生身份与活进程匹配才 reattach
+  （DEGRADED + pid-watcher）；退出码文件 → 应用真实终态；否则诚实 LOST。
+  显式取消只向已证实独立会话的同一出生进程发送信号，确认停止后才 CANCELLED；
+  主机进程停止不构成机器人物理停止证据。
 """
 
 from __future__ import annotations
@@ -30,6 +31,11 @@ from pathlib import Path
 from typing import Any
 
 from rosclaw.contracts.common import new_id
+from rosclaw.task_kernel.process_identity import (
+    ProcessIdentity,
+    session_members,
+    signal_owned_members,
+)
 
 #: 终态集合（不可逆）。LOST：重启后无法证实结局的诚实终态。
 OPERATION_TERMINAL = frozenset({"SUCCEEDED", "FAILED", "CANCELLED", "LOST"})
@@ -54,6 +60,7 @@ class OperationManager:
         self._kernel = kernel
         self._conn = conn
         self._procs: dict[str, asyncio.subprocess.Process] = {}
+        self._process_admissions: dict[str, asyncio.Event] = {}
         self._drivers: dict[str, asyncio.Task] = {}
         # Cleanup belongs to the operation, even if its requesting task leaves.
         self._cancel_tasks: dict[str, asyncio.Task[None]] = {}
@@ -200,22 +207,43 @@ class OperationManager:
             operation_id=operation_id,
             attempt_id=attempt_id,
         )
-        proc = await self._spawn(operation_id, argv, cwd, env, exitcode_path)
-        self._procs[operation_id] = proc
-        self._transition(
-            operation_id,
-            "ADMITTED",
-            event="operation.admitted",
-            payload={"pid": proc.pid, "argv": argv[:5]},
-        )
-        self._conn.execute(
-            "UPDATE operations SET pid = ? WHERE operation_id = ?",
-            (proc.pid, operation_id),
-        )
-        self._drivers[operation_id] = asyncio.create_task(
-            self._drive(operation_id, task_id, attempt_id, proc)
-        )
-        return self.get(operation_id)
+        admitted = asyncio.Event()
+        self._process_admissions[operation_id] = admitted
+        try:
+            proc = await self._spawn(operation_id, argv, cwd, env, exitcode_path)
+            self._procs[operation_id] = proc
+            identity = ProcessIdentity.capture(proc.pid)
+            checkpoint = {
+                "schema_version": "rosclaw.operation.process_checkpoint.v1",
+                "process_identity": json.loads(identity.to_json()) if identity else None,
+            }
+            # Provider-private checkpoint metadata avoids changing any applied
+            # migration. Missing birth evidence never authorizes PID adoption.
+            self._conn.execute(
+                "UPDATE operations SET pid = ?, checkpoint_json = ? WHERE operation_id = ?",
+                (proc.pid, json.dumps(checkpoint), operation_id),
+            )
+            self._transition(
+                operation_id,
+                "ADMITTED",
+                event="operation.admitted",
+                payload={"pid": proc.pid, "argv": argv[:5]},
+            )
+            self._drivers[operation_id] = asyncio.create_task(
+                self._drive(operation_id, task_id, attempt_id, proc)
+            )
+            return self.get(operation_id)
+        except BaseException:
+            # A failed admission is not proof that a remote/cancelled spawn
+            # had no effect. Retain an honest terminal if no handle exists.
+            if operation_id not in self._procs:
+                self._write_terminal(
+                    operation_id, "LOST", failure_code="process_admission_unconfirmed"
+                )
+            raise
+        finally:
+            admitted.set()
+            self._process_admissions.pop(operation_id, None)
 
     async def _spawn(
         self,
@@ -534,6 +562,23 @@ class OperationManager:
             await asyncio.wait_for(asyncio.shield(driver), timeout=timeout)
         return self.get(operation_id)
 
+    async def cancel_many(self, operation_ids: list[str], *, reason: str = "user") -> dict:
+        """Report actual cancellation outcomes, never just the request count."""
+        states = {}
+        for operation_id in dict.fromkeys(operation_ids):
+            await self.cancel(operation_id, reason=reason)
+            states[operation_id] = str(self.get(operation_id).get("state", "UNKNOWN"))
+        pending = sum(state == "CANCELING" for state in states.values())
+        unknown = sum(state in {"LOST", "UNKNOWN"} for state in states.values())
+        return {
+            "operations_cancel_requested": len(states),
+            "operations_cancelled": sum(state == "CANCELLED" for state in states.values()),
+            "operations_cancelling": pending,
+            "operations_cancel_unconfirmed": unknown,
+            "operation_states": states,
+            "reconciliation_required": bool(pending or unknown),
+        }
+
     async def cancel(self, operation_id: str, *, reason: str = "user") -> None:
         """CANCELING（账本+原因）→ 信号 → CANCELLED。
 
@@ -557,6 +602,15 @@ class OperationManager:
             {"operation_id": operation_id, "reason": reason},
             operation_id=operation_id,
         )
+        admission = self._process_admissions.get(operation_id)
+        if admission is not None:
+            cleanup = asyncio.create_task(
+                self._cancel_pending_process(operation_id, admission, reason)
+            )
+            self._cancel_tasks[operation_id] = cleanup
+            cleanup.add_done_callback(self._observe_cancel_cleanup)
+            await asyncio.shield(cleanup)
+            return
         action_ref = self._actions.get(operation_id)
         if action_ref is not None:
             # Only a native CANCELED result confirms cancellation. Own the
@@ -584,7 +638,92 @@ class OperationManager:
             cleanup.add_done_callback(self._observe_cancel_cleanup)
             await asyncio.shield(cleanup)
             return
-        await self._record_terminal(operation_id, "CANCELLED", failure_code=reason)
+        cleanup = asyncio.create_task(self._cancel_recovered_process(operation_id, reason))
+        self._cancel_tasks[operation_id] = cleanup
+        cleanup.add_done_callback(self._observe_cancel_cleanup)
+        await asyncio.shield(cleanup)
+
+    async def _cancel_pending_process(
+        self, operation_id: str, admission: asyncio.Event, reason: str
+    ) -> None:
+        # Cancellation owns the eventual spawn, not just its queued row.
+        await admission.wait()
+        proc = self._procs.pop(operation_id, None)
+        if proc is not None:
+            await self._cancel_process(operation_id, proc, reason)
+        else:
+            await self._cancel_recovered_process(operation_id, reason)
+
+    @staticmethod
+    def _saved_process_identity(row: dict) -> ProcessIdentity | None:
+        try:
+            checkpoint = json.loads(row.get("checkpoint_json") or "{}")
+            if checkpoint.get("schema_version") != "rosclaw.operation.process_checkpoint.v1":
+                return None
+            identity = ProcessIdentity.parse(json.dumps(checkpoint.get("process_identity")))
+            return identity if identity and identity.pid == int(row.get("pid") or 0) else None
+        except (TypeError, ValueError, AttributeError):
+            return None
+
+    async def _cancel_recovered_process(self, operation_id: str, reason: str) -> None:
+        row = self.get(operation_id)
+        identity = self._saved_process_identity(row)
+        stopped = await self._stop_recovered_session(identity)
+        self._emit(
+            row["task_id"],
+            "operation.process_stopped" if stopped else "operation.cancel_unconfirmed",
+            {
+                "operation_id": operation_id,
+                "stop_confirmed": stopped,
+                "scope": "proved_host_session",
+            },
+            operation_id=operation_id,
+        )
+        await self._record_terminal(
+            operation_id,
+            "CANCELLED" if stopped else "LOST",
+            failure_code=reason if stopped else "process_cancel_unconfirmed",
+        )
+        watcher = self._drivers.pop(operation_id, None)
+        if watcher is not None and not watcher.done():
+            watcher.cancel()
+            await asyncio.gather(watcher, return_exceptions=True)
+
+    @staticmethod
+    async def _stop_recovered_session(identity: ProcessIdentity | None) -> bool:
+        if identity is None or not identity.matches():
+            return False
+        try:
+            members = session_members(identity)
+            if not identity.matches() or not signal_owned_members(members, signal.SIGTERM):
+                return False
+            for phase in range(2):
+                deadline = asyncio.get_running_loop().time() + 5.0
+                while True:
+                    try:
+                        current: list[ProcessIdentity] | None = session_members(identity)
+                    except (OSError, ValueError):
+                        # During Linux exit, cmdline/cwd can disappear before
+                        # stat becomes Z/X. Unknown is not an empty session;
+                        # reconcile within the same original signal grace.
+                        current = None
+                    if current == []:
+                        return True
+                    if asyncio.get_running_loop().time() >= deadline:
+                        break
+                    await asyncio.sleep(0.02)
+                if current is None:
+                    return False
+                if phase == 0:
+                    if any(
+                        not any(known.same_birth(member) for known in members) for member in current
+                    ):
+                        return False
+                    if not signal_owned_members(members, signal.SIGKILL):
+                        return False
+            return False
+        except (OSError, ValueError, NotImplementedError):
+            return False
 
     @staticmethod
     def _observe_cancel_cleanup(task: asyncio.Task[None]) -> None:
@@ -684,19 +823,36 @@ class OperationManager:
     async def recover_on_boot(self) -> dict:
         """agentd 重启后的 operation 对账。
 
-        - pid 活 → reattach（DEGRADED + pid-watcher 等退出）；
+        - CANCELING → 同一取消所有者确认停止或 LOST，不恢复执行；
+        - 活进程出生身份与 checkpoint 匹配 → reattach（DEGRADED + watcher）；
         - pid 死 + exitcode 文件 → 应用真实终态；
         - 否则 → 诚实 LOST（事件留痕，绝不留僵尸 RUNNING）。
         """
         report = {"reattached": 0, "terminated": 0, "lost": 0}
         rows = self._conn.execute(
-            "SELECT operation_id, task_id, pid, exitcode_path FROM operations "
+            "SELECT operation_id, task_id, pid, exitcode_path, checkpoint_json, "
+            "state, cancel_reason FROM operations "
             "WHERE state IN ('QUEUED', 'ADMITTED', 'RUNNING', 'DEGRADED', "
             "'CANCELING')",
         ).fetchall()
         for row in rows:
             op_id = str(row["operation_id"])
             pid = int(row["pid"] or 0)
+            if row["state"] == "CANCELING":
+                # The persisted explicit stop owns its original reason. A
+                # watcher cannot resolve CANCELING, and a late exitcode must
+                # not turn that intent into an ordinary success/failure.
+                cleanup = asyncio.create_task(
+                    self._cancel_recovered_process(
+                        op_id, str(row["cancel_reason"] or "restart_cancel")
+                    )
+                )
+                self._cancel_tasks[op_id] = cleanup
+                cleanup.add_done_callback(self._observe_cancel_cleanup)
+                await asyncio.shield(cleanup)
+                key = "terminated" if self.get(op_id)["state"] == "CANCELLED" else "lost"
+                report[key] += 1
+                continue
             exitcode = self._read_exitcode(str(row["exitcode_path"] or ""))
             if exitcode is not None:
                 await self._record_terminal(
@@ -707,12 +863,19 @@ class OperationManager:
                 report["terminated"] += 1
                 continue
             if pid > 0 and self._pid_alive(pid):
+                identity = self._saved_process_identity(dict(row))
+                if identity is None or not identity.matches():
+                    await self._record_terminal(
+                        op_id, "LOST", failure_code="restart_process_identity_unconfirmed"
+                    )
+                    report["lost"] += 1
+                    continue
                 self._transition(
                     op_id, "DEGRADED", event="operation.reattached", payload={"pid": pid}
                 )
                 self._drivers[op_id] = asyncio.create_task(
                     self._watch_pid(
-                        op_id, str(row["task_id"]), pid, str(row["exitcode_path"] or "")
+                        op_id, str(row["task_id"]), pid, str(row["exitcode_path"] or ""), identity
                     )
                 )
                 report["reattached"] += 1
@@ -726,7 +889,12 @@ class OperationManager:
         return report
 
     async def _watch_pid(
-        self, operation_id: str, task_id: str, pid: int, exitcode_path: str
+        self,
+        operation_id: str,
+        task_id: str,
+        pid: int,
+        exitcode_path: str,
+        identity: ProcessIdentity,
     ) -> None:
         """reattach 后的 pid-watcher：等进程消失 → exitcode 定终态
         （无 exitcode = 诚实 LOST——退出码不可考）。"""
@@ -734,6 +902,11 @@ class OperationManager:
             exitcode = self._read_exitcode(exitcode_path)
             if exitcode is not None:
                 break
+            if not identity.matches():
+                await self._record_terminal(
+                    operation_id, "LOST", failure_code="process_identity_changed"
+                )
+                return
             await asyncio.sleep(_WATCH_POLL_S)
         current = self.get(operation_id)["state"]
         if current in OPERATION_TERMINAL or current == "CANCELING":
