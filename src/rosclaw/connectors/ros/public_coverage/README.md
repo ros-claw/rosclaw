@@ -77,3 +77,20 @@ existing canonical authority/ownership/result checks. Snapshot message copies
 preserve accepted content if callers later mutate their inputs; copies never
 renew the original timestamps. Source fixtures and geometry regression are not
 an installed App or a HomeClean mission acceptance.
+
+
+`AnchoredCoverage.next_work(..., prepare_path=body_work_adapter)` applies an
+optional pure Body/controller path adapter **before** gain scoring, direction
+selection, geometry validation and retry matching. The returned work path is
+the same geometry that was scored; callers must not clip it afterwards. Each
+orientation is prepared independently. A clipped, already-cleaned point cannot
+borrow the unexecuted lane's expected gain, while an executable reverse prefix
+can remain eligible. The adapter may return `None` for untrackable work; this
+retains outstanding obligations and does not claim mission completion.
+
+Prepared paths must remain finite, at most 1024 points, within the original
+work-length bound, and safe in the complete current grid. Candidate input
+arrays are copied before adaptation. Admission, critical observation freshness,
+canonical result/stop verification and finite no-progress limits remain owned
+by the existing executor. This API change has source/fixture evidence only
+until a new installed and physical condition has been qualified.

@@ -20,7 +20,7 @@
     },
     "reference/coverage_work.py": {
       "sha256": "51c020de48314ba052888f5d80478d36c25470d43c7f2edeccebf6a2092abacf",
-      "transformation": "import namespace only; source remains unchanged"
+      "transformation": "Import namespace/style, explicit bounded work length and optional Body work preparation before gain/safety/orientation/retry ranking; original donor remains unchanged"
     },
     "reference/coverage_variants.py": {
       "sha256": "6eebfc7b3c3a455c22ce19b5d65cd3706af5bfdf8ac85ebae0cf2f15e897c949",
@@ -37,5 +37,10 @@
     "source_project_commit": "758272c",
     "source_component": "integrations/rosclaw_root_cause/path_contract.py and shared_coverage_policy.py",
     "adaptation": "Pure proposal in existing online/Grid modules; configured body geometry replaces benchmark constants; no ROS transport, runtime, admission or mission outcome"
+  },
+  "prepared_work_selection": {
+    "cause": "Scoring a whole lane and clipping it after selection can produce a zero-gain point with a different retry target",
+    "authority": "Pure candidate preparation only; no execution, freshness renewal, gain award or mission success",
+    "default": "No adapter preserves the original full-path behavior; adapters cannot expand the original work length"
   }
 }

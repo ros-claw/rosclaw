@@ -280,6 +280,7 @@ class AnchoredCoverage:
         now: float,
         maximum_length: float = 3.0,
         minimum_new_area_m2: float = 0.0,
+        prepare_path=None,
         service=None,
     ):
         if not math.isfinite(maximum_length) or not 0 < maximum_length <= 3:
@@ -319,6 +320,7 @@ class AnchoredCoverage:
             now=now,
             transit_cost=costs,
             bidirectional=True,
+            prepare_path=prepare_path,
             service=service,
         )
         if selected is not None:

@@ -216,6 +216,7 @@ def select(
     now=0.0,
     transit_cost=None,
     bidirectional=False,
+    prepare_path=None,
 ):
     """Rank actual remaining brush opportunity, never commanded endpoint count."""
     version = geometry_key(grid)
@@ -227,22 +228,36 @@ def select(
         for part in [np.asarray(path, float)] if len(path) == 1 else chunks(path, maximum):
             if service:
                 service()
-            eligible = []
             for oriented in [part, part[::-1]] if bidirectional and len(part) > 1 else [part]:
-                key = work_key(oriented)
-                if retries is not None and retries.blocked(oriented, robot_xy, now):
+                candidate = oriented
+                if prepare_path is not None:
+                    adapted = prepare_path(oriented.copy())
+                    if adapted is None:
+                        continue
+                    candidate = np.asarray(adapted, float)
+                    if (
+                        candidate.ndim != 2
+                        or candidate.shape[1] != 2
+                        or not 1 <= len(candidate) <= 1024
+                        or not np.isfinite(candidate).all()
+                        or np.linalg.norm(np.diff(candidate, axis=0), axis=1).sum() > maximum + 1e-8
+                    ):
+                        raise ValueError(
+                            "Prepared work must be finite and retain the original length bound"
+                        )
+                # Score, retry and execute the same controller-compatible path.
+                # A whole lane's unexecuted tail cannot pay for a clipped point.
+                key = work_key(candidate)
+                if retries is not None and retries.blocked(candidate, robot_xy, now):
                     continue
-                if failed.get(key) != version:
-                    eligible.append((oriented, key))
-            if not eligible or not grid.safe_path(part):
-                continue
-            gain = ledger.path_gain(part)
-            if len(gain) < minimum_cells:
-                continue
-            for oriented, key in eligible:
-                score = work_score(oriented, len(gain), robot_xy, transit_cost)
+                if failed.get(key) == version or not grid.safe_path(candidate):
+                    continue
+                gain = ledger.path_gain(candidate)
+                if len(gain) < minimum_cells:
+                    continue
+                score = work_score(candidate, len(gain), robot_xy, transit_cost)
                 if score > best_score:
-                    best = (oriented, key, version, len(gain))
+                    best = (candidate, key, version, len(gain))
                     best_score = score
     return best
 
@@ -260,6 +275,7 @@ def select_phase(
     transit_cost=None,
     bidirectional=False,
     maximum=3.0,
+    prepare_path=None,
 ):
     """Boundary work must not starve behind diminishing interior opportunities."""
     candidates = []
@@ -277,6 +293,7 @@ def select_phase(
             now=now,
             transit_cost=transit_cost,
             bidirectional=bidirectional,
+            prepare_path=prepare_path,
         )
         if choice is not None:
             candidates.append((phase, choice))
