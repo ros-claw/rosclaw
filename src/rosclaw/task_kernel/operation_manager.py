@@ -4,7 +4,7 @@ Operation ≠ Worker：无模型的确定性执行过程（仿真 rollout、渲�
 数据处理、长测试、编译、ROS 2 Action）。核心不变量：
 
 - 状态机：QUEUED → ADMITTED → RUNNING → SUCCEEDED/FAILED；
-  cancel 经 CANCELING（带 reason）→ CANCELLED；失联 DEGRADED；
+  cancel 经 CANCELING（带 reason）→ 原生确认后 CANCELLED，否则 LOST；失联 DEGRADED；
   重启不可证实 LOST。终态不可逆——迟到完成绝不覆盖。
 - start() 立即返回 operation_id（不在调用方死等）；
 - stdout/progress/heartbeat 全部进 task_events（单调 seq，断线从
@@ -59,10 +59,13 @@ class OperationManager:
         self._cancel_tasks: dict[str, asyncio.Task[None]] = {}
         # operation_id → (client, goal_id)——ROS 2 Action 操作（P1-B3）。
         self._actions: dict[str, tuple[object, str]] = {}
+        self._action_results: dict[str, int] = {}
+        self._action_terminal: dict[str, asyncio.Event] = {}
         self._lifecycle_lock = asyncio.Lock()
         self._starting: set[asyncio.Task] = set()
         self._closing = False
         self._close_task: asyncio.Task | None = None
+        self._closed = False
 
     # --------------------------------------------------------------
     # 生命周期
@@ -127,7 +130,10 @@ class OperationManager:
         if starting:
             await asyncio.gather(*(asyncio.shield(t) for t in starting), return_exceptions=True)
         outcomes = await asyncio.gather(
-            *(self.cancel(op, reason="supervisor_shutdown") for op in tuple(self._procs)),
+            *(
+                self.cancel(op, reason="supervisor_shutdown")
+                for op in set(self._procs) | set(self._actions)
+            ),
             return_exceptions=True,
         )
         # An earlier cancellation may already own the process and its pipes.
@@ -144,6 +150,7 @@ class OperationManager:
             task.cancel()
         if watchers:
             await asyncio.gather(*watchers, return_exceptions=True)
+        self._closed = True
 
     async def _start_owned(
         self,
@@ -318,13 +325,13 @@ class OperationManager:
         CI 实证（p1b3 flake 根治）：CANCELING 也必须被保护——
         action_result(SUCCEEDED) 在取消宽限窗内到达时曾覆盖
         CANCELING（goal2 永远停在 SUCCEEDED）。取消流程持有账本：
-        CANCELING 下只接受 CANCELLED（服务端 CANCELED 确认——
-        握手正常完成）；SUCCEEDED/FAILED 是迟到完成，拒。"""
+        CANCELING 下只接受 CANCELLED（服务端 CANCELED 确认）或
+        LOST（取消结果未确认）；SUCCEEDED/FAILED 是迟到完成，拒。"""
         row = self.get(operation_id)
         if row is None or row["state"] in OPERATION_TERMINAL:
             return
-        if row["state"] == "CANCELING" and state != "CANCELLED":
-            return  # 取消流程持有账本——迟到完成不覆盖 CANCELING
+        if row["state"] == "CANCELING" and state not in {"CANCELLED", "LOST"}:
+            return  # 取消流程持有账本；未确认结果也不能伪造 CANCELLED
         now = _now()
         self._conn.execute(
             "UPDATE operations SET state = ?, ended_at = ?, heartbeat_at = ?, "
@@ -355,6 +362,36 @@ class OperationManager:
     # ROS 2 Action provider（P1-B3，0824 总纲 §12/P1-B）
     # --------------------------------------------------------------
     async def start_action(
+        self,
+        *,
+        task_id: str,
+        attempt_id: str,
+        action: str,
+        action_type: str,
+        args: dict,
+        client,
+        goal_id: str = "",
+    ) -> dict[str, Any]:
+        """Own native admission across caller loss and supervisor shutdown."""
+        async with self._lifecycle_lock:
+            if self._closing:
+                raise RuntimeError("Operation supervisor is closing")
+            pending = asyncio.create_task(
+                self._start_action_owned(
+                    task_id=task_id,
+                    attempt_id=attempt_id,
+                    action=action,
+                    action_type=action_type,
+                    args=args,
+                    client=client,
+                    goal_id=goal_id,
+                )
+            )
+            self._starting.add(pending)
+            pending.add_done_callback(self._observe_start)
+        return await asyncio.shield(pending)
+
+    async def _start_action_owned(
         self,
         *,
         task_id: str,
@@ -414,10 +451,28 @@ class OperationManager:
             return _wrapped
 
         def _on_feedback(values: dict) -> None:
-            self.report_progress(operation_id, values)
+            if not self._closed:
+                self.report_progress(operation_id, values)
 
         def _on_result(status: int, values: dict) -> None:
+            if self._closed:
+                return  # Unknown outcomes were already persisted; journal may be closed.
             result_ref = json.dumps(values, ensure_ascii=False)[:500]
+            self._action_results[operation_id] = status
+            self._action_terminal[operation_id].set()
+            # Preserve a native terminal even when a prior cancellation owns
+            # the Operation outcome. A late success cannot erase that intent.
+            self._emit(
+                task_id,
+                "operation.native_result",
+                {
+                    "goal_id": goal_id,
+                    "status": status,
+                    "result_ref": result_ref,
+                },
+                operation_id=operation_id,
+                attempt_id=attempt_id,
+            )
             if status == STATUS_SUCCEEDED:
                 state, code = "SUCCEEDED", ""
             elif status == STATUS_CANCELED:
@@ -433,15 +488,36 @@ class OperationManager:
                 result_ref=result_ref,
             )
 
-        client.send_goal(
-            action=action,
-            action_type=action_type,
-            args=args,
-            goal_id=goal_id,
-            on_feedback=_marshal(_on_feedback),
-            on_result=_marshal(_on_result),
-        )
+        # Register the stable goal before transport. A failed send can have an
+        # accepted remote effect and must remain owned for cancel/reconciliation.
+        self._action_terminal[operation_id] = asyncio.Event()
         self._actions[operation_id] = (client, goal_id)
+        try:
+            client.send_goal(
+                action=action,
+                action_type=action_type,
+                args=args,
+                goal_id=goal_id,
+                on_feedback=_marshal(_on_feedback),
+                on_result=_marshal(_on_result),
+            )
+        except Exception as exc:  # noqa: BLE001 - transport failure is not no-effect proof
+            self._conn.execute(
+                "UPDATE operations SET state='DEGRADED', failure_code=? WHERE operation_id=?",
+                ("action_admission_unknown", operation_id),
+            )
+            self._emit(
+                task_id,
+                "operation.degraded",
+                {
+                    "goal_id": goal_id,
+                    "reason": "action_admission_unknown",
+                    "error": f"{type(exc).__name__}: {exc}"[:500],
+                },
+                operation_id=operation_id,
+                attempt_id=attempt_id,
+            )
+            return self.get(operation_id)
         self._transition(
             operation_id,
             "ADMITTED",
@@ -483,21 +559,20 @@ class OperationManager:
         )
         action_ref = self._actions.get(operation_id)
         if action_ref is not None:
-            # ROS 2 Action：cancel_goal 请求——终态由 action_result
-            # (CANCELED) 确认；宽限后服务端无响应也落 CANCELLED
-            # （诚实：请求已发，结局不可考）。
-            # 0902 复核 L1：cancel_goal 抛异常时 grace 任务必须先
-            # 建好——否则 operation 永卡 CANCELING（sweep_liveness
-            # 不管 CANCELING，重启才收 LOST）。
+            # Only a native CANCELED result confirms cancellation. Own the
+            # reconciliation task even if cancel transport or its caller fails.
             client, goal_id = action_ref
-            self._drivers[operation_id] = asyncio.create_task(
-                self._cancel_grace(operation_id, reason)
-            )
+            cleanup = asyncio.create_task(self._cancel_grace(operation_id, reason))
+            # Retain the original provider handle while shutdown also joins
+            # this same owned cleanup task; there is only one cancellation.
+            self._drivers[operation_id] = cleanup
+            self._cancel_tasks[operation_id] = cleanup
+            cleanup.add_done_callback(self._observe_cancel_cleanup)
             try:
                 client.cancel_goal(goal_id)  # type: ignore[attr-defined]
-            except Exception:  # noqa: BLE001 - 发送失败由 grace 落 CANCELLED
+            except Exception:  # noqa: BLE001 - no native result means unknown effect
                 _LOG.warning(
-                    "cancel_goal 发送失败（%s）——grace 落 CANCELLED",
+                    "cancel_goal failed (%s); outcome requires native reconciliation",
                     operation_id,
                     exc_info=True,
                 )
@@ -546,10 +621,33 @@ class OperationManager:
         await self._record_terminal(operation_id, "CANCELLED", failure_code=reason)
 
     async def _cancel_grace(self, operation_id: str, reason: str, grace_s: float = 5.0) -> None:
-        """Action 取消宽限：action_result 未在宽限内到达也落
-        CANCELLED（账本不再悬空）。"""
-        await asyncio.sleep(grace_s)
-        await self._record_terminal(operation_id, "CANCELLED", failure_code=reason)
+        """Bound reconciliation; neither cancel ack nor timeout proves a stop."""
+        event = self._action_terminal.get(operation_id)
+        if event is None:
+            await asyncio.sleep(grace_s)
+        else:
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(event.wait(), timeout=grace_s)
+        row = self.get(operation_id)
+        if row is None or row["state"] != "CANCELING":
+            return
+        native = self._action_results.get(operation_id)
+        terminal = native if native in {4, 5, 6} else None
+        await self._record_terminal(
+            operation_id,
+            "LOST",
+            failure_code="cancel_unconfirmed",
+            result_ref=json.dumps(
+                {
+                    "goal_id": row["goal_id"],
+                    "native_terminal_status": terminal,
+                    "cancel_confirmed": False,
+                    "cancel_reason": row["cancel_reason"] or reason,
+                    "physical_stop_verified": None,
+                    "reconciliation_required": True,
+                }
+            ),
+        )
 
     # --------------------------------------------------------------
     # liveness（§12.2：只标 DEGRADED，永不 kill）
