@@ -29,6 +29,12 @@ supervisor shutdown joins that task. Closing a recovery watcher alone does
 not signal recovered operations that were not explicitly cancelled. Liveness
 checks still do not introduce a default wall-clock kill.
 
+A persisted `CANCELING` row restores its original explicit cancellation owner,
+not an ordinary PID watcher. Recovery either proves and finishes that stop or
+records `LOST`; it cannot remain indefinitely `CANCELING` or use a late
+exit-code file to overwrite cancellation intent with success. This resumes a
+previous stop request, never the interrupted command.
+
 These guarantees concern managed host processes. They do not grant robot
 permissions or prove physical motion stopped. Canonical Session, Lease,
 Permit, action cancellation, native terminal and independent stop evidence

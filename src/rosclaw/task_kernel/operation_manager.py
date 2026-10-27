@@ -798,19 +798,36 @@ class OperationManager:
     async def recover_on_boot(self) -> dict:
         """agentd 重启后的 operation 对账。
 
-        - pid 活 → reattach（DEGRADED + pid-watcher 等退出）；
+        - CANCELING → 同一取消所有者确认停止或 LOST，不恢复执行；
+        - 活进程出生身份与 checkpoint 匹配 → reattach（DEGRADED + watcher）；
         - pid 死 + exitcode 文件 → 应用真实终态；
         - 否则 → 诚实 LOST（事件留痕，绝不留僵尸 RUNNING）。
         """
         report = {"reattached": 0, "terminated": 0, "lost": 0}
         rows = self._conn.execute(
-            "SELECT operation_id, task_id, pid, exitcode_path, checkpoint_json FROM operations "
+            "SELECT operation_id, task_id, pid, exitcode_path, checkpoint_json, "
+            "state, cancel_reason FROM operations "
             "WHERE state IN ('QUEUED', 'ADMITTED', 'RUNNING', 'DEGRADED', "
             "'CANCELING')",
         ).fetchall()
         for row in rows:
             op_id = str(row["operation_id"])
             pid = int(row["pid"] or 0)
+            if row["state"] == "CANCELING":
+                # The persisted explicit stop owns its original reason. A
+                # watcher cannot resolve CANCELING, and a late exitcode must
+                # not turn that intent into an ordinary success/failure.
+                cleanup = asyncio.create_task(
+                    self._cancel_recovered_process(
+                        op_id, str(row["cancel_reason"] or "restart_cancel")
+                    )
+                )
+                self._cancel_tasks[op_id] = cleanup
+                cleanup.add_done_callback(self._observe_cancel_cleanup)
+                await asyncio.shield(cleanup)
+                key = "terminated" if self.get(op_id)["state"] == "CANCELLED" else "lost"
+                report[key] += 1
+                continue
             exitcode = self._read_exitcode(str(row["exitcode_path"] or ""))
             if exitcode is not None:
                 await self._record_terminal(

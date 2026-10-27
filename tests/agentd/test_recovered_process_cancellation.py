@@ -98,6 +98,43 @@ async def test_cancel_recovered_process_waits_for_actual_stop(tmp_path, request)
         conn.close()
 
 
+@pytest.mark.parametrize("outcome", ["live", "exitcode", "dead"])
+async def test_restart_finishes_persisted_cancellation_instead_of_watching_forever(
+    tmp_path, request, outcome
+):
+    conn = _conn(tmp_path)
+    _task(conn)
+    operation, identity = detached(conn, request)
+    operation_id = operation["operation_id"]
+    conn.execute(
+        "UPDATE operations SET state='CANCELING',cancel_reason='original-stop' "
+        "WHERE operation_id=?",
+        (operation_id,),
+    )
+    if outcome != "live":
+        Path(operation["exitcode_path"]).write_text("0")
+    if outcome == "dead":
+        os.killpg(identity["pid"], signal.SIGKILL)
+        deadline = asyncio.get_running_loop().time() + 5
+        while birth(identity["pid"]) is not None:
+            assert asyncio.get_running_loop().time() < deadline
+            await asyncio.sleep(0.01)
+    conn.commit()
+    manager = OperationManager(None, conn)
+    try:
+        recovery = await manager.recover_on_boot()
+        row = manager.get(operation_id)
+        assert row["state"] == ("LOST" if outcome == "dead" else "CANCELLED")
+        assert row["cancel_reason"] == "original-stop"
+        assert birth(identity["pid"]) is None
+        assert recovery["reattached"] == 0
+        assert recovery["lost" if outcome == "dead" else "terminated"] == 1
+        assert not manager._drivers
+    finally:
+        await manager.close()
+        conn.close()
+
+
 async def test_recovered_subgroup_cleanup_survives_caller_loss_and_shutdown(tmp_path, request):
     conn = _conn(tmp_path)
     _task(conn)
