@@ -112,14 +112,24 @@ class CircleSpace:
         start, finish = np.asarray(start, dtype=float), np.asarray(finish, dtype=float)
         if not self.safe_point(start) or not self.safe_point(finish):
             return False
-        lower = np.floor(
-            (np.minimum(start, finish) - self.radius - self.origin) / self.resolution
-        ).astype(int)
-        upper = (
-            np.floor(
-                (np.maximum(start, finish) + self.radius - self.origin) / self.resolution
-            ).astype(int)
-            + 1
+        # Enumerate closed cells on both sides of a bounding grid line. A
+        # lower cell whose upper edge is tangent must not disappear from the
+        # slice. Include the existing squared-distance tolerance in this
+        # broad phase; the exact capsule predicate below remains unchanged.
+        reach = math.hypot(self.radius, 1e-7)
+        lower = np.maximum(
+            0,
+            np.floor((np.minimum(start, finish) - reach - self.origin) / self.resolution).astype(
+                int
+            )
+            - 1,
+        )
+        upper = np.minimum(
+            self.free.shape[::-1],
+            np.floor((np.maximum(start, finish) + reach - self.origin) / self.resolution).astype(
+                int
+            )
+            + 2,
         )
         cells = np.argwhere(~self.free[lower[1] : upper[1], lower[0] : upper[0]])
         if not len(cells):
