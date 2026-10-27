@@ -563,6 +563,9 @@ class OperationManager:
             # reconciliation task even if cancel transport or its caller fails.
             client, goal_id = action_ref
             cleanup = asyncio.create_task(self._cancel_grace(operation_id, reason))
+            # Retain the original provider handle while shutdown also joins
+            # this same owned cleanup task; there is only one cancellation.
+            self._drivers[operation_id] = cleanup
             self._cancel_tasks[operation_id] = cleanup
             cleanup.add_done_callback(self._observe_cancel_cleanup)
             try:

@@ -42,8 +42,13 @@ observations, and independently observed cancellation/parent-loss behavior.
   candidate; the client now retains its stable goal and listener for native
   reconciliation. Client/Operation integration uses a queue transport fixture,
   with no ROS connection. The final selected Operation/client suite passes
-  47 tests, including both newly failing real-client cases; its file selection
-  differs from the initial 48-test suite, so the counts are not additive.
+  54 tests, including concurrent-cancel compatibility and both newly failing
+  real-client cases; its file selection
+  differs from the initial suites, so the counts are not additive.
+  Full upstream CI first found three missing provider-handle lookups in existing
+  concurrent-cancel tests (10460 others passed). The single owned cleanup task
+  now retains its existing provider handle as well as shutdown ownership;
+  assertions remain unchanged and all three failures reproduce then pass.
 - Practice: 183 passed, 9 optional tests skipped in an isolated ROSCLAW_HOME
   with the declared MCAP dependency installed in a local development venv.
 - Compile checks pass. The repository's configured mypy command passes for
