@@ -19,6 +19,7 @@ import { verifyBundledSkills } from "../../extension/bundled-skills.js";
 import { createSharedModelRuntime } from "./pi-model-runtime.js";
 import { filterModelTools, MODEL_TOOL_NAMES } from "../../tools/surface.js";
 import { buildWorkspacePackTools } from "../../tools/workspace-pack.js";
+import { buildBoundedReadTool } from "./bounded-read.js";
 import { buildProcessTools } from "../../tools/process-tools.js";
 import { buildProductPackTools } from "../../tools/product-pack.js";
 import { buildEmbodimentExecTools } from "../../tools/embodiment-exec.js";
@@ -322,6 +323,8 @@ export async function createRosclawRuntime(
 			// 普通任务不再委派第二个 Pi Session；task_submit/delegate/
 			// work_* 退出模型面（root task 权威在 InputController——H2）。
 			const customTools = filterModelTools([
+				// PI 1.4 same-name customTools override; permission stays `read`.
+				buildBoundedReadTool(cwd),
 				// 策略包装的工作工具（GUARDED_MAIN_SESSION——第一层过滤，
 				// 强隔离在 PR-H6）。
 				...buildWorkspacePackTools({
