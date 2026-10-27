@@ -55,11 +55,21 @@ export interface BoundedReadOptions extends ReadToolOptions {
 function fail(code: string, message: string): never {
  throw new Error(`${code}: ${message}`);
 }
-// Run before PI's optional-null normalization/coercion as well as at execute.
-// Otherwise cursor:null could silently become a fresh byte-zero read.
-function validateMode(raw: unknown): asserts raw is Record<string, unknown> {
+/** PI strict provider schemas represent omitted optionals as null. PI's own
+ * validateToolArguments normalizes those against the ORIGINAL schema, but runs
+ * AFTER prepareArguments. Mirror only that omission rule here, before mode/type
+ * checks, and at direct execute too. All five optional fields exclude null in
+ * our schema: mode:null defaults to lines; cursor:null starts at byte zero;
+ * maxBytes:null uses the default cap; inactive null fields cause no conflict.
+ * Required path and unknown keys are never normalized. Non-null values are not
+ * coerced. Copy so provider arguments (including frozen objects) stay intact.
+ */
+function prepareReadArguments(raw: unknown): Static<typeof parameters> {
  if (!raw || typeof raw !== "object" || Array.isArray(raw)) fail("INVALID_READ_ARGUMENTS", "expected an object");
- const input = raw as Record<string, unknown>;
+ const input = { ...raw } as Record<string, unknown>;
+ for (const key of ["mode", "offset", "limit", "cursor", "maxBytes"]) {
+  if (input[key] === null) delete input[key];
+ }
  if (Object.keys(input).some(k => !["path", "mode", "offset", "limit", "cursor", "maxBytes"].includes(k))
   || typeof input.path !== "string"
   || ("mode" in input && input.mode !== "lines" && input.mode !== "bytes")) {
@@ -74,6 +84,14 @@ function validateMode(raw: unknown): asserts raw is Record<string, unknown> {
   || ("cursor" in input && (typeof input.cursor !== "string" || !input.cursor.length || input.cursor.length > 2048)))) {
   fail("INVALID_READ_ARGUMENTS", "bytes needs maxBytes integer 4..32768 and a nonempty returned cursor");
  }
+ // Preserve PI's legacy Number ranges (including fractional/zero/negative line
+ // values), but reject strings/booleans before PI can coerce them to numbers.
+ if (!bytes) for (const key of ["offset", "limit"]) {
+  if (input[key] !== undefined && (typeof input[key] !== "number" || !Number.isFinite(input[key]))) {
+   fail("INVALID_READ_ARGUMENTS", `${key} must be a finite number`);
+  }
+ }
+ return input as Static<typeof parameters>;
 }
 function checkAbort(signal?: AbortSignal) {
  if (signal?.aborted) throw new Error("Operation aborted");
@@ -175,23 +193,18 @@ export function buildBoundedReadTool(cwd: string, options: BoundedReadOptions = 
   description: legacy.description + " ROSClaw PI 1.4 wrapper: for huge lines, restart with mode='bytes' (no offset/limit). "
    + "Returns exact UTF-8 source prefix plus metadata; use nextCursor as cursor on the same path until eof=true. "
    + "maxBytes=4..32768 (default 32768); cursor is byte-based, instance/revision-bound. "
+   + "Optional null fields mean omitted (mode defaults to lines; cursor starts at byte 0). "
    + "No shell needed. Unknown keys/mixed modes are rejected. Invalid UTF-8 is explicitly blocked.",
-  prepareArguments(raw) { validateMode(raw); return raw as Static<typeof parameters>; },
+  prepareArguments(raw) { return prepareReadArguments(raw); },
   async execute(id, params, signal, onUpdate, ctx) {
-   // Guard direct callers too; preserve legacy Number offset/limit semantics.
-   validateMode(params);
-   const input = params as Record<string, unknown>;
+   // Use the same normalized copy for direct execution and normal PI dispatch.
+   const input = prepareReadArguments(params);
    const byteMode = input.mode === "bytes";
    checkAbort(signal);
    if (!byteMode) {
-    for (const key of ["offset", "limit"]) {
-     if (input[key] !== undefined && (typeof input[key] !== "number" || !Number.isFinite(input[key]))) {
-      fail("INVALID_READ_ARGUMENTS", `${key} must be a finite number`);
-     }
-    }
-    const result = await legacy.execute(id, { path: params.path, offset: params.offset, limit: params.limit }, signal, onUpdate, ctx);
+    const result = await legacy.execute(id, { path: input.path, offset: input.offset, limit: input.limit }, signal, onUpdate, ctx);
     if (result.details?.truncation?.firstLineExceedsLimit) {
-     const nextRead = ranges ? { path: params.path, mode: "bytes" as const } : null;
+     const nextRead = ranges ? { path: input.path, mode: "bytes" as const } : null;
      const continuation = { schema: SCHEMA, status: ranges ? "restart_bytes" : "blocked",
       code: ranges ? "LINE_EXCEEDS_LIMIT" : "BYTE_MODE_UNSUPPORTED", nextRead };
      const text = ranges
@@ -209,7 +222,7 @@ export function buildBoundedReadTool(cwd: string, options: BoundedReadOptions = 
    }
    if (!ranges) fail("BYTE_MODE_UNSUPPORTED", "remote ReadOperations requires BoundedReadOperationsV1; no local fallback");
    return cancellable(async () => {
-    const path = await resolveReadPathAsync(params.path, ctx?.cwd || cwd);
+    const path = await resolveReadPathAsync(input.path, ctx?.cwd || cwd);
     checkAbort(signal);
     const reader = await ranges.open(path, signal);
     try {

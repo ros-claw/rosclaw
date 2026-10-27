@@ -324,6 +324,8 @@ export async function createRosclawRuntime(
 			// work_* 退出模型面（root task 权威在 InputController——H2）。
 			const customTools = filterModelTools([
 				// PI 1.4 same-name customTools override; permission stays `read`.
+				// The definition normalizes provider optional nulls before its
+				// prepare-time checks (PI schema validation runs afterwards).
 				buildBoundedReadTool(cwd),
 				// 策略包装的工作工具（GUARDED_MAIN_SESSION——第一层过滤，
 				// 强隔离在 PR-H6）。

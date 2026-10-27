@@ -52,11 +52,19 @@ function runtime(root: string, options?: BoundedReadOptions, policy?: ToolCallBu
   },
  };
 }
-async function whole(r: ReturnType<typeof runtime>, path: string, expected: Buffer, maxBytes = BYTE_CHUNK_MAX) {
+// Strict providers send all six keys, using null for absent optionals. These
+// fixtures go through the production definition's real runToolCall path, not
+// just prepareArguments or a widened helper-only schema.
+function providerRead(path: string, args: Record<string, unknown> = {}) {
+ return { path, mode: null, offset: null, limit: null, cursor: null, maxBytes: null, ...args };
+}
+async function whole(r: ReturnType<typeof runtime>, path: string, expected: Buffer, maxBytes = BYTE_CHUNK_MAX, providerNulls = false) {
  const parts: Buffer[] = [];
  let cursor: string | undefined, position = 0, snapshot: string | undefined;
  for (let i = 0; i < 10000; i++) {
-  const result = await r.call({ path, mode: "bytes", maxBytes, ...(cursor ? { cursor } : {}) });
+  const result = await r.call(providerNulls
+   ? providerRead(path, { mode: "bytes", maxBytes: maxBytes === BYTE_CHUNK_MAX ? null : maxBytes, cursor: cursor ?? null })
+   : { path, mode: "bytes", maxBytes, ...(cursor ? { cursor } : {}) });
   assert.equal(result.isError, false, text(result));
   const m = meta(result);
   assert.equal(m.schema, "rosclaw.read.bytes.v1"); assert.equal(m.encoding, "utf-8");
@@ -76,7 +84,7 @@ async function whole(r: ReturnType<typeof runtime>, path: string, expected: Buff
    assert.equal(position, expected.length);
    const reconstructed = Buffer.concat(parts);
    assert.deepEqual(reconstructed, expected); assert.equal(sha(reconstructed), sha(expected));
-   const eof = await r.call({ path, mode: "bytes", cursor });
+   const eof = await r.call(providerNulls ? providerRead(path, { mode: "bytes", cursor }) : { path, mode: "bytes", cursor });
    assert.equal(eof.isError, false, text(eof)); assert.equal(meta(eof).eof, true);
    assert.equal(meta(eof).returnedBytes, 0); assert.equal(meta(eof).startByte, position);
    assert.equal(eof.content[0].type === "text" && eof.content[0].text, "");
@@ -192,19 +200,112 @@ test("invalid UTF8 is a typed error, never lossy replacement or fabricated progr
   assert.equal(result.isError, true); assert.match(text(result), /INVALID_UTF8/);
  }
 }));
-test("strict modes/parameters reject conflicts, null cursors and invalid limits before PI coercion", fixture(async root => {
+test("six-key provider nulls preserve default/explicit line results, including observed shapes", fixture(async root => {
+ const path = put(root, "lines.txt", "one\ntwo\n三🙂\n"), r = runtime(root), upstream = createReadTool(root);
+ const cases = [
+  { provider: providerRead(path), sparse: { path } },
+  { provider: providerRead(path, { limit: 2 }), sparse: { path, limit: 2 } },
+  { provider: providerRead(path, { mode: "lines", offset: 1, limit: 700 }), sparse: { path, offset: 1, limit: 700 } },
+  { provider: providerRead(path, { mode: "lines", offset: 2, limit: 1 }), sparse: { path, offset: 2, limit: 1 } },
+ ];
+ for (const { provider, sparse } of cases) {
+  assert.deepEqual(Object.keys(provider), ["path", "mode", "offset", "limit", "cursor", "maxBytes"]);
+  const original = { ...provider }, actual = await r.call(Object.freeze(provider));
+  const expected = await upstream.execute("upstream", sparse);
+  assert.equal(actual.isError, false, text(actual));
+  assert.deepEqual(actual.content, expected.content); assert.deepEqual(actual.details, expected.details);
+  assert.deepEqual(actual.structuredContent, expected.structuredContent); assert.deepEqual(provider, original);
+ }
+ // Every combination of absent vs null optional fields has the same defaults.
+ const keys = ["mode", "offset", "limit", "cursor", "maxBytes"];
+ const expected = await upstream.execute("upstream", { path });
+ for (let mask = 0; mask < 32; mask++) {
+  const args: Record<string, unknown> = { path };
+  keys.forEach((key, i) => { if (mask & (1 << i)) args[key] = null; });
+  const actual = await r.call(args);
+  assert.equal(actual.isError, false, text(actual)); assert.deepEqual(actual.content, expected.content);
+ }
+}));
+test("six-key bytes nulls start at zero, default cap, continue through UTF8 and explicit EOF losslessly", fixture(async root => {
+ const bytes = jsonBytes(679452, "汉🙂e\u0301"), path = put(root, "provider.json", bytes), r = runtime(root);
+ for (const args of [providerRead(path, { limit: 1 }), providerRead(path, { mode: "lines", offset: 1, limit: 700 })]) {
+  const restart = await r.call(args);
+  assert.equal(restart.isError, false, text(restart)); assert.match(text(restart), /Restart from file byte 0/);
+  assert.deepEqual((restart.details as { continuation: { nextRead: unknown } }).continuation.nextRead, { path, mode: "bytes" });
+ }
+ const initial = await r.call(providerRead(path, { mode: "bytes" }));
+ assert.equal(initial.isError, false, text(initial)); assert.equal(meta(initial).startByte, 0);
+ assert.ok(meta(initial).returnedBytes <= BYTE_CHUNK_MAX && meta(initial).returnedBytes > BYTE_CHUNK_MAX - 4);
+ assert.equal(meta(initial).eof, false);
+ await whole(r, path, bytes, BYTE_CHUNK_MAX, true);
+ const small = Buffer.from("\uFEFFa🙂汉e\u0301\r\n\u0000尾\n\n"), smallPath = put(root, "provider-utf8", small);
+ for (const cap of [4, 5, 7]) await whole(r, smallPath, small, cap, true);
+ await whole(r, put(root, "provider-empty", ""), Buffer.alloc(0), BYTE_CHUNK_MAX, true);
+}));
+test("direct definition and AgentTool execution share provider-null semantics with normal dispatch", fixture(async root => {
+ const path = put(root, "direct", "abcdefgh"), r = runtime(root);
+ // Replaces old refusals of mode:null, maxBytes:null, cursor:null and direct
+ // execute(cursor:null): PI treats each as omitted, NOT as an invalid token.
+ // A null cursor is an explicit fresh read; only a returned non-null cursor
+ // requests continuation. No stateful implicit resume is introduced.
+ const first = await r.call(providerRead(path, { mode: "bytes", maxBytes: 4 }));
+ assert.equal(first.isError, false, text(first)); const cursor = meta(first).nextCursor;
+ for (const args of [providerRead(path), providerRead(path, { mode: "lines", limit: 1 }),
+  providerRead(path, { mode: "bytes" }), providerRead(path, { mode: "bytes", maxBytes: 4 }),
+  providerRead(path, { mode: "bytes", cursor }),
+ ]) {
+  const original = { ...args }, actual = await r.call(Object.freeze(args));
+  assert.equal(actual.isError, false, text(actual));
+  for (const direct of [await r.definition.execute("definition", args as never, undefined, undefined, { cwd: root } as never), await r.tool.execute("tool", args)]) {
+   assert.deepEqual(direct.content, actual.content); assert.deepEqual(direct.details, actual.details);
+   assert.deepEqual(direct.structuredContent, actual.structuredContent);
+  }
+  assert.deepEqual(args, original);
+ }
+ const continued = await r.call(providerRead(path, { mode: "bytes", cursor }));
+ assert.equal(meta(continued).startByte, 4); assert.equal(meta(continued).eof, true);
+ const eofArgs = providerRead(path, { mode: "bytes", cursor: meta(continued).nextCursor });
+ const eof = await r.definition.execute("eof", eofArgs as never, undefined, undefined, { cwd: root } as never);
+ assert.equal((eof.details!.boundedRead as Metadata).returnedBytes, 0);
+ const restarted = await r.definition.execute("restart", providerRead(path, { mode: "bytes" }) as never, undefined, undefined, { cwd: root } as never);
+ assert.equal((restarted.details!.boundedRead as Metadata).startByte, 0);
+}));
+test("provider-null dispatch still visits the permission hook before any range IO", fixture(async root => {
+ const seam = memoryRanges(Buffer.from("abcdefgh")), r = runtime(root, { boundedOperations: seam.operations });
+ let checked = 0;
+ const dispatched = await runToolCall({ type: "toolCall", id: "permission", name: "read",
+  arguments: providerRead("remote", { mode: "bytes" }) }, {
+  assistantMessage: {} as never, context: { tools: [r.tool], messages: [] }, tools: [r.tool],
+  beforeToolCall: async ({ args }) => {
+   checked++; assert.deepEqual(args, { path: "remote", mode: "bytes" });
+   return { block: true, reason: "READ_PERMISSION_DENIED_TEST" };
+  },
+ });
+ assert.equal(checked, 1); assert.equal(dispatched.isError, true); assert.equal(seam.state.opens, 0);
+ assert.match(JSON.stringify(dispatched.result.content), /READ_PERMISSION_DENIED_TEST/);
+}));
+test("strict non-null conflicts/types/ranges stay rejected before PI coercion and on direct execute", fixture(async root => {
  const path = put(root, "a", "abcdefgh"), r = runtime(root);
  for (const args of [
   { mode: "bytes", offset: 1 }, { mode: "bytes", limit: 1 }, { cursor: "x" }, { maxBytes: 4 },
-  { mode: "lines", cursor: "x" }, { mode: "byte" }, { mode: null },
-  ...[null, "4", true, 0, 3, 32769, 4.1, -1, Number.MAX_SAFE_INTEGER + 1].map(maxBytes => ({ mode: "bytes", maxBytes })),
-  ...[null, "", 1, "x".repeat(2049)].map(cursor => ({ mode: "bytes", cursor })),
+  { mode: "lines", cursor: "x" }, { mode: null, maxBytes: 4 }, { mode: "lines", maxBytes: 4 },
+  ...["byte", "", true, false, 1, [], {}].map(mode => ({ mode })),
+  ...["4", "", true, false, [], {}, 0, 3, 32769, 4.1, -1, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1].map(maxBytes => ({ mode: "bytes", maxBytes })),
+  ...["", 1, true, false, [], {}, "x".repeat(2049)].map(cursor => ({ mode: "bytes", cursor })),
+  ...["offset", "limit"].flatMap(key => ["1", "", true, false, [], {}, NaN, Infinity].map(value => ({ [key]: value }))),
+  { extra: null }, { byteOffset: null }, { path: null }, { path: 1 }, { path: true },
  ]) {
-  const result = await r.call({ path, ...args });
+  // Keep inactive null fields present too: normalization cannot mask a non-null
+  // conflict, coerce a type, or remove an unknown key just because it is null.
+  const input = providerRead(path, args), result = await r.call(input);
   assert.equal(result.isError, true, JSON.stringify(args)); assert.match(text(result), /READ_MODE_CONFLICT|INVALID_READ_ARGUMENTS/);
+  await assert.rejects(r.definition.execute("direct", input as never, undefined, undefined, { cwd: root } as never), /READ_MODE_CONFLICT|INVALID_READ_ARGUMENTS/);
+  await assert.rejects(r.tool.execute("direct-tool", input), /READ_MODE_CONFLICT|INVALID_READ_ARGUMENTS/);
  }
- const direct = r.tool.execute("direct", { path, mode: "bytes", cursor: null });
- await assert.rejects(direct, /INVALID_READ_ARGUMENTS/);
+ for (const input of [null, [], "", true, {}, { mode: "bytes" }]) {
+  const result = await r.call(input as never); assert.equal(result.isError, true);
+  await assert.rejects(r.definition.execute("invalid", input as never, undefined, undefined, { cwd: root } as never), /INVALID_READ_ARGUMENTS/);
+ }
 }));
 test("malformed, forged/beyond-EOF, wrong-path and wrong-instance cursors are rejected", fixture(async root => {
  const path = put(root, "a", "abcdefghijkl"), other = put(root, "b", "abcdefghijkl"), r = runtime(root);
@@ -217,6 +318,23 @@ test("malformed, forged/beyond-EOF, wrong-path and wrong-instance cursors are re
  }
  assert.match(text(await r.call({ path: other, mode: "bytes", cursor })), /INVALID_CURSOR/);
  assert.match(text(await runtime(root).call({ path, mode: "bytes", cursor })), /INVALID_CURSOR/);
+}));
+test("provider nulls do not weaken cursor instance/path/revision/EOF binding", fixture(async root => {
+ const path = put(root, "bound", "abcdefgh"), other = put(root, "other", "abcdefgh"), r = runtime(root);
+ const first = await r.call(providerRead(path, { mode: "bytes", maxBytes: 4 }));
+ assert.equal(first.isError, false, text(first)); const cursor = meta(first).nextCursor;
+ for (const [reader, file, token] of [[r, path, "bad"], [r, other, cursor], [runtime(root), path, cursor]] as const) {
+  const result = await reader.call(providerRead(file, { mode: "bytes", cursor: token }));
+  assert.equal(result.isError, true); assert.match(text(result), /INVALID_CURSOR/);
+ }
+ const eof = await r.call(providerRead(path, { mode: "bytes", cursor }));
+ assert.equal(eof.isError, false, text(eof)); assert.equal(meta(eof).eof, true);
+ put(root, "new-bound", "ABCDEFGH"); renameSync(join(root, "new-bound"), join(root, path));
+ for (const token of [cursor, meta(eof).nextCursor]) {
+  const result = await r.call(providerRead(path, { mode: "bytes", cursor: token }));
+  assert.equal(result.isError, true); assert.match(text(result), /STALE_CURSOR/);
+ }
+ await whole(r, path, Buffer.from("ABCDEFGH"), BYTE_CHUNK_MAX, true);
 }));
 test("same-size pathname replacement rejects old cursor; fresh restart reconstructs replacement", fixture(async root => {
  const path = put(root, "a", "abcdefghijklmno"), r = runtime(root);
@@ -330,8 +448,11 @@ test("legacy remote seam stays remote: line compatibility/full-file IO, byte mod
  assert.equal(reads, 1); assert.match(text(line), /BYTE_MODE_UNSUPPORTED/); assert.doesNotMatch(text(line), /bash/);
  const blocked = await r.call({ path: "remote", mode: "bytes" });
  assert.equal(blocked.isError, true); assert.match(text(blocked), /BYTE_MODE_UNSUPPORTED/); assert.equal(reads, 1);
+ const providerBlocked = await r.call(providerRead("remote", { mode: "bytes" }));
+ assert.equal(providerBlocked.isError, true); assert.match(text(providerBlocked), /BYTE_MODE_UNSUPPORTED/); assert.equal(reads, 1);
  const seam = memoryRanges(giant), enabled = runtime(root, { ...options, boundedOperations: seam.operations });
  await whole(enabled, "remote", giant); assert.equal(reads, 1);
+ await whole(enabled, "remote", giant, BYTE_CHUNK_MAX, true); assert.equal(reads, 1);
 }));
 test("ordinary line results, errors, odd Number semantics and structuredContent match upstream", fixture(async root => {
  const bytes = Buffer.from("one\r\ntwo\n三🙂\n\n"), path = put(root, "small.txt", bytes), r = runtime(root), upstream = createReadTool(root);
@@ -353,10 +474,19 @@ test("default image behavior delegates to installed PI unchanged, including mode
  const actual = await r.call({ path }), expected = await upstream.execute("upstream", { path });
  assert.equal(actual.isError, false); assert.deepEqual(actual.content, expected.content);
  assert.deepEqual(actual.structuredContent, expected.structuredContent); assert.match(text(actual), /Read image file/);
+ for (const args of [providerRead(path), providerRead(path, { mode: "lines" })]) {
+  const provider = await r.call(args);
+  assert.equal(provider.isError, false, text(provider)); assert.deepEqual(provider.content, expected.content);
+  assert.deepEqual(provider.details, expected.details); assert.deepEqual(provider.structuredContent, expected.structuredContent);
+  const direct = await r.definition.execute("image-null", args as never, undefined, undefined, { cwd: root } as never);
+  assert.deepEqual(direct.content, expected.content); assert.deepEqual(direct.structuredContent, expected.structuredContent);
+ }
  // Context forwarding uses the actual definition with non-vision model metadata.
  const ctx = { cwd: root, model: { input: ["text"] } } as never;
  const delegated = await r.definition.execute("ctx", { path }, undefined, undefined, ctx);
  assert.match(JSON.stringify(delegated.content), /does not support images/);
+ const providerDelegated = await r.definition.execute("ctx-null", providerRead(path) as never, undefined, undefined, ctx);
+ assert.deepEqual(providerDelegated.content, delegated.content);
 }));
 for (const exact of [false, true]) {
  test(`giant completes under ${exact ? "exact-selftest Bash" : "read-only"} policy with no Bash calls`, fixture(async root => {
