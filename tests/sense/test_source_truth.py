@@ -117,3 +117,56 @@ def test_explicit_unknown_mock_keeps_its_synthetic_identity():
         assert sense.evidence["observation_kind"] == "synthetic"
     finally:
         interface.stop()
+
+
+@pytest.mark.parametrize("collector", ["unconfigured", "file_replay"])
+async def test_mcp_refuses_unavailable_collectors_even_if_transport_is_fresh(collector, tmp_path):
+    from types import SimpleNamespace
+
+    from rosclaw.core.event_bus import EventBus
+    from rosclaw.mcp.adapters.runtime_client import RuntimeClient
+    from rosclaw.mcp.schemas.common import MCPError
+    from rosclaw.sense.runtime import SenseRuntime
+
+    runtime = SenseRuntime(SenseConfig(collector=collector, update_hz=0), EventBus())
+    runtime.initialize()
+    try:
+        runtime.tick()
+        # Transport freshness cannot turn missing telemetry into live evidence.
+        runtime.is_stale = False
+        client = RuntimeClient(project_root=tmp_path, robot_id="no_sensor", runtime_profile={})
+        client._runtime = SimpleNamespace(sense=runtime)
+        with pytest.raises(MCPError) as error:
+            await client.get_robot_state()
+        assert error.value.code == "STATE_PROVENANCE_UNAVAILABLE"
+        assert error.value.details["usable_for_real_execution"] is False
+    finally:
+        runtime.stop()
+
+
+async def test_mcp_keeps_real_file_replay_historical(tmp_path):
+    from types import SimpleNamespace
+
+    from rosclaw.core.event_bus import EventBus
+    from rosclaw.mcp.adapters.runtime_client import RuntimeClient
+    from rosclaw.sense.runtime import SenseRuntime
+
+    path = tmp_path / "recording.jsonl"
+    path.write_text(json.dumps(BodyState("recorded", 123.0, source="recorded:odom").to_dict()))
+    runtime = SenseRuntime(
+        SenseConfig(collector="file_replay", replay_path=str(path), update_hz=0), EventBus()
+    )
+    runtime.initialize()
+    try:
+        runtime.tick()
+        runtime.is_stale = False
+        client = RuntimeClient(project_root=tmp_path, robot_id="recorded", runtime_profile={})
+        client._runtime = SimpleNamespace(sense=runtime)
+        result = await client.get_robot_state()
+        assert result["mode"] == "replay"
+        assert result["execution_mode"] == "REPLAY"
+        assert result["trust_level"] == "RECORDED"
+        assert result["usable_for_real_execution"] is False
+        assert result["body_state"]["timestamp"] == result["readiness"]["timestamp"] == 123.0
+    finally:
+        runtime.stop()

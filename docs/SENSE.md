@@ -56,6 +56,10 @@ timestamp, prefixes the recorded source with `file_replay:`, and records the
 separate read time in `raw.replay.replayed_at`. Readiness carries that source
 and the input timestamp, so replay does not become current sensor evidence.
 Low estimated risk alone cannot promote unknown readiness to ready.
+The existing MCP `get_robot_state` rejects unconfigured telemetry and empty
+replay as `STATE_PROVENANCE_UNAVAILABLE`, even if transport freshness is good.
+A nonempty replay remains `REPLAY` / `RECORDED` and cannot be used for REAL
+execution.
 
 ## Mock Scenarios
 
