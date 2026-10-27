@@ -19,6 +19,7 @@ class CircleSpace:
         self.resolution = float(resolution)
         self.origin = np.asarray(origin, dtype=float)
         self.radius = float(radius)
+        self._singleton_offsets: tuple[int, np.ndarray] | None = None
         if (
             self.free.ndim != 2
             or min(self.free.shape) == 0
@@ -51,11 +52,38 @@ class CircleSpace:
                 < [width * self.resolution - self.radius, height * self.resolution - self.radius]
             ).all(axis=1)
         )
+        # An empty regional query (outside the observation window), or a
+        # wholly invalid batch, cannot become safe by checking more cells.
+        if not result.any():
+            return result
         # Only finite rows reach integer conversion.
         finite = np.isfinite(points).all(axis=1)
         cells = np.zeros(points.shape, dtype=int)
         cells[finite] = np.floor(relative[finite] / self.resolution).astype(int)
         n = math.ceil(self.radius / self.resolution) + 1
+        if len(points) == 1:
+            # The exact same neighbor cells and closed-square predicate as
+            # the batch loop, evaluated in one array instead of n*n arrays.
+            if self._singleton_offsets is None or self._singleton_offsets[0] != n:
+                yy, xx = np.mgrid[-n : n + 1, -n : n + 1]
+                offsets = np.column_stack([xx.ravel(), yy.ravel()])
+                offsets.setflags(write=False)
+                self._singleton_offsets = (n, offsets)
+            indices = cells[0] + self._singleton_offsets[1]
+            inside = (
+                (indices[:, 0] >= 0)
+                & (indices[:, 0] < width)
+                & (indices[:, 1] >= 0)
+                & (indices[:, 1] < height)
+            )
+            blocked = np.ones(len(indices), dtype=bool)
+            blocked[inside] = ~self.free[indices[inside, 1], indices[inside, 0]]
+            centers = self.origin + (indices + 0.5) * self.resolution
+            delta = np.maximum(np.abs(centers - points[0]) - self.resolution / 2, 0)
+            result[0] = not np.any(
+                blocked & (np.sum(delta * delta, axis=1) <= self.radius**2 + 1e-14)
+            )
+            return result
         for dy in range(-n, n + 1):
             for dx in range(-n, n + 1):
                 indices = cells + [dx, dy]
@@ -74,26 +102,11 @@ class CircleSpace:
 
     def safe_point(self, point):
         point = np.asarray(point, dtype=float)
-        relative = point - self.origin
-        height, width = self.free.shape
-        if (
-            point.shape != (2,)
-            or not np.isfinite(point).all()
-            or (relative <= self.radius).any()
-            or (
-                relative
-                >= [width * self.resolution - self.radius, height * self.resolution - self.radius]
-            ).any()
-        ):
+        if point.shape != (2,):
             return False
-        lower = np.floor((relative - self.radius) / self.resolution).astype(int)
-        upper = np.floor((relative + self.radius) / self.resolution).astype(int) + 1
-        cells = np.argwhere(~self.free[lower[1] : upper[1], lower[0] : upper[0]])
-        if not len(cells):
-            return True
-        centers = self.origin + (cells[:, ::-1] + lower + 0.5) * self.resolution
-        delta = np.maximum(np.abs(centers - point) - self.resolution / 2, 0)
-        return bool((np.sum(delta * delta, axis=1) > self.radius**2 + 1e-14).all())
+        # Use one closed-cell predicate for scalar and batch callers. A
+        # radius-bounded slice misses a blocked cell tangent at its lower edge.
+        return bool(self.safe_points([point])[0])
 
     def safe_segment(self, start, finish):
         start, finish = np.asarray(start, dtype=float), np.asarray(finish, dtype=float)
