@@ -473,3 +473,126 @@ test("write reports UTF-8 byte length, not UTF-16 code units", async () => {
   assert.equal(readFileSync(join(root, "u.txt"), "utf8"), "汉字");
  } finally {rmSync(base, {recursive: true, force: true});}
 });
+
+// Literal replacement regressions use the actual product definitions, installed
+// wrapper, public read tool and PI dispatch. Expected bytes use concatenation,
+// never String.replace (which would reproduce the defect in the oracle).
+const literalReplacements = [
+ {name: "matched text token", newText: "$&"},
+ {name: "prefix token", newText: "$`"},
+ {name: "suffix token", newText: "$'"},
+ {name: "dollar token", newText: "$$"},
+ {name: "combined tokens", newText: "$&|$`|$'|$$|$$&|$$$'"},
+ {name: "combined tokens with Unicode and LF tail", newText: "汉字🙂e\u0301\n$&|$`|$'|$$\nTAIL_终\n\n"},
+ {name: "inserted anchor is not edited again", newText: "EDIT_ANCHOR:$&:EDIT_ANCHOR:$`:$':$$"},
+ {name: "empty replacement deletes only the unique anchor", newText: ""},
+];
+for (const {name, newText} of literalReplacements) {
+ test(`real PI edit inserts literal newText bytes: ${name}`, async () => {
+  const root = mkdtempSync(join(tmpdir(), "filetool-literal-"));
+  try {
+   const prefix = "PREFIX_前🙂\n", suffix = "\nSUFFIX_后\n\n";
+   const original = prefix + "EDIT_ANCHOR" + suffix;
+   const expected = prefix + newText + suffix;
+   writeFileSync(join(root, "a.txt"), original, "utf8");
+   let effects = 0;
+   const h = dispatchFixture(packRuntime(root, async () => { effects++; }), [[
+    boundaryRead("before", 1), boundaryEdit("edit", "EDIT_ANCHOR", newText), boundaryRead("after", 1),
+   ]]);
+   const ackBodies: Buffer[] = [];
+   h.agent.subscribe(event => {
+    if (event.type === "message_end" && event.message.role === "toolResult"
+     && event.message.toolName === "edit") ackBodies.push(readFileSync(join(root, "a.txt")));
+   });
+   await h.run();
+   assertSerial(h.log, ["before", "edit", "after"]);
+   const results = h.results();
+   assert.deepEqual(results.map(r => r.toolCallId), ["before", "edit", "after"]);
+   assert.ok(results.every(r => !r.isError));
+   assert.deepEqual(Buffer.from(resultText(results[0]), "utf8"), Buffer.from(original, "utf8"));
+   assert.equal(resultText(results[1]), `edited ${join(root, "a.txt")}`);
+   assert.equal((results[1].details as Record<string, unknown>).path, join(root, "a.txt"));
+   assert.deepEqual(Buffer.from(resultText(results[2]), "utf8"), Buffer.from(expected, "utf8"));
+   assert.deepEqual(ackBodies, [Buffer.from(expected, "utf8")]);
+   assert.deepEqual(readFileSync(join(root, "a.txt")), Buffer.from(expected, "utf8"));
+   assert.equal(effects, 1); assert.equal(h.requests(), 2);
+   assertSettled(h);
+  } finally { rmSync(root, {recursive: true, force: true}); }
+ });
+}
+
+for (const {name, oldText, code, occurrences} of [
+ {name: "empty", oldText: "", code: "EDIT_OLD_TEXT_EMPTY", occurrences: 0},
+ {name: "missing", oldText: "ABSENT", code: "EDIT_OLD_TEXT_NOT_FOUND", occurrences: 0},
+ {name: "multiple", oldText: "duplicate", code: "EDIT_OLD_TEXT_NOT_UNIQUE", occurrences: 2},
+]) {
+ test(`real PI literal replacement still refuses ${name} oldText without changing bytes`, async () => {
+  const root = mkdtempSync(join(tmpdir(), "filetool-literal-denied-"));
+  try {
+   const original = "前🙂\nduplicate duplicate\nTAIL_终\n\n";
+   writeFileSync(join(root, "a.txt"), original, "utf8");
+   let effects = 0;
+   const h = dispatchFixture(packRuntime(root, async () => { effects++; }), [[
+    boundaryRead("before", 1), boundaryEdit("denied", oldText, "$&|$`|$'|$$\n汉字\n\n"), boundaryRead("after", 1),
+   ]]);
+   await h.run();
+   assertSerial(h.log, ["before", "denied", "after"]);
+   const results = h.results();
+   assert.deepEqual(results.map(r => r.toolCallId), ["before", "denied", "after"]);
+   assert.equal(results[0].isError, false); assert.equal(results[2].isError, false);
+   assert.equal(results[1].isError, true);
+   const details = results[1].details as Record<string, unknown>;
+   assert.equal(details.code, code); assert.equal(details.occurrences, occurrences);
+   assert.equal(details.workspace_root, root); assert.equal(details.resolved_target, join(root, "a.txt"));
+   assert.ok(resultText(results[1]).startsWith(`DENIED: ${code}:`));
+   for (const read of [results[0], results[2]]) {
+    assert.deepEqual(Buffer.from(resultText(read), "utf8"), Buffer.from(original, "utf8"));
+   }
+   assert.deepEqual(readFileSync(join(root, "a.txt")), Buffer.from(original, "utf8"));
+   assert.equal(effects, 1); assert.equal(h.requests(), 2);
+   assertSettled(h);
+  } finally { rmSync(root, {recursive: true, force: true}); }
+ });
+}
+
+test("real PI literal edit/write/edit batch preserves every read and writer ACK in source order", async () => {
+ const root = mkdtempSync(join(tmpdir(), "filetool-literal-mixed-"));
+ try {
+  // Regex punctuation in oldText is an exact string, not a pattern.
+  const anchor = "[.*+?^${}()|]";
+  const original = "PREFIX_前\n" + anchor + "\nTAIL_原\n\n";
+  const inserted = "$&|$`|$'|$$\n汉字🙂\n\n";
+  const edited = "PREFIX_前\n" + inserted + "\nTAIL_原\n\n";
+  const writePrefix = "$'|$$|$`|$&\nWRITE_前🙂\n";
+  const writeSuffix = "\nWRITE_尾\n\n";
+  const written = writePrefix + "WRITE_ANCHOR" + writeSuffix;
+  const final = writePrefix + inserted + writeSuffix;
+  writeFileSync(join(root, "a.txt"), original, "utf8");
+  let effects = 0;
+  const calls = [
+   boundaryRead("r0", 1), boundaryEdit("e1", anchor, inserted), boundaryRead("r1", 1),
+   toolCall("w", "write", {path: "a.txt", content: written}), boundaryRead("r2", 1),
+   boundaryEdit("e2", "WRITE_ANCHOR", inserted), boundaryRead("r3", 1),
+  ];
+  const h = dispatchFixture(packRuntime(root, async () => { effects++; }), [calls]);
+  const ackBodies: Buffer[] = [];
+  h.agent.subscribe(event => {
+   if (event.type === "message_end" && event.message.role === "toolResult"
+    && ["edit", "write"].includes(event.message.toolName)) ackBodies.push(readFileSync(join(root, "a.txt")));
+  });
+  await h.run();
+  assertSerial(h.log, calls.map(c => c.id));
+  const results = h.results();
+  assert.deepEqual(results.map(r => r.toolCallId), calls.map(c => c.id));
+  assert.ok(results.every(r => !r.isError));
+  assert.deepEqual(results.filter(r => r.toolName === "read").map(r => Buffer.from(resultText(r), "utf8")),
+   [original, edited, written, final].map(s => Buffer.from(s, "utf8")));
+  assert.deepEqual(ackBodies, [edited, written, final].map(s => Buffer.from(s, "utf8")));
+  assert.equal(resultText(results[1]), `edited ${join(root, "a.txt")}`);
+  assert.equal(resultText(results[3]), `wrote ${join(root, "a.txt")} (${Buffer.byteLength(written, "utf8")} bytes)`);
+  assert.equal(resultText(results[5]), `edited ${join(root, "a.txt")}`);
+  assert.deepEqual(readFileSync(join(root, "a.txt")), Buffer.from(final, "utf8"));
+  assert.equal(effects, 3); assert.equal(h.requests(), 2);
+  assertSettled(h);
+ } finally { rmSync(root, {recursive: true, force: true}); }
+});
