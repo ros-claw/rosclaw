@@ -210,3 +210,36 @@ def test_light_footprint_never_accepts_missing_geometry():
 
     with pytest.raises(ValueError):
         FootprintPathSpace(planning_spaces=[], physical_spaces=[])
+
+
+@pytest.mark.parametrize("stamp", [0.5, 1.0])
+def test_restart_rejects_old_or_duplicate_samples_without_changing_evidence(tmp_path, stamp):
+    state = ledger()
+    sample(state, 1.0, [0.0, 0.0])
+    path = tmp_path / "resume.json"
+    state.save(path)
+    restored = AnchoredCoverage.load(path, odom_epoch="continuous")
+    original_cells = set(restored.anchor.cleaned)
+    original_samples = list(restored.evidence_samples)
+    with pytest.raises(ValueError, match="Out-of-order"):
+        sample(restored, stamp, [0.7, 0.0])
+    assert restored.anchor.cleaned == original_cells
+    assert restored.evidence_samples == original_samples
+    assert restored.sample_count == state.sample_count
+    assert restored.last_sample is None
+
+
+def test_restart_new_samples_do_not_bridge_unobserved_gap(tmp_path):
+    state = ledger()
+    sample(state, 1.0, [0.0, 0.0])
+    path = tmp_path / "resume.json"
+    state.save(path)
+    restored = AnchoredCoverage.load(path, odom_epoch="continuous")
+    sample(restored, 1.5, [0.2, 0.0])
+    # Cell center (.1125, .1375) lies within the hypothetical connecting
+    # swept strip, but outside both actual independently observed disks.
+    assert (5, 4) not in restored.anchor.cleaned
+    assert restored.sample_count == 2
+    assert restored.evidence_samples[-1]["stamp"] == 1.5
+    sample(restored, 2.0, [0.3, 0.0])
+    assert restored.sample_count == 3

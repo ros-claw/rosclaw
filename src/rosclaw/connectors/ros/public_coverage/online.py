@@ -165,7 +165,9 @@ class AnchoredCoverage:
             raise ValueError("Finite odometry required")
         if type(cleaner) is not bool:
             raise ValueError("Explicit independent cleaner state required")
-        if self.last_sample is not None and stamp <= self.last_sample[0]:
+        # Restart clears interpolation, not the historical time boundary.
+        # Reject replayed samples before mutating either credit or evidence.
+        if self.evidence_samples and stamp <= self.evidence_samples[-1]["stamp"]:
             raise ValueError("Out-of-order odometry cannot earn cleaning credit")
         previous = self.last_sample
         valid = bool(odom_fresh and cleaner_fresh)
