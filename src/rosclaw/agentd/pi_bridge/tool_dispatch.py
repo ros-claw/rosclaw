@@ -892,16 +892,23 @@ class PiToolDispatcher:
             argv=["sh", "-c", command],
             cwd=task["workspace_path"],
         )
+        state = str(op["state"])
+        admitted = state in {"QUEUED", "ADMITTED", "RUNNING"}
         return PiToolResultV1(
             request_id=request.request_id,
-            ok=True,
-            status="STARTED",
+            ok=state not in {"FAILED", "LOST", "CANCELLED"},
+            status="STARTED" if admitted else state,
             summary=(
                 f"Operation 已启动：{op['operation_id']}（后台运行）。"
                 "可继续不依赖该进程终态的独立工作；只有后续工作依赖完成结果时，"
                 "才结束回合等待一次性终态通知。不要 sleep 或反复轮询来等待。"
                 "启动不等于完成；进程应有有限寿命，或在最终交付前通过 process_stop 收尾。"
-            ),
+            )
+            if admitted
+            else f"Operation {op['operation_id']} 当前为 {state}；不得把受理或取消中的启动当作有效运行，也不得自动重放。",
+            details={"operation_id": op["operation_id"], "operation_state": state},
+            reconciliation_required=state == "LOST",
+            error_code=op.get("failure_code") if state == "LOST" else None,
         )
 
     async def _process_status(self, request: PiToolRequestV1) -> PiToolResultV1:
@@ -951,13 +958,18 @@ class PiToolDispatcher:
             summary = f"operation {operation_id} 已取消"
         elif status == "CANCELING":
             summary = f"operation {operation_id} 取消已请求，等待执行端确认或进程回收"
+        elif status == "LOST":
+            summary = f"operation {operation_id} 取消结果尚未确认；按此稳定 ID 对账，不得视为已经停止或自动重放"
         else:
             summary = f"operation {operation_id} 当前状态 {status}（已有终态保持不变）"
         return PiToolResultV1(
             request_id=request.request_id,
-            ok=True,
+            ok=status != "LOST",
             status=status,
             summary=summary,
+            details={"operation_id": operation_id, "operation_state": status},
+            reconciliation_required=status == "LOST",
+            error_code=op.get("failure_code") if status == "LOST" else None,
         )
 
     async def _request_action(self, request: PiToolRequestV1) -> PiToolResultV1:
