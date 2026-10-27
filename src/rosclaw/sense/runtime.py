@@ -16,6 +16,7 @@ from rosclaw.sense.collectors import (
     ROS2Collector,
 )
 from rosclaw.sense.collectors.base import BodyStateCollector as BodyStateCollectorABC
+from rosclaw.sense.collectors.base import UnconfiguredCollector
 from rosclaw.sense.config import SenseConfig
 from rosclaw.sense.estimators import (
     HealthEstimator,
@@ -86,6 +87,8 @@ class SenseRuntime(LifecycleMixin):
 
     def _create_collector(self) -> BodyStateCollectorABC:
         collector_type = self.config.collector
+        if collector_type == "unconfigured":
+            return UnconfiguredCollector(robot_id=self.robot_id)
         if collector_type == "mock":
             scenario = self.config.extra.get("scenario", "normal")
             return MockCollector(robot_id=self.robot_id, scenario=scenario)

@@ -56,12 +56,18 @@ class SenseExplainer:
         main_reasons = list(dict.fromkeys(main_reasons))
 
         overall = readiness.overall_status
-        if overall == "unknown" and risk_summary.overall_risk != "unknown":
+        # A low estimated risk is not proof that capability requirements are
+        # known. Preserve UNKNOWN readiness; observed hazards may still warn.
+        if overall == "unknown" and risk_summary.overall_risk in {"medium", "high", "critical"}:
             overall = self._risk_to_status(risk_summary.overall_risk)
 
-        summary_text = self._build_summary_text(state, blocked, degraded, main_reasons, recommended)
+        summary_text = self._build_summary_text(
+            state, blocked, degraded, main_reasons, recommended, readiness.overall_status
+        )
 
         evidence: dict[str, Any] = {
+            "collector_source": state.source,
+            "observation_kind": _observation_kind(state.source),
             "battery_percent": state.energy.battery_percent,
             "max_joint_temperature_c": self._max_joint_temp(state),
             "dds_latency_ms": state.communication.dds_latency_ms,
@@ -111,9 +117,12 @@ class SenseExplainer:
         degraded: list[str],
         reasons: list[str],
         recommended: list[str],
+        readiness_status: str,
     ) -> str:
         robot = state.robot_id
         if not blocked and not degraded:
+            if readiness_status != "ready":
+                return f"{robot} readiness is {readiness_status}; readiness is not established."
             return f"{robot} is ready for all evaluated capabilities."
 
         parts: list[str] = [f"{robot} status: {self._describe_status(blocked, degraded)}."]
@@ -147,3 +156,14 @@ class SenseExplainer:
     def _max_joint_temp(self, state: BodyState) -> float | None:
         temps = [j.temperature_c for j in state.joints.values() if j.temperature_c is not None]
         return max(temps) if temps else None
+
+
+def _observation_kind(source: str) -> str:
+    if source in {"unknown", "unconfigured", "file_replay:empty"} or source.endswith(":stub"):
+        return "unavailable"
+    if source.startswith("mock:"):
+        return "synthetic"
+    if source.startswith("file_replay:"):
+        return "historical_replay"
+    # A source label alone cannot establish current, verified physical input.
+    return "unverified"
