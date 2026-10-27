@@ -42,6 +42,17 @@ records `LOST`; it cannot remain indefinitely `CANCELING` or use a late
 exit-code file to overwrite cancellation intent with success. This resumes a
 previous stop request, never the interrupted command.
 
+Native natural-language stop, session interruption, task cancellation and the
+mission HTTP cancellation endpoint report confirmed `CANCELLED` operations
+separately from requests, pending cancellation and unknown outcomes. Stable
+operation states and a reconciliation flag remain available. The UI warns
+when results are pending or unknown instead of announcing that everything
+stopped. Task/model interruption is still applied immediately; it is not proof
+that all background work or robot motion stopped.
+Previously unresolved `LOST` operations remain in subsequent cancellation
+reports without being replayed or re-signalled; repeating stop cannot erase an
+unknown outcome from the report.
+
 These guarantees concern managed host processes. They do not grant robot
 permissions or prove physical motion stopped. Canonical Session, Lease,
 Permit, action cancellation, native terminal and independent stop evidence

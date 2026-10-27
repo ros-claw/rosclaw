@@ -509,6 +509,9 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 						turn_disposition?: {
 							cancel_report?: {
 								operations_cancelled?: number;
+								operations_cancelling?: number;
+								operations_cancel_unconfirmed?: number;
+								reconciliation_required?: boolean;
 								task_cancelled?: boolean;
 							};
 						};
@@ -516,6 +519,9 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 				).turn_disposition?.cancel_report;
 				if (cancelReport) {
 					const stopped = cancelReport.operations_cancelled ?? 0;
+					const unsettled = (cancelReport.operations_cancelling ?? 0)
+						+ (cancelReport.operations_cancel_unconfirmed ?? 0);
+					const needsReconciliation = unsettled > 0 || cancelReport.reconciliation_required === true;
 					const rendersKilled = (
 						cancelReport as { renders_killed?: number }
 					).renders_killed ?? 0;
@@ -529,11 +535,13 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 						{ triggerTurn: false },
 					);
 					latestCtx?.ui.notify(
-						`已停止——后台操作 ${stopped} 个落 CANCELLED`
+						(needsReconciliation
+							? `已请求停止；${unsettled > 0 ? `${unsettled} 个后台操作` : "部分后台操作"}的取消结果待确认`
+							: `已停止——后台操作 ${stopped} 个落 CANCELLED`)
 						+ (rendersKilled > 0 ? `，渲染进程 ${rendersKilled} 个已终止` : "")
 						+ (cancelReport.task_cancelled ? "，任务已取消" : "")
 						+ "（迟到完成不会翻转账本）",
-						"info",
+						needsReconciliation ? "warning" : "info",
 					);
 					// G-4b：在途回合也要中止——同步渲染的模型回合不被
 					// abort 会等到超时（服务端已杀渲染进程，回合应
@@ -1278,12 +1286,22 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 						const res = (await center.call("pi.session.interrupt", {
 							mission_id: missionId ?? "",
 							session_ref: sessionRef ?? "",
-						})) as { ok?: boolean; operations_cancelled?: number };
+						})) as {
+							ok?: boolean;
+							operations_cancelled?: number;
+							operations_cancelling?: number;
+							operations_cancel_unconfirmed?: number;
+							reconciliation_required?: boolean;
+						};
 						const stopped = res?.operations_cancelled ?? 0;
-						if (res?.ok && stopped > 0) {
+						const unsettled = (res?.operations_cancelling ?? 0) + (res?.operations_cancel_unconfirmed ?? 0);
+						const needsReconciliation = unsettled > 0 || res?.reconciliation_required === true;
+						if (res?.ok && (stopped > 0 || needsReconciliation)) {
 							latestCtx?.ui.notify(
-								`已中断——后台操作已停 ${stopped} 个（账本 CANCELLED）`,
-								"info",
+								needsReconciliation
+									? "已中断模型回合；部分后台操作的取消结果待确认"
+									: `已中断——后台操作已停 ${stopped} 个（账本 CANCELLED）`,
+								needsReconciliation ? "warning" : "info",
 							);
 						}
 					} catch {

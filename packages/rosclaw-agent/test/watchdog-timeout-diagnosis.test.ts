@@ -9,6 +9,7 @@ type Handler = (event: unknown, ctx: unknown) => Promise<unknown>;
 async function buildExtension(
 	home: string,
 	probe?: () => { isolationReady: boolean },
+	interruptResult?: Record<string, unknown>,
 ) {
 	const { createRosclawExtension } = await import("../src/extension/index.js");
 	const { ActiveSessionContext } = await import("../src/session/active-context.js");
@@ -40,6 +41,7 @@ async function buildExtension(
 	});
 	const call = async (_home:string, method:string) => {
 		calls.push(method);
+		if (method === "pi.session.interrupt" && interruptResult) return interruptResult;
 		return method === "pi.kernel.active" ? {ok:true, task:{task_id:"task-1"}} : {ok:false};
 	};
 	const coordinator = new AgentSessionCoordinator({
@@ -62,6 +64,32 @@ async function buildExtension(
 	});
 	factory(pi as never);
 	return {handlers, entries, calls, center};
+}
+
+for (const report of [
+	{ operations_cancelled: 0, operations_cancel_unconfirmed: 1, reconciliation_required: true },
+	{ operations_cancelled: 0, operations_cancelling: 1, reconciliation_required: true },
+]) {
+	test(`user interrupt warns about unconfirmed cancellation ${JSON.stringify(report)}`, async () => {
+		const home = mkdtempSync(join(tmpdir(), "cancel-truth-"));
+		const {handlers, calls} = await buildExtension(home, undefined, {ok:true, ...report});
+		const notices: Array<{text:string; level:string}> = [];
+		const ctx = {hasUI:false, isIdle:() => true, abort:() => undefined,
+			ui:{notify:(text:string, level:string) => notices.push({text,level})}};
+		const emit = async (name:string, payload:unknown = {}) => {
+			for (const handler of handlers.get(name) ?? []) await handler(payload, ctx);
+		};
+		try {
+			await emit("session_start");
+			await emit("message_end", {message:{role:"assistant", stopReason:"aborted"}});
+			assert.ok(calls.includes("pi.session.interrupt"));
+			assert.ok(notices.some(n => n.level === "warning" && n.text.includes("待确认")));
+			assert.ok(!notices.some(n => n.text.includes("后台操作已停")));
+		} finally {
+			await emit("session_shutdown");
+			rmSync(home, {recursive:true, force:true});
+		}
+	});
 }
 
 

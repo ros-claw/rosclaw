@@ -28,6 +28,10 @@ export interface PersistedInput {
 		 *  停止了多少在途 operation / task 是否落 CANCELLED。 */
 		cancel_report?: {
 			operations_cancelled?: number;
+			operations_cancel_requested?: number;
+			operations_cancelling?: number;
+			operations_cancel_unconfirmed?: number;
+			reconciliation_required?: boolean;
 			task_cancelled?: boolean;
 		};
 	};

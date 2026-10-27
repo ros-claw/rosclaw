@@ -229,12 +229,19 @@ class CommandService:
         service = self._service
 
         async def _cancel(req: CommandRequestV1) -> CommandResultV1:
-            await service.cancel(req.mission_id or "")
+            report = await service.cancel(req.mission_id or "")
+            unconfirmed = report["reconciliation_required"]
             return CommandResultV1(
                 request_id=req.request_id,
                 command_name=req.command_name,
-                ok=True,
-                message="已请求取消当前 turn（已派发动作不受影响）",
+                ok=not unconfirmed,
+                message=(
+                    "已请求取消当前 turn；部分后台操作的取消结果待确认"
+                    if unconfirmed
+                    else "已请求取消当前 turn（不等于机器人物理急停）"
+                ),
+                data=report,
+                error_code="OPERATION_CANCEL_UNCONFIRMED" if unconfirmed else "",
             )
 
         async def _rename(req: CommandRequestV1) -> CommandResultV1:

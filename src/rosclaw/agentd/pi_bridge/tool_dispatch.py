@@ -685,12 +685,20 @@ class PiToolDispatcher:
                 summary=json.dumps({"hits": hits}, ensure_ascii=False),
             )
         if name == "rosclaw_fail_safe":
-            await service.cancel(request.mission_id)
+            report = await service.cancel(request.mission_id)
+            unconfirmed = report["reconciliation_required"]
             return PiToolResultV1(
                 request_id=request.request_id,
-                ok=True,
-                status="COMPLETED",
-                summary="fail-safe: 当前回合已请求取消；E-Stop 请走独立 operator 路径",
+                ok=not unconfirmed,
+                status="UNKNOWN" if unconfirmed else "COMPLETED",
+                summary=(
+                    "fail-safe: 已请求取消，部分后台操作的取消结果待确认；E-Stop 请走独立 operator 路径"
+                    if unconfirmed
+                    else "fail-safe: 当前回合已请求取消；E-Stop 请走独立 operator 路径"
+                ),
+                details=report,
+                reconciliation_required=unconfirmed,
+                error_code="OPERATION_CANCEL_UNCONFIRMED" if unconfirmed else None,
             )
         raise ToolBridgeError("TOOL_UNKNOWN", f"unhandled tool {name!r}")
 

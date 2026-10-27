@@ -562,6 +562,23 @@ class OperationManager:
             await asyncio.wait_for(asyncio.shield(driver), timeout=timeout)
         return self.get(operation_id)
 
+    async def cancel_many(self, operation_ids: list[str], *, reason: str = "user") -> dict:
+        """Report actual cancellation outcomes, never just the request count."""
+        states = {}
+        for operation_id in dict.fromkeys(operation_ids):
+            await self.cancel(operation_id, reason=reason)
+            states[operation_id] = str(self.get(operation_id).get("state", "UNKNOWN"))
+        pending = sum(state == "CANCELING" for state in states.values())
+        unknown = sum(state in {"LOST", "UNKNOWN"} for state in states.values())
+        return {
+            "operations_cancel_requested": len(states),
+            "operations_cancelled": sum(state == "CANCELLED" for state in states.values()),
+            "operations_cancelling": pending,
+            "operations_cancel_unconfirmed": unknown,
+            "operation_states": states,
+            "reconciliation_required": bool(pending or unknown),
+        }
+
     async def cancel(self, operation_id: str, *, reason: str = "user") -> None:
         """CANCELING（账本+原因）→ 信号 → CANCELLED。
 
