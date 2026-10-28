@@ -230,3 +230,11 @@ def test_bindings_do_not_mutate_after_collector_construction():
     assert c.bindings["battery"].max_age_s == 1
     with pytest.raises(TypeError):
         c.bindings["battery"] = None
+
+
+@pytest.mark.parametrize("source", ["ros2:unconfigured", "ros2:unavailable", "sense:degraded"])
+def test_unavailable_transports_are_not_presented_as_unverified_live_data(source):
+    from rosclaw.sense.explain import _observation_kind
+
+    assert _observation_kind(source) == "unavailable"
+    assert _observation_kind("ros2:live") == "unverified"

@@ -217,7 +217,8 @@ class ROS2Collector(BodyStateCollector):
             self._executor.spin()
         except Exception as error:  # Transport loss invalidates cached telemetry.
             with self._lock:
-                self._error = type(error).__name__
+                if self._running:
+                    self._error = type(error).__name__
         finally:
             with self._lock:
                 if self._running and self._error is None:
