@@ -159,7 +159,14 @@ class SenseExplainer:
 
 
 def _observation_kind(source: str) -> str:
-    if source in {"unknown", "unconfigured", "file_replay:empty"} or source.endswith(":stub"):
+    if source in {
+        "unknown",
+        "unconfigured",
+        "file_replay:empty",
+        "sense:degraded",
+        "ros2:unconfigured",
+        "ros2:unavailable",
+    } or source.endswith(":stub"):
         return "unavailable"
     if source.startswith("mock:"):
         return "synthetic"
