@@ -13,6 +13,7 @@ PNA-3 工具集（read/observe/verify/memory/fail_safe/status）：
 
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
@@ -303,13 +304,97 @@ class PiToolDispatcher:
         conn = self._service._store.connection
         self._caller_pid = caller_pid
         self._caller_uid = caller_uid
-        # 1. idempotency：重放直接返回首个结果（不产生重复副作用）。
+        # A cache key identifies a transport retry, not authority over another
+        # mission/session or intent. Keep provenance private to this store; a
+        # context refresh does not authorize a second execution of that intent.
+        binding = hashlib.sha256(
+            json.dumps(
+                {
+                    "mission_id": request.mission_id,
+                    "pi_session_id": request.pi_session_id,
+                    "tool_name": request.tool_name,
+                    "arguments": request.arguments,
+                    "caller_uid": caller_uid,
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode()
+        ).hexdigest()
+        # Reserve the existing durable unique key BEFORE the first await.
+        # A crash, cancellation or concurrent retry leaves UNKNOWN, never an
+        # invitation to submit the same physical/process effect a second time.
+        pending = json.dumps(
+            {
+                **PiToolResultV1(
+                    request_id=request.request_id,
+                    ok=False,
+                    status="UNKNOWN",
+                    summary="Original tool attempt is in flight or its outcome is unconfirmed; "
+                    "reconcile the original attempt before creating new effects.",
+                    error_code="IDEMPOTENCY_IN_FLIGHT",
+                    reconciliation_required=True,
+                ).model_dump(),
+                "_request_binding_v1": binding,
+            }
+        )
+        inserted = (
+            conn.execute(
+                "INSERT OR IGNORE INTO pi_tool_idempotency "
+                "(idempotency_key, request_id, tool_name, response_json, created_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (
+                    request.idempotency_key,
+                    request.request_id,
+                    request.tool_name,
+                    pending,
+                    datetime.now(UTC).isoformat(),
+                ),
+            ).rowcount
+            == 1
+        )
+        conn.commit()
         row = conn.execute(
             "SELECT response_json FROM pi_tool_idempotency WHERE idempotency_key = ?",
             (request.idempotency_key,),
         ).fetchone()
-        if row is not None:
-            return PiToolResultV1(**json.loads(row["response_json"]))
+        if not inserted:
+            assert row is not None
+            cached = json.loads(row["response_json"])
+            original_binding = cached.pop("_request_binding_v1", None)
+            if original_binding is None:
+                return PiToolResultV1(
+                    request_id=request.request_id,
+                    ok=False,
+                    status="UNKNOWN",
+                    summary="Historical cached result has no request ownership proof; "
+                    "reconcile by stable operation/action ID before any new execution.",
+                    error_code="IDEMPOTENCY_BINDING_UNKNOWN",
+                    reconciliation_required=True,
+                )
+            if original_binding != binding:
+                return PiToolResultV1(
+                    request_id=request.request_id,
+                    ok=False,
+                    status="REJECTED",
+                    summary="Idempotency key is already bound to a different caller or intent.",
+                    error_code="IDEMPOTENCY_CONFLICT",
+                )
+            return PiToolResultV1(**cached)
+
+        def finish_cache(result: PiToolResultV1) -> None:
+            updated = conn.execute(
+                "UPDATE pi_tool_idempotency SET response_json=? "
+                "WHERE idempotency_key=? AND response_json=?",
+                (
+                    json.dumps({**result.model_dump(), "_request_binding_v1": binding}),
+                    request.idempotency_key,
+                    pending,
+                ),
+            )
+            if updated.rowcount != 1:
+                raise RuntimeError("Original tool reservation changed; reconcile without replay")
+            conn.commit()
+
         # 八审 §4 P0-6：doom-loop 熔断——同一工具同一参数出错后原样
         # 重复直接拒绝（不再消耗模型回合）；成功即重置，不误伤合法
         # 重复观测。进程级指纹（安全语义仍在 fail-closed 链上，熔断
@@ -320,7 +405,7 @@ class PiToolDispatcher:
         if failures is None:
             failures = self._service._tool_fail_fingerprints = {}
         if failures.get(fingerprint):
-            return PiToolResultV1(
+            result = PiToolResultV1(
                 request_id=request.request_id,
                 ok=False,
                 status="REJECTED",
@@ -328,6 +413,8 @@ class PiToolDispatcher:
                 "换用其他通用原语工具组合，或诚实报告无法完成。",
                 error_code="DOOM_LOOP",
             )
+            finish_cache(result)
+            return result
         try:
             result = await self._execute_validated(request)
         except ToolBridgeError as exc:
@@ -357,19 +444,7 @@ class PiToolDispatcher:
             pass
         else:
             failures[fingerprint] = True
-        conn.execute(
-            "INSERT OR IGNORE INTO pi_tool_idempotency "
-            "(idempotency_key, request_id, tool_name, response_json, created_at) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (
-                request.idempotency_key,
-                request.request_id,
-                request.tool_name,
-                result.model_dump_json(),
-                datetime.now(UTC).isoformat(),
-            ),
-        )
-        conn.commit()
+        finish_cache(result)
         await self._mirror_decision(request, result)
         return result
 
@@ -919,10 +994,22 @@ class PiToolDispatcher:
             error_code=op.get("failure_code") if state == "LOST" else None,
         )
 
+    def _bound_operation(self, request: PiToolRequestV1) -> dict:
+        operation_id = str(request.arguments.get("operation_id", ""))
+        operation = self._service._operation_manager.get(operation_id)
+        if operation is not None:
+            task = self._service._task_kernel.task_for_session(
+                str(operation["task_id"]),
+                mission_id=request.mission_id,
+                session_ref=request.pi_session_id,
+            )
+            if task is not None:
+                return operation
+        # Do not reveal whether a guessed ID exists outside this binding.
+        raise ToolBridgeError("NOT_FOUND", "unknown operation for this mission/session")
+
     async def _process_status(self, request: PiToolRequestV1) -> PiToolResultV1:
-        op = self._service._operation_manager.get(str(request.arguments.get("operation_id", "")))
-        if not op:
-            raise ToolBridgeError("NOT_FOUND", "unknown operation")
+        op = self._bound_operation(request)
         return PiToolResultV1(
             request_id=request.request_id,
             ok=True,
@@ -936,9 +1023,7 @@ class PiToolDispatcher:
     async def _process_output(self, request: PiToolRequestV1) -> PiToolResultV1:
         operation_id = str(request.arguments.get("operation_id", ""))
         tail = min(int(request.arguments.get("tail", 50) or 50), 200)
-        op = self._service._operation_manager.get(operation_id)
-        if not op:
-            raise ToolBridgeError("NOT_FOUND", "unknown operation")
+        op = self._bound_operation(request)
         events = self._service._operation_manager.events_since(op["task_id"], 0)
         lines = [
             str(e["payload"].get("text", ""))
@@ -954,9 +1039,7 @@ class PiToolDispatcher:
 
     async def _process_stop(self, request: PiToolRequestV1) -> PiToolResultV1:
         operation_id = str(request.arguments.get("operation_id", ""))
-        op = self._service._operation_manager.get(operation_id)
-        if not op:
-            raise ToolBridgeError("NOT_FOUND", "unknown operation")
+        op = self._bound_operation(request)
         await self._service._operation_manager.cancel(operation_id, reason="model_request")
         op = self._service._operation_manager.get(operation_id)
         if not op:

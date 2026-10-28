@@ -11,9 +11,19 @@ import pytest
 
 from rosclaw.agentd.pi_bridge.tool_dispatch import PiToolDispatcher
 from rosclaw.task_kernel.operation_manager import OperationManager
+from rosclaw.task_kernel.service import TaskKernel
 from tests.agentd.test_p1b1_operation_v2 import _conn, _events, _task
 from tests.agentd.test_p1b3_ros2_action import ABORTED, CANCELED, SUCCEEDED, FakeActionClient
 from tests.agentd.test_pi_tool_bridge import _request
+
+
+def _owned_kernel(conn, home):
+    conn.execute(
+        "INSERT INTO task_session_bindings (task_id,session_ref,role,active,created_at) "
+        "VALUES ('task_1','pi_1','primary',1,'now')"
+    )
+    conn.commit()
+    return TaskKernel(conn, home)
 
 
 @pytest.mark.parametrize("wrapper_exited", [False, True])
@@ -78,7 +88,11 @@ def test_stop_tool_preserves_an_existing_terminal_result(tmp_path, result_code, 
     manager = OperationManager(None, conn)
     client = FakeActionClient()
     dispatcher = PiToolDispatcher(
-        SimpleNamespace(_operation_manager=manager, _store=SimpleNamespace(connection=conn))
+        SimpleNamespace(
+            _operation_manager=manager,
+            _store=SimpleNamespace(connection=conn),
+            _task_kernel=_owned_kernel(conn, tmp_path),
+        )
     )
 
     async def run():
@@ -93,7 +107,11 @@ def test_stop_tool_preserves_an_existing_terminal_result(tmp_path, result_code, 
         client.emit_result(result_code, {})
         await asyncio.sleep(0)
         result = await dispatcher._process_stop(
-            _request("rosclaw_process_stop", arguments={"operation_id": operation["operation_id"]})
+            _request(
+                "rosclaw_process_stop",
+                mission="m1",
+                arguments={"operation_id": operation["operation_id"]},
+            )
         )
         assert result.status == state
         assert "已取消" not in result.summary
@@ -147,7 +165,11 @@ def test_stop_tool_projects_pending_ledger_instead_of_claiming_cancelled(tmp_pat
     client = FakeActionClient()
     # Exercise both real stop routes. Gateway admission is tested separately.
     dispatcher = PiToolDispatcher(
-        SimpleNamespace(_operation_manager=manager, _store=SimpleNamespace(connection=conn))
+        SimpleNamespace(
+            _operation_manager=manager,
+            _store=SimpleNamespace(connection=conn),
+            _task_kernel=_owned_kernel(conn, tmp_path),
+        )
     )
 
     async def run():
@@ -162,7 +184,7 @@ def test_stop_tool_projects_pending_ledger_instead_of_claiming_cancelled(tmp_pat
         operation_id = operation["operation_id"]
         try:
             result = await dispatcher._dispatch(
-                _request(tool, arguments={"operation_id": operation_id})
+                _request(tool, mission="m1", arguments={"operation_id": operation_id})
             )
             assert manager.get(operation_id)["state"] == "CANCELING"
             assert result.status == "CANCELING"
@@ -170,7 +192,7 @@ def test_stop_tool_projects_pending_ledger_instead_of_claiming_cancelled(tmp_pat
             client.emit_result(CANCELED, {})
             await asyncio.sleep(0)
             result = await dispatcher._dispatch(
-                _request(tool, arguments={"operation_id": operation_id})
+                _request(tool, mission="m1", arguments={"operation_id": operation_id})
             )
             assert result.status == "CANCELLED"
             assert "已取消" in result.summary

@@ -16,6 +16,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from rosclaw.task_kernel.operation_manager import OperationManager
+from tests.agentd.test_concurrent_process_cancel import _owned_kernel
 from tests.agentd.test_p1b1_operation_v2 import _conn, _task
 from tests.agentd.test_pi_tool_bridge import _request
 
@@ -288,10 +289,18 @@ async def test_native_stop_reports_reconciliation_for_unproved_process(tmp_path,
     )
     conn.commit()
     manager = OperationManager(None, conn)
-    service = SimpleNamespace(_store=SimpleNamespace(connection=conn), _operation_manager=manager)
+    service = SimpleNamespace(
+        _store=SimpleNamespace(connection=conn),
+        _operation_manager=manager,
+        _task_kernel=_owned_kernel(conn, tmp_path),
+    )
     try:
         result = await PiToolDispatcher(service)._process_stop(
-            _request("rosclaw_process_stop", arguments={"operation_id": operation["operation_id"]})
+            _request(
+                "rosclaw_process_stop",
+                mission="m1",
+                arguments={"operation_id": operation["operation_id"]},
+            )
         )
         assert result.status == "LOST" and result.ok is False
         assert result.reconciliation_required is True
