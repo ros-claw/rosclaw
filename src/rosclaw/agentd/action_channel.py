@@ -11,6 +11,7 @@ reported as a completed task (总纲 §12.3).
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -24,6 +25,33 @@ from rosclaw.kernel.contracts import (
     ExecutionMode,
     VerificationPolicy,
 )
+
+
+async def _finish_daemon_rpc(function: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+    """Settle a bounded side-effecting RPC before its cancellation cleanup.
+
+    Cancelling to_thread abandons the await, not the socket thread. Keep that
+    RPC owned through repeated caller cancellation; never replay it. The client
+    retains its original socket timeout. A lost response still means UNKNOWN.
+    """
+    rpc = asyncio.create_task(asyncio.to_thread(function, *args, **kwargs))
+    cancellation: asyncio.CancelledError | None = None
+    while True:
+        try:
+            result = await asyncio.shield(rpc)
+        except asyncio.CancelledError as exc:
+            if rpc.cancelled():
+                raise  # The provider itself returned cancellation.
+            cancellation = cancellation or exc
+            continue
+        except Exception as exc:
+            if cancellation is not None:
+                cancellation.add_note(f"In-flight daemon RPC failed: {type(exc).__name__}: {exc}")
+                raise cancellation from exc
+            raise
+        if cancellation is not None:
+            raise cancellation
+        return result
 
 
 class ActionChannelError(ValidationError):
@@ -60,12 +88,11 @@ class DaemonActionChannel:
         self._body_id = body_id
         self._body_hash = body_hash
 
-    async def _create_action_session(self, capability_id: str) -> str:
+    async def _create_action_session(self, capability_id: str, session_id: str) -> str:
         # Every separately authorized non-real action owns a new session. A
         # prior action's session may have expired while the model was thinking;
         # it is never reused, revived or used to resubmit that earlier action.
-        session_id = new_id("sess")
-        await asyncio.to_thread(
+        await _finish_daemon_rpc(
             self._client.create_session,
             session_id=session_id,
             actor_id=self._actor_id,
@@ -91,12 +118,9 @@ class DaemonActionChannel:
         mode = ExecutionMode(str(execution_mode).upper())
         if mode not in {ExecutionMode.SIMULATION, ExecutionMode.SHADOW}:
             raise ActionChannelError(f"non-real channel does not accept {mode.value}")
-        try:
-            session_id = await self._create_action_session(capability_id)
-        except DaemonClientError as exc:
-            raise ActionChannelError(
-                f"daemon session failed (daemon offline?): {exc.code}: {exc}"
-            ) from exc
+        # Allocate the cleanup identity and validate before any remote effect.
+        # Even a failed create response may have created this exact session.
+        session_id = new_id("sess")
         envelope = ActionEnvelope(
             action_id=action_id or new_id("act"),
             actor_id=self._actor_id,
@@ -122,7 +146,13 @@ class DaemonActionChannel:
         pending_error: BaseException | None = None
         try:
             try:
-                submitted = await asyncio.to_thread(self._client.request_action, envelope)
+                await self._create_action_session(capability_id, session_id)
+            except DaemonClientError as exc:
+                raise ActionChannelError(
+                    f"daemon session failed (daemon offline?): {exc.code}: {exc}"
+                ) from exc
+            try:
+                submitted = await _finish_daemon_rpc(self._client.request_action, envelope)
             except DaemonClientError as exc:
                 raise ActionChannelError(
                     f"daemon rejected action request: {exc.code}: {exc}"
@@ -146,7 +176,7 @@ class DaemonActionChannel:
             # handling if a wait/cancellation failed. It never grants authority
             # for another action or turns failed stopping into task success.
             try:
-                await asyncio.to_thread(
+                await _finish_daemon_rpc(
                     self._client.close_session,
                     session_id,
                     reason="nonreal_action_channel_finished",

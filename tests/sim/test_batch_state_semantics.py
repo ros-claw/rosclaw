@@ -82,8 +82,18 @@ PID_ARM = """<mujoco model="pid_arm">
 
 def _kp_patches(kp: float) -> list[dict]:
     return [
-        {"op": "set", "target": {"type": "actuator", "name": "shoulder_servo"}, "field": "kp", "value": kp},
-        {"op": "set", "target": {"type": "actuator", "name": "elbow_servo"}, "field": "kp", "value": kp},
+        {
+            "op": "set",
+            "target": {"type": "actuator", "name": "shoulder_servo"},
+            "field": "kp",
+            "value": kp,
+        },
+        {
+            "op": "set",
+            "target": {"type": "actuator", "name": "elbow_servo"},
+            "field": "kp",
+            "value": kp,
+        },
     ]
 
 
@@ -179,16 +189,28 @@ def test_b03_eq_active_state_requires_serial(runtime) -> None:
         model_ref,
         snap["state_ref"],
         {"executor": "constraint_attach", "target": {"type": "equality", "name": "grip_weld"}},
-        {"weld": "grip_weld", "attach_threshold_m": 0.05, "evidence_level": "PROXIMITY_ASSISTED_ATTACH"},
+        {
+            "weld": "grip_weld",
+            "attach_threshold_m": 0.05,
+            "evidence_level": "PROXIMITY_ASSISTED_ATTACH",
+        },
     )
     eq_state = attached["state_ref"]
 
     def weld_branches() -> list[dict]:
         return [
             {"name": "baseline", "patches": []},
-            {"name": "kp100", "patches": [
-                {"op": "set", "target": {"type": "actuator", "name": "grip_servo"}, "field": "kp", "value": 100.0},
-            ]},
+            {
+                "name": "kp100",
+                "patches": [
+                    {
+                        "op": "set",
+                        "target": {"type": "actuator", "name": "grip_servo"},
+                        "field": "kp",
+                        "value": 100.0,
+                    },
+                ],
+            },
         ]
 
     serial = runtime.branch_experiment(
@@ -247,7 +269,12 @@ def test_b04_delay_history_batch_equals_serial(runtime) -> None:
         p_sensor = runtime.backend.observe(
             p_receipt["model_ref"], p_receipt["final_state_ref"], ["sensor:sp"]
         ).values
-        assert p_sensor == pytest.approx(s_sensor, abs=1e-9)
+        # pytest 9.2 rejects dicts containing sequences. Preserve every
+        # channel, value and the original tolerance rather than skipping the
+        # delayed-sensor assertion when the test runner changes.
+        assert p_sensor.keys() == s_sensor.keys()
+        for key in s_sensor:
+            assert p_sensor[key] == pytest.approx(s_sensor[key], abs=1e-9)
         assert p_trace["states_digest"] == s_trace["states_digest"]
 
 
@@ -255,15 +282,25 @@ def test_b05_act_state_batch_equals_serial(runtime) -> None:
     """B05：PID 执行器非零 act（激活态 ∈ FULLPHYSICS）——batch 一致。"""
     loaded = runtime.load_model("pid_arm.xml")
     # PID 多输入：mid-swing 也必须用 setpoints（position_targets 拒绝）。
-    receipt = runtime.rollout(loaded["model_ref"], controller={"setpoints": {"p1": {"pos": 0.5}}}, steps=40)
+    receipt = runtime.rollout(
+        loaded["model_ref"], controller={"setpoints": {"p1": {"pos": 0.5}}}, steps=40
+    )
     base_state = receipt["final_state_ref"]
     # 分支 patch joint damping（kp 对 gaintype=PID 属白名单拒绝——
     # patch 守卫实证，不改守卫）。
     branches = [
         {"name": "baseline", "patches": []},
-        {"name": "damp2", "patches": [
-            {"op": "set", "target": {"type": "joint", "name": "j1"}, "field": "damping", "value": 2.0},
-        ]},
+        {
+            "name": "damp2",
+            "patches": [
+                {
+                    "op": "set",
+                    "target": {"type": "joint", "name": "j1"},
+                    "field": "damping",
+                    "value": 2.0,
+                },
+            ],
+        },
     ]
     serial = runtime.branch_experiment(
         loaded["model_ref"],
@@ -294,9 +331,12 @@ def test_b06_timestep_mismatch_semantics_incompatible(runtime) -> None:
     loaded = runtime.load_model("arm.xml")
     branches = [
         {"name": "dt2", "patches": []},
-        {"name": "dt1", "patches": [
-            {"op": "set", "target": {"type": "option"}, "field": "timestep", "value": 0.001},
-        ]},
+        {
+            "name": "dt1",
+            "patches": [
+                {"op": "set", "target": {"type": "option"}, "field": "timestep", "value": 0.001},
+            ],
+        },
     ]
     result = runtime.branch_experiment(
         loaded["model_ref"],
