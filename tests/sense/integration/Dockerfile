@@ -1,6 +1,6 @@
 FROM ros:jazzy-ros-base
 RUN apt-get update && apt-get install --no-install-recommends -y \
-    python3-pytest python3-yaml \
+    python3-pytest python3-yaml python3-pydantic \
     ros-jazzy-sensor-msgs ros-jazzy-rmw-cyclonedds-cpp \
     && dpkg-query -W -f='${Package}\t${Version}\n' > /ros-sense-fixture-packages.tsv \
     && rm -rf /var/lib/apt/lists/*
