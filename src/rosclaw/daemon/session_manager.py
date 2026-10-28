@@ -74,6 +74,10 @@ class SessionManager:
 
     def __init__(self) -> None:
         self._sessions: dict[str, AgentSession] = {}
+        # An interrupted create may reach this manager after its cleanup.
+        # Keep the close intent for this daemon generation and authenticated
+        # UID. It grants no Session, scope, stop evidence or cross-UID veto.
+        self._revoked_admissions: set[tuple[int, str]] = set()
         self._lock = threading.RLock()
 
     def create_session(
@@ -94,6 +98,11 @@ class SessionManager:
         normalized_capabilities = _scope(capability_scope, "capability_scope")
         ttl_ms = _ttl(ttl_ms)
         with self._lock:
+            if (peer.uid, session_id) in self._revoked_admissions:
+                raise SessionError(
+                    "SESSION_CREATION_REVOKED",
+                    "An earlier close request revoked this UID's pending Session creation",
+                )
             existing = self._sessions.get(session_id)
             if existing is not None:
                 expected = (
@@ -194,8 +203,17 @@ class SessionManager:
         *,
         reason: str = "client_closed",
     ) -> AgentSession:
+        session_id = _identifier(session_id, "session_id")
         with self._lock:
-            session = self._get(session_id)
+            session = self._sessions.get(session_id)
+            if session is None:
+                self._revoked_admissions.add((peer.uid, session_id))
+                # Preserve absence/unknown, rather than inventing a CLOSED
+                # Session or asserting that any physical effect was stopped.
+                raise SessionError(
+                    "SESSION_NOT_FOUND",
+                    "Agent Session does not exist; pending creation by this UID is revoked",
+                )
             self._require_owner(session, peer)
             if session.state is SessionState.ACTIVE:
                 session.state = SessionState.CLOSED
