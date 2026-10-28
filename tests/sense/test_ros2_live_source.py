@@ -257,3 +257,47 @@ def test_malformed_ros_timestamp_is_not_normalized_into_fresh_data(monkeypatch, 
     message.header.stamp.nanosec = nanosec
     c._receive("battery", message)
     assert c.collect().energy.battery_percent is None
+
+
+@pytest.mark.parametrize("use_sim_time", [False, True])
+@pytest.mark.parametrize("stale", [False, True])
+@pytest.mark.parametrize("claimed_binding", [False, True])
+async def test_mcp_telemetry_does_not_promote_unverified_body_or_authority(
+    monkeypatch, tmp_path, use_sim_time, stale, claimed_binding
+):
+    """Real collector output crosses the facade, without ROS or a local Runtime."""
+    from rosclaw.mcp.adapters.runtime_client import RuntimeClient
+
+    c, _clock = collector(monkeypatch)
+    c.use_sim_time = use_sim_time
+    c._receive("battery", battery())
+    state = c.collect()
+    # Neither a source label nor self-reported flags establish an immutable
+    # Body binding, a physical evidence domain or action-specific readiness.
+    state.raw.update(
+        body_identity_verified=claimed_binding,
+        action_authority=claimed_binding,
+    )
+    sense = SimpleNamespace(
+        config=SimpleNamespace(collector="ros2"),
+        get_latest_state=lambda: state,
+        get_body_sense=lambda: {},
+        get_readiness=lambda: {},
+        is_stale=stale,
+        state_age_ms=0,
+    )
+    client = RuntimeClient(
+        project_root=tmp_path,
+        robot_id="fixture",
+        runtime_profile={},
+        daemon_client=SimpleNamespace(),
+    )
+    client._runtime = SimpleNamespace(sense=sense)
+    response = await client.get_robot_state()
+
+    assert response["mode"] == ("stale" if stale else "live")
+    assert response["body_state"]["energy"]["battery_percent"] == 75
+    assert response["body_state"]["timestamp"] == 1000
+    assert response["body_state"]["raw"]["roles"]["battery"]["original_header_stamp_s"] == 10
+    assert response["execution_mode"] == "UNKNOWN"
+    assert response["usable_for_real_execution"] is False

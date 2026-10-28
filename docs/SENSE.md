@@ -74,6 +74,15 @@ execution.
 | `dds_latency_high` | High communication latency |
 | `compute_overload` | CPU/memory overload |
 
+Fresh telemetry establishes the reported values and their original source ages.
+The S0 MCP `get_robot_state` projection keeps those values readable, while
+reporting `execution_mode: UNKNOWN` and `usable_for_real_execution: false`.
+Source names, receive freshness and self-reported binding flags do not establish
+a physical evidence domain, an immutable Body binding or action-specific safety.
+Nonempty replay retains `REPLAY` / `RECORDED`. Canonical motion admission remains
+responsible for the current Body, permissions and each action's required facts;
+this telemetry projection does not grant execution authority.
+
 ## MCP Tools
 
 When the runtime is running, these MCP tools are exposed:
