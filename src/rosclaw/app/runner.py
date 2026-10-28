@@ -92,15 +92,18 @@ class AppRunner:
         context: dict[str, Any] = {"input": dict(inputs or {})}
         permits = permits or {}
         max_timeout = max(step.timeout_sec for step in manifest.workflow)
-        self.client.create_session(
-            session_id=session_id,
-            actor_id=f"rosclaw-app:{manifest.metadata.name}",
-            agent_framework="rosclaw-app",
-            body_scope=[body_id],
-            capability_scope=manifest.requires.capabilities,
-            ttl_ms=min(3_600_000, max(10_000, int(max_timeout * 1000) + 1_000)),
-        )
         try:
+            # Creation may succeed remotely even when its acknowledgement is
+            # lost. Own cleanup of this freshly allocated dedicated Session
+            # before any action can be submitted, including caller interrupts.
+            self.client.create_session(
+                session_id=session_id,
+                actor_id=f"rosclaw-app:{manifest.metadata.name}",
+                agent_framework="rosclaw-app",
+                body_scope=[body_id],
+                capability_scope=manifest.requires.capabilities,
+                ttl_ms=min(3_600_000, max(10_000, int(max_timeout * 1000) + 1_000)),
+            )
             for index, step in enumerate(manifest.workflow):
                 arguments = _resolve_templates(step.input, context)
                 permit_id = permits.get(step.call)

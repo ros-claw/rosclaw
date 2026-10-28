@@ -98,7 +98,11 @@ class SenseRuntime(LifecycleMixin):
                 robot_id=self.robot_id,
             )
         if collector_type == "ros2":
-            return ROS2Collector(robot_id=self.robot_id)
+            return ROS2Collector(
+                robot_id=self.robot_id,
+                topics=self.config.extra.get("ros2_topics"),
+                use_sim_time=self.config.extra.get("ros2_use_sim_time", False),
+            )
         if collector_type == "dds":
             return DDSCollector(robot_id=self.robot_id)
         raise ValueError(f"Unknown collector type: {collector_type}")
