@@ -49,7 +49,7 @@ export async function executeVia(
 	if (!state.missionId) {
 		return {
 			content: [{ type: "text" as const, text: "REJECTED [NO_MISSION]: 未绑定 Mission" }],
-			details: { ok: false, error_code: "NO_MISSION" },
+			details: { ok: false, error_code: "NO_MISSION", status: "REJECTED", rosclaw_bridge_result: "v1", reconciliation_required: false },
 			isError: true,
 		};
 	}
@@ -69,8 +69,9 @@ export async function executeVia(
 		actor: { engine: "pi", process_id: process.pid, uid: process.getuid?.() ?? 0 },
 	};
 	const response = await ctx.center.call("pi.tools.execute", { request });
-	const result = (response.result ?? {}) as { ok?: boolean; summary?: string; error_code?: string };
+	const result = (response.result ?? {}) as { ok?: boolean; summary?: string; error_code?: string; status?: string; reconciliation_required?: boolean };
 	const ok = response.ok === true;
+	const status = result.status ?? (ok ? "COMPLETED" : "UNKNOWN");
 	return {
 		content: [
 			{
@@ -80,7 +81,8 @@ export async function executeVia(
 					: `REJECTED [${result.error_code ?? response.code ?? "?"}]: ${String(response.error ?? result.summary ?? "")}`,
 			},
 		],
-		details: { ok, error_code: result.error_code ?? null },
+		details: { ok, error_code: result.error_code ?? response.code ?? null, status,
+			rosclaw_bridge_result: "v1", reconciliation_required: result.reconciliation_required ?? ["UNKNOWN", "LOST"].includes(status) },
 		isError: !ok,
 	};
 }

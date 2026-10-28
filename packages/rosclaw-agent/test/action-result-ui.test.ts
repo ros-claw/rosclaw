@@ -93,7 +93,7 @@ async function collectHarness() {
 			await handler(event, {});
 		}
 	};
-	return { emit, appended, entryRenderers, active, calls };
+	return { emit, appended, entryRenderers, active, calls, handlers };
 }
 
 test("SIM action settlement refreshes its expired context and fails closed on probe failure", async () => {
@@ -193,3 +193,43 @@ test("conflict 渲染器输出内核覆盖文案", async () => {
 	assert.match(text, /未被接受/);
 	assert.match(text, /REJECTED/);
 });
+
+for (const kind of ["projected", "bridge"]) {
+	for (const scenario of ["REJECTED", "UNKNOWN", "LOST", "RUNNING", "WAITING_APPROVAL", "NO_MISSION"]) {
+		test(`actual Pi result hook preserves ${kind} ${scenario} semantics`, async () => {
+			const { handlers } = await collectHarness();
+			const { materializeCapabilityTools } = await import("../src/tools/materialize.js");
+			const { buildBridgeTools } = await import("../src/tools/bridge-tools.js");
+			let calls = 0;
+			const ctx = {
+				rosclawHome: "/tmp/fixture-result",
+				active: { current: { sessionId: "pi", missionId: scenario === "NO_MISSION" ? undefined : "mission",
+					contextRevision: 1, mode: "SIMULATION" } },
+				center: { async call() {
+					calls++;
+					if (scenario === "UNKNOWN") return { ok: false, code: "FIXTURE_TRANSPORT_UNKNOWN" };
+					return { ok: scenario === "RUNNING", result: { ok: scenario === "RUNNING",
+						status: scenario, error_code: scenario === "REJECTED" ? "IDEMPOTENCY_CONFLICT" : null,
+						summary: "fixture result" } };
+				} },
+			} as never;
+			const snapshot = { schema_version: "rosclaw.capability_snapshot.v1", generation: 1,
+				digest: "fixture", body_id: "fixture", mode: "SIMULATION", excluded: [], active: [{
+					tool_name: "get_runtime_status", capability_id: "fixture.read", exposure: "direct" as const,
+					effect_class: "READ_ONLY", description: "fixture", input_schema: {}, output_schema: {},
+				}] };
+			const tool = kind === "projected" ? materializeCapabilityTools(snapshot, ctx)[0]
+				: buildBridgeTools(ctx).find(tool => tool.name === "rosclaw_observe");
+			assert.ok(tool);
+			const result = await tool.execute("call", {}, undefined, undefined, {} as never);
+			const details = result.details as Record<string, unknown>;
+			assert.equal(details.status, scenario === "NO_MISSION" ? "REJECTED" : scenario);
+			if (scenario === "NO_MISSION") assert.equal(calls, 0);
+			if (["UNKNOWN", "LOST"].includes(scenario)) assert.equal(details.reconciliation_required, true);
+			const replies = await Promise.all((handlers.get("tool_result") ?? []).map(handler =>
+				handler({ toolName: tool.name, details, isError: false }, {})));
+			const error = replies.some(reply => (reply as { isError?: boolean } | undefined)?.isError === true);
+			assert.equal(error, ["REJECTED", "UNKNOWN", "LOST", "NO_MISSION"].includes(scenario));
+		});
+	}
+}

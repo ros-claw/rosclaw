@@ -667,9 +667,12 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 		// Pi does not interpret an extra `isError` field returned by execute().
 		// Preserve the structured receipt and use its supported result hook.
 		pi.on("tool_result", async (event) => {
-			if (event.toolName !== "rosclaw_request_action" && !event.toolName.startsWith("propose_")) return;
 			const details = (event.details ?? {}) as Record<string, unknown>;
-			if (details.ok === false && ["REJECTED", "FAILED", "UNKNOWN", "CANCELLED", "EXPIRED", "TIMED_OUT", "ORPHANED", "BLOCKED", "DEGRADED"].includes(String(details.status))) {
+			// Projected and legacy bridge results carry the same explicit result
+			// contract. This is failure reporting, never an execution authority.
+			if (details.rosclaw_bridge_result !== "v1"
+				&& event.toolName !== "rosclaw_request_action" && !event.toolName.startsWith("propose_")) return;
+			if (details.ok === false && ["REJECTED", "FAILED", "UNKNOWN", "LOST", "CANCELLED", "EXPIRED", "TIMED_OUT", "ORPHANED", "BLOCKED", "DEGRADED"].includes(String(details.status))) {
 				return { isError: true };
 			}
 		});

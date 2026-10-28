@@ -82,7 +82,7 @@ export function materializeCapabilityTools(
 				if (!state.missionId) {
 					return {
 						content: [{ type: "text" as const, text: "REJECTED [NO_MISSION]: 未绑定 Mission" }],
-						details: { ok: false, error_code: "NO_MISSION" },
+						details: { ok: false, error_code: "NO_MISSION", status: "REJECTED", rosclaw_bridge_result: "v1", reconciliation_required: false },
 						isError: true,
 					};
 				}
@@ -107,10 +107,11 @@ export function materializeCapabilityTools(
 				};
 				const response = await ctx.center.call("pi.tools.execute", { request }) as {
 					ok?: boolean; code?: string; error?: string;
-					result?: { ok?: boolean; summary?: string; error_code?: string };
+					result?: { ok?: boolean; summary?: string; error_code?: string; status?: string; reconciliation_required?: boolean };
 				};
 				const result = response.result ?? {};
 				const ok = response.ok === true;
+				const status = result.status ?? (ok ? "COMPLETED" : "UNKNOWN");
 				return {
 					content: [{
 						type: "text" as const,
@@ -118,7 +119,8 @@ export function materializeCapabilityTools(
 							? (result.summary ?? "ok")
 							: `REJECTED [${result.error_code ?? response.code ?? "?"}]: ${String(response.error ?? result.summary ?? "")}`,
 					}],
-					details: { ok, error_code: result.error_code ?? null },
+					details: { ok, error_code: result.error_code ?? response.code ?? null, status,
+						rosclaw_bridge_result: "v1", reconciliation_required: result.reconciliation_required ?? ["UNKNOWN", "LOST"].includes(status) },
 					isError: !ok,
 				};
 			},
