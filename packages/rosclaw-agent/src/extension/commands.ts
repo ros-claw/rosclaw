@@ -9,6 +9,7 @@ import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { defaultOperatorSocket, operatorCall } from "../bridge/operatord-client.js";
 import type { ActiveSessionContext } from "../session/active-context.js";
 import type { ProductStateCenter } from "../session/state-center.js";
+import { requestIdentity } from "../tools/bridge-tools.js";
 import type { LocaleManager } from "../i18n/locale.js";
 import { t as i18nT } from "../i18n/index.js";
 
@@ -366,14 +367,13 @@ export function buildCommandHandlers(deps: CommandDeps): Record<string, { descri
 				const result = await deps.center.call("pi.tools.execute", {
 					request: {
 						schema_version: "rosclaw.pi_tool_request.v1",
-						request_id: `ptr_ev_${Date.now()}`,
+						...requestIdentity(deps.active.current.sessionId, missionId),
 						pi_session_id: deps.active.current.sessionId,
 						mission_id: missionId,
 						context_revision: deps.active.current.contextRevision,
 						tool_name: "rosclaw_verify",
 						arguments: {},
 						requested_at: new Date().toISOString(),
-						idempotency_key: `idem_ev_${Date.now()}`,
 						actor: { engine: "pi-command" },
 					},
 				});

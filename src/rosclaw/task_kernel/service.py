@@ -392,6 +392,21 @@ class TaskKernel:
         )
         return task
 
+    def task_for_session(self, task_id: str, *, mission_id: str, session_ref: str) -> dict | None:
+        """Read an exactly owned task without reviving a historical binding.
+
+        Stable Operation queries and explicit cleanup may outlive the active
+        task. The original primary session binding still has to exist; an
+        Operation ID alone never authorizes another mission/session's work.
+        """
+        owned = self._conn.execute(
+            "SELECT 1 FROM tasks t JOIN task_session_bindings b "
+            "ON b.task_id=t.task_id WHERE t.task_id=? AND t.mission_id=? "
+            "AND b.session_ref=? AND b.role='primary' LIMIT 1",
+            (task_id, mission_id, session_ref),
+        ).fetchone()
+        return self.get_task(task_id) if owned is not None else None
+
     def active_task_for_session(
         self, mission_id: str, session_ref: str
     ) -> dict | None:

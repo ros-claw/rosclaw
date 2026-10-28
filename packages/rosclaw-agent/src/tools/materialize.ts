@@ -18,7 +18,7 @@
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 
-import type { BridgeToolContext } from "./bridge-tools.js";
+import { requestIdentity, type BridgeToolContext } from "./bridge-tools.js";
 import { buildRequestActionTool } from "./request-action.js";
 import { displayLabelFor, summarizeToolResultText } from "../ui/tool-display.js";
 
@@ -82,14 +82,14 @@ export function materializeCapabilityTools(
 				if (!state.missionId) {
 					return {
 						content: [{ type: "text" as const, text: "REJECTED [NO_MISSION]: 未绑定 Mission" }],
-						details: { ok: false, error_code: "NO_MISSION" },
+						details: { ok: false, error_code: "NO_MISSION", status: "REJECTED", rosclaw_bridge_result: "v1", reconciliation_required: false },
 						isError: true,
 					};
 				}
 				// wire 形状与 executeVia 一致（envelope.ok + result.*）。
 				const request = {
 					schema_version: "rosclaw.pi_tool_request.v1",
-					request_id: `ptr_cap_${Date.now()}`,
+					...requestIdentity(state.sessionId, state.missionId, _id),
 					pi_session_id: state.sessionId,
 					mission_id: state.missionId,
 					context_revision: state.contextRevision,
@@ -103,15 +103,15 @@ export function materializeCapabilityTools(
 						snapshot_digest: digest,
 					},
 					requested_at: new Date().toISOString(),
-					idempotency_key: `idem_${state.sessionId}_${Date.now()}`,
 					actor: { engine: "pi", process_id: process.pid, uid: process.getuid?.() ?? 0 },
 				};
 				const response = await ctx.center.call("pi.tools.execute", { request }) as {
 					ok?: boolean; code?: string; error?: string;
-					result?: { ok?: boolean; summary?: string; error_code?: string };
+					result?: { ok?: boolean; summary?: string; error_code?: string; status?: string; reconciliation_required?: boolean };
 				};
 				const result = response.result ?? {};
 				const ok = response.ok === true;
+				const status = result.status ?? (ok ? "COMPLETED" : "UNKNOWN");
 				return {
 					content: [{
 						type: "text" as const,
@@ -119,7 +119,8 @@ export function materializeCapabilityTools(
 							? (result.summary ?? "ok")
 							: `REJECTED [${result.error_code ?? response.code ?? "?"}]: ${String(response.error ?? result.summary ?? "")}`,
 					}],
-					details: { ok, error_code: result.error_code ?? null },
+					details: { ok, error_code: result.error_code ?? response.code ?? null, status,
+						rosclaw_bridge_result: "v1", reconciliation_required: result.reconciliation_required ?? ["UNKNOWN", "LOST"].includes(status) },
 					isError: !ok,
 				};
 			},

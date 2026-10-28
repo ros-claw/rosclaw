@@ -25,7 +25,7 @@ export function buildEmbodimentExecTools(ctx: BridgeToolContext): ToolDefinition
 				operation_id: Type.String(),
 			}),
 			async execute(_id, params, _signal, _onUpdate, _toolCtx) {
-				return await executeVia(ctx, "rosclaw_stop_operation", params as Record<string, unknown>);
+				return await executeVia(ctx, "rosclaw_stop_operation", params as Record<string, unknown>, _id);
 			},
 		}),
 	];

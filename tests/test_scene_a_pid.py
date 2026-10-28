@@ -184,8 +184,9 @@ class TestSceneAPID:
         ep_ids = [e["episode_id"] for e in episodes]
         assert episode_id in ep_ids, f"Episode {episode_id} not recorded"
 
-        # Verify trace_id propagated
-        history = runtime.event_bus.get_history(limit=20)
+        # Filter before bounding: unrelated live telemetry must not hide the
+        # original command while the episode recorder finishes asynchronously.
+        history = runtime.event_bus.get_history(topic="agent.command", limit=20)
         traced = [e for e in history if e.trace_id == "trace_pid_001"]
         assert len(traced) >= 1, "trace_id should propagate through pipeline"
 
