@@ -155,3 +155,60 @@ class RouteCosts:
             index = finish
         result = np.asarray(short)
         return result if grid.motion_path_safe(result) else None
+
+    def attachment_paths(self, global_route, *, maximum_candidates=48, service=None):
+        """Yield bounded live-safe routes joining the same global intent.
+
+        A global route can have a locally blocked first tangent even when a
+        current local detour exists. Its sampled attachment points are temporary
+        routing proposals, not replacement mission goals or motion admission.
+        Every yielded path passes this snapshot's original swept-footprint
+        predicates; callers must still validate each committed action afresh.
+        The existing optional planning service callback can observe cancellation
+        and maintain its already-authorized lifecycle; exceptions propagate.
+        This pure planner does not read ROS, execute actions, or award coverage.
+        """
+        if type(maximum_candidates) is not int or not 1 <= maximum_candidates <= 48:
+            raise ValueError("Route attachment search requires 1..48 candidates")
+        route = np.asarray(global_route, float)
+        if (
+            route.ndim != 2
+            or route.shape[1] != 2
+            or not 2 <= len(route) <= 1024
+            or not np.isfinite(route).all()
+            or np.linalg.norm(route[0] - self.robot_xy) > 0.10
+        ):
+            raise ValueError("Finite current global route required for local attachment")
+        lengths = np.linalg.norm(np.diff(route, axis=0), axis=1)
+        total = float(lengths.sum())
+        if not math.isfinite(total) or total <= 0.005:
+            raise ValueError("Global route attachment requires finite translation")
+        cumulative = np.r_[0.0, np.cumsum(lengths)]
+        count = (
+            maximum_candidates
+            if total >= maximum_candidates * 0.05
+            else max(1, math.ceil(total / 0.05))
+        )
+        samples = np.linspace(0.0, total, count + 1)[1:]
+        points = np.column_stack(
+            [np.interp(samples, cumulative, route[:, axis]) for axis in range(2)]
+        )
+        for index, point in enumerate(points):
+            if service:
+                service()
+            if np.linalg.norm(point - self.robot_xy) <= 0.005 or not self.grid.safe_pose(point):
+                continue
+            candidate = self.path(point, service=service)
+            if candidate is None:
+                continue
+            yield (
+                candidate,
+                {
+                    "kind": "live-safe attachment to held global route",
+                    "attachment_xy": point.tolist(),
+                    "attachment_arclength_m": float(samples[index]),
+                    "sampled_attachments": index + 1,
+                    "maximum_attachments": maximum_candidates,
+                    "mission_target_changed": False,
+                },
+            )
