@@ -2,6 +2,16 @@
 
 The Golden Task is **not yet accepted**. Nav2, opennav_coverage, Gazebo, daemon action executors and independent live collision monitoring still need integration.
 
+The separate `connectors.ros.public_coverage` proposal library treats occupied
+cells as closed squares. Both scalar footprint and continuous swept-capsule
+checks reject contact, including a path's middle touching a cell whose upper
+edge lies on the lower bounding grid line. Segment candidate enumeration also
+includes the existing squared-distance tolerance; it does not change the
+physical radius, tracking margin or exact distance predicate. Independent
+piecewise-quadratic rectangle-distance regressions check both safe and blocked
+segments across scales, translated origins and reversed directions. These are
+component checks, not proof of installed execution or a completed mission.
+
 `compile_mission()` uses existing TaskGraphV1/TaskNodeV1 contracts for precheck, localization, coverage planning, cleaning enable, guarded execution, independent verification, missed-region recovery, cleaning disable, final verification and Practice capture. Nodes remain PENDING; compiling a graph does not install capabilities or dispatch an action. Failure cleanup and conditional recovery execution remain runtime-integration work.
 
 ## Independent coverage
