@@ -169,3 +169,70 @@ def test_legacy_action_adoption_cannot_recreate_revoked_session():
     with pytest.raises(SessionError) as late:
         manager.adopt_action(action, peer)
     assert late.value.code == "SESSION_CREATION_REVOKED"
+
+
+def test_actual_app_timeout_cleanup_revokes_late_create_without_dispatch(
+    daemon_client, monkeypatch
+):
+    from rosclaw.app.runner import AppRunner
+    from rosclaw.app.schema import AppManifest
+    from rosclaw.daemon.client import DaemonClient
+    from rosclaw.daemon.service import ControlPlaneError
+    from rosclaw.kernel import ExecutionMode
+
+    client, _runtime, _permits, daemon = daemon_client
+    other_id = "fixture-unrelated-app"
+    client.create_session(
+        session_id=other_id,
+        actor_id="fixture-owner",
+        agent_framework="fixture",
+        body_scope=["rh56-test"],
+        capability_scope=["rh56.finger.move"],
+    )
+    create_session = daemon.service.create_session
+    release = threading.Event()
+    finished = threading.Event()
+    queued = []
+    errors = []
+
+    def delayed_create(**kwargs):
+        queued.append(kwargs["session_id"])
+        try:
+            assert release.wait(5)
+            return create_session(**kwargs)
+        except ControlPlaneError as exc:
+            errors.append(exc.code)
+            raise
+        finally:
+            finished.set()
+
+    monkeypatch.setattr(daemon.service, "create_session", delayed_create)
+    app = AppManifest.model_validate(
+        {
+            "apiVersion": "rosclaw.io/v1",
+            "kind": "App",
+            "metadata": {"name": "fixture-delayed-app"},
+            "requires": {"capabilities": ["rh56.finger.move"]},
+            "workflow": [{"call": "rh56.finger.move"}],
+        }
+    )
+    try:
+        slow = DaemonClient(socket_path=client.socket_path, timeout_sec=0.1)
+        result = AppRunner(slow).run(
+            app,
+            body_id="rh56-test",
+            body_snapshot_hash="",
+            execution_mode=ExecutionMode.SIMULATION,
+        )
+        assert result.status == "failed" and not result.receipts
+        assert queued == [result.session_id]
+    finally:
+        release.set()
+    assert finished.wait(2)
+    assert errors == ["SESSION_CREATION_REVOKED"]
+    with pytest.raises(DaemonRequestError) as missing:
+        client.get_session(result.session_id)
+    assert missing.value.code == "SESSION_NOT_FOUND"
+    assert client.get_session(other_id)["session"]["state"] == "ACTIVE"
+    assert client.get_runtime_status()["hardware_actions_executed"] == 0
+    client.close_session(other_id, reason="fixture_teardown")
