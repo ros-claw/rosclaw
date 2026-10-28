@@ -143,7 +143,15 @@ class ROS2Collector(BodyStateCollector):
                 return
             now = self._ros_now()
             self._check_clock(now)
-            stamp = message.header.stamp.sec + message.header.stamp.nanosec / 1e9
+            sec, nanosec = message.header.stamp.sec, message.header.stamp.nanosec
+            if (
+                type(sec) is not int
+                or type(nanosec) is not int
+                or sec < 0
+                or not 0 <= nanosec < 1_000_000_000
+            ):
+                return
+            stamp = sec + nanosec / 1e9
             limit = self.bindings[role].max_age_s
             if not math.isfinite(stamp) or stamp <= 0 or not -0.1 <= now - stamp <= limit:
                 return

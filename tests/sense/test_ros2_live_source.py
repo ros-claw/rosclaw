@@ -246,3 +246,14 @@ def test_runtime_topics_do_not_implicitly_enable_a_transport():
     config = RuntimeConfig(sense_ros2_topics={"battery": {"topic": "/battery", "max_age_s": 3.0}})
     assert config.sense_collector == "unconfigured"
     assert config.sense_ros2_use_sim_time is False
+
+
+@pytest.mark.parametrize("sec,nanosec", [(9, 2_000_000_000), (-1, 12_000_000_000)])
+def test_malformed_ros_timestamp_is_not_normalized_into_fresh_data(monkeypatch, sec, nanosec):
+    c, t = collector(monkeypatch)
+    t["ros"] = 11.0
+    message = battery()
+    message.header.stamp.sec = sec
+    message.header.stamp.nanosec = nanosec
+    c._receive("battery", message)
+    assert c.collect().energy.battery_percent is None
