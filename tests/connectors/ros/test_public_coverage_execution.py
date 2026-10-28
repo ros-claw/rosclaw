@@ -152,7 +152,7 @@ class SoftwarePort:
         self.motion_settled = True
         self._sample()
 
-    def snapshot(self):
+    def snapshot(self, *, work=True):
         b = self.binding
         facts = tuple(
             CoverageSourceFact(
@@ -185,7 +185,7 @@ class SoftwarePort:
             False,
             ((0, (0.0, 0.0)), (1, (4.0, 0.0))),
             facts,
-            self.grid,
+            self.grid if work else None,
         )
         if self.fault == "epoch":
             result = replace(result, odom_epoch="different")
@@ -212,9 +212,9 @@ class SoftwarePort:
             )
         return result
 
-    def _sample(self):
+    def _sample(self, *, work=True):
         self.native += 0.05
-        self.buffer.append(self.snapshot())
+        self.buffer.append(self.snapshot(work=work))
 
     def drain(self):
         result, self.buffer = self.buffer, []
@@ -254,7 +254,7 @@ class SoftwarePort:
     def emergency_stop(self):
         self.stop_calls += 1
         self.brush = False
-        self._sample()
+        self._sample(work=False)
         self.release.set()
         return {"acknowledged": True}
 
@@ -370,7 +370,7 @@ def test_actual_daemon_loss_between_brush_enable_and_next_native_goal(daemon_cli
 def test_stop_ack_without_new_observations_is_not_stop_verification(monkeypatch):
     _, executor, port, _action = setup_executor()
     old = port.snapshot()
-    monkeypatch.setattr(port, "snapshot", lambda: old)
+    monkeypatch.setattr(port, "snapshot", lambda **_kwargs: old)
     monkeypatch.setattr(port, "emergency_stop", lambda: {"acknowledged": True})
     result = executor.emergency_stop()
     assert result["acknowledged"] is True
@@ -436,7 +436,7 @@ def test_fresh_stop_proof_survives_unavailable_map_registration(monkeypatch):
     monkeypatch.setattr(
         port,
         "snapshot",
-        lambda: replace(original(), map_xy=None, graph_epoch="unavailable", grid=None),
+        lambda **_kwargs: replace(original(), map_xy=None, graph_epoch="unavailable", grid=None),
     )
     result = executor.emergency_stop()
     assert result["physical_stop_observed"] is True
@@ -472,3 +472,51 @@ def test_bundled_app_runs_through_actual_daemon_with_one_owned_action(daemon_cli
     )
     assert client.get_session(result.session_id)["session"]["state"] == "CLOSED"
     assert not port.brush
+
+
+def test_stop_observation_does_not_request_work_geometry(monkeypatch):
+    _, executor, port, _ = setup_executor()
+    original = port.snapshot
+    requests = []
+
+    def observe(*, work=True):
+        requests.append(work)
+        if work:
+            raise ValueError("Work geometry unavailable")
+        return replace(original(), grid=None)
+
+    monkeypatch.setattr(port, "snapshot", observe)
+    result = executor.emergency_stop()
+    assert result["physical_stop_observed"] is True
+    assert set(requests) == {False}
+
+
+def test_planning_service_skips_grid_rebuild_but_requires_all_live_sources(monkeypatch):
+    _, executor, port, _ = setup_executor()
+    executor._deadline = time.monotonic() + 10.0
+    original = port.snapshot
+    requests = []
+
+    def observe(*, work=True):
+        requests.append(work)
+        assert work is False
+        return replace(original(), grid=None)
+
+    monkeypatch.setattr(port, "snapshot", observe)
+    assert executor._planning_service().grid is None
+    port.fault = "depth"
+    with pytest.raises(ValueError, match="freshness"):
+        executor._planning_service()
+    assert requests == [False, False]
+
+
+def test_planning_service_keeps_original_deadline_and_energy_guard():
+    _, executor, port, _ = setup_executor()
+    executor._deadline = time.monotonic() - 1.0
+    with pytest.raises(TimeoutError, match="Original"):
+        executor._planning_service()
+    executor._deadline = time.monotonic() + 10.0
+    original = port.snapshot
+    port.snapshot = lambda **_kwargs: replace(original(), soc=0.1)
+    with pytest.raises(RuntimeError, match="energy"):
+        executor._planning_service()

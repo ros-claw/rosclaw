@@ -281,7 +281,7 @@ class PublicCoveragePort(Protocol):
 
     binding: PublicCoverageBinding
 
-    def snapshot(self) -> PublicCoverageSnapshot: ...
+    def snapshot(self, *, work: bool = True) -> PublicCoverageSnapshot: ...
     def drain(self) -> list[PublicCoverageSnapshot]: ...
     def execute(
         self,
@@ -419,13 +419,30 @@ class PublicCoverageExecutor:
             raise RuntimeError("Owning coverage action stopped")
         if time.monotonic() >= self._deadline:
             raise TimeoutError("Original coverage action deadline")
-        sample = self._validate(self.port.snapshot(), work=work)
+        sample = self._validate(self.port.snapshot(work=work), work=work)
         if work and sample.native_motion_settled is not True:
             raise RuntimeError("Unknown old native motion cannot enter new work")
         if work and (sample.docked or sample.soc < self.binding.minimum_work_soc):
             raise RuntimeError(
                 "Work requires undocked public state and the original energy reserve"
             )
+        return sample
+
+    def _planning_service(self):
+        # A held public grid is proposal input, never permission to dispatch.
+        # Service the original deadline and ALL live source/energy guards
+        # without rebuilding the entire grid inside every planning callback.
+        sample = self._guard(work=False)
+        self._validate(sample, work=False, required_roles={s.role for s in self.binding.sources})
+        if (
+            sample.native_motion_settled is not True
+            or type(sample.docked) is not bool
+            or sample.docked
+            or type(sample.soc) not in (int, float)
+            or not math.isfinite(sample.soc)
+            or not self.binding.minimum_work_soc <= sample.soc <= 1
+        ):
+            raise RuntimeError("Original native state or work energy reserve unavailable")
         return sample
 
     def _record(self):
@@ -503,7 +520,9 @@ class PublicCoverageExecutor:
         ):
             raise RuntimeError("Primitive outcome belongs to another action or dispatch")
         self._record()
-        after = self._validate(self.port.snapshot(), work=not cleanup, after=started)
+        after = self._validate(
+            self.port.snapshot(work=not cleanup), work=not cleanup, after=started
+        )
         if not cleanup and after.native_motion_settled is not True:
             raise RuntimeError("Original native goal terminal remains unknown")
         if capability.startswith("cleaning.") and after.cleaner is not (
@@ -530,7 +549,7 @@ class PublicCoverageExecutor:
         except Exception as exc:
             response = {"acknowledged": False, "error": str(exc)}
         try:
-            sample = self._validate(self.port.snapshot(), work=False, after=requested)
+            sample = self._validate(self.port.snapshot(work=False), work=False, after=requested)
             observed = self._stopped(sample)
             terminal = sample.native_motion_settled
         except Exception:
@@ -599,7 +618,7 @@ class PublicCoverageExecutor:
                     IDENTITY,
                     now=current.native_s,
                     prepare_path=prepare_work_path,
-                    service=self._guard,
+                    service=self._planning_service,
                 )
                 if work["kind"] == "NO_CURRENT_OBSERVED_WORK":
                     break

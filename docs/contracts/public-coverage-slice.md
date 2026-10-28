@@ -34,6 +34,14 @@ stop event, and implements the existing live-path and sensor watchdogs. Its
 emergency stop must latch the native Driver against later motion. An RPC ack
 does not prove stop or native-goal termination.
 
+`snapshot(work=False)` must collect original public facts without requiring or
+building work geometry. Stop/off verification uses this mode. Cooperative
+planning also uses this inexpensive mode while checking every declared source,
+the original deadline, native motion state, and battery/dock reserve. The held
+planning grid is only proposal input; dispatch still obtains and validates a
+fresh full work snapshot. Thus a planner callback cannot rebuild a whole grid
+repeatedly or let a missing map block observation of an actual stop.
+
 The bundled App grants no capability, Driver access or permit by installation.
 It currently requires an already undocked robot, sufficient battery reserve,
 and current public graph registration. Charging, return/docking and recovery
