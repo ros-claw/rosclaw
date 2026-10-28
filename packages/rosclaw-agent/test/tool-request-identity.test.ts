@@ -38,6 +38,11 @@ function fixture() {
 	return { ctx, state, requests, proposals, tools: materializeCapabilityTools(snapshot, ctx) };
 }
 
+function errorFlag(result: unknown) {
+	assert.ok(result !== null && typeof result === "object" && "isError" in result);
+	return result.isError;
+}
+
 const signal = new AbortController().signal;
 const invoke = (tool: ReturnType<typeof materializeCapabilityTools>[number], id: string) =>
 	tool.execute(id, {}, signal, async () => {}, {} as never);
@@ -48,7 +53,7 @@ test("parallel projected inspections at the same millisecond keep distinct inten
 	const results = await Promise.all(f.tools.map((tool, i) => invoke(tool, `actual-call-${i}`)));
 	assert.equal(new Set(f.requests.map(r => r.request_id)).size, 3);
 	assert.equal(new Set(f.requests.map(r => r.idempotency_key)).size, 3);
-	assert.ok(results.every(result => result.isError === false));
+	assert.ok(results.every(result => errorFlag(result) === false));
 });
 
 test("same projected call preserves identity across a clock change", async t => {
@@ -75,7 +80,7 @@ test("changing intent under the same logical call still conflicts", async t => {
 	const f = fixture();
 	await invoke(f.tools[0], "reused-call");
 	const conflict = await invoke(f.tools[1], "reused-call");
-	assert.equal(conflict.isError, true);
+	assert.equal(errorFlag(conflict), true);
 	assert.equal((conflict.details as Record<string, unknown>).error_code, "IDEMPOTENCY_CONFLICT");
 });
 
