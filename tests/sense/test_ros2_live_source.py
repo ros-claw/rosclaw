@@ -238,3 +238,11 @@ def test_unavailable_transports_are_not_presented_as_unverified_live_data(source
 
     assert _observation_kind(source) == "unavailable"
     assert _observation_kind("ros2:live") == "unverified"
+
+
+def test_runtime_topics_do_not_implicitly_enable_a_transport():
+    from rosclaw.core.runtime import RuntimeConfig
+
+    config = RuntimeConfig(sense_ros2_topics={"battery": {"topic": "/battery", "max_age_s": 3.0}})
+    assert config.sense_collector == "unconfigured"
+    assert config.sense_ros2_use_sim_time is False

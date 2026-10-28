@@ -512,10 +512,35 @@ jobs:
             ${{ runner.temp }}/ros-humble-build-image.json
             ${{ runner.temp }}/ros-humble-build-provenance.tar
 
+  sense-ros2-dds:
+    name: ROS2 Sense DDS
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - name: Build isolated Jazzy telemetry fixture
+        run: docker build -f tests/sense/integration/Dockerfile -t rosclaw/sense-ros2-fixture:ci .
+      - name: Exercise actual ROS data, silence, replay, and owned context restart
+        run: >-
+          docker run --rm --init --network none --read-only --user 1000:1000
+          --cap-drop ALL --security-opt no-new-privileges:true
+          --cpus 1 --memory 512m --pids-limit 128 --tmpfs /tmp:rw,size=64m
+          rosclaw/sense-ros2-fixture:ci
+      - name: Preserve ROS fixture dependency provenance
+        run: |
+          docker image inspect rosclaw/sense-ros2-fixture:ci > "${RUNNER_TEMP}/sense-ros2-image.json"
+          docker run --rm --network none --read-only --entrypoint cat rosclaw/sense-ros2-fixture:ci /ros-sense-fixture-packages.tsv > "${RUNNER_TEMP}/sense-ros2-packages.tsv"
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: sense-ros2-fixture-provenance
+          path: |
+            ${{ runner.temp }}/sense-ros2-image.json
+            ${{ runner.temp }}/sense-ros2-packages.tsv
+
   build:
     name: Build Package
     runs-on: ubuntu-latest
-    needs: [lint, type-check, test, full-regression, product-acceptance, cross-uid-boundary]
+    needs: [lint, type-check, test, full-regression, product-acceptance, cross-uid-boundary, sense-ros2-dds]
     steps:
       - uses: actions/checkout@v7.0.0
 
