@@ -109,8 +109,16 @@ class TestWaitStopOperation:
         from rosclaw.agentd.pi_bridge.tool_dispatch import PiToolDispatcher
 
         dispatcher = PiToolDispatcher(service)
+        # Tool cancellation needs the actual mission/session's owned task;
+        # an arbitrary task ID is no longer authority over a host process.
+        bound = service._task_kernel.ensure_task_for_effect(
+            mission_id=mission.mission_id,
+            session_ref="pi_1",
+            backend_native_id="pi_1",
+            cwd=str(tmp_path),
+        )
         op = await service._operation_manager.start(
-            task_id="task_x", attempt_id="a", kind="process",
+            task_id=bound["task_id"], attempt_id="a", kind="process",
             argv=[sys.executable, "-c", "import time; time.sleep(30)"],
         )
         result = await dispatcher.execute(
