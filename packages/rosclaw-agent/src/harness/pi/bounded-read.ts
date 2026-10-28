@@ -24,6 +24,7 @@ const { resolveReadPathAsync } = await import(new URL("./core/tools/path-utils.j
 
 export const BYTE_CHUNK_MAX = 32 * 1024;
 const SCHEMA = "rosclaw.read.bytes.v1";
+const CURSOR_RECOVERY = "Discard previous chunks. Restart the intended path with mode=bytes, omitting cursor, offset and limit; then use only its newly returned nextCursor.";
 const parameters = Type.Object({
  path: Type.String({ description: "File path (same semantics as line read)" }),
  mode: Type.Optional(Type.Union([Type.Literal("lines"), Type.Literal("bytes")])),
@@ -54,6 +55,9 @@ export interface BoundedReadOptions extends ReadToolOptions {
 }
 function fail(code: string, message: string): never {
  throw new Error(`${code}: ${message}`);
+}
+function cursorFailure(code: "INVALID_CURSOR" | "STALE_CURSOR", message: string): never {
+ return fail(code, `${message}. ${CURSOR_RECOVERY}`);
 }
 /** PI strict provider schemas represent omitted optionals as null. PI's own
  * validateToolArguments normalizes those against the ORIGINAL schema, but runs
@@ -127,10 +131,10 @@ const localRanges: BoundedReadOperationsV1 = {
      const handleState = await file.stat({ bigint: true });
      let pathState: typeof initial;
      try { pathState = await stat(path, { bigint: true }); }
-     catch { return fail("STALE_CURSOR", "file pathname changed; restart mode=bytes without cursor"); }
+     catch { return cursorFailure("STALE_CURSOR", "file pathname changed"); }
      if (fingerprint(handleState) !== fingerprint(initial)
       || fingerprint(handleState) !== fingerprint(pathState)) {
-      fail("STALE_CURSOR", "file replaced during read; restart mode=bytes without cursor");
+      cursorFailure("STALE_CURSOR", "file replaced during read");
      }
      return fingerprint(handleState);
     },
@@ -168,20 +172,20 @@ export function buildBoundedReadTool(cwd: string, options: BoundedReadOptions = 
  };
  const decode = (cursor: string, path: string, revision: string, size: number) => {
   const parts = cursor.split(".");
-  if (parts.length !== 2 || !parts.every(p => /^[A-Za-z0-9_-]+$/.test(p))) fail("INVALID_CURSOR", "malformed cursor");
+  if (parts.length !== 2 || !parts.every(p => /^[A-Za-z0-9_-]+$/.test(p))) cursorFailure("INVALID_CURSOR", "malformed cursor");
   const signature = Buffer.from(parts[1], "base64url");
   if (signature.length !== 32 || !timingSafeEqual(sign(parts[0]), signature)) {
-   fail("INVALID_CURSOR", "cursor not issued by this read instance; restart without cursor");
+   cursorFailure("INVALID_CURSOR", "cursor not issued by this read instance");
   }
   let value: unknown;
   try { value = JSON.parse(Buffer.from(parts[0], "base64url").toString("utf8")); }
-  catch { return fail("INVALID_CURSOR", "malformed cursor payload"); }
+  catch { return cursorFailure("INVALID_CURSOR", "malformed cursor payload"); }
   if (!Array.isArray(value) || value.length !== 4 || value[0] !== 1
    || value[1] !== hash(path) || !Number.isSafeInteger(value[3]) || value[3] < 0) {
-   fail("INVALID_CURSOR", "cursor path, version or byte position mismatch");
+   cursorFailure("INVALID_CURSOR", "cursor path, version or byte position mismatch");
   }
-  if (value[2] !== hash(revision)) fail("STALE_CURSOR", "file changed; restart mode=bytes without cursor (discard previous chunks)");
-  if (value[3] > size) fail("INVALID_CURSOR", "cursor beyond EOF");
+  if (value[2] !== hash(revision)) cursorFailure("STALE_CURSOR", "file changed");
+  if (value[3] > size) cursorFailure("INVALID_CURSOR", "cursor beyond EOF");
   return value[3] as number;
  };
  // The legacy output schema is string/image only. Do not falsely advertise it
@@ -191,7 +195,7 @@ export function buildBoundedReadTool(cwd: string, options: BoundedReadOptions = 
   ...base,
   parameters,
   description: legacy.description + " ROSClaw PI 1.4 wrapper: for huge lines, restart with mode='bytes' (no offset/limit). "
-   + "Returns exact UTF-8 source prefix plus metadata; use nextCursor as cursor on the same path until eof=true. "
+   + "Returns exact UTF-8 source prefix plus metadata; for a complete file, use nextCursor as cursor on the same path until eof=true. "
    + "maxBytes=4..32768 (default 32768); cursor is byte-based, instance/revision-bound. "
    + "Optional null fields mean omitted (mode defaults to lines; cursor starts at byte 0). "
    + "No shell needed. Unknown keys/mixed modes are rejected. Invalid UTF-8 is explicitly blocked.",
@@ -207,8 +211,10 @@ export function buildBoundedReadTool(cwd: string, options: BoundedReadOptions = 
      const nextRead = ranges ? { path: input.path, mode: "bytes" as const } : null;
      const continuation = { schema: SCHEMA, status: ranges ? "restart_bytes" : "blocked",
       code: ranges ? "LINE_EXCEEDS_LIMIT" : "BYTE_MODE_UNSUPPORTED", nextRead };
+     const totalBytes = result.details.truncation.totalBytes;
+     const sizeHint = `File size: ${totalBytes} bytes; about ${Math.ceil(totalBytes / BYTE_CHUNK_MAX)} byte pages at default maxBytes=${BYTE_CHUNK_MAX} (UTF-8 boundaries can add pages). `;
      const text = ranges
-      ? `[Line exceeds the line-read byte limit. Do not skip this line. Restart from file byte 0 with read ${JSON.stringify(nextRead)}; concatenate only bytes-mode payloads until eof=true.]`
+      ? `[Line exceeds the line-read byte limit. ${sizeHint}Do not skip this line. Restart from file byte 0 with read ${JSON.stringify(nextRead)}. If you need the complete file, concatenate only bytes-mode payloads until eof=true; otherwise inspect only the data needed.]`
       : "[BYTE_MODE_UNSUPPORTED: LINE_EXCEEDS_LIMIT: remote ReadOperations has no BoundedReadOperationsV1. Byte continuation blocked; configure the versioned range adapter. Do not skip this line.]";
      return { ...result, content: [{ type: "text" as const, text }], structuredContent: text,
       details: { ...result.details, continuation } };
@@ -235,9 +241,9 @@ export function buildBoundedReadTool(cwd: string, options: BoundedReadOptions = 
      const length = Math.min(maxBytes + 1, reader.size - start);
      const buffer = await reader.readAt(start, length, signal);
      checkAbort(signal);
-     if (await reader.revision() !== revision) fail("STALE_CURSOR", "file changed during read; discard chunks and restart without cursor");
+     if (await reader.revision() !== revision) cursorFailure("STALE_CURSOR", "file changed during read");
      checkAbort(signal);
-     if (buffer.length !== length) fail("STALE_CURSOR", "short/inconsistent range read; restart without cursor");
+     if (buffer.length !== length) cursorFailure("STALE_CURSOR", "short/inconsistent range read");
      let used = Math.min(maxBytes, buffer.length);
      if (used < buffer.length) while (used > 0 && (buffer[used] & 0xc0) === 0x80) used--;
      let text: string;

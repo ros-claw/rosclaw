@@ -85,7 +85,7 @@ export function classifyModelError(raw: string): ClassifiedModelError {
 		return {
 			code: "PROVIDER_RATE_LIMITED",
 			explanation: "请求频率超限",
-			recovery: "稍等自动重试；持续超限可 /model 换模型",
+			recovery: "稍后重新发送消息；持续超限可 /model 换模型",
 			taskRecoverable: true,
 		};
 	}
@@ -135,7 +135,7 @@ export function classifyModelError(raw: string): ClassifiedModelError {
 		return {
 			code: "PROVIDER_UNAVAILABLE",
 			explanation: "provider 暂不可达",
-			recovery: "自动重试中；持续失败检查网络",
+			recovery: "重新发送消息继续；持续失败检查网络或 /model 换模型",
 			taskRecoverable: true,
 		};
 	}
@@ -178,7 +178,11 @@ export class ProviderErrorGate {
 			};
 		}
 		if (this.shown === classified.code) {
-			return { showCard: false, cardText: "" };
+			return {
+				showCard: false,
+				cardText: "",
+				activity: { code: classified.code, raw: String(opts.raw ?? "").slice(0, 1000) },
+			};
 		}
 		this.shown = classified.code;
 		const recoverable = classified.taskRecoverable && opts.hasActiveTask

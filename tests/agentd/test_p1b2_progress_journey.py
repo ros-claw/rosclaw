@@ -63,12 +63,19 @@ class _ProgressFake:
                 "usage": {"prompt_tokens": 5, "completion_tokens": 5},
             }).encode()
         has_tool_result = bool(messages) and messages[-1].get("role") == "tool"
-        last_text = _text(messages[-1]) if messages else ""
         if has_tool_result:
             frames = [_sse(_chunk("已在后台启动 operation，完成会通知。")),
                       _sse(_chunk("", "stop")), b"data: [DONE]\n\n"]
             return b"".join(frames)
-        if "已终止" in last_text:
+        # Custom terminal notifications become user messages. A fresh trusted
+        # context can follow them; inspect the latest actual user event rather
+        # than the last message, without matching old terminals across a new input.
+        latest_user_event = next((
+            _text(message) for message in reversed(messages)
+            if message.get("role") == "user"
+            and not _text(message).lstrip().startswith("<ROSCLAW_TRUSTED_CONTEXT>")
+        ), "")
+        if re.match(r"后台 Operation op_[a-zA-Z0-9]+ 已终止：", latest_user_event):
             frames = [_sse(_chunk("后台 Operation 已完成并汇报。")),
                       _sse(_chunk("", "stop")), b"data: [DONE]\n\n"]
             return b"".join(frames)
@@ -80,6 +87,39 @@ class _ProgressFake:
         )
         frames.append(b"data: [DONE]\n\n")
         return b"".join(frames)
+
+
+def test_progress_fake_routes_current_terminal_past_trusted_context() -> None:
+    fake = _ProgressFake()
+    initial = {"role": "user", "content": "后台跑分阶段命令"}
+    terminal = {"role": "user", "content": "后台 Operation op_abc123 已终止：SUCCEEDED。"}
+    context = {"role": "user", "content": [
+        {"type": "text", "text": "<ROSCLAW_TRUSTED_CONTEXT>\ncurrent body\n</ROSCLAW_TRUSTED_CONTEXT>"},
+    ]}
+
+    def answer(messages: list[dict]) -> list[dict]:
+        payload = fake.answer({"stream": True, "messages": messages})
+        return [json.loads(frame[6:]) for frame in payload.split(b"\n\n")
+                if frame.startswith(b"data: ") and frame != b"data: [DONE]"]
+
+    def calls(chunks: list[dict]) -> list[dict]:
+        return [call for chunk in chunks for choice in chunk["choices"]
+                for call in choice["delta"].get("tool_calls", [])
+                if call.get("function", {}).get("name")]
+
+    first = answer([initial, context])
+    assert [call["function"]["name"] for call in calls(first)] == ["process_start"]
+    completed = answer([initial, terminal, context])
+    assert not calls(completed)
+    assert any("后台 Operation 已完成并汇报" in choice["delta"].get("content", "")
+               for chunk in completed for choice in chunk["choices"])
+    # An old operation result must not complete a later, new user request.
+    later = answer([initial, terminal, context, {"role": "user", "content": "再跑一次"}, context])
+    assert [call["function"]["name"] for call in calls(later)] == ["process_start"]
+    tool_reply = answer([initial, terminal, {"role": "tool", "content": "started"}])
+    assert not calls(tool_reply)
+    assert any("已在后台启动 operation" in choice["delta"].get("content", "")
+               for chunk in tool_reply for choice in chunk["choices"])
 
 
 class _ProgressFakeServer(_FakeServer):

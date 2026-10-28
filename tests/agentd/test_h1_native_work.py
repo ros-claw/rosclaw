@@ -18,6 +18,7 @@ import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from uuid import uuid4
 
 from tests.agentd.test_product_journey import (
     PtySession,
@@ -89,6 +90,50 @@ class _DirectWorkFake:
         return b"".join(frames)
 
 
+def _with_unique_response_id(payload: bytes) -> bytes:
+    """One provider identity per HTTP response, shared by all its SSE chunks."""
+    response_id = f"chatcmpl-fake-{uuid4().hex}"
+    if not payload.startswith(b"data: "):
+        response = json.loads(payload)
+        response["id"] = response_id
+        return json.dumps(response, ensure_ascii=False).encode()
+    frames = payload.split(b"\n\n")
+    for index, frame in enumerate(frames):
+        if frame.startswith(b"data: ") and frame != b"data: [DONE]":
+            chunk = json.loads(frame[6:])
+            chunk["id"] = response_id
+            frames[index] = b"data: " + json.dumps(chunk, ensure_ascii=False).encode()
+    return b"\n\n".join(frames)
+
+
+def test_fake_response_identity_is_unique_per_response_not_per_chunk() -> None:
+    original = b"".join([
+        *_tool_call_frames("call_write", "write", '{"path":"hello.txt"}'),
+        _sse(_chunk("done", "stop")),
+        b"data: [DONE]\n\n",
+    ])
+
+    def chunks(payload: bytes) -> list[dict]:
+        return [json.loads(frame[6:]) for frame in payload.split(b"\n\n")
+                if frame.startswith(b"data: ") and frame != b"data: [DONE]"]
+
+    first, second = _with_unique_response_id(original), _with_unique_response_id(original)
+    first_ids = {chunk["id"] for chunk in chunks(first)}
+    second_ids = {chunk["id"] for chunk in chunks(second)}
+    assert len(first_ids) == len(second_ids) == 1
+    assert first_ids.isdisjoint(second_ids)
+    assert first.endswith(b"data: [DONE]\n\n")
+    def without_ids(payload: bytes) -> list[dict]:
+        return [{k: v for k, v in chunk.items() if k != "id"}
+                for chunk in chunks(payload)]
+
+    assert without_ids(first) == without_ids(second) == without_ids(original)
+    plain = {"id": "chatcmpl-fake", "choices": [{"message": {"content": "pong"}}]}
+    actual = json.loads(_with_unique_response_id(json.dumps(plain).encode()))
+    assert actual.pop("id") != plain.pop("id")
+    assert actual == plain
+
+
 class _Handler(BaseHTTPRequestHandler):
     fake: _DirectWorkFake
 
@@ -98,7 +143,7 @@ class _Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         length = int(self.headers.get("Content-Length", "0"))
         body = json.loads(self.rfile.read(length) or b"{}")
-        payload = self.fake.answer(body)
+        payload = _with_unique_response_id(self.fake.answer(body))
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Content-Length", str(len(payload)))

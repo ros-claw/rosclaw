@@ -116,6 +116,25 @@ test("repro 02: changing line limit to 1024 does not claim giant-line progress",
  const path = put(root, "giant.json", giant), r = runtime(root);
  assert.equal(text(await r.call({ path, offset: 1, limit: 1 })), text(await r.call({ path, offset: 1, limit: 1024 })));
 }));
+test("giant-line recovery shows file size and approximate default page cost in model-visible text", fixture(async root => {
+ for (const bytes of [Buffer.alloc(51201, "Q"), giant, jsonBytes(679452, "汉🙂e\u0301")]) {
+  const path = put(root, "size.json", bytes), r = runtime(root);
+  const result = await r.call(providerRead(path, { limit: 1 }));
+  assert.equal(result.isError, false);
+  const visible = text(result);
+  assert.ok(visible.includes(`File size: ${bytes.length} bytes`));
+  assert.ok(visible.includes(`about ${Math.ceil(bytes.length / BYTE_CHUNK_MAX)} byte pages`));
+  assert.match(visible, /default maxBytes=32768 \(UTF-8 boundaries can add pages\)/);
+  assert.match(visible, /If you need the complete file/);
+  assert.match(visible, /otherwise inspect only the data needed/);
+  // The advertised next call still works through normal provider dispatch;
+  // the hint is not counted as source content or fabricated progress.
+  const next = (result.details as { continuation: { nextRead: Record<string, unknown> } }).continuation.nextRead;
+  const first = await r.call(next);
+  assert.equal(first.isError, false); assert.equal(meta(first).startByte, 0);
+  assert.deepEqual(Buffer.from(first.content[0].type === "text" ? first.content[0].text : ""), bytes.subarray(0, meta(first).endByte));
+ }
+}));
 test("repro 03: no-LF offset2 retains ordinary EOF error", fixture(async root => {
  const path = put(root, "giant.json", giant), result = await runtime(root).call({ path, offset: 2, limit: 1 });
  assert.equal(result.isError, true); assert.match(text(result), /beyond end of file \(1 lines total\)/);
@@ -318,6 +337,30 @@ test("malformed, forged/beyond-EOF, wrong-path and wrong-instance cursors are re
  }
  assert.match(text(await r.call({ path: other, mode: "bytes", cursor })), /INVALID_CURSOR/);
  assert.match(text(await runtime(root).call({ path, mode: "bytes", cursor })), /INVALID_CURSOR/);
+}));
+test("cursor errors explain a safe fresh restart without echoing long tokens", fixture(async root => {
+ const path = put(root, "a", "abcdefghijkl"), other = put(root, "b", "ABCDEFGHIJKL"), r = runtime(root);
+ const cursor = meta(await r.call({ path, mode: "bytes", maxBytes: 4 })).nextCursor;
+ for (const [reader, file, token] of [[r, path, "bad"], [r, other, cursor], [runtime(root), path, cursor]] as const) {
+  const rejected = await reader.call({ path: file, mode: "bytes", cursor: token });
+  assert.equal(rejected.isError, true); assert.match(text(rejected), /INVALID_CURSOR/);
+  assert.match(text(rejected), /Discard previous chunks/);
+  assert.match(text(rejected), /mode=bytes, omitting cursor, offset and limit/);
+  assert.match(text(rejected), /newly returned nextCursor/);
+  assert.ok(!text(rejected).includes(cursor), "error must not repeat opaque tokens");
+  // Execute the recovery as instructed, on the intended path and same reader.
+  const fresh = await reader.call({ path: file, mode: "bytes" });
+  assert.equal(fresh.isError, false); assert.equal(meta(fresh).startByte, 0);
+  assert.equal(meta(fresh).eof, true);
+ }
+ writeFileSync(join(root, path), "mnopqrstuvwx");
+ const stale = await r.call({ path, mode: "bytes", cursor });
+ assert.equal(stale.isError, true); assert.match(text(stale), /STALE_CURSOR/);
+ assert.match(text(stale), /Discard previous chunks/);
+ assert.match(text(stale), /mode=bytes, omitting cursor, offset and limit/);
+ const fresh = await r.call({ path, mode: "bytes" });
+ assert.equal(fresh.isError, false); assert.equal(meta(fresh).startByte, 0);
+ assert.equal(fresh.content[0].type === "text" && fresh.content[0].text, "mnopqrstuvwx");
 }));
 test("provider nulls do not weaken cursor instance/path/revision/EOF binding", fixture(async root => {
  const path = put(root, "bound", "abcdefgh"), other = put(root, "other", "abcdefgh"), r = runtime(root);

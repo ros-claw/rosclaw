@@ -25,6 +25,7 @@ import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 
 import { resolveInRoot, _bashTimeoutMs } from "../workers/workbench.js";
+import { BashProcessOwnership, signalBashFallback } from "./bash-process-ownership.js";
 
 const MAX_OUTPUT_BYTES = 64 * 1024;
 
@@ -258,6 +259,7 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 				timedOut: boolean; aborted: boolean; spawnError?: string;
 				truncated: boolean; originalOutputBytes: number;
 				outputBytes: number; outputLimitBytes: number;
+				processCleanup?: { status: "captured_descendants_stopped" | "unresolved"; unresolvedPids: number[] };
 			}>((resolvePromise) => {
 				// Agent commands often explicitly nest `bash -c`. Export the enabled
 				// options so an inner pipeline cannot hide a failed timeout behind tail.
@@ -289,6 +291,9 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 					env: scrubbedEnv,
 					detached: process.platform !== "win32",
 				});
+				const ownership = process.platform === "linux" && child.pid
+					? new BashProcessOwnership(child.pid) : undefined;
+				let processCleanup: { status: "captured_descendants_stopped" | "unresolved"; unresolvedPids: number[] } | undefined;
 				// 输出边界（诚实截断修复）：每条流独立增量 UTF8 解码
 				// （跨 chunk 多字节字符由 TextDecoder 保持，不跨流拼接
 				// 不完整码点）；保留前缀按原始字节计数并落在码点边界；
@@ -341,12 +346,17 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 				let timer: NodeJS.Timeout | null = null;
 				let killTimer: NodeJS.Timeout | null = null;
 				const killTree = (sig: NodeJS.Signals) => {
-					try {
-						if (process.platform !== "win32" && child.pid) process.kill(-child.pid, sig);
-						else child.kill(sig);
-					} catch (err) {
-						if ((err as NodeJS.ErrnoException).code !== "ESRCH") child.kill(sig);
+					if (ownership) {
+						void ownership.stop(sig === "SIGKILL").then((result) => {
+							processCleanup = result;
+							if (result.status === "unresolved") finishUnresolved();
+						}, () => {
+							processCleanup = { status: "unresolved", unresolvedPids: [] };
+							finishUnresolved();
+						});
+						return;
 					}
+					signalBashFallback(child, sig);
 				};
 				const cancel = () => {
 					if (settled) return;
@@ -364,7 +374,7 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 							? "no timeout set"
 							: `timeout remaining=${(timeoutRemainingMs / 1000).toFixed(1)}s`;
 						onUpdate?.({
-							content: [{ type: "text", text: `${degradedMarker}running wall=${elapsedMs}ms; output quiet=${(outputQuietMs / 1000).toFixed(1)}s; ${deadline}; Esc interrupts this task, including its running background operations.\n${liveTail}` }],
+							content: [{ type: "text", text: `${degradedMarker}running wall=${elapsedMs}ms; output quiet=${(outputQuietMs / 1000).toFixed(1)}s; ${deadline}; Esc requests interruption; the cleanup result reports whether captured processes stopped.\n${liveTail}` }],
 							details: { running: true, elapsedMs, outputQuietMs, timeoutRemainingMs },
 						});
 					} catch { /* UI failure must not orphan the command. */ }
@@ -375,6 +385,7 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 					if (timer) clearTimeout(timer);
 					if (killTimer) clearTimeout(killTimer);
 					clearInterval(progress);
+					ownership?.dispose();
 					signal?.removeEventListener("abort", cancel);
 					resolvePromise({
 						output: text, exitCode, signal: exitSignal, timedOut, aborted,
@@ -383,9 +394,11 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 						originalOutputBytes,
 						outputBytes: retainedBytes,
 						outputLimitBytes: MAX_OUTPUT_BYTES,
+						...(processCleanup ? { processCleanup } : {}),
 					});
 				};
 				const collectOutput = (decoder: TextDecoder) => (d: Buffer) => {
+					if (settled) return;
 					originalOutputBytes += d.length;
 					const text = decoder.decode(d, { stream: true });
 					appendDecoded(text);
@@ -400,11 +413,9 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 						killTree("SIGKILL");
 					}, timeoutMs);
 				}
-				child.on("close", (code, exitSignal) => {
-					// A shell can exit before a child that ignores SIGTERM. Clean
-					// the process group before releasing the tool's cancellation.
-					if (aborted || timedOut) killTree("SIGKILL");
-					const head = `exit=${code ?? "signal"} wall=${Date.now() - started}ms`
+				const completeOutput = (code: number | null, exitSignal: NodeJS.Signals | null) => {
+					if (settled) return; // close may arrive after bounded unresolved cleanup.
+					const head = `exit=${code ?? (exitSignal ? "signal" : "unconfirmed")} wall=${Date.now() - started}ms`
 						+ (timedOut ? " TIMEOUT(explicit)" : "")
 						+ (aborted ? " ABORTED" : "");
 					// 终端关闭时冲刷两条流的解码器（有效输入下仅补齐
@@ -416,7 +427,26 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 					const notice = truncated
 						? `\n[TRUNCATED output preview: retained ${retainedBytes} of ${originalOutputBytes} raw stdout/stderr bytes (fixed limit ${MAX_OUTPUT_BYTES} bytes); excess bytes counted but not retained]`
 						: "";
-					finish(`${degradedMarker}${head}\n${payload}${notice}`, code, exitSignal);
+					const cleanupNotice = processCleanup?.status === "unresolved" ? "\nProcess cleanup unresolved; captured descendants may still be running." : "";
+					finish(`${degradedMarker}${head}\n${payload}${notice}${cleanupNotice}`, code, exitSignal);
+				};
+				const finishUnresolved = () => {
+					if (settled) return;
+					// A surviving descendant can retain the pipe after the shell exits.
+					// End only this tool's observation; do not signal an unverified PID.
+					child.stdin?.destroy(); child.stdout?.destroy(); child.stderr?.destroy();
+					child.unref();
+					completeOutput(child.exitCode, child.signalCode);
+				};
+				child.on("close", async (code, exitSignal) => {
+					if (settled) return;
+					if (aborted || timedOut) {
+						if (ownership) {
+							try { processCleanup = await ownership.stop(timedOut); }
+							catch { processCleanup = { status: "unresolved", unresolvedPids: [] }; }
+						} else killTree("SIGKILL");
+					}
+					completeOutput(code, exitSignal);
 				});
 				child.on("error", (err) => finish(`spawn error: ${err.message}`, null, null, err.message));
 				signal?.addEventListener("abort", cancel, { once: true });

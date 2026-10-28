@@ -114,3 +114,31 @@ test("live OpenAI websocket restart is recoverable provider disconnect, not unkn
 		assert.doesNotMatch(error.recovery, /自动重试中/);
 	}
 });
+
+test("terminal network and rate-limit cards give a recovery action without claiming a retry", () => {
+	for (const raw of [
+		"fetch failed ECONNRESET", "Request timed out.", "503 unavailable",
+		"429 too many requests", "403 concurrent request limit",
+	]) {
+		const error = classifyAssistantFailure({ role: "assistant", stopReason: "error", errorMessage: raw });
+		assert.ok(error);
+		const card = new ProviderErrorGate().onError(error, { hasActiveTask: true, raw });
+		assert.match(card.cardText, /重新发送消息/);
+		assert.doesNotMatch(card.cardText, /自动重试/);
+		assert.match(card.cardText, /任务保持可恢复/);
+	}
+});
+
+test("deduplicating provider cards preserves each bounded error in activity", () => {
+	const gate = new ProviderErrorGate();
+	const error = classifyModelError("503 unavailable");
+	const first = gate.onError(error, { hasActiveTask: true, raw: "503 first attempt" });
+	const raw = "503 second attempt " + "x".repeat(1200);
+	const second = gate.onError(error, { hasActiveTask: true, raw });
+	assert.equal(first.showCard, true);
+	assert.equal(second.showCard, false);
+	assert.equal(second.cardText, "");
+	assert.deepEqual(second.activity, { code: "PROVIDER_UNAVAILABLE", raw: raw.slice(0, 1000) });
+	assert.notDeepEqual(first.activity, second.activity);
+	assert.equal(gate.pausedCode, "PROVIDER_UNAVAILABLE");
+});
