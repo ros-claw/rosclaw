@@ -673,8 +673,9 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			if (details.rosclaw_bridge_result !== "v1"
 				&& event.toolName !== "rosclaw_request_action" && !event.toolName.startsWith("propose_")) return;
 			// An explicit unsuccessful bridge result must not depend on an
-			// exhaustive list of failure spellings. Pending acceptance is separate.
-			if (details.ok === false && !["QUEUED", "ADMITTED", "RUNNING", "STARTED", "WAITING_APPROVAL", "CANCELING"].includes(String(details.status))) {
+			// exhaustive list of failure spellings. Pending acceptance and an
+			// explicit user decline retain their existing non-error semantics.
+			if (details.ok === false && !["QUEUED", "ADMITTED", "RUNNING", "STARTED", "WAITING_APPROVAL", "CANCELING", "DECLINED"].includes(String(details.status))) {
 				return { isError: true };
 			}
 		});

@@ -229,7 +229,7 @@ for (const kind of ["projected", "bridge"]) {
 			const replies = await Promise.all((handlers.get("tool_result") ?? []).map(handler =>
 				handler({ toolName: tool.name, details, isError: false }, {})));
 			const error = replies.some(reply => (reply as { isError?: boolean } | undefined)?.isError === true);
-			assert.equal(error, ["REJECTED", "UNKNOWN", "LOST", "NO_MISSION", "REPAIR_REQUIRED", "DECLINED"].includes(scenario));
+			assert.equal(error, ["REJECTED", "UNKNOWN", "LOST", "NO_MISSION", "REPAIR_REQUIRED"].includes(scenario));
 		});
 	}
 }
