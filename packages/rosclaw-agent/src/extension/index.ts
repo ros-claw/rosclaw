@@ -672,7 +672,9 @@ export function createRosclawExtension(options: RosclawExtensionOptions): Extens
 			// contract. This is failure reporting, never an execution authority.
 			if (details.rosclaw_bridge_result !== "v1"
 				&& event.toolName !== "rosclaw_request_action" && !event.toolName.startsWith("propose_")) return;
-			if (details.ok === false && ["REJECTED", "FAILED", "UNKNOWN", "LOST", "CANCELLED", "EXPIRED", "TIMED_OUT", "ORPHANED", "BLOCKED", "DEGRADED"].includes(String(details.status))) {
+			// An explicit unsuccessful bridge result must not depend on an
+			// exhaustive list of failure spellings. Pending acceptance is separate.
+			if (details.ok === false && !["QUEUED", "ADMITTED", "RUNNING", "STARTED", "WAITING_APPROVAL", "CANCELING"].includes(String(details.status))) {
 				return { isError: true };
 			}
 		});

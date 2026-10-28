@@ -195,7 +195,7 @@ test("conflict 渲染器输出内核覆盖文案", async () => {
 });
 
 for (const kind of ["projected", "bridge"]) {
-	for (const scenario of ["REJECTED", "UNKNOWN", "LOST", "RUNNING", "WAITING_APPROVAL", "NO_MISSION"]) {
+	for (const scenario of ["REJECTED", "UNKNOWN", "LOST", "RUNNING", "WAITING_APPROVAL", "NO_MISSION", "REPAIR_REQUIRED", "DECLINED", "QUEUED", "ADMITTED", "STARTED", "CANCELING"]) {
 		test(`actual Pi result hook preserves ${kind} ${scenario} semantics`, async () => {
 			const { handlers } = await collectHarness();
 			const { materializeCapabilityTools } = await import("../src/tools/materialize.js");
@@ -229,7 +229,7 @@ for (const kind of ["projected", "bridge"]) {
 			const replies = await Promise.all((handlers.get("tool_result") ?? []).map(handler =>
 				handler({ toolName: tool.name, details, isError: false }, {})));
 			const error = replies.some(reply => (reply as { isError?: boolean } | undefined)?.isError === true);
-			assert.equal(error, ["REJECTED", "UNKNOWN", "LOST", "NO_MISSION"].includes(scenario));
+			assert.equal(error, ["REJECTED", "UNKNOWN", "LOST", "NO_MISSION", "REPAIR_REQUIRED", "DECLINED"].includes(scenario));
 		});
 	}
 }
