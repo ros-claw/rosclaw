@@ -118,10 +118,15 @@ class TestSceneBReach:
             )
         )
 
-        history = runtime.event_bus.get_history(limit=5)
-        trace_ids = [e.trace_id for e in history if e.trace_id]
-        assert len(trace_ids) >= 1, "Events should have trace_id"
-        assert "trace_scene_b_001" in trace_ids, "Original trace_id should be preserved"
+        # Query each relevant topic before bounding history. Concurrent Sense
+        # events must not evict the command that this assertion is inspecting.
+        commands = runtime.event_bus.get_history(topic="agent.command", limit=5)
+        assert any(e.trace_id == "trace_scene_b_001" for e in commands), (
+            "Original trace_id should be preserved"
+        )
+        history = runtime.event_bus.get_history(topic="skill.execution.start", limit=5)
+        started = [e for e in history if e.payload.get("episode_id") == "ep_scene_b_001"]
+        assert started and all(e.trace_id for e in started), "Events should have trace_id"
 
     def test_scene_b_episode_recorder_captures_reach(self, runtime):
         """EpisodeRecorder must capture reach task via EventBus."""
