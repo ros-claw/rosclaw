@@ -49,7 +49,7 @@ export function buildGovernanceTools(ctx: BridgeToolContext): ToolDefinition[] {
 						...(thinking ? { thinking } : {}),
 					};
 				}
-				return await executeVia(ctx, "rosclaw_task_submit", args);
+				return await executeVia(ctx, "rosclaw_task_submit", args, _id);
 			},
 		}),
 		defineTool({
@@ -62,7 +62,7 @@ export function buildGovernanceTools(ctx: BridgeToolContext): ToolDefinition[] {
 				execution_id: Type.String(),
 			}),
 			async execute(_id, params, _signal, _onUpdate, _ctx) {
-				return await executeVia(ctx, "rosclaw_task_observe", params as Record<string, unknown>);
+				return await executeVia(ctx, "rosclaw_task_observe", params as Record<string, unknown>, _id);
 			},
 		}),
 		defineTool({
@@ -74,7 +74,7 @@ export function buildGovernanceTools(ctx: BridgeToolContext): ToolDefinition[] {
 				message: Type.String(),
 			}),
 			async execute(_id, params, _signal, _onUpdate, _ctx) {
-				return await executeVia(ctx, "rosclaw_task_steer", params as Record<string, unknown>);
+				return await executeVia(ctx, "rosclaw_task_steer", params as Record<string, unknown>, _id);
 			},
 		}),
 		defineTool({
@@ -86,7 +86,7 @@ export function buildGovernanceTools(ctx: BridgeToolContext): ToolDefinition[] {
 				answer: Type.String(),
 			}),
 			async execute(_id, params, _signal, _onUpdate, _ctx) {
-				return await executeVia(ctx, "rosclaw_task_answer", params as Record<string, unknown>);
+				return await executeVia(ctx, "rosclaw_task_answer", params as Record<string, unknown>, _id);
 			},
 		}),
 		defineTool({
@@ -95,7 +95,7 @@ export function buildGovernanceTools(ctx: BridgeToolContext): ToolDefinition[] {
 			description: "Pause a running execution (control ACK — session preserved).",
 			parameters: Type.Object({ execution_id: Type.String() }),
 			async execute(_id, params, _signal, _onUpdate, _ctx) {
-				return await executeVia(ctx, "rosclaw_task_pause", params as Record<string, unknown>);
+				return await executeVia(ctx, "rosclaw_task_pause", params as Record<string, unknown>, _id);
 			},
 		}),
 		defineTool({
@@ -104,7 +104,7 @@ export function buildGovernanceTools(ctx: BridgeToolContext): ToolDefinition[] {
 			description: "Resume a paused execution (same session).",
 			parameters: Type.Object({ execution_id: Type.String() }),
 			async execute(_id, params, _signal, _onUpdate, _ctx) {
-				return await executeVia(ctx, "rosclaw_task_resume", params as Record<string, unknown>);
+				return await executeVia(ctx, "rosclaw_task_resume", params as Record<string, unknown>, _id);
 			},
 		}),
 		defineTool({
@@ -113,7 +113,7 @@ export function buildGovernanceTools(ctx: BridgeToolContext): ToolDefinition[] {
 			description: "Cancel an execution (audited control cancel).",
 			parameters: Type.Object({ execution_id: Type.String() }),
 			async execute(_id, params, _signal, _onUpdate, _ctx) {
-				return await executeVia(ctx, "rosclaw_task_cancel", params as Record<string, unknown>);
+				return await executeVia(ctx, "rosclaw_task_cancel", params as Record<string, unknown>, _id);
 			},
 		}),
 	];

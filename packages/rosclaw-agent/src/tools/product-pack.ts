@@ -32,7 +32,7 @@ export function buildProductPackTools(ctx: BridgeToolContext): ToolDefinition[] 
 				return await executeVia(ctx, "rosclaw_deliver", {
 					...(params as Record<string, unknown>),
 					cwd: ctx.workspaceRoot ?? "",
-				});
+				}, _id);
 			},
 		}),
 	];

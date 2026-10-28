@@ -11,7 +11,7 @@
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { fetchEmbodiedContext, renderTrustedContext } from "../extension/context-injection.js";
-import type { BridgeToolContext } from "./bridge-tools.js";
+import { requestIdentity, type BridgeToolContext } from "./bridge-tools.js";
 
 const AWAIT_TIMEOUT_MS = 330_000;
 
@@ -107,7 +107,7 @@ export function buildRequestActionTool(ctx: BridgeToolContext, snapshotDigest?: 
 				context_revision: state.contextRevision,
 				body_hash: state.bodyHash ?? "",
 				mode: state.mode,
-				idempotency_key: `idem_reqact_${state.sessionId}_${Date.now()}`,
+				idempotency_key: requestIdentity(state.sessionId, state.missionId, _id).idempotency_key,
 				// HOTFIX-1：agentd 签发的 ValidatedContextLease——无 lease
 				// 即 CONTEXT_LEASE_REQUIRED（fail closed）。
 				context_lease_id: state.contextLeaseId ?? "",

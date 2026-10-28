@@ -18,7 +18,7 @@
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 
-import type { BridgeToolContext } from "./bridge-tools.js";
+import { requestIdentity, type BridgeToolContext } from "./bridge-tools.js";
 import { buildRequestActionTool } from "./request-action.js";
 import { displayLabelFor, summarizeToolResultText } from "../ui/tool-display.js";
 
@@ -89,7 +89,7 @@ export function materializeCapabilityTools(
 				// wire 形状与 executeVia 一致（envelope.ok + result.*）。
 				const request = {
 					schema_version: "rosclaw.pi_tool_request.v1",
-					request_id: `ptr_cap_${Date.now()}`,
+					...requestIdentity(state.sessionId, state.missionId, _id),
 					pi_session_id: state.sessionId,
 					mission_id: state.missionId,
 					context_revision: state.contextRevision,
@@ -103,7 +103,6 @@ export function materializeCapabilityTools(
 						snapshot_digest: digest,
 					},
 					requested_at: new Date().toISOString(),
-					idempotency_key: `idem_${state.sessionId}_${Date.now()}`,
 					actor: { engine: "pi", process_id: process.pid, uid: process.getuid?.() ?? 0 },
 				};
 				const response = await ctx.center.call("pi.tools.execute", { request }) as {

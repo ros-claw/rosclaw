@@ -5,6 +5,8 @@
  * session/mission/lease/idempotency 语义，由 agentd 强制。
  */
 
+import { createHash, randomUUID } from "node:crypto";
+
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 
@@ -26,14 +28,23 @@ export interface BridgeToolContext {
 	workspaceRoot?: string;
 }
 
-let requestCounter = 0;
+/** One logical Pi call keeps its key across transport retries and clock changes.
+ * Do not include tool/arguments: reuse with a changed intent must still conflict
+ * at the existing daemon binding check. Missing IDs are fresh calls, not retries.
+ */
+export function requestIdentity(sessionId: string | null, missionId: string | null | undefined, toolCallId?: string) {
+	const digest = createHash("sha256").update(JSON.stringify([
+		"rosclaw.pi.tool-call.v1", sessionId, missionId, toolCallId || randomUUID(),
+	])).digest("hex");
+	return { request_id: `ptr_${digest}`, idempotency_key: `idem_${digest}` };
+}
 
 export async function executeVia(
 	ctx: BridgeToolContext,
 	toolName: string,
 	arguments_: Record<string, unknown>,
+	toolCallId?: string,
 ) {
-	requestCounter += 1;
 	const state = ctx.active.current;
 	if (!state.missionId) {
 		return {
@@ -44,7 +55,7 @@ export async function executeVia(
 	}
 	const request = {
 		schema_version: "rosclaw.pi_tool_request.v1",
-		request_id: `ptr_${Date.now()}_${requestCounter}`,
+		...requestIdentity(state.sessionId, state.missionId, toolCallId),
 		pi_session_id: state.sessionId,
 		mission_id: state.missionId,
 		// P0-7：携带已验证 envelope 的精确 revision/body/mode。
@@ -55,7 +66,6 @@ export async function executeVia(
 		tool_name: toolName,
 		arguments: arguments_,
 		requested_at: new Date().toISOString(),
-		idempotency_key: `idem_${state.sessionId}_${Date.now()}_${requestCounter}`,
 		actor: { engine: "pi", process_id: process.pid, uid: process.getuid?.() ?? 0 },
 	};
 	const response = await ctx.center.call("pi.tools.execute", { request });
@@ -89,7 +99,7 @@ export function buildBridgeTools(ctx: BridgeToolContext): ToolDefinition[] {
 				reason: Type.Optional(Type.String()),
 			}),
 			async execute(_id, params, _signal, _onUpdate, _ctx) {
-				return await executeVia(ctx, "rosclaw_observe", params as Record<string, unknown>);
+				return await executeVia(ctx, "rosclaw_observe", params as Record<string, unknown>, _id);
 			},
 		}),
 		defineTool({
@@ -103,7 +113,7 @@ export function buildBridgeTools(ctx: BridgeToolContext): ToolDefinition[] {
 				success_criteria: Type.Optional(Type.String()),
 			}),
 			async execute(_id, params, _signal, _onUpdate, _ctx) {
-				return await executeVia(ctx, "rosclaw_verify", params as Record<string, unknown>);
+				return await executeVia(ctx, "rosclaw_verify", params as Record<string, unknown>, _id);
 			},
 		}),
 		defineTool({
@@ -115,7 +125,7 @@ export function buildBridgeTools(ctx: BridgeToolContext): ToolDefinition[] {
 				scope: Type.Optional(Type.String()),
 			}),
 			async execute(_id, params, _signal, _onUpdate, _ctx) {
-				return await executeVia(ctx, "rosclaw_memory_query", params as Record<string, unknown>);
+				return await executeVia(ctx, "rosclaw_memory_query", params as Record<string, unknown>, _id);
 			},
 		}),
 		defineTool({
@@ -128,7 +138,7 @@ export function buildBridgeTools(ctx: BridgeToolContext): ToolDefinition[] {
 				reason: Type.String(),
 			}),
 			async execute(_id, params, _signal, _onUpdate, _ctx) {
-				return await executeVia(ctx, "rosclaw_fail_safe", params as Record<string, unknown>);
+				return await executeVia(ctx, "rosclaw_fail_safe", params as Record<string, unknown>, _id);
 			},
 		}),
 	];

@@ -43,7 +43,7 @@ export function buildInspectTool(ctx: BridgeToolContext) {
 			return await executeVia(ctx, "rosclaw_inspect", {
 				kind: args.kind,
 				query: args.query ?? "",
-			});
+			}, _toolCallId);
 		},
 	});
 }

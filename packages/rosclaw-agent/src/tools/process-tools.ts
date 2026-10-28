@@ -32,7 +32,7 @@ export function buildProcessTools(ctx: BridgeToolContext): ToolDefinition[] {
 			async execute(_id, params, _signal, _onUpdate, _toolCtx) {
 				return await executeVia(ctx, "rosclaw_process_start", {
 					command: String(params.command ?? ""),
-				});
+				}, _id);
 			},
 		}),
 		defineTool({
@@ -45,7 +45,7 @@ export function buildProcessTools(ctx: BridgeToolContext): ToolDefinition[] {
 			async execute(_id, params, _signal, _onUpdate, _toolCtx) {
 				return await executeVia(ctx, "rosclaw_process_status", {
 					operation_id: String(params.operation_id ?? ""),
-				});
+				}, _id);
 			},
 		}),
 		defineTool({
@@ -60,7 +60,7 @@ export function buildProcessTools(ctx: BridgeToolContext): ToolDefinition[] {
 				return await executeVia(ctx, "rosclaw_process_output", {
 					operation_id: String(params.operation_id ?? ""),
 					tail: Number(params.tail ?? 50),
-				});
+				}, _id);
 			},
 		}),
 		defineTool({
@@ -73,7 +73,7 @@ export function buildProcessTools(ctx: BridgeToolContext): ToolDefinition[] {
 			async execute(_id, params, _signal, _onUpdate, _toolCtx) {
 				return await executeVia(ctx, "rosclaw_process_stop", {
 					operation_id: String(params.operation_id ?? ""),
-				});
+				}, _id);
 			},
 		}),
 	];
