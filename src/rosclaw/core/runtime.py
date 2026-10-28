@@ -167,6 +167,8 @@ class RuntimeConfig:
     sense_robot_profile: str | None = None
     sense_thresholds_path: str | None = None
     sense_replay_path: str | None = None
+    sense_ros2_topics: dict[str, dict[str, Any]] | None = None
+    sense_ros2_use_sim_time: bool = False
     # Truthful sandbox execution configuration.
     sandbox_engine: str = "mujoco"
     sandbox_world_id: str = "empty"
@@ -442,6 +444,10 @@ class Runtime(LifecycleMixin):
                         thresholds_path=self.config.sense_thresholds_path,
                         replay_path=self.config.sense_replay_path,
                         update_hz=self.config.sense_update_hz,
+                        extra={
+                            "ros2_topics": self.config.sense_ros2_topics,
+                            "ros2_use_sim_time": self.config.sense_ros2_use_sim_time,
+                        },
                     ),
                     event_bus=self.event_bus,
                 )

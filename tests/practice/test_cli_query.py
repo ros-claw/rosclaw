@@ -188,12 +188,14 @@ def test_cli_query_episodes(capsys, monkeypatch, tmp_path):
                 "body_rh56_left",
                 "--data-root",
                 tmp,
+                "--seekdb-path",
+                seekdb_path,
             ],
         )
         rc = main()
         assert rc == 0
         captured = capsys.readouterr()
-        assert "Query results: episodes" in captured.out
+        assert "Query results: episodes (1)" in captured.out
 
 
 def test_cli_query_backend_error_is_clear(capsys, monkeypatch, tmp_path):

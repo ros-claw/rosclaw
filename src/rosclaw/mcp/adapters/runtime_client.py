@@ -238,14 +238,17 @@ class RuntimeClient:
                 )
             else:
                 mode = "live" if not getattr(sense, "is_stale", True) else "stale"
-                execution_mode = "REAL"
+                # Source labels and fresh telemetry do not establish a bound
+                # Body, a physical evidence domain or action-specific safety.
+                # Keep observations readable without promoting them to REAL.
+                execution_mode = "UNKNOWN"
                 trust_level = "OBSERVED" if mode == "live" else "STALE"
             return {
                 "robot_id": self.robot_id,
                 "mode": mode,
                 "execution_mode": execution_mode,
                 "trust_level": trust_level,
-                "usable_for_real_execution": mode == "live",
+                "usable_for_real_execution": False,
                 "body_state": body_state,
                 "body_sense": self._safe_dict(body_sense),
                 "readiness": self._safe_dict(readiness),
