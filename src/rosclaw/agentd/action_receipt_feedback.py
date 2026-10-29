@@ -18,6 +18,8 @@ def historical_action_feedback(
     capability: str,
     action_id: str,
     mode: str,
+    expected_body_id: str | None,
+    expected_body_hash: str,
     max_bytes: int = MAX_FEEDBACK_BYTES,
 ) -> str:
     """Expose actual recorded facts, never a fabricated current robot state.
@@ -30,6 +32,10 @@ def historical_action_feedback(
         mode not in {"SIMULATION", "SHADOW"}
         or receipt.get("execution_mode") != mode
         or receipt.get("evidence_domain") not in {"SIMULATION", "SHADOW", "UNKNOWN"}
+        or not expected_body_id
+        or not expected_body_hash
+        or receipt.get("body_id") != expected_body_id
+        or receipt.get("body_snapshot_hash") != expected_body_hash
         or not action_id
         or receipt.get("action_id") != action_id
         or receipt.get("capability_id") != capability

@@ -37,7 +37,13 @@ def receipt():
 
 def project(value, **kwargs):
     return historical_action_feedback(
-        value, capability="docking.undock", action_id="owned", mode="SIMULATION", **kwargs
+        value,
+        capability="docking.undock",
+        action_id="owned",
+        mode="SIMULATION",
+        expected_body_id="fixture",
+        expected_body_hash="b" * 64,
+        **kwargs,
     )
 
 
@@ -68,6 +74,8 @@ def test_only_last_two_original_observations_with_explicit_omission_count():
     "field,value",
     [
         ("action_id", "other"),
+        ("body_id", "other"),
+        ("body_snapshot_hash", "other"),
         ("capability_id", "other"),
         ("execution_mode", "REAL"),
         ("evidence_domain", "REAL"),
@@ -86,7 +94,12 @@ def test_shadow_unknown_evidence_remains_unknown_and_unverified():
     raw.update(execution_mode="SHADOW", evidence_domain="UNKNOWN", verified=False)
     result = parsed(
         historical_action_feedback(
-            raw, capability="docking.undock", action_id="owned", mode="SHADOW"
+            raw,
+            capability="docking.undock",
+            action_id="owned",
+            mode="SHADOW",
+            expected_body_id="fixture",
+            expected_body_hash="b" * 64,
         )
     )
     assert result["verified"] is False and result["evidence_domain"] == "UNKNOWN"
@@ -148,6 +161,7 @@ def fixture(value, verified=True):
     )
     grant = Namespace(grant_id="fixture-grant", public_hash="public", principal="fixture")
     service = Namespace(
+        _body_id="fixture",
         _broker=Namespace(
             action_intent_for_grant=lambda _: "fixture-intent", verify=lambda *args, **kwargs: grant
         ),
@@ -202,6 +216,7 @@ async def test_failed_receipt_preserves_diagnostic_and_original_failure_class():
 
 async def test_known_idle_dock_precondition_stays_blocked_with_no_retry():
     raw = canonical_block()
+    raw.update(body_id="fixture", body_snapshot_hash="b" * 64)
     service, decision, channel = fixture(raw, verified=False)
     q = await request_action(service, decision, mode="SIMULATION", principal="fixture")
     assert q.error_code == "ACTION_PRECONDITION_NOT_MET" and q.terminal_receipt is False

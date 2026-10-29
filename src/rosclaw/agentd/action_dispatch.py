@@ -147,10 +147,12 @@ async def request_action(
     try:
         # 动作意图由 broker 从已批准的卡片重算，不采信模型自报（§11.2）。
         intent = broker.action_intent_for_grant(str(grant_id))
+        approved_body_id = getattr(service, "_body_id", None)
+        approved_body_hash = service._current_body_hash()
         grant = broker.verify(
             str(grant_id),
             principal=principal,
-            body_hash=service._current_body_hash(),
+            body_hash=approved_body_hash,
             mode=mode,
             risk_tier=str(payload.get("risk_tier", "LOW")),
             action_intent=intent,
@@ -378,6 +380,8 @@ async def request_action(
             capability=capability,
             action_id=outcome.action_id,
             mode=mode,
+            expected_body_id=approved_body_id,
+            expected_body_hash=approved_body_hash,
             max_bytes=max(0, 3900 - len(text.encode("utf-8"))),
         )
 
