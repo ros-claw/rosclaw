@@ -12,6 +12,7 @@ daemon consent plane / daemon action channel → receipt 事件落账。
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
@@ -325,6 +326,19 @@ async def request_action(
         )
     except ActionChannelError as exc:
         return HandlerOutcome(text=f"动作派发/回执校验失败（fail closed）：{exc}")
+    inner = outcome.receipt.get("receipt")
+    inner = inner if isinstance(inner, dict) else outcome.receipt
+    verification_data = inner.get("verification_result")
+    verification = verification_data if isinstance(verification_data, dict) else {}
+    scope = verification.get("scope", "UNKNOWN")
+    evidence_data = verification.get("task_evidence")
+    evidence = evidence_data if isinstance(evidence_data, dict) else {}
+    historical = evidence.get("last_guarded_work_state")
+    observation_note = (
+        "上次工作观测（非当前状态）：" + json.dumps(historical, ensure_ascii=False) + "。"
+        if isinstance(historical, dict)
+        else ""
+    )
     await _emit(
         service,
         "receipt.received",
@@ -350,7 +364,8 @@ async def request_action(
         text=(
             f"动作已在 {mode} 完成并经回执验证："
             f"action_id={outcome.action_id}, final_state={outcome.state}, "
-            f"trust_level={outcome.trust_level}。"
+            f"trust_level={outcome.trust_level}, verification_scope={scope}。"
+            f"{observation_note}"
             "非 REAL 证据不可用于证明真实物理执行；grant 已消费。"
         ),
         terminal_receipt=True,

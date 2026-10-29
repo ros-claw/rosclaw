@@ -122,3 +122,41 @@ scope; success means its bounded workflow completed. `whole_house_success`
 remains null and no Judge result is read. A fresh ROS Driver adapter, live
 fault qualifications, restart/worker recovery and full mission acceptance are
 still required before declaring integrated delivery.
+
+
+## Optional durable finite-task evidence
+
+The default binding keeps the existing `DRIVER_CONFIRMED` classification. It
+never silently turns old completion receipts into verified receipts.
+
+A trusted operator may explicitly compile `durable_task_evidence: true` into
+the immutable `provider_interfaces.public_coverage` contract and construct the
+executor with `evidence_store=Path(...)`. Both must be present, or construction
+fails. The Agent cannot select that path or enable the contract through action
+arguments. The original mode, footprint, source, energy, lease, attempt and
+deadline guards continue to apply.
+
+In this mode the executor records original bound-source identities, header and
+receive times, actual odometry/brush samples within this action, exact primitive
+IDs and original native terminals, finite goals and the final stopped/off
+observation. It validates the scoped record, writes a private gzip JSON archive
+once, fsyncs it, and validates its hash and contents after readback. Persistence
+and readback consume the existing action deadline. Unknown native results,
+missing movement evidence, wrong source/domain, replay, unobserved closure or
+storage failure produce a failed action and the existing bounded stop path.
+
+Only this successfully persisted finite record can produce `TASK_VERIFIED`.
+The scope remains `finite_observed_coverage_slice_only`, with
+`whole_house_success=null` and `valid_for_promotion=false`. FIXTURE receipts
+remain synthetic and `verified=false`; neither mode proves hardware or a whole
+cleaning mission. Historical evidence is not live readiness. A compact last
+work observation (capture time, battery/dock and public pose) is labelled as
+historical, and every subsequent dispatch still validates current sources.
+Native's existing strict TASK_VERIFIED receipt gate is preserved; its result
+text displays the verification scope. No weaker receipt is promoted there.
+
+The archive URI and SHA256 are in `verification_result.task_evidence` and the
+receipt's artifact references. Operators retain the corresponding archive in
+the trusted runtime workspace for read-only audits alongside independent ROS
+recordings. A local source test or archive alone is not Gazebo/Native/whole-house
+qualification.
