@@ -444,7 +444,20 @@ class PublicCoverageExecutor:
                     and fact.received_monotonic_s < after
                 )
             ):
-                raise ValueError("Original freshness guard: " + source.role)
+                header_age = (
+                    None
+                    if fact.header_native_s is None
+                    else snapshot.native_s - fact.header_native_s
+                )
+                raise ValueError(
+                    f"Original freshness guard: {source.role}; "
+                    f"receive_age_s={now - fact.received_monotonic_s:.6f}; "
+                    f"capture_age_s={now - snapshot.captured_monotonic_s:.6f}; "
+                    f"receive_limit_s={source.max_receive_age_s}; "
+                    f"header_age_native_s={header_age}; "
+                    f"header_age_limits_s={(-source.max_header_future_s, source.max_header_age_s)}; "
+                    f"work_source_fault={snapshot.work_source_fault!r}"
+                )
         if work:
             if (
                 type(snapshot.soc) not in (int, float)

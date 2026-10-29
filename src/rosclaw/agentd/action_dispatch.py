@@ -66,6 +66,42 @@ async def _emit(service: AgentService, type_str: str, mission_id: str, payload: 
         await service._events.append(mission_id, AgentEventType(type_str), payload)
 
 
+def _known_idle_dock_precondition(receipt: dict, capability: str, action_id: str) -> bool:
+    """Classify a canonical negative SIM receipt; never authorize a retry.
+
+    Actual failures, missing proof, unknown native goals and hardware receipts
+    retain ACTION_NOT_VERIFIED. A fresh proposal still traverses all admission,
+    Body, grant, native readiness and original deadline checks.
+    """
+    verification = receipt.get("verification_result")
+    dispatch = receipt.get("dispatch_result")
+    errors = receipt.get("errors")
+    return bool(
+        capability == "docking.dock"
+        and bool(action_id)
+        and receipt.get("capability_id") == capability
+        and receipt.get("action_id") == action_id
+        and receipt.get("final_state") == "BLOCKED"
+        and receipt.get("verified") is False
+        and receipt.get("execution_mode") == "SIMULATION"
+        and receipt.get("evidence_domain") == "SIMULATION"
+        and isinstance(dispatch, dict)
+        and dispatch.get("native_goal_dispatched") is False
+        and isinstance(verification, dict)
+        and verification.get("passed") is False
+        and verification.get("scope") == "native_dock_predispatch_precondition_only"
+        and verification.get("original_native_terminal_known") is True
+        and verification.get("physical_stop_observed") is True
+        and verification.get("cleaner_disabled") is True
+        and verification.get("dock_visible") is False
+        and isinstance(errors, list)
+        and any(
+            isinstance(error, dict) and error.get("code") == "NATIVE_DOCK_NOT_VISIBLE"
+            for error in errors
+        )
+    )
+
+
 async def request_action(
     service: AgentService,
     decision: DecisionV1,
@@ -351,6 +387,17 @@ async def request_action(
         },
     )
     if not outcome.verified:
+        if _known_idle_dock_precondition(inner, capability, outcome.action_id):
+            return HandlerOutcome(
+                text=(
+                    "Dock 未派发：新鲜公共 DockStatus 表明 dock_visible=false，"
+                    "原生目标已结清且已观测停止/关刷。重新观察并规划；"
+                    "只有前置条件改变后才提交新提案。原请求不会自动重试，"
+                    "此回执仍为 BLOCKED、verified=false。"
+                ),
+                evidence_ref=f"receipt://{outcome.action_id}",
+                error_code="ACTION_PRECONDITION_NOT_MET",
+            )
         return HandlerOutcome(
             text=(
                 f"动作已提交但未达验证标准（state={outcome.state}, "

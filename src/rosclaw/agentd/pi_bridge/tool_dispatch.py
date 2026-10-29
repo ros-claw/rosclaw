@@ -247,6 +247,7 @@ _TRANSIENT_CODES = frozenset(
         "NEEDS_REPLAN",
         "CONTEXT_LEASE_REQUIRED",
         "CAPABILITY_SNAPSHOT_CHANGED",
+        "ACTION_PRECONDITION_NOT_MET",
         "WAITING_APPROVAL",
     }
 )
@@ -440,6 +441,9 @@ class PiToolDispatcher:
             "CONTEXT_HASH_MISMATCH",
             "NEEDS_REPLAN",
             "CONTEXT_LEASE_REQUIRED",
+            # Canonical stopped/off, no-native-dispatch SIM precondition.
+            # This is a new intent after re-observation, never an old replay.
+            "ACTION_PRECONDITION_NOT_MET",
         ):
             pass
         else:
