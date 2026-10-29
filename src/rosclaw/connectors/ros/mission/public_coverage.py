@@ -310,6 +310,14 @@ class PublicCoveragePort(Protocol):
     def emergency_stop(self) -> dict: ...
 
 
+class _KnownLivePathCancellationError(RuntimeError):
+    """Typed original terminal from the same owned primitive, never an ACK alone."""
+
+    def __init__(self, primitive_id, dispatch):
+        self.primitive_id, self.dispatch = primitive_id, dict(dispatch)
+        super().__init__("Original native live-path cancellation is terminal")
+
+
 class PublicCoverageExecutor:
     def __init__(
         self,
@@ -331,6 +339,7 @@ class PublicCoverageExecutor:
         self._parent: ActionEnvelope | None = None
         self._deadline = 0.0
         self._sequence = 0
+        self._recoveries = []
 
     def _validate(self, snapshot, *, work=True, after=None, historical=False, required_roles=None):
         b = self.binding
@@ -526,15 +535,36 @@ class PublicCoverageExecutor:
         if self.stopping.is_set():
             raise RuntimeError("Primitive result cannot revive a stopped coverage action")
         if (
-            result.final_state is not ActionState.COMPLETED
-            or (result.verification_result or {}).get("passed") is not True
-        ):
-            raise RuntimeError("Internal primitive did not produce a verified original terminal")
-        if (
             result.dispatch_result.get("parent_action_id") != self._parent.action_id
             or result.dispatch_result.get("owned_primitive_id") != primitive_id
         ):
             raise RuntimeError("Primitive outcome belongs to another action or dispatch")
+        if (
+            result.final_state is not ActionState.COMPLETED
+            or (result.verification_result or {}).get("passed") is not True
+        ):
+            dispatch = result.dispatch_result
+            if (
+                capability == "navigation.follow_path"
+                and result.final_state is ActionState.FAILED
+                and result.evidence_domain
+                is (
+                    EvidenceDomain.FIXTURE
+                    if self.binding.execution_mode is ExecutionMode.FIXTURE
+                    else EvidenceDomain.SIMULATION
+                )
+                and dispatch.get("action") == "/follow_path"
+                and dispatch.get("action_type") == "nav2_msgs/action/FollowPath"
+                and type(dispatch.get("status")) is int
+                and dispatch["status"] in {5, 6}
+                and dispatch.get("cancel_result_received") is True
+                and isinstance(dispatch.get("live_path_invalidation"), str)
+                and dispatch["live_path_invalidation"]
+            ):
+                after = self._validate(self.port.snapshot(work=False), work=False, after=started)
+                if after.native_motion_settled is True:
+                    raise _KnownLivePathCancellationError(primitive_id, dispatch)
+            raise RuntimeError("Internal primitive did not produce a verified original terminal")
         self._record()
         after = self._validate(
             self.port.snapshot(work=not cleanup), work=not cleanup, after=started
@@ -551,6 +581,65 @@ class PublicCoverageExecutor:
         ):
             raise RuntimeError("Actual work endpoint exceeds original tracking limit")
         return after
+
+    def _execute_work(self, work):
+        path = np.asarray(work["path_xy"], float)
+        stalled = 0
+        for _ in range(60):
+            current = self._guard()
+            if np.linalg.norm(np.asarray(current.map_xy) - path[0]) <= 0.05:
+                break
+            proposal = propose_transfer(current.grid, current.map_xy, path[0])
+            moved = self._primitive("navigation.follow_path", {"path_xy": list(proposal.prefix_xy)})
+            progress = np.linalg.norm(np.asarray(current.map_xy) - path[0]) - np.linalg.norm(
+                np.asarray(moved.map_xy) - path[0]
+            )
+            stalled = 0 if progress >= 0.05 else stalled + 1
+            if stalled >= 3:
+                raise RuntimeError("Three work-entry prefixes without observed target progress")
+        else:
+            raise RuntimeError("Finite public work-entry transfer exhausted")
+        current = self._guard()
+        if not current.grid.motion_path_safe(path):
+            raise ValueError("Fresh post-entry geometry rejects selected work")
+        before = len(self.ledger.anchor.cleaned)
+        self._primitive("cleaning.enable", {})
+        if len(path) > 1:
+            self._primitive("navigation.follow_path", {"path_xy": path.tolist()})
+        self._primitive("cleaning.disable", {})
+        if len(self.ledger.anchor.cleaned) <= before:
+            raise RuntimeError("No actual public brush evidence for completed work")
+        return len(path) > 1
+
+    def _recover_observed_live_path(self, work, cancelled):
+        # This is not an E-stop reset. Owner loss/unknown native results never
+        # reach this path; the original lease, deadline and attempt count run.
+        stop_deadline = min(self._deadline, time.monotonic() + 5.0)
+        stopped = self._primitive("cleaning.disable", {})
+        while not self._stopped(stopped) or stopped.native_motion_settled is not True:
+            if time.monotonic() >= stop_deadline:
+                raise RuntimeError(
+                    "No fresh stopped/off original-terminal proof after live cancellation"
+                )
+            time.sleep(0.02)
+            stopped = self._guard(work=False)
+        if time.monotonic() >= stop_deadline:
+            raise RuntimeError("Original five-second stopped/off observation window expired")
+        self.ledger.failed(
+            np.asarray(work["path_xy"], float), stopped.map_xy, IDENTITY, now=stopped.native_s
+        )
+        self._recoveries.append(
+            {
+                "original_primitive_id": cancelled.primitive_id,
+                "original_native_status": cancelled.dispatch["status"],
+                "original_live_path_evidence": cancelled.dispatch.get("live_path_evidence"),
+                "fresh_stopped_off": True,
+                "original_native_terminal_known": True,
+                "original_deadline_preserved": True,
+                "replayed_native_goal": False,
+                "execution_credit": "actual public brush samples only; incomplete work not counted",
+            }
+        )
 
     def _stopped(self, sample):
         return (
@@ -623,6 +712,7 @@ class PublicCoverageExecutor:
             self._deadline = time.monotonic() + min(remaining, b.max_duration_sec)
             self._parent = action
             self._sequence = 0
+            self._recoveries = []
             self._guard()
             self._primitive("cleaning.disable", {})
             for _ in range(maximum):
@@ -638,38 +728,13 @@ class PublicCoverageExecutor:
                 )
                 if work["kind"] == "NO_CURRENT_OBSERVED_WORK":
                     break
-                path = np.asarray(work["path_xy"], float)
-                stalled = 0
-                for _ in range(60):
-                    current = self._guard()
-                    if np.linalg.norm(np.asarray(current.map_xy) - path[0]) <= 0.05:
-                        break
-                    proposal = propose_transfer(current.grid, current.map_xy, path[0])
-                    moved = self._primitive(
-                        "navigation.follow_path", {"path_xy": list(proposal.prefix_xy)}
-                    )
-                    progress = np.linalg.norm(
-                        np.asarray(current.map_xy) - path[0]
-                    ) - np.linalg.norm(np.asarray(moved.map_xy) - path[0])
-                    stalled = 0 if progress >= 0.05 else stalled + 1
-                    if stalled >= 3:
-                        raise RuntimeError(
-                            "Three work-entry prefixes without observed target progress"
-                        )
-                else:
-                    raise RuntimeError("Finite public work-entry transfer exhausted")
-                current = self._guard()
-                if not current.grid.motion_path_safe(path):
-                    raise ValueError("Fresh post-entry geometry rejects selected work")
-                before = len(self.ledger.anchor.cleaned)
-                self._primitive("cleaning.enable", {})
-                if len(path) > 1:
-                    self._primitive("navigation.follow_path", {"path_xy": path.tolist()})
-                self._primitive("cleaning.disable", {})
-                if len(self.ledger.anchor.cleaned) <= before:
-                    raise RuntimeError("No actual public brush evidence for completed work")
+                try:
+                    stroke = self._execute_work(work)
+                except _KnownLivePathCancellationError as cancelled:
+                    self._recover_observed_live_path(work, cancelled)
+                    continue
                 completed += 1
-                if len(path) > 1:
+                if stroke:
                     strokes += 1
                 if completed >= minimum and strokes >= minimum_strokes:
                     break
@@ -681,17 +746,27 @@ class PublicCoverageExecutor:
                 or strokes < minimum_strokes
             ):
                 raise RuntimeError("Finite work target or fresh stopped/off postcondition unmet")
-            return self._result(ActionState.COMPLETED, completed=completed, strokes=strokes)
+            return self._result(
+                ActionState.COMPLETED,
+                completed=completed,
+                strokes=strokes,
+                recoveries=self._recoveries,
+            )
         except Exception as exc:
             stop = self.emergency_stop()
             return self._result(
-                ActionState.FAILED, completed=completed, strokes=strokes, error=str(exc), stop=stop
+                ActionState.FAILED,
+                completed=completed,
+                strokes=strokes,
+                error=str(exc),
+                stop=stop,
+                recoveries=self._recoveries,
             )
         finally:
             self._parent = None
             self.execution_lock.release()
 
-    def _result(self, state, *, completed=0, strokes=0, error=None, stop=None):
+    def _result(self, state, *, completed=0, strokes=0, error=None, stop=None, recoveries=()):
         fixture = self.binding.execution_mode is ExecutionMode.FIXTURE
         return ActionExecutionResult(
             final_state=state,
@@ -707,6 +782,7 @@ class PublicCoverageExecutor:
                 "completed_continuous_strokes": strokes,
                 "source": "public_observations",
                 "nested_daemon_actions": False,
+                "observed_live_path_recoveries": list(recoveries),
             },
             verification_result={
                 "passed": state is ActionState.COMPLETED,

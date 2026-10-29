@@ -316,6 +316,116 @@ def test_real_library_work_runs_inside_one_parent_and_keeps_fixture_scope():
     assert executor.ledger.anchor.cleaned
 
 
+class OneLiveCancellationPort(SoftwarePort):
+    """One explicitly synthetic original terminal; never physical evidence."""
+
+    def __init__(self, binding, defect=None):
+        super().__init__(binding)
+        self.cancelled = False
+        self.defect = defect
+
+    def execute(self, capability, arguments, **kwargs):
+        if capability == "navigation.follow_path" and self.brush and not self.cancelled:
+            self.cancelled = True
+            parent, primitive = kwargs["parent"], kwargs["primitive_id"]
+            self.calls.append((capability, parent.action_id, parent.session_id, primitive))
+            path = np.asarray(arguments["path_xy"], float)
+            self.xy = tuple(map(float, path[0] + 0.25 * (path[1] - path[0])))
+            self.motion_settled = self.defect != "unknown_original_goal"
+            self._sample()
+            dispatch = {
+                "parent_action_id": parent.action_id,
+                "owned_primitive_id": primitive,
+                "action": "/follow_path",
+                "action_type": "nav2_msgs/action/FollowPath",
+                "status": 5,
+                "cancel_result_received": True,
+                "live_path_invalidation": "Fixture fresh geometry changed",
+                "live_path_evidence": "fixture-only-public-geometry",
+            }
+            if self.defect == "ack_only":
+                dispatch["status"] = None
+            if self.defect == "not_terminal":
+                dispatch["status"] = 2
+            if self.defect == "no_cancel_ack":
+                dispatch["cancel_result_received"] = False
+            if self.defect == "wrong_parent":
+                dispatch["parent_action_id"] = "other"
+            if self.defect == "wrong_primitive":
+                dispatch["owned_primitive_id"] = "other"
+            return ActionExecutionResult(
+                final_state=ActionState.FAILED,
+                evidence_level=EvidenceLevel.REQUESTED,
+                evidence_domain=EvidenceDomain.REAL
+                if self.defect == "wrong_domain"
+                else EvidenceDomain.FIXTURE,
+                dispatch_result=dispatch,
+                verification_result={"passed": False},
+            )
+        return super().execute(capability, arguments, **kwargs)
+
+
+def test_known_original_live_cancellation_replans_only_after_stopped_off():
+    _, executor, old_port, action = setup_executor()
+    port = OneLiveCancellationPort(old_port.binding)
+    executor.port = port
+    result = executor(action)
+    assert result.final_state is ActionState.COMPLETED, result.errors
+    recovery = result.dispatch_result["observed_live_path_recoveries"]
+    assert len(recovery) == 1 and recovery[0]["fresh_stopped_off"] is True
+    assert recovery[0]["original_native_terminal_known"] is True
+    assert recovery[0]["replayed_native_goal"] is False
+    assert result.dispatch_result["completed_continuous_strokes"] >= 1
+    assert len({call[3] for call in port.calls}) == len(port.calls)
+    assert not port.brush and port.stop_calls == 0
+
+
+@pytest.mark.parametrize(
+    "defect",
+    [
+        "ack_only",
+        "not_terminal",
+        "no_cancel_ack",
+        "wrong_parent",
+        "wrong_primitive",
+        "unknown_original_goal",
+        "wrong_domain",
+    ],
+)
+def test_uncertain_or_unowned_cancellation_cannot_enter_replanning(defect):
+    _, executor, old_port, action = setup_executor()
+    port = OneLiveCancellationPort(old_port.binding, defect)
+    executor.port = port
+    result = executor(action)
+    assert result.final_state is ActionState.FAILED
+    assert result.dispatch_result["observed_live_path_recoveries"] == []
+    assert executor.stopping.is_set() and port.stop_calls > 0
+    assert executor(action).final_state is ActionState.BLOCKED
+
+
+def test_stopped_off_recovery_cannot_extend_five_second_window(monkeypatch):
+    _, executor, port, _ = setup_executor()
+    clock = [100.0]
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+    executor._deadline = 160.0
+
+    def delayed_cleanup(*_args):
+        clock[0] += 6.0
+        return port.snapshot(work=False)
+
+    monkeypatch.setattr(executor, "_primitive", delayed_cleanup)
+    with pytest.raises(RuntimeError, match="five-second"):
+        executor._recover_observed_live_path({}, SimpleNamespace())
+
+
+def test_rejected_new_owner_receives_no_prior_recovery_evidence():
+    _, executor, _, action = setup_executor()
+    executor._recoveries = [{"original_primitive_id": "previous-owner"}]
+    result = executor(replace(action, body_snapshot_hash="wrong"))
+    assert result.final_state is ActionState.BLOCKED
+    assert result.dispatch_result["observed_live_path_recoveries"] == []
+
+
 @pytest.mark.parametrize(
     "fault", ["epoch", "body", "depth", "publisher", "receipt", "low_soc", "docked"]
 )

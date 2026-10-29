@@ -42,10 +42,20 @@ planning grid is only proposal input; dispatch still obtains and validates a
 fresh full work snapshot. Thus a planner callback cannot rebuild a whole grid
 repeatedly or let a missing map block observation of an actual stop.
 
+A matching original FollowPath terminal (cancelled/aborted), explicitly caused
+by the live-path guard, can enter bounded observed replanning only when the
+port also confirms original native termination. The executor must then obtain
+fresh stopped/off evidence within the original five-second observation window,
+defer the incomplete work, and validate current geometry before a new dispatch.
+Each attempt consumes the existing work limit; primitive IDs are never reused,
+and the original outer deadline and lease keep running. An ACK alone, unknown
+goal, mismatched owner/domain, lost ownership or expired deadline is terminal.
+No E-stop latch is reset, and incomplete paths are not counted as completed work.
+
 The bundled App grants no capability, Driver access or permit by installation.
 It currently requires an already undocked robot, sufficient battery reserve,
-and current public graph registration. Charging, return/docking and recovery
-remain integration work. It is not the full mission controller.
+and current public graph registration. Charging, return/docking and broader
+mission recovery remain integration work. It is not the full mission controller.
 
 ## Compiled Body and observations
 
