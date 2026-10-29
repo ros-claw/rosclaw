@@ -49,12 +49,66 @@ class CircleSpace:
             & (relative > self.radius).all(axis=1)
             & (
                 relative
-                < [width * self.resolution - self.radius, height * self.resolution - self.radius]
+                < [
+                    width * self.resolution - self.radius,
+                    height * self.resolution - self.radius,
+                ]
             ).all(axis=1)
         )
         # An empty regional query (outside the observation window), or a
         # wholly invalid batch, cannot become safe by checking more cells.
         if not result.any():
+            return result
+        # Dense map projection only: far-free points have a rigorous lower
+        # bound from the blocked-cell-centre EDT. Keep all close/contact
+        # points on the original closed-square test. Never cache mutable grids.
+        if (
+            len(points) >= 4096
+            and self.resolution >= 0.001
+            and max(
+                float(np.max(np.abs(self.origin))),
+                float(np.max(np.abs(points[np.isfinite(points)]))),
+            )
+            <= 10000
+        ):
+            indices = np.flatnonzero(result)
+            chosen = points[indices]
+            cell = np.floor((chosen - self.origin) / self.resolution).astype(int)
+            inside = (cell >= 0).all(axis=1) & (cell < [width, height]).all(axis=1)
+            edt_full, nearest = ndimage.distance_transform_edt(
+                np.pad(self.free, 1), return_indices=True
+            )
+            edt = edt_full[1:-1, 1:-1]
+            centre = self.origin + (cell + 0.5) * self.resolution
+            offset = np.linalg.norm(chosen - centre, axis=1)
+            lower = np.full(len(indices), -np.inf)
+            lower[inside] = (
+                edt[cell[inside, 1], cell[inside, 0]] * self.resolution
+                - offset[inside]
+                - self.resolution * math.sqrt(2) / 2
+            )
+            # r_eff retains the existing squared-distance contact tolerance.
+            far = lower > math.sqrt(self.radius**2 + 1e-14) + 1e-9
+            # A particular actual blocked cell also supplies an exact unsafe
+            # certificate. This is the unchanged closed-square predicate;
+            # nearest-centre choice need not find every intersecting cell.
+            hit = np.zeros(len(indices), dtype=bool)
+            valid_cells = cell[inside]
+            obstacle = nearest[:, valid_cells[:, 1] + 1, valid_cells[:, 0] + 1].T[:, ::-1] - 1
+            obstacle_center = self.origin + (obstacle + 0.5) * self.resolution
+            delta = np.maximum(np.abs(obstacle_center - chosen[inside]) - self.resolution / 2, 0)
+            hit[inside] = np.sum(delta * delta, axis=1) <= self.radius**2 + 1e-14
+            if np.any(hit & far):
+                raise AssertionError("Conflicting exact public geometry certificates")
+            result[indices[hit]] = False
+            pending = indices[~far & ~hit]
+            if not len(pending):
+                return result
+            # Small independent batches use the unchanged exact code below;
+            # no recursion flags or mutable geometry cache are introduced.
+            for start in range(0, len(pending), 4095):
+                selected = pending[start : start + 4095]
+                result[selected] = self.safe_points(points[selected])
             return result
         # Only finite rows reach integer conversion.
         finite = np.isfinite(points).all(axis=1)
@@ -160,7 +214,12 @@ class CircleSpace:
         for point in [start, finish]:
             delta = np.maximum(np.maximum(low - point, point - high), 0)
             distances.append(np.sum(delta * delta, axis=1))
-        for xhigh, yhigh in [(False, False), (False, True), (True, False), (True, True)]:
+        for xhigh, yhigh in [
+            (False, False),
+            (False, True),
+            (True, False),
+            (True, True),
+        ]:
             corner = np.column_stack(
                 [high[:, 0] if xhigh else low[:, 0], high[:, 1] if yhigh else low[:, 1]]
             )
