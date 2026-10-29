@@ -20,6 +20,7 @@ def test_bundled_apps_are_valid_and_only_call_declared_capabilities() -> None:
     manifests = [AppManifest.from_path(path) for path in sorted(root.iterdir())]
 
     assert [manifest.metadata.name for manifest in manifests] == [
+        "public-coverage-slice",
         "realsense-inspect",
         "rh56-rps",
     ]

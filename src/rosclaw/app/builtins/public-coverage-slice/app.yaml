@@ -1,0 +1,22 @@
+apiVersion: rosclaw.io/v1
+kind: App
+metadata:
+  name: public-coverage-slice
+  version: 0.1.0
+  title: Public Coverage Slice
+  summary: Run a bounded coverage slice and finish stopped with the brush off.
+requires:
+  capabilities:
+    - coverage.execute_slice
+workflow:
+  - call: coverage.execute_slice
+    save_as: coverage
+    input:
+      maximum_work: 6
+      minimum_completed_work: 1
+      minimum_completed_strokes: 1
+    timeout_sec: 600
+verification:
+  require:
+    - coverage.verification_result.passed == True
+    - coverage.verification_result.scope == finite_observed_coverage_slice_only

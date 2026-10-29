@@ -147,3 +147,60 @@ def _simplify_and_split(points, grid, tolerance=0.005, turn_limit=0.35):
         else:
             opened.append(stroke)
     return [path for path in map(densify, opened) if len(path) > 1]
+
+
+def controller_prefix(path_xy, heading_limit=0.30):
+    """Stop work before a sharp bend; remaining unswept debt is retained.
+
+    Collision-free polylines need not be trackable by a lookahead controller
+    beside a wall. Dense curves are checked against the initial heading too.
+    This clips work, never clears obstacles or relaxes tracking tolerances.
+    """
+    points = np.asarray(path_xy, float)
+    if (
+        points.ndim != 2
+        or points.shape[1] != 2
+        or len(points) < 2
+        or not np.isfinite(points).all()
+        or not math.isfinite(heading_limit)
+        or not 0 < heading_limit < math.pi
+    ):
+        raise ValueError("Finite bounded controller prefix required")
+    points = points[np.r_[True, np.linalg.norm(np.diff(points, axis=0), axis=1) > 1e-8]]
+    if len(points) < 2:
+        raise ValueError("Controller path has no translation")
+    if len(points) > 2:
+        before = np.diff(points, axis=0)[:-1]
+        after = np.diff(points, axis=0)[1:]
+        cross = before[:, 0] * after[:, 1] - before[:, 1] * after[:, 0]
+        keep = (np.abs(cross) > 1e-12) | (np.sum(before * after, axis=1) <= 0)
+        points = points[np.r_[True, keep, True]]
+    directions = np.diff(points, axis=0)
+    headings = np.arctan2(directions[:, 1], directions[:, 0])
+    turns = np.abs(np.arctan2(np.sin(headings - headings[0]), np.cos(headings - headings[0])))
+    cut = np.flatnonzero(turns > heading_limit)
+    return points[: int(cut[0]) + 1] if len(cut) else points
+
+
+def prepare_work_path(path_xy):
+    """The same bounded controller geometry must own score, retry and execution.
+
+    A short prefix remains a point repair, without borrowing the unexecuted
+    tail's brush gain. The library retains the original unswept obligations.
+    """
+    path = np.asarray(path_xy, float)
+    if (
+        path.ndim != 2
+        or path.shape[1] != 2
+        or not 1 <= len(path) <= 1024
+        or not np.isfinite(path).all()
+    ):
+        raise ValueError("Finite bounded work geometry required")
+    if len(path) == 1:
+        return path.copy()
+    prepared = controller_prefix(path)
+    return (
+        prepared[-1:]
+        if np.linalg.norm(np.diff(prepared, axis=0), axis=1).sum() < 0.10
+        else prepared
+    )
