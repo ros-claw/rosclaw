@@ -14,13 +14,15 @@ import math
 import re
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Protocol
 
 import numpy as np
 
 from rosclaw.body.schema import EffectiveBody
+from rosclaw.connectors.ros.mission.finite_coverage_evidence import persist_archive, snapshot_record
 from rosclaw.connectors.ros.public_coverage.coverage_paths import prepare_work_path
 from rosclaw.connectors.ros.public_coverage.graph_ledger import IDENTITY, GraphAnchoredCoverage
 from rosclaw.connectors.ros.public_coverage.grid import Grid
@@ -112,8 +114,11 @@ class PublicCoverageBinding:
     maximum_work: int
     max_duration_sec: float
     minimum_work_soc: float
+    durable_task_evidence: bool = False
 
     def __post_init__(self):
+        if type(self.durable_task_evidence) is not bool:
+            raise ValueError("Explicit boolean durable evidence contract required")
         if not isinstance(self.execution_mode, ExecutionMode) or self.execution_mode not in (
             ExecutionMode.FIXTURE,
             ExecutionMode.SIMULATION,
@@ -215,6 +220,7 @@ class PublicCoverageBinding:
             raw["maximum_work"],
             raw["max_duration_sec"],
             raw["minimum_work_soc"],
+            raw.get("durable_task_evidence", False),
         )
         if not re.fullmatch(r"[a-f0-9]{64}", result.driver_sha256):
             raise ValueError("Actual registered Driver observation digest required")
@@ -282,6 +288,7 @@ class PublicCoverageSnapshot:
     graph_nodes: tuple[tuple[int, tuple[float, float]], ...]
     sources: tuple[CoverageSourceFact, ...]
     grid: Grid | None
+    work_source_fault: str | None = None
 
 
 class PublicCoveragePort(Protocol):
@@ -329,6 +336,7 @@ class PublicCoverageExecutor:
         binding: PublicCoverageBinding,
         port: PublicCoveragePort,
         ledger: GraphAnchoredCoverage,
+        evidence_store: Path | None = None,
     ):
         if port.binding != binding or (ledger.epoch, ledger.graph_epoch) != (
             binding.odom_epoch,
@@ -337,6 +345,8 @@ class PublicCoverageExecutor:
             raise ValueError("Same immutable Driver/Body and current ledger epochs required")
         if ledger.anchor.brush_radius != binding.brush_radius_m:
             raise ValueError("Ledger brush geometry differs from compiled Body")
+        if (evidence_store is not None) != binding.durable_task_evidence:
+            raise ValueError("Compiled durable evidence contract and trusted store must agree")
         self.binding, self.port, self.ledger = binding, port, ledger
         self.stopping = threading.Event()
         self.execution_lock = threading.Lock()
@@ -345,6 +355,19 @@ class PublicCoverageExecutor:
         self._sequence = 0
         self._recoveries = []
         self._entry_recoveries = []
+        self.evidence_store = None if evidence_store is None else Path(evidence_store)
+        self._evidence_started = None
+        self._evidence_samples = []
+        self._primitive_evidence = []
+        bind_observations = getattr(port, "bind_observation_service", None)
+        if callable(bind_observations):
+            bind_observations(self._service_observations)
+
+    def _service_observations(self):
+        # Called by a trusted concrete port during a blocking native wait,
+        # never from inside planning iteration and never without an owner.
+        if self._parent is not None and not self.stopping.is_set():
+            self._record()
 
     def _validate(self, snapshot, *, work=True, after=None, historical=False, required_roles=None):
         b = self.binding
@@ -434,7 +457,10 @@ class PublicCoverageExecutor:
                 b.robot_radius_m,
                 b.planning_margin_m,
             ):
-                raise ValueError("Current public grid or exact compiled footprint missing")
+                detail = (
+                    "" if snapshot.work_source_fault is None else ": " + snapshot.work_source_fault
+                )
+                raise ValueError("Current public grid or exact compiled footprint missing" + detail)
             if (
                 snapshot.grid.navigation_space is None
                 or snapshot.grid.local_navigation_space is None
@@ -485,6 +511,14 @@ class PublicCoverageExecutor:
                 historical=True,
                 required_roles={"odom", "cleaner", "graph", "map_tf"},
             )
+            if (
+                self.evidence_store is not None
+                and self._evidence_started is not None
+                and sample.captured_monotonic_s >= self._evidence_started
+            ):
+                self._evidence_samples.append(
+                    snapshot_record(sample, {"odom", "cleaner", "graph", "map_tf"})
+                )
             stamp = next(f.header_native_s for f in sample.sources if f.role == "odom")
             assert stamp is not None
             if self.ledger.evidence_samples and stamp <= self.ledger.evidence_samples[-1]["stamp"]:
@@ -544,6 +578,37 @@ class PublicCoverageExecutor:
             or result.dispatch_result.get("owned_primitive_id") != primitive_id
         ):
             raise RuntimeError("Primitive outcome belongs to another action or dispatch")
+        expected_domain = (
+            EvidenceDomain.FIXTURE
+            if self.binding.execution_mode is ExecutionMode.FIXTURE
+            else EvidenceDomain.SIMULATION
+        )
+        if result.evidence_domain is not expected_domain:
+            raise RuntimeError("Original primitive evidence domain differs from bound execution")
+
+        def record_primitive(after, roles):
+            if self.evidence_store is None:
+                return
+            self._primitive_evidence.append(
+                {
+                    "parent_action_id": self._parent.action_id,
+                    "primitive_id": primitive_id,
+                    "capability_id": capability,
+                    "final_state": result.final_state.value,
+                    "evidence_domain": result.evidence_domain.value,
+                    "arguments": {"path_xy": np.asarray(arguments["path_xy"], float).tolist()}
+                    if capability == "navigation.follow_path"
+                    else dict(arguments),
+                    "dispatch": dict(result.dispatch_result),
+                    "verification": dict(result.verification_result),
+                    "before": snapshot_record(
+                        sample,
+                        {"odom", "cleaner"} if cleanup else {s.role for s in self.binding.sources},
+                    ),
+                    "after": snapshot_record(after, roles),
+                }
+            )
+
         if (
             result.final_state is not ActionState.COMPLETED
             or (result.verification_result or {}).get("passed") is not True
@@ -568,6 +633,7 @@ class PublicCoverageExecutor:
             ):
                 after = self._validate(self.port.snapshot(work=False), work=False, after=started)
                 if after.native_motion_settled is True:
+                    record_primitive(after, {"odom", "cleaner"})
                     raise _KnownLivePathCancellationError(primitive_id, dispatch)
             raise RuntimeError("Internal primitive did not produce a verified original terminal")
         self._record()
@@ -585,6 +651,9 @@ class PublicCoverageExecutor:
             and np.linalg.norm(np.asarray(after.map_xy) - points[-1]) > 0.05
         ):
             raise RuntimeError("Actual work endpoint exceeds original tracking limit")
+        record_primitive(
+            after, {"odom", "cleaner"} if cleanup else {s.role for s in self.binding.sources}
+        )
         return after
 
     def _execute_work(self, work):
@@ -737,7 +806,11 @@ class PublicCoverageExecutor:
             self._sequence = 0
             self._recoveries = []
             self._entry_recoveries = []
-            self._guard()
+            self._evidence_started = time.monotonic()
+            self._evidence_samples = []
+            self._primitive_evidence = []
+            initial = self._guard()
+            self._evidence_started = initial.captured_monotonic_s
             self._primitive("cleaning.disable", {})
             for _ in range(maximum):
                 current = self._guard()
@@ -773,8 +846,46 @@ class PublicCoverageExecutor:
                 or strokes < minimum_strokes
             ):
                 raise RuntimeError("Finite work target or fresh stopped/off postcondition unmet")
+            task_evidence = None
+            if self.evidence_store is not None:
+                binding_data = asdict(b)
+                binding_data["execution_mode"] = b.execution_mode.value
+                payload = {
+                    "schema": "rosclaw.finite_coverage_evidence.v1",
+                    "scope": "finite_observed_coverage_slice_only",
+                    "whole_house_success": None,
+                    "execution_mode": b.execution_mode.value,
+                    "action": {
+                        "action_id": action.action_id,
+                        "session_id": action.session_id,
+                        "body_id": action.body_id,
+                        "body_snapshot_hash": action.body_snapshot_hash,
+                        "capability_id": action.capability_id,
+                    },
+                    "binding": binding_data,
+                    "initial": snapshot_record(initial, {source.role for source in b.sources}),
+                    "final": snapshot_record(final, {"odom", "cleaner"}),
+                    "goals": {
+                        "minimum_completed_work": minimum,
+                        "minimum_completed_strokes": minimum_strokes,
+                    },
+                    "completed_work": completed,
+                    "completed_strokes": strokes,
+                    "samples": self._evidence_samples,
+                    "primitives": self._primitive_evidence,
+                    "live_path_recoveries": self._recoveries,
+                    "post_entry_recoveries": self._entry_recoveries,
+                    "judge_read": False,
+                }
+                task_evidence = persist_archive(self.evidence_store, payload)
+                # Serialization/fsync is inside the unchanged deadline. Neither
+                # old evidence nor a persisted file replaces a fresh final check.
+                fresh = self._guard(work=False)
+                if not self._stopped(fresh) or fresh.native_motion_settled is not True:
+                    raise RuntimeError("Fresh final state changed during evidence persistence")
             return self._result(
                 ActionState.COMPLETED,
+                task_evidence=task_evidence,
                 completed=completed,
                 strokes=strokes,
                 recoveries=self._recoveries,
@@ -805,11 +916,16 @@ class PublicCoverageExecutor:
         stop=None,
         recoveries=(),
         entry_recoveries=(),
+        task_evidence=None,
     ):
         fixture = self.binding.execution_mode is ExecutionMode.FIXTURE
         return ActionExecutionResult(
             final_state=state,
-            evidence_level=EvidenceLevel.DRIVER_CONFIRMED
+            evidence_level=(
+                EvidenceLevel.TASK_VERIFIED
+                if task_evidence is not None
+                else EvidenceLevel.DRIVER_CONFIRMED
+            )
             if state is ActionState.COMPLETED
             else EvidenceLevel.REQUESTED,
             evidence_domain=EvidenceDomain.FIXTURE if fixture else EvidenceDomain.SIMULATION,
@@ -830,6 +946,8 @@ class PublicCoverageExecutor:
                 "whole_house_success": None,
                 "judge_read": False,
                 "stop": stop,
+                "task_evidence": task_evidence,
             },
+            artifacts=[] if task_evidence is None else [task_evidence["uri"]],
             errors=[] if error is None else [{"code": "PUBLIC_COVERAGE_FAILED", "message": error}],
         )
