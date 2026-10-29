@@ -52,6 +52,16 @@ and the original outer deadline and lease keep running. An ACK alone, unknown
 goal, mismatched owner/domain, lost ownership or expired deadline is terminal.
 No E-stop latch is reset, and incomplete paths are not counted as completed work.
 
+A path that becomes unsafe in a fresh full observation after reaching its work
+entry, before brush enable, has a separate typed recovery. The executor must
+observe stopped/off and known original native termination within the same
+five-second window, defer that proposal, and select new work from current
+public geometry. This consumes one original work attempt and grants no
+completion credit to the rejected path. It does not catch other `ValueError`s,
+source/epoch failures, unknown native goals, owner loss or expired deadlines.
+Both recovery kinds may occur within the same bounded slice. Exhaustion fails
+closed and latches the existing stop; neither recovery resets it.
+
 The bundled App grants no capability, Driver access or permit by installation.
 It currently requires an already undocked robot, sufficient battery reserve,
 and current public graph registration. Charging, return/docking and broader
