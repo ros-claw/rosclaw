@@ -318,6 +318,10 @@ class _KnownLivePathCancellationError(RuntimeError):
         super().__init__("Original native live-path cancellation is terminal")
 
 
+class _PostEntryGeometryChangeError(ValueError):
+    """A freshly observed path rejection before brush enable, never a source failure."""
+
+
 class PublicCoverageExecutor:
     def __init__(
         self,
@@ -340,6 +344,7 @@ class PublicCoverageExecutor:
         self._deadline = 0.0
         self._sequence = 0
         self._recoveries = []
+        self._entry_recoveries = []
 
     def _validate(self, snapshot, *, work=True, after=None, historical=False, required_roles=None):
         b = self.binding
@@ -601,7 +606,7 @@ class PublicCoverageExecutor:
             raise RuntimeError("Finite public work-entry transfer exhausted")
         current = self._guard()
         if not current.grid.motion_path_safe(path):
-            raise ValueError("Fresh post-entry geometry rejects selected work")
+            raise _PostEntryGeometryChangeError("Fresh post-entry geometry rejects selected work")
         before = len(self.ledger.anchor.cleaned)
         self._primitive("cleaning.enable", {})
         if len(path) > 1:
@@ -611,7 +616,7 @@ class PublicCoverageExecutor:
             raise RuntimeError("No actual public brush evidence for completed work")
         return len(path) > 1
 
-    def _recover_observed_live_path(self, work, cancelled):
+    def _observe_replanning_boundary(self, work):
         # This is not an E-stop reset. Owner loss/unknown native results never
         # reach this path; the original lease, deadline and attempt count run.
         stop_deadline = min(self._deadline, time.monotonic() + 5.0)
@@ -628,6 +633,24 @@ class PublicCoverageExecutor:
         self.ledger.failed(
             np.asarray(work["path_xy"], float), stopped.map_xy, IDENTITY, now=stopped.native_s
         )
+        return stopped
+
+    def _recover_post_entry_geometry(self, work):
+        stopped = self._observe_replanning_boundary(work)
+        self._entry_recoveries.append(
+            {
+                "reason": "fresh_post_entry_geometry_rejected_before_brush_enable",
+                "fresh_stopped_off": True,
+                "original_native_terminal_known": True,
+                "original_deadline_preserved": True,
+                "replayed_native_goal": False,
+                "observed_native_s": stopped.native_s,
+                "execution_credit": "no completion credit for rejected work",
+            }
+        )
+
+    def _recover_observed_live_path(self, work, cancelled):
+        self._observe_replanning_boundary(work)
         self._recoveries.append(
             {
                 "original_primitive_id": cancelled.primitive_id,
@@ -713,6 +736,7 @@ class PublicCoverageExecutor:
             self._parent = action
             self._sequence = 0
             self._recoveries = []
+            self._entry_recoveries = []
             self._guard()
             self._primitive("cleaning.disable", {})
             for _ in range(maximum):
@@ -730,6 +754,9 @@ class PublicCoverageExecutor:
                     break
                 try:
                     stroke = self._execute_work(work)
+                except _PostEntryGeometryChangeError:
+                    self._recover_post_entry_geometry(work)
+                    continue
                 except _KnownLivePathCancellationError as cancelled:
                     self._recover_observed_live_path(work, cancelled)
                     continue
@@ -751,6 +778,7 @@ class PublicCoverageExecutor:
                 completed=completed,
                 strokes=strokes,
                 recoveries=self._recoveries,
+                entry_recoveries=self._entry_recoveries,
             )
         except Exception as exc:
             stop = self.emergency_stop()
@@ -761,12 +789,23 @@ class PublicCoverageExecutor:
                 error=str(exc),
                 stop=stop,
                 recoveries=self._recoveries,
+                entry_recoveries=self._entry_recoveries,
             )
         finally:
             self._parent = None
             self.execution_lock.release()
 
-    def _result(self, state, *, completed=0, strokes=0, error=None, stop=None, recoveries=()):
+    def _result(
+        self,
+        state,
+        *,
+        completed=0,
+        strokes=0,
+        error=None,
+        stop=None,
+        recoveries=(),
+        entry_recoveries=(),
+    ):
         fixture = self.binding.execution_mode is ExecutionMode.FIXTURE
         return ActionExecutionResult(
             final_state=state,
@@ -783,6 +822,7 @@ class PublicCoverageExecutor:
                 "source": "public_observations",
                 "nested_daemon_actions": False,
                 "observed_live_path_recoveries": list(recoveries),
+                "observed_post_entry_recoveries": list(entry_recoveries),
             },
             verification_result={
                 "passed": state is ActionState.COMPLETED,

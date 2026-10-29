@@ -693,3 +693,100 @@ def test_planning_service_keeps_original_deadline_and_energy_guard():
     port.snapshot = lambda **_kwargs: replace(original(), soc=0.1)
     with pytest.raises(RuntimeError, match="energy"):
         executor._planning_service()
+
+
+@pytest.mark.parametrize("entry_x", [2.0, 2.4])
+@pytest.mark.parametrize("live_cancellation", [False, True])
+def test_fresh_post_entry_obstacle_replans_before_enabling_brush(
+    monkeypatch, entry_x, live_cancellation
+):
+    _, executor, port, action = setup_executor()
+    if live_cancellation:
+        port = OneLiveCancellationPort(port.binding)
+        executor.port = port
+    selected = []
+
+    def proposals(*_args, **_kwargs):
+        selected.append(port.xy)
+        if len(selected) == 1:
+            # The proposal was safe when selected. A newly occupied cell far
+            # from the actual pose invalidates its end, not the entry transfer.
+            path = [[entry_x, 2.0], [3.2, 2.0]]
+            assert port.grid.motion_path_safe(path)
+            port.grid.free[20, 32] = False
+        else:
+            path = [list(port.xy), [port.xy[0], port.xy[1] + 0.7]]
+        return {"kind": "WORK", "path_xy": path}
+
+    monkeypatch.setattr(executor.ledger, "next_work", proposals)
+    result = executor(action)
+    assert result.final_state is ActionState.COMPLETED, result.errors
+    assert len(selected) == (3 if live_cancellation else 2)
+    assert result.dispatch_result["completed_work"] == 1
+    assert result.dispatch_result["completed_continuous_strokes"] == 1
+    recovery = result.dispatch_result["observed_post_entry_recoveries"]
+    assert len(recovery) == 1 and recovery[0]["fresh_stopped_off"] is True
+    assert recovery[0]["original_native_terminal_known"] is True
+    assert recovery[0]["original_deadline_preserved"] is True
+    assert recovery[0]["replayed_native_goal"] is False
+    assert len(result.dispatch_result["observed_live_path_recoveries"]) == int(live_cancellation)
+    assert sum(c[0] == "cleaning.enable" for c in port.calls) == (2 if live_cancellation else 1)
+    assert not port.brush and port.stop_calls == 0
+    assert all(c[1:3] == (action.action_id, action.session_id) for c in port.calls)
+    assert len({c[3] for c in port.calls}) == len(port.calls)
+
+
+def test_repeated_post_entry_changes_consume_original_work_attempts(monkeypatch):
+    _, executor, port, action = setup_executor()
+    selected = []
+
+    def proposals(*_args, **_kwargs):
+        selected.append(1)
+        port.grid.free[20, 32] = False
+        return {"kind": "WORK", "path_xy": [[2.0, 2.0], [3.2, 2.0]]}
+
+    monkeypatch.setattr(executor.ledger, "next_work", proposals)
+    result = executor(replace(action, arguments={"maximum_work": 3}))
+    assert result.final_state is ActionState.FAILED
+    assert len(selected) == 3
+    assert len(result.dispatch_result["observed_post_entry_recoveries"]) == 3
+    assert result.dispatch_result["completed_work"] == 0
+    assert not any(c[0] == "cleaning.enable" for c in port.calls)
+    assert executor.stopping.is_set() and not port.brush and port.stop_calls == 1
+    assert executor(action).final_state is ActionState.BLOCKED
+
+
+@pytest.mark.parametrize("fault", ["body", "epoch", "depth", "publisher", "unknown_native"])
+def test_fresh_post_entry_change_does_not_swallow_other_guard_failures(monkeypatch, fault):
+    _, executor, port, action = setup_executor()
+    selected = []
+
+    def proposals(*_args, **_kwargs):
+        selected.append(1)
+        port.grid.free[20, 32] = False
+        if fault == "unknown_native":
+            port.motion_settled = False
+        else:
+            port.fault = fault
+        return {"kind": "WORK", "path_xy": [[2.0, 2.0], [3.2, 2.0]]}
+
+    monkeypatch.setattr(executor.ledger, "next_work", proposals)
+    result = executor(action)
+    assert result.final_state is ActionState.FAILED
+    assert len(selected) == 1
+    assert result.dispatch_result["observed_post_entry_recoveries"] == []
+    assert not any(c[0] == "cleaning.enable" for c in port.calls)
+    assert executor.stopping.is_set() and port.stop_calls == 1
+
+
+def test_generic_geometry_exception_is_not_a_replanning_permission(monkeypatch):
+    _, executor, port, action = setup_executor()
+
+    def unavailable(*_args, **_kwargs):
+        raise ValueError("Original unknown geometry source")
+
+    monkeypatch.setattr(port.grid, "motion_path_safe", unavailable)
+    result = executor(action)
+    assert result.final_state is ActionState.FAILED
+    assert result.dispatch_result["observed_post_entry_recoveries"] == []
+    assert executor.stopping.is_set() and port.stop_calls == 1
