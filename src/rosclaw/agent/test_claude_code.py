@@ -58,9 +58,18 @@ def _assess_probe_payload(
     code = str(error.get("code", ""))
     details = error.get("details")
     if (
-        code in _EXPECTED_READINESS_CODES
-        and isinstance(details, dict)
+        isinstance(details, dict)
         and details.get("usable_for_real_execution") is False
+        and (
+            code in _EXPECTED_READINESS_CODES
+            or (
+                tool_name == "get_robot_state"
+                and code in {"DAEMON_UNAVAILABLE", "SENSE_NOT_CONFIGURED"}
+                and details.get("operation") == "get_robot_state"
+                and details.get("execution_mode") == "UNKNOWN"
+                and details.get("trust_level") == "UNAVAILABLE"
+            )
+        )
     ):
         return None, f"{tool_name}: unavailable as expected ({code})"
     return f"{tool_name} returned ok=false: {error}", None

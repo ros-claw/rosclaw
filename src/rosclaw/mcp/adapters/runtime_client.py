@@ -193,73 +193,34 @@ class RuntimeClient:
     # ------------------------------------------------------------------
 
     async def get_robot_state(self) -> dict[str, Any]:
+        """Read the daemon-owned Sense projection; never initialize local Runtime."""
         if self.fixture_mode:
             return self._fixture_state()
-        rt = self._ensure_runtime()
-        if rt is None:
-            self._unavailable("get_robot_state")
-        if rt.sense is None:
-            self._unavailable("get_robot_state", "Body Sense subsystem is not initialized.")
         try:
-            sense = rt.sense
-            latest = sense.get_latest_state()
-            body_sense = sense.get_body_sense()
-            readiness = sense.get_readiness()
-            body_state = self._safe_dict(latest)
-            source = str(body_state.get("source", ""))
-            collector = str(getattr(getattr(sense, "config", None), "collector", ""))
-            if source.startswith("mock:") or collector == "mock":
-                self._unavailable(
-                    "get_robot_state",
-                    "Body Sense is using a synthetic mock collector; enable fixture mode "
-                    "explicitly to consume synthetic state.",
-                    code="SYNTHETIC_SOURCE_NOT_ALLOWED",
-                )
-            elif source in {"unconfigured", "file_replay:empty"} or collector == "unconfigured":
-                self._unavailable(
-                    "get_robot_state",
-                    f"Body state has no configured observation (source={source}).",
-                    code="STATE_PROVENANCE_UNAVAILABLE",
-                )
-            elif source.startswith("file_replay:"):
-                mode = "replay"
-                execution_mode = "REPLAY"
-                trust_level = "RECORDED"
-            elif (
-                not source
-                or source == "unknown"
-                or source.endswith(":stub")
-                or source == "sense:degraded"
-            ):
-                self._unavailable(
-                    "get_robot_state",
-                    f"Body state has no live provenance (source={source or 'missing'}).",
-                    code="STATE_PROVENANCE_UNAVAILABLE",
-                )
-            else:
-                mode = "live" if not getattr(sense, "is_stale", True) else "stale"
-                # Source labels and fresh telemetry do not establish a bound
-                # Body, a physical evidence domain or action-specific safety.
-                # Keep observations readable without promoting them to REAL.
-                execution_mode = "UNKNOWN"
-                trust_level = "OBSERVED" if mode == "live" else "STALE"
-            return {
-                "robot_id": self.robot_id,
-                "mode": mode,
-                "execution_mode": execution_mode,
-                "trust_level": trust_level,
-                "usable_for_real_execution": False,
-                "body_state": body_state,
-                "body_sense": self._safe_dict(body_sense),
-                "readiness": self._safe_dict(readiness),
-                "is_stale": getattr(sense, "is_stale", True),
-                "age_ms": getattr(sense, "state_age_ms", 0),
-            }
-        except Exception as exc:  # noqa: BLE001
-            logger.debug("get_robot_state failed: %s", exc)
-            if isinstance(exc, MCPError):
-                raise
-            self._unavailable("get_robot_state", str(exc), code="SENSE_READ_FAILED")
+            result = await asyncio.to_thread(self._daemon_client.get_robot_state)
+        except Exception as exc:  # noqa: BLE001 - preserve daemon unavailability
+            self._raise_daemon_error("get_robot_state", exc)
+        if (
+            not isinstance(result, dict)
+            or result.get("observation_owner") != "rosclawd"
+            or not isinstance(result.get("daemon_instance_id"), str)
+            or not result["daemon_instance_id"]
+            or result.get("usable_for_real_execution") is not False
+            or (result.get("mode"), result.get("execution_mode"), result.get("trust_level"))
+            not in (
+                ("live", "UNKNOWN", "OBSERVED"),
+                ("stale", "UNKNOWN", "STALE"),
+                ("replay", "REPLAY", "RECORDED"),
+            )
+            or not isinstance(result.get("body_state"), dict)
+            or not isinstance(result.get("readiness"), dict)
+        ):
+            self._unavailable(
+                "get_robot_state",
+                "Daemon returned no valid read-only Sense provenance.",
+                code="STATE_PROVENANCE_UNAVAILABLE",
+            )
+        return result
 
     async def list_skills(
         self, *, skill_type: str | None = None, full_ids: bool = False

@@ -28,6 +28,7 @@ from rosclaw.kernel import ActionEnvelope
 _ALLOWED_METHODS = frozenset(
     {
         "runtime.status",
+        "observation.robot_state",
         "runtime.arm",
         "runtime.disarm",
         "runtime.recovery.acknowledge",
@@ -329,6 +330,12 @@ class RosclawDaemon:
                 "METHOD_NOT_ALLOWED",
                 f"rosclawd does not expose method {method!r}",
             )
+        if method == "observation.robot_state":
+            if params:
+                raise ControlPlaneError(
+                    "INVALID_PARAMS", "Robot state accepts no caller configuration"
+                )
+            return self.service.get_robot_state(peer), False
         if method == "runtime.status":
             return self.service.get_runtime_status(peer), False
         if method == "runtime.arm":
