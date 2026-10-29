@@ -70,8 +70,12 @@ client that omits it needs a native metadata bridge before enrollment.
 
 Required roles are odom, brush, occupancy, global/local costmaps, public graph,
 map/base TF, scan, depth, battery and dock state. Receive time uses monotonic
-time with no future allowance. Header time uses the public native clock and
-the existing 100ms future tolerance. Headerless Bool state keeps frame/header
+time with no future allowance. Header time uses the public native clock.
+`max_header_future_s` is compiled into each source and defaults to 100ms;
+sensor/map roles cannot exceed 100ms. TF roles may explicitly retain the
+native Driver's one-second absolute TF guard (including normal SLAM future
+dating). Their original receive and past-header limits still apply. Original
+message timestamps are never rewritten. Headerless Bool state keeps frame/header
 time absent. MarkerArray graph events can explicitly use receipt freshness
 and a common marker frame without manufacturing a container header clock.
 

@@ -46,6 +46,7 @@ class CoverageSource:
     max_header_age_s: float | None
     child_frame_id: str | None = None
     publisher_gid: str | None = None
+    max_header_future_s: float = 0.1
 
     def __post_init__(self):
         if not all(type(v) is str and v for v in (self.role, self.topic, self.message_type)):
@@ -76,6 +77,17 @@ class CoverageSource:
             raise ValueError("Header-bearing observation requires its original frame and age")
         if self.max_receive_age_s is None:
             raise ValueError("Every source requires an actual receive age bound")
+        future_limit = (
+            1.0
+            if self.role in {"map_tf", "base_tf"} and self.message_type == "tf2_msgs/msg/TFMessage"
+            else 0.1
+        )
+        if (
+            type(self.max_header_future_s) not in (int, float)
+            or not math.isfinite(self.max_header_future_s)
+            or not 0 <= self.max_header_future_s <= future_limit
+        ):
+            raise ValueError("Compiled header future tolerance exceeds native source contract")
         if any(
             type(v) not in (int, float) or not math.isfinite(v) or v <= 0
             for v in (self.max_receive_age_s, self.max_header_age_s)
@@ -380,7 +392,9 @@ class PublicCoverageExecutor:
                 else (
                     fact.header_native_s is not None
                     and math.isfinite(fact.header_native_s)
-                    and -0.1 <= snapshot.native_s - fact.header_native_s <= source.max_header_age_s
+                    and -source.max_header_future_s
+                    <= snapshot.native_s - fact.header_native_s
+                    <= source.max_header_age_s
                 )
             )
             if (

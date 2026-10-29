@@ -449,6 +449,50 @@ def test_original_clock_domains_and_header_contracts_are_not_relaxed(case, monke
         executor._validate(replace(sample, sources=tuple(facts)))
 
 
+@pytest.mark.parametrize("future", [0.5, 1.001])
+def test_declared_tf_future_bound_preserves_original_native_absolute_guard(future):
+    _, executor, port, _ = setup_executor()
+    sources = tuple(
+        replace(s, max_header_future_s=1.0) if s.role == "map_tf" else s
+        for s in executor.binding.sources
+    )
+    executor.binding = replace(executor.binding, sources=sources)
+    port.binding = executor.binding
+    sample = port.snapshot()
+    facts = tuple(
+        replace(f, header_native_s=sample.native_s + future) if f.role == "map_tf" else f
+        for f in sample.sources
+    )
+    changed = replace(sample, sources=facts)
+    if future <= 1.0:
+        executor._validate(changed, work=False, required_roles={"map_tf"})
+    else:
+        with pytest.raises(ValueError, match="freshness"):
+            executor._validate(changed, work=False, required_roles={"map_tf"})
+
+
+@pytest.mark.parametrize(
+    "role,kind,limit",
+    [
+        ("odom", "nav_msgs/msg/Odometry", 0.101),
+        ("map_tf", "tf2_msgs/msg/TFMessage", 1.001),
+        ("map_tf", "tf2_msgs/msg/TFMessage", float("nan")),
+    ],
+)
+def test_compiled_future_bound_cannot_exceed_original_role_guard(role, kind, limit):
+    with pytest.raises(ValueError, match="future tolerance"):
+        CoverageSource(
+            role,
+            "/fixture/source",
+            kind,
+            "map",
+            1.0,
+            1.0,
+            publisher_gid="1" * 32,
+            max_header_future_s=limit,
+        )
+
+
 def test_fresh_stop_proof_survives_unavailable_map_registration(monkeypatch):
     _, executor, port, _ = setup_executor()
     original = port.snapshot
