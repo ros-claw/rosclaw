@@ -89,6 +89,13 @@ def client_with_runtime() -> RuntimeClient:
     )
     client._runtime = _FakeRuntime()
     client._adapter_cache = None
+    from rosclaw.sense.observation import project_robot_state
+
+    daemon.get_robot_state.side_effect = lambda: {
+        **project_robot_state(client._runtime.sense, "test_bot"),
+        "observation_owner": "rosclawd",
+        "daemon_instance_id": "daemon-fixture",
+    }
     return client
 
 
@@ -176,18 +183,24 @@ async def test_emergency_stop_degraded_without_runtime() -> None:
     assert "physical E-stop" in response["note"]
 
 
-async def test_live_mode_never_falls_back_to_fixture_on_runtime_failure() -> None:
+async def test_live_mode_never_falls_back_to_fixture_on_daemon_failure() -> None:
     client = RuntimeClient(
         project_root=Path("/tmp/rosclaw-test"),
         robot_id="real_bot",
         runtime_profile={},
     )
-    client._runtime_error = "model missing"
+    from rosclaw.daemon.client import DaemonUnavailableError
+
+    client._daemon_client = MagicMock()
+    client._daemon_client.get_robot_state.side_effect = DaemonUnavailableError(
+        "ROSCLAWD_UNAVAILABLE", "not running"
+    )
+    client._runtime_error = "local model must not be initialized"
 
     with pytest.raises(MCPError) as error:
         await client.get_robot_state()
 
-    assert error.value.code == "RUNTIME_UNAVAILABLE"
+    assert error.value.code == "ROSCLAWD_UNAVAILABLE"
     assert error.value.details["trust_level"] == "UNAVAILABLE"
 
 

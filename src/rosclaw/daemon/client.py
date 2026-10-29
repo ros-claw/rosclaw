@@ -146,6 +146,10 @@ class DaemonClient:
         result.setdefault("daemon_peer", daemon_peer.to_dict())
         return result
 
+    def get_robot_state(self) -> dict[str, Any]:
+        """Read the configured daemon Sense; unavailable is never synthesized."""
+        return self.call("observation.robot_state")
+
     def get_runtime_status(self) -> dict[str, Any]:
         return self.call("runtime.status")
 
@@ -382,9 +386,7 @@ class DaemonClient:
         )
 
     def revoke_operator_enrollment(self, enrollment_id: str) -> dict[str, Any]:
-        return self.call(
-            "operator.enrollment.revoke", {"enrollment_id": enrollment_id}
-        )
+        return self.call("operator.enrollment.revoke", {"enrollment_id": enrollment_id})
 
     def list_operator_enrollments(self) -> dict[str, Any]:
         return self.call("operator.enrollment.list")

@@ -120,12 +120,11 @@ def test_explicit_unknown_mock_keeps_its_synthetic_identity():
 
 
 @pytest.mark.parametrize("collector", ["unconfigured", "file_replay"])
-async def test_mcp_refuses_unavailable_collectors_even_if_transport_is_fresh(collector, tmp_path):
-    from types import SimpleNamespace
-
+async def test_daemon_projection_refuses_unavailable_collectors_even_if_transport_is_fresh(
+    collector, tmp_path
+):
     from rosclaw.core.event_bus import EventBus
-    from rosclaw.mcp.adapters.runtime_client import RuntimeClient
-    from rosclaw.mcp.schemas.common import MCPError
+    from rosclaw.sense.observation import SenseObservationError, project_robot_state
     from rosclaw.sense.runtime import SenseRuntime
 
     runtime = SenseRuntime(SenseConfig(collector=collector, update_hz=0), EventBus())
@@ -134,21 +133,16 @@ async def test_mcp_refuses_unavailable_collectors_even_if_transport_is_fresh(col
         runtime.tick()
         # Transport freshness cannot turn missing telemetry into live evidence.
         runtime.is_stale = False
-        client = RuntimeClient(project_root=tmp_path, robot_id="no_sensor", runtime_profile={})
-        client._runtime = SimpleNamespace(sense=runtime)
-        with pytest.raises(MCPError) as error:
-            await client.get_robot_state()
+        with pytest.raises(SenseObservationError) as error:
+            project_robot_state(runtime, "no_sensor")
         assert error.value.code == "STATE_PROVENANCE_UNAVAILABLE"
-        assert error.value.details["usable_for_real_execution"] is False
     finally:
         runtime.stop()
 
 
-async def test_mcp_keeps_real_file_replay_historical(tmp_path):
-    from types import SimpleNamespace
-
+async def test_daemon_projection_keeps_real_file_replay_historical(tmp_path):
     from rosclaw.core.event_bus import EventBus
-    from rosclaw.mcp.adapters.runtime_client import RuntimeClient
+    from rosclaw.sense.observation import project_robot_state
     from rosclaw.sense.runtime import SenseRuntime
 
     path = tmp_path / "recording.jsonl"
@@ -160,9 +154,7 @@ async def test_mcp_keeps_real_file_replay_historical(tmp_path):
     try:
         runtime.tick()
         runtime.is_stale = False
-        client = RuntimeClient(project_root=tmp_path, robot_id="recorded", runtime_profile={})
-        client._runtime = SimpleNamespace(sense=runtime)
-        result = await client.get_robot_state()
+        result = project_robot_state(runtime, "recorded")
         assert result["mode"] == "replay"
         assert result["execution_mode"] == "REPLAY"
         assert result["trust_level"] == "RECORDED"

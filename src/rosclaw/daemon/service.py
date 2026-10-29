@@ -206,6 +206,20 @@ class DaemonControlPlane:
         self._watchdog.start()
         self.workers.start()
 
+    def get_robot_state(self, peer: PeerCredentials) -> dict[str, Any]:
+        """Project already-configured Sense without action or collector creation."""
+        from rosclaw.sense.observation import SenseObservationError, project_robot_state
+
+        self._require_running()
+        try:
+            state = project_robot_state(
+                getattr(self.runtime, "sense", None),
+                str(getattr(getattr(self.runtime, "config", None), "robot_id", "unknown")),
+            )
+        except SenseObservationError as exc:
+            raise ControlPlaneError(exc.code, str(exc)) from exc
+        return {**state, "observation_owner": "rosclawd", "daemon_instance_id": self._instance_id}
+
     def get_runtime_status(self, peer: PeerCredentials) -> dict[str, Any]:
         with self._lock:
             counts = {"QUEUED": 0, "RUNNING": 0, "FINISHED": 0, "CANCELLED": 0}
