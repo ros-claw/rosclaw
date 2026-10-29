@@ -367,6 +367,20 @@ async def request_action(
     verification_data = inner.get("verification_result")
     verification = verification_data if isinstance(verification_data, dict) else {}
     scope = verification.get("scope", "UNKNOWN")
+    from rosclaw.agentd.action_receipt_feedback import historical_action_feedback
+
+    def with_feedback(text: str) -> str:
+        # Native admission already caps summaries at 4000 characters. Reserve
+        # space in BYTES so Unicode and the original evidence note cannot
+        # cause the new JSON to be silently clipped by that existing bound.
+        return text + historical_action_feedback(
+            inner,
+            capability=capability,
+            action_id=outcome.action_id,
+            mode=mode,
+            max_bytes=max(0, 3900 - len(text.encode("utf-8"))),
+        )
+
     evidence_data = verification.get("task_evidence")
     evidence = evidence_data if isinstance(evidence_data, dict) else {}
     historical = evidence.get("last_guarded_work_state")
@@ -389,7 +403,7 @@ async def request_action(
     if not outcome.verified:
         if _known_idle_dock_precondition(inner, capability, outcome.action_id):
             return HandlerOutcome(
-                text=(
+                text=with_feedback(
                     "Dock 未派发：新鲜公共 DockStatus 表明 dock_visible=false，"
                     "原生目标已结清且已观测停止/关刷。重新观察并规划；"
                     "只有前置条件改变后才提交新提案。原请求不会自动重试，"
@@ -399,7 +413,7 @@ async def request_action(
                 error_code="ACTION_PRECONDITION_NOT_MET",
             )
         return HandlerOutcome(
-            text=(
+            text=with_feedback(
                 f"动作已提交但未达验证标准（state={outcome.state}, "
                 f"trust={outcome.trust_level}, action_id={outcome.action_id}）。"
                 "提交不等于完成——不报告为成功。"
@@ -408,7 +422,7 @@ async def request_action(
             error_code="ACTION_NOT_VERIFIED",
         )
     return HandlerOutcome(
-        text=(
+        text=with_feedback(
             f"动作已在 {mode} 完成并经回执验证："
             f"action_id={outcome.action_id}, final_state={outcome.state}, "
             f"trust_level={outcome.trust_level}, verification_scope={scope}。"
