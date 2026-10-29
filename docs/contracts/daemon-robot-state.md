@@ -30,3 +30,10 @@ cross-UID acceptance. Existing physical-action admission is unchanged.
 This change covers the robot-state observation route. Other legacy
 Memory/Practice/Skill adapters have their own local data lifecycle; this contract
 does not claim a complete migration of every adapter to daemon-owned storage.
+
+An installation-only MCP quick probe may report a missing daemon or disabled
+Sense as a visible readiness limitation, provided the get_robot_state envelope
+explicitly says UNKNOWN / UNAVAILABLE and grants no REAL use. This does not
+qualify a robot or a running daemon. The same errors in product-demo or other
+operations, malformed provenance, and an older daemon lacking the method remain
+probe failures. Full daemon and physical qualification remain separate gates.

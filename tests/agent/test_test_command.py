@@ -268,3 +268,52 @@ def test_stdio_probe_current_python_fallback_is_explicit(
         "--project",
         ".",
     ]
+
+
+@pytest.mark.parametrize("code", ["DAEMON_UNAVAILABLE", "SENSE_NOT_CONFIGURED"])
+def test_install_probe_reports_unconfigured_daemon_state_as_a_limit(code):
+    payload = {
+        "schema_version": "rosclaw.mcp.v1",
+        "ok": False,
+        "error": {
+            "code": code,
+            "details": {
+                "operation": "get_robot_state",
+                "execution_mode": "UNKNOWN",
+                "trust_level": "UNAVAILABLE",
+                "usable_for_real_execution": False,
+            },
+        },
+    }
+    error, readiness = _assess_probe_payload("get_robot_state", payload)
+    assert error is None and code in readiness
+
+
+@pytest.mark.parametrize(
+    "tool,change",
+    [
+        ("run_product_demo", {}),
+        ("get_runtime_status", {}),
+        ("get_robot_state", {"operation": "sandbox_run"}),
+        ("get_robot_state", {"execution_mode": "REAL"}),
+        ("get_robot_state", {"trust_level": "OBSERVED"}),
+        ("get_robot_state", {"usable_for_real_execution": True}),
+    ],
+)
+def test_daemon_readiness_limit_never_hides_product_or_provenance_failure(tool, change):
+    details = {
+        "operation": "get_robot_state",
+        "execution_mode": "UNKNOWN",
+        "trust_level": "UNAVAILABLE",
+        "usable_for_real_execution": False,
+    }
+    details.update(change)
+    error, readiness = _assess_probe_payload(
+        tool,
+        {
+            "schema_version": "rosclaw.mcp.v1",
+            "ok": False,
+            "error": {"code": "DAEMON_UNAVAILABLE", "details": details},
+        },
+    )
+    assert error is not None and readiness is None
