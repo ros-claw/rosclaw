@@ -52,8 +52,10 @@ class CoverageSource:
             raise ValueError("Explicit typed public observation source required")
         if not self.topic.startswith("/") or "/msg/" not in self.message_type:
             raise ValueError("Absolute ROS topic and message interface required")
-        if type(self.publisher_gid) is not str or not re.fullmatch(
-            r"[a-f0-9]{48}", self.publisher_gid
+        if (
+            type(self.publisher_gid) is not str
+            or not re.fullmatch(r"(?:[a-f0-9]{32}|[a-f0-9]{48})", self.publisher_gid)
+            or not any(c != "0" for c in self.publisher_gid)
         ):
             raise ValueError("Pinned public publisher endpoint GID required")
         if self.message_type == "std_msgs/msg/Bool":

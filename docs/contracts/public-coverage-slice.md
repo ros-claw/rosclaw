@@ -62,6 +62,12 @@ also bind the child frame. Pinning a GID inside this configured non-hardware
 environment is not cryptographic hardware identity. Neither bindings nor this
 App promote generic Sense state to REAL or grant execution authority.
 
+Endpoint bytes retain the native RMW storage width: 16 bytes (including Jazzy)
+or 24 bytes. Missing, all-zero, malformed and other-width identifiers are
+rejected. No padding, truncation or node-name inference is allowed. The
+trusted Driver must receive the original per-message publisher GID; a Python
+client that omits it needs a native metadata bridge before enrollment.
+
 Required roles are odom, brush, occupancy, global/local costmaps, public graph,
 map/base TF, scan, depth, battery and dock state. Receive time uses monotonic
 time with no future allowance. Header time uses the public native clock and

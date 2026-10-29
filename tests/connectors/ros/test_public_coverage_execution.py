@@ -34,6 +34,25 @@ from rosclaw.kernel import (
 pytest_plugins = ("tests.daemon.test_server",)
 
 
+@pytest.mark.parametrize("size", [16, 24])
+def test_original_rmw_gid_width_is_preserved(size):
+    gid = bytes(range(size)).hex()
+    source = CoverageSource(
+        "odom", "/odom", "nav_msgs/msg/Odometry", "odom", 1.5, 1.5, publisher_gid=gid
+    )
+    assert source.publisher_gid == gid
+
+
+@pytest.mark.parametrize(
+    "gid", ["", "0" * 32, "0" * 48, "f" * 30, "f" * 34, "f" * 46, "f" * 50, "g" * 32]
+)
+def test_missing_zero_malformed_or_unsupported_rmw_gid_is_not_a_source(gid):
+    with pytest.raises(ValueError, match="publisher endpoint GID"):
+        CoverageSource(
+            "odom", "/odom", "nav_msgs/msg/Odometry", "odom", 1.5, 1.5, publisher_gid=gid
+        )
+
+
 def compiled_binding():
     types = {
         "odom": "nav_msgs/msg/Odometry",
