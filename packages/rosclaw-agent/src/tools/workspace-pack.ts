@@ -160,8 +160,10 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 		async execute(_id, params, signal, onUpdate) {
 			const command = String(params.command ?? "").trim();
 			if (!command) return denied("empty command");
+			if (signal?.aborted) return denied("command cancelled before execution");
 			// P0-C：首个 effectful call 的原子 admission。
 			await options.beforeEffect?.();
+			if (signal?.aborted) return denied("command cancelled before execution");
 			const argv0 = command.split(/\s+/)[0].replace(/^\(.*\)\s*/, "");
 			const base = argv0.split("/").pop() ?? argv0;
 			if (DENIED_COMMAND.has(base)) {
@@ -243,35 +245,81 @@ export function buildWorkspacePackTools(options: WorkspacePackOptions): ToolDefi
 				const child = spawn(spawnCmd, spawnArgs, {
 					cwd: effectiveCwd,
 					env: scrubbedEnv,
-					signal: signal ?? undefined,
+					// Each command owns a new process group. Killing only `sh`
+					// leaves grandchildren holding stdout/stderr, so `close`
+					// never arrives and the explicit timeout never returns.
+					detached: process.platform !== "win32",
 				});
 				let buf = "";
 				let timedOut = false;
+				let cancelled = false;
+				let settled = false;
+				let terminating = false;
+				let signalResult = "not_requested";
+				let drainTimer: NodeJS.Timeout | null = null;
+				let timer: NodeJS.Timeout | null = null;
+				const finish = (text: string) => {
+					if (settled) return;
+					settled = true;
+					if (timer) clearTimeout(timer);
+					if (drainTimer) clearTimeout(drainTimer);
+					signal?.removeEventListener("abort", onAbort);
+					resolvePromise(text);
+				};
+				const header = (code: number | null, unknown = false) =>
+					`exit=${unknown ? "UNKNOWN" : code ?? "signal"} wall=${Date.now() - started}ms`
+					+ (timedOut ? " TIMEOUT(explicit)" : "")
+					+ (cancelled ? " CANCELLED" : "")
+					+ (terminating ? ` process_group_signal=${signalResult}` : "")
+					+ (unknown ? " descendant_settlement=UNKNOWN" : "");
+				const terminate = (reason: "timeout" | "cancelled") => {
+					if (settled || terminating) return;
+					terminating = true;
+					timedOut = reason === "timeout";
+					cancelled = reason === "cancelled";
+					try {
+						if (child.exitCode !== null || child.signalCode !== null) {
+							// The old leader has exited: never signal a potentially
+							// reused PID/group. Bounded drain reports UNKNOWN.
+							signalResult = "leader_exited_UNKNOWN";
+						} else if (process.platform !== "win32" && child.pid) {
+							process.kill(-child.pid, "SIGKILL");
+							signalResult = "sent";
+						} else {
+							signalResult = child.kill("SIGKILL") ? "sent" : "UNKNOWN";
+						}
+					} catch (error) {
+						signalResult = (error as NodeJS.ErrnoException).code === "ESRCH"
+							? "group_absent" : "UNKNOWN";
+					}
+					// A child may deliberately start another session and retain
+					// pipes. Do not wait forever or claim it was terminated.
+					drainTimer = setTimeout(() => {
+						child.stdout?.destroy();
+						child.stderr?.destroy();
+						finish(`${degradedMarker}${header(null, true)}\n${buf.slice(0, MAX_OUTPUT_BYTES)}`);
+					}, 500);
+				};
+				const onAbort = () => terminate("cancelled");
 				child.stdout?.on("data", (d) => {
 					if (buf.length < MAX_OUTPUT_BYTES) buf += d.toString();
 				});
 				child.stderr?.on("data", (d) => {
 					if (buf.length < MAX_OUTPUT_BYTES) buf += d.toString();
 				});
-				let timer: NodeJS.Timeout | null = null;
 				if (timeoutMs !== null) {
-					timer = setTimeout(() => {
-						timedOut = true;
-						child.kill("SIGKILL");
-					}, timeoutMs);
+					timer = setTimeout(() => terminate("timeout"), timeoutMs);
 				}
 				child.on("close", (code) => {
-					if (timer) clearTimeout(timer);
-					const head = `exit=${code ?? "signal"} wall=${Date.now() - started}ms`
-						+ (timedOut ? " TIMEOUT(explicit)" : "");
-					resolvePromise(
-						`${degradedMarker}${head}\n${buf.slice(0, MAX_OUTPUT_BYTES)}`,
+					finish(
+						`${degradedMarker}${header(code)}\n${buf.slice(0, MAX_OUTPUT_BYTES)}`,
 					);
 				});
 				child.on("error", (err) => {
-					if (timer) clearTimeout(timer);
-					resolvePromise(`spawn error: ${err.message}`);
+					finish(`spawn error: ${err.message}`);
 				});
+				if (signal?.aborted) onAbort();
+				else signal?.addEventListener("abort", onAbort, { once: true });
 			});
 			if (options.bashLogPath) {
 				try {
