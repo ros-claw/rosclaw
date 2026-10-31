@@ -326,7 +326,20 @@ class _KnownLivePathCancellationError(RuntimeError):
 
 
 class _PostEntryGeometryChangeError(ValueError):
-    """A freshly observed path rejection before brush enable, never a source failure."""
+    """A known undispatched geometric rejection, never a source failure."""
+
+    def __init__(
+        self,
+        message,
+        *,
+        phase="before_brush_enable",
+        cleaner_enabled=False,
+        rejection=None,
+    ):
+        super().__init__(message)
+        self.phase = phase
+        self.cleaner_enabled = cleaner_enabled
+        self.rejection = rejection
 
 
 class PublicCoverageExecutor:
@@ -565,11 +578,37 @@ class PublicCoverageExecutor:
                 or points.shape[1] != 2
                 or not 2 <= len(points) <= 1024
                 or not np.isfinite(points).all()
-                or np.linalg.norm(points[0] - sample.map_xy) > 0.10
                 or np.linalg.norm(np.diff(points, axis=0), axis=1).sum() > 3.0 + 1e-9
-                or not sample.grid.motion_path_safe(points)
             ):
                 raise ValueError("Current complete footprint rejects bounded work path")
+            entry_distance = float(np.linalg.norm(points[0] - sample.map_xy))
+            rejection = (
+                "entry_outside_original_0.10m_tolerance"
+                if entry_distance > 0.10
+                else "current_complete_footprint_rejection"
+                if not sample.grid.motion_path_safe(points)
+                else None
+            )
+            if rejection is not None:
+                # This exact path has not reached port.execute/send_goal_async.
+                # _guard requires all original sources/energy/identity and a
+                # known settled native owner. Stop/off and revalidation still
+                # precede another finite attempt under the same parent. The
+                # rejected entry/path is NEVER rebased or dispatched as-is.
+                raise _PostEntryGeometryChangeError(
+                    "Fresh geometry rejects work before native dispatch: " + rejection,
+                    phase="before_native_path_dispatch",
+                    cleaner_enabled=sample.cleaner,
+                    rejection={
+                        "reason": rejection,
+                        "path_xy": points.tolist(),
+                        "map_xy": list(sample.map_xy),
+                        "native_s": sample.native_s,
+                        "captured_monotonic_s": sample.captured_monotonic_s,
+                        "entry_distance_m": entry_distance,
+                        "entry_limit_m": 0.10,
+                    },
+                )
         started = time.monotonic()
         self._sequence += 1
         primitive_id = (
@@ -717,11 +756,18 @@ class PublicCoverageExecutor:
         )
         return stopped
 
-    def _recover_post_entry_geometry(self, work):
+    def _recover_post_entry_geometry(self, work, rejected=None):
         stopped = self._observe_replanning_boundary(work)
         self._entry_recoveries.append(
             {
-                "reason": "fresh_post_entry_geometry_rejected_before_brush_enable",
+                "reason": "fresh_path_geometry_rejected_before_native_dispatch"
+                if getattr(rejected, "phase", None) == "before_native_path_dispatch"
+                else "fresh_post_entry_geometry_rejected_before_brush_enable",
+                "rejection_phase": getattr(rejected, "phase", "before_brush_enable"),
+                "cleaner_enabled_at_rejection": getattr(rejected, "cleaner_enabled", False),
+                "native_goal_dispatched": False,
+                "dispatch_scope": "this rejected candidate path only",
+                "rejected_public_path": getattr(rejected, "rejection", None),
                 "fresh_stopped_off": True,
                 "original_native_terminal_known": True,
                 "original_deadline_preserved": True,
@@ -841,8 +887,8 @@ class PublicCoverageExecutor:
                     break
                 try:
                     stroke = self._execute_work(work)
-                except _PostEntryGeometryChangeError:
-                    self._recover_post_entry_geometry(work)
+                except _PostEntryGeometryChangeError as rejected:
+                    self._recover_post_entry_geometry(work, rejected)
                     continue
                 except _KnownLivePathCancellationError as cancelled:
                     self._recover_observed_live_path(work, cancelled)
