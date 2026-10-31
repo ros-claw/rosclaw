@@ -217,6 +217,7 @@ def select(
     transit_cost=None,
     bidirectional=False,
     prepare_path=None,
+    continuous_only=False,
 ):
     """Rank actual remaining brush opportunity, never commanded endpoint count."""
     version = geometry_key(grid)
@@ -245,6 +246,11 @@ def select(
                         raise ValueError(
                             "Prepared work must be finite and retain the original length bound"
                         )
+                if continuous_only and (
+                    len(candidate) < 2
+                    or np.linalg.norm(np.diff(candidate, axis=0), axis=1).sum() < 0.10
+                ):
+                    continue
                 # Score, retry and execute the same controller-compatible path.
                 # A whole lane's unexecuted tail cannot pay for a clipped point.
                 key = work_key(candidate)
@@ -276,6 +282,7 @@ def select_phase(
     bidirectional=False,
     maximum=3.0,
     prepare_path=None,
+    continuous_only=False,
 ):
     """Boundary work must not starve behind diminishing interior opportunities."""
     candidates = []
@@ -294,6 +301,7 @@ def select_phase(
             transit_cost=transit_cost,
             bidirectional=bidirectional,
             prepare_path=prepare_path,
+            continuous_only=continuous_only,
         )
         if choice is not None:
             candidates.append((phase, choice))

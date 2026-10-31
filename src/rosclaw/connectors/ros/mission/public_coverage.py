@@ -835,6 +835,7 @@ class PublicCoverageExecutor:
                     now=current.native_s,
                     prepare_path=prepare_work_path,
                     service=self._planning_service,
+                    require_continuous_stroke=strokes < minimum_strokes,
                 )
                 if work["kind"] == "NO_CURRENT_OBSERVED_WORK":
                     break

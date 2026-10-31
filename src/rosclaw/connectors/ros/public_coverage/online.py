@@ -284,11 +284,14 @@ class AnchoredCoverage:
         minimum_new_area_m2: float = 0.0,
         prepare_path=None,
         service=None,
+        require_continuous_stroke=False,
     ):
         if not math.isfinite(maximum_length) or not 0 < maximum_length <= 3:
             raise ValueError("Bounded work length must be in (0, 3] metres")
         if not math.isfinite(minimum_new_area_m2) or minimum_new_area_m2 < 0:
             raise ValueError("Minimum estimated new brush area must be finite and nonnegative")
+        if type(require_continuous_stroke) is not bool:
+            raise ValueError("Explicit continuous stroke requirement required")
         minimum_cells = max(1, math.ceil(minimum_new_area_m2 / self.anchor.resolution**2))
         boundary = boundary_strokes(grid, service=service)
         view = self.observe(grid, transform, extra_paths=boundary)
@@ -324,6 +327,7 @@ class AnchoredCoverage:
             bidirectional=True,
             prepare_path=prepare_path,
             service=service,
+            continuous_only=require_continuous_stroke,
         )
         if selected is not None:
             phase, (path, key, version, gain) = selected
