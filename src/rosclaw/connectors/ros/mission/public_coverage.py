@@ -876,9 +876,22 @@ class PublicCoverageExecutor:
         return detail
 
     def _entry_progress_failure_detail(self, rejected, stop):
-        detail = dict(
-            rejected.diagnostics, stop=stop, execution_credit="none for deferred candidate"
-        )
+        # Full source facts and held maps belong in the durable diagnostic
+        # artifact, not an unbounded model/tool payload. No evidence is rebased.
+        detail = {key: value for key, value in rejected.diagnostics.items() if key != "prefixes"}
+        detail.update(stop=stop, execution_credit="none for deferred candidate")
+        detail["prefixes"] = [
+            {
+                "primitive_id": row["original_primitive"]["primitive_id"],
+                "original_native_goal_identity": row["original_primitive"]["dispatch"].get(
+                    "original_native_goal_identity"
+                ),
+                "before_native_s": row["before"]["native_s"],
+                "after_native_s": row["after"]["native_s"],
+                **{key: value for key, value in row.items() if key.endswith("_m")},
+            }
+            for row in rejected.diagnostics["prefixes"]
+        ]
         recorder = getattr(self.port, "record_work_entry_failure", None)
         if recorder is not None:
             try:
