@@ -27,6 +27,7 @@ from rosclaw.connectors.ros.public_coverage.coverage_paths import prepare_work_p
 from rosclaw.connectors.ros.public_coverage.graph_ledger import IDENTITY, GraphAnchoredCoverage
 from rosclaw.connectors.ros.public_coverage.grid import Grid
 from rosclaw.connectors.ros.public_coverage.online import TransferUnavailableError, propose_transfer
+from rosclaw.connectors.ros.public_coverage.time_contract import header_age_ok
 from rosclaw.kernel import (
     ActionEnvelope,
     ActionExecutionResult,
@@ -266,6 +267,7 @@ class CoverageSourceFact:
     received_monotonic_s: float
     child_frame_id: str | None = None
     publisher_gid: str | None = None
+    header_native_ns: int | None = None
 
 
 @dataclass(frozen=True)
@@ -289,6 +291,7 @@ class PublicCoverageSnapshot:
     sources: tuple[CoverageSourceFact, ...]
     grid: Grid | None
     work_source_fault: str | None = None
+    native_ns: int | None = None
 
 
 class PublicCoveragePort(Protocol):
@@ -437,14 +440,17 @@ class PublicCoverageExecutor:
             ):
                 raise ValueError("Missing or mismatched public source: " + source.role)
             header_ok = (
-                fact.header_native_s is None
+                fact.header_native_s is None and fact.header_native_ns is None
                 if source.max_header_age_s is None
                 else (
-                    fact.header_native_s is not None
-                    and math.isfinite(fact.header_native_s)
-                    and -source.max_header_future_s
-                    <= snapshot.native_s - fact.header_native_s
-                    <= source.max_header_age_s
+                    header_age_ok(
+                        snapshot.native_s,
+                        fact.header_native_s,
+                        source.max_header_future_s,
+                        source.max_header_age_s,
+                        native_ns=snapshot.native_ns,
+                        header_ns=fact.header_native_ns,
+                    )
                 )
             )
             if (
