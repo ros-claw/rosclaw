@@ -328,6 +328,24 @@ class _KnownLivePathCancellationError(RuntimeError):
         super().__init__("Original native live-path cancellation is terminal")
 
 
+class _WorkEntryProgressError(RuntimeError):
+    """A bounded entry candidate, after verified terminal prefixes, is deferred."""
+
+    def __init__(self, reason, path, prefixes, snapshot):
+        super().__init__("Observed work-entry candidate deferred: " + reason)
+        self.public_snapshot = snapshot
+        self.diagnostics = {
+            "reason": reason,
+            "requested_target_xy": np.asarray(path[0], float).tolist(),
+            "selected_work_path_xy": np.asarray(path, float).tolist(),
+            "prefixes": list(prefixes),
+            "native_prefixes_dispatched": True,
+            "all_original_prefix_results_verified": True,
+            "current_native_motion_settled": snapshot.native_motion_settled,
+            "candidate_completed": False,
+        }
+
+
 class _PostEntryGeometryChangeError(ValueError):
     """A known undispatched geometric rejection, never a source failure."""
 
@@ -375,6 +393,7 @@ class PublicCoverageExecutor:
         self._evidence_started = None
         self._evidence_samples = []
         self._primitive_evidence = []
+        self._last_completed_primitive = None
         bind_observations = getattr(port, "bind_observation_service", None)
         if callable(bind_observations):
             bind_observations(self._service_observations)
@@ -712,11 +731,19 @@ class PublicCoverageExecutor:
         record_primitive(
             after, {"odom", "cleaner"} if cleanup else {s.role for s in self.binding.sources}
         )
+        self._last_completed_primitive = {
+            "primitive_id": primitive_id,
+            "parent_action_id": self._parent.action_id,
+            "dispatch": dict(result.dispatch_result),
+            "verification": dict(result.verification_result),
+        }
         return after
 
     def _execute_work(self, work):
         path = np.asarray(work["path_xy"], float)
         stalled = 0
+        prefixes = []
+        observed_ends = []
         for _ in range(60):
             current = self._guard()
             if np.linalg.norm(np.asarray(current.map_xy) - path[0]) <= 0.05:
@@ -728,14 +755,58 @@ class PublicCoverageExecutor:
                 error.public_snapshot = current
                 raise
             moved = self._primitive("navigation.follow_path", {"path_xy": list(proposal.prefix_xy)})
-            progress = np.linalg.norm(np.asarray(current.map_xy) - path[0]) - np.linalg.norm(
+            target_progress = np.linalg.norm(np.asarray(current.map_xy) - path[0]) - np.linalg.norm(
                 np.asarray(moved.map_xy) - path[0]
+            )
+            # A safe route around an obstacle can initially move AWAY from the
+            # final entry. Measure actual progress along the immutable issued
+            # prefix, corroborated by continuous original odometry. A map-only
+            # correction or merely returning a successful goal is not motion.
+            direction = np.asarray(proposal.prefix_xy[-1]) - proposal.prefix_xy[0]
+            length = float(np.linalg.norm(direction))
+            projected = float(np.dot(np.asarray(moved.map_xy) - current.map_xy, direction) / length)
+            odom_translation = float(np.linalg.norm(np.asarray(moved.odom_xy) - current.odom_xy))
+            progress = min(projected, odom_translation)
+            prefixes.append(
+                {
+                    "prefix_xy": [list(point) for point in proposal.prefix_xy],
+                    "requested_target_xy": list(proposal.requested_target_xy),
+                    "selected_target_xy": list(proposal.selected_target_xy),
+                    "intent_source": proposal.intent_source,
+                    "intent_length_m": proposal.intent_length_m,
+                    "target_shift_m": proposal.target_shift_m,
+                    "before": snapshot_record(current, {s.role for s in self.binding.sources}),
+                    "after": snapshot_record(moved, {s.role for s in self.binding.sources}),
+                    "original_primitive": self._last_completed_primitive,
+                    "straight_line_target_progress_m": float(target_progress),
+                    "observed_prefix_projection_m": projected,
+                    "observed_odom_translation_m": odom_translation,
+                    "corroborated_progress_m": progress,
+                }
             )
             stalled = 0 if progress >= 0.05 else stalled + 1
             if stalled >= 3:
-                raise RuntimeError("Three work-entry prefixes without observed target progress")
+                raise _WorkEntryProgressError(
+                    "three_prefixes_without_observed_motion", path, prefixes, moved
+                )
+            # Replanning must not turn real back-and-forth travel into progress
+            # forever. Three visits to one observed stop defer this candidate;
+            # the original sixty-prefix, parent-attempt and deadline bounds run.
+            if (
+                sum(
+                    np.linalg.norm(np.asarray(point) - moved.odom_xy) <= 0.05
+                    for point in observed_ends
+                )
+                >= 2
+            ):
+                raise _WorkEntryProgressError(
+                    "repeated_observed_entry_cycle", path, prefixes, moved
+                )
+            observed_ends.append(moved.odom_xy)
         else:
-            raise RuntimeError("Finite public work-entry transfer exhausted")
+            raise _WorkEntryProgressError(
+                "original_entry_prefix_bound_exhausted", path, prefixes, moved
+            )
         current = self._guard()
         if not current.grid.motion_path_safe(path):
             raise _PostEntryGeometryChangeError("Fresh post-entry geometry rejects selected work")
@@ -803,6 +874,42 @@ class PublicCoverageExecutor:
             except Exception as error:
                 detail["artifact_error"] = type(error).__name__
         return detail
+
+    def _entry_progress_failure_detail(self, rejected, stop):
+        detail = dict(
+            rejected.diagnostics, stop=stop, execution_credit="none for deferred candidate"
+        )
+        recorder = getattr(self.port, "record_work_entry_failure", None)
+        if recorder is not None:
+            try:
+                detail["artifact"] = recorder(rejected, stop, self._parent, self._deadline)
+            except Exception as error:
+                detail["artifact_error"] = type(error).__name__
+        return detail
+
+    def _recover_entry_progress(self, work, rejected):
+        try:
+            stopped = self._observe_replanning_boundary(work)
+        except Exception as error:
+            error.entry_progress_failure = rejected
+            raise
+        self._entry_recoveries.append(
+            {
+                "reason": "observed_entry_progress_candidate_deferred",
+                "entry_progress_failure": self._entry_progress_failure_detail(
+                    rejected,
+                    {
+                        "physical_stop_observed": True,
+                        "original_native_terminal_known": True,
+                        "observed_native_s": stopped.native_s,
+                    },
+                ),
+                "fresh_stopped_off": True,
+                "original_native_terminal_known": True,
+                "original_deadline_preserved": True,
+                "execution_credit": "no completion credit for deferred entry",
+            }
+        )
 
     def _recover_transfer_candidate(self, work, rejected):
         # Only explicit geometry failures before native dispatch are eligible.
@@ -936,6 +1043,7 @@ class PublicCoverageExecutor:
             self._evidence_started = time.monotonic()
             self._evidence_samples = []
             self._primitive_evidence = []
+            self._last_completed_primitive = None
             initial = self._guard()
             self._evidence_started = initial.captured_monotonic_s
             self._primitive("cleaning.disable", {})
@@ -963,6 +1071,9 @@ class PublicCoverageExecutor:
                     continue
                 except TransferUnavailableError as rejected:
                     self._recover_transfer_candidate(work, rejected)
+                    continue
+                except _WorkEntryProgressError as rejected:
+                    self._recover_entry_progress(work, rejected)
                     continue
                 completed += 1
                 if stroke:
@@ -1024,6 +1135,20 @@ class PublicCoverageExecutor:
             )
         except Exception as exc:
             stop = self.emergency_stop()
+            entry_failure = (
+                exc
+                if isinstance(exc, _WorkEntryProgressError)
+                else getattr(exc, "entry_progress_failure", None)
+            )
+            if entry_failure is not None:
+                self._entry_recoveries.append(
+                    {
+                        "reason": "entry_progress_failure_stopped_without_resume",
+                        "entry_progress_failure": self._entry_progress_failure_detail(
+                            entry_failure, stop
+                        ),
+                    }
+                )
             transfer_failure = (
                 exc
                 if isinstance(exc, TransferUnavailableError)
