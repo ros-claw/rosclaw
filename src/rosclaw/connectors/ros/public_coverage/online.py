@@ -47,6 +47,10 @@ class Transform2D:
 class TransferUnavailableError(ValueError):
     """No finite, currently safe transfer prefix could be proposed."""
 
+    def __init__(self, message, *, diagnostics=None):
+        super().__init__(message)
+        self.diagnostics = diagnostics or {}
+
 
 @dataclass(frozen=True)
 class TransferProposal:
@@ -93,19 +97,39 @@ def propose_transfer(grid, robot_xy, target_xy, *, max_target_shift: float = 0.0
         )
     if not grid.physical_pose_safe(actual):
         raise TransferUnavailableError("Actual public full footprint is not safe")
-    target = grid.refresh_target(requested, max_shift=max_target_shift)
-    route = RouteCosts(grid, actual).path(target) if target is not None else None
+    diagnostics = {
+        "robot_xy": actual.tolist(),
+        "requested_target_xy": requested.tolist(),
+        "max_target_shift_m": max_target_shift,
+        "attempts": [],
+    }
+
+    def plan(space, kind):
+        target = space.refresh_target(requested, max_shift=max_target_shift)
+        detail = {"scope": kind, "selected_target_xy": None if target is None else target.tolist()}
+        diagnostics["attempts"].append(detail)
+        if target is None:
+            detail["reason"] = "target_missing_within_original_shift_limit"
+            return target, None
+        costs = RouteCosts(space, actual)
+        route = costs.path(target)
+        detail.update(costs.last_path_diagnostics)
+        return target, route
+
+    target, route = plan(grid, "live_global_local")
     source = "live_global_local_route"
     if route is None:
         occupancy, navigation, radius, margin = grid._global_intent_inputs
         intent = Grid(
             occupancy, actual, clearance=radius, tracking_margin=margin, navigation=navigation
         )
-        target = intent.refresh_target(requested, max_shift=max_target_shift)
-        route = RouteCosts(intent, actual).path(target) if target is not None else None
+        target, route = plan(intent, "global_intent")
         source = "global_proposal_live_prefix_required"
     if target is None or route is None:
-        raise TransferUnavailableError("No public full-footprint transfer intent")
+        diagnostics["reason"] = diagnostics["attempts"][-1]["reason"]
+        raise TransferUnavailableError(
+            "No public full-footprint transfer intent", diagnostics=diagnostics
+        )
     end = next((p for p in route[1:] if np.linalg.norm(p - actual) > 0.005), None)
     if end is None:
         raise TransferUnavailableError("No transfer translation required by this proposal")
@@ -124,7 +148,14 @@ def propose_transfer(grid, robot_xy, target_xy, *, max_target_shift: float = 0.0
                 target_shift_m=float(np.linalg.norm(target - requested)),
             )
         length -= 0.025
-    raise TransferUnavailableError("No locally safe public transfer prefix")
+    diagnostics.update(
+        reason="global_route_found_local_prefix_rejected",
+        selected_target_xy=target.tolist(),
+        global_route_xy=route.tolist(),
+    )
+    raise TransferUnavailableError(
+        "No locally safe public transfer prefix", diagnostics=diagnostics
+    )
 
 
 class AnchoredCoverage:

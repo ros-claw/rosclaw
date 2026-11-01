@@ -26,7 +26,7 @@ from rosclaw.connectors.ros.mission.finite_coverage_evidence import persist_arch
 from rosclaw.connectors.ros.public_coverage.coverage_paths import prepare_work_path
 from rosclaw.connectors.ros.public_coverage.graph_ledger import IDENTITY, GraphAnchoredCoverage
 from rosclaw.connectors.ros.public_coverage.grid import Grid
-from rosclaw.connectors.ros.public_coverage.online import propose_transfer
+from rosclaw.connectors.ros.public_coverage.online import TransferUnavailableError, propose_transfer
 from rosclaw.kernel import (
     ActionEnvelope,
     ActionExecutionResult,
@@ -715,7 +715,12 @@ class PublicCoverageExecutor:
             current = self._guard()
             if np.linalg.norm(np.asarray(current.map_xy) - path[0]) <= 0.05:
                 break
-            proposal = propose_transfer(current.grid, current.map_xy, path[0])
+            try:
+                proposal = propose_transfer(current.grid, current.map_xy, path[0])
+            except TransferUnavailableError as error:
+                # Exact held public inputs; no motion was sent for this proposal.
+                error.public_snapshot = current
+                raise
             moved = self._primitive("navigation.follow_path", {"path_xy": list(proposal.prefix_xy)})
             progress = np.linalg.norm(np.asarray(current.map_xy) - path[0]) - np.linalg.norm(
                 np.asarray(moved.map_xy) - path[0]
@@ -773,6 +778,63 @@ class PublicCoverageExecutor:
                 "original_deadline_preserved": True,
                 "replayed_native_goal": False,
                 "observed_native_s": stopped.native_s,
+                "execution_credit": "no completion credit for rejected work",
+            }
+        )
+
+    def _transfer_failure_detail(self, rejected, stop):
+        detail = dict(getattr(rejected, "diagnostics", {}))
+        detail.update(
+            native_goal_dispatched=False,
+            dispatch_scope="this transfer proposal only",
+            stop=stop,
+            execution_credit="none for rejected proposal",
+        )
+        recorder = getattr(self.port, "record_transfer_failure", None)
+        if recorder is not None:
+            try:
+                detail["artifact"] = recorder(rejected, stop, self._parent, self._deadline)
+            except Exception as error:
+                detail["artifact_error"] = type(error).__name__
+        return detail
+
+    def _recover_transfer_candidate(self, work, rejected):
+        # Only explicit geometry failures before native dispatch are eligible.
+        # Invalid inputs, physical pose, stale sources and unknown results never
+        # become this permission. Parent lease/deadline and work attempts run.
+        if rejected.diagnostics.get("reason") not in {
+            "target_missing_within_original_shift_limit",
+            "target_not_safe",
+            "start_cannot_attach_safe_grid",
+            "no_legal_target_attachment",
+            "target_attachments_exhausted",
+            "global_route_found_local_prefix_rejected",
+        }:
+            raise rejected
+        try:
+            stopped = self._observe_replanning_boundary(work)
+        except Exception as error:
+            # A failed stop/terminal barrier must retain the original planning
+            # rejection too. The outer handler stops first, then persists it.
+            error.transfer_failure = rejected
+            raise
+        detail = self._transfer_failure_detail(
+            rejected,
+            {
+                "physical_stop_observed": True,
+                "original_native_terminal_known": True,
+                "observed_native_s": stopped.native_s,
+            },
+        )
+        self._entry_recoveries.append(
+            {
+                "reason": "undispatched_transfer_candidate_rejected",
+                "rejected_transfer": detail,
+                "fresh_stopped_off": True,
+                "original_native_terminal_known": True,
+                "original_deadline_preserved": True,
+                "native_goal_dispatched": False,
+                "replayed_native_goal": False,
                 "execution_credit": "no completion credit for rejected work",
             }
         )
@@ -893,6 +955,9 @@ class PublicCoverageExecutor:
                 except _KnownLivePathCancellationError as cancelled:
                     self._recover_observed_live_path(work, cancelled)
                     continue
+                except TransferUnavailableError as rejected:
+                    self._recover_transfer_candidate(work, rejected)
+                    continue
                 completed += 1
                 if stroke:
                     strokes += 1
@@ -953,6 +1018,18 @@ class PublicCoverageExecutor:
             )
         except Exception as exc:
             stop = self.emergency_stop()
+            transfer_failure = (
+                exc
+                if isinstance(exc, TransferUnavailableError)
+                else getattr(exc, "transfer_failure", None)
+            )
+            if transfer_failure is not None:
+                self._entry_recoveries.append(
+                    {
+                        "reason": "transfer_failure_stopped_without_resume",
+                        "rejected_transfer": self._transfer_failure_detail(transfer_failure, stop),
+                    }
+                )
             return self._result(
                 ActionState.FAILED,
                 completed=completed,

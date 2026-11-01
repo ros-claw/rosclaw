@@ -790,3 +790,107 @@ def test_generic_geometry_exception_is_not_a_replanning_permission(monkeypatch):
     assert result.final_state is ActionState.FAILED
     assert result.dispatch_result["observed_post_entry_recoveries"] == []
     assert executor.stopping.is_set() and port.stop_calls == 1
+
+
+def test_undispatched_transfer_rejection_can_select_another_work_after_stop(monkeypatch):
+    from rosclaw.connectors.ros.mission import public_coverage as module
+    from rosclaw.connectors.ros.public_coverage.online import TransferUnavailableError
+
+    _, executor, port, action = setup_executor()
+    selected = []
+    captured = []
+
+    def propose(*args, **kwargs):
+        selected.append(1)
+        return (
+            {"kind": "WORK", "path_xy": [[2.4, 2.0], [3.0, 2.0]]}
+            if len(selected) == 1
+            else {"kind": "WORK", "path_xy": [list(port.xy), [port.xy[0], port.xy[1] + 0.7]]}
+        )
+
+    def reject(*args, **kwargs):
+        raise TransferUnavailableError(
+            "No public full-footprint transfer intent",
+            diagnostics={
+                "reason": "target_attachments_exhausted",
+                "requested_target_xy": [2.4, 2.0],
+            },
+        )
+
+    def record(error, stop, parent, deadline):
+        assert not port.brush and port.motion_settled
+        assert error.public_snapshot.map_xy == (2.0, 2.0)
+        assert parent.action_id == action.action_id and deadline == executor._deadline
+        captured.append(error.diagnostics)
+        return "fixture-only/evidence.json"
+
+    port.record_transfer_failure = record
+    monkeypatch.setattr(executor.ledger, "next_work", propose)
+    monkeypatch.setattr(module, "propose_transfer", reject)
+    result = executor(action)
+    assert result.final_state is ActionState.COMPLETED, result.errors
+    assert len(selected) == 2 and len(captured) == 1
+    assert result.dispatch_result["completed_work"] == 1
+    recovery = result.dispatch_result["observed_post_entry_recoveries"][0]
+    assert recovery["native_goal_dispatched"] is False
+    assert recovery["rejected_transfer"]["reason"] == "target_attachments_exhausted"
+    assert port.stop_calls == 0
+
+
+@pytest.mark.parametrize("defect", ["unknown_native", "depth", "unclassified"])
+def test_transfer_failure_does_not_authorize_recovery_without_original_proofs(monkeypatch, defect):
+    from rosclaw.connectors.ros.mission import public_coverage as module
+    from rosclaw.connectors.ros.public_coverage.online import TransferUnavailableError
+
+    _, executor, port, action = setup_executor()
+    selections = []
+
+    def work(*args, **kwargs):
+        selections.append(1)
+        return {"kind": "WORK", "path_xy": [[2.4, 2.0], [3.0, 2.0]]}
+
+    def reject(*args, **kwargs):
+        if defect == "unknown_native":
+            port.motion_settled = False
+        elif defect == "depth":
+            port.fault = "depth"
+        raise TransferUnavailableError(
+            "transfer rejection",
+            diagnostics={
+                "reason": "unknown" if defect == "unclassified" else "target_attachments_exhausted"
+            },
+        )
+
+    monkeypatch.setattr(executor.ledger, "next_work", work)
+    monkeypatch.setattr(module, "propose_transfer", reject)
+    result = executor(action)
+    assert result.final_state is ActionState.FAILED
+    assert len(selections) == 1 and port.stop_calls == 1
+    assert not any(c[0] == "cleaning.enable" for c in port.calls)
+    assert executor.stopping.is_set()
+
+
+def test_transfer_rejections_consume_original_finite_work_attempts(monkeypatch):
+    from rosclaw.connectors.ros.mission import public_coverage as module
+    from rosclaw.connectors.ros.public_coverage.online import TransferUnavailableError
+
+    _, executor, port, action = setup_executor()
+    selected = []
+
+    def work(*args, **kwargs):
+        selected.append(1)
+        return {"kind": "WORK", "path_xy": [[2.4, 2.0], [3.0, 2.0]]}
+
+    def reject(*args, **kwargs):
+        raise TransferUnavailableError(
+            "all attachments exhausted", diagnostics={"reason": "target_attachments_exhausted"}
+        )
+
+    monkeypatch.setattr(executor.ledger, "next_work", work)
+    monkeypatch.setattr(module, "propose_transfer", reject)
+    result = executor(replace(action, arguments={"maximum_work": 3}))
+    assert result.final_state is ActionState.FAILED
+    assert len(selected) == 3 and result.dispatch_result["completed_work"] == 0
+    assert len(result.dispatch_result["observed_post_entry_recoveries"]) == 3
+    assert not any(c[0] == "cleaning.enable" for c in port.calls)
+    assert executor.stopping.is_set() and port.stop_calls == 1
