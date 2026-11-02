@@ -1489,6 +1489,11 @@ class AgentService:
         if getattr(self, "_pi_bridge", None) is not None:
             await self._pi_bridge.stop()
             self._pi_bridge = None
+        action_channel=getattr(self,"_action_channel",None)
+        if action_channel is not None:
+            close_channel=getattr(action_channel,"close",None)
+            if close_channel is not None:
+                await close_channel()
         if getattr(self, "_operator_socket", None) is not None:
             await self._operator_socket.stop()
             self._operator_socket = None

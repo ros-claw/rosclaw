@@ -640,6 +640,12 @@ class PublicCoverageExecutor:
             "pcov_"
             + hashlib.sha256(f"{self._parent.action_id}:{self._sequence}".encode()).hexdigest()
         )
+        record_intent = getattr(self.port, "record_primitive_intent", None)
+        if record_intent is not None:
+            record_intent(sample, capability, arguments, self._parent, primitive_id, self._deadline)
+        # Local persistence consumes the original deadline and is never permission.
+        if self.stopping.is_set() or time.monotonic() >= self._deadline:
+            raise TimeoutError("Original deadline or stop changed during intent persistence")
         result = self.port.execute(
             capability,
             arguments,
@@ -648,6 +654,9 @@ class PublicCoverageExecutor:
             stop_requested=self.stopping,
             deadline_monotonic=self._deadline,
         )
+        record_outcome = getattr(self.port, "record_primitive_outcome", None)
+        if record_outcome is not None:
+            record_outcome(self._parent, primitive_id, result)
         if self.stopping.is_set():
             raise RuntimeError("Primitive result cannot revive a stopped coverage action")
         if (
@@ -754,6 +763,10 @@ class PublicCoverageExecutor:
                 # Exact held public inputs; no motion was sent for this proposal.
                 error.public_snapshot = current
                 raise
+            admit = getattr(self.port, "admit_finite_budget", None)
+            if admit is not None:
+                admit("before_transfer", current, self._parent, self._deadline,
+                      path=path, transfer_m=proposal.intent_length_m)
             moved = self._primitive("navigation.follow_path", {"path_xy": list(proposal.prefix_xy)})
             target_progress = np.linalg.norm(np.asarray(current.map_xy) - path[0]) - np.linalg.norm(
                 np.asarray(moved.map_xy) - path[0]
@@ -811,6 +824,9 @@ class PublicCoverageExecutor:
         if not current.grid.motion_path_safe(path):
             raise _PostEntryGeometryChangeError("Fresh post-entry geometry rejects selected work")
         before = len(self.ledger.anchor.cleaned)
+        admit = getattr(self.port, "admit_finite_budget", None)
+        if admit is not None:
+            admit("before_brush_enable", current, self._parent, self._deadline, path=path)
         self._primitive("cleaning.enable", {})
         if len(path) > 1:
             self._primitive("navigation.follow_path", {"path_xy": path.tolist()})
@@ -1063,6 +1079,9 @@ class PublicCoverageExecutor:
             for _ in range(maximum):
                 current = self._guard()
                 self._record()
+                admit = getattr(self.port, "admit_finite_budget", None)
+                if admit is not None:
+                    admit("before_replanning", current, self._parent, self._deadline)
                 work = self.ledger.next_work(
                     current.grid,
                     current.map_xy,
@@ -1072,6 +1091,9 @@ class PublicCoverageExecutor:
                     service=self._planning_service,
                     require_continuous_stroke=strokes < minimum_strokes,
                 )
+                record_work = getattr(self.port, "record_public_work", None)
+                if record_work is not None:
+                    record_work(current, work, self._parent, self._deadline)
                 if work["kind"] == "NO_CURRENT_OBSERVED_WORK":
                     break
                 try:

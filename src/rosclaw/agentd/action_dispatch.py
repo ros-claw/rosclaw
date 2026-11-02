@@ -350,12 +350,19 @@ async def request_action(
         timeout_sec = (
             min(3600.0, max(30.0, descriptor.timeout_ms / 1000)) if descriptor is not None else 30.0
         )
+        split = ((getattr(getattr(service,'_config',None),'raw',{}) or {}).get('agent') or {}).get('coverage_response_wait_sec')
+        response_options = {}
+        if split is not None and capability == 'coverage.execute_slice':
+            if mode != 'SIMULATION' or split != 310 or timeout_sec != 330:
+                raise ActionChannelError('Registered coverage response split requires SIM 310/330 exactly')
+            response_options = {'response_wait_sec':310.0}
         outcome = await channel.request_nonreal_action(
             capability_id=capability,
             arguments=arguments,
             grant_id=grant.grant_id,
             execution_mode=mode,
             timeout_sec=timeout_sec,
+            **response_options,
             **(
                 {"action_id": payload["dispatch_action_id"]}
                 if payload.get("dispatch_action_id")

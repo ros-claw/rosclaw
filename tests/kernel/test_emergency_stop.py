@@ -102,6 +102,7 @@ def test_repeated_stop_request_is_idempotent() -> None:
 
     first = runtime.request_emergency_stop("first", request_id="stop-repeat")
     second = runtime.request_emergency_stop("duplicate", request_id="stop-repeat")
+    assert runtime.emergency_stop_generation == 1
 
     assert first.to_dict() == second.to_dict()
     assert driver.calls == 1
@@ -113,6 +114,24 @@ def test_stop_without_runtime_drivers_fails_closed() -> None:
     assert receipt.request_dispatched is False
     assert receipt.stopped is False
     assert receipt.final_status is EmergencyStopStatus.FAILED
+
+
+def test_each_distinct_stop_advances_generation_before_driver_fanout() -> None:
+    runtime = _runtime()
+    observed = []
+
+    class ObservingDriver:
+        def emergency_stop(self):
+            observed.append(runtime.emergency_stop_generation)
+            return {"acknowledged": True}
+
+    runtime.register_driver("arm", ObservingDriver())
+    assert runtime.emergency_stop_generation == 0
+    runtime.request_emergency_stop("first", request_id="generation-1")
+    runtime.request_emergency_stop("second", request_id="generation-2")
+    runtime.request_emergency_stop("same second", request_id="generation-2")
+    assert observed == [1, 2]
+    assert runtime.emergency_stop_generation == 2
 
 
 def test_stop_timeout_is_reported_without_acknowledgement() -> None:

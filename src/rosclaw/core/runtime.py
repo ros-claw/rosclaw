@@ -284,6 +284,7 @@ class Runtime(LifecycleMixin):
         self._mcp_drivers: dict[str, Any] = {}
         self._emergency_stop_receipts: dict[str, Any] = {}
         self._emergency_stop_latched = False
+        self._emergency_stop_generation = 0
 
         # Provider layer
         self._provider_registry: Any | None = None
@@ -1549,6 +1550,7 @@ class Runtime(LifecycleMixin):
                 if callable(getattr(driver, "emergency_stop", None))
             )
             self._emergency_stop_latched = True
+            self._emergency_stop_generation += 1
             self.event_bus.publish(
                 Event(
                     topic="robot.emergency_stop",
@@ -1796,6 +1798,11 @@ class Runtime(LifecycleMixin):
         """Report whether the Runtime has latched an emergency stop."""
 
         return self._emergency_stop_latched
+
+    @property
+    def emergency_stop_generation(self) -> int:
+        """Increment before each distinct stop fanout; never a resume token."""
+        return self._emergency_stop_generation
 
     def submit_action(self, action: Any) -> Any:
         """Submit one canonical ActionEnvelope through the action gateway."""
