@@ -39,6 +39,25 @@ from rosclaw.kernel import (
 )
 
 
+class PrimitiveExecutionError(RuntimeError):
+    """Preserve the original primitive failure through the parent FAILED receipt.
+
+    Diagnostic facts never imply termination, stopping, or permission to retry.
+    """
+    def __init__(self, capability, primitive_id, result):
+        self.failure_detail = dict(
+            code='PUBLIC_PRIMITIVE_FAILED', source='shared_public_coverage.primitive',
+            capability_id=capability, primitive_id=primitive_id,
+            original_primitive_state=result.final_state.value,
+            original_errors=list(result.errors),
+            original_dispatch=dict(result.dispatch_result),
+            original_verification=dict(result.verification_result or {}),
+            allowed_read_only_followups=['get_action_status', 'get_runtime_status', 'get_body_state'],
+            recovery_authorized=False)
+        causes=', '.join(str(x.get('code','UNKNOWN'))+': '+str(x.get('message','')) for x in result.errors)
+        super().__init__('Original primitive failed: '+(causes or 'UNKNOWN original cause'))
+
+
 @dataclass(frozen=True)
 class CoverageSource:
     role: str
@@ -721,7 +740,7 @@ class PublicCoverageExecutor:
                 if after.native_motion_settled is True:
                     record_primitive(after, {"odom", "cleaner"})
                     raise _KnownLivePathCancellationError(primitive_id, dispatch)
-            raise RuntimeError("Internal primitive did not produce a verified original terminal")
+            raise PrimitiveExecutionError(capability, primitive_id, result)
         self._record()
         after = self._validate(
             self.port.snapshot(work=not cleanup), work=not cleanup, after=started
@@ -1201,6 +1220,7 @@ class PublicCoverageExecutor:
                 completed=completed,
                 strokes=strokes,
                 error=str(exc),
+                failure_detail=getattr(exc, 'failure_detail', None),
                 stop=stop,
                 recoveries=self._recoveries,
                 entry_recoveries=self._entry_recoveries,
@@ -1216,6 +1236,7 @@ class PublicCoverageExecutor:
         completed=0,
         strokes=0,
         error=None,
+        failure_detail=None,
         stop=None,
         recoveries=(),
         entry_recoveries=(),
@@ -1250,7 +1271,9 @@ class PublicCoverageExecutor:
                 "judge_read": False,
                 "stop": stop,
                 "task_evidence": task_evidence,
+                "failure_detail": failure_detail,
             },
             artifacts=[] if task_evidence is None else [task_evidence["uri"]],
-            errors=[] if error is None else [{"code": "PUBLIC_COVERAGE_FAILED", "message": error}],
+            errors=[] if error is None else [{"code": "PUBLIC_COVERAGE_FAILED", "message": error,
+                **({'failure_detail': failure_detail} if failure_detail is not None else {})}],
         )

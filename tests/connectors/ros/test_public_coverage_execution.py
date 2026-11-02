@@ -278,6 +278,32 @@ class SoftwarePort:
         return {"acknowledged": True}
 
 
+@pytest.mark.parametrize('cause,known', [('PUBLIC_TF_TIME_CONTRACT_REJECTED', True),
+    ('ORIGINAL_NATIVE_RESULT_UNKNOWN', False), ('ORIGINAL_DEADLINE_EXPIRED', True)])
+def test_original_primitive_failure_reaches_parent_with_no_recovery_permission(cause, known):
+    _, executor, port, action = setup_executor()
+    original = port.execute
+    def failed(capability, arguments, **kwargs):
+        if capability != 'navigation.follow_path':
+            return original(capability, arguments, **kwargs)
+        return ActionExecutionResult(ActionState.FAILED, EvidenceLevel.REQUESTED,
+            evidence_domain=EvidenceDomain.FIXTURE,
+            dispatch_result=dict(parent_action_id=kwargs['parent'].action_id,
+                owned_primitive_id=kwargs['primitive_id'], original_native_terminal_known=known),
+            verification_result=dict(passed=False, original_native_terminal_known=known),
+            errors=[dict(code=cause, source='synthetic_original_driver', message='original failure')])
+    port.execute = failed
+    result = executor(action)
+    assert result.final_state is ActionState.FAILED
+    detail = result.verification_result['failure_detail']
+    assert detail['original_errors'][0]['code'] == cause
+    assert detail['original_verification']['original_native_terminal_known'] is known
+    assert detail['recovery_authorized'] is False
+    assert result.errors[0]['failure_detail'] == detail
+    assert port.stop_calls == 1 and port.brush is False
+    assert 'Internal primitive' not in result.errors[0]['message']
+
+
 def setup_executor():
     body, binding = compiled_binding()
     port = SoftwarePort(binding)

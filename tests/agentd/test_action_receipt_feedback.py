@@ -51,6 +51,26 @@ def parsed(text):
     return json.loads(text[text.index("{") :])
 
 
+@pytest.mark.parametrize('known', [True, False, None])
+def test_large_failure_preserves_compact_original_cause_and_unknown_stop_facts(known):
+    value=receipt();value.update(final_state='FAILED',verified=False)
+    cause=dict(code='PUBLIC_TF_TIME_CONTRACT_REJECTED',source='homeclean.follow_path_driver.current_public_pose',
+        message='Public map pose stale: '+json.dumps(dict(native_ns=7277523000000,
+            returned_time_ns=7276000000000,age_ns=1523000000,
+            allowed_age_ns=[-1000000000,1000000000],comparison='too_old',unused='x'*8000)))
+    value['verification_result'].update(failure_detail=dict(original_errors=[cause],
+        primitive_id='original-primitive',original_primitive_state='FAILED'),
+        stop=dict(original_native_terminal_known=known,acknowledged=True,physical_stop_observed=False))
+    value['errors']=[cause]
+    before=deepcopy(value);text=project(value);summary=parsed(text)['failure_summary']
+    assert len(text.encode())<=MAX_FEEDBACK_BYTES
+    assert summary['code']=='PUBLIC_TF_TIME_CONTRACT_REJECTED'
+    assert summary['time_comparison']['native_ns']==7277523000000
+    assert summary['original_native_terminal_known']==(known if known is not None else 'UNKNOWN')
+    assert summary['physical_stop_observed'] is False and summary['recovery_authorized'] is False
+    assert value==before
+
+
 def test_original_before_after_pose_is_visible_but_never_claimed_current():
     value = receipt()
     before = deepcopy(value)
