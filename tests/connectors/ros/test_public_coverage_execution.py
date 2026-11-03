@@ -341,6 +341,7 @@ def test_budget_prefix_is_the_actual_executed_stroke_without_lowering_goals():
             strokes.append(np.asarray(arguments['path_xy']))
         return execute(capability,arguments,**kwargs)
     port.prepare_finite_budget_candidate=prepare
+    port.begin_finite_budget_selection=lambda parent:None
     port.refuse_deferred_finite_work=lambda *args,**kwargs:None
     port.execute=observed
     result=executor(action)

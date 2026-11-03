@@ -1111,6 +1111,7 @@ class PublicCoverageExecutor:
                 candidate_options = {}
                 prepare_budget = getattr(self.port, 'prepare_finite_budget_candidate', None)
                 if prepare_budget is not None:
+                    self.port.begin_finite_budget_selection(self._parent)
                     candidate_options['prepare_candidate'] = lambda path, transit: prepare_budget(
                         path, transit, self._parent, self._deadline, exact_transfer=False)
                 work = self.ledger.next_work(

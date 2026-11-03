@@ -54,3 +54,26 @@ def test_refusal_of_every_candidate_has_no_completion_credit():
     ledger.opportunities=ledger._sweep(*path)
     assert select([path],Grid(),ledger,path[0],{},prepare_candidate=lambda p,t:None) is None
     assert not ledger.cleaned and ledger.opportunities
+
+
+def test_already_cleaned_work_is_not_reported_as_budget_deferred():
+    ledger=CoverageLedger();path=np.array([[.4,.4],[1.4,.4]])
+    ledger.opportunities=ledger._sweep(*path);ledger.cleaned=set(ledger.opportunities)
+    calls=[]
+    def budget(path,transit):calls.append(path);return None
+    assert select([path],Grid(),ledger,path[0],{},continuous_only=True,prepare_candidate=budget) is None
+    assert calls==[], 'No-gain work must not turn public work exhaustion into a budget recovery cause'
+
+
+@pytest.mark.parametrize('reason',['unsafe','retry_blocked','unreachable'])
+def test_ineligible_work_never_reaches_budget_filter(reason):
+    from types import SimpleNamespace as NS
+    ledger=CoverageLedger();path=np.array([[.4,.4],[1.4,.4]])
+    ledger.opportunities=ledger._sweep(*path);calls=[]
+    grid=Grid();kwargs={}
+    if reason=='unsafe':grid.safe_path=lambda _:False
+    elif reason=='retry_blocked':kwargs['retries']=NS(blocked=lambda *args:True)
+    else:kwargs['transit_cost']=lambda _:float('inf')
+    assert select([path],grid,ledger,path[0],{},continuous_only=True,
+        prepare_candidate=lambda p,t:calls.append(p),**kwargs) is None
+    assert not calls
