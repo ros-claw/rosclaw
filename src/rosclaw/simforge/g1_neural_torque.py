@@ -409,6 +409,7 @@ class G1NeuralTorquePolicy:
         self._hidden: np.ndarray = np.zeros(artifact.hidden_dim, dtype=np.float32)
         self._previous: np.ndarray = np.zeros(len(G1_DDS_JOINT_NAMES), dtype=np.float64)
         self._pending: G1TorqueProjection | None = None
+        self._pending_actor_proposal: np.ndarray | None = None
         self._observations: list[np.ndarray] = []
         self._actions: list[np.ndarray] = []
         self._parents: list[np.ndarray] = []
@@ -422,6 +423,7 @@ class G1NeuralTorquePolicy:
         self._hidden.fill(0.0)
         self._previous.fill(0.0)
         self._pending = None
+        self._pending_actor_proposal = None
         self._observations.clear()
         self._actions.clear()
         self._parents.clear()
@@ -439,6 +441,21 @@ class G1NeuralTorquePolicy:
             raise RuntimeError("neural torque policy has no pending projection")
         return self._pending
 
+    @property
+    def pending_actor_proposal(self) -> np.ndarray | None:
+        """Owned raw actor torque, or None when inference was bypassed.
+
+        Only available between command and note_applied. This is evidence of
+        a proposal, never a new execution path or a claim that it was applied.
+        """
+        if self._pending is None:
+            raise RuntimeError("neural torque policy has no pending decision")
+        if self._pending_actor_proposal is None:
+            return None
+        value = self._pending_actor_proposal.copy()
+        value.flags.writeable = False
+        return value
+
     def command(
         self,
         frame: G1TorqueControlFrame,
@@ -446,6 +463,7 @@ class G1NeuralTorquePolicy:
     ) -> np.ndarray:
         if self._pending is not None:
             raise RuntimeError("neural torque policy did not receive note_applied")
+        self._pending_actor_proposal = None
         parent = np.asarray(parent_torque, dtype=np.float64)
         try:
             raw = build_g1_neural_torque_observation(frame, self._previous)
@@ -458,8 +476,7 @@ class G1NeuralTorquePolicy:
                 )
                 self._advance_hidden(normalized)
             elif (
-                float(frame.pelvis_position[2])
-                < self.artifact.safety.minimum_pelvis_height_m
+                float(frame.pelvis_position[2]) < self.artifact.safety.minimum_pelvis_height_m
                 or float(raw[60]) > self.artifact.safety.minimum_upright_gravity_z
             ):
                 self._recovery_cooldown = self.artifact.safety.recovery_cooldown_steps
@@ -486,6 +503,7 @@ class G1NeuralTorquePolicy:
                 self._hidden.fill(0.0)
             else:
                 proposed = self._infer_normalized(normalized)
+                self._pending_actor_proposal = _vector(proposed, label="raw actor proposal").copy()
                 projection = self.projector.project(
                     proposed,
                     parent=parent,
@@ -493,6 +511,7 @@ class G1NeuralTorquePolicy:
                     frame=frame,
                 )
         except (ValueError, FloatingPointError) as exc:
+            self._pending_actor_proposal = None
             projection = self.projector.project(
                 np.full(len(G1_DDS_JOINT_NAMES), np.nan),
                 parent=parent,
@@ -528,6 +547,7 @@ class G1NeuralTorquePolicy:
         self._actions.append(np.asarray(applied, dtype=np.float32))
         self._previous = applied.copy()
         self._pending = None
+        self._pending_actor_proposal = None
 
     def build_receipt(self) -> G1TorquePolicyReceipt:
         if self._pending is not None or not self._actions:
