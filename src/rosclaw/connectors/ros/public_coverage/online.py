@@ -316,6 +316,7 @@ class AnchoredCoverage:
         prepare_path=None,
         service=None,
         require_continuous_stroke=False,
+        prepare_candidate=None,
     ):
         if not math.isfinite(maximum_length) or not 0 < maximum_length <= 3:
             raise ValueError("Bounded work length must be in (0, 3] metres")
@@ -359,6 +360,7 @@ class AnchoredCoverage:
             prepare_path=prepare_path,
             service=service,
             continuous_only=require_continuous_stroke,
+            prepare_candidate=prepare_candidate,
         )
         if selected is not None:
             phase, (path, key, version, gain) = selected

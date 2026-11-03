@@ -782,6 +782,13 @@ class PublicCoverageExecutor:
                 # Exact held public inputs; no motion was sent for this proposal.
                 error.public_snapshot = current
                 raise
+            prepare_budget = getattr(self.port, 'prepare_finite_budget_candidate', None)
+            if prepare_budget is not None:
+                adapted = prepare_budget(path, proposal.intent_length_m, self._parent,
+                    self._deadline, exact_transfer=True)
+                if adapted is None:
+                    self.port.refuse_deferred_finite_work(self._parent, self._deadline, current)
+                path = np.asarray(adapted, float)
             admit = getattr(self.port, "admit_finite_budget", None)
             if admit is not None:
                 admit("before_transfer", current, self._parent, self._deadline,
@@ -1101,6 +1108,11 @@ class PublicCoverageExecutor:
                 admit = getattr(self.port, "admit_finite_budget", None)
                 if admit is not None:
                     admit("before_replanning", current, self._parent, self._deadline)
+                candidate_options = {}
+                prepare_budget = getattr(self.port, 'prepare_finite_budget_candidate', None)
+                if prepare_budget is not None:
+                    candidate_options['prepare_candidate'] = lambda path, transit: prepare_budget(
+                        path, transit, self._parent, self._deadline, exact_transfer=False)
                 work = self.ledger.next_work(
                     current.grid,
                     current.map_xy,
@@ -1109,11 +1121,15 @@ class PublicCoverageExecutor:
                     prepare_path=prepare_work_path,
                     service=self._planning_service,
                     require_continuous_stroke=strokes < minimum_strokes,
+                    **candidate_options,
                 )
                 record_work = getattr(self.port, "record_public_work", None)
                 if record_work is not None:
                     record_work(current, work, self._parent, self._deadline)
                 if work["kind"] == "NO_CURRENT_OBSERVED_WORK":
+                    if prepare_budget is not None:
+                        self.port.refuse_deferred_finite_work(self._parent, self._deadline, current,
+                            only_if_deferred=True)
                     break
                 try:
                     stroke = self._execute_work(work)

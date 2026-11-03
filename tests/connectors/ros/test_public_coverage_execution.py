@@ -328,6 +328,28 @@ def setup_executor():
     return body, executor, port, action
 
 
+def test_budget_prefix_is_the_actual_executed_stroke_without_lowering_goals():
+    from rosclaw.connectors.ros.public_coverage.coverage_variants import prefix
+    _, executor, port, action = setup_executor()
+    phases=[]; strokes=[]; execute=port.execute
+    def prepare(path, transit, parent, deadline, *, exact_transfer=False):
+        assert parent is executor._parent and deadline == executor._deadline
+        phases.append(exact_transfer)
+        return prefix(path,.2)
+    def observed(capability, arguments, **kwargs):
+        if capability=='navigation.follow_path' and port.brush:
+            strokes.append(np.asarray(arguments['path_xy']))
+        return execute(capability,arguments,**kwargs)
+    port.prepare_finite_budget_candidate=prepare
+    port.refuse_deferred_finite_work=lambda *args,**kwargs:None
+    port.execute=observed
+    result=executor(action)
+    assert result.final_state is ActionState.COMPLETED,result.errors
+    assert False in phases and True in phases and strokes
+    assert all(.1 <= np.linalg.norm(np.diff(p,axis=0),axis=1).sum() <= .2+1e-9 for p in strokes)
+    assert result.dispatch_result['completed_continuous_strokes'] >= 1
+
+
 def test_real_library_work_runs_inside_one_parent_and_keeps_fixture_scope():
     _, executor, port, action = setup_executor()
     result = executor(action)
