@@ -1,6 +1,7 @@
 """Exact-edge graph regressions, not a ROS scene or physical geometry claim."""
 
 import numpy as np
+import pytest
 
 from rosclaw.connectors.ros.public_coverage.route_costs import RouteCosts
 
@@ -66,7 +67,8 @@ def test_reachable_original_preference_is_retained():
     assert any(np.allclose(p, grid.xy((1, 1)), rtol=0, atol=1e-15) for p in path)
 
 
-def test_actual_sdk_grid_raster_finds_same_target_after_unreachable_preference():
+@pytest.mark.parametrize("alternate_start", [False, True])
+def test_actual_sdk_grid_raster_finds_same_target_after_unreachable_preference(alternate_start):
     import math
     from types import SimpleNamespace
 
@@ -86,6 +88,11 @@ def test_actual_sdk_grid_raster_finds_same_target_after_unreachable_preference()
     goal = np.array([0.925, 0.925]) + 0.03 * np.array(
         [math.cos(math.radians(5)), math.sin(math.radians(5))]
     )
+    if alternate_start:
+        goal = start.copy()
+        start = np.array([0.925, 0.925]) + 0.015 * np.array(
+            [math.cos(math.radians(5)), math.sin(math.radians(5))]
+        )
     msg = SimpleNamespace(
         info=SimpleNamespace(resolution=0.05, width=37, height=37, origin=pose()), data=[0] * 1369
     )
@@ -109,8 +116,12 @@ def test_actual_sdk_grid_raster_finds_same_target_after_unreachable_preference()
     assert path is not None
     assert np.array_equal(path[0], start) and np.array_equal(path[-1], goal)
     assert g.motion_path_safe(path)
-    assert rc.last_path_diagnostics["fallback_attachment_used"] is True
-    assert rc.last_path_diagnostics["candidate_count"] == 3
+    if alternate_start:
+        assert rc.seed == (18, 18)
+        assert rc.last_path_diagnostics["fallback_start_attachment_used"] is True
+    else:
+        assert rc.last_path_diagnostics["fallback_attachment_used"] is True
+        assert rc.last_path_diagnostics["candidate_count"] == 3
 
 
 def test_missing_start_attachment_is_distinguished_from_target_disconnection():
@@ -119,3 +130,72 @@ def test_missing_start_attachment_is_distinguished_from_target_disconnection():
     costs = RouteCosts(grid, [0.025, 0.025])
     assert costs.path(grid.goal) is None
     assert costs.last_path_diagnostics["reason"] == "start_cannot_attach_safe_grid"
+
+
+def test_isolated_closest_start_does_not_hide_another_safe_connection():
+    grid = EdgeGrid()
+    grid.goal = np.array([0.075, 0.070])
+    start = grid.goal.copy()
+    target = grid.xy((1, 0))
+    costs = RouteCosts(grid, start)
+    assert costs.seed == (1, 1)
+    path = costs.path(target)
+    assert path is not None and grid.motion_path_safe(path)
+    np.testing.assert_array_equal(path[0], start)
+    np.testing.assert_array_equal(path[-1], target)
+    detail = costs.last_path_diagnostics
+    assert detail["fallback_start_attachment_used"] is True
+    assert detail["start_attachment_search_complete"] is True
+    assert detail["selected_start_attachment_cell"] == [1, 2]
+    assert np.linalg.norm(grid.xy((1, 2)) - start) <= 0.10
+
+
+def test_all_start_connections_blocked_still_refuses_unchanged_target():
+    grid = EdgeGrid(isolate_all=True)
+    grid.goal = np.array([0.075, 0.070])
+    costs = RouteCosts(grid, grid.goal)
+    assert costs.path(grid.xy((1, 0))) is None
+    assert costs.last_path_diagnostics["reason"] == "target_attachments_exhausted"
+    assert costs.last_path_diagnostics["search_scope"] == "all_legal_start_and_target_attachments"
+
+
+def test_original_planning_service_can_interrupt_start_fallback():
+    grid = EdgeGrid()
+    grid.goal = np.array([0.075, 0.070])
+    costs = RouteCosts(grid, grid.goal)
+
+    def expired():
+        raise TimeoutError("Original parent deadline")
+
+    with pytest.raises(TimeoutError, match="Original parent deadline"):
+        costs.path(grid.xy((1, 0)), service=expired)
+
+
+def test_actual_planner_exhaustion_keeps_existing_runtime_stop_barrier_contract():
+    from types import SimpleNamespace
+
+    from rosclaw.connectors.ros.mission.public_coverage import PublicCoverageExecutor
+    from rosclaw.connectors.ros.public_coverage.online import TransferUnavailableError
+
+    grid = EdgeGrid(isolate_all=True)
+    grid.goal = np.array([0.075, 0.070])
+    costs = RouteCosts(grid, grid.goal)
+    assert costs.path(grid.xy((1, 0))) is None
+    rejected = TransferUnavailableError(
+        "Original route exhausted", diagnostics=costs.last_path_diagnostics
+    )
+    calls = []
+
+    class StopNotProvedError(RuntimeError):
+        pass
+
+    def barrier(work):
+        calls.append(work)
+        raise StopNotProvedError("Original stopped/off and native terminal barrier")
+
+    executor = SimpleNamespace(_observe_replanning_boundary=barrier)
+    work = {"kind": "WORK", "path_xy": [[0.075, 0.070], [0.025, 0.075]]}
+    with pytest.raises(StopNotProvedError) as observed:
+        PublicCoverageExecutor._recover_transfer_candidate(executor, work, rejected)
+    assert calls == [work]
+    assert observed.value.transfer_failure is rejected
