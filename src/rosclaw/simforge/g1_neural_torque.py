@@ -21,6 +21,7 @@ from typing import Any, Protocol
 
 import numpy as np
 
+from rosclaw.control.vector_envelope import intersect_vector_bounds
 from rosclaw.simforge.tasks.g1_goalforge.concepts import (
     G1_DDS_JOINT_NAMES,
     G1_HARD_TORQUE_LIMITS,
@@ -287,10 +288,18 @@ class G1TorqueSafetyProjector:
         except ValueError as exc:
             return self._fallback(parent_value, frame, f"invalid_proposal:{exc}")
 
-        clipped = np.clip(candidate, -self._guarded, self._guarded)
         parent_delta = self._hard * self.config.maximum_parent_deviation_ratio
-        clipped = np.clip(clipped, parent_value - parent_delta, parent_value + parent_delta)
-        clipped = np.clip(clipped, previous_value - self._delta, previous_value + self._delta)
+        envelope = intersect_vector_bounds(
+            (
+                (-self._guarded, self._guarded),
+                (parent_value - parent_delta, parent_value + parent_delta),
+                (previous_value - self._delta, previous_value + self._delta),
+            )
+        )
+        if envelope is None:
+            return self._fallback(parent_value, frame, "infeasible_torque_envelope")
+        envelope_low, envelope_high = envelope
+        clipped = np.clip(candidate, envelope_low, envelope_high)
         lower = _vector(frame.joint_lower_limits, label="joint lower limits")
         upper = _vector(frame.joint_upper_limits, label="joint upper limits")
         position = _vector(frame.joint_position, label="joint position")
@@ -301,6 +310,10 @@ class G1TorqueSafetyProjector:
         if np.any(outward_low | outward_high):
             return self._fallback(parent_value, frame, "joint_limit_guard")
         clipped = self._limit_power(clipped, frame.joint_velocity)
+        # Scaling toward zero can violate nonzero parent/rate lower bounds.
+        # Never label that result as an accepted constrained neural command.
+        if np.any(clipped < envelope_low - 1e-10) or np.any(clipped > envelope_high + 1e-10):
+            return self._fallback(parent_value, frame, "power_projection_outside_envelope")
         changed = np.abs(clipped - candidate) > 1e-8
         projection_ratio = float(np.count_nonzero(changed)) / len(changed)
         if projection_ratio > self.config.maximum_projection_ratio:
@@ -336,7 +349,9 @@ class G1TorqueSafetyProjector:
     def _safe_previous(self, previous: np.ndarray, parent: np.ndarray) -> np.ndarray:
         try:
             return np.clip(
-                _vector(previous, label="previous torque"), -self._guarded, self._guarded
+                _vector(previous, label="previous torque"),
+                -self._parent_guarded,
+                self._parent_guarded,
             )
         except ValueError:
             return parent.copy()
@@ -458,8 +473,7 @@ class G1NeuralTorquePolicy:
                 )
                 self._advance_hidden(normalized)
             elif (
-                float(frame.pelvis_position[2])
-                < self.artifact.safety.minimum_pelvis_height_m
+                float(frame.pelvis_position[2]) < self.artifact.safety.minimum_pelvis_height_m
                 or float(raw[60]) > self.artifact.safety.minimum_upright_gravity_z
             ):
                 self._recovery_cooldown = self.artifact.safety.recovery_cooldown_steps
@@ -545,7 +559,13 @@ class G1NeuralTorquePolicy:
                 for reason in self._fallback_reasons
             ),
             projection_fallback_count=sum(
-                reason == "projection_ratio_exceeded" for reason in self._fallback_reasons
+                reason
+                in {
+                    "projection_ratio_exceeded",
+                    "infeasible_torque_envelope",
+                    "power_projection_outside_envelope",
+                }
+                for reason in self._fallback_reasons
             ),
             out_of_distribution_fallback_count=sum(
                 reason == "observation_out_of_distribution" for reason in self._fallback_reasons

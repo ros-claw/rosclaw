@@ -92,6 +92,72 @@ def _artifact_bytes(
     )
 
 
+def test_projector_rejects_disjoint_parent_and_rate_bounds() -> None:
+    config = G1TorqueSafetyConfig(torque_guard_scale=0.85, maximum_projection_ratio=1.0)
+    parent = np.zeros(29)
+    parent[0] = 20.0
+    result = G1TorqueSafetyProjector(config).project(
+        parent, parent=parent, previous=np.zeros(29), frame=_frame()
+    )
+    assert result.used_parent
+    assert result.reason == "infeasible_torque_envelope"
+    assert np.array_equal(result.torque, parent)
+
+
+def test_power_scaling_cannot_escape_parent_and_rate_envelope() -> None:
+    config = G1TorqueSafetyConfig(
+        torque_guard_scale=0.85,
+        max_delta_ratio_per_step=0.25,
+        maximum_parent_deviation_ratio=0.25,
+        maximum_mechanical_power_w=100.0,
+        maximum_projection_ratio=1.0,
+    )
+    parent, velocity = np.zeros(29), np.zeros(29)
+    parent[0], velocity[0] = 40.0, 10.0
+    result = G1TorqueSafetyProjector(config).project(
+        parent, parent=parent, previous=parent, frame=_frame(joint_velocity=velocity)
+    )
+    assert result.used_parent
+    assert result.reason == "power_projection_outside_envelope"
+    assert np.array_equal(result.torque, parent)
+
+
+def test_actual_previous_is_not_rewritten_to_candidate_amplitude_guard() -> None:
+    config = G1TorqueSafetyConfig(
+        torque_guard_scale=0.70,
+        max_delta_ratio_per_step=0.05,
+        maximum_parent_deviation_ratio=0.25,
+        maximum_projection_ratio=1.0,
+    )
+    parent = np.asarray(G1_HARD_TORQUE_LIMITS) * 0.84
+    result = G1TorqueSafetyProjector(config).project(
+        parent * 0.8, parent=parent, previous=parent, frame=_frame()
+    )
+    assert result.used_parent
+    assert result.reason == "infeasible_torque_envelope"
+
+
+def test_accepted_commands_obey_all_three_boxes() -> None:
+    config = G1TorqueSafetyConfig(torque_guard_scale=0.70, maximum_projection_ratio=1.0)
+    hard = np.asarray(G1_HARD_TORQUE_LIMITS)
+    rng = np.random.default_rng(926026)
+    projector = G1TorqueSafetyProjector(config)
+    for _ in range(100):
+        parent = rng.uniform(-0.5, 0.5, 29) * hard
+        previous = parent + rng.uniform(-0.02, 0.02, 29) * hard
+        result = projector.project(
+            rng.uniform(-0.8, 0.8, 29) * hard, parent=parent, previous=previous, frame=_frame()
+        )
+        assert not result.used_parent
+        assert np.all(np.abs(result.torque) <= 0.70 * hard + 1e-10)
+        assert np.all(
+            np.abs(result.torque - parent) <= config.maximum_parent_deviation_ratio * hard + 1e-10
+        )
+        assert np.all(
+            np.abs(result.torque - previous) <= config.max_delta_ratio_per_step * hard + 1e-10
+        )
+
+
 def test_observation_contract_contains_raw_body_ball_phase_and_previous_torque() -> None:
     previous = np.asarray(G1_HARD_TORQUE_LIMITS, dtype=float) * 0.1
 
@@ -163,7 +229,7 @@ def test_safety_projector_falls_back_to_parent_on_nonfinite_or_overprojection() 
     overprojected = projector.project(
         np.asarray(G1_HARD_TORQUE_LIMITS, dtype=float),
         parent=parent,
-        previous=np.zeros(29),
+        previous=parent.copy(),
         frame=_frame(),
     )
 
