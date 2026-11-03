@@ -278,30 +278,50 @@ class SoftwarePort:
         return {"acknowledged": True}
 
 
-@pytest.mark.parametrize('cause,known', [('PUBLIC_TF_TIME_CONTRACT_REJECTED', True),
-    ('ORIGINAL_NATIVE_RESULT_UNKNOWN', False), ('ORIGINAL_DEADLINE_EXPIRED', True)])
+@pytest.mark.parametrize(
+    "cause,known",
+    [
+        ("PUBLIC_TF_TIME_CONTRACT_REJECTED", True),
+        ("ORIGINAL_NATIVE_RESULT_UNKNOWN", False),
+        ("ORIGINAL_DEADLINE_EXPIRED", True),
+    ],
+)
 def test_original_primitive_failure_reaches_parent_with_no_recovery_permission(cause, known):
     _, executor, port, action = setup_executor()
     original = port.execute
+
     def failed(capability, arguments, **kwargs):
-        if capability != 'navigation.follow_path':
+        if capability != "navigation.follow_path":
             return original(capability, arguments, **kwargs)
-        return ActionExecutionResult(ActionState.FAILED, EvidenceLevel.REQUESTED,
+        return ActionExecutionResult(
+            ActionState.FAILED,
+            EvidenceLevel.REQUESTED,
             evidence_domain=EvidenceDomain.FIXTURE,
-            dispatch_result=dict(parent_action_id=kwargs['parent'].action_id,
-                owned_primitive_id=kwargs['primitive_id'], original_native_terminal_known=known),
-            verification_result=dict(passed=False, original_native_terminal_known=known),
-            errors=[dict(code=cause, source='synthetic_original_driver', message='original failure')])
+            dispatch_result={
+                "parent_action_id": kwargs["parent"].action_id,
+                "owned_primitive_id": kwargs["primitive_id"],
+                "original_native_terminal_known": known,
+            },
+            verification_result={"passed": False, "original_native_terminal_known": known},
+            errors=[
+                {
+                    "code": cause,
+                    "source": "synthetic_original_driver",
+                    "message": "original failure",
+                }
+            ],
+        )
+
     port.execute = failed
     result = executor(action)
     assert result.final_state is ActionState.FAILED
-    detail = result.verification_result['failure_detail']
-    assert detail['original_errors'][0]['code'] == cause
-    assert detail['original_verification']['original_native_terminal_known'] is known
-    assert detail['recovery_authorized'] is False
-    assert result.errors[0]['failure_detail'] == detail
+    detail = result.verification_result["failure_detail"]
+    assert detail["original_errors"][0]["code"] == cause
+    assert detail["original_verification"]["original_native_terminal_known"] is known
+    assert detail["recovery_authorized"] is False
+    assert result.errors[0]["failure_detail"] == detail
     assert port.stop_calls == 1 and port.brush is False
-    assert 'Internal primitive' not in result.errors[0]['message']
+    assert "Internal primitive" not in result.errors[0]["message"]
 
 
 def setup_executor():
@@ -330,25 +350,33 @@ def setup_executor():
 
 def test_budget_prefix_is_the_actual_executed_stroke_without_lowering_goals():
     from rosclaw.connectors.ros.public_coverage.coverage_variants import prefix
+
     _, executor, port, action = setup_executor()
-    phases=[]; strokes=[]; execute=port.execute
+    phases = []
+    strokes = []
+    execute = port.execute
+
     def prepare(path, transit, parent, deadline, *, exact_transfer=False):
         assert parent is executor._parent and deadline == executor._deadline
         phases.append(exact_transfer)
-        return prefix(path,.2)
+        return prefix(path, 0.2)
+
     def observed(capability, arguments, **kwargs):
-        if capability=='navigation.follow_path' and port.brush:
-            strokes.append(np.asarray(arguments['path_xy']))
-        return execute(capability,arguments,**kwargs)
-    port.prepare_finite_budget_candidate=prepare
-    port.begin_finite_budget_selection=lambda parent:None
-    port.refuse_deferred_finite_work=lambda *args,**kwargs:None
-    port.execute=observed
-    result=executor(action)
-    assert result.final_state is ActionState.COMPLETED,result.errors
+        if capability == "navigation.follow_path" and port.brush:
+            strokes.append(np.asarray(arguments["path_xy"]))
+        return execute(capability, arguments, **kwargs)
+
+    port.prepare_finite_budget_candidate = prepare
+    port.begin_finite_budget_selection = lambda parent: None
+    port.refuse_deferred_finite_work = lambda *args, **kwargs: None
+    port.execute = observed
+    result = executor(action)
+    assert result.final_state is ActionState.COMPLETED, result.errors
     assert False in phases and True in phases and strokes
-    assert all(.1 <= np.linalg.norm(np.diff(p,axis=0),axis=1).sum() <= .2+1e-9 for p in strokes)
-    assert result.dispatch_result['completed_continuous_strokes'] >= 1
+    assert all(
+        0.1 <= np.linalg.norm(np.diff(p, axis=0), axis=1).sum() <= 0.2 + 1e-9 for p in strokes
+    )
+    assert result.dispatch_result["completed_continuous_strokes"] >= 1
 
 
 def test_real_library_work_runs_inside_one_parent_and_keeps_fixture_scope():

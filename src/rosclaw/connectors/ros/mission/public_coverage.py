@@ -44,18 +44,29 @@ class PrimitiveExecutionError(RuntimeError):
 
     Diagnostic facts never imply termination, stopping, or permission to retry.
     """
+
     def __init__(self, capability, primitive_id, result):
-        self.failure_detail = dict(
-            code='PUBLIC_PRIMITIVE_FAILED', source='shared_public_coverage.primitive',
-            capability_id=capability, primitive_id=primitive_id,
+        # Keep the frozen receipt projection expression unchanged.
+        self.failure_detail = dict(  # noqa: C408
+            code="PUBLIC_PRIMITIVE_FAILED",
+            source="shared_public_coverage.primitive",
+            capability_id=capability,
+            primitive_id=primitive_id,
             original_primitive_state=result.final_state.value,
             original_errors=list(result.errors),
             original_dispatch=dict(result.dispatch_result),
             original_verification=dict(result.verification_result or {}),
-            allowed_read_only_followups=['get_action_status', 'get_runtime_status', 'get_body_state'],
-            recovery_authorized=False)
-        causes=', '.join(str(x.get('code','UNKNOWN'))+': '+str(x.get('message','')) for x in result.errors)
-        super().__init__('Original primitive failed: '+(causes or 'UNKNOWN original cause'))
+            allowed_read_only_followups=[
+                "get_action_status",
+                "get_runtime_status",
+                "get_body_state",
+            ],
+            recovery_authorized=False,
+        )
+        causes = ", ".join(
+            str(x.get("code", "UNKNOWN")) + ": " + str(x.get("message", "")) for x in result.errors
+        )
+        super().__init__("Original primitive failed: " + (causes or "UNKNOWN original cause"))
 
 
 @dataclass(frozen=True)
@@ -782,17 +793,28 @@ class PublicCoverageExecutor:
                 # Exact held public inputs; no motion was sent for this proposal.
                 error.public_snapshot = current
                 raise
-            prepare_budget = getattr(self.port, 'prepare_finite_budget_candidate', None)
+            prepare_budget = getattr(self.port, "prepare_finite_budget_candidate", None)
             if prepare_budget is not None:
-                adapted = prepare_budget(path, proposal.intent_length_m, self._parent,
-                    self._deadline, exact_transfer=True)
+                adapted = prepare_budget(
+                    path,
+                    proposal.intent_length_m,
+                    self._parent,
+                    self._deadline,
+                    exact_transfer=True,
+                )
                 if adapted is None:
                     self.port.refuse_deferred_finite_work(self._parent, self._deadline, current)
                 path = np.asarray(adapted, float)
             admit = getattr(self.port, "admit_finite_budget", None)
             if admit is not None:
-                admit("before_transfer", current, self._parent, self._deadline,
-                      path=path, transfer_m=proposal.intent_length_m)
+                admit(
+                    "before_transfer",
+                    current,
+                    self._parent,
+                    self._deadline,
+                    path=path,
+                    transfer_m=proposal.intent_length_m,
+                )
             moved = self._primitive("navigation.follow_path", {"path_xy": list(proposal.prefix_xy)})
             target_progress = np.linalg.norm(np.asarray(current.map_xy) - path[0]) - np.linalg.norm(
                 np.asarray(moved.map_xy) - path[0]
@@ -1109,11 +1131,13 @@ class PublicCoverageExecutor:
                 if admit is not None:
                     admit("before_replanning", current, self._parent, self._deadline)
                 candidate_options = {}
-                prepare_budget = getattr(self.port, 'prepare_finite_budget_candidate', None)
+                prepare_budget = getattr(self.port, "prepare_finite_budget_candidate", None)
                 if prepare_budget is not None:
                     self.port.begin_finite_budget_selection(self._parent)
-                    candidate_options['prepare_candidate'] = lambda path, transit: prepare_budget(
-                        path, transit, self._parent, self._deadline, exact_transfer=False)
+                    # next_work consumes this callback synchronously in this iteration.
+                    candidate_options["prepare_candidate"] = lambda path, transit: prepare_budget(  # noqa: B023
+                        path, transit, self._parent, self._deadline, exact_transfer=False
+                    )
                 work = self.ledger.next_work(
                     current.grid,
                     current.map_xy,
@@ -1129,8 +1153,9 @@ class PublicCoverageExecutor:
                     record_work(current, work, self._parent, self._deadline)
                 if work["kind"] == "NO_CURRENT_OBSERVED_WORK":
                     if prepare_budget is not None:
-                        self.port.refuse_deferred_finite_work(self._parent, self._deadline, current,
-                            only_if_deferred=True)
+                        self.port.refuse_deferred_finite_work(
+                            self._parent, self._deadline, current, only_if_deferred=True
+                        )
                     break
                 try:
                     stroke = self._execute_work(work)
@@ -1237,7 +1262,7 @@ class PublicCoverageExecutor:
                 completed=completed,
                 strokes=strokes,
                 error=str(exc),
-                failure_detail=getattr(exc, 'failure_detail', None),
+                failure_detail=getattr(exc, "failure_detail", None),
                 stop=stop,
                 recoveries=self._recoveries,
                 entry_recoveries=self._entry_recoveries,
@@ -1291,6 +1316,13 @@ class PublicCoverageExecutor:
                 "failure_detail": failure_detail,
             },
             artifacts=[] if task_evidence is None else [task_evidence["uri"]],
-            errors=[] if error is None else [{"code": "PUBLIC_COVERAGE_FAILED", "message": error,
-                **({'failure_detail': failure_detail} if failure_detail is not None else {})}],
+            errors=[]
+            if error is None
+            else [
+                {
+                    "code": "PUBLIC_COVERAGE_FAILED",
+                    "message": error,
+                    **({"failure_detail": failure_detail} if failure_detail is not None else {}),
+                }
+            ],
         )
