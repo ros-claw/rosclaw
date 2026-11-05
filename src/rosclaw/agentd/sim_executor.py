@@ -78,11 +78,32 @@ class SimActionChannel:
         # 五审 P0-5E：domain 级失败（ok=false / driver=failed / error 字段）
         # 不得报 COMPLETED——transport 没错 ≠ 动作成功。success predicate：
         # 只有明确 ok=true 或无否定字段的结果才算完成。
+        status = str(result.get("status", "")).upper()
+        nonterminal = status in {
+            "UNKNOWN",
+            "QUEUED",
+            "PENDING",
+            "ACCEPTED",
+            "STARTING",
+            "ACTIVE",
+            "RUNNING",
+            "EXECUTING",
+            "CANCEL_REQUESTED",
+            "CANCELING",
+            "CANCELLING",
+        } or ("succeeded" in result and result["succeeded"] is None)
+        if nonterminal:
+            raise SimActionError(
+                f"sim executor {self._name} has no known terminal motion result for {tool_name}: "
+                f"{json.dumps(result, ensure_ascii=False)[:300]}"
+            )
         domain_failed = bool(
             result.get("ok") is False
+            or result.get("succeeded") is False
+            or result.get("query_succeeded") is False
             or result.get("driver") == "failed"
             or result.get("error")
-            or result.get("status") in ("failed", "error", "FAILED", "ERROR")
+            or status in ("FAILED", "ERROR")
         )
         if domain_failed:
             raise SimActionError(
