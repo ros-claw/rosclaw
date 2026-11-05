@@ -13,6 +13,7 @@ daemon consent plane / daemon action channel → receipt 事件落账。
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
@@ -39,6 +40,51 @@ class HandlerOutcome:
     # Set only by this local dispatcher before any executor/transport call.
     # A remote error code, missing receipt or exception is not this proof.
     known_not_dispatched: bool = False
+
+
+def _nonreal_response_options(
+    agent: dict, *, mode: str, capability: str, timeout_sec: float
+) -> dict:
+    """Use explicit trusted SIM bounds, never model-supplied deadlines.
+
+    The capability descriptor still owns the parent ceiling. Registration
+    cannot increase it. The legacy execute_slice contract stays unchanged.
+    """
+    from rosclaw.agentd.action_channel import ActionChannelError
+
+    registered = agent.get("nonreal_action_limits", {})
+    if not isinstance(registered, dict):
+        raise ActionChannelError("Registered non-real limits must be a capability mapping")
+    if capability in registered:
+        if capability == "coverage.execute_slice":
+            raise ActionChannelError("Generic limits cannot redefine the legacy slice contract")
+        limits = registered[capability]
+        fields = {"response_wait_sec", "parent_timeout_sec", "verification_timeout_sec"}
+        if not isinstance(limits, dict) or set(limits) != fields:
+            raise ActionChannelError("Explicit response/parent/verification limits required")
+        if mode != "SIMULATION" or any(
+            type(limits[k]) not in (int, float) or not math.isfinite(limits[k]) for k in fields
+        ):
+            raise ActionChannelError("Finite registered SIM action limits required")
+        response, parent, verification = (
+            limits[k]
+            for k in ["response_wait_sec", "parent_timeout_sec", "verification_timeout_sec"]
+        )
+        if not (
+            parent == timeout_sec
+            and 0 < response <= verification <= parent <= 330
+            and response < parent
+        ):
+            raise ActionChannelError("Registered SIM limits cannot extend the original parent")
+        return {"response_wait_sec": response, "verification_timeout_sec": verification}
+    split = agent.get("coverage_response_wait_sec")
+    if split is not None and capability == "coverage.execute_slice":
+        if mode != "SIMULATION" or split != 310 or timeout_sec != 330:
+            raise ActionChannelError(
+                "Registered coverage response split requires SIM 310/330 exactly"
+            )
+        return {"response_wait_sec": 310.0}
+    return {}
 
 
 def _verification_summary(verification: dict) -> str:
@@ -350,12 +396,10 @@ async def request_action(
         timeout_sec = (
             min(3600.0, max(30.0, descriptor.timeout_ms / 1000)) if descriptor is not None else 30.0
         )
-        split = ((getattr(getattr(service,'_config',None),'raw',{}) or {}).get('agent') or {}).get('coverage_response_wait_sec')
-        response_options = {}
-        if split is not None and capability == 'coverage.execute_slice':
-            if mode != 'SIMULATION' or split != 310 or timeout_sec != 330:
-                raise ActionChannelError('Registered coverage response split requires SIM 310/330 exactly')
-            response_options = {'response_wait_sec':310.0}
+        agent = (getattr(getattr(service, "_config", None), "raw", {}) or {}).get("agent") or {}
+        response_options = _nonreal_response_options(
+            agent, mode=mode, capability=capability, timeout_sec=timeout_sec
+        )
         outcome = await channel.request_nonreal_action(
             capability_id=capability,
             arguments=arguments,

@@ -11,6 +11,8 @@ reported as a completed task (总纲 §12.3).
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import math
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -95,16 +97,23 @@ class DaemonActionChannel:
         Cancellation is not a native terminal and never grants a replacement.
         The original bounded daemon RPC cleanup stays responsible for closure.
         """
-        task=self._owned_nonreal_task
+        task = self._owned_nonreal_task
         if task is not None and not task.done():
             task.cancel()
-            try:await task
-            except BaseException:pass
+            with contextlib.suppress(BaseException):
+                await task
 
     async def request_nonreal_action(
-        self, *, capability_id: str, arguments: dict[str, Any], grant_id: str,
-        execution_mode: str = "SIMULATION", timeout_sec: float = 30.0,
-        action_id: str | None = None, response_wait_sec: float | None = None,
+        self,
+        *,
+        capability_id: str,
+        arguments: dict[str, Any],
+        grant_id: str,
+        execution_mode: str = "SIMULATION",
+        timeout_sec: float = 30.0,
+        action_id: str | None = None,
+        response_wait_sec: float | None = None,
+        verification_timeout_sec: float | None = None,
     ) -> ActionOutcome:
         """Optionally separate response wait from the unchanged parent ceiling.
 
@@ -112,43 +121,69 @@ class DaemonActionChannel:
         heartbeat in this same channel. It cannot renew the parent's deadline,
         submit a replacement or claim completion. Service close cancels it.
         """
-        values=dict(capability_id=capability_id,arguments=arguments,grant_id=grant_id,
-            execution_mode=execution_mode,timeout_sec=timeout_sec,action_id=action_id)
-        old=self._owned_nonreal_task
+        values = {
+            "capability_id": capability_id,
+            "arguments": arguments,
+            "grant_id": grant_id,
+            "execution_mode": execution_mode,
+            "timeout_sec": timeout_sec,
+            "action_id": action_id,
+        }
+        if verification_timeout_sec is not None:
+            if (
+                execution_mode != "SIMULATION"
+                or response_wait_sec is None
+                or any(
+                    type(v) not in (int, float) or not math.isfinite(v)
+                    for v in (verification_timeout_sec, response_wait_sec, timeout_sec)
+                )
+                or not 0 < response_wait_sec <= verification_timeout_sec <= timeout_sec <= 330
+            ):
+                raise ActionChannelError(
+                    "Explicit finite SIM response/verification/parent limits required"
+                )
+            values["verification_timeout_sec"] = verification_timeout_sec
+        old = self._owned_nonreal_task
         if old is not None and not old.done():
-            raise ActionChannelError('Original action still owned; reconcile only, no replacement')
+            raise ActionChannelError("Original action still owned; reconcile only, no replacement")
         if response_wait_sec is None:
             return await self._run_nonreal_action(**values)
-        if (execution_mode != "SIMULATION" or capability_id != "coverage.execute_slice"
-                or type(response_wait_sec) not in (int,float)
-                or not 0 < response_wait_sec < timeout_sec <= 330):
-            raise ActionChannelError('Explicit bounded SIM coverage response/parent split required')
-        identifier=action_id or new_id('act')
-        values['action_id']=identifier
+        if (
+            execution_mode != "SIMULATION"
+            or (capability_id != "coverage.execute_slice" and verification_timeout_sec is None)
+            or type(response_wait_sec) not in (int, float)
+            or not 0 < response_wait_sec < timeout_sec <= 330
+        ):
+            raise ActionChannelError("Explicit bounded SIM coverage response/parent split required")
+        identifier = action_id or new_id("act")
+        values["action_id"] = identifier
         # Read-only settlement may outlive the parent by five seconds. The
         # canonical envelope/Driver deadline is still exactly timeout_sec.
         # This prevents a response-poll race from revoking ownership just as
         # the original watchdog is recording its native stop proof.
-        values['terminal_settlement_sec']=5.0
-        task=asyncio.create_task(self._run_nonreal_action(**values))
-        self._owned_nonreal_task=task
+        values["terminal_settlement_sec"] = 5.0
+        task = asyncio.create_task(self._run_nonreal_action(**values))
+        self._owned_nonreal_task = task
+
         def consume(done):
-            try:done.exception()
-            except BaseException:pass
+            with contextlib.suppress(BaseException):
+                done.exception()
+
         task.add_done_callback(consume)
         try:
-            return await asyncio.wait_for(asyncio.shield(task),response_wait_sec)
-        except asyncio.TimeoutError as error:
+            return await asyncio.wait_for(asyncio.shield(task), response_wait_sec)
+        except TimeoutError as error:
             raise ActionChannelError(
-                f'ACTION_RESULT_UNKNOWN: response wait expired; action_id={identifier}; '
-                f'grant_id={grant_id}; original Session/waiter retained until original terminal; '
-                'reconcile only, no replacement authorization inferred') from error
+                f"ACTION_RESULT_UNKNOWN: response wait expired; action_id={identifier}; "
+                f"grant_id={grant_id}; original Session/waiter retained until original terminal; "
+                "reconcile only, no replacement authorization inferred"
+            ) from error
         except asyncio.CancelledError:
             # Caller cancellation is not an ordinary early response. Preserve
             # the existing cancel->Session revocation behavior.
             task.cancel()
-            try:await task
-            except BaseException:pass
+            with contextlib.suppress(BaseException):
+                await task
             raise
 
     async def _create_action_session(self, capability_id: str, session_id: str) -> str:
@@ -177,6 +212,7 @@ class DaemonActionChannel:
         timeout_sec: float = 30.0,
         action_id: str | None = None,
         terminal_settlement_sec: float = 0.0,
+        verification_timeout_sec: float | None = None,
     ) -> ActionOutcome:
         """Submit a SIMULATION or SHADOW action and verify its receipt."""
         mode = ExecutionMode(str(execution_mode).upper())
@@ -204,7 +240,9 @@ class DaemonActionChannel:
             ),
             verification_policy=VerificationPolicy(
                 required_evidence=EvidenceLevel.TASK_VERIFIED,
-                timeout_sec=timeout_sec,
+                timeout_sec=timeout_sec
+                if verification_timeout_sec is None
+                else verification_timeout_sec,
             ),
         )
         pending_error: BaseException | None = None
@@ -226,7 +264,9 @@ class DaemonActionChannel:
                 raise ActionChannelError("daemon response changed the submitted action identity")
             try:
                 status = await asyncio.to_thread(
-                    self._client.wait_for_action, action_id, timeout_sec=timeout_sec+terminal_settlement_sec
+                    self._client.wait_for_action,
+                    action_id,
+                    timeout_sec=timeout_sec + terminal_settlement_sec,
                 )
             except DaemonClientError as exc:
                 raise ActionChannelError(f"action did not finish: {exc.code}: {exc}") from exc
