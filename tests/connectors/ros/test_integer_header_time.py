@@ -21,6 +21,7 @@ from tests.connectors.ros.test_public_coverage_execution import setup_executor
 @pytest.mark.parametrize(
     "age,ok",
     [
+        (0, True),
         (-100_000_001, False),
         (-100_000_000, True),
         (-99_999_999, True),
@@ -56,6 +57,41 @@ def test_raw_projection_mismatch_and_noncanonical_stamp_are_rejected():
     assert header_age_ok(2186.2, 2186.3, 0.1, 1.5) is False  # explicitly legacy, missing originals
 
 
+@pytest.mark.parametrize("native_form", ["division", "multiply", "stamp"])
+@pytest.mark.parametrize("header_form", ["division", "multiply", "stamp"])
+@pytest.mark.parametrize(
+    "age,ok",
+    [
+        (0, True),
+        (-100_000_001, False),
+        (-100_000_000, True),
+        (1_500_000_000, True),
+        (1_500_000_001, False),
+    ],
+)
+def test_legal_ros_seconds_projections_keep_the_same_exact_integer_age(
+    native_form, header_form, age, ok
+):
+    native = 2_186_000_000_010
+    header = native - age
+
+    def seconds(value, form):
+        sec, ns = divmod(value, 1_000_000_000)
+        return {"division": value / 1e9, "multiply": value * 1e-9, "stamp": sec + ns * 1e-9}[form]
+
+    assert (
+        header_age_ok(
+            seconds(native, native_form),
+            seconds(header, header_form),
+            0.1,
+            1.5,
+            native_ns=native,
+            header_ns=header,
+        )
+        is ok
+    )
+
+
 @pytest.mark.parametrize(
     "age,ok",
     [
@@ -67,21 +103,28 @@ def test_raw_projection_mismatch_and_noncanonical_stamp_are_rejected():
         (1_500_000_001, False),
     ],
 )
-def test_actual_sdk_validator_uses_original_ns(age, ok):
+@pytest.mark.parametrize("projection", ["canonical", "mixed_ros_producers"])
+def test_actual_sdk_validator_uses_original_ns(age, ok, projection):
     _, executor, port, _ = setup_executor()
-    native = 2_186_200_000_000
+    native = 2_186_000_000_010
     header = native - age
+    header_s = (
+        header / 1e9
+        if projection == "canonical"
+        else header // 1_000_000_000 + (header % 1_000_000_000) * 1e-9
+    )
+    native_s = native / 1e9 if projection == "canonical" else native * 1e-9
     snapshot = port.snapshot()
     sources = {s.role: s for s in executor.binding.sources}
     facts = tuple(
         replace(
             f,
-            header_native_s=None if sources[f.role].max_header_age_s is None else header / 1e9,
+            header_native_s=None if sources[f.role].max_header_age_s is None else header_s,
             header_native_ns=None if sources[f.role].max_header_age_s is None else header,
         )
         for f in snapshot.sources
     )
-    snapshot = replace(snapshot, native_s=native / 1e9, native_ns=native, sources=facts)
+    snapshot = replace(snapshot, native_s=native_s, native_ns=native, sources=facts)
     # Use odom/cleaner stop validation so the 1s TF contract remains separate.
     if ok:
         assert executor._validate(snapshot, work=False) is snapshot

@@ -64,3 +64,27 @@ def test_known_success_and_existing_legacy_results_keep_driver_only_scope(value)
     assert result.receipt["executor_result"] == value
     assert result.receipt["physical_effect_proven"] is False
     assert result.receipt["usable_for_real_execution"] is False
+
+
+@pytest.mark.parametrize(
+    "status",
+    ["CANCELED", "CANCELLED", "ABORTED", "REJECTED", "BLOCKED", "TIMED_OUT", "TIMEOUT", "EXPIRED"],
+)
+def test_explicit_unsuccessful_terminal_state_cannot_create_success_even_for_a_successful_query(
+    status,
+):
+    with pytest.raises(SimActionError):
+        execute({"query_succeeded": True, "status": status})
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        {"query_succeeded": True},
+        {"query_succeeded": True, "status": "READY"},
+        {"query_succeeded": True, "status": "UNRECOGNIZED_STATE"},
+    ],
+)
+def test_query_only_or_unrecognized_motion_state_has_no_completion(value):
+    with pytest.raises(SimActionError):
+        execute(value)

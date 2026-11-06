@@ -30,6 +30,15 @@ def integer_age_ok(native_ns, header_ns, future_s, max_age_s):
     return -Decimal(str(future_s)) * 1_000_000_000 <= age <= Decimal(str(max_age_s)) * 1_000_000_000
 
 
+def _seconds_projection_matches(seconds, nanoseconds):
+    if type(seconds) not in (int, float) or not math.isfinite(seconds):
+        return False
+    sec, ns = divmod(nanoseconds, 1_000_000_000)
+    # Recognize actual integer-to-seconds producer operations, not an age epsilon.
+    # Every age decision below still uses the untouched original integer pair.
+    return seconds in (nanoseconds / 1e9, nanoseconds * 1e-9, sec + ns / 1e9, sec + ns * 1e-9)
+
+
 def header_age_ok(native_s, header_s, future_s, max_age_s, *, native_ns=None, header_ns=None):
     if native_ns is None and header_ns is None:
         return (
@@ -39,6 +48,8 @@ def header_age_ok(native_s, header_s, future_s, max_age_s, *, native_ns=None, he
         )
     if type(native_ns) is not int or type(header_ns) is not int:
         raise ValueError("Incomplete original integer time pair")
-    if native_s != native_ns / 1e9 or header_s != header_ns / 1e9:
+    if not _seconds_projection_matches(native_s, native_ns) or not _seconds_projection_matches(
+        header_s, header_ns
+    ):
         raise ValueError("Original integer time and seconds projection differ")
     return integer_age_ok(native_ns, header_ns, future_s, max_age_s)

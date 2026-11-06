@@ -6,7 +6,10 @@ import math
 import numpy as np
 
 from rosclaw.connectors.ros.public_coverage.coverage_paths import densify
-from rosclaw.connectors.ros.public_coverage.coverage_variants import prefix
+from rosclaw.connectors.ros.public_coverage.coverage_variants import (
+    prefix,
+    validate_unissued_prefix,
+)
 
 
 def chunks(path, maximum=3.0):
@@ -274,30 +277,7 @@ def select(
                     adapted = prepare_candidate(candidate.copy(), transit)
                     if adapted is None:
                         continue
-                    adapted = np.asarray(adapted, float)
-                    # This hook may only select a prefix of the unissued work.
-                    # It cannot shift entry, add a turn, or extend the stroke.
-                    original_length = float(
-                        np.linalg.norm(np.diff(candidate, axis=0), axis=1).sum()
-                    )
-                    adapted_length = (
-                        float(np.linalg.norm(np.diff(adapted, axis=0), axis=1).sum())
-                        if adapted.ndim == 2
-                        else math.inf
-                    )
-                    if (
-                        adapted.ndim != 2
-                        or adapted.shape[1] != 2
-                        or len(adapted) < 2
-                        or not np.isfinite(adapted).all()
-                        or adapted_length > original_length + 1e-9
-                        or not np.allclose(
-                            adapted, prefix(candidate, adapted_length), rtol=0, atol=1e-9
-                        )
-                    ):
-                        raise ValueError(
-                            "Candidate admission must retain an original unissued prefix"
-                        )
+                    adapted = validate_unissued_prefix(candidate, adapted)
                     changed = not np.array_equal(candidate, adapted)
                     candidate = adapted
                     if changed:

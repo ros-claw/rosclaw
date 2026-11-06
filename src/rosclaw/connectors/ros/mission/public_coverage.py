@@ -14,8 +14,10 @@ import math
 import re
 import threading
 import time
+from copy import deepcopy
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
 from typing import Protocol
 
@@ -24,6 +26,7 @@ import numpy as np
 from rosclaw.body.schema import EffectiveBody
 from rosclaw.connectors.ros.mission.finite_coverage_evidence import persist_archive, snapshot_record
 from rosclaw.connectors.ros.public_coverage.coverage_paths import prepare_work_path
+from rosclaw.connectors.ros.public_coverage.coverage_variants import validate_unissued_prefix
 from rosclaw.connectors.ros.public_coverage.graph_ledger import IDENTITY, GraphAnchoredCoverage
 from rosclaw.connectors.ros.public_coverage.grid import Grid
 from rosclaw.connectors.ros.public_coverage.online import TransferUnavailableError, propose_transfer
@@ -622,8 +625,7 @@ class PublicCoverageExecutor:
             )
         self.ledger.sync()
 
-    def _primitive(self, capability, arguments):
-        assert self._parent is not None
+    def _guard_primitive(self, capability, arguments):
         cleanup = capability == "cleaning.disable"
         sample = self._guard(work=not cleanup)
         if capability == "navigation.follow_path":
@@ -664,7 +666,14 @@ class PublicCoverageExecutor:
                         "entry_limit_m": 0.10,
                     },
                 )
-        started = time.monotonic()
+        return sample
+
+    def _primitive(self, capability, arguments, *, before_execute=None):
+        assert self._parent is not None
+        cleanup = capability == "cleaning.disable"
+        # A diagnostic callback receives its own copy, never mutable dispatch input.
+        arguments = deepcopy(arguments)
+        sample = self._guard_primitive(capability, arguments)
         self._sequence += 1
         primitive_id = (
             "pcov_"
@@ -672,9 +681,17 @@ class PublicCoverageExecutor:
         )
         record_intent = getattr(self.port, "record_primitive_intent", None)
         if record_intent is not None:
-            record_intent(sample, capability, arguments, self._parent, primitive_id, self._deadline)
-        # Local persistence consumes the original deadline and is never permission.
-        if self.stopping.is_set() or time.monotonic() >= self._deadline:
+            record_intent(
+                sample, capability, deepcopy(arguments), self._parent, primitive_id, self._deadline
+            )
+        # Persistence can invalidate every earlier source/identity/native/path fact.
+        # Re-price using the same parent deadline, then recheck after that callback too.
+        sample = self._guard_primitive(capability, arguments)
+        if before_execute is not None:
+            before_execute(sample)
+            sample = self._guard_primitive(capability, arguments)
+        started = time.monotonic()
+        if self.stopping.is_set() or started >= self._deadline:
             raise TimeoutError("Original deadline or stop changed during intent persistence")
         result = self.port.execute(
             capability,
@@ -764,7 +781,8 @@ class PublicCoverageExecutor:
             raise RuntimeError("Actual brush state differs from requested phase")
         if (
             capability == "navigation.follow_path"
-            and np.linalg.norm(np.asarray(after.map_xy) - points[-1]) > 0.05
+            and np.linalg.norm(np.asarray(after.map_xy) - np.asarray(arguments["path_xy"])[-1])
+            > 0.05
         ):
             raise RuntimeError("Actual work endpoint exceeds original tracking limit")
         record_primitive(
@@ -778,7 +796,7 @@ class PublicCoverageExecutor:
         }
         return after
 
-    def _execute_work(self, work):
+    def _execute_work(self, work, *, require_continuous_stroke=False):
         path = np.asarray(work["path_xy"], float)
         stalled = 0
         prefixes = []
@@ -804,7 +822,12 @@ class PublicCoverageExecutor:
                 )
                 if adapted is None:
                     self.port.refuse_deferred_finite_work(self._parent, self._deadline, current)
-                path = np.asarray(adapted, float)
+                path = validate_unissued_prefix(path, adapted)
+                if (
+                    require_continuous_stroke
+                    and np.linalg.norm(np.diff(path, axis=0), axis=1).sum() < 0.10
+                ):
+                    raise ValueError("Original continuous stroke requires at least 0.10m")
             admit = getattr(self.port, "admit_finite_budget", None)
             if admit is not None:
                 admit(
@@ -815,7 +838,20 @@ class PublicCoverageExecutor:
                     path=path,
                     transfer_m=proposal.intent_length_m,
                 )
-            moved = self._primitive("navigation.follow_path", {"path_xy": list(proposal.prefix_xy)})
+            moved = self._primitive(
+                "navigation.follow_path",
+                {"path_xy": list(proposal.prefix_xy)},
+                before_execute=None
+                if admit is None
+                else partial(
+                    admit,
+                    "before_transfer",
+                    parent=self._parent,
+                    deadline=self._deadline,
+                    path=path.copy(),
+                    transfer_m=proposal.intent_length_m,
+                ),
+            )
             target_progress = np.linalg.norm(np.asarray(current.map_xy) - path[0]) - np.linalg.norm(
                 np.asarray(moved.map_xy) - path[0]
             )
@@ -871,17 +907,46 @@ class PublicCoverageExecutor:
         current = self._guard()
         if not current.grid.motion_path_safe(path):
             raise _PostEntryGeometryChangeError("Fresh post-entry geometry rejects selected work")
+        is_stroke = bool(
+            len(path) > 1 and np.linalg.norm(np.diff(path, axis=0), axis=1).sum() >= 0.10
+        )
+        if require_continuous_stroke and not is_stroke:
+            raise ValueError("Original continuous stroke requires at least 0.10m")
         before = len(self.ledger.anchor.cleaned)
         admit = getattr(self.port, "admit_finite_budget", None)
         if admit is not None:
             admit("before_brush_enable", current, self._parent, self._deadline, path=path)
-        self._primitive("cleaning.enable", {})
+        self._primitive(
+            "cleaning.enable",
+            {},
+            before_execute=None
+            if admit is None
+            else partial(
+                admit,
+                "before_brush_enable",
+                parent=self._parent,
+                deadline=self._deadline,
+                path=path.copy(),
+            ),
+        )
         if len(path) > 1:
-            self._primitive("navigation.follow_path", {"path_xy": path.tolist()})
+            self._primitive(
+                "navigation.follow_path",
+                {"path_xy": path.tolist()},
+                before_execute=None
+                if admit is None
+                else partial(
+                    admit,
+                    "before_brush_path_send",
+                    parent=self._parent,
+                    deadline=self._deadline,
+                    path=path.copy(),
+                ),
+            )
         self._primitive("cleaning.disable", {})
         if len(self.ledger.anchor.cleaned) <= before:
             raise RuntimeError("No actual public brush evidence for completed work")
-        return len(path) > 1
+        return is_stroke
 
     def _observe_replanning_boundary(self, work):
         # This is not an E-stop reset. Owner loss/unknown native results never
@@ -1158,7 +1223,9 @@ class PublicCoverageExecutor:
                         )
                     break
                 try:
-                    stroke = self._execute_work(work)
+                    stroke = self._execute_work(
+                        work, require_continuous_stroke=strokes < minimum_strokes
+                    )
                 except _PostEntryGeometryChangeError as rejected:
                     self._recover_post_entry_geometry(work, rejected)
                     continue
