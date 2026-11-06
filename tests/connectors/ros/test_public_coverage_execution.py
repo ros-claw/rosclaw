@@ -278,6 +278,52 @@ class SoftwarePort:
         return {"acknowledged": True}
 
 
+@pytest.mark.parametrize(
+    "cause,known",
+    [
+        ("PUBLIC_TF_TIME_CONTRACT_REJECTED", True),
+        ("ORIGINAL_NATIVE_RESULT_UNKNOWN", False),
+        ("ORIGINAL_DEADLINE_EXPIRED", True),
+    ],
+)
+def test_original_primitive_failure_reaches_parent_with_no_recovery_permission(cause, known):
+    _, executor, port, action = setup_executor()
+    original = port.execute
+
+    def failed(capability, arguments, **kwargs):
+        if capability != "navigation.follow_path":
+            return original(capability, arguments, **kwargs)
+        return ActionExecutionResult(
+            ActionState.FAILED,
+            EvidenceLevel.REQUESTED,
+            evidence_domain=EvidenceDomain.FIXTURE,
+            dispatch_result={
+                "parent_action_id": kwargs["parent"].action_id,
+                "owned_primitive_id": kwargs["primitive_id"],
+                "original_native_terminal_known": known,
+            },
+            verification_result={"passed": False, "original_native_terminal_known": known},
+            errors=[
+                {
+                    "code": cause,
+                    "source": "synthetic_original_driver",
+                    "message": "original failure",
+                }
+            ],
+        )
+
+    port.execute = failed
+    result = executor(action)
+    assert result.final_state is ActionState.FAILED
+    detail = result.verification_result["failure_detail"]
+    assert detail["original_errors"][0]["code"] == cause
+    assert detail["original_verification"]["original_native_terminal_known"] is known
+    assert detail["recovery_authorized"] is False
+    assert result.errors[0]["failure_detail"] == detail
+    assert port.stop_calls == 1 and port.brush is False
+    assert "Internal primitive" not in result.errors[0]["message"]
+
+
 def setup_executor():
     body, binding = compiled_binding()
     port = SoftwarePort(binding)
@@ -300,6 +346,37 @@ def setup_executor():
         deadline_at=datetime.now(UTC) + timedelta(seconds=20),
     )
     return body, executor, port, action
+
+
+def test_budget_prefix_is_the_actual_executed_stroke_without_lowering_goals():
+    from rosclaw.connectors.ros.public_coverage.coverage_variants import prefix
+
+    _, executor, port, action = setup_executor()
+    phases = []
+    strokes = []
+    execute = port.execute
+
+    def prepare(path, transit, parent, deadline, *, exact_transfer=False):
+        assert parent is executor._parent and deadline == executor._deadline
+        phases.append(exact_transfer)
+        return prefix(path, 0.2)
+
+    def observed(capability, arguments, **kwargs):
+        if capability == "navigation.follow_path" and port.brush:
+            strokes.append(np.asarray(arguments["path_xy"]))
+        return execute(capability, arguments, **kwargs)
+
+    port.prepare_finite_budget_candidate = prepare
+    port.begin_finite_budget_selection = lambda parent: None
+    port.refuse_deferred_finite_work = lambda *args, **kwargs: None
+    port.execute = observed
+    result = executor(action)
+    assert result.final_state is ActionState.COMPLETED, result.errors
+    assert False in phases and True in phases and strokes
+    assert all(
+        0.1 <= np.linalg.norm(np.diff(p, axis=0), axis=1).sum() <= 0.2 + 1e-9 for p in strokes
+    )
+    assert result.dispatch_result["completed_continuous_strokes"] >= 1
 
 
 def test_real_library_work_runs_inside_one_parent_and_keeps_fixture_scope():
@@ -790,3 +867,314 @@ def test_generic_geometry_exception_is_not_a_replanning_permission(monkeypatch):
     assert result.final_state is ActionState.FAILED
     assert result.dispatch_result["observed_post_entry_recoveries"] == []
     assert executor.stopping.is_set() and port.stop_calls == 1
+
+
+def test_undispatched_transfer_rejection_can_select_another_work_after_stop(monkeypatch):
+    from rosclaw.connectors.ros.mission import public_coverage as module
+    from rosclaw.connectors.ros.public_coverage.online import TransferUnavailableError
+
+    _, executor, port, action = setup_executor()
+    selected = []
+    captured = []
+
+    def propose(*args, **kwargs):
+        selected.append(1)
+        return (
+            {"kind": "WORK", "path_xy": [[2.4, 2.0], [3.0, 2.0]]}
+            if len(selected) == 1
+            else {"kind": "WORK", "path_xy": [list(port.xy), [port.xy[0], port.xy[1] + 0.7]]}
+        )
+
+    def reject(*args, **kwargs):
+        raise TransferUnavailableError(
+            "No public full-footprint transfer intent",
+            diagnostics={
+                "reason": "target_attachments_exhausted",
+                "requested_target_xy": [2.4, 2.0],
+            },
+        )
+
+    def record(error, stop, parent, deadline):
+        assert not port.brush and port.motion_settled
+        assert error.public_snapshot.map_xy == (2.0, 2.0)
+        assert parent.action_id == action.action_id and deadline == executor._deadline
+        captured.append(error.diagnostics)
+        return "fixture-only/evidence.json"
+
+    port.record_transfer_failure = record
+    monkeypatch.setattr(executor.ledger, "next_work", propose)
+    monkeypatch.setattr(module, "propose_transfer", reject)
+    result = executor(action)
+    assert result.final_state is ActionState.COMPLETED, result.errors
+    assert len(selected) == 2 and len(captured) == 1
+    assert result.dispatch_result["completed_work"] == 1
+    recovery = result.dispatch_result["observed_post_entry_recoveries"][0]
+    assert recovery["native_goal_dispatched"] is False
+    assert recovery["rejected_transfer"]["reason"] == "target_attachments_exhausted"
+    assert port.stop_calls == 0
+
+
+@pytest.mark.parametrize("defect", ["unknown_native", "depth", "unclassified"])
+def test_transfer_failure_does_not_authorize_recovery_without_original_proofs(monkeypatch, defect):
+    from rosclaw.connectors.ros.mission import public_coverage as module
+    from rosclaw.connectors.ros.public_coverage.online import TransferUnavailableError
+
+    _, executor, port, action = setup_executor()
+    selections = []
+
+    def work(*args, **kwargs):
+        selections.append(1)
+        return {"kind": "WORK", "path_xy": [[2.4, 2.0], [3.0, 2.0]]}
+
+    def reject(*args, **kwargs):
+        if defect == "unknown_native":
+            port.motion_settled = False
+        elif defect == "depth":
+            port.fault = "depth"
+        raise TransferUnavailableError(
+            "transfer rejection",
+            diagnostics={
+                "reason": "unknown" if defect == "unclassified" else "target_attachments_exhausted"
+            },
+        )
+
+    monkeypatch.setattr(executor.ledger, "next_work", work)
+    monkeypatch.setattr(module, "propose_transfer", reject)
+    result = executor(action)
+    assert result.final_state is ActionState.FAILED
+    assert len(selections) == 1 and port.stop_calls == 1
+    assert not any(c[0] == "cleaning.enable" for c in port.calls)
+    assert executor.stopping.is_set()
+
+
+def test_transfer_rejections_consume_original_finite_work_attempts(monkeypatch):
+    from rosclaw.connectors.ros.mission import public_coverage as module
+    from rosclaw.connectors.ros.public_coverage.online import TransferUnavailableError
+
+    _, executor, port, action = setup_executor()
+    selected = []
+
+    def work(*args, **kwargs):
+        selected.append(1)
+        return {"kind": "WORK", "path_xy": [[2.4, 2.0], [3.0, 2.0]]}
+
+    def reject(*args, **kwargs):
+        raise TransferUnavailableError(
+            "all attachments exhausted", diagnostics={"reason": "target_attachments_exhausted"}
+        )
+
+    monkeypatch.setattr(executor.ledger, "next_work", work)
+    monkeypatch.setattr(module, "propose_transfer", reject)
+    result = executor(replace(action, arguments={"maximum_work": 3}))
+    assert result.final_state is ActionState.FAILED
+    assert len(selected) == 3 and result.dispatch_result["completed_work"] == 0
+    assert len(result.dispatch_result["observed_post_entry_recoveries"]) == 3
+    assert not any(c[0] == "cleaning.enable" for c in port.calls)
+    assert executor.stopping.is_set() and port.stop_calls == 1
+
+
+def u_detour_port(binding):
+    """Actual SDK Grid, synthetic tracking only; no ROS/Gazebo or real robot."""
+    port = SoftwarePort(binding)
+    origin = SimpleNamespace(
+        position=SimpleNamespace(x=0.0, y=0.0),
+        orientation=SimpleNamespace(x=0.0, y=0.0, z=0.0, w=1.0),
+    )
+    data = np.zeros((120, 120), int)
+    data[40:71, 40:42] = 100
+    data[40:42, 40:81] = 100
+    data[69:71, 40:81] = 100
+    occupancy = SimpleNamespace(
+        info=SimpleNamespace(width=120, height=120, resolution=0.05, origin=origin),
+        data=data.ravel(),
+    )
+    navigation = SimpleNamespace(
+        metadata=SimpleNamespace(size_x=120, size_y=120, resolution=0.05, origin=origin),
+        data=np.where(data, 254, 0).astype(np.uint8).ravel(),
+    )
+    port.xy = (2.4, 2.75)
+    port.grid = Grid(
+        occupancy,
+        port.xy,
+        clearance=0.20,
+        tracking_margin=0.03,
+        navigation=navigation,
+        local_navigation=navigation,
+        map_from_local=(0.0, 0.0, 0.0),
+    )
+    port.buffer = []
+    port._sample()
+    return port
+
+
+def run_u_detour_case():
+    _, executor, original, action = setup_executor()
+    port = u_detour_port(original.binding)
+    executor.port = port
+    path = [[1.2, 2.75], [1.2, 3.15]]
+    assert port.grid.motion_path_safe(path)
+    assert not port.grid.motion_path_safe([port.xy, path[0]])
+    seen = []
+    original_execute = port.execute
+
+    def execute(capability, arguments, **kwargs):
+        before = np.asarray(port.xy)
+        assert capability != "navigation.follow_path" or port.grid.motion_path_safe(
+            arguments["path_xy"]
+        )
+        result = original_execute(capability, arguments, **kwargs)
+        if capability == "navigation.follow_path" and not port.brush:
+            seen.append({"before": before, "after": np.asarray(port.xy)})
+        return result
+
+    port.execute = execute
+    executor.ledger.next_work = lambda *a, **kw: {"kind": "WORK", "path_xy": path}
+    result = executor(action)
+    return executor, port, action, result, seen, path
+
+
+def test_actual_grid_detour_away_from_final_entry_is_observed_route_progress():
+    executor, port, action, result, seen, path = run_u_detour_case()
+    assert result.final_state is ActionState.COMPLETED, result.errors
+    assert len(seen) >= 4
+    target = np.asarray(path[0])
+    # The old straight-line guard aborts after these first three VERIFIED
+    # safe prefixes, even though they advance along the only route around U.
+    assert all(
+        np.linalg.norm(s["before"] - target) - np.linalg.norm(s["after"] - target) < 0.05
+        for s in seen[:3]
+    )
+    assert any(np.linalg.norm(s["after"] - s["before"]) >= 0.05 for s in seen[:3])
+    assert result.dispatch_result["completed_work"] == 1
+    assert not result.dispatch_result["observed_post_entry_recoveries"]
+    assert not executor.stopping.is_set() and not port.brush
+
+
+def test_map_only_endpoint_success_cannot_be_entry_motion(monkeypatch):
+    _, executor, port, action = setup_executor()
+    original_snapshot = port.snapshot
+
+    def snapshot(**kwargs):
+        s = original_snapshot(**kwargs)
+        shift = np.asarray(s.map_xy) - [2.0, 2.0]
+        return replace(
+            s,
+            odom_xy=(2.0, 2.0),
+            graph_nodes=tuple((i, tuple(np.asarray(point) + shift)) for i, point in s.graph_nodes),
+        )
+
+    port.snapshot = snapshot
+    monkeypatch.setattr(
+        executor.ledger,
+        "next_work",
+        lambda *a, **kw: {"kind": "WORK", "path_xy": [[3.5, 2.0], [3.5, 2.3]]},
+    )
+    result = executor(replace(action, arguments={"maximum_work": 1}))
+    assert result.final_state is ActionState.FAILED
+    assert result.dispatch_result["completed_work"] == 0
+    deferred = result.dispatch_result["observed_post_entry_recoveries"][0]["entry_progress_failure"]
+    assert deferred["reason"] == "three_prefixes_without_observed_motion"
+    assert len(deferred["prefixes"]) == 3
+    assert all(p["observed_odom_translation_m"] == 0 for p in deferred["prefixes"])
+    assert not port.brush and executor.stopping.is_set()
+
+
+def cycle_proposal(grid, actual, target):
+    from rosclaw.connectors.ros.public_coverage.online import TransferProposal
+
+    end = (2.6, 2.0) if actual[0] < 2.3 else (2.0, 2.0)
+    return TransferProposal(
+        (tuple(actual), end), tuple(target), tuple(target), "fixture-cycle", 10.0, 0.0
+    )
+
+
+def test_observed_cycle_defers_one_candidate_and_checks_another_under_same_parent(monkeypatch):
+    from rosclaw.connectors.ros.mission import public_coverage as module
+
+    _, executor, port, action = setup_executor()
+    works = []
+    recorded = []
+
+    def next_work(*a, **kw):
+        works.append(True)
+        return {
+            "kind": "WORK",
+            "path_xy": [[3.5, 2.0], [3.5, 2.3]]
+            if len(works) == 1
+            else [port.xy, (port.xy[0] + 0.3, port.xy[1])],
+        }
+
+    def record(error, stop, parent, deadline):
+        assert parent.action_id == action.action_id and deadline == executor._deadline
+        assert not port.brush and stop["original_native_terminal_known"] is True
+        recorded.append(error)
+        return "fixture-only-no-physical-map.json"
+
+    port.record_work_entry_failure = record
+    monkeypatch.setattr(module, "propose_transfer", cycle_proposal)
+    monkeypatch.setattr(executor.ledger, "next_work", next_work)
+    result = executor(action)
+    assert result.final_state is ActionState.COMPLETED, result.errors
+    assert len(works) == 2 and len(recorded) == 1
+    assert recorded[0].diagnostics["reason"] == "repeated_observed_entry_cycle"
+    assert len(recorded[0].diagnostics["prefixes"]) == 5
+    assert result.dispatch_result["completed_work"] == 1
+    assert not executor.stopping.is_set() and not port.brush
+    detail = result.dispatch_result["observed_post_entry_recoveries"][0]["entry_progress_failure"]
+    assert detail["native_prefixes_dispatched"] is True
+    assert detail["all_original_prefix_results_verified"] is True
+    assert detail["execution_credit"] == "none for deferred candidate"
+
+
+def test_entry_deferrals_consume_original_parent_work_limit(monkeypatch):
+    from rosclaw.connectors.ros.mission import public_coverage as module
+
+    _, executor, port, action = setup_executor()
+    works = []
+
+    def next_work(*a, **kw):
+        works.append(True)
+        return {"kind": "WORK", "path_xy": [[3.5, 2.0], [3.5, 2.3]]}
+
+    monkeypatch.setattr(module, "propose_transfer", cycle_proposal)
+    monkeypatch.setattr(executor.ledger, "next_work", next_work)
+    result = executor(replace(action, arguments={"maximum_work": 3}))
+    assert result.final_state is ActionState.FAILED
+    assert len(works) == 3
+    assert len(result.dispatch_result["observed_post_entry_recoveries"]) == 3
+    assert result.dispatch_result["completed_work"] == 0
+    assert executor.stopping.is_set() and not port.brush
+
+
+def test_unknown_terminal_at_entry_deferral_barrier_does_not_select_more_work(monkeypatch):
+    from rosclaw.connectors.ros.mission import public_coverage as module
+
+    _, executor, port, action = setup_executor()
+    original_execute = port.execute
+    count = 0
+    works = []
+
+    def execute(capability, arguments, **kwargs):
+        nonlocal count
+        if capability == "navigation.follow_path":
+            count += 1
+        if capability == "cleaning.disable" and count >= 5:
+            port.motion_settled = False
+        return original_execute(capability, arguments, **kwargs)
+
+    def next_work(*a, **kw):
+        works.append(True)
+        return {"kind": "WORK", "path_xy": [[3.5, 2.0], [3.5, 2.3]]}
+
+    port.execute = execute
+    monkeypatch.setattr(module, "propose_transfer", cycle_proposal)
+    monkeypatch.setattr(executor.ledger, "next_work", next_work)
+    result = executor(action)
+    assert result.final_state is ActionState.FAILED
+    assert len(works) == 1 and count == 5
+    assert result.verification_result["stop"]["original_native_terminal_known"] is False
+    assert (
+        result.dispatch_result["observed_post_entry_recoveries"][-1]["reason"]
+        == "entry_progress_failure_stopped_without_resume"
+    )
+    assert result.dispatch_result["completed_work"] == 0 and not port.brush

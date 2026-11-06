@@ -132,11 +132,12 @@ class CircleSpace:
             )
             blocked = np.ones(len(indices), dtype=bool)
             blocked[inside] = ~self.free[indices[inside, 1], indices[inside, 0]]
-            centers = self.origin + (indices + 0.5) * self.resolution
+            # Free cells cannot intersect an obstacle. Filter before the
+            # exact closed-square arithmetic; retain outside cells as blocked.
+            # This reads the current mask on every query and caches no verdict.
+            centers = self.origin + (indices[blocked] + 0.5) * self.resolution
             delta = np.maximum(np.abs(centers - points[0]) - self.resolution / 2, 0)
-            result[0] = not np.any(
-                blocked & (np.sum(delta * delta, axis=1) <= self.radius**2 + 1e-14)
-            )
+            result[0] = not np.any(np.sum(delta * delta, axis=1) <= self.radius**2 + 1e-14)
             return result
         for dy in range(-n, n + 1):
             for dx in range(-n, n + 1):
@@ -164,7 +165,16 @@ class CircleSpace:
 
     def safe_segment(self, start, finish):
         start, finish = np.asarray(start, dtype=float), np.asarray(finish, dtype=float)
-        if not self.safe_point(start) or not self.safe_point(finish):
+        if (
+            start.shape != (2,)
+            or finish.shape != (2,)
+            or not np.isfinite(start).all()
+            or not np.isfinite(finish).all()
+        ):
+            return False
+        relative = np.asarray([start, finish]) - self.origin
+        extent = np.asarray(self.free.shape[::-1]) * self.resolution
+        if not ((relative > self.radius) & (relative < extent - self.radius)).all():
             return False
         # Enumerate closed cells on both sides of a bounding grid line. A
         # lower cell whose upper edge is tangent must not disappear from the
@@ -186,6 +196,20 @@ class CircleSpace:
             + 2,
         )
         cells = np.argwhere(~self.free[lower[1] : upper[1], lower[0] : upper[0]])
+        # A free bounding rectangle contains the entire swept capsule.
+        # Certify exterior clearance separately, away from all rounding
+        # and contact boundaries. Border/large-coordinate cases retain
+        # the original exact endpoint predicates below. No map is cached.
+        if (
+            not len(cells)
+            and self.resolution >= 0.001
+            and np.max(np.abs(np.asarray([self.origin, start, finish]))) <= 10000
+            and (relative > reach + 1e-9).all()
+            and (relative < extent - reach - 1e-9).all()
+        ):
+            return True
+        if not self.safe_point(start) or not self.safe_point(finish):
+            return False
         if not len(cells):
             return True
         low = self.origin + (cells[:, ::-1] + lower) * self.resolution

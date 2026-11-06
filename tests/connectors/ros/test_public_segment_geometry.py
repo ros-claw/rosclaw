@@ -102,3 +102,31 @@ def test_full_blocked_cell_oracle_across_scales_translations_and_directions():
             assert space.safe_segment(start, finish) == expected
             assert space.safe_segment(finish, start) == expected
     assert saw_safe and saw_blocked
+
+
+@pytest.mark.parametrize("radius", [0.0, 0.20, 0.23])
+def test_free_window_certificate_does_not_survive_obstacle_mutation(radius):
+    free = np.ones((64, 64), bool)
+    space = CircleSpace(free, 0.05, [0, 0], radius)
+    start, finish = np.array([0.5, 1.525]), np.array([2.5, 1.525])
+    assert space.safe_segment(start, finish)
+    free[30, 30] = False
+    assert space.safe_point(start) and space.safe_point(finish)
+    assert not space.safe_segment(start, finish)
+
+
+@pytest.mark.parametrize("radius", [0.0, 0.20, 0.23])
+@pytest.mark.parametrize("gap", [0.0, 1e-15, 1e-8, 1e-5])
+def test_free_window_keeps_closed_exterior_contact_tolerance(radius, gap):
+    space = CircleSpace(np.ones((64, 64), bool), 0.05, [0, 0], radius)
+    start, finish = [radius + gap, 0.8], [radius + gap, 2.0]
+    expected = space.safe_point(start) and space.safe_point(finish)
+    assert space.safe_segment(start, finish) == expected
+    assert space.safe_segment(start, start) == expected
+
+
+@pytest.mark.parametrize("invalid", [[np.nan, 1], [np.inf, 1], [1e300, 1], [1], []])
+def test_segment_rejects_malformed_nonfinite_and_extreme_endpoints(invalid):
+    space = CircleSpace(np.ones((64, 64), bool), 0.05, [0, 0], 0.20)
+    assert not space.safe_segment(invalid, [1, 1])
+    assert not space.safe_segment([1, 1], invalid)

@@ -244,6 +244,9 @@ class DaemonControlPlane:
                 "emergency_stop_latched": bool(
                     getattr(self.runtime, "emergency_stop_latched", False)
                 ),
+                "emergency_stop_generation": getattr(
+                    self.runtime, "emergency_stop_generation", None
+                ),
                 "drivers": driver_names,
                 "registered_executors": executors,
                 "robot_pack": getattr(self.runtime, "robot_pack_status", None),

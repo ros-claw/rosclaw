@@ -65,13 +65,18 @@ def boundary_strokes(grid, service=None, simplify_tolerance=0.005, turn_limit=0.
             center = grid.xy(cell)
             edgepoint = grid.origin + (np.asarray(a) + b) * grid.resolution / 2
             low, high = 0.0, 1.0
-            for _ in range(9):
-                fraction = (low + high) / 2
-                candidate = center + fraction * (edgepoint - center)
-                if grid.safe_segment(center, candidate):
-                    low = fraction
-                else:
-                    high = fraction
+            if grid.safe_segment(center, edgepoint):
+                # Every shorter capsule is a subset of this exact swept disk.
+                # Retain the original nine-step search's endpoint, not 1.0.
+                low = 1.0 - 2.0**-9
+            else:
+                for _ in range(9):
+                    fraction = (low + high) / 2
+                    candidate = center + fraction * (edgepoint - center)
+                    if grid.safe_segment(center, candidate):
+                        low = fraction
+                    else:
+                        high = fraction
             loop.append((center + low * (edgepoint - center), center))
             candidates = outgoing.get(b, set())
             if not candidates:

@@ -10,12 +10,12 @@ from rosclaw.connectors.ros.context.navigation_readiness import (
 )
 from rosclaw.contracts.common import content_hash
 from tests.connectors.ros.test_navigation_body_workspace import NOW
-from tests.connectors.ros.test_navigation_readiness import setup
+from tests.connectors.ros.test_navigation_readiness import navigation_fixture
 from tests.connectors.ros.test_sim_source_binding import pack
 
 
 def prepared(tmp_path):
-    parts, policy = setup(tmp_path)
+    parts, policy = navigation_fixture(tmp_path)
     root, original, _ = pack(parts)
     request = {
         "schema_version": "rosclaw.current_sim_navigation_health_request.v1",
